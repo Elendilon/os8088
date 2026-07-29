@@ -12,7 +12,7 @@ via the PIT timer interrupt, switchable at run time to cooperative from the
 Control Panel (§8.2/§31). Serial Microsoft mouse on COM1. Boots from floppy
 straight into the GUI: gray dithered desktop, menu bar with pull-down menus,
 draggable overlapping windows with title bars and close boxes. Built-in apps:
-About dialog, Note Pad (typing), Clock and Bounce (each running as its own
+About dialog, Clock and Bounce (each running as its own
 pre-empted background task, updating live while the user types or drags).
 
 ## 1. Hard rules (apply to every module)
@@ -53,7 +53,10 @@ pre-empted background task, updating live while the user types or drags).
 7. Every gfx routine clips to the screen (0..639, 0..479) and leaves the VGA
    Graphics Controller in the default state on return: Set/Reset enable = 0,
    Bit Mask = FF, Function = replace, Data Rotate = 0, Map Mask = 0Fh,
-   Read Map = 0, write mode 0 / read mode 0.
+   Read Map = 0, write mode 0 / read mode 0. When double buffering is
+   active (§32) the drawing routines render into the back buffer and touch
+   no VGA register at all; only `gfx_flush` (Sequencer Map Mask) and the
+   cursor path program the hardware, and both restore the same defaults.
 
 ## 2. Memory map
 
@@ -65,12 +68,16 @@ pre-empted background task, updating live while the user types or drags).
 | 0x1A000       | 0x1000  | `APP_LOAD_OFF` — package pool, 20KB: multi-instance, sector-granular first-fit (§20/§21) |
 | 0x1F000       | 0x1000  | free gap; boot/task-0 stack grows down from 0xFFFE |
 | 0x20000       | 0x2000  | `SAVE_SEG` — save-under heap (menus), raw, via ES  |
+| 0x40000       | 0x4000  | `BB_SEG` — double-buffer back buffer, 4 planes × 0x9600 bytes (§32); touched only while the Control Panel's Display page has it switched on, which needs conventional RAM ≥ `DB_MIN_KB` |
 | 0xA0000       | 0xA000  | VGA planar framebuffer, 80 bytes/row               |
 
 Kernel image + .bss must fit below offset **0xA000** (task stacks included);
 `kernel.asm` ends with a build-time assertion (§15). Loaded programs occupy
 kernel-segment offsets 0xA000..0xEFFF so they share the tiny model: their
-paint/key/click procs are ordinary near pointers. Works in 256KB of RAM.
+paint/key/click procs are ordinary near pointers. Works in 256KB of RAM:
+the back buffer is the only thing above 0x40000, and a machine that fails
+the §32 RAM probe never touches it — everything below 0x40000 is identical
+in both modes.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
@@ -91,6 +98,10 @@ CDGRAY  equ 8
 ; loadable programs (§20)
 APP_LOAD_OFF equ 0xA000      ; where packages load (kernel segment offset)
 APP_MAX_SIZE equ 0x5000      ; image + bss budget, 0xA000..0xEFFF
+; double buffering (§32)
+BB_SEG        equ 0x4000     ; back buffer base segment (plane 0)
+BB_PLANE_PARA equ 0x960      ; paragraphs per plane (0x9600 bytes = 480 rows × 80)
+DB_MIN_KB     equ 500        ; int 12h floor: double-buffer only at ≥ 500KB
 ```
 
 ## 4. Module files and ownership
@@ -100,6 +111,7 @@ APP_MAX_SIZE equ 0x5000      ; image + bss budget, 0xA000..0xEFFF
 | `kernel/kernel.asm` | entry, constants, init order, includes, .bss layout, **os8088 API jump table at 0x0010** (§20.3) + osapi helper routines, **boot splash entry at 0x0008** (§15) |
 | `kernel/splash.inc` | boot-time loading screen (§15): mode 12h welcome dialog, pixel progress bar, spinning vector "8088"; far-ticked by the boot sector per sector read; self-contained, no .bss |
 | `kernel/vga12.inc`  | mode set, planar primitives, save/restore, gfx lock     |
+| `kernel/vgabb.inc`  | double buffering (§32): RAM probe, back buffer, software planar primitives, dirty rect, `gfx_flush` |
 | `kernel/font.inc`   | 8x8 font (copied from VGA BIOS ROM at init), text draw  |
 | `kernel/mouse.inc`  | COM1 UART, IRQ4 ISR, packet decode, cursor (save-under) |
 | `kernel/sched.inc`  | PIT hook, context switch, task table, spawn/yield/sleep |
@@ -108,7 +120,7 @@ APP_MAX_SIZE equ 0x5000      ; image + bss budget, 0xA000..0xEFFF
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/menu.inc`   | menu bar, pull-down tracking, command return            |
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
-| `kernel/apps.inc`   | built-in app kinds: About, Note Pad, Clock, Bounce — state pools, kinit procs, per-instance tasks |
+| `kernel/apps.inc`   | built-in app kinds: About, Clock, Bounce — state pools, kinit procs, per-instance tasks |
 | `kernel/disk.inc`   | BIOS int 13h floppy reads, os88fs mount + directory (§18–19) |
 | `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21) |
 | `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22) |
@@ -154,11 +166,23 @@ still behave sanely — draw nothing — if the clipped rect is empty).
 | `gfx_save`      | AX=x1, BX=y1, CX=x2, DX=y2, ES:DI=buf| copy region to buffer; x1 is rounded **down** to a byte boundary and x2 **up** internally. Buffer layout: plane 0 rows, plane 1 rows, plane 2, plane 3. Returns DI advanced past data. |
 | `gfx_restore`   | AX=x1, BX=y1, CX=x2, DX=y2, ES:SI=buf| write region back (same rounding/layout). Returns SI advanced. |
 | `gfx_lock`      | —                                    | acquire drawing mutex + hide cursor (§7) |
-| `gfx_unlock`    | —                                    | show cursor + release mutex           |
+| `gfx_unlock`    | —                                    | flush the back buffer (§32), show cursor, release mutex |
+| `gfx_flush`     | —                                    | copy the dirty back-buffer rect to VRAM; no-op when double buffering is off or nothing is dirty (§32) |
 
 Save/restore for a W-px-wide, H-px-tall rect uses
 `bytes = ((x2/8) - (x1/8) + 1) * H * 4`; provide `gfx_save_size`
 (same rect regs in, AX = byte count out) so callers can budget buffers.
+
+**Double-buffer dispatch (§32).** Every public drawing entry above
+(`gfx_pixel` … `gfx_restore`) starts with a `[bb_on]` test and branches to
+its `bb_*` twin in vgabb.inc when double buffering is active; contracts,
+clipping and buffer layouts are identical in both paths. Four VRAM bodies
+remain reachable under their own names, for callers that must not touch the
+back buffer: `vga_save_vram`/`vga_restore_vram` (the mouse cursor's
+save-under, §9) and `vga_xor_rect_vram`/`vga_xor_fill_vram` (the drag
+outline and the menu highlights, §12/§13). All four are transient overlays —
+drawn and erased within one held lock — so they live in VRAM only, never in
+the back buffer (§32).
 
 ## 6. font.inc
 
@@ -175,13 +199,19 @@ kernel buffer. No font bytes are hard-coded.
 
 Characters outside 32..126 draw as space. Glyph rows may straddle two VRAM
 bytes; use Set/Reset + Bit Mask with the glyph row shifted across a 16-bit
-window.
+window. Under double buffering (§32) `font_char` branches after clipping to
+a software renderer that applies the same shifted row masks to all four
+back-buffer planes (or/and-not per the `[gfx_color]` plane bit).
 
 ## 7. Concurrency model (read carefully — this is the crux)
 
 - **gfx lock**: byte `gfx_lock_flag` in vga12.inc. `gfx_lock`:
   `cli`; if flag set → `sti`, `call task_yield`, retry; else set flag, `sti`,
-  then `call cursor_hide`. `gfx_unlock`: `call cursor_show`, then clear flag.
+  then `call cursor_hide`. `gfx_unlock`: `call gfx_flush` (§32 — pushes the
+  dirty back-buffer rect to VRAM while the cursor is still hidden; a no-op
+  without double buffering), then `call cursor_show`, then clear flag. That
+  order is binding: the flush must complete before the cursor may reappear,
+  and the cursor's save-under must be taken from the freshly flushed VRAM.
   Every task-level drawing burst is wrapped in gfx_lock/gfx_unlock.
 - **Cursor vs ISR**: the mouse ISR never draws while `gfx_lock_flag` is set
   **or while `cur_level` < 0** (cursor refcount-hidden — the save-under
@@ -320,7 +350,7 @@ window.
 - **Charging a stretch of work to something other than a task.** Window
   callbacks run on whichever task drives the repaint or the event — nearly
   always the UI task, which owns no instance — so a task-granular counter
-  alone would report every task-less app (About, Note Pad, Disk, and every
+  alone would report every task-less app (About, Disk, and every
   loaded package, which cannot spawn at all, §20.2) at 0% forever. Two
   public routines bracket such a stretch; both preserve every register
   except their outputs, are callable at any IF, and must sit **outside**
@@ -478,7 +508,11 @@ makes the machine slow, and the Task Manager keeps updating.
   1px white outline. Two 16-row × 16-bit tables: `cur_and` (white outline
   mask) and `cur_data` (black body). Draw: white pass = Set/Reset white,
   Bit Mask = mask row bits; black pass likewise. Save-under buffer in .bss:
-  3 bytes wide × 16 rows × 4 planes = 192 bytes.
+  3 bytes wide × 16 rows × 4 planes = 192 bytes. The cursor is **always
+  VRAM-direct**, double buffering or not: save/restore go through
+  `vga_save_vram`/`vga_restore_vram` (§5, §32), never the dispatching
+  `gfx_save`/`gfx_restore` — the back buffer must never contain cursor
+  pixels, and the ISR must never touch the back buffer.
 - `cursor_hide` / `cursor_show`: refcounted (`cur_level`, hidden when < 0
   like classic HideCursor/ShowCursor; init state hidden). Must be callable
   with interrupts on; guard their critical sections with cli/sti so the ISR
@@ -615,7 +649,7 @@ CMD_REBOOT equ 9   ; --- Special ---
 Menus: **System** (logo): "About os8088..." (CMD_ABOUT), "Control Panel"
 (CMD_CTRL, string `menu_s_ctrl`, §31), "Task Manager" (CMD_TASKS,
 string `menu_s_tasks`, §28) — System's item count in `menu_table` is 3.
-**File**: "Note Pad" (CMD_NOTE), "Clock" (CMD_CLOCK), "Bounce"
+**File**: "Clock" (CMD_CLOCK), "Bounce"
 (CMD_BOUNCE), "Disk" (CMD_FILES), "Close Window" (CMD_CLOSE).
 **Special**: "Restart" (CMD_REBOOT) — one item. Menu bases:
 System = CMD_ABOUT, File = CMD_NOTE, Special = CMD_REBOOT.
@@ -641,6 +675,16 @@ count only feeds the rect height, the item loop and `menu_hover`'s bound.
 them fresh; cursor stays hidden during tracking since the gfx lock is held —
 acceptable, tracking feedback is the highlight).
 
+Because the whole interaction runs under one gfx_lock, `menu_track` calls
+`gfx_flush` (§32) once, after the pull-down + items are drawn — that is real
+back-buffer content and would otherwise stay invisible while the button is
+held. The two highlights are not: `menu_title_xor` and `menu_item_xor` go
+through `vga_xor_fill_vram` (§5), straight to VRAM, so tracking neither
+dirties the back buffer nor flushes — the poll loop does no drawing work at
+all beyond the XOR itself. The final save-under restore + title un-highlight
+need no flush of their own — the caller's gfx_unlock flushes them (§13
+step 2), and that flush is what clears the last item highlight from VRAM.
+
 ## 13. ui.inc — the UI task (task 0)
 
 Loop forever:
@@ -660,7 +704,11 @@ Loop forever:
      gfx_lock, `inst_minimize` BX (§29 — sets the instance's minimized
      flag and hides; the dock tile inverts), gfx_unlock. Title bar → if
      not front, `wm_front`; then run
-     the **drag loop**: gfx_lock; xor-draw the outline at the window rect;
+     the **drag loop**: gfx_lock; xor-draw the outline at the window rect
+     (via `vga_xor_rect_vram`, §5/§32 — the outline is a transient overlay
+     that never enters the back buffer, so no flush is involved anywhere in
+     this loop; it is always xor-erased before the lock drops, which is what
+     keeps VRAM equal to the back buffer for every other drawer);
      while `mouse_btn` bit0 set: xor-erase the outline, gfx_unlock,
      `task_yield` (background tasks stay live here), gfx_lock, xor-draw the
      outline at rect offset by (mouse - start) — every iteration, even if
@@ -715,7 +763,7 @@ All wm_* calls that repaint are made under gfx_lock by the UI task.
 
 ## 14. apps.inc
 
-The built-in app **kinds**: About, Note Pad, Clock, Bounce. Nothing is
+The built-in app **kinds**: About, Clock, Bounce. Nothing is
 created at boot (there is no `apps_init`) — every instance is launched on
 demand through `app_launch` (§29), which allocates an instance record and
 a per-instance state block from the kind's pool, creates the window from
@@ -724,11 +772,10 @@ stack), runs the kind's init proc, and spawns the kind's task if it has
 one. Closing an instance frees all of it.
 
 Per-instance state pools (.bss; slot stride and cap pinned in the §29
-kind table): `app_note_pool` 2 × 514 (NOTE_LEN word at +0, NOTE_BUF 512
-bytes at +2), `app_clk_pool` 10 × 8 (CLK_H/M/S bytes at +0/+1/+2, pad,
+kind table): `app_clk_pool` 10 × 8 (CLK_H/M/S bytes at +0/+1/+2, pad,
 CLK_LAST word at +4, CLK_ACC word at +6), `app_ball_pool` 10 × 8
 (BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
-§29): `app_note_kinit` (len = 0), `app_clock_kinit` (h/m/s = 0, last =
+§29): `app_clock_kinit` (h/m/s = 0, last =
 [ticks], acc = 0), `app_bounce_kinit` (x=4, y=4, vx=3, vy=2).
 
 Paint/onkey procs receive SI = window ptr (§11) and find their state via
@@ -745,16 +792,6 @@ the gfx lock) may stay shared. Kind behavior:
   "cooperative" are both exactly 11 characters, so the line's pixel width
   and its centered x are identical in both modes and the existing centering
   math is unchanged. No onkey. Singleton (cap 1).
-- **Note Pad** — 260×180 at (60,60), title "Note Pad". Cap 2. Paint:
-  render the instance's buffer, 8px chars, line wrap at content width,
-  6px left/top margin, then a 1px black caret. Vertical clip: stop before
-  emitting any text row whose bottom (content top + 6 + 8*row + 7) would
-  exceed the content bottom (W_Y + W_H - 2); overflow lines are discarded,
-  not drawn (no scrolling), and if the caret's row does not fit, the caret
-  is not drawn. Onkey: printable ASCII appends (buffer full = beep-less
-  drop), backspace (ASCII 8) deletes, Enter (13) newline. After editing,
-  the handler repaints **its own content only** (white-fill content, redraw
-  text) — caller already holds the lock.
 - **Clock** — 130×60 at (350,60), title "Clock". Cap 10 (the template
   position keeps the whole +16·9 cascade on-screen and above the dock).
   Per-instance
@@ -819,7 +856,9 @@ spin step of the vector "8088" (cosine-scaled about its vertical axis,
 angle index = AX mod 16). kmain's own `vga_mode12` then wipes the splash.
 
 kmain: set segments/stack (SP=0xFFFE), `sti`, `cld`, then:
-`sched_init` → `evq_init` → `vga_mode12` → `font_init` → `wm_init` →
+`sched_init` → `evq_init` → `vga_mode12` → `bb_init` (§32 — the RAM probe
+must run after the mode set, which clears VRAM, and before the first
+drawing call) → `font_init` → `wm_init` →
 `inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
 `tm_init` → gfx_lock → `wm_paint_all` → gfx_unlock → `cursor_show` → jump
 into `ui_task` (task 0 never returns). (`dock_init` runs right after
@@ -876,7 +915,8 @@ loaded-program region, §20.)
    cursor — no windows, nothing running. The scheduler boots
    **pre-emptive** (§8.2).
 3. Apps launch from the menus as closable instances — two Clocks tick
-   independently, and they keep ticking **while** typing in Note Pad and
+   independently, and they keep ticking **while** typing in the Note Pad
+   package and
    while a drag outline is being moved (pre-emption visibly working).
 4. Mouse moves cursor; windows drag by title bar; clicking a back window
    raises it; the close box **quits** its instance (window, task and
@@ -900,7 +940,7 @@ loaded-program region, §20.)
     a RAM readout, and the per-instance process list with each row's CPU
     share and memory — all updating twice a second while launched Clocks
     and Bounces keep running, rows appearing and freeing as instances
-    launch and quit. **Task-less apps are listed too**: About, Note Pad,
+    launch and quit. **Task-less apps are listed too**: About,
     Disk and every loaded package show state `evt`, their own region size
     under MEM (`-` for built-ins, which own no region), and a CPU share
     that rises with the work their window callbacks actually do — a
@@ -1223,7 +1263,7 @@ Behaviour:
   row == fm_sel and [ui_click_t]−fm_clkt < 9 (birth ticks, §10) → double-click: set [ld_pending]
   = row+1 (ui.inc runs the loader after the lock drops), repaint content
   (shows "Loading..."). Else select row, stamp fm_clkt, repaint content.
-  Repaint = white-fill own content + redraw (like Note Pad's onkey; the
+  Repaint = white-fill own content + redraw (like the Note Pad package's onkey; the
   caller already holds the lock).
 - `W_ONKEY` (lock held): 'a'/'A' → drive 0, 'b'/'B' → drive 1, 'r'/'R' →
   same drive; all three: `disk_mount`, update fm_mountok, clear selection,
@@ -1340,6 +1380,12 @@ db height        ; rows
 Bitmaps are hand-authored `dw` rows (like the menu-bar logo, the one
 sanctioned place for hand-made bitmap data — icons are the second).
 
+Under double buffering (§32) `ico_core` branches after its clip/shift
+setup to a software pass pair: the white underlay ORs the shifted mask-row
+bits into all four back-buffer planes, the black pass AND-NOTs the data-row
+bits out of them — same 3-byte window, same edge clipping as the VRAM
+passes.
+
 ## 26. desk.inc — desktop drive icons
 
 State: `desk_ndrives` (byte), `desk_sel` (byte, 0xFF = none),
@@ -1361,13 +1407,37 @@ Selection is purely visual bookkeeping; a window covering an icon simply
 paints over it (desk_paint runs before windows in wm_paint_all), and
 clicks over windows never reach desk_click.
 
-## 27. HELLO — the second package (apps/hello/hello.asm)
+## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:
 `OS88_HEADER 'HELLO', entry` (no icon flag — the Disk window must show
 `ico_app16` for it), one window "Hello" 240×90 at (200,150), paint =
 two centered lines: "Hello from a" / ".o88 package!", no onkey, no
 onclick, no bss. Entry: wm_create, return BX/CF. Prefix `hl_`.
+
+**NOTEPAD** (`apps/notepad/notepad.asm`, prefix `np_`) is the former
+built-in Note Pad kind, moved out of the kernel to reclaim the 1,383 bytes
+it cost there — 281 of code and 1,036 of .bss, nearly all of the latter a
+fixed two-instance text pool. Behaviour is unchanged from §14: one window
+"Note Pad" 260×180 at (60,60); paint renders the buffer at 8px per char
+with a 6px left/top margin, wrapping at the content width, dropping any row
+whose bottom would pass the content bottom (no scrolling) and drawing a 1px
+caret only when its own row fits; onkey appends printable 32..126, deletes
+on backspace, stores 13 on Enter, then white-fills and redraws **its own
+content only**. No icon flag, so the Disk window shows `ico_app16`.
+
+Two things got simpler in the move. The built-in reached its state through
+`inst_of_win` → `I_SPTR` because every instance shared one pool; a package
+addresses its own bss directly (`np_len` word + `np_buf` 512 bytes + three
+paint scratch words = `NP_BSS_TOTAL` 520). And the cap is gone: the pool
+that fixed it at 2 no longer exists, so instances are bounded only by the
+region pool and the instance table like any other package.
+
+Removing the kind renumbered two pinned sets — `KIND_CLOCK`..`KIND_CTRL`
+down by one (§29) and `CMD_CLOCK`..`CMD_REBOOT` down by one (§12), the File
+menu losing its first item and re-basing on `CMD_CLOCK`. Directory order on
+the apps disk stays mines, hello, notepad: the first two keep their indices
+so existing tests are unaffected.
 
 ## 28. taskmgr.inc — the Task Manager window
 
@@ -1403,7 +1473,7 @@ reads 0. The spin phase doubles as the system idle soak; its cycle share
 appears honestly in the list as TaskMgr.
 
 **The list is an INSTANCE list, not a task list.** A task list shows only
-the kinds that own a task; every task-less app — About, Note Pad, Disk,
+the kinds that own a task; every task-less app — About, Disk,
 and every loaded package, which cannot spawn at all (§20.2/§21) — runs
 purely inside window callbacks on the UI task and would never appear.
 Rows are therefore `TM_ROWS = INST_MAX + 1`: row 0 is **System** (the
@@ -1447,10 +1517,14 @@ account, and the rows partition one total.
   because their region is still resident. The loader keeps ΣI_SIZE ≤
   APP_MAX_SIZE, so the 16-bit sum cannot overflow. used bytes =
   `kernel_bss_end` (bare label = the kernel text+bss footprint, org 0) +
-  that sum. usedK = (used+1023) >> 10. Total KB is the boot-time int 12h
-  value. **All bar math is in KB**: barw = usedK·160/totalK (`mul` then
-  `div`; totalK cannot be 0 from int 12h, but a 0 check that skips the
-  bar is required anyway).
+  that sum. usedK = (used+1023) >> 10, **plus 150 when `[bb_on]` is set**
+  (§32: the 4 × 0x9600-byte back buffer is exactly 150KB — added after the
+  shift because 153600 does not fit a 16-bit byte count). The System row's
+  memory cell adds the same 150K (via `tm_memcol_kb`, the KB-input tail of
+  `tm_memcol`), so the rows still sum to the bar. Total KB is the
+  boot-time int 12h value. **All bar math is in KB**: barw =
+  usedK·160/totalK (`mul` then `div`; totalK cannot be 0 from int 12h,
+  but a 0 check that skips the bar is required anyway).
 - History: load% scaled to 0..40 (·40 then /100), stored at
   `tm_hist[tm_pos]`. The ring index IS the graph column — an oscilloscope
   sweep, no scrolling — then tm_pos advances mod 160.
@@ -1547,7 +1621,6 @@ I_CYC    equ 28   ; dword (lo word first): PIT cycles billed to this
 I_RECSZ  equ 32
 
 KIND_ABOUT   equ 0
-KIND_NOTE    equ 1
 KIND_CLOCK   equ 2
 KIND_BOUNCE  equ 3
 KIND_FILES   equ 4
@@ -1594,7 +1667,7 @@ held, window not yet visible), `KD_NAME` (word, NUL name string),
 `KD_ICON` (word, 16x16 icon body ptr or 0), `KD_CAP` (byte, max
 simultaneous instances), 1 pad byte.
 
-Pinned caps: About 1 (stateless), Note Pad 2 (stride 514), Clock 10
+Pinned caps: About 1 (stateless), Clock 10
 (stride 8), Bounce 10 (stride 8), Files 1 (module-global mount state),
 TaskMgr 1 (one sampler), Control Panel 1 (no per-instance state, §31). The
 per-kind caps deliberately over-subscribe INST_MAX now that Clock and
@@ -1883,3 +1956,190 @@ places that show the mode read it live: the About box's third line (§14),
 repainted within the same UI pass by the `cp_dirty` repaint above, and the
 Task Manager's SCHED field (§28), rewritten at its next sample (≤ 9 ticks)
 and by that repaint.
+
+### 31.3 Display page — double buffering
+
+Second item in the panel list, same two-row radio geometry as §31.2 (it
+shares `cp_glyph` and the `CP_B*Y` hit bands). Heading "Display"; row 0
+"Direct to screen", row 1 "Double buffered"; the filled glyph follows
+`[bb_on]`, which is **0 at boot** — double buffering is opt-in.
+
+Caption: "Smoother; costs 150K" normally, or "Needs 500K of memory" when
+`[bb_avail]` = 0. On such a machine the page is display-only: a click in
+either band is ignored outright rather than moving a dot that `bb_set`
+would refuse to honour.
+
+`cp_disp_click` mirrors `cp_sched_click` — signed comparisons, x ignored,
+a hit on the live row does nothing — and calls `bb_set` (§32), which
+requires the gfx lock the click handler already holds. It then redraws just
+the two glyphs. No `[cp_dirty]`: unlike the scheduler mode, no window quotes
+this setting, and the switch is invisible except as speed.
+
+## 32. vgabb.inc — optional double buffering
+
+**Why it exists.** The original design drew straight into VRAM because
+256KB of RAM leaves no room for a 640×480×4-plane shadow (150KB). Machines
+with more memory can afford one, and get flicker-free updates: everything
+drawn inside one gfx_lock/gfx_unlock burst appears on screen at once.
+Module prefix `bb_`; file included right after `vga12.inc`.
+
+**Probe — `bb_init`** (from kmain, right after `vga_mode12`; task 0, so the
+§7 BIOS rule holds): int 12h → AX = conventional KB. If AX ≥ `DB_MIN_KB`
+(500) it sets `[bb_avail]` = 1, and that is all it does — it neither arms
+the buffer nor touches the planes.
+
+**Double buffering is OFF at boot and switched at runtime.** `[bb_on]`
+starts 0, so a fresh boot runs exactly the pre-§32 direct-VRAM code and
+**nothing else in this section applies** until the user turns it on from
+the Control Panel's Display page (§31.3), which calls `bb_set`. `[bb_avail]`
+gates that: below the floor `[bb_on]` can never become 1, and the page says
+why instead of offering a switch that would refuse. Both bytes are
+initialized data (`db`, next to `gfx_lock_flag`), **not** .bss — nothing
+zeroes .bss at boot.
+
+**Switching — `bb_set`** (AL = 0 off / 1 on; caller HOLDS the gfx lock).
+Turning ON calls `bb_sync` first: per plane, Graphics Controller Read Map
+Select (GC4) = that plane, then a straight 0x9600-byte copy from `VGA_SEG`
+to the plane segment at identical offsets, leaving GC4 back at its default
+(§1 rule 7). Seeding is not optional — the buffer has never been written
+while disabled, and after a disable it is arbitrarily stale, so the first
+flush would otherwise push dead pixels over live ones. The cursor must be
+hidden for it (it is — the lock is held), or it would be captured into the
+buffer and smeared by that same flush. `bb_set` then resets the dirty rect
+and publishes `[bb_on]` = 1 **last**, since every drawing entry dispatches
+on it. Turning OFF calls `gfx_flush` first, so nothing drawn under the old
+mode is stranded in RAM, then clears `[bb_on]`. Both directions no-op when
+already in that state, so a repeated click cannot re-copy 150KB.
+
+Note the EBDA caveat: a BIOS that steals
+top-of-memory (SeaBIOS's 640K → 639) still passes, and so does a real 512K
+machine once its BIOS has taken a cut — which is why the floor is 500 and not
+512. The gate is deliberately the reported value.
+
+**Back buffer layout.** Plane p lives at segment `BB_SEG + p*BB_PLANE_PARA`
+(0x4000, 0x4960, 0x52C0, 0x5C20 — 0x960 paragraphs = 0x9600 bytes apart),
+offsets 0..0x95FF, 80-byte rows — byte-for-byte the same geometry
+as one VRAM plane, so `vga_rect_setup`'s offsets work unchanged in both
+worlds. Linear span 0x40000..0x657FF: untouchable on a 256KB machine,
+and 406KB of address space in all, so it clears the 500KB floor with room.
+
+**Rendering.** RAM has no latches, no Set/Reset, no write modes — the
+`bb_*` twins do in software, per plane, what the VGA ALU did in hardware:
+
+- solid ops (`bb_pixel/hline/vline/fill`): plane byte value from
+  `[gfx_color]`'s plane bit — set bits with `or dest, mask`, clear with
+  `and dest, ~mask`; interiors of fills are `rep stosw` of 0xFFFF/0x0000.
+- `bb_fill_gray`: per row `and dest, ~mask` + `or dest, pat&mask` at the
+  edges, `rep stosw` pattern in the interior; 0xAA/0x55 alternating by row
+  parity, identical in all four planes (color 15/0 per pixel bit).
+
+Interiors go by word, not byte: the pattern is uniform across a row in both
+solid and dither modes, so AL=AH and one `rep stosw` (plus a `stosb` tail on
+an odd width, selected by the `shr cx, 1` carry that the string op leaves
+alone) replaces two `stosb`. Free on an 8088's 8-bit bus, half the bus
+cycles on any 16-bit part.
+- XOR ops (`bb_xor_rect/xor_fill` internals): `xor dest, mask` at edges,
+  `not dest` for full interior bytes, all four planes — self-inverting
+  exactly like the hardware XOR path.
+- `bb_save`/`bb_restore`: plain rect copies between the planes and the
+  caller's buffer, same layout and rounding as `gfx_save`/`gfx_restore`
+  (§5) — `gfx_save_size` budgets are valid for both paths.
+- `font_char` (§6) and `ico_core` (§25) branch after their clip/shift
+  setup to plane-loop twins using the same shifted masks.
+
+All bb_* routines run with the gfx lock held (they share vga12's rect
+scratch and the dirty rect) and preserve registers per §1 rule 3. They
+touch no VGA register (§1 rule 7).
+
+**Dirty rect.** Words `bb_dx1/bb_dx2` (byte columns, x/8) and
+`bb_dy1/bb_dy2` (rows), a single bounding box unioned by every bb_* draw
+after clipping; empty is encoded as dx1 > dx2 (reset: 0x7FFF/0/0x7FFF/0).
+Byte-column granularity is deliberate — the flush copies whole bytes
+anyway, and it spares the union any pixel↔byte conversions.
+
+**Flush — `gfx_flush`.** Public, callable only with the gfx lock held
+(cursor hidden). No-op when `[bb_on]` = 0 (single `cmp`/`je`) or the rect
+is empty. Otherwise: for each plane, Sequencer Map Mask (SEQ2) = that
+plane's bit, copy the dirty rows (`rep movsw` + odd-byte tail) from the
+plane segment to `VGA_SEG` at the same offsets, then Map Mask back to 0Fh
+and reset the dirty rect. GC state is untouched (defaults hold outside the
+primitives). Interrupts stay enabled — the tick may switch tasks mid-flush,
+but any drawer blocks on the gfx lock and the mouse ISR defers the cursor
+while the lock is held, so nobody else touches VRAM or the Map Mask.
+
+**The monochrome fast path — `[bb_mono]`.** The flush is the expensive half
+of double buffering: back-buffer rendering is plain RAM, but the flush is
+four passes of VRAM writes, and VRAM is the slow side on every target
+(measured on QEMU: a full-screen 4-plane flush costs ~3.7× a one-plane one
+and ~24× the RAM-side render of the same area).
+
+`bb_mono` (initialized data, `db 1`, same reason as `bb_on`) records whether
+all four planes hold identical bytes. That is true at boot — `bb_init` zeroes
+them — and stays true for every pixel drawn in colour 0 or 15, which is the
+entire System 1 UI: its greys are 0/15 dither, not a grey plane value. While
+it holds, the flush sets Map Mask = **0Fh** and copies plane 0 *once*; the
+Sequencer fans that byte out to all four planes. A quarter of the VRAM
+writes, and — because the four planes now land in the same write — a pixel is
+never briefly the wrong colour, which is what the plane-sequential copy could
+otherwise show mid-flush on a large rect.
+
+The single loop falls out of the existing one: `[bb_plane]` starts at 0Fh
+instead of 1, and the `shl` + `test 0x10` that ends the four-plane loop trips
+on the first iteration (0Fh << 1 = 1Eh).
+
+`bb_mono_chk` retires the flag when `[gfx_color]` is neither 0 nor 15. It is
+called from exactly two places — `gfx_fill` and `font_char` — because those
+are the only paths a third colour can reach the screen by: gray dithers 0/15, XOR flips every plane alike, icons are
+white-under/black-over, and save/restore only moves plane bytes that were
+already there. Retirement is one-way and needs no repair pass: all four
+planes are always fully rendered, so the flush simply reverts to four passes.
+A Minesweeper digit (§20) is what trips it in practice.
+
+Both call sites sit on the **mode-independent** path, ahead of the `[bb_on]`
+dispatch, so the flag tracks colour even while double buffering is off. That
+is required, not incidental: `bb_set` can arm the buffer at any moment and
+seeds it from VRAM, and those planes are only identical if nothing but 0/15
+was ever drawn — including everything drawn while the buffer was disabled.
+
+**Flush points.** `gfx_unlock` flushes before `cursor_show` (§7) — that
+covers every ordinary lock/draw/unlock burst, including `wm_paint_all` and
+the boot paint. Nothing else flushes: the two interactions that draw *while
+holding* the lock — `menu_track` (§12) and the ui_drag outline (§13) — draw
+their feedback **VRAM-direct** instead (see below), so the back buffer stays
+clean through both and there is nothing to push. `menu_track` keeps one
+flush, for the pull-down itself, which is real back-buffer content.
+
+**Transient overlays bypass the back buffer.** The drag outline and the two
+menu highlights are XOR overlays: drawn, then erased, never meant to persist
+— the cursor's contract, not a window's. They call `vga_xor_rect_vram` /
+`vga_xor_fill_vram`, the VRAM bodies of `gfx_xor_rect` / `gfx_xor_fill` under
+their own names (§5), exactly as the cursor calls `vga_save_vram`. The
+public `gfx_xor_*` entries keep dispatching to the back buffer, because
+packages reach them through the API table (§20.3) and their XOR output *is*
+persistent content.
+
+This is a throughput fix, not a tidiness one. Routed through the back buffer,
+a 1px outline dirties the **whole window rect** — `bb_xor_rect` unions four
+strips — so each drag pass flushed the entire window area, twice (once for
+the draw, once inside the `gfx_unlock` after the erase), for ~1000 changed
+pixels. Correctness rests on the drag loop's existing discipline: the outline
+is XOR-erased before the lock ever drops, so whenever another task can draw,
+VRAM still equals the back buffer. The menu highlights rely on the same
+property, plus the teardown order — the save-under restore repaints the
+pull-down area in the back buffer and the caller's `gfx_unlock` flushes it,
+which is what actually clears the item highlight from VRAM; the title
+highlight sits above `MBAR_H`, outside that rect, so its VRAM-direct
+un-highlight survives the flush.
+
+**The cursor is not double-buffered.** The ISR draws it into VRAM over
+flushed content; its save-under reads VRAM through `vga_save_vram` /
+`vga_restore_vram` (the VRAM bodies of gfx_save/gfx_restore, §5). Invariant:
+while the gfx lock is free, VRAM = back buffer + cursor; while it is held,
+the cursor is hidden and flushes may run at any point. The back buffer
+never contains cursor pixels, so no flush can smear or erase a live cursor.
+
+**Accounting.** The Task Manager bills the back buffer as 150KB of System
+memory (§28) whenever `[bb_on]` is set, so the RAM line and the System row
+both move the moment the Display page switches it (39K ↔ 189K on a 639K
+QEMU). The §16 test flow boots direct-to-screen like every machine; turning
+the buffer on is a deliberate act, and `make xt` (256K) cannot do it at all.
