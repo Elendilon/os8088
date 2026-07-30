@@ -96,6 +96,40 @@ OSAPI_MOUSE         equ 0x006C   ; out CX=mouse_x, DX=mouse_y, AL=mouse_btn
 OSAPI_SRAND         equ 0x0070   ; AX -> [osapi_seed]
 OSAPI_RAND          equ 0x0074   ; out AX = next pseudo-random word
 
+; --- sound (SPEC.md 20.3/34): the whole surface exists from Phase 1; the
+; --- unbuilt tiers return their documented error paths until they land.
+OSAPI_SND_CAPS      equ 0x0078   ; out AX = merged caps word (SND_CAP_*),
+                                 ; BL = tone route (0 = speaker, 1 = OPL2),
+                                 ; DX = present-driver bits
+OSAPI_SND_TONE      equ 0x007C   ; AX = freq Hz (0 = off), CX = duration
+                                 ; ticks (0 = until off), DL = priority
+                                 ; (default 0x40); out CF=1 refused, else
+                                 ; AL = owner generation
+OSAPI_SND_PLAY      equ 0x0080   ; PCM_EXCL clip (SPEC.md 34.4): ES:SI, CX,
+                                 ; DX = rate; out AX = 0 ok / 1..5 err
+                                 ; (err 4 no-sink until Phase 2)
+OSAPI_SND_FM        equ 0x0084   ; FM verbs (SPEC.md 34.2); out CF=1 no FM
+                                 ; sink (always, until Phase 3)
+OSAPI_SND_STREAM    equ 0x0088   ; PCM_BG streams + staging (SPEC.md 20.3):
+                                 ; AL = verb (0 open / 1 feed / 2 close /
+                                 ; 3 status / 6 stage / 7 grant), AH =
+                                 ; handle or sub-op; out AX = 0 ok / err /
+                                 ; SND_ST_* state (verb 3); recording
+                                 ; (verbs 4-5) err 4 until Phase 5
+
+; capability bits returned by OSAPI_SND_CAPS (SPEC.md 34.2)
+SND_CAP_TONE     equ 01h
+SND_CAP_FM       equ 02h
+SND_CAP_PCM_BG   equ 04h
+SND_CAP_PCM_EXCL equ 08h
+SND_CAP_PCM_IN   equ 10h
+
+; stream states returned by OSAPI_SND_STREAM verb 3 (SPEC.md 20.3/34.5)
+SND_ST_PLAYING   equ 0
+SND_ST_UNDER     equ 1           ; underrun-paused: resumable by a feed
+SND_ST_ENDED     equ 2           ; stopped by the stream watchdog
+SND_ST_STALE     equ 0FFFFh      ; the handle's stream is gone
+
 ; --- window record layout (SPEC.md 11, 18 bytes) -------------------------------
 W_FLAGS   equ 0             ; word: bit0 = used, bit1 = visible
 W_X       equ 2             ; word: frame left (screen coords)

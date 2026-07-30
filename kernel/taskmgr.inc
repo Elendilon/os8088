@@ -591,6 +591,8 @@ tm_sample:
                                 ; buffers and the far-code blob. Added after
                                 ; the shift because the byte total of all
                                 ; four regions does not fit 16 bits.
+    add ax, SND_SEG_KB          ; + the sound segment (SPEC.md 2.2): claimed
+                                ; whole by the sound layer since Phase 2
     cmp byte [bb_on], 0         ; bill the armed back buffer: exactly 150KB,
     je .nobb                    ; added after the shift because 153600 bytes
     add ax, 150                 ; do not fit 16 bits (SPEC.md 32 / 28)
@@ -955,8 +957,9 @@ tm_cap_pool:
 
 ; -----------------------------------------------------------------------------
 ; tm_map_ram - the conventional-memory map interior (SPEC.md 28): white =
-;              free, gray = system-reserved (low memory; the armed back
-;              buffer), black = the kernel segment. KB scale.
+;              free, gray = system-reserved (low memory; the sound
+;              segment; the armed back buffer), black = the kernel
+;              segment. KB scale.
 ; in:  [tm_totkb]; [bb_on] read live under the lock
 ; out: nothing
 ; clobbers: nothing (flags only)
@@ -995,6 +998,17 @@ tm_map_ram:
     call tm_map_rect
     mov byte [gfx_color], CBLACK
     KCALL gfx_fill
+
+    mov ax, 192                 ; [192,256K): SND_SEG, claimed whole by the
+    call tm_ramkb2x             ; sound layer from boot (SPEC.md 2.2 / 28) -
+    mov si, ax                  ; unconditional, like the low keep; it is
+    mov ax, 255                 ; what SND_SEG_KB adds to the totals above
+    call tm_ramkb2x
+    mov cx, ax
+    mov ax, si
+    mov bx, TMM_M1_Y1
+    call tm_map_rect
+    KCALL gfx_fill_gray
 
     cmp byte [bb_on], 0         ; [256,406K): the back buffer, when armed
     je .done
@@ -1709,6 +1723,8 @@ tm_rows:
                                 ; kernel keeps in low memory (SPEC.md 2.1).
                                 ; The same term is in the RAM total above, so
                                 ; the rows still sum to it.
+    add ax, SND_SEG_KB          ; + the sound segment (SPEC.md 2.2), also in
+                                ; the total above - the rows still sum
     cmp byte [bb_on], 0         ; bill the armed back buffer to System
     je .sysmem                  ; (SPEC.md 32 / 28)
     add ax, 150

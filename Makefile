@@ -25,7 +25,7 @@ FILESIZE = $$(stat -c%s $(1) 2>/dev/null || stat -f%z $(1))
 KERNEL_SRC := kernel/kernel.asm
 KERNEL_INC := $(wildcard kernel/*.inc)
 
-.PHONY: all run run-640 debug test xt xt-640 clean
+.PHONY: all run run-640 debug test test-snd xt xt-640 clean
 
 all: $(IMG) $(IMG360) $(APPSIMG) $(APPSIMG360)
 
@@ -106,14 +106,75 @@ $(BUILD)/notepad.alt.bin: apps/notepad/notepad.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/notepad.o88: $(BUILD)/notepad.bin $(BUILD)/notepad.alt.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/notepad.bin --alt $(BUILD)/notepad.alt.bin -o $@
 
+# Recorder, the fourth shipped package (SPEC.md 35): sound wave recorder and
+# player over the SPEC.md 34 sound layer (grants, streams, PCM_EXCL fallback).
+$(BUILD)/recorder.bin: apps/recorder/recorder.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/recorder/recorder.asm
+	@echo "recorder: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/recorder.alt.bin: apps/recorder/recorder.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DOS88_ORG=0xB800 -o $@ apps/recorder/recorder.asm
+
+$(BUILD)/recorder.o88: $(BUILD)/recorder.bin $(BUILD)/recorder.alt.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/recorder.bin --alt $(BUILD)/recorder.alt.bin -o $@
+
+# Piano, the fifth shipped package (SPEC.md 36): a colorful playable piano
+# over the SPEC.md 34 tone tier (note viewer, replay, embedded songs).
+$(BUILD)/piano.bin: apps/piano/piano.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/piano/piano.asm
+	@echo "piano:  $(call FILESIZE,$@) bytes"
+
+$(BUILD)/piano.alt.bin: apps/piano/piano.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DOS88_ORG=0xB800 -o $@ apps/piano/piano.asm
+
+$(BUILD)/piano.o88: $(BUILD)/piano.bin $(BUILD)/piano.alt.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/piano.bin --alt $(BUILD)/piano.alt.bin -o $@
+
+# FMTEST, the sound Phase 3 gate package (docs/SOUND-PLAN.md): drives the FM
+# slot 0x0084 end to end (patch-load, chord, all-off, tone expiry, teardown).
+# Never on the shipped apps disks - their directory order is pinned - it gets
+# its own scratch image, mounted with:
+#   make test-snd ADLIB=1 TESTAPPS=build/fmtest.img
+$(BUILD)/fmtest.bin: apps/fmtest/fmtest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/fmtest/fmtest.asm
+	@echo "fmtest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/fmtest.alt.bin: apps/fmtest/fmtest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DOS88_ORG=0xB800 -o $@ apps/fmtest/fmtest.asm
+
+$(BUILD)/fmtest.o88: $(BUILD)/fmtest.bin $(BUILD)/fmtest.alt.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/fmtest.bin --alt $(BUILD)/fmtest.alt.bin -o $@
+
+$(BUILD)/fmtest.img: $(BUILD)/fmtest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/fmtest.o88
+
+# SBTEST, the sound Phase 4 gate package (docs/SOUND-PLAN.md): drives the
+# stream + staging slot 0x0088 end to end (grant, stage, open, status,
+# underrun, close, teardown). Like fmtest it is never on the shipped apps
+# disks - it gets its own scratch image, mounted with:
+#   make test-snd SB16=1 TESTAPPS=build/sbtest.img
+$(BUILD)/sbtest.bin: apps/sbtest/sbtest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/sbtest/sbtest.asm
+	@echo "sbtest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/sbtest.alt.bin: apps/sbtest/sbtest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DOS88_ORG=0xB800 -o $@ apps/sbtest/sbtest.asm
+
+$(BUILD)/sbtest.o88: $(BUILD)/sbtest.bin $(BUILD)/sbtest.alt.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/sbtest.bin --alt $(BUILD)/sbtest.alt.bin -o $@
+
+$(BUILD)/sbtest.img: $(BUILD)/sbtest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/sbtest.o88
+
 # The software floppies (drive B:) hold packages, not boot code - os88fs only.
 # Directory order is pinned: mines first, hello second (tests rely on it);
-# notepad is appended third so those two keep their indices.
-$(APPSIMG): $(BUILD)/mines.o88 $(BUILD)/hello.o88 $(BUILD)/notepad.o88 tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/mines.o88 $(BUILD)/hello.o88 $(BUILD)/notepad.o88
+# notepad is appended third, recorder fourth and piano fifth so earlier
+# indices hold.
+$(APPSIMG): $(BUILD)/mines.o88 $(BUILD)/hello.o88 $(BUILD)/notepad.o88 $(BUILD)/recorder.o88 $(BUILD)/piano.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/mines.o88 $(BUILD)/hello.o88 $(BUILD)/notepad.o88 $(BUILD)/recorder.o88 $(BUILD)/piano.o88
 
-$(APPSIMG360): $(BUILD)/mines.o88 $(BUILD)/hello.o88 $(BUILD)/notepad.o88 tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/mines.o88 $(BUILD)/hello.o88 $(BUILD)/notepad.o88
+$(APPSIMG360): $(BUILD)/mines.o88 $(BUILD)/hello.o88 $(BUILD)/notepad.o88 $(BUILD)/recorder.o88 $(BUILD)/piano.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/mines.o88 $(BUILD)/hello.o88 $(BUILD)/notepad.o88 $(BUILD)/recorder.o88 $(BUILD)/piano.o88
 
 # The GUI reads a Microsoft serial mouse on COM1; QEMU emulates one natively.
 MOUSE := -chardev msmouse,id=m0 -serial chardev:m0
@@ -142,6 +203,29 @@ test: $(IMG) $(APPSIMG)
 	$(QEMU) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
 		-drive file=$(APPSIMG),format=raw,if=floppy,index=1 \
 		-display none -qmp unix:build/qmp.sock,server,nowait -daemonize -pidfile build/qemu.pid
+
+# `make test` plus audio capture (SPEC.md 34 / docs/SOUND-PLAN.md): the PC
+# speaker renders into build/snd.wav, finalized when QMP `quit` stops QEMU.
+# Verify with tools/sndcheck.py (RMS + dominant-frequency assertions).
+# `make test-snd ADLIB=1` adds an emulated AdLib (OPL2 at 388h) on the same
+# wav audiodev, so sndcheck hears FM output too (Phase 3); without it the
+# boot has no OPL2 and the probe must report absent. TESTAPPS swaps the B:
+# disk for a scratch image (the fmtest gate above).
+ifneq ($(ADLIB),)
+ADLIBDEV = -device adlib,audiodev=snd
+endif
+# `make test-snd SB16=1` adds an emulated Sound Blaster 16 (iobase 0x220,
+# IRQ 5, DMA 1; DSP reports 4.x, so QEMU only ever exercises the auto-init
+# strategy - SPEC.md 34.5; DSP < 2.00 is 86Box/real-hardware work).
+ifneq ($(SB16),)
+SBDEV = -device sb16,audiodev=snd
+endif
+TESTAPPS ?= $(APPSIMG)
+test-snd: $(IMG) $(TESTAPPS)
+	$(QEMU) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
+		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 \
+		-display none -qmp unix:build/qmp.sock,server,nowait -daemonize -pidfile build/qemu.pid \
+		-audiodev wav,id=snd,path=build/snd.wav -machine pcspk-audiodev=snd $(ADLIBDEV) $(SBDEV)
 
 # Boot the 360KB image on emulated period hardware in 86Box.
 xt: $(IMG360) $(APPSIMG360)

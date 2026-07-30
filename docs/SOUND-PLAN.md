@@ -173,10 +173,13 @@ math done inside: F-Number = Hz·2^(20−block)/49716, block chosen so F fits 10
 1 note-off (`CL`), 2 patch-load (`CL`, `DS:SI` → 11-byte patch: 5 operator regs × 2 ops
 + C0h), 3 all-off. Out: CF=1 if no FM sink. Atomicity, sized honestly: `pushf/cli`
 covers only the address select at 388h, its 6 counted status reads, and the data write
-at 389h; the 35-read post-data delay runs at **IF=1** (the address register is stable,
-and same-tier interleaving is excluded by the router's ownership, not by cli). A
-register write is ~430–1,300 cycles ≈ 90–280 µs all-in on the floor, of which ≤ ~100 µs
-is the IF=0 window; a note-on (2 writes) is ~0.2–0.6 ms.
+at 389h; the 35-read post-data delay runs at **the caller's IF** (the address register
+is stable, and same-tier interleaving is excluded by the router's ownership, not by
+cli). A register write is ~430–1,300 cycles ≈ 90–280 µs all-in on the floor, of which
+≤ ~100 µs is `opl_wr`'s own IF=0 window from task context; a note-on (2 writes) is
+~0.2–0.6 ms. Two callers run whole writes at IF=0: `snd_tick`'s sanctioned key-off, and
+the §34.3 grant window — an OPL2-routed tone grant is one ~0.6–0.7 ms IF=0 stretch on
+the floor, the accepted cost of the binding single-window grant rule (SPEC §34.1).
 
 **PCM-out op** — `AL` = verb: 0 start (`ES:SI` buf, `CX` len, `DX` rate Hz),
 1 stop, 2 feed/status. Exclusive drivers (speaker) implement verb 0 as
@@ -226,8 +229,9 @@ losers. All presence flags published **last** after each device is fully configu
   tone. The generation guard is only sound because task-side writers are atomic
   w.r.t. the tick. Same rule covers the PWM steal path (`snd_ch2mode` + generation +
   silence are one unit).
-- **FM tier**: 9 channels (8 when the tone reservation is active), allocated per
-  requester (bitmap, first-fit); channel handles are the raw 0–8 index.
+- **FM tier**: 9 channels (8 when the tone reservation is active), claimed per
+  requester on first touch of a caller-named channel (bitmap + owner stamps — no
+  allocator picks channels); channel handles are the raw 0–8 index.
 - **PCM_EXCL**: whole-machine resource, one clip at a time, no queue — a second caller
   gets busy. **Refused (AX=1 busy) while any PCM_BG stream is open**: an exclusive clip
   raises `sch_lock` for its whole duration, which would freeze the SB refill task and
@@ -420,8 +424,8 @@ an arbitrary caller buffer is legal here, unlike the SB path.)
 | 1 | feed | `AH`=handle, `CX`=new total valid length — extends a progressively-staged stream |
 | 2 | close | `AH`=handle; ends the refill task, frees the stream record |
 | 3 | status | `AH`=handle; out `AX`=state (playing / underrun-paused / ended / stale), `DX`=bytes consumed — **this poll is the notification mechanism**; callbacks check it, there are no sound events |
-| 4 | open-in | `DX`=rate; kernel task drains the record ring into the caller's grant; out `AH`=handle |
-| 5 | read | copy `CX` recorded bytes from the grant into caller `DS:DI` (kernel-staged copy) |
+| 4 | open-in | `DX`=rate (up to the input ceiling), `SI`=grant offset, `CX`=capture capacity; a kernel task drains the record ring into the caller's grant until CX bytes land, then stops the DSP; out `AH`=handle. Half-duplex with open-out is err 1 by the shared owner record |
+| 5 | read | copy `CX` bytes from the grant at offset `SI` into caller `DS:DI` (kernel-staged copy — verb 6's exact mirror; no handle, so captured data outlives its stream until the grant is freed) |
 | 6 | stage | copy `CX` bytes from caller `DS:SI` into the grant at offset `DI` (kernel-staged copy — callers never touch ES=SND_SEG) |
 | 7 | grant | `AL2`(sub-op) alloc/free: `CX`=bytes → out `SI`=grant offset, or free; stamped with the calling instance, force-freed by `snd_release_inst` |
 
@@ -486,7 +490,7 @@ tone route) for UI use — menu error, refused clicks.
 
 `opl_wr` (`.text`, ≈40 B): AH = register, AL = value; select via 388h, 6 counted status
 reads, write 389h — that much under one `pushf/cli…popf` — then 35 counted status reads
-at IF=1. Real cost on the floor: ~430–1,300 cycles ≈ **90–280 µs per register write**
+at the caller's IF. Real cost on the floor: ~430–1,300 cycles ≈ **90–280 µs per register write**
 (an `in al,dx` from ISA is ~2–6 µs depending on loop structure — the 52 µs "datasheet"
 figure is the chip minimum, not this implementation). Init (far, once, on probe
 success): zero regs 01h–F5h — ~245 writes ≈ **25–70 ms**, fine in cold boot-time far
@@ -514,8 +518,142 @@ comparables (instance.inc) run bigger than a first sketch suggests:
 | P5 recording + staging copies | ~300 B | ~8 B | ~300 B | record ring + grants share SND_SEG |
 | **Total** | **~3.5 KB** | **~0.45 KB** | **~3.7 KB** | |
 
-Post-all-phases slack ≈ 23.6 KB (guard 1) / ≈ 20.4 KB (guard 2) — comfortable even if
-every estimate misses by 2×. `.lowbss` untouched (the refill task's stack is a normal
+Phase 1 measured at its gate (§15.1 recipe, 2026-07-29): **861 B .text, 13 B
+.bss, 0 B .fartext** — under the estimate, and the .fartext figure is zero by
+construction, not luck: nothing §34.7 assigns to far code exists yet (the
+speaker needs no probe; the OPL2/SB probes land with their phases), and
+`snd_init` itself is a `.text` routine like every other kmain init. Guard 1
+now 26,691 B free, guard 2 25,919 B free.
+
+Phase 2 measured at its gate (§15.1 recipe, 2026-07-29): totals now
+**15,893 B .text, 3,561 B .bss, 4,828 B .fartext** — guard 1 **25,602 B
+free**, guard 2 **24,335 B free** (Phase 2 cost ≈ 1,089 B against guard 1,
+≈ 1,584 B against guard 2 — within the ~600/~310/~950 estimate row).
+Counters in QEMU at N = 149: a full 12,000-sample Test clip reads
+**E:12000 R:2–4**; a mid-clip click-abort at ~0.55 s reads E:4389 with the
+page quiescent after (the drain held — no click-through). The **floor
+gate** — the same counters read on 86Box at N = 149 — is still owed; the
+default rate stays 8,008 Hz until that read says otherwise.
+
+Phase 3 measured at its gate (§15.1 recipe, 2026-07-29): totals now
+**16,562 B .text, 3,581 B .bss, 5,005 B .fartext** — guard 1 **24,913 B
+free**, guard 2 **23,489 B free**. Phase 3 cost ≈ 689 B against guard 1,
+≈ 846 B against guard 2 — the split ran opposite the ~300/~16/~1,300
+estimate row (+669 .text, +177 .fartext): the ops, the channel allocator
+and `opl_wr` are all §33-barred from far (ISR-adjacent or
+pointer-dispatched), while the far half (probe + init loop + patch loader)
+compresses to a few loops. Total within the row's sum. QEMU gate: the
+probe's 200 counted status reads detect the emulated OPL2 (and a no-adlib
+boot publishes absent); an 880 Hz beep routed to OPL2 via the CP radio
+reads 880.0 Hz dominant in the wav capture and goes silent ~190 ms after
+grant (3-tick expiry + release tail) — the `snd_tick` single-B0h key-off
+— with `--exclusive` clean over the whole session; a scratch package
+sustaining a 440+660 Hz chord from its W_ONCLICK went silent at
+close-mid-chord (the `snd_release_inst` → `opl_release_inst` teardown
+leg). Floor-gate items (real-XT probe timing by ear) ride with Phase 2's.
+
+Phase 4 measured at its gate (§15.1 recipe, 2026-07-29): totals now
+**18,432 B .text, 3,700 B .bss, 5,429 B .fartext** — guard 1 **22,924 B
+free**, guard 2 **21,195 B free**. Phase 4 cost ≈ 1,989 B against guard 1,
+≈ 2,294 B against guard 2 (+1,870 .text / +119 .bss / +424 .fartext) —
+over the ~1.0 KB .text estimate (the grant allocator, the verb surface and
+the Test button's move onto it were under-counted) but the far half
+compressed, and the total is well inside the slack. QEMU gate
+(`make test-snd SB16=1 TESTAPPS=build/sbtest.img`, DSP 4.05 → auto-init):
+detect finds base 220h and versions via E1h; first open discovers IRQ 5
+via F2h with the 2xEh-bit-7 stub confirm (QEMU's F2h does set the
+read-buffer status, so the pinned confirm recipe holds there) and hooks
+`sbl_isr`; a fully staged 2 s 1 kHz stream plays gap-free while a window
+drags (wav dominant 1000.0 Hz, one contiguous burst; screendumps show the
+move); exhaustion pauses with verb 3 reading underrun-paused and consumed
+= 16,000; the 2,400-byte never-fed open pauses at 2,400 with **no stale
+audio looping** (the wav burst is bounded); a verb-1 feed of 800 B resumes
+(D4h) and re-pauses at 3,200; close-box teardown mid-stream force-closes
+the stream and frees the grant (`snd_release_inst` leg); the spurious soak
+(IRQ hooked, no stream, menus + clicks) leaves no wedge; and the
+PCM_EXCL exclusion holds (CP Test during an open stream: counters stay 0,
+no freeze). Regressions re-run: refused-close beep 880.0 Hz exclusive,
+CP Sound Test E:12000 R:2 through the new verb-7 grant path, FMTEST patch
+880.0 Hz under `ADLIB=1`, and an untouched boot captures nothing. Still
+owed to 86Box/real hardware: the whole single-cycle (DSP < 2.00) branch —
+`vm/xtsb` does not exist yet, and SPEC §34.5's pinned fallback (refuse
+< 2.00) stands if it proves unmaintainable — plus the standing Phase 2/3
+floor-gate items. One semantic pinned during the build (now in SPEC
+§20.3/§34.5): data exhaustion reads **underrun-paused**, not "ended" —
+the ABI carries no clip length, so the kernel refuses to guess "finished"
+vs "starved"; "ended" is the watchdog stop. Assertion note for future
+automation (the SB analogue of Phase 3's OPL2 release-tail note): QEMU's
+wav backend, on `quit`, flushes a ~20 ms residual chunk of stream data at
+the absolute end of the capture — after ~45 ms of silence — whenever an
+SB stream sits underrun-paused at exit. `sndcheck --exclusive` then fails
+("activity outside the burst") even though playback itself was contiguous
+and bounded; assert those sessions with the burst-map method instead, or
+close the stream before quitting.
+
+Phase 5 measured at its gate (§15.1 recipe, 2026-07-29): totals now
+**19,370 B .text, 3,702 B .bss, 5,429 B .fartext** — guard 1 **21,984 B
+free**, guard 2 **20,257 B free**. Phase 5 cost ≈ 940 B against guard 1
+(+938 .text / +2 .bss / +0 .fartext) — over the ~300 B estimate row for
+the same reason Phase 3 inverted its split: everything recording adds
+(the open-in body, the ISR input leg, the drain machinery, the read verb)
+is §33-barred from far, and nothing new is cold. QEMU gate
+(`make test-snd SB16=1 TESTAPPS=build/sbtest.img`, keys r/d/f/s/c on the
+extended SBTEST): the verb 6 → verb 5 staging round-trip returns the
+16-byte pattern intact (5:Y) with no stream, and again *while a capture
+is live*; open-in reads g:12288/o:R with verb 3 at recording(0); **QEMU's
+sb16 never starts input DMA against a wav audiodev** (no ADC IRQs ever
+arrive), which makes the watchdog leg the deterministic automated test —
+status flips to ended(2) after ~2 ring-half periods with captured = 0;
+feed on the input stream refuses err 7; half-duplex holds in both
+directions (open-in during an out-stream → 1, open-out during the record
+→ 1, both leaving the open stream and its grant untouched); close →
+stale on every later verb; close-box mid-record force-closes the stream
+and frees every grant (memory-verified: `sbl_str_act` = 0, `sbl_gr_act[]`
+all clear; a relaunch re-grants at the pool base). Regressions re-run on
+the same build: the 2 s out-stream plays 1000.0 Hz dominant while a
+window drags (the drag outline is on the screendump), exhaustion reads
+underrun-paused at 16,000, the progressive open resumes on feed
+(2,400 → 3,200), refused-close beep 880.0 Hz `--exclusive` clean on a
+speaker-only boot, CP Sound Test E:12000 R:0 through the verb-7 grant
+path, FMTEST 880.0 Hz under `ADLIB=1`. **One latent Phase 4 bug found and
+fixed by this gate**: `sbl_grant_chk` did its bounds math in DX,
+clobbering DH — its own instance operand — so any record that passed the
+instance compare but failed the range checks poisoned the compare for
+every record after it; with a single live grant (all Phase 4 ever held)
+it was unreachable, with two (a stream's grant + a scratch grant) every
+staging call refused err 7. The math now runs in DI and the SPEC's
+grant_chk note records the rule. Still owed to 86Box/real hardware: the
+entire live-capture data path (ring-half drain copies, the overrun
+pause/resume, the capacity-full stop) — unreachable in QEMU because no
+input IRQ ever fires — plus audio-in fidelity by ear, riding with the
+standing Phase 2/3/4 floor-gate items.
+
+The P5 review pass then hardened the drain data path (now in SPEC
+§20.3/§34.6): the ring → grant copy is **teardown-fenced** — 512-byte
+chunks, each one act+generation-verified `pushf`/`cli` unit — because the
+drain WRITES grant bytes, and a close-box teardown preempting a
+whole-half `rep movsb` (~21 ms on an 8088) would have resumed writing
+ring data into freed, re-grantable pool memory (the refill mirror stays
+un-fenced deliberately: its copy only *reads*, and a stale read at
+teardown is a bounded audio glitch). `sbl_consumed` now advances after
+each chunk lands, never before, so verb 3's captured count can never run
+ahead of the bytes verb 5 can actually read. The open verbs'
+busy-check → publish gap is pinned as UI-task serialization (SPEC §20.3
+— a future background-task caller must claim the record under
+`pushf`/`cli` first), and `mouse.py down`/`up` grew optional `X Y`
+arguments (goto-then-press; anything else errors) after the bare-`down`
+footgun cost this pass a retest cycle.
+
+Post-phases change (2026-07-30): the CP Test clip is no longer the
+12,000-sample 1 kHz sine — it is the Recorder demo's 1 s 400→800→400 Hz
+sine sweep (8,000 samples, SPEC §31.4/§35, its own kernel-side copy of
+the generator). The gate paragraphs above record what was measured when
+the old clip was live; any regression re-run from here reads **E:8000**,
+and a sndcheck dominant assertion on the Test clip must accept the whole
+400–800 Hz band (a sweep has no single line).
+
+Post-all-phases slack ≈ 21.5 KB (guard 1) / ≈ 19.8 KB (guard 2) — measured,
+not estimated, now that all five phases are in. `.lowbss` untouched (the refill task's stack is a normal
 dynamic spawn). SND_SEG folds into the Task Manager's RAM figure via the `KLOWFAR_KB`
 accounting hook idiom. A 256 KB machine gets: tones, beeps, FM if an AdLib is present,
 click-abortable exclusive-clip PCM, SND_SEG staging — everything except background
@@ -540,9 +678,15 @@ no sound.
 plus `-audiodev wav,id=snd,path=build/snd.wav -machine pcspk-audiodev=snd` (Phases 3–4
 add `-device adlib,audiodev=snd` / `-device sb16,audiodev=snd`). New
 `tools/sndcheck.py`: opens the WAV after QMP `quit` flushes it, asserts RMS > threshold
-in a time window and FFT-dominant frequency within ±5% of expected. Both floppy
-geometries rebuilt every phase (the kernel image changes even when nothing sound-side
-ships on disk).
+in a time window and FFT-dominant frequency within ±5% of expected (Goertzel scan,
+stdlib only). Two QEMU realities, measured at the Phase 1 gate and absorbed by the
+tool: (a) the wav backend leaves the RIFF/data size fields zero on exit, so the header
+is parsed by hand; (b) the pcspk stream only runs while the speaker gate is on, so
+file time is speaker-on time, not wall time — "silence before the click" is asserted
+as *an empty capture on a no-input boot* (`--expect-silence`) plus *nothing outside
+the expected burst* (`--exclusive`) on the click run, which is a strictly stronger
+statement than a timeline window. Both floppy geometries rebuilt every phase (the
+kernel image changes even when nothing sound-side ships on disk).
 
 - **Phase 1 — tone core (speaker only).** snd.inc skeleton, ch2/61h ownership + mode
   state machine, `snd_beep`, `snd_tick` beside sch_account behind the `snd_live` gate,
@@ -558,15 +702,22 @@ ships on disk).
   sch_lock window, resync rule, release-folding click-abort + event drain), far xlat
   builder, slot 0x0080 live, CP Sound page (route radio, excl checkbox, Test button),
   `snd_excl_ok` policy, `snd_pcm_emitted`/`snd_pcm_resync` debug counters.
-  *Test*: a scratch key binding (or test package) synthesises a 1 kHz sine in a grant
-  and plays at 8,008 Hz; sndcheck asserts ~1 kHz dominant + carrier present (QEMU
-  models mode-0 PWM imperfectly, so this is a smoke check, not the fidelity gate);
-  the counters are the load-bearing check: a screendump-readable field (CP page
+  *Test*: the CP Test button synthesises a 1.5 s 1 kHz sine into SND_SEG and plays
+  it at 8,000 Hz (N = 149) through slot 0x0080. **Measured QEMU reality (11.0.2,
+  worse than "imperfectly")**: the pcspk backend emits *zero* frames while ch2 is
+  in mode 0 — the wav capture stays empty for the whole clip, so no WAV assertion
+  about the clip is possible in QEMU at all. The WAV harness instead proves the
+  *edges*: `sndcheck 880 --exclusive` on a run that plays a clip and then triggers
+  the refused-close beep asserts (a) ch2 came back to tone-idle after PWM — the
+  mode-3 beep still sounds — and (b) nothing else, boot included, ever opened the
+  speaker. PWM fidelity by ear is 86Box/real-hardware work (the floor gate).
+  The counters are the load-bearing check: a screendump-readable field (CP page
   caption) shows emitted/resync counts and the test asserts emitted ≈ clip length,
   resync ≈ 0 in QEMU. **Floor gate**: the same counters read on `make xt` (86Box) —
   if resyncs are material at N=149 on the XT, the default rate drops to ~6 kHz and
   SPEC records the measured figure; fidelity signoff is by ear there. Mid-clip QMP
-  `mouse_button 1` aborts — sndcheck asserts truncated activity AND the screen shows
+  `mouse_button 1` aborts — the counters caption shows the truncated emit count (the
+  WAV cannot show truncation: it never held the clip) AND the screen shows
   no click-through action; after playback QMP-drive the mouse to prove the GUI
   resumed; a screendumped Clock window proves ticks weren't lost; CP page driven by
   `mouse.py` down/to/up, screendump-verified.
@@ -577,7 +728,18 @@ ships on disk).
   package playing a known chord; sndcheck asserts the note fundamentals; a timed tone
   routed to OPL2 expires (the snd_tick key-off test); CP page shows "AdLib: yes"
   (screendump); a no-adlib boot still shows "no" and refuses the radio; closing the
-  package mid-chord silences it (teardown test).
+  package mid-chord silences it (teardown test). The gate package is **committed**:
+  `apps/fmtest` (built into the scratch image `build/fmtest.img`, mounted with
+  `make test-snd ADLIB=1 TESTAPPS=build/fmtest.img` — never on the shipped apps
+  disks, whose directory order is pinned). Its first click patch-loads a carrier
+  MULT=2 voice through slot 0x0084 verb 2 and keys 440 Hz — sounding **880 Hz** iff
+  the caller's DS:SI patch actually reached the chip — its second click adds 660 Hz
+  (the chord), 'b' requests a 3-tick 880 Hz tone (the snd_tick expiry leg), and the
+  close box mid-chord is the teardown leg. Assertion note for future automation: the
+  OPL2 envelope release leaves ~50 ms of tail after a key-off/close (one 10 ms block
+  was measured at rms 0.00515, marginally over sndcheck's default 0.005 silence
+  floor) — allow that tail, or raise `--silence-floor`, before asserting silence at
+  a close boundary.
 - **Phase 4 — Sound Blaster output.** sndsb.inc: far detect (reset scan, E1h version,
   F2h IRQ discovery with confirm-and-retry via the `.text` stubs), `sbl_isr`
   (spurious-IRQ7 guard, 2xEh ACK, half-swap, refill flags, underrun-pause, EOI), DMA
