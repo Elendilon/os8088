@@ -6,8 +6,13 @@
 ; disk_write anywhere in the kernel. Five public routines - dskw_write,
 ; dskw_read, dskw_delete, dskw_rename, dskw_dfree - are the whole surface,
 ; for the OS and for packages alike (they ARE the API slots 0x0098..0x00A8,
-; SPEC.md 20.3): whole files, by name, in the mounted volume's root
-; directory. No handles, no seek, no partial rewrite, no subdirectories.
+; SPEC.md 20.3): whole files, by name, in the volume's CURRENT directory
+; (SPEC.md 19.2 - [dsk_cwd], which dsk_chdir moves). No handles, no seek,
+; no partial rewrite, no paths: a name is resolved in one directory, the
+; one the volume is currently sitting in. dskw_mkdir joins them as the
+; sixth (SPEC.md 18.5) and dskw_rmdir as the seventh (SPEC.md 18.6) - the
+; two that act on a directory rather than on a file, and the two the API
+; deliberately does not expose, because a package cannot navigate.
 ;
 ; Everything here is UI-task-only, exactly like the read path: int 13h runs
 ; with [sch_lock] raised, dsk_secbuf and the FAT snapshot are shared with
@@ -18,8 +23,9 @@
 ;
 ; The disk stays hostile. No LBA is ever computed from a raw on-disk field:
 ; clusters go through dsk_clus2lba (which bounds them to [2, dsk_maxclus]),
-; FAT offsets rest on SPEC.md 18.2 rule 16, directory LBAs on dsk_rootlba
-; plus an index below dsk_rootsecs. A corrupt volume can make a write fail;
+; FAT offsets rest on SPEC.md 18.2 rule 16, and directory LBAs come from
+; dsk_dirw_next (SPEC.md 19.2), which bounds the root by dsk_rootsecs and
+; a subdirectory's chain by both dsk_clus2lba and a sector-count guard. A corrupt volume can make a write fail;
 ; it cannot make one land outside itself.
 ;
 ; The commit order is binding (SPEC.md 18.4): allocate + write the data,
@@ -38,7 +44,7 @@ FERR_NAME    equ 3             ; malformed 8.3 name / bad argument
 FERR_NOENT   equ 4             ; no such file
 FERR_EXIST   equ 5             ; the target name already exists
 FERR_FULL    equ 6             ; no free clusters
-FERR_DIRFULL equ 7             ; the root directory has no free slot
+FERR_DIRFULL equ 7             ; the current directory has no free slot
 FERR_PROT    equ 8             ; read-only/hidden/system/label/subdirectory
 FERR_WPROT   equ 9             ; the media is write-protected
 FERR_BIG     equ 10            ; file larger than the buffer (or than 64KB)
@@ -46,7 +52,18 @@ FERR_BIG     equ 10            ; file larger than the buffer (or than 64KB)
 ; --- directory attribute bits + the raw fields disk.inc does not name -------
 DSKW_PROT    equ 0x1F          ; read-only|hidden|system|volume|directory:
                                ; any of them and the entry is untouchable
+DSKW_NPROT   equ 0x0F          ; the RENAME mask (SPEC.md 18.4) - the same
+                               ; four bits WITHOUT the directory one. A
+                               ; rename moves the eleven name bytes and
+                               ; nothing else, and nothing on the volume
+                               ; records a directory by NAME: a child's '..'
+                               ; holds the parent's first CLUSTER and its own
+                               ; '.' holds its own, so a folder may be renamed
+                               ; without breaking the walk back up. Replace
+                               ; and delete keep DSKW_PROT, because both of
+                               ; those would strand the subtree.
 DSKW_ARCH    equ 0x20          ; archive: what a fresh entry carries
+DSKW_DIR     equ 0x10          ; directory: what dskw_mkdir stamps (18.5)
 DSK_R_CTIME  equ 14            ; create time (word)
 DSK_R_CDATE  equ 16            ; create date (word)
 DSK_R_ADATE  equ 18            ; last-access date (word)
@@ -61,6 +78,20 @@ DSKW_EOC16   equ 0xFFFF        ; (0FF8h / 0FFF8h), so a host fsck walks the
 ; path separators, wildcards and "+,;=[]:" are absent on purpose.
 dskw_syms:  db '$', '%', 0x27, '-', '_', '@', '~', 0x60
             db '!', '(', ')', '{', '}', '^', '#', '&', 0
+
+; dskw_commit stamps ATTR_DIRECTORY instead of ARCHIVE while this is set,
+; and dskw_mkbody is the only thing that ever sets it (SPEC.md 18.5).
+;
+; It lives HERE, in .text, and not in .bss - the same rule, and the same
+; hard-won reason, as [dsk_keepcwd] in disk.inc. -f bin gives .bss no image
+; bytes, and the .fartext blob is copied out from ON TOP of .bss at boot
+; (SPEC.md 33), so an uninitialised .bss byte reads as leftover far code:
+; reliably NON-ZERO. In .bss this byte made dskw_commit stamp attribute 0x10
+; on every file the OS ever created - which every reader then refused as
+; FERR_PROT (a directory is protected), so nothing could be read back or
+; deleted, and every chain those writes allocated leaked. It is exactly the
+; kind of flag that is only ever cleared on a path that has never run.
+dskw_isdir: db 0                ; 1 = dskw_commit is stamping a folder
 
 ; -----------------------------------------------------------------------------
 ; dskw_write - create or replace a whole file (SPEC.md 18.4, slot 0x0098)
@@ -220,6 +251,400 @@ dskw_dfree:
     pop di
     pop si
     pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_mkdir - create a subdirectory in the current directory (SPEC.md 18.5)
+; in:  SI = NUL 8.3 name; UI-task/window-callback context like every dskw_*
+; out: CF=0 AX=0, else CF=1 AX = FERR_*
+; clobbers: nothing else
+; -----------------------------------------------------------------------------
+dskw_mkdir:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call dskw_mkbody
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_mkbody - the mkdir pipeline (module-internal)
+; in:  SI = the name; out: CF/AX as dskw_mkdir
+;
+; The SPEC.md 18.4 commit order, unchanged and for the same reason: the new
+; directory's own cluster is allocated and fully WRITTEN first, the FAT is
+; flushed second, and only then does the one-sector parent entry go down.
+; A crash before that last write leaks a formatted-but-unreferenced cluster
+; - which any host fsck reclaims - and can never produce a directory entry
+; pointing at a cluster that was never initialised. Every failure ahead of
+; the commit runs dskw_refat, so a half-built chain cannot survive in RAM
+; to be flushed by some later, unrelated write.
+;
+; The new directory is born with its own '.' and '..', which is what makes
+; dsk_dotdot (SPEC.md 19.2) work without the kernel remembering a path, and
+; the REST of the cluster is written zero: a slot search reaching
+; uninitialised sectors would read whatever the disk last held there and
+; could match a name that is not in this directory at all.
+; -----------------------------------------------------------------------------
+dskw_mkbody:
+    cmp byte [dsk_mntok], 1
+    je .gated
+    mov ax, FERR_NODISK
+    stc
+    ret
+.gated:
+    mov di, dskw_n83
+    call dskw_name83            ; SI -> the 11-byte raw name field
+    jnc .named
+    mov ax, FERR_NAME
+    stc
+    ret
+.named:
+    call dskw_find              ; CF=0 = the name is already taken
+    jnc .exists
+    cmp ax, FERR_NOENT
+    jne .fail                   ; FERR_IO: the scan itself failed
+    cmp word [dskw_fsec], 0xFFFF
+    je .dirfull                 ; scanned to the end with no reusable slot
+
+    call dskw_alloc             ; AX = cluster, already marked end-of-chain
+    jc .nospace
+    mov [dskw_first], ax
+    call dsk_clus2lba           ; AX = its first LBA
+    jc .badclus
+    mov [dskw_lba], ax
+
+    call dskw_dotents           ; '.' and '..' built in dsk_secbuf
+    mov ax, LOW_SEG
+    mov es, ax
+    mov ax, [dskw_lba]
+    mov cx, 1
+    mov bx, dsk_secbuf
+    call disk_write
+    jc .wfail
+
+    call dskw_zerobuf           ; the cluster's remaining sectors
+    mov cl, [dsk_spc]
+    xor ch, ch
+    dec cx
+    jcxz .zeroed
+    mov dx, [dskw_lba]
+    inc dx
+.zsec:
+    push cx
+    mov ax, dx
+    mov cx, 1
+    mov bx, dsk_secbuf
+    call disk_write
+    pop cx
+    jc .wfail
+    inc dx
+    loop .zsec
+.zeroed:
+
+    call dskw_flush             ; the FAT, THEN the entry (SPEC.md 18.4)
+    jc .rollax
+
+    mov word [dskw_len], 0      ; a directory's size field is zero by spec
+    mov byte [dskw_new], 1
+    mov byte [dskw_isdir], 1
+    call dskw_commit            ; the one-sector commit
+    mov byte [dskw_isdir], 0
+    jc .rollax
+    call dskw_sync              ; coherence by remount (SPEC.md 18.4)
+    xor ax, ax
+    clc
+    ret
+
+.exists:
+    mov ax, FERR_EXIST
+    stc
+    ret
+.dirfull:
+    mov ax, FERR_DIRFULL
+    stc
+    ret
+.nospace:
+    mov ax, FERR_FULL
+    stc
+    ret
+.badclus:                       ; the allocator handed back a cluster the
+    mov ax, FERR_IO             ; geometry cannot address: corrupt volume
+    jmp short .rollax
+.wfail:
+    call dskw_ioerr             ; AX = FERR_IO / FERR_WPROT
+.rollax:
+    push ax                     ; keep the error across the rollback
+    mov byte [dskw_isdir], 0
+    call dskw_refat             ; the snapshot goes back to what the disk says
+    pop ax
+    stc
+.fail:
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_zerobuf - fill dsk_secbuf with 512 zero bytes
+; in:  nothing
+; out: nothing (all registers preserved)
+; -----------------------------------------------------------------------------
+dskw_zerobuf:
+    push ax
+    push cx
+    push di
+    push es
+    mov ax, LOW_SEG
+    mov es, ax
+    mov di, dsk_secbuf
+    mov cx, 256
+    xor ax, ax
+    cld
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_dotents - build a new directory's first sector in dsk_secbuf
+; in:  [dskw_first] = the new directory's own cluster
+; out: nothing (all registers preserved); dsk_secbuf holds '.' then '..'
+;      and 480 zero bytes
+;
+; '..' carries [dsk_cwd], the parent - and when the parent IS the root that
+; is 0, which is both the FAT spec's convention and this kernel's own value
+; for the root, so nothing has to translate.
+; -----------------------------------------------------------------------------
+dskw_dotents:
+    push ax
+    push di
+    push es
+    call dskw_zerobuf
+    call dskw_now               ; [dskw_date] / [dskw_time] (SPEC.md 37)
+    mov ax, LOW_SEG
+    mov es, ax
+    mov di, dsk_secbuf          ; '.' -> this directory
+    mov ax, [dskw_first]
+    call dskw_dotent
+    mov di, dsk_secbuf + 32     ; '..' -> the parent
+    mov ax, [dsk_cwd]
+    call dskw_dotent
+    mov byte [es:dsk_secbuf+33], '.'   ; the second dot
+    pop es
+    pop di
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_dotent - write one '.'-style link into a zeroed slot
+; in:  ES:DI -> the 32-byte slot, AX = the cluster it points at
+; out: nothing (all registers preserved)
+; -----------------------------------------------------------------------------
+dskw_dotent:
+    push ax
+    push bx
+    push cx
+    mov bx, di
+    mov byte [es:bx], '.'
+    push bx
+    inc bx
+    mov cx, 10                  ; name[1..10] = spaces
+.pad:
+    mov byte [es:bx], ' '
+    inc bx
+    loop .pad
+    pop bx
+    mov byte [es:bx+DSK_R_ATTR], DSKW_DIR
+    mov [es:bx+DSK_R_CLUS], ax
+    mov word [es:bx+DSK_R_SIZE], 0
+    mov word [es:bx+DSK_R_SIZE+2], 0
+    mov ax, [dskw_time]
+    mov [es:bx+DSK_R_CTIME], ax
+    mov [es:bx+DSK_R_WTIME], ax
+    mov ax, [dskw_date]
+    mov [es:bx+DSK_R_CDATE], ax
+    mov [es:bx+DSK_R_WDATE], ax
+    mov [es:bx+DSK_R_ADATE], ax
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_rmdir - remove an EMPTY subdirectory of the current directory (18.6)
+; in:  SI = NUL 8.3 name; UI-task/window-callback context like every dskw_*
+; out: CF=0 AX=0, else CF=1 AX = FERR_*
+; clobbers: nothing else
+; -----------------------------------------------------------------------------
+dskw_rmdir:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call dskw_rmbody
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_rmbody - the rmdir pipeline (module-internal)
+; in:  SI = the name; out: CF/AX as dskw_rmdir
+;
+; The counterpart to dskw_mkbody, and the reason File > Delete on a folder is
+; not an item that can only ever fail. It is dskw_dbody's shape - mark the
+; parent's entry deleted FIRST (one sector, the commit), then free the chain
+; - and it is that order for dskw_dbody's reason: a crash between the two
+; leaks lost clusters, while the reverse would leave a live directory entry
+; pointing at free space the next write could hand to someone else. Nothing
+; is allocated ahead of the commit, so - again as in dskw_dbody - there is no
+; half-built chain and no dskw_refat rollback to run.
+;
+; The emptiness scan is where the safety actually lives, and it is
+; deliberately stricter than a host's rmdir: refusing a folder someone else
+; could have removed costs one message, while removing an occupied one costs
+; every child's clusters at once. The children's directory SECTORS live
+; inside the cluster we are about to free, so the moment it is gone nothing
+; on the volume names them any more - there is no fsck answer to that.
+; -----------------------------------------------------------------------------
+dskw_rmbody:
+    cmp byte [dsk_mntok], 1
+    je .gated
+    mov ax, FERR_NODISK
+    stc
+    ret
+.gated:
+    mov di, dskw_n83
+    call dskw_name83            ; '.' and '..' cannot be spelled (18.4), and
+    jnc .named                  ; the root has no entry, so neither can be
+    mov ax, FERR_NAME           ; the target
+    stc
+    ret
+.named:
+    call dskw_find              ; in the CURRENT directory (SPEC.md 19.2)
+    jc .out                     ; AX = FERR_NOENT / FERR_IO already
+    call dskw_ent_load
+    jc .out
+    mov al, [dskw_raw+DSK_R_ATTR]
+    test al, DSKW_NPROT
+    jnz .prot                   ; read-only, hidden, system or volume label
+    test al, DSKW_DIR
+    jz .prot                    ; a file: the caller wanted dskw_delete
+    mov ax, [dskw_raw+DSK_R_CLUS]
+    mov [dskw_oldclus], ax
+    cmp ax, 2                   ; a subdirectory always owns a real cluster,
+    jb .corrupt                 ; so anything else is corruption - and a walk
+    cmp ax, [dsk_maxclus]       ; we refuse is cheaper than one we bound
+    ja .corrupt
+
+    call dskw_isempty           ; CF=1 with AX = FERR_PROT / FERR_IO
+    jc .out
+
+    mov byte [dskw_raw], 0xE5   ; THE commit: one directory sector (18.6)
+    mov byte [dskw_zapnext], 0
+    call dskw_ent_store
+    jc .out
+    mov ax, [dskw_oldclus]      ; only now is the chain nobody's
+    call dskw_free_chain
+    call dskw_flush
+    jc .lateio                  ; committed, but the free did not land:
+    call dskw_sync              ; lost clusters, and the user should know
+    xor ax, ax
+    clc
+    ret
+.prot:
+    mov ax, FERR_PROT
+    stc
+    ret
+.corrupt:
+    mov ax, FERR_IO
+    stc
+.out:
+    ret
+.lateio:
+    push ax
+    call dskw_sync
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_isempty - does a subdirectory hold nothing but '.', '..' and free slots?
+; in:  [dskw_oldclus] = its first cluster, already bounded by the caller
+; out: CF=0 = empty; CF=1 with AX = FERR_PROT (occupied) or FERR_IO (unread)
+; clobbers: AX (the output), CF
+;
+; The walk is dsk_dirw_start / dsk_dirw_next, so the DSK_DIRW_MAX guard
+; (SPEC.md 19.2) terminates a cross-linked chain instead of spinning on it
+; with [sch_lock] raised. Four things are allowed in a slot and everything
+; else - an LFN fragment a host left behind included - counts as occupied.
+; That last case is the one worth stating: os8088 never matches or reuses LFN
+; entries (SPEC.md 18.4), so it also declines to delete the directory they
+; sit in.
+; -----------------------------------------------------------------------------
+dskw_isempty:
+    push bx
+    push cx
+    push si
+    push es
+    mov ax, LOW_SEG
+    mov es, ax
+    mov ax, [dskw_oldclus]
+    call dsk_dirw_start
+.sector:
+    call dsk_dirw_next          ; AX = the next sector's LBA
+    jc .empty                   ; the chain ended with nothing found
+    mov cx, 1
+    mov bx, dsk_secbuf
+    call disk_read
+    jc .ioerr
+    mov si, dsk_secbuf
+    mov cx, 16                  ; entries per sector
+.entry:
+    mov al, [es:si]
+    test al, al
+    jz .empty                   ; end of directory: nothing past it counts
+    cmp al, 0xE5
+    je .next                    ; a deleted entry
+    cmp al, '.'
+    jne .occupied               ; anything that is not '.' or '..'
+    mov al, [es:si+1]           ; ...and a dot link's SECOND byte is the other
+    cmp al, '.'                 ; dot or a pad space. DOS never makes a name
+    je .next                    ; like '.XT     TXT', but a foreign disk may
+    cmp al, ' '                 ; carry one, and this module trusts nothing
+    jne .occupied               ; it reads (SPEC.md 18.6)
+.next:
+    add si, 32
+    loop .entry
+    jmp short .sector
+.empty:
+    clc
+    jmp short .out
+.occupied:
+    mov ax, FERR_PROT
+    stc
+    jmp short .out
+.ioerr:
+    call dskw_ioerr             ; AX = FERR_IO / FERR_WPROT
+    stc
+.out:
+    pop es
+    pop si
+    pop cx
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -683,10 +1108,15 @@ dskw_dbody:
 ; in:  SI -> old name, DI -> new name
 ; out: CF + AX = FERR_*
 ;
-; Name bytes only: the chain, the size and the timestamps are the file's
-; own and stay untouched. The new name is parsed and its absence proved
-; BEFORE the old entry is located, so the second scan cannot disturb the
-; location the write uses.
+; Name bytes only: the chain, the size, the ATTRIBUTE and the timestamps are
+; the file's own and stay untouched. The new name is parsed and its absence
+; proved BEFORE the old entry is located, so the second scan cannot disturb
+; the location the write uses.
+;
+; Because it moves nothing but the name, this is the one path whose
+; protection mask is DSKW_NPROT (0x0F) rather than DSKW_PROT (0x1F): a
+; subdirectory may be renamed. See DSKW_NPROT up top for why that is safe
+; and SPEC.md 18.4 for why replace and delete may not do the same.
 ; -----------------------------------------------------------------------------
 dskw_nbody:
     cmp byte [dsk_mntok], 1
@@ -731,8 +1161,8 @@ dskw_nbody:
     jc .out
     call dskw_ent_load
     jc .out
-    test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT
-    jz .patch
+    test byte [dskw_raw+DSK_R_ATTR], DSKW_NPROT
+    jz .patch                   ; 0x0F, not 0x1F: a FOLDER may be renamed
     mov ax, FERR_PROT
     stc
     ret
@@ -763,12 +1193,22 @@ dskw_nbody:
 ; staleness rule enters the kernel and a written .o88 gets its icon
 ; harvested for free. It cannot repaint the Disk window (the caller may
 ; hold the gfx lock) - SPEC.md 22 covers what the user sees.
+;
+; [dsk_keepcwd] is raised for the same reason dsk_chdir raises it, and
+; leaving it out was a real bug (SPEC.md 18.4/19.2): a bare disk_mount
+; resets [dsk_cwd] to the root BY DESIGN, so every successful write, delete,
+; rename or mkdir performed inside a subdirectory silently teleported the
+; volume back to the root. The window kept showing a folder it was no longer
+; listing, and the next write resolved its name in the root instead - a
+; wrong-directory write, not just a display glitch.
 ; -----------------------------------------------------------------------------
 dskw_sync:
     push ax
     push dx
     mov dl, [disk_drive]
+    mov byte [dsk_keepcwd], 1   ; stay where the write happened (18.4)
     call disk_mount
+    mov byte [dsk_keepcwd], 0
     pop dx
     pop ax
     ret
@@ -805,6 +1245,10 @@ dskw_commit:
     mov cx, 11
     call dskw_copy11
     mov byte [dskw_raw+DSK_R_ATTR], DSKW_ARCH
+    cmp byte [dskw_isdir], 0     ; a folder is ATTR_DIRECTORY and
+    je .notdir1                 ; never ARCHIVE (SPEC.md 18.5)
+    mov byte [dskw_raw+DSK_R_ATTR], DSKW_DIR
+.notdir1:
     mov ax, [dskw_time]
     mov [dskw_raw+DSK_R_CTIME], ax
     mov ax, [dskw_date]
@@ -828,7 +1272,10 @@ dskw_commit:
     mov ax, [dskw_date]
     mov [dskw_raw+DSK_R_WDATE], ax
     mov [dskw_raw+DSK_R_ADATE], ax
+    cmp byte [dskw_isdir], 0
+    jne .noarch                 ; ORing ARCHIVE onto a directory
     or byte [dskw_raw+DSK_R_ATTR], DSKW_ARCH
+.noarch:
     call dskw_ent_store         ; CF + AX
     pop di
     pop si
@@ -861,12 +1308,11 @@ dskw_find:
     mov byte [dskw_fend], 0
     mov ax, LOW_SEG
     mov es, ax
-    xor dx, dx                  ; DX = root sector index
+    mov ax, [dsk_cwd]           ; the CURRENT directory, not the root
+    call dsk_dirw_start         ; (SPEC.md 19.2 - one walker, both shapes)
 .sector:
-    cmp dx, [dsk_rootsecs]
-    jae .noent
-    mov ax, [dsk_rootlba]
-    add ax, dx
+    call dsk_dirw_next          ; AX = next sector LBA, CF=1 = end of dir
+    jc .noent
     mov [dskw_cursec], ax
     mov cx, 1
     mov bx, dsk_secbuf
@@ -907,7 +1353,6 @@ dskw_find:
 .next:
     add si, 32
     loop .entry
-    inc dx
     jmp short .sector
 .noent:
     mov ax, FERR_NOENT
@@ -1607,7 +2052,7 @@ dskw_cursec:  resw 1            ; dskw_find: the sector being scanned
 dskw_fend:    resb 1            ; 1 = that free slot is the 00h terminator
 dskw_new:     resb 1            ; 1 = this write is creating the entry
 dskw_zapnext: resb 1            ; 1 = re-zero the slot after the one written
-dskw_pad2:    resb 1
+dskw_pad2:    resb 1            ; (dskw_isdir is NOT here - see .text above)
 
 ; --- the transfer in progress -------------------------------------------------
 dskw_seg:     resw 1            ; the caller's buffer segment (ES at entry)
