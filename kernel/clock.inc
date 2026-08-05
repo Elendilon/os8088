@@ -607,8 +607,8 @@ clk_at_dec:
 
     ; --- the century. CMOS 32h is BIOS-maintained RAM, not a register, so
     ; --- it is BCD whatever DM says - and many BIOSes never write it back.
-    ; --- Believe it only if it decodes to 19 or 20; otherwise window the
-    ; --- two digits over SPEC.md 37's own 1980..2099 range.
+    ; --- Believe it only if it decodes to 19 or 20; clk_yr_join then has the
+    ; --- second half of the test, and windows the two digits if it fails.
     mov al, [clk_rr+6]
     call clk_bcd
     jc .win
@@ -616,20 +616,13 @@ clk_at_dec:
     jb .win
     cmp al, 20
     ja .win
-    mov [clk_cent], al          ; remembered: clk_at_write puts it back
-    jmp short .year
+    mov [clk_cent], al          ; remembered: clk_at_write puts it back, which
+    jmp short .year             ; is what CORRECTS a stale one on the next Set
 .win:
     mov byte [clk_cent], 0
-    mov al, 20
-    cmp bl, 80
-    jb .year
-    mov al, 19
+    xor al, al                  ; no century byte: window the two digits
 .year:
-    mov bh, 100
-    mul bh                      ; AX = century * 100
-    mov cl, bl
-    xor ch, ch
-    add ax, cx
+    call clk_yr_join            ; in AL = century (0 = none), BL = 0..99
     mov [clk_tb_y], ax
     pop cx
     pop bx
@@ -641,6 +634,72 @@ clk_at_dec:
     pop bx
     pop ax
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; clk_yr_join - a century byte and a two-digit year into a full year
+; in:  AL = the century, 0 = this machine has no century byte at all
+;      BL = the year within it, 0..99
+; out: AX = CLK_YMIN..CLK_YMAX, always inside SPEC.md 37's own range
+; clobbers: AH
+;
+; Shared by the AT rung and by the BIOS rung, which get their century from
+; the same place: CMOS 32h, either read directly or read for us by int 1Ah
+; AH=04h. Two ways it can be useless, and only the first one is obvious:
+;
+;  - THE BYTE IS ABSENT. Many BIOSes never maintain 32h, so it reads 0FFh or
+;    plain setup data. The caller's own 19-or-20 test catches that and hands
+;    us a 0.
+;  - THE BYTE IS STALE, which looks exactly like a good one. An AT whose CMOS
+;    was defaulted holds the century its BIOS defaulted to - 19, beside the
+;    1980 that goes with it - and NOTHING rewrites 32h afterwards except a
+;    trip through the BIOS setup screen's date field. Set the clock from the
+;    outside (86Box syncing the emulated RTC to the host, a DOS `date`
+;    against a BIOS that only writes register 09h) and the two digits move to
+;    26 while the century byte stays 19. That composes to 1926.
+;
+; So the test is not "does the byte look like a century" but "does the year
+; it composes exist": this OS runs 1980..2099 (CLK_YMIN/CLK_YMAX, the range
+; the leap rule and the Date/Time page are both exact over), so 1926 is not
+; a date we mis-read - it is a byte that is not describing this clock. Window
+; the two digits instead, which is what the absent case already did.
+;
+; The window itself cannot fail: it answers 1980..1999 for 80..99 and
+; 2000..2079 below that, so every path out of here is in range and the clamp
+; in clk_commit stays what it was written to be - the guard for the two XT
+; chips, which carry no year at all and RECONSTRUCT one (SPEC.md 37.90).
+;
+; [clk_cent] is deliberately not cleared for the stale case: it means "this
+; machine HAS a century byte", the byte plainly does, and leaving it set is
+; what lets clk_at_write put 20 back into 32h the first time the user sets
+; the clock - fixing the CMOS for DOS as well as for us.
+; -----------------------------------------------------------------------------
+clk_yr_join:
+    push cx
+    or al, al
+    jz .win                     ; no century byte at all
+    mov ah, 100
+    mul ah                      ; AX = century * 100
+    mov cl, bl
+    xor ch, ch
+    add ax, cx
+    cmp ax, CLK_YMIN
+    jb .win                     ; composed a year this OS does not have: the
+    cmp ax, CLK_YMAX            ; byte is stale, not a century
+    jbe .out
+.win:
+    mov al, 20
+    cmp bl, 80
+    jb .wj
+    mov al, 19
+.wj:
+    mov ah, 100
+    mul ah
+    mov cl, bl
+    xor ch, ch
+    add ax, cx
+.out:
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1814,11 +1873,11 @@ clk_bios_read:
     je .none
     mov bl, 0                   ; the century, if this BIOS keeps one. A byte
     mov al, ch                  ; that does not decode is NOT fatal - some
-    call clk_bcd                ; BIOSes simply do not maintain it, and the
-    jc .cwin                    ; window rule below covers SPEC.md 37's own
-    cmp al, 19                  ; 1980..2099 range without it
-    jb .cwin
-    cmp al, 20
+    call clk_bcd                ; BIOSes simply do not maintain it, and
+    jc .cwin                    ; clk_yr_join's window covers SPEC.md 37's own
+    cmp al, 19                  ; 1980..2099 range without it. This is CMOS 32h
+    jb .cwin                    ; again, read for us instead of by us, so it
+    cmp al, 20                  ; goes stale in exactly the same way
     ja .cwin
     mov bl, al
 .cwin:
@@ -1828,13 +1887,6 @@ clk_bios_read:
     cmp al, 99
     ja .none
     mov bh, al
-    or bl, bl
-    jnz .cent
-    mov bl, 20
-    cmp bh, 80
-    jb .cent
-    mov bl, 19
-.cent:
     mov al, dh                  ; month
     call clk_bcd
     jc .none
@@ -1851,12 +1903,9 @@ clk_bios_read:
     cmp al, 31
     ja .none
     mov [clk_tb_d], al
-    mov al, bl                  ; year = century*100 + yy
-    mov bl, 100
-    mul bl                      ; AX = AL * BL
-    mov bl, bh
-    mov bh, 0
-    add ax, bx
+    mov al, bl                  ; AL = the century (0 = none), BL = the two
+    mov bl, bh                  ; digits: clk_yr_join's argument pair
+    call clk_yr_join
     mov [clk_tb_y], ax
     clc
     jmp .out

@@ -9050,9 +9050,9 @@ and **24/12** (1 = 24-hour) are read and obeyed, never rewritten; a DM bit
 that lies is a known failure mode, so a decode that fails is retried the
 other way round. 12-hour mode's PM bit is stripped *before* BCD decoding
 (1 PM is 81h, which is legal BCD for 81) and re-applied *after* BCD
-encoding. The century comes from CMOS 32h only if it decodes to 19 or 20,
-otherwise from a window over §37's own 1980..2099 range; `[clk_cent]` = 0
-means this BIOS keeps no century byte and `clk_at_write` must not invent
+encoding. The century comes from CMOS 32h, under the two-part test of
+§37.91; `[clk_cent]` = 0 means this BIOS keeps no century byte and
+`clk_at_write` must not invent
 one. Rung 2 brackets its read with the rollover status bit at 14h (read to
 clear, read the fields, read again; set = discard), bounded by
 `CLK_RETRY` because the loop is inside a critical section. Rung 3 has no
@@ -9086,6 +9086,51 @@ with nothing at 2C0h are the negative test: the probe must reject and boot
 to the fallback date rather than hang or claim a phantom clock. Rungs 2 and
 3 have no positive test outside 86Box (`isartc_type = a6pak`) and real
 hardware.
+
+### 37.91 The century byte, and the year it composes
+
+An MC146818 has no century register. Register 09h holds **two digits** and
+nothing else, so the century is software's problem, and the answer every
+AT-class BIOS settled on is a byte of ordinary CMOS RAM at **32h** —
+BIOS-maintained data, not a chip register, and therefore packed BCD whatever
+Register B's DM bit says about the counters. `clk_yr_join` is the one place
+either rung that can see that byte (rung 1 directly, rung 4 through int 1Ah
+AH=04h, which reads the same location) turns it plus the two digits into a
+year, and it applies **two** tests, because the byte fails in two different
+ways:
+
+1. **Absent.** Plenty of BIOSes never maintain 32h at all, so it reads 0FFh,
+   or holds unrelated setup data. Caught by the value: believe it only if it
+   decodes as BCD to 19 or 20.
+2. **Stale, which looks exactly like a good byte.** A machine whose CMOS was
+   defaulted holds the century its BIOS defaulted to — **19**, beside the
+   1980 that goes with it — and nothing rewrites 32h afterwards except a trip
+   through the BIOS setup screen's own date field. Set the clock any other
+   way (86Box syncing the emulated RTC to the host clock, DOS `date` against
+   a BIOS that writes only register 09h) and the two digits move to 26 while
+   the century byte stays 19.
+
+So the second test is on the **result**, not the byte: this OS runs
+1980..2099 (`CLK_YMIN`/`CLK_YMAX` — the range the leap rule and the Date/Time
+page are both exact over), so a composed 1926 is not a date read wrong, it is
+a byte that is not describing this clock. Both failures fall back to the same
+place, a **window** over that range: two digits ≥ 80 are 19xx, below 80 are
+20xx. The window cannot itself fail — it answers 1980..2079 for every input —
+so every path out is in range, and `clk_commit`'s clamp stays what it was
+written to be: the guard for the two XT chips, which carry no year at all and
+*reconstruct* one (§37.90 rungs 2 and 3).
+
+`[clk_cent]` is **not** cleared for the stale case. It means "this machine has
+a century byte", the byte plainly does, and leaving it set is what makes
+`clk_at_write` put 20 back into 32h the first time the user sets the clock —
+correcting the CMOS for DOS as well as for us.
+
+Missing test 2 is not a subtle wrong-by-one: the composed 1926 hits the clamp
+and the machine boots reading **1980** with its month, day, hour and minute
+all perfectly correct, which reads as a year field that was never implemented
+rather than as a century byte that was believed. It is reproducible under
+QEMU by forcing `clk_rr+6` to 19h, and 86Box's 286 targets (`vm/286`,
+`vm/286-sound`) show it for real.
 
 ## 38. fdlg.inc — the Standard File dialog
 
