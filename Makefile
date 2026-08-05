@@ -85,8 +85,10 @@ KERNEL_SRC := kernel/kernel.asm
 KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 debug test test-snd xt xt-640 xt-cga xt-hercules \
-        286 386sx 386 xt-sound 286-sound 386-sound check-images clean
+        286 386sx 386 xt-sound 286-sound 386-sound check-images bench clean
 
+# `all` deliberately does NOT build anything under tests/ (see the bench block
+# below). The testing apps are on-demand only: `make bench`.
 all: $(IMG) $(IMG360) $(APPSIMG) $(APPSIMG360)
 
 $(BUILD):
@@ -153,8 +155,8 @@ $(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) tools/os88disk.py
 # apps disks - their directory order is pinned (SPEC.md 24) - so it rides its
 # own scratch image, the filetest precedent:
 #   make test-snd ADLIB=1 TESTAPPS=build/fmtest.img
-$(BUILD)/fmtest.bin: apps/fmtest/fmtest.asm apps/os88api.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/fmtest/fmtest.asm
+$(BUILD)/fmtest.bin: tests/fmtest/fmtest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fmtest/fmtest.asm
 	@echo "fmtest: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/fmtest.o88: $(BUILD)/fmtest.bin tools/os88pkg.py
@@ -166,8 +168,8 @@ $(BUILD)/fmtest.img: $(BUILD)/fmtest.o88 tools/os88disk.py
 # SBTEST: the Sound Blaster gate package (SPEC.md 34.5/34.6). Like fmtest it
 # is never on the shipped apps disks and rides its own scratch image:
 #   make test-snd SB16=1 TESTAPPS=build/sbtest.img
-$(BUILD)/sbtest.bin: apps/sbtest/sbtest.asm apps/os88api.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/sbtest/sbtest.asm
+$(BUILD)/sbtest.bin: tests/sbtest/sbtest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/sbtest/sbtest.asm
 	@echo "sbtest: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/sbtest.o88: $(BUILD)/sbtest.bin tools/os88pkg.py
@@ -217,9 +219,9 @@ $(BUILD)/piano.bin: apps/piano/piano.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/piano.o88: $(BUILD)/piano.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/piano.bin -o $@
 
-# Recorder (SPEC.md 35): the sound layer's recording and streaming client,
-# ported back from `main` once the driver put SND_CAP_PCM_IN and PCM_BG
-# streams behind SOUND.DRV (SPEC.md 51.4). It needs no card to be USEFUL -
+# Recorder (SPEC.md 35): the sound layer's recording and streaming client.
+# SND_CAP_PCM_IN and PCM_BG streams live behind SOUND.DRV (SPEC.md 51.4).
+# It needs no card to be USEFUL -
 # DEMO stages a built-in sweep and PLAY falls back to speaker clips - so it
 # ships on every disk and greys REC on a machine with no Sound Blaster.
 $(BUILD)/recorder.bin: apps/recorder/recorder.asm apps/os88api.inc | $(BUILD)
@@ -230,12 +232,13 @@ $(BUILD)/recorder.bin: apps/recorder/recorder.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/recorder.o88: $(BUILD)/recorder.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/recorder.bin -o $@
 
-# Tracker (SPEC.md 45): a four-channel ProTracker MOD player, ported back
-# from `main` with the rest of the sound apps. Its mixer is a worker task
+# Tracker (SPEC.md 45): a four-channel ProTracker MOD player. Its mixer is
+# a worker task
 # feeding a RING-mode stream (SPEC.md 34.5), which is the only thing in the
 # tree that uses ring mode at all, and the module blob is a heap claim read
-# with OSAPI_FILE_READBIG - the one file op with no 64KB ceiling, which is
-# why it exists. Three sources, one binary.
+# with OSAPI_FILE_READ, whose destination advances by SEGMENT (SPEC.md
+# 18.4.1) - which is the only reason a 116KB module fits in one call. Three
+# sources, one binary.
 $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
                       apps/tracker/trkui.inc apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
@@ -324,7 +327,7 @@ $(BUILD)/arkanoid.bin: apps/arkanoid/arkanoid.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/arkanoid.o88: $(BUILD)/arkanoid.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/arkanoid.bin -o $@
 
-# Missile Command, the twelfth shipped package (SPEC.md 47): a port of Atari's
+# Missile Command, the twelfth shipped package (SPEC.md 48): a port of Atari's
 # 1980 arcade game from the 6502 sources (W3MAIN/W3DSUP/W3COMN). Like Arkanoid
 # the game loop is a WORKER TASK (SPEC.md 20.6), but the aiming is the mouse
 # rather than the keyboard, and it runs windowed OR on the fullscreen surface
@@ -337,11 +340,10 @@ $(BUILD)/missile.bin: apps/missile/missile.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/missile/missile.asm
 	@echo "missile: $(call FILESIZE,$@) bytes"
 
-
 $(BUILD)/missile.o88: $(BUILD)/missile.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/missile.bin -o $@
 
-# TameGram, the thirteenth shipped package (SPEC.md 48): a four-direction,
+# TameGram, the thirteenth shipped package (SPEC.md 49): a four-direction,
 # dual-faction containment matrix contributed by Jason Page (store.amfile.org),
 # credited under its own name in the bar (OSAPI_ABOUT_SET, SPEC.md 12.2). Like
 # Arkanoid and Missile Command the game loop is a WORKER TASK (SPEC.md 20.6),
@@ -356,31 +358,32 @@ $(BUILD)/tamegram.bin: apps/tamegram/tamegram.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/tamegram/tamegram.asm
 	@echo "tamegram: $(call FILESIZE,$@) bytes"
 
-
 $(BUILD)/tamegram.o88: $(BUILD)/tamegram.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/tamegram.bin -o $@
 
-# FILETEST, the file-API gate package (SPEC.md 18.4): drives the file slots
-# 0x0098..0x00A8 end to end (write, read-back, replace, rename, delete,
-# dfree, and the refusals). Never on the shipped apps disks - their
+# FILETEST, the file-API gate package (SPEC.md 18.4/18.4.1): drives the file
+# slots end to end (write, read-back, replace, rename, delete, dfree and the
+# refusals) with both shapes of buffer - a heap claim past the 64KB horizon
+# and this package's own bss. Never on the shipped apps disks - their
 # directory order is pinned - it gets its own scratch image, mounted with:
 #   make test TESTAPPS=build/filetest.img
 # then, after QMP quit, checked from the host with:
 #   python3 tools/os88disk.py --verify build/filetest.img
-$(BUILD)/filetest.bin: apps/filetest/filetest.asm apps/os88api.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/filetest/filetest.asm
+$(BUILD)/filetest.bin: tests/filetest/filetest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/filetest/filetest.asm
 	@echo "filetest: $(call FILESIZE,$@) bytes"
 
 
 $(BUILD)/filetest.o88: $(BUILD)/filetest.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/filetest.bin -o $@
 
-# BIG.DAT: 96KB, larger than any other file op can move, so filetest's
-# readbig check has something to read. Byte i is (i >> 9) - one distinct value
-# per 512-byte sector - so a destination that failed to advance by SEGMENT
-# reads a different byte rather than a plausible one. Generated, never
-# committed: 96KB of git churn per rebuild for a fixture is not worth it, and
-# it rides the filetest image only (never the shipped apps disks).
+# BIG.DAT: 96KB, well past the 64KB horizon the file API used to stop at, so
+# filetest's big-file checks have something to read - and, once read, to write
+# straight back out again. Byte i is (i >> 9) - one distinct value per
+# 512-byte sector - so a buffer that failed to advance by SEGMENT reads a
+# different byte rather than a plausible one. Generated, never committed:
+# 96KB of git churn per rebuild for a fixture is not worth it, and it rides
+# the filetest image only (never the shipped apps disks).
 $(BUILD)/big.dat: Makefile | $(BUILD)
 	python3 -c "import sys; n=96*1024; sys.stdout.buffer.write(bytes((i>>9)&0xFF for i in range(n)))" > $@
 
@@ -389,9 +392,78 @@ $(BUILD)/filetest.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
 
 # The same package on a legally fragmented volume: --scramble interleaves the
 # chains, so the write path's allocator and the free/replace paths meet holes
-# rather than a clean run of clusters.
-$(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 --scramble $(BUILD)/filetest.o88 $(BUILD)/mines.o88 $(BUILD)/piano.o88
+# rather than a clean run of clusters. BIG.DAT rides this image too - checks
+# 2..5 need it, and a 96KB chain walked across holes is the strongest version
+# of what --scramble exists to test.
+$(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 --scramble $(BUILD)/filetest.o88 $(BUILD)/mines.o88 $(BUILD)/piano.o88 $(BUILD)/big.dat
+
+# --- the benchmark disk, from tests/ (ON DEMAND: `make bench`) ---------------
+#
+# These are the only packages in the tree built from OUTSIDE apps/, and the
+# folder is the point: tests/ holds testing apps, `all` never builds them, and
+# no artifact of theirs is tracked. That keeps a normal build - and every
+# shipped image - free of them, and it keeps `make check-images` honest, which
+# reads its list from `git ls-files build`: an untracked bench.img is invisible
+# to it, where a tracked one would have to be built by `all` or read as ORPHAN.
+# The DEVELOPMENT of these apps happens on the `testing` branch; what lands
+# here is a finished harness, so experimental never carries the midway
+# artifacts of writing one.
+#
+# FONTBENCH prices the PRIMITIVE (SPEC.md 6.1.1): the same ten-character run
+# drawn four ways - the hand-written gfx_fill + font_str pair and one
+# font_run, each at a byte-aligned x and again at x+5.
+#
+# TYPEBENCH prices the KEYSTROKE (SPEC.md 11.94): 40 random characters typed
+# into a 40-cell line with the whole line redrawn after each one, which is
+# what np_redraw does to its dirty band. It is snappable itself and says in
+# its header whether the snap took.
+#
+# BOTH ride one disk, built in both geometries, because they answer the same
+# question at two scales and you want them side by side:
+#
+#   make bench                                             # build the disks
+#   make test                            TESTAPPS=build/bench.img   # 1.44M, QEMU
+#   make test VIDEO=cga                  TESTAPPS=build/bench.img
+#   make test VIDEO=herc HERCSEG=0x7000  TESTAPPS=build/bench.img
+#
+# `make test TESTAPPS=build/bench.img` builds the disk on demand by itself -
+# TESTAPPS is a prerequisite of the test targets - so `make bench` is for
+# building it without booting (e.g. to write build/bench360.img to a floppy).
+#
+# build/bench360.img is the same disk at 9 spt / 40 cylinders - what an XT
+# BIOS can actually read, so it is the one to write to a real 5.25" floppy or
+# hand to 86Box. THAT is where these numbers are worth taking: on a 4.77MHz
+# 8088 the PIT is a wall clock and the microsecond column means microseconds.
+#
+# Under QEMU it does not. QEMU runs the guest at host speed, so add
+# `-icount shift=3,sleep=off` and the PIT counts guest INSTRUCTIONS instead -
+# reproducible and machine-independent, but not time, and it understates the
+# mono win because what alignment removes is disproportionately memory
+# traffic (SPEC.md 6.1.1).
+BENCHPKGS := $(BUILD)/fontbnch.o88 $(BUILD)/typebnch.o88
+
+bench: $(BUILD)/bench.img $(BUILD)/bench360.img
+
+$(BUILD)/fontbnch.bin: tests/fontbench/fontbench.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fontbench/fontbench.asm
+	@echo "fontbnch: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/fontbnch.o88: $(BUILD)/fontbnch.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/fontbnch.bin -o $@
+
+$(BUILD)/typebnch.bin: tests/typebench/typebench.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/typebench/typebench.asm
+	@echo "typebnch: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/typebnch.o88: $(BUILD)/typebnch.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/typebnch.bin -o $@
+
+$(BUILD)/bench.img: $(BENCHPKGS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BENCHPKGS)
+
+$(BUILD)/bench360.img: $(BENCHPKGS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BENCHPKGS)
 
 # There WAS a third image here - the same package on a FAT16 volume, built on
 # the 2.88MB test geometry, which exercised the one part of the write path
@@ -402,19 +474,21 @@ $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 tools/os88disk.py
 
 # The software floppies (drive B:) hold packages, not boot code - os88fs only.
 # The volume is FOLDERED (SPEC.md 19.2): the root holds APPS and GAMES and
-# nothing else, so the root indices are 0 = APPS, 1 = GAMES and a package is
-# two double-clicks away rather than one. Order inside each folder is pinned
-# and new packages ALWAYS append at the end of their folder - the scripted
-# tests click the Disk window by row index, and every index inside a folder
-# is now independent of what the other folder holds. (Recorder came BACK with
-# the driver - SPEC.md 34.5/34.6/51.4 - so APPS holds the same six packages
-# `main` does; it sits LAST here and third there, because the append rule
-# above outranks matching the other fork's row order.)
-APPS_TOOLS := $(BUILD)/hello.o88 $(BUILD)/notepad.o88 $(BUILD)/piano.o88 \
-              $(BUILD)/fractal.o88 $(BUILD)/paint.o88 $(BUILD)/recorder.o88 \
-              $(BUILD)/tracker.o88 $(BUILD)/artful.o88
-APPS_GAMES := $(BUILD)/mines.o88 $(BUILD)/solitair.o88 $(BUILD)/arkanoid.o88 \
-              $(BUILD)/missile.o88 $(BUILD)/tamegram.o88
+# nothing else, so a package is two double-clicks away rather than one.
+#
+# The order of these lists DOES NOT MATTER and nothing may be built on it.
+# It used to: the listing was directory order, so the order a package was
+# named here was the row it appeared on, new packages had to append at the
+# end of their folder, and the scripted tests clicked by that index. The
+# mount sorts by name now (SPEC.md 19.4), so a volume lists alphabetically
+# whoever wrote it and whatever order its entries are stored in - which is
+# also the only answer that survives a host OS writing to the disk. What is
+# left here is which packages ship and which folder each lands in.
+APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/fractal.o88 $(BUILD)/hello.o88 \
+              $(BUILD)/notepad.o88 $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
+              $(BUILD)/recorder.o88 $(BUILD)/tracker.o88
+APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/mines.o88 $(BUILD)/missile.o88 \
+              $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
 
 # Data that ships beside the programs that read it (SPEC.md 24): os88disk.py
 # treats anything not ending .o88 as a plain file. Tracker with no module to
@@ -491,17 +565,25 @@ ifeq ($(NOCARD)$(ADLIB)$(SB16),)
 DEVCARD = -audiodev none,id=devsnd -device adlib,audiodev=devsnd
 endif
 
-test: $(IMG) $(APPSIMG)
+# TESTAPPS swaps the B: disk for a scratch image - the filetest/fmtest/sbtest
+# gates and the bench disk. It MUST be defined above the first target that
+# names it: prerequisites are expanded when the rule is READ, so a definition
+# below `test:` leaves that prerequisite empty. It sat below for a long time
+# and `test` therefore hard-coded $(APPSIMG) - so `make test TESTAPPS=...`
+# silently booted the SHIPPED apps disk, which reads as the scratch image
+# having failed to build rather than never having been mounted.
+TESTAPPS ?= $(APPSIMG)
+
+test: $(IMG) $(TESTAPPS)
 	$(QEMU) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
-		-drive file=$(APPSIMG),format=raw,if=floppy,index=1 \
+		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 \
 		-display none -qmp unix:build/qmp.sock,server,nowait -daemonize -pidfile build/qemu.pid \
 		$(CARDAUDIO) $(ADLIBDEV) $(SBDEV) $(DEVCARD)
 
 # `make test` plus audio capture (SPEC.md 34): the PC speaker renders into
 # build/snd.wav, finalized when QMP `quit` stops QEMU. Verify with
-# tools/sndcheck.py (RMS + dominant-frequency assertions). TESTAPPS swaps
-# the B: disk for a scratch image (the filetest gate above).
-TESTAPPS ?= $(APPSIMG)
+# tools/sndcheck.py (RMS + dominant-frequency assertions). TESTAPPS (defined
+# above `test`) swaps the B: disk for a scratch image.
 test-snd: $(IMG) $(TESTAPPS)
 	$(QEMU) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
 		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 \

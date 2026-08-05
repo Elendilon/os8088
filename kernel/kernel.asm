@@ -93,7 +93,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; had no heap and could load nothing).
 ;
 ; **Everything from KERNEL_SEG to the end of task 0's stack is the kernel**,
-; and guard 1 holds that whole span to KERN_BUDGET - 75KB just above the
+; and guard 1 holds that whole span to KERN_BUDGET - 79KB just above the
 ; BIOS data area. Code, data, scratch, the FAT snapshot, the disk buffers and
 ; every task stack are inside it. The one deliberate exception is the menu
 ; save-under, which is a heap claim (SPEC.md 12.4/50) because it is 20KB that
@@ -106,13 +106,13 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 76800           ; the whole kernel, guard 1. Growing past this
+KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
                                 ; is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
                                 ; It has moved three times, every one asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
-                                ; that came with it from the other fork;
+                                ; that came with it (wm_geom, wm_about_set);
                                 ; 71,680 -> 72,704 for the driver subsystem
                                 ; (SPEC.md 51) and the Control Panel pages
                                 ; that drive it - which BUYS more than it
@@ -123,7 +123,16 @@ KERN_BUDGET equ 76800           ; the whole kernel, guard 1. Growing past this
                                 ; SPEC.md 51.5's keyed SYSTEM.CFG, granted in
                                 ; ADVANCE of further work with an optimisation
                                 ; pass to follow, so the slack under this one
-                                ; is temporary rather than an invitation
+                                ; is temporary rather than an invitation; and
+                                ; 72,704 -> 80,896 for the file manager's
+                                ; Cut/Copy/Paste, its recursive paste engine
+                                ; and the drag (SPEC.md 22.3/22.4), which
+                                ; overran the previous figure by 512 bytes
+                                ; with the drag still to come. Asked for and
+                                ; granted with the 4KB it costs the claim heap
+                                ; on every machine named up front - Paint
+                                ; gives up one canvas tier for it, and the
+                                ; 128KB RAM floor is untouched
 
 ; The relocated boot sector (boot/boot.asm). The kernel now lands at 0x00600
 ; and runs up through 0x7C00, where the BIOS put the sector that is reading
@@ -131,7 +140,7 @@ KERN_BUDGET equ 76800           ; the whole kernel, guard 1. Growing past this
 ; offset so every label in it still resolves at org 0x7C00. BOOT_RELOC:7C00
 ; is linear 0x13C00; its stack grows down from there, and guard 5 keeps the
 ; kernel clear of both. Both constants are mirrored in boot/boot.asm.
-BOOT_RELOC  equ 0x0C00          ; 0x0C00*16 + 0x7C00 = linear 0x13C00
+BOOT_RELOC  equ 0x0D40          ; 0x0D40*16 + 0x7C00 = linear 0x15000
 BOOT_LIN    equ BOOT_RELOC*16 + 0x7C00
 BOOT_STACK  equ 2048            ; stack room below it
 
@@ -348,14 +357,20 @@ osapi_table:
                                   ;          answer CF=1 with no driver, which
                                   ;          is the same thing the held cells
                                   ;          they replaced did (SPEC.md 34.5/
-                                  ;          34.6); holding the two numbers is
-                                  ;          what puts every slot below back
-                                  ;          on `main`'s address
+                                  ;          34.6). The two numbers are held
+                                  ;          rather than reused, which is what
+                                  ;          fixes every slot below them
     OSAPI_SLOT wm_sizable         ; 0x0108 - window features (SPEC.md 11.1)
     OSAPI_SLOT wm_fullscreen      ; 0x0110 - fullscreen (SPEC.md 11.2)
     OSAPI_SLOT wm_grow_paint      ; 0x0118 - grow-box restore (SPEC.md 11.1)
     OSAPI_JSLOT api_file_write    ; 0x0120 - files (SPEC.md 18.4/20.3): N,
     OSAPI_JSLOT api_file_read     ; 0x0128   because ES:BX is the data buffer
+                                  ;          - and DX:CX its 32-bit count, so
+                                  ;          these two are the WHOLE read/write
+                                  ;          surface (SPEC.md 18.4.1). DX is
+                                  ;          an argument to both and an output
+                                  ;          of the read, and the N stub keeps
+                                  ;          its hands off it
     OSAPI_JSLOT api_file_delete   ; 0x0130   and the name still has to cross
     OSAPI_JSLOT api_file_rename   ; 0x0138   (two names, this one)
     OSAPI_SLOT dskw_dfree         ; 0x0140
@@ -381,17 +396,17 @@ osapi_table:
                                   ;          ES:SI is the caller's own choice,
                                   ;          so no X stub is involved either
     OSAPI_SLOT wm_geom            ; 0x01B0 - content size + visibility
-                                  ;          (SPEC.md 11): the one read a
-                                  ;          package on EITHER fork can make
-; --- every slot main publishes keeps main's NUMBER (SPEC.md 20.8) -----------
-;     The fork moved this block down three cells when it retired the
-;     paragraph-counting arena, and a package built against main's SDK then
-;     called wm_resize where it meant cm_alloc. main's numbers are the ABI:
+                                  ;          (SPEC.md 11): content size
+                                  ;          without touching the record
+; --- every published slot keeps its NUMBER (SPEC.md 20.8) -------------------
+;     This block was once moved down three cells when the paragraph-counting
+;     arena was retired, and a package built against the older SDK then
+;     called wm_resize where it meant cm_alloc. The numbers are the ABI:
 ;     the three arena slots stay at 0x01B8..0x01C8 as wrappers over the
 ;     claim heap (osapi_cm_*, kernel/memory.inc), the six slots after them
-;     stay where main put them, and everything this fork ADDED starts at
-;     0x0200 - main's next free number, which merging makes ours.
-    OSAPI_JSLOT api_cm_alloc      ; 0x01B8 - main's v3 arena (SPEC.md 20.8):
+;     keep their published numbers, and everything ADDED since starts at
+;     0x0200 - the first free number above them.
+    OSAPI_JSLOT api_cm_alloc      ; 0x01B8 - the v3 arena (SPEC.md 20.8):
                                   ;          AX = PARAGRAPHS -> AX = segment.
                                   ;          X - the owner fence needs the
                                   ;          caller's segment
@@ -410,11 +425,13 @@ osapi_table:
                                   ;          no stub is needed
     OSAPI_SLOT wm_about_set       ; 0x01E0 - the app-name pull-down (12.2):
                                   ;          BX = win, SI = your About handler
-    OSAPI_JSLOT api_file_readbig  ; 0x01E8 - the one file op with no 64KB
-                                  ;          ceiling (SPEC.md 18.4): N, and
-                                  ;          the destination advances BY
-                                  ;          SEGMENT, so a package can load a
-                                  ;          116KB module into a heap claim
+    OSAPI_SLOT dskw_gone          ; 0x01E8 - RETIRED (SPEC.md 18.4.1/20.8):
+                                  ;          this was readbig, the one file op
+                                  ;          with no 64KB ceiling. dskw_read
+                                  ;          has none either now, so the cell
+                                  ;          answers CF=1 / AX = FERR_NAME
+                                  ;          rather than being reused - a
+                                  ;          shipped slot keeps its contract
     OSAPI_SLOT osapi_gfx_dbuf     ; 0x01F0 - a package's own bb_set (SPEC.md
                                   ;          32): AL = 1 arm / 0 disarm, out
                                   ;          AL = the state before, to hand
@@ -424,7 +441,7 @@ osapi_table:
                                   ;          5.5): AX/BX/CX/DX = the rect,
                                   ;          SI = signed dy. The vacated rows
                                   ;          are the caller's to repaint
-; --- and from here on, the slots this fork ADDS --------------------------------
+; --- and from here on, the slots added since ----------------------------------
     OSAPI_JSLOT api_mem_claim     ; 0x0200 - the claim heap (SPEC.md 50.3):
     OSAPI_JSLOT api_mem_free      ; 0x0208   X, same fence as the spawn
     OSAPI_SLOT osapi_mem_avail    ; 0x0210
@@ -469,7 +486,45 @@ osapi_table:
                                   ;          mem_claim, because every existing
                                   ;          caller passes garbage there and
                                   ;          the failure would be silent
-osapi_table_end:                  ; 0x0258
+    OSAPI_JSLOT api_font_run      ; 0x0258 - one OPAQUE text run (SPEC.md 6.1):
+                                  ;          CX = x, DX = y, SI = ASCIIZ,
+                                  ;          AL = ink, AH = background. Draws
+                                  ;          the cells' background AND their
+                                  ;          glyphs in one pass, so the two
+                                  ;          cannot disagree about the clip
+                                  ;          (11.3's granularity rule) and, on
+                                  ;          a 1bpp adapter at a byte-aligned
+                                  ;          x, a cell row is one store. X:
+                                  ;          the string is package data.
+                                  ;          APPENDED after the cm_* trio
+                                  ;          rather than kept at 0x0240 - the
+                                  ;          three arena cells that had
+                                  ;          been held empty are filled now
+                                  ;          (SPEC.md 20.8), and everything
+                                  ;          above them moved 24 bytes up
+    OSAPI_SLOT wm_top             ; 0x0260 - out BX = the frontmost VISIBLE
+                                  ;          window, 0 if none. The one thing
+                                  ;          a package could not find out: it
+                                  ;          learns it HAS focus (W_ONCLICK)
+                                  ;          and never that it LOST it, so a
+                                  ;          real-time app had no way to pause
+                                  ;          when another window came forward
+                                  ;          (SPEC.md 44.8). Compare against
+                                  ;          your own window ptr; W_FLAGS bit1
+                                  ;          only says VISIBLE, which a wholly
+                                  ;          covered window still is
+    OSAPI_SLOT wm_snap            ; 0x0268 - BX = window, AL = 0 clear / non-0
+                                  ;          set: keep this window's CONTENT
+                                  ;          ORIGIN on a multiple of 8, so its
+                                  ;          text can take font_run's
+                                  ;          single-store path (SPEC.md
+                                  ;          11.94/6.1). Content, not frame:
+                                  ;          the border makes them differ by
+                                  ;          one and the kernel owns that
+                                  ;          pixel. Mono only - it is a no-op
+                                  ;          on VGA, so an app may set it
+                                  ;          unconditionally
+osapi_table_end:                  ; 0x0270
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -477,8 +532,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 73 * 8
-%error "os8088 API jump table must be exactly 73 8-byte slots"
+%if OSAPI_TABLE_LEN != 76 * 8
+%error "os8088 API jump table must be exactly 76 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -502,6 +557,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %endmacro
 
     OSAPI_XSTUB api_font_str,   font_str_x
+    OSAPI_XSTUB api_font_run,   font_run_x
     OSAPI_XSTUB api_font_width, font_width_x
     OSAPI_XSTUB api_wm_create,  wm_create
     OSAPI_XSTUB api_pkg_spawn,  inst_pkg_spawn
@@ -542,7 +598,6 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_NSTUB api_file_write,  dskw_write
     OSAPI_NSTUB api_file_read,   dskw_read
     OSAPI_NSTUB api_file_delete, dskw_delete
-    OSAPI_NSTUB api_file_readbig, dskw_readbig
     OSAPI_NSTUB api_fdlg_open,   fdlg_open
 
 ; ...and the two-name case, which needs DI as well and so is written out
@@ -823,6 +878,9 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
                                 ; disk.inc, whose constants and layout it uses
 %include "loader.inc"
 %include "files.inc"
+%include "filecp.inc"        ; Cut/Copy/Paste and the recursive paste
+                                ; engine (SPEC.md 22.3) - after files.inc,
+                                ; whose fm_* it reads
 %include "fdlg.inc"             ; the Standard File dialog (SPEC.md 38)
 %include "icons.inc"
 %include "desk.inc"
@@ -865,7 +923,7 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 
 ; 1. THE budget: the whole kernel - image, scratch, FAT snapshot, disk
 ;    buffers and every task stack - is one span starting at KERNEL_SEG, and
-;    it fits KERN_BUDGET (75KB) just above the BIOS data area. This is the guard
+;    it fits KERN_BUDGET (79KB) just above the BIOS data area. This is the guard
 ;    the project is steering by; raising KERN_BUDGET is a decision, not a
 ;    build fix (docs/KERNEL-MEMORY.md).
 %if KERN_SIZE > KERN_BUDGET

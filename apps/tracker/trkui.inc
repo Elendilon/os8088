@@ -52,6 +52,13 @@ TL_SCX    equ 24                    ; scope grid origin
 TL_SCY    equ 26
 TL_SCDX   equ 28                    ; cell pitch
 TL_SCDY   equ 30
+TUI_VUH   equ 3                     ; volume-bar height, px. It was 8 - a
+                                    ; full glyph row - and a bar is the one
+                                    ; thing here that is redrawn on EVERY
+                                    ; frame, so its height is a direct
+                                    ; multiplier on the per-frame fill cost.
+                                    ; Three rows still reads as a level meter
+                                    ; and costs three eighths of the pixels
 TL_SCW    equ 32                    ; cell size
 TL_SCH    equ 34
 TL_SCPR   equ 36                    ; scopes per row (2 or 4)
@@ -287,6 +294,56 @@ tui_textc:                          ; SI = string, CX = x, DX = y
     call OSAPI_FONT_STR
     pop dx
     pop cx
+    ret
+
+; tui_runc - one OPAQUE text run: SI = string, CX = x, DX = y,
+;            AL = ink role, AH = background role (TC_*)
+;
+; On a mono adapter this is OSAPI_FONT_RUN (SPEC.md 6.1), which paints the
+; cells' background and their glyphs in one pass and - because the pattern
+; columns are laid out on 8-pixel boundaries - writes each cell row as a
+; single store instead of a shift and a read-modify-write. That is the whole
+; of the pattern view's text cost on the machines that cannot afford it, and
+; it is measured rather than hoped: for a run this length it is 1.26x the
+; instructions and 2.85x the framebuffer traffic (SPEC.md 6.1.1), the same on
+; Hercules and on CGA. The harness that says so is apps/fontbench, which lives
+; on the testing branch - the numbers are recorded in 6.1.1 either way.
+;
+; On a colour adapter [bb_on] is 0 unless Smooth borrowed the back buffer, so
+; the kernel would fall back to its own fill plus FONT_STR - a second fill of
+; ground the caller has already covered. There it stays FONT_STR: the row
+; band was filled once, which is cheaper than filling it again per run.
+tui_runc:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    cmp byte [tui_mono], 0
+    jne .run
+    call tui_setcol                 ; colour: the caller already filled
+    call tui_textc
+    jmp short .out
+.run:
+    push ax
+    mov bl, ah                      ; resolve both roles through the table
+    xor bh, bh
+    mov ah, [tui_col + bx]
+    mov [tui_rbg], ah
+    pop ax
+    mov bl, al
+    xor bh, bh
+    mov al, [tui_col + bx]
+    mov ah, [tui_rbg]
+    add cx, [tui_ox]
+    add dx, [tui_oy]
+    call OSAPI_FONT_RUN
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 tui_charc:                          ; AL = char, CX = x, DX = y
@@ -569,6 +626,17 @@ tui_msg_draw:
 ; --- position editor (0,0)-(111,76): 5-line order window with the current
 ; --- order on a band, plus song length and position readouts ------------------
 tui_el_posed:
+    mov byte [tui_vonly], 0         ; full: face, bevel, labels, values
+    jmp short tui_posed_body
+; --- ...and the same box with only the parts a position move can change ------
+; Its five order lines DO all move - the window scrolls under a fixed
+; highlight - so they are redrawn, but each erases only its own 8-row band
+; instead of the box being refilled and bevelled underneath them. 'Len' and
+; 'Pos' are labels and stay; the song length cannot change while a module is
+; loaded, so only the Pos value is relettered.
+tui_val_posed:
+    mov byte [tui_vonly], 1
+tui_posed_body:
     push ax
     push bx
     push cx
@@ -581,7 +649,10 @@ tui_el_posed:
     mov dx, 76
     call tui_clipc
     jc .out
+    cmp byte [tui_vonly], 0
+    jne .lines
     call tui_facec
+.lines:
     mov byte [tui_chn], 0           ; k = order-window line 0..4
 .k:
     mov al, [tui_chn]
@@ -590,6 +661,19 @@ tui_el_posed:
     mul bl
     add ax, 5
     mov dx, ax                      ; line y: 5, 14, 23, 32, 41
+    cmp byte [tui_vonly], 0         ; no box fill under us: erase this line's
+    je .band                        ; own band, which is all that moved
+    cmp byte [tui_chn], 2
+    je .band                        ; (line 2's band fill below erases it)
+    push dx
+    mov ax, 3
+    mov bx, dx
+    mov cx, 108
+    add dx, 7
+    TSETC TC_FACE
+    call tui_fillc
+    pop dx
+.band:
     cmp byte [tui_chn], 2
     jne .plain
     push dx
@@ -637,8 +721,10 @@ tui_el_posed:
     inc byte [tui_chn]
     cmp byte [tui_chn], 5
     jb .k
-    TSETC TC_FACET
-    mov si, tui_s_len
+    cmp byte [tui_vonly], 0
+    jne .pos                        ; 'Len' and 'Pos' are labels, and the song
+    TSETC TC_FACET                  ; length cannot change while a module is
+    mov si, tui_s_len               ; loaded: only the Pos value moves
     mov cx, 6
     mov dx, 56
     call tui_textc
@@ -651,13 +737,111 @@ tui_el_posed:
     mov cx, 6
     mov dx, 66
     call tui_textc
+    TSETC TC_FACET
     mov al, [mp_songpos]
     call tui_hex2
     mov si, tui_nbuf
     mov cx, 38
+    mov dx, 66
     call tui_textc
+    jmp short .out
+.pos:
+    mov al, [mp_songpos]
+    call tui_hex2
+    mov si, tui_nbuf
+    mov cx, 38
+    mov dx, 66
+    mov bx, 16
+    mov ah, TC_FACE
+    mov al, TC_FACET
+    call tui_rdout
 .out:
     pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; =============================================================================
+; Value-only redraws (SPEC.md 45.12)
+;
+; The tui_el_* routines above are FULL element draws: box face, bevel, static
+; labels, values. That is what a repaint wants and it is the wrong thing to
+; run once a beat. tui_el_bpm refilled a 93x44 box, redrew its bevel and
+; relettered 'BPM' and 'Spd' to change one digit of tempo; tui_el_ptn did the
+; same for 'Ptn', 'Ln', '64' and 'Np', of which only two are values at all
+; and one of those cannot move while a module plays.
+;
+; These draw the VALUES and nothing else, each as one tui_rdout - a fill of
+; exactly the field's rect and the digits back into it - which is the same
+; erase-and-letter pair the compact layout has always used (tui_val_cga_*).
+; The face, the bevel and every label are drawn once by tui_draw_top and then
+; left alone, because nothing about them changes while the module plays.
+; =============================================================================
+
+; --- BPM / Spd values, inside the box tui_el_bpm draws ------------------------
+tui_val_bpm:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov al, [mp_bpm]
+    call tui_dec3
+    mov si, tui_nbuf
+    mov cx, 168
+    mov dx, 36
+    mov bx, 24
+    mov ah, TC_FACE
+    mov al, TC_FACET
+    call tui_rdout
+    mov al, [mp_speed]
+    call tui_dec3
+    mov si, tui_nbuf
+    mov cx, 168
+    mov dx, 50
+    mov bx, 24
+    mov ah, TC_FACE
+    mov al, TC_FACET
+    call tui_rdout
+    mov al, [mp_bpm]
+    mov [tui_lbpm], al
+    mov al, [mp_speed]
+    mov [tui_lspd], al
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- Ptn / Np values ('Ln 64' is a constant and is never redrawn) -------------
+tui_val_ptn:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov al, [mp_pattern]
+    call tui_hex2
+    mov si, tui_nbuf
+    mov cx, 258
+    mov dx, 36
+    mov bx, 16
+    mov ah, TC_FACE
+    mov al, TC_FACET
+    call tui_rdout
+    mov al, [mp_npat]
+    call tui_hex2
+    mov si, tui_nbuf
+    mov cx, 258
+    mov dx, 64
+    mov bx, 16
+    mov ah, TC_FACE
+    mov al, TC_FACET
+    call tui_rdout
     pop si
     pop dx
     pop cx
@@ -1395,22 +1579,24 @@ tui_row1:
     jl .out
     cmp bx, 63
     jg .out
-    mov al, TC_TEXT
+    mov ax, (TC_BG << 8) | TC_TEXT  ; AL = ink role, AH = background role
     cmp byte [tui_band], 0
     je .col
-    mov al, TC_BANDT
+    mov ax, (TC_BAND << 8) | TC_BANDT
 .col:
-    call tui_setcol
+    mov [tui_rrole], ax
     mov al, bl
     call tui_hex2                   ; the FT2 hex row number, both sides
     mov si, tui_nbuf
     mov cx, [tui_lay + TL_RNL]
     mov dx, [tui_t1]
-    call tui_textc
+    mov ax, [tui_rrole]
+    call tui_runc
     mov cx, [tui_lay + TL_RNR]
     cmp cx, 0FFFFh
     je .cells
-    call tui_textc
+    mov ax, [tui_rrole]
+    call tui_runc
 .cells:
     mov byte [tui_chn], 0
 .cl:
@@ -1432,7 +1618,8 @@ tui_row1:
     mov si, mp_celltxt
     mov cx, [tui_t2]
     mov dx, [tui_t1]
-    call tui_textc
+    mov ax, [tui_rrole]
+    call tui_runc
 .nx:
     inc byte [tui_chn]
     cmp byte [tui_chn], 4
@@ -1466,11 +1653,125 @@ tui_marks:
     pop ax
     ret
 
+; =============================================================================
+; The 8088 single-line view (SPEC.md 45.9.1)
+;
+; XT mode already stopped the pattern view scrolling per ROW and made it
+; repaint per POSITION (45.9). On a real 4.77 MHz 8088 that is still far more
+; than the machine has: the view does not scroll, it does not even move -
+; one line updates now and then and the rest stands still, which reads as a
+; hung display rather than a slow one. The audio, meanwhile, is fine, and
+; keeping it that way is the whole point.
+;
+; So on a tier-0 MACHINE, and only while something is playing, the pattern
+; grid is not animated at all. The row area is cleared once when playback
+; starts and a SINGLE banded line - the row being played, drawn by the same
+; tui_row1 the grid uses - is updated in place. One row of four cells and two
+; hex numbers per row change, against thirty-odd rows of the same.
+;
+; It is gated on the machine, not on [mp_xt]: XT mode is a playback setting
+; anyone can switch on, and a 386 running it can animate the grid perfectly
+; well. And it is gated on playback, so a stopped 8088 still gets the whole
+; pattern to look at and Up/Down still scroll it.
+;
+; The line is centred in the cleared area rather than left at TL_BANDY. With
+; the grid gone there is nothing for the band's usual one-third-down position
+; to relate to, and a lone strip near the top of a large empty field looks
+; like a rendering fault.
+; =============================================================================
+
+; tui_xt_y - where the single line goes; out AX = its top y
+tui_xt_y:
+    mov ax, [tui_vh]
+    sub ax, [tui_lay + TL_ROWT]
+    sub ax, 11                      ; the band is 11 rows (tui_row1)
+    shr ax, 1
+    add ax, [tui_lay + TL_ROWT]
+    ret
+
+; tui_xt_clear - blank the whole row area, so no stale grid is left behind,
+;                and rule the channel separators down it
+;
+; The separators are what the grid drew per row (tui_row1's non-band path).
+; Drawn once, full height, they cost nothing per frame and they are the
+; difference between a line floating in a black field and a line sitting in
+; the four-channel view it belongs to.
+tui_xt_clear:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push si
+    xor ax, ax
+    mov bx, [tui_lay + TL_ROWT]
+    mov cx, [tui_vw]
+    dec cx
+    mov dx, [tui_vh]
+    dec dx
+    TSETC TC_BG
+    call tui_fillc
+    TSETC TC_SEP
+    mov si, [tui_lay + TL_CHW]
+    mov ax, [tui_lay + TL_CHX]
+    add ax, si
+    dec ax
+    mov bx, [tui_lay + TL_ROWT]
+    mov dx, [tui_vh]
+    dec dx
+    mov di, 3
+.sep:
+    call tui_vlinec
+    add ax, si
+    dec di
+    jnz .sep
+    pop si
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tui_xt_line - the one line, plus the change markers the caller compares on
+tui_xt_line:
+    push ax
+    push bx
+    push cx
+    push dx
+    call tui_marks                  ; [tui_cvr] = the row to show
+    mov byte [tui_band], 1
+    mov al, [tui_cvr]
+    cbw
+    mov bx, ax
+    call tui_xt_y
+    mov dx, ax
+    call tui_row1
+    mov byte [tui_band], 0
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tui_xt_on - is the single-line view active right now?
+; out: ZF = 1 (jz) no, ZF = 0 (jnz) yes; AL clobbered
+tui_xt_on:
+    mov al, [trk_cpu0]
+    and al, [mp_playing]
+    ret
+
 tui_draw_pat:
     push ax
     push bx
     push cx
     push dx
+    call tui_xt_on                  ; 8088 + playing: one line, no grid
+    jz .grid
+    call tui_xt_clear
+    call tui_xt_line
+    jmp .out
+.grid:
     call tui_marks
     mov byte [tui_band], 0
     mov cx, [tui_lay + TL_RAB]
@@ -1500,6 +1801,7 @@ tui_draw_pat:
     add dx, 8
     pop cx
     loop .lo
+.out:
     pop dx
     pop cx
     pop bx
@@ -1685,10 +1987,10 @@ tui_draw_vu:
     cmp word [tui_lay + TL_SCH], 16
     jb .cb
     add dx, [tui_lay + TL_SCH]
-    sub dx, 13
-    jmp .yb
+    sub dx, 11                      ; TUI_VUH rows, sitting where the middle
+    jmp .yb                         ; of the old eight-row bar sat
 .cb:
-    inc dx                          ; compact cell: the bar shares rows
+    add dx, 3                       ; compact cell: the bar shares rows
     add di, 8                       ; t2+1..t2+8 with the channel digit at
                                     ; t1+1..t1+8, so it starts at t1+12 -
                                     ; still left of the 'M' flag at t1+146
@@ -1708,7 +2010,7 @@ tui_draw_vu:
     mov ax, di
     add ax, si
     mov bx, dx
-    add dx, 7
+    add dx, TUI_VUH - 1
     TSETC TC_BG
     call tui_fillc
     jmp .next
@@ -1718,7 +2020,7 @@ tui_draw_vu:
     dec cx
     add ax, di
     mov bx, dx
-    add dx, 7
+    add dx, TUI_VUH - 1
     TSETC TC_VU
     call tui_fillc
 .next:
@@ -1979,9 +2281,21 @@ tui_draw_dyn:
     cmp byte [tui_inited], 0
     je .out
     call tui_track
-    cmp byte [trk_fs], 0
+    mov al, [mp_playing]            ; did playback START or STOP? the test is
+    cmp al, [tui_lplay]             ; above the fullscreen split because the
+    je .noxn                        ; TRANSPORT changed either way, and the
+    mov [tui_lplay], al             ; legend has to follow it in both. This
+    call trk_transport              ; is also the only site that sees a stop
+    cmp byte [trk_fs], 0            ; nobody asked for - song end, F00, the
+    je .win                         ; watchdog, a failed load - so it is the
+    cmp byte [trk_cpu0], 0          ; one that must park the view row.
+    je .played                      ; On a tier-0 machine the transition also
+    call tui_draw_pat               ; changes the SHAPE of the pattern view
+    jmp .norows                     ; (SPEC.md 45.9.1), redrawn once here
+.noxn:                              ; rather than at each of the five places
+    cmp byte [trk_fs], 0            ; that can start or stop a module
     je .win
-    inc byte [tui_frame]
+.played:
     mov al, [mp_row]                ; did the view move?
     cmp al, [tui_lrow]
     jne .rows
@@ -1995,6 +2309,11 @@ tui_draw_dyn:
     cmp al, [tui_lvrow]
     je .norows
 .rows:
+    call tui_xt_on                  ; 8088 + playing (SPEC.md 45.9.1): the
+    jz .xtno                        ; grid is not animated at all - one
+    call tui_xt_line                ; banded line moves in place, and the
+    jmp .norows                     ; readouts below still follow
+.xtno:
     cmp byte [mp_xt], 0             ; XT (SPEC.md 45.9): a row-only change
     je .rfull                       ; relights the band alone; the full
     mov al, [mp_songpos]            ; repaint waits for a position/pattern
@@ -2015,8 +2334,8 @@ tui_draw_dyn:
     call tui_draw_pat
     test byte [tui_lay + TL_FLAGS], TLF_CMPCT
     jnz .rowc
-    call tui_el_posed
-    call tui_el_ptn
+    call tui_val_posed              ; VALUES only - the box faces, the bevels
+    call tui_val_ptn                ; and every label are already on screen
     jmp .norows
 .rowc:
     call tui_val_cga_pos
@@ -2030,7 +2349,7 @@ tui_draw_dyn:
 .bs:
     test byte [tui_lay + TL_FLAGS], TLF_CMPCT
     jnz .bsc
-    call tui_el_bpm
+    call tui_val_bpm
     jmp .nobs
 .bsc:
     call tui_val_cga_bs
@@ -2045,11 +2364,20 @@ tui_draw_dyn:
     call tui_el_scopes
 .nomute:
     call tui_draw_vu
-    mov al, [tui_frame]
-    and al, 15
-    jnz .out
-    call tui_draw_top               ; the fdlg-cancel menu-bar eraser
     jmp .out
+
+    ; The top band used to be redrawn WHOLE every 16 frames from here - the
+    ; logo, both readout blocks, the status line, four scope frames, the
+    ; button column and the pattern header - as an eraser for the menu bar,
+    ; which the kernel drew over our fullscreen content whenever the Standard
+    ; File dialog was cancelled. That was a second-or-so heartbeat of static
+    ; repainting on a machine with nothing to spare, to undo something that
+    ; should never have been drawn: a visible fullscreen window covers the
+    ; chrome (SPEC.md 11.2), and the kernel now declines to paint the bar or
+    ; the dock underneath one instead of leaving the application to scrub it
+    ; off afterwards. Closing the dialog damages our rect and we get a
+    ; W_PAINT for it like anything else, which is one repaint on an event
+    ; rather than a repaint per second forever.
 .win:
     cmp byte [mp_playing], 0        ; windowed: a live position line on the
     je .out                         ; splash while something plays
@@ -2158,7 +2486,7 @@ tui_about_panel:
 ; the pattern from y=173; the extra 80 rows go to the pattern view)
 tui_lay_vga:
     dw 172, 175, 185, 16, 313, 324, 18         ; PATY HDRY ROWT RAB BANDY LOWY RBE
-    dw 8, 608, 28, 145, 28                     ; RNL RNR CHX CHW PAD
+    dw 8, 608, 32, 144, 24                     ; RNL RNR CHX CHW PAD
     dw 2, 94, 145, 39, 143, 38, 2              ; SCX SCY SCDX SCDY SCW SCH SCPR
     dw 4, 80, 282, 632                         ; STX STY STW SLX
     dw TLF_INSTR | TLF_MENUS                   ; FLAGS
@@ -2167,7 +2495,7 @@ tui_lay_vga:
 ; instrument list or button stacks, channel block centred in 720
 tui_lay_hrc:
     dw 92, 95, 105, 14, 217, 228, 14
-    dw 8, 656, 70, 145, 28
+    dw 8, 656, 72, 144, 24
     dw 291, 2, 106, 0, 104, 44, 4
     dw 4, 80, 282, 291              ; SLX 291, not 714: the sliver fill must
                                     ; cover ALL of rows 0..MBAR_H-1 right of
@@ -2261,11 +2589,16 @@ tui_ab5:     db 'Any key closes', 0
     TRKW tui_chend                  ; right edge of the channel block
     TRKW tui_rend                   ; right edge of a row strip
     TRKW tui_vuw                    ; volume bar full width
-    TRKB tui_frame                  ; worker frame counter (top band each 16)
     TRKB tui_vrow                   ; the Up/Down scroll row while stopped
     TRKB tui_cvr                    ; the view row this frame
     TRKB tui_band                   ; tui_row1: drawing the band row
     TRKB tui_chn                    ; shared small loop counter
+    TRKB tui_lplay                  ; last seen [mp_playing], for the 8088
+                                    ; view's start/stop transition (45.9.1)
+    TRKW tui_rrole                  ; tui_row1's ink/background role pair
+    TRKB tui_rbg                    ; tui_runc's resolved background colour
+    TRKB tui_vonly                  ; 1 = draw an element's VALUES only, the
+                                    ; face/bevel/labels being on screen already
     TRKB tui_lrow                   ; last-drawn markers for tui_draw_dyn
     TRKB tui_lpos
     TRKB tui_lpat

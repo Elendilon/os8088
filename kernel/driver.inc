@@ -112,7 +112,15 @@ DSV_TONE    equ 12              ; dw: near proc, the tone tier's sink while
                                 ; this driver is loaded (0 = leave it on the
                                 ; speaker). An OPL2 publishes it, a Sound
                                 ; Blaster does not.
-DSV_SIZE    equ 14
+DSV_TIERS   equ 14              ; dw: bitmap of 1 << SND_RT_* saying which
+                                ; tiers this driver COULD provide. Every cell
+                                ; above says what the driver IS; this one says
+                                ; what it could BE, so DRVV_TIER never touches
+                                ; it - only attach and detach do. 0 = the
+                                ; driver did not answer the question, and the
+                                ; Control Panel then assumes it can (SPEC.md
+                                ; 34.8/31.7)
+DSV_SIZE    equ 16
 
 ; --- SYSTEM.CFG: a KEYED record file (SPEC.md 51.5) --------------------------
 ; It is the whole Control Panel's file, not just the driver list: every
@@ -620,15 +628,16 @@ drv_load:
     mov [bx+DRVR_KB], ax
 
     push bx                     ; the row - BX is the read's own destination
-    mov es, dx                  ; offset, and dskw_read hands it back as 0
+    mov es, dx                  ; offset, and the claim starts at ES:0000
     mov si, [bx+DRVR_FILE]
     mov cx, [drv_fsz]
     xor bx, bx
+    xor dx, dx                  ; DX:CX = the capacity, DX:AX the answer -
     call dskw_read              ; the whole file, by name, in A:'s root
     pop bx
     jc .ioerr
-    cmp ax, [drv_fsz]
-    jne .ioerr
+    cmp ax, [drv_fsz]           ; DX is 0 or the read would have refused: a
+    jne .ioerr                  ; driver is DRV_MAX_KB at the outside
 
     call drv_check              ; the header, against the image that arrived
     jc .badfree
@@ -1182,15 +1191,17 @@ drv_cfg_load:
     push ax
     push bx
     push cx
-    push si
+    push dx                     ; DX is the read's capacity high word going in
+    push si                     ; and its size high word coming back (18.4.1)
     push di
     push es
     push cs
-    pop es
-    mov bx, drv_cfgbuf
-    mov cx, CFG_FBUF
+    pop es                      ; a 64-byte .bss buffer, not a heap claim: this
+    mov bx, drv_cfgbuf          ; runs at boot and a claim can be refused, and
+    mov cx, CFG_FBUF            ; the read takes ES:BX for exactly that reason
+    xor dx, dx
     mov si, drv_cfgname
-    call dskw_read              ; AX = bytes actually read
+    call dskw_read              ; AX = bytes actually read (DX = 0: CFG_FBUF)
     jc .out                     ; no file: the defaults stand
     call drv_cfg_pack           ; the LIVE state into the struct first: that
                                 ; is what a key the file does not carry - or
@@ -1209,6 +1220,7 @@ drv_cfg_load:
     pop es
     pop di
     pop si
+    pop dx
     pop cx
     pop bx
     pop ax
@@ -1457,6 +1469,7 @@ drv_cfg_ser:
 drv_cfg_save:
     push bx
     push cx
+    push dx                     ; DX is the write's count high word (18.4.1)
     push si
     push di
     push es
@@ -1469,6 +1482,7 @@ drv_cfg_save:
     call drv_cfg_ser            ; CX = its length, records and all
 
     mov bx, drv_cfgbuf
+    xor dx, dx                  ; DX:CX = the count; a settings file is bytes
     mov si, drv_cfgname
     call dskw_write             ; ES is already ours, which is where it reads
     jmp short .out
@@ -1479,6 +1493,7 @@ drv_cfg_save:
     pop es
     pop di
     pop si
+    pop dx
     pop cx
     pop bx
     ret

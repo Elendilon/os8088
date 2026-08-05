@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/tamegram/tamegram.asm
 ;
-; TameGram, the thirteenth software package (SPEC.md 48): a four-direction,
+; TameGram, the thirteenth software package (SPEC.md 49): a four-direction,
 ; dual-faction containment matrix. A .o88 binary at org 0 that owns a segment
 ; (SPEC.md 20.1) and reaches every service through the API table in
 ; os88api.inc. Prefix `tg_`, embedded icon, one worker task.
@@ -608,7 +608,7 @@ tg_toggle_halt:
     ret
 
 ; -----------------------------------------------------------------------------
-; The two panels (SPEC.md 48.7)
+; The two panels (SPEC.md 49.7)
 ;
 ; There is one panel mechanism and two texts: the credits, reached through
 ; OSAPI_ABOUT_SET, and 'How to Play', reached through the Help menu. Both are

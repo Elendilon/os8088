@@ -14,7 +14,8 @@
 
 ; --- window record, 20 bytes, fixed offsets (SPEC.md 11) ---------------------
 W_FLAGS equ 0                   ; word: bit0 = used, bit1 = visible,
-                                ; bit2 = resizable, bit3 = fullscreen
+                                ; bit2 = resizable, bit3 = fullscreen,
+                                ; bit4 = content-origin snapped (SPEC.md 11.94)
 W_X     equ 2                   ; word, frame left (screen coords)
 W_Y     equ 4                   ; word, frame top (below menu bar: y >=
                                 ; MBAR_H - except under WF_FULL, SPEC 11.2)
@@ -55,6 +56,10 @@ MAX_WIN  equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 11)
 
 WF_SIZABLE equ 4                ; W_FLAGS bit2: resizable (SPEC.md 11.1)
 WF_FULL    equ 8                ; W_FLAGS bit3: fullscreen (SPEC.md 11.2)
+WF_SNAP    equ 16               ; W_FLAGS bit4: this window's CONTENT origin
+                                ; is kept on a multiple of 8 so its text can
+                                ; take font_run's single-store path
+                                ; (SPEC.md 11.94/6.1)
 WMIN_W     equ 96               ; smallest frame a resize can leave, outer px
 WMIN_H     equ 64               ; (SPEC.md 11.1; mirrored in apps/os88api.inc)
 
@@ -192,9 +197,14 @@ wm_fit:
     mov [bx+W_X], ax
 .xok:
     cmp word [bx+W_X], 0
-    jge .yc
+    jge .xfl
     mov word [bx+W_X], 0
-.yc:
+.xfl:
+    call wm_snap_win            ; ...and back onto a multiple of 8 if this
+                                ; window asked for it (SPEC.md 11.94). After
+                                ; both clamps, never before: it moves left,
+                                ; which only stays legal once the right edge
+                                ; has been dealt with
     mov ax, [vid_dock_y0]       ; y = min(y, dock top - h - 1), floor MBAR_H
     sub ax, [bx+W_H]            ; - the same pixel, for the same reason
     dec ax
@@ -433,9 +443,11 @@ wm_resize:
     xor ax, ax
 .xc:
     cmp [bx+W_X], ax
-    jle .yc
+    jle .xs
     mov [bx+W_X], ax
-.yc:
+.xs:
+    call wm_snap_win            ; the width changed, so the right-edge clamp
+                                ; may have moved x (SPEC.md 11.94)
     mov ax, [vid_dock_y0]       ; y + h <= the row the dock owns
     sub ax, dx
     cmp ax, MBAR_H
@@ -603,16 +615,18 @@ wm_destroy_seg:
 ; window cannot change them, and desk_zone_redraw (SPEC.md 26) already owns
 ; the one thing that can.
 ;
-; It falls back to the full pass in the two cases where "nothing else moved"
-; stops being true: anything to do with a fullscreen window (SPEC.md 11.2
-; suppresses the chrome entirely), and a visible window whose frame or drop
-; shadow hangs over the dock strip, where dock_paint would draw on top of a
-; window instead of under it.
+; **It no longer falls back at all.** A fullscreen window used to send both
+; this and wm_front to the full pass, on the grounds that SPEC.md 11.2
+; suppresses the chrome and none of the cheap path's reasoning survived that.
+; It survives it exactly: a window shown OVER a fullscreen one reveals
+; nothing, like any other, and a fullscreen window shown over everything
+; reveals nothing because it covers the screen. The chrome is the only part
+; that had to change, and wm_raise skips it (wm_fs_vis) rather than the
+; caller repainting the world to avoid drawing it. Opening the Standard File
+; dialog over a fullscreen player was a whole-screen repaint including that
+; player's W_PAINT, twice - once to show the dialog and once to take it away.
 ; -----------------------------------------------------------------------------
 wm_show:
-    call wm_fast_ok
-    jc .slow
-
     push ax
     push bx
     push bp
@@ -629,36 +643,64 @@ wm_show:
     pop bx
     pop ax
     ret
-.slow:
-    or word [bx+W_FLAGS], 2
-    call menu_activate
-    call wm_lift
-    jmp wm_paint_all            ; same register contract
 
 ; -----------------------------------------------------------------------------
-; wm_fast_ok - may the cheap raise path be used at all? (module internal)
-; in:  BX = the window about to come to the front
-; out: CF = 1 = no, fall back to the full pass. All registers preserved.
+; wm_fs_vis - is a VISIBLE fullscreen window covering the screen?
+; out: CF = 1 yes - the desktop, its drive zones, the dock and the menu bar
+;      are all under it and must not be drawn (SPEC.md 11.2). CF = 0 no.
+; clobbers: nothing else (flags)
 ;
-; ONE case now: anything to do with a fullscreen window, which suppresses the
-; chrome entirely (SPEC.md 11.2) so none of the cheap path's reasoning holds.
-;
-; A window hanging over the dock strip used to be the other. The strip is
-; drawn under windows, so dock_paint would have drawn on top of one - and
-; rather than order itself around that, the cheap path declined and the caller
-; repainted the whole screen. With a single oversized window on screen that
-; made EVERY focus change, show and un-minimize a full repaint. wm_dock_under
-; costs a rectangle instead, and usually nothing at all.
+; The one question four painters ask, and they used to ask it three different
+; ways: wm_paint_all and wm_paint_dmg open-coded it, and the cheap raise path
+; treated it as a reason to give up entirely.
 ; -----------------------------------------------------------------------------
-wm_fast_ok:
-    test word [bx+W_FLAGS], WF_FULL
-    jnz .no
-    cmp word [wm_fs], 0
-    jne .no
-    clc
+wm_fs_vis:
+    push bx
+    mov bx, [wm_fs]
+    or bx, bx
+    jz .no
+    test word [bx+W_FLAGS], 2
+    jz .no
+    pop bx
+    stc
     ret
 .no:
-    stc
+    pop bx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_fs_zpos - where the fullscreen window sits in wm_zord (module internal)
+; in:  SI = wm_zord, DI = one past its last entry; wm_fs_vis has said yes
+; out: SI = its slot, or unchanged if it somehow is not in the order
+; clobbers: nothing else (flags)
+; -----------------------------------------------------------------------------
+wm_fs_zpos:
+    push ax
+    push bx
+    push cx
+    mov bx, [wm_fs]
+    mov ax, bx                  ; AL = its window index
+    sub ax, wm_wins
+    mov cl, WIN_SIZE
+    div cl                      ; (AH = 0: the pointer is record-aligned)
+    mov cx, di
+    sub cx, si
+    jcxz .out
+    push si
+.scan:
+    cmp [si], al
+    je .found
+    inc si
+    loop .scan
+    pop si                      ; not in the order: walk the lot, as before
+    jmp short .out
+.found:
+    add sp, 2
+.out:
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -686,12 +728,19 @@ wm_raise:
     push ax
     call menu_activate          ; BX owns the menu bar from here (SPEC.md 12)
     call wm_lift                ; ...and the top of the z-order
+    call wm_fs_vis              ; a fullscreen window is over the chrome, so
+    jc .nochrome                ; neither piece of it may be drawn at all
     call menu_draw_bar
     call wm_dock_under          ; the strip, and anything sitting on it
+.nochrome:
     cmp bp, di
     je .self                    ; already the front window: no outgoing one
     or bp, bp
     jz .self
+    test word [di+W_FLAGS], WF_FULL
+    jnz .self                   ; we are about to cover the whole screen: the
+                                ; outgoing window's title bar is a strip drawn
+                                ; only to be painted over
     xchg bp, di                 ; DI = the outgoing front, BP = the incoming
     call wm_draw_title          ; DI != BP now, so it loses its stripes
     xchg bp, di
@@ -826,6 +875,117 @@ wm_fs_drop:
     ret
 
 ; -----------------------------------------------------------------------------
+; wm_snap - set or clear a window's WF_SNAP bit (public; API 0x0268,
+;           SPEC.md 11.94)
+; in:  BX = window ptr, AL = 0 clear / non-zero set
+; out: nothing - every register preserved, FLAGS INCLUDED (see below)
+;
+; "My CONTENT origin wants to be a multiple of 8." Not "snap my W_X": the
+; frame carries a 1px border, so wm_content returns W_X + 1 and the alignment
+; a caller actually needs is one pixel off the frame's. Publishing the frame
+; number would make every app rediscover that `inc ax`, and they would each
+; get it wrong differently.
+;
+; It snaps immediately as well as setting the flag, because the intended
+; caller is an entry proc or a KD_INIT - before the window is shown, where
+; moving it costs nothing and repainting is not owed. Setting it on a visible
+; window is legal and moves it at the next paint the caller performs, exactly
+; like wm_sizable's grow box.
+;
+; UI-task context only, same as wm_sizable and for the same reason: every
+; W_FLAGS writer runs on the UI task or under the gfx lock.
+; -----------------------------------------------------------------------------
+wm_snap:
+    pushf                       ; FLAGS INCLUDED, and that is not politeness.
+                                ; A package's ENTRY PROC returns CF to the
+                                ; loader (SPEC.md 20.2) and calls this from
+                                ; there, after wm_create's CF has already been
+                                ; consumed by a branch - so the carry riding
+                                ; in the flags at that point IS the return
+                                ; value. wm_snap_ax exits on a `cmp` against
+                                ; the screen width, which leaves CF set for
+                                ; every window that fits; without this, asking
+                                ; to be snapped aborted the launch. On MONO
+                                ; only, because that cmp is inside the
+                                ; [vid_mono] gate - it loaded perfectly on VGA
+    or al, al
+    jz .clear
+    or word [bx+W_FLAGS], WF_SNAP
+    call wm_snap_win
+    popf
+    ret
+.clear:
+    and word [bx+W_FLAGS], ~WF_SNAP & 0xFFFF
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_snap_win - put this window's content origin back on a multiple of 8
+; in:  BX = window ptr, W_X already clamped by the caller
+; out: W_X possibly moved; all registers preserved
+; -----------------------------------------------------------------------------
+wm_snap_win:
+    push ax
+    mov ax, [bx+W_X]
+    call wm_snap_ax
+    mov [bx+W_X], ax
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_snap_ax - snap a candidate frame x for a WF_SNAP window
+; in:  AX = candidate x (the caller's clamps already applied), BX = window ptr
+; out: AX = the x to use; every other register preserved, flags clobbered
+;
+; The whole of SPEC.md 11.94's mechanism, in one place because four sites
+; write W_X and every one of them has to agree.
+;
+; MONO ONLY, and the gate is [vid_mono] rather than [bb_on] on purpose. The
+; two say the same thing on Hercules and CGA, but [bb_on] is also 1 on a VGA
+; that has double buffering armed - so gating on it would make windows drag
+; differently depending on a Control Panel setting, and buy almost nothing
+; for it: the back buffer's flush costs ~24x its render (SPEC.md 32), so the
+; render-side saving snapping unlocks is diluted away there.
+;
+; WF_FULL is left alone: a fullscreen window is at x=0 with no border, so its
+; content origin is 0 and already aligned (SPEC.md 11.2) - which is why the
+; tracker has had the fast path all along without any of this.
+;
+; The arithmetic moves LEFT, to the nearest x with x+1 a multiple of 8. Left
+; because the caller has already clamped against the right edge and moving
+; left cannot violate it. The one exception is x = 0..6, where there is no
+; such x at or below it and the answer has to be 7 - the leftmost snapped
+; position there is, so a snapped window cannot sit flush against the left
+; edge. That is the visible cost of the feature and it is 7 pixels.
+; -----------------------------------------------------------------------------
+wm_snap_ax:
+    test word [bx+W_FLAGS], WF_SNAP
+    jz .out
+    test word [bx+W_FLAGS], WF_FULL
+    jnz .out
+    cmp byte [vid_mono], 0
+    je .out
+    push cx
+    mov cx, ax
+    inc cx
+    and cx, 0xFFF8              ; content left, rounded DOWN to a multiple of 8
+    dec cx                      ; ...and back to a frame x
+    jns .fits
+    add cx, 8                   ; x was 0..6: the next one up is the only one
+.fits:
+    push ax                     ; only the x=0..6 case can move RIGHT, but the
+    mov ax, cx                  ; right-edge test is cheap and it is the one
+    add ax, [bx+W_W]            ; way this could hand back an illegal rect
+    cmp ax, [vid_w]
+    pop ax
+    ja .pop                     ; would hang off: leave it unsnapped, and it
+    mov ax, cx                  ; simply misses the fast path
+.pop:
+    pop cx
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
 ; wm_sizable - set or clear a window's WF_SIZABLE bit (public; API 0x0108)
 ; in:  BX = window ptr, AL = 0 clear / non-zero set
 ; out: nothing (all registers preserved)
@@ -881,7 +1041,29 @@ wm_fullscreen:
     mov ax, [vid_h]
     mov [bx+W_H], ax
     or word [bx+W_FLAGS], WF_FULL
-    call wm_front               ; raise + repaint, lock already held
+                                ; Raise it AND draw it WHOLE. Not wm_front:
+                                ; that asks wm_obscured whether anything was
+                                ; on top of us and draws only the title bar
+                                ; when nothing was - a question about the rect
+                                ; we just REPLACED. An app already frontmost
+                                ; (the usual case - it is responding to its
+                                ; own click) took the degenerate chrome-only
+                                ; path and its new full-screen content was
+                                ; never painted at all. wm_fast_ok used to
+                                ; hide this by sending every fullscreen call
+                                ; to wm_paint_all; nothing else in the tree
+                                ; changes a window's geometry and then raises
+                                ; it, which is why wm_front never had to know.
+    push bp
+    push di
+    mov di, bx
+    call wm_top                 ; BX = the outgoing front (may be us)
+    mov bp, bx
+    mov bx, di
+    mov al, 1                   ; a new frame has no pixels on screen
+    call wm_raise
+    pop di
+    pop bp
     jmp .ok
 .exit:
     mov bx, [wm_fs]
@@ -924,8 +1106,6 @@ wm_fullscreen:
 wm_front:
     test word [bx+W_FLAGS], 2
     jz .slow
-    call wm_fast_ok
-    jc .slow
 
     push ax
     push bx
@@ -953,6 +1133,8 @@ wm_front:
     jnz .go
     call menu_activate          ; the degenerate case: chrome only
     call wm_lift
+    call wm_fs_vis              ; ...and under a fullscreen window, not even
+    jc .out                     ; that
     call menu_draw_bar
     call wm_dock_under
     jmp short .out
@@ -1360,11 +1542,10 @@ wm_paint_dmg:
     push di
     push bp
 
-    mov si, [wm_fs]             ; a visible fullscreen window suppresses the
-    or si, si                   ; chrome entirely (SPEC.md 11.2) - none of
-    jz .clamp                   ; the reasoning below survives that
-    test word [si+W_FLAGS], 2
-    jnz .fallback
+    mov byte [wm_dmg_fs], 0     ; a visible fullscreen window covers the
+    call wm_fs_vis              ; desktop, its drive zones, the dock and the
+    jnc .clamp                  ; bar - so none of those is drawn, and the
+    mov byte [wm_dmg_fs], 1     ; window pass is the whole of the work
 
 .clamp:
     or ax, ax                   ; onto the live screen (SPEC.md 39.2)
@@ -1392,6 +1573,8 @@ wm_paint_dmg:
     mov [wm_dmg_x2], cx
     mov [wm_dmg_y2], dx
 
+    cmp byte [wm_dmg_fs], 0
+    jne .wins                   ; fullscreen: no zones to grow the rect to
     call desk_dmg_zones         ; AL = the zone mask; the rect grows to cover
     mov [wm_dmg_zn], al         ; every zone it touched
 
@@ -1417,6 +1600,7 @@ wm_paint_dmg:
 .dock:
     call dock_paint
     call menu_draw_bar
+.wins:
     call wm_dmg_wins            ; mark and draw; leaves wm_dmg_mask for below
 
     ; --- the window this uncovered is the front window now -----------------
@@ -1445,10 +1629,9 @@ wm_paint_dmg:
     jmp short .out
 
 .chrome:
-    call wm_paint_chrome
-    jmp short .out
-.fallback:
-    call wm_paint_all
+    cmp byte [wm_dmg_fs], 0     ; "nothing was uncovered but the chrome
+    jne .out                    ; changed" - and under a fullscreen window
+    call wm_paint_chrome        ; the chrome is not on screen to change
 .out:
     pop bp
     pop di
@@ -1627,12 +1810,9 @@ wm_paint_all:
     push si
     push di
     push bp
-    mov bx, [wm_fs]             ; a visible fullscreen window covers the
-    or bx, bx                   ; desktop, dock and menu bar - painting
-    jz .chrome                  ; them under it is pure waste (SPEC.md 11.2)
-    test word [bx+W_FLAGS], 2
-    jnz .wins
-.chrome:
+    call wm_fs_vis              ; a visible fullscreen window covers the
+    jc .fswins                  ; desktop, dock and menu bar - painting
+                                ; them under it is pure waste (SPEC.md 11.2)
     xor ax, ax                  ; desktop: 50% dither under the bar
     mov bx, MBAR_H
     mov cx, [vid_wm1]
@@ -1652,6 +1832,24 @@ wm_paint_all:
     mov ah, 0
     mov di, si
     add di, ax                  ; DI = one past the front
+    jmp short .win
+
+    ; --- ...and under a fullscreen window the walk STARTS at it ------------
+    ; Everything below a window covering the whole screen is covered by it,
+    ; entirely and by construction. wm_covered would reach the same answer
+    ; one region-arithmetic pass per window later; this is the same fact
+    ; known in advance, and it is what stops a fullscreen player from
+    ; examining - and, before wm_covered existed, redrawing - every window
+    ; parked behind it.
+.fswins:
+    call wm_top
+    mov bp, bx                  ; BP = frontmost visible
+    mov si, wm_zord
+    mov al, [wm_zn]
+    mov ah, 0
+    mov di, si
+    add di, ax                  ; DI = one past the front
+    call wm_fs_zpos             ; SI = the fullscreen window's slot in wm_zord
 .win:
     cmp si, di
     je .done
@@ -1753,12 +1951,11 @@ wm_about_get:
 ;      Everything else preserved.
 ;
 ; The companion to wm_content, which answers the origin: together they are
-; the whole content rect. A package on this fork can read W_W/W_H out of the
+; the whole content rect. A package can read W_W/W_H out of the
 ; record itself (ES = KERNEL_SEG in every callback, SPEC.md 20.1) and most
 ; of them do - but that is FRAME size, and every caller then repeats the
-; same `sub 2` / `sub TITLE_H+1`. This is that arithmetic in one place, and
-; it is what a package written against `main` calls, so the two forks agree
-; on the slot AND on the answer (docs/PORTING.md 7).
+; same `sub 2` / `sub TITLE_H+1`. This is that arithmetic in one place, so
+; a package never repeats it and never gets it subtly wrong.
 ;
 ; Callable from any context, lock held or not: it reads four words. The
 ; answer is only STABLE under the lock, which is when painters ask.
@@ -1888,6 +2085,8 @@ wm_dmg_x2   dw 0
 wm_dmg_y2   dw 0
 wm_dmg_mask dw 0                ; bit n = window n must be redrawn
 wm_dmg_zn   db 0                ; bit n = drive zone n must be redrawn
+wm_dmg_fs   db 0                ; 1 = a fullscreen window is over the chrome,
+                                ; so this pass draws windows and nothing else
 wm_dmg_j    dw 0                ; the marking pass's inner index
 wm_hide_r   times 4 dw 0        ; wm_hide/wm_destroy: the vacated rect,
                                 ; banked across the record teardown
@@ -2379,6 +2578,16 @@ wm_idx2ptr:
 ; other path reaches it through wm_draw_win and never notices.
 ; -----------------------------------------------------------------------------
 wm_draw_title:
+    test word [di+W_FLAGS], WF_FULL
+    jnz .none                   ; a fullscreen window HAS no title bar
+                                ; (SPEC.md 11.2), and drawing one anyway put
+                                ; a full-width white strip with a centred
+                                ; caption across the top of its content. It
+                                ; never showed while wm_fast_ok sent every
+                                ; fullscreen case to wm_paint_all instead;
+                                ; the guard belongs here rather than at each
+                                ; caller, because "no title bar" is a fact
+                                ; about the window and not about the path
     push ax
     push bx
     push cx
@@ -2516,6 +2725,7 @@ wm_draw_title:
     pop cx
     pop bx
     pop ax
+.none:
     ret
 
 ; -----------------------------------------------------------------------------

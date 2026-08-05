@@ -83,6 +83,10 @@ CP_PROWH  equ 20                ; row pitch: row i glyph top = CP_PR0Y + i*20
 CP_PLX    equ CP_PGX + 18       ; 22: label text x
 CP_PLDY   equ 2                 ; label baseline offset (8px font in 12px box)
 CP_PCAPY  equ 74                ; caption text row
+CP_PCAP2  equ CP_PCAPY + 9      ; 83: second caption row. Only the mono answer
+                                ; uses it - the caption is the lowest thing on
+                                ; every page, so a second 8px line fits inside
+                                ; CP_CH (121) with room to spare
 
 ; --- radio hit bands, pane-relative y: generous, contiguous ------------------
 CP_B0Y1   equ CP_PR0Y - 4                     ; 22: row 0 (Pre-emptive) top
@@ -157,11 +161,23 @@ cp_s_dna:   db 'Not Enough Ram', 0          ; the heap cannot fund 150KB
                                             ; a reservation, so this can
                                             ; change while the panel is open
                                             ; (close an app and it comes back)
-cp_s_dmono: db 'Not on this adapter', 0     ; a 1bpp adapter draws straight
-                                            ; to the framebuffer and has no
-                                            ; buffer to double (SPEC.md 39.5)
-                                            ; - a memory answer would be a lie
-                                            ; on a 640K Hercules machine
+                                            ; A 1bpp adapter draws straight to
+                                            ; the framebuffer and has no buffer
+                                            ; to double (SPEC.md 39.5) - a
+                                            ; memory answer would be a lie on a
+                                            ; 640K Hercules machine. It says
+                                            ; WHY rather than just "no": the
+                                            ; software renderer IS the direct
+                                            ; path there, so there is nothing
+                                            ; to double rather than no room.
+                                            ; Two lines because the pane is 27
+                                            ; characters wide (CP_PRGT-CP_PMX
+                                            ; = 219px) and this is 49; the
+                                            ; caption is the lowest thing on
+                                            ; the page, so the second line has
+                                            ; room under it.
+cp_s_dmono: db 'Framebuffer is the display', 0
+cp_s_dmono2: db 'driver on this adapter', 0
 
 ; --- Date/Time page (SPEC.md 31.5/37) ----------------------------------------
 cp_s_time:  db 'Date/Time', 0   ; list name AND the page heading
@@ -796,19 +812,17 @@ cp_disp_paint:
     call font_str
 
     call cpf_dbok               ; CF = 1: the option cannot be taken now, so
-    mov byte [gfx_color], CBLACK    ; its label is drawn greyed (SPEC.md
-    jnc .lbl1                       ; 31.3/42.5). CDGRAY is the tree's only
-    mov byte [gfx_color], CDGRAY    ; disabled colour; on a 1bpp adapter
-.lbl1:                              ; font_ink rounds it to black, which is
-                                    ; why the caption below carries the
-                                    ; reason in words as well
+    call gfx_pen_cf             ; its label takes the disabled pen (SPEC.md
+                                ; 31.3/46). One call, because the predicate
+                                ; already answers in CF and the pen is two
+                                ; pieces of state that must not disagree
     mov si, cp_s_dbon           ; row 1 label
     mov cx, di
     add cx, CP_PLX
     mov dx, bp
     add dx, CP_PR0Y + CP_PROWH + CP_PLDY
     call font_str
-    mov byte [gfx_color], CBLACK
+    call gfx_pen_live
 
     mov si, cp_s_dcap           ; caption: what it costs...
     call cpf_dbok
@@ -823,6 +837,15 @@ cp_disp_paint:
     mov dx, bp
     add dx, CP_PCAPY
     call font_str
+    cmp si, cp_s_dmono          ; ...and that one answer runs to a second line.
+    jne .capdone                ; font_str clobbers nothing, so SI still names
+    mov si, cp_s_dmono2         ; the string that was drawn
+    mov cx, di
+    add cx, CP_PMX
+    mov dx, bp
+    add dx, CP_PCAP2
+    call font_str
+.capdone:
 
     call cp_dbradios            ; both glyphs, filled per the live state
 
@@ -865,6 +888,13 @@ cpf_dbok:
 ; in:  DI = pane left, BP = pane top; gfx lock held
 ; out: nothing
 ; clobbers: nothing (flags only; leaves [gfx_color] = CBLACK)
+;
+; Row 1's glyph takes cpf_dbok's pen, the same one cp_disp_paint gives its
+; label (SPEC.md 47 rule 2). It was drawn in CBLACK here while the label
+; beside it went grey, so a row the click band refuses still showed a
+; full-strength ring - which reads as a live control with faint writing next
+; to it. The caption saying 'Not Enough Ram' was carrying the whole message
+; on its own.
 ; -----------------------------------------------------------------------------
 cp_dbradios:
     push ax
@@ -882,7 +912,7 @@ cp_dbradios:
     mov dx, bp
     add dx, CP_PR0Y
 
-    mov si, cp_radio_off        ; --- row 0: direct to screen ---
+    mov si, cp_radio_off        ; --- row 0: direct to screen, always live ---
     cmp bl, 0
     jne .r0
     mov si, cp_radio_on
@@ -890,12 +920,15 @@ cp_dbradios:
     call cp_glyph
 
     add dx, CP_PROWH            ; --- row 1: double buffered ---
+    call cpf_dbok               ; ...which is the row that can be refused
+    call gfx_pen_cf
     mov si, cp_radio_off
     cmp bl, 1
     jne .r1
     mov si, cp_radio_on
 .r1:
     call cp_glyph
+    call gfx_pen_live
 
     pop si
     pop dx
@@ -915,15 +948,15 @@ cpf_disp_cap:
     push cx
     push dx
     push si
-    mov byte [gfx_color], CWHITE    ; erase the whole caption line first -
-    mov ax, di                      ; the strings differ in length
-    add ax, CP_PMX
-    mov bx, bp
-    add bx, CP_PCAPY
+    mov byte [gfx_color], CWHITE    ; erase BOTH caption lines first - the
+    mov ax, di                      ; strings differ in length AND in line
+    add ax, CP_PMX                  ; count, so erasing only the first would
+    mov bx, bp                      ; leave the mono answer's second line
+    add bx, CP_PCAPY                ; stranded under a one-line caption
     mov cx, di
     add cx, CP_PRGT
     mov dx, bx
-    add dx, 7
+    add dx, CP_PCAP2 - CP_PCAPY + 7
     call gfx_fill
     mov byte [gfx_color], CBLACK
     mov si, cp_s_dcap
@@ -939,6 +972,15 @@ cpf_disp_cap:
     mov dx, bp
     add dx, CP_PCAPY
     call font_str
+    cmp si, cp_s_dmono              ; same two-line answer as the full paint
+    jne .done                       ; (SPEC.md 47 rule 6: a partial redraw
+    mov si, cp_s_dmono2             ; path draws what the full paint would)
+    mov cx, di
+    add cx, CP_PMX
+    mov dx, bp
+    add dx, CP_PCAP2
+    call font_str
+.done:
     pop si
     pop dx
     pop cx
@@ -1685,23 +1727,34 @@ cp_flush_close:
 ; machine that is 12KB of a 55KB heap back, which is the whole reason the
 ; middle rung exists.
 ;
-; TWO THINGS ARE GREYED AND ONE IS NOT, and the difference is what the kernel
-; can actually know:
+; A ROW IS GREYED FOR MISSING HARDWARE AND NEVER FOR MISSING MEMORY, and the
+; line between those two is the whole design of this page:
 ;
-;   - AdLib greys when no loaded driver publishes a tone sink. That is a
-;     stable fact: the FM half of the sound driver is never torn down by a
-;     tier change, so if it is not published now it is not there.
-;   - Sound Blaster greys only when NO sound driver is published at all.
-;     Whether a card is there, and whether the heap can fund a page-safe 12KB
-;     for it right now, are both answerable ONLY by making the claim - so the
-;     click makes it (SPEC.md 50.3) and cp_snd_note reports what came back.
-;     Greying it on a full heap would be a guess, and mem_avail cannot even
-;     make that guess: it reports the largest free run and says nothing about
-;     whether a 64KB-page-safe base exists inside it.
+;   - **Hardware is a fact the driver already established.** DSV_TIERS is a
+;     bitmap of the tiers it COULD provide, decided at attach from what its
+;     probes found and never touched by a tier change (SPEC.md 51.2). So the
+;     page reads one word and greys what the machine does not have. It does
+;     not ask the driver to look again, because an ISA card cannot arrive
+;     while the machine is running and looking again is EXPENSIVE: the Sound
+;     Blaster scan is six base addresses with a DSP reset timeout each and
+;     then a slow retry on 220h, about a sixth of a second on a machine with
+;     no card - spent on the UI task under the gfx lock, so the user sees the
+;     desktop freeze on a click that then does nothing.
+;   - **Memory is not a fact anyone has.** Whether the heap can fund a
+;     page-safe 12KB right now is answerable ONLY by making the claim:
+;     mem_avail reports the largest free run and says nothing about whether a
+;     64KB-page-safe base exists inside it, so only mem_claim_dma's own scan
+;     knows (SPEC.md 50.3). The click therefore tries, and cp_snd_note reports
+;     what came back. Greying on a guess would keep a machine that has the
+;     room off a tier it can afford.
 ;
-; That is the one place this page departs from the bb_avail idiom (SPEC.md
-; 31.3), and deliberately: bb_canfit is a real predicate and mem_claim_dma has
-; none.
+; That second half is the one place this page departs from the bb_avail idiom
+; (SPEC.md 31.3), and deliberately: bb_canfit is a real predicate and
+; mem_claim_dma has none.
+;
+; A driver that publishes DSV_TIERS = 0 said nothing, and is taken at its
+; word: every row stays live and the click finds out the slow way, which is
+; exactly the behaviour before the cell existed.
 ; =============================================================================
 
 CPS_B2Y2  equ CP_PR0Y + 2*CP_PROWH + CP_GW + 3  ; 81: route row 2's bottom
@@ -1712,8 +1765,11 @@ CPS_BTY2  equ 99
 CPS_NOTEY equ 104                       ; the refusal notice's text row
 
 ; Which row a click asked for, in [snd_route] order, so the band test is an
-; index rather than a ladder of compares.
+; index rather than a ladder of compares - and the same rows as DSV_TIERS
+; bits, which is a table rather than a shift because cp_snd_rowok promises to
+; clobber nothing and a variable shift count costs CL.
 cp_snd_tiers: db SND_RT_SPK, SND_RT_FM, SND_RT_SB
+cp_snd_tbit:  db 0, 1 << SND_RT_FM, 1 << SND_RT_SB
 
 ; The last click's refusal, as a DRVE_* (0 = the last click was fine, and the
 ; notice line is blank). .text and not .bss for the reason everything else
@@ -1744,10 +1800,8 @@ cp_snd_paint:
 .lbl:
     mov al, bl
     call cp_snd_rowok               ; greyed rows still draw - they are what
-    mov byte [gfx_color], CBLACK    ; the machine does not have, and a missing
-    jnc .pen                        ; row would just look like a shorter list
-    mov byte [gfx_color], CDGRAY
-.pen:
+    call gfx_pen_cf                 ; the machine does not have, and a missing
+                                    ; row would just look like a shorter list
     mov si, cp_s_sspk               ; three fixed labels, in ladder order
     or bl, bl
     jz .str
@@ -1767,7 +1821,7 @@ cp_snd_paint:
     inc bl
     cmp bl, 3
     jb .lbl
-    mov byte [gfx_color], CBLACK
+    call gfx_pen_live
 
     mov ax, di                      ; the Test button: a plain framed box
     add ax, CPS_BTX1
@@ -1801,19 +1855,28 @@ cp_snd_paint:
 ; out: CF = 0 yes; CF = 1 no - the hardware that row names is not here
 ; clobbers: nothing (flags)
 ;
-; See the header above for why row 2's test is so much weaker than row 1's.
+; ONE test for both driver rows, because both ask the same question and the
+; driver answered it once, at attach. The bits are in the low byte for every
+; SND_RT_* there is (they are 1..3), so this is a byte test.
 ; -----------------------------------------------------------------------------
 cp_snd_rowok:
     or al, al
-    jz .yes                     ; the speaker is always there
-    cmp al, 1
-    je .fm
-    cmp word [drv_owner], 0     ; row 2: a published sound driver is the most
-    je .no                      ; we can assert without claiming
-    jmp short .yes
-.fm:
-    cmp word [drv_svc+DSV_TONE], 0
-    je .no
+    jz .yes                     ; the PC speaker is resident and needs no
+                                ; driver at all: never refused
+    cmp word [drv_owner], 0
+    je .no                      ; nothing published: the speaker is all the
+                                ; machine has
+    cmp word [drv_svc+DSV_TIERS], 0
+    je .yes                     ; a driver that did not answer is taken at its
+                                ; word - the click finds out the slow way,
+                                ; which is what every row used to do
+    push bx
+    mov bl, al
+    xor bh, bh
+    mov bl, [bx+cp_snd_tbit]
+    test byte [drv_svc+DSV_TIERS], bl
+    pop bx                      ; POP does not touch flags
+    jz .no
 .yes:
     clc
     ret
@@ -1858,6 +1921,19 @@ cp_snd_row:
 ; cp_snd_radios - the three glyphs (module internal)
 ; in:  DI = pane left, BP = pane top; gfx lock held
 ; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
+;
+; THE GLYPH IS GREYED TOO, not just the label beside it, and on this page that
+; is what carries the whole signal on two adapters out of three. font_ink
+; rounds CDGRAY to BLACK for text - a dithered 8x8 glyph is unreadable, so
+; mono has no grey to draw a letter in - which means a disabled LABEL is
+; pixel-identical to a live one on Hercules and CGA. The Display page gets
+; away with that because its caption says why in words; this page has no
+; caption, so the row had to say it some other way.
+;
+; A glyph can, because it is drawn with gfx_pixel rather than as a font cell:
+; gfx_ink maps CDGRAY to the 50% dither, so the ring comes out dotted. Dark
+; grey on VGA, dotted on mono, and either way the whole row reads as disabled
+; instead of a black control with faint writing next to it.
 ; -----------------------------------------------------------------------------
 cp_snd_radios:
     push ax
@@ -1865,8 +1941,7 @@ cp_snd_radios:
     push cx
     push dx
     push si
-    mov byte [gfx_color], CBLACK
-    call cp_snd_row             ; AL = the row that owns the dot
+    call cp_snd_row             ; BH = the row that owns the dot
     mov bh, al
     xor bl, bl
     mov cx, di
@@ -1874,7 +1949,10 @@ cp_snd_radios:
     mov dx, bp
     add dx, CP_PR0Y
 .r:
-    mov si, cp_radio_off
+    mov al, bl
+    call cp_snd_rowok           ; ...and the same pen cp_snd_paint gave the
+    call gfx_pen_cf             ; label, so the two halves of a row can
+    mov si, cp_radio_off        ; never disagree about being disabled
     cmp bl, bh
     jne .draw
     mov si, cp_radio_on
@@ -1884,6 +1962,7 @@ cp_snd_radios:
     inc bl
     cmp bl, 3
     jb .r
+    call gfx_pen_live
     pop si
     pop dx
     pop cx

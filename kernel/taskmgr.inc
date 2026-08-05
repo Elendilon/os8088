@@ -194,6 +194,18 @@ TM_NCHUNK   equ 5               ; ...and chunks per row: 25 characters, which
                                 ; state and the memory figure with it - 20
                                 ; glyphs to change three. Per chunk it is four
 TM_CW       equ TM_CHUNK * 8    ; a chunk's width in pixels
+TM_PEN      equ 8               ; the process list's and the captions' inset
+                                ; from the row band. It was 6, and 8 is what
+                                ; puts every cell in this window on a multiple
+                                ; of 8 once WF_SNAP has put the content origin
+                                ; on one (SPEC.md 11.94): the band starts at
+                                ; the content left, TM_COLW is 232, and the
+                                ; memory list's own inset was already 16. Two
+                                ; pixels of margin bought the whole window
+                                ; font_run's single-store path
+TM_MPEN     equ 16              ; ...and the memory list's, which leaves the
+                                ; band's first ten pixels for the legend
+                                ; square and was already aligned
 TMM_ROWS    equ INST_MAX + 7    ; System, its four buffer rows, the two
                                 ; headings, every instance - 19 x TM_ROW_H
                                 ; from TMM_ROW_Y is 279 of the 281-pixel
@@ -353,6 +365,12 @@ tm_kinit:
     xor al, al
     rep stosb
     mov [tm_win], bx
+
+    mov al, 1                   ; every row this window draws is an opaque
+    call wm_snap                ; text run, so it asks for its content origin
+                                ; on a multiple of 8 and every one of them
+                                ; reaches font_run's single-store path
+                                ; (SPEC.md 11.94/6.1). A no-op on VGA
 
     pop es
     pop di
@@ -2102,8 +2120,8 @@ tm_mrow_close:
     cmp byte [tm_mfit], 0       ; off the bottom: nothing was drawn, and
     je .forget                  ; forget what used to be here so it comes
     mov byte [di], 0            ; back if the window ever grows
-    mov ax, [tm_rowx]           ; this list letters from tm_rowx+16, leaving
-    add ax, 16                  ; the band's first ten pixels for the square
+    mov ax, [tm_rowx]           ; this list letters from tm_rowx+TM_MPEN,
+    add ax, TM_MPEN             ; leaving the band's first pixels for the square
     mov [tm_penx], ax
     mov bx, [tm_mrow]
     call tm_row_draw            ; chunked: only what changed, and only what
@@ -2190,14 +2208,23 @@ tm_row_draw:
     push ds
     pop es
 
-    mov di, tm_str              ; pad to TM_NCHUNK*TM_CHUNK with zeros
-    mov cx, TM_NCHUNK * TM_CHUNK
+    mov di, tm_str              ; pad to TM_NCHUNK*TM_CHUNK with SPACES, and
+    mov cx, TM_NCHUNK * TM_CHUNK + 1    ; terminate one past the end
     xor al, al
     cld
     repne scasb                 ; DI just past the NUL, CX = bytes after it
+    dec di                      ; ...back ONTO it: the pad overwrites it
+    inc cx
     jcxz .padded
-    rep stosb
+    mov al, ' '                 ; SPACES, not zeros. font_run paints a space
+    rep stosb                   ; as background on its fast path (the glyph's
+                                ; rows are all clear, so the mask leaves the
+                                ; background byte) - which is exactly the
+                                ; field-fill this row wants, and is the
+                                ; opposite of font_str, where a space draws
+                                ; nothing at all
 .padded:
+    mov byte [tm_str + TM_NCHUNK * TM_CHUNK], 0
     mov ax, bx                  ; this row's check words: TM_NCHUNK of them
     mov cl, TM_NCHUNK
     mul cl                      ; AX = row * TM_NCHUNK (both are small)
@@ -2219,7 +2246,12 @@ tm_row_draw:
     mov bx, [tm_ckb]
     call tm_elchk               ; changed? (BX = this chunk's check word)
     jc .next                    ; no - its pixels are already right
-
+    call tm_row_lead            ; the FIRST chunk owns the band's LEAD-IN too
+    jc .rect                    ; - and erasing it counts as a draw, because
+    pop si                      ; the legend square lives in it and the caller
+    inc si                      ; has to know to put it back
+    push si
+.rect:
     mov ax, [tm_ci]             ; the chunk's band: [penx + i*TM_CW, +TM_CW)
     mov cl, TM_CW
     mul cl
@@ -2238,34 +2270,62 @@ tm_row_draw:
     mov dx, [tm_rowy]
     mov bx, dx
     add dx, 7                   ; AX/BX/CX/DX = the chunk's rect
-    call wm_clip_test
-    jnc .draw
-    mov bx, [tm_ckb]            ; the region cuts it: forget the record just
-    mov word [bx], 0            ; made, so the chunk is tried again rather
-                                ; than left blank and called clean
-    jmp short .next
-.draw:
-    push ax
+    call wm_clip_test           ; NOT a veto any more - font_run decides per
+    pushf                       ; CELL on both its paths (SPEC.md 6.1.2), so
+                                ; this only asks whether the chunk will be
+                                ; drawn WHOLE, which is whether its check word
+                                ; may be believed next time
+
+    push ax                     ; --- the chunk, as ONE opaque run ----------
     push cx
-    mov byte [gfx_color], CWHITE
-    call gfx_fill               ; erase just this chunk
+    push dx
+    mov cx, ax                  ; x
+    mov dx, [tm_rowy]           ; y
+    mov si, di                  ; DI -> this chunk's TM_CHUNK characters
+    mov bx, si                  ; terminate at the chunk's end and put the
+    add bx, TM_CHUNK            ; byte back after: the row is one 25-character
+    mov ah, [bx]                ; string and font_run runs to a NUL. The
+    mov byte [bx], 0            ; buffer has room for the last chunk's, which
+    push bx                     ; lands on tm_str[25] of TM_STRMAX = 28
+    push ax
+    mov al, CBLACK              ; AL = ink, AH = background: the erase and the
+    mov ah, CWHITE              ; letters as one decision per cell
+    call font_run
+    pop ax
+    pop bx
+    mov [bx], ah
+    pop dx
     pop cx
     pop ax
-    mov byte [gfx_color], CBLACK
-    mov cx, ax                  ; letter it, one glyph at a time - font_str
-    mov dx, [tm_rowy]           ; would run past the chunk's end
-    mov si, di                  ; DI still points at the chunk's characters
-    mov ah, TM_CHUNK
-.glyph:
-    mov al, [si]
-    or al, al
-    jz .gdone
-    call font_char
-    inc si
-    add cx, 8
-    dec ah
-    jnz .glyph
+
+    cmp word [tm_ci], TM_NCHUNK - 1     ; the LAST chunk owns the band's tail
+    jne .gdone                          ; too - the pen is inset, so the row
+    push ax                             ; runs past the 25 cells and nothing
+    push bx                             ; else would scrub it
+    push cx
+    push dx
+    mov ax, [tm_penx]
+    add ax, TM_NCHUNK * TM_CW
+    mov cx, [tm_rowx]
+    add cx, TM_RW
+    mov bx, [tm_rowy]           ; y1/y2 FROM THE ROW, not from whatever the
+    mov dx, bx                  ; run above left behind - terminating the
+    add dx, 7                   ; chunk needed a register and BX was it
+    cmp ax, cx
+    ja .tdone
+    mov byte [gfx_color], CWHITE
+    call gfx_fill
+.tdone:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
 .gdone:
+    popf
+    jnc .kept
+    mov bx, [tm_ckb]            ; an edge cut it, so some cell was skipped:
+    mov word [bx], 0            ; forget the record and ask again next time
+.kept:
     pop si
     inc si                      ; something was drawn
     push si
@@ -2292,6 +2352,63 @@ tm_row_draw:
     ret
 .drew:
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_row_lead - erase the row band's lead-in: the inset between the band's
+;               left edge and the pen, which belongs to no chunk
+; in:  [tm_ci] (acts only on chunk 0), [tm_rowx]/[tm_penx]/[tm_rowy]
+; out: CF = 0 it filled, CF = 1 it did not; all registers preserved
+;
+; The band is [rowx+6, rowx+TM_RW] and the memory list letters from rowx+16,
+; leaving ten pixels at the left that no chunk covers - and that is exactly
+; where the legend square goes. tm_rowfill used to erase the whole band, so
+; the square went with the text and came back with it; chunks start at the
+; PEN, so nothing erased it any more and a row that went away left its square
+; behind forever. Closing a package was the way to see it: the name vanished
+; and its little swatch stayed, on a row that no longer existed.
+;
+; It is the mirror of the last chunk's fill running on to the band's right
+; edge, and for the same reason - the pen is inset, so the band is wider than
+; the chunks at both ends. The process list letters from rowx+6 and has no
+; lead-in at all, which the width test below answers with CF=1.
+;
+; The clip needs no thought here: this is a plain fill, fills clip per pixel,
+; and there are no glyphs in the lead-in for the granularity rule to disagree
+; with. The square that goes back into it is a pattern fill, which clips the
+; same way.
+; -----------------------------------------------------------------------------
+tm_row_lead:
+    cmp word [tm_ci], 0
+    jne .no
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [tm_rowx]
+    add ax, 6
+    mov cx, [tm_penx]
+    dec cx
+    cmp cx, ax
+    jb .none                    ; the pen IS the band's left edge: no lead-in
+    mov bx, [tm_rowy]
+    mov dx, bx
+    add dx, 7
+    mov byte [gfx_color], CWHITE
+    call gfx_fill
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.none:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.no:
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2713,7 +2830,7 @@ tm_txt_cpu:
 
     mov ax, [tm_cx]             ; a caption sits in column 0 whatever the row
     mov [tm_rowx], ax           ; loops have left [tm_rowx] at, and letters
-    add ax, 6                   ; from the margin
+    add ax, TM_PEN              ; from the margin
     mov [tm_penx], ax
     mov ax, [tm_cy]
     add ax, TM_CPU_Y
@@ -3140,8 +3257,8 @@ tm_rows:
 
 .draw:
     mov byte [di], 0
-    mov ax, [tm_rowx]           ; this list letters from tm_rowx+6 - there is
-    add ax, 6                   ; no square in front of it
+    mov ax, [tm_rowx]           ; this list letters from tm_rowx+TM_PEN - there
+    add ax, TM_PEN              ; is no square in front of it
     mov [tm_penx], ax
     push si
     mov bx, si

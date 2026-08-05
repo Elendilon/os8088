@@ -21,8 +21,7 @@ whole reason to leave them.
 
 The same rule governs the API table (§20.3): **a shipped slot keeps its
 contract**, and "we no longer implement this" is a refusing stub, not a reuse
-(§20.8 rule 4). Bringing forward a package written against an older table is
-[docs/PORTING.md](docs/PORTING.md).
+(§20.8 rule 4).
 
 ## 0. Goal
 
@@ -92,6 +91,12 @@ pre-empted background task, updating live while the user types or drags).
    drawing routines render into `[vid_rseg]` and touch no VGA register at
    all; only `gfx_flush` (Sequencer Map Mask) and the cursor path program
    the hardware, and both restore the same defaults.
+8. **A control that can refuse a click is greyed the way §46 says**, whether
+   it is the kernel's or a package's: `CDGRAY`, the whole control and not just
+   its caption, one predicate shared by the greying and the refusal, and words
+   as well for anything drawn only as text — because `font_ink` rounds
+   `CDGRAY` to black and a greyed *string* is invisible as such on two
+   adapters out of three (§39.4).
 
 ## 2. Memory map
 
@@ -550,6 +555,7 @@ bytes are hard-coded.
 | `font_str`   | CX=x, DX=y, SI=NUL str   | draw string left→right               |
 | `font_width` | SI=NUL str               | out AX = pixel width (8 × length)    |
 | `font_str_x` / `font_width_x` | ES:SI = NUL str | the same two, reading the string through **ES** — what the `X` stubs of §20.3 call so a package's string can live in its own segment |
+| `font_run` / `font_run_x` | CX=x, DX=y, SI (ES:SI) = NUL str, AL=ink, AH=background | one **opaque** run: the cells' background AND their glyphs, in a single pass (§6.1). API slot 0x0258 |
 | `osapi_font_glyphs` | — | out SI = the offset of `font_glyphs` in KERNEL_SEG, AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x0218 |
 
 **Handing out the bitmaps** (`osapi_font_glyphs`) is for an app that draws
@@ -573,6 +579,213 @@ the software renderer, which applies the same shifted row masks to every
 plane the adapter has (or/and-not per the `[gfx_color]` plane bit — at 1bpp
 there is one plane and one bit, and `font_ink` rounds everything but pure
 white to black, because a dithered 8x8 glyph is unreadable, §39.4).
+
+### 6.1 `font_run` — the erase-and-letter pair, as one operation
+
+**Every text-bearing element in this system fills a rect and then letters
+it**, and each of them writes those bytes twice: once as a fill, once as a
+read-modify-write per glyph. `font_run` does it once. It takes both colours
+and paints each 8x8 cell complete — background where the glyph is clear, ink
+where it is set.
+
+**This is a speed optimisation and nothing else**, and it earns its place on
+the two mono adapters. On a 1bpp adapter at a byte-aligned x the cell owns
+its whole framebuffer byte, so there is nothing underneath to preserve: no
+shift, no read, no second byte, and no separate fill pass at all. Per plane
+the byte is `(glyph & ink) | (~glyph & background)` with each mask 00 or FF,
+which on mono reduces to the glyph or its complement. That is the path the
+slow machines are on — `[bb_on]` is permanently 1 there (§39.5) — and it is
+where the cost of text actually lives.
+
+The fast path is deliberately narrow: `[bb_on]` set **and** `x & 7 == 0`
+**and** `[gfx_dis]` clear (a disabled control's glyph is masked to a
+checkerboard inside `font_ink`, §47, which a plain store cannot express).
+Anything else — a VRAM planar target, an unaligned run, a greyed one — falls
+back to one `gfx_fill` of the run's rect in the background colour and
+`font_str` over it, which is exactly what every caller wrote by hand before.
+The rendered answer is identical either way, so a caller never has to ask
+which path it got.
+
+Clipping is `font_char`'s, per cell, screen edge and clip region alike — the
+background clips with the glyph rather than independently of it.
+
+**It also does not flicker, and on a slow machine that is not a small thing.**
+The erase-and-letter pair leaves the run *blank* between the fill and the last
+glyph, and on a 4.77MHz XT that gap is tens of milliseconds — several display
+frames, plainly visible as a flash every time the text is redrawn. `font_run`
+has no such interval on either path: a cell goes from its old content to its
+final content in one write, so there is never a moment when the line is empty.
+Observed directly on the XT — §11.94's benchmark draws the same line three
+ways, and the two erase-and-letter rows flicker and flash while the `font_run`
+row draws smoothly. **No timing column reports this**, because the two methods
+take comparable time and differ in what is on screen during it.
+
+#### 6.1.1 What it is worth, measured
+
+`apps/fontbench` is the measurement. It lives on the **`testing` branch**, not
+here — it ships on no disk and nothing in this tree builds or cites it, so it
+is tooling rather than system, and the numbers below stand on their own record
+the way any other measured figure in this document does. What it does: draws
+the same ten-character run (`'C-2 01 A0F'`, a tracker pattern cell) 120 times
+four ways — the hand-written `gfx_fill` + `font_str` PAIR and one `font_run`,
+each at a byte-aligned x and again at x+5 — and times each against counter 0
+of the 8253 read directly, because a 55ms tick cannot resolve a 3ms row.
+
+Run under QEMU with `-icount`, so the PIT counts guest **instructions**
+rather than host time and the result is deterministic and machine-independent
+(runs agreed to ±1 count). Each path is measured twice: at a byte-aligned x,
+and at x+5. **The skewed row is the honest status quo**, because
+`ui_drag` writes `W_X` straight from the mouse and a draggable window's
+content x is arbitrary mod 8; the aligned row is what a window would cost if
+something guaranteed the alignment. x+5 and not x+1 because the ROM font's
+rightmost column is blank in every glyph, so a one-pixel shift spills nothing
+into the second byte and flatters the unaligned case.
+
+| adapter | PAIR aligned | PAIR at x+5 | `font_run` aligned | `font_run` at x+5 |
+|---|---|---|---|---|
+| VGA, `[bb_on]` = 0 | 2694 | 2957 | 2763 | 3023 |
+| CGA 640x200 | 3400 | 3513 | **2695** | 3580 |
+| Hercules 720x348 | 3369 | 3483 | **2673** | 3548 |
+
+**On mono, aligned `font_run` against the unaligned pair is 1.30x — and
+against the aligned pair 1.26x.** The two mono adapters agree to within 1%,
+which is what should happen: same renderer, different stride and bank wrap.
+
+**Instruction count understates the win on the hardware this is for**, because
+what the fast path removes is disproportionately *memory* work, and on a
+4.77MHz machine a framebuffer access on the 8-bit ISA bus is the expensive
+part. Counting framebuffer byte-accesses directly (temporary kernel counters
+at the three write sites, read over QMP) gives the same figures on Hercules
+and on CGA. `font_run`'s fast path is a flat **80** — ten cells x eight rows
+x one store, no reads at all, at every alignment it accepts. The pair is not
+flat, because `font_char` writes a second byte whenever the shifted glyph
+spills into it and the fill covers one more byte column:
+
+| x mod 8 | fill | glyphs | PAIR total |
+|---|---|---|---|
+| 0 | 128 | 100 | **228** |
+| 1 | 136 | 100 | 236 |
+| 2 | 136 | 128 | 264 |
+| 3 | 136 | 162 | 298 |
+| 4 | 136 | 174 | 310 |
+| 5 | 136 | 190 | 326 |
+| 6 | 136 | 194 | 330 |
+| 7 | 136 | 200 | 336 |
+
+Mean 291. So the operation goes from **228..336 depending where the window
+was dragged to, to a flat 80** — 2.85x at best and 4.2x at worst, 3.6x on
+average.
+
+**And on a real XT the traffic figure is NOT the one that comes true.** It was
+written here that instruction count "understates the win", that the true
+figure sat between the two and probably near the traffic end. Run on a
+4.77MHz 8088 with a Hercules card, the same four rows say:
+
+| row | ms for 120 runs | per run |
+|---|---|---|
+| PAIR aligned | 1211 | 10.09 ms |
+| `font_run` aligned | **932** | **7.77 ms** |
+| PAIR at x+5 | 1251 | 10.43 ms |
+| `font_run` at x+5 | 1267 | 10.56 ms |
+
+**1.30x aligned against aligned — the instruction figure to three digits, not
+the 3.6x traffic figure.** Alignment alone is 3.3% and the fallback costs 1.3%
+over hand-writing the pair, both close to what `-icount` said. So on this
+machine the per-cell overhead — the clip test, the glyph lookup,
+`gfx_rowbase`, `font_ink`, the plane setup — dominates the eight byte-writes
+it guards, and instructions are the better proxy. The traffic count remains
+the right *explanation* of where the writes went; it is not the right
+predictor of time, and this section previously said it was.
+
+Worth keeping for its own sake: **about 1 ms per 8x8 cell** on that machine,
+which two independent harnesses agree on (fontbench 10.09 ms per ten cells,
+typebench 33.3 ms per forty). Nothing else in this document measures the
+hardware all of this is for. The aligned row is measured; the rest is that measurement's model
+(fill = two masked edge columns at 8 rows x 2 read-modify-writes, plus the
+interior as word stores; glyphs = one read-modify-write per non-blank glyph
+row, two when the shift spills) evaluated against the ROM font actually in
+memory, and it predicted the aligned case and the repaint's own contribution
+to the byte.
+
+**Alignment is worth something on its own**, before `font_run` enters: the
+pair itself is 1.03x cheaper aligned on mono and 1.10x on VGA (four planes,
+so the spilled second byte costs four times). But most of the value is in the
+single-store path, and alignment is what unlocks it — see §6.1.4.
+
+**On VGA `font_run` costs 2.5%.** Both `font_run` rows sit 2.4-2.5% above
+their matching pair, which is the tell that `[bb_on]` = 0 sends everything to
+the fallback whatever the alignment; the 2.5% is the far call, the gate tests
+and `font_width_x`. That is the price of the abstraction on the adapter it
+cannot help, it is small, and it is why the tracker calls `font_run` only
+when `[tui_mono]` says the fast path is reachable — on colour its row band
+was filled once already, so the fallback's fill would be a second pass over
+the same ground.
+
+#### 6.1.4 Unaligned cannot be made fast, which is why alignment is a design question
+
+The obvious alternative to constraining x is to widen the fast path to
+handle any x. It does not work, and the arithmetic says so before any code is
+written. At an unaligned x an opaque cell row spans two framebuffer bytes and
+the neighbours' bits in both of them must be preserved, so the write becomes
+read-both / merge / write-both: **4 accesses per cell row, 320 per
+ten-character run** — against 228..336 for the pair it would replace. It is a
+wash at best, because the pair's fill gets to use `rep stosw` and reads
+nothing at all across the interior.
+
+The single store exists only because the cell owns its whole byte. So the
+2.85x-to-4.2x is not available by making `font_run` cleverer; it is available
+only by arranging that text lands on multiples of 8, and that is a question
+about **window placement**, not about the renderer.
+
+#### 6.1.2 One decision per cell, on BOTH paths
+
+`font_run` cannot produce §11.3's granularity failure. A fill clips per pixel
+and a glyph per whole cell, so an erase-then-letter pair can disagree and
+leave a cell blanked rather than stale — the sharp edge that section is mostly
+about. Here the two are one decision about one cell, so a caller needs no
+`wm_clip_test` gate around the pair and cannot get it wrong.
+
+On the fast path that is free: `font_run_cell` asks about the cell once and
+then either paints the whole cell or leaves it entirely alone.
+
+**The fallback had to be taught it**, and for a while it was not. `font_run`'s
+slow path *was* `gfx_fill` followed by `font_str_x` with no clip handling of
+its own — the exact pair the rule warns about — so under an armed clip region
+a horizontal edge filled the visible rows and lettered none of them. That was
+survivable while the tracker was the only consumer, because it calls this on
+mono only and the fast path always fires there; it stopped being survivable
+the moment kernel code drew through it (§28). So the fallback now picks:
+
+- **no region armed** — one `gfx_fill` and one `font_str`, as before. The pair
+  cannot disagree when nothing is clipping it, and this is the overwhelmingly
+  common case.
+- **a region armed but the whole run inside one fragment** — the same, on one
+  extra `wm_clip_test`.
+- **an edge actually crossing the run** — `font_run_scell` per cell: test the
+  cell, then fill it and letter it behind that one answer.
+
+So the per-cell cost is paid only by runs an edge really cuts, and the
+guarantee is now the *call's* rather than the fast path's. A caller may draw
+under an armed clip region without gating.
+
+#### 6.1.3 The first consumer, and what it changed to qualify
+
+**The tracker's pattern view** (§45.9), whose channel columns were moved onto
+8-pixel boundaries to earn the fast path: `TL_CHX` 28→32 and `TL_CHW` 145→144
+with `TL_PAD` 28→24 on VGA, 70→72 / 145→144 / 28→24 on Hercules. Cell text x
+is `CHX + n*CHW + PAD`, so that turned `56 + 145n` — where only channel 0
+was aligned, 145 not being a multiple of 8 — into `56 + 144n`, where all four
+are. The compact CGA layout was already aligned.
+
+Alignment is why the tracker is the only consumer so far and not simply the
+first of many. It is **fullscreen** (§11.2), so its content origin is (0,0)
+and cannot move. An ordinary window's is `W_X + 1` and `ui_drag` writes `W_X`
+straight from the mouse with no snapping, so for anything in a draggable
+window `x & 7` is arbitrary and re-rolls on every drag: the fast path would
+fire one time in eight. Adopting `font_run` there buys the code deletion and
+§6.1.2's guarantee one press in eight, and the 2.5% fallback cost the rest of
+the time. Snapping window x to a multiple of 8 would make it general and is
+not worth what it would do to dragging.
 
 ## 7. Concurrency model (read carefully — this is the crux)
 
@@ -1170,7 +1383,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_paint_chrome` | the dock and the menu bar and nothing else, for a change that revealed no pixels. Declines to `wm_paint_dmg` over the dock strip when a window hangs over it. Caller holds the gfx lock. |
 | `wm_covered`   | in BX = win ptr; out CF=1 = every pixel of its **frame** rect (drop shadow included) is covered by visible windows above it, so a back-to-front painter may skip it entirely — **W_PAINT included**. Overflow of the 16-rect list answers "not covered". Leaves the clip list disarmed. Caller holds the gfx lock. §11.91. |
 | `wm_win_rect`  | in SI = win ptr; out AX,BX,CX,DX = its occupied rect, inclusive, drop shadow included (WF_FULL: no shadow). Clobbers only those four. |
-| `wm_top`       | out BX = frontmost visible window ptr, 0 if none             |
+| `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x0260 (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8). |
 | `wm_hit`       | in CX=x, DX=y; out BX = topmost visible window ptr containing the point (0 if none), AL = 0 content, 1 title bar, 2 close box, 3 minimize box, 4 grow box. AL=2/AL=3 only when BX is the frontmost visible window (the only one with the boxes drawn); on any other window those regions report AL=1. AL=4 only when BX is the frontmost visible window **and** has WF_SIZABLE (and not WF_FULL): the 13×13 grow-box rect of the frame drawing above; anywhere else that region is plain content (AL=0). A WF_FULL window reports AL=0 for every point — it has no chrome. |
 | `wm_paint_all` | full repaint: desktop gray (below menu bar), then `desk_paint` (§26 — desktop icons sit on the desktop, under every window), then `dock_paint` (§30 — the dock strip sits on the desktop under every window, like the icons), menu bar, every visible window back→front (frame + white content + W_PAINT) — **except** one `wm_covered` answers yes about, which is skipped whole (§11.91). Caller holds gfx lock. |
 | `wm_content`   | in BX = win ptr; out AX = content left, DX = content top. WF_FULL set → AX = W_X, DX = W_Y (no border, no title bar — §11.2). |
@@ -1482,10 +1695,40 @@ but nothing under the bar is touched. **`wm_front` on a window that is not
 visible** takes the full pass: `wm_show` is the entry point for that, and
 declining is better than drawing a hidden window.
 
-**One fallback to the full pass**, structural (`wm_fast_ok`): anything to do
-with a fullscreen window — `[wm_fs]` set, or the window itself carrying
-`WF_FULL` — because §11.2 suppresses the chrome entirely and the ordering
-above stops describing the screen.
+**There is no fallback to the full pass left.** A fullscreen window used to
+be one (`wm_fast_ok`): `[wm_fs]` set, or the window itself carrying
+`WF_FULL`, sent both entry points to `wm_paint_all` on the grounds that
+§11.2 suppresses the chrome and the ordering above stops describing the
+screen. It does not stop describing it — it gets *shorter*. A window shown
+over a fullscreen one reveals nothing, like any other; a fullscreen window
+shown over everything reveals nothing because it covers the screen. Only the
+chrome had to change, and `wm_raise` now **skips** the bar and the dock
+(`wm_fs_vis`) instead of the caller repainting the world in order to avoid
+drawing them.
+
+What that cost, before: opening the Standard File dialog over a fullscreen
+player repainted the player — its whole `W_PAINT` — to put a small dialog on
+top of it, and again to take it away. `wm_fs_vis` is the predicate the four
+painters now share; `wm_paint_all` and `wm_paint_dmg` had each open-coded it.
+
+Two things fell out of removing the veto, both of them latent bugs it had
+been hiding:
+
+- **`wm_draw_title` had no `WF_FULL` guard.** A fullscreen window has no
+  title bar, and `wm_raise` hands the *outgoing* front window one when
+  something is raised over it — so the first raise over a fullscreen window
+  painted a full-width white strip with a centred caption across the top of
+  its content. The guard belongs in `wm_draw_title`: "no title bar" is a
+  fact about the window, not about the path that reached it.
+- **`wm_paint_all` walks from the fullscreen window, not from the bottom.**
+  Everything below a window covering the whole screen is covered by it, by
+  construction. `wm_covered` reached the same answer one region-arithmetic
+  pass per window later.
+
+`wm_paint_dmg` likewise stops falling back. Under a fullscreen window the
+desktop, its drive zones, the dock and the bar are all under it, so the
+window pass is the whole of the work — and the empty-rect "the chrome
+changed" case has no chrome on screen to change.
 
 **A window hanging over the dock used to be the other, and it was expensive
 out of all proportion.** The strip is drawn under windows (§30), so
@@ -1507,8 +1750,7 @@ and nothing else. `wm_raise`, `wm_front`'s chrome-only path and
 
 **`wm_lift`** is the z-order move split out of `wm_front` so `wm_show` can
 reorder without committing to the repaint that used to be welded to it.
-**`wm_raise`** is the paint half both entry points share, and **`wm_fast_ok`**
-the eligibility test.
+**`wm_raise`** is the paint half both entry points share.
 
 **One consumer had to follow.** A file-manager window that posts a load
 draws `'Loading...'` in its status line while `[ld_pending]` is set (§22).
@@ -1681,6 +1923,117 @@ callers are a mixed set: `fm_go`, `fm_mount` and `fm_view` hold the lock,
 folder-vanished path reaches it from `ld_run`, which deliberately holds no
 lock across a mount (§21). A pointer cannot be spent on whichever window
 happened to repaint in between.
+
+### 11.94 `WF_SNAP` — a window that keeps its content on a byte boundary
+
+**Opt-in, mono only, and the whole of it is one `and`.** `wm_snap` (API slot
+0x0268) sets `WF_SNAP` on a window, and every site that writes `W_X` then
+keeps that window's **content origin** on a multiple of 8 — so every
+`font_run` the window makes reaches the single-store fast path (§6.1) instead
+of the erase-and-letter fallback. §6.1.1 measures what that is worth: the
+operation goes from 228..336 framebuffer byte-accesses to a flat 80, and
+§6.1.4 is why there is no other way to get it.
+
+**Content origin, not frame x.** `wm_content` returns `W_X + 1` for the
+border, so the number the kernel actually holds is `W_X ≡ 7 (mod 8)`.
+Publishing the frame number would make every app rediscover that `inc ax`,
+and they would each get it wrong differently.
+
+**The gate is `[vid_mono]`, never `[bb_on]`.** They agree on Hercules and CGA,
+but `[bb_on]` is also 1 on a VGA with double buffering armed — so gating on it
+would make windows drag differently depending on a Control Panel setting, and
+buy almost nothing: the back buffer's flush costs ~24× its render (§32), so
+the render-side saving is diluted away there. On VGA the flag is therefore a
+no-op, which is what lets an app set it unconditionally instead of asking
+`OSAPI_VIDEO` first.
+
+Four sites write `W_X` and all four go through `wm_snap_ax`:
+
+- **`wm_fit`**, after both x clamps. Never before: the snap moves left, which
+  is only legal once the right edge has been dealt with.
+- **`wm_resize`**, after its x clamp — a width change can move x.
+- **`ui_drag`**, before its "did it move" comparison rather than after the
+  store, because what *moved* has to mean where the window ends up, and a drag
+  inside one 8-pixel step ends up nowhere.
+- **`wm_fullscreen`** needs nothing: x is 0 with no border, so the content
+  origin is already 0. That is why apps/tracker has had the fast path all
+  along without any of this (§45.9).
+
+Three consequences worth naming:
+
+- **A snapped window cannot sit flush against the left edge.** The smallest x
+  with `x + 1` a multiple of 8 is 7, so that is as far left as it goes. Seven
+  pixels is the visible cost of the feature.
+- **The snap moves LEFT**, so it can never violate the caller's right-edge
+  clamp — except in the `x = 0..6` case, where the only answer is 7 and the
+  right edge is re-tested. A window too wide for that is **left unsnapped**
+  rather than made illegal: it simply misses the fast path, which is a normal
+  path and not a failure.
+- **Dragging becomes 8-pixel steps horizontally**, and that is cheaper than it
+  sounds because `ui_drag` drags an XOR *outline* — the window itself only
+  moves on release, so the snap reads as the outline stepping rather than a
+  window stuttering.
+
+**`wm_snap` preserves FLAGS**, and that is load-bearing rather than polite. A
+package's entry proc returns CF to the loader (§20.2) and is exactly where
+this gets called — after `wm_create`'s CF has been consumed by a branch, so
+the carry riding in the flags at that point *is* the return value.
+`wm_snap_ax` exits on a `cmp` against the screen width, which leaves CF set
+for every window that fits, so without the `pushf`/`popf` asking to be
+snapped **aborted the launch**. On mono only, because that `cmp` is inside the
+`[vid_mono]` gate — Note Pad loaded perfectly on VGA and answered "Load
+failed" on Hercules, which is the shape every mono-gated bug in this system
+has.
+
+**What it is worth, at the workload level.** §6.1.1 prices the primitive;
+`apps/typebench` (on the `testing` branch, like fontbench and for the same
+reason) prices the *keystroke* — 40 random characters typed into a 40-cell
+line, the whole line redrawn after each one, which is what `np_redraw` does to
+its dirty band (§27.2). Under `-icount`:
+
+| adapter | CHAR aligned | CHAR at x+5 | one `font_run` |
+|---|---|---|---|
+| Hercules | 3717 | 3794 | 3480 |
+| VGA | 3133 | 3314 | 3137 |
+
+So snapping is **2.1% on Hercules and 5.8% on VGA** in instructions — more on
+VGA because four planes make the spilled second byte cost four times — and
+drawing the row as a run instead would be a further 6.4% on mono.
+
+**On the real machine both are bigger, and the second one is bigger than its
+speed.** The same three rows on a 4.77MHz 8088 with a Hercules card:
+
+| row | ms for 40 keystrokes | per keystroke |
+|---|---|---|
+| CHAR aligned | 1332 | 33.3 ms |
+| CHAR at x+5 | 1370 | 34.3 ms |
+| one `font_run` | **1203** | **30.1 ms** |
+
+Snapping is 2.9% and the run conversion a further 10.7%, against 2.1% and
+6.4% under `-icount`. But the number that decides it is not in the table:
+**the two CHAR rows visibly flicker on that machine and the `font_run` row
+does not** (§6.1). A keystroke costs 33 ms there, and the erase-and-letter
+pair spends most of it with the line blank. That made Note Pad drawing
+character by character a defect rather than a tuning choice, and **it has
+been converted** (§27.2) — on the flicker, not on the 10.7%.
+
+**The app's half of the contract is not enforced.** `WF_SNAP` puts the content
+origin on a boundary; whether the app's own text sits at content-relative x
+values that are multiples of 8 is the app's business, and getting it wrong
+costs the 2.5% fallback silently rather than drawing anything wrong. Both converted consumers had to move something, and both moved the same two
+pixels: the Task Manager's process list and captions from a 6-pixel inset to
+8 (`TM_PEN`), and Note Pad's text margin likewise (`NP_MARGIN`). Two pixels
+of margin bought a whole window the single-store path.
+
+**The Disk window was considered and left alone.** Its dominant cost is
+`fm_repaint`, which fills the whole content once with `rep stosw` and then
+letters ~40 strings into it — and `font_run` per string would repaint each
+string's background over ground that one fill already covered, the same
+reason apps/tracker keeps `font_str` on colour (§6.1.1). So the flag would
+buy it about 3% (alignment alone removes `font_char`'s second-byte spill)
+while costing 8-pixel drag steps on the window users move most. Not every
+text-heavy window is a candidate; the question is whether it draws its text
+as *runs it erases behind*, and the Disk window does not.
 
 ## 12. menu.inc
 
@@ -1937,6 +2290,20 @@ change, no ABI change, and works for a built-in's menus exactly as for a
 package's. An app must still answer the command itself — a keyboard shortcut
 never goes near a menu.
 
+**The grey is the whole of the visual signal, and it survives 1bpp** — but only
+because `menu_drop` draws the item through `gfx_pen_dis` rather than storing
+`CDGRAY`, and `font_ink` masks a flagged glyph to a checkerboard (§39.4/§46).
+Grey text alone rounds to black on mono, and a disabled item used to be
+pixel-identical to a live one there, silently declining to highlight and never
+saying why. It is a checkerboard now, the way the 1bpp Macintosh drew a
+greyed-out item, so `MENU_DIS` needs nothing from the app to be *visible* on
+any adapter — including when it is used as a radio mark (§43, §45), where the
+dithered item is the one that is currently selected.
+
+Relabelling is still worth doing. `'Save Gif (NoRam)'` says **why** the item is
+unavailable, which the grey cannot; the grey says **that** it is, which the
+words alone did unreliably. Paint does both (§46.3).
+
 **Every string in a set is an offset in the OWNING WINDOW'S segment**
 (§11's W_SEG, §20.1) — the app name, the menu titles and every item. So the
 bar's runtime table `menu_bar` carries a **`MB_SEG`** word per cell
@@ -1972,6 +2339,16 @@ pre-Locator bar — **File**: "Clock" (CMD_CLOCK), "Bounce" (CMD_BOUNCE),
 (CMD_REBOOT) — and so is the System menu, which is cell 0 for every
 application: "About os8088..." (CMD_ABOUT), "Control Panel" (CMD_CTRL,
 §31), "Task Manager" (CMD_TASKS, §28).
+
+**"Close Window" greys when there is nothing to close.** `ui_loc_gate` points
+that item at its `MENU_DIS` twin from `wm_top`, on the press that opens the
+bar — the item list is static `.text` and nothing relays the bar out when the
+last window goes, so layout time is too early. It is the §46 rule 5 case in
+its purest form (a stable, one-word fact) and the one a user meets on the
+desktop at boot before meeting any other; it used to be a live item that
+answered with a beep. The tables-full refusals beside it — Clock, Bounce and
+Disk at the instance cap — stay beeps on purpose: `MAX_TASKS` is 12, and the
+predicate is per-kind rather than one word.
 
 ```nasm
 CMD_ABOUT  equ 1   ; --- System (cell 0, every application) ---
@@ -2587,6 +2964,21 @@ guard 7 proves the kernel ends clear of the relocated stack.
   drive is fixed):  and `build/filetest.img` / `-frag` (§18.4). A write
   test is only half-done in the emulator — finish it on the host with
   `python3 tools/os88disk.py --verify <img>`.
+- **`docs/TESTING.md` is the testing map**, and its section on modelling the
+  old machine from a fast one is what to read before taking any number: the
+  container is ~1000x a 4.77MHz 8088, so a constant sized against it encodes
+  the wrong range, and flicker and input overrun cannot be observed there.
+- The **benchmarks are not here.** `apps/fontbench` (§6.1.1) and
+  `apps/typebench` (§11.94) are the same idea for a *measurement* rather than
+  a gate, and they live on the **`testing` branch**: they ship on no disk,
+  nothing in this tree builds or cites them, and a harness that only ever
+  answers a question once is tooling rather than system. Both time their
+  drawing paths against counter 0 of the 8253 read directly, because a 55ms
+  tick cannot resolve a 3ms row. **Run either under QEMU with `-icount
+  shift=3,sleep=off`** and the PIT counts guest **instructions** instead of
+  host time, which is what makes a result reproducible (±1 count across runs)
+  and independent of the machine it is taken on. Without `-icount` they
+  measure the host, which is not an 8088 and not a number worth quoting.
 - **`check-images`**: `build/` is gitignored but a curated set inside it is
   force-added and shipped — the kernel, both boot sectors, both bootable
   floppies, both software floppies, and every package's `.bin`/`.o88`.
@@ -2910,8 +3302,8 @@ the volume.
 
 | symbol | contract |
 |--------|-----------|
-| `dskw_write` | in: SI → NUL-terminated 8.3 name (DS), ES:BX → the bytes, CX = byte count (0 = create an empty file). Creates or **replaces** the file. Out: CF=0, AX=0; CF=1, AX = `FERR_*`. Preserves all other registers, ES included. |
-| `dskw_read` | in: SI → name, ES:BX → destination, CX = destination capacity in bytes. Out: CF=0, AX = bytes read (= the file's size); CF=1, AX = `FERR_*` — `FERR_BIG` when the file does not fit CX, and **nothing is written** to the buffer in that case. |
+| `dskw_write` | in: SI → NUL-terminated 8.3 name (DS), ES:BX → the bytes, DX:CX = byte count (32-bit, DX high; 0 = create an empty file). Creates or **replaces** the file. Out: CF=0, AX=0; CF=1, AX = `FERR_*` — `FERR_BIG` for a count ≥ 32MB, which no volume this kernel mounts can hold. Preserves all other registers, ES and DX included. |
+| `dskw_read` | in: SI → name, ES:BX → destination, DX:CX = its capacity in bytes (32-bit, DX high). Out: CF=0, **DX:AX** = bytes read (= the file's 32-bit size); CF=1, AX = `FERR_*` — `FERR_BIG` when the file does not fit DX:CX, decided from the directory entry before any data I/O, so **nothing is written** to the buffer in that case. DX is an output: it does not survive the call. |
 | `dskw_delete` | in: SI → name. Frees the chain and marks the directory entry deleted (0E5h). Out: CF=0, AX=0; CF=1, AX = `FERR_*`. |
 | `dskw_rename` | in: SI → old name, DI → new name. Same directory, name bytes only — chain, size, attribute and timestamps are untouched. Refuses `FERR_EXIST` if the new name already exists. Its protection mask is **0x0F, not 0x1F** (see below), so a *subdirectory* may be renamed. Out: CF/AX as above. |
 | `dskw_dfree` | out: CF=0, DX:AX = free bytes (32-bit), BX = **sectors** per cluster (not bytes — `spc`×512 overflows 16 bits at the §18.2-legal `spc` = 128); CF=1, AX = `FERR_*`. Counts free entries across the resident FAT snapshot; no disk I/O. |
@@ -3060,12 +3452,13 @@ one, and a nearly full disk can refuse a save it could have done in place
 existing bytes on every power glitch, and this OS has no journal to make
 that safe.
 
-**The gate package.** `apps/filetest/filetest.asm` (§20.3's slots, driven
+**The gate package.** `tests/filetest/filetest.asm` (§20.3's slots, driven
 end to end: write, read-back-and-compare, oversize-buffer refusal, shrink
 replace, empty file, rename both ways, rename-onto-existing, bad name,
 delete twice, fill-to-refusal, mass delete, free-space equality). Like
-`fmtest`/`sbtest` it never ships on the apps disks — their directory order
-is pinned — and rides its own scratch images: `build/filetest.img` (FAT12),
+`fmtest`/`sbtest` it never ships on the apps disks — a gate package is not
+software anyone would want to launch — and rides its own scratch images:
+`build/filetest.img` (FAT12),
 and `-frag` (`--scramble`d, so allocation and free meet holes). There was a
 third, `-fat16`, on the 2.88M test geometry — the only way to exercise the
 FAT16 entry encoding; it went when `DSK_FAT_SECS` fell to 10 and rule 10
@@ -3082,42 +3475,80 @@ emptying a subtree is the user's job one level at a time — no append or seek, 
 truncate-in-place, no FAT32, no volume-label editing, no timestamp
 preservation across a rewrite, and no attempt to defragment: chains are
 allocated first-fit from the rover, so a full disk fragments exactly the
-way DOS's did. Files are capped at 65,535 bytes by the 16-bit size and
-buffer contracts (`FERR_BIG`), which is far below the 64KB the near model
-could address anyway.
+way DOS's did. What files are **not** capped at is 64KB — see §18.4.1.
 
-### 18.4.1 `dskw_readbig` — the one file op with no 64KB ceiling
+### 18.4.1 One read, one write, and no 64KB ceiling on either
 
-Ported from `main` at `main`'s slot, 0x01E8. `dskw_read`'s sibling: same
-gate, same current-directory name resolution, same chain walk — but the
-destination **advances by segment** (ES += 32 per 512-byte sector, the offset
-held at 0), so the 16-bit offset limit never binds and `dsk_xfer`'s 8237
-page-straddle staging (§18.1) keeps working per sector unchanged.
+There were three routines here and there are two. `dskw_read` and
+`dskw_write` are the whole read/write surface, for the kernel and for
+packages alike, and neither has a size limit that a FAT floppy does not
+already impose.
 
 ```
-in   SI -> NUL 8.3 name, ES = destination BASE segment (buffer at ES:0000),
-     DX:CX = capacity in bytes (32-bit, DX high)
-out  CF=0, DX:AX = bytes read (the file's 32-bit size);
-     CF=1, AX = FERR_* - FERR_BIG decided from the directory entry's 32-bit
-     size BEFORE any data I/O, destination untouched
+dskw_write  in   SI -> NUL 8.3 name, ES:BX -> the bytes, DX:CX = the byte
+                 count (32-bit, DX high; 0 = an empty file)
+            out  CF=0, AX = 0; CF=1, AX = FERR_*. DX preserved.
+
+dskw_read   in   SI -> NUL 8.3 name, ES:BX -> the destination, DX:CX = its
+                 capacity in bytes (32-bit, DX high)
+            out  CF=0, DX:AX = bytes read (the file's 32-bit size);
+                 CF=1, AX = FERR_* - FERR_BIG decided from the directory
+                 entry's 32-bit size BEFORE any data I/O, destination
+                 untouched. DX does not survive the call.
 ```
 
-**It allocates nothing.** There is no staging buffer and no growth in the
-kernel's span: the caller supplies the destination, which in practice is an
-`OSAPI_MEM_CLAIM` grant (§50.3), because a package's own region caps at one
-segment and this exists precisely for data that does not fit there. Only the
-partial final sector stages, through the same `dsk_secbuf` `dskw_rdata` uses.
+**The mechanism is one routine, `dskw_norm`, called once at the top of each
+pipeline.** It folds the whole paragraph part of BX into ES, leaving an
+offset of 0..15; the transfer loop then holds that offset and advances the
+**segment** by 32 paragraphs per 512-byte sector. An offset under 16 plus
+512 can never carry, so the 16-bit offset horizon is unreachable by
+construction, and `dsk_xfer`'s per-sector int 13h granularity (§18.1) is
+untouched — the multi-sector call this replaced was already a software loop
+inside `dsk_xfer`, so nothing got slower.
 
-A size field whose sector count would not fit 16 bits (>= 32MB) cannot be a
-real chain on any volume this kernel mounts (TotSec16 <= 65,535), so it is
-refused as FERR_IO up front: a wrapped count could otherwise make the chain
-walk stop early and report success over a hostile entry (§18 — every byte off
-the disk is hostile input).
+**That is why the destination stays `ES:BX` rather than becoming a base
+segment.** A base-segment contract would have forced every caller with a
+small fixed buffer to find a segment run for it, and the kernel has one of
+those it must not lose: `drv_cfg_load` reads `SYSTEM.CFG` (§51.5) into 64
+bytes of `.bss` **at boot**, where a heap claim is something that can be
+refused. The superset costs about ten bytes of code and removes the entire
+16-bit read path, so it is smaller than what it replaced.
 
-`apps/filetest` check 01 covers it, against a 96KB `BIG.DAT` whose byte at
-offset i is `i >> 9` — one distinct value per sector, so a destination that
+**A hostile size is still refused up front.** A size field whose sector
+count would not fit 16 bits (≥ 32MB) cannot be a real chain on any volume
+this kernel mounts (TotSec16 ≤ 65,535): on a read that is `FERR_IO`, because
+a wrapped count could otherwise make the chain walk stop early and report
+success over a hostile entry (§18 — every byte off the disk is hostile
+input); on a write it is `FERR_BIG`, since the caller asked for something no
+volume could hold. Neither is reachable from a legal floppy.
+
+**What went, and what it cost.** `dskw_readbig` and its two private bodies
+are gone, and so is the "the buffer must not wrap its segment" argument
+check that both pipelines used to open with — a buffer that spans segments
+is now the *normal* case, not an error. **API slot 0x01E8 is retired but not
+reused** (§20.8 rule 4): the cell still exists and answers CF=1 with
+`FERR_NAME`, so every slot above it keeps its number, and `apps/os88api.inc`
+publishes no `OSAPI_FILE_READBIG`, so a package source that still names it
+fails to assemble instead of silently calling a routine whose BX it never
+set. Slots 0x0120 and 0x0128 **changed contract**, which is the one thing
+§20.8 otherwise forbids; it is a deliberate, recorded exception, taken while
+every package that calls them is still in this tree and rebuilt by `make`.
+
+**It allocates nothing**, in either direction. There is no staging buffer
+and no growth in the kernel's span: the caller supplies the memory, which
+for anything large is an `OSAPI_MEM_CLAIM` grant (§50.3), because a
+package's own region caps at one segment. Only a partial final sector
+stages, through the same `dsk_secbuf` both directions already used.
+
+`tests/filetest` checks 2..5 cover it, against a 96KB `BIG.DAT` whose byte
+at offset i is `i >> 9` — one distinct value per sector, so a buffer that
 failed to advance reads a *different* byte rather than a plausible one. The
-probe is offset 0x11111, past the horizon every other file op stops at.
+probe is offset 0x11111, past the horizon the API used to stop at. Check 2
+reads it into a claim at offset **0x33** — neither zero nor a paragraph
+multiple, so `dskw_norm`'s arithmetic is what the probe is testing; check 3
+writes those 96KB straight back out from the same `ES:BX`; check 4 reads the
+copy back at offset 0; check 5 deletes it, so §18.4's free-space equality
+check still closes over the whole run.
 
 ### 18.5 `dskw_mkdir` — creating a subdirectory
 
@@ -3425,10 +3856,10 @@ FAT-spec species it handles):
   32-slot listing budget from foreign housekeeping files).
 - name[0] == 0x20 → invalid per spec (a name may not start with a
   space); skip defensively.
-- name[0] == '.' → a subdirectory's own `.` and `..` links; skip.
-  Navigation reads `..` through `dsk_dotdot` (§19.2), not through the
-  listing, so surfacing them would only put two undeletable oddities at
-  the top of every folder.
+- name[0] == '.' → a subdirectory's own `.` and `..` links; skip. The `..`
+  row the user sees is **synthesized** (§19.5) and typed 3, so it can be
+  navigated but never renamed or deleted; surfacing the raw pair would put
+  two undeletable oddities at the top of every folder instead.
 - name[0] == 0x05 → KANJI escape: treat the first byte as 0xE5 (spec)
   for display; falls through the sanitizer below.
 - Otherwise **accept**, up to the cap of **32 accepted entries** —
@@ -3449,7 +3880,7 @@ every consumer (files.inc, loader.inc) reads:
 | off | size | contents                                                    |
 |-----|------|--------------------------------------------------------------|
 | 0   | 16   | display name, NUL-padded: raw name[0..7] with trailing spaces trimmed, then '.', then ext[0..2] trimmed (dot omitted when the ext is blank); **every byte outside 0x21..0x7E replaced with '_'** (OEM-codepage bytes never reach the font renderer). Max 12 chars — fits every §22 truncation budget |
-| 16  | 2    | type: 1 = loadable package, 2 = subdirectory, else 0 (rules below) |
+| 16  | 2    | type: 1 = loadable package, 2 = subdirectory, 3 = the parent link (§19.5), else 0 (rules below) |
 | 18  | 2    | first cluster = raw FstClusLO (word @26), copied verbatim even when type=0 (harmless; the loader only reads it behind type==1, and `dsk_chdir` only behind type==2). FstClusHI (@20) is FAT32-only per spec — ignored |
 | 20  | 4    | size in bytes = raw size dword @28, verbatim (lo word @20, hi @22 — drawn whole by `fm_ultoa`); forced to 0 for type 2 |
 | 24  | 8    | zero                                                        |
@@ -3473,9 +3904,15 @@ this order:
 truthful.)
 - else **type 0**.
 
+**Type 3** is not derived from an on-disk entry at all: it is the
+synthesized `..` row (§19.5), and it exists as its own type so that
+"navigable, but not a thing on the disk" is a fact in the entry rather than
+a string comparison. Consumers that navigate test `type >= 2`; consumers
+that act on a file (Rename, Delete) refuse 3.
+
 The type word is the *only* thing a consumer branches on: §22's open path
-sends type 1 to the loader and type 2 to `dsk_chdir`, and type 0 to the
-loader as well, where it is rejected as "Bad package" — which is the
+sends type 1 to the loader and types 2 and 3 to `dsk_chdir`, and type 0 to
+the loader as well, where it is rejected as "Bad package" — which is the
 truthful verdict for double-clicking a data file.
 
 **Icons** have no on-disk table: they are **harvested at mount** (§18.3
@@ -3484,7 +3921,7 @@ embedded-icon flag (§20.2 bit 0) carries its 16×16 body at file offset
 32..95, and that block is copied into `disk_icons` entry i. Everything
 else — type-0 files, iconless packages, harvest read failures — gets the
 all-zero slot, and viewers fall back to the built-in `ico_app16` (§25).
-**Type-2 entries are the one exception**: a folder has nothing on disk to
+**Type 2 and type 3 are the one exception**: a folder has nothing on disk to
 harvest an icon *from*, so `dsk_folder_ico` — a hand-authored 16×16 body in
 `disk.inc`'s `.text`, the only icon in the kernel besides the menu-bar logo
 that is drawn by hand — is copied into the slot instead. Doing it at
@@ -3495,9 +3932,9 @@ is all zero.
 Display names are the 8.3 host filenames (e.g. `"MINES.O88"`), not the
 16-byte header names — 8.3 cannot hold the 15-char header names; a running
 instance still shows its header name (`inst_set_name` reads the loaded
-region, §21). Directory order on the shipped disks is pinned by §24's
-argument order; the volume-label entry is filtered, so index 0 stays the
-first package.
+region, §21). The listing is sorted by display name (§19.4), so nothing —
+the Makefile's build order least of all — decides which entry an index
+names.
 
 ### 19.2 Subdirectories — the current directory, one walker, and navigation
 
@@ -3616,6 +4053,107 @@ Two consequences fall out, both wanted:
   nothing about its contents.
 
 The volume is labelled `OS8088SYS`; the apps disk stays `OS8088APPS`.
+
+### 19.4 The listing is sorted by name, in the mount
+
+`disk_dir` comes out of `disk_mount` in **ascending display-name order**,
+not the order the entries happen to sit in on the disk. `dsk_sortdir` is a
+selection sort over the accepted entries, run at the end of the scan.
+
+**It is done here and not in the file manager**, and that is the whole
+point: the Disk window, the Standard File dialog (§38), every per-window
+view cache (§22.1) and anything else that ever reads the snapshot get it
+already sorted, and none of them carries a comparator. The alternative — a
+display-order layer per consumer — is three copies of the same rule and
+three chances to disagree with `fm_hit` about which entry a row is.
+
+Four things about it:
+
+- **It runs BEFORE the icon harvest**, which is what keeps it to one array.
+  `disk_icons[i]` belongs to `disk_dir[i]`, so sorting afterwards would mean
+  permuting a second 2KB array in lockstep — twice the movement, and a
+  standing invitation for the two to drift apart. Harvesting afterwards
+  fills slot *i* for whatever entry ended up at *i*.
+- **Selection sort**, because *n* ≤ 32: at most 31 exchanges of 32 bytes for
+  any input, against a bubble sort's 496. What it spends instead is
+  comparisons — 496 of 16 bytes — and those are byte loads through `ES` with
+  nothing copied in or out.
+- **Case-insensitive.** A FAT short name is uppercase only *by convention*;
+  `dsk_sanit` folds unprintables and nothing else, so a volume some other
+  tool wrote with lowercase bytes would otherwise sort its whole lowercase
+  half after `Z`. The compare folds `a`–`z` and nothing else.
+- **The name field is NUL-padded** (`dsk_synth` zeroes the entry before
+  filling it), so a shorter name sorts before a longer one that shares its
+  prefix with no length test anywhere: `PAINT.O88` before `PAINT2.O88`,
+  because 0 < `'2'`.
+
+No `rep cmpsb` and no `rep movsb`: those want DS:SI, and `disk_dir` is in
+`LOW_SEG`, which DS never points at (§2.1). Both operands are read and
+written with `es:` overrides.
+
+The parent link (§19.5) is **not in the sort** — it occupies slot 0 and
+stays there — so `dsk_sortdir` takes the first entry's offset rather than
+assuming `disk_dir`.
+
+**What this replaced was a pinned build order.** The apps disk's listing was
+directory order, so the order packages were named in the Makefile was the
+order they appeared in, new packages had to be appended at the end of their
+folder, and the scripted tests clicked rows by that index. None of it
+survived contact with the disk being writable and mountable by a host OS —
+a file the user copies on lands wherever the allocator puts it. The
+Makefile's lists now say only *which* packages ship and *which folder* each
+lands in.
+
+### 19.5 `..` is an entry in the listing, not a menu command
+
+In a subdirectory the listing **opens with a `..` row** — folder icon, no
+size column, first in both the list and the icon grid, and above the sort
+because it is placed before the scan runs (§19.4). Double-clicking it goes
+up, exactly like double-clicking any folder.
+
+**It is synthesized in the mount** (`dsk_synth_up`), for the same reason the
+sort lives there: the Disk window, the Standard File dialog and every view
+cache read one snapshot, so putting the row in that snapshot gives all of
+them the same row from the same place. The dialog used to synthesize its own
+— `fdlg_rows` returned `disk_nfiles + (cwd ≠ 0)` and every row ↔ index
+conversion in the module carried the resulting offset — and that offset, and
+the routine that existed to decide it, are gone: **a display row IS a
+directory index** now. `fdlg_dive`'s `..` special case went with it, because
+the entry carries the *parent's* first cluster and dives like any folder
+instead of walking the directory off the disk a second time.
+
+The entry is **type 3**, not type 2, and that distinction is the safety
+property:
+
+- Everything that **navigates** tests `type >= 2`, so `..` behaves exactly
+  like a folder in `fm_open_sel`, `fdlg_act`, `fdlg_onclick`'s dive and the
+  size-column suppression.
+- Everything that **acts on a file** refuses 3. `fm_arm_sel` will not arm
+  Rename or Delete on it — silently, like the no-selection case — and the
+  context menu gets `fm_ctx_up`, which is the folder menu's first two items
+  (Open, Open in New Window) and nothing else.
+- A **name comparison against `..` would have been the wrong test.** The
+  species filter (§19) drops the on-disk dot entries and never re-surfaces
+  them, so a volume is free to hold something else that displays as `..`.
+  The fact belongs in the entry.
+
+Three consequences worth stating:
+
+- **The header says "N files" without the link.** `fm_nfiles` asks the
+  listing — is entry 0 type 3? — rather than deriving it from `FS_CWD`,
+  because those two can disagree: a `..` whose on-disk link is unreadable
+  gets **cluster 0, the root**, rather than no row at all, so the user is
+  never stranded in a folder whose only way out is Root Folder.
+- **The 32-entry cap costs one slot in a subdirectory**: 31 real entries
+  plus the link.
+- **The write path never sees it.** `dskw_find` scans the raw on-disk
+  directory, not `disk_dir`, and `dskw_name83` rejects a leading dot, so
+  `".."` can never become a raw 8.3 name to match against. Both gates
+  predate this.
+
+**Folder ▸ Up One Folder and Backspace stay.** They are the same
+destination by a different route, and a one-button machine in a fullscreen
+window needs the keyboard one.
 
 
 ## 20. Loadable programs — the .o88 package format
@@ -3809,7 +4347,7 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
 
 0x01B0 wm_geom         0x01D8 gfx_blit4         0x0200 mem_claim      (X)
 0x01B8 cm_alloc    (X) 0x01E0 wm_about_set      0x0208 mem_free       (X)
-0x01C0 cm_free     (X) 0x01E8 dskw_readbig  (N) 0x0210 mem_avail
+0x01C0 cm_free     (X) 0x01E8 (retired)         0x0210 mem_avail
 0x01C8 cm_caps         0x01F0 osapi_gfx_dbuf    0x0218 osapi_font_glyphs
 0x01D0 wm_resize       0x01F8 gfx_scroll        0x0220 wm_onsize
                                                 0x0228 osapi_file_here
@@ -3818,24 +4356,23 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x0240 wm_title_set
                                                 0x0248 osapi_drv_task (X)
                                                 0x0250 mem_claim_dma  (X)
+                                                0x0258 font_run       (X)
+                                                0x0260 wm_top
 ```
 
-**Every slot `main` ever published keeps `main`'s number and contract**, on
-the rule that **a slot number must never mean two contracts**: a shipped
-number keeps its meaning, and the answer to "we no longer implement this" is
-a wrapper or a refusing stub, never a reuse. Reusing 0x01C8 for a KB-counting
-`mem_avail` where `main` put its paragraph-counting one would fail silently
-and by a factor of 64, which is the whole class of bug the rule exists to
-prevent. So the three v3 arena slots at 0x01B8..0x01C8 stay live as
-`osapi_cm_*` (kernel/memory.inc) — paragraph-counting wrappers over the claim
-heap that keep `main`'s register contracts exactly, so a package built
-against `main`'s SDK runs unchanged — and `OSAPI_SND_FM`/`OSAPI_SND_STREAM`
-at 0x00F8/0x0100, once refusing stubs, carry the loadable sound driver's
-(§51.4) real contracts, identical to `main`'s. Everything this branch ADDS
-starts at 0x0200, `main`'s first free number, which the merge makes this
-tree's own. New code should prefer the KB slots (§50.3) over the arena
-wrappers: they are the native shape, they work from the entry proc, and only
-they carry the DMA-page and regrow contracts.
+**Every published slot keeps its number and contract**, on the rule that **a
+slot number must never mean two contracts**: a shipped number keeps its
+meaning, and the answer to "we no longer implement this" is a wrapper or a
+refusing stub, never a reuse. Reusing 0x01C8 for a KB-counting `mem_avail`
+where it once held a paragraph-counting one would fail silently and by a
+factor of 64, which is the whole class of bug the rule exists to prevent. So
+the three v3 arena slots at 0x01B8..0x01C8 stay live as `osapi_cm_*`
+(kernel/memory.inc) — paragraph-counting wrappers over the claim heap that
+keep their original register contracts exactly — and `OSAPI_SND_FM` /
+`OSAPI_SND_STREAM` at 0x00F8/0x0100, once refusing stubs, carry the loadable
+sound driver's (§51.4) real contracts. New code should prefer the KB slots
+(§50.3) over the arena wrappers: they are the native shape, they work from
+the entry proc, and only they carry the DMA-page and regrow contracts.
 
 **Offsets are not stable across kernel versions, and never were pretended
 to be.** Two things have moved them wholesale: the removal of the sound
@@ -3873,17 +4410,27 @@ Slot-specific contracts that are not simply their target routine's:
                          content repaint must end with this call. A no-op
                          unless BX is the frontmost visible WF_SIZABLE
                          window, so it is always safe to call.
-0x0120 dskw_write        in SI = NUL 8.3 name, ES:BX = bytes, CX = count
-                         (0 = empty file). Creates or replaces. out CF=0
-                         AX=0, else CF=1 AX = FERR_*.
-0x0128 dskw_read         in SI = name, ES:BX = buffer, CX = capacity; out
-                         CF=0 AX = bytes read, else CF=1 AX = FERR_*
-                         (FERR_BIG leaves the buffer untouched).
+0x0120 dskw_write        in SI = NUL 8.3 name, ES:BX = bytes, DX:CX = the
+                         count (0 = empty file). Creates or replaces. out
+                         CF=0 AX=0, else CF=1 AX = FERR_*. DX preserved.
+0x0128 dskw_read         in SI = name, ES:BX = buffer, DX:CX = its capacity;
+                         out CF=0 and DX:AX = bytes read, else CF=1 AX =
+                         FERR_* (FERR_BIG leaves the buffer untouched). DX
+                         is an OUTPUT and does not survive the call.
+                         Neither slot has a 64KB ceiling: the buffer is
+                         normalised to an offset under 16 and the transfer
+                         walks the segment (§18.4.1). The pair is the whole
+                         read/write surface — 0x01E8 was the big-file
+                         sibling and is retired, below.
 0x0130 dskw_delete       in SI = name; out CF=0 AX=0, else CF=1 AX=FERR_*.
 0x0138 dskw_rename       in SI = old name, DI = new name; out as delete.
 0x0140 dskw_dfree        out CF=0, DX:AX = free bytes, BX = sectors per
                          cluster; CF=1 AX = FERR_*. No disk I/O — the
                          resident FAT snapshot answers it.
+0x01E8 (retired)         was dskw_readbig; dskw_read absorbed it (§18.4.1).
+                         The cell answers CF=1 with AX = FERR_NAME and the
+                         SDK publishes no name for it, so nothing above it
+                         renumbered and nothing can call it by accident.
 0x0148 menu_win_set      in BX = win ptr, SI = app menu set (0 = none).
                          Stores [BX+W_MENUS] and relayouts the bar when BX
                          is active. Draws nothing, takes no lock, and
@@ -4249,12 +4796,21 @@ without anyone noticing it was a rule.
    therefore possible but expensive and deliberate: it invalidates every `.o88`
    at once, and it is only survivable because every package is in this tree and
    `make` rebuilds all of them. It has happened three times.
-5. **No `retf` from a package proc the kernel calls** — the inverse of the same
-   rule on `main`, and the one place porting a package is not mechanical. The
+
+   **The unification of §18.4.1 is the one recorded exception, and it is an
+   exception to the first sentence, not to the rest of the rule.** Slots
+   0x0120 and 0x0128 kept their numbers and *changed* their register
+   contracts: CX became DX:CX, and `dskw_read`'s answer became DX:AX. That is
+   exactly what this rule forbids, and it was taken deliberately, before
+   anything outside this tree can have been built against them — the whole
+   point of doing it now rather than later. The retired third slot, 0x01E8,
+   obeys the rule as written: a refusing stub, not a reuse. Nothing else may
+   read this as licence; the next contract change is a new number.
+5. **No `retf` from a package proc the kernel calls.** The
    kernel reaches a package through the three-byte `call bp` / `retf`
    dispatcher in its own header (§20.2), so entry, paint, onkey, onclick, menu
    handler and completion proc are all **near procs with a near `ret`**; the
-   dispatcher owns the only `retf`. A `retf` left in from `main` returns into
+   dispatcher owns the only `retf`. A stray `retf` returns into
    the loader's stack frame and hangs the machine at the first paint. The
    worker entry is the one proc with no return at all — it exits through
    `OSAPI_TASK_ALIVE` (§20.6 rule 2).
@@ -4626,11 +5182,12 @@ Behaviour:
 - `files_open` (from CMD_FILES dispatch, no lock held): the target is
   `([disk_drive], [dsk_cwd])` — where the volume already is — then the same
   rule.
-- `W_ONCLICK` (lock held; every path below ends in `fm_repaint`: a content
-  repaint — white-fill own content from the **live** W_W/W_H + redraw + a
-  closing `wm_grow_paint` (§11), because the white fill erases the grow box
-  — preceded by `fm_title_flush` when navigation left a caption owing, see
-  "The deferred retitle" below):
+- `W_ONCLICK` (lock held; the button and scroll-bar paths below end in
+  `fm_repaint`: a content repaint — white-fill own content from the **live**
+  W_W/W_H + redraw + a closing `wm_grow_paint` (§11), because the white fill
+  erases the grow box — preceded by `fm_title_flush` when navigation left a
+  caption owing, see "The deferred retitle" below. **A click in the row area
+  usually ends nowhere near it** — see §22.2):
   test order is buttons → scroll bar → rows.
   1. Refresh rect → `fmv_load` on **this window's** `FS_DRV`, root: a
      re-mount from scratch, so a swapped disk shows its real contents.
@@ -4643,7 +5200,8 @@ Behaviour:
      `FS_N` → clear selection. Index == `FS_SEL` and
      [ui_click_t]−`FS_CLKT` < 9 (birth ticks, §10) → double-click:
      `fm_open_sel` (below). Else select it (`FS_SEL` =
-     directory index), stamp `FS_CLKT`.
+     directory index), stamp `FS_CLKT`. **What that costs to draw is
+     §22.2, and it is normally two inverted bands or nothing at all.**
      A double-click that posted a **load** (`[ld_pending]` non-zero on the
      way back) exits through `fm_status_only` instead: the only thing it
      changed on screen is `'Loading...'` in the status line. A double-click
@@ -4954,6 +5512,284 @@ loaded program's window may overlap any of them). It no longer runs on the
 **successful** path at all: `ld_run_body`'s own `wm_show` is that pass, and
 running both was the second whole-screen redraw a launch used to show.
 
+### 22.2 Selecting costs two bands, and re-selecting costs nothing
+
+A click in the row area used to end in `fm_repaint` like every other click:
+white-fill the whole content, redraw the header, both buttons, every visible
+row with its icon, name and size, the scroll bar with its arrows, track and
+thumb, and the status line — about 130 glyphs and a dozen fills, to move one
+inverted strip. The first click of a **double**-click paid it too, which is
+what made a double-click flash.
+
+The selection is drawn as an **XOR fill** over the row band (list view) or
+the cell (icon view), and XOR is its own inverse, so the whole change is:
+invert the band the selection is leaving, invert the band it is arriving at.
+`fm_sel_bar` is that operation, factored out of `fm_draw_core` so the painter
+and the click path cannot disagree about which pixels a selected entry owns —
+the same argument that made `fm_hit` one routine. It takes a directory index
+and range-checks it itself (`0xFFFF`, past `FS_N`, or scrolled out of the row
+area all draw nothing), because one caller hands it an index it has not
+looked at.
+
+Four cases, and three of them draw nothing at all:
+
+| the click | what changes | what is drawn |
+|---|---|---|
+| a different row | `FS_SEL`, `FS_CLKT` | two `gfx_xor_fill`s |
+| the row already selected | `FS_CLKT` | **nothing** |
+| empty space, something selected | `FS_SEL` = 0xFFFF | one `gfx_xor_fill` |
+| empty space, nothing selected | nothing | **nothing** |
+
+Measured on the shipped `APPS` folder, in both views: **zero `font_char` and
+zero `gfx_fill` calls** for every row of that table but the first.
+
+Two things hold it up:
+
+- **It is correct only because `W_ONCLICK` fires on the frontmost window
+  alone** (§13). Nothing is on top of it, so the content on screen is exactly
+  what the last paint put there, XOR included — a stale band would otherwise
+  be inverted back to something that was never drawn. §11.3's granularity rule
+  does not apply either way: an inversion erases nothing, so there is no fill
+  and no glyph to disagree.
+- **An editor line is the one other thing a row click changes.** `fm_edit_end`
+  runs first and cancels a half-typed name, which rewrites the status line, so
+  `fm_onclick` captures `FS_EDIT` into `[fm_wased]` **before** ending it. Set,
+  the fast path is skipped and the click takes the old `fm_repaint` — the
+  status line has to be redrawn anyway and the repaint draws the new band
+  itself.
+
+`fdlg.inc` has the same rule and its own `fdlg_sel_bar` (§38.3): the geometry
+differs, the argument does not.
+
+### 22.3 Cut, Copy and Paste (`kernel/filecp.inc`)
+
+The clipboard is **(drive, folder, name, type)** and deliberately not an
+index: an index means nothing outside the listing it came from, and the
+whole point is that the listing changes between the Cut and the Paste — a
+different window, a different folder, possibly the other drive. A name is a
+legal `dskw_name83` input (§19) and cannot go stale the way an index can,
+which is the argument `fm_onam` already won for Rename. `..` cannot be cut
+or copied (§19.5).
+
+**Surfaces.** File ▸ Cut / Copy / Paste on the bar; Cut, Copy on a row's
+context menu and **Paste Into** on a folder's; **Paste** on the empty-space
+menu; and Ctrl+X / Ctrl+C / Ctrl+V on the keyboard — *control codes*, not
+bare letters, because `c` and `v` are already this window's own shortcuts
+and int 16h hands 0x18/0x03/0x16 straight over. Every one of them runs the
+same `FMC_*` id through the same `fm_jmp` table, so no command has a second
+implementation. A Copy stays on the clipboard and can be pasted again; a Cut
+is spent by its paste.
+
+**Paste takes its target as an argument** (`fcp_paste`, AL = drive, BX =
+folder), because three surfaces name it differently: Paste means "this
+window's folder", Paste Into means "the folder under the pointer", and a
+drop means "the folder I was released over, possibly in another window"
+(§22.4).
+
+**A folder is copied recursively, and the source folder's name is created
+inside the target** — pasting `SUB` into `DEST` makes `DEST/SUB/…`, which is
+also what pasting *onto* a folder does. A folder that already exists is
+**not** an overwrite: it is adopted and the recursion continues into it. A
+*file* of that name where a folder must go is a genuine collision `mkdir`
+cannot resolve, and it is reported.
+
+**The overwrite question suspends the operation.** `fcp_step` runs until it
+finishes, fails, or must ask; every byte of its state is in `.bss`, so the
+pause is an ordinary trip through the event loop and `fcp_answer` resumes
+it. The question is `FS_EDIT` = 4 — the Delete confirmation's mechanism with
+a third answer. **A** sets `[fcp_all]` and nothing is asked again for the
+rest of that operation; anything else stops it with what has already been
+copied left in place.
+
+It is drawn on **two lines** — `Replace NAME?` in the row area, then
+`Enter=yes  A=all  Esc=stop` on the status line — because together they are
+45 characters and 38 fit the default window, which is resizable smaller
+still. `fm_stat_line` is the truncate-and-draw tail of `fm_draw_status`
+lifted into a proc so the question can spend it twice; the extra row is
+legal because a repaint redraws both, and the question is only ever up
+between two of them.
+
+Four things hold the engine up:
+
+- **The recursion has no call stack.** A task stack is 512 bytes (§2.1) and
+  a directory tree is attacker-supplied, so the walk keeps `FCP_MAXD` = 6
+  frames of (source cluster, mirror cluster, entry ordinal) in `.bss` and
+  iterates — `dskw_rmtree`'s discipline. What is different is that a copy
+  does not consume the source as it goes, so each frame has to remember
+  *where it was*: `fcp_scan` re-walks the directory to its ordinal, which
+  costs FAT lookups out of the RAM snapshot plus one sector read, because
+  `dsk_dirw_next` only computes LBAs. Deeper than `FCP_MAXD` is reported,
+  never walked.
+- **`fcp_goto` is quiet inside one volume.** `dsk_chdir` re-runs the whole
+  mount because the *listing* must follow it, but nothing here reads the
+  listing — `dskw_*` resolve names by walking `[dsk_cwd]`'s raw directory,
+  and the FAT snapshot belongs to the volume, not the folder. So a move
+  inside one volume is a word, and a tree copy that would otherwise pay two
+  full mounts per directory pays none. Crossing to the other drive is a real
+  mount, because then the snapshot genuinely is wrong. The cluster is
+  range-checked here, since the quiet path skips `disk_mount`'s own
+  `.cwd_lost` validation.
+- **`[dskw_batch]` defers the coherence remount.** §18.4 rule 3 has every
+  `dskw_*` re-mount on success; a tree copy would pay that per file, so the
+  flag suppresses it and the operation ends with one `fmv_reload_all` — every
+  live Disk window re-listed from its own (drive, folder), because a paste
+  changes the destination, a Cut's source, and every folder it created.
+  `fmv_bcast` reaches only the windows on the *current* (drive, cwd), which
+  after a walk is wherever the walk stopped. The flag is **dropped while a
+  question is outstanding**: the pause is a trip through the event loop where
+  anything else that writes must behave normally.
+- **`fcp_selfchk` refuses a folder pasted into itself or its own subtree**,
+  by walking up from the destination looking for the source's cluster —
+  the cheapest way to ask "is the source an ancestor" on a file system with
+  no paths. Without it the walk creates a copy inside the directory it is
+  reading and then finds that copy, forever.
+
+Two limits, recorded rather than hidden:
+
+- **A Cut inside one volume re-links rather than copies** — see §22.6. Across
+  drives it is still a copy followed by a delete, which is the only thing it
+  can be when the two volumes share no FAT.
+- **File size is not a limit** — see §22.5. The buffer is one `MEM_K_COPY`
+  claim (§50) sized from `mem_avail`, held for the whole operation
+  *including* the part suspended on a question, and released by `fcp_stop`
+  on every exit.
+
+`dskw_stat` (name → CF, attribute, first cluster) is published for this: the
+overwrite prompt has to ask "would this replace something, and is that
+something a folder?" *before* writing, and no existing entry point could
+answer without also doing the thing.
+
+### 22.4 Dragging an entry onto a folder
+
+A press on a row that leaves it by `FM_DRAGMIN` pixels becomes a **drag**;
+released over a folder, it **moves** the entry there. That is the same
+operation Cut-then-Paste performs (§22.3), and it literally is: `fm_drag`
+arms the clipboard as a Cut the moment the drag begins and hands the drop
+target to `fcp_paste`. Giving the drag a transport of its own would be a
+second thing to keep correct.
+
+It is `ui_drag`'s loop with three differences:
+
+- **The gfx lock is already held**, because this runs inside `W_ONCLICK`.
+  So it never calls `gfx_lock` — it unlocks and re-locks around the yield
+  exactly as `ui_drag`'s tracking pass does, and returns holding it.
+- **The outline is a row-sized rect**, drawn VRAM-direct for `ui_drag_xor`'s
+  reason (§32): a transient overlay, always XOR-erased before the lock drops.
+  `[fm_dgx]`/`[fm_dgy]` exist because the erase must use the coordinates the
+  draw used — XOR only removes what it put there, and the pointer moves
+  between the two calls.
+- **The drop is resolved against every visible window**, not the one it
+  started in. That is the point: a drag from a GAMES window onto a folder in
+  an APPS window is the same move Cut and Paste would have made. `wm_hit`
+  finds the window, `inst_win_owner` says whether it is a Disk window, and
+  that window's own `fm_layout` + `fm_hit` say which row. A folder row (type
+  2 or 3) is the target; a file row, a blank row or the header all mean
+  "into the folder you can see".
+
+A drop onto the folder it came from is a no-op, not a copy of everything
+into itself. `..` cannot be dragged (§19.5). A drag is always a move — the
+Macintosh rule within one volume, and the only one this system can honour
+without a modifier key it has no way to report.
+
+### 22.5 A copy is a stream, so size is not a limit
+
+The copy **buffer** is a heap claim of whatever the machine could spare, and
+a file may be larger than it. (`dskw_write` itself has no size limit — that
+went in §18.4.1 — but a single call still needs the whole file in memory at
+once, which is the thing a floppy-sized copy cannot promise.) A copy is
+therefore a **truncating create followed by a run of appends**: `fcp_xfer`
+opens the
+source with `fcp_rdopen`, writes a zero-length destination through the
+ordinary `dskw_write` (so the replace, the free-slot hunt and the old
+chain's release all keep their §18.4 discipline), then loops read-chunk /
+`dskw_append` until the source runs out. The buffer bounds the **chunk**,
+not the file.
+
+**`dskw_append`** (module-internal, no API slot) carries a precondition no
+published entry point could: the file's current size must be a whole number
+of clusters, so an append starts on a fresh one and never has to fill a
+partial sector inside a chain that is already there. `fcp_chunkset`
+guarantees it by rounding the chunk down to a cluster multiple; anything
+else is refused rather than mis-written. Its commit order is §18.4's in the
+only shape an append can have — build and write the new sub-chain, flush the
+FAT so it is durable, link the last existing cluster to it and flush again,
+and only then let the directory entry take the new size, which is the single
+sector write that makes those bytes part of the file.
+
+**The read side is not a `dskw_` entry point.** Nothing there writes: the
+FAT snapshot is already in RAM, so stepping the chain is a lookup and the
+only I/O is the data. `fcp_rdnext` reads whole clusters and clamps the
+*count*, never the transfer — the trailing bytes of the last cluster are
+allocated sectors of the file's own chain, so reading them costs nothing and
+saves a second, ragged case.
+
+**Chunk size.** As much as the heap will give, up to 65,024 bytes — 127
+sectors, because 64KB exactly wraps a 16-bit byte count — then rounded down
+to whole clusters. Big is what we ask for: every chunk is a seek, and a real
+floppy is where that is felt.
+
+**The buffer is 512-byte aligned by hand.** `mem_claim` is only paragraph
+aligned, and §2's rule that every disk-visible base is 512-aligned exists
+because int 13h moves one sector per call and the DMA controller answers a
+64KB-boundary straddle with error 09h. The claim's base is rounded up to a
+32-paragraph boundary and one KB given back, which costs at most 496 bytes.
+
+Two bugs this found, both worth naming because neither was in the new code's
+logic:
+
+- **`mem_claim` answers in DX, not AX.** `filecp.inc` read AX, which still
+  held the KB asked for — so the copy buffer was segment 0x0040 and every
+  read scribbled over the interrupt vector table. A small file wrote too
+  little to matter; the first file big enough wedged the machine inside
+  int 13h. The counters that found it bracketed `disk_read`: entered 23
+  times, returned 22.
+- **A read that crosses a 64KB physical boundary is not a *logic* error**,
+  so it does not fail — it hangs in the BIOS. That is why the alignment is
+  explicit here rather than assumed.
+
+### 22.6 A move inside one volume is three sector writes
+
+A same-volume Cut needs no data I/O at all: the cluster chain is already
+where it belongs and only the *name* of it changes hands. `fcp_relink` moves
+the directory entry — a read and a write per cluster becomes three sector
+writes, so a folder of packages moves in less time than the copy path took
+to read one of them.
+
+**It declines rather than competes.** Another drive, a name the destination
+already holds, a full destination directory, a source it cannot read: it
+answers "not attempted" and `fcp_step` falls through to the copy engine,
+which is the one that knows how to ask about overwrites. That is what keeps
+this an optimisation rather than a second set of semantics, and it is why
+the overwrite prompt, the recursion and the suspend/resume machinery needed
+no changes at all.
+
+Two things make it cheap enough to be worth having:
+
+- **`dskw_raw` still holds the SOURCE's thirty-two bytes** when the
+  destination's lookup fails — `dskw_stat` bails inside `dskw_find`, before
+  `dskw_ent_load` could overwrite them. So the entry that lands in the
+  destination is the source's, carrying its real 32-bit size *and* its
+  original timestamps. Building a fresh one through `dskw_commit` would have
+  given neither: that path writes the size from the 16-bit `[dskw_len]`.
+- **`[dskw_zapnext]` is consumed by `dskw_ent_store`, not by
+  `dskw_commit`.** Taking the slot that *is* the end-of-directory marker —
+  the common case in a young directory — is therefore handled by the same
+  routine that writes the entry, and the three-line slot hand-off
+  (`[dskw_fsec]`/`[dskw_foff]`/`[dskw_fend]`) is the whole of it.
+
+**The order is binding: the destination entry is written before the source
+is unnamed.** A crash between the two leaves the chain named from two
+directories — visible, and the user can delete one. The other order loses
+the file. `fcp_rlzap` is the one delete in this system that leaves the
+clusters alone, because they are not free: the entry just written owns them
+now, and `dskw_delete` would take the moved file with it.
+
+**A moved folder's own `..` follows it** (`fcp_rlup`). Entry 1 of a
+subdirectory is `..` by spec — the same fact `dsk_dotdot` rests on (§19.2) —
+and it is checked rather than assumed, because everything read off the disk
+is hostile. Without it the folder still lists and still opens, but going up
+out of it lands in the folder it used to live in.
+
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
 Not kernel code: a .o88 package built with os88api.inc, org 0 (§20.1), all
@@ -4977,7 +5813,15 @@ content-relative; the procs fetch the content origin via `wm_content`
   (12) pennant + black mast on a covered cell; revealed = white face, 1px
   dark gray grid border, centered colored digit; digit colors:
   1=1 (blue), 2=2 (green), 3=4 (red), 4=5 (magenta), 5=6 (brown),
-  6=3 (cyan), 7=0 (black), 8=8 (dark gray). Mine = black disc with spokes;
+  6=3 (cyan), 7=0 (black), 8=8 (dark gray) — the 8 is the one digit that cannot
+  reduce to black, because 1..7 use all seven indices that do. It keeps dark
+  gray because that is the only one of the six dither-class colours with enough
+  contrast on a white cell face; the alternatives are light gray (too faint to
+  read) and three bright colours (worse), and light blue collides with the 1.
+  **This digit is why the disabled state is a flag and not a colour** (§46): a
+  first cut had `font_ink` dither every `CDGRAY` glyph on mono, which made a
+  Minesweeper 8 come out looking exactly like a menu item you cannot pick.
+  Mine = black disc with spokes;
   the one you clicked sits on a light-red (12) cell, others (shown on
   loss) on light gray. Wrong flags on loss: mine + black X.
 - Input: W_ONCLICK reveals (or flags, in flag mode) the cell under the
@@ -5221,11 +6065,9 @@ scan codes of Left, Right, Up, Down, Home, End and Delete.
 
 Two things got simpler in the move. The built-in reached its state through
 `inst_of_win` → `I_SPTR` because every instance shared one pool; a package
-addresses its own bss directly (`np_len` word + `np_buf` 512 bytes + three
-paint scratch words + the §27.1 save/load state = `NP_BSS_TOTAL`). And the
-cap is gone: the pool that fixed it at 2 no longer exists, so instances are
-bounded only by the region pool and the instance table like any other
-package.
+addresses its own bss directly. And the cap is gone: the pool that fixed it
+at 2 no longer exists, so instances are bounded only by the heap and the
+instance table like any other package.
 
 ### 27.1 Save and load — the file API's first caller
 
@@ -5262,10 +6104,12 @@ it; two Note Pads on two documents are now the ordinary case.
 filesystem at all: the buffer stores a bare 13 on Enter (§14), the file
 gets `CR LF`, and a load folds `CR LF` — and a lone `LF` — back to 13. A
 note written here opens correctly in Windows Notepad, and one written there
-opens correctly here. Translation runs through `np_io`, a 2×`NP_CAP`
-staging buffer in the package's own bss, so neither direction can overrun
-`np_buf`: a load stops folding at `NP_CAP` characters and reports the
-truncation.
+opens correctly here. A load folds **in place** inside the document claim
+(§27.3) and needs no staging at all; a save expands, so it takes a second,
+transient claim sized at 2 × `[np_len]` — the worst case, every character a
+newline — and hands it back the moment the write returns. A refused claim is
+an ordinary path: the toast says "No memory" and the note is still there,
+still editable, and still saveable when something gives memory back.
 
 **Feedback is a toast**: `np_msg` (a near pointer, 0 = none) is drawn by
 `np_paint` as a black-framed white box at the content's top-right — "Saved
@@ -5315,9 +6159,8 @@ content moves again.
    compares against `np_sig`, stores the new value, and widens
    `[np_dr0]`..`[np_dr1]`. If `np_dr0` comes back 0xFFFF nothing on screen
    moved and the routine returns having drawn nothing at all.
-2. **Draw the band** (`np_draw` = 1, `np_clip` = 1). One `gfx_fill` over
-   rows `np_dr0`..`np_dr1` across the full content width, then the walk
-   again, skipping every row outside the range.
+2. **Draw the band** (`np_draw` = 1, `np_clip` = 1). The walk again,
+   drawing every row inside the range and skipping every row outside it.
 
 Measured on a 410-character note, 20 keystrokes at the end, counting calls
 inside the kernel: `font_char` **8,410 → 350**, and scanlines filled
@@ -5349,6 +6192,542 @@ Five things hold it up:
   `np_toast` and is in no row's signature — the keystroke that retires one
   has to erase it the only way this module can, by painting the content
   again.
+
+**A dirty row is drawn as ONE opaque `font_run`, and there is no band fill.**
+It used to be a `gfx_fill` of rows `dr0..dr1` followed by a `FONT_CHAR` per
+cell in pass 2 — the erase-and-letter pair, which on a 4.77MHz 8088 leaves the
+line *blank* for several display frames and flickers on every keypress
+(§6.1/§11.94). `np_walk`'s draw pass accumulates each row into `np_rbuf`
+instead of drawing it, and `np_rflush` paints the row at each row transition
+and at the end of the walk. The buffer is padded with **spaces** to
+`np_rcols`, and that is the whole trick: `font_run` paints a space as
+background on its fast path, so the padding *is* the erase and no cell is ever
+momentarily blank.
+
+Seven things this has to get right, and the first one is not obvious:
+
+- **Rows the walk no longer reaches must still be blanked.** A backspace that
+  pulls a wrapped line back up, or a deleted newline, leaves rows below the
+  text whose old pixels are still on screen. The band fill erased them for
+  free because it covered `dr0..dr1` whether the walk got there or not; row-by-
+  row drawing does not, so `.done` walks on to `np_dr1` blanking as it goes.
+  Without it a deletion leaves the row's last state behind — **caret included**,
+  which is how the first test of this showed it.
+- **The caret is banked, not drawn.** `np_carets` used to draw it during the
+  walk; the row's run would now paint over it, so it records its x in
+  `np_rcx` and `np_rflush` draws it after the run.
+- **The margins are still fills.** The run covers `np_tx` to the last whole
+  cell, so the inset left of the pen and the under-8px tail past the last cell
+  are two thin fills over the dirty band. Neither carries a glyph, so neither
+  can flicker and neither can disagree with anything at a clip edge (§11.3).
+- **A row is diffed against what was last drawn on it, and only the changed
+  span is run.** Typing at the end of a line changes exactly one cell, plus
+  the two the caret leaves and arrives at — three cells out of forty. The
+  cache is one row (`np_prow`, `np_prowi`, `np_prcc`) and it is deliberately
+  the row that was last *drawn*, which under steady typing is the caret's:
+  rows the walk visits but `np_rowdirty` skips leave it alone, so it does not
+  get overwritten by the other rows of the same walk. It is invalidated at
+  birth (`.bss` is zeroed and 0 is a real row index) and on the full-repaint
+  path, which is where every disturbance that is not our own row draw ends up.
+  The caret's old and new columns are folded into the span because a bare
+  arrow key moves the bar without changing a character, and the cell it
+  vacates has to lose it. Measured under QEMU with a counter in
+  `font_run_cell`: a keystroke draws **2 cells**, at any note length and at
+  any window width.
+- **`np_clean` is what keeps the padding from costing rows × width.** Padding
+  to `np_rcols` is only needed to erase something; after a `gfx_fill` there is
+  nothing there, so a run may stop at the row's last real character. The flag
+  is set for exactly as long as that is true — `np_paint` (the kernel filled
+  the content on the way in) and the reconcile of §27.3 (which fills its own
+  band) — and a row that trims to nothing is not drawn at all. Without it a
+  fullscreen repaint is 50 rows of 90 cells whether the note has 500
+  characters or five, which on a 4.77MHz 8088 is about five seconds.
+- **The grow box is restored only when the dirty band could have reached it.**
+  It is 13x13 at the content's bottom-right, and `OSAPI_WM_GROW` used to be
+  called on every keystroke — it had to be, because the band fill spanned the
+  full content width. `wm_grow_paint` fills the square before framing it, so
+  that was the erase-and-letter flash surviving in one corner: with the rows
+  fixed, the resize handle was still visibly flickering. One comparison of
+  the band's last row against `np_bot - 12` answers it.
+- **`np_rcols` is clamped to `NP_MAXCOL`**, and the accumulate step range-checks
+  against it. The wrap rule means a cell past the band cannot normally arise;
+  the clamp is what makes that a bounded write rather than a claim.
+
+The full-repaint path (`np_sigsame` says the signatures no longer describe the
+screen) still fills the content whole first — there the fill is erasing
+everything below the text as well, and a full repaint is not what a keystroke
+pays for.
+
+### 27.3 The visual break — typing in FRONT of text without reflowing it
+
+Inserting a character at the front of a note moves every character after it,
+and there is no cheaper way to draw that than to draw it: forty rows of forty
+cells is 1,600 cells, and a cell is about a millisecond (§6.1.1). One
+keystroke, most of a second. §27.2's delta cache does not help — those cells
+really did all change.
+
+So they are not drawn. The rows below the caret are **scrolled down one row**
+(`OSAPI_GFX_SCROLL`, §5.5), and what the screen then shows is the note with a
+line break at the caret that the note does not contain: the text after the
+caret hangs on the next row at the column it already occupied, and everything
+below it has moved down. The caret keeps the rest of its own row to type on at
+§27.2's two cells a keystroke, and when it runs out of row the rows below are
+pushed down again.
+
+```
+before                  after inserting 'z' at the caret (|)
++----------------+      +----------------+
+|mnoab|cdefghijab|      |mnoabz|         |
+|cdefghijabcdefgh|      |      cdefghijab|
+|ijabcdefghijabcd|      |cdefghijabcdefgh|
+|efghij          |      |ijabcdefghijabcd|
++----------------+      +----------------+
+```
+
+`[np_bmode]` is the flag, `[np_bcrow]` the row the break sits on and
+`[np_borig]` the row it started on. A keystroke while it is up is **one**
+walk — no measure pass, because nothing below the caret is being laid out and
+there is nothing to compare signatures against — from §27.4's checkpoint to
+the caret and no further (`[np_bstop]`), then `np_rflush`'s delta.
+
+Six rules hold it up, and each is a rule rather than a tuning:
+
+- **It is a lie, so it settles.** `np_reconcile` runs half a second after the
+  last keystroke, when the window stops being frontmost, and before anything
+  that is not typing. A user's rhythm is type-then-read, and a note that
+  stayed broken while it was being read would be read as the note.
+- **The settle is a worker task** (§20.6), spawned lazily on the first break
+  so a Note Pad that never breaks costs no task slot. It polls every 3 ticks,
+  compares `OSAPI_GET_TICKS` against `[np_ktick]` and asks `OSAPI_WM_TOP`
+  whether it still has the front — a package learns that it *gained* the
+  front and never that it lost it. A **covered** window is skipped rather
+  than drawn: the reconcile is a fill followed by runs, and under an armed
+  clip region a fill cuts per pixel while a run cuts per cell (§11.3).
+  Skipping costs nothing, because an uncover repaints through `W_PAINT` and
+  `np_paint` draws the note and clears the flag.
+- **Everything that is not typing settles first**, and the hook is at
+  `np_measure` rather than in each handler: that call *means* "I need to know
+  where things really are", and a click has to land on the character under
+  the pointer. Enter, the menu commands, save and load reach `np_redraw`
+  without `[np_fast]` and settle there; a resize or a toast fails
+  `np_sigsame` and settles too.
+- **The trigger is CELLS, not rows** — `(np_dr1 − caret row) × np_rcols ≥ 60`.
+  This window is resizable and a row is 30 cells or 90 depending how wide it
+  was dragged, so a row count is two different amounts of work wearing one
+  number. The caret's own row is excluded because §27.2 already draws it for
+  two cells.
+- **The edit column is REPORTED, not derived**, and that is what lets every
+  edit enter the break rather than only an insert. The scrolled copy below
+  duplicates the row's prefix, which is **C** cells — the caret's column
+  *before* the edit — for an insert and for a backspace alike. But the caret
+  ends at `C+1` in one case and `C−1` in the other, so deriving C from where
+  it *ended* runs the opposite way for each, and the first version of this
+  did exactly that and left two stale characters behind a backspace. The key
+  handler knows C outright (`[np_cur] − [np_ckpi]`, because a row start is a
+  character index and every character on a row occupies one cell), so it says
+  so in `[np_ecol]` and says in `[np_eext]` how many further cells its edit
+  took off that row — one, for forward Delete, which removes a character that
+  was on it. `np_brktry` blanks `np_ecol + np_eext` and needs to know nothing
+  about directions.
+- **Entering the break and continuing in it are different permissions**,
+  because while it is up **the tail is not redrawn**. `[np_fast]` carries the
+  kind: 1 insert, 2 backspace, 3 forward Delete, 4 a caret move. Kinds 1..4
+  may resume the walk (§27.4); kinds 1..3 may *enter* the break, since a
+  caret move reflowed nothing worth avoiding; only kinds 1..2 may *continue*
+  in it. Right would push a character from the tail into the caret's row and
+  draw it twice, Left would pull one the other way and lose it, and Delete
+  eats exactly the tail's first character — all three settle instead.
+- **The caret bar is erased before the scroll.** It is a 1px column at the
+  caret's old x, and the scroll would carry it down into the middle of the
+  tail where nothing would ever erase it. The caret's row is redrawn whole a
+  moment later, so erasing it where it stands costs nothing.
+- **It is gated on `CPU_8086`** via `OSAPI_CPU_INFO`: anywhere faster the
+  reflow is already invisible and the lie buys nothing.
+- **It needs `[np_tx]` on a multiple of 8**, because `OSAPI_GFX_SCROLL` is
+  byte-column granular on every adapter. `OSAPI_WM_SNAP` (§11.94) guarantees
+  that on the two mono adapters — the ones a 4.77MHz machine has — and on VGA
+  it is a coin flip, so there the break does not engage. That is a FACT the
+  code tests, not a guess (§47 rule 3).
+
+**The reconcile is incremental**, and it can be: the break only ever scrolled
+rows `[np_borig]` and below, so everything above it is still the note and
+still carries the signature that says so. `np_reconcile` runs a measure walk
+to bring the signatures up to date, then forces the band to
+`np_borig..np_vrows−1` — no signature describes a fiction, so the comparison
+is not consulted there — fills that band white, and draws it with `np_clean`
+set. A refused scroll (the band left below the caret is shorter than the row
+being inserted, which is what happens at the bottom of the window) sets
+`np_bfail` and settles on the spot.
+
+### 27.4 The layout checkpoint — a keystroke stops walking the whole note
+
+`np_walk` is O(the note) and §27.2 runs it **twice** per keystroke. That is
+about 500 8086 cycles a character a pass, so on a 4.77MHz machine a 400-
+character note costs ~90ms per keystroke in layout alone — against ~2ms of
+drawing. It is invisible until the note is long, and then it is the whole
+cost: a user filled a fullscreen window and reported each keystroke getting
+slower while a counter in `font_run_cell` said the drawing was still two
+cells.
+
+Wrapping is a **left-to-right automaton with no lookahead** — a cell that
+would cross `[np_rgt]` moves to the next row, a newline resets the pen — so
+the pen state at index k depends only on the characters before it. An edit at
+the caret therefore cannot change the layout of anything ahead of the caret,
+and the walk may **resume at the start of the caret's row**.
+
+The start of a row is `(index, row)` alone: the pen's x is always `[np_tx]`
+there, and its y is always `[np_ty] + 8·row`, because every row advance moves
+`np_row` and `bp` together. `np_rstart` banks the candidate
+(`np_ckpc`/`np_ckpcr`) and `np_ask` promotes it to `np_ckpi`/`np_ckpr` the
+moment the walk stands on the caret, so every walk leaves the checkpoint
+describing the layout it just performed.
+
+Three things make it safe:
+
+- **`[np_fast]` is set by the key handler, not inferred**, and only for a
+  printable insert (1) or a backspace (2) whose edit index is at or after the
+  checkpoint. A backspace at column 0 eats the last character of the row
+  *above*, which is before the checkpoint — that is the one deletion a
+  resumed walk could not see, and it is exactly the "inside the caret's own
+  row" rule.
+- **It is one-shot.** `np_redraw` reads `[np_fast]` and clears it, so a
+  handler that forgets to set it gets the full walk, which is only slow.
+- **`np_sigsame` gates it.** The checkpoint is a row index, so it means
+  nothing under a different geometry; `np_redraw` only honours `[np_fast]`
+  after the four `np_bounds` numbers have compared equal.
+
+Rows above the checkpoint keep their stored signatures, which is correct
+because they did not change; `np_dr0` can therefore never come back below
+`np_ckpr`, and both passes resume from the same point. Measured under QEMU
+with a counter in `np_walk`'s loop: at 200 characters a keystroke went from
+**404 walk iterations to 35**, at 350 from **702 to 28**, and after growing
+the window to the full screen to **4** — bounded by the caret's column
+instead of by the note.
+
+### 27.5 Where each row starts — a query about a row costs a row
+
+§27.4 bounded the *keystroke*. It did nothing for the caret keys, and they
+were the worse case: Up ran **four** full walks — `np_vmove` measured to find
+where the caret is, `np_move` measured again to find the index at the column
+above it, and `np_redraw` then measured and drew. At ~500 8086 cycles a
+character a walk that is ~170 ms per arrow key on a 400-character note.
+
+Every one of those walks exists to answer a question about **one row**: where
+is the caret's row, what index sits at column C of row R, what did this click
+land on. The only reason a walk had to start at index 0 was that nothing
+recorded where a row begins. `np_rows` is that record — `NP_MAXROWS` words,
+the buffer index each visible row starts at, written by `np_rstart` beside the
+checkpoint candidate it already banks. With it, and with `[np_lastrow]`
+telling `np_walk` the last row this pass cares about, every query is a walk of
+at most `np_rcols` cells:
+
+| event | before | after |
+|---|---|---|
+| type a character | 60 | 60 |
+| Left / Right | 804 | 60 |
+| Home / End | 1,608 | 90 |
+| Up / Down | 1,608 | 184 |
+
+(walk iterations on a 400-character note, counted under QEMU)
+
+Five things hold it up:
+
+- **`[np_lastrow]` is one-shot** — `np_walk` resets it to 0xFFFF on the way
+  out. A caller that forgets to set it walks the whole note, which is slow and
+  never wrong; the other polarity would silently truncate somebody else's
+  pass.
+- **The `np_lastrow` stop leaves `np_rows` alone; the `[np_bstop]` stop
+  invalidates it.** Stopping early because the caller knows nothing below
+  moved is not the same as stopping early because the note is not being laid
+  out at all — the second leaves the table describing a buffer that has since
+  shifted, so it clears `[np_rowsok]` and the reconcile's full pass rebuilds
+  it.
+- **The fallback is what makes a stale table safe.** `np_seedrow` refuses a
+  row at or past `[np_rowsn]` — a click on the blank space below the text —
+  and the caller runs the full walk instead. Without it a stale entry answers
+  with a plausible wrong index rather than an obvious wrong one.
+- **`np_bounds` invalidates on a geometry change.** The checkpoint and
+  `np_rows` are row *indices*, so they mean nothing under a different layout.
+  `np_sigsame` guards `np_redraw`, but nothing guarded the caret keys, so the
+  test lives in `np_bounds` where every path already goes.
+- **A caret move may resume too, and it must seed at the EARLIER of the two
+  rows.** Up lands on the row above the checkpoint, and seeding at the
+  checkpoint would walk straight past the caret without ever finding it —
+  `[np_curx]`/`[np_cury]` stay 0 and the bar is drawn at the content's origin.
+  `np_move` moves the checkpoint back to the target row before arming
+  `[np_fast]` = 3.
+- **The settle happens before the seed, not inside `np_measure`.** A reconcile
+  runs walks of its own, and they would spend the seed the caller had just
+  set. `np_vmove`, `np_hmove` and `np_onclick` call `np_settle` first for that
+  reason; `np_measure` keeps its own call as the backstop, where it is now
+  always a no-op.
+
+Verified by differential: an identical scripted session of typing, arrows,
+Home/End, backspace, Delete, Enter and two clicks produces a **pixel-identical
+window** on the seeded build and the full-walk build — except for one cell,
+where the full-walk build left a **stale caret** overdrawing a character and
+the seeded one did not. The incremental screen is also pixel-identical to a
+from-scratch `W_PAINT` repaint of the same state.
+
+### 27.6 The note is a heap claim, and it grows
+
+The **text is not in this package's bss**. `np_entry` claims `NP_KB0` (1KB)
+before it creates the window and puts the document at `[np_dseg]:0000`;
+`[np_cap]` is its capacity in bytes. A region is image + bss capped at
+`APP_MAX_SIZE` (§20.1) and is fixed at load time, so anything whose size only
+the *user* knows belongs in the heap (§50.3) — which is the whole point of
+`OSAPI_MEM_CLAIM` existing, and what a 512-byte `np_buf` was working around.
+
+Four movements, and every one of them goes through `np_resize`, which is
+`OSAPI_MEM_REGROW` and **never** claim-copy-free (§50.3.1: a regrow extends
+in place when the paragraphs above it are free, so it needs the *difference*
+rather than old + new at once, and when it must move it brings the bytes):
+
+- **`np_room`, the growth point and the only one.** A keystroke that would
+  fill the claim asks for another `NP_GROWKB` first. A refusal — the heap's
+  or the ceiling's — drops the keystroke, which is exactly what a full note
+  did when it could not grow at all.
+- **A load sizes the claim to the file.** `np_load` opens it to `NP_MAXKB`
+  *before* the read, because nothing knows the file's size until the read
+  reports it and there is no stat in the file API; the file then lands in the
+  document buffer itself and the CR/LF fold runs **in place**, which is safe
+  because folding only ever drops bytes so the write index can never outrun
+  the read index. `np_fitclaim` gives the rest back afterwards — on the
+  failing path too, so a refused load does not leave 8KB held for a note that
+  did not change. There is no load staging buffer at all.
+- **`File > New` shrinks back to `NP_KB0`.** A shrink always succeeds in
+  place, so this cannot fail.
+- **A save takes a second, transient claim**, sized from `[np_len]` and held
+  only across the write, because expanding CR to CR LF *grows* and the
+  document claim is sized for the document. A refusal is an ordinary path:
+  the note is still there and still editable.
+
+**`NP_MAXKB` is 16, and it is an arithmetic limit rather than a memory one.**
+It used to be 8 and 8 was never about memory either: it was what the window
+could *show*, because Note Pad did not scroll and text past the last visible
+row could be typed and never read back. §27.7 removed that, so what bounds
+the note now is the **save**. Staging expands every newline to CR LF, so the
+worst case is twice the note — walked with a 16-bit DI, counted with a 16-bit
+BX, and sized by `np_stghold`'s own `2 × [np_len]`. At 16KB that worst case
+is 32,768 and all three hold; at 32KB it is 65,536 and all three wrap to
+zero. 16,384 characters is 32× what the old `np_buf` held.
+
+One behaviour changed with the ceiling. A file larger than the claim used to
+fill the buffer and say "Truncated"; it is now `FERR_BIG` and "Too big", and
+the note is left alone. That is the honest answer and the old one was a trap:
+a half-loaded note whose next save wrote the truncation back over the whole
+file.
+
+### 27.7 The view scrolls, and one word is what makes it
+
+`[np_top]` is the note row drawn at the top of the content, and **`np_walk`'s
+`np_row` starts at minus it**. That single change is the whole mechanism: a
+row above the view has a *negative* index, and every array in this module is
+already indexed by an unsigned test against a limit (`np_sig`, `np_rows`, the
+dirty band), so a negative word read as unsigned is past all of them and
+skips itself. Nothing downstream had to learn what scrolling is.
+
+**One place could not see it, and it is the exception that names the rule.**
+`np_rflush` decides whether to draw a row from the row's *pixel* y, and a row
+a little above the view has an ordinary small y rather than an implausible
+one — so it grew a test of its own (`[np_rby] < [np_ty]` → drop). The bottom
+edge was already tested and needed nothing.
+
+`np_scrollto` is the only writer, it clamps to `0 .. np_scrollmax`, and it
+answers CF = 0 when the view actually moved. Moving it **drops four pieces of
+state rather than adjusting them** — the row signatures, the layout
+checkpoint (§27.4), `np_rows` (§27.5) and the seed already loaded into
+`[np_resume]` — because every one of them is counted in *visible* rows, and
+adjusting them all by the same delta would be a second place that has to
+agree about what a row is. It also ends the visual break (§27.3): its fiction
+is about particular rows on screen.
+
+Two things follow from "a row index means something different afterwards":
+
+- **A scroll is a full repaint, never a band.** `np_scrollto` clears
+  `[np_sigok]`, so the next `np_sigsame` refuses and `np_redraw` takes its
+  `.full` path. The alternative — `OSAPI_GFX_SCROLL` on the content and a
+  band for the newly exposed row — is a real optimisation and is *not* done,
+  because the delta cache, the signatures and `np_rows` would all have to be
+  rotated to match and any one of them missed is a wrong character on screen.
+- **`[np_drows]` is recorded only by a walk that ran to its natural end.** It
+  is the note's height — what the thumb is a fraction of — and the two walks
+  that stop early cannot know it: the `[np_lastrow]` stop (a caller that
+  knows nothing below moved) and the visual break's stop at the caret. The
+  draw pass's `.blank` loop also walks `np_row` on *past* the note's last
+  row to erase what a shrinking note left behind, so the height is banked
+  before it rather than after.
+
+**The caret gets a place on screen, and `[np_follow]` is what asks for it.**
+Its own flag, not `[np_ekind]`: that one says which cheap redraw path this
+keystroke has *earned*, and Enter, Up, Down, Home and End are all 0 there
+while all five move the caret. `np_onkey` sets it at the one label every
+handled key reaches; `np_redraw` spends it and clears it, so a scroll bar
+click — which arrives at the same `np_redraw` — is not dragged straight back
+to the caret. A click in the *text* needs no follow: it landed on a row that
+was already visible.
+
+**A resize re-clamps, and it needs a walk to do it.** The wrap width changes,
+so the note is a different number of rows, so `[np_top]` may be looking past
+the end of it — and only a walk knows by how much. `np_bounds` raises
+`[np_gchg]` when the geometry differs from what the last paint recorded, and
+`np_paint` spends it: measure, `np_scrollto` the current top, then draw.
+`np_sigmark` clears it. The cost is one extra measuring walk **per geometry
+change**, not per paint. `np_clamp` does the same job for the other way the
+view can be left pointing at nothing — a load or a `File > New` replaces the
+buffer — by putting the view back at row 0, which is also where a reader
+starts.
+
+**The bar is the Disk window's (§22)**, deliberately: same `NP_SB_W` width,
+same `NP_SB_ARR` arrow cells, same proportional thumb with an 8px floor, and
+a track click **pages** rather than dragging. `np_thumb` is the one piece of
+geometry, shared by the painter and the hit test so the two cannot disagree
+about where the thumb is — the same argument as `fm_hit` and `fm_thumb`.
+
+Three details that are not free choices:
+
+- **It is reserved always**, whether or not the note needs one. Whether one
+  is needed depends on the row count, which depends on the wrap width, which
+  would then depend on the bar — so a bar that came and went would change the
+  layout that decides whether it should be there.
+- **It stops short of the grow box**: `[np_sbb]` is `[np_bot] - NP_GROW`,
+  because the kernel draws a 13×13 handle in the content's bottom-right
+  corner and a down arrow drawn into it comes out as a filled square. That is
+  how this was found.
+- **`np_sbcheck`, not `np_sbar`, is what a keystroke calls.** The bar is
+  redrawn only when `[np_top]` or `[np_drows]` differs from what is on
+  screen, so ordinary typing inside one screenful costs the comparison and
+  nothing else.
+
+### 27.7.1 A walk stops at the bottom of the view
+
+Scrolling made a question worth asking that had never been asked: *why does a
+keystroke lay out the part of the note nobody can see?* Measured on a
+2,000-character note with the caret near the top, one keystroke cost **six**
+`np_walk` calls and 10,079 loop iterations, **72% of them on rows below the
+window**. Every walk now carries `[np_lastrow] = [np_vrows]` and the same
+keystroke costs **two** walks and 1,015 iterations — 29 of them below the
+view, which is the one row past the bottom that the bound deliberately keeps.
+Typing at the *end* of a note was already 2 walks and ~50 iterations, flat in
+the note's length, and is unchanged: §27.4's checkpoint had that case.
+
+Five things make the bound safe, and each of them is a thing that broke first:
+
+- **The comparison is SIGNED.** `np_row` is a visible row and is negative
+  above the view, which unsigned reads as past every limit — so a bounded
+  walk stopped before drawing anything at all. `[np_lastrow]`'s "no limit"
+  sentinel is `0x7FFF` for the same reason: `0xFFFF` is row minus one.
+- **The bound is `[np_vrows]`, one row PAST the last visible row**, because a
+  character typed at the end of the bottom row wraps the caret onto the row
+  below and `np_seecaret` has to be able to see where it went.
+- **`[np_curseen]`** says whether this walk stood on the caret, because 0 is a
+  real pen y and `[np_cury]` cannot say "not found" by itself. When a walk
+  that owes a caret-follow did not find it, `np_redraw` walks again from index
+  0, **unbounded and unseeded** — a net carrying either restriction misses the
+  caret exactly as the first walk did. The case is ordinary: page the view
+  away with the scroll bar and then press a key.
+- **`np_paint` is bounded too.** A full repaint is what every scroll step
+  costs, and walking 16KB of note to draw one screenful of it is the whole
+  problem in its most visible form.
+- **`.pad` no longer falls into `.stop`.** It walks `np_row` past the note's
+  last row without `np_rstart`, so the `np_rows` entries `.stop` would claim
+  were never written.
+
+**`[np_drows]` is the one thing a bounded walk cannot know**, and it is what
+the thumb is a fraction of. Three sources, in order of exactness:
+
+- A walk that reached the note's **end** sets it exactly and clears
+  `[np_hdirty]`.
+- A walk that **stopped** raises it to the lower bound it proved — the row it
+  stopped on exists, so the note is at least that tall — and **never lowers
+  it**. That is what keeps `np_scrollmax` from clamping the view short of a
+  caret that has just moved past the old bottom, which is the difference
+  between a stale thumb and a caret nobody can see.
+- **`np_height`** walks the whole note when `[np_hdirty]` says an edit
+  changed it. The **worker** runs it half a second after the typing stops —
+  the same idle test that settles the visual break — and `np_onclick` runs it
+  synchronously before `np_sbclick`, because a click on the bar is the one
+  place the height has to be exact rather than generous. `np_hire` is
+  therefore no longer only the break's: a note taller than its window wants a
+  worker whether or not this machine draws breaks.
+
+Between an edit and that settle the thumb can be a row or two small on a note
+that **shrank**. It is the deliberate trade: the bound is monotone upward, so
+the error is always in the direction that keeps the caret reachable, and the
+next full repaint — which every scroll is — makes it exact.
+
+**A scroll that follows the caret does not re-measure and re-follow.**
+`np_redraw`'s band path jumps past `.full`'s clamp-and-follow block to
+`.fullpaint`, because a caret that has just been followed is in view by
+construction: `np_seecaret`'s target is the row itself, not a step towards it.
+Two of the six walks were that block being asked a question it had already
+answered.
+
+**And a walk with no checkpoint seeds at the top of the VIEW.** `np_rows[0]`
+is the index row 0 of the content starts at, so rows above the view — which
+have neither pixels nor signatures — need not be walked to find it. It is
+§27.4's claim applied from a higher row and therefore a weaker one, and the
+two die together: `np_scrollto`, `np_bounds` and `np_clamp` clear `[np_ckok]`
+and `[np_rowsok]` side by side. For it to be available at all, a **bounded**
+walk has to publish `np_rowsn`/`[np_rowsok]` for the rows it did pass, which
+`.stop` now does whenever the walk started at the top of the view rather than
+at a seed part-way down.
+
+### 27.7.2 A scroll moves the pixels it already has
+
+A scroll used to be a full repaint: white-fill the content and letter every
+visible row. But moving the view by `d` rows changes only `d` rows of what is
+on screen — the rest is the same text at a different y, which is exactly what
+`OSAPI_GFX_SCROLL` moves. An arrow click letters **4 rows instead of 20**, and
+a downward one walks 174 layout iterations instead of 1,914.
+
+**`NP_SB_STEP` is 4.** The Disk window's arrow cell steps one row, but its rows
+are 16px list entries and these are 8px lines of prose; four is about the same
+travel, and a blit-scrolled band costs the same whether it moves one row or
+four.
+
+What makes it safe is that the blit shifts the **pixels** and `np_shiftrows`
+shifts their **description** — `np_sig` and `np_rows` — by the same `d`, as one
+operation. §27.7 says those arrays are dropped rather than adjusted on a
+scroll, and that was right while the pixels were being redrawn wholesale:
+adjusting would have been a second place that has to agree about what a row is.
+Here there is no second place. **`[np_ptop]` — the `[np_top]` the screen was
+drawn for — is the one fact that says whether the two have parted**, and
+`np_redraw` reconciles it before anything reads an array indexed by a visible
+row. That matters because a scroll-bar click scrolls and *then* redraws.
+
+Six things the band arithmetic has to get right:
+
+- **The x span rounds OUTWARD to byte columns**, which is what lets this work
+  on every adapter rather than only where `OSAPI_WM_SNAP` aligns the content
+  (§11.94). Rounding x1 down stays inside the content because `NP_MARGIN` is 8;
+  rounding x2+1 up reaches at most seven columns into the scroll bar, so that
+  strip is blanked and its two owners — `np_sbar` and the grow box — put
+  themselves back.
+- **The y span stops at the bottom of the last WHOLE row, not at `[np_bot]`.**
+  A content height that is not a multiple of 8 leaves a sliver below it;
+  `np_rflush` refuses to draw a row that would cross the content edge, so
+  nothing would ever erase what the blit pushed into that sliver. It showed as
+  a one-pixel band of the row above's descenders, left behind permanently —
+  and only on a window whose height has a remainder, which is why VGA was
+  clean and Hercules was not.
+- **`OSAPI_GFX_SCROLL` does not blank what it vacates** (§27.3 relies on the
+  same fact), so the exposed rows are filled before they are lettered.
+- **The exposed rows are drawn by ROW, not by signature.** `np_clip` with
+  `[np_dr0]`/`[np_dr1]` set to the band is deterministic; an exposed row's old
+  signature belongs to the row that scrolled away and could match the new one
+  by luck.
+- **The caller's dirty rows join the band, shifted into the new frame.** An Up
+  that scrolls has two: the row the caret arrived on, and the row it left,
+  which the blit carried faithfully and which therefore still shows a caret.
+- **A page is refused.** `|d| >= [np_vrows]` retains nothing, so the blit would
+  be pure cost; `np_scrollpaint` answers CF=1 and the full repaint happens. A
+  toast is refused for the same kind of reason — it is drawn over the text and
+  is in no row's signature, so the blit would carry it off its own frame.
+
+Verified by differential: the same scripted run against a build whose
+`np_scrollpaint` always refuses is **pixel-identical inside the window**, on
+VGA over nine states and on Hercules over six.
 
 ## 28. taskmgr.inc — the Task Manager window
 
@@ -5527,18 +6906,44 @@ what is not redrawn must not be blanked either.
 The chunk, rather than the row, is the unit for a measured reason: a row
 carried **one** key until it was found to be redrawing the name, the state
 and the memory figure every time a CPU percentage ticked over — 20 glyphs to
-change three, twice a second, on the machines least able to afford it. It is
-also the granularity the clip region wants (§11.3), so `tm_row_draw` answers
-both questions at one width: **what changed** and **what may be drawn at
-all**. A vertical clip edge costs the one chunk it crosses instead of the
-whole row, and a chunk that *is* crossed zeroes its own key so it is tried
-again rather than recorded as drawn while blank.
+change three, twice a second, on the machines least able to afford it.
 
-The last chunk's fill runs on to the row band's right edge, because the pen
-is inset from the band and no chunk covers the tail; the string is
-zero-padded first so every chunk hashes deterministically and a row that got
-*shorter* changes the chunk it lost its characters from, which is what erases
-them.
+**The two questions do NOT share a width, and assuming they did cost five
+characters.** The chunk is right for *what changed*; for *what may be drawn*
+the answer is still the 8x8 cell, because that is what `font_char` can draw
+or not draw. A whole-chunk clip test throws away all five cells to protect
+the one an edge crosses, and a chunk holding a single inked character loses
+that character outright — a package row is `' PAINT …'`, so the split falls
+`" PAIN"` | `"T …"` and a window edge in the second chunk erased the T and
+nothing else. It reads as letters going missing in arbitrary positions,
+sometimes several at once, because which ones go depends only on where the
+edge falls against the five-character grid; and it shows as *blank* rather
+than stale whenever the row is new, since nothing was ever drawn there.
+
+So a chunk the region cuts — and only that chunk — is redrawn a **cell** at a
+time (`tm_chunk_cells`): each 8x8 cell is tested on its own, and a cell
+wholly inside one fragment is erased and lettered while a crossed one is left
+alone entirely, both halves of the granularity rule together. That is four
+extra clip tests on at most one chunk per row per vertical edge, and nothing
+at all on a row nothing covers. The cut chunk's key is forgotten afterwards
+whatever happened, because a chunk that took this path was by definition not
+drawn whole.
+
+**The band is wider than its chunks at BOTH ends, because the pen is inset
+from it**, and each end has to be erased by something. The last chunk's fill
+runs on to the band's right edge. The first chunk's is preceded by
+`tm_row_lead`, which erases the band's left inset — and that one is
+load-bearing rather than tidy, because the memory list letters from
+`rowx+16` and its **legend square sits at `rowx+6`**. `tm_rowfill` used to
+erase the whole band, so a row's square went with its text and came back with
+it; chunks start at the pen, so nothing erased it any more and a row that
+went away left its square behind on a line that no longer existed. Closing a
+package was the way to see it. Erasing the lead-in therefore counts as a
+draw, because the caller has to know to put the square back.
+
+The string is zero-padded before any of this, so every chunk hashes
+deterministically and a row that got *shorter* changes the chunk it lost its
+characters from, which is what erases them.
 
 **The CPU + scheduler caption is drawn through the same routine**, as the
 virtual row `TMR_CPU` — one past the last row either list can show. Its first
@@ -5786,8 +7191,8 @@ KIND_TASKMGR like the §14 kinds.
 The template carried a fixed height, which is right on VGA's 480 rows and too
 tall on Hercules' 348 - so the window hung over the dock strip, and
 `dock_paint` then had to draw *under* a window instead of over the desktop —
-which at the time was the one case `wm_fast_ok` declined (§11.90), so every
-window opened on top of it paid for that with a full repaint. On CGA's 200
+which at the time sent the cheap raise path back to the full pass (§11.90),
+so every window opened on top of it paid for that with a full repaint. On CGA's 200
 rows it never fitted at all. (`wm_dock_under` has since made that case cost a
 rectangle rather than the screen, but a window that fits is still the point.)
 
@@ -6324,9 +7729,14 @@ shares `cp_glyph` and the `CP_B*Y` hit bands). Heading "Display"; row 0
 `[bb_dbl]`, the armed-buffer flag and **not** `[bb_on]` (1 on any mono
 adapter, §39.5); it is **0 at boot** — double buffering is opt-in.
 
-Caption: "Smoother; costs 150K" normally, or "Not on this adapter" on a
-1bpp card, which has no buffer to double at any memory size and never arms
-`[bb_avail]` at all (§39.5). On such a machine the page is display-only: a
+Caption: "Smoother; costs 150K" normally, or — on a 1bpp card — the two
+lines "Framebuffer is the display" / "driver on this adapter", which say why
+rather than merely refusing: the software renderer *is* the direct path
+there (§39.5), so there is nothing to double at any memory size and
+`[bb_avail]` is never armed at all. Two lines because the pane is 27
+characters wide and the answer is 49; the caption is the lowest thing on the
+page, so `CP_PCAP2` sits under it. On such a machine the page is
+display-only: a
 click in either band is ignored outright rather than moving a dot that
 `bb_set` would refuse to honour.
 
@@ -6506,22 +7916,47 @@ could not be read as a choice between two things. Nothing stages `DSV_NAME`
 into the kernel any more; it is published as a pointer and that is all
 (`drv_publish`, §51.2).
 
-**Two rows are greyed and one is not**, and the difference is what the kernel
-can actually know:
+**A row greys for missing hardware and never for missing memory**, and the line
+between those two is the whole design of the page:
 
-- **AdLib** greys when no loaded driver publishes `DSV_TONE`. That is a stable
-  fact — the FM half is never torn down by a tier change, so if it is not
-  published now it is not there.
-- **Sound Blaster** greys only when no sound driver is published at all
-  (`drv_owner` = 0). Whether a card is there, and whether the heap can fund a
-  page-safe 12KB for it *right now*, are both answerable only by making the
-  claim. So the click makes it, and reports what came back.
+- **Hardware is a fact the driver already established.** `DSV_TIERS` (§51.2) is
+  a bitmap of the tiers the driver *could* provide, decided at attach from what
+  its probes found and never touched by a tier change. The page reads one word
+  and greys what the machine does not have. It does not ask the driver to look
+  again — an ISA card cannot arrive while the machine is running, and looking
+  again is **expensive**: the Sound Blaster scan is six base addresses with a
+  DSP reset timeout each and then a slow retry on 220h, run on the UI task
+  under the gfx lock. Measured on QEMU it hid the cursor for 27 ms; the poll
+  budgets it is built from (2,000 status reads per base, 65,536 for the retry)
+  are sized for period ISA timing and cost proportionally more on the machine
+  they were written for. Either way it is a visible hitch on a click that then
+  refuses.
+- **Memory is not a fact anyone has.** Whether the heap can fund a page-safe
+  12KB *right now* is answerable only by making the claim: `mem_avail` reports
+  the largest free run and says nothing about whether a 64KB-page-safe base
+  exists inside it (§50.3), so only `mem_claim_dma`'s own scan knows. The click
+  therefore tries, and reports what came back.
 
-That is the one place the page departs from the `bb_avail` idiom (§31.3), and
-deliberately: `bb_canfit` is a real predicate and `mem_claim_dma` has none.
-`mem_avail` reports the largest free run and says nothing about whether a
-64KB-page-safe base exists inside it (§50.3), so a greyed-on-a-guess row would
-keep a machine that has the room off a tier it can afford.
+That second half is the one place the page departs from the `bb_avail` idiom
+(§31.3), and deliberately: `bb_canfit` is a real predicate and `mem_claim_dma`
+has none. Greying on a guess would keep a machine that has the room off a tier
+it can afford.
+
+A driver that publishes `DSV_TIERS` = 0 said nothing and is taken at its word:
+every row stays live and the click finds out the slow way, which is exactly the
+behaviour before the cell existed.
+
+**A greyed row greys its GLYPH as well as its label**, and on this page that is
+what carries the whole signal on two adapters out of three. `font_ink` rounds
+`CDGRAY` to *black* for text — a dithered 8x8 glyph is unreadable, so mono has
+no grey to draw a letter in (§39.4) — which means a disabled label is
+pixel-identical to a live one on Hercules and CGA. The Display page gets away
+with that because its caption says why in words; this page has no caption, so
+the row has to say it some other way. A glyph can, because it is drawn with
+`gfx_pixel` rather than as a font cell: `gfx_ink` maps `CDGRAY` to the 50%
+dither, so the ring comes out **dotted**. Dark grey on VGA, dotted on mono, and
+on all three the whole row reads as disabled instead of a black control with
+faint writing beside it.
 
 A refused tier change leaves the setting where it was and writes the reason
 into a **notice line** below the Test button, using the loader's own
@@ -6959,9 +8394,8 @@ when the clip ends.
 *caller's segment* for verbs 5 and 6 — the driver runs with ES = KERNEL_SEG,
 so BX is the only way it can reach the caller's buffer — but on verbs 0 and 4
 BX is unused and the **rate** needs somewhere to live, because `snd_req_inst`
-writes DH and DH is the top half of a 4,000..44,100 Hz rate. The other fork's
-driver banked DX itself, immediately before stamping; here the kernel stamps,
-so the kernel banks.
+writes DH and DH is the top half of a 4,000..44,100 Hz rate. The kernel is
+what stamps, so the kernel is what banks DX.
 
 With no driver loaded there is no stream to collide with, and `drv_svc_call`
 refuses — which is the same answer, arrived at for free.
@@ -7197,7 +8631,7 @@ staging pool, verb 6 stages into a grant and verb 5 reads back out of one,
 and verb 4 opens an input stream that the drain task fills.
 
 **The pool is the driver's, so its size is not a constant an app may assume.**
-The Sound Blaster's is 20,480 bytes, where `main`'s was a pinned 64KB segment.
+The Sound Blaster's is 20,480 bytes.
 An app that needs a big grant asks in TIERS and records into what it got;
 `apps/recorder` is the reference for that, and the reason it works on a machine
 whose driver claimed less than it hoped for.
@@ -7766,7 +9200,37 @@ content-relative:
 ```
 
 The selected row is an XOR bar across the list interior, exactly as §22
-draws its own (`gfx_xor_fill` under the held lock).
+draws its own (`gfx_xor_fill` under the held lock) — and, for the same
+reason, **moving the selection costs two of those bars and nothing else**.
+`fdlg_sel_bar` is §22.2's `fm_sel_bar` in this module's geometry: same
+range-checking, same factored-out-of-the-painter argument, same XOR-is-its-
+own-inverse trick. A row click used to run `fdlg_draw_both` — refill the
+list interior, re-letter six rows and their sizes, redraw the scroll bar
+frame, both rules, both arrows, the track and the thumb — to move one strip.
+
+The dialog needs one thing the Disk window does not: **the name box follows
+the selection** (`fdlg_pick`), so "did the selection move" is the wrong
+question and "did the box move" is the right one. Only the setter can answer
+it, so `fdlg_setname` returns **CF = 1 when the stored text, length or caret
+is not what it was** and `fdlg_pick` passes that through. What falls out:
+
+- a **different** row → two bands, plus the name box only if it actually
+  took a new name (landing on a *folder* row leaves the box alone, and now
+  leaves its pixels alone too);
+- the row **already selected** → the click re-arms the double-click window
+  and draws **nothing**, unless something was typed into the box since, in
+  which case the box alone is redrawn and the list still is not. That last
+  case is what keeps behaviour identical: clicking the selected row still
+  puts the file's name back over what you typed.
+
+The fallback is `fdlg_setsel` scrolling the selection into view, which moves
+every row: `[fdlg_scrl]` is compared across the call and a change sends the
+click back to `fdlg_draw_both`. A **click** can never trigger it — the hit
+test is bounded by what is drawn — but the keyboard shares `fdlg_setsel`,
+and comparing one word is cheaper than proving that.
+
+`fdlg_sel_bar` asks `fdlg_rows` for the total instead of reading
+`[fdlg_shown]`, which is painter scratch and means nothing on a click.
 
 **The button column** carries Open/Save, Cancel, Drive and — in **save mode
 only** — a **two-line New / Folder** button (`FD_BH2`, drawn by `fdlg_btn2`),
@@ -7795,16 +9259,22 @@ The dialog lists **the mounted volume's current directory** — `disk_dir` /
 through `dsk_get_dir`. It never touches `VIEW_SEG` and never copies the
 listing anywhere (§38.2).
 
-**Display rows** are the directory entries, with one synthetic row `..`
-prepended when `[dsk_cwd]` ≠ 0. So `fdlg_rows` = `disk_nfiles` + (cwd ≠ 0),
-and display row *r* maps to directory index *r* − (cwd ≠ 0). The `..` row is
-the only navigation affordance the list carries; `.` and `..` are filtered
-out of the listing itself by §19's species rules and are not re-surfaced.
+**A display row IS a directory index**, and `fdlg_rows` is just
+`disk_nfiles`. It used not to be: this module synthesized its own `..` row
+and carried the resulting +1 offset through every row ↔ index conversion in
+it. The mount puts the parent link in the listing now (§19.5), as a type-3
+entry carrying the parent's first cluster, so the dialog, the Disk window
+and every view cache get the same row from the same place — and the offset,
+and the one routine that existed to decide it, are gone. The on-disk `.` and
+`..` entries are still filtered out by §19's species rules; the row the user
+sees is the synthesized one.
 
 **Acting on a row** (double-click, or Enter, or the Open/Save button):
 
-- `..` → `dsk_dotdot` then `dsk_chdir` — §19.2's walk, no path stack.
-- type 2 (subdirectory) → `dsk_chdir` into it.
+- type 2 (subdirectory) or type 3 (the `..` link) → `dsk_chdir` into the
+  entry's first cluster. `..` needs no special case and no second walk of
+  the directory off the disk: the mount already put the parent's cluster
+  there.
 - type 0/1 (a file) → **Open**: that is the answer, commit it. **Save**:
   copy the name into the edit field, do not commit — replacing a file is a
   thing the user must still press Save for.
@@ -7963,6 +9433,20 @@ its own):
 | `fdlg_draw_list` → `fdlg_list_body` | inside the list frame | `fdlg_clamp` + `fdlg_draw_rows` + `fdlg_draw_sbar` |
 | `fdlg_draw_both` | both | both — a selection move changes the listing *and* takes the new name (`fdlg_pick`) |
 
+**The default button is the fourth thing a keystroke can change**, and it is
+redrawn on an *edge* rather than per key. `fdlg_actok` is the one predicate
+behind the button's pen, the click on it and the Enter key (§46 rule 4) — a
+chosen row always acts, and with no row chosen an empty name box is not an
+answer — so typing the first character or deleting the last one flips it, and
+`fdlg_draw_name` compares the answer against `[fdlg_actl]` and calls
+`fdlg_defbtn` only when it moved. Every caret move comes down the same path,
+and a frame plus a label per keypress is real money on the machines this runs
+on.
+
+`fdlg_btn` takes the **caller's** pen rather than forcing `CBLACK`, so the
+disabled frame greys with the label — which is what shows on a mono adapter,
+where a package's grey text alone would round to black (§46 rule 2/3).
+
 `fdlg_paint` calls the **bodies**, because `wm_paint_all` already handed it a
 white content; everything else calls the wrappers. Neither erase touches its
 frame: the frames are chrome and never move.
@@ -8002,8 +9486,8 @@ no longer always reaches it.
 | `fdlg_paint` / `fdlg_onkey` / `fdlg_onclick` | The window procs; all three assume the held lock and never take it. |
 | `fdlg_draw_name` / `fdlg_draw_list` / `fdlg_draw_both` | §38.8. Erase one rectangle and redraw it. All assume the held lock and a valid `[fdlg_cx]`/`[fdlg_cy]`; all preserve every register. |
 | `fdlg_name_body` / `fdlg_list_body` | The same drawing without the erase, for `fdlg_paint`, which is handed a white content. |
-| `fdlg_rows` | Out: AX = display rows = `disk_nfiles` + (`[dsk_cwd]` ≠ 0), CX = the `..` offset (0 or 1). The one place that offset is decided. |
-| `fdlg_stage` | In: AX = display row. Out: `fdlg_row` = its name, `fdlg_type` / `fdlg_size`+`fdlg_sizeh` its §19 type word and size dword; the `..` row is synthesized as type 2. |
+| `fdlg_rows` | Out: AX = `disk_nfiles`. There is no offset any more — §19.5 put the `..` row in the listing, so a display row is a directory index. |
+| `fdlg_stage` | In: AX = display row, which IS a directory index (§19.5 put the `..` row in the listing, so this module no longer synthesizes one or carries an offset). Out: `fdlg_row` = its name, `fdlg_type` / `fdlg_size`+`fdlg_sizeh` its §19 type word and size dword. |
 | `fdlg_go` | In: AX = first cluster. `dsk_chdir` + reset selection and scroll. |
 
 **What this deliberately does not do.** No filtering by extension (an Open
@@ -8167,8 +9651,29 @@ an idle `CWHITE` one.
 Piano's decorative sharp glyph (`CLRED` on white) disappears — no flat map
 can give it black while the black-key core needs white.
 
-Glyphs never dither — a dithered 8x8 glyph is unreadable — so `font_ink`
-rounds everything but pure white to black.
+Glyphs round to black rather than dithering — a dithered glyph costs half its
+strokes, and Piano's coloured letters want contrast, not texture — **with one
+exception: `[gfx_dis]`**, the disabled flag (§46 rule 1). `font_ink` sets
+`[font_dith]`, which selects a third row loop in `font_char_bb` that ANDs the
+shifted glyph with an alternating AA/55.
+
+Without it a disabled string came out **black — pixel-identical to a live
+one** — so a greyed menu item simply stopped saying it was greyed, and
+`MENU_DIS`'s entire visual signal was missing on two adapters out of three
+(§12.2). Half a stroke is a real cost and it is the right one to pay here: it
+is what the 1bpp Macintosh did to a greyed-out menu item, and it is legible for
+the same reason.
+
+The trigger is the **flag and not the colour** because the renderer cannot ask
+whether a string is a control. Keyed off `CDGRAY` it caught Minesweeper's digit
+8 (§23), which is dark gray for contrast and has nothing to do with being
+disabled.
+
+The phase restarts at `AA` for every cell rather than tracking absolute y, so a
+line of text is in step with itself; text rows are 8px apart, which is even, so
+lines are in step with each other too. It is a **separate loop** and not an
+`and` inside `.crow` because that is the innermost loop of every string on the
+slowest machines we support, and almost no glyph wants this.
 
 ### 39.5 Dispatch: `[bb_on]` and `[bb_dbl]`
 
@@ -8179,8 +9684,9 @@ armed and must be flushed"**, and is what `gfx_flush`, the Control Panel's
 Display page and the Task Manager's RAM figures read — otherwise a mono
 machine would claim double buffering and bill 150KB that was never
 allocated. `bb_init` refuses to set `[bb_avail]` on mono, so the Display page
-cannot arm it, and its caption says *"Not on this adapter"* rather than
-lying about memory.
+cannot arm it, and its caption says *"Framebuffer is the display driver on
+this adapter"* rather than lying about memory — naming the reason, because
+"not here" invites the guess that a bigger machine would qualify.
 
 This is why the nine existing `[bb_on]` dispatch sites needed **no new
 dispatch bytes**. The four that did are the escape hatches — the callers that
@@ -8458,10 +9964,9 @@ not, and moving costs one replay because the cache survives the repaint.
 
 ## 41. cpudet.inc / xmem.inc — CPU tiers and memory above 1MB
 
-Ported from `main`, at `main`'s section number and `main`'s API slots. Two
-modules and five slots: `cpudet.inc` publishes the CPU tier and the A20 line,
+Two modules and five slots: `cpudet.inc` publishes the CPU tier and the A20 line,
 `xmem.inc` sizes the store above 1MB, allocates out of it and moves bytes
-through it. The claim heap (§50) is unaffected and remains this fork's answer
+through it. The claim heap (§50) is unaffected and remains the answer
 for *conventional* memory a package cannot fit in its own segment; these are
 the answer for bulk data that does not fit conventional memory at all.
 
@@ -8587,7 +10092,7 @@ subtraction wrong will hand out a base past the top of RAM.
 
 ### 41.8 The package ABI
 
-Five slots at `main`'s numbers: `OSAPI_CPU_INFO` (0x0188), `OSAPI_XMEM_CAPS`
+Five slots: `OSAPI_CPU_INFO` (0x0188), `OSAPI_XMEM_CAPS`
 (0x0190), `OSAPI_XMEM_ALLOC` (0x0198), `OSAPI_XMEM_FREE` (0x01A0) and
 `OSAPI_XMEM_COPY` (0x01A8). What ALLOC returns is an **opaque 32-bit token**,
 not a pointer: every byte crosses through COPY. UI-task context only — on
@@ -8684,9 +10189,15 @@ allow, from 32x16 up, and everything else follows from that:
 - **The canvas is still a BMP.** 4bpp packed, high nibble = left pixel, rows
   **bottom-up behind a 118-byte DIB header**, stride = the BMP stride
   (ceil(w/2) rounded up to 4). Saving is one `OSAPI_FILE_WRITE` of the canvas
-  base with no staging pass — *provided the whole file fits 64KB*, which is
-  `dskw_write`'s ceiling (§18.4). A larger canvas can be edited but not
-  saved, and Paint says so rather than writing a truncated file.
+  base with no staging pass, **whatever the picture's size**: the write walks
+  its source by segment (§18.4.1) and the canvas is one contiguous claim, so
+  DX:AX goes straight into DX:CX. It used to need the file to fit 64KB as
+  well, and a larger canvas could be edited but not saved; that refusal and
+  its notice are gone.
+
+  The decoder followed (§42.6), so a picture Paint saves is one Paint can
+  re-open. The GIF encoder's own ceiling stays, and it is not the file
+  API's.
 - **The canvas base is a heap claim.** `pt_geom` asks `OSAPI_MEM_AVAIL` what
   the largest free run is, caps it at what the app can use, and takes it with
   `OSAPI_MEM_CLAIM` (§50.3); `[pt_base]` is whatever segment came back. That
@@ -8784,9 +10295,20 @@ allow, from 32x16 up, and everything else follows from that:
   an empty field means "leave this axis alone". They need 41 rows below the last
   tool button, which a 110-row CGA canvas does not have, so `pt_szon` answers
   for the painter and the hit test both — a control that is not drawn is not
-  clickable — and the two-line readout is what shows when they do not fit (as it
-  is on a machine with no undo image, where the canvas cannot be resized at
-  all). Apply and a grow-box drag both go through **`pt_setsize`**, the one place
+  clickable — and the two-line readout is what shows when they do not fit.
+
+  **The canvas height therefore has a floor of `PT_SZ_END`, not `PT_CH_MIN`.**
+  The fields are the only way to make a canvas taller — there is no menu item
+  and no key — so a canvas short enough to hide them could never be grown
+  again, and typing 100 into the height field, or dragging the grow box up, was
+  a one-way trip for the rest of the session. It is a minimum window size and
+  nothing more exotic. The floor is held against `[pt_chmax]` first: where the
+  *screen* is what cannot fund the controls — CGA, whose 110 rows are 18 short —
+  no floor can, and `PT_CH_MIN` is the honest answer. **Paint on a CGA machine
+  cannot be resized at all**, which is a layout limit rather than a memory one
+  and is not new.
+
+  Apply and a grow-box drag both go through **`pt_setsize`**, the one place
   a size is decided: it clamps to the screen, then to what memory will fund
   (`pt_fit`), then to what the picture will stand to lose (`pt_lose_w` /
   `pt_lose_h`), so typing 900 into a field is exactly a drag that asked for too
@@ -8896,12 +10418,61 @@ and there is no `OSAPI_WM_DESTROY` for the package to clean it up with. It is
 *safe*, though: every teardown site — `app_close_win`'s task-less branch,
 `inst_task_die`, the winless worker death and the loader's abort — runs
 `wm_destroy_seg` over the dying region's segment **before** the region is
-freed, destroying every window whose `W_SEG` stamp names it (the sweep `main`
-enforced with the `wm_wseg` side table; the stamp moved into the record and
-the sweep moved with it). So an extra window can never outlive the segment its
+freed, destroying every window whose `W_SEG` stamp names it. So an extra window can never outlive the segment its
 callback procs live in — it just makes a poor citizen of the ones that manage
 it by hand. A card is a flag and some pixels: it cannot outlive the instance
 because it never existed apart from it.
+
+### 42.6 Opening a big picture, and the ceilings that were not the file API's
+
+§18.4.1 lifted the file API's 64KB ceiling and §42's save with it. Three of
+Paint's own ceilings were left, all of them written before the kernel had an
+allocator to ask, and two of them have gone.
+
+**The staging buffer is a claim now, not a borrowed one.** A file being
+decoded used to be read into the **undo image** — "the biggest single buffer
+we have" — and, when there was no undo image, into the flood-fill stack:
+`PT_SC_KB`, twelve kilobytes, which was the real limit on what Paint could
+open. Borrowing the undo image is also why opening a picture threw the undo
+history away, and why the code that followed emptied the clipboard "because
+the codec's tables live in it" — a line that had outlived its reason by two
+refactors, the LZW tables having had their own claim for a while.
+`pt_stage`/`pt_unstage` take a transient claim sized from `OSAPI_MEM_AVAIL`
+and capped at `PT_STAGE_MAX`, and `pt_stagefit` shrinks it to the bytes the
+read actually reported **before** `pt_adopt` goes looking for a canvas and an
+undo image — nothing knows the file's size until the read reports it, so the
+claim has to be for the largest run the heap had. The GIF *encoder* takes the
+same claim, capped at `PT_GIF_MAX_KB`, instead of building the file in the
+undo image.
+
+**The BMP decoder is 32-bit.** `biHeight × stride` is the number it used to
+give up on: 448 × 326 is 73,024 and every picture worth a resizable canvas
+passes 65,535. It is a dword now, added to a dword `bfOffBits` — a picture
+past the horizon has its pixel data past it too — and compared against the
+dword the read reported. Per row, `pt_srowset` turns the 32-bit byte offset
+into a **(segment, offset) pair** exactly as `pt_rowseg`/`pt_rowoff` have
+done for the canvas since it outgrew a segment, and by the same arithmetic as
+`dskw_norm` (§18.4.1): the paragraph part goes into the segment and what is
+left is under 16, so the per-column offsets `pt_bmp_row` builds on top of it
+cannot carry.
+
+**The GIF decoder stays 16-bit, deliberately.** Every offset into the stream
+is a word and `pt_gdeblk` flattens the sub-blocks with one `rep movsb` inside
+one segment. A GIF is *compressed* — the 448×280 test picture is 1,285 bytes
+where its BMP is 62,838 — so 64KB of GIF is a picture far past `PT_GDIM_MAX`,
+and the ceiling is the format's natural size rather than a limitation. What
+changed is that a file past it is **refused** ("GIF larger than 64KB") rather
+than being handed to a decoder that would truncate it, which is reachable now
+that the read can deliver one. The GIF *encoder*'s ceiling is the same shape
+and stays for the same reason: `pt_gout` is a 16-bit write cursor into one
+segment, and "GIF too big to save — try Bmp" says which of the two formats
+has the limit.
+
+Measured: the Paint before this refuses a 69,718-byte BMP outright with "File
+too large" — its staging was the default canvas's undo image. The Paint after
+it opens a 124,918-byte one (620×400, cropped to the screen's 594×390) and
+every one of the 390 decoded rows matches the source pixel for pixel, 190 of
+them read from source bytes past the 64KB horizon.
 
 ## 43. Solitaire — the eighth package (apps/solitaire/solitaire.asm)
 
@@ -9193,24 +10764,140 @@ later — and then clears `[ark_full]`, `[ark_msg]` and `[ark_stat]`, exactly as
 panel would have queued a whole-board repaint for the worker to perform a
 second time.
 
-### 44.2 The keyboard has no key-up, so the paddle glides on a deadline
+### 44.2 The keyboard has no key-up, so a hold is inferred from the repeat RATE
 
-int 16h delivers keypresses and nothing else, so "is left held" cannot be
-asked. Each arrow key sets a direction and refills `[ark_pkeep]` with a
-deadline in **ticks**; the worker moves the paddle while the deadline lasts and
-decrements it. Typematic repeat keeps refilling it, so a held key glides and a
-tap is one short nudge.
+int 16h delivers keypresses and nothing else. There is no key-up, and a
+typematic repeat is **byte-identical** to a fresh press, so neither "is left
+held" nor even "did that key come up in between" can be asked. The **interval
+between events** is the only evidence there is, and which interval you read it
+by decides the whole feel of the paddle.
 
-Two constants are load-bearing. `ARK_PKEEP` is 11 ticks because the BIOS
-typematic **delay** is about 9 — a shorter deadline makes a held key stall for
-half a second before the first repeat arrives, which reads as the game
-ignoring the keyboard. And a repeat that arrives *while the deadline still
-stands* is the only available evidence that the key is held rather than
-tapped, which is what promotes the paddle from `ARK_PSTEP` to `ARK_PFAST`.
+Every earlier version read the typematic **delay**, and all of its failures
+were the same failure. A fresh press latched the paddle in motion for
+`ARK_PKEEP` ticks, chosen at 11 to outlast the ~9-tick delay so that the first
+repeat would arrive while the latch still stood; a repeat arriving inside it
+meant *held*, and promoted the paddle to `ARK_PFAST`. That works, and it welds
+the tap to the delay: the latch is what makes the paddle move, so a tap moves
+for 11 ticks whether or not anyone wanted it to. At the old `ARK_PSTEP` that
+was **44 pixels** — a whole paddle width, a fifth of the paddle's travel, for a
+key already released — and the paddle could not be aimed at all. Shortening the
+latch stalled the hold. Tapering the speed inside it made a hold decelerate and
+then surge as the repeats landed, which read worse than the overshoot did.
+Slowing it enough to keep the tap short made both the tap and the first half
+second of a hold a crawl. With the delay as the discriminator, a tap and the
+opening of a hold are the *same event*, so every number serves both and none of
+them can serve both well.
+
+**The typematic RATE is a far better discriminator, because nothing else
+produces it.** Repeats arrive about 1.65 ticks apart at the usual 10.9 cps, and
+no human taps a key seven times a second. So: two key events in the same
+direction no more than `ARK_PRATE` ticks apart mean the key is **held**, and
+nothing else does. `[ark_page]` counts ticks since the last event — aged by
+`ark_do_paddle`, stopped at `ARK_PRATE` so it cannot wrap, reset by every key
+event — and one comparison against it is the entire inference.
+
+Everything follows from that:
+
+- **A press whose neighbour is further off is the player pressing again**, and
+  it simply restarts the tap. That is the answer to "can we tell a re-press
+  from a repeat" — not from the event, which carries nothing, but from the
+  interval, and only for intervals a human cannot produce. Measured: two
+  presses stay two taps down to about **130 ms** apart, and read as a hold
+  below that.
+- **The tap stopped having to outlast anything.** `ARK_PTAP` is a pure feel
+  knob now: 7 ticks, and `ARK_PTAP` × `ARK_PSTEP` is the whole tap, 35 pixels.
+- **The first repeat of a real hold is 9 ticks after the press, so it reads as
+  a re-press and restarts the tap** — which is exactly right, and is why a hold
+  keeps moving through a delay it cannot see the end of. The *second* repeat,
+  1.65 ticks later, promotes it.
+- **Erring low on `ARK_PRATE` is the safe direction.** Too high and a player
+  tapping to walk the paddle trips into a hold (3 puts that at ~4.5 taps a
+  second, 2 at ~7). Too low — on a machine whose repeat rate is slower than
+  `ARK_PRATE` — costs only the fast speed: every repeat then restarts the tap
+  instead, so a held key still moves, just at `ARK_PSTEP`. The old scheme's
+  equivalent failure was the paddle stalling.
+
+`ARK_PHOLD` (4) is what each repeat of a confirmed hold refills, so it is also
+exactly how long the paddle coasts once the key comes up — 32 pixels. It has
+only to outlast the typematic rate, and tolerates one down to ~4.5 cps. It is
+unchanged from the scheme above, and is the one part of it that was always
+right: refilling `ARK_PKEEP` there instead charged the *delay* to the release
+and sailed the paddle on for 88 pixels after the player let go.
 
 The `or al, al` gate on the scan code is not optional: the numeric keypad
 sends '4' and '6' with the arrow scan codes, so without it typing a digit
 steers the paddle — the trap apps/notepad documents.
+
+### 44.2.1 Three speeds, and nothing between them
+
+`[ark_pspd]` holds one of exactly three values and **is** the paddle's state
+machine:
+
+| speed | value | set by | ends |
+|---|---|---|---|
+| stopped | 0 | `ark_do_paddle`, when the countdown runs out | — |
+| tapping | `ARK_PSTEP`, 5 px/tick | a press with no repeat-interval neighbour | after `ARK_PTAP` ticks, mid-stride |
+| holding | `ARK_PFAST`, 8 px/tick | the second of two events `ARK_PRATE` ticks apart | `ARK_PHOLD` ticks after the last repeat |
+
+Nothing ramps, tapers, eases or coasts between them, and `ark_do_paddle`
+changes the speed exactly one way — to 0, when `[ark_pkeep]` runs out. **The
+abrupt stop is the point, not a compromise**: a tap that decays is a tap whose
+distance depends on when you stopped watching it, and the paddle is aimed by
+tapping.
+
+Two details are load-bearing:
+
+- **`[ark_pspd]` = 0 is what tells `ark_onkey` a hold is over.** The hold
+  branch is `[ark_pspd] == ARK_PFAST`, and without the store to 0 a press
+  arriving long after a hold had expired would be read as its continuation and
+  take off at full speed.
+- **`[ark_pacc]` carries the quarter pixels a fractional speed owes between
+  frames**, exactly as §44.3.2 does for the ball, because `ARK_PTAP` ticks of a
+  *whole* number of pixels gives a tap of 28, 35 or 42 and nothing in between.
+  `ARK_PFAST` is `8 * ARK_VQ`, a whole number of pixels, so the accumulator
+  never shows in a rally.
+
+**`ARK_PSTEP` is halfway to `ARK_PFAST`, and that is the setting.** It was
+tried at 1.25 px a tick and at 2, both of which made a tap a nudge — and made
+the step up to a hold a 4x jump the player could feel, which is the "ramp" the
+flat speeds were supposed to have removed. At 5 the tap reads as a *move*, the
+promotion is barely visible, and the tap's distance rises with the speed
+because `ARK_PTAP` is unchanged: 35 pixels, most of a paddle width, in 385 ms.
+That is the trade the knob makes and there is nothing subtle left in it —
+`ARK_PTAP` × `ARK_PSTEP` is the tap, and the two speeds are how far apart tap
+and hold feel.
+
+Measured on the running game: a tap moves 5 px a tick from its first tick and
+stops dead at 35; two presses 300 ms apart travel 65 px and 150 ms apart 50 px,
+both as taps; the same two 90 ms apart are a hold at 42 px; a press followed by
+a 500 ms delay and four 91 ms repeats travels 98 px.
+
+**One consumer had to stop reading the paddle's motion, and that is a real
+distinction rather than a patch.** `ark_english` and the rail clamp ask a
+physical question — how fast is this thing actually going — and `[ark_pvel]`,
+the pixels moved this frame, answers it. `ark_throw` asks a different one:
+which way did the player *ask* for. Those two agreed while the paddle moved 4
+pixels a tick and stopped agreeing the moment it did not, at the 2 px a tick
+`ARK_PSTEP` briefly was: a flick moved the paddle two pixels in the tick Space
+was pressed and `[ark_pvel]` halved that to one, so a serve barely left the
+vertical unless the player had held the key first. The mechanism had gone
+quiet, not the intent — and reading the intent is what has kept the serve
+stable while `ARK_PSTEP` was tuned underneath it three times.
+
+So `ark_throw` reads the **state machine**, and has exactly three rungs to
+match it: stopped, so nothing is being asked for, and the serve leaves straight
+up; tapping, and it leaves at `ARK_THRTAP`; holding, and it leaves at
+`ARK_THRHOLD`, harder. The last two are **3 and 4 pixels**, and they track the
+two speeds rather than deriving from them: a flick that moves the paddle 5 px a
+tick has to throw harder than one that moved it 2, or the aim stops matching
+the gesture. `ARK_THRHOLD` is `ARK_VXMAX` exactly — the flattest angle the game
+has, a ceiling a serve may *ask* for and nothing afterwards can exceed — and an
+assembly-time `%if` in arkanoid.asm refuses a value past it. Measured: 0.00,
+−3.1 and −4.2 px/frame.
+
+A paddle held against a rail still serves off it, which the physical reading
+would refuse. That is the intent answering, and it is the right answer: the
+player asked for left.
 
 ### 44.3 The ball steps one pixel at a time
 
@@ -9249,12 +10936,14 @@ authority on the rally's vertical speed, so a bounce restores the tempo it
 already had instead of inventing one per zone, and it is the single number
 Slow reduces.
 
-**The serve is thrown, not aimed.** `ark_throw` gives it `vx` from
-`[ark_pvel]` at twice `ark_english`'s weight, because a serve has no incoming
-direction to build on — the flick *is* the aim. A paddle standing still serves
-straight up, which is honest rather than a hidden default: the player who
-wants an angle flicks, and the one who does not chooses after the first
-bounce. It also means the ball can be walked along the paddle before release.
+**The serve is thrown, not aimed.** `ark_throw` gives it `vx` from **which key
+is down** — §44.2.1's three rungs — because a serve has no incoming direction
+to build on: the flick *is* the aim. A paddle standing still serves straight
+up, which is honest rather than a hidden default: the player who wants an angle
+flicks, and the one who does not chooses after the first bounce. It also means
+the ball can be walked along the paddle before release. It read `[ark_pvel]` at
+twice `ark_english`'s weight until §44.2.1 made the paddle move too slowly for
+that to survive the halving.
 
 Measured on the running game (with `ark_zbias` zeroed, so only preservation
 and english can move vx): a stationary serve leaves with dx exactly 0; a
@@ -9262,22 +10951,123 @@ serve flicked right leaves at +21px per 0.18s sample and one flicked left at
 −21; `|vy|` holds at 3px a frame across fifty-five samples and every kind of
 bounce, where the old table would have swung it between 2 and 4 per zone; and
 a ball that arrives at vx=0 leaves a paddle held right at vx=+2, which is
-`ark_english` exactly.
+`ark_english` exactly. Those figures are in the whole-pixel units of the time;
+§44.3.2 rescaled every one of them and moved the base speed, and the *shape*
+each measurement was demonstrating is what still holds.
+
+### 44.3.2 Velocity is in quarter pixels, and a paddle bounce has a floor
+
+`[ark_bvx]`/`[ark_bvy]`/`[ark_vymag]` count **quarter** pixels a frame
+(`ARK_VQ` = 4), and `ark_do_ball` carries the remainder of each axis across
+frames in `[ark_accx]`/`[ark_accy]`. The walk in §44.3 is untouched: it is
+handed a whole-pixel `(dx, dy)` exactly as it was, and still tests after every
+single pixel. All that moved is where those two numbers come from.
+
+The reason is that the speed ladder could not express anything between whole
+pixels. It was 3, 4, 5 by wall, and 3 was sluggish while the only cure
+available was a whole extra pixel a frame — a third faster in one step. The
+base is `ARK_VYBASE` = 15 quarters = **3.75 px/frame** now, a third of the way
+from the old base to the old ceiling, rising `ARK_VYSTEP` (0.75) a wall to the
+same 5 px/frame ceiling. Two adds and two shifts a frame buy the whole range.
+
+Three details are load-bearing:
+
+- **The split is a FLOOR** (`sar` twice, not `idiv`), so the remainder stays
+  0..3 and never changes sign. The long-run average is exact either way;
+  flooring is what keeps the accumulator from oscillating about zero.
+- **It is not reset on a bounce.** What it holds is less than one pixel of
+  travel, so the worst a sign flip can do is delay the first step of the new
+  direction by a single frame — cheaper than the special case.
+- **`ark_english` and `ark_throw` scale at their exit, once.** Both work in
+  pixels and clamp in pixels — `ark_english` from `[ark_pvel]`, `ark_throw`
+  from the state machine — so the arithmetic in the body stays the pixel
+  arithmetic it reads as; the `imul ARK_VQ` is the last instruction before the
+  `ret`. `ark_zbias` is written `-2*ARK_VQ` … `2*ARK_VQ` for the same reason.
+  `[ark_pspd]` and `[ark_pacc]` are in quarter pixels for the same argument
+  again, one level down: see §44.2.1.
+
+**`ARK_VXMIN` is the other half, and it is a fix rather than a rescale.** The
+walk takes `max(|dx|, |dy|)` steps, so a ball going straight up moves `vymag`
+pixels a frame while one at the vx ceiling moves the ceiling: a dead-centre
+hit off a still paddle was *measurably the slowest shot in the game*, and it
+came straight back down to where the paddle already was. So a **paddle**
+bounce — and only a paddle bounce; a wall or a brick may still send the ball
+vertical — floors `|vx|` at one pixel a frame. The sign is whichever way the
+ball was already going, falling back in order to the paddle's own motion and
+then to which half of the paddle it landed on (`[ark_zlast]`, banked by the
+zone computation; zone 2 is the middle, so `< 2` is the left half and the test
+can never tie).
+
+Measured on the running game: the opening rally travels **68px in 1.005s**, or
+3.72 px/frame at 18.2 fps, against the 3.75 asked for. A serve with a still
+paddle rises and falls at a fixed x=318..321 as designed, and the paddle bounce
+that follows leaves at 20px per 1.0s sample — `ARK_VXMIN` exactly, where it
+used to leave at 0.
 
 ### 44.4 Powerups
 
 One broken brick in `ARK_PUCHANCE` drops a capsule, up to three falling at
 once; catching it with the paddle applies it. Five kinds: **E** expand, **C**
-catch (the ball sticks until Space), **L** laser (Space fires, two bolts at a
-time, each breaking one brick), **S** slow, **X** extra life.
+catch (the ball sticks until Space), **L** laser (Space fires a volley of two
+bolts, each breaking one brick, up to `ARK_MAXSHOT` = 4 in the air), **S**
+slow, and a **heart** for an extra life.
 
-A capsule is identified by the **letter** drawn on it from the kernel font,
-not by its colour — five colours cannot survive §39.4's reduction to three
-inks. Its height must *contain* that glyph: an 8px letter drawn one row into
-an 8px box hangs a row below the rect that erases it, and every frame leaves a
-slice of the last one behind. The laser bolt spawns clear of the paddle for
-the same class of reason — spawned *on* it, the bolt's first erase punches a
-hole in the paddle it was fired from.
+A capsule is identified by the **mark** drawn on it, not by its colour — five
+colours cannot survive §39.4's reduction to three inks. Its height must
+*contain* that mark: an 8px letter drawn one row into an 8px box hangs a row
+below the rect that erases it, and every frame leaves a slice of the last one
+behind. The laser bolt spawns clear of the paddle for the same class of reason
+— spawned *on* it, the bolt's first erase punches a hole in the paddle it was
+fired from.
+
+**A volley leaves the two muzzles, and that is what makes the end columns
+reachable.** `ark_do_paddle` clamps `[ark_px]` to
+`[ark_rail] .. [ark_cwid]-[ark_rail]-[ark_pw]`, so a bolt fired from the
+paddle's *centre* reached only x half a paddle-width inside each rail. Against
+a 24px brick that margin is 22px unexpanded — a 2px slice of column 0 and
+nothing more — and **one Expand takes the paddle to `[ark_pwmax]` = 68 and the
+margin to 34, wider than a brick**, so columns 0 and `ARK_COLS-1` became
+unhittable outright. The same on the CGA set: brick 20, margin 17 then 29.
+That is the worst possible pairing, because Expand is common and a laser is
+what the player reaches for when the ends of the wall are all that is left.
+
+The muzzles sit **at** the clamp limits: `ark_draw_paddle` puts the left one at
+`[ark_px]` and the right at `[ark_px]+[ark_pw]-2`, each 2px wide like the bolt
+itself, so `ark_fire` spawns at those two x and a fully deflected paddle fires
+from the rail — exactly where column 0 begins, since `ark_cell` derives a
+column by dividing `x - [ark_rail]` by the brick width, and where the last
+column ends. The reach is the whole wall at every paddle width, and a wider
+paddle now widens the **spread** instead of narrowing the reach. Drawing and
+firing read the same two numbers, which is the point: a muzzle the bolt does
+not come out of is a lie about where the gun is.
+
+A volley is a **pair and is fired as one**. `ark_fire` wants two free slots and
+fires nothing with fewer, because the muzzles are drawn as a pair and one of
+them firing alone reads as a dropped shot rather than a deliberate half-volley.
+`ARK_MAXSHOT` is 4 rather than 2 for the same arithmetic: a volley costs two
+slots, so four keeps two presses in the air, which is what the player had when
+a volley was a single bolt.
+
+**The extra life is a heart and not a letter**, which costs this module a
+sprite: the kernel's ROM font is glyphs 32..126 (§6), so there is no character
+to ask for. `ark_heart` draws it as six rows of horizontal runs through
+`ark_fillc` — a table of `x1,x2` pairs, `0xFF` ending a row's second run —
+because that is the primitive every other shape here already uses, and six
+fills is cheaper than 42 pixel calls on a 4.77MHz machine. `ark_puletter`
+carries 0 in that slot, and 0 is the flag `ark_draw_pu` branches on. It was an
+**X** before, which said nothing about what it did; an extra life is the one
+effect worth a glyph of its own rather than the one letter in five a player
+has to learn by dying. It is also the **only** thing in the game that hands a
+life back — `ark_apply`'s other four branches never touch `[ark_lives]`.
+
+Two constants carry the game's difficulty and are set by feel rather than by
+derivation. `ARK_PUCHANCE` is 8, half as often as it was: at 4 a wall of
+bricks rained capsules. And `ARK_VYSLOW` — what one **S** takes off
+`[ark_vymag]` — is 2 quarters, an eighth of the base against the *third* the
+old whole-pixel step took off the old base, with the floor at `ARK_VYFLOOR`
+(2.5 px/frame) rather than 2. A ball with no vy would never come back down,
+which is what the floor is for; a ball at a third of its speed after one
+capsule was what the step size was for.
 
 **Three capsules are the frame's dominant cost, so each one is three fills
 rather than six.** What matters here is the *count* of `gfx_fill` calls, not
@@ -9385,6 +11175,39 @@ as a hung window, which is the only reason the slot is non-zero. It is the
 window's *content* that dispatches it: a click on the frame or the drop shadow
 never reaches a callback, so the panel correctly survives one.
 
+### 44.8 Losing the front pauses the rally, and the pause is sticky
+
+A ball that keeps moving while its window is covered is deliberate — §44.1's
+whole argument is that a dropped *frame* must not stop the game — and it is
+exactly wrong when the player has gone to another window. They come back to a
+lost life they never saw.
+
+`ark_focuschk` runs once per frame, from `ark_update` just after the paddle
+moves. If `[ark_mode]` is `M_PLAY` and `OSAPI_WM_TOP` (slot 0x0260, §20.3)
+answers something other than this window, it banks `M_PLAY` in
+`[ark_wasmode]`, drops to `M_PAUSE` and raises `[ark_full]`. Only `M_PLAY` is
+interrupted: every other
+mode is already still, and `M_READY` has the ball parked on the paddle where
+losing the front costs nothing.
+
+**Coming back to the front does not resume**, and that is the point rather
+than an omission. A ball that starts moving the instant a window is raised is
+a ball nobody was watching yet — the same reason a new life waits on Space. It
+resumes the way every other pause does, through `ark_cmd_pause`, and it uses
+`ark_cmd_pause`'s own `[ark_wasmode]` so the two cannot leave the mode in
+different places.
+
+Three things about where it runs:
+
+- **It is on the WORKER, holding no lock.** That is what `wm_top` can be asked
+  from: it takes no lock, touches no VRAM and answers out of `wm_zord`.
+- **It does not draw.** `[ark_full]` makes the next `ark_render` repaint the
+  board with its banner, under the gfx lock, where drawing belongs.
+- **It needs asking rather than telling.** A package learns it *has* the front
+  (`W_ONCLICK`, `W_PAINT`), but nothing tells it when it *loses* the front —
+  `W_FLAGS` bit 1 only says visible, and a covered window is still visible.
+  `OSAPI_WM_TOP` exists for this.
+
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
 A four-channel ProTracker MOD player: `tracker.asm` (shell, menus, the file
@@ -9402,12 +11225,13 @@ tree that exercises three features at once:
   mixer worker stages at `ringbase + (total & mask)` and feeds a *delta*
   forever, so a module plays with no close-and-reopen seam and out of a grant
   far smaller than the song.
-- **`OSAPI_FILE_READBIG`**, which exists because real MODs exceed
-  `dskw_read`'s 64KB ceiling: `BEVERLY.MOD` is 116KB, and the destination
-  advances by SEGMENT so it lands in one call. The Disk window shows its size
-  as 65535 — the directory listing's size field is 16 bits and saturates —
-  which is a display limit and not a load limit; the chain walk uses the real
-  length.
+- **A read past the 64KB horizon.** `BEVERLY.MOD` is 116KB, and the whole of
+  it lands in one `OSAPI_FILE_READ` because the destination advances by
+  SEGMENT (§18.4.1). This is what that ceiling's removal was *for*, and it
+  used to be a separate slot, `OSAPI_FILE_READBIG`. The Disk window shows the
+  file's size as 65535 — the directory listing's size field is 16 bits and
+  saturates — which is a display limit and not a load limit; the chain walk
+  uses the real length.
 - **The mixer is a worker task** (§20.6), so the GUI stays live while it
   plays, and `OSAPI_GFX_DBUF` plus `OSAPI_GFX_SCROLL` keep the fullscreen
   pattern view from tearing under it.
@@ -9421,7 +11245,8 @@ back reads samples out of whatever claimed the memory next.
 It is the app class the sound layer was built toward (§34.6: "a music player
 plays … staged PCM via `OSAPI_SND_STREAM`"), and building it is what forced
 the two kernel amendments it rides on: the worker-safe stream verbs plus ring
-mode (§20.3/§34.5) and `dskw_readbig` (§18.4). On the apps disks it lives in
+mode (§20.3/§34.5) and a read with no 64KB ceiling (§18.4.1 — which arrived
+as `dskw_readbig` and is now just what `dskw_read` does). On the apps disks it lives in
 the `APPS` folder (§24), appended after paint, with `BEVERLY.MOD` after it.
 
 **Ported, not written here.** `trkplay.inc` and `trkui.inc` are byte-identical
@@ -9509,12 +11334,15 @@ verb 2's UI-only rule. The 6-half cap bounds the
 worker's lock-free burst at ~1.1 s of mixing per wake, so a wake can catch
 up after a stall without starving the machine.
 
-### 45.3 Loading goes through readbig, because real MODs are big
+### 45.3 Loading is one read, and that is why the ceiling went
 
-`OSAPI_FILE_READBIG` (slot 0x01E8) exists because `dskw_read`'s CX is a
-16-bit byte count: a file ≥ 65,536 bytes was `FERR_BIG` *unconditionally*,
-and BEVERLY.MOD is 116,085 bytes. The load path is the whole client story
-of §50 + §18.4 + §38 in one proc (`trk_fdone`, the fdlg completion):
+BEVERLY.MOD is 116,085 bytes. `dskw_read`'s count was 16-bit, so a file
+≥ 65,536 bytes was `FERR_BIG` *unconditionally*, and this app is why the
+kernel grew a second entry point for it — `dskw_readbig`, at slot 0x01E8,
+which §18.4.1 has since folded back into `dskw_read` itself. Nothing about
+the load path changed with it but the name and a `xor bx, bx`. It is the
+whole client story of §50 + §18.4 + §38 in one proc (`trk_fdone`, the fdlg
+completion):
 
 1. Copy the ES:DI name out **first** — ES is `KERNEL_SEG` and the buffer
    dies with the call (§38.6).
@@ -9526,10 +11354,10 @@ of §50 + §18.4 + §38 in one proc (`trk_fdone`, the fdlg completion):
 3. `OSAPI_MEM_AVAIL` → take `min(largest run, 128 KB)` in ONE
    `OSAPI_MEM_CLAIM` (the one-block rule, §50.3). Refusal is a status-line
    "Out of memory", not an abort.
-4. `OSAPI_FILE_READBIG` with ES = the grant, DX:CX = its byte capacity.
-   `FERR_BIG` reads back as "File too big" — a much rarer answer here than
-   on the fork this section came from, because the heap is not a fixed
-   arena: a 640KB machine measures 566KB of it and a 512KB machine about
+4. `OSAPI_FILE_READ` with ES:BX = the grant at its first byte, DX:CX = its
+   byte capacity.
+   `FERR_BIG` reads back as "File too big" — a rare answer, because the
+   heap is not a fixed arena: a 640KB machine measures 566KB of it and a 512KB machine about
    439KB, so a 116KB module fits both with room to spare (§45.8).
 5. `mp_load` validates the hostile bytes (the §45.5 checklist) and answers
    CF=1 with its own verdict string, which goes straight to the status
@@ -9555,23 +11383,23 @@ Four stores, none of them guessed:
   regardless of the module's actual size, and held until the next load or
   teardown. Consequence, stated honestly: while a module is loaded the
   Tracker's claim holds up to 128KB that other packages and other instances
-  then cannot have. That is a far smaller consequence here than on the fork
-  this section came from, where the same claim was effectively *all* the
-  remaining arena on a 512KB machine; against a 566KB heap it is a fifth.
+  then cannot have. Against a fixed arena that claim would have been
+  effectively *all* of it on a 512KB machine; against a 566KB heap it is a
+  fifth.
 
   **...and then `trk_trim` gives the difference back.** The over-claim is
   unavoidable at claim time — the dialog's completion proc is handed a name,
-  not a directory entry, so the size is not known until `readbig` returns it
+  not a directory entry, so the size is not known until the read returns it
   — but it need not survive the load. One `OSAPI_MEM_REGROW` (§50.3.1) after
   the read shrinks the claim to `ceil(bytes / 1024)` KB, and shrinking is the
   path that **always succeeds in place**: the record's length changes and
   nothing moves. Measured on a 5,596-byte module: the claim goes 128KB → 6KB
   and the machine's heap use falls from 201KB to 79KB.
   <br><br>
-  The fork this came from documented the over-claim as something it *could
-  not* fix, because claim-copy-free needs both blocks at once and may hand
-  back a different base. That is true there and false here, and it is the
-  clearest single example of what `mem_regrow` was for.
+  A claim-copy-free would need both blocks at once and may hand back a
+  different base, which is why the over-claim used to be documented as
+  unfixable. `mem_regrow` shrinking in place is what fixes it, and this is
+  the clearest single example of what it was for.
   <br><br>
   The trim runs **before `mp_load`**, so no sample pointer exists yet to be
   invalidated even on the impossible path where a shrink relocated; and
@@ -9587,9 +11415,8 @@ Four stores, none of them guessed:
   than 64KB from one base, which is how a 116KB blob is walked on an 8086.
 - **The stream ring** — one 16KB grant out of the **sound driver's** staging
   pool (verb 7, §34.6). Not a kernel segment: the pool belongs to whichever
-  driver attached and **its size is not a constant an app may assume** — on
-  this fork it is 20,480 bytes, where the other pinned a 64KB `SND_SEG`
-  (§2.2, retired).
+  driver attached and **its size is not a constant an app may assume** — the
+  Sound Blaster's is 20,480 bytes.
 - Nothing else: no frame buffer, no second window.
 
 All three grants are stamped with the instance and force-freed at teardown
@@ -9709,9 +11536,8 @@ edge-triggered, so no deadline machinery is needed.
   view, scrolling and the whole fullscreen surface still work. No silent
   tick-driven fake playback is attempted, and no FM fallback in v1 (FM is
   now worker-whitelisted — that is future work, not a promise).
-- **512KB machine: big modules play.** The one item in this list the fork
-  *removed* rather than inherited. The other fork refused a 116KB blob
-  there, because its ~107KB arena could not hold one. The claim heap is not
+- **512KB machine: big modules play.** A fixed ~107KB package arena could
+  not hold a 116KB blob at all, and that limit is gone. The claim heap is not
   a fixed arena — it is everything above the kernel — so a 640KB machine
   measures 566KB and a 512KB machine about 439KB, and the largest MOD this
   player accepts fits either. `FERR_BIG` / "Out of memory" is still the
@@ -9775,6 +11601,94 @@ modes play the §24 test module at the same pitch — the step math is
 rate-invariant); the wall-clock claim itself is 86Box `make xt-sound`
 territory, cycle-counted here and honestly not QEMU-provable.
 
+### 45.9.1 …and on a real 8088 the pattern view stops being animated at all
+
+§45.9's per-position repaint is still more than a 4.77 MHz 8088 has. On the
+machine itself the view does not scroll and does not move: one line updates
+now and again while the rest stands still, which reads as a hung display
+rather than a slow one. The audio is fine throughout, and keeping it that
+way is the point.
+
+So on a **tier-0 machine**, and **only while something is playing**, the
+grid is not animated. The row area is cleared once at the playback
+transition and a **single banded line** — the row being played, drawn by the
+same `tui_row1` the grid uses — is updated in place. One row of four cells
+and two hex row numbers per row change, against thirty-odd rows of the same.
+Everything above the pattern area is unaffected: the readouts, the order
+window, the VU bars and the status line all keep following the music.
+
+Three things about the gating are deliberate:
+
+- **It keys on `[trk_cpu0]`, the MACHINE, not on `[mp_xt]`.** XT mode is a
+  playback setting anyone can switch on with **X**, and a 386 running it can
+  animate the grid perfectly well. The entry proc latches
+  `osapi_cpu_info`'s answer into `[trk_cpu0]` next to where it pre-arms
+  `[mp_xt]`, because those two facts stop being the same one the moment a
+  user touches the toggle.
+- **It keys on playback.** A stopped 8088 gets the whole pattern to look at,
+  and Up/Down still scroll it — there is no deadline when nothing is
+  playing.
+- **The transition is noticed in `tui_draw_dyn`, not at the five places that
+  can start or stop a module.** Play, stop, pattern-loop, a load, the §45.2
+  watchdog: all of them move `[mp_playing]`, and one comparison against
+  `[tui_lplay]` catches every one. `tui_draw_pat` then draws whichever view
+  is now correct, so nothing else in the module has to know the mode exists.
+  The comparison sits **above** the windowed/fullscreen split, because
+  §45.9.2 hangs off it too and the transport changes either way; only the
+  `tui_draw_pat` behind it is tier-0 and fullscreen.
+
+The line is **centred in the cleared area**, not left at `TL_BANDY`. With
+the grid gone there is nothing for the band's usual one-third-down position
+to relate to, and a lone strip near the top of a large empty field looks
+like a rendering fault. The three channel separators are ruled down the full
+height once, at clear time: they cost nothing per frame and they are the
+difference between a line floating in a black field and a line sitting in
+the four-channel view it belongs to.
+
+**The volume bars are 3 rows, not 8** (`TUI_VUH`), on every machine. A bar
+is the one element redrawn on every frame, so its height is a direct
+multiplier on the per-frame fill cost; three rows still read as a level
+meter.
+
+### 45.9.2 The status line carries the transport, and stopping parks the view
+
+The status line is the only place the keyboard is ever named, and it used to
+stop naming it. `[tui_msgp]` is non-zero from the first load onward, so
+`tui_s_hint` — `'ENTER play  SPACE stop  L load'`, the line the app opens
+with — never came back; and `trk_play` set no message at all on success, so
+starting playback left whatever the load had put there and `'Stopped'` was
+set once and then stuck with no legend after it. Between them the user got a
+line that said nothing about what the transport was doing and nothing about
+which key would change it.
+
+`trk_transport` is the fix and it is one routine: it reads `[mp_playing]`
+and writes `'Playing  SPACE stop  L load'` or
+`'Stopped  ENTER play  L load'` — the state **and** the key that leaves it,
+in both directions.
+
+Two call sites, and both are needed for different reasons. `trk_play`'s
+success path calls it so the line changes on the keystroke rather than up to
+a tick later, which on a 4.77 MHz machine is the difference between a
+responsive app and a dropped keypress. `tui_draw_dyn`'s `[tui_lplay]`
+transition (§45.9.1) calls it because that is the **only** site that sees a
+stop nobody asked for — song end, an F00, the §45.2 watchdog. It does not
+matter that the two overlap on a user-driven stop: the second call redraws
+one line of text with the same content. What matters is that `trk_transport`
+deliberately does **not** touch `[tui_lplay]`; leaving that to
+`tui_draw_dyn` alone is what makes a transition that happened while
+`trk_render` was skipping frames (hidden, wholly covered, About panel up)
+still get noticed when the frames come back.
+
+**Stopping also parks the pattern view where the music got to.**
+`tui_viewrow` reads `[tui_vrow]` while stopped, and that word is the Up/Down
+scroll position — untouched since before playback started, so stopping
+snapped the view back to wherever the user pressed play, discarding the one
+piece of information a stop is *for*. `trk_transport` copies `[mp_row]` into
+it on the stopping edge. That is a copy rather than a snapshot taken earlier
+because `mp_stop` leaves `[mp_row]` alone, so the replayer's own row is
+still valid at the moment the transport is observed to have stopped — from
+the keystroke and from the watchdog alike.
+
 ### 45.10 The Rate menu — 11 / 22 / 44 kHz for the other end of the range
 
 The XT trades fidelity for cycles; a 286/386 has cycles to spend, and the
@@ -9803,7 +11717,7 @@ slot 0x01F0 **on entering fullscreen** and hand back the user's previous
 state on leaving; while Smooth is off, or where the slot refuses (mono
 adapters — where the software renderer already IS the direct path — or a
 heap that cannot fund the 150KB claim right now), fullscreen draws exactly
-as before. That second refusal is a **live** condition on this fork, not a
+as before. That second refusal is a **live** condition, not a
 boot-time verdict: `bb_avail` is about the adapter alone and the memory
 question is asked of the heap every time the buffer is armed (§32), so
 Smooth can be refused with Paint open and granted after it closes. Two recorded
@@ -9869,11 +11783,11 @@ and the layout tail after an edit is one add-loop shift.
 
 The document is always canonical markdown (newline = LF; CR LF and lone CR
 fold to LF on load, control bytes and >126 drop; saved bytes are the
-buffer verbatim) in a 20,480-byte gap buffer in bss, so the app works with
-an EMPTY heap — an `OSAPI_MEM_CLAIM` block (64/32/16KB tried in that
-order, §50.3 rules; force-freed at teardown like every claim) only adds
-the undo/redo stacks and the full-size clipboard; without it undo reports itself unavailable through the menu
-gray and the clipboard falls back to 2KB of bss. There is no second styled
+buffer verbatim) in a gap buffer that is a **heap claim** (§46.9). A second
+`OSAPI_MEM_CLAIM` block (64/32/16KB tried in that order, §50.3 rules;
+force-freed at teardown like every claim) carries the undo/redo stacks and
+the full-size clipboard; without it undo reports itself unavailable through
+the menu gray and the clipboard falls back to 2KB of bss. There is no second styled
 buffer and no sync machinery (the original's `BuildHiddenView` /
 `SyncHiddenToCanonical` pair): **Writer mode is a rendering property**.
 Styled lines hide the delimiters and draw the spans; the caret's logical
@@ -9963,12 +11877,232 @@ surface, modality routes input, and the completion proc repaints the page
 before any failure alert so nothing lands on the hole the dialog left.
 Names live per instance (`UNTITLED.MD` seeded); the file slots read and
 write whole documents in place (no staging copy: the gap parks at the end
-for a save, and a load folds line endings in place). `FERR_*` becomes a
+for a save, so `ES:BX` is the claim itself, and a load folds line endings
+in place inside it — §46.9). `FERR_*` becomes a
 human sentence in an error alert. New/Open/Quit with unsaved changes ask
 first — Save / Cancel / Don't Save, with Save continuing the pending
 action through the Save As completion when the document is untitled.
+### 46.9 The document is a heap claim, and it grows
 
-## 47. Missile Command — the twelfth package (apps/missile/missile.asm)
+The gap buffer was 20,480 bytes of **bss**, and the reason given for it was
+that the app then worked with an empty heap. That reason was never true on
+this kernel: a package's *region* is itself a heap claim (§20.1), so a
+machine whose heap cannot fund a claim cannot load ArtfulType either. It was
+a holdover from a kernel where a package got one 64KB segment for code and
+data and there was no memory API to ask for anything else. What it actually
+cost was 20KB of the 60KB an image and its bss share.
+
+The text is `[at_dseg]:0000` now, `[at_dcap]` bytes, claimed by `at_entry`
+*before* it creates the window — an editor with nowhere to type is not a
+window worth opening, so a refusal is `LD_EABORT` and the loader says so,
+which is why nothing below has to test `[at_dseg]`. bss falls from 42,165
+bytes to 21,695, and image + bss from 59,198 of `APP_MAX_SIZE`'s 61,440 to
+39,057.
+
+**`at_dresize` is the whole of it, and the gap is what makes it more than a
+resize.** Text is `[0, at_gs) ++ [at_ge, cap)`, so the high run always ends
+at the buffer's ceiling — which is why the new gap end is simply
+`newcap - T` and never a delta. Growing must slide that run *up* to the new
+ceiling, backwards because the ranges overlap, and **after** the regrow;
+shrinking must slide it *down* **before** the bytes past the new ceiling
+stop being ours. Each ordering is the one whose failure is benign: a refused
+grow has moved nothing, and a refused shrink (which cannot happen — a shrink
+always succeeds in place, §50.3.1) leaves more heap held than the books say,
+which wastes memory and cannot corrupt anything.
+
+Three movements hang off it: `at_dgrow` from `at_ins` when a keystroke
+spends the gap and from `at_insn`/the paste path when a run does not fit;
+`at_load_named`, which opens the claim to `AT_MAXKB` before the read because
+nothing knows the file's size until the read reports it, lands the file in
+the document buffer itself, folds line endings **in place** (the fold only
+drops bytes, so the write index cannot outrun the read index) and calls
+`at_dfit` on both paths; and `at_cmd_newdoc`, which empties the buffer
+*first* — so the shrink has no high run to carry — and then gives the heap
+back.
+
+**`AT_MAXKB` is 60, and it is not the heap's limit.** `at_gs`, `at_ge`,
+`at_caret` and every entry in `at_lstart` are **words**, so a document can
+never reach 65,536 bytes whatever the machine has; 60KB leaves the top of
+that range alone. Lifting it means widening the gap buffer's whole
+arithmetic, not asking for more memory.
+
+The cost is one segment register. `at_getb` — the hottest routine in the
+app, one call per character of `at_scan` — is `push es` / `mov es,
+[at_dseg]` / fetch / `pop es`, about 32 clocks a character on a 4.77MHz
+8088. ES is **preserved** rather than left holding the document because
+`at_slice` is not the only caller that holds ES across a read and a silently
+clobbered ES is a corruption bug, where this is a measured and bounded cost:
+~2ms on the paragraph rescan a keystroke actually pays for, and a fifth of a
+second on a full relayout of a *maximal* document — which happens on a load,
+a mode switch or a zoom, and never on a keystroke. The move primitives
+(`at_gapto`, `at_copyout`, the paste and the snapshot restore) switch DS as
+well, through `at_dsegs`, and every cursor and count they need is latched in
+a register first: past that call no package variable is readable, which is
+the `dsk_copy_in` discipline of §18 applied inside an app.
+
+## 47. Disabled controls — the greying standard (binding)
+
+Every part of the UI that can refuse a click has to say so the same way. This
+section is the whole of how, and it is binding on the kernel and on packages
+alike. **It breaks silently**: get it wrong and the control still works, still
+refuses, and still looks fine on the machine you tested it on — it just stops
+saying anything on the other two adapters, or says the opposite of what it
+means.
+
+### 47.1 The seven rules
+
+1. **Disabled is a FLAG, not a colour: `gfx_pen_dis` / `gfx_pen_live` /
+   `gfx_pen_cf`.** They set `[gfx_color]` = `CDGRAY` *and* `[gfx_dis]` = 1
+   together, and nothing in the kernel sets either half by hand. `gfx_pen_cf`
+   takes the answer in CF, which is the shape every greying predicate already
+   returns, so a call site is `call <ok-test>` then `call gfx_pen_cf`.
+
+   It is a flag because the renderer has to do something a colour cannot
+   express — `font_ink` masks a disabled glyph to a checkerboard on mono
+   (rule 3) — and because inferring it from `CDGRAY` catches every other use of
+   that colour. The first cut did exactly that and made Minesweeper's digit 8
+   (§23) look like a menu item you cannot pick. A flag says what is *meant*;
+   a colour only says what was *picked*.
+
+   `gfx_unlock` clears `[gfx_dis]`, for the reason it clears the clip region
+   (§11.3): it is valid for exactly one lock hold, so a site that forgets
+   `gfx_pen_live` cannot leak dithered text into whatever draws next.
+
+   `CLGRAY` remains a *decoration* colour — Minesweeper's covered cells,
+   Arkanoid's rails, Recorder's centre line — and is never a disabled state.
+
+2. **Grey the whole control, not its caption.** Every mark the control is made
+   of takes the disabled pen: the radio ring, the checkbox square, the button
+   frame, the icon, and the label. A black ring with faint writing beside it
+   reads as a live control that someone mislabelled — which is exactly what the
+   Sound page shipped as until it was reported.
+
+3. **Grey does not survive 1bpp; the flag does.** Every middle grey rounds to
+   black in text (§39.4) — a dithered 8x8 glyph costs half its strokes, which
+   is the wrong trade for Piano's coloured letters and right for nothing —
+   so a `CDGRAY` label used to be *pixel-identical* to a live one on Hercules
+   and CGA. `[gfx_dis]` is the carve-out: `font_ink` masks a disabled glyph to
+   a checkerboard, exactly as the 1bpp Macintosh drew a greyed-out menu item,
+   and just as readable.
+
+   Shapes never needed it — `gfx_ink` maps `CDGRAY` to the 50% dither, so a
+   ring or a frame comes out dotted on mono — which is why rule 2's "grey the
+   whole control" was load-bearing before this existed and remains the rule for
+   **packages**, which have no way to reach the flag (§20.3 publishes no slot
+   for it, deliberately: nothing has needed one). A package's disabled *label*
+   still rounds to black on mono, so a package's disabled control must include
+   a non-text mark — a frame, a box, an icon — and `rc_btn` (Recorder) is the
+   reference.
+
+   Words are still worth adding — `'Save Gif (NoRam)'` (§12.2), or a caption
+   that says why (§31.3) — but they say *why not*, not *whether*. They stopped
+   being load-bearing for kernel-drawn text when the renderer took the state.
+
+4. **One predicate, three consumers.** The test that greys the control, the
+   test that refuses the click and the text that explains it are the *same
+   call* — `cpf_dbok` (§31.3), `cp_snd_rowok` (§31.7) — never three copies of
+   the condition. Copies drift, and both drifts are bad: a control that looks
+   available and refuses, or looks unavailable and works.
+
+5. **Grey a fact, never a guess.** Grey when the answer is stable and knowable
+   without doing the thing — no hardware (§51.2's `DSV_TIERS`), the wrong
+   adapter, a driver that is not loaded. When the only way to know is to *try*,
+   do not grey: attempt it and report what came back. Memory is the case that
+   splits: `mem_avail` is a real predicate for an ordinary claim, so the
+   back-buffer row greys on it (§31.3); `mem_claim_dma` has no predicate at all
+   because the 64KB page rule is inside its scan (§50.3), so the Sound Blaster
+   row does not grey on memory and the click reports instead (§34.8).
+
+   The corollary is a cost rule: **a greying test runs on every paint**, so it
+   must be cheap. If answering it means probing hardware, the answer belongs in
+   a value someone already computed — that is what `DSV_TIERS` is for, and
+   §31.7 records what re-probing cost when the page did it on a click instead.
+
+6. **A refused click says exactly one thing.** Greyed → say nothing more; the
+   control already said it, and a second explanation for something the user can
+   see is disabled is noise. Not greyed but refused → the page owes words at
+   the point of refusal, in the vocabulary it already uses for that failure
+   (the Sound page reports `drv_errstr`, the loader's own strings).
+
+7. **Every redraw path applies the same pen.** A page that repaints part of
+   itself after a click — glyphs only, one row, one line — must run the same
+   predicate the full paint runs. Miss it and a control's two halves disagree
+   about being disabled, which is worse than either answer alone.
+
+### 47.2 Verifying it
+
+**A greying change is not done until it has been looked at on a 1bpp adapter.**
+The two adapters differ in *kind*, not just in colour depth — a glyph becomes a
+checkerboard, a ring becomes dotted — and VGA will show a perfectly convincing
+grey for something that renders quite differently, or not at all, on the other
+two:
+
+```
+python3 tools/hercshot.py build/qmp.sock 0x70000 out.png   # after make test VIDEO=herc HERCSEG=0x7000
+make test VIDEO=cga                                        # and screendump normally
+```
+
+One trap on the CGA path: **QEMU double-scans mode 6 to 640x400**, so a
+screendump cropped at 640x200 shows the top half of the guest screen and
+nothing else. Take every second row.
+
+### 47.3 Where the tree stands
+
+Conformant, and worth reading as the reference:
+
+- **`cp_snd_rowok` / `cp_snd_radios` / `cp_snd_paint`** (§31.7) — one
+  predicate, glyph and label both, dotted ring on mono.
+- **`rc_btn`** (Recorder) — greys the button frame with the label, so the
+  frame dithers and the button reads as disabled on every adapter.
+- **Paint's menu items** (§12.2) — text-only controls that also carry the state
+  in words, `'Save Gif (NoRam)'` and five more. Since `font_ink` learned the
+  dither those words say *why not* rather than *whether*, which is still worth
+  having.
+- **The Display page's back-buffer row** (§31.3) — `cp_dbradios` takes
+  `cpf_dbok`'s pen for row 1's glyph. It used to draw it `CBLACK` beside a grey
+  label, which rule 2 forbids and §31.3 had *already* described correctly; the
+  code was the thing that disagreed.
+- **Every disabled menu item everywhere** (§12.2, `MENU_DIS`) — fixed in the
+  renderer rather than per app, which is why there is nothing to list. It was
+  text and nothing else, so on Hercules and CGA it was pixel-identical to a live
+  item and merely declined to highlight; `font_ink`'s `CDGRAY` dither made all
+  of them, in the kernel and in every package at once, say so. The same change
+  covers **`MENU_DIS` used as a RADIO MARK** — Solitaire's Draw One / Draw Three
+  (§43) and Tracker's 11/22/44 kHz (§45), where grey means "this is the
+  setting": the current item is now the dithered one, so a mono user can see
+  which is which without a checkmark glyph and without spending a character of
+  `MENU_MAXCH`.
+- **"Close Window"** (§12.3) — greys from `wm_top` rather than beeping.
+- **The file dialog's default button** (§38.8) — `fdlg_actok` behind the pen,
+  the click and the Enter key alike, greyed while the name box is empty and no
+  row is chosen. `fdlg_btn` stopped forcing `CBLACK` so the frame greys too.
+
+**Left as beeps, deliberately.** The second half of the sweep asked which
+refusals *ought* to grey and do not, and three answer no:
+
+- **A press outside the modal dialog** (`fdlg_grab`, §38.2). Greying the whole
+  desktop is not a control state, and the dialog's presence is the explanation.
+- **Clock / Bounce / Disk at the instance cap** (§12.3). `MAX_TASKS` is 12 and
+  the predicate is per-kind rather than one word; the cost is not worth a fact
+  a user meets about never.
+- **The Disk window's context menus** (`files.inc`, §22). Up One Folder at the
+  root, Rename with no disk: silent no-ops. The recorded reason — four windows
+  share an immutable `.text` descriptor, so nothing per-window can live in one
+  — **is now obsolete**, because `ui_loc_gate` shows the swap can happen just
+  before the menu drops, when exactly one window is relevant. It stays a
+  no-op because it is a feature rather than a correction, not because it
+  cannot be done. Whoever picks it up should read this paragraph first.
+
+**Owed:** nothing else identified. §47.2 is the standing obligation — a greying
+change is not finished until it has been looked at on a mono adapter.
+
+**Packages have no `[gfx_dis]`, on purpose.** §20.3 publishes no slot for it
+because nothing has needed one: a package's disabled control is covered by rule
+2, whose non-text mark dithers through `gfx_ink` without help. If an app ever
+needs disabled *text* with no shape beside it, that is when the slot gets
+added — and adding one is an append, which §20.8 allows.
+
+## 48. Missile Command — the twelfth package (apps/missile/missile.asm)
 
 A port of Atari's 1980 arcade game onto the published package ABI, from the
 original 6502 sources (`W3MAIN` / `W3DSUP` / `W3COMN`, "WWIII", project
@@ -9982,7 +12116,7 @@ fullscreen surface, `F` in and Esc out. No heap claim: every array is sized
 by the arcade's own object counts and lives in the package bss, about 800
 bytes of it, so this package costs its image and nothing else.
 
-### 47.1 What is the arcade's, verbatim
+### 48.1 What is the arcade's, verbatim
 
 The numbers are not re-invented. `mc_icbwav` **is** `ICBWAV`
 (12, 15, 18, 12, 16, …) and `mc_crmwav` **is** `CRMWAV`, the smart-bomb
@@ -10019,7 +12153,7 @@ fidelity detail: a player who lost all three launchers to one bad wave had
 nothing to defend with ever again, and testing found wave 2 opening with no
 bases and no way to fire.
 
-### 47.2 A trackball becomes the mouse, and three buttons become one
+### 48.2 A trackball becomes the mouse, and three buttons become one
 
 The arcade aims with a trackball and picks a launcher with one of three fire
 buttons. Here the crosshair follows the mouse — polled from the worker with
@@ -10041,7 +12175,7 @@ are deliberately long: the kernel keeps drawing the arrow cursor at the same
 point (§11.2 — even fullscreen, the cursor stays live), and a short
 crosshair simply hides underneath it.
 
-### 47.3 There is no line primitive
+### 48.3 There is no line primitive
 
 `mc_line` is a Bresenham that **coalesces each horizontal run into one
 `gfx_hline`**, and it draws the missile trails one *segment* at a time — the
@@ -10068,7 +12202,7 @@ frame count since launch *and* breaks the moment `mc_render` skips a frame
 or a smart bomb re-aims, because then the drawn segments are not the ones a
 replay would produce. The dilation has neither failure mode.
 
-### 47.4 The explosion scales, and its square root is free
+### 48.4 The explosion scales, and its square root is free
 
 The arcade's burst is 27 pixels across on a 256×231 field — a tenth of the
 screen, and **that proportion is the game**: it decides how much sky one ABM
@@ -10092,7 +12226,7 @@ Growing, the new disc covers the old one, so one filled circle is the frame's
 whole work; the colour cycles every frame either way, which is the arcade's
 flashing and costs nothing because the disc is redrawn regardless.
 
-### 47.5 Two ways a wave could never end
+### 48.5 Two ways a wave could never end
 
 Both were found by leaving the game running, and both present identically —
 a still screen on a machine that is otherwise perfectly alive, because the
@@ -10111,7 +12245,7 @@ worker is looping happily and simply has nothing left to do.
   honest, so `mc_recount` derives it every frame instead — an
   eight-iteration loop needs no agreement at all.
 
-### 47.6 The palette cycles, and none of it may go black
+### 48.6 The palette cycles, and none of it may go black
 
 `SETCOL` walks ten palettes at one per two waves; so does `mc_pal`. But
 everything here is drawn on a black field, so a colour from §39.4's black
@@ -10134,7 +12268,7 @@ which is invisible on every adapter, so a launcher that was gone looked
 exactly like bare terrain and a player could not tell it from one that was
 merely out of missiles.
 
-### 47.7 The rest of the game
+### 48.7 The rest of the game
 
 The loop is the worker (§20.6, apps/arkanoid's shape), one frame a tick,
 sleeping to a **deadline** rather than for a duration for the reason §44.1
@@ -10156,7 +12290,7 @@ Sound is duration-limited `osapi_snd_tone` from the worker throughout, on
 content, the worker held off it by `[mc_abon]` under the lock, the game
 paused underneath.
 
-## 48. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
+## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
 Page** (store.amfile.org) and credited under its own name in the bar through
@@ -10175,7 +12309,7 @@ cells a run. What survives settles along the current vector one step a tick
 and the scan runs again, so a cascade is a state machine (`PLAY` → `FLASH` →
 `SETTLE` → `FLASH` … → `PLAY`) rather than a loop inside one frame.
 
-### 48.1 The worker's UPDATE holds the gfx lock, and that is the point
+### 49.1 The worker's UPDATE holds the gfx lock, and that is the point
 
 Arkanoid (§44) and Missile Command (§47) run their update lock-free and take
 the lock only to draw. This one does not, and the reason is the shape of the
@@ -10198,7 +12332,7 @@ cell reads) runs once per piece **lock**, not once per tick. Rule 4 still
 binds — `OSAPI_TASK_ALIVE` is called at the top of the loop with the lock
 free, because gfx_lock is not reentrant.
 
-### 48.2 One bounds test, at the index
+### 49.2 One bounds test, at the index
 
 `tg_gidx` answers `CF=1` for a cell that is off the board instead of handing
 back an index, and every reader and the single writer already go through it.
@@ -10211,7 +12345,7 @@ heap claim (§50.3), so an index built from row 32 does not fault — it writes
 `tg_erase_prev`, and for a different reason: a *clamped* erase rect would
 black out a cell on the far side of the matrix.
 
-### 48.3 Nothing draws outside the content box
+### 49.3 Nothing draws outside the content box
 
 `tg_fillc`, `tg_framec` and `tg_str` are the only three ways this module
 reaches the screen, and all three clamp to `[tg_cwid]`/`[tg_chgt]` before
@@ -10236,7 +12370,7 @@ centred in it by `[tg_bx0]`. A zero cell size is refused, because a zero cell
 makes every rect inside-out and an inside-out rect is a stripe rather than a
 small mistake.
 
-### 48.4 Two colours are chosen at boot, not pinned
+### 49.4 Two colours are chosen at boot, not pinned
 
 §39.4 leaves a 4bpp screen three greys and a 1bpp screen none. On VGA the HUD
 band is `CDGRAY` under `CLGRAY`-bordered matrix; on Hercules and CGA both of
@@ -10252,7 +12386,7 @@ The factions straddle the two classes deliberately: `CYELLOW` (white) against
 colour-blind palette that `C` toggles. So the two factions stay apart on all
 three adapters without a second carrier.
 
-### 48.5 A PLAY frame costs eight cells
+### 49.5 A PLAY frame costs eight cells
 
 `[tg_dirty]` says a frame is owed; `[tg_full]` says it must be a whole one. A
 falling piece raises only the first, and `tg_frame` then erases the four
@@ -10268,7 +12402,7 @@ what was just committed. The purge animation is the other partial path:
 every tick puts an intermediate black frame behind every shrink on the
 direct-to-VRAM path.
 
-### 48.6 One panel mechanism, two texts
+### 49.6 One panel mechanism, two texts
 
 The bar carries **two** menus: `Protocol` (New Protocol / Halt / Colour-Blind
 / Lock Vector) and `Help`, whose single item `How to Play` puts the rules and
@@ -10293,7 +12427,7 @@ Two things the second text needed that the credits did not:
   and thirteen lines at VGA's 10px pitch want 144. `tg_pmeas` walks
   10 → 9 → 8 and stops at 8 because a glyph is 8 rows tall. Without it
   `tg_str` would silently DROP the lines that fell outside the content box
-  (§48.3), and a key list missing its last four entries is worse than a tight
+  (§49.3), and a key list missing its last four entries is worse than a tight
   one.
 - **`TG_PLEFT`.** A line beginning with byte 1 is drawn left-aligned at the
   panel's text margin instead of centred, and the byte is not drawn — the same
@@ -10302,7 +12436,7 @@ Two things the second text needed that the credits did not:
   table centred is a ragged diamond, so the title and the dismiss hint are
   centred and everything between them is not.
 
-### 48.7 Two bugs the port fixed, both invisible until they were not
+### 49.7 Two bugs the port fixed, both invisible until they were not
 
 **`retf`.** The contributed source ended all six callbacks — entry, paint,
 key, click, menu command, About — in `retf`, which is `main`'s convention.
@@ -10525,6 +12659,29 @@ theirs. Real compaction needs a relocation callback every holder implements.
 Until there is one, the fix is to stop *creating* the fragmentation, which is
 what path 2 does: a claim that grows in place never leaves a hole behind it.
 
+**So "`mem_claim` refuses while the total free would have sufficed" has exactly
+two cures, and they are a decision rather than a bug fix:**
+
+1. **A relocation callback.** The only thing that makes real compaction safe,
+   and it is an ABI addition every holder has to implement — a package, the
+   back buffer, the menu save-under, the sound driver's DMA claim (which
+   additionally may not move at all, §50.3's page rule). It is not a change
+   `memory.inc` can make on its own, and it is not one to make speculatively.
+2. **Better placement, which needs no ABI at all.** `mem_claim` is a
+   bump-and-retry **first fit** going up and a highest fit going down; a
+   **best fit** would put a small claim in the smallest hole that takes it and
+   leave the big runs whole. That is contained to one scan — but the retry
+   loop's termination rests on the candidate base only ever moving *forward*
+   (past an overlapping claim, or up to the next 64KB page floor, §50.3), and
+   best fit means visiting every hole rather than stopping at the first. It is
+   a real option and a real rewrite of the one routine in the kernel that must
+   not be subtly wrong.
+
+Neither is written. The measurement that should come first is whether the
+refusal actually happens in practice: `mem_avail` already answers with the
+largest run *and* the total, so the two are distinguishable today, and nothing
+in the tree has yet reported a refusal where they differed.
+
 ### 50.4 Teardown
 
 `mem_free_rec` sits beside `snd_release_rec` at all three §29.4 teardown
@@ -10620,7 +12777,8 @@ turning one *on* is a claim and therefore can. Its refusal codes are the
 loader's own `DRVE_*` (§51.3), so the Control Panel names a refused tier change
 with the string it already has for a refused load — one vocabulary for both. A
 driver with a single tier need not implement the verb at all; it answers `CF=1`
-and the caller reports that, with nothing to undo.
+and the caller reports that, with nothing to undo. What tiers a driver *has* is
+`DSV_TIERS` below, and this verb must never change it.
 
 The service table, in the driver's segment, copied whole by the kernel at
 attach so every later dispatch is a near read plus one far call:
@@ -10633,7 +12791,23 @@ DSV_TICK    dw  near proc called from snd_tick - INSIDE IRQ0, at IF=0
 DSV_RELINST dw  near proc: AL = an instance slot being torn down
 DSV_NAME    dw  -> a NUL sink name, in ITS segment
 DSV_TONE    dw  near proc: the tone tier's sink while it is loaded
+DSV_TIERS   dw  bitmap of 1 << SND_RT_*: the tiers it COULD provide
 ```
+
+**`DSV_TIERS` is the only cell that says what a driver *could be* rather than
+what it *is*.** Every other cell is the running configuration and `DRVV_TIER`
+rewrites them; this one is decided at attach from what the probes found,
+cleared at detach, and **never touched by a tier change**. It exists so the
+Control Panel can grey a tier the machine does not have without asking the
+driver to probe again — see §31.7 for what that costs and why the answer cannot
+change between attach and detach. 0 means the driver did not answer, and the
+panel then assumes it can do everything.
+
+**Widening the table means rebuilding every `.drv`.** `drv_publish` copies
+`DSV_SIZE/2` words, so a kernel that knows about a new cell reads past the end
+of a driver built before it. Every driver is in this tree and `make` rebuilds
+them all, which is the same reason `APP_MAX_SIZE` can be mirrored in three
+places (§20.1).
 
 The copy is the `dsk_get_dir` idiom in a new place: every consumer downstream
 is then an ordinary near read with DS = KERNEL_SEG, and `snd_tick` — which
@@ -10654,10 +12828,10 @@ failures were silent in the same way:
 
 - **the driver row in BX** became the FM frequency. No OPL2 block fits
   15,000 Hz, so every FM call came back refused — while *tones*, which pass
-  AX, worked perfectly. `apps/fmtest` found it.
+  AX, worked perfectly. `tests/fmtest` found it.
 - **the service selector in DI** became the staging destination. `DSV_STREAM`
   is 4, which is inside no grant, so every verb-5/6 copy refused as out of
-  range and every open that staged first failed with it. `apps/sbtest` found
+  range and every open that staged first failed with it. `tests/sbtest` found
   it.
 
 The lesson is written into the contract rather than the changelog: a

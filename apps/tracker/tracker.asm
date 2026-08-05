@@ -5,8 +5,9 @@
 ; 4-channel ProTracker MOD player: launches windowed with a splash card, any
 ; key or click enters FULLSCREEN (wm_fullscreen's first shipped package
 ; client, SPEC.md 11.2), Esc returns. Modules load through the Standard File
-; dialog into an arena grant via OSAPI_FILE_READBIG (files >= 64KB are why
-; that slot exists), and play through a ring-mode Sound Blaster background
+; dialog into an arena grant via OSAPI_FILE_READ (whose destination walks by
+; SEGMENT, SPEC.md 18.4.1, which is what lets a file >= 64KB land in one
+; call at all), and play through a ring-mode Sound Blaster background
 ; stream fed by the package's worker task (the worker-safe stream verbs and
 ; ring mode of SPEC.md 34.5/20.3 exist for this app).
 ;
@@ -139,7 +140,8 @@ trk_entry:
     or al, al                       ; machine gets XT mode pre-armed with
     jnz .cpu                        ; its menu item already relabeled
     mov byte [mp_xt], 1             ; (SPEC.md 45.9) - no table to rebuild,
-    mov word [trk_mi_file + 2], trk_s_xton  ; nothing is loaded yet
+    mov byte [trk_cpu0], 1          ; nothing is loaded yet - and the machine
+    mov word [trk_mi_file + 2], trk_s_xton  ; itself is remembered (45.9.1)
 .cpu:
     call OSAPI_VIDEO                ; AX = w, BX = h, CX = first dock row
     sub ax, TRK_WINW                ; centre the frame on the screen...
@@ -350,8 +352,7 @@ trk_onkey:
     cmp byte [mp_playing], 0
     je .play
     call trk_play_stop
-    mov si, trk_s_stop
-    call tui_msg
+    call trk_transport
     jmp .out
 .pat:
     mov al, 1
@@ -588,8 +589,9 @@ trk_trim:
 ;
 ; The load path: stop playback, free the previous module grant, size a new
 ; grant from OSAPI_MEM_AVAIL (capped at 128KB), read the
-; whole file with OSAPI_FILE_READBIG (DX:CX capacity in bytes - this is the
-; slot that exists because real MODs exceed dskw_read's 64KB ceiling), then
+; whole file with OSAPI_FILE_READ (ES:BX = the grant, DX:CX = its capacity in
+; bytes - the read walks its destination by SEGMENT, SPEC.md 18.4.1, which is
+; the only reason a 116KB module fits in one call at all), then
 ; mp_load validates and builds tables. Any failure frees the grant and puts
 ; its verdict on the status line. Success starts playback and repaints -
 ; which under WF_FULL also covers the menu-bar strip fdlg_close painted.
@@ -623,13 +625,13 @@ trk_fdone:
                                     ; reader may trust it past this line
     cmp word [trk_modseg], 0
     je .alloc
-    mov dx, [trk_modseg]            ; DX, not AX (docs/PORTING.md 8)
+    mov dx, [trk_modseg]            ; DX, not AX (SPEC.md 50.3)
     call OSAPI_MEM_FREE
     mov word [trk_modseg], 0
 .alloc:
     call OSAPI_MEM_AVAIL            ; AX = LARGEST contiguous run in KB, and
-    or ax, ax                       ; BX = the total (this fork counts KB, not
-    jz .nomem                       ; paragraphs - docs/PORTING.md 8)
+    or ax, ax                       ; BX = the total (KB, not
+    jz .nomem                       ; paragraphs - SPEC.md 50.3)
     cmp ax, 128                     ; cap the grant at 128KB - bigger than any
     jbe .sized                      ; sane 4-channel MOD
     mov ax, 128
@@ -647,8 +649,9 @@ trk_fdone:
     shr dx, cl
     mov cx, ax
     mov es, [trk_modseg]
+    xor bx, bx                      ; ES:BX = the grant, at its first byte
     mov si, trk_fname
-    call OSAPI_FILE_READBIG         ; out CF=0, DX:AX = bytes read
+    call OSAPI_FILE_READ            ; out CF=0, DX:AX = bytes read
     push ds
     pop es
     jc .rderr
@@ -686,7 +689,7 @@ trk_fdone:
     mov si, ax                      ; mp_load's own verdict string
 .failfree:
     push si
-    mov dx, [trk_modseg]            ; DX, not AX (docs/PORTING.md 8)
+    mov dx, [trk_modseg]            ; DX, not AX (SPEC.md 50.3)
     or dx, dx
     jz .npop
     call OSAPI_MEM_FREE
@@ -838,7 +841,8 @@ trk_play:
     mov byte [trk_sopen], 1         ; keys every pass on trk_sopen, and a
                                     ; pass must never see the new stream
                                     ; through the old session's flags
-    jmp .out
+    call trk_transport              ; the one success path; every exit below
+    jmp .out                        ; is a refusal with its own message
 .ofail:
     call mp_stop
     mov si, trk_s_snderr
@@ -952,6 +956,44 @@ trk_reap:
 trk_play_stop:
     call trk_stream_close
     call mp_stop
+    ret
+
+; -----------------------------------------------------------------------------
+; trk_transport - the status legend and the stopped view row follow the
+;                 transport, from wherever it changed
+; in:  [mp_playing]; gfx lock held (every caller is a UI callback or the
+;      worker's own locked frame)
+; out: nothing (all registers preserved)
+;
+; TWO things were missing and both were the same omission: nothing said what
+; the transport was doing. trk_play set no message at all on success, so the
+; line kept whatever the load had put there; 'Stopped' was set once and stuck,
+; with no key legend after it; and because [tui_msgp] is non-zero from the
+; first load onward, tui_s_hint - the only thing that ever named the keys -
+; never came back. So the line now carries the state AND the keys for it, in
+; both directions.
+;
+; Stopping also parks the view where the music GOT TO. tui_viewrow reads
+; [tui_vrow] while stopped, and that was the Up/Down scroll row, untouched
+; since before playback started - so stopping jumped the pattern back to
+; where you pressed play. mp_stop leaves [mp_row] alone, which is what makes
+; this a copy rather than a snapshot taken earlier.
+; -----------------------------------------------------------------------------
+trk_transport:
+    push ax
+    push si
+    cmp byte [mp_playing], 0
+    jne .playing
+    mov al, [mp_row]
+    mov [tui_vrow], al
+    mov si, trk_s_stopd
+    jmp short .msg
+.playing:
+    mov si, trk_s_playing
+.msg:
+    call tui_msg
+    pop si
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1299,7 +1341,8 @@ trk_s_m44:   db 'Rate: 44 kHz - Enter plays', 0
 trk_ttl:     db 'Tracker', 0
 
 ; --- status-line strings -------------------------------------------------------
-trk_s_stop:   db 'Stopped', 0
+trk_s_stopd:  db 'Stopped  ENTER play  L load', 0
+trk_s_playing: db 'Playing  SPACE stop  L load', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
 trk_s_nomem:  db 'Out of memory', 0
@@ -1331,6 +1374,13 @@ trk_s_smmoff: db 'Smooth off', 0
     TRKB trk_hired                  ; the worker exists
     TRKB trk_abon                   ; the About panel is up; worker frames drop
     TRKB trk_pmode                  ; 0 = song, 1 = pattern loop
+    TRKB trk_cpu0                   ; the MACHINE is a tier-0 8086/8088
+                                    ; (SPEC.md 41.8), latched at entry. NOT
+                                    ; [mp_xt], which is a user-toggleable
+                                    ; playback mode and true on a 386 the
+                                    ; moment someone presses X - this is the
+                                    ; one that decides whether the pattern
+                                    ; view can be animated at all (45.9.1)
 
 ; --- the module blob (a heap claim, SPEC.md 50) -------------------------------
     TRKW trk_modseg                 ; grant base segment, 0 = none
