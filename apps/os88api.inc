@@ -719,7 +719,7 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
 ;     every call to the part of your content that shows. OSAPI_WM_OBSCURED
 ;     is still there and still correct, but it vetoes the whole frame for
 ;     one covered pixel - prefer the clip.
-;  6. Your stack is 1536 bytes in LOW_SEG and SS != DS (see the header of
+;  6. Your stack is SCH_STACK (512) bytes in LOW_SEG and SS != DS (see the header of
 ;     this file). No deep recursion, no big stack buffers, and BP-relative
 ;     operands address SS.
 ;  7. You may call: the gfx_* and font_* slots, OSAPI_SET_COLOR,
