@@ -95,7 +95,7 @@ entry:
     mov ax, cs
     mov ds, ax
     mov ss, ax                  ; the stack comes with us: same offset, so it
-    mov sp, STACK_TOP           ; grows down from linear 0x13400
+    mov sp, STACK_TOP           ; grows down from linear 0x15000
     sti
     cld
 

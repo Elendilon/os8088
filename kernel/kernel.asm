@@ -109,7 +109,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
                                 ; is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved three times, every one asked
+                                ; It has moved four times, every one asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -119,12 +119,12 @@ KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
                                 ; spends, the OPL2 and Sound Blaster code it
                                 ; makes loadable being thousands of lines that
                                 ; would otherwise be resident on a machine
-                                ; with neither card; and 72,704 -> here for
+                                ; with neither card; 72,704 -> 76,800 for
                                 ; SPEC.md 51.5's keyed SYSTEM.CFG, granted in
                                 ; ADVANCE of further work with an optimisation
-                                ; pass to follow, so the slack under this one
-                                ; is temporary rather than an invitation; and
-                                ; 72,704 -> 80,896 for the file manager's
+                                ; pass to follow, so the slack under that one
+                                ; was temporary rather than an invitation; and
+                                ; 76,800 -> here for the file manager's
                                 ; Cut/Copy/Paste, its recursive paste engine
                                 ; and the drag (SPEC.md 22.3/22.4), which
                                 ; overran the previous figure by 512 bytes
@@ -138,7 +138,7 @@ KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
 ; and runs up through 0x7C00, where the BIOS put the sector that is reading
 ; it - so the sector copies ITSELF out of the way first, keeping its own
 ; offset so every label in it still resolves at org 0x7C00. BOOT_RELOC:7C00
-; is linear 0x13C00; its stack grows down from there, and guard 5 keeps the
+; is linear 0x15000; its stack grows down from there, and guard 5 keeps the
 ; kernel clear of both. Both constants are mirrored in boot/boot.asm.
 BOOT_RELOC  equ 0x0D40          ; 0x0D40*16 + 0x7C00 = linear 0x15000
 BOOT_LIN    equ BOOT_RELOC*16 + 0x7C00
