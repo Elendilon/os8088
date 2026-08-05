@@ -206,6 +206,53 @@ TM_PEN      equ 8               ; the process list's and the captions' inset
 TM_MPEN     equ 16              ; ...and the memory list's, which leaves the
                                 ; band's first ten pixels for the legend
                                 ; square and was already aligned
+
+; --- the performance view's columns (SPEC.md 28.1) ---------------------------
+; A row is exactly TM_NCHUNK*TM_CHUNK characters - tm_row_draw's pad makes it
+; so - and this view composed 22 of the 25, which left the last 40 px of the
+; band empty while the graph frame and the RAM bar directly above it ran the
+; band's full width. The three spare columns go to NAME, because it is the
+; only column here that can overflow: CPU is bounded by 100% and MEM by the
+; 640 KB of conventional memory, so both are three digits forever, while a
+; name is up to fifteen (I_NAME) and ArtfulType, Solitaire, Arkanoid and
+; Recorder were all truncated at seven.
+;
+; The widths below are the ONE statement of the layout - tm_s_hdr's gaps are
+; derived from them and TM_ROWC is checked against the chunk span - because
+; the header, the row builders and the free row's tail all have to agree
+; about where a column starts and there is nothing on screen to catch a
+; disagreement except reading it.
+;
+; It falls out one column better than it went in. A field that straddles a
+; chunk boundary dirties two chunks whenever it moves, and at the old widths
+; both of the moving ones did: CPU sat at 13..16 across chunks 2 and 3, MEM
+; at 18..21 across 3 and 4. At these widths CPU is 16..19 and MEM 21..24, one
+; chunk each, so the twice-a-second refresh of an idle row touches one chunk
+; instead of two.
+TM_NAMEC    equ 10              ; characters of a name before it truncates
+TM_NAMEF    equ TM_NAMEC + 2    ; ...and the field around it: the indent a
+                                ; built-in kind carries under System, plus the
+                                ; separator that keeps a full-width name off
+                                ; the ST column ('ArtfulTyprun')
+TM_STC      equ 3               ; 'run' / 'rdy' / 'slp' / 'evt' / 'die'
+TM_CPUC     equ 5               ; 'nnn%' and the gap MEM needs after it
+TM_MEMC     equ 4               ; 'nnnK'
+TM_ROWC     equ TM_NAMEF + TM_STC + 1 + TM_CPUC + TM_MEMC
+%if TM_ROWC != TM_NCHUNK * TM_CHUNK
+  %error "taskmgr: the process row no longer fills the chunk span exactly"
+%endif
+; The span itself is capped by the MEMORY list, not by this one: both views
+; are padded to it and the memory list letters from the wider TM_MPEN, so it
+; is that pen plus the span that must stay inside the band. At TM_MPEN = 16
+; that allows 26 characters and the grid gives 25; this view's own pen leaves
+; room for 27. Widen the span and BOTH have to be re-checked.
+%if TM_PEN + TM_NCHUNK * TM_CW > TM_RW + 1
+  %error "taskmgr: a process row now runs past the right edge of its band"
+%endif
+%if TM_MPEN + TM_NCHUNK * TM_CW > TM_RW + 1
+  %error "taskmgr: a memory row now runs past the right edge of its band"
+%endif
+
 TMM_ROWS    equ INST_MAX + 7    ; System, its four buffer rows, the two
                                 ; headings, every instance - 19 x TM_ROW_H
                                 ; from TMM_ROW_Y is 279 of the 281-pixel
@@ -381,18 +428,28 @@ tm_kinit:
 ; --- window template: {x, y, w, h, title, paint, onkey, onclick} words -------
 tm_tpl:     dw 250, 100, 232, 312, tm_ttl, tm_paint, 0, tm_click
 tm_ttl:     db 'Task Manager', 0
-tm_sname:   db 'TaskMgr', 0     ; KD_NAME: fits the 7-char NAME column
+tm_sname:   db 'TaskMgr', 0     ; KD_NAME: fits the memory view's 7-char
+                                ; NAME column, which is the tighter of the two
 
 tm_s_cpu:   db 'CPU ', 0
 tm_s_pre:   db 'SCH preempt', 0 ; read-only scheduler-mode field, chars 9..19
 tm_s_coop:  db 'SCH coop   ', 0 ; both exactly 11: the padding erases the
                                 ; longer word when the mode changes
 tm_s_ram:   db 'RAM ', 0
-tm_s_hdr:   db 'NAME     ST  CPU  MEM', 0   ; 9-char NAME field: 7 for the
-                                ; name, one for the built-ins' indent, one
-                                ; separator (tm_name9). Two spaces before
-                                ; MEM, not one: 100% next to 335K ran the
-                                ; two figures together
+; Each caption sits at the LEFT of the column the widths above name, and the
+; gap after it is that column's width less the caption's own - so the header
+; is derived from the layout rather than typed out beside it, and it cannot
+; drift off its columns the way two hand-written strings do. ST's column is
+; TM_STC plus the explicit separator the row builders put after the state.
+; The gap before MEM comes to two rather than one, which it has to: 100%
+; next to 335K with a single space ran the two figures together.
+tm_s_hdr:   db 'NAME'
+            times TM_NAMEF - 4     db ' '
+            db 'ST'
+            times TM_STC + 1 - 2   db ' '
+            db 'CPU'
+            times TM_CPUC - 3      db ' '
+            db 'MEM', 0
 tm_s_sys:   db 'System', 0      ; row 0: the kernel's own share
 tm_s_dash:  db '-', 0
 tm_s_run:   db 'run', 0
@@ -1139,9 +1196,9 @@ tm_draw_perf:
 .hdr:
     push cx
     push dx
-    add cx, 6
-    mov si, tm_s_hdr
-    call font_str
+    add cx, TM_PEN              ; the PEN, not the band's left edge: the
+    mov si, tm_s_hdr            ; captions have to stand over the columns
+    call font_str               ; they name, and tm_rows letters from here
     pop dx
     pop cx
     add cx, TM_COLW
@@ -3146,7 +3203,7 @@ tm_rows:
     push si
     mov si, tm_s_sys
     xor al, al                  ; the one row that is never indented
-    call tm_name9
+    call tm_namef
     mov si, tm_s_rdy            ; task 0 never sleeps; it shows "run" only
     cmp byte [tm_self], 0       ; when it happened to be current at snapshot
     jne .sysst
@@ -3186,7 +3243,7 @@ tm_rows:
     mov al, [tm_iknd+bx]        ; a built-in sits indented under System, a
     not al                      ; package at the top level with it
     and al, KIND_PKG
-    call tm_name9
+    call tm_namef
     pop si
 
     push si                     ; state (SPEC.md 28)
@@ -3246,7 +3303,7 @@ tm_rows:
     push si
     mov si, tm_s_dash
     xor al, al
-    call tm_name9
+    call tm_namef
     mov si, tm_s_free
     call tm_copy
     mov byte [di], ' '
@@ -3280,9 +3337,10 @@ tm_rows:
     ret
 
 ; -----------------------------------------------------------------------------
-; tm_cpucol - the CPU column: share right-aligned in 3, then '%'
+; tm_cpucol - the CPU column: share right-aligned in 3, then '%', then the
+;             gap MEM needs after it - TM_CPUC characters, not four
 ; in:  AL = share 0..100, DI = dest
-; out: DI advanced by 4
+; out: DI advanced by TM_CPUC
 ; clobbers: nothing else (internal helper)
 ; -----------------------------------------------------------------------------
 tm_cpucol:
@@ -3358,17 +3416,18 @@ tm_memcol_kb0:
     jmp tm_memcol.none
 
 ; -----------------------------------------------------------------------------
-; tm_name9 - the performance view's NAME field: an optional one-space indent,
-;            the name in 7, then padding out to exactly 9 columns
+; tm_namef - the performance view's NAME field: an optional one-space indent,
+;            the name in TM_NAMEC, then padding out to exactly TM_NAMEF
 ; in:  SI = name, AL = 0 top level / non-zero indented, DI = dest
-; out: DI advanced by 9
+; out: DI advanced by TM_NAMEF
 ; clobbers: nothing else (internal helper)
 ;
-; Nine rather than eight because the indent has to come from somewhere and
-; the alternative was taking it out of the name - which truncated "TaskMgr"
-; to "TaskMg", the one name in the tree that uses all seven.
+; TM_NAMEC + 2 rather than + 1 because the indent has to come from somewhere
+; and the alternative was taking it out of the name - which truncated the
+; longest one in the tree by a character and left every other row's separator
+; doing double duty.
 ; -----------------------------------------------------------------------------
-tm_name9:
+tm_namef:
     push ax
     push cx
     mov cl, al
@@ -3377,7 +3436,10 @@ tm_name9:
     mov byte [di], ' '
     inc di
 .noind:
-    call tm_copy7
+    push cx
+    mov cx, TM_NAMEC
+    call tm_copyn
+    pop cx
     mov byte [di], ' '
     inc di
     or cl, cl
@@ -3416,12 +3478,29 @@ tm_copy:
 ; in:  SI = string, DI = dest
 ; out: DI advanced by 7
 ; clobbers: nothing else (internal helper)
+;
+; The MEMORY view's name width, and still 7: its row is already the full
+; chunk span and it letters from the wider TM_MPEN, so unlike the performance
+; view there is no slack in the band to widen into.
 ; -----------------------------------------------------------------------------
 tm_copy7:
+    push cx
+    mov cx, 7
+    call tm_copyn
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_copyn - copy a NUL string into exactly CX chars at DI, space-padded,
+;            truncated at CX
+; in:  SI = string, CX = width, DI = dest
+; out: DI advanced by CX
+; clobbers: nothing else (internal helper)
+; -----------------------------------------------------------------------------
+tm_copyn:
     push ax
     push cx
     push si
-    mov cx, 7
 .c:
     lodsb
     or al, al

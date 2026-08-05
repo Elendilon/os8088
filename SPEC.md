@@ -7010,15 +7010,18 @@ full text cache would need. Three rules keep it honest:
 - (6,61): `"RAM uuuK/tttK"` (white-fill (6,61)-(167,68) first).
 - RAM bar: 1px black frame (6,71)-(`TM_RW`,80); interior (7,72)-(`TM_RW`−1,79):
   black for barw pixels from the left, white for the remainder.
-- (6,87): header `"NAME     ST  CPU MEM"`.
+- (`TM_PEN`,87): header `tm_s_hdr`, at the **pen** and not at the band's left
+  edge — a caption has to stand over the column it names, and `tm_rows`
+  letters from the pen.
 - Process rows r = 0..TM_ROWS−1 at y = 97 + 11·r (white-fill
-  (6,y)-(`TM_RW`,y+7) first), 21 chars. Columns, by index: `[0..8]` the
-  **9-column NAME field** — an optional one-space indent, the name in 7,
-  then padding out to 9 (`tm_name9`); `[9..11]` state, `[12]` space,
-  `[13..15]` CPU share right-aligned, `[16]` `'%'`, `[17..19]` memory
-  right-aligned, `[20]` `'K'`. Nine and not eight because the indent has to
-  come from somewhere, and taking it out of the name truncated the one
-  seven-character name in the tree to `TaskMg`.
+  (6,y)-(`TM_RW`,y+7) first), `TM_ROWC` chars — see §28.2. Columns, by index:
+  `[0..11]` the **`TM_NAMEF`-column NAME field** — an optional one-space
+  indent, the name in `TM_NAMEC` = 10, then padding out to 12
+  (`tm_namef`); `[12..14]` state, `[15]` space, `[16..18]` CPU share
+  right-aligned, `[19]` `'%'`, `[20]` space, `[21..23]` memory right-aligned,
+  `[24]` `'K'`. `TM_NAMEC` + 2 and not + 1 because the indent has to come
+  from somewhere, and taking it out of the name costs the longest one in the
+  tree a character.
 - Row 0 is the kernel: name `System` (never indented), state `run` if
   `sch_cur` was 0 at snapshot time else `rdy`, MEM = `TM_KLOW_KB` +
   `TM_KSEG_KB` + the kernel's own heap claims.
@@ -7248,6 +7251,49 @@ Three traps:
 - **The chrome above the list is column 0's** and reads `[tm_cx]`: the maps,
   the bars and the caption lines. `tm_lfill` sets `[tm_rowx]` back to `[tm_cx]`
   itself rather than relying on running before the row loop.
+
+### 28.2 The process row is exactly the chunk span
+
+`tm_row_draw` pads every row it is given to `TM_NCHUNK * TM_CHUNK`
+characters, so **that product is the row width** — for both views, whatever
+either one composed. The performance view used 22 of the 25 and left the
+last 40 px of its band white, while the graph frame and the RAM bar directly
+above it ran the band's full width; the memory view already spent all 25.
+
+The three spare columns go to **NAME**, because it is the only column here
+that can overflow. CPU is bounded by 100% and MEM by the 640 KB of
+conventional memory, so both are three digits forever, while a name is up to
+fifteen (`I_NAME`) — `ArtfulType`, `Solitaire`, `Arkanoid` and `Recorder`
+were all cut at seven. At `TM_NAMEC` = 10 nothing in the tree truncates.
+
+**The widths are the single statement of the layout.** `TM_NAMEF`,
+`TM_STC`, `TM_CPUC` and `TM_MEMC` name the columns; `tm_s_hdr`'s gaps are
+`times`-generated from them, so the header cannot drift off the columns the
+way two hand-written strings do (it had, by 2 px, ever since `TM_PEN` went
+from 6 to 8 for §11.94's alignment and the header's own `+6` stayed); and
+`TM_ROWC` is checked against the span at build time, so a width changed
+without its neighbour is a build failure rather than a row that silently
+runs off its band.
+
+It comes out one chunk cheaper than it went in. A field straddling a chunk
+boundary dirties two chunks whenever it changes, and at the old widths both
+of the *moving* ones did — CPU at `[13..16]` across chunks 2 and 3, MEM at
+`[18..21]` across 3 and 4. At these widths CPU is `[16..19]` and MEM
+`[21..24]`, one chunk each, so the twice-a-second refresh of a row whose
+percentage ticked touches one chunk instead of two.
+
+**The span itself is capped at 26 by the MEMORY list, not by this one.** Both
+views are padded to it and the memory list letters from the wider `TM_MPEN`
+(16, which leaves the band's first ten pixels for the legend square), so it
+is `TM_MPEN` + span that has to stay inside `TM_RW`; the performance view's
+own pen would allow 27. Two `%error` guards state both, because the failure
+is glyphs drawn past the window's right border rather than anything that
+looks like a fault. Reaching 26 would mean an uneven chunk grid (26 has no
+useful factorisation with a 5-character chunk), which is 8 px and one
+character that no name in the tree needs — so the row stops at 25 and the
+band keeps 16 px of white at the right. `TM_PEN` cannot absorb that by moving
+either: the memory view's 27-character `RAM … HEAP` caption is drawn at it
+and is exactly what makes `TM_RW` 223.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 

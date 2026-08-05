@@ -97,7 +97,8 @@ CP_B1Y2   equ CP_PR0Y + CP_PROWH + CP_GW + 3  ; 61: row 1 (Cooperative) bottom
 ; No onkey: the panel is mouse-only. Content is 318x121.
 cp_tpl:     dw 160, 130, 320, 140, cp_ttl, cp_paint, 0, cp_onclick
 cp_ttl:     db 'Control Panel', 0
-cp_sname:   db 'Control', 0     ; KD_NAME: fits the 7-char NAME column
+cp_sname:   db 'Control', 0     ; KD_NAME: fits the memory view's 7-char
+                                ; NAME column, which is the tighter of the two
 
 ; Deferred-repaint flag, drained by ui_task step 3 (SPEC.md 13/31.2). Inline
 ; .text data, not .bss, so it is initialised on disk and needs no cp_init -
