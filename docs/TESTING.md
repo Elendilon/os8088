@@ -131,6 +131,52 @@ Phase 4.
 
 ---
 
+## Hard disks
+
+QEMU has an ATA disk at 1F0h and SeaBIOS gives it to int 13h as drive 80h, so
+**both rungs of the driver's transport ladder (SPEC.md §52.1) are testable
+here** — and so are the partitioner, the formatter, the mount and the desktop
+zone, end to end:
+
+```sh
+make test HDD=40                 # a blank 40MB raw IDE disk, KEPT between runs
+# System menu -> Control Panel -> Drivers -> tick Hard Drive
+# -> the 'Hard Drive' page appears in the list; select it
+# -> Partition -> New -> Write -> Close
+# -> Format -> Format -> Close
+# -> Mount        ... and 'HDD C' appears on the desktop
+rm -f build/hdd.img              # start over from a blank disk
+```
+
+**Pair it with a host-side read**, exactly as the floppy write path is paired
+with `os88disk.py --verify`: the in-kernel checks and a structural read catch
+different bugs, and every bug found while building this was found by the host
+half.
+
+```sh
+python3 - <<'EOF'
+d = open('build/hdd.img','rb').read()
+e = d[446:462]                                   # partition entry 0
+base = int.from_bytes(e[8:12],'little')
+print('type', hex(e[4]), 'lba', base, 'secs', int.from_bytes(e[12:16],'little'))
+b = d[base*512:base*512+512]                     # its boot sector
+print('jmp', b[:3].hex(), 'spc', b[13], 'fatsz', int.from_bytes(b[22:24],'little'),
+      'tot16', int.from_bytes(b[19:21],'little'), 'fstype', b[54:62])
+EOF
+```
+
+What QEMU cannot show: the **MFM** rung — rung 0 against a real XT controller's
+ROM rather than SeaBIOS — and the 8-bit-bus behaviour that gates rung 1 off an
+8088 in the first place. 86Box ships the XT ST-506 family (IBM/Xebec, DTC
+5150X, WD1002A-WX1 and the Seagate ST-11M/R); confirm the exact `hdc =` key
+with the launch-and-`kill -TERM`-and-read-back trick above, because 86Box
+rewrites its config with what it actually accepted.
+
+**And check the desktop on CGA**, always: `make test VIDEO=cga HDD=40`. A third
+drive zone does not fit above the dock on a 200-line screen and wraps into a
+second column to the left (SPEC.md §26.1) — which is invisible on VGA and
+therefore exactly the kind of thing that ships broken.
+
 ## Everything not shipped lives in `tests/`
 
 `tests/` holds every package that is not shipping software, and it is **not**

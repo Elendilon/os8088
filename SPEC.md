@@ -205,24 +205,26 @@ task 0's stack silently absorbed every byte saved anywhere below it and two
 rounds of shrinking the buffers freed exactly nothing. Naming the number is
 what turned those savings into memory.
 
-`FAT_SEG` holds the mount-time FAT snapshot: up to `DSK_FAT_SECS` (= **9**)
-sectors, 4,608 bytes, rewritten from FAT1 (or the FAT2 fallback, §18.3) on
-**every** mount — no cross-mount state survives. Reached through **ES
+`FAT_SEG` holds the **FAT window** (§18.8): up to `DSK_FAT_SECS` (= **9**)
+sectors, 4,608 bytes, holding *whichever* run of FAT sectors was last asked
+for. On every floppy it is the whole FAT and never moves, which is the
+snapshot it replaced, byte for byte; on a hard-disk volume, whose FAT can be
+254 sectors, it slides. No cross-mount state survives either way. Reached through **ES
 only**, never DS: `dsk_next_clus` is the single reader and `dskw_setfat`
 (§18.4) the single writer, and int 13h moves it via ES:BX only at mount (in)
 and at a FAT flush (out). The whole region is the snapshot; there is no
 reserve, and `FAT_PARA` is derived from `DSK_FAT_SECS` so the two can never
 disagree.
 
-**Why 9.** `DSK_FAT_SECS` is an *acceptance* threshold, not a buffer size:
-§18.2 rule 10 refuses to mount a volume whose declared FAT is larger, before
-a byte of it is read. 9 is exactly the largest FAT any geometry this OS boots
-or builds declares — 360KB = 2, 720KB = 3, 1.2MB = 7, 1.44MB = 9 — and
-nothing more. **The consequence is that FAT16 is unreachable**, because a FAT
-is only FAT16 with ≥ 4,085 clusters and that needs ≥ 16 FAT sectors, so rule
-10 turns every FAT16 volume away structurally. The FAT16 halves of
-`dsk_next_clus` and `dskw_setfat` stay in the tree, and nothing can call
-them.
+**Why 9.** It is the largest FAT any floppy geometry this OS boots or builds
+declares — 360KB = 2, 720KB = 3, 1.2MB = 7, 1.44MB = 9 — so every floppy's
+whole FAT is resident and `dsk_fat_window` returns on its first compare
+forever. On a **BIOS floppy** it is still an *acceptance* threshold as well:
+§18.2 rule 10 refuses to mount one whose declared FAT is larger, before a byte
+of it is read. On a **driver-backed volume** (§18.7) there is no such cap —
+the window is what makes a 32MB FAT16 volume mountable at all, and rule 16
+proves the declared FAT actually covers its own cluster count, which is the
+check rule 10 was standing in for.
 
 ### 2.1.1 Every disk-visible base is 512-byte aligned
 
@@ -3192,13 +3194,13 @@ held, and a read landing outside its destination buffer.
 | 7 | BPB_RootEntCnt | ≥ 1, ≤ 512, (RootEntCnt×32) mod 512 == 0 | FAT12/16 must have a root dir (spec); ≤512 bounds the mount stall (≤32 root sectors); whole-sector count is a spec MUST |
 | 8 | BPB_TotSec16 | ≠ 0 | 16-bit LBA bound: TotSec16==0 ⇒ the count lives in TotSec32 ⇒ ≥65,536 sectors ⇒ unaddressable by the AX=LBA `disk_read` contract. **Documented rejection.** TotSec32 otherwise ignored (some formatters set both; harmless) |
 | 9 | BPB_Media | ∈ {0xF0, 0xF8..0xFF} | spec-legal set; cheap garbage gate. FAT[0]'s media echo is NOT checked (spec says don't rely on it) |
-| 10 | BPB_FATSz16 | ≥ 1 and ≤ `DSK_FAT_SECS` (10) | ≥1: layout math. ≤10: the FAT snapshot buffer is 5,120 B (§2.1). Covers every real floppy FAT this OS boots or builds: 360K=2, 720K=3, 1.2M=7, 1.44M=9. Larger ⇒ documented mount failure — **including every FAT16 volume**, which needs ≥ 4,085 clusters and so ≥ 16 FAT sectors (§2.1) |
-| 11 | BPB_SecPerTrk | ∈ {8, 9, 15, 18, 21, 36} | whitelist of real floppy geometries; a hostile spt×heads product past 16 bits would zero `disk_read`'s CHS divisor → divide fault with `sch_lock` held |
-| 12 | BPB_NumHeads | ∈ {1, 2} | same divisor protection |
-| 13 | TotSec16 coherence | TotSec16 ≤ SecPerTrk × NumHeads × 80 | every in-volume LBA is CHS-reachable under `disk_read`'s cyl<80 guard — files can't mount-list then die "Disk error" on geometry grounds |
+| 10 | BPB_FATSz16 | ≥ 1, and on a **BIOS floppy** ≤ `DSK_FAT_SECS` (9) | ≥1: layout math. The floppy cap covers every real floppy FAT this OS boots or builds: 360K=2, 720K=3, 1.2M=7, 1.44M=9. **On a driver-backed volume (§18.7) there is no cap**: the FAT is a window (§18.8), and rule 16 below proves the declared FAT covers its own cluster count — which is the check this cap stood in for |
+| 11 | BPB_SecPerTrk | floppy: ∈ {8, 9, 15, 18, 21, 36}; driver-backed: 1..63 | the floppy whitelist exists because a hostile spt×heads product past 16 bits would zero `disk_read`'s CHS divisor → divide fault with `sch_lock` held. A driver-backed volume never reaches that divisor — its driver owns the addressing — so the bound is only that the product cannot overflow, and 63 is what the CHS sector field can carry |
+| 12 | BPB_NumHeads | floppy: ∈ {1, 2}; driver-backed: 1..255 | same divisor protection; 255 is what the CHS head field can carry |
+| 13 | TotSec16 coherence | floppy: ≤ SecPerTrk × NumHeads × 80; driver-backed: ≤ the sector count its DRIVER declared | on a floppy, every in-volume LBA stays CHS-reachable under `disk_read`'s cyl<80 guard. On a driver-backed volume the driver stated the partition's length when it registered the volume, so the question stops being "is this geometry plausible" and becomes the sharper **"does this volume claim to be bigger than the partition it lives in"** |
 | 14 | FirstDataSec | FirstDataSec + SecPerClus ≤ TotSec16 | at least one cluster exists; DataSec underflow guard |
 | 15 | CountOfClusters | ≥ 1 and < 65,525 | empty-data-area rejection; FAT32 insurance (§19) |
-| 16 | FAT capacity | FAT12: ceil((CountOfClusters+2)×1.5) ≤ FATSz16×512; FAT16: (CountOfClusters+2)×2 ≤ FATSz16×512 | a FAT too small for its own cluster count would send `dsk_next_clus` past the snapshot into garbage |
+| 16 | FAT capacity | the FAT sectors the cluster count NEEDS ≤ FATSz16 | a FAT too small for its own cluster count would send `dsk_next_clus` past the end of it. **Compared in sectors, not bytes**: a FAT16 volume with 65,000 clusters needs 130,004 FAT bytes and declares 254 FAT sectors, and both `entries×2` and `FATSz16×512` are past 16 bits. Neither product is needed — every term of a sector-against-sector comparison fits |
 | 17 | BPB_HiddSec | ignored | floppies are unpartitioned; accepting nonzero keeps odd-but-readable disks mountable |
 
 Rules 3/4/11/12 are the hard no-fault rules; 7/8/10/13/16 bound every loop
@@ -3727,6 +3729,120 @@ An unreadable directory is not an empty one: the scan records the I/O error
 and the walk fails rather than freeing the clusters of files it could not see.
 Whatever happens — success, refusal, or a read error half way down — the
 volume is put back in the directory the call started in.
+
+### 18.7 A volume is a small index, and the driver holds the partition base
+
+`[disk_drive]` is a **volume index** — 0 = A:, 1 = B:, 2 = C:, 3 = D: — and
+never an int 13h drive number. The int 13h drive number, or a driver's own
+volume handle, lives in a row of `dsk_vtab`:
+
+```
+DV_KIND   db  0 = BIOS int 13h, 1 = driver-backed, 0xFF = free
+DV_UNIT   db  the int 13h DL, or the driver's handle
+DV_FLAGS  db  bit 0 = show a desktop zone (§26.1)
+DV_SECS   dw  sectors in the volume (rule 13's replacement)
+DV_SEG    dw  the listing claim its driver donated, 0 = the floor (§22.6)
+DV_LBL    db[8]  the desktop label, NUL-terminated and INLINE
+DV_SIZE   16
+```
+
+**The index is what keeps everything else unchanged.** `'A' + drive` still
+names the volume in the file manager's header, `FS_DRV` still holds it,
+`desk_click` still maps a zone to it, and `osapi_file_here`/`goto` still pass
+it in BL. A design that put `80h` in `[disk_drive]` would have broken all
+four, and every one of them silently.
+
+`dsk_xfer` branches once, at the top: a `DVK_BIOS` volume falls into the
+int 13h CHS code that was already there, unchanged, and a `DVK_DRV` volume
+goes out to its driver's `DSV_BLK` (§51.8) with **the same volume-relative
+16-bit LBA**. `[sch_lock]` is raised around both, so a driver inherits the
+no-switching rule without knowing the scheduler exists.
+
+**LBAs stay 16-bit and volume-relative, and the driver adds its own 32-bit
+partition base.** That is the whole of what "partitions" means to os8088:
+`dsk_clus2lba`, `dsk_read_chain`'s run coalescer, `dsk_dirw_next` and
+`dskw_flush` are the floppy's code and are untouched by capacity. It caps a
+volume at 65,535 sectors — 31.99MB — which is exactly what BPB rule 8 already
+refused to go past, and exactly the DOS 3.3 partition limit the target
+machines ran. More capacity is **more partitions**, each its own volume and
+its own drive letter.
+
+It also makes an invariant free: with `TotSec16` a word, `dsk_clus2lba`'s
+16-bit `(cluster-2) × spc` cannot overflow, because the product is bounded by
+`TotSec16`.
+
+Rows 0 and 1 are the BIOS floppies and are never taken away — a mount of a
+drive the machine does not have is an ordinary failed mount. Rows 2 and up are
+registered by a `DRVC_DISK` driver through `osapi_vol_add` (§20.3) and dropped
+when it unloads, which `drv_release` does **before** freeing the driver's
+claims: a mounted volume whose transport has been freed is a read into
+whatever claims that memory next.
+
+### 18.8 The FAT is a window, not a snapshot
+
+A 32MB FAT16 volume at 512-byte clusters has a **254-sector FAT**. `FAT_SEG`
+is 9 sectors. So `FAT_SEG` stopped meaning "the FAT" and started meaning
+"these `[dsk_fatwn]` FAT sectors, starting at `[dsk_fatw0]`" — same 4,608
+bytes, same segment, same alignment, **no new memory anywhere**.
+
+**A floppy gets the degenerate case, byte for byte.** `[dsk_fatwn]` is
+`min(DSK_FAT_SECS, FATSz16)`, which for every floppy geometry is the whole
+FAT, so `dsk_fat_window` returns on its first compare forever and not one
+sector of I/O moved. That is the property that makes this affordable to ship
+on a 4.77MHz machine at all.
+
+The blast radius is five routines, because `FAT_SEG` always had exactly one
+reader and one writer:
+
+```
+dsk_fat_ofs      NEW: cluster -> its offset INSIDE the window, window loaded
+dsk_fat_window   NEW: make sector DX and DX+1 resident, flushing first
+dsk_next_clus    the single reader, now via dsk_fat_ofs
+dskw_setfat      the single writer, likewise; the dirty range is ABSOLUTE
+dskw_flush       writes it back to FAT1 and FAT2, at a window-relative offset
+dskw_refat       an INVALIDATE now: one word, and no I/O at all
+```
+
+Four things are load-bearing:
+
+- **`dsk_fat_window` guarantees the sector asked for AND THE ONE AFTER IT.**
+  A FAT12 entry is 12 bits at 1.5 bytes and straddles the 512-byte boundary;
+  nine sectors makes the case DOS special-cases with two buffers disappear.
+  The re-window start is clamped to `FATSz16 - fatwn` so a straddle at the
+  very end of the FAT still has its second sector.
+- **The two FAT types are split at the offset computation**, and that is not
+  tidiness: a FAT16 entry's absolute byte offset is `clus × 2`, which for the
+  65,524 clusters the format allows is **131,048 — past 16 bits**. The sector
+  (`clus >> 8`) and the offset within it (`(clus & 255) × 2`) both fit; their
+  product does not. FAT12's whole offset fits, because the format caps it at
+  4,084 clusters.
+- **The dirty range is in ABSOLUTE FAT sectors** and the flush subtracts
+  `[dsk_fatw0]` to find the bytes. An entry can only be dirtied while its
+  sector is resident and the window is flushed before it moves, so the range
+  is inside the window by construction.
+- **The mount still reads sector 0 eagerly**, with its FAT2 fallback, because
+  "a torn mount is a failed mount" is a property worth keeping: a lazy first
+  fault would move the moment an unreadable disk is diagnosed to some later
+  cluster walk. Every window after that faults in, with the same fallback.
+
+**`dskw_refat` no longer re-reads anything.** The pre-commit rollback is
+`[dsk_fatw0] = 0xFFFF` plus a cleared dirty range; the next access faults a
+clean window in off the disk, which is precisely what re-reading the whole FAT
+used to buy, and it can no longer fail — so the write gate has no reason to
+close there any more. What the window *does* change is the rollback's reach:
+an eviction may already have flushed part of a half-built chain to the disk,
+and no invalidate takes that back. **It costs lost clusters and can never
+cross-link** — the same guarantee §18.4's commit order gives a crash — and
+that is the whole of the difference. It is written down here because it is
+exactly what a later reordering of the flush would break.
+
+**What gets slower.** `dskw_alloc` rovers from `[dsk_rover]`, so sequential
+writing is free — nine sectors cover 2,304 FAT16 entries, which at 512-byte
+clusters is over a megabyte of file. The pathological case is a nearly full
+volume, where one allocated cluster can cost a sweep of the whole FAT: 254
+sectors, 29 window loads. DOS has the same worst case and answers it the same
+way — the rover — and `dskw_dfree`, which used to be free against a resident
+FAT, becomes a full sweep on a windowed volume.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
@@ -4322,7 +4438,7 @@ below the table. There are two families:
   `fdlg_open`, plus a hand-written `api_file_rename` that stages both names.
 
 The table's start (0x0010) and its span are proved by two build-time
-assertions in kernel.asm; the span is **73 × 8** today. `apps/os88api.inc`
+assertions in kernel.asm; the span is **80 × 8** today. `apps/os88api.inc`
 mirrors every offset as an `OSAPI_*` `%define` (§20.5).
 
 ```
@@ -4358,6 +4474,11 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x0250 mem_claim_dma  (X)
                                                 0x0258 font_run       (X)
                                                 0x0260 wm_top
+                                                0x0268 wm_snap
+                                                0x0270 vol_add       (X)
+                                                0x0278 vol_del       (X)
+                                                0x0280 vol_mount     (X)
+                                                0x0288 vol_paint
 ```
 
 **Every published slot keeps its number and contract**, on the rule that **a
@@ -5790,6 +5911,37 @@ and it is checked rather than assumed, because everything read off the disk
 is hostile. Without it the folder still lists and still opens, but going up
 out of it lands in the folder it used to live in.
 
+### 22.6 The listing has a home, not an address
+
+`disk_dir` and `disk_icons` were two fixed `.lowbss` labels and a hard 32-entry
+cap. They are now **four words** — `[dsk_dseg]`, `[dsk_doff]`, `[dsk_ioff]`,
+`[dsk_nmax]` — so there is one code path with two configurations:
+
+| | segment | entries | icons | cap |
+|---|---|---|---|---|
+| a BIOS floppy | `LOW_SEG` | `disk_dir` | `disk_icons` | `DSK_NENT` = 32 |
+| a driver-backed volume | its driver's claim | 0 | `DSK_VENT × 32` | `DSK_VENT` = 64 |
+
+The claim is **6KB** — 64 × (32 bytes of entry + 64 bytes of icon) — made by
+the driver before it calls `osapi_vol_add` and handed over with the volume
+(§18.7). A driver that cannot fund it passes 0 and the volume lists into the
+kernel's own floor, which works and shows fewer files: refusal is a normal
+path (§50.3), and a hard disk's root is the one place 32 entries starts to
+hurt.
+
+Nothing downstream learned anything. `dsk_get_dir` and `dsk_get_icon` already
+staged one entry into the kernel segment for every consumer (§18); they now
+take their segment from a word instead of a constant, and the mount writes
+through the same pair.
+
+**The per-window view cache follows the volume, not the launch** (§22.1).
+`fmv_fit` re-claims a Disk window's cache when the window moves to a volume
+whose listing is bigger, and a refused claim clears `FS_VSEG` — which is the
+documented fallback and not an error: the window then paints from the global
+snapshot at the cost of the floppy I/O it would otherwise have avoided. A
+machine with only floppies never pays for the bigger cache, because nothing
+ever asks for it.
+
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
 Not kernel code: a .o88 package built with os88api.inc, org 0 (§20.1), all
@@ -6009,6 +6161,32 @@ on a white gap 2px around the text, centered in the zone.
 Selection is purely visual bookkeeping; a window covering an icon simply
 paints over it (desk_paint runs before windows in wm_paint_all), and
 clicks over windows never reach desk_click.
+
+### 26.1 The zone list IS the volume table, and it wraps into a new column
+
+`desk_ndrives` is gone. A desktop zone is a row of `dsk_vtab` (§18.7) whose
+`DV_FLAGS` bit 0 is set — `desk_init` sets it for the floppies the int 11h
+equipment word admits to, and `osapi_vol_add` sets it for a driver's volume —
+so a hard disk appears by one flag going up and disappears by it going down.
+There is no second array to keep in step, the caption comes from the row's own
+inline `DV_LBL` ('HDD C') or is derived as `Disk X` from the index, and a
+driver-backed volume gets `ico_hdd32` instead of `ico_disk32` because a hard
+disk should not read as a floppy that will not eject.
+
+**Zones fill a column downwards and then start a new one to the LEFT**, and
+that is CGA's doing. Zone *n* is at `y = 32 + 60 × (n mod rows)` and
+`x = [vid_desk_zx] - 56 × (n / rows)`, where `[desk_rows]` is computed at boot
+from the live geometry — `([vid_dock_y0] - 32) / 60`, at least 1:
+
+```
+VGA       480 high   dock at 456   7 rows   one column
+Hercules  348 high   dock at 324   4 rows   one column
+CGA       200 high   dock at 176   2 rows   HDD C sits beside Disk A
+```
+
+A third zone on CGA would otherwise run 152..195 and land **on the dock**.
+This is the §1 rule about `[vid_*]` in its natural habitat: it is invisible on
+VGA, and a drive-zone change is not done until it has been looked at on CGA.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -8055,6 +8233,46 @@ dropping it silently. It is reported in the Drivers page's caption
 (`'Cannot save to the system disk'`), the one page with room to say it, which
 now means the *next* time the panel is opened: by the time the write happens
 the page it would be reported on is already gone.
+
+### 31.9 Pages a driver owns
+
+The item list is the five static rows **plus one row per loaded driver that
+publishes `DSV_CPNAME`** (§51.2). A page therefore exists exactly while its
+driver is attached, and that is not arranged anywhere: it falls out of
+`drv_release` clearing the class's publication slot.
+
+The item record's fourth word stopped being reserved and became the dispatch
+class: 0 means a near call to a kernel proc, anything else means `drv_cp_call`
+into that class's driver. **The pane origin cannot travel in BP** — BP is the
+dispatcher's selector (§51.2) — so the driver ABI moves the pane top to DX:
+
+```
+paint   DI = pane left, DX = pane top
+click   DI = pane left, DX = pane top, CX = rel x, BX = rel y
+```
+
+Everything else is a package callback's rules: the gfx lock is HELD, ES is
+`KERNEL_SEG`, the page must never take the lock, and it must repaint itself
+because the kernel does not repaint after it returns.
+
+Three things hold it up:
+
+- **The list name is STAGED into the kernel**, 12 bytes per class, at publish
+  time. `cp_list` draws it with `font_str` and `font_str` reads through DS; a
+  pointer into the driver's segment would render the driver's own image. It is
+  the `dsk_get_dir` idiom, in the place `drv_publish`'s retired `DSV_NAME`
+  staging always belonged.
+- **`[cp_sel]` is clamped when a driver detaches** (`cp_drv_gone`, called from
+  `drv_release`). The selection persists across opens by design, so a
+  `[cp_sel]` naming a page that no longer exists would dispatch through a
+  freed segment on the panel's next paint — and the panel need not be open for
+  that to be owed.
+- **The Drivers page redraws the item LIST, not just its own pane**, after a
+  load or an unload: the row it just added or removed is in the other pane.
+
+The pane is 221 × 121 px — 27 characters by 13 rows — and the panel is not
+resizable, so a driver whose interface needs more room opens a window of its
+own (§38.1's unowned-window species, and §52.2/§52.3 are the worked examples).
 
 ## 32. vgabb.inc — the software renderer (double buffering, and §39's 1bpp driver)
 
@@ -13001,6 +13219,34 @@ FM note is two register writes and then zero CPU, and moving tones there
 leaves the speaker for the exclusive-clip tier that has nowhere else to go
 (§34.4). A Sound Blaster does not.
 
+### 51.2.1 Publication is per CLASS
+
+There is one publication slot **per driver class**, not one in total:
+`[drv_owner]`, the far pointer `drv_svc_call` dispatches through and the
+copied service table are all arrays indexed by `DRVR_CLASS - 1`.
+
+That is a fix, not a generalisation. There used to be one of each,
+overwritten by whichever driver attached last — so on a machine with a sound
+card **and** a hard disk the second attach silently disconnected the first,
+and the symptom (sound stops when the disk driver is enabled) is nowhere near
+the cause. Class 1 is index 0, so every `[drv_svc+DSV_*]` in `snd.inc` still
+names the sound driver's copy and not one line of it changed.
+
+**`drv_blk_call` is a second BODY, not a class argument**, and that is
+`drv_svc_call`'s own register contract taken seriously: the disk ABI (§51.8)
+spends AL, AH, BX, CX, DX and SI on the transfer itself, so there is no
+register left to say which class this is. Twenty bytes of duplication buys a
+dispatcher that still consumes nothing. `drv_cp_call` (§31.9) *can* take the
+class in AL, because the Control Panel page ABI leaves AX alone — which is
+the same argument, run the other way.
+
+Two neighbours follow. `drv_task`'s spawn fence becomes "ES is the segment of
+a driver whose services are published, in ANY class" (`drv_pub_seg`) — still
+published and not merely loaded, because `drv_publish` arms a slot only after
+attach returns and a worker spawned from inside attach would outlive a
+refusal. And `drv_release` clears the right class's pointer, and only that
+one.
+
 ### 51.3 Loading, and what happens when it fails
 
 `drv_load` is the package loader's order (§21) with the instance half
@@ -13179,3 +13425,176 @@ and freeing it first would leave a claim nothing could ever name again.
 5. **You may own a task.** `task_spawn` takes a segment, so a driver's refill
    loop is an ordinary background task — but it must be gone before detach
    returns.
+
+### 51.8 `DRVC_DISK` — the block-volume class
+
+A disk driver publishes one cell the kernel dispatches for every sector, and
+three that give it a Control Panel page (§31.9):
+
+```
+DSV_BLK      in  AL = 0 read / 1 write
+                 AH = the DRIVER's own volume handle
+                 SI = the VOLUME-RELATIVE LBA, 16-bit (§18.7)
+                 CX = sector count
+                 DX:BX = the buffer
+             out CF = 0 done; CF = 1 and AL = an int 13h status byte, so
+                 03h still means write-protected
+DSV_CPNAME   -> a NUL page name in ITS segment (0 = no page)
+DSV_CPPAINT  near proc: DI = pane left, DX = pane top
+DSV_CPCLICK  near proc: the same, plus CX/BX = the click
+```
+
+**`DX:BX` and not `ES:BX`, deliberately.** The buffer is in `LOW_SEG`, the FAT
+window or a heap claim, and never in the driver's segment or the kernel's — so
+ES cannot carry the meaning it carries everywhere else in this ABI, and
+pretending otherwise is how a driver ends up reading its own image as a sector
+buffer. `mov es, dx` is the driver's to do.
+
+A driver mounts a volume through four slots (§20.3), all fenced on the same
+identity test `OSAPI_DRV_TASK` uses — the caller's segment must be the segment
+of the driver whose DISK services are published:
+
+```
+OSAPI_VOL_ADD    AL = its handle, CX = the volume's sectors, DX = a listing
+                 claim (0 = the kernel's floor, §22.6), ES:SI = a NUL desktop
+                 label (0 = derive 'Disk X'); out AL = the VOLUME INDEX
+OSAPI_VOL_DEL    AL = a volume index it registered
+OSAPI_VOL_MOUNT  AL = a volume index; UI-task context only, like every file
+                 slot - it takes [sch_lock] around int 13h
+OSAPI_VOL_PAINT  repaint the desktop's drive zones. It takes the gfx lock
+                 ITSELF, so never from a page click
+```
+
+`osapi_vol_add`/`del` post `[cp_dirty]` rather than repainting, because a
+driver adds a volume from a page click with the lock already held — the
+Control Panel's own deferred-repaint idiom (§31.2), reused rather than
+reinvented.
+
+**Detach's obligations are wider than a sound driver's**: every volume goes
+(which `drv_release` also does defensively, before the claims), every listing
+claim goes with it, and every window the driver put on screen is hidden — the
+kernel frees the image the moment detach returns.
+
+## 52. HDD.DRV — the hard-disk driver (drivers/hdd/)
+
+MFM through an XT controller card's own ROM, and CHS-only IDE, as a loadable
+driver (§51.8). **Everything the user can see is in the driver** — the Control
+Panel's Hard Drive page, the partitioner, the FAT formatter and the Mount
+button — because the kernel's half of this is four API slots and a volume
+table, and nothing above them belongs in a kernel that boots machines with no
+hard disk at all.
+
+It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0), unlike the
+sound driver: this one probes controllers, and a machine with neither should
+not be poking at 1F0h every boot to be told so. The Drivers page turns it on
+and `SYSTEM.CFG` remembers.
+
+### 52.1 The transport ladder
+
+```
+rung 0  int 13h, drive 80h/81h   AH=08h answers and LBA 0 reads
+rung 1  the IDE task file        1F0h / 170h, for a drive the BIOS does not
+                                 know - and 16-BIT BUS ONLY
+```
+
+**Rung 0 is first on purpose**, and not because it is easy: the machine whose
+BIOS already knows a drive is the machine whose partition table, geometry and
+drive-parameter block were all written to agree with that BIOS. It is also the
+whole of MFM support — an ST-11M carries a ROM whose entire job is to present
+int 13h for that drive on that card's jumpers, and re-deriving it from the
+6-byte DCB interface at 320h would buy nothing a user can see while costing an
+8237 path, an IRQ 5 hook and a per-card jumper matrix nobody can test.
+
+**Rung 1 is gated on `OSAPI_CPU_INFO` ≥ `CPU_286`, and that is arithmetic, not
+caution.** An 8088's `in ax, dx` is two 8-bit bus cycles at the same port, so
+on an 8-bit slot the drive's high byte is simply lost — which is exactly what
+an XT-IDE adapter latches. An 8088 with a hard disk has a controller with a
+ROM in it, and rung 0 is that ROM. The PIO loop is `in ax, dx` / `stosw`
+because this tree is `cpu 8086` and `rep insw` is a 186 instruction.
+
+`91h INITIALIZE DEVICE PARAMETERS` is **not optional**: the geometry a drive is
+addressed with has to be the geometry it was told about, or every read lands
+somewhere else.
+
+Both transports move **one sector per command**, for `disk.inc`'s own two
+reasons: a track boundary never matters, and a 512-byte transfer that starts
+aligned cannot straddle a 64KB DMA page. `hd_chs` needs **one `div` pair and
+no 32/16 two-step**, provably: `spt × heads` is at most 63 × 255, the highest
+LBA CHS can name is 1024 × 255 × 63, and the quotient — the cylinder — is under
+1024, so DX before each divide is far below the divisor.
+
+**Geometry the probe could not determine is the user's to type in**, and that
+is an ordinary state rather than an exotic one: it is a 286 with an early IDE
+drive and a CMOS type table that predates it. The page carries an editable
+C/H/S triple bounded by what CHS can carry (1..1024, 1..255, 1..63) and
+recomputes the size from it live, in the Date/Time page's field idiom (§31.5).
+
+### 52.2 The partitioner
+
+Its own window — the unowned species (§38.1), so its close box reduces to
+`wm_hide` and there is no teardown path to write. Four primary slots, New /
+Delete / Write / Close, and **everything but Write edits a copy in RAM**, so a
+user who changes their mind has changed nothing.
+
+A partition is capped at **65,535 sectors** by the kernel's volume ceiling
+(§18.7), so four primaries is the whole offering and an extended chain is not
+implemented. Two era conventions are obeyed because DOS reads what is written:
+partitions are cylinder-aligned, and **the CHS halves of an entry must agree
+with its LBA halves** under the geometry the drive is addressed with — a
+cylinder past 1023 clamps to the all-ones form every tool of the era wrote,
+which is what says "read the LBA fields instead".
+
+The 446 bytes of boot code are **not** left blank: os8088 does not boot from a
+hard disk (§52.9), and a blank MBR is a machine that hangs with no
+explanation, so a stub prints `Not bootable` and halts.
+
+### 52.3 The formatter
+
+A **FAT format, not a surface format**. Low-level formatting an MFM surface is
+vendor-specific interleave and defect handling, minutes per drive, and the
+ST-11M ships its own ROM utility that does it correctly (`g=c800:5`).
+
+The layout is the FAT specification's own arithmetic, with the cluster size
+chosen as the smallest power of two that lands the count inside FAT16's legal
+range and a FAT12 fallback for a partition too small to reach 4,085 clusters.
+**The ceiling is computed in 32 bits**: `TmpVal1` is nearly 65,535 already and
+`TmpVal1 + TmpVal2 - 1` wraps a word for every cluster size there is, which
+read as "no layout fits" for every partition worth having.
+
+What it writes, and the order is the safe one: the FATs (zeroed, then entry 0's
+media byte and EOC mark), the root directory, and **the boot sector LAST** —
+so a format interrupted half way leaves a volume nothing will mount, rather
+than one that mounts and is wrong. The data area is not touched, which is what
+makes a 32MB format about 550 sector writes instead of 65,000.
+
+`BS_jmpBoot` matters: os8088's own BPB rule 2 (§18.2) rejects a volume whose
+first byte is not EB or E9, so a formatter that left it blank would write a
+volume its own kernel refuses to mount.
+
+### 52.4 The page, and mounting
+
+The Control Panel page (§31.9) is a device list, the C/H/S editor and three
+buttons, in 27 characters by 13 rows. Greying follows §47: one predicate
+(`hd_btn_ok`) shared by the greying, the click refusal and the caption, and it
+tests only facts already known — is there a device, is its geometry usable —
+never "try it and see".
+
+**Mount** claims the listing buffer first (§22.6), then registers the volume
+and mounts it; a refused claim is not an error, it is a 32-entry listing. The
+desktop zone and the drive letter both fall out of the volume index, so
+"HDD C" appearing under Disk B is not something this driver arranges. On CGA
+it appears *beside* Disk A instead, which is §26.1's column wrap and also not
+something this driver knows about.
+
+### 52.9 Not in scope
+
+- **Booting os8088 from the hard disk.** `boot/boot.asm` reads LBA 1..K with
+  the floppy geometry injected at build time and relocates itself to
+  `BOOT_RELOC`; hard-disk boot needs an MBR, an AH=08h geometry probe and a
+  second boot sector variant. The system disk stays A:, and `SYSTEM.CFG` with
+  it.
+- **Low-level (surface) MFM formatting**, §52.3.
+- **The XT DCB register path**, §52.1. The row exists in the ladder so the
+  page can one day say "not supported" rather than "no drive".
+- **Extended partitions.** Four primaries of ≤32MB is 128MB of usable disk,
+  against MFM drives of 10–40MB and early IDE drives of 20–120MB.

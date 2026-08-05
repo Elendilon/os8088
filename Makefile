@@ -132,7 +132,7 @@ $(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 #
 # DRIVERS is the list, one .drv per line, root-level: the kernel resolves them
 # by name in the volume's current directory and the file manager shows them.
-DRIVERS := $(BUILD)/sound.drv
+DRIVERS := $(BUILD)/sound.drv $(BUILD)/hdd.drv
 
 $(BUILD)/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc \
                     drivers/os88drv.inc apps/os88api.inc | $(BUILD)
@@ -142,6 +142,14 @@ $(BUILD)/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc \
 
 $(BUILD)/sound.drv: $(BUILD)/sound.bin tools/os88drv.py
 	python3 tools/os88drv.py $(BUILD)/sound.bin -o $@
+
+$(BUILD)/hdd.bin: drivers/hdd/hdd.asm drivers/hdd/part.inc drivers/hdd/fmt.inc \
+                  drivers/hdd/page.inc drivers/os88drv.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/hdd/ -I drivers/ -I apps/ -o $@ $<
+	@echo "hdd:    $(call FILESIZE,$@) bytes"
+
+$(BUILD)/hdd.drv: $(BUILD)/hdd.bin tools/os88drv.py
+	python3 tools/os88drv.py $(BUILD)/hdd.bin -o $@
 
 $(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
@@ -574,9 +582,21 @@ endif
 # having failed to build rather than never having been mounted.
 TESTAPPS ?= $(APPSIMG)
 
-test: $(IMG) $(TESTAPPS)
+# HDD=<megabytes> puts a blank raw IDE disk in the machine, for the hard-disk
+# driver (SPEC.md 52). Without one its probe correctly finds nothing, which is
+# the right answer and not the one you want to be testing against - the same
+# reasoning as ADLIB= above. The image is created once and then kept, because
+# partitioning and formatting it is the thing under test.
+ifneq ($(HDD),)
+HDDIMG = $(BUILD)/hdd.img
+HDDDEV = -drive file=$(HDDIMG),format=raw,if=ide,index=0,media=disk
+$(HDDIMG):
+	dd if=/dev/zero of=$@ bs=1024 count=$$(( $(HDD) * 1024 )) 2>/dev/null
+endif
+
+test: $(IMG) $(TESTAPPS) $(HDDIMG)
 	$(QEMU) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
-		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 \
+		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 $(HDDDEV) \
 		-display none -qmp unix:build/qmp.sock,server,nowait -daemonize -pidfile build/qemu.pid \
 		$(CARDAUDIO) $(ADLIBDEV) $(SBDEV) $(DEVCARD)
 

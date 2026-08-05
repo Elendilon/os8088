@@ -15,7 +15,7 @@ includes its buffers.** The span is `KERN_BUDGET` bytes — 75KB today, and
 0x00600 through 0x11DFF.
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
-data, `.bss`, the FAT snapshot, the directory and icon caches, the sector
+data, `.bss`, the FAT window, the directory and icon caches, the sector
 buffer and every task stack are one contiguous span starting at
 `KERNEL_SEG`. Guard 1 in `kernel/kernel.asm` measures that whole span
 against `KERN_BUDGET` and fails the build if it is over.
@@ -99,7 +99,7 @@ out of the same constants the guards use.
 | image (`.text` + `.bss`) | 57,344 B | all kernel code, its read-only data, and its scratch |
 | task stacks | 6,656 B | 11 background slots + task 0's |
 | disk buffers | 3,584 B | directory cache, icon cache, sector scratch |
-| FAT snapshot | 4,608 B | the mounted volume's FAT, resident |
+| FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | **total** | **72,192 B** | of a 72,704-byte budget — 512 B spare |
 
 Everything above that is the claim heap, up to whatever int 12h reports. The
@@ -284,7 +284,7 @@ segments:
 - `dsk_secbuf`, 512 B — one sector of scratch: the directory sector being
   read-modify-written on a write, and the zero-padded final sector of a file.
 
-### FAT snapshot — 4,608 B
+### FAT window — 4,608 B
 
 `DSK_FAT_SECS` × 512, re-read from the volume on **every** mount, with
 `dsk_next_clus` its single reader and `dskw_setfat` its single writer, both
@@ -398,3 +398,34 @@ because guard 5 keeps the growing kernel clear of the boot sector that is
 still executing while it lands. The constant is mirrored in `boot/boot.asm`
 and the two must move together — this is the second time, and both times it
 was the raise that forced it.
+
+---
+
+## What hard-disk support cost, and what paid for it
+
+Adding the volume table, the FAT window, driver-owned Control Panel pages and
+volume-driven desktop zones (SPEC.md §18.7, §18.8, §26.1, §31.9, §51.2.1) took
+about 1,700 bytes of `.text`. It overran **guard 2** — `.text` + `.bss` inside
+one 64KB segment — which is the 16-bit offset and cannot be raised at any
+price.
+
+**What paid for it was the per-instance icon table**: 768 bytes of `.bss`
+holding a COPY of each loaded package's 16x16 icon body, made at load time.
+The original was in the package's own region the whole time, at the fixed
+offset every package header puts it at, and it lives exactly as long as the
+instance that owns it — so the copy was pure duplication. `I_ICON` is a
+sentinel now and `inst_icon_ptr` stages 64 bytes when a dock tile is actually
+drawn, which is the `dsk_get_icon` idiom and costs nothing on any path that
+does not draw one.
+
+The FAT window itself cost **no memory at all**: `FAT_SEG` is the same 4,608
+bytes it always was, and only its meaning changed.
+
+Where that leaves the two guards, on this build:
+
+```
+guard 2  .text + .bss   65,211 / 65,536     325 bytes
+guard 1  KERN_SIZE      80,384 / 80,896     512 bytes
+```
+
+`KERN_BUDGET` was **not** raised for any of this.

@@ -1,5 +1,11 @@
 # os8088 hard-disk plan
 
+**Research document, not a contract — and now IMPLEMENTED.**
+> The plan below was written before the code and is kept as the reasoning
+> behind it. What actually shipped is SPEC.md §18.7, §18.8, §22.6, §26.1,
+> §31.9, §51.2.1, §51.8 and §52; where the two disagree, SPEC.md is the
+> contract. The two places the plan was wrong are recorded at the end.
+
 **Research document, not a contract.** SPEC.md is the binding contract for what
 the kernel *is*; this is the study of what it would take to put hard disks
 behind a loadable driver (SPEC.md §51), what has to move in the kernel to make
@@ -38,7 +44,7 @@ inside a driver today, and each is a small, well-bounded kernel change:
 | 4 | `cp_items` is a static table of near procs; a driver cannot append a page | table split + far dispatch | ~200 B |
 | 5 | `desk_ndrives` comes from int 11h and tops out at 2, with the labels hard-coded | driver-registered zones | ~150 B |
 
-Plus the FAT window (§4), which is ~250 B and is required by arithmetic rather
+Plus the FAT window (part 4), which is ~250 B and is required by arithmetic rather
 than by taste. Call it **1,000–1,100 bytes of kernel `.text` + `.bss`**, against
 **2,048 bytes of headroom** measured on this build:
 
@@ -53,13 +59,13 @@ It fits with ~950 bytes to spare, and **without raising `KERN_BUDGET`** — whic
 matters, because the budget has already moved four times and each move is a
 decision taken with whoever asked for the feature (`docs/KERNEL-MEMORY.md`).
 The one item that does *not* fit inside that envelope is raising the 32-entry
-directory cap (§5.7); it is deferrable and the reasoning is below.
+directory cap (part 5.7); it is deferrable and the reasoning is below.
 
 Everything else — the controllers, the geometry probes, the partition table, the
 FAT formatter, the Control Panel page's pixels, the two tool windows, the
 manual-geometry editor, the persistence — lives in `HDD.DRV`.
 
-Three things this plan says **no** to, with reasons in §11: 32-bit LBAs in the
+Three things this plan says **no** to, with reasons in part 11: 32-bit LBAs in the
 kernel's FAT layer, booting os8088 from the hard disk, and low-level (MFM
 surface) formatting.
 
@@ -101,7 +107,7 @@ One consequence worth stating because it disappoints people: the ST-11M's
 low-level format is its ROM utility (`g=c800:5` from DEBUG), and low-level
 formatting an MFM surface is minutes of per-track work with vendor-specific
 interleave and defect handling. **The driver's "format" button is a FAT format,
-not a surface format** (§11).
+not a surface format** (part 11).
 
 ### 1.2 IDE, CHS only
 
@@ -212,7 +218,7 @@ itself. None is a bug. All of them have to become volume-kind aware.
 - rule **13** — `TotSec16 ≤ spt × heads × 80`, the cylinder guard restated in the
   BPB so a volume cannot mount-list and then die on geometry.
 - rule **8** — `TotSec16 ≠ 0`. Keeps volumes inside 16-bit LBAs. **This one we
-  keep** (§4).
+  keep** (part 4).
 - `disk_mount` — snapshots the **whole** FAT into `FAT_SEG` on every mount, and
   navigation *is* a remount (`dsk_chdir`, SPEC.md §19.2). At 64 FAT sectors that
   is 64 sector reads per folder entered.
@@ -233,7 +239,7 @@ drivers means the second one's attach silently disconnects the first.
 
 **`kernel/files.inc`** — carries a per-window drive (`FS_DRV`) and cwd already,
 and prints the letter as `add al, 'A'`. This module needs **nothing** if the
-drive stays a small volume index (§4). That is not luck; it is why the index
+drive stays a small volume index (part 4). That is not luck; it is why the index
 model is the recommendation.
 
 ---
@@ -724,7 +730,7 @@ Era conventions that are not optional if DOS is ever going to read the disk:
 the first partition starts at **LBA = spt** (head 1, sector 1, cylinder 0),
 partitions end on a cylinder boundary, and the CHS fields must agree with the
 LBA fields under the geometry the drive is being addressed with. Partitions are
-capped at 65,535 sectors by §3, so four primaries is the whole offering;
+capped at 65,535 sectors by part 3, so four primaries is the whole offering;
 extended partitions (type 05h) chain and are a later phase, not a Phase 1
 feature.
 
@@ -765,7 +771,7 @@ the acceptance test, not a screenshot.
 ### 6.4 Mount
 
 `OSAPI_VOL_ADD` with the partition's handle, `'HDD C'` and the icon; then the
-kernel's ordinary `disk_mount` runs against volume 2 and every BPB rule in §5.3
+kernel's ordinary `disk_mount` runs against volume 2 and every BPB rule in part 5.3
 applies. Failure is reported in the page's caption in the same prose the Drivers
 page uses for a refused load — one vocabulary, as SPEC.md §51.2 already argues
 for `DRVV_TIER`.
@@ -813,12 +819,12 @@ the machine booted it.
 
 | Thing | Where | How |
 |---|---|---|
-| IDE task file, IDENTIFY, read/write | **QEMU** | `-drive file=build/hdd.img,format=raw,if=ide` — the default machine's PIIX presents an ATA disk at 1F0h, which is the exact task file §1.2 programs |
+| IDE task file, IDENTIFY, read/write | **QEMU** | `-drive file=build/hdd.img,format=raw,if=ide` — the default machine's PIIX presents an ATA disk at 1F0h, which is the exact task file part 1.2 programs |
 | int 13h rung 0 | **QEMU** | SeaBIOS gives drive 80h with `AH=08h`; that is rung 0 end to end |
 | Partition + format + mount + desktop icon | **QEMU** | a blank raw image, partitioned and formatted by the driver, then `tools/os88disk.py --verify` on the host — the in-kernel checks and the host fsck catch different bugs, which is already the rule for `tests/filetest` |
 | MFM / ST-11M | **86Box only** | it ships the XT ST-506 family (IBM/Xebec, DTC 5150X, WD1002A-WX1, and the Seagate ST-11M/R). Confirm the exact `hdc =` key with the launch-and-`kill -TERM`-and-read-back trick in CLAUDE.md — 86Box rewrites its config with what it actually accepted |
 | The FAT window on a floppy | **QEMU** | the degenerate case must be byte-identical: the existing `tests/filetest` gate passing unchanged *is* the assertion |
-| The CGA third zone | **QEMU** | `make test VIDEO=cga`, and `tools/shot.py --crop` on the bottom-right corner. §5.5 says why |
+| The CGA third zone | **QEMU** | `make test VIDEO=cga`, and `tools/shot.py --crop` on the bottom-right corner. part 5.5 says why |
 | A partly-full allocator sweep | **QEMU** | count work, do not time it (docs/TESTING.md): a counter on `dsk_fat_window`'s miss path, read over QMP with `xp` |
 
 Two harness gaps to fill: `tools/os88disk.py` builds unpartitioned FAT floppies
@@ -834,21 +840,21 @@ not the one you want to be testing against.
 
 Each is shippable and testable alone.
 
-1. **Per-class service publication** (§5.1). No new feature, no user-visible
+1. **Per-class service publication** (part 5.1). No new feature, no user-visible
    change; `SOUND.DRV` keeps working and the gate for it is `tests/fmtest`
    passing unchanged. This must land first or every later phase carries a latent
    bug that presents as broken sound.
-2. **The FAT window** (§4). Floppy-only, no hard disk in sight. Gate:
+2. **The FAT window** (part 4). Floppy-only, no hard disk in sight. Gate:
    `tests/filetest` and `--verify` unchanged, plus the miss counter reading zero
    on a 1.44 MB volume.
-3. **Volumes and the transport** (§3, §5.2, §5.3) with a stub driver that
+3. **Volumes and the transport** (part 3, part 5.2, part 5.3) with a stub driver that
    exposes a QEMU IDE disk read-only through int 13h rung 0, and a hard-coded
    pre-partitioned, pre-formatted test image. First mount of a real hard disk.
-4. **The desktop zone and the Control Panel page** (§5.4, §5.5) — the page, the
+4. **The desktop zone and the Control Panel page** (part 5.4, part 5.5) — the page, the
    device list, geometry detection and the manual editor. Still no writing.
-5. **The partitioner** (§6.2).
-6. **The formatter** (§6.3). At this point the whole request is met.
-7. **The IDE task file path** (§1.2) — direct IDENTIFY and PIO for machines
+5. **The partitioner** (part 6.2).
+6. **The formatter** (part 6.3). At this point the whole request is met.
+7. **The IDE task file path** (part 1.2) — direct IDENTIFY and PIO for machines
    whose BIOS does not know the drive. Optional, and the first phase that can
    damage a disk a BIOS would have protected.
 
@@ -861,33 +867,33 @@ one is a real latent bug and the other is a strictly cheaper mount.
 
 SPEC first, always — every one of these lands before its code:
 
-- §2.1 — `FAT_SEG` stops being "the FAT snapshot" and becomes "the FAT window";
+- part 2.1 — `FAT_SEG` stops being "the FAT snapshot" and becomes "the FAT window";
   the FAT2 fallback moves from mount to window fault.
-- §18 — a new §18.7, the volume table and the block transport; `disk_read`/
+- part 18 — a new part 18.7, the volume table and the block transport; `disk_read`/
   `disk_write` keep their `AX = LBA` contract and gain a documented kind branch.
-- §18.2 — rules 10–13 become per-kind; rule 8 keeps its documented rejection and
+- part 18.2 — rules 10–13 become per-kind; rule 8 keeps its documented rejection and
   gains the sentence that it is *also* the 32 MB partition limit. Fix the
   9-vs-10 `DSK_FAT_SECS` nit while there.
-- §18.3 — the mount no longer reads the FAT.
-- §18.4 — the commit order gains the paragraph in §4.5: an early window flush is
+- part 18.3 — the mount no longer reads the FAT.
+- part 18.4 — the commit order gains the paragraph in part 4.5: an early window flush is
   a leak and never a cross-link.
-- §19 — nothing. The FAT12/16 format is unchanged; only where its FAT lives is.
-- §20.3 — two appended slots.
-- §26 — desktop zones are registered as well as counted, and the CGA constraint
+- part 19 — nothing. The FAT12/16 format is unchanged; only where its FAT lives is.
+- part 20.3 — two appended slots.
+- part 26 — desktop zones are registered as well as counted, and the CGA constraint
   is stated where the geometry is.
-- §31.1 — the item table's fourth word stops being reserved and becomes the
+- part 31.1 — the item table's fourth word stops being reserved and becomes the
   dispatch class; the driver page ABI is pinned there.
-- §47 — nothing new, but the Hard Drive page is a worked example of it.
-- §51 — a new §51.8, the disk driver class: `DSV_BLK`, the volume handle, the
-  detach obligations, and per-class publication in §51.2.
-- New §52, `hdd.inc`-equivalent — the driver itself, its page, its two tools and
-  its file, in the way §34/§51.4 documents the sound driver.
+- part 47 — nothing new, but the Hard Drive page is a worked example of it.
+- part 51 — a new part 51.8, the disk driver class: `DSV_BLK`, the volume handle, the
+  detach obligations, and per-class publication in part 51.2.
+- New part 52, `hdd.inc`-equivalent — the driver itself, its page, its two tools and
+  its file, in the way part 34/part 51.4 documents the sound driver.
 
 ---
 
 ## 11. Rejected, and out of scope
 
-- **32-bit LBAs in the kernel FAT layer.** §3. Rewrites the FAT driver for
+- **32-bit LBAs in the kernel FAT layer.** part 3. Rewrites the FAT driver for
   capacity the target machines did not have; four ≤32 MB primaries is the DOS
   3.3 answer and it is enough for a 40 MB MFM drive and a 120 MB IDE one.
 - **Booting os8088 from the hard disk.** `boot/boot.asm` reads LBA 1..K with the
@@ -895,15 +901,35 @@ SPEC first, always — every one of these lands before its code:
   hard-disk boot needs an MBR, an `AH=08h` geometry probe and a second boot
   sector variant. It is a coherent later project and it is not what was asked
   for. The system disk stays A:, and `SYSTEM.CFG` with it.
-- **Low-level / surface MFM formatting.** §1.1. Vendor-specific interleave and
+- **Low-level / surface MFM formatting.** part 1.1. Vendor-specific interleave and
   defect handling, minutes per drive, and the ST-11M ships its own ROM utility
   that does it correctly.
-- **The XT DCB register path.** §1.1. The card's ROM is the interface; the row
+- **The XT DCB register path.** part 1.1. The card's ROM is the interface; the row
   exists so the page can say "not supported" instead of "no drive".
-- **A general sector buffer cache** (DOS `BUFFERS=`). §4.2. os8088 has two FAT
+- **A general sector buffer cache** (DOS `BUFFERS=`). part 4.2. os8088 has two FAT
   accessors and both are already funnelled through one reader and one writer;
   a general cache is a bigger machine solving a problem this one does not have.
-- **Raising the 32-entry directory cap in this project.** §5.7. It is real, it
+- **Raising the 32-entry directory cap in this project.** part 5.7. It is real, it
   is where a hard disk hurts first, and it is a heap-claimed listing plus a
   heap-claimed view cache plus lazy icon harvesting — its own SPEC section and
   its own phases.
+
+---
+
+## 12. What the plan got wrong
+
+Kept because the reasoning above is only useful if its errors are visible too.
+
+- **"~1,000–1,100 bytes of kernel"** was close on the code and silent on the
+  consequence: the additions overran **guard 2**, the 64KB segment, which
+  cannot be raised. What paid for it was not in the plan at all — the
+  768-byte per-instance icon COPY table went away, because a package's icon
+  was already in the package's own region at a fixed offset for exactly as
+  long as the instance lived (SPEC.md §25). The final figures are 65,211 of
+  65,536 in the segment and 80,384 of 80,896 in the budget, with no raise.
+- **"the 32-entry cap is a project of its own; ship it unchanged"** was the
+  right call about the *work* and the wrong one about the *shape*. Making the
+  listing four words instead of two labels (SPEC.md §22.6) turned out to be
+  the small half, and the view cache followed it in twenty lines; what was
+  genuinely big — a sparse icon table, lazy harvesting — was not needed once
+  the buffer could simply be bigger on the volume that needs it.

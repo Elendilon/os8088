@@ -403,24 +403,19 @@ dsk_vol_add:
     push si
     push di
     mov ah, al                  ; AH = the handle for the duration
-    mov bl, 2                   ; rows 0 and 1 are the BIOS floppies
-.scan:
-    cmp bl, DVOL_MAX
-    jae .full
-    push bx
-    call dsk_vol_slot
-    cmp byte [bx+DV_KIND], DVK_FREE
-    je .got
-    pop bx
-    inc bl
-    jmp short .scan
-.got:
-    pop ax                      ; AL = the index (AH is still the handle)
+    mov bx, dsk_vtab + 2*DV_SIZE    ; the ROW walks, not an index: the index
+.scan:                          ; is derivable from the pointer, and the
+    cmp bx, dsk_vtab + DVOL_MAX*DV_SIZE     ; version that kept it in BL had
+    jae .full                   ; to bank it across dsk_vol_slot - which it
+    cmp byte [bx+DV_KIND], DVK_FREE ; did on the stack, and popped BH over
+    je .got                     ; the HANDLE. A volume whose handle is
+    add bx, DV_SIZE             ; garbage answers no sector the kernel asks
+    jmp short .scan             ; for, and the mount fails as "not a FAT
+.got:                           ; volume"
     mov [bx+DV_UNIT], ah
     mov [bx+DV_SECS], cx
     mov [bx+DV_SEG], dx         ; the donated listing claim, 0 = the floor
     mov byte [bx+DV_FLAGS], 1   ; shown on the desktop
-    push ax
     lea di, [bx+DV_LBL]         ; the label is INLINE, so this is the copy
     mov cx, 7                   ; and there is nothing to point at
     or si, si
@@ -440,17 +435,29 @@ dsk_vol_add:
     mov byte [di], 0            ; no label: desk_zone_label derives 'Disk X'
 .live:
     mov byte [bx+DV_KIND], DVK_DRV      ; published LAST: the row is now live
-    pop ax
-    clc
-    jmp short .out
-.full:
-    stc
-.out:
+    mov byte [cp_dirty], 1      ; the desktop owes a zone - and a driver adds
+                                ; a volume from a page click, with the gfx
+                                ; lock HELD, so the repaint is deferred to
+                                ; ui_task's idle pass exactly as the Control
+                                ; Panel defers its own (SPEC.md 31.2)
+    mov ax, bx                  ; the index, back out of the row pointer
+    sub ax, dsk_vtab
+    mov cl, 4                   ; / DV_SIZE
+    shr ax, cl
     pop di
     pop si
     pop dx
     pop cx
     pop bx
+    clc
+    ret
+.full:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -468,6 +475,7 @@ dsk_vol_del:
     jne .out                    ; a BIOS floppy is not the driver's to drop
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
+    mov byte [cp_dirty], 1      ; ...and owes the zone's removal likewise
     mov word [bx+DV_SEG], 0
     mov byte [bx+DV_LBL], 0
     cmp al, [disk_drive]
@@ -542,6 +550,105 @@ dsk_list_pick:
 .out:
     pop bx
     pop ax
+    ret
+
+; =============================================================================
+; The API slots a DRVC_DISK driver mounts a volume through (SPEC.md 51.8)
+;
+; The fence on all four is the same one drv_task uses: the caller's segment
+; must be the segment of the driver whose DISK services are published. That
+; is an identity test rather than an approximation, and it is what stops a
+; package from registering a volume the kernel would then read through a
+; transport nobody published.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; osapi_vol_fence - is the caller the published disk driver? (internal)
+; in:  ES = the caller's segment (the slot's X stub, or the caller's own DS)
+; out: CF = 0 allowed, CF = 1 refused
+; clobbers: nothing else (flags)
+; -----------------------------------------------------------------------------
+osapi_vol_fence:
+    push bx
+    mov bx, es
+    or bx, bx
+    jz .no
+    cmp bx, [drv_fseg2]         ; the DISK class's publication slot
+    jne .no
+    pop bx
+    clc
+    ret
+.no:
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; osapi_vol_add - slot 0x0270 (X: ES = the caller's segment)
+; in:  AL = the driver's volume handle, CX = sectors, DX = a listing claim's
+;      segment (0 = the floor), ES:SI = a NUL label or SI = 0
+; out: CF = 0 and AL = the volume index; CF = 1 refused
+; -----------------------------------------------------------------------------
+osapi_vol_add:
+    call osapi_vol_fence
+    jc .no
+    call dsk_vol_add
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; osapi_vol_del - slot 0x0278 (X).  in AL = volume index
+; -----------------------------------------------------------------------------
+osapi_vol_del:
+    call osapi_vol_fence
+    jc .out
+    call dsk_vol_del
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; osapi_vol_mount - slot 0x0280 (X).  in AL = volume index; out CF = 1 refused
+;
+; The Mount button (SPEC.md 51.8). UI-task context only, exactly like every
+; other file slot: it takes [sch_lock] around int 13h and rewrites the one
+; global mount snapshot.
+; -----------------------------------------------------------------------------
+osapi_vol_mount:
+    call osapi_vol_fence
+    jc .nofence
+    push bx
+    push dx
+    mov bl, al
+    call dsk_vol_row            ; the row's own existence is the check...
+    jc .no
+    mov dl, al                  ; ...and the INDEX is still in AL, which the
+    call disk_mount             ; lookup does not touch - BL is the row's low
+                                ; byte by the time it returns
+    jc .no
+    pop dx
+    pop bx
+    clc
+    ret
+.no:
+    pop dx
+    pop bx
+.nofence:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; osapi_vol_paint - slot 0x0288: repaint the desktop's drive zones
+;
+; It takes the gfx lock ITSELF, so a driver must not call it from a page
+; click that already holds one - the Control Panel's own deferred-repaint
+; idiom ([cp_dirty], SPEC.md 31.2) is the shape to copy.
+; -----------------------------------------------------------------------------
+osapi_vol_paint:
+    call gfx_lock
+    call wm_paint_all
+    call gfx_unlock
     ret
 
 ; =============================================================================

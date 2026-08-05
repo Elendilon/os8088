@@ -524,7 +524,41 @@ osapi_table:
                                   ;          pixel. Mono only - it is a no-op
                                   ;          on VGA, so an app may set it
                                   ;          unconditionally
-osapi_table_end:                  ; 0x0270
+    OSAPI_JSLOT api_vol_add       ; 0x0270 - X: a DRVC_DISK driver registers
+                                  ;          one mounted volume (SPEC.md
+                                  ;          18.7/51.8). in AL = its own
+                                  ;          volume handle, CX = the volume's
+                                  ;          sector count, DX = a listing
+                                  ;          claim's segment (0 = the .lowbss
+                                  ;          floor and a 32-entry listing),
+                                  ;          SI = a NUL desktop label in the
+                                  ;          CALLER's segment (0 = derive
+                                  ;          'Disk X'). out CF=0 and AL = the
+                                  ;          volume index, CF=1 = no free row.
+                                  ;          The desktop zone and the drive
+                                  ;          letter both fall out of the index
+    OSAPI_JSLOT api_vol_del       ; 0x0278 - X: in AL = a volume index this
+                                  ;          driver registered. Drops the
+                                  ;          zone, and if that volume was the
+                                  ;          mounted one falls back to A: with
+                                  ;          the write gate shut. Cannot fail
+    OSAPI_JSLOT api_vol_mount     ; 0x0280 - X: in AL = a volume index; mount it
+                                  ;          and list it (SPEC.md 18.3), which
+                                  ;          is what a driver's Mount button
+                                  ;          does after osapi_vol_add. out
+                                  ;          CF=1 = it is not a readable
+                                  ;          FAT12/16 volume. UI-task context
+                                  ;          only, like every other file slot
+    OSAPI_SLOT osapi_vol_paint    ; 0x0288 - repaint the desktop's drive zones
+                                  ;          (SPEC.md 26). A driver that has
+                                  ;          just added or dropped a volume
+                                  ;          owes the screen this; it takes
+                                  ;          the gfx lock itself, so it must
+                                  ;          NOT be called from a callback
+                                  ;          that already holds it - post it
+                                  ;          the way a page click posts a
+                                  ;          repaint
+osapi_table_end:                  ; 0x0290
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -532,8 +566,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 76 * 8
-%error "os8088 API jump table must be exactly 76 8-byte slots"
+%if OSAPI_TABLE_LEN != 80 * 8
+%error "os8088 API jump table must be exactly 80 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -570,6 +604,9 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_snd_fm,     osapi_snd_fm_x
     OSAPI_XSTUB api_drv_task,   drv_task
     OSAPI_XSTUB api_snd_stream, osapi_snd_stream
+    OSAPI_XSTUB api_vol_add,    osapi_vol_add
+    OSAPI_XSTUB api_vol_del,    osapi_vol_del
+    OSAPI_XSTUB api_vol_mount,  osapi_vol_mount
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
 ; because ES:BX belongs to the caller's data buffer and cannot carry it

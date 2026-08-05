@@ -2451,6 +2451,12 @@ cp_drv_click:
     call drv_load               ; the next boot picks it up
 .save:
     mov byte [cp_wdirty], 1     ; ...and only now, the settings file
+    push di                     ; a driver that came up or went down may own
+    push bp                     ; a PAGE, so the item list changed too and
+    sub di, CP_RX               ; not just this pane (SPEC.md 31.9). cp_list
+    call cp_list                ; wants the CONTENT origin, one pane back
+    pop bp
+    pop di
 .redraw:
     call cp_drv_boxes
     call cp_drv_lines

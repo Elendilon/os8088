@@ -656,16 +656,17 @@ drv_svc_none:
 ; and this is one.
 ; -----------------------------------------------------------------------------
 drv_cp_call:
-    push di
-    or bp, bp
-    jz .none
-    call drv_cls_fp
-    jc .none
-    cmp word [di+2], 0
-    je .none
     push si
-    mov si, di
-    pop di                      ; DI is the page's own argument again
+    push di                     ; DI is the PAGE's argument (the pane left)
+    or bp, bp                   ; and drv_cls_fp answers in it, so it has to
+    jz .out                     ; come back before the call
+    call drv_cls_fp
+    jc .out
+    cmp word [di+2], 0
+    je .out
+    mov si, di                  ; SI = the far pointer
+    pop di
+    push di                     ; ...and DI is the pane left again
     push ds
     push es
     push cs
@@ -674,10 +675,9 @@ drv_cp_call:
     call far [es:si]
     pop es
     pop ds
+.out:
     pop di
-    ret
-.none:
-    pop di
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
