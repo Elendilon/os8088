@@ -11057,9 +11057,12 @@ single pixel. All that moved is where those two numbers come from.
 The reason is that the speed ladder could not express anything between whole
 pixels. It was 3, 4, 5 by wall, and 3 was sluggish while the only cure
 available was a whole extra pixel a frame — a third faster in one step. The
-base is `ARK_VYBASE` = 15 quarters = **3.75 px/frame** now, a third of the way
-from the old base to the old ceiling, rising `ARK_VYSTEP` (0.75) a wall to the
-same 5 px/frame ceiling. Two adds and two shifts a frame buy the whole range.
+base is `ARK_VYBASE` = 30 quarters = **7.5 px/frame**, rising `ARK_VYSTEP`
+(1.5) a wall to a 10 px/frame ceiling. Two adds and two shifts a frame buy the
+whole range.
+
+Those are the **big-metric** figures; every one of them is scaled per adapter
+by §44.3.3, and nothing at play time reads the `ARK_V*` constants directly.
 
 Three details are load-bearing:
 
@@ -11069,13 +11072,15 @@ Three details are load-bearing:
 - **It is not reset on a bounce.** What it holds is less than one pixel of
   travel, so the worst a sign flip can do is delay the first step of the new
   direction by a single frame — cheaper than the special case.
-- **`ark_english` and `ark_throw` scale at their exit, once.** Both work in
-  pixels and clamp in pixels — `ark_english` from `[ark_pvel]`, `ark_throw`
-  from the state machine — so the arithmetic in the body stays the pixel
-  arithmetic it reads as; the `imul ARK_VQ` is the last instruction before the
-  `ret`. `ark_zbias` is written `-2*ARK_VQ` … `2*ARK_VQ` for the same reason.
-  `[ark_pspd]` and `[ark_pacc]` are in quarter pixels for the same argument
-  again, one level down: see §44.2.1.
+- **`ark_english` scales at its exit, once.** It works in pixels and clamps in
+  pixels — from `[ark_pvel]` — so the arithmetic in the body stays the pixel
+  arithmetic it reads as; the `imul ARK_VQ` is the last thing before the
+  adapter scale. `ark_zbias` is written `-2*ARK_VQ` … `2*ARK_VQ` for the same
+  reason. `[ark_pspd]` and `[ark_pacc]` are in quarter pixels for the same
+  argument again, one level down: see §44.2.1. **`ark_throw` no longer scales
+  at its exit**: `ARK_THRTAP`/`ARK_THRHOLD` are quarters in the table now,
+  because §44.3.3 divides them and 3 and 4 have nowhere to go on a small
+  screen.
 
 **`ARK_VXMIN` is the other half, and it is a fix rather than a rescale.** The
 walk takes `max(|dx|, |dy|)` steps, so a ball going straight up moves `vymag`
@@ -11083,17 +11088,75 @@ pixels a frame while one at the vx ceiling moves the ceiling: a dead-centre
 hit off a still paddle was *measurably the slowest shot in the game*, and it
 came straight back down to where the paddle already was. So a **paddle**
 bounce — and only a paddle bounce; a wall or a brick may still send the ball
-vertical — floors `|vx|` at one pixel a frame. The sign is whichever way the
+vertical — floors `|vx|` at `ARK_VXMIN`, two pixels a frame big-metric. The
+floor moved with `ARK_VYBASE` when that doubled, which is what keeps the
+steepest shot at the same **angle** it always had: `atan(8/30)` against the
+old `atan(4/15)`, the same 14.9°. The sign is whichever way the
 ball was already going, falling back in order to the paddle's own motion and
 then to which half of the paddle it landed on (`[ark_zlast]`, banked by the
 zone computation; zone 2 is the middle, so `< 2` is the left half and the test
 can never tie).
 
-Measured on the running game: the opening rally travels **68px in 1.005s**, or
-3.72 px/frame at 18.2 fps, against the 3.75 asked for. A serve with a still
-paddle rises and falls at a fixed x=318..321 as designed, and the paddle bounce
-that follows leaves at 20px per 1.0s sample — `ARK_VXMIN` exactly, where it
-used to leave at 0.
+Measured on the running game, reading `[ark_bx]`/`[ark_by]` out of the live
+package over QMP at ~1.5kHz: the opening rally travels **136.0 px/s** on VGA
+and **136.5** on Hercules, or 6.9 px/frame against the 7.5 asked for — the
+shortfall is the collision walk stopping a frame early on a hit, and it is the
+same on every adapter.
+
+### 44.3.3 The speeds are scaled per adapter, because the PLAYFIELD is
+
+`ark_met_*` scales every **spatial** number for CGA — 20x7 bricks over five
+rows against 24x10 over six, a 34px paddle against 44, 137 rows of content
+against 300 — and the velocities used to be absolute. So the rally band
+between the bottom of the wall and the paddle is **198px on VGA, 182 on
+Hercules and 72 on CGA**, and a ball moving the same 68 px/s crossed CGA's
+**2.7x as often**. Measured, not estimated: 0.94 band traversals a second
+against 0.34, on one shared 18.2fps frame clock. That is what "the ball is
+faster on CGA" was, and pixels per second was never the thing a player feels.
+
+So each metrics record carries a twelfth word, a **velocity percentage**, and
+`ark_scale_vel` applies it once at launch to the whole family — the vy ladder
+(base, step, ceiling, Slow's floor and notch), the vx clamps, both serve
+figures, `ark_zbias` and the capsule fall — into the bss words the game
+actually reads. `ark_english` scales its own result at its exit rather than
+owning a word.
+
+**One knob per adapter, not ten, and that is the point.** The ten are not
+independent: a shot's angle is vx over vy, the serve ceiling must stay under
+`ARK_VXMAX`, `ARK_VYFLOOR` must stay under `ARK_VYBASE`, and the paddle's
+english and zone bias must stay small against `ARK_VXMAX` or every bounce
+saturates the angle. Tuned by hand per adapter they drift apart silently, and
+the drift reads as "the ball feels wrong on this screen". Scaled together the
+relationships hold by construction.
+
+Four things are load-bearing:
+
+- **The percentage matches BAND TRAVERSALS PER SECOND, not pixels per second.**
+  100 and 37 are chosen so that all three adapters bounce at the same rate:
+  measured 0.67 (VGA), 0.75 (Hercules), 0.69 (CGA) traversals a second, against
+  0.34/0.37/0.94 before. CGA is now *slower* in pixels — 49.8 px/s against
+  136 — and that is correct, because its playfield is 2.75x shorter.
+- **Rounding is per value, so the relationships are re-enforced after it.**
+  `ark_scale_vel` clamps `thrhold` to `vxmax`, `thrtap` to `thrhold`,
+  `vyfloor` under `vybase` and `vytop` over it, *after* every value has been
+  rounded. That is what lets the percentage be any number at all rather than
+  one that has been checked by hand — a serve that asks for an angle the next
+  bounce clips is visible as a ball that bends the instant it leaves the paddle.
+- **Nothing scales to zero.** `ark_scale_one` floors a non-zero input at 1:
+  CGA's capsule fall is 2 x 0.37 = 0.74, and a capsule falling zero pixels a
+  frame hangs in the air for ever. Zero itself stays zero, which is what the
+  middle paddle zone needs.
+- **The signed values go through `ark_scale_signed`.** `mul` is unsigned, so
+  `ark_zbias`'s negative half would scale to nonsense; the sign is banked
+  around the call. It is also why the **result** is scaled rather than the
+  unit — scaling `ARK_VQ` itself rounds 1.48 to 1 and costs CGA a third of the
+  paddle's authority over the angle.
+
+`ARK_VXMAX` is the one figure that did **not** double with the vy ladder: it
+is asserted below `ARK_PFAST` at assembly time, because a ball that can out-run
+the paddle sideways cannot be chased. The steepest angle was preserved instead
+(`ARK_VXMIN`, §44.3.2), and the flattest went from 46.8° off the vertical to
+38.7°.
 
 ### 44.4 Powerups
 
@@ -11233,7 +11296,10 @@ quiet one.
 
 24x10 bricks over six rows on VGA and Hercules, 20x7 over five on CGA's 200
 rows, chosen by screen height exactly as apps/solitaire chooses cards, with
-the paddle, the ball and the strip all scaling with them.
+the paddle, the ball and the strip all scaling with them — and, since §44.3.3,
+the ball's **speed** as well: the record's twelfth word is a velocity
+percentage, and it exists because scaling the space without the speed is
+exactly what made CGA play 2.7x too fast.
 
 The brick palette is **not** a free choice. Everything is drawn on a black
 field, so a row colour from §39.4's black class (0..6) makes that whole row
