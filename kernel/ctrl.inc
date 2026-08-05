@@ -418,8 +418,8 @@ cp_onclick:
                                 ; gutter between divider and pane)
     add di, CP_RX               ; DI = pane left; pane top = content top
     mov al, [cp_sel]
-    call cp_entry               ; SI = the selected item's record
-    call [si + CP_I_CLICK]      ; in DI/BP = pane origin, CX/DX = relative
+    call cp_item_click          ; in DI/BP = pane origin, CX/DX = relative -
+                                ; or, for a driver's page, its own ABI
 .done:
     pop bp
     pop di
@@ -450,6 +450,162 @@ cp_entry:
     pop ax
     ret
 
+; =============================================================================
+; Pages a DRIVER owns (SPEC.md 31.9)
+;
+; The item list is the five static rows plus one row per loaded driver that
+; publishes DSV_CPNAME - so a page exists exactly while its driver is
+; attached, which is not arranged anywhere: it falls out of the publication
+; slot being cleared at detach.
+;
+; The pane origin cannot travel in BP for a driver page, because BP is the
+; dispatcher's selector, so the ABI moves the pane top to DX:
+;
+;   paint   DI = pane left, DX = pane top
+;   click   DI = pane left, DX = pane top, CX = rel x, BX = rel y
+;
+; Everything else is a package callback's rules: the gfx lock is HELD, ES is
+; KERNEL_SEG, and the page must never take the lock or repaint another window.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; cp_nitems - how many rows the list has right now
+; in:  nothing
+; out: AL = the count
+; clobbers: AL (the output), flags
+; -----------------------------------------------------------------------------
+cp_nitems:
+    call drv_cp_count
+    add al, CP_ITEMS
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_drv_item - is this row a driver's page?
+; in:  AL = row index
+; out: CF = 0 and AL = the owning class; CF = 1 = a static row, AL untouched
+; clobbers: AL (on a hit), flags
+; -----------------------------------------------------------------------------
+cp_drv_item:
+    cmp al, CP_ITEMS
+    jb .static
+    sub al, CP_ITEMS
+    call drv_cp_class           ; CF=1 if the driver went away under us
+    ret
+.static:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_item_name - one row's list name
+; in:  AL = row index
+; out: SI -> a NUL string in the KERNEL segment, always
+; clobbers: SI (the output), flags
+; -----------------------------------------------------------------------------
+cp_item_name:
+    push ax
+    call cp_drv_item
+    jc .static
+    call drv_cp_name            ; the staged copy, so font_str can read it
+    pop ax
+    ret
+.static:
+    call cp_entry
+    mov si, [si + CP_I_NAME]
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_item_paint / cp_item_click - dispatch one row's page
+; in:  AL = row index, DI = pane left, BP = pane top (+ CX/DX = the click,
+;      content-relative, for the click half)
+; out: nothing
+; clobbers: whatever the page clobbers
+; -----------------------------------------------------------------------------
+cp_item_paint:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    call cp_drv_item
+    jc .static
+    mov bx, di                  ; BX = the pane left, banked: drv_cls_svc
+    mov dx, bp                  ; answers in DI, and DX is the driver ABI's
+    call drv_cls_svc            ; pane top
+    jc .done                    ; (AL survives: it is drv_cls_svc's input)
+    mov bp, [di+DSV_CPPAINT]
+    mov di, bx
+    call drv_cp_call
+    jmp short .done
+.static:
+    call cp_entry
+    call [si + CP_I_PAINT]
+.done:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+cp_item_click:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    call cp_drv_item
+    jc .static
+    mov bx, dx                  ; BX = the pane-relative y...
+    mov dx, bp                  ; ...DX the pane top, CX already the x
+    mov si, di
+    call drv_cls_svc
+    jc .done
+    mov bp, [di+DSV_CPCLICK]
+    mov di, si
+    call drv_cp_call
+    jmp short .done
+.static:
+    call cp_entry
+    call [si + CP_I_CLICK]
+.done:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_drv_gone - a driver was released; do not leave its page selected
+; in:  nothing
+; out: nothing (all registers preserved)
+;
+; Called from drv_release, which runs BEFORE the driver's image is freed. A
+; [cp_sel] naming a page that no longer exists would dispatch through a freed
+; segment on the panel's next paint, and the panel need not even be open for
+; that to happen - [cp_sel] persists across opens by design (SPEC.md 31).
+; -----------------------------------------------------------------------------
+cp_drv_gone:
+    push ax
+    mov al, [cp_sel]
+    call cp_drv_item
+    jnc .out                    ; still a live page: this was another class
+    cmp byte [cp_sel], CP_ITEMS
+    jb .out
+    mov byte [cp_sel], 0        ; Scheduler: the boot selection, always there
+.out:
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; cp_pick - hit-test the item list
 ;
@@ -472,7 +628,12 @@ cp_pick:
     jl .hit
     sub dx, CP_IROWH
     inc al
-    cmp al, CP_ITEMS
+    push bx
+    mov bl, al
+    call cp_nitems              ; the static rows PLUS whatever a loaded
+    cmp bl, al                  ; driver publishes (SPEC.md 31.9)
+    mov al, bl
+    pop bx
     jb .scan
 .miss:
     stc                         ; below the last row: no item
@@ -514,12 +675,13 @@ cp_list:
 
     mov dx, bp
     add dx, CP_I0Y              ; DX = row 0 top, screen y
-    mov al, [cp_sel]
-    call cp_entry
-    mov bp, si                  ; BP = the record whose row is barred
-    mov bx, cp_items            ; BX = the record being drawn
+    call cp_nitems
+    mov bp, ax
+    and bp, 0x00FF              ; BP = how many rows there are
+    xor bx, bx                  ; BX = the index being drawn
 .row:
-    cmp bx, bp
+    mov al, bl
+    cmp al, [cp_sel]
     jne .plain
 
     push ax                     ; --- selected: white text on a black bar ---
@@ -543,7 +705,8 @@ cp_list:
 .plain:
     mov byte [gfx_color], CBLACK
 .text:
-    mov si, [bx + CP_I_NAME]
+    mov al, bl
+    call cp_item_name           ; SI -> it, static or staged (SPEC.md 31.9)
     mov cx, di
     add cx, CP_IX
     push dx
@@ -552,8 +715,8 @@ cp_list:
     pop dx
 
     add dx, CP_IROWH
-    add bx, CP_ISTRIDE
-    cmp bx, cp_items_end
+    inc bx
+    cmp bx, bp
     jb .row
 
     pop bp
@@ -616,9 +779,8 @@ cp_page:
     call gfx_fill
 
     mov al, [cp_sel]
-    call cp_entry               ; SI = the selected item's record
     add di, CP_RX               ; DI = pane left, BP = pane top
-    call [si + CP_I_PAINT]
+    call cp_item_paint
 
     pop di
     pop si

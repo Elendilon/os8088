@@ -2596,30 +2596,24 @@ dskw_flush:
 ; out: nothing (all registers preserved)
 ;
 ; The rollback for any failure before the commit: a half-built chain must
-; never survive in RAM, or a later unrelated write would flush it. If even
-; the re-read fails, the snapshot is untrustworthy and the write gate
-; closes until the next mount - the one place this module revokes it.
+; never survive in RAM, or a later unrelated write would flush it.
+;
+; **It is an INVALIDATE now, and does no I/O at all** (SPEC.md 18.8): the FAT
+; is a window, so dropping it is one word, and the next access faults a clean
+; window in off the disk - which is precisely what re-reading the whole FAT
+; used to buy. It can no longer fail, so the write gate no longer has a reason
+; to close here.
+;
+; What the window DOES change is the reach of the rollback: an eviction may
+; already have flushed part of a half-built chain to the disk, and no
+; invalidate can take that back. It costs LOST CLUSTERS and never a
+; cross-link - the same guarantee the commit order gives a crash (18.4) - and
+; that is the whole of the difference.
 ; -----------------------------------------------------------------------------
 dskw_refat:
-    push ax
-    push bx
-    push cx
-    push es
-    mov ax, FAT_SEG
-    mov es, ax
-    mov ax, [dsk_fatlba]
-    mov cx, [dsk_fatsz]
-    xor bx, bx
-    call disk_read
-    jnc .ok
-    mov byte [dsk_mntok], 0     ; unknowable FAT: no more writes until a mount
-.ok:
+    mov word [dsk_fatw0], 0xFFFF
     mov word [dsk_fatd0], 0xFFFF
     mov word [dsk_fatd1], 0
-    pop es
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

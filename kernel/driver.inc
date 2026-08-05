@@ -46,7 +46,14 @@ DRV_MAX     equ 2               ; rows in drv_tab. The settings word carries
                                 ; without touching the file format.
 
 ; --- driver classes (SPEC.md 51.2) -------------------------------------------
+; A class is also a PUBLICATION SLOT. Every table below that says "the driver
+; whose services are published" is per class, because two drivers of different
+; classes are attached at once the moment a machine has a sound card and a hard
+; disk - and a single publication made the second attach silently disconnect
+; the first (SPEC.md 51.2.1).
 DRVC_SOUND  equ 1               ; fills the FM and STREAM tiers (SPEC.md 34)
+DRVC_DISK   equ 2               ; block volumes: hard disks (SPEC.md 51.8)
+DRVC_MAX    equ 2               ; classes, and so publication slots
 
 ; --- driver table row, stride DRVR_SIZE --------------------------------------
 ; DRVR_DISP and DRVR_SEG are adjacent, in that order, ON PURPOSE: together
@@ -120,7 +127,30 @@ DSV_TIERS   equ 14              ; dw: bitmap of 1 << SND_RT_* saying which
                                 ; driver did not answer the question, and the
                                 ; Control Panel then assumes it can (SPEC.md
                                 ; 34.8/31.7)
-DSV_SIZE    equ 16
+DSV_BLK     equ 16              ; dw: DRVC_DISK only - the block transport
+                                ; behind a driver-backed volume (SPEC.md
+                                ; 51.8). in AL = 0 read / 1 write, AH = the
+                                ; driver's own volume handle, SI = the
+                                ; VOLUME-RELATIVE LBA, CX = sectors,
+                                ; DX:BX = the buffer. DX and not ES, because
+                                ; the buffer is in LOW_SEG, the FAT window or
+                                ; a heap claim and never in KERNEL_SEG - so
+                                ; ES cannot carry its usual meaning here and
+                                ; pretending otherwise is how a driver reads
+                                ; its own image as a sector buffer.
+                                ; out CF=0 done; CF=1 and AL = the int 13h
+                                ; status byte convention: 03h = write
+                                ; protected, anything else = a hard error
+DSV_CPNAME  equ 18              ; dw: -> a NUL Control Panel page name in ITS
+                                ; segment, 0 = this driver has no page. The
+                                ; kernel STAGES it (SPEC.md 31.9), because
+                                ; cp_list draws it with font_str and font_str
+                                ; reads through DS
+DSV_CPPAINT equ 20              ; dw: near proc, that page's paint - in
+                                ; DI = pane left, DX = pane top, lock held
+DSV_CPCLICK equ 22              ; dw: near proc, that page's click - in
+                                ; DI/DX as above, CX/BX = pane-relative x/y
+DSV_SIZE    equ 24
 
 ; --- SYSTEM.CFG: a KEYED record file (SPEC.md 51.5) --------------------------
 ; It is the whole Control Panel's file, not just the driver list: every
@@ -231,17 +261,32 @@ DRV_CFG_MAPN equ 3
 
 drv_f_sound: db 'SOUND.DRV', 0
 drv_t_sound: db 'Sound', 0
+drv_f_hdd:   db 'HDD.DRV', 0
+drv_t_hdd:   db 'Hard Drive', 0
 
-; The published driver's dispatcher, as a FAR POINTER. Adjacent and in this
-; order because together they ARE the dword `call far [drv_fptr]` reads, and
-; in .text because drv_svc_call tests the segment half on the machine's first
-; beep. drv_publish arms it, drv_release clears it - so "is a service
-; dispatchable" is one word test and the call itself needs NO REGISTER, which
-; is the whole point: every general register is an argument to something in
-; the sound ABI (SPEC.md 34.2), and BX in particular is the FM verb's
-; frequency.
-drv_fptr:    dw PKG_DISP
+; The published drivers' dispatchers, as FAR POINTERS - ONE PAIR PER CLASS.
+; Adjacent and in this order because together they ARE the dword
+; `call far [drv_fptr]` reads, and in .text because drv_svc_call tests the
+; segment half on the machine's first beep. drv_publish arms one, drv_release
+; clears one - so "is a service dispatchable" is one word test and the call
+; itself needs NO REGISTER, which is the whole point: every general register
+; is an argument to something in the sound ABI (SPEC.md 34.2), and BX in
+; particular is the FM verb's frequency.
+;
+; **Per class, and that is a fix rather than a generalisation.** There used to
+; be one pair, one [drv_owner] and one drv_svc, overwritten by whichever
+; driver attached last - so on a machine with a sound card AND a hard disk the
+; second attach silently disconnected the first, and the symptom (sound stops
+; when the disk driver is enabled) is nowhere near the cause. Class 1 is index
+; 0, so every `[drv_svc+DSV_*]` in snd.inc still names the sound driver's copy
+; and not one line of it changed.
+DRV_FPSZ    equ 4               ; bytes per class: offset + segment
+DRV_CPNSZ   equ 12              ; a staged Control Panel page name: the list
+                                ; column is 9 glyphs wide (SPEC.md 31.1)
+drv_fptr:    dw PKG_DISP        ; class 1 (DRVC_SOUND)
 drv_fseg:    dw 0
+drv_fptr2:   dw PKG_DISP        ; class 2 (DRVC_DISK)
+drv_fseg2:   dw 0
 
 drv_cfgname: db 'SYSTEM.CFG', 0
 drv_cfgsig:  db 'O88CFG', 0, 0  ; 8 bytes, byte for byte the file's head
@@ -257,11 +302,16 @@ drv_tab:
     db DRVE_OK
     db 0
 
-    dw PKG_DISP, 0              ; row 1: spare, and deliberately kept. A row
-    dw 0, 0                     ; costs 16 bytes, and an empty one is how the
-    dw 0, 0                     ; settings word's bit assignment stays stable
-    db 0                        ; when the second driver arrives
-    db 0
+    dw PKG_DISP, 0              ; row 1: the hard-disk driver (SPEC.md 51.8)
+    dw drv_f_hdd, drv_t_hdd
+    dw 0, 0
+    db DRVC_DISK
+    db 0                        ; NOT wanted by default, unlike sound. This
+                                ; one PROBES CONTROLLERS - an IDE task file
+                                ; and, later, an XT DCB - and a machine with
+                                ; neither should not be poking at 1F0h every
+                                ; boot to be told so. The Drivers page turns
+                                ; it on and SYSTEM.CFG remembers
     db DRVE_OK
     db 0
 
@@ -287,7 +337,7 @@ drv_init:
     push cx
     mov byte [drv_nerr], 0
     mov byte [drv_wcnt], 0
-    call drv_svc_clear
+    call drv_svc_clear_all
     xor cx, cx                  ; nothing is loaded on a cold boot, and .bss
     mov bx, drv_tab             ; is not what these live in - clear the two
 .next:                          ; per-load words the table ships non-zero
@@ -301,6 +351,67 @@ drv_init:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_cls_fp / drv_cls_svc - one class's publication slot (module internal)
+; in:  AL = class (1..DRVC_MAX)
+; out: drv_cls_fp:  DI = &drv_fptr for that class
+;      drv_cls_svc: DI = &drv_svc  for that class
+;      CF = 1 and DI = 0 if the class is out of range (an empty table row)
+; clobbers: DI (the output), flags
+; -----------------------------------------------------------------------------
+drv_cls_fp:
+    push ax
+    call drv_cls_idx            ; DI = class-1, CF set if bad
+    jc .bad
+    shl di, 1
+    shl di, 1                   ; * DRV_FPSZ
+    add di, drv_fptr
+    clc
+.out:
+    pop ax
+    ret
+.bad:
+    xor di, di
+    stc
+    jmp short .out
+
+drv_cls_svc:
+    push ax
+    push cx
+    call drv_cls_idx
+    jc .bad
+    mov ax, DSV_SIZE
+    push dx
+    mul di                      ; DSV_SIZE is not a power of two
+    pop dx
+    mov di, ax
+    add di, drv_svc
+    clc
+.out:
+    pop cx
+    pop ax
+    ret
+.bad:
+    xor di, di
+    stc
+    jmp short .out
+
+; drv_cls_idx - AL = class -> DI = class-1, CF=1 if out of range (internal)
+drv_cls_idx:
+    xor di, di
+    cmp al, 1
+    jb .bad
+    cmp al, DRVC_MAX
+    ja .bad
+    mov di, ax                  ; AH is the caller's and must never reach the
+    and di, 0x00FF              ; index, so zero-extend AL by hand
+    dec di
+    clc
+    ret
+.bad:
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -325,6 +436,43 @@ drv_init:
 ; A zero owner word can never match, because DRVR_SEG is 0 exactly when the
 ; row is not loaded, and the test skips those rows.
 ; -----------------------------------------------------------------------------
+; drv_pub_seg - is BX the segment of a driver whose services are PUBLISHED?
+; in:  BX = a segment
+; out: CF = 0 yes (some class's publication slot names it), CF = 1 no
+; clobbers: nothing else (flags)
+;
+; drv_owns_seg's stricter sibling, and the spawn fence (SPEC.md 51.7): loaded
+; is not enough, because drv_publish arms a slot only after DRVV_ATTACH
+; returns and a worker spawned from inside attach would outlive a refusal.
+drv_pub_seg:
+    push ax
+    push cx
+    push di
+    mov al, 1
+.scan:
+    push ax
+    call drv_cls_fp
+    pop ax
+    jc .next
+    mov cx, [di+2]
+    or cx, cx
+    jz .next
+    cmp cx, bx
+    je .yes
+.next:
+    inc al
+    cmp al, DRVC_MAX
+    jbe .scan
+    stc
+    jmp short .out
+.yes:
+    clc
+.out:
+    pop di
+    pop cx
+    pop ax
+    ret
+
 drv_owns_seg:
     push ax
     push cx
@@ -452,9 +600,9 @@ drv_call:
 ; -----------------------------------------------------------------------------
 drv_svc_call:
     or bp, bp
-    jz .none
+    jz drv_svc_none
     cmp word [drv_fseg], 0
-    je .none
+    je drv_svc_none
     push ds
     push es
     push cs
@@ -464,9 +612,191 @@ drv_svc_call:
     pop es
     pop ds
     ret
-.none:
+
+; -----------------------------------------------------------------------------
+; drv_blk_call - the same, for the DRVC_DISK publication slot
+; in / out: exactly drv_svc_call's, on the disk class's far pointer
+;
+; A SECOND BODY rather than a class argument, and that is the register
+; contract above taken seriously: the disk ABI (SPEC.md 51.8) spends AL, AH,
+; BX, CX, DX and SI on the transfer itself, so there is no register left to
+; say which class this is. Twenty bytes of duplication buys a dispatcher that
+; still consumes nothing.
+; -----------------------------------------------------------------------------
+drv_blk_call:
+    or bp, bp
+    jz drv_svc_none
+    cmp word [drv_fseg2], 0
+    je drv_svc_none
+    push ds
+    push es
+    push cs
+    pop es
+    mov ds, [es:drv_fseg2]
+    call far [es:drv_fptr2]
+    pop es
+    pop ds
+    ret
+
+drv_svc_none:
     xor ax, ax
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_cp_call - dispatch one class's Control Panel page proc (SPEC.md 31.9)
+; in:  AL = class, BP = the published near offset, and DI/DX (+ CX/BX for a
+;      click) = the page ABI's own arguments
+; out: whatever the page returns
+; clobbers: AX, BP; DS and ES restored
+;
+; A CLASS ARGUMENT is affordable here and nowhere else: the page ABI spends
+; DI, DX, CX and BX and leaves AX alone, where the sound ABI spends every
+; register there is. That is why drv_svc_call and drv_blk_call are two bodies
+; and this is one.
+; -----------------------------------------------------------------------------
+drv_cp_call:
+    push di
+    or bp, bp
+    jz .none
+    call drv_cls_fp
+    jc .none
+    cmp word [di+2], 0
+    je .none
+    push si
+    mov si, di
+    pop di                      ; DI is the page's own argument again
+    push ds
+    push es
+    push cs
+    pop es
+    mov ds, [es:si+2]
+    call far [es:si]
+    pop es
+    pop ds
+    pop di
+    ret
+.none:
+    pop di
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_cp_count / drv_cp_class - the pages loaded drivers publish
+; drv_cp_count  out: AL = how many classes publish a page
+; drv_cp_class  in:  AL = a 0-based ordinal; out CF = 0 and AL = its class
+; clobbers: AL (the output), flags
+;
+; Derived and not stored, so a page can never outlive the driver that owns it:
+; the answer is a walk of the publication slots, and drv_release clears one.
+; -----------------------------------------------------------------------------
+drv_cp_count:
+    push bx
+    push di
+    xor bx, bx                  ; BL = the count, BH = the class
+    mov bh, 1
+.next:
+    mov al, bh
+    call drv_cls_svc
+    jc .done
+    cmp word [di+DSV_CPNAME], 0
+    je .skip
+    inc bl
+.skip:
+    inc bh
+    cmp bh, DRVC_MAX
+    jbe .next
+.done:
+    mov al, bl
+    pop di
+    pop bx
+    ret
+
+drv_cp_class:
+    push bx
+    push di
+    mov bl, al                  ; BL = the ordinal wanted
+    mov bh, 1
+.next:
+    mov al, bh
+    call drv_cls_svc
+    jc .no
+    cmp word [di+DSV_CPNAME], 0
+    je .skip
+    or bl, bl
+    jz .hit
+    dec bl
+.skip:
+    inc bh
+    cmp bh, DRVC_MAX
+    jbe .next
+.no:
+    pop di
+    pop bx
+    stc
+    ret
+.hit:
+    mov al, bh
+    pop di
+    pop bx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_cp_name - a class's staged page name
+; in:  AL = class
+; out: SI -> a NUL string in the kernel segment ('' if none)
+; clobbers: SI (the output), flags
+; -----------------------------------------------------------------------------
+drv_cp_name:
+    push ax
+    push dx
+    mov ah, DRV_CPNSZ
+    mul ah
+    sub ax, DRV_CPNSZ           ; class 1 is slot 0
+    add ax, drv_cpname
+    mov si, ax
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_cp_stage - copy one class's page name into the kernel (module internal)
+; in:  BX = the row, ES = the driver's segment, DI = its published table copy
+; out: nothing (all registers preserved)
+;
+; The dsk_get_dir idiom in a new place, and the reason is font_str: it reads
+; its string through DS, and DS is the KERNEL's everywhere the Control Panel
+; draws. A pointer into the driver's segment would render its own image.
+; -----------------------------------------------------------------------------
+drv_cp_stage:
+    push ax
+    push cx
+    push si
+    push di
+    push di
+    mov al, [bx+DRVR_CLASS]
+    call drv_cp_name            ; SI = the staged slot
+    pop di
+    mov cx, [di+DSV_CPNAME]
+    mov di, si
+    mov byte [di], 0
+    jcxz .out                   ; no page: an empty name, and drv_cp_count
+    mov si, cx                  ; then skips this class
+    mov cx, DRV_CPNSZ - 1
+.copy:
+    mov al, [es:si]
+    mov [di], al
+    or al, al
+    jz .out
+    inc si
+    inc di
+    loop .copy
+    mov byte [di], 0
+.out:
+    pop di
+    pop si
+    pop cx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -476,22 +806,51 @@ drv_svc_call:
 ; -----------------------------------------------------------------------------
 drv_svc_clear:
     push ax
+    push bx
     push cx
     push di
     push es
     push ds
     pop es
-    mov word [drv_owner], 0
-    mov word [drv_fseg], 0
-    mov di, drv_svc
+    mov bl, al                  ; BL = the class, for the second lookup
+    call drv_cls_fp
+    jc .out
+    mov word [di+2], 0          ; the segment half: dispatch disarmed
+    mov al, bl
+    call drv_cls_idx
+    shl di, 1
+    mov word [di+drv_owner], 0
+    mov al, bl
+    call drv_cls_svc
     mov cx, DSV_SIZE            ; the table alone: the 16-byte staged sink
     xor al, al                  ; name this once also cleared is gone, and
                                 ; drv_cfg now sits right behind drv_svc
     cld
     rep stosb
+    mov al, bl                  ; ...and the staged page name with it, which
+    call drv_cp_name            ; is what makes drv_cp_count stop counting
+    mov byte [si], 0            ; this class
+.out:
     pop es
     pop di
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_svc_clear_all - forget every class's services (module internal)
+; in:  nothing
+; out: nothing (all registers preserved)
+; -----------------------------------------------------------------------------
+drv_svc_clear_all:
+    push ax
+    mov al, 1
+.next:
+    call drv_svc_clear
+    inc al
+    cmp al, DRVC_MAX
+    jbe .next
     pop ax
     ret
 
@@ -754,8 +1113,14 @@ drv_attach:
     jc .out
     mov es, [bx+DRVR_SEG]
     call drv_publish            ; SI is an offset in ES, so copy it now
+    cmp byte [bx+DRVR_CLASS], DRVC_SOUND
+    jne .notier                 ; a tier is SND_RT_*: it means nothing to a
+                                ; class that is not sound, and sending it
+                                ; would hand the SOUND driver's own row a
+                                ; verb on the disk driver's attach
     mov ah, [snd_route]         ; ...then hand it the persisted tier, which
     call drv_tier               ; may take memory back off it (SPEC.md 34.8).
+.notier:
     clc                         ; A refusal is not a failed attach: the driver
                                 ; is up at whatever tier it could reach, and
                                 ; the Sound page shows which
@@ -862,7 +1227,9 @@ drv_publish:
     push cx
     push si
     push di
-    mov di, drv_svc
+    mov al, [bx+DRVR_CLASS]
+    call drv_cls_svc            ; DI = this CLASS's copy, not the one copy
+    jc .out
     mov cx, DSV_SIZE / 2
 .copy:
     mov ax, [es:si]
@@ -873,9 +1240,18 @@ drv_publish:
     inc di
     loop .copy
 
-    mov [drv_owner], bx         ; which row these belong to, so a detach can
-    mov ax, [bx+DRVR_SEG]       ; take them away again - and the far pointer
-    mov [drv_fseg], ax          ; drv_svc_call dispatches through
+    mov al, [bx+DRVR_CLASS]     ; which row these belong to, so a detach can
+    call drv_cls_idx            ; take them away again...
+    shl di, 1
+    mov [di+drv_owner], bx
+    mov al, [bx+DRVR_CLASS]     ; ...and the far pointer this class's
+    call drv_cls_fp             ; dispatcher goes through
+    mov ax, [bx+DRVR_SEG]
+    mov [di+2], ax
+    mov al, [bx+DRVR_CLASS]     ; the Control Panel page's NAME is staged
+    call drv_cls_svc            ; here and its two procs dispatched through
+    call drv_cp_stage           ; the far pointer above (SPEC.md 31.9)
+.out:
     pop di
     pop si
     pop cx
@@ -988,14 +1364,30 @@ drv_release:
     push ax
     push bx
     push dx
+    push di
     mov dx, [bx+DRVR_SEG]
     or dx, dx
     jz .out
-    cmp bx, [drv_owner]         ; disarm DISPATCH before a byte is freed:
-    jne .norow                  ; snd_tick far-calls through drv_fseg inside
-    mov word [drv_fseg], 0      ; IRQ0, and a tick landing between the free
-    call drv_svc_clear          ; and a later disarm ran freed code. The
-.norow:                         ; single word store is atomic against it
+    mov al, [bx+DRVR_CLASS]     ; disarm DISPATCH before a byte is freed:
+    call drv_cls_idx            ; snd_tick far-calls through drv_fseg inside
+    jc .norow                   ; IRQ0, and a tick landing between the free
+    shl di, 1                   ; and a later disarm ran freed code. The
+    cmp bx, [di+drv_owner]      ; single word store is atomic against it
+    jne .norow
+    mov al, [bx+DRVR_CLASS]
+    call drv_cls_fp
+    mov word [di+2], 0
+    mov al, [bx+DRVR_CLASS]
+    call drv_svc_clear
+    call cp_drv_gone            ; a page this driver owned is on screen no
+                                ; longer, and [cp_sel] must not name it
+                                ; (SPEC.md 31.9)
+.norow:
+    call dsk_vol_drop_drv       ; every volume this driver registered goes
+                                ; BEFORE its claims do (SPEC.md 51.8): a
+                                ; mounted volume whose transport has been
+                                ; freed is a read into whatever claims that
+                                ; memory next
     mov word [bx+DRVR_SEG], 0   ; ...and drv_call is disarmed the same way
     mov word [bx+DRVR_KB], 0
     push bx                     ; anything the DRIVER itself claimed is owned
@@ -1005,6 +1397,7 @@ drv_release:
     call mem_free               ; whose owner word no longer names anything
     pop bx                      ; could never be found again. The mem_free_rec
 .out:                           ; fence (SPEC.md 50.4), for a driver
+    pop di
     pop dx
     pop bx
     pop ax
@@ -1067,8 +1460,11 @@ drv_task:
     jz .fail
     or ax, ax
     jz .exit
-    cmp bx, [drv_fseg]          ; spawn: only the loaded driver, and only its
-    jne .fail                   ; own segment, may ask
+    call drv_pub_seg            ; spawn: only a PUBLISHED driver, and only its
+    jc .fail                    ; own segment, may ask - published and not
+                                ; merely loaded, because drv_publish arms the
+                                ; fence after attach returns and a worker
+                                ; spawned from attach outlives a refusal
     cmp ax, DRV_HDR_SZ          ; an entry inside its own image, past the
     jb .fail                    ; header - the ld_check_hdr test
     mov dl, 0xFF                ; DL -> T_INST: no instance (SPEC.md 8/28);
@@ -1087,8 +1483,6 @@ drv_task:
     stc
     jmp short .out
 .exit:
-    cmp bx, [drv_fseg]
-    je .die
     call drv_owns_seg           ; CF = 0: ES is some loaded row's image
     jc .fail
 .die:
@@ -1604,8 +1998,13 @@ drv_wcnt:   resb 1              ; live driver worker tasks: +1 inside the
                                 ; (drv_task). drv_unload waits for 0 before
                                 ; the image is freed (SPEC.md 51.7)
 drv_fsz:    resw 1              ; the driver file's byte size
-drv_owner:  resw 1              ; the row whose services are published, or 0
-drv_svc:    resb DSV_SIZE       ; a copy of that row's service table
+drv_owner:  resw DRVC_MAX       ; per class: the row whose services are
+                                ; published, or 0. Class 1 is index 0
+drv_cpname: resb DRV_CPNSZ*DRVC_MAX ; each class's staged Control Panel page
+                                ; name; empty = that class has no page
+drv_svc:    resb DSV_SIZE*DRVC_MAX  ; ...and a copy of each one's table, so
+                                ; every `[drv_svc+DSV_*]` in snd.inc still
+                                ; names the SOUND driver's and did not change
 drv_cfg:    resb CFG_NB         ; the live settings, staged (layout above)
 drv_cfgbuf: resb CFG_FBUF       ; the file itself, records and all
 

@@ -32,7 +32,16 @@ DESK_ZOVER  equ 2               ; label overhang each side
 DESK_ZY0    equ 32              ; first zone top
 DESK_ZSTEP  equ 60              ; zone-to-zone vertical pitch
 DESK_ZH     equ 44              ; zone height (top..top+43)
+DESK_COLW   equ 56              ; column-to-column pitch, leftwards
 DESK_DBLT   equ 9               ; double-click window, ticks
+
+; The column wrap (SPEC.md 26.1). Zones run DOWN a column and then start a
+; NEW COLUMN TO THE LEFT, because on CGA they do not all fit: the strip is
+; 640x200 there, the dock's top row is [vid_h]-24 = 176, and zone 2 would run
+; 152..195 - straight through it. [desk_rows] is how many fit above the dock
+; and is computed at boot from the live geometry, never from a constant, so
+; VGA (7) and Hercules (4) keep every volume in one column and CGA (2) puts
+; the hard disk beside the floppies instead of under them.
 
 ; -----------------------------------------------------------------------------
 ; desk_init - count floppy drives from the int 11h equipment word: if bit 0
@@ -43,7 +52,9 @@ DESK_DBLT   equ 9               ; double-click window, ticks
 ; -----------------------------------------------------------------------------
 desk_init:
     push ax
+    push bx
     push cx
+    push dx
     int 0x11                    ; AX = BIOS equipment word
     test al, 0x01               ; bit 0: any floppy drives at all?
     jz .none
@@ -55,14 +66,112 @@ desk_init:
     jbe .store
     mov al, 2                   ; clamp: the desktop shows at most A: and B:
 .store:
-    mov [desk_ndrives], al
-    jmp .init
+    mov ah, al
+    jmp .flags
 .none:
-    mov byte [desk_ndrives], 0
-.init:
+    xor ah, ah
+.flags:
+    ; A floppy the machine does not have gets no zone - but its VOLUME ROW
+    ; stays live, because [disk_drive] may still name it and a mount of an
+    ; absent drive is an ordinary failed mount (SPEC.md 18.3).
+    xor cl, cl
+.zloop:
+    mov bl, cl
+    call dsk_vol_slot
+    mov byte [bx+DV_FLAGS], 0
+    cmp cl, ah
+    jae .zskip
+    mov byte [bx+DV_FLAGS], 1
+.zskip:
+    inc cl
+    cmp cl, 2
+    jb .zloop
+
+    ; How many zones fit in one column above the dock (SPEC.md 26.1). At
+    ; least one, always: a screen with no room for a drive icon is not one
+    ; this OS boots.
+    mov ax, [vid_dock_y0]
+    sub ax, DESK_ZY0
+    xor dx, dx
+    mov cx, DESK_ZSTEP
+    div cx
+    or ax, ax
+    jnz .rows
+    mov ax, 1
+.rows:
+    mov [desk_rows], ax
+
     mov byte [desk_sel], 0xFF   ; no selection
     mov word [desk_clkt], 0
+    pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_ord - a volume's ORDINAL among the zones that are shown
+; in:  AL = volume index
+; out: CF = 0 and AH = the ordinal; CF = 1 = this volume has no zone
+; clobbers: AH (the output), flags
+;
+; The zone list IS the volume table (SPEC.md 18.7/26), so there is no second
+; array to keep in step - which is what makes a driver's C: appear by setting
+; one flag and disappear by clearing it.
+; -----------------------------------------------------------------------------
+desk_ord:
+    push bx
+    push cx
+    xor ah, ah                  ; AH = the ordinal being counted
+    xor cl, cl
+.next:
+    cmp cl, DVOL_MAX
+    jae .no
+    mov bl, cl
+    call dsk_vol_slot
+    test byte [bx+DV_FLAGS], 1
+    jz .skip
+    cmp cl, al
+    je .hit
+    inc ah
+.skip:
+    inc cl
+    jmp short .next
+.hit:
+    pop cx
+    pop bx
+    clc
+    ret
+.no:
+    pop cx
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_zone_label - one volume's desktop caption
+; in:  AL = volume index
+; out: SI -> a NUL string in the kernel segment
+; clobbers: SI (the output), flags
+;
+; The row's own inline label if it has one, else 'Disk X' derived from the
+; index - which is what keeps a driver free to call its volume 'HDD C' while
+; a floppy needs no label stored at all.
+; -----------------------------------------------------------------------------
+desk_zone_label:
+    push ax
+    push bx
+    mov bl, al
+    call dsk_vol_slot
+    lea si, [bx+DV_LBL]
+    cmp byte [si], 0
+    jne .out
+    mov si, desk_lbl_gen        ; 'Disk ' + the letter, built in place
+    add al, 'A'
+    mov [desk_lbl_gen+5], al
+    mov byte [desk_lbl_gen+6], 0
+.out:
+    pop bx
     pop ax
     ret
 
@@ -75,14 +184,21 @@ desk_init:
 ; -----------------------------------------------------------------------------
 desk_paint:
     push ax
+    push bx
     mov al, 0
 .next:
-    cmp al, [desk_ndrives]
+    cmp al, DVOL_MAX
     jae .done
-    call desk_draw_zone         ; AL = drive index
+    mov bl, al
+    call dsk_vol_slot
+    test byte [bx+DV_FLAGS], 1
+    jz .skip
+    call desk_draw_zone         ; AL = volume index
+.skip:
     inc al
     jmp .next
 .done:
+    pop bx
     pop ax
     ret
 
@@ -97,16 +213,54 @@ desk_paint:
 ; (SPEC.md 26/39.2). desk_zone_redraw's own overlap test uses the same two.
 ; -----------------------------------------------------------------------------
 desk_zone_rect:
-    xor ah, ah
-    mov bl, DESK_ZSTEP
-    mul bl                      ; AX = zone * pitch (zone <= 1, so AH stays 0)
-    add ax, DESK_ZY0
-    mov bx, ax                  ; y1 = zone top
-    mov dx, ax
+    call desk_zone_xy           ; AX = zone left, DX = zone top
+    mov bx, dx
     add dx, DESK_ZH-1           ; y2 = top + 43
-    mov ax, [vid_desk_zl]       ; x1, label overhang included
-    mov cx, [vid_desk_zr]
-    dec cx                      ; x2
+    mov cx, ax
+    add cx, DESK_ZW + DESK_ZOVER - 1    ; x2, label overhang included
+    sub ax, DESK_ZOVER                  ; x1, likewise
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_zone_xy - one volume's zone origin (SPEC.md 26.1)
+; in:  AL = volume index
+; out: AX = the HIT zone's left column, DX = its top row
+; clobbers: AX, DX (the outputs), flags
+;
+; Zones fill a column downwards and then start a new one to the LEFT. The
+; row count is [desk_rows], measured at boot against the live dock position -
+; so this is where CGA's third volume stops landing on the dock.
+; -----------------------------------------------------------------------------
+desk_zone_xy:
+    push bx
+    push cx
+    call desk_ord               ; AH = the ordinal, CF=1 = not shown
+    jc .off
+    mov al, ah
+    xor ah, ah
+    xor dx, dx
+    div word [desk_rows]        ; AX = column, DX = row within it
+    mov bx, dx                  ; BX = the row - and it has to leave DX
+    mov cx, DESK_COLW           ; NOW, because both multiplies below write
+    mul cx                      ; there and the second one would eat it
+    mov cx, [vid_desk_zx]
+    sub cx, ax                  ; CX = the column's left, leftwards from the
+                                ; drive column (SPEC.md 26.1)
+    mov ax, bx
+    mov bx, cx                  ; ...banked again, for the same reason
+    mov cx, DESK_ZSTEP
+    mul cx
+    add ax, DESK_ZY0
+    mov dx, ax                  ; DX = the top row
+    mov ax, bx                  ; AX = the left column
+    pop cx
+    pop bx
+    ret
+.off:
+    mov ax, [vid_desk_zx]       ; a hidden volume still needs a rect that is
+    mov dx, -1000               ; nowhere: every caller draws or hit-tests it
+    pop cx                      ; only after its own flag test, and this is
+    pop bx                      ; the belt to that pair of braces
     ret
 
 ; -----------------------------------------------------------------------------
@@ -128,8 +282,14 @@ desk_dmg_zones:
                                 ; desk_zone_rect writes all four GP registers
 .zone:
     mov al, [desk_dzi]
-    cmp al, [desk_ndrives]
+    cmp al, DVOL_MAX
     jae .done
+    push bx
+    mov bl, al
+    call dsk_vol_slot
+    test byte [bx+DV_FLAGS], 1
+    pop bx
+    jz .next
     call desk_zone_rect
     call wm_dmg_hit             ; preserves the rect
     jnc .next
@@ -160,7 +320,7 @@ desk_paint_mask:
     mov bl, al                  ; BL = the mask for the duration
     xor cl, cl
 .next:
-    cmp cl, [desk_ndrives]
+    cmp cl, DVOL_MAX
     jae .done
     mov al, bl
     shr al, cl
@@ -195,32 +355,41 @@ desk_paint_mask:
 desk_click:
     push ax
     push bx
+    push cx
+    push dx
     push si
+    push di
 
-    cmp cx, [vid_desk_zx]       ; horizontal band first
-    jb .miss
-    mov bx, [vid_desk_zx]
-    add bx, DESK_ZW-1
-    cmp cx, bx
-    ja .miss
-
-    mov bx, DESK_ZY0            ; walk the zones: BX = zone top
-    mov al, 0                   ; AL = zone index
+    mov di, cx                  ; DI/SI = the click, and CL = the volume:
+    mov si, dx                  ; desk_zone_xy ANSWERS in AX and DX, so the
+    xor cl, cl                  ; index cannot live in either
 .zone:
-    cmp al, [desk_ndrives]
+    cmp cl, DVOL_MAX
     jae .miss
-    cmp dx, bx
+    mov bl, cl
+    call dsk_vol_slot
+    test byte [bx+DV_FLAGS], 1
+    jz .zstep
+    mov al, cl
+    call desk_zone_xy           ; AX = zone left, DX = zone top
+    cmp di, ax
     jb .zstep
-    mov si, bx
-    add si, DESK_ZH-1
-    cmp dx, si
+    mov bx, ax
+    add bx, DESK_ZW-1
+    cmp di, bx
+    ja .zstep
+    cmp si, dx
+    jb .zstep
+    mov bx, dx
+    add bx, DESK_ZH-1
+    cmp si, bx
     jbe .hit
 .zstep:
-    add bx, DESK_ZSTEP
-    inc al
+    inc cl
     jmp .zone
 
-.hit:                           ; AL = zone/drive index
+.hit:
+    mov al, cl                  ; AL = the volume index
     cmp al, [desk_sel]
     jne .select
     mov bx, [ui_click_t]        ; same zone: double-click? Compare click
@@ -268,7 +437,10 @@ desk_click:
     call gfx_unlock
 
 .out:
+    pop di
     pop si
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -289,43 +461,44 @@ desk_zone_redraw:
     push cx
     push dx
     push si
+    push di
 
-    push ax                     ; keep the zone index for the draw call
-    mov ah, 0
-    mov bl, DESK_ZSTEP
-    mul bl                      ; AX = zone * pitch (8-bit mul: no DX)
-    add ax, DESK_ZY0
-    mov cx, ax                  ; CX = drawn-rect y1
-    mov dx, ax
-    add dx, DESK_ZH-1           ; DX = drawn-rect y2
+    push ax                     ; keep the volume index for the draw call
+    call desk_zone_rect         ; AX/BX = x1/y1, CX/DX = x2/y2 (inclusive)
+    mov si, ax
+    mov di, cx                  ; SI/DI = the drawn rect's columns
+    mov cx, bx                  ; CX/DX = its rows
+    inc di                      ; one past the right edge, for the tests
 
-    mov si, wm_wins
-    mov bh, MAX_WIN
-.win:
-    test word [si+W_FLAGS], 2   ; visible?
+    mov bx, wm_wins             ; BX walks the table and the END is the
+.win:                           ; bound - nothing here has a register to
+                                ; spare for a counter, and AH held it once,
+                                ; which the first [bx+W_X] then ate
+    test word [bx+W_FLAGS], 2   ; visible?
     jz .next
-    mov ax, [si+W_X]
-    cmp ax, [vid_desk_zr]       ; window left past the rect's right edge?
-    jae .next                   ; (zx + 47 + 2 + 1, the shadow included)
-    add ax, [si+W_W]            ; right edge + the 1px drop shadow
-    cmp ax, [vid_desk_zl]
+    mov ax, [bx+W_X]
+    cmp ax, di                  ; window left past the rect's right edge?
+    jae .next
+    add ax, [bx+W_W]            ; right edge + the 1px drop shadow
+    cmp ax, si
     jb .next
-    mov ax, [si+W_Y]
+    mov ax, [bx+W_Y]
     cmp ax, dx                  ; top below the rect?
     ja .next
-    add ax, [si+W_H]            ; bottom edge + shadow
+    add ax, [bx+W_H]            ; bottom edge + shadow
     cmp ax, cx
     jb .next
-    pop ax                      ; overlapped: repaint the world (zone included)
-    call wm_paint_all
-    jmp .done
+    pop ax                      ; overlapped: repaint the world (zone
+    call wm_paint_all           ; included)
+    jmp short .done
 .next:
-    add si, WIN_SIZE
-    dec bh
-    jnz .win
+    add bx, WIN_SIZE
+    cmp bx, wm_wins + MAX_WIN*WIN_SIZE
+    jb .win
     pop ax                      ; clear air: cheap single-zone redraw
     call desk_draw_zone
 .done:
+    pop di
     pop si
     pop dx
     pop cx
@@ -351,47 +524,56 @@ desk_draw_zone:
     mov [desk_gcol], ah         ; byte only - gfx_lock_flag lives next door
 
     mov ah, 0
-    mov [desk_zdrv], ax         ; zone/drive index
-    mov bx, DESK_ZSTEP
-    mul bx                      ; AX = 60*i (DX clobbered)
-    add ax, DESK_ZY0
-    mov [desk_zy], ax           ; zone top
+    mov [desk_zdrv], ax         ; the volume index
+    call desk_zone_xy           ; AX = zone left, DX = zone top
+    mov [desk_zx], ax
+    mov [desk_zy], dx
 
     ; --- gray desktop under the zone + the label's 2px side overhang --------
-    mov bx, ax                  ; y1 = top
-    mov dx, ax
+    mov bx, dx                  ; y1 = top
     add dx, DESK_ZH-1           ; y2 = top+43
-    mov ax, [vid_desk_zl]       ; covers the label overhang
-    mov cx, [vid_desk_zr]
-    dec cx
+    sub ax, DESK_ZOVER
+    mov cx, ax
+    add cx, DESK_ZW + 2*DESK_ZOVER - 1
     call gfx_fill_gray
 
-    ; --- 32x32 disk icon, 8px in from the zone's left ------------------------
-    mov cx, [vid_desk_zx]
+    ; --- 32x32 icon, 8px in from the zone's left -----------------------------
+    mov cx, [desk_zx]
     add cx, 8
     mov dx, [desk_zy]
     mov si, ico_disk32
+    mov ax, [desk_zdrv]
+    mov bl, al
+    call dsk_vol_slot
+    cmp byte [bx+DV_KIND], DVK_DRV
+    jne .icon
+    mov si, ico_hdd32           ; a driver-backed volume is a HARD DISK to
+.icon:                          ; look at, not a floppy (SPEC.md 26)
     call icon_draw
 
-    ; --- label: white rect x 582..633, rows top+32..top+43 -------------------
+    ; --- label: white rect, rows top+32..top+43 ------------------------------
     mov bx, [desk_zy]
     add bx, 32                  ; y1: just under the icon
     mov dx, bx
     add dx, 11                  ; y2: 12 rows = 2px gap + 8px text + 2px gap
-    mov ax, [vid_desk_zl]
-    mov cx, [vid_desk_zr]
-    dec cx
+    mov ax, [desk_zx]
+    sub ax, DESK_ZOVER
+    mov cx, ax
+    add cx, DESK_ZW + 2*DESK_ZOVER - 1
     mov byte [gfx_color], CWHITE
     call gfx_fill
 
-    ; --- "Disk A" / "Disk B", black, 48px wide = the whole zone width --------
+    ; --- the caption, black, centred in the 48px zone ------------------------
     mov byte [gfx_color], CBLACK
-    mov si, desk_lbl_a
-    cmp byte [desk_zdrv], 0
-    je .label
-    mov si, desk_lbl_b
-.label:
-    mov cx, [vid_desk_zx]
+    mov ax, [desk_zdrv]
+    call desk_zone_label        ; SI -> it, the row's or a derived 'Disk X'
+    push si
+    call font_width             ; AX = its pixel width
+    mov cx, [desk_zx]
+    add cx, DESK_ZW/2
+    shr ax, 1
+    sub cx, ax
+    pop si
     mov dx, [desk_zy]
     add dx, 34                  ; text rows top+34..top+41
     call font_str
@@ -400,7 +582,7 @@ desk_draw_zone:
     mov al, [desk_sel]
     cmp al, byte [desk_zdrv]
     jne .done
-    mov ax, [vid_desk_zx]
+    mov ax, [desk_zx]
     mov bx, [desk_zy]
     mov cx, ax
     add cx, DESK_ZW-1
@@ -417,16 +599,20 @@ desk_draw_zone:
     pop ax
     ret
 
-desk_lbl_a  db "Disk A", 0
-desk_lbl_b  db "Disk B", 0
+desk_lbl_gen db "Disk X", 0     ; scratch for desk_zone_label's derived form:
+                                ; a volume with no label of its own is named
+                                ; from its index, in place
 
 ; -----------------------------------------------------------------------------
 section .bss
-desk_ndrives resb 1             ; floppy drives shown on the desktop (0..2)
-desk_sel     resb 1             ; selected zone index, 0xFF = none
+desk_rows    resw 1             ; zones that fit in one column above the dock
+                                ; (SPEC.md 26.1) - 7 on VGA, 4 on Hercules,
+                                ; 2 on CGA, which is why the wrap exists
+desk_sel     resb 1             ; selected VOLUME index, 0xFF = none
 desk_clkt    resw 1             ; click birth tick (EV_C) of the last zone click
 desk_zy      resw 1             ; desk_draw_zone: current zone top
-desk_zdrv    resw 1             ; desk_draw_zone: current zone index
+desk_zx      resw 1             ; ...and its left column (SPEC.md 26.1)
+desk_zdrv    resw 1             ; desk_draw_zone: current volume index
 desk_gcol    resb 1             ; desk_draw_zone: saved [gfx_color]
 desk_dmask   resb 1             ; desk_dmg_zones: the mask under construction
 desk_dzi     resb 1             ; desk_dmg_zones: its loop index
