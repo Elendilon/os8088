@@ -7,7 +7,7 @@ is required reading alongside [SPEC.md](SPEC.md) (what the kernel *is*),
 is about the target machine, which is not the one you are looking at.
 
 **A bare `§` here means SPEC.md**, as it does everywhere else in this repo.
-This document's own divisions are called **Part 1**..**Part 8**, so the two
+This document's own divisions are called **Part 1**..**Part 9**, so the two
 can never be confused.
 
 os8088 targets an **IBM PC/XT: an Intel 8088 at 4.77 MHz**, 4,772,727 cycles
@@ -200,6 +200,42 @@ the mono win, because what alignment removes is disproportionately memory
 traffic. `build/bench360.img` on a real 4.77 MHz 8088 (or 86Box) is where the
 PIT is a wall clock and the microsecond column means microseconds.
 
+### The two harnesses that produce a document rather than a screen
+
+`fontbench` and `typebench` each answer one question and fit on a screen.
+`gfxbench` and `sysbench` answer forty each, so they page — and they **save
+the whole report to a text file** on the current volume (`S`, or the Bench
+menu). That file is the point: it is meant to be carried off the machine and
+pasted into Part 9 below.
+
+- **`gfxbench`** prices every `gfx_*` and `font_*` slot on whichever adapter
+  it booted on, most of them at **two sizes** so the per-call term and the
+  per-pixel term come apart, plus the raw RAM and framebuffer bandwidth
+  underneath them. One package for Hercules AND CGA deliberately: both are
+  the same 1bpp software renderer over four different numbers (§39.3), which
+  it reads from `OSAPI_VIDEO` at run time, so the two columns are the same
+  measurement rather than two sources that can drift. `GFXHERC.TXT` /
+  `GFXCGA.TXT` / `GFXVGA.TXT`.
+- **`sysbench`** prices the machine underneath: **8086-nominal clocks against
+  a real 8088 per instruction class** (the number the last line of Part 2 has
+  been quoting from memory), RAM bandwidth, the clock ladder, the API's
+  far-call floor, what the kernel's own interrupts cost per second of
+  ordinary work, and the floppy. `SYSBENCH.TXT`.
+
+Both are timed the same way, and it is a deliberate departure from
+`fontbench`: the `cli` window is **one iteration, not one row**, so the tick,
+the mouse and any sound refill are serviced *between* iterations and land in
+no measurement at all — where `fontbench`'s whole-row `cli` let one unlucky
+row absorb another task's slice and move by more than the effect. Rows too
+long for a 55 ms PIT wrap fall back to tick timing and are flagged `t`; a row
+whose worst iteration came within a third of the wrap is flagged `!`.
+
+Read the caution block at the top of either report before quoting anything
+from a QEMU run. Two rows there are worse than noise on an emulator and say
+so themselves: the retrace period (QEMU's status port toggles on every read,
+so a poll always terminates) and the VRAM rows under a `HERCSEG=` kernel
+(B0000 is unmapped, so they measure plain RAM and the bus ratio reads 100).
+
 **Instructions are the better proxy, not framebuffer traffic.** §6.1.1
 originally predicted the opposite and was corrected by measurement: the XT
 came in at the *instruction* figure to three digits (1.30×), not the 3.6×
@@ -354,7 +390,9 @@ In rough order of cost, and you do not always need all of it.
 3. **Price it.** Multiply the counts by Part 2's calibration and write the
    milliseconds down in the commit message.
 4. **Instruction-count it** if the change is inside a primitive:
-   `-icount shift=3,sleep=off` and the two benchmarks (Part 4).
+   `-icount shift=3,sleep=off` and the benchmarks (Part 4). If the change is
+   to a `gfx_*` or `font_*` slot, `gfxbench` already has a row for it and a
+   before/after pair of its report is a diff.
 5. **Run it on period hardware** if the change is about *time* rather than
    *work* — `make xt` (4.77 MHz 8088), `make 286`, `make 386sx`, `make 386`
    for the middle of the range. 86Box is not installed in the web container;
@@ -396,4 +434,71 @@ was ruled out (tens of seconds per 448×280 frame before the dither).
 | Paint's design notes and what it cost | [docs/PAINT-NOTES.md](docs/PAINT-NOTES.md) |
 | Per-device cycle budgets on the floor machine | [docs/SOUND-PLAN.md](docs/SOUND-PLAN.md) |
 | Memory, and why there is no growth room | [docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md) |
-| The benchmarks themselves | `tests/fontbench/`, `tests/typebench/` (`make bench`) |
+| The benchmarks themselves | `tests/fontbench/`, `tests/typebench/`, `tests/gfxbench/`, `tests/sysbench/` (`make bench`) |
+| The field measurements they produced | Part 9, below |
+
+---
+
+## Part 9 — The field reports
+
+Part 2's calibration table has fifteen rows and **two of them were ever
+measured on the target**; the rest are estimates from those two, or figures
+carried over from a plan document. Part 9 is where that stops being true. It
+holds the reports `gfxbench` and `sysbench` write, taken on real hardware,
+verbatim enough that a later reader can tell a measurement from an inference.
+
+### How to take a set
+
+```sh
+make bench                      # build/bench360.img is the 5.25" one
+# write build/bench360.img to a floppy, and DO NOT write-protect it -
+# the reports are saved back to that disk
+# boot os8088-360.img, open Disk B, launch GFXBENCH.O88
+#   R runs it (about ten seconds on a 4.77MHz machine)
+#   S saves GFXHERC.TXT / GFXCGA.TXT / GFXVGA.TXT
+# then SYSBENCH.O88, likewise, to SYSBENCH.TXT
+```
+
+A machine with two adapters gets two `gfxbench` sets. The probe picks one
+(§39.1), so the other needs a kernel built with `VIDEO=` forcing it:
+
+```sh
+make BUILD=build/cga VIDEO=cga all      # ...into its OWN build directory,
+                                        # or build/ ships a forced kernel
+```
+
+Do that in a separate `BUILD=` directory and nowhere else. A `VIDEO=`-forced
+kernel that reaches `build/` is a machine that boots the wrong adapter for
+everyone, which `make check-images` now reports as STALE precisely because it
+has happened.
+
+### What to record with the numbers
+
+**Every figure here is provisional and carries its machine** (Part 6 rule 8).
+A report without the four lines below is worth very little:
+
+| | |
+|---|---|
+| machine | make, CPU, clock, RAM |
+| adapter | which card, and whether the kernel probed it or was forced |
+| build | the commit the images were built from |
+| date | when it was run |
+
+### The reports
+
+*No field set has been taken yet.* The harnesses exist, they have been
+verified under QEMU on all three adapters, and the numbers they produced
+there are the host's speed and are not worth writing down (Part 3). When a
+real set arrives it goes here, and the rows it settles come out of Part 2's
+"estimated" column and into its "measured" one — starting with the two the
+whole document leans on:
+
+- **the framebuffer read-modify-write**, quoted at "~30 cycles" from
+  `kernel/font.inc` and never re-measured. `gfxbench`'s `VRAM rmw clocks`
+  row is that number, in the same unit, on the real bus.
+- **the 20–40% an 8086 timing table under-reports an 8088 by**, quoted from
+  docs/SOUND-PLAN.md as a remembered range. `sysbench`'s clocks table is
+  that ratio per instruction class — and the shape matters more than the
+  range, because it is near 1.0 for `mul` and much worse for `nop`, so a
+  single "add 30%" is wrong in both directions depending on what you are
+  adding it to.

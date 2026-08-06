@@ -279,6 +279,13 @@ checks referenced throughout this document:
 | `fsxtest` | fullscreen exclusive (§53): keys 0–8 cycle every mode with an identifying pattern, `x` runs a same-mode bracket, `t` keys a duration-0 tone for the §53.3 legs; the window shows the `fsx_caps` mask (01EF/000F/0011 by adapter) and the last result (`K`/`R`/`F`/`S`) | `make test TESTAPPS=build/fsxtest.img` (also under `VIDEO=cga` / `VIDEO=herc`; `make test-snd` + two instances for the sound legs) |
 | `stackprobe` | the 256-byte task-stack margin (§8) | `make test TESTAPPS=build/stkprobe.img` |
 
+`benchlib.inc` is the one shared source under `tests/` — the timing loop, the
+48-bit arithmetic, the report arena and the file writer that `gfxbench` and
+`sysbench` both use. It is shared rather than copied for the reason
+PERFORMANCE.md Part 6 rule 7 gives: two harnesses that disagree is how three
+of the four sizing bugs in this project were found, and two harnesses that
+were copy-pasted cannot disagree.
+
 `filetest` also has a fragmented-volume variant, `build/filetest-frag.img`,
 and its results are worth pairing with the host-side fsck — the in-kernel
 free-space check and `python3 tools/os88disk.py --verify <img>` catch
@@ -304,7 +311,9 @@ the ~20 bytes over QEMU's 92 being the BIOS nesting this gate exists to see.
 `gfx_fill` + `font_str` pair and as one `font_run`, each byte-aligned and
 again at x+5. `typebench` prices the *keystroke* (§11.94): 40 characters typed
 into a 40-cell line with the whole line redrawn after each, which is what
-`np_redraw` does to its dirty band.
+`np_redraw` does to its dirty band. `gfxbench` prices the *whole drawing
+surface* on whichever adapter it booted on; `sysbench` prices the *machine*
+underneath it. All four ride one disk.
 
 ```sh
 make bench                                                 # build the two disks
@@ -312,6 +321,76 @@ make test                            TESTAPPS=build/bench.img
 make test VIDEO=cga                  TESTAPPS=build/bench.img
 make test VIDEO=herc HERCSEG=0x7000  TESTAPPS=build/bench.img
 ```
+
+### `gfxbench` and `sysbench` — the two that write a file
+
+The first two benchmarks answer one question each and fit on a screen. These
+two answer forty, and a CGA screen holds seventeen lines — so they page
+(`Space`/`PgDn`/`PgUp`/`Up`/`Dn`/`Home`/`End`, or a click) and they **save
+the whole report to a text file** with `S` or the Bench menu. `R` re-runs.
+That file is the deliverable: it is meant to be carried off the machine and
+pasted into [PERFORMANCE.md](../PERFORMANCE.md).
+
+| what | where it lands |
+|---|---|
+| `gfxbench` on VGA / Hercules / CGA | `GFXVGA.TXT` / `GFXHERC.TXT` / `GFXCGA.TXT` |
+| `sysbench` | `SYSBENCH.TXT` |
+
+**The file goes to the CURRENT volume and directory** (SPEC.md §19.2), which
+right after launching a package off the bench disk is that disk's root — so
+the ordinary thing works. It means the bench floppy must **not** be
+write-protected, and on 86Box that is the `wp://` prefix the config keeps
+growing back.
+
+`gfxbench` is ONE package for Hercules and CGA on purpose. Both are the same
+1bpp software renderer over four different numbers (SPEC.md §39.3), which it
+reads from `OSAPI_VIDEO` at run time; two sources would be two chances to
+drift, and the whole value is that the Hercules column and the CGA column are
+the same measurement. It runs on VGA too, for contrast.
+
+What it measures, and why in that shape:
+
+- **Raw bandwidth first**, because everything above it is explained by it.
+  The same loop — 32 rows of 64 bytes — runs against plain RAM and against
+  the framebuffer, so the ratio between those rows IS the bus penalty with
+  the loop, the addressing and the string instruction identical on both
+  sides. Word write, byte write, word read and byte read-modify-write are
+  priced separately because the kernel's inner loops use all four and on an
+  8-bit bus they are not proportional.
+- **Primitives at TWO SIZES** wherever the cost has a per-call part and a
+  per-pixel part (8×8 against 64×64, 8 px against 256 px). One size cannot
+  separate them, and pricing a rect the harness never drew needs both terms.
+  The derived block does that subtraction and prints its inputs beside it.
+- **`gfx_blit4` twice** — a solid source and a four-pixel-run source. That
+  pair is PERFORMANCE.md Part 3 item 4 made mechanical: a run coalescer that
+  has quietly stopped coalescing shows as a ratio near 100, and one number
+  could never show it.
+- **The same ten characters as `fontbench`**, so the two harnesses check each
+  other for free.
+
+`sysbench`'s headline is the one PERFORMANCE.md Part 2 has been quoting from
+memory: **8086-nominal clocks against a real 8088**, per instruction class,
+with the book figure and the ratio printed beside the measurement. The
+interesting part is that the ratio is not one number — it is near 1.0 for
+`mul`, which is execution-bound, and much worse for `nop`, which is starved
+by a 4-byte prefetch queue behind an 8-bit bus. It also prices RAM
+bandwidth, the clock ladder, the API's far-call floor, **what the kernel's
+own interrupts cost per second of ordinary work** (the same workload timed
+with interrupts off and then on), and the floppy — twice, because the first
+read pays the motor spin-up and quoting either figure alone misleads.
+
+Three things about reading their output:
+
+1. **A method-`t` row of 0 counts finished inside one 55 ms tick.** True on a
+   fast host, and never true on the machine this is for.
+2. **A `!` flag means one iteration came within a third of the PIT wrap.**
+   The number is still probably right; it is no longer trustworthy.
+3. **Under QEMU almost every row is noise**, and two are worse than noise:
+   the retrace period (QEMU's status port toggles on every read so a poll
+   always terminates) and the VRAM rows under `HERCSEG=` (B0000 is unmapped,
+   so those rows measure plain RAM and the bus ratio reads 100). Both say so
+   in the report's own header. `build/bench360.img` on real iron is the
+   point of the exercise.
 
 Every one of these images builds on demand — `TESTAPPS` is a prerequisite of
 the test targets, so naming one is enough. `make bench` exists for building
