@@ -648,8 +648,11 @@ SS_CUR     equ 2                ; byte: the running task slot
 SS_COOP    equ 3                ; byte: 0 pre-emptive, 1 cooperative
 SS_NTASK   equ 4                ; byte: MAX_TASKS, the same figure AX answers
 SS_NINST   equ 5                ; byte: INST_MAX, likewise BX
-SS_TSTATE  equ 6                ; MAX_TASKS bytes: 0 free, 1 ready, 2 running,
-                                ; 3 sleeping (SPEC.md 8)
+SS_TSTATE  equ 6                ; MAX_TASKS bytes, the kernel's T_STATE
+                                ; verbatim: 0 free, 1 ready, 2 SLEEPING
+                                ; (SPEC.md 8). There is no "running" state -
+                                ; the running task is SS_CUR, and its T_STATE
+                                ; is 1 like any other ready task
 SS_TCYC    equ SS_TSTATE + MAX_TASKS       ; MAX_TASKS dwords: cycles per task
 SS_INST    equ SS_TCYC + MAX_TASKS * 4     ; ...then the instance records
 SSI_STATE  equ 0                ; byte: 0 free, 1 live, 2 dying

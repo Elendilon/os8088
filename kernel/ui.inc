@@ -960,9 +960,12 @@ ui_s_tmname: db 'TaskMgr', 0     ; the 16-byte header name inst_set_name_x
 ui_tm_open:
     push ax
     push bx
-    push dx
-    push si
-    push di
+    push cx                     ; CX/BP/ES too: ld_run_body is documented as
+    push dx                     ; "loader_run saves regs", and loader_run
+    push si                     ; pushes exactly these three around it - its
+    push di                     ; failure exits return with ES = LOW_SEG or a
+    push bp                     ; just-freed region segment
+    push es
 
     call ui_tm_find             ; already running? front it and stop
     jc .load
@@ -992,9 +995,15 @@ ui_tm_open:
     mov word [ld_pwin], 0       ; no poster: this is not a Disk window's load,
     call ld_run_body            ; and so not loader_run either - there is no
                                 ; listing to refresh and no status line to
-                                ; correct. AL = LD_*; it shows the window
-                                ; itself on the way out
-    mov [ld_status], al
+                                ; correct ([ld_status] is loader_run's to
+                                ; write; storing it here would retitle an
+                                ; open Disk window's status line for a load
+                                ; it never posted). AL = LD_*; it shows the
+                                ; window itself on the way out
+    push ds
+    pop es                      ; ld_run_body's failure exits leave ES aimed
+                                ; at LOW_SEG or a freed region (see the push
+                                ; list above); nothing below may inherit that
     or al, al
     jz .back                    ; LD_OK
     mov bl, al                  ; the reason, out of the same codes a Disk
@@ -1010,15 +1019,20 @@ ui_tm_open:
 .back:
     call ui_tm_back
 .out:
+    pop es
+    pop bp
     pop di
     pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
 
 ; ui_tm_back - put the volume the user was on back. Preserves everything; a
-; failed remount leaves A: at its root, which is a survivable place to be.
+; failed remount leaves the banked volume mount-failed at its root with the
+; write gate shut (not A: - the bank holds whatever drive the user was on),
+; which is a survivable place to be.
 ui_tm_back:
     push ax
     push dx
@@ -1038,7 +1052,10 @@ ui_tm_errs:                     ; indexed by LD_* (loader.inc)
     dw ui_s_dskerr              ; LD_EDISK
     dw ui_s_badpkg              ; LD_EBAD
     dw ui_s_toobig              ; LD_EBIG
-    dw ui_s_badpkg              ; LD_EABORT - it loaded and refused itself
+    dw ui_s_abort               ; LD_EABORT - it loaded and refused itself,
+                                ; and for this package the dominant cause is
+                                ; wm_create failing (window table full), so
+                                ; "not a valid package" would be a lie
     dw ui_s_nomem               ; LD_ENOMEM
 
 ui_s_nodisk: db 'No system disk in drive A:', 0
@@ -1046,6 +1063,7 @@ ui_s_nofile: db 'TASKMGR.O88 is not on the disk', 0
 ui_s_dskerr: db 'Disk error reading it', 0
 ui_s_badpkg: db 'TASKMGR.O88 is not a valid package', 0
 ui_s_toobig: db 'TASKMGR.O88 is too large', 0
+ui_s_abort:  db 'It refused to start', 0
 ui_s_nomem:  db 'Not enough memory to open it', 0
 
 ; -----------------------------------------------------------------------------
@@ -1118,6 +1136,13 @@ ui_note:
     push ax
     push bx
     push si
+    push es
+    push ds
+    pop es                      ; wm_create reads the template through ES:SI
+                                ; and stamps W_SEG from ES (SPEC.md 11/20.1) -
+                                ; a caller arriving with ES elsewhere would
+                                ; register a garbage PACKAGE window whose
+                                ; callbacks far-call into that segment
     mov [ui_note_msg], si
     call gfx_lock
     mov bx, [ui_note_win]
@@ -1131,6 +1156,7 @@ ui_note:
     call wm_show                ; ...or bring an already-dismissed one back
 .out:
     call gfx_unlock
+    pop es
     pop si
     pop bx
     pop ax
