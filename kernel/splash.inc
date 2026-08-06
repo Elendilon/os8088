@@ -23,8 +23,18 @@
 ; the first tick can arrive.
 ; =============================================================================
 
-SPL_RESIDENT equ 6              ; sectors the boot sector waits for before
-                                ; ticking us (must match boot/boot.asm)
+SPL_RESIDENT equ 7              ; sectors the boot sector waits for before
+                                ; ticking us (must match boot/boot.asm).
+                                ; It was 6, and the module ended at 3,072
+                                ; bytes EXACTLY - no headroom at all, so the
+                                ; next thing that had to be resident (the
+                                ; equipment-flag fix in viddet.inc, 32 bytes)
+                                ; failed the assertion below rather than
+                                ; silently ticking a splash that was not
+                                ; aboard. One more sector is one more BIOS
+                                ; read before the bar starts moving, which on
+                                ; a 4.77MHz machine is a fifth of a second of
+                                ; a thirty-second boot
 SPL_GC      equ 0x3CE           ; VGA Graphics Controller index port
 
 ; Spinner: "8088" as 19 stroke segments in a 104x40 box, screen-centred at
