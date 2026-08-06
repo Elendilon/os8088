@@ -420,7 +420,8 @@ half-working panic key is worse than a documented absence).
    — `[trk_fs]` must clear before `fsx_restore`'s repaint — fixed), docs
    (DONE). The two brainstormed polish items did not ship, for different
    reasons:
-   - **Task Manager service badge — DROPPED** (§9.5). `TF_SERVICE` only ever
+   - **Task Manager service badge — DROPPED** (was item 5 of section 9).
+     `TF_SERVICE` only ever
      does anything inside a bracket, and a bracket owns the whole screen, so
      the Task Manager can never be on screen when the flag matters; when the
      Task Manager IS on screen the flag is never even read. There is nothing
