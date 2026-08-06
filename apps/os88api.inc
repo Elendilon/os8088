@@ -31,7 +31,10 @@
 ; your data. A pointer held in BP needs an explicit `ds:` override. That has
 ; always been true inside a callback (you run on the UI task's stack) and
 ; matters more now that a package can own a worker task of its own
-; (OSAPI_TASK_SPAWN below), whose 512-byte stack is likewise in LOW_SEG.
+; (OSAPI_TASK_SPAWN below), whose 256-byte stack is likewise in LOW_SEG -
+; and 256 is a budget to respect, not a suggestion: the tick, the mouse and
+; any sound IRQ land their frames on it while your worker runs (SPEC.md
+; 20.6 rule 6; tests/stackprobe measures the real cost on real hardware).
 ;
 ; A package is assembled at org 0 and OWNS A SEGMENT (SPEC.md 20.1): the
 ; loader puts it on a paragraph boundary and hands it its own CS = DS, so
@@ -648,8 +651,11 @@ SS_CUR     equ 2                ; byte: the running task slot
 SS_COOP    equ 3                ; byte: 0 pre-emptive, 1 cooperative
 SS_NTASK   equ 4                ; byte: MAX_TASKS, the same figure AX answers
 SS_NINST   equ 5                ; byte: INST_MAX, likewise BX
-SS_TSTATE  equ 6                ; MAX_TASKS bytes: 0 free, 1 ready, 2 running,
-                                ; 3 sleeping (SPEC.md 8)
+SS_TSTATE  equ 6                ; MAX_TASKS bytes, the kernel's T_STATE
+                                ; verbatim: 0 free, 1 ready, 2 SLEEPING
+                                ; (SPEC.md 8). There is no "running" state -
+                                ; the running task is SS_CUR, and its T_STATE
+                                ; is 1 like any other ready task
 SS_TCYC    equ SS_TSTATE + MAX_TASKS       ; MAX_TASKS dwords: cycles per task
 SS_INST    equ SS_TCYC + MAX_TASKS * 4     ; ...then the instance records
 SSI_STATE  equ 0                ; byte: 0 free, 1 live, 2 dying
@@ -1211,6 +1217,37 @@ OS88_BSS_SIZE equ 0
                                                 ; question: it says VISIBLE,
                                                 ; which a wholly covered
                                                 ; window still is.
+                                                ;
+                                                ; It is not the same question
+                                                ; as OSAPI_MENU_OWNER either -
+                                                ; see there.
+
+%define OSAPI_MENU_OWNER    KERNEL_SEG:0x02B8   ; out BX = the window owning
+                                                ; the menu bar, 0 = Locator
+                                                ; (SPEC.md 12). Preserves
+                                                ; everything else and FLAGS,
+                                                ; takes no lock, callable from
+                                                ; a worker.
+                                                ;
+                                                ; "Am I the ACTIVE
+                                                ; APPLICATION?" - compare it
+                                                ; against your own window ptr.
+                                                ; Different from OSAPI_WM_TOP
+                                                ; in exactly one case, and it
+                                                ; is the case that matters:
+                                                ; clicking the BARE DESKTOP
+                                                ; hands the bar to Locator and
+                                                ; moves nothing in the
+                                                ; z-order, so the frontmost
+                                                ; visible window is still
+                                                ; yours while the menu bar has
+                                                ; stopped saying your name.
+                                                ; A real-time app that must
+                                                ; stop when the player walks
+                                                ; away wants BOTH tests: this
+                                                ; one for the desktop click,
+                                                ; WM_TOP for a window raised
+                                                ; over you (SPEC.md 44.8).
 
 %define OSAPI_WM_SNAP       KERNEL_SEG:0x0268   ; BX = window ptr, AL = 0
                                                 ; clear / non-zero set. Out:
@@ -1257,7 +1294,7 @@ OS88_BSS_SIZE equ 0
 
 ; --- fullscreen exclusive (SPEC.md 53) ---------------------------------------
 
-%define OSAPI_FSX_CAPS      KERNEL_SEG:0x02B8   ; out AX = bitmask (bit n =
+%define OSAPI_FSX_CAPS      KERNEL_SEG:0x02C0   ; out AX = bitmask (bit n =
                                                 ; FSXM id n settable on the
                                                 ; live adapter), DL =
                                                 ; vid_kind. Any context, lock
@@ -1267,7 +1304,7 @@ OS88_BSS_SIZE equ 0
                                                 ; same bit, one predicate for
                                                 ; both.
 
-%define OSAPI_FSX_RUN       KERNEL_SEG:0x02C0   ; the bracket (SPEC.md 53.1).
+%define OSAPI_FSX_RUN       KERNEL_SEG:0x02C8   ; the bracket (SPEC.md 53.1).
                                                 ; In AX = a near proc in your
                                                 ; image, BX = your window
                                                 ; ptr, CX = flags (bit 0 =
@@ -1306,7 +1343,7 @@ OS88_BSS_SIZE equ 0
                                                 ; on the video card is yours
                                                 ; while a foreign mode is up.
 
-%define OSAPI_FSX_MODE      KERNEL_SEG:0x02C8   ; in AL = FSXM_*, ES:DI = an
+%define OSAPI_FSX_MODE      KERNEL_SEG:0x02D0   ; in AL = FSXM_*, ES:DI = an
                                                 ; FSI_SIZE buffer of yours
                                                 ; (set ES = DS). Bracket-only.
                                                 ; Out CF=0: mode set, screen
@@ -1316,7 +1353,7 @@ OS88_BSS_SIZE equ 0
                                                 ; buffer is armed - call
                                                 ; OSAPI_GFX_DBUF off first.
 
-%define OSAPI_FSX_WAIT      KERNEL_SEG:0x02D0   ; in AL = 0 return at the
+%define OSAPI_FSX_WAIT      KERNEL_SEG:0x02D8   ; in AL = 0 return at the
                                                 ; next tick / 1 return in
                                                 ; vertical retrace (bounded -
                                                 ; a dead port times out

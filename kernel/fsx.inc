@@ -49,7 +49,7 @@ FSIF_PLANAR equ 2
 FSIF_BANKED equ 4
 
 ; -----------------------------------------------------------------------------
-; fsx_caps - which FSXM ids the live adapter can set (SPEC.md 53.8, 0x02B8)
+; fsx_caps - which FSXM ids the live adapter can set (SPEC.md 53.8, 0x02C0)
 ;
 ; in:       nothing
 ; out:      AX = bitmask (bit n = FSXM id n settable), DL = [vid_kind]; CF=0
@@ -74,7 +74,7 @@ fsx_capstab:                    ; indexed by VID_* (VGA 0, HERC 1, CGA 2)
     dw 0x000F                   ; CGA:  0,1,2,3
 
 ; -----------------------------------------------------------------------------
-; fsx_run - the bracket (SPEC.md 53.1, slot 0x02C0 via X stub)
+; fsx_run - the bracket (SPEC.md 53.1, slot 0x02C8 via X stub)
 ;
 ; in:       AX = near entry inside the caller's image, BX = the caller's own
 ;           window ptr, CX = flags (bit 0 = FSXF_KEEPWORKER; others refuse);
@@ -243,7 +243,7 @@ fsx_restore:
     ret
 
 ; -----------------------------------------------------------------------------
-; fsx_mode - set a foreign mode and describe it (SPEC.md 53.4, 0x02C8)
+; fsx_mode - set a foreign mode and describe it (SPEC.md 53.4, 0x02D0)
 ;
 ; in:       AL = FSXM_* id, ES:DI = an FSI_SIZE buffer (ES is the caller's
 ;           own, the gfx_blit4 idiom). Bracket-only, exclusive task only.
@@ -437,7 +437,7 @@ fsx_xcrtc:                      ; Mode X CRTC retiming, index in the low byte
     dw 0xDF12, 0x0014, 0xE715, 0x0616, 0xE317
 
 ; -----------------------------------------------------------------------------
-; fsx_wait - the frame clock, and the present (SPEC.md 53.5, 0x02D0)
+; fsx_wait - the frame clock, and the present (SPEC.md 53.5, 0x02D8)
 ;
 ; in:       AL = 0 return at the next [ticks] change (hlt between polls);
 ;           AL = 1 return in vertical retrace. Bracket-only, exclusive task

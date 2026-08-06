@@ -134,14 +134,25 @@ the floor is **128KB of RAM** rather than 256KB.
 | 0xB0000       | 0xB000  | Hercules framebuffer, 4 banks × 0x2000, 90 bytes/row (§39) — mono adapters only |
 | 0xB8000       | 0xB800  | CGA framebuffer, 2 banks × 0x2000, 80 bytes/row (§39) — mono adapters only |
 
-**The kernel is the first four rungs, and it fits in 64KB.** `KERNEL_SEG`
-through the top of task 0's stack is one contiguous span — code, read-only
-data, `.bss`, the FAT snapshot, the disk caches, the sector buffer and every
-task stack — and guard 1 (§15.1) holds the whole of it to `KERN_BUDGET` =
-65,536, the first 64KB above the BIOS data area. It measures 65,024 bytes
-on the shipped build. **`docs/KERNEL-MEMORY.md` is the maintained account of
-what that is spent on**; raising `KERN_BUDGET` is a decision to be taken
-with whoever asked for the feature, not a build fix.
+**The kernel is the first four rungs, and it fits `KERN_BUDGET`.**
+`KERNEL_SEG` through the top of task 0's stack is one contiguous span — code,
+read-only data, `.bss`, the FAT snapshot, the disk caches, the sector buffer
+and every task stack — and the **`KERN_BUDGET`** guard (§15.1) holds the whole
+of it to 74,240 bytes (72.5KB) just above the BIOS data area. It measures
+72,192 bytes on the shipped build, so 2,048 are spare. **`docs/KERNEL-MEMORY.md`
+is the maintained account of what that is spent on**; raising `KERN_BUDGET` is
+a decision to be taken with whoever asked for the feature, not a build fix.
+
+**The two guards are named, not numbered, and they bind different things.**
+`KERN_BUDGET` is the **footprint** — the span above, RAM taken from the
+machine. **`KERN_CODE_MAX`** is the **segment** — `.text` + `.bss` inside one
+64KB window, because a kernel offset is 16 bits. `KERN_BUDGET` is a policy
+figure and can be raised by asking; `KERN_CODE_MAX` cannot be raised by
+anyone. The boot overlay (§2.5) and the cold segment (§2.6) buy room against
+`KERN_CODE_MAX` and **nothing at all** against `KERN_BUDGET`: overlay code is
+still read off the disk into the FAT window, cold code is still resident.
+They were "guard 1" and "guard 2" until the numbering was found to be the
+reason that distinction kept getting lost.
 
 The one deliberate exception is the menu save-under (§12.4), which is a heap
 **claim** rather than a reservation: 20KB that exists only while a pull-down
@@ -180,7 +191,10 @@ stacks) or **ES** (the disk buffers), never DS. It sits *above* the kernel
 image now, not below it — there is no low memory under the kernel any more,
 because the kernel starts as low as the BIOS lets it.
 
-- `sch_stacks` — 11 × `SCH_STACK` (512) = 5,632 bytes, task slots 1..11 (§8).
+- `sch_stacks` — 11 × `SCH_STACK` (**256**) = 2,816 bytes, task slots 1..11
+  (§8), kept **256-aligned** in `.lowbss` (a `resb` pad before it) so a
+  slice top can be derived from SP alone; a `SCH_MAGIC` canary word sits at
+  the bottom of every slice (§8).
 - Task 0 runs on the same segment at `STK0_TOP`, growing down onto the top
   of `.lowbss` — `STK0_SIZE` = 1,024 bytes. All tasks share one SS, so a
   switch is still an SP swap and SS is not part of the saved frame. **This
@@ -348,9 +362,9 @@ CS here, DS still `KERNEL_SEG` — and the same shim discipline, but **it does
 not go away**. It sits between the image rung and the FAT window, so it
 rides the same contiguous boot read, and it is live for the whole session.
 
-What it buys is guard 2 and nothing else: cold code is inside
-`KERN_BUDGET`'s span (§15.1 guard 1) and outside the kernel's own 64KB
-segment, which since hard-disk support is the binding limit. The Control
+What it buys is `KERN_CODE_MAX` and nothing else: cold code is inside
+`KERN_BUDGET`'s span (§15.1) and outside the kernel's own 64KB segment,
+which since hard-disk support is the binding limit. The Control
 Panel's three code runs are what live there — a module that is large, cold
 enough that a far call per entry costs nothing measurable, and needed on
 exactly the machine where things are going wrong, so it must stay resident.
@@ -368,7 +382,8 @@ Nothing is copied here and nothing is reserved.
 KERNEL_SEG   equ 0x0800                ; linear 0x08000 - guard 8 fences it
 VGA_SEG      equ 0xA000                ; against the boot sector at 0x7C00
 ; the memory ladder (§2) - each rung is the one below plus its size
-KERN_BUDGET  equ 65536                 ; the WHOLE kernel, guard 1 (§2)
+KERN_BUDGET  equ 74240                 ; the WHOLE kernel's footprint (§2)
+KERN_CODE_MAX equ 65536                ; .text + .bss in one segment (§2)
 KIMG_PARA    equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 32   ; 512-rounded
 FAT_SEG      equ KERNEL_SEG + KIMG_PARA   ; FAT snapshot, via ES ONLY (§18)
 DSK_FAT_SECS equ 9                     ; resident FAT cap, sectors (4,608 B)
@@ -378,7 +393,7 @@ LOW_PARA     equ ((KLOW_SIZE + STK0_SIZE + 511) / 512) * 32
 STK0_SIZE    equ 1024                  ; task 0's own stack (§2.1)
 STK0_TOP     equ KLOW_SIZE + STK0_SIZE - 2
 KERN_END     equ LOW_SEG + LOW_PARA    ; ...and there the kernel stops
-KERN_SIZE    equ (KERN_END - KERNEL_SEG) * 16  ; what guard 1 measures
+KERN_SIZE    equ (KERN_END - KERNEL_SEG) * 16  ; what KERN_BUDGET measures
 HEAP_SEG     equ KERN_END              ; the claim heap (§50). There is no
                                        ; package pool: a region is a claim
 ; VGA reference geometry, and the initializers of the live block (§39.2);
@@ -620,13 +635,15 @@ bytes are hard-coded.
 | `font_width` | SI=NUL str               | out AX = pixel width (8 × length)    |
 | `font_str_x` / `font_width_x` | ES:SI = NUL str | the same two, reading the string through **ES** — what the `X` stubs of §20.3 call so a package's string can live in its own segment |
 | `font_run` / `font_run_x` | CX=x, DX=y, SI (ES:SI) = NUL str, AL=ink, AH=background | one **opaque** run: the cells' background AND their glyphs, in a single pass (§6.1). API slot 0x0258 |
-| `osapi_font_glyphs` | — | out SI = the offset of `font_glyphs` in KERNEL_SEG, AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x0218 |
+| `osapi_font_glyphs` | — | out **DX:SI** = the `font_glyphs` table (DX = LOW_SEG — the table left the kernel's own segment when it moved to `.lowbss`), AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x0218, amended from SI-only as a recorded one-time exception to §20.8 rule 4 |
 
 **Handing out the bitmaps** (`osapi_font_glyphs`) is for an app that draws
 text into its OWN pixels rather than onto the screen — apps/paint's text tool
 stamps glyphs into the canvas, so `font_char` is no use to it. The table is
-95 glyphs of 8 rows, row 0 first, bit 7 leftmost, and it is read through ES
-(KERNEL_SEG on entry to every callback, §20.1). Before the slot existed the
+95 glyphs of 8 rows, row 0 first, bit 7 leftmost, and it is read through the
+**DX the cell answers** — the table lives in `.lowbss` (LOW_SEG), NOT in
+KERNEL_SEG, so the ES a callback arrives with is the wrong segment for it;
+load ES (or any segment register) from DX first. Before the slot existed the
 package re-ran `font_init`'s probe — int 10h AX=1130h BH=03h with the
 kernel's own F000:FA6E fallback behind it — to arrive at a table the kernel
 had already built, and got whatever typeface the BIOS happened to hold rather
@@ -686,14 +703,15 @@ take comparable time and differ in what is on screen during it.
 
 #### 6.1.1 What it is worth, measured
 
-`apps/fontbench` is the measurement. It lives on the **`testing` branch**, not
-here — it ships on no disk and nothing in this tree builds or cites it, so it
-is tooling rather than system, and the numbers below stand on their own record
-the way any other measured figure in this document does. What it does: draws
-the same ten-character run (`'C-2 01 A0F'`, a tracker pattern cell) 120 times
-four ways — the hand-written `gfx_fill` + `font_str` PAIR and one `font_run`,
-each at a byte-aligned x and again at x+5 — and times each against counter 0
-of the 8253 read directly, because a 55ms tick cannot resolve a 3ms row.
+`tests/fontbench` is the measurement. It lives in **`tests/`**, built only by
+`make bench` — it ships on no disk, `all` never builds it and nothing under
+that folder is tracked, so it is tooling rather than system, and the numbers
+below stand on their own record the way any other measured figure in this
+document does. What it does: draws the same ten-character run
+(`'C-2 01 A0F'`, a tracker pattern cell) 120 times four ways — the
+hand-written `gfx_fill` + `font_str` PAIR and one `font_run`, each at a
+byte-aligned x and again at x+5 — and times each against counter 0 of the
+8253 read directly, because a 55ms tick cannot resolve a 3ms row.
 
 Run under QEMU with `-icount`, so the PIT counts guest **instructions**
 rather than host time and the result is deterministic and machine-independent
@@ -920,10 +938,20 @@ not worth what it would do to dragging.
   for eleven slots: a refused `OSAPI_TASK_SPAWN` (CF=1) and a stream
   open's err 6 are ordinary outcomes, not edge cases, and a package must
   degrade rather than abort when it cannot have its worker. Each slot has
-  an `SCH_STACK`-byte stack — **512**, measured (§2.1), not guessed:
+  an `SCH_STACK`-byte stack — **256**, measured (§2.1 — 1.8× the deepest
+  0xCC-fill mark ever recorded), not guessed:
   `sch_stacks resb (MAX_TASKS-1) * SCH_STACK` **in `.lowbss`** (§2.1),
-  slot n's stack top at
-  `sch_stacks + n*SCH_STACK` (slot 1 owns bytes 0..511).
+  256-aligned, slot n's stack top at
+  `sch_stacks + n*SCH_STACK` (slot 1 owns bytes 0..255). **Thin is
+  CHECKED, not trusted**: `SCH_MAGIC` (0x5A57) is written at the bottom
+  word of every slice by `task_spawn`, `sch_switch` compares the outgoing
+  task's canary on every switch away — four instructions, no multiply,
+  because 256 makes the slice base the slot index in BH — and a dead
+  canary halts the machine in `sch_stkdie` rather than letting the next
+  push land in another task's slice, where the symptom would be arbitrary
+  and nowhere near the cause. `tests/stackprobe` re-measures the margin on
+  real hardware, where the BIOS lands interrupt frames QEMU's SeaBIOS
+  services on an internal stack of its own.
 - Task record (8 bytes): `T_STATE` (0 free, 1 ready, 2 sleeping), `T_SP`
   (saved SP), `T_WAKE` (tick count to wake at), `T_INST` at offset 6
   (byte: owning instance index, §29; 0xFF = none — the Task Manager
@@ -1284,7 +1312,45 @@ then, so this is invisible.
   with interrupts on; guard their critical sections with cli/sti so the ISR
   never sees a half-drawn state.
 - Public: `mouse_init`, `mouse_unhook`, `cursor_show`, `cursor_hide`,
-  `mouse_x` (word), `mouse_y` (word), `mouse_btn` (byte).
+  `mouse_x` (word), `mouse_y` (word), `mouse_btn` (byte), `mou_hotplug`
+  (§9.4, the UI task's per-pass call).
+
+### 9.4 Reset, absence and hot-plug (`mou_hotplug`)
+
+A serial mouse is **powered by DTR/RTS and resets itself on DTR's rising
+edge**, and both halves of that sentence are binding on the init sequence.
+`mouse_init` therefore does not write its final MCR value straight away: it
+holds DTR/RTS **low** for `MOU_RSTLOW` ticks (~165ms — the parts want
+≥100ms unpowered to guarantee a power-on reset) and then raises them. On a
+cold boot the lines started low and the hold changes nothing; on a
+Ctrl-Alt-Del warm boot they are still high from the previous session, and
+without the hold the MCR rewrite is **no edge at all** — a mouse that was
+wedged (hot-plugged onto live lines) stayed wedged until the power switch,
+which is how this was found on a real 5150.
+
+There is no probe — a machine with no mouse is indistinguishable from one
+whose mouse has not spoken yet — so absence is handled by **standing
+recovery** rather than detection: while no complete packet has ever arrived
+(`[mou_seen]`, set by the ISR at every third byte and never cleared),
+`mou_hotplug` re-runs the drop-hold-raise every `MOU_REPOLL` ticks (~3s), as
+a two-state machine on the UI task's pass (drop is one visit, raise a later
+one; nothing blocks). A mouse plugged in at any point since the last attempt
+gets the same clean power-on a cold boot with it attached does. OUT2 stays
+up throughout every drop, so the IRQ gate never glitches the bus.
+
+The raise provokes the identify burst ('M', maybe '3', maybe a PnP string —
+bit-6-set bytes the resync rule would read as packet headers), and unlike
+`mouse_init`'s poll-and-discard the burst now arrives through the live ISR.
+So the raise arms `[mou_drain]` and **the ISR discards RX** for `MOU_DRAINT`
+ticks (~0.5s). The accepted seam: motion that *starts* inside a drain window
+is eaten with it, self-healing on the next packet — the price of never
+reading a PnP string as clicks. After the first real packet the whole
+mechanism is one `cmp` per UI pass, forever — with one binding subtlety:
+proof can arrive **mid-cycle** (a byte the UART latched before a drop can
+complete a packet while DTR is low), so the stand-down path must check the
+poller's state and restore DTR/RTS first. Standing down with DTR low would
+leave the mouse unpowered for the session — deader than the bug the poller
+exists to fix.
 
 ## 10. events.inc
 
@@ -1452,7 +1518,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_paint_chrome` | the dock and the menu bar and nothing else, for a change that revealed no pixels. Declines to `wm_paint_dmg` over the dock strip when a window hangs over it. Caller holds the gfx lock. |
 | `wm_covered`   | in BX = win ptr; out CF=1 = every pixel of its **frame** rect (drop shadow included) is covered by visible windows above it, so a back-to-front painter may skip it entirely — **W_PAINT included**. Overflow of the 16-rect list answers "not covered". Leaves the clip list disarmed. Caller holds the gfx lock. §11.91. |
 | `wm_win_rect`  | in SI = win ptr; out AX,BX,CX,DX = its occupied rect, inclusive, drop shadow included (WF_FULL: no shadow). Clobbers only those four. |
-| `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x0260 (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8). |
+| `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x0260 (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8) — together with `menu_owner` (§12.6), which answers the other half: a click on the bare desktop changes the active application without touching `wm_zord`, so this routine correctly reports that nothing moved. |
 | `wm_hit`       | in CX=x, DX=y; out BX = topmost visible window ptr containing the point (0 if none), AL = 0 content, 1 title bar, 2 close box, 3 minimize box, 4 grow box. AL=2/AL=3 only when BX is the frontmost visible window (the only one with the boxes drawn); on any other window those regions report AL=1. AL=4 only when BX is the frontmost visible window **and** has WF_SIZABLE (and not WF_FULL): the 13×13 grow-box rect of the frame drawing above; anywhere else that region is plain content (AL=0). A WF_FULL window reports AL=0 for every point — it has no chrome. |
 | `wm_paint_all` | full repaint: desktop gray (below menu bar), then `desk_paint` (§26 — desktop icons sit on the desktop, under every window), then `dock_paint` (§30 — the dock strip sits on the desktop under every window, like the icons), menu bar, every visible window back→front (frame + white content + W_PAINT) — **except** one `wm_covered` answers yes about, which is skipped whole (§11.91). Caller holds gfx lock. |
 | `wm_content`   | in BX = win ptr; out AX = content left, DX = content top. WF_FULL set → AX = W_X, DX = W_Y (no border, no title bar — §11.2). |
@@ -2064,8 +2130,8 @@ failed" on Hercules, which is the shape every mono-gated bug in this system
 has.
 
 **What it is worth, at the workload level.** §6.1.1 prices the primitive;
-`apps/typebench` (on the `testing` branch, like fontbench and for the same
-reason) prices the *keystroke* — 40 random characters typed into a 40-cell
+`tests/typebench` (in `tests/`, like fontbench and for the same reason)
+prices the *keystroke* — 40 random characters typed into a 40-cell
 line, the whole line redrawn after each one, which is what `np_redraw` does to
 its dirty band (§27.2). Under `-icount`:
 
@@ -2137,8 +2203,9 @@ layout is **three zones, left to right**:
 
 **Everything right of the System menu belongs to whichever application is
 active**, so the bar is rebuilt whenever the active application changes —
-`menu_bar` (`MENU_BARMAX` × `MB_ENTSZ`, .bss) is a *runtime* table, not
-static data.
+`menu_bar` (`MENU_BARMAX` × `MB_ENTSZ`, **`.lowbss`** — reached through
+`ss:`, one of the four tables §2's optimization moved out of the kernel's
+own segment) is a *runtime* table, not static data.
 
 ```nasm
 MENU_APPMAX  equ 4              ; app menus the bar can host
@@ -2195,6 +2262,7 @@ sites that already exist:
 |-----------------|-------------------------------------------------------------|
 | `menu_init`     | boot: `[menu_win]` = 0 and one `menu_relayout`, so the very first `wm_paint_all` already draws Locator's bar. Called from kmain after `wm_init`. |
 | `menu_activate` | in: BX = window ptr, or 0 for Locator. Out: **CF = 1 if the active application changed** (the caller owes the bar a repaint), CF = 0 if it was already active. Draws nothing, takes no lock, preserves every register. |
+| `menu_owner`    | out: BX = `[menu_win]` — the window owning the bar, 0 = Locator. Every other register **and the flags** preserved; takes no lock and touches no VRAM, so a worker task may call it, exactly like `wm_top`. The read half of `menu_activate`, and API slot 0x02B8 (§20.3) — see §12.6 for why a package needs it and `wm_top` is not the same question. |
 | `menu_relayout` | recompute `[menu_set]`, `[menu_namep]` and the whole `menu_bar` from `[menu_win]`. Preserves all registers. |
 | `menu_win_set`  | in: BX = window ptr, SI = menu set ptr (0 = none) — stores `[bx+W_MENUS]` and relayouts if BX is the active window. The `OSAPI_MENU_SET` target (§20.3). Preserves every register **and the flags**: its intended call site sits between a package's `wm_create` and the `ret` that owes the loader that call's CF (§20.2). |
 | `menu_check`    | if `[menu_win]` names a window that is no longer visible, `menu_activate` on `wm_top` — the promoted window, or 0 for Locator when none is left. No-op while the owner is visible or already Locator. Preserves every register. Called only from `menu_draw_bar`, so it always runs under the gfx lock on the UI task. |
@@ -2545,6 +2613,45 @@ slot through which a package could supply another. **A width clamp in
 of screen-wide items would want ~83KB and would run off the end of the
 heap into `VIEW_SEG`.
 
+### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x02B8
+
+Two facts about focus exist and they are not the same fact. `wm_top` (§11)
+answers **who is frontmost visible**, out of `wm_zord`. `menu_owner` answers
+**who is the active application**, out of `[menu_win]`. Every ordinary
+transition moves both together, because raising a window activates it — so
+for a long time one of them was published (slot 0x0260) and that seemed
+enough.
+
+**Clicking the bare desktop is the case where they part.** That branch calls
+`menu_activate` with BX = 0 and touches the z-order not at all: Locator owns
+the bar, the desktop has the selection, and the frontmost visible window is
+still whatever it was, pinstripes and all. A package asking `wm_top` is told
+nothing happened. That is right for a package asking "may I draw my content
+unclipped" and wrong for one asking "is the player still here" — apps/arkanoid
+(§44.8) is the second question, and a live ball kept bouncing while the player
+was reading Locator's File menu.
+
+So the slot is a second question rather than a change to the first: `wm_top`
+keeps its number and its contract exactly (§20.8 rule 4), and 0x02B8 is
+`menu_owner`. It is one word read behind an ordinary slot, so it costs what
+`wm_top` costs and carries the same two properties a worker needs — no lock,
+no VRAM. A real-time app wanting "did the player walk away" asks **both**, and
+continues only while both name its own window; a raise is caught by either,
+and the desktop click by this one alone.
+
+The two remaining ways to lose the player are already covered and need no
+third question: being covered is `W_FLAGS` bit 1 plus §11.3's region, and
+being closed does not arise, because the instance is gone.
+
+**Whoever pauses on this owes a re-activation when it un-pauses.** Keyboard
+input follows `wm_top` (§13) and the bar follows `[menu_win]`, so a package
+can be handed a keystroke while it is not the active application — which is
+exactly the state a desktop click leaves it in. A pause keyed on this question
+and a resume that does not answer it is a pause no key can undo: the resume
+sets the mode, the next worker frame reads the same unchanged owner and pauses
+again. `OSAPI_WM_FRONT` on the frontmost window is the whole fix, and §44.8.1
+is the worked example.
+
 ## 13. ui.inc — the UI task (task 0)
 
 Loop forever:
@@ -2765,10 +2872,11 @@ the kind's template (cascaded +16px per pool slot so instances don't
 stack), runs the kind's init proc, and spawns the kind's task if it has
 one. Closing an instance frees all of it.
 
-Per-instance state pools (.bss; slot stride and cap pinned in the §29
-kind table): `app_clk_pool` 10 × 8 (CLK_H/M/S bytes at +0/+1/+2, pad,
-CLK_LAST word at +4, CLK_ACC word at +6), `app_ball_pool` 10 × 8
-(BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
+Per-instance state pools (**`.lowbss`**, reached through `ss:` — two of the
+four tables §2's optimization moved out of the kernel's own segment; slot
+stride and cap pinned in the §29 kind table): `app_clk_pool` 10 × 8
+(CLK_H/M/S bytes at +0/+1/+2, pad, CLK_LAST word at +4, CLK_ACC word at +6),
+`app_ball_pool` 10 × 8 (BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
 §29): `app_clock_kinit` (h/m/s = 0, last =
 [ticks], acc = 0), `app_bounce_kinit` (x=4, y=4, vx=3, vy=2).
 
@@ -2959,8 +3067,8 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 %if KERN_SIZE > KERN_BUDGET
 %error "kernel too big: it must fit KERN_BUDGET - see docs/KERNEL-MEMORY.md"
 %endif
-%if KTEXT_SIZE + KBSS_SIZE > 65536
-%error "kernel image + bss overflows one 64KB segment"
+%if KTEXT_SIZE + KBSS_SIZE > KERN_CODE_MAX
+%error "kernel image + bss overflows KERN_CODE_MAX - one 64KB segment"
 %endif
 %if STK0_SIZE < 512
 %error "STK0_SIZE is too small to be a stack"
@@ -2982,11 +3090,13 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 %endif
 ```
 
-**Guard 1 is the one the project is steered by**: the kernel's whole
+**`KERN_BUDGET` is the one the project is steered by**: the kernel's whole
 footprint — image, scratch, FAT snapshot, disk buffers and every task stack
-— against 64KB (§2). Raising `KERN_BUDGET` is a decision to be taken with
+— against 74,240 bytes (§2). Raising it is a decision to be taken with
 whoever asked for the feature, which is why its message points at
 `docs/KERNEL-MEMORY.md` rather than telling you what to edit.
+**`KERN_CODE_MAX`** is the guard immediately below it, and no conversation
+can move that one: 65,536 is what a 16-bit offset reaches.
 
 Guard 4 is the menu save-under, the one kernel buffer deliberately outside
 that budget because it is a heap claim (§12.4/§50) that exists only while a
@@ -3045,18 +3155,31 @@ guard 7 proves the kernel ends clear of the relocated stack.
 - **`docs/TESTING.md` is the testing map**, and its section on modelling the
   old machine from a fast one is what to read before taking any number: the
   container is ~1000x a 4.77MHz 8088, so a constant sized against it encodes
-  the wrong range, and flicker and input overrun cannot be observed there.
-- The **benchmarks are not here.** `apps/fontbench` (§6.1.1) and
-  `apps/typebench` (§11.94) are the same idea for a *measurement* rather than
-  a gate, and they live on the **`testing` branch**: they ship on no disk,
-  nothing in this tree builds or cites them, and a harness that only ever
-  answers a question once is tooling rather than system. Both time their
+  the wrong range, and a visible redraw, a double-draw flash and input
+  overrun cannot be observed there at all (PERFORMANCE.md Parts 1 and 3).
+- The **benchmarks are not in `apps/`.** `tests/fontbench` (§6.1.1) and
+  `tests/typebench` (§11.94) are the same idea for a *measurement* rather than
+  a gate, and they live in **`tests/`** with the gate packages: they ship on
+  no disk, `all` builds none of them, nothing under that folder is tracked,
+  and a harness that only ever answers a question once is tooling rather than
+  system. `make bench` builds both onto `build/bench.img` and
+  `build/bench360.img`; their *development* stays on the `testing` branch, so
+  the midway artifacts of correcting a harness do not land in this history.
+  Both time their
   drawing paths against counter 0 of the 8253 read directly, because a 55ms
   tick cannot resolve a 3ms row. **Run either under QEMU with `-icount
-  shift=3,sleep=off`** and the PIT counts guest **instructions** instead of
+  shift=3,sleep=off`** — the Makefile has no knob, so override the command:
+  `make test TESTAPPS=build/bench.img QEMU="qemu-system-i386 -icount
+  shift=3,sleep=off"` — and the PIT counts guest **instructions** instead of
   host time, which is what makes a result reproducible (±1 count across runs)
   and independent of the machine it is taken on. Without `-icount` they
   measure the host, which is not an 8088 and not a number worth quoting.
+- **PERFORMANCE.md is the performance map**, the way `docs/TESTING.md` is the
+  testing one: the calibration numbers that let a change be priced without a
+  machine, the standing budget every redraw path in this tree has already been
+  measured down to, and the vocabulary for the three visible defects the
+  emulator cannot show — a *visible redraw* (seconds on a heavy window, and
+  not a flicker), a *double-draw flash*, and *input overrun*.
 - **`check-images`**: `build/` is gitignored but a curated set inside it is
   force-added and shipped — the kernel, both boot sectors, both bootable
   floppies, both software floppies, and every package's `.bin`/`.o88`.
@@ -3264,7 +3387,7 @@ held, and a read landing outside its destination buffer.
 | 1 | bytes 510..511 | == 0xAA55 | garbage/unformatted-disk gate |
 | 2 | BS_jmpBoot[0] | ∈ {0xEB, 0xE9} | MS-spec first validity test; rejects raw data ending in 55 AA |
 | 3 | BPB_BytsPerSec | == 512 exactly | `disk_read` moves exactly 512 B/sector; all stride and ×512 math |
-| 4 | BPB_SecPerClus | ∈ {1,2,4,8,16,32,64,128} | cluster→LBA mul bounds; 0 ⇒ CountOfClusters div-by-zero |
+| 4 | BPB_SecPerClus | ∈ {1,2,4,8,16,32,64} | cluster→LBA mul bounds; 0 ⇒ CountOfClusters div-by-zero. 128 (a 65,536-byte cluster) is refused: it overflows `dskw_clbytes`' word answer to 0 — a divide fault in `fcp_chunkset` — and under-spans `fcp_clspan`'s chunk granule on a mixed pair, so a copy would skip the tail of every source cluster. The MS spec's own note: values yielding >32KB clusters "do not work properly"; no DOS formats them |
 | 5 | BPB_RsvdSecCnt | ≥ 1 | FAT LBA math (FAT starts at RsvdSecCnt) |
 | 6 | BPB_NumFATs | ∈ {1,2} | FAT2-fallback logic; layout math |
 | 7 | BPB_RootEntCnt | ≥ 1, ≤ 512, (RootEntCnt×32) mod 512 == 0 | FAT12/16 must have a root dir (spec); ≤512 bounds the mount stall (≤32 root sectors); whole-sector count is a spec MUST |
@@ -4315,11 +4438,40 @@ path is derived from an unvalidated field.
 
 ### 19.3 The system disk — a FAT12 volume with the kernel in its reserved area
 
-The disk os8088 boots from is a **real FAT12 volume**: DOS, Linux and macOS
-mount it, and so do os8088's own file manager and write path. That is not
-cosmetic — it is what gives loadable drivers (§51) a place to live and
-settings a place to be kept, without a second on-disk format and a second
-set of readers.
+The disk os8088 boots from is a **real FAT12 volume**, mounted by os8088's own
+file manager and write path and by any reader that honours the BPB. That is
+not cosmetic — it is what gives loadable drivers (§51) a place to live and
+settings a place to be kept, without a second on-disk format and a second set
+of readers.
+
+**DOS is not such a reader, and that is a real limitation of this design
+rather than a bug in the image.** DOS builds a *floppy's* BPB from its own
+table of standard formats rather than from the boot sector — the Build BPB
+device-driver call is handed the first sector of the FAT, not sector 0 — so
+it never sees `BPB_RsvdSecCnt` and puts the FAT and root directory at the
+standard offsets. On this disk those offsets hold the **kernel**, so DOS
+parses machine code as file system: garbled directory entries and **52,224
+bytes free** on the 360KB disk, which is 51 free clusters of the kernel's own
+bytes read as a FAT. Modelling that reading against the shipped image
+reproduces the figure to the byte, and it is the signature of this and
+nothing else.
+
+**Verified on PC-DOS 3.30 and MS-DOS 5.00, identical results** — so this is
+not a quirk of one vintage that a later one fixes. A boot-sector BPB is what
+DOS reads for a hard-disk partition; for a standard floppy format it is not
+consulted at all. The disk is undamaged either way: os8088 reads it
+correctly, and a cold boot from it works normally.
+
+The **data** disks are unaffected — `apps.img` and `apps360.img` have
+`RsvdSecCnt` = 1 and are entirely ordinary, so DOS reads those normally
+(§19).
+
+There is no arrangement that satisfies both: DOS insists the FAT and root
+directory occupy the sectors the kernel is in. Making the system disk readable
+on that vintage means moving the kernel out of the reserved area and into the
+data area as a contiguous hidden file, with its start LBA injected into
+`boot/boot.asm` beside `KERNEL_SECTORS` — which is a change to the boot
+layout, not a build detail.
 
 The trick is one field. `BPB_RsvdSecCnt` covers the sectors between the boot
 sector and FAT1 — the reserved area, which belongs to the boot loader by
@@ -4610,7 +4762,7 @@ below the table. There are two families:
   `fdlg_open`, plus a hand-written `api_file_rename` that stages both names.
 
 The table's start (0x0010) and its span are proved by two build-time
-assertions in kernel.asm; the span is **80 × 8** today. `apps/os88api.inc`
+assertions in kernel.asm; the span is **86 × 8** today. `apps/os88api.inc`
 mirrors every offset as an `OSAPI_*` `%define` (§20.5).
 
 ```
@@ -4656,10 +4808,11 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02A0 claim_snapshot
                                                 0x02A8 sys_kb
                                                 0x02B0 gfx_fill_pat  (X)
-                                                0x02B8 fsx_caps
-                                                0x02C0 fsx_run       (X)
-                                                0x02C8 fsx_mode
-                                                0x02D0 fsx_wait
+                                                0x02B8 menu_owner
+                                                0x02C0 fsx_caps
+                                                0x02C8 fsx_run       (X)
+                                                0x02D0 fsx_mode
+                                                0x02D8 fsx_wait
 ```
 
 **Every published slot keeps its number and contract**, on the rule that **a
@@ -4781,20 +4934,27 @@ Slot-specific contracts that are not simply their target routine's:
 0x02B0 gfx_fill_pat      in AX/BX/CX/DX = the rect, SI = 8 pattern bytes
                          in the CALLER's segment (§5). X — vga_pat_stage
                          reads them through DS, so the stub stages them.
-0x02B8 fsx_caps          out AX = the FSXM_* bitmask the live adapter can
+0x02B8 menu_owner        no inputs; out BX = the window owning the menu
+                         bar, 0 = Locator. Everything else and the FLAGS
+                         preserved. No lock, no VRAM: worker-safe, like
+                         0x0260. "Am I the ACTIVE APPLICATION?", which
+                         0x0260 cannot answer — a click on the bare
+                         desktop moves the bar and not the z-order
+                         (§12.6).
+0x02C0 fsx_caps          out AX = the FSXM_* bitmask the live adapter can
                          set, DL = vid_kind (§53.4). Any context.
-0x02C0 fsx_run           in AX = near entry, BX = own window ptr, CX =
+0x02C8 fsx_run           in AX = near entry, BX = own window ptr, CX =
                          flags (bit 0 FSXF_KEEPWORKER). X — the ownership
                          fence reads the caller's DS, inst_pkg_spawn's
                          test. UI-task window callback, lock held; does
                          NOT return until the app's proc does (§53.1).
                          out CF=1 refused, CF=0 the desktop is restored.
-0x02C8 fsx_mode          in AL = FSXM_* id, ES:DI = an FSI_SIZE buffer
+0x02D0 fsx_mode          in AL = FSXM_* id, ES:DI = an FSI_SIZE buffer
                          (ES the caller's own, like gfx_blit4).
                          Bracket-only (§53.4). CF=1 refused: bad id, not
                          this adapter, back buffer armed, not the
                          exclusive task.
-0x02D0 fsx_wait          in AL = 0 next tick / 1 vertical retrace.
+0x02D8 fsx_wait          in AL = 0 next tick / 1 vertical retrace.
                          Bracket-only, CF=1 outside one. Flushes an armed
                          back buffer first while no mode switch has
                          happened — the present (§53.5).
@@ -4804,10 +4964,12 @@ Slot-specific contracts that are not simply their target routine's:
 0x01D0 wm_resize         in BX = win, CX = new outer width, DX = new outer
                          height; lock held. Clamps, re-fits the origin and
                          repaints (§11.1). Never from inside a W_PAINT.
-0x0218 osapi_font_glyphs out SI = the glyph table's offset, DX = its
-                         SEGMENT (LOW_SEG since the table moved to .lowbss
-                         — read through DX, never assume KERNEL_SEG),
-                         AL = 32, AH = 126, CX = 8 (§6).
+0x0218 osapi_font_glyphs out DX:SI = the glyph table (DX = LOW_SEG - it is
+                         NOT in KERNEL_SEG), AL = 32, AH = 126, CX = 8 (§6).
+                         Read it through a segment register loaded from DX.
+                         Amended from SI-only when the table left the
+                         kernel's segment: a recorded one-time exception to
+                         §20.8 rule 4, on the 0x0120/0x0128 terms.
 0x0220 wm_onsize         in BX = win, AX = a near proc in the window's own
                          segment (0 clears). The resize negotiator (§11.1).
 0x0228 osapi_file_here   out DX = the current directory's first cluster
@@ -5049,11 +5211,14 @@ Two teardown corollaries, both about not trading a crash for a leak:
    wrong trade. This is the §14 Bounce idiom, and `app_bounce_task` in
    `kernel/apps.inc` is the reference implementation for everything a
    worker does.
-6. **The worker's stack is `SCH_STACK` (512) bytes in `LOW_SEG`, and
+6. **The worker's stack is `SCH_STACK` (**256**) bytes in `LOW_SEG`, and
    SS ≠ DS** (§2.1).
-   No deep recursion, no large stack buffers, and remember that
-   `[bp+disp]` addresses SS — a kernel or package pointer held in BP needs
-   an explicit `ds:` override.
+   No deep recursion, no large stack buffers — the tick, mouse and any
+   sound IRQ land their frames on this slice while the worker runs, so
+   budget well under the 256 — and remember that `[bp+disp]` addresses
+   SS: a kernel or package pointer held in BP needs an explicit `ds:`
+   override. An overrun is caught by §8's canary and HALTS the machine,
+   loudly, at the next switch.
 7. **What a worker may call.** Only the background-task surface: `gfx_*`,
    `osapi_set_color`, `font_*`, `wm_content`, `wm_obscured`,
    `wm_clip_set`/`wm_clip_clear`, `osapi_video`,
@@ -5187,9 +5352,14 @@ per-interval *diff* of a running cycle counter (§8.1), so a torn pair bills
 a real slice to the wrong row and the error stays in the percentages until
 something else disturbs them. Silently, and only while something is closing.
 So the cell holds one `cli` window across both tables, names included; it is
-about 414 bytes of copy, under a millisecond on an 8088, and exactly as long
-as the window the in-kernel code held. **A caller must treat it as a
-twice-a-second call, not a per-frame one.**
+about 414 bytes of copy, and because the copy is field-at-a-time loops (the
+gather is strided, so `rep movsw` cannot carry most of it) that is roughly
+**3.5–4 ms with interrupts off on a 4.77 MHz 8088** — the longest IF=0
+window in the system, and safe by about 2×, not comfortably: the 8250 holds
+exactly one mouse byte and the next arrives ~8.3 ms behind it at 1200 baud,
+and the PIT (55 ms) is merely delayed. **A caller must treat it as a
+twice-a-second call, not a per-frame one** — at that cadence the window is
+noise, per frame it is a stall the mouse can feel.
 
 `SSI_KB` is the one field filled *outside* that window, and deliberately:
 it is a scan of the claim table per instance, which is not what the window
@@ -6047,6 +6217,28 @@ Four things hold the engine up:
   after a walk is wherever the walk stopped. The flag is **dropped while a
   question is outstanding**: the pause is a trip through the event loop where
   anything else that writes must behave normally.
+- **And `fmv_repaint_all` puts the PIXELS back — the Disk windows, and
+  nothing else on the screen.** `fmv_reload_all` moves every window's cache;
+  what used to follow it was a `wm_paint_all`, so dragging one file between
+  two Disk windows repainted the desktop dither, the drive zones, the chrome
+  and every other application. A paste **reveals nothing** — no window moved,
+  none was hidden, only contents changed — so what it owes is the windows
+  whose listings changed and whatever overlaps them. That is §11.91's
+  mark-and-draw pass, `wm_dmg_wins`, on its own: the same one `wm_dock_under`
+  borrows, without the dither, the zones or the chrome. On the measured drag
+  that is 238 fills and 245 glyphs down to 138 and 169, and no `wm_paint_all`
+  at all.
+
+  Two things about it are load-bearing. It is **one call over the union of
+  the windows, not one call per window**: `wm_dmg_wins` redraws a marked
+  window *whole*, so a per-window loop redraws each overlapping neighbour
+  once per pass — two overlapping Disk windows cost four window paints, which
+  measured *worse* than the `wm_paint_all` it replaced. Inside one call the
+  marking is transitive and every window is painted exactly once. And the
+  windows are redrawn whole rather than in place because of the granularity
+  rule (§11.3): `fm_repaint` is one big fill plus ~40 `font_str`s, the fill
+  clips per pixel and the glyphs per cell, so a window partly covered by
+  another would come back with blank rows wherever a clip edge crossed it.
 - **`fcp_selfchk` refuses a folder pasted into itself or its own subtree**,
   by walking up from the destination looking for the source's cluster —
   the cheapest way to ask "is the source an ancestor" on a file system with
@@ -6570,6 +6762,41 @@ Two things it depends on, both of them the caller's job:
   is built inside `desk_zone_redraw` rather than once around both zones of a
   selection move. Two builds per click is two z-order walks over at most 12
   windows; it is not the thing that was expensive.
+
+### 26.3 Mounting a volume costs the zone grid, not the screen
+
+`osapi_vol_add` and `osapi_vol_del` cannot repaint: a driver adds a volume
+from a Control Panel click with the gfx lock already held. So they post a
+flag and `ui_task`'s idle pass spends it, which is the Control Panel's own
+deferred-repaint idiom (§31.2) — but **`[desk_zdirty]`, not `[cp_dirty]`**.
+That distinction is the whole of this section. `[cp_dirty]` means the
+*scheduler mode* changed, which every window quoting it has to be told
+about, so it is honestly a `wm_paint_all`. A drive zone is one icon at the
+right-hand edge, and mounting a disk was repainting the desktop dither,
+every visible window's frame and every `W_PAINT` to make it appear.
+
+`desk_zones_paint` is `wm_paint_dmg` (§11.91) over the zone grid: the dither
+clipped to that rect, the zones themselves, the chrome, and only the windows
+that overlap. On the measured case — a Disk window open, the Control Panel
+up, two partitions mounted — 371 glyphs became 182, and the 182 is almost
+entirely the Control Panel redrawing its own page after the click. No
+`wm_paint_all` runs at all.
+
+**The rect is the GRID, not the zones currently shown**, and that is the one
+subtle part. Adding or removing a volume can move the zones *after* it: a
+volume added into a hole an earlier unmount left takes an ordinal that used
+to be somebody else's. Sizing to the grid makes the answer independent of
+what is mounted. `desk_zones_dmg` asks `desk_ord_xy` for two corners rather
+than writing the layout arithmetic a second time — ordinal 0 is the top of
+the rightmost column, and the bottom-left corner is
+`(cols-1) * desk_rows + (rows_used-1)`.
+
+That last expression is **not** the last volume's ordinal, and the difference
+is a real bug on one adapter. `[desk_rows]` is 4 on Hercules, so six volumes
+are two columns of four and two — the last ordinal sits in row 1, two whole
+zones above the bottom of the first column, and a rect sized to it would cut
+them off. Taking the deepest row any column reaches costs at most one unused
+row of slack, in the safe direction.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -8548,6 +8775,17 @@ separately: a load that fails leaves the box clear with its reason, and a
 *save* that fails puts `'Cannot save to the system disk'` in the caption
 while the driver it just loaded stays loaded.
 
+**A click on a row that is unloaded but WANTED clears the want instead of
+retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
+no disk — and on a machine where that is permanent (a 5150 that will never
+have an AdLib), this click is the **only** gesture there is for "stop
+asking": without it, every click re-set the want, `SYSTEM.CFG` always said
+try-again, and `drv_notice`'s boot-time Control Panel could not be silenced
+at all. The caption drops to `'Not loaded'`, the notice never fires again,
+and clicking a second time retries the load exactly as before — so a
+machine that gains a card later is one click from using it, and a machine
+that never will is one click from quiet.
+
 A load does floppy I/O with the gfx lock held. That is the bargain every
 file operation in this OS makes (§18.4) — the cursor freezes for the length
 of the read — and the alternative, dropping the lock inside a click handler,
@@ -9686,6 +9924,21 @@ diagnosis, and the Date/Time page prints it (§31.5) because on a machine
 whose clock will not hold a setting, *which* rung answered is the whole
 answer and there is nowhere else to see it.
 
+**Rung 2 is field-verified on a real MM58167** — a clock card at 2C0h in a
+5150, the one rung no emulator can reach (QEMU has neither XT chip; the
+commit that shipped the ladder could only watch it probe and reject). The
+probe claimed the chip through the two missing-half-register signatures and
+the scratch round-trip; the reads decode; a set from the Date/Time page
+writes the counters, the year−1980 cookie and the `CLK_NS_MAGIC` into the
+chip's standby RAM; and the whole setting **survives a warm boot** — both
+Ctrl-Alt-Del and Special→Restart — because the chip runs off bus +5V while
+the machine is powered and the battery only bridges power-off. The same
+machine's **dead battery** confirms the other half: a cold boot finds the
+standby RAM scrambled, `CLK_NS_OK` fails, and the year reconstructs to the
+`CLK_YMIN` floor — the Jan 01 1980 boot is the chip telling the truth about
+its battery, not a probe failure, and one visit to the Date/Time page fixes
+the session and (until power-off) the chip.
+
 **Probe order is the design**, and it is chosen so that no rung ever writes
 to a chip a later rung might have identified differently:
 
@@ -10477,10 +10730,11 @@ graphics. VGA and CGA get their mode — and their clear — from the BIOS.
 Hercules has no BIOS mode at all:
 
 ```
-out 3BFh, 3                     ; configuration: graphics allowed, both pages
+out 3BFh, 1                     ; configuration: graphics allowed, page 0 only
+out 3B8h, 02h                   ; graphics, page 0, video OFF   <- blank
 6845 at 3B4h/3B5h, R0..R11 = 35 2D 2E 07 5B 02 57 57 02 03 00 00
-out 3B8h, 0Ah                   ; graphics, video on, display page 0
 rep stosw  0x4000 words at B000:0000
+out 3B8h, 0Ah                   ; graphics, page 0, video ON    <- unblank
 ```
 
 The 32KB clear is **load-bearing**: `bb_init`'s ordering and the first
@@ -10488,8 +10742,31 @@ desktop paint both assume a cleared framebuffer, and no BIOS will do it. Its
 `cld` is explicit because on the splash path this runs on the boot sector's
 flags and `spl_tick` never issues one.
 
-`vid_text` (`CMD_REBOOT`) returns VGA and CGA to mode 3; Hercules gets
-`out 3BFh, 0` and mode 7.
+**The blank around the whole sequence is equally load-bearing, and the
+ordering is the reason it exists.** Enabling video before the clear — which
+is what this did until it was tested on a real 5150 — means the card is
+*displaying* for the entire length of the clear, and what it displays is
+32KB nobody has written: the BIOS's MDA text page reinterpreted as a bitmap,
+and above it the card's own DRAM as it powered up. That is a bright, roughly
+half-lit 720x348 field, and the clear is 16,384 `stosw` on a 4.77MHz 8088 —
+tens of milliseconds, several whole frames at 50Hz. On an IBM 5151 the step
+from a mostly-black text page to a half-lit screen and back is a beam-current
+swing the flyback answers with an **audible pop**; on screen, and in PCem, it
+is a garbled flash immediately before the progress bar. Clearing 3B8h bit 3
+gates the video signal only — the 6845 keeps running and both syncs keep
+coming out — so blanking costs the monitor nothing, and behind it the
+unavoidable sync transient of a half-written 6845 (its registers are not
+double-buffered) is invisible too.
+
+**3BFh bit 1 is deliberately clear.** It enables the second 32KB page, which
+is at B8000 — a CGA's framebuffer. A machine can hold both cards (the 5150
+this was found on does), and the kernel only ever addresses page 0 (maximum
+offset 7E96h), so the second decode buys nothing and puts two cards on the
+bus for the same addresses.
+
+`vid_text` (`CMD_REBOOT`) returns VGA and CGA to mode 3; Hercules blanks
+(`out 3B8h, 0`), then gets `out 3BFh, 0` and mode 7 — the BIOS reprograms
+the 6845 there too, so it gets the same blank for the same reason.
 
 ### 39.7 Window placement — `wm_fit`
 
@@ -11515,6 +11792,33 @@ later — and then clears `[ark_full]`, `[ark_msg]` and `[ark_stat]`, exactly as
 panel would have queued a whole-board repaint for the worker to perform a
 second time.
 
+**Pausing is not one of the things that owes a full repaint** —
+`ark_draw_msgband`. The mode is the only thing the command changed, the banner
+is the only thing that draws differently for it, and while the game is paused
+nothing moves at all: so pausing and resuming repaint the nine rows the banner
+sits on and nothing else. Both used to call `ark_draw_all` — the background,
+both rails, every brick in the wall, the paddle, the ball, every capsule and
+shot, and the status strip — to put six characters up and take them down
+again. Counted with PERFORMANCE.md Part 4's method, one `P` keystroke was
+**89 `gfx_fill`s and 10 `font_char`s** and is now **2 and 6**. On a 4.77MHz
+machine the old figure is a *visible redraw* in Part 1's sense — not a
+flicker, a wait you sit through while the wall paints itself back a brick at
+a time — where a banner should simply have appeared.
+
+**The band is play area, so the erase takes whatever is standing in it**, and
+that is the part which does not fall out of `ark_clear_msg` + `ark_draw_msg`
+alone. Every object has a path back on the *next* frame — `ark_draw_pu` and
+`ark_draw_shots` redraw unconditionally, `ark_move_paddle` on its wipe flag —
+with one exception: `ark_move_ball` is gated on the ball having **moved**, and
+a paused ball never has. A ball inside the band would be erased and stay
+erased until the resume. So the band routine redraws the ball, and the
+capsules and shots with it, in `ark_draw_all`'s order — objects, then the
+banner on top of them.
+
+It satisfies `[ark_msg]`, which is exactly what it drew, and deliberately
+**not** `[ark_full]` or `[ark_stat]`: a whole-board repaint the worker already
+owes is still owed, and the status strip is outside this band entirely.
+
 ### 44.2 The keyboard has no key-up, so a hold is inferred from the repeat RATE
 
 int 16h delivers keypresses and nothing else. There is no key-up, and a
@@ -11992,38 +12296,97 @@ as a hung window, which is the only reason the slot is non-zero. It is the
 window's *content* that dispatches it: a click on the frame or the drop shadow
 never reaches a callback, so the panel correctly survives one.
 
-### 44.8 Losing the front pauses the rally, and the pause is sticky
+### 44.8 Walking away pauses the rally, and the pause is sticky
 
 A ball that keeps moving while its window is covered is deliberate — §44.1's
 whole argument is that a dropped *frame* must not stop the game — and it is
-exactly wrong when the player has gone to another window. They come back to a
+exactly wrong when the player has gone somewhere else. They come back to a
 lost life they never saw.
 
 `ark_focuschk` runs once per frame, from `ark_update` just after the paddle
-moves. If `[ark_mode]` is `M_PLAY` and `OSAPI_WM_TOP` (slot 0x0260, §20.3)
-answers something other than this window, it banks `M_PLAY` in
-`[ark_wasmode]`, drops to `M_PAUSE` and raises `[ark_full]`. Only `M_PLAY` is
-interrupted: every other
-mode is already still, and `M_READY` has the ball parked on the paddle where
-losing the front costs nothing.
+moves. If `[ark_mode]` is `M_PLAY` it asks **two** questions, and banks
+`M_PLAY` in `[ark_wasmode]`, drops to `M_PAUSE` and raises `[ark_full]` unless
+both answer this window:
 
-**Coming back to the front does not resume**, and that is the point rather
-than an omission. A ball that starts moving the instant a window is raised is
-a ball nobody was watching yet — the same reason a new life waits on Space. It
+- `OSAPI_WM_TOP` (slot 0x0260, §20.3) — **is this window frontmost?** Catches
+  a window raised over the game.
+- `OSAPI_MENU_OWNER` (slot 0x02B8, §12.6) — **is this the active
+  application?** Catches the click on the **bare desktop**, which hands the
+  menu bar to Locator and moves nothing in `wm_zord`. `wm_top` reads that as
+  nothing having happened, correctly and uselessly: the game is still the
+  frontmost window, complete with pinstripes, while the player is off in
+  Locator's menus with a live ball on screen. One question could not cover
+  both, and neither one is a superset of the other.
+
+Only `M_PLAY` is interrupted: every other mode is already still, and `M_READY`
+has the ball parked on the paddle where losing the front costs nothing.
+
+**Coming back does not resume**, and that is the point rather than an
+omission. A ball that starts moving the instant a window is raised is a ball
+nobody was watching yet — the same reason a new life waits on Space. It
 resumes the way every other pause does, through `ark_cmd_pause`, and it uses
 `ark_cmd_pause`'s own `[ark_wasmode]` so the two cannot leave the mode in
 different places.
 
 Three things about where it runs:
 
-- **It is on the WORKER, holding no lock.** That is what `wm_top` can be asked
-  from: it takes no lock, touches no VRAM and answers out of `wm_zord`.
+- **It is on the WORKER, holding no lock.** That is what both slots can be
+  asked from: neither takes a lock or touches VRAM — one reads `wm_zord`, the
+  other one word.
 - **It does not draw.** `[ark_full]` makes the next `ark_render` repaint the
   board with its banner, under the gfx lock, where drawing belongs.
 - **It needs asking rather than telling.** A package learns it *has* the front
   (`W_ONCLICK`, `W_PAINT`), but nothing tells it when it *loses* the front —
   `W_FLAGS` bit 1 only says visible, and a covered window is still visible.
-  `OSAPI_WM_TOP` exists for this.
+  Both slots exist for this.
+
+### 44.8.1 Space resumes, and Space alone never pauses
+
+The pause TOGGLES from exactly one place, `ark_cmd_pause`, so the menu item,
+`P` and §44.8's sticky focus pause cannot leave `[ark_mode]` and
+`[ark_wasmode]` disagreeing. **Space reaches only its resume half**, and the
+asymmetry is deliberate on both sides:
+
+- **It must resume**, because a player who has been pushed into `M_PAUSE` by
+  §44.8 never asked for a pause and has no reason to know which key undoes
+  one. Space is the key already in front of them — it is what serves the
+  ball — and §44.8's whole argument is that the rally restarts when the
+  player is back and ready, which is the same event a serve is.
+- **It must not pause**, because Space already means *serve* and *fire the
+  laser*. A Space that toggled would stop the game every time a laser was
+  fired a frame after the ball left the paddle, and the two meanings are
+  indistinguishable at the key.
+
+So the modes are asymmetric by design: from `M_PAUSE`, Space resumes and sets
+no launch flag — it is spent on the resume, exactly as the key that takes the
+credits panel down is spent on that (§44.7). From every other mode it does
+what it always did: sets `[ark_launch]` and lets the worker decide whether
+that is a serve or a shot.
+
+**A resume takes the menu bar back** (`ark_refocus`), and that is not a
+courtesy — without it the game could not be resumed from the keyboard at all
+after a desktop click. **A key reaches `wm_top`'s window (§13) while the menu
+bar follows `[menu_win]` (§12)**, and §44.8's second question is about the
+second of those. So after a click on the bare desktop, Space still arrives at
+Arkanoid, `ark_cmd_pause` sets `M_PLAY` — and `ark_focuschk` puts it back to
+`M_PAUSE` on the next worker frame, 55 ms later, with nothing on screen to
+show for it. The pause is meant to be sticky, not permanent.
+
+`OSAPI_WM_FRONT` is precisely the call that fixes it, because it *activates*
+before it raises: the game ends up running and named in the bar, which are the
+same fact and were never meant to be two.
+
+**It is gated on `OSAPI_WM_TOP` answering this window, and that gate is
+load-bearing.** On the already-frontmost window `wm_front` takes its
+chrome-only path (§11.90) — `menu_activate`, the bar, the dock, and no window
+repaint. On any other window it repaints, which from inside a callback means
+re-entering the package's own dispatcher through `W_PAINT` while it is still
+in it. So a game that is not frontmost refuses to refocus and `ark_focuschk`
+correctly leaves it paused — which is the right answer anyway.
+
+This is the first package to need the distinction, and it generalises: **any
+real-time package that pauses on §12.6's question must re-activate when it
+un-pauses**, or it has written a pause that only a mouse can undo.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
@@ -13336,13 +13699,20 @@ accesses would need hardware this machine does not have.
 
 ### 50.2 The map
 
-`mem_tab` — `MEM_MAX` (16) records × 6 bytes, kernel `.bss`:
+`mem_tab` — `MEM_MAX` (**32**) records × **8** bytes, in **`.lowbss`**
+(LOW_SEG, reached through `ss:` — the largest of the four tables §2's
+optimization moved out of the kernel's own segment; a reader in another
+segment uses `osapi_claim_snapshot`, §20.9, never a raw pointer):
 
 ```
 MC_SEG   0  word  base segment, 0 = free record
 MC_PARA  2  word  size in paragraphs (KB << 6)
 MC_OWN   4  word  owner: 0..INST_MAX-1 = instance slot;
-                  0xFF00 | tag = the kernel's own (MEM_K_SAVE, MEM_K_BB)
+                  0xFF00 | tag = the kernel's own (MEM_K_SAVE, MEM_K_BB, …);
+                  a package's claims carry the SEGMENT it runs in
+MC_DMA   6  word  the 64KB-page-safe HEAD in paragraphs, 0 = no constraint
+                  (mem_claim_dma, §50.3 — recorded so a claim that MOVES
+                  keeps the property it was granted for)
 ```
 
 The record **is** the allocator, the `inst_tab` idiom of §29.2 rule 7:
@@ -14271,7 +14641,7 @@ second is Tracker (§45), whose worker-fed audio ring is what
 
 ### 53.1 The bracket (binding)
 
-`fsx_run` (slot 0x02C0) is called from a window callback — UI-task context,
+`fsx_run` (slot 0x02C8) is called from a window callback — UI-task context,
 gfx lock held, the `wm_fullscreen` contract — and **does not return until
 the app is done being fullscreen**. In: AX = a near entry inside the
 caller's own image, BX = the caller's own window ptr, CX = flags (bit 0 =
@@ -14399,7 +14769,7 @@ not a guess, §47:
 | 7  | 640x480x16 (12h)        | int 10h AX=0012          | Y | – | – |
 | 8  | 320x240x256 "Mode X"    | 13h + the unchain/retime sequence | Y | – | – |
 
-`fsx_caps` (slot 0x02B8) — out AX = the bitmask of settable ids (bit n =
+`fsx_caps` (slot 0x02C0) — out AX = the bitmask of settable ids (bit n =
 id n), DL = `vid_kind`; callable from any context, lock held or not (the
 `osapi_video` precedent), so an app can grey its mode menu per §47
 *before* entering. The masks: VGA 0x1EF, CGA 0x00F, HERC 0x011. One
@@ -14407,7 +14777,7 @@ documented approximation: `vid_detect` admits EGA-class cards as
 `VID_VGA` (§39.1), and an EGA sets 0Dh but not 12h/13h; if those machines
 ever matter, this is the routine that learns the finer probe.
 
-`fsx_mode` (slot 0x02C8) — in AL = id, ES:DI = a 16-byte `FSI_*` block the
+`fsx_mode` (slot 0x02D0) — in AL = id, ES:DI = a 16-byte `FSI_*` block the
 kernel fills (ES is the caller's own, like `gfx_blit4`). Legal only inside
 the bracket, from the exclusive task. Refusals, CF=1: not in a bracket;
 not this task; id ≥ 9 or its caps bit clear; **the caller's back buffer is
@@ -14459,7 +14829,7 @@ rest, and nothing the app pokes outlives the exit mode set.
 
 ### 53.5 `fsx_wait` — the frame clock, and the present
 
-`fsx_wait` (slot 0x02D0) — in AL: 0 = return at the next `[ticks]` change
+`fsx_wait` (slot 0x02D8) — in AL: 0 = return at the next `[ticks]` change
 (`hlt` between polls — the tick wakes it); 1 = return in vertical retrace:
 3DAh bit 3 for the VGA/CGA family, 3BAh bit 7 for Hercules, the port
 chosen by the **current fsx mode**. Bracket-only, CF=1 outside one. Every
@@ -14587,16 +14957,16 @@ everything they touch.
 ### 53.8 The package ABI (§20.3 slots)
 
 ```
-0x02B8 fsx_caps   out AX = FSXM bitmask for the live adapter, DL =
+0x02C0 fsx_caps   out AX = FSXM bitmask for the live adapter, DL =
                   vid_kind. Any context. Everything else preserved.
-0x02C0 fsx_run    in AX = near entry, BX = own window ptr, CX = flags
+0x02C8 fsx_run    in AX = near entry, BX = own window ptr, CX = flags
                   (bit 0 FSXF_KEEPWORKER). X — the fence reads the
                   caller's DS. UI-task window callback, lock held. Does
                   not return until the app's proc does. CF=1 refused.
-0x02C8 fsx_mode   in AL = FSXM_* id, ES:DI = FSI_SIZE buffer (caller's
+0x02D0 fsx_mode   in AL = FSXM_* id, ES:DI = FSI_SIZE buffer (caller's
                   ES). Bracket-only. CF=0 mode set + block filled;
                   CF=1 refused (id, adapter, back buffer armed, context).
-0x02D0 fsx_wait   in AL = 0 next tick / 1 vertical retrace. Bracket-only
+0x02D8 fsx_wait   in AL = 0 next tick / 1 vertical retrace. Bracket-only
                   (CF=1 outside). Flushes the armed back buffer first
                   while the mode is unswitched (§53.5).
 ```

@@ -457,11 +457,15 @@ dsk_vol_add:
     mov byte [di], 0            ; no label: desk_zone_label derives 'Disk X'
 .live:
     mov byte [bx+DV_KIND], DVK_DRV      ; published LAST: the row is now live
-    mov byte [cp_dirty], 1      ; the desktop owes a zone - and a driver adds
+    mov byte [desk_zdirty], 1   ; the desktop owes a zone - and a driver adds
                                 ; a volume from a page click, with the gfx
                                 ; lock HELD, so the repaint is deferred to
                                 ; ui_task's idle pass exactly as the Control
-                                ; Panel defers its own (SPEC.md 31.2)
+                                ; Panel defers its own (SPEC.md 31.2). Its own
+                                ; flag and not [cp_dirty]: that one means the
+                                ; SCHEDULER MODE changed, which every window
+                                ; quoting it has to be told about, and a drive
+                                ; zone is one icon (SPEC.md 26.3)
     mov ax, bx                  ; the index, back out of the row pointer
     sub ax, dsk_vtab
     mov cl, 4                   ; / DV_SIZE
@@ -500,7 +504,7 @@ dsk_vol_del:
     jne .out                    ; a BIOS floppy is not the driver's to drop
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
-    mov byte [cp_dirty], 1      ; ...and owes the zone's removal likewise
+    mov byte [desk_zdirty], 1   ; ...and owes the zone's removal likewise
     mov word [bx+DV_SEG], 0
     mov byte [bx+DV_LBL], 0
     call dsk_fatw_drop          ; AL is still the index; it also puts the
@@ -674,7 +678,7 @@ osapi_vol_mount:
 ; -----------------------------------------------------------------------------
 osapi_vol_paint:
     call gfx_lock
-    call wm_paint_all
+    call desk_zones_paint
     call gfx_unlock
     ret
 
@@ -1166,13 +1170,20 @@ dsk_bpb_check:
     ; rule 3: bytes/sector == 512 exactly (disk_read moves exactly 512)
     cmp word [dsk_bpb+DSK_B_BPS], 512
     jne .jfail1
-    ; rule 4: sectors/cluster a power of two (0 would divide-fault below)
+    ; rule 4: sectors/cluster a power of two, capped at 64 (0 would
+    ; divide-fault below; 128 makes a 65,536-byte cluster, which overflows
+    ; dskw_clbytes' word to 0 - a divide fault in fcp_chunkset under the gfx
+    ; lock, and fcp_clspan's max() then under-spans a mixed pair so a copy
+    ; skips the tail of every source cluster. The MS spec notes >32KB
+    ; clusters break most tools; DOS never formats them)
     mov al, [dsk_bpb+DSK_B_SPC]
     test al, al
     jz .jfail1
+    cmp al, 64
+    ja .jfail1
     mov ah, al
     dec ah
-    test al, ah                 ; x AND (x-1) == 0: {1,2,4,...,128}
+    test al, ah                 ; x AND (x-1) == 0: {1,2,4,...,64}
     jnz .jfail1
     ; rule 5: reserved sectors >= 1 (the FAT starts at RsvdSecCnt)
     cmp word [dsk_bpb+DSK_B_RSVD], 1
@@ -1795,19 +1806,31 @@ dsk_fatw_park:
     push ax
     push bx
     cmp word [dsk_fatw0], 0xFFFF
-    je .out                     ; nothing resident: nothing to flush or bank,
-                                ; which is also the state at the machine's
-                                ; very first mount
+    je .bank                    ; nothing resident: nothing to flush - but the
+                                ; bank is still written below, because 0xFFFF
+                                ; must OVERWRITE whatever the slot held. Skip
+                                ; it and a window dskw_refat invalidated
+                                ; (rolled-back FAT edits still in the claim's
+                                ; bytes) is resurrected by the next quiet
+                                ; pick under the sector number of an EARLIER
+                                ; park - zombie allocations reach the disk,
+                                ; and if the window slid in between, FAT
+                                ; sectors are read and flushed under the
+                                ; wrong LBA
     cmp word [dsk_fatd0], 0xFFFF
-    je .clean
+    je .bank
     call dskw_flush             ; CF is not propagated: a flush that fails has
-.clean:                         ; already lost those bytes, and refusing the
+                                ; already lost those bytes, and refusing the
                                 ; mount would lose the volume as well
+.bank:
     mov bl, [disk_drive]
     call dsk_fatw_slot          ; BX = this volume's saved-sector word
     jc .out
     mov ax, [dsk_fatw0]
-    mov [bx], ax
+    mov [bx], ax                ; unconditional: banking 0xFFFF is what makes
+                                ; an invalidate stick across a switch (the
+                                ; pick reads it as "owe a load", one 9-sector
+                                ; reload at worst)
 .out:
     pop bx
     pop ax
@@ -1941,15 +1964,17 @@ dsk_fatw_drop:
 ;      CF=1 if the input is outside [2, dsk_maxclus]
 ; clobbers: AX (the output), CF
 ;
-; The SINGLE reader of FAT_SEG (SPEC.md 2.1), via ES only. FAT12 entry:
-; off = clus + clus/2, then the word straddling that offset (an unaligned
-; word load - legal on 8086; the 3-nibble problem dissolves against a
-; resident FAT): odd cluster takes the top 12 bits, even the bottom.
-; FAT16 entry: a plain word array - kept for the shape of the thing, but
-; unreachable since DSK_FAT_SECS fell to 10 (a FAT16 volume needs at least
-; 16 FAT sectors, so mount rule 10 turns it away first). Rule 16 guarantees
-; off+1 stays inside the snapshot for every valid cluster. No EOC/bad-mark
-; decoding lives here - dsk_read_chain's walk is size-driven (SPEC.md 18).
+; The SINGLE reader of the FAT window (SPEC.md 2.1/18.8), via ES only. FAT12
+; entry: off = clus + clus/2, then the word straddling that offset (an
+; unaligned word load - legal on 8086; the 3-nibble problem dissolves against
+; a windowed FAT because dsk_fat_ofs guarantees the sector after is resident
+; too): odd cluster takes the top 12 bits, even the bottom. FAT16 entry: a
+; plain word array - LIVE code on a driver-backed hard-disk volume (SPEC.md
+; 18.7/52.4), where the window slides over a FAT far bigger than DSK_FAT_SECS;
+; only a FLOPPY can never reach it (rule 10 turns a FAT16 floppy away).
+; Rule 16 guarantees off+1 names a real FAT sector for every valid cluster.
+; No EOC/bad-mark decoding lives here - dsk_read_chain's walk is size-driven
+; (SPEC.md 18).
 ; -----------------------------------------------------------------------------
 dsk_next_clus:
     push bx

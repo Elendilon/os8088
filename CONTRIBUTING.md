@@ -157,12 +157,13 @@ Docs: <https://github.com/openai/codex>.
 
 ### Any agent
 
-The three files that matter, in order:
+The four files that matter, in order:
 
 | file          | what it is                                                  |
 |---------------|-------------------------------------------------------------|
 | `SPEC.md`     | the binding contract — every symbol, register contract, constant and data layout. **Update it before changing an interface, not after.** |
 | `CLAUDE.md`   | the working brief — hard rules, build/test commands, the quirks that cost someone an afternoon. |
+| `PERFORMANCE.md` | the target machine — a 4.77 MHz 8088, which your emulator is ~1000× faster than. Calibration numbers, the standing budget every redraw path was measured down to, and the three visible defects QEMU cannot show. **Read it before changing anything that draws or loops.** |
 | `README.md`   | what the OS does and how, for orientation.                   |
 
 ## 3. Rules an agent will break if you don't tell it not to

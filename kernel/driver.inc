@@ -267,7 +267,7 @@ CFG_KESZ    equ 5               ; bytes per table entry
 ; it follows a new key automatically. It used to be a round number chosen by
 ; hand with slack under it, and slack in the one buffer that is sized by an
 ; expression anyone can evaluate is just .bss nothing can use - which, with
-; guard 2 as tight as it now is, is memory somebody else needs.
+; KERN_CODE_MAX as tight as it now is, is memory somebody else needs.
 CFG_FBUF    equ CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2
 
 ; The three plain bytes, as (struct offset, kernel byte) pairs: one loop packs

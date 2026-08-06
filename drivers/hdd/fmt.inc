@@ -138,8 +138,9 @@ hd_fmt_plan:
     ret
 .next:
     shl word [hd_fspc], 1
-    cmp word [hd_fspc], 128
-    jbe .try
+    cmp word [hd_fspc], 64      ; mount rule 4 refuses 128 (a 64KB cluster
+    jbe .try                    ; overflows dskw_clbytes' word), so a layout
+                                ; only reachable there is no layout at all
     pop dx
     pop cx
     pop bx

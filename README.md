@@ -201,6 +201,12 @@ int 12h reports minus 73KB.
 ```
 SPEC.md              the binding module contracts (interfaces, layouts,
                      concurrency rules) - read this first
+PERFORMANCE.md       the target machine - a 4.77MHz 8088, ~1000x slower than
+                     the emulator you are testing on. Calibration numbers,
+                     the standing redraw budget, and the visible defects
+                     QEMU cannot show - read this second
+docs/TESTING.md      what can be tested where, and how to model the old
+                     machine from a fast one
 docs/KERNEL-MEMORY.md what the kernel's byte budget is spent on, and the
                      measured RAM floor
 boot/boot.asm        512-byte boot sector: LBA->CHS, retrying reads

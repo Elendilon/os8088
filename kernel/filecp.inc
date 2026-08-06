@@ -265,8 +265,16 @@ fcp_paste:
 .loop_err:
     mov byte [fcp_err], FERR_NAME
 .err:
-    mov byte [fcp_busy], 0
     mov al, FCPS_ERR
+    call fcp_stop               ; not a bare busy=0: fcp_selfchk and
+                                ; fcp_clspan quiet-switch volumes before this
+                                ; point, so an exit here can owe the listing
+                                ; debt of SPEC.md 18.9 - fcp_stop pays it
+                                ; (dsk_relist) and is a no-op for the exits
+                                ; that owe nothing. Today's two callers
+                                ; full-remount afterwards anyway; this is
+                                ; what keeps "every path back to the event
+                                ; loop pays" true of the NEXT caller too
 .out:
     pop di
     pop si
@@ -460,9 +468,10 @@ fcp_clspan:
 ; the chunk to a cluster multiple and a chunk of zero clusters reads nothing
 ; at all. A 32MB FAT16 volume formatted with 32KB clusters is the case: three
 ; kilobytes of buffer would divide to a zero chunk and the copy would report
-; success having written an empty file. The alignment byte fcp_bufget gives
-; back is already covered, because a cluster is a power of two of sectors and
-; the claim is rounded UP to KB here.
+; success having written an empty file. fcp_bufget must hand fcp_chunkset a
+; buffer of AT LEAST this many whole KB - which is why its alignment fallback
+; refuses rather than shrinking below it (it once shrank, and mem_avail
+; landing exactly here turned the shrink into that empty file).
 ; -----------------------------------------------------------------------------
 fcp_floor:
     push ax
@@ -508,9 +517,26 @@ fcp_bufget:
     mov [fcp_raw], dx           ; what mem_free must be handed back...
     mov ax, dx
     add ax, 31                  ; ...and the 512-BYTE aligned base every
-    and ax, 0xFFE0              ; int 13h target has to have (SPEC.md 2): a
-    mov [fcp_seg], ax           ; claim is only PARAGRAPH aligned
-    dec word [fcp_kb]           ; the alignment costs at most 496 bytes
+    and ax, 0xFFE0              ; int 13h target has to have (SPEC.md 2)
+    mov [fcp_seg], ax
+    cmp ax, dx                  ; belt: guard 6b (kernel.asm) makes every
+    je .whole                   ; claim base KB-aligned, so the rounding
+                                ; never moves it and the whole claim is the
+                                ; buffer. It used to pay an unconditional KB
+                                ; here, which with mem_avail EXACTLY at
+                                ; fcp_floor took the buffer below one cluster
+                                ; and fcp_chunkset divided to a ZERO chunk -
+                                ; fcp_rdnext reads that as "file finished",
+                                ; so the copy wrote an empty destination,
+                                ; reported success, and a Cut then deleted
+                                ; the source
+    dec word [fcp_kb]           ; braces: if a future allocator ever hands
+    mov ax, [fcp_kb]            ; back an unaligned base, the KB the
+    cmp ax, cx                  ; alignment eats must not take the buffer
+    jae .whole                  ; below fcp_floor's one-cluster minimum (CX
+    call fcp_bufput             ; still holds it) - refusing outright is the
+    jmp short .no               ; honest answer, not a silent truncation
+.whole:
     call fcp_chunkset
     pop dx
     pop cx

@@ -31,7 +31,10 @@
 
 MEM_MAX  equ 32                 ; claim records; more than this and a claim
                                 ; is refused, which is the same answer as
-                                ; "no room" and needs no new failure path. It
+                                ; "no room" and needs no new failure path.
+                                ; Mirrored in apps/os88api.inc (SPEC.md 20.9
+                                ; buffer sizing) - change together, rebuild
+                                ; every .o88. It
                                 ; was 16 while a package's REGION came out of
                                 ; a pool of its own and only data competed for
                                 ; records; a region is a claim now (SPEC.md

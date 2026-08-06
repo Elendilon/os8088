@@ -79,8 +79,9 @@
 ;    the background entirely, so the palette is drawn from the white and
 ;    dither classes only and alternates between them.
 ;
-; Keys: left/right move, Space launches the ball (and fires the laser when one
-; is armed), P pauses, N starts a new game.
+; Keys: left/right move, Space launches the ball (fires the laser when one is
+; armed, and resumes when the game is paused - it never pauses), P pauses and
+; resumes, N starts a new game.
 ; =============================================================================
 
 %include "os88api.inc"
@@ -690,8 +691,11 @@ ark_hire:
 ; out: nothing; preserves all registers
 ;
 ; This runs on the UI task and the worker runs the game, so nothing here does
-; anything but set a word the worker reads - except N and P, which change what
-; is on the screen and therefore repaint it.
+; anything but set a word the worker reads - except N, which rebuilds the whole
+; content; P, which draws the banner's band; and Space, which is one or the
+; other depending on the mode: a resume when the game is paused (and then it
+; draws that same band, to take the banner down), a word for the worker
+; otherwise.
 ;
 ; The `or bl, bl` gate is not optional: the numeric keypad sends '4' and '6'
 ; with the arrow scan codes, so without it typing a digit would steer the
@@ -754,7 +758,12 @@ ark_onkey:
     je .new
     jmp .out
 .space:
-    mov byte [ark_launch], 1        ; the worker decides what it means
+    cmp byte [ark_mode], M_PAUSE    ; paused? then Space is the RESUME, and
+    je .resume                      ; nothing else - see ark_cmd_pause
+    mov byte [ark_launch], 1        ; otherwise the worker decides what it
+    jmp .out                        ; means: serve, or fire the laser
+.resume:
+    call ark_cmd_pause              ; on M_PAUSE that is the resume half
     jmp .out
 .pause:
     call ark_cmd_pause
@@ -825,6 +834,21 @@ ark_onclick:
 ; -----------------------------------------------------------------------------
 ; ark_cmd_new / ark_cmd_pause - the two commands, shared by keys and menu
 ; in:  the origin tracked; gfx lock held; preserve all registers
+;
+; ark_cmd_pause TOGGLES, and it is the single place the mode is banked and put
+; back - the menu item, P, and the sticky focus pause (ark_focuschk) all end
+; here, so none of them can leave [ark_mode] and [ark_wasmode] disagreeing.
+; It costs a BAND, not a board: ark_draw_msgband, and the reasoning is there.
+; ark_cmd_new is the other way round - a new wall, a new score and a new life
+; count are the whole content, so it is one of the few honest ark_draw_alls.
+;
+; Space is deliberately NOT a caller of the halt half. It reaches the resume
+; half only (ark_onkey), because Space already means serve and fire: a Space
+; that also paused would stop the game every time a player fired a laser one
+; frame after the ball came off the paddle. So the game is paused by P, by the
+; menu, or by walking away, and Space is the one key that can only ever start
+; it moving again - which is also what a player reaching for the keyboard in
+; front of a PAUSED banner will press first.
 ; -----------------------------------------------------------------------------
 ark_cmd_new:
     call ark_newgame
@@ -833,6 +857,7 @@ ark_cmd_new:
 
 ark_cmd_pause:
     push ax
+    push bx
     mov al, [ark_mode]
     cmp al, M_PAUSE
     je .resume
@@ -844,13 +869,53 @@ ark_cmd_pause:
 .halt:
     mov [ark_wasmode], al
     mov byte [ark_mode], M_PAUSE
-    call ark_draw_all
+    call ark_draw_msgband           ; the banner's band, not the content
     jmp .out
 .resume:
-    mov al, [ark_wasmode]
+    call ark_refocus                ; BEFORE the mode goes live, or the very
+    mov al, [ark_wasmode]           ; next worker frame pauses it again
     mov [ark_mode], al
-    call ark_draw_all
+    call ark_draw_msgband
 .out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ark_refocus - become the ACTIVE APPLICATION again, as part of a resume
+; in:  gfx lock held (every caller is a window callback); preserves all
+;      registers
+;
+; **A key can reach a window that is not the active application**, and that is
+; the whole reason this exists. The kernel routes a keystroke to OSAPI_WM_TOP's
+; window (SPEC.md 13) and hands the menu bar to [menu_win] (SPEC.md 12), and a
+; click on the bare desktop moves the second without moving the first - so
+; after one, Space still arrives here while Locator owns the bar. Resuming on
+; it then set M_PLAY and ark_focuschk put it straight back to M_PAUSE on the
+; next frame, 55ms later, with nothing on screen to show for it: a game that
+; could not be resumed from the keyboard at all. The pause is meant to be
+; sticky, not permanent.
+;
+; So a resume takes the bar back. OSAPI_WM_FRONT is exactly that call - it
+; activates before it raises - and the game is then running and named in the
+; bar, which are the same fact and should never have been two.
+;
+; **The wm_top test is not redundant.** On the window that is already frontmost
+; wm_front takes its chrome-only path: menu_activate, the bar and the dock, no
+; window repaint. On any other it repaints - which from inside a callback means
+; re-entering this package's own dispatcher through W_PAINT while we are still
+; in it. So this refuses rather than raising, and ark_focuschk's next frame
+; correctly leaves a game that is not frontmost paused.
+; -----------------------------------------------------------------------------
+ark_refocus:
+    push ax
+    push bx
+    call OSAPI_WM_TOP               ; BX = frontmost visible, 0 = none
+    cmp bx, [ark_win]
+    jne .out
+    call OSAPI_WM_FRONT             ; BX is already our window - the cmp above
+.out:                               ; is what proved it
+    pop bx
     pop ax
     ret
 
@@ -1148,13 +1213,22 @@ ark_update:
     ret
 
 ; -----------------------------------------------------------------------------
-; ark_focuschk - pause the rally if another window has come forward
+; ark_focuschk - pause the rally if the player has gone somewhere else
 ; preserves all registers
 ;
 ; A ball keeps moving while the game is covered - that is deliberate (SPEC.md
 ; 44.1: a dropped FRAME must not stop the game), and it is exactly wrong when
 ; the player has gone to another window. They come back to a lost life they
 ; never saw.
+;
+; **Two questions, because neither one alone is "did the player walk away".**
+; OSAPI_WM_TOP answers who is frontmost, which catches a window raised over
+; us. OSAPI_MENU_OWNER answers who the ACTIVE APPLICATION is, which catches
+; the click on the bare desktop - that hands the menu bar to Locator (SPEC.md
+; 12) and moves nothing in the z-order, so the frontmost visible window is
+; still this one and WM_TOP alone reads it as nothing having happened. The
+; player is looking at the Locator's menus with a live ball on screen. So the
+; rally continues only while BOTH say us.
 ;
 ; **The pause is sticky.** Coming back to the front does not resume, because a
 ; ball that starts moving the instant a window is raised is a ball nobody was
@@ -1165,10 +1239,11 @@ ark_update:
 ; Only M_PLAY is interrupted. Every other mode is already still, and M_READY
 ; has the ball parked on the paddle where losing focus costs nothing.
 ;
-; Runs on the WORKER, holding no lock. That is what OSAPI_WM_TOP is for: it
-; takes no lock, touches no VRAM and answers from the z-order, so a background
-; task may ask. Drawing the banner is not done here - [ark_full] makes the
-; next ark_render frame repaint under the gfx lock, where drawing belongs.
+; Runs on the WORKER, holding no lock. That is what both of those slots are
+; for: neither takes a lock or touches VRAM - one reads wm_zord, the other one
+; word - so a background task may ask every frame. Drawing the banner is not
+; done here: [ark_full] makes the next ark_render frame repaint under the gfx
+; lock, where drawing belongs.
 ; -----------------------------------------------------------------------------
 ark_focuschk:
     push ax
@@ -1177,7 +1252,11 @@ ark_focuschk:
     jne .out
     call OSAPI_WM_TOP               ; BX = frontmost visible, 0 = none
     cmp bx, [ark_win]
+    jne .lost
+    call OSAPI_MENU_OWNER           ; BX = the active application, 0 = Locator
+    cmp bx, [ark_win]
     je .out
+.lost:
     mov al, M_PLAY
     mov [ark_wasmode], al
     mov byte [ark_mode], M_PAUSE
@@ -3218,6 +3297,46 @@ ark_draw_msg:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ark_draw_msgband - repaint the banner's BAND and nothing else
+; in:  gfx lock held, origin tracked; preserves every register
+;
+; Pausing and resuming change one thing on screen: the nine rows the banner
+; sits on. Both used to call ark_draw_all - the background, both rails, every
+; brick in the wall, the paddle, the ball, every capsule and shot, and the
+; status strip - to put six characters up and take them down again. On a
+; 4.77MHz machine that is most of a second of drawing, and it is also the
+; whole frame going white and coming back, which reads as a glitch rather
+; than as a pause. Nothing else can have changed: the mode is the only thing
+; the command touched, and while the game is paused nothing moves at all.
+;
+; **The ball is redrawn because a paused game will never redraw it.** The band
+; is play area, so the erase takes whatever is standing in it - and every
+; other object has a path back on the next frame (ark_draw_pu and
+; ark_draw_shots redraw unconditionally, ark_move_paddle on its wipe flag)
+; while ark_move_ball is gated on the ball having MOVED. Paused, it never has,
+; so a ball inside the band would be erased and stay erased until the resume.
+; The capsules and shots are here for the same reason one order lower: they
+; would come back, but a frame later, and a capsule that blinks when you press
+; P is still a bug.
+;
+; The order is ark_draw_all's - objects, then the banner over them - because
+; the banner is what the player is being shown and it belongs on top.
+;
+; This does NOT satisfy [ark_full] or [ark_stat], and must not clear them: a
+; full repaint the worker already owes is still owed, and the status strip is
+; outside this band entirely. It does satisfy [ark_msg], which is exactly what
+; it just drew.
+; -----------------------------------------------------------------------------
+ark_draw_msgband:
+    call ark_clear_msg
+    call ark_draw_ball
+    call ark_draw_pu
+    call ark_draw_shots
+    call ark_draw_msg
+    mov byte [ark_msg], 0
     ret
 
 ; -----------------------------------------------------------------------------
