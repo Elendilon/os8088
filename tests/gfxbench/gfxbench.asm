@@ -370,6 +370,9 @@ gb_run:
     mov si, gb_p_comp
     call bl_progress
     call gb_composite
+    mov si, gb_p_fs
+    call bl_progress
+    call gb_fs
     call gb_derived
 %endif
     call gb_trailer
@@ -922,6 +925,12 @@ gb_prims:
     mov dx, [bl_last+2]
     mov [gb_tf64], ax
     mov [gb_tf64+2], dx
+    mov word [bl_body], gb_b_clipfill   ; the SAME fill under an armed clip
+    mov word [bl_n], 24                 ; region (SPEC.md 11.3) - what every
+    mov si, gb_r_f64c                   ; covered background window pays. Next
+    xor al, al                          ; to its own unclipped row on purpose:
+    call bl_run                         ; the gap is the region's cost, and the
+    mov word [bl_body], gb_b_fill       ; API block prices SET+CLEAR alone
     call gb_boxfull
     mov word [bl_n], 6
     mov si, gb_r_fbox
@@ -1175,7 +1184,138 @@ gb_composite:
     pop ax
     ret
 
-; --- block 6: what the two-size rows imply -----------------------------------
+; --- block 6: the same machine with no window around it ----------------------
+;
+; SPEC.md 11.2's fullscreen surface IS a real window - the frame becomes the
+; whole screen and wm_draw_win draws no chrome at all - so every primitive
+; below runs against identical code at a different place on the glass.
+;
+; THE PRIMITIVE ROWS ARE HERE TO BE BORING. If the per-call floor really is
+; CPU-side setup (PERFORMANCE.md Part 2: two cards 13% apart at the bus priced
+; GFX_PIXEL 0.008% apart) then where the sandbox sits cannot matter, and these
+; rows should land on their windowed twins above. One that does NOT has found
+; something position-dependent that nobody believed was - a bank boundary, an
+; alignment, a clip - and that is worth a whole run to know. They carry the
+; SAME labels as their twins so the two can be diffed by name.
+;
+; The COMPOSITE rows are here because they genuinely change: there is no title
+; bar to redraw and the page is the whole screen tall rather than one window's
+; content. WM_TITLE is deliberately NOT among them: under WF_FULL the frame is
+; the content, so wm_title_set would letter a title bar over the app's own top
+; 18 rows - a question about the kernel, not a measurement of it.
+;
+; ONE CAVEAT ON READING THE PRIMITIVE PAIRS, and it is a VGA one. [bb_mono]
+; (SPEC.md 32) is a ONE-WAY flag, and bb_mono_chk is five instructions cheaper
+; once it has retired - so if anything drawn between the two passes used a
+; colour other than 0 or 15, every fullscreen row comes in slightly under its
+; twin for a reason that has nothing to do with fullscreen. It shows as a FLAT
+; few instructions per drawing call rather than a proportional gap. On the two
+; 1bpp adapters - the machine this suite is for - bb_init retires the flag at
+; boot (SPEC.md 39.5), so the mono columns are a clean A/B and measured
+; identical under -icount on a CGA.
+;
+; And the entering and leaving is itself a measurement nothing else here can
+; reach. wm_fullscreen is the ONE window-composition call a package may make
+; while it holds the gfx lock - OSAPI_WM_RESIZE says "Do NOT hold the gfx
+; lock" in as many words, and WM_SHOW/HIDE/FRONT take it themselves, so from
+; inside a window callback they are a deadlock rather than a measurement.
+; Its ENTER is a resize to the whole screen plus a repaint of this window; its
+; EXIT is a restore plus a wm_paint_all - the whole-screen repaint Part 1
+; calls a "visible redraw", that Part 5's budget table is entirely organised
+; around avoiding, and that no field set has ever put a number on. What is in
+; it: the desktop dither, the drive zones, the dock, the menu bar and every
+; visible window's frame and W_PAINT - one of which is this report, whose own
+; cost the `whole page of rows` row above prices separately.
+gb_fs:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call bl_blank
+    mov si, gb_s_h_fs
+    call bl_sline
+    mov si, gb_s_h_fs2
+    call bl_sline
+    call bl_head
+
+    mov word [bl_n], 4              ; in and out as one body: the enter cannot
+    mov word [bl_body], gb_b_fspair ; be repeated without the exit. Method T -
+    mov si, gb_r_fspair             ; a wm_paint_all is seconds on the target
+    mov al, 1                       ; and would lap the PIT ten times over
+    call bl_run
+
+    mov al, 1                       ; ...and now stay there for the rows
+    mov bx, [gb_win]
+    call OSAPI_FULLSCREEN
+    jc .refused
+    call gb_geom                    ; the sandbox follows the content box
+
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    mov word [bl_n], 300
+    mov word [bl_body], gb_b_pixel
+    mov si, gb_r_px
+    xor al, al
+    call bl_run
+    call gb_box64
+    mov word [bl_n], 24
+    mov word [bl_body], gb_b_fill
+    mov si, gb_r_f64
+    xor al, al
+    call bl_run
+    mov word [bl_n], 40
+    mov word [bl_body], gb_b_fchar
+    mov si, gb_r_ch
+    xor al, al
+    call bl_run
+    mov word [bl_n], 12
+    mov word [bl_body], gb_b_frun
+    mov si, gb_r_ru
+    xor al, al
+    call bl_run
+    mov word [bl_body], gb_b_row
+    mov si, gb_r_rowdraw
+    xor al, al
+    call bl_run
+    mov word [bl_n], 2
+    mov word [bl_body], gb_b_page
+    mov si, gb_r_page
+    mov al, 1
+    call bl_run
+
+    mov al, 0
+    mov bx, [gb_win]
+    call OSAPI_FULLSCREEN           ; back to a window, and back to the
+    call gb_geom                    ; sandbox the rest of the report used
+    jmp short .out
+.refused:
+    mov si, gb_s_fsno               ; another window owns the screen: say so
+    call bl_sline                   ; rather than leave a silent gap
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; gb_b_fspair - enter fullscreen and leave again. Idempotent by construction,
+; which is what lets bl_run repeat it.
+gb_b_fspair:
+    push bx
+    mov bx, [gb_win]
+    mov al, 1
+    call OSAPI_FULLSCREEN
+    jc .out                         ; refused: the exit would be a no-op too
+    mov bx, [gb_win]
+    xor al, al
+    call OSAPI_FULLSCREEN
+.out:
+    pop bx
+    ret
+
+; --- block 7: what the two-size rows imply -----------------------------------
 ;
 ; Every figure here is a subtraction or a division of rows printed above, so a
 ; wrong one is visible beside its inputs (PERFORMANCE.md Part 6 rule 7). The
@@ -1560,6 +1700,18 @@ gb_b_vline:
     call OSAPI_GFX_VLINE
     ret
 
+; The fill again, with this window's own clip region armed. With nothing on
+; top the region is one rectangle, so gfx_clip_run re-enters the raw body
+; exactly once and the row measures the ARMING plus one fragment - which is
+; the cheapest case, and the one a background painter pays on a quiet desktop.
+gb_b_clipfill:
+    mov bx, [gb_win]
+    call OSAPI_WM_CLIP_SET
+    jc gb_b_fill                    ; refused (over 16 fragments): draw plain,
+    call gb_b_fill                  ; so the row is never simply missing
+    call OSAPI_WM_CLIP_CLEAR
+    ret
+
 gb_b_fill:
     mov ax, [gb_x]
     mov bx, [gb_y]
@@ -1918,12 +2070,17 @@ gb_h_5:     db '                          bottom line says which block it is on.
 gb_h_6:     db '   S  or the Bench menu   save the report to the current volume.', 0
 gb_h_7:     db '   Space PgDn PgUp Up Dn Home End   page through it afterwards.', 0
 
+gb_s_h_fs:  db '-- fullscreen (SPEC.md 11.2): the same rows, no window around them --', 0
+gb_s_h_fs2: db '   (the primitives SHOULD match their twins above; the rest should not)', 0
+gb_s_fsno:  db 'FULLSCREEN refused - another window owns the screen. Rows skipped.', 0
+
 gb_p_head:  db 'running: reading the machine...', 0
-gb_p_bw:    db 'running: raw RAM and framebuffer bandwidth (1 of 5)', 0
-gb_p_prim:  db 'running: drawing primitives (2 of 5)', 0
-gb_p_text:  db 'running: text (3 of 5)', 0
-gb_p_api:   db 'running: the API cells (4 of 5)', 0
-gb_p_comp:  db 'running: composite window work - the slow one (5 of 5)', 0
+gb_p_bw:    db 'running: raw RAM and framebuffer bandwidth (1 of 6)', 0
+gb_p_prim:  db 'running: drawing primitives (2 of 6)', 0
+gb_p_text:  db 'running: text (3 of 6)', 0
+gb_p_api:   db 'running: the API cells (4 of 6)', 0
+gb_p_comp:  db 'running: composite window work - the slow one (5 of 6)', 0
+gb_p_fs:    db 'running: fullscreen, and the screen repaint (6 of 6)', 0
 
 gb_s_ttl1:  db 'os8088 GFXBENCH - drawing primitives priced on this adapter', 0
 gb_s_ttl2:  db '===========================================================', 0
@@ -1989,6 +2146,7 @@ gb_r_vlh:  db 'GFX_VLINE 128px', 0
 gb_r_f8:   db 'GFX_FILL 8x8', 0
 gb_r_f64:  db 'GFX_FILL 64x64', 0
 gb_r_fbox: db 'GFX_FILL 256x128', 0
+gb_r_f64c: db 'GFX_FILL 64x64 clipped', 0
 gb_r_frow: db 'GFX_FILL 256x1', 0
 gb_r_fr:   db 'GFX_FRAME 64x64', 0
 gb_r_gy:   db 'GFX_FILL_GRAY 64x64', 0
@@ -2019,6 +2177,7 @@ gb_r_mo:   db 'MOUSE', 0
 gb_r_ti:      db 'WM_TITLE strip', 0
 gb_r_rowdraw: db 'one full-width row', 0
 gb_r_page:    db 'whole page of rows', 0
+gb_r_fspair:  db 'FULLSCREEN in+out', 0
 
 gb_d_fillpx:   db 'fill ns/px 8-64', 0
 gb_d_fillrow:  db 'fill ns per row', 0

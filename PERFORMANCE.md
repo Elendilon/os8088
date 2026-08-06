@@ -651,10 +651,36 @@ worth taking:
 | `sysbench: mov al,[bx+disp16]` | **what a table lookup costs** — the other side of that trade, and the addressing mode all four kernel tables use (`gfx_inktab`, the two mask tables, `vid_banktab`). Nothing measured it before | ~17 clocks by the book, so **~74 us per 1,000**; it must come in well under `shl r16,cl (13)` or the trade is a wash |
 | `sysbench: mov ax,i + mul [m]` | **the `mul` §5.7 did NOT remove** from `gfx_rowbase`, on the argument that the alternative is a per-row table `KERN_BUDGET` cannot fund. Only the register form was measured | close to `mul r16` plus an EA. If it is much worse, the table is worth costing again |
 | `gfxbench: GFX_FILL 256x1`, and the derived `fill ns per row` | **the per-ROW term, cleanly.** Set 1 fitted `c + a*rows + b*px` to three sizes, got a NEGATIVE per-call term and over-predicted the 8x8 by 1.27x, and said so. 256x1 against 256x128 differs by 127 rows and by nothing else | `fill ns per row` near **177,000** on Hercules / 182,000 on CGA. Where it disagrees with the two-point fit, **this one is the measurement and that one is the model** |
+| `gfxbench: FULLSCREEN in+out` | **the whole-screen repaint.** Part 1 calls it a "visible redraw", Part 5's entire budget table is organised around avoiding it, and no field set has ever put a number on it — because a package cannot reach one. `wm_fullscreen`'s exit is a `wm_paint_all`, and it is the ONE composition call legal from a window callback (below) | **seconds**, and it is method T for that reason. What is in it: the desktop dither, the drive zones, the dock, the menu bar and every visible window — one of which is this report, priced separately by `whole page of rows` |
+| `gfxbench: GFX_FILL 64x64 clipped` | **what §11.3's clip region costs a covered background window.** `WM_CLIP_SET+CLEAR` was measured; drawing *under* one never was. It sits next to its own unclipped row, so the gap is the answer | a little over the unclipped row plus the `SET+CLEAR` cell. Much more and `gfx_clip_run`'s re-entry is dearer than the region arithmetic it saves |
+| `gfxbench:` the whole **fullscreen block** | **whether a primitive costs what it costs wherever it is drawn.** Same code, same sandbox, different place on the glass, no chrome around it. The rows carry the same labels as their windowed twins so they diff by name | the primitives to be **boring** — landing on their twins. One that does not has found something position-dependent nobody believed was |
 
 None of them says anything on an emulator, and two say so loudly: under
 `-icount` both shift rows measure identically and the derived per-bit line
 reads **0**, which is correct and is the caution block in miniature.
+
+**Reading the fullscreen pairs has one trap, and it is a VGA one.**
+`[bb_mono]` (§32) is one-way, and `bb_mono_chk` is five instructions cheaper
+once it has retired — so if anything drawn between the two passes used a
+colour that is not 0 or 15, every fullscreen row comes in slightly under its
+twin for a reason that has nothing to do with fullscreen. It shows as a flat
+few instructions per drawing call rather than a proportional gap, and it is
+visible in the QEMU sighting run: the VGA `GFX_PIXEL` pair read 408 against
+389 while the **CGA pair read 456 against 456**. On the two 1bpp adapters
+`bb_init` retires the flag at boot (§39.5), so the columns that matter for
+the target machine are a clean A/B.
+
+**And the drag is not there, which is an API fact rather than an omission.**
+A benchmark runs inside a window callback, which holds the gfx lock, and
+every call that moves or resizes a window forbids it — `OSAPI_WM_RESIZE` says
+"Do NOT hold the gfx lock" in as many words, and `WM_SHOW`/`WM_HIDE`/
+`WM_FRONT` take it themselves, so from a callback they are a deadlock rather
+than a measurement. `wm_fullscreen` and `wm_title_set` are the two exceptions,
+and `FULLSCREEN in+out` is what a drag's repaint looks like through them: the
+frame changes size and position, and the screen is put back. Timing a real
+`ui_drag` would mean a **worker task** doing the composition unlocked while
+the UI task formats the results — possible under §20.6, and the reason it was
+not done here is that a harness bug is worse than a missing row (rule 8).
 
 ### What to record with the numbers
 
