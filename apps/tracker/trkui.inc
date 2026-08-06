@@ -2238,6 +2238,49 @@ tui_draw_all:
     ret
 
 ; -----------------------------------------------------------------------------
+; tui_win_lines - redraw ONLY the two windowed-splash lines a load changes
+; in:  gfx lock held; preserves all registers
+;
+; The splash card is static except for the module title and the status line,
+; so a load owes the screen those and nothing else. tui_cline erases its own
+; band before lettering it, which is what makes this safe without the full
+; content fill - and skipping that fill is the point: on a 4.77MHz machine
+; the fill plus five untouched lines was a couple of hundred milliseconds of
+; redrawing text that had not changed (PERFORMANCE.md).
+;
+; The About panel is checked exactly as tui_draw_all checks it: while it is
+; up it owns the content, and these two lines must not be painted through it.
+; -----------------------------------------------------------------------------
+tui_win_lines:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp byte [tui_inited], 0
+    je .out
+    cmp byte [trk_abon], 0
+    jne .out
+    call tui_track
+    mov si, mp_title
+    cmp byte [mp_loaded], 0
+    jne .title
+    mov si, tui_s_none
+.title:
+    mov dx, 56                      ; the same y tui_draw_all letters it at
+    call tui_cline
+    call tui_msg_draw
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; tui_cline - a centred splash line: one gated erase+text pair on white
 ; in:  SI = NUL string, DX = y (content)
 ; -----------------------------------------------------------------------------

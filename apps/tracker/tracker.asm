@@ -164,6 +164,13 @@ trk_entry:
     call OSAPI_WM_CREATE            ; out BX = window ptr, CF on full
     jc .out
     mov [trk_win], bx
+    mov al, 1                       ; keep our CONTENT ORIGIN 8-aligned
+    call OSAPI_WM_SNAP              ; (SPEC.md 11.94): mono-only, a no-op on
+                                    ; VGA, and it is what lets every text run
+                                    ; we draw take font_run's single-store
+                                    ; path instead of the erase-and-letter
+                                    ; fallback. wm_snap preserves FLAGS, so
+                                    ; the loader's CF still survives to .out
     mov si, trk_menus
     call OSAPI_MENU_SET             ; preserves registers AND flags, so the
     mov si, trk_about               ; loader's CF survives to the ret
@@ -598,6 +605,34 @@ trk_trim:
 ; which under WF_FULL also covers the menu-bar strip fdlg_close painted.
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
+; trk_repaint_done - the SPEC.md 38.6 completion repaint, sized to what a
+;                    load can actually have changed
+;
+; in:  gfx lock held (completion-proc context); preserves all registers
+;
+; Windowed, this used to be tui_draw_all: a full content fill and every line
+; of the splash card re-lettered, six erase-and-letter pairs, on a machine
+; where a glyph cell is about a millisecond (PERFORMANCE.md). That is a
+; couple of hundred milliseconds of static text redrawn to change two lines -
+; and it is paid at exactly the wrong moment, one pre-roll away from the
+; worker's first refill (docs/FIELD-NOTES.md). The splash is STATIC except
+; for the module title and the status line, and W_PAINT has just drawn the
+; card clean underneath the destroyed dialog (SPEC.md 38.6's teardown-then-
+; callback order), so those two lines are the whole debt.
+;
+; Fullscreen still takes the full path: that surface is being rewritten as a
+; text mode elsewhere, so there is nothing here worth optimising into.
+; -----------------------------------------------------------------------------
+trk_repaint_done:
+    cmp byte [trk_fs], 0
+    jne .full
+    call tui_win_lines
+    ret
+.full:
+    call tui_draw_all
+    ret
+
+; -----------------------------------------------------------------------------
 ; trk_is_mod - does [trk_fname] end in .MOD? (SPEC.md 38.6)
 ; out: CF = 0 yes, CF = 1 no. All registers preserved.
 ;
@@ -759,8 +794,8 @@ trk_fdone:
     call tui_msg
     mov al, 0
     call trk_play                   ; caps-gated: no SB machine stays a viewer
-    call tui_draw_all               ; the mandatory completion repaint
-    jmp .out
+    call trk_repaint_done           ; the mandatory completion repaint - two
+    jmp .out                        ; LINES when windowed, not the whole card
 
 .nomem:
     mov si, trk_s_nomem
@@ -800,7 +835,7 @@ trk_fdone:
     pop si
 .fail:
     call tui_msg
-    call tui_draw_all
+    call trk_repaint_done
 .out:
     pop di
     pop si
