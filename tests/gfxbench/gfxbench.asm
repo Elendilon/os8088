@@ -931,6 +931,15 @@ gb_prims:
     mov dx, [bl_last+2]
     mov [gb_tfbox], ax
     mov [gb_tfbox+2], dx
+    call gb_boxrow                  ; ...and ONE row of that same width. It is
+    mov word [bl_n], 100            ; the third fill size because two could not
+    mov si, gb_r_frow               ; separate the per-CALL term from the
+    xor al, al                      ; per-ROW one: fitting c + a*rows + b*px to
+    call bl_run                     ; 8x8 / 64x64 / 256x128 gave a NEGATIVE c
+    mov ax, [bl_last]               ; (PERFORMANCE.md Part 9 Set 1). Holding
+    mov dx, [bl_last+2]             ; the width fixed and varying only the rows
+    mov [gb_tfrow], ax              ; leaves nothing else in the subtraction
+    mov [gb_tfrow+2], dx
 
     call gb_box64                   ; the rest of the rect family, all 64x64,
     mov word [bl_n], 24             ; so the column compares like for like
@@ -1227,6 +1236,21 @@ gb_derived:
     mov si, gb_d_fillpx2
     call gb_num32
 
+    mov ax, [gb_tfbox]              ; the per-ROW term, cleanly: 256x128 against
+    mov dx, [gb_tfbox+2]            ; 256x1 differs by 127 rows and by NOTHING
+    mov cx, 6                       ; else, so neither the per-call floor nor
+    call gb_percall                 ; the per-pixel slope survives the
+    call gb_stash                   ; subtraction. It should agree with the
+    mov ax, [gb_tfrow]              ; two-point fit above; where they disagree,
+    mov dx, [gb_tfrow+2]            ; this one is the measurement and that one
+    mov cx, 100                     ; is the model
+    call gb_percall
+    call gb_sub
+    mov cx, GB_BOXH - 1
+    call gb_nsper
+    mov si, gb_d_fillrow
+    call gb_num32
+
     mov ax, [gb_tcell]              ; one glyph cell - PERFORMANCE.md Part 2's
     mov dx, [gb_tcell+2]            ; anchor number, and the one figure in that
     mov cx, 40                      ; table everything else is estimated from
@@ -1489,6 +1513,18 @@ gb_box64:
     mov [gb_x2], ax
     mov ax, [gb_y]
     add ax, 63
+    mov [gb_y2], ax
+    pop ax
+    ret
+
+; ONE row of the full width: gb_boxfull's twin, and the other end of the
+; per-row measurement (see the fill block).
+gb_boxrow:
+    push ax
+    mov ax, [gb_x]
+    add ax, GB_BOXW - 1
+    mov [gb_x2], ax
+    mov ax, [gb_y]
     mov [gb_y2], ax
     pop ax
     ret
@@ -1953,6 +1989,7 @@ gb_r_vlh:  db 'GFX_VLINE 128px', 0
 gb_r_f8:   db 'GFX_FILL 8x8', 0
 gb_r_f64:  db 'GFX_FILL 64x64', 0
 gb_r_fbox: db 'GFX_FILL 256x128', 0
+gb_r_frow: db 'GFX_FILL 256x1', 0
 gb_r_fr:   db 'GFX_FRAME 64x64', 0
 gb_r_gy:   db 'GFX_FILL_GRAY 64x64', 0
 gb_r_pt:   db 'GFX_FILL_PAT 64x64', 0
@@ -1984,6 +2021,7 @@ gb_r_rowdraw: db 'one full-width row', 0
 gb_r_page:    db 'whole page of rows', 0
 
 gb_d_fillpx:   db 'fill ns/px 8-64', 0
+gb_d_fillrow:  db 'fill ns per row', 0
 gb_d_fillpx2:  db 'fill ns/px 64-box', 0
 gb_d_hlpx:     db 'hline ns per pixel', 0
 gb_d_cell:     db 'FONT_CHAR us x100', 0
@@ -2018,7 +2056,7 @@ gb_it_top:  db 'Top of Report', 0
 ; A hand-totalled figure that is too small is a package writing over
 ; benchlib's arena, which assembles cleanly and produces a report full of
 ; plausible nonsense.
-GB_O_SYSKB  equ 136
+GB_O_SYSKB  equ 140
 GB_O_VROW   equ GB_O_SYSKB + SYSKB_SIZE
 GB_O_RROW   equ GB_O_VROW + GB_BWROWS * 2
 GB_O_RAM    equ GB_O_RROW + GB_BWROWS * 2
@@ -2080,6 +2118,8 @@ gb_tbn      equ os88_image_end + 110
 gb_trow     equ os88_image_end + 114
 gb_tpage    equ os88_image_end + 118
 gb_tfbox    equ os88_image_end + 130   ; dword: the 256x128 fill, for slope 2
+gb_tfrow    equ os88_image_end + 136   ; dword: ...and the 256x1 one, for the
+                                       ; per-row term it pins against
 gb_tapi     equ os88_image_end + 122   ; dword: 122..125
 gb_ran      equ os88_image_end + 126   ; byte: has the suite been run yet?
 gb_syskb    equ os88_image_end + GB_O_SYSKB    ; SYSKB_SIZE bytes
