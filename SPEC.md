@@ -6542,6 +6542,41 @@ Two things it depends on, both of them the caller's job:
   selection move. Two builds per click is two z-order walks over at most 12
   windows; it is not the thing that was expensive.
 
+### 26.3 Mounting a volume costs the zone grid, not the screen
+
+`osapi_vol_add` and `osapi_vol_del` cannot repaint: a driver adds a volume
+from a Control Panel click with the gfx lock already held. So they post a
+flag and `ui_task`'s idle pass spends it, which is the Control Panel's own
+deferred-repaint idiom (§31.2) — but **`[desk_zdirty]`, not `[cp_dirty]`**.
+That distinction is the whole of this section. `[cp_dirty]` means the
+*scheduler mode* changed, which every window quoting it has to be told
+about, so it is honestly a `wm_paint_all`. A drive zone is one icon at the
+right-hand edge, and mounting a disk was repainting the desktop dither,
+every visible window's frame and every `W_PAINT` to make it appear.
+
+`desk_zones_paint` is `wm_paint_dmg` (§11.91) over the zone grid: the dither
+clipped to that rect, the zones themselves, the chrome, and only the windows
+that overlap. On the measured case — a Disk window open, the Control Panel
+up, two partitions mounted — 371 glyphs became 182, and the 182 is almost
+entirely the Control Panel redrawing its own page after the click. No
+`wm_paint_all` runs at all.
+
+**The rect is the GRID, not the zones currently shown**, and that is the one
+subtle part. Adding or removing a volume can move the zones *after* it: a
+volume added into a hole an earlier unmount left takes an ordinal that used
+to be somebody else's. Sizing to the grid makes the answer independent of
+what is mounted. `desk_zones_dmg` asks `desk_ord_xy` for two corners rather
+than writing the layout arithmetic a second time — ordinal 0 is the top of
+the rightmost column, and the bottom-left corner is
+`(cols-1) * desk_rows + (rows_used-1)`.
+
+That last expression is **not** the last volume's ordinal, and the difference
+is a real bug on one adapter. `[desk_rows]` is 4 on Hercules, so six volumes
+are two columns of four and two — the last ordinal sits in row 1, two whole
+zones above the bottom of the first column, and a rect sized to it would cut
+them off. Taking the deepest row any column reaches costs at most one unused
+row of slack, in the safe direction.
+
 ## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:

@@ -570,6 +570,19 @@ Two invariants that are easy to break, both asserted:
   driver's own image; and `[cp_sel]` is clamped at detach, or the panel
   dispatches through a freed segment on its next paint - and the panel need
   not be open for that to be owed.
+- **Mounting a volume costs the zone grid, not the screen** (SPEC.md 26.3).
+  `osapi_vol_add`/`del` cannot repaint (a driver calls them with the gfx lock
+  held), so they post `[desk_zdirty]` and `ui_task` spends it — and that is a
+  DIFFERENT flag from `[cp_dirty]` on purpose: `cp_dirty` means the scheduler
+  mode changed, which every window quoting it must be told about, so it is
+  honestly a `wm_paint_all`. A drive zone is one icon. `desk_zones_paint` is
+  `wm_paint_dmg` over the grid; the measured case went from 371 glyphs to 182,
+  with no `wm_paint_all` at all. The trap is that the rect must be the GRID
+  and not the zones currently shown — a volume added into a hole an earlier
+  unmount left takes an ordinal that was somebody else's — and that the
+  bottom-left corner is `(cols-1)*desk_rows + (rows_used-1)`, NOT the last
+  volume's ordinal: `[desk_rows]` is 4 on Hercules, where the last ordinal
+  sits two whole zones above the bottom of the first column.
 - **Desktop zones ARE the volume table** (SPEC.md 26.1), and they wrap into a
   new column to the LEFT when one will not fit above the dock. `[desk_rows]`
   is computed at boot from the live geometry: 7 on VGA, 4 on Hercules, **2 on

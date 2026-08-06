@@ -256,6 +256,29 @@ desk_zone_xy:
     call desk_ord               ; AH = the ordinal, CF=1 = not shown
     jc .off
     mov al, ah
+    pop cx
+    pop bx
+    jmp desk_ord_xy             ; tail call, AL = the ordinal
+.off:
+    mov ax, [vid_desk_zx]       ; a hidden volume still needs a rect that is
+    mov dx, -1000               ; nowhere: every caller draws or hit-tests it
+    pop cx                      ; only after its own flag test, and this is
+    pop bx                      ; the belt to that pair of braces
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_ord_xy - where the Nth SHOWN zone sits (SPEC.md 26.1)
+; in:  AL = an ordinal, 0..DVOL_MAX-1
+; out: AX = the hit zone's left column, DX = its top row
+; clobbers: AX, DX (the outputs), flags
+;
+; Split out of desk_zone_xy so the grid's extent (desk_zones_dmg) can be asked
+; for by ordinal without a volume to hang it on - the geometry stays in one
+; place, which is what the two callers of the old combined routine relied on.
+; -----------------------------------------------------------------------------
+desk_ord_xy:
+    push bx
+    push cx
     xor ah, ah
     xor dx, dx
     div word [desk_rows]        ; AX = column, DX = row within it
@@ -275,11 +298,51 @@ desk_zone_xy:
     pop cx
     pop bx
     ret
-.off:
-    mov ax, [vid_desk_zx]       ; a hidden volume still needs a rect that is
-    mov dx, -1000               ; nowhere: every caller draws or hit-tests it
-    pop cx                      ; only after its own flag test, and this is
-    pop bx                      ; the belt to that pair of braces
+
+; -----------------------------------------------------------------------------
+; desk_zones_dmg - the rect every drive zone could ever occupy (SPEC.md 26.3)
+; out: AX/BX/CX/DX = x1/y1/x2/y2, inclusive, for wm_paint_dmg
+; clobbers: the four outputs, flags
+;
+; The GRID, not the zones currently shown - because the caller is about to add
+; or remove one, and either can move the zones AFTER it: a volume added into a
+; hole an earlier unmount left takes an ordinal that used to be somebody
+; else's. Sizing to the grid makes the answer independent of what is mounted,
+; at a cost of at most one unused row when the last column is short.
+;
+; Ordinal 0 is the top of the rightmost column and the last ordinal the bottom
+; of the leftmost, because columns fill downwards and then wrap LEFT - so the
+; two corners are the two extremes, and desk_ord_xy is asked for both rather
+; than the arithmetic being written out a second time.
+; -----------------------------------------------------------------------------
+desk_zones_dmg:
+    push si
+    push di
+    xor al, al
+    call desk_ord_xy            ; ordinal 0 = the top of the RIGHTMOST column
+    mov si, ax                  ; SI = its left edge...
+    mov di, dx                  ; DI = ...and its top
+    mov ax, DVOL_MAX-1
+    xor dx, dx
+    div word [desk_rows]        ; AX = the LEFTMOST column's index...
+    mul word [desk_rows]        ; ...as the ordinal at the TOP of it
+    mov cx, DVOL_MAX            ; the deepest row any column reaches - NOT the
+    cmp cx, [desk_rows]         ; last ordinal's row, which on a geometry
+    jbe .deep                   ; whose final column is short (Hercules: four
+    mov cx, [desk_rows]         ; rows, two columns, six volumes) sits above
+.deep:                          ; the bottom of the first column and would cut
+    dec cx                      ; the rect short of two whole zones
+    add ax, cx                  ; AX = the bottom-left corner's ordinal, one
+                                ; row past what a short last column uses -
+                                ; slack, and in the safe direction
+    call desk_ord_xy
+    mov cx, si
+    add cx, DESK_ZW + DESK_ZOVER - 1    ; x2, label overhang included
+    sub ax, DESK_ZOVER                  ; x1, likewise
+    mov bx, di                          ; y1
+    add dx, DESK_ZH-1                   ; y2
+    pop di
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -325,6 +388,33 @@ desk_dmg_zones:
     pop dx
     pop cx
     pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_zones_paint - repaint the drive zones and what they disturb (26.2)
+; in:  the gfx lock HELD
+; out: nothing (all registers preserved)
+;
+; What a mount or an unmount actually owes the screen. It used to be
+; wm_paint_all - the whole desktop dither, every visible window's frame and
+; every W_PAINT - to make one icon appear at the right-hand edge.
+;
+; wm_paint_dmg (SPEC.md 11.91) is the right size of hammer: the dither
+; clipped to the grid, the zones themselves, the chrome, and only the windows
+; that overlap. On a desktop with nothing near the right edge that is the
+; zones and nothing else.
+; -----------------------------------------------------------------------------
+desk_zones_paint:
+    push ax
+    push bx
+    push cx
+    push dx
+    call desk_zones_dmg
+    call wm_paint_dmg
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -478,7 +568,7 @@ desk_click:
 ; with a full wm_paint_all, which cost the whole screen twice for one click:
 ; picking a new icon redraws the old zone and the new one, and each of them
 ; repainted the world. wm_clip_rect (SPEC.md 11.3) is the region arithmetic
-; that replaces it, and there are four answers (SPEC.md 26.2):
+; that replaces it, and there are four answers (SPEC.md 26.3):
 ;
 ;   overflow    - more than 16 fragments; nothing about the region is known,
 ;                 so the old full repaint stays as the last resort
@@ -647,6 +737,8 @@ section .bss
 desk_rows    resw 1             ; zones that fit in one column above the dock
                                 ; (SPEC.md 26.1) - 7 on VGA, 4 on Hercules,
                                 ; 2 on CGA, which is why the wrap exists
+desk_zdirty  resb 1             ; 1 = a volume was added or removed and the
+                                ; drive zones owe a repaint (SPEC.md 26.3)
 desk_sel     resb 1             ; selected VOLUME index, 0xFF = none
 desk_clkt    resw 1             ; click birth tick (EV_C) of the last zone click
 desk_zy      resw 1             ; desk_draw_zone: current zone top

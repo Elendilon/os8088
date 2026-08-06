@@ -457,11 +457,15 @@ dsk_vol_add:
     mov byte [di], 0            ; no label: desk_zone_label derives 'Disk X'
 .live:
     mov byte [bx+DV_KIND], DVK_DRV      ; published LAST: the row is now live
-    mov byte [cp_dirty], 1      ; the desktop owes a zone - and a driver adds
+    mov byte [desk_zdirty], 1   ; the desktop owes a zone - and a driver adds
                                 ; a volume from a page click, with the gfx
                                 ; lock HELD, so the repaint is deferred to
                                 ; ui_task's idle pass exactly as the Control
-                                ; Panel defers its own (SPEC.md 31.2)
+                                ; Panel defers its own (SPEC.md 31.2). Its own
+                                ; flag and not [cp_dirty]: that one means the
+                                ; SCHEDULER MODE changed, which every window
+                                ; quoting it has to be told about, and a drive
+                                ; zone is one icon (SPEC.md 26.3)
     mov ax, bx                  ; the index, back out of the row pointer
     sub ax, dsk_vtab
     mov cl, 4                   ; / DV_SIZE
@@ -500,7 +504,7 @@ dsk_vol_del:
     jne .out                    ; a BIOS floppy is not the driver's to drop
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
-    mov byte [cp_dirty], 1      ; ...and owes the zone's removal likewise
+    mov byte [desk_zdirty], 1   ; ...and owes the zone's removal likewise
     mov word [bx+DV_SEG], 0
     mov byte [bx+DV_LBL], 0
     call dsk_fatw_drop          ; AL is still the index; it also puts the
@@ -674,7 +678,7 @@ osapi_vol_mount:
 ; -----------------------------------------------------------------------------
 osapi_vol_paint:
     call gfx_lock
-    call wm_paint_all
+    call desk_zones_paint
     call gfx_unlock
     ret
 

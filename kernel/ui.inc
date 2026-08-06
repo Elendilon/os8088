@@ -277,10 +277,17 @@ ui_task:
                                 ; CMD_REBOOT never comes back
 .chk_cp:
     cmp byte [cp_dirty], 0      ; scheduler mode changed in the Control
-    je .chk_clk                 ; Panel (SPEC.md 31.2): windows that quote
+    je .chk_zones               ; Panel (SPEC.md 31.2): windows that quote
     mov byte [cp_dirty], 0      ; the mode - the About box's third line -
     call gfx_lock               ; are already painted, so repaint them here,
     call wm_paint_all           ; outside cp_onclick's held lock
+    call gfx_unlock
+.chk_zones:
+    cmp byte [desk_zdirty], 0   ; a volume was mounted or unmounted (26.2),
+    je .chk_clk                 ; posted for the same reason and drained in
+    mov byte [desk_zdirty], 0   ; the same pass - but it costs the drive-zone
+    call gfx_lock               ; grid and the windows over it, not the screen
+    call desk_zones_paint
     call gfx_unlock
 .chk_clk:
     cmp byte [clk_dirty], 0     ; the clock was set from the Date/Time page
