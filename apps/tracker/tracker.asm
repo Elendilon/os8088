@@ -348,10 +348,20 @@ trk_onkey:
     je .smooth
     cmp bl, 'S'
     je .smooth
+%ifdef TRKLOG
     cmp bl, 'd'
     je .diag
     cmp bl, 'D'
     je .diag
+    cmp bl, 'w'
+    je .wlog
+    cmp bl, 'W'
+    je .wlog
+    cmp bl, 'm'
+    je .mark
+    cmp bl, 'M'
+    je .mark
+%endif
     cmp bl, '1'
     jb .out
     cmp bl, '4'
@@ -380,9 +390,17 @@ trk_onkey:
 .smooth:
     call trk_smooth_toggle          ; S (SPEC.md 45.11 - fullscreen reach)
     jmp .out
+%ifdef TRKLOG
 .diag:
-    call trk_diag_tog               ; D: the meter on/off (SPEC.md 45.14)
+    call tlog_key                   ; D: the log on/off (tests/trklog.inc)
     jmp .out
+.wlog:
+    call tlog_save                  ; W: TRKLOG.TXT on the current volume
+    jmp .out
+.mark:
+    call tlog_mark                  ; M: the listener heard something
+    jmp .out
+%endif
 .play:
     mov al, 0
     call trk_play
@@ -635,147 +653,6 @@ trk_trim:
 ; its verdict on the status line. Success starts playback and repaints -
 ; which under WF_FULL also covers the menu-bar strip fdlg_close painted.
 ; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; trk_diag_msg - put the feed's measured margin on the status line (D key)
-;
-; in:  nothing; preserves all registers
-;
-; Two numbers, and between them they say where a hitch comes from
-; (docs/FIELD-NOTES.md):
-;
-;   MIN  the smallest ring lead any feed wake has seen, in ring HALVES -
-;        how close the DSP ever came to running dry. 6 means the pre-roll
-;        was never drawn down at all; 0 means the ring emptied and the
-;        stream underran, which is an audible hitch by definition.
-;   LATE how many wakes arrived with under one half in hand.
-;
-; MIN 0 or a climbing LATE says the hitch IS this feed arriving late, and
-; the fix is buffering or mixer cost. MIN staying high while the audio still
-; hitches says the feed was never the problem and the fault is downstream -
-; the DMA half-swap, the IRQ, or the card - which is worth knowing before
-; another cushion is added to a stream that never needed one.
-; -----------------------------------------------------------------------------
-; -----------------------------------------------------------------------------
-; trk_diag_tog - D toggles the meter, because two of its numbers are LIVE
-;
-; MIN/LATE/UND/BLK/WAKE are running extremes, so a snapshot taken on the
-; keypress says everything about them. SHB is not: it is the state of the
-; shadow buffer at this instant, and the whole point of it is to be read
-; while the screen is visibly emptying. So D latches [trk_diag] and
-; ttx_draw_dyn re-renders the line every frame while it is set; turning it
-; off puts [tui_msgp] back to 0, which is the key hint.
-; -----------------------------------------------------------------------------
-; Latching it on also RESETS the four extremes, which is what makes them
-; attributable: they otherwise reset only with the stream, so one bad moment
-; during the load repaint pins MIN and WAKE for the rest of the session and
-; every later glitch reads as having changed nothing. D off, D on, then watch
-; one glitch, and the numbers describe that glitch.
-trk_diag_tog:
-    push si
-    cmp byte [trk_diag], 0
-    jne .off
-    mov byte [trk_diag], 1
-    mov word [trk_minlead], 0xFFFF
-    mov word [trk_late], 0
-    mov word [trk_under], 0
-    mov word [trk_blk], 0
-    mov word [trk_wake], 0
-    call OSAPI_GET_TICKS            ; both clocks restart with the window
-    mov [trk_blkt], ax
-    mov [trk_wakt], ax
-    call trk_diag_msg
-    pop si
-    ret
-.off:
-    mov byte [trk_diag], 0
-    xor si, si
-    call tui_msg                    ; 0 = the transport/key legend is back
-    pop si
-    ret
-
-trk_diag_msg:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov bx, 0xFFFF                  ; SHB: content rows of the text shadow
-    cmp byte [ttx_shok], 0          ; whose row-NUMBER field is blank. A row
-    je .shbd                        ; ttx_shbuild wrote always has one, so
-    xor bx, bx                      ; 00 is an ASSERTION and '--' is "there
-    mov si, ttx_shadow + TTX_HALF * TTX_RW * 2  ; this counts rows nothing
-    mov cx, 64                                  ; ever wrote or something
-.shb:                                           ; erased - and it counts
-    cmp byte [si], ' '                          ; NEITHER of the TTX_HALF pad
-    jne .shbn                                   ; rows, which are outside it
-    inc bx                                      ; by construction
-.shbn:
-    add si, TTX_RW * 2
-    loop .shb
-.shbd:
-    mov [trk_shb], bx
-    mov ax, [trk_minlead]
-    cmp ax, 0xFFFF                  ; nothing measured yet: say so rather
-    jne .have                       ; than printing 65535 halves
-    xor ax, ax
-    jmp short .shift
-.have:
-    mov cl, 11                      ; bytes -> halves (TRK_HALF = 2048)
-    shr ax, cl
-.shift:
-    add al, '0'
-    cmp al, '9'
-    jbe .minok
-    mov al, '9'                     ; a lead over 9 halves cannot happen
-.minok:
-    mov [trk_s_diag + 4], al
-    mov ax, [trk_late]              ; LATE, three digits, written back to
-    mov di, trk_s_diag + 14         ; front from the LAST one
-    call .num3
-    mov ax, [trk_under]             ; UND, the same three digits
-    mov di, trk_s_diag + 23
-    call .num3
-    mov ax, [trk_blk]               ; BLK and WAKE, two digits each - a gap
-    mov di, trk_s_diag + 31         ; past 99 ticks is 5.4 seconds and the
-    call .num2                      ; stream is long dead by then
-    mov ax, [trk_wake]
-    mov di, trk_s_diag + 40
-    call .num2
-    mov ax, [trk_shb]
-    mov di, trk_s_diag + 48
-    cmp ax, 0xFFFF                  ; no shadow to check (windowed, or before
-    jne .shnum                      ; the first build): say so rather than
-    mov word [trk_s_diag + 47], '--'; claim a clean count
-    jmp short .shdone
-.shnum:
-    call .num2
-.shdone:
-    mov si, trk_s_diag
-    call tui_msg
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-.num2:                              ; AX -> two digits at [DI] backwards
-    mov cx, 2
-    jmp short .digs
-.num3:                              ; AX -> three digits at [DI] backwards
-    mov cx, 3
-.digs:
-    mov bx, 10
-.dig:
-    xor dx, dx
-    div bx
-    add dl, '0'
-    mov [di], dl
-    dec di
-    loop .dig
-    ret
-
 ; -----------------------------------------------------------------------------
 ; trk_repaint_done - the SPEC.md 38.6 completion repaint, sized to what a
 ;                    load can actually have changed
@@ -1227,10 +1104,20 @@ trk_fsx_key:
     je .smooth
     cmp al, 'S'
     je .smooth
+%ifdef TRKLOG
     cmp al, 'd'
     je .diag
     cmp al, 'D'
     je .diag
+    cmp al, 'w'
+    je .wref
+    cmp al, 'W'
+    je .wref
+    cmp al, 'm'
+    je .mark
+    cmp al, 'M'
+    je .mark
+%endif
     cmp al, '1'
     jb .out
     cmp al, '4'
@@ -1238,9 +1125,20 @@ trk_fsx_key:
     sub al, '1'                     ; 1..4: channel mute toggle
     call mp_mutetog
     jmp .out
+%ifdef TRKLOG
 .diag:
-    call trk_diag_tog
+    call tlog_key
     jmp .out
+.mark:
+    call tlog_mark                  ; M: stamp the tick the LISTENER heard
+    jmp .out                        ; something - the one input here that is
+.wref:                              ; not a measurement
+    push si                         ; W is windowed-only for the same reason
+    mov si, tlog_s_fsw              ; L is: the file slots are UI-callback-only
+    call tui_msg                    ; and a bracket owns the machine until it
+    pop si                          ; returns (SPEC.md 53.7). Say why, do not
+    jmp .out                        ; do nothing (SPEC.md 47)
+%endif
 .load:
     push si
     mov si, trk_s_fsload
@@ -1380,16 +1278,9 @@ trk_play:
     mov [mp_mixrate], ax
     mov al, [trk_pmode]
     call mp_start
-    mov word [trk_minlead], 0xFFFF  ; the margin meter starts fresh with the
-    mov word [trk_late], 0          ; stream (docs/FIELD-NOTES.md)
-    mov word [trk_under], 0
-    mov byte [trk_wasund], 0
-    mov word [trk_blk], 0
-    mov word [trk_wake], 0
-    mov word [trk_lastc], 0
-    call OSAPI_GET_TICKS            ; both clocks start now, so the first
-    mov [trk_blkt], ax              ; wake measures an interval and not the
-    mov [trk_wakt], ax              ; age of the app
+%ifdef TRKLOG
+    call tlog_stream                ; a new stream: the log's clocks restart
+%endif
     mov word [trk_total], 0
     mov cx, TRK_PREROLL             ; stage the cushion before the open, so
 .pre:                               ; the stream starts TRK_PREROLL halves
@@ -1813,53 +1704,9 @@ trk_feed:
     je .dead
     cmp ax, SND_ST_STALE
     je .dead
-    ; --- the BLOCK-IRQ clock (docs/FIELD-NOTES.md) --------------------------
-    ; [consumed] advances by one whole half and only from sbl_isr, so the
-    ; wall-clock interval between two different readings IS the block-IRQ
-    ; interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. A card that stops for
-    ; a third of a second doubles it while every other counter here stays
-    ; perfect. WAKE is the control - it is this worker's own wake interval,
-    ; so a BLK that climbs while WAKE stays at 1 is the IRQ arriving late,
-    ; and both climbing together is the worker being descheduled.
-    push ax
-    push bx
-    call OSAPI_GET_TICKS
-    mov bx, ax
-    sub ax, [trk_wakt]
-    mov [trk_wakt], bx
-    cmp ax, [trk_wake]
-    jbe .nowake
-    mov [trk_wake], ax
-.nowake:
-    cmp dx, [trk_lastc]
-    je .noblk
-    mov [trk_lastc], dx
-    mov ax, bx
-    sub ax, [trk_blkt]
-    mov [trk_blkt], bx
-    cmp ax, [trk_blk]
-    jbe .noblk
-    mov [trk_blk], ax
-.noblk:
-    pop bx
-    pop ax
-    ; --- the DOWNSTREAM underrun (docs/FIELD-NOTES.md) ----------------------
-    ; SND_ST_UNDER is the driver saying its own 2KB double-buffer half was
-    ; not refilled in time - which can happen with OUR ring six halves deep,
-    ; because the two are different buffers with different pacers. Nothing
-    ; else in the app can see it: an underrun-pause stops [consumed]
-    ; advancing, so the margin meter reads a lead that is growing. Count the
-    ; EDGES, not the wakes, so one number is one audible hitch.
-    cmp ax, SND_ST_UNDER
-    je .under
-    mov byte [trk_wasund], 0
-    jmp short .notund
-.under:
-    cmp byte [trk_wasund], 0
-    jne .notund
-    mov byte [trk_wasund], 1
-    inc word [trk_under]
-.notund:
+%ifdef TRKLOG
+    call tlog_feed                  ; AX = stream state, DX = consumed - the
+%endif                              ; whole per-tick record but the drawing
     cmp byte [mp_playing], 0        ; F00 stopped the mixer: wait for the
     jne .go                         ; ring to drain, then flag for the
     cmp dx, [trk_total]             ; UI-side close - mp_stop already ran
@@ -1867,25 +1714,6 @@ trk_feed:
     mov byte [trk_ended], 1         ; latch is left
     jmp .out
 .go:
-    ; --- the margin, measured (docs/FIELD-NOTES.md) -------------------------
-    ; DX is the consumed count this pass polled. lead = total - consumed is
-    ; how much audio the DSP still has in hand at the moment this wake got
-    ; the CPU, and it is the ONE number that says whether a hitch is this
-    ; feed arriving late or something downstream of it. Record the smallest
-    ; lead ever seen and count the wakes that arrived with less than one
-    ; half left; the D key puts both on the status line.
-    push ax
-    mov ax, [trk_total]
-    sub ax, dx                      ; AX = lead in bytes (wrap-exact)
-    cmp ax, [trk_minlead]
-    jae .nomin
-    mov [trk_minlead], ax
-.nomin:
-    cmp ax, TRK_HALF                ; under one half in hand = a late wake,
-    jae .nolate                     ; the shape an underrun arrives in
-    inc word [trk_late]
-.nolate:
-    pop ax
     mov byte [trk_halves], 0
 .fill:
     cmp byte [trk_sopen], 0         ; a UI close mid-pass ends the burst
@@ -2011,12 +1839,6 @@ trk_s_stopd:  db 'Stopped  ENTER play  L load', 0
 trk_s_playing: db 'Playing  SPACE stop  L load', 0
 trk_s_fsload: db 'Load is windowed: Esc first', 0
 trk_s_notmod: db 'Not a .MOD file', 0
-trk_s_diag:   db 'MIN -  LATE ---  UND ---  BLK --  WAKE --  SHB --', 0
-                                        ; [+4] halves, [+12..14] late wakes,
-                                        ; [+21..23] driver underrun edges,
-                                        ; [+30..31] block-IRQ ticks (max),
-                                        ; [+39..40] worker wake ticks (max),
-                                        ; [+47..48] blank shadow rows, LIVE
 trk_s_nofit:  db 'Too big for free memory', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
@@ -2041,6 +1863,9 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
 %include "trkplay.inc"
 %include "trkui.inc"
 %include "trktxt.inc"
+%ifdef TRKLOG
+%include "trklog.inc"               ; tests/ - the bench build only, and the
+%endif                              ; only thing -DTRKLOG adds beyond hooks
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes TRK_BSS bytes after the image; every
@@ -2071,19 +1896,6 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
 
 ; --- the module blob (a heap claim, SPEC.md 50) -------------------------------
     TRKW trk_modseg                 ; grant base segment, 0 = none
-    TRKW trk_minlead                ; smallest ring lead any feed wake has
-                                    ; seen, bytes (0xFFFF = nothing yet)
-    TRKW trk_late                   ; wakes that arrived with under one half
-                                    ; in hand - the underrun shape
-    TRKW trk_under                  ; times the DRIVER reported its own double
-    TRKB trk_wasund                 ; buffer starved (edges, not wakes)
-    TRKW trk_blk                    ; longest gap, in ticks, between two
-    TRKW trk_blkt                   ; different [consumed] readings - the
-    TRKW trk_lastc                  ; block-IRQ interval, measured
-    TRKW trk_wake                   ; ...and this worker's own longest wake
-    TRKW trk_wakt                   ; gap, the control for it
-    TRKW trk_shb                    ; blank rows in the text shadow, live
-    TRKB trk_diag                   ; the meter is latched on (SPEC.md 45.14)
     TRKW trk_fsize                  ; the chosen file's size, from the dialog
     TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
     TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown

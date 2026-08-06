@@ -886,10 +886,18 @@ ttx_draw_dyn:
     je .nosh
 .rebuild:
     call ttx_shstart                ; TTX_SHCHUNK rows a frame from here on,
+%ifdef TRKLOG
+    mov al, TLOGF_REBUILD
+    call tlog_flag
+%endif
     cmp byte [ttx_shbusy], 0        ; never all 64 in one (PERFORMANCE.md
     je .nosh                        ; Part 1: this was a visible redraw)
 .step:
     call ttx_shstep
+%ifdef TRKLOG
+    mov al, TLOGF_STEP
+    call tlog_flag
+%endif
     mov byte [ttx_vdirty], 1
 .nosh:
     call tui_viewrow                ; [tui_cvr]: the playing row, or the
@@ -901,6 +909,10 @@ ttx_draw_dyn:
 .rows:
     mov byte [ttx_vdirty], 0
     call ttx_blit
+%ifdef TRKLOG
+    mov al, TLOGF_BLIT
+    call tlog_flag
+%endif
     mov al, [tui_cvr]
     mov [tui_lcvr], al
 .norows:
@@ -936,12 +948,12 @@ ttx_draw_dyn:
     call ttx_vuframe
 .nomu:
     call ttx_vu
-    cmp byte [trk_diag], 0          ; the meter's SHB is live (SPEC.md 45.14),
-    je .msg                         ; so it is re-rendered and re-drawn every
-    call trk_diag_msg               ; frame - the [ttx_lmsg] pointer compare
-    call ttx_status                 ; cannot see digits change inside one
-    jmp short .out                  ; buffer
-.msg:
+%ifdef TRKLOG
+    call tlog_frame                 ; the log's status line is live, so it is
+    call ttx_status                 ; redrawn every frame: the [ttx_lmsg]
+    jmp short .out                  ; pointer compare cannot see digits change
+.msg:                               ; inside one buffer
+%endif
     mov ax, [tui_msgp]
     cmp ax, [ttx_lmsg]
     je .out

@@ -426,6 +426,7 @@ list to check yourself against.
 | Missile Command score strip | the whole strip blanked and re-lettered on every kill | three `font_run` fields, space-padded — no blank interval | §48.9, §6.1 |
 | Missile Command missile trails | an app-side Bresenham emitting one `gfx_hline` per **row** — a whole-trail erase was 267 fills, ~310 ms, a five-tick stall | one `gfx_line`: 59 ms worst frame, and the busy frame whole went 190 ms → **43.5 ms** | §5.6, §48.8.3 |
 | Missile Command crosshair | 8 `gfx_xor_fill` **every frame** whether the mouse moved or not — **8.6 ms of a 55 ms tick**, idle frames included | 0 unless it moved or something drew through it; 4 signed compares per primitive otherwise, and the screen is byte-identical | §48.11 |
+| Dilated line, 1bpp steep (`gfx_line` SI=1) | three full Bresenham walks — a 300px trail erase is 900 mono RMWs, **37.8 ms of a 73.5 ms frame** in Missile Command and only 5.2 calls in it | one walk with a three-bit mask: the three columns share a row and usually a byte. **1.96×**, 0 differing pixels on Hercules and CGA | §5.6.6 |
 | Missile Command burst life | grow, peak, **collapse**, gone — 39 fills a burst, and the collapse alone is 42% of it for one visible state | grow and hold, with the life cut 27→21 frames so Σr (all a burst's lethality) is preserved to 3.3%: 25 fills, **18.3 → 12.4 ms a frame** | §48.12 |
 | Solitaire stock click | 635 wasted fill runs **every click** | 0 unless the picture changed | §43.7 |
 | Solitaire column redraw | every card, backs included (634 runs each) | buried backs kept; a measured move skips 246 runs | §43.7 |
@@ -434,7 +435,7 @@ list to check yourself against.
 | Tracker on a tier-0 machine | a per-position repaint it does not have | one banded line | §45.9.1 |
 | Tracker's XT fullscreen | the scrolling grid in pixels: **2,567 glyph cells/s**, ~2.6 s of drawing per second of music | an 80x25 text mode: **0** glyph cells, **0** `gfx_fill` — 1,121 `rep movsw` words a row change, ~4% of the machine, and the grid scrolls again | §45.13 |
 | Tracker mixing at 11 kHz | ~7.9M cycles/s against a 4.77M budget | ~2.1M at 5,500 Hz, bounds check out of the inner loop | §45.9 |
-| Tracker's text shadow rebuild | all 64 rows in one frame — 256 `mp_cell2txt` + 3,776 `lodsb`/`stosw` + a 9,676-byte blank ≈ **140–330 ms, once every ~9 s**, reported from the field as the screen stopping and then jumping | `TTX_SHCHUNK` = 4 rows a frame, cursor starting at the visible window and wrapping: worst frame **~25 ms** | §45.13.2 |
+| Tracker's text shadow rebuild | all 64 rows in one frame — 256 `mp_cell2txt` + 3,776 `lodsb`/`stosw` + a 9,676-byte blank ≈ **140–330 ms, once every ~9 s**, reported from the field as the screen stopping and then jumping | `TTX_SHCHUNK` = 4 rows a frame, cursor starting at the visible window and wrapping. **Confirmed on the 5150**: 51 s of bracket, frame spacings 432 × 1 tick / 247 × 2 / 2 × 3 and nothing else, with all five pattern boundaries indistinguishable from the baseline | §45.13.2 |
 | Paint brush stroke | width² per pixel of travel | the dab's leading edge, one `gfx_fill` per step | docs/PAINT-NOTES.md |
 | Paint undo | whole canvas | row-granular and lazy | ibid |
 | Menu save-under | 20KB claimed permanently, then 20KB per menu | sized from the rect actually dropped (~4KB VGA, ~1KB Hercules) | docs/KERNEL-MEMORY.md |
