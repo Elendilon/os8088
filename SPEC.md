@@ -14768,6 +14768,61 @@ only while the calls are *small*. `gfx_fill`'s fixed part dominates a row of
 calls for area, price both halves — and if the new shape overlaps itself,
 count the scan lines it actually writes, not the rectangles you drew.
 
+### 48.11 The crosshair paid a redraw for standing still
+
+§48.10's log named `gfx_xor_fill` at **8.0 a frame, every second without
+exception** and left it there. Instrumenting the frame at the *stage* level —
+one span per phase of `mc_render`, read off the PIT, which is a real clock
+even on an emulated machine — said what that cost:
+
+| 8088 / Hercules, fullscreen | idle frame | busy frame |
+|---|---|---|
+| `upd` — all game logic | 2.0 ms | 10.9 ms |
+| `lok` — lock, `mc_track`, `wm_clip_set` | 5.3 | 5.9 |
+| **`crs` — the crosshair** | **8.6** | **8.9** |
+| `trl` — trails + explosions | 6.3 | **36.6** |
+| `rst` — terrain, status, banner | 0.4 | 5.8 |
+| `unl` — unlock | 5.1 | 5.1 |
+| **frame** | **29.2 ms** | **65.8 ms** |
+
+Two separate things are in that table. `trl` is the one that misses the
+55 ms tick, and it is the explosion: modelling `mc_blob` against the coarse
+ramp gives **39 fills per burst** over its 27-frame life, which at eleven
+concurrent bursts predicts **15.9 fills a frame** against the log's measured
+15.8 — the model *is* the game, and that cost is structural.
+
+The other is that **an idle frame costs 29 ms**, of which `lok`+`crs`+`unl`
+is 19 ms that draws nothing at all. The crosshair is 8.6 ms of it: four
+one-pixel arms taken off at the top of every frame and put back at the
+bottom, whether the mouse moved or not. There is nothing to win *inside*
+those calls — an arm is a rect, and 756 µs is what a rect costs to ask for —
+so the only move available is not to make them.
+
+So the overlay **stays on screen across frames**, and comes off in exactly
+the two cases that require it:
+
+- **`mc_cross_moved`**, once at the top of a part frame: the mouse moved, so
+  the crosshair has to go back somewhere else.
+- **`mc_cross_need`**, from `mc_fillc` / `mc_framec` / `mc_runc` / `mc_line`:
+  the rect about to be drawn reaches the crosshair's footprint.
+
+The second is what makes this **exact** rather than approximate, and the
+ordering is the whole of it: the erase happens *before* the overdraw, while
+the crosshair is still whole, so the XOR undoes what the XOR drew. Erase it
+afterwards and you flip pixels belonging to the fill; skip the erase and
+re-XOR at the end and a partly overdrawn cross comes back inside out.
+
+Verified the only way this can be verified — a cluster of bursts detonated
+around a stationary crosshair, the game paused, the framebuffer captured, a
+full repaint forced, and the two compared: **0 differing pixels of 262,144**.
+
+Two things about it are easy to undo. `mc_xorc` must **not** be hooked, or
+the crosshair's own erase recurses into itself. And the rect handed to
+`mc_cross_need` is deliberately the *unclamped* one with its corners in any
+order — a line hands over its two endpoints — because over-approximating
+costs at worst one redundant erase, while under-approximating leaves the
+overlay to be painted over and then inverted.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
