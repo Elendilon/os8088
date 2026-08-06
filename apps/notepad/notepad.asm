@@ -255,8 +255,8 @@ np_entry:
                                     ; it holds nothing (SPEC.md 27.2)
     pushf                           ; ...and so must this: the bss arrives
     call np_defname                 ; zeroed and an empty name is not a file
-    popf                            ; (SPEC.md 27.1), but np_defname is an
-                                    ; ordinary routine and the CF we owe the
+    call np_arg                     ; (SPEC.md 27.1), but np_defname is an
+    popf                            ; ordinary routine and the CF we owe the
                                     ; loader is still riding in the flags
 .out:
     ret
@@ -3907,6 +3907,65 @@ np_goto:
     pop dx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; np_arg - open the document we were launched to open (SPEC.md 54.5)
+; in:  nothing; called from np_entry once the window and the claim exist
+; out: nothing; preserves all registers AND the flags, because the CF this
+;      package owes the loader is still riding in them
+;
+; The kernel hands over a name and a (cluster, volume) pair rather than
+; putting us in the right folder, because it cannot: the loader read our own
+; image out of OUR directory and far-called this entry as one unit. So the
+; whole of accepting a document is to copy the name, record the folder the
+; way Save As already records one, and let np_load do exactly what F3 does.
+;
+; The name lives in the KERNEL segment, so ES is loaded explicitly rather
+; than trusted: it happens to still be KERNEL_SEG here, and a later edit that
+; left a package segment in ES would read this package's own image as a file
+; name and fail in a way that looks like a kernel bug.
+; -----------------------------------------------------------------------------
+np_arg:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call OSAPI_ARG_FILE             ; CF=1 = launched empty, the usual case
+    jc .out
+    mov [np_dir], dx                ; the folder it lives in, recorded the
+    mov [np_drv], bl                ; way Save As records one - np_goto then
+    mov byte [np_dirok], 1          ; takes np_load there
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov di, np_name
+    mov cx, 13
+.copy:
+    mov al, [es:si]
+    mov [di], al
+    or al, al
+    jz .named
+    inc si
+    inc di
+    loop .copy
+    mov byte [di], 0
+.named:
+    push ds
+    pop es                          ; ES = DS again, the callback default
+    call np_load                    ; ...and this is F3, unchanged
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
     ret
 
 ; -----------------------------------------------------------------------------

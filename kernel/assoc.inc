@@ -486,6 +486,8 @@ section .text
 ; bin zeroes nothing and ui.inc reads this on the machine's very first idle
 ; pass, before anything has written it (the fdlg_win precedent).
 assoc_dapp:  db 0xFF            ; the app slot to open it with, 0xFF = none
+assoc_argp:  db 0               ; 1 = a document is waiting to be claimed by
+                                ; the next OSAPI_ARG_FILE (SPEC.md 54.5)
 
 ; =============================================================================
 ; The open path (SPEC.md 54.4) - double-clicking a document
@@ -764,8 +766,10 @@ assoc_run:
     mov bx, [assoc_pwin]
     mov [ld_pwin], bx
     mov byte [ld_painted], 0
-    call ld_run_body            ; AL = LD_*
-    mov [ld_status], al
+    mov byte [assoc_argp], 1    ; armed ACROSS the load and disarmed after,
+    call ld_run_body            ; so exactly one entry proc can claim it -
+    mov byte [assoc_argp], 0    ; a package launched later, by any route,
+    mov [ld_status], al         ; must never inherit this document
     push ds
     pop es                      ; ld_run_body's failure exits leave ES adrift
     call assoc_back             ; the user's volume FIRST, then the window
@@ -818,3 +822,268 @@ assoc_dclus: resw 1             ; ...and where it lives: directory cluster
 assoc_ddrv:  resb 1             ; ...and volume
 assoc_pwin:  resw 1             ; the Disk window that posted it
 section .text
+
+; =============================================================================
+; The API surface (SPEC.md 54.5)
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; osapi_arg_file - the document this instance was launched to open (0x02E8)
+; in:  nothing
+; out: CF=1 = no document; CF=0 with SI -> its NUL 8.3 name IN THE KERNEL
+;      SEGMENT (ES is already KERNEL_SEG on entry to a package proc, SPEC.md
+;      20.2), DX = the directory cluster it lives in and BL = its volume -
+;      the same pair OSAPI_FILE_HERE answers and OSAPI_FILE_GOTO takes
+; clobbers: SI, DX, BL (the outputs), CF
+;
+; READ-AND-CLEAR, and that is the whole of why a second instance cannot
+; inherit a document: the first proc to ask gets it and the word is spent.
+;
+; PULL rather than push, because ld_run_body reads the program's image out of
+; the PROGRAM's directory and far-calls its entry as one unit - so the kernel
+; cannot be standing in the document's directory when that entry runs. Handing
+; over the locator instead moves the one dsk_chdir to where it can happen, and
+; the app spends it with slots it already had.
+; -----------------------------------------------------------------------------
+osapi_arg_file:
+    cmp byte [assoc_argp], 0
+    je .none
+    mov byte [assoc_argp], 0    ; spent
+    mov si, assoc_doc
+    mov dx, [assoc_dclus]
+    mov bl, [assoc_ddrv]
+    clc
+    ret
+.none:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; osapi_assoc_set - claim an extension for a program (0x02F0, an X stub)
+; in:  ES:SI -> 3 extension bytes then 8 stem bytes, both space-padded
+; out: CF=1 = the tables are full and nothing was stored
+; clobbers: CF
+;
+; The caller supplies its own file stem because the kernel cannot: I_NAME
+; holds the 16-byte HEADER name ('SOLITAIRE'), not the 8.3 file name
+; ('SOLITAIR'), and nothing in the instance record says where a package was
+; loaded from. OS88_ASSOC in the SDK makes it one line.
+;
+; There is deliberately NO ownership model - "take over an existing one" was
+; the ask, so a matching extension is repointed. Registering grants nothing:
+; the worst outcome is that the wrong program opens a file.
+;
+; It sets the STICKY bit, which is what stops a package's header declaration
+; (SPEC.md 54.6) quietly taking the extension back on the next mount of its
+; folder.
+; -----------------------------------------------------------------------------
+osapi_assoc_set:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, assoc_extb          ; stage both halves into the kernel, the
+    mov cx, 3                   ; dsk_get_dir idiom - everything below reads
+.cext:                          ; through DS
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .cext
+    mov di, assoc_stemb
+    mov cx, 8
+.cstem:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .cstem
+
+    mov si, assoc_stemb         ; the app slot: reuse this program's own if
+    call assoc_app_of           ; it already has one, so a program claiming
+    jnc .haveapp                ; four extensions takes one slot and not four
+    call assoc_app_new
+    jc .full
+.haveapp:
+    mov dl, al                  ; DL = the app slot from here down
+    mov si, assoc_extb
+    call assoc_find             ; already claimed by someone?
+    jc .newext
+    call assoc_ext_row          ; BX = that row
+    jmp short .point
+.newext:
+    call assoc_ext_new          ; BX = a free row, with the extension in it
+    jc .full
+.point:
+    mov al, dl
+    or al, ASSOC_STICKY         ; a runtime claim outranks a declaration
+    mov [bx+3], al
+    call assoc_self_glyph       ; DL = slot; take the caller's own icon
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.full:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; assoc_ext_row - the row assoc_find just matched. in: SI -> 3 ext bytes;
+; out: BX = its row (the caller has already had CF=0 from assoc_find)
+assoc_ext_row:
+    push ax
+    push cx
+    push di
+    mov bx, assoc_ext
+    mov cx, ASSOC_NEXT
+.row:
+    mov di, si
+    mov al, [bx]
+    cmp al, [di]
+    jne .next
+    mov al, [bx+1]
+    cmp al, [di+1]
+    jne .next
+    mov al, [bx+2]
+    cmp al, [di+2]
+    je .out
+.next:
+    add bx, 4
+    loop .row
+.out:
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; assoc_ext_new - claim a free extension row. in: SI -> 3 ext bytes;
+; out: CF=0 and BX = the row with the extension written in; CF=1 = full
+assoc_ext_new:
+    push ax
+    push cx
+    mov bx, assoc_ext
+    mov cx, ASSOC_NEXT
+.row:
+    cmp byte [bx], 0
+    je .take
+    add bx, 4
+    loop .row
+    pop cx
+    pop ax
+    stc
+    ret
+.take:
+    mov al, [si]
+    mov [bx], al
+    mov al, [si+1]
+    mov [bx+1], al
+    mov al, [si+2]
+    mov [bx+2], al
+    pop cx
+    pop ax
+    clc
+    ret
+
+; assoc_app_new - claim a free app slot for the stem in assoc_stemb.
+; out: CF=0 and AL = the slot, its stem written and its glyph cleared;
+;      CF=1 = every slot is taken
+assoc_app_new:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, assoc_stem
+    xor dh, dh
+.row:
+    cmp dh, ASSOC_NAPP
+    jae .full
+    cmp byte [bx], 0
+    je .take
+    add bx, 8
+    inc dh
+    jmp .row
+.take:
+    mov si, assoc_stemb
+    mov di, bx
+    mov cx, 8
+.copy:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop .copy
+    mov bl, dh                  ; clear the side state: a slot reused for a
+    xor bh, bh                  ; different program must not inherit the
+    mov byte [assoc_drv+bx], 0xFF   ; last one's hint, folder or glyph
+    mov byte [assoc_dfold+bx], 0
+    push bx
+    shl bx, 1
+    mov word [assoc_clus+bx], 0
+    pop bx
+    mov cl, 3
+    shl bx, cl
+    mov di, assoc_glyph
+    add di, bx
+    mov cx, 8
+.zap:
+    mov byte [di], 0
+    inc di
+    loop .zap
+    mov al, dh
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    clc
+    ret
+.full:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    stc
+    ret
+
+; assoc_self_glyph - reduce the CALLING package's own embedded icon into an
+; app slot. in: DL = the slot, ES = the caller's segment (the X stub put it
+; there). Does nothing if the caller ships no icon - the document then draws
+; the bare page, which is honest.
+assoc_self_glyph:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    cmp word [es:0], 0x384F     ; 'O','8' - a package header, not a stray
+    jne .out
+    test byte [es:3], 1         ; the embedded-icon flag (SPEC.md 20.2)
+    jz .out
+    mov bl, dl
+    xor bh, bh
+    mov cl, 3
+    shl bx, cl
+    mov di, assoc_glyph
+    add di, bx
+    mov si, 64                  ; the DATA plane of the embedded icon
+    call assoc_reduce
+.out:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret

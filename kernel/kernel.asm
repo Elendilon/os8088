@@ -114,7 +114,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 76288           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 78336           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
                                 ; It has moved six times, every one asked
@@ -188,6 +188,33 @@ KERN_BUDGET equ 76288           ; the whole kernel's FOOTPRINT. Growing past
                                 ; through. That doc now carries the bisect
                                 ; recipe instead of a figure, so the next
                                 ; author measures rather than trusts.
+                                ;
+                                ; The seventh move, 76,288 -> 78,336, was
+                                ; asked for and granted in ADVANCE, for two
+                                ; plans costed together before either was
+                                ; written: SPEC.md 54's file type
+                                ; associations (docs/ASSOC-PLAN.md, ~1,600)
+                                ; and the disk path (docs/DISK-PERF-PLAN.md,
+                                ; ~200), against the 1,536 that were spare,
+                                ; which the two do not fit. Granted in
+                                ; advance is the fifth move's warning, so the
+                                ; terms were stated with it: the raise lands
+                                ; with the commit that FIRST needs it and not
+                                ; with the documents, and it landed here -
+                                ; SPEC.md 54.4's open path had taken the
+                                ; footprint to exactly 76,288, which passes
+                                ; the guard by a byte and leaves the next
+                                ; change nowhere to go. Two phases of the
+                                ; association work and the whole of the disk
+                                ; work were already spent under the OLD
+                                ; figure before this line moved.
+                                ;
+                                ; Part of what pays for it is elsewhere:
+                                ; SPEC.md 18.91's batched transfer is 117
+                                ; bytes that took a directory change from 12
+                                ; int 13h calls to 5, and mechanism D
+                                ; (docs/DISK-PERF-PLAN.md 5.5) removes 8 of
+                                ; the 13 an APPS/ open still costs.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
@@ -770,7 +797,26 @@ osapi_table:
                                   ;          axis-aligned pair defers to
                                   ;          gfx_hline / gfx_vline, which stay
                                   ;          the right answer for a long run
-osapi_table_end:                  ; 0x02E8
+    OSAPI_SLOT osapi_arg_file     ; 0x02E8 - the document this instance was
+                                  ;          launched to open (SPEC.md 54.5):
+                                  ;          out CF=1 none; CF=0 with SI = its
+                                  ;          NUL 8.3 name in KERNEL_SEG (read
+                                  ;          it through ES), DX = its directory
+                                  ;          cluster and BL = its volume, the
+                                  ;          pair OSAPI_FILE_GOTO takes.
+                                  ;          READ-AND-CLEAR: a second instance
+                                  ;          cannot inherit it
+    OSAPI_JSLOT api_assoc_set     ; 0x02F0 - X: claim an extension for a
+                                  ;          program (SPEC.md 54.5). ES:SI =
+                                  ;          3 extension bytes then 8 stem
+                                  ;          bytes, both space-padded; out
+                                  ;          CF=1 = the tables are full.
+                                  ;          Repoints an extension somebody
+                                  ;          else claimed - that is the ask,
+                                  ;          not an oversight - and marks it
+                                  ;          sticky so a header declaration
+                                  ;          cannot take it back
+osapi_table_end:                  ; 0x02F8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -778,7 +824,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 91 * 8
+%if OSAPI_TABLE_LEN != 93 * 8
 %error "os8088 API jump table must be exactly 91 8-byte slots"
 %endif
 
@@ -829,6 +875,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_drv_cfg,    osapi_drv_cfg
     OSAPI_XSTUB api_gfx_fill_pat, osapi_gfx_fill_pat
     OSAPI_XSTUB api_fsx_run,    fsx_run
+    OSAPI_XSTUB api_assoc_set,  osapi_assoc_set
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
 ; because ES:BX belongs to the caller's data buffer and cannot carry it
