@@ -840,6 +840,12 @@ ttx_draw_dyn:
     call ttx_vuframe
 .nomu:
     call ttx_vu
+    cmp byte [trk_diag], 0          ; the meter's SHB is live (SPEC.md 45.14),
+    je .msg                         ; so it is re-rendered and re-drawn every
+    call trk_diag_msg               ; frame - the [ttx_lmsg] pointer compare
+    call ttx_status                 ; cannot see digits change inside one
+    jmp short .out                  ; buffer
+.msg:
     mov ax, [tui_msgp]
     cmp ax, [ttx_lmsg]
     je .out
