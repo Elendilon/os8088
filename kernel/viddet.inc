@@ -148,6 +148,14 @@ gfx_inktab:
     db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
     db 0x01, 0x01, 0x01, 0x01, 0xFF, 0x01, 0xFF, 0xFF
 
+; The bank number's byte offset, indexed by the bank itself. `shl bx, 13` is
+; 8 clocks plus 4 per bit on an 8088 - 60 for a shift of a value that has
+; four possible answers, and gfx_rowbase is on the fixed cost of EVERY
+; drawing call (PERFORMANCE.md Part 2). Four banks is the maximum the 0x2000
+; window assertion at the bottom of this file allows.
+vid_banktab:
+    dw 0x0000, 0x2000, 0x4000, 0x6000
+
 ; -----------------------------------------------------------------------------
 ; vid_detect - decide which adapter is installed (SPEC.md 39.1)
 ;
@@ -481,13 +489,24 @@ vid_cga_equip:
 ; clobbers: flags
 ;
 ; Idempotent, and deliberately re-run by kmain after the splash already did
-; it - exactly as kmain's mode set has always re-run the splash's own,
-; which is what wipes the loading screen.
+; it - but the MODE SET is now skipped while the splash is still on screen.
+; It used to run unconditionally, and re-setting a mode that is already set
+; is what wiped the loading screen: kmain then spent several more seconds
+; mounting A:, reading SYSTEM.CFG and painting the desktop with the user
+; looking at a blank screen and a progress bar that had been erased at 100%.
+; The splash owns the mode from its first tick until spl_finish, which is the
+; line immediately before the first wm_paint_all (SPEC.md 15.3/39.1).
+;
+; The probe and the publish still re-run, and must: everything between here
+; and that paint reads [vid_w]/[vid_h]/[vid_stride] out of them.
 ; -----------------------------------------------------------------------------
 vid_init:
     call vid_detect
     call vid_apply
+    cmp byte [spl_live], 0      ; the splash set THIS mode on its first tick
+    jne .keep                   ; and is still drawing on it
     call vid_setmode
+.keep:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -544,9 +563,9 @@ gfx_rowbase:
     push bx
     mov bx, ax
     and bx, [cs:vid_bmask]      ; BX = bank number
-    mov cl, 13
-    shl bx, cl                  ; BX = bank * 0x2000
-    mov cl, [cs:vid_bshift]
+    shl bx, 1
+    mov bx, [cs:bx + vid_banktab]   ; BX = bank * 0x2000, without the 13-bit
+    mov cl, [cs:vid_bshift]         ; shift an 8088 charges 60 clocks for
     shr ax, cl                  ; AX = row within the bank
     mul word [cs:vid_stride]    ; DX:AX; DX is always 0 (86*90 at worst)
     add ax, bx

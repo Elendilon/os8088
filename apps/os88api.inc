@@ -604,17 +604,19 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
 ; reads them, and it round-trips them untouched on a machine where the driver
 ; never loads. Versioning them is the driver's job.
 %define DRV_BLOB_SZ         34
-%define OSAPI_DRV_CFG       KERNEL_SEG:0x0290   ; AL = 0 read / 1 write / 2
-                                 ; write and flush SYSTEM.CFG now, ES:SI = the
-                                 ; driver's buffer, CX = bytes (<= DRV_BLOB_SZ).
+%define OSAPI_DRV_CFG       KERNEL_SEG:0x0290   ; AL = 0 read / anything else
+                                 ; write, ES:SI = the driver's buffer, CX =
+                                 ; bytes (<= DRV_BLOB_SZ).
                                  ; out CF=1 = not the published driver, or a
                                  ; WRITE past DRV_BLOB_SZ; a never-written blob
                                  ; reads back as zeroes, so put a version byte
                                  ; in it and treat anything else as the
-                                 ; defaults (SPEC.md 51.5). Verb 1 rides the next
-                                 ; Control Panel flush, verb 2 costs a write
-                                 ; NOW - use it for state a power cut must not
-                                 ; lose, not for a preference
+                                 ; defaults (SPEC.md 51.5). A WRITE NEVER
+                                 ; TOUCHES THE DISK: the bytes ride the next
+                                 ; Control Panel flush, which is the panel's
+                                 ; close or Special > Restart and nothing else
+                                 ; (SPEC.md 31.8). The old verb 2, "write the
+                                 ; file NOW", is retired and reads as 1
 
 ; --- the three snapshots, and a patterned fill (SPEC.md 20.9) ----------------
 ; The first three answer questions about the SYSTEM rather than about you: the
@@ -1079,6 +1081,42 @@ WT_SIZE    equ 16
 %endmacro
 
 ; -----------------------------------------------------------------------------
+; OS88_ASSOC16 / OS88_ASSOC16_END - bracket the association block (SPEC.md
+; 54.6). Only valid when OS88_HEADER was given flags bit 1, and it goes
+; IMMEDIATELY after the icon (offset 96) or, with no icon, immediately after
+; the header (offset 32). Between the two macros write a count byte and up to
+; five 3-byte extensions, uppercase and space-padded - OS88_ASSOC_EXT lays one
+; out. The block is a fixed 16 bytes and the macros assert its start and end,
+; so a miscounted db fails at ASSEMBLY rather than at mount.
+;
+; Declaring costs nothing at runtime: the mount's icon harvest already reads
+; this sector, so a document beside your program opens on the FIRST
+; double-click, with no prior run and no search.
+; -----------------------------------------------------------------------------
+%macro OS88_ASSOC16 0
+    %if ($ - $$) != 96 && ($ - $$) != 32
+        %error "OS88_ASSOC16 must sit at offset 96 (with an icon) or 32 (without)"
+    %endif
+    %assign OS88_ASSOC_BASE ($ - $$)
+%endmacro
+
+%macro OS88_ASSOC_EXT 1
+    %strlen %%xl %1
+    %if %%xl > 3
+        %error "OS88_ASSOC_EXT: an extension is at most 3 characters"
+    %endif
+    db %1
+    times 3 - %%xl db ' '
+%endmacro
+
+%macro OS88_ASSOC16_END 0
+    %if ($ - $$) > OS88_ASSOC_BASE + 16
+        %error "the association block is 16 bytes: a count byte and up to five extensions"
+    %endif
+    times OS88_ASSOC_BASE + 16 - ($ - $$) db 0
+%endmacro
+
+; -----------------------------------------------------------------------------
 ; OS88_ICON16 / OS88_ICON16_END - bracket the embedded 16x16 icon (SPEC.md
 ; 20.2/20.5). Only valid when OS88_HEADER was given flags bit 0. The author
 ; writes exactly 32 hand-authored dw rows between the two macros: 16 mask
@@ -1380,6 +1418,35 @@ OS88_BSS_SIZE equ 0
                                                 ; so this is the only flush a
                                                 ; buffered renderer gets.
                                                 ; Draw, wait, repeat.
+%define OSAPI_ARG_FILE      KERNEL_SEG:0x02E8   ; the document this instance was
+                                 ; launched to open (SPEC.md 54.5). No
+                                 ; inputs; out CF=1 = launched empty, the
+                                 ; ordinary case. CF=0 with SI -> its NUL 8.3
+                                 ; name IN THE KERNEL SEGMENT - read it
+                                 ; through ES, which is KERNEL_SEG on entry
+                                 ; to every package proc (20.2), and copy it
+                                 ; out before you call anything else - plus
+                                 ; DX = the directory cluster it lives in and
+                                 ; BL = its volume, which is exactly the pair
+                                 ; OSAPI_FILE_GOTO takes. So the whole of
+                                 ; opening it is: copy the name, GOTO, READ.
+                                 ; READ-AND-CLEAR - the first proc to ask
+                                 ; gets it, so a second instance launched
+                                 ; later can never inherit a document
+%define OSAPI_ASSOC_SET     KERNEL_SEG:0x02F0   ; claim an extension for a
+                                 ; program (SPEC.md 54.5). ES:SI -> 3
+                                 ; extension bytes then 8 stem bytes, both
+                                 ; space-padded - the OS88_ASSOC macro below
+                                 ; lays that out. Out CF=1 = the tables are
+                                 ; full and nothing was stored. It REPOINTS
+                                 ; an extension somebody else had claimed:
+                                 ; that is the feature, not an oversight, and
+                                 ; registering grants nothing - the worst
+                                 ; outcome is that the wrong program opens a
+                                 ; file. Your own icon becomes the mark its
+                                 ; documents carry. Call it from your entry
+                                 ; proc; a package that ships a header
+                                 ; declaration (54.6) needs no call at all
 %define OSAPI_GFX_LINE      KERNEL_SEG:0x02E0   ; an arbitrary-angle line (SPEC.md
                                  ; 5.6): AX/BX = x1/y1, CX/DX = x2/y2,
                                  ; inclusive, absolute screen coords;
@@ -1443,3 +1510,28 @@ FSI_SIZE   equ 16
 FSIF_TEXT   equ 1
 FSIF_PLANAR equ 2
 FSIF_BANKED equ 4
+
+; -----------------------------------------------------------------------------
+; OS88_ASSOC - lay out one OSAPI_ASSOC_SET argument block (SPEC.md 54.5)
+;   my_assoc:  OS88_ASSOC 'BMP', 'PAINT'
+; then, from the entry proc:
+;   mov si, my_assoc
+;   push ds
+;   pop es                      ; ES:SI, and ES must be YOUR segment
+;   call OSAPI_ASSOC_SET
+; Both fields are space-padded here so the caller never has to think about it.
+; -----------------------------------------------------------------------------
+%macro OS88_ASSOC 2
+    %strlen %%elen %1
+    %if %%elen > 3
+        %error "OS88_ASSOC: an extension is at most 3 characters"
+    %endif
+    db %1
+    times 3 - %%elen db ' '
+    %strlen %%slen %2
+    %if %%slen > 8
+        %error "OS88_ASSOC: an 8.3 stem is at most 8 characters"
+    %endif
+    db %2
+    times 8 - %%slen db ' '
+%endmacro

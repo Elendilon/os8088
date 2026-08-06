@@ -62,6 +62,18 @@ $(error RTC must be one of: none at ns rp bios)
 endif
 VIDDEF += -DCLK_FORCE=$(RTCFORCE_$(RTC))
 endif
+
+# DISKCNT=1 compiles in the three disk counters of docs/DISK-PERF-PLAN.md 2:
+# mounts, sectors transferred and int 13h data calls. They exist to answer
+# "how much work is a directory change", which QEMU can measure exactly even
+# though it cannot measure how long it takes (PERFORMANCE.md). Folded into
+# VIDDEF so it shares the stamp below - changing it rebuilds the kernel - and
+# so a counted kernel that reached build/ reads as STALE to check-images,
+# which builds knob-free.
+ifneq ($(DISKCNT),)
+VIDDEF += -DDISK_COUNTERS
+
+endif
 # ...and a stamp so that CHANGING VIDEO rebuilds the kernel. Without it make
 # sees an up-to-date kernel.bin, skips it, and boots the PREVIOUS adapter -
 # which reads exactly like the probe or the renderer being broken.
@@ -72,7 +84,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin; \
                                 touch $(VIDSTAMP); })
@@ -86,7 +98,7 @@ KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 debug test test-snd xt xt-640 xt-cga xt-hercules \
         286 386sx 386 xt-sound 286-sound 386-sound check-images bench \
-        stackprobe trklog clean
+        field stackprobe trklog clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -97,12 +109,27 @@ $(BUILD):
 
 # The kernel is a flat binary loaded at 1000:0000. No linker is involved,
 # which keeps Apple's Mach-O-only toolchain out of the picture entirely.
-$(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) tools/os88ovlchk.py | $(BUILD)
+# The default associations' 8x8 glyphs (SPEC.md 54.3), reduced on the HOST out
+# of each package's own embedded icon so the kernel ships knowing what its own
+# applications look like - a document icon then costs no disk read on the first
+# boot of any machine. GENERATED, and that is the point: hand-pasted bytes go
+# stale in silence when an app's icon changes and `make check-images` cannot
+# see it, where this dependency can. The DAG stays acyclic - a package depends
+# on apps/os88api.inc, never on kernel.bin.
+ASSOCICO := $(BUILD)/associco.inc
+$(ASSOCICO): tools/os88mini.py $(BUILD)/paint.o88 $(BUILD)/notepad.o88 \
+             $(BUILD)/tracker.o88 $(BUILD)/artful.o88 | $(BUILD)
+	python3 tools/os88mini.py -o $@ \
+		PAINT=$(BUILD)/paint.o88 NOTEPAD=$(BUILD)/notepad.o88 \
+		TRACKER=$(BUILD)/tracker.o88 ARTFUL=$(BUILD)/artful.o88
+
+$(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) tools/os88ovlchk.py | $(BUILD)
 	@python3 tools/os88ovlchk.py
-	$(NASM) -f bin -w+error -I kernel/ $(VIDDEF) -o $@ $(KERNEL_SRC)
+	$(NASM) -f bin -w+error -I kernel/ -I $(BUILD)/ $(VIDDEF) -o $@ $(KERNEL_SRC)
 	@echo "kernel: $(call FILESIZE,$@) bytes (image rung + boot overlay)"
 ifneq ($(VIDDEF),)
-	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC): this kernel has a probe FORCED. ***"
+	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC) DISKCNT=$(DISKCNT): this kernel is ***"
+	@echo "  *** BUILT WITH A KNOB - a forced probe and/or disk counters.   ***"
 	@echo "  *** build/ is git-tracked - rebuild with plain \`make\` before  ***"
 	@echo "  *** committing, or every machine boots that way.               ***"
 endif
@@ -165,7 +192,8 @@ $(BUILD)/sound.drv: $(BUILD)/sound.bin tools/os88drv.py
 	python3 tools/os88drv.py $(BUILD)/sound.bin -o $@
 
 $(BUILD)/hdd.bin: drivers/hdd/hdd.asm drivers/hdd/part.inc drivers/hdd/fmt.inc \
-                  drivers/hdd/page.inc drivers/os88drv.inc apps/os88api.inc | $(BUILD)
+                  drivers/hdd/tool.inc drivers/hdd/page.inc drivers/hdd/cfg.inc \
+                  drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I drivers/hdd/ -I drivers/ -I apps/ -o $@ $<
 	@echo "hdd:    $(call FILESIZE,$@) bytes"
 
@@ -433,6 +461,24 @@ $(BUILD)/big.dat: Makefile | $(BUILD)
 $(BUILD)/filetest.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/filetest.o88 $(BUILD)/big.dat
 
+# assoctest: the SPEC.md 54 gate. Its own scratch image, and a TEST.AST for it
+# to be opened WITH - the point of the gate is what happens on a document
+# double-click, so the fixture is half the test:
+#   make test TESTAPPS=build/assoctest.img     then double-click TEST.AST
+# Launching ASSOCTEST.O88 by hand is the control: rows 1-4 read '-'.
+$(BUILD)/assoctest.bin: tests/assoctest/assoctest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/assoctest/assoctest.asm
+	@echo "assoctest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/asstest.o88: $(BUILD)/assoctest.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/assoctest.bin -o $@
+
+$(BUILD)/test.ast: Makefile | $(BUILD)
+	printf 'os8088 association gate fixture\n' > $@
+
+$(BUILD)/assoctest.img: $(BUILD)/asstest.o88 $(BUILD)/test.ast tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/asstest.o88 $(BUILD)/test.ast
+
 # The same package on a legally fragmented volume: --scramble interleaves the
 # chains, so the write path's allocator and the free/replace paths meet holes
 # rather than a clean run of clusters. BIG.DAT rides this image too - checks
@@ -587,6 +633,54 @@ $(BUILD)/bench.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 
 $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BENCHPKGS) $(BENCHDATA)
+
+# --- the FIELD disks: one BOOTABLE 360KB floppy per adapter ------------------
+#
+# `make field` -> build/herc.img and build/cga.img, and both are shaped by the
+# machine this project is calibrated against (docs/FIELD-MACHINES.md, E1: an
+# IBM PC 5150 with ONE floppy drive - the second bay is an ST-225 - and both a
+# Hercules and a CGA card in it at all times).
+#
+# THE BENCHMARKS ARE ON THE BOOT DISK. With no drive B, the two-floppy shape
+# `make bench` produces would mean swapping disks mid-session on the one
+# machine where a disk swap is a walk to another room. These carry the
+# benchmarks in the root of the SYSTEM disk instead - the TASKMGR.O88
+# precedent (SPEC.md 28.3), for exactly the same reason - so booting one puts
+# them one double-click away, and the reports they save land back on the disk
+# they came from. os88disk marks them visible + read-only (SPEC.md 19.6), so
+# they list and cannot be deleted by accident, and the disk is NOT
+# write-protected because the reports are the point.
+#
+# ONE IMAGE PER CARD, because the probe (SPEC.md 39.1) finds the Hercules
+# first and a machine that holds both can only be asked one question at a
+# time. herc.img is the ordinary SHIPPED kernel - so it exercises the probe on
+# the way past - and cga.img is a VIDEO=cga kernel that ignores the Hercules.
+# That kernel is built in a directory of its own: a VIDEO=-forced kernel that
+# reaches build/ is a machine that boots the wrong card for everyone, which is
+# a mistake that has been made and is why `make check-images` calls it STALE.
+#
+# The names are short and unambiguous at a DOS prompt on purpose: DOS 3.3 has
+# 8.3 names and no tab completion, and these get typed by hand into dskimage.
+FIELDBENCH := $(BENCHPKGS) $(BENCHDATA)
+CGADIR     := $(BUILD)/cgak
+
+field: $(BUILD)/herc.img $(BUILD)/cga.img
+
+$(BUILD)/herc.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) \
+                   $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
+		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+	@echo "field: $@ - the shipped PROBE kernel; on a machine holding both"
+	@echo "       cards it finds the Hercules (SPEC.md 39.1)"
+
+$(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(CGADIR)/boot360.bin
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/kernel.bin \
+		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+	@echo "field: $@ - VIDEO=cga, so the Hercules is ignored and the CGA"
+	@echo "       column can be taken without opening the machine"
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
 # inside: its worker 0xCC-fills its own slice, spins so every interrupt the
@@ -763,20 +857,28 @@ test-snd: $(IMG) $(TESTAPPS)
 # wp:// (write-protect) prefix back on the DATA floppy - which makes every
 # SPEC.md 18.4 write fail as FERR_WPROT and reads, from inside the OS, as a
 # filesystem bug rather than an emulator setting. Strip it at launch so the
-# setting cannot silently regress. The BOOT floppy keeps its wp:// on
-# purpose: its sector 0 has no valid BPB, so the kernel refuses to write it
-# anyway, and the prefix is a second lock on the disk carrying the loader.
+# setting cannot silently regress.
+#
+# BOTH floppies now, because the BOOT floppy is a writable FAT12 volume too
+# (SPEC.md 19.3) and SYSTEM.CFG lives in its root: protected, every Control
+# Panel setting silently fails to survive a reboot. Its old justification -
+# "sector 0 has no valid BPB so the kernel refuses to write it anyway" -
+# stopped being true when the system disk became a real volume.
+#
+# The cost is the one QEMU already imposes: a machine that writes its settings
+# dirties build/os8088.img, which is a TRACKED, SHIPPED artifact, so
+# `rm -f build/os8088.img build/os8088-360.img && make` before committing.
 # perl -pi behaves identically on GNU and BSD/macOS, unlike sed -i.
-UNPROTECT_B = perl -pi -e 's{^fdd_02_fn = wp://}{fdd_02_fn = }'
+UNPROTECT = perl -pi -e 's{^fdd_01_fn = wp://}{fdd_01_fn = }; s{^fdd_02_fn = wp://}{fdd_02_fn = }'
 
 # Boot the 360KB image on emulated period hardware in 86Box.
 xt: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VM)/86box.cfg
+	@$(UNPROTECT) $(VM)/86box.cfg
 	$(BOX) -P $(VM) -N
 
 # The same XT with a full 640KB of RAM instead of 256KB.
 xt-640: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VM640)/86box.cfg
+	@$(UNPROTECT) $(VM640)/86box.cfg
 	$(BOX) -P $(VM640) -N
 
 # The two monochrome machines (SPEC.md 39), both 256KB - which is all an
@@ -784,11 +886,11 @@ xt-640: $(IMG360) $(APPSIMG360)
 # exercise the detection probe and the Hercules renderer: QEMU has no such
 # card, so `make test VIDEO=cga` covers the mono renderer but never the probe.
 xt-cga: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VMCGA)/86box.cfg
+	@$(UNPROTECT) $(VMCGA)/86box.cfg
 	$(BOX) -P $(VMCGA) -N
 
 xt-hercules: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VMHERC)/86box.cfg
+	@$(UNPROTECT) $(VMHERC)/86box.cfg
 	$(BOX) -P $(VMHERC) -N
 
 # The other end of the range: an AT-class machine, VGA, more RAM than the OS
@@ -814,15 +916,15 @@ xt-hercules: $(IMG360) $(APPSIMG360)
 # the CMOS to vm/<machine>/nvr/ (gitignored) and every later boot goes
 # straight to the desktop.
 286: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM286)/86box.cfg
+	@$(UNPROTECT) $(VM286)/86box.cfg
 	$(BOX) -P $(VM286) -N
 
 386sx: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM386SX)/86box.cfg
+	@$(UNPROTECT) $(VM386SX)/86box.cfg
 	$(BOX) -P $(VM386SX) -N
 
 386: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM386DX)/86box.cfg
+	@$(UNPROTECT) $(VM386DX)/86box.cfg
 	$(BOX) -P $(VM386DX) -N
 
 # The three sound machines: an XT with a Sound Blaster 2.0 (so the OPL2 is
@@ -832,15 +934,15 @@ xt-hercules: $(IMG360) $(APPSIMG360)
 # bus and clock are period-correct, which is the only place a stream's pacing
 # means anything (SPEC.md 34.5/51.4).
 xt-sound: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VMXTSND)/86box.cfg
+	@$(UNPROTECT) $(VMXTSND)/86box.cfg
 	$(BOX) -P $(VMXTSND) -N
 
 286-sound: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM286SND)/86box.cfg
+	@$(UNPROTECT) $(VM286SND)/86box.cfg
 	$(BOX) -P $(VM286SND) -N
 
 386-sound: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM386SND)/86box.cfg
+	@$(UNPROTECT) $(VM386SND)/86box.cfg
 	$(BOX) -P $(VM386SND) -N
 
 # check-images - are the git-tracked binaries in build/ what the sources

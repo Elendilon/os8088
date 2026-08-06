@@ -150,9 +150,11 @@ zone, end to end:
 make test HDD=40                 # a blank 40MB raw IDE disk, KEPT between runs
 # System menu -> Control Panel -> Drivers -> tick Hard Drive
 # -> the 'Hard Drive' page appears in the list; select it
-# -> Partition -> New -> Write -> Close
-# -> Format -> Format -> Close
-# -> Mount        ... one icon per FAT partition: HDD C, HDD D, ...
+# -> Format -> pick a slot -> Format   ... partitions AND formats it (SPEC.md
+#                                          52.2); a slot with something in it
+#                                          asks for the click again first
+# -> Close -> Mount                    ... one icon per FAT partition: HDD C,
+#                                          HDD D, ...
 rm -f build/hdd.img              # start over from a blank disk
 ```
 
@@ -227,16 +229,18 @@ for n,a,c,sz in ents(v):
 EOF
 ```
 
-**Persistence: which half needs the panel closed, and which does not.** Mount
-and Unmount write `SYSTEM.CFG` on the spot (SPEC.md 51.9 verb 2), and the
-write packs the LIVE state - the driver-wanted bitmap included - so quitting
-QEMU with the Control Panel still open is a fair test of the mount: reboot and
-Disk A, Disk B and every hard-disk volume should be on the desktop with no
-clicks at all. **A geometry typed by hand is the deferred half**, staged on
-every `+` and written at the panel's teardown (SPEC.md 31.8), so *that* one
-does need the window closed before the quit - and a run that skips it reboots
-with the probe's numbers back, which reads exactly like the editor not
-persisting. Close the window, then quit, then `make test HDD=40` again.
+**Persistence: EVERYTHING needs the panel closed first.** Nothing on this page
+writes `SYSTEM.CFG` from a click any more - not the geometry editor, and since
+SPEC.md 51.9's verb 2 was retired not Mount and Unmount either. All of it is
+staged into the kernel's settings struct on the spot and written at the panel's
+teardown (SPEC.md 31.8), so a persistence run is: mount, type a geometry,
+**click the close box on the LEFT of the title bar**, then quit QEMU, then
+`make test HDD=40` again - and Disk A, Disk B and every hard-disk volume should
+be on the desktop with no clicks at all. A run that quits with the panel still
+open reboots with the probe's numbers back and nothing mounted, which reads
+exactly like the blob not persisting and is the test being wrong. **Minimizing
+is not closing**, and neither is a hard reset from outside; Special > Restart
+is the other way that does flush.
 
 Worth testing once as a pair, because it is the property the blob exists for:
 untick the driver, close the panel, reboot (no driver, no icons), then tick it
@@ -366,7 +370,8 @@ pasted into [PERFORMANCE.md](../PERFORMANCE.md).
 right after launching a package off the bench disk is that disk's root — so
 the ordinary thing works. It means the bench floppy must **not** be
 write-protected, and on 86Box that is the `wp://` prefix the config keeps
-growing back.
+growing back — which `make xt` and friends now strip off both floppy keys at
+launch.
 
 `gfxbench` is ONE package for Hercules and CGA on purpose. Both are the same
 1bpp software renderer over four different numbers (SPEC.md §39.3), which it
@@ -468,6 +473,33 @@ untracked is what lets `all` stay free of them. Tracking one would force it
 back into `all` — which is exactly the arrangement this folder replaced.
 
 ---
+
+### `tests/assoctest` — the file type association gate (SPEC.md 54)
+
+```
+make test TESTAPPS=build/assoctest.img
+```
+
+...then **double-click `TEST.AST`, not `ASSTEST.O88`**. Every row is about
+what happens when a *document* is opened, so launching the program by hand is
+the control: rows 1-4 read `-` and that is correct, not a failure.
+
+Six rows, all of which must read **PASS**:
+
+1. the **header declaration** (§54.6) routed the document here - nothing was
+   registered at runtime, so only a rule in this package's header can have.
+   It ships **no icon**, so its block sits at offset 32 rather than 96, which
+   is the layout arithmetic most likely to be got wrong
+2. `OSAPI_ARG_FILE` handed over a name, and it is `TEST.AST`
+3. the locator works - `FILE_GOTO` then `FILE_READ` returns bytes
+4. `ARG_FILE` is **read-and-clear** - the second ask reports nothing, which is
+   what stops a later instance inheriting a document
+5. `OSAPI_ASSOC_SET` takes a registration
+6. ...and **refuses honestly** when the table fills, rather than corrupting it
+
+Before the double-click, the listing itself is half the test: `TEST.AST` must
+already carry a **document page icon**, and a *bare* one, because the program
+ships no glyph to inset.
 
 ## Modelling the old machine from a fast one
 
@@ -667,4 +699,9 @@ Two 86Box-specific traps worth knowing before blaming the OS: it silently
 clamps `mem_size` to the machine's maximum, and a `wp://` prefix on an
 `fdd_0N_fn` path mounts that floppy write-protected — which the OS then
 faithfully reports as "Write protected", and which means `SYSTEM.CFG`
-settings do not survive a reboot.
+settings do not survive a reboot. No shipped profile carries it on either
+floppy now, and every `make` target that launches 86Box strips it from both
+keys first, because 86Box rewrites its own config on exit and has twice put
+it back. The price is the one QEMU already charges: a session that changes a
+Control Panel setting dirties `build/os8088.img`, a tracked shipped artifact,
+so rebuild it before committing.

@@ -746,6 +746,67 @@ Command keeps its own Bresenham for two cases the kernel cannot serve: the
 with an endpoint outside its content box, where the kernel would clip to the
 screen and paint over the desktop.
 
+### 5.7 The per-call floor — what a small drawing call spends
+
+**A drawing call costs almost the same whatever it draws**, and the field
+set proved it beyond argument: on a 4.77MHz 5150, `GFX_PIXEL` and
+`GFX_HLINE 8px` measured 765.64 and 764.82 us on a Hercules and 765.70 and
+764.80 on a CGA — two different routines and two physically different cards
+whose framebuffers are 13% apart at the bus, agreeing to one part in ten
+thousand (PERFORMANCE.md Part 9). **~756 us of that is fixed setup, about
+3,600 CPU clocks, and it is CPU-side.** That is why §5.4's blit is priced
+`runs x 0.5 ms`, why §11.90/§11.91 count primitive calls rather than pixels,
+and why this subsection exists at all.
+
+Taken apart, one `gfx_pixel` on a 1bpp adapter was **196 guest instructions**
+(measured under `-icount`, PERFORMANCE.md Part 4) spread over eleven
+routines, with no hot spot anywhere: the API far-call cell, `gfx_pixel`'s
+rect marshalling, §11.3's clip test, `bb_mono_chk`, the `[bb_on]` dispatch,
+`vga_rect_setup`, `gfx_rowbase`, `bb_dirty_rect`, `bb_ink`, `bb_plane_op`
+and `bb_col`. **It is generic machinery, and what it costs is
+register discipline and call structure rather than work** — a third of it
+was push/pop pairs (29.7 clocks each, measured) and near call/rets (52.1).
+
+Seven things hold the floor down. Each is a rule, because each one reads as
+a harmless tidy-up in the other direction:
+
+1. **A one-way flag is tested before it is recomputed.** `bb_mono_chk`
+   opens with `cmp byte [bb_mono], 0` — once the flag is retired there is
+   nothing left to decide — and `bb_init` retires it at boot on a 1bpp
+   adapter, where a back buffer can never be armed (§39.5). Eight
+   instructions on every fill and every glyph become three.
+2. **`bb_dirty_rect` asks `[bb_dbl]` first.** With no buffer armed it was
+   computing a rectangle that `bb_dirty`'s first compare then discarded.
+3. **The edge masks come from tables** (`vga_lmtab`/`vga_rmtab`), not from
+   `shr dl,cl` / `shl dl,cl`. A variable shift is 8 clocks plus 4 per bit on
+   an 8088 and needs CX freed around it; `[vga_y1]` is banked before the
+   masks are built precisely so BX is free to index them.
+4. **`gfx_rowbase` looks its bank base up** (`vid_banktab`) instead of
+   `shl bx, 13`, which is 60 clocks for a value with four possible answers.
+   The formula in §39.3 is unchanged. The `mul` by the stride stays: the
+   alternative is a per-row table, and 480 rows of it is a third of what
+   `KERN_BUDGET` has left.
+5. **`bb_col` preserves nothing** (§32). Its only caller banks BX and DX for
+   the whole plane and reloads AH, DI, SI and BP around every call, so the
+   five push/pop pairs it used to open with were saving registers that
+   caller was about to overwrite. SI and BP then carry `gfx_nextrow`'s step
+   and wrap bit across the row loop.
+6. **`gfx_nextrow` is inlined in every row loop of the renderer**, as it
+   already was in font.inc's (§6.1). Its body is three instructions and the
+   call and ret around them cost as much again — and **a fill walks its rows
+   three times**, once per edge column and once for the interior, so a fill
+   pays it three times per scan line.
+7. **`[bb_pat]` is staged by whoever needs it**, not by `bb_rect` for all
+   three modes: `BBM_GRAY` starts from the dither byte, `BBM_SOLID`'s own
+   dither branch stages it in `bb_ink`, and `BBM_XOR` never reads it.
+
+Together those took a `gfx_pixel` from 196 instructions to 158 and a
+`GFX_FILL 64x64` by 14.5%, with the output byte-identical on all three
+adapters and both renderers (PERFORMANCE.md Part 9, Set 3). What is left is
+mostly irreducible: the far-call cell is the package ABI (§20.1), the eight
+push/pops in `bb_rect` are `gfx_fill`'s "clobbers flags" contract, and
+`vga_rect_setup`'s clipping is the clipping.
+
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h
@@ -3178,20 +3239,22 @@ run time, §39.6), plus on VGA the right-aligned percentage and one
 spin step of the vector "8088" (cosine-scaled about its vertical axis,
 angle index = AX mod 16). Mono gets the bar alone: the dialog does not fit
 in 200 rows, and int 10h teletype into a Hercules already in graphics
-writes character/attribute pairs into the bitmap. kmain's own `vid_init`
-then wipes the splash.
+writes character/attribute pairs into the bitmap. **The splash then stays on
+screen for the whole of kmain and keeps ticking** — §15.3.
 
 kmain: set DS/ES = `KERNEL_SEG` and SS:SP = `LOW_SEG:STK0_TOP` (§2.1),
 `sti`, `cld`, then:
 `sched_init` → `evq_init` → `clk_init` (§37 — the RTC probe, before the
 mode set so a machine without one is dated from the fallback constants
-from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe,
-apply and mode set) → `bb_init` (§32 — the RAM probe
+from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe
+and apply, and **skips the mode set while the splash is live**, §15.3) →
+`bb_init` (§32 — the RAM probe
 must run after the mode set, which clears VRAM, and before the first
 drawing call) → `font_init` → `wm_init` →
 `inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
-`snd_init` (§34.7 — publishes `snd_live` last) → gfx_lock →
-`wm_paint_all` → gfx_unlock → `cursor_show` → jump
+`snd_init` (§34.7 — publishes `snd_live` last) → `drv_boot` (§51.3) →
+`spl_finish` (§15.3) → gfx_lock →
+`wm_paint_all` → gfx_unlock → `cursor_show` → `drv_notice` (§51.3) → jump
 into `ui_task` (task 0 never returns). (`dock_init` runs right after
 `desk_init`.) **Clean boot**: no app instances exist — the first paint
 shows only the desktop, drive icons, the empty dock strip and menu bar;
@@ -3323,6 +3386,72 @@ runs correctly at 0000:7C00 where the BIOS put it.
 
 `BOOT_RELOC` and `KERNEL_SEG` are mirrored in `kernel/kernel.asm`, whose
 guard 7 proves the kernel ends clear of the relocated stack.
+
+### 15.3 The bar does not stop at the last sector of the kernel
+
+The progress bar used to reach 100% when the boot sector's final sector
+landed, and `vid_init`'s mode set then wiped the whole loading screen — with
+several seconds of kmain still to run. On the field machine (Part 2 of
+PERFORMANCE.md: **238 ms per floppy sector**) that tail is:
+
+| after the last sector of the kernel | cost |
+|---|---|
+| `vid_init`, `font_init`, the rest of the init calls | milliseconds |
+| `mouse_init` — DTR/RTS held low `MOU_RSTLOW` ticks | ~165 ms |
+| `drv_boot` — mount A:, read `SYSTEM.CFG` (**13 sectors**) | **~3.1 s** |
+| ...and a driver `SYSTEM.CFG` asked for (**+27 sectors**) | +6.4 s |
+| `wm_paint_all` — 85 fills + 48 glyphs | ~250 ms |
+
+So the user watched a full bar, then a blank screen, for three seconds on a
+plain boot and nearly ten on a configured one. **The bar is priced in floppy
+sectors and so is the tail**, which is the whole of why this is cheap to fix
+rather than a matter of guessing weights.
+
+Three parts, all in `splash.inc` except the hooks:
+
+- **`SPL_POST` notches are added to the DENOMINATOR** by `spl_tick`, which
+  sees the boot sector's total once per tick. 16 today: thirteen for the
+  mount and three for kmain's phases that are not I/O.
+- **`spl_step`** spends one notch and repaints. `dsk_xfer` calls it **once
+  per sector transferred**, so the mount and any driver read advance the bar
+  exactly as the kernel's own load did; kmain calls it at the three phase
+  boundaries. It preserves **every register and the flags** — its hot caller
+  is the middle of a transfer loop — and it is a compare and a `ret` once the
+  splash is down, which is what makes leaving it on the disk path for the
+  life of the machine free (~13 us against a sector's 238 ms).
+- **`spl_finish`** forces the bar to 100%, repaints once and clears
+  `[spl_live]`. kmain calls it immediately before the first `wm_paint_all`,
+  which is the last moment a full bar is true — and no erase is needed,
+  because that paint covers every pixel (the menu bar's field, the desktop
+  dither *over* the dock strip, then the dock).
+
+Four things are load-bearing:
+
+1. **`[spl_live]` is not `[spl_on]`.** `spl_on` is `spl_tick`'s
+   "the chrome has been drawn" latch; `spl_live` means the splash **owns the
+   screen and the video mode**, and it stays true right through kmain.
+   `vid_init` reads it and skips `vid_setmode` (§39.1) — the mode is already
+   set, and setting it again is precisely what used to wipe the screen.
+   The probe and the publish still re-run and must: everything between there
+   and the paint reads `[vid_w]`/`[vid_h]`/`[vid_stride]`.
+2. **`bb_set` moved to the END of `drv_boot`** (§32/§51.3). It seeds the back
+   buffer *from VRAM*, and until the paint VRAM holds the loading screen — a
+   buffer armed ahead of the reads swallows every notch after it, because a
+   direct VRAM write is what the next flush undoes. Nothing about the heap
+   depends on the order: data claims grow up and a driver's region down
+   (§50.3).
+3. **The allowance is a clamp, not a scale.** `spl_step` stops at
+   `total - 1`, so the last notch always belongs to `spl_finish` and a boot
+   that overruns crowds up against 100% instead of claiming to be finished.
+   `SPL_POST` is tuned for the common boot — a `SYSTEM.CFG` that asks for no
+   driver, which lands on 140 of 141 by itself — and a machine that has
+   enabled one waits at 99% for its 27 sectors. That is strictly better than
+   what every boot used to do for all of it, and it cannot be fixed by
+   raising the total mid-run: the fill is `done × 288 / total`, so raising
+   the denominator makes the bar go **backwards**.
+4. **Mono gets the bar alone**, here as during the load — `spl_paint` is the
+   one frame routine both callers share, so the two cannot disagree about
+   what a frame is.
 
 ## 16. Build & test
 
@@ -3519,7 +3648,7 @@ never diverge between the two directions.
 
 | symbol       | contract                                                      |
 |--------------|----------------------------------------------------------------|
-| `disk_read`  | in: AX=LBA, CX=sector count, ES:BX → dest (advances BX by 512 per sector; caller's ES:BX budget must cover count×512). Drive from `[disk_drive]`. Out: CF=1 on unrecoverable error. Preserves registers per §1. FS-agnostic — it knows nothing of §19. |
+| `disk_read`  | in: AX=LBA, CX=sector count, ES:BX → dest (advances BX by 512 per sector; caller's ES:BX budget must cover count×512). Issues as few int 13h calls as the track, the 64KB DMA page and the buffer allow (§18.91) — the contract is unchanged, only the call count. Drive from `[disk_drive]`. Out: CF=1 on unrecoverable error. Preserves registers per §1. FS-agnostic — it knows nothing of §19. |
 | `disk_write` | identical contract, source instead of destination: in: AX=LBA, CX=sector count, ES:BX → source. Out: CF=1 on unrecoverable error, and `[dsk_ioerr]` = the last int 13h status byte (AH), which is how §18.4 tells write-protected media (03h) from a real failure. Preserves registers per §1, and is likewise FS-agnostic. **No LBA gate of its own beyond `dsk_xfer`'s cyl<80 rule** — every caller is §18.4, which computes LBAs only from the validated §18.1 layout. |
 | `disk_mount` | in: DL=drive (0=A, 1=B). Sets `[disk_drive]`, restores the fallback geometry 9/2 with `disk_nfiles`=0, reads LBA 0 with that *fallback* geometry (CHS 0/0/1 — identical under any real floppy geometry) into `dsk_secbuf`, then runs the §18.3 mount sequence: BPB validation (§18.2), FAT snapshot into `FAT_SEG`, root-directory scan into the synthesized `disk_dir` cache, icon harvest into `disk_icons`. Out: CF=0 with `disk_spt`/`disk_heads`/`disk_nfiles`, the §18.1 variables and both caches filled; CF=1 with `disk_nfiles`=0 and fallback 9/2 (unreadable, unformatted, or any §18.2 rule failed). Clobbers CF only. A torn mount is a failed mount; **no cross-mount state survives** — every open/refresh fully remounts, never stale. |
 | `disk_drive`  | byte variable, current drive (init 1 = B:)                   |
@@ -3539,7 +3668,7 @@ The FAT routines (all UI-task-only like the rest of the module; all in
 | `dsk_bpb_check` | module-internal, ~260 B. in: `dsk_secbuf` holds LBA 0. Out: CF=0 — the §18.2 table passed, the §18.1 variables + `disk_spt`/`disk_heads` are filled and `dsk_fattype` is set per §19's detection; CF=1 — reject, nothing guaranteed stored (the caller resets the fallback). Clobbers CF only (internally saves AX,BX,CX,DX,SI,DI). Rule 1 runs via one es: word compare against `dsk_secbuf`+510; the boot sector's first 64 bytes are then staged into `dsk_bpb` via `dsk_copy_in`, and rules 2–16 run on plain DS reads (odd-offset word loads are plain 8086 loads — no alignment requirement exists). |
 | `dsk_clus2lba` | ~50 B. in: AX = cluster number. Out: CF=0, AX = first LBA of that cluster; CF=1 if AX < 2 or AX > `[dsk_maxclus]` (AX undefined). Clobbers AX (output), CF. Math: LBA = `dsk_datalba` + (AX−2) × `dsk_spc`, 16-bit mul; cannot wrap (AX ≤ maxclus ⇒ (AX−2)×spc ≤ TotSec16 − datalba, §18.2 rules 14/15); DX≠0 after the mul is treated as CF=1 anyway (belt and braces). |
 | `dsk_next_clus` | ~80 B. in: AX = cluster number. Out: CF=0, AX = raw FAT entry value (FAT12: 12-bit); CF=1 if the input is outside [2, `dsk_maxclus`]. Clobbers AX (output), CF. The **single reader of `FAT_SEG`** (§2.1): push ES; ES = `FAT_SEG`. FAT12: off = AX + AX>>1; w = word [es:off] (an unaligned straddle read — legal on 8086; the 3-nibble problem dissolves against a resident FAT); odd cluster → AX = w >> 4, even → AX = w AND 0x0FFF. FAT16: off = AX << 1; AX = word [es:off]. §18.2 rule 16 guarantees off+1 < `dsk_fatsz`×512 for every valid cluster. No EOC/bad-cluster decoding — see `dsk_read_chain`. |
-| `dsk_read_chain` | ~170 B. in: AX = first cluster, DX = sectors to read (= ceil(fsize/512), ≥ 1), ES:BX = destination (advances 512/sector, exactly DX sectors). Out: CF=0 all read; CF=1 with AL = 1 (disk error) / 2 (chain corrupt). Clobbers CF; AL on failure (internally saves the rest). **Size-driven walk with run coalescing**, against the unmodified single-sector `disk_read`: keep a (run_lba, run_len) pending run; per cluster, `dsk_clus2lba` (CF → fail AL=2), take = min(`dsk_spc`, DX remaining) — the final cluster may be partial; a cluster whose LBA extends the run grows it, otherwise the run is flushed (`disk_read` AX=run_lba, CX=run_len; CF → fail AL=1) and restarted. When DX reaches 0, flush and return CF=0; else `dsk_next_clus` — the result must be in [2, `dsk_maxclus`], anything else fails AL=2. Bounds: the iteration count is ≤ the caller's DX (each pass consumes ≥ 1 sector) — a looped or cross-linked chain cannot hang the walk, it just yields wrong bytes, which the loader's in-region header recheck rejects (§21). EOC / bad / free / reserved values need **no dedicated constants**: the walk is size-driven, so ANY next-value outside [2, maxclus] while sectors remain is corruption (the FAT spec guarantees bad/EOC marks never collide with valid cluster numbers under correct type detection). On a freshly built (contiguous, §24) image the whole file flushes as ONE `disk_read` call. |
+| `dsk_read_chain` | ~170 B. in: AX = first cluster, DX = sectors to read (= ceil(fsize/512), ≥ 1), ES:BX = destination (advances 512/sector, exactly DX sectors). Out: CF=0 all read; CF=1 with AL = 1 (disk error) / 2 (chain corrupt). Clobbers CF; AL on failure (internally saves the rest). **Size-driven walk with run coalescing**, against `disk_read` (which since §18.91 batches each run it is handed into as few int 13h calls as the hardware allows): keep a (run_lba, run_len) pending run; per cluster, `dsk_clus2lba` (CF → fail AL=2), take = min(`dsk_spc`, DX remaining) — the final cluster may be partial; a cluster whose LBA extends the run grows it, otherwise the run is flushed (`disk_read` AX=run_lba, CX=run_len; CF → fail AL=1) and restarted. When DX reaches 0, flush and return CF=0; else `dsk_next_clus` — the result must be in [2, `dsk_maxclus`], anything else fails AL=2. Bounds: the iteration count is ≤ the caller's DX (each pass consumes ≥ 1 sector) — a looped or cross-linked chain cannot hang the walk, it just yields wrong bytes, which the loader's in-region header recheck rejects (§21). EOC / bad / free / reserved values need **no dedicated constants**: the walk is size-driven, so ANY next-value outside [2, maxclus] while sectors remain is corruption (the FAT spec guarantees bad/EOC marks never collide with valid cluster numbers under correct type detection). On a freshly built (contiguous, §24) image the whole file flushes as ONE `disk_read` call. |
 
 ### 18.1 Mount-derived variables (kernel .bss)
 
@@ -4340,6 +4469,50 @@ pause — because at both of them the world repaints and other writes become
 legal again. The pause is the sharp one: it is not an end, so nothing else
 would have reconciled it.
 
+### 18.91 The transfer loop batches a run into one int 13h
+
+`dsk_xfer` used to issue **`AL = 1`** — one int 13h per 512 bytes, with the
+CHS conversion recomputed each time — so a nine-sector FAT window was nine
+BIOS calls. On real hardware the next call has missed the sector under the
+head, so consecutive sectors cost a revolution each rather than sharing one.
+Measured on the shipped apps floppy (`docs/DISK-PERF-PLAN.md` §2.1), sectors
+and int 13h calls were **equal in every case**: nothing in the floppy path
+batched.
+
+It now issues the largest run the hardware allows, and **the caller's contract
+is unchanged**: same in/out registers, same `[dsk_ioerr]`, same CF, same
+"advances the internal pointer 512 bytes per sector, the caller's ES:BX budget
+must cover count×512". Only the number of BIOS calls changes.
+
+**A run stops at the first of four boundaries** (`dsk_runcap`, plus the track
+test at the call site):
+
+1. **The end of the track.** A CHS call must not cross one. The old loop
+   recomputed CHS per sector and so never had to notice.
+2. **The 64KB physical DMA page.** This is the boundary the batching
+   *introduces*: one 512-aligned sector per call cannot straddle a page, a run
+   can, and the DMA controller answers a straddle with error 09h. It is the
+   transfer-side twin of `mem_claim_dma`'s rule (§50.3), and the failure it
+   prevents has been seen in this tree before — "Disk error on any save big
+   enough to reach the next 64KB boundary" (§2.4).
+3. **BX's own 16 bits**, since the BIOS advances `ES:BX` and must not wrap.
+4. **The sectors the caller actually asked for.**
+
+`dsk_runcap` computes the low 16 bits of the physical address as
+`(ES << 4) + BX` and negates it to get the bytes remaining in the page — an
+exactly-page-aligned buffer negates to 0, which means a *whole* page and is
+special-cased to 128 sectors rather than none. A cap of **zero** sectors is
+only reachable from a base that is not 512-aligned, which §2.4 forbids; it is
+floored to 1 anyway, which is precisely the old behaviour for that buffer.
+
+**The retry unit is the run, and it degrades to the sector.** Three attempts
+with a controller reset between, exactly as before — but a run that still
+fails is retried **one sector at a time** before the transfer is failed, so a
+single bad sector costs its own 512 bytes and not the eight good ones beside
+it. Losing that would trade speed for data recovery on ageing media, which is
+the wrong trade on the machines this targets. Write-protect (03h) still fails
+immediately at any run length: retrying cannot help.
+
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
 The data floppy (drive B:) is a standard **FAT12** volume — mountable and
@@ -4483,7 +4656,7 @@ subdirectory is an accepted entry with staged type 2 (below) — that is what
 made §19.2's navigation possible, and it is why the `.`/`..` rule had to be
 added in the same change.
 
-### The synthesized directory entry (the normative staged layout)
+### 19.1 The synthesized directory entry (the normative staged layout)
 
 Each accepted entry is synthesized into the 32-byte staged shape that
 `dsk_get_dir` serves — this layout, not any on-disk one, is the contract
@@ -9114,8 +9287,8 @@ caption and the click all read one word, so they cannot disagree.
 then writes `SYSTEM.CFG`. So the page never shows a promise about the next
 boot — what it shows is what is running. The two outcomes are reported
 separately: a load that fails leaves the box clear with its reason, and a
-*save* that fails puts `'Cannot save to the system disk'` in the caption
-while the driver it just loaded stays loaded.
+*save* that fails puts a reason in the caption (§51.5.1) while the driver it
+just loaded stays loaded.
 
 **A click on a row that is unloaded but WANTED clears the want instead of
 retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
@@ -9249,10 +9422,23 @@ Three things make deferral the right answer rather than a compromise:
 The one thing a new page may NOT do is decide its setting is important
 enough to be the exception. If a setting genuinely cannot survive being lost
 to a power cut with the panel open, that is an argument about §51.5's file,
-not a licence to write from a click handler. The hard-disk driver's Mount
-and Unmount are the *only* immediate writes in the tree and they are not
-this mechanism at all — they are the driver's own `OSAPI_DRV_CFG` save verbs
-on its own page (§52.6), justified there and nowhere else.
+not a licence to write from a click handler.
+
+**There are no exceptions left, including for a driver's page.** The hard
+disk's Mount and Unmount were the last of them — the driver's own
+`OSAPI_DRV_CFG` verb 2 rather than this mechanism, which is exactly how they
+escaped the rule — and they are gone: §51.9's verb 2 is retired and a
+driver's blob defers like everything else (§52.6). That page made the
+standard argument, that the set of mounted drives is what the next boot
+reads, and it also demonstrated the standard cost and one of its own: the
+write **mounts A: to reach the file**, so clicking Mount made C: the current
+volume and then silently made A: current again, in the middle of the click
+it was meant to be recording.
+
+The rule is therefore mechanical, not a convention every new page has to be
+told about. `cp_flush` has **no `.text` thunk** (§33): `cp_flush_x` is a near
+call inside the cold segment and `cp_flush_close_x` is its only caller, so a
+page, a driver's page or an API cell cannot reach it even by naming it.
 
 **Both ways the panel stops existing flush it**, which is what makes the
 deferral safe:
@@ -9272,10 +9458,14 @@ a convenience, not a document.
 
 A failed write never undoes the change — that already happened — and
 **leaves `[cp_wdirty]` set**, so the next close or reboot retries rather than
-dropping it silently. It is reported in the Drivers page's caption
-(`'Cannot save to the system disk'`), the one page with room to say it, which
-now means the *next* time the panel is opened: by the time the write happens
-the page it would be reported on is already gone.
+dropping it silently. It is reported in the Drivers page's caption, the
+one page with room to say it, which means the *next* time the panel is opened:
+by the time the write happens the page it would be reported on is already
+gone. **`cp_drv_cap` is why that is now true rather than merely intended** —
+the caption used to be drawn only by `cp_drv_lines`, which runs when a row is
+TICKED, so the report appeared only if the user happened to tick something
+after a failed save in the same session, and `cp_drv_paint` drew everything on
+the page except this. Both painters call it now. Its two strings are §51.5.1's.
 
 ### 31.9 Pages a driver owns
 
@@ -9414,6 +9604,23 @@ solid and dither modes, so AL=AH and one `rep stosw` (plus a `stosb` tail on
 an odd width, selected by the `shr cx, 1` carry that the string op leaves
 alone) replaces two `stosb`. Free on an 8088's 8-bit bus, half the bus
 cycles on any 16-bit part.
+
+**Register discipline inside a plane, which is §5.7's floor and not a
+style.** `bb_plane_op` banks BX and DX once per plane and reloads AH, DI, SI
+and BP itself around each call, so **`bb_col` preserves nothing** — the five
+push/pop pairs it used to open with were saving registers its only caller
+was about to overwrite, and a push/pop pair is 29.7 clocks on the target
+machine. What that buys is registers for the row loop: both routines hold
+`gfx_nextrow`'s step and wrap bit (§39.3) in registers and open-code the row
+advance rather than calling it, which matters three times per scan line
+because a fill walks its rows once per edge column and once for the
+interior. `bb_ink` reads `gfx_inktab` through SI for the same reason — BX is
+the plane counter and the colour bits — and it is the only caller that needs
+the table, so `gfx_ink` itself is untouched.
+
+`[bb_pat]` is staged by whichever mode actually reads it: `BBM_GRAY` before
+the plane loop, `BBM_SOLID` inside `bb_ink` and only on its dither branch,
+`BBM_XOR` never. `bb_parity` is that one computation, in one place.
 - XOR ops (`bb_xor_rect/xor_fill` internals): `xor dest, mask` at edges,
   `not dest` for full interior bytes, all four planes — self-inverting
   exactly like the hardware XOR path.
@@ -11027,6 +11234,16 @@ VGA `bmask`/`bshift`/`wrapbit` are all 0, so `gfx_rowbase` reduces to exactly
 `y * 80` and `gfx_nextrow` to `add di, 80` — **with no adapter test on either
 path**, which is why the VGA output is bit-for-bit what it was before.
 
+Two implementation notes, both about the 8088 rather than the formula
+(§5.7). `bank * 0x2000` is a **table lookup** (`vid_banktab`, four entries —
+the maximum the 0x2000 assertion at the foot of the module allows), because
+`shl bx, 13` is 8 clocks plus 4 per bit and this runs on the fixed cost of
+every drawing call. And **`gfx_nextrow` is meant to be inlined wherever a
+row loop can spare the bytes**: its body is three instructions and the call
+and ret around them cost as much again, so font.inc's cell loops (§6.1) and
+the renderer's row loops (§32) both open-code it, CS overrides and all. A
+loop that can hold `rowadd` and `wrapbit` in registers should.
+
 **Both read their parameters through `CS`, not `DS`.** Two callers run with
 DS pointed elsewhere entirely: `bb_xfer`'s save path sets DS to the
 framebuffer segment for its `movsb`, and its restore path sets DS to the
@@ -11146,8 +11363,12 @@ itself being set behind the BIOS's back (§39.6).
 ### 39.6 Mode set and teardown
 
 `vid_setmode` is idempotent and safe to re-run with the card already in
-graphics. VGA and CGA get their mode — and their clear — from the BIOS.
-Hercules has no BIOS mode at all:
+graphics — but **it is not free of side effects, and `vid_init` no longer
+re-runs it blind**: it clears the framebuffer, and while the splash is still
+on screen that clear is the whole loading screen (§15.3). `vid_init` skips it
+when `[spl_live]` is set; the probe and the publish always re-run. VGA and
+CGA get their mode — and their clear — from the BIOS. Hercules has no BIOS
+mode at all:
 
 ```
 out 3BFh, 1                     ; configuration: graphics allowed, page 0 only
@@ -14278,7 +14499,7 @@ covers and for how long *is* the game (§48.4), and this leaves it alone.
 monotonically as `dy` rises, so a filled circle is **exactly** the union of
 one rect per distinct half-width — nested, widest and shortest first — and
 letting the drawn edge run up to `R/8 + 1` pixels outside the true circle
-before opening a new rect collapses that to four to seven rects at every
+collapses that to four to seven levels at every
 radius this game can produce: **27 fills to 5** at Hercules' peak radius of
 13, 39 to 6 at VGA's 19, 13 to 5 at CGA's 6, and 69 to 7 at the `MC_RMAXP`
 ceiling of 34. It costs one `mc_shrink` walk, the same
@@ -14308,7 +14529,7 @@ frame's drawing, not the explosion's share of it:
 | explosion share of the frame's drawing | 40% / 65% | **6.6% / 10%** |
 | the frame's whole drawing, four-shot | 84 ms | **53 ms** |
 | the frame's whole drawing, eight-shot | 190 ms | **76 ms** |
-| fills over one burst's whole life | ~750 | **22** |
+| fills over one burst's whole life | ~750 | **22** (but see §48.10 — these were nested rects, and the *scan lines* they wrote were not counted) |
 
 The burst costs **10–16× less** and stops being what the frame is made of.
 Two things about that are worth keeping in mind. A **three-step burst at
@@ -14526,6 +14747,164 @@ Four repaints to one, measured with a counter across a real wave 1 → 2
 transition. The sweep is worth keeping: it is the one thing in this game that
 forgives a dropped pixel anywhere, and after §48.8's and §48.9's arithmetic
 it is also the only full repaint left in ordinary play.
+
+### 48.10 `mc_blob` cut the calls and multiplied the pixels
+
+A field log from the target machine — an 8088 with a Hercules card, played
+fullscreen and firing hard — said the game was still missing its tick:
+
+| fullscreen, 28 seconds of heavy play | |
+|---|---|
+| frames a second | **10–21, mean 16.1** against 18 |
+| frames that missed their deadline | **251 of 451 — 56%** |
+| worst single frame | **7 ticks, 384 ms** |
+| deadline re-anchors (§44.1) | 13 |
+| `gfx_xor_fill` a frame | **8.0, every second without exception** |
+
+The cause is §48.8's own `mc_blob`, and the 5150 field set is what exposes
+it. **A `gfx_fill` costs 756 µs of arriving plus 177 µs per scan line**
+(PERFORMANCE.md Part 2). `mc_blob` replaced `mc_disc`'s one fill per row with
+a handful of **nested** rects — and nested rects *overlap*, each one spanning
+the blob's whole height at its own width. At the fullscreen Hercules peak
+radius of 19 that is **184 scan lines written to cover a 39-row disc**:
+
+| R = 19 | calls | scan lines | cost |
+|---|---|---|---|
+| `mc_disc` | 39 | 39 | 36.4 ms |
+| `mc_blob`, nested | **6** | **184** | **37.1 ms** |
+| `mc_blob`, banded | 11 | 39 | **15.2 ms** |
+
+Six calls instead of thirty-nine looked like a 6.5× win and was **not a win
+at all** — 37.1 ms against 36.4. §48.8 priced it in *calls*, through a
+conversion measured for a **one-row** fill, at a time when nothing in this
+project knew a fill had a per-scan-line half. That is PERFORMANCE.md Part 3's
+fourth defect exactly — *an optimisation that kept its shape and lost its
+substance* — and it is the second time this repository has shipped one.
+
+The fix is not to go back to `mc_disc`. It is to emit the same shape as
+**non-overlapping bands**: the centre band as one rect, then two rects per
+level for the annulus above and below. Same pixels — verified identical and
+overlap-free for every radius 1..34 — with each row written **once**. 2.4×
+fullscreen, 1.9× windowed, on the single largest item in a busy frame.
+
+**The general rule this leaves behind:** a call count is the right currency
+only while the calls are *small*. `gfx_fill`'s fixed part dominates a row of
+64 pixels 10:1 and is dominated by a rect of 64 rows 15:1. Before trading
+calls for area, price both halves — and if the new shape overlaps itself,
+count the scan lines it actually writes, not the rectangles you drew.
+
+### 48.11 The crosshair paid a redraw for standing still
+
+§48.10's log named `gfx_xor_fill` at **8.0 a frame, every second without
+exception** and left it there. Instrumenting the frame at the *stage* level —
+one span per phase of `mc_render`, read off the PIT, which is a real clock
+even on an emulated machine — said what that cost:
+
+| 8088 / Hercules, fullscreen | idle frame | busy frame |
+|---|---|---|
+| `upd` — all game logic | 2.0 ms | 10.9 ms |
+| `lok` — lock, `mc_track`, `wm_clip_set` | 5.3 | 5.9 |
+| **`crs` — the crosshair** | **8.6** | **8.9** |
+| `trl` — trails + explosions | 6.3 | **36.6** |
+| `rst` — terrain, status, banner | 0.4 | 5.8 |
+| `unl` — unlock | 5.1 | 5.1 |
+| **frame** | **29.2 ms** | **65.8 ms** |
+
+Two separate things are in that table. `trl` is the one that misses the
+55 ms tick, and it is the explosion: modelling `mc_blob` against the coarse
+ramp gives **39 fills per burst** over its 27-frame life, which at eleven
+concurrent bursts predicts **15.9 fills a frame** against the log's measured
+15.8 — the model *is* the game, and that cost is structural.
+
+The other is that **an idle frame costs 29 ms**, of which `lok`+`crs`+`unl`
+is 19 ms that draws nothing at all. The crosshair is 8.6 ms of it: four
+one-pixel arms taken off at the top of every frame and put back at the
+bottom, whether the mouse moved or not. There is nothing to win *inside*
+those calls — an arm is a rect, and 756 µs is what a rect costs to ask for —
+so the only move available is not to make them.
+
+So the overlay **stays on screen across frames**, and comes off in exactly
+the two cases that require it:
+
+- **`mc_cross_moved`**, once at the top of a part frame: the mouse moved, so
+  the crosshair has to go back somewhere else.
+- **`mc_cross_need`**, from `mc_fillc` / `mc_framec` / `mc_runc` / `mc_line`:
+  the rect about to be drawn reaches the crosshair's footprint.
+
+The second is what makes this **exact** rather than approximate, and the
+ordering is the whole of it: the erase happens *before* the overdraw, while
+the crosshair is still whole, so the XOR undoes what the XOR drew. Erase it
+afterwards and you flip pixels belonging to the fill; skip the erase and
+re-XOR at the end and a partly overdrawn cross comes back inside out.
+
+Verified the only way this can be verified — a cluster of bursts detonated
+around a stationary crosshair, the game paused, the framebuffer captured, a
+full repaint forced, and the two compared: **0 differing pixels of 262,144**.
+
+Two things about it are easy to undo. `mc_xorc` must **not** be hooked, or
+the crosshair's own erase recurses into itself. And the rect handed to
+`mc_cross_need` is deliberately the *unclamped* one with its corners in any
+order — a line hands over its two endpoints — because over-approximating
+costs at worst one redundant erase, while under-approximating leaves the
+overlay to be painted over and then inverted.
+
+### 48.12 The burst grows and holds, because the collapse was half its cost
+
+§48.11's table leaves `trl` at 36.6 ms of a 55 ms frame, and the explosion is
+most of it. There is nothing wrong with the *shape* any more — §48.10's bands
+write each row once — so the only thing left to cut is **how many times a
+burst is drawn at all**. Priced against the coarse ramp `0, 5, 13, 5`:
+
+| the burst's life | calls | scan lines | cost |
+|---|---|---|---|
+| draw @5 | 7 | 11 | 7.2 ms |
+| draw @13 | 9 | 27 | 11.6 ms |
+| **collapse: erase @13 + draw @5** | **16** | **38** | **18.8 ms** |
+| gone: erase @5 | 7 | 11 | 7.2 ms |
+| **total** | **39** | **87** | **44.9 ms** |
+
+The collapse is **42% of the burst** and it buys one visible state. Removing
+it is not free of consequence, though, because the radius is also what the
+burst *kills* with — `mc_erad` is one table and §48.8 built it that way
+precisely so the drawn shape and the lethal shape cannot disagree. Simply
+holding at 13 would leave the burst lethal for longer and make the game
+easier.
+
+So the ramp is **grown and held, and the life is cut to pay for it**:
+
+```
+was:  2 dark, 9 frames @5, 7 @13, 9 @5     life 27,  Σr = 181
+now:  2 dark, 9 frames @5, 10 @13          life 21,  Σr = 175
+```
+
+Σr — the sum of the radii over the burst, which is the whole of how much a
+burst can kill — is preserved to **3.3%**, and it is preserved by shortening
+the burst rather than by lying about its size. The drawn cost is **25 calls
+and 65 rows, 30.4 ms**, and because the life shortens too, fewer bursts are
+alive at once for the same rate of fire: **18.3 ms a frame → 12.4 ms** at the
+load §48.11 measured.
+
+Three things about it are worth knowing.
+
+- **`MC_EXPFR` is no longer a constant at the point of use.** `[mc_expfr]` is
+  27 or `MC_EXPFR3` (21), set once in `mc_entry` — and the default is written
+  *before* the coarse test, because bss is zeroed and a life of zero kills
+  every burst on the frame it is lit.
+- **There is no third colour any more, and that is not an omission.** A state
+  that changes only the colour would never be drawn: the coarse path's whole
+  economy is `cmp bx, cx / je .next` on the RADIUS, so a same-radius state is
+  a state nobody ever sees. White then yellow is what two drawn states can
+  carry.
+- **The shrink branch in `mc_draw_exp` is now unreachable and stays.** It is
+  the *ramp table* that decides whether the radius ever falls, so the branch
+  is what stops an edited table leaving a ring behind. The annulus erase was
+  measured against it and **lost** — 22 calls to 16, bands or not — so there
+  is no better version of it to write.
+
+Verified the §48.11 way: a cluster of bursts fired and left to die out, the
+game paused, the framebuffer captured, a full repaint forced, the two
+compared — **0 differing pixels of 262,144**, which is what says the `.gone`
+erase still matches what the new ramp drew.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
@@ -15152,11 +15531,35 @@ DRVE_MEM    the heap cannot fund it
 DRVE_HW     it loaded and found no hardware
 ```
 
+**Nothing loads that `SYSTEM.CFG` did not ask for, and no row is wanted by
+default.** Both `drv_tab` rows ship with `DRVR_WANT` = 0. The sound row used
+to ship with 1, so a freshly built image — which carries no `SYSTEM.CFG` at
+all — read the whole 5.5KB driver off the floppy on every boot to be told
+there was no card: **27 sectors, about 6.4 seconds** at the field machine's
+238 ms per sector (PERFORMANCE.md Part 2), and then a Control Panel opened
+on a failure nobody had asked for. A driver probes hardware and costs a
+floppy read; both are the user's to ask for, and the tick in the Drivers page
+is both the request and the record of it. The kernel does not guess.
+
+The consequence is deliberate and worth stating plainly: **a fresh image has
+no FM and no digital sound until the Drivers page is ticked once.** The tone
+tier still works — it stays on the PC speaker, which is where it lives when
+no driver publishes `DSV_TONE` (§34) — and the tick loads the driver on the
+spot (§51.4), so the cost of the default is one click, once, on the machines
+that have a card.
+
 The ordering at boot is binding. **`drv_boot` runs before the desktop's first
 paint**, so a machine whose sound driver loads has sound from the first
 frame. **`drv_notice` runs after it**, because a window cannot go up on a
 screen that has not been painted — so a failure is banked in the row and
-reported later, never where it happens.
+reported later, never where it happens. The whole of `drv_boot` is also on
+the boot progress bar: it is floppy sectors, and `dsk_xfer` ticks the bar per
+sector for as long as the loading screen is up (§15.3).
+
+**`bb_set` is the last thing `drv_boot` does**, after the load loop, for the
+§15.3 reason: it seeds the back buffer from VRAM, and until the first paint
+VRAM holds the loading screen. The heap does not care which end it happens
+at — data claims grow up and a driver's region down (§50.3).
 
 `drv_notice` opens the **Control Panel on its Drivers page** rather than
 putting up a notice of its own, and that is a design rather than a saving:
@@ -15246,8 +15649,10 @@ torn or corrupt file therefore costs the settings it did not carry and nothing
 else.
 
 A missing or malformed file means **the defaults**, never an error — which is
-what makes a freshly built image boot with sound enabled and a disk with a
-foreign `SYSTEM.CFG` boot at all.
+what makes a freshly built image, and a disk carrying a foreign
+`SYSTEM.CFG`, boot at all. Since every `DRVR_WANT` default is now 0 (§51.3),
+that also means a machine with no settings file **loads no driver and probes
+no hardware**: the file is the only thing that can ask.
 
 The settings write is a **separate outcome from the load**, and the Control
 Panel reports them separately: a load that succeeds and a save that cannot
@@ -15298,6 +15703,50 @@ buffers there rather than in their image. Those claims are owned by the
 driver's *segment*, and `drv_release` sweeps them with `mem_free_owner`
 **before** freeing the image, because the image's segment is the owner word
 and freeing it first would leave a claim nothing could ever name again.
+
+#### 51.5.1 It is written to the SYSTEM disk, not to whatever is in A:
+
+`drv_cfg_save` mounts drive A: and writes `SYSTEM.CFG` to it, and for a long
+time that was the whole of it — on the unexamined assumption that the disk the
+machine booted from is still the disk in the drive. **It is not.** A
+single-floppy machine swaps to the apps disk to launch anything (§28.3 is
+built around exactly that), and a Control Panel change made afterwards wrote
+the settings to whatever floppy happened to be there.
+
+Two things went wrong at once, and the second is the worse one:
+
+- the setting never reached the system disk, so it did not survive the reboot
+  — which reads as the deferral (§31.8) losing writes rather than as a
+  volume-identity fault;
+- and the user's data disk gained a hidden + system `SYSTEM.CFG` that §19.6's
+  own protection makes **impossible to list or delete from inside os8088**.
+  `DSKW_PROT` refuses hidden|system, and `disk_mount`'s species filter keeps
+  it out of every listing, so it is invisible litter that needs another
+  machine to remove.
+
+So the volume is identified before it is written: **`KERNEL.SYS` in the root
+is what makes a disk the system disk**, and `dskw_stat` answers that off the
+directory sectors — which is the only place a hidden + system entry can be
+seen at all. No marker, no write.
+
+**`dskw_stat` and not `drv_find`**, deliberately. `drv_find` answers a *size*
+and refuses one whose high word is non-zero; `KERNEL.SYS` is 63,944 bytes
+today, so the day the kernel passes 64KB that check would begin reporting that
+the system disk is not the system disk. Existence is the question here, and
+`dskw_stat` is the routine that answers it.
+
+A refusal is `FERR_NOENT`, and it joins `FERR_NODISK` in the one outcome the
+user can act on: the caption says **`'Needs the system disk in A:'`**, while a
+write that genuinely failed — full, protected, I/O — says `'Could not save the
+settings'`. Both are **27 characters**, which is the pane's limit (222px less
+`CP_PMX`); the single string they replace was thirty and painted through the
+window's right border into the desktop, unnoticed because the caption was
+almost never drawn (§31.8).
+
+`[cp_wdirty]` is **kept** on this refusal like any other, so putting the
+system disk back and closing the panel again saves it — verified end to end:
+the apps disk stays byte-identical, the caption names the remedy, and the
+retry writes the setting where it belongs and survives a reboot.
 
 ### 51.6 Author rules
 
@@ -15383,9 +15832,8 @@ the same identity test as the four volume slots) carries them:
 
 ```
 AL = 0  read the blob into ES:SI, at most CX bytes; out CX = bytes handed over
-AL = 1  write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
+AL != 0 write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
         the Control Panel's teardown like every other setting (§31.8)
-AL = 2  ...and write the file NOW
 out CF = 1  not a published driver, or a WRITE longer than DRV_BLOB_SZ (34)
 ```
 
@@ -15414,12 +15862,21 @@ that may have no hard disk. One blob is shared by whichever driver asks, which
 is the honest shape while exactly one class has settings; a second claimant is
 a second key, not a bigger blob.
 
-**Verb 2 exists because a mount is not a preference.** Deferral is right for a
-session of nudging a cylinder count — a floppy write is about a second on the
-floor machine and the panel is frozen for it — but a machine switched off with
-the panel still open would come back with a hard disk it had been told to mount
-and has not. So the geometry editor stages on every click and writes on none,
-and Mount and Unmount write on the spot.
+**There was a verb 2, "and write the file NOW", and it is retired.** It
+existed because a mount is not a preference: a machine switched off with the
+panel still open comes back with a hard disk it had been told to mount and has
+not. That is the argument every page makes for being §31.8's exception, and it
+is refused here for the same reasons, plus one this cell had to itself — the
+write remounts A: to reach the file, so a driver that had just made its own
+volume current lost it inside the click. **A set never touches the disk**; the
+Control Panel's close and Special > Restart are the only two writers in the
+machine.
+
+`AL = 2` is still **accepted** and means exactly what `AL = 1` means, so a
+`.DRV` built against the old contract stores its blob and defers rather than
+failing. Under §20.8 rule 4 that is a narrowing of *when the bytes reach the
+disk*, not of what the call does: the cell still stores, still answers CF the
+same way, and still reads back what was written.
 
 ## 52. HDD.DRV — the hard-disk driver (drivers/hdd/)
 
@@ -15430,10 +15887,12 @@ button — because the kernel's half of this is four API slots and a volume
 table, and nothing above them belongs in a kernel that boots machines with no
 hard disk at all.
 
-It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0), unlike the
-sound driver: this one probes controllers, and a machine with neither should
-not be poking at 1F0h every boot to be told so. The Drivers page turns it on
-and `SYSTEM.CFG` remembers.
+It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0): this one
+probes controllers, and a machine with neither should not be poking at 1F0h
+every boot to be told so. The Drivers page turns it on and `SYSTEM.CFG`
+remembers. The sound row shipped with a 1 here for a while and has since
+joined it at 0, for the same reason plus the read (§51.3) — **no row is
+wanted by default now**, and this passage is the argument that generalised.
 
 ### 52.1 The transport ladder
 
@@ -15490,18 +15949,43 @@ drive and a CMOS type table that predates it. The page carries an editable
 C/H/S triple bounded by what CHS can carry (1..1024, 1..255, 1..63) and
 recomputes the size from it live, in the Date/Time page's field idiom (§31.5).
 
-### 52.2 The partitioner
+### 52.2 The disk tool — one window, one button
 
-Its own window — the unowned species (§38.1), so its close box reduces to
-`wm_hide` and there is no teardown path to write. Four primary slots, New /
-Delete / Write / Close, and **everything but Write edits a copy in RAM**, so a
-user who changes their mind has changed nothing.
+Partitioning and formatting are **one operation to the user and one window in
+the driver**. They were two: a Partition window (New / Delete / Write) and a
+Format window that listed the same four slots through a different frame, and
+between them the user had to know that a table entry is not a volume, that New
+only edits RAM, and that Write is the commit. None of that is a thing anybody
+wants to know about their disk. What they want is four slots and, for each
+one, either what is in it or a button that puts a usable volume there.
+
+```
+Slot  Size   State
+1     31M    FAT16              a volume; Mount will find it
+2      -     Not Formatted      free
+3     50M    Unmountable        foreign, or over the ceiling - greyed
+4     14M    Not Formatted      a claimed region with no volume in it
+[Format]  [Close]
+```
+
+**`Not Formatted` covers unpartitioned AND partitioned-but-empty**, and that
+is deliberate rather than lazy: the difference is the tool's business, both
+mean "there is no volume here and Format will make one", and the second is
+exactly what a format interrupted half way leaves — §52.3 writes the boot
+sector last. The size column distinguishes them for anyone who cares, and is
+blank for a free slot rather than carrying a number nothing has promised: two
+free slots would otherwise both advertise the same megabytes when only one of
+them can have them.
+
+The window is the unowned species (§38.1), so its close box reduces to
+`wm_hide` and there is no teardown path to write; detach must still leave none
+on screen, because the kernel frees the image the moment detach returns.
 
 A partition is capped at **65,535 sectors** by the kernel's volume ceiling
 (§18.7), so four primaries is the whole offering and an extended chain is not
 implemented. Two era conventions are obeyed because DOS reads what is written:
-partitions are cylinder-aligned, and **the CHS halves of an entry must agree
-with its LBA halves** under the geometry the drive is addressed with — a
+partitions start on cylinder boundaries, and **the CHS halves of an entry must
+agree with its LBA halves** under the geometry the drive is addressed with — a
 cylinder past 1023 clamps to the all-ones form every tool of the era wrote,
 which is what says "read the LBA fields instead".
 
@@ -15509,9 +15993,147 @@ The 446 bytes of boot code are **not** left blank: os8088 does not boot from a
 hard disk (§52.9), and a blank MBR is a machine that hangs with no
 explanation, so a stub prints `Not bootable` and halts.
 
+#### 52.2.1 A slot is not a 32MB region of the disk
+
+`hd_slot_extent` answers what a Format would write, and it takes the answer
+out of the **table**. That is the safety property the whole tool rests on: an
+entry laid at a fixed multiple of 32MB lands *inside* an 80MB partition that
+started below it, and takes the whole thing with it.
+
+Three cases, and the first two are the same one seen twice:
+
+- **used, at or under the ceiling** — its own extent, reused in place. The
+  user has already confirmed erasing it (§52.2.3).
+- **used, over the ceiling** — the first 65,535 sectors of its own extent, and
+  the rest goes back to being free space. This is how a 50MB or an 80MB
+  partition is reclaimed without touching a neighbour.
+- **free** — the scan below.
+
+The scan is `mem_claim`'s (§50), and deliberately: start at the era's floor —
+LBA = spt, head 1 sector 1 cylinder 0 — and while any *other* used entry
+contains the candidate, restart at that entry's end rounded up to a cylinder.
+Each bump moves strictly past one entry and there are four, so four passes is
+a proof rather than a guess. The length then runs to the lowest used start
+*above* the candidate, or to the end of the drive, capped at the ceiling.
+
+Two things fall out of that shape, and both were asked for:
+
+- **A partition sits directly on top of a foreign one, not at the next
+  multiple of anything.** A 50MB `0x83` partition at LBA 63 on a 200MB disk is
+  followed by a 31MB FAT16 at LBA 102,816 — one cylinder past its end.
+- **A hole is usable.** With 102,816..168,351 and 200,000..265,535 taken, the
+  next slot gets 169,344..200,000 — 14MB, byte-exact, filling the gap rather
+  than running off the end of the disk.
+
+The extent is also **clipped to the end of the drive**, because a table
+another machine wrote is input and input is hostile, and refused outright
+below one track — less than that is not worth a drive letter.
+
+**A hole can be an alignment gap, and it is still real space.** This tool's
+floor is LBA = spt — the end of the MBR's own track, where every DOS-era table
+started — while a modern tool 1MB-aligns its partitions at LBA 2048. Take a
+disk this tool filled, delete two partitions on another machine and let it
+make one NTFS partition in the freed space, and the 1,985 sectors between 63
+and 2048 belong to nobody: the scan finds them, because that is what it is
+for, and a Format there produces a working 970KB FAT12 volume that mounts and
+takes files.
+
+What that exposed was a **display** fault and not an allocation one — the size
+column was whole megabytes, so a volume that works read `0M`, which looks like
+a broken tool rather than a small disk. Under a megabyte the column is **KB**
+(`hd_tw_size`); `992K` is the same volume, honestly described.
+
+Which is why the scan takes **the largest hole and not the first that fits**,
+and that is about the slots being scarce: there are four, and first-fit spends
+one of them on a 1MB alignment gap while 30MB sits free in the middle of the
+disk. The walk is the same bump-and-limit pair in a loop — the candidate moves
+to the limit that bounded it, the next bump carries it past the entry sitting
+there, so it strictly increases and there are at most four holes to see. A tie
+keeps the **earlier** hole, which leaves the later space contiguous.
+
+Measured, on a 128MB disk with an NTFS partition at 2048..131072 and a FAT16
+at 199584..261072 — a 1,985-sector gap at the front and a 68,512-sector hole
+in the middle:
+
+```
+Format -> 132048 + 65535   the middle hole, cylinder-aligned and capped
+Format -> 63 + 1985        the front gap, now that it is the largest left
+```
+
+Sub-megabyte partitions are kept rather than refused below some floor: 992KB
+is most of three 360KB floppies, which on this machine is a real volume — and
+under largest-hole it is only ever chosen when nothing bigger is free.
+
+#### 52.2.2 Formatted, and unmountable
+
+`hd_fmt_isfat` reads the partition's own LBA 0 and asks whether a boot sector
+is there: the `55AA` signature, `BS_jmpBoot` being EB or E9 (BPB rule 2's own
+test, §18.2), 512-byte sectors, and non-zero `SecPerClus` / `NumFATs` /
+`FATSz`. It is a **display test and the mount is still the authority** — a
+volume that passes here can still be refused by `disk_mount`'s seventeen rules
+— and it costs one sector read per slot that could carry a volume, when the
+window opens and after every format.
+
+The order of the state tests is the order of the certainties: over the ceiling
+and a type this driver does not mount are facts about the *table*, so neither
+costs a read, and only a slot that could carry a volume is asked whether it
+does.
+
+**`Unmountable` is a foreign type or over 65,535 sectors**, and either way
+this kernel will never mount it. Format stays live on such a slot, because
+reclaiming that space is the only thing the user can usefully do with it. The
+page agrees rather than contradicting: a Mount that skipped a partition for
+being over the ceiling now says `Partition is over 32MB` instead of reporting
+"no FAT partition" about a partition that plainly is one.
+
+**Nothing in this window is greyed, and the unmountable row least of all.** It
+was, briefly, and it was wrong twice — this is the §47 case worth keeping,
+because both halves look like details and neither is:
+
+- **Greying is a claim about a CONTROL, and this row is not one.** Rule 1: the
+  disabled pen says *disabled*; the row is selectable and the Format button
+  acts on it. That is rule 4's named failure — "looks unavailable and works" —
+  and it is the drift rule 4 exists to stop, arriving from the direction rule 4
+  does not cover, because there is no predicate here at all: nothing refuses.
+- **It did not even show.** Rule 3: `CDGRAY` *text* rounds to black on the two
+  1bpp adapters (§39.4 rounds a glyph rather than dithering it), and
+  `[gfx_dis]` — the carve-out that makes a disabled glyph a checkerboard — is
+  not in the package ABI (§20.3 publishes no slot). Looked at on CGA per §47.2,
+  the greyed row was pixel-identical to the live row beneath it. Rule 3's
+  package clause is the general form: a package's disabled control **must carry
+  a non-text mark**, which is why `hd_page_button` greys the button's *frame*
+  along with its label and reads correctly on all three adapters, and why a
+  bare row of text can never be made to.
+
+So the **State column is the whole signal**, and it says the same thing on VGA,
+CGA and Hercules. That is not a consolation prize for the missing colour: a
+value in a column is what the rest of the row already is, and §47 does not
+apply to it.
+
+#### 52.2.3 Confirm, and the order of the two commits
+
+**Format on a slot that already holds something asks first**, in the caption,
+by wanting the click again: `Erase slot 2? Click Format again`. A driver has
+no notice window and no modal, and a second click on the same button is the
+cheapest confirm that cannot be mistaken for the first one. Picking another
+row or closing the window disarms it. A free slot is not confirmed — there is
+nothing to lose.
+
+**The table entry goes down before the volume**, which is the same argument as
+the boot sector going last inside the format: every way this can be
+interrupted has to leave a state the tool can describe and re-offer. Entry
+first, volume second means an interruption leaves `Not Formatted` — a claimed
+region with nothing in it — which is exactly what the button is for. The other
+order leaves a volume nothing can see and an entry still pointing at data that
+has just been overwritten.
+
+Afterwards the states are **re-scanned rather than assumed**, so the row
+reports what came back off the disk and not what the driver hoped it wrote.
+
 ### 52.3 The formatter
 
-A **FAT format, not a surface format**. Low-level formatting an MFM surface is
+A **FAT format, not a surface format**. Its window is §52.2's, along with the
+partitioner's. Low-level formatting an MFM surface is
 vendor-specific interleave and defect handling, minutes per drive, and the
 ST-11M ships its own ROM utility that does it correctly (`g=c800:5`).
 
@@ -15549,8 +16171,9 @@ volume its own kernel refuses to mount.
 
 ### 52.4 The page, and mounting
 
-The Control Panel page (§31.9) is a device list, the C/H/S editor and three
-buttons, in 27 characters by 13 rows. Greying follows §47: one predicate
+The Control Panel page (§31.9) is a device list, the C/H/S editor and **two**
+buttons — Format, which opens §52.2's tool, and Mount — in 27 characters by 13
+rows. Greying follows §47: one predicate
 (`hd_btn_ok`) shared by the greying, the click refusal and the caption, and it
 tests only facts already known — is there a device, is its geometry usable —
 never "try it and see".
@@ -15630,15 +16253,21 @@ Three things about it are load-bearing:
   disk at all. The mount's *own* save no longer needs this: the kernel owns
   the file and the drive it lives on.
 
-There are three ways out and each is the §51.9 verb its job needs. The
-geometry editor **stages** on every `+` and writes on none, because a floppy
-write is about a second on the floor machine and the panel is frozen for it;
-opening the partitioner or the formatter **spends** a staged edit, because a
-geometry the user is about to format a disk with is one worth surviving a
-hang; and Mount and Unmount **write on the spot**, because the set of mounted
-drives is what the next boot reads. Detach stages — the fence is still open
-(the kernel releases the class after detach returns) and the panel that
-unticked the driver is about to close and write the file anyway.
+**There is one way out, `hd_cfg_mark`, and it never touches a disk.** It hands
+the blob to the kernel — a 34-byte `rep movsb` — and `SYSTEM.CFG` is written
+when the Control Panel closes or Special > Restart is picked, like every other
+setting in the machine (§31.8). Everything that can change the blob calls it:
+the geometry editor on every `+`, Mount and Unmount, and detach.
+
+There were three ways out, and the other two wrote immediately. `hd_cfg_now`
+was Mount and Unmount, on the argument that the set of mounted drives is what
+the next boot reads; `hd_cfg_flush` was opening the partitioner or the
+formatter, on the argument that a geometry about to be formatted with is worth
+surviving a hang. Both are gone with §51.9's verb 2, and what they bought was
+never worth 2+ seconds of frozen UI in the middle of a click — the Mount write
+also remounted A: behind the click that had just made C: current. Neither tool
+needs a stage of its own either: the only thing they use is the geometry, and
+the editor staged that on the click that changed it.
 
 ### 52.9 Not in scope
 
@@ -16026,3 +16655,309 @@ everything they touch.
   text↔graphics flip — the one thing QEMU cannot exercise), `286`/`386`.
 - Missile Command (§48) is the shipped reference consumer; Tracker
   (§45) follows with `FSXF_KEEPWORKER`.
+
+---
+
+## 54. assoc.inc — file type associations
+
+A file with a known extension shows the **associated program's** icon, marked
+so it reads as a document rather than as the program, and double-clicking it
+opens it in that program. Build-time defaults ship in the kernel; a running
+program may register a new association or take over an existing one.
+
+### 54.1 Compose at MOUNT, never at draw time
+
+`disk_icons` is `dsk_nmax` × 64 bytes, already allocated, **already rewritten
+every mount** (§18.3 step 4), and a type-0 file's slot was **already all
+zero** — the generic-icon sentinel. A document icon composed into that slot
+therefore costs **no new per-file RAM and no work in any paint**, and every
+consumer of the mount snapshot gets it with no change to a drawing path: both
+Disk window views, the per-window view caches (§22.1), and the file dialog
+(§38), which reads the snapshot directly because it is modal.
+
+This is the binding decision of the section. Putting the answer in the
+snapshot rather than in a drawing path is what makes "every place that shows a
+file" true by construction instead of by discipline, and it is why
+`fm_draw_icon16` did not change by one instruction.
+
+### 54.2 Two tables, and no flags byte in either
+
+An extension names a **program**, and the program owns the glyph — `BMP` and
+`GIF` both mean Paint, and a flat row would cache Paint's glyph twice.
+
+```
+assoc_stem[i]    8 bytes   the app's 8.3 stem, space-padded ('.O88' implied)
+assoc_glyph[i]   8 bytes   its icon reduced to 8x8, one byte a row
+assoc_ext[j]     4 bytes   3 extension bytes + the app index it names
+assoc_clus[i]    word      the directory it was last SEEN in
+assoc_drv[i]     byte      ...on which volume (0xFF = never seen)
+assoc_dfold[i]   byte      build-time folder: 0 root, 1 APPS, 2 GAMES
+```
+
+`ASSOC_NAPP` = 12, `ASSOC_NEXT` = 24. **Every stride is a power of two** so
+the lookup the harvest does once per listed file is a shift through CL rather
+than the `mul` an odd stride would force.
+
+**Neither table carries a flags byte.** "Slot free" is `stem[0] == 0` /
+`ext[0] == 0` — a sanitized display name's bytes are 0x21..0x7E and can never
+be 0 (§19.1) — and "glyph unresolved" is the eight bytes ORing to zero, which
+is exactly the all-zero sentinel `fm_draw_icon16` already reads on
+`disk_icons`. An icon whose reduction is genuinely blank is indistinguishable
+from an unresolved one and draws the bare page, which is the right answer for
+it anyway.
+
+**All of it is in `.text`, not `.bss`**: `-f bin` zeroes nothing, so
+initialised data is in the image and writable at runtime (the `ui_tm_cwd` /
+`dsk_fatw0` / `fdlg_win` idiom). The build-time defaults **are** the table and
+a runtime registration writes over a row — one copy of the data, no init code,
+and "take over an existing one" needs no special case.
+
+Extension comparison is **uppercase-exact**, matching §19.1's own `"O88"` rule
+and for the same reason. A short extension is space-padded, so a file named
+`X.MD` matches a declared `'MD '`.
+
+Associations are consulted for **type 0 only**, so a package can never be
+shadowed by an `O88` row and a folder is never associated. That falls out of
+where the test sits; it is not a separate rule.
+
+### 54.3 The icon: a page frame with the program's glyph inset
+
+`assoc_page` is a 16×16 dog-eared page in `assoc.inc`'s `.text` — the second
+icon in this kernel that is not harvested off a disk (`dsk_folder_ico` is the
+other). Its white interior holds an **8×8 inset at x=4..11, y=5..12**, one
+pixel clear of the border on every side. `assoc_compose` copies the frame and
+ORs the glyph into data rows 5..12, shifted left by 4 so a glyph byte's bit 7
+lands on x=4.
+
+**The reduction is majority-of-2×2**: a block lights if two or more of its
+four source pixels are ink. OR-of-4 turns a typical 40%-ink icon into a
+near-solid blob and point-sampling drops every one-pixel stroke; majority is
+the one that keeps a silhouette at 8×8 on a 1bpp adapter. Only the **data**
+plane is reduced — the glyph lands in an interior the frame has already
+cleared to white, so "ink" is the whole of what it means, and that is what
+makes the cache 8 bytes and not 16.
+
+`assoc_reduce` (kernel, `ES:SI` because the source is usually `LOW_SEG`) and
+`reduce8()` in `tools/os88mini.py` (host) **must stay byte-identical**, or a
+baked default and a harvested icon for the same program would not match.
+
+**The shipped defaults' glyphs are baked at build time.** `tools/os88mini.py`
+reduces each package's own embedded icon (`.o88` bytes 32..95) into
+`build/associco.inc`, which `assoc.inc` `%include`s — so the bytes are `db`
+bytes inside `kernel.bin`, riding the boot sector's existing contiguous kernel
+read, and **a document icon costs no disk read on the first boot of any
+machine**. It is generated and never hand-pasted: pasted bytes go stale in
+silence when an app's icon changes and `make check-images` cannot see that,
+where the make dependency can. The DAG stays acyclic — a package depends on
+`apps/os88api.inc`, never on `kernel.bin`.
+
+Defaults: `BMP`/`GIF` → PAINT, `TXT` → NOTEPAD, `MOD` → TRACKER, `MD` →
+ARTFUL.
+
+### 54.3.1 The harvest is two passes, and the order is the point
+
+Pass A is §18.3 step 4 unchanged, plus one call: every type-1 file whose first
+sector it reads goes to `assoc_note_app`, which records the program's volume,
+its directory cluster and its reduced glyph. **No extra I/O at all** — the
+sector it reduces is the one the harvest just read.
+
+Pass B walks the listing again and composes a document icon for every type-0
+entry whose extension is associated, into `dsk_ico` and then
+`dsk_put_icon_k`.
+
+**They cannot be one pass.** The listing is sorted by name (§19.4), so a
+document can precede its program — `BEACH.BMP` before `PAINT.O88` — and a
+single pass would draw the bare page for everything above the program in the
+sort. Neither pass reads the disk; both walk data already in hand.
+
+`assoc_docicon` borrows `dsk_ico`, `dsk_get_icon`'s staging buffer, to save 64
+bytes of footprint. That is safe because nothing calls `dsk_get_icon` during a
+mount, which is the only place it runs — state the invariant if either moves.
+
+### 54.4 Degradation
+
+An unresolved glyph composes to the **bare page**, which is a correct,
+unambiguous document icon and not a placeholder — the §50 degradation rule
+applied to an icon. A machine that has never seen the program's folder shows
+bare pages, and they are right.
+
+Because the glyph is cached in the app slot rather than resolved on demand,
+**the icons survive the disk leaving the drive**: browse `APPS/` once, swap to
+a documents floppy, and every `.MOD` there still carries Tracker's mark.
+
+### 54.5 The API: the app PULLS its document, and may claim an extension
+
+Two cells, **appended past the last one**, so no `.o88` is invalidated
+(§20.8 rule 4).
+
+| slot | contract |
+|---|---|
+| `OSAPI_ARG_FILE` **0x02E8** | no inputs. Out CF=1 = launched empty, the ordinary case; CF=0 with SI → the document's NUL 8.3 name **in the kernel segment** (read it through ES, which is `KERNEL_SEG` on entry to every package proc — §20.2), DX = the directory cluster it lives in, BL = its volume. **READ-AND-CLEAR.** |
+| `OSAPI_ASSOC_SET` **0x02F0** | an **X stub**. ES:SI → 3 extension bytes then 8 stem bytes, both space-padded (`OS88_ASSOC` lays it out). Out CF=1 = the tables are full and nothing was stored. |
+
+**DX and BL are exactly the pair `OSAPI_FILE_HERE` answers and
+`OSAPI_FILE_GOTO` takes**, so the whole of accepting a document is: copy the
+name, GOTO, READ — with slots the app already had. No new file plumbing.
+
+**Pull, not push, and that is forced rather than preferred.** `ld_run_body`
+reads the program's image out of the *program's* directory and far-calls its
+entry as one unit, so the kernel cannot be standing in the document's
+directory when that entry runs. Handing over the locator moves the one
+`dsk_chdir` to where it can happen. It is also why there is no new callback
+pointer: the instance record is **full** at 32 bytes (§29) and growing the
+window record is a `WIN_SIZE` stride change that has broken this tree before.
+
+**Read-and-clear is what makes two open documents independent.** The first
+proc to ask gets it and the word is spent, so an instance launched later — by
+any route — can never inherit one. A second document therefore opens a
+**second instance**, which is what the pull model does by construction:
+replacing an open document would destroy work nobody asked to lose, and no
+package in this tree holds two at once. No cap applies — `inst_kinds`' caps
+are built-in kinds only, so package instances are bounded by `INST_MAX` and
+the heap, and past either the existing `LD_ENOMEM` is an honest answer.
+
+**The caller supplies its own stem** because the kernel cannot: `I_NAME` holds
+the 16-byte *header* name (`SOLITAIRE`), not the 8.3 file name (`SOLITAIR`),
+and nothing in the instance record records where a package was loaded from. A
+program claiming four extensions **reuses one app slot**, not four.
+
+There is deliberately **no ownership model** — "take over an existing one" is
+the ask, so a matching extension is repointed. Registering grants nothing: the
+worst outcome is that the wrong program opens a file. A runtime claim sets
+**`ASSOC_STICKY`** (bit 7 of the ext row's index byte, free because 12 apps
+need four bits), which is what stops §54.6's declaration taking it back.
+
+### 54.6 A package may DECLARE its extensions — and it is not a version bump
+
+**Flags bit 1** says a **16-byte association block** follows the icon (offset
+96) or, with no icon, the header (offset 32): a count byte and up to five
+3-byte extensions, uppercase and space-padded. `OS88_ASSOC16` /
+`OS88_ASSOC_EXT` / `OS88_ASSOC16_END` bracket it and assert both offsets, so a
+miscounted `db` fails at assembly rather than at mount.
+
+**The format version stays 3.** An old kernel loading a new package works —
+everything it reads is unmoved (magic, flags, the dispatcher at 12, the name
+at 16..31, the icon at a fixed 32..95) and `LD_H_ENTRY` is absolute, so where
+the code starts is *told*, not derived; the block is inert bytes in an image
+loaded whole. A new kernel loading an old package works because the bit is
+clear. Nothing is invalidated, which matters because §20.8 rule 4 exists
+precisely to avoid costing every package at once.
+
+`tools/os88pkg.py` is the gate: it allows bit 1, extends `entry_min` by 16,
+and validates the block — count ≤ 5, printable and uppercase, and **`O88`
+refused**, since a package is never opened through an association.
+
+**What it buys is the case that motivated it.** The mount's harvest already
+reads every type-1 file's first sector, so a folder holding `WIDGET.O88` *and*
+`README.WGT` teaches the OS the extension, the glyph and the location in that
+one existing read. The document opens on the **first** double-click — no prior
+run, no search. The program must be **seen**, which browsing does; it no
+longer has to be **run**.
+
+Two traps, both of which bit during implementation:
+
+- **The declaration must not hang off the icon flag.** An iconless package is
+  precisely the case the block ships on first, and gating the parse on bit 0
+  skipped it entirely. Pass A now notes every valid v3 header, icon or not.
+- **The header flags must be banked before `dsk_get_dir` re-stages the
+  directory entry.** The harvest copies the header into `dsk_ent`, then reads
+  the *name* back out of `dsk_ent`, so `[dsk_ent+3]` stops being the flags and
+  becomes the fourth character of the file's name. `[assoc_hflags]` holds it
+  across that.
+
+`tests/assoctest` is the gate package (docs/TESTING.md): `make test
+TESTAPPS=build/assoctest.img`, then double-click **`TEST.AST`**, not the
+program. Six rows, all of which must read PASS. Launching `ASSTEST.O88` by
+hand is the control — rows 1–4 read `-` and that is correct.
+
+### 54.7 `ASSOC.DAT` — the volume's icon and association cache
+
+The mount reads the **first sector of every package in a directory** to
+harvest its icon, and that is paid again on every re-entry — measured, opening
+`APPS/` cost 20 sectors of which **8 were those reads**
+(`docs/DISK-PERF-PLAN.md` §2.1/§5.5, mechanism D). `ASSOC.DAT` is one file in
+the volume's root, hidden + system, that answers them all:
+
+```
++0    6   'OS88AC'
++6    1   version = 1
++7    1   app rows (<= 16)
++8    1   association rows (<= 24)
++9    7   reserved
++16   ..  app rows, 80 bytes: stem 8, size low word 2, 6 reserved, icon 64
+      ..  association rows, 4 bytes: 3 extension bytes + an app row index
+```
+
+**Hit skips, miss harvests.** Per type-1 entry the harvest looks up
+`(stem, size)`: a hit copies the cached 64-byte body straight into
+`disk_icons` with **no read at all**; a miss reads the sector exactly as
+before. That is what keeps a new package working — harvested once, free
+after — and it means the cache cannot be wrong in a way that matters: any edit
+to a program changes its length, so it misses and is re-harvested. A false hit
+needs a different program with the same name *and* byte-identical size, and
+costs a wrong **icon**, never a wrong load, which §54.4's name re-check
+governs separately.
+
+**A row carries no cluster, deliberately.** A hit still has the directory
+entry, so where the program lives comes from there — which also means the
+file's contents depend only on the packages and not on the disk's layout, so
+`tools/os88disk.py` can build it before a single cluster is assigned. A
+shipped disk therefore arrives **warm**, and nothing has to run on the target
+to earn it.
+
+**An iconless package still gets a row**, holding 64 zero bytes — the
+all-zero "no icon" sentinel the kernel already understands (§19.1), so
+caching the *absence* saves that read too.
+
+**The association rows are not optional.** A hit skips the package's header
+read, and the header is where a declaration lives (§54.6) — so without them,
+warming the cache would silently cost every declaration on the disk.
+`asc_merge_ext` takes them under the same rule a declaration has: a runtime
+claim (`ASSOC_STICKY`) outranks a cached one.
+
+**One shared buffer, not one per volume.** `DVOL_MAX` is 6, so per-volume
+would be up to 12KB of heap, and on the 128KB floor that is over a fifth of
+everything above the kernel. §18.8.1 made this call once already for the FAT
+window and escalated to per-volume for a *stated* reason — a copy alternates
+between two volumes — and **that reason does not transfer**: a copy never
+consults this cache, because `dskw_find` and `fcp_scan` walk directory sectors
+themselves and `dsk_chdir_q` skips the harvest outright (§18.9). It is read
+only on a **full** mount, which is a user navigating. Per-volume remains the
+same escalation if profiling ever disagrees.
+
+**Three tiers, each degrading into the next** (the §50 rule), and none of them
+is a failure the harvest notices — an empty cache simply answers *miss* to
+everything:
+
+| tier | when | per mount |
+|---|---|---|
+| resident | the claim is held and holds this volume | **0 reads** |
+| refused | `mem_claim` said no | today's behaviour |
+| absent | no `ASSOC.DAT` on the volume | today's behaviour |
+
+A failed load still **stamps the volume**, so a disk without the file is
+searched once and not again on every directory change.
+
+`asc_root_find` walks the **root** directly through `dsk_dirw_start` rather
+than using `dskw_stat`, which resolves in the *current* directory — and a
+mount may be landing in a subdirectory, which is exactly when this runs.
+
+**`asc_seg`/`asc_n`/`asc_ne`/`asc_vol` live in `.text` with real
+initialisers**, the `dsk_fatw0` precedent and for the same reason: `-f bin`
+zeroes nothing, `asc_use` runs at the machine's first mount, and garbage there
+is not a wrong answer but a live one — a stale `asc_seg` would have the
+harvest reading icons out of whatever segment those bytes happen to name.
+
+**Measured**, 1.44MB, on top of §18.91's batching:
+
+| action | before D | with D |
+|---|---|---|
+| enter `APPS/` (8 packages) | 20 sectors / 13 calls | **12 / 4** |
+| enter `GAMES/` (5 packages) | 17 / 10 | **12 / 4** |
+| back to the root | 12 / 5 | 11 / 3 |
+| open Drive B (first mount of the volume) | 12 / 5 | 15 / 5 — the cache load, once |
+
+Against the original baseline, opening `APPS/` has gone from **20 int 13h
+commands to 4**. The 12 sectors that remain are the boot sector, the FAT
+window and the directory — §5's mechanisms A and B, which §4 declined to
+touch, so 12 is the floor that decision leaves.

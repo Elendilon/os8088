@@ -114,7 +114,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 76288           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 78336           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
                                 ; It has moved six times, every one asked
@@ -188,6 +188,33 @@ KERN_BUDGET equ 76288           ; the whole kernel's FOOTPRINT. Growing past
                                 ; through. That doc now carries the bisect
                                 ; recipe instead of a figure, so the next
                                 ; author measures rather than trusts.
+                                ;
+                                ; The seventh move, 76,288 -> 78,336, was
+                                ; asked for and granted in ADVANCE, for two
+                                ; plans costed together before either was
+                                ; written: SPEC.md 54's file type
+                                ; associations (docs/ASSOC-PLAN.md, ~1,600)
+                                ; and the disk path (docs/DISK-PERF-PLAN.md,
+                                ; ~200), against the 1,536 that were spare,
+                                ; which the two do not fit. Granted in
+                                ; advance is the fifth move's warning, so the
+                                ; terms were stated with it: the raise lands
+                                ; with the commit that FIRST needs it and not
+                                ; with the documents, and it landed here -
+                                ; SPEC.md 54.4's open path had taken the
+                                ; footprint to exactly 76,288, which passes
+                                ; the guard by a byte and leaves the next
+                                ; change nowhere to go. Two phases of the
+                                ; association work and the whole of the disk
+                                ; work were already spent under the OLD
+                                ; figure before this line moved.
+                                ;
+                                ; Part of what pays for it is elsewhere:
+                                ; SPEC.md 18.91's batched transfer is 117
+                                ; bytes that took a directory change from 12
+                                ; int 13h calls to 5, and mechanism D
+                                ; (docs/DISK-PERF-PLAN.md 5.5) removes 8 of
+                                ; the 13 an APPS/ open still costs.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
@@ -770,7 +797,26 @@ osapi_table:
                                   ;          axis-aligned pair defers to
                                   ;          gfx_hline / gfx_vline, which stay
                                   ;          the right answer for a long run
-osapi_table_end:                  ; 0x02E8
+    OSAPI_SLOT osapi_arg_file     ; 0x02E8 - the document this instance was
+                                  ;          launched to open (SPEC.md 54.5):
+                                  ;          out CF=1 none; CF=0 with SI = its
+                                  ;          NUL 8.3 name in KERNEL_SEG (read
+                                  ;          it through ES), DX = its directory
+                                  ;          cluster and BL = its volume, the
+                                  ;          pair OSAPI_FILE_GOTO takes.
+                                  ;          READ-AND-CLEAR: a second instance
+                                  ;          cannot inherit it
+    OSAPI_JSLOT api_assoc_set     ; 0x02F0 - X: claim an extension for a
+                                  ;          program (SPEC.md 54.5). ES:SI =
+                                  ;          3 extension bytes then 8 stem
+                                  ;          bytes, both space-padded; out
+                                  ;          CF=1 = the tables are full.
+                                  ;          Repoints an extension somebody
+                                  ;          else claimed - that is the ask,
+                                  ;          not an oversight - and marks it
+                                  ;          sticky so a header declaration
+                                  ;          cannot take it back
+osapi_table_end:                  ; 0x02F8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -778,7 +824,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 91 * 8
+%if OSAPI_TABLE_LEN != 93 * 8
 %error "os8088 API jump table must be exactly 91 8-byte slots"
 %endif
 
@@ -829,6 +875,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_drv_cfg,    osapi_drv_cfg
     OSAPI_XSTUB api_gfx_fill_pat, osapi_gfx_fill_pat
     OSAPI_XSTUB api_fsx_run,    fsx_run
+    OSAPI_XSTUB api_assoc_set,  osapi_assoc_set
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
 ; because ES:BX belongs to the caller's data buffer and cannot carry it
@@ -960,8 +1007,11 @@ cp_paint:             call COLD_SEG:cpf_cp_paint
                     ret
 cp_onclick:           call COLD_SEG:cpf_cp_onclick
                     ret
-cp_flush:             call COLD_SEG:cpf_cp_flush
-                    ret
+                      ; ...but NOT cp_flush. It has no thunk on purpose: with
+                      ; no way into it from .text, "the panel's teardown is the
+                      ; only thing that writes SYSTEM.CFG" (SPEC.md 31.8) is
+                      ; something the build enforces rather than something
+                      ; every new page has to be told
 cp_flush_close:       call COLD_SEG:cpf_cp_flush_close
                     ret
 cp_drv_gone:          call COLD_SEG:cpf_cp_drv_gone
@@ -1060,9 +1110,10 @@ kmain:
                                 ; mode set, so the very first menu bar paint
                                 ; already carries a valid clock
     call vid_init               ; video adapter (SPEC.md 39): probe, publish
-                                ; the runtime geometry, set the mode. Re-runs
-                                ; what the splash already did, which is what
-                                ; wipes the loading screen.
+                                ; the runtime geometry. Re-runs what the
+                                ; splash already did, EXCEPT the mode set -
+                                ; the loading screen stays up and keeps
+                                ; ticking until spl_finish below (15.3)
     call mem_init               ; the claim heap (SPEC.md 50): int 12h, the
                                 ; empty map. FIRST of the memory users -
                                 ; every claim below goes through it
@@ -1075,7 +1126,12 @@ kmain:
                                 ; the first wm_paint_all already has a bar
     call inst_init              ; instance table (SPEC.md 29) - clean boot:
                                 ; no app instances exist until launched
+    call spl_step               ; a notch: the mode set and the font are done
     call mouse_init             ; IRQ4 live; cursor stays hidden until shown
+    call spl_step               ; ...and another: the serial reset holds
+                                ; DTR/RTS low for MOU_RSTLOW ticks (~165ms),
+                                ; which is the only non-I/O phase up here
+                                ; long enough to see (SPEC.md 15.3)
     call FAT_SEG:ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
     call dock_init              ; dock strip scratch (SPEC.md 30)
     call files_init             ; Disk module state (no window at boot)
@@ -1088,11 +1144,21 @@ kmain:
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
 
+    call spl_step               ; a notch, and the last one kmain spends by
+                                ; hand: everything below is sectors, and
+                                ; dsk_xfer ticks the bar itself (SPEC 15.3)
+
     call drv_boot               ; ...and load what SYSTEM.CFG asks for
                                 ; (SPEC.md 51.3). Before the first paint, so
                                 ; a machine whose sound driver loads has
                                 ; sound from the first frame; nothing here
-                                ; can stop the boot.
+                                ; can stop the boot. NOTHING loads that the
+                                ; settings file did not ask for - a driver is
+                                ; several seconds of floppy on this machine
+
+    call spl_finish             ; the bar to 100% and the screen handed back:
+                                ; the paint below covers every pixel of it,
+                                ; so the loading screen needs no erase
 
     call gfx_lock
     call wm_paint_all
@@ -1247,6 +1313,9 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "menu.inc"
 %include "ui.inc"
 %include "apps.inc"
+%include "assoc.inc"          ; file type associations (SPEC.md 54): the
+                              ; tables and the icon composition. BEFORE
+                              ; disk.inc, whose harvest calls into it
 %include "disk.inc"
 %include "diskw.inc"          ; the FAT write path (SPEC.md 18.4): after
                                 ; disk.inc, whose constants and layout it uses

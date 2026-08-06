@@ -65,6 +65,15 @@ FD_ROW0     equ 22              ; first row's top; 6 rows of 16 end at 117
 FD_ROWH     equ 16
 FD_ROWS     equ 6
 FD_SBX      equ 200             ; scroll bar: FD_SBX .. FD_LX2, 14 wide
+FD_ICOX     equ 10              ; the row's 16x16 icon (SPEC.md 54.1) - it
+FD_TEXTX    equ 28              ; fits because FD_ROWH is already 16, and the
+                                ; name clears it by 2. The margin after that
+                                ; is EIGHT PIXELS and no more: a 12-character
+                                ; name (FD_NAMEMAX) ends at 124, and the
+                                ; largest size that can exist is 8 digits -
+                                ; BPB rule 8 caps a volume at 65,535 sectors
+                                ; - which right-aligned at 196 starts at 132.
+                                ; A wider icon has to move the size column
 FD_TRKY1    equ FD_LY1+12       ; track between the two arrow-cell rules
 FD_TRKY2    equ FD_LY2-12
 FD_TRKH     equ FD_TRKY2-FD_TRKY1+1
@@ -805,6 +814,54 @@ fdlg_off:
     ret
 
 ; -----------------------------------------------------------------------------
+; fdlg_icon - one listing entry's 16x16 icon (SPEC.md 54.1, internal)
+; in:  AX = directory index, CX = x, DX = y (content-relative)
+; out: nothing (all registers preserved)
+;
+; It cannot share files.inc's fm_draw_icon16, which reads the POSTING
+; window's view cache through fmv_get_icon. This dialog is modal (SPEC.md
+; 38.2), so nothing can navigate the volume while it is up and it reads the
+; global mount snapshot directly - which is also why the document icons
+; SPEC.md 54.1 composed at mount are simply there, with no cache to fill.
+;
+; Same all-zero fallback as every other viewer: the 32 words OR to 0 means
+; the entry earned no icon, and the built-in ico_app16 stands in.
+; -----------------------------------------------------------------------------
+fdlg_icon:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    add cx, [fdlg_cx]           ; content-relative -> absolute
+    add dx, [fdlg_cy]
+    call dsk_get_icon           ; SI -> the staged 64-byte body
+    mov bx, si
+    push cx
+    xor ax, ax
+    mov cx, 32
+.orw:
+    or ax, [bx]
+    inc bx
+    inc bx
+    loop .orw
+    pop cx
+    or ax, ax
+    jz .generic
+    call icon_draw16            ; a harvested, folder or composed body
+    jmp short .out
+.generic:
+    mov si, ico_app16           ; nothing earned one: the built-in
+    call icon_draw
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; fdlg_text - draw a string at a content-relative point (internal)
 ; in:  CX = x, DX = y, SI = NUL string, [gfx_color] set
 ; out: nothing (all registers preserved)
@@ -1262,9 +1319,17 @@ fdlg_draw_rows:
     add ax, [fdlg_scrl]
     call fdlg_stage             ; fdlg_row / fdlg_type / fdlg_size
 
+    push ax                     ; the icon (SPEC.md 54.1): the index is
+    mov ax, di                  ; recomputed rather than carried, so nothing
+    add ax, [fdlg_scrl]         ; here depends on what fdlg_stage does to AX
+    mov cx, FD_ICOX
+    mov dx, bp
+    call fdlg_icon
+    pop ax
+
     mov byte [gfx_color], CBLACK
     mov si, fdlg_row
-    mov cx, 10
+    mov cx, FD_TEXTX
     mov dx, bp
     add dx, 4                   ; +4 centres an 8px glyph in the 16px band
     call fdlg_text

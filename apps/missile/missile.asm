@@ -144,6 +144,12 @@ MC_MAXEXP   equ 16                  ; NEXPLO is 20; 16 is what MC_MAXICBM +
                                     ; MC_MAXABM can actually produce at once
 MC_MAXON    equ 7                   ; MXICON: ICBMs on screen at one time
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
+MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
+                                    ; is SHORTER on purpose: with no collapse
+                                    ; the peak is held instead, so the life is
+                                    ; cut to keep the sum of the radii - the
+                                    ; whole of how lethal a burst is - where
+                                    ; the arcade put it (SPEC.md 48.12)
 MC_RMAX     equ 13                  ; ...and the radius it peaks at, on the
                                     ; arcade's 256x231 field
 MC_RMAXP    equ 34                  ; ...and the most mc_escale may scale that
@@ -194,6 +200,8 @@ mc_entry:
     mov [mc_scrw], ax
     mov [mc_dock], cx
 
+    mov byte [mc_expfr], MC_EXPFR   ; bss is zeroed, and a life of zero kills
+                                    ; every burst on the frame it is lit
     cmp dh, 1                       ; a 1bpp adapter, or a tier-0 CPU, gets
     jbe .coarse                     ; the three-state explosion (SPEC.md
     call OSAPI_CPU_INFO             ; 48.8). Both are FACTS this code can
@@ -201,6 +209,7 @@ mc_entry:
     jne .fine                       ; an optimisation only the slow machine
 .coarse:                            ; needs (PERFORMANCE.md rule 10)
     mov byte [mc_ecoarse], 1
+    mov byte [mc_expfr], MC_EXPFR3
 .fine:
 
     call OSAPI_FSX_CAPS             ; can this adapter set Mode X? A fact,
@@ -2363,13 +2372,15 @@ mc_add_exp:
 ; preserves all registers
 ; -----------------------------------------------------------------------------
 mc_do_exp:
+    push ax
     push si
     xor si, si
 .each:
     cmp byte [mc_ea + si], 1
     jne .next
     inc byte [mc_et + si]
-    cmp byte [mc_et + si], MC_EXPFR
+    mov al, [mc_et + si]
+    cmp al, [mc_expfr]              ; 27, or MC_EXPFR3 on the coarse ramp
     jb .next
     mov byte [mc_ea + si], 0FFh     ; done: mc_render owes it one erase
 .next:
@@ -2377,6 +2388,7 @@ mc_do_exp:
     cmp si, MC_MAXEXP
     jb .each
     pop si
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3277,9 +3289,9 @@ mc_rbody:
     call mc_draw_all
     jmp short .out
 .parts:
-    call mc_cross_off               ; the crosshair comes off FIRST: it is an
-                                    ; XOR overlay, and everything below draws
-                                    ; through where it was
+    call mc_cross_moved             ; the crosshair STAYS on screen unless the
+                                    ; mouse moved; anything that draws through
+                                    ; it takes it off itself (SPEC.md 48.11)
     call mc_wipe_trails
     call mc_draw_exp
     call mc_move_trails
@@ -4206,16 +4218,16 @@ mc_draw_exp:
 
 .coarse:                            ; SPEC.md 48.8: with no colour cycle the
     cmp bx, cx                      ; radius is the only thing that can have
-    je .next                        ; changed, and over a burst it does three
-    ja .cdraw                       ; times
+    je .next                        ; changed, and the shipped ramp grows it
+    ja .cdraw                       ; exactly ONCE (48.12)
     push bx                         ; shrank: the old blob back to the sky
-    mov al, MC_BG                   ; whole, because the annulus between two
-    call mc_setcol                  ; nested-rect blobs is more rects than
-    mov ax, [mc_ex + di]            ; the erase-and-redraw pair it replaces
-    mov dx, [mc_ey + di]
-    mov bx, cx
-    call mc_blob
-    pop bx
+    mov al, MC_BG                   ; whole. Unreachable with mc_step3 as it
+    call mc_setcol                  ; ships, and kept because it is the ramp
+    mov ax, [mc_ex + di]            ; table that decides that - edit the table
+    mov dx, [mc_ey + di]            ; and this is what stops the burst leaving
+    mov bx, cx                      ; a ring behind. The annulus was MEASURED
+    call mc_blob                    ; against this pair and lost, 22 calls to
+    pop bx                          ; 16, bands or not (48.11)
 .cdraw:
     mov [mc_er + si], bl
     call mc_exp_pen
@@ -4605,6 +4617,7 @@ mc_blob:
     shr ax, cl
     inc ax
     mov [mc_bq], ax                 ; the quantum: R/8 + 1
+    mov word [mc_bprev], -1         ; no band closed yet (SPEC.md 48.10)
     mov di, 1                       ; DI = dy; row 0 is inside the first rect
 .row:
     cmp di, [mc_dr]
@@ -4637,23 +4650,66 @@ mc_blob:
     pop ax
     ret
 
-; mc_blob_rect - one nested rect: half-width [mc_bw], half-height BX, about
-;                ([mc_dcx],[mc_dcy]). Preserves all registers
+; mc_blob_rect - one BAND of the blob: half-width [mc_bw], out to half-height
+;                BX, starting just past [mc_bprev]. Preserves all registers.
+;
+; SPEC.md 48.10. These were NESTED rects - each one spanning the blob's full
+; height at its own width - which is the same pixels and a very different
+; price. A gfx_fill costs 756us of arriving plus 177us PER SCAN LINE (the
+; 5150 field set, PERFORMANCE.md Part 2), and nested rects overlap: at
+; fullscreen Hercules' peak radius of 19 they wrote 184 scan lines to cover a
+; 39-row disc. Six calls instead of thirty-nine looked like a win and was
+; not - 37.1 ms against mc_disc's 36.4. Bands write each row ONCE: eleven
+; calls, thirty-nine rows, 15.2 ms.
 mc_blob_rect:
     push ax
     push bx
     push cx
     push dx
+    cmp word [mc_bprev], 0          ; the first band is the centre one, and it
+    jge .ring                       ; is the only one that is a single rect
     mov ax, [mc_dcy]
     sub ax, bx
     mov dx, [mc_dcy]
     add dx, bx
-    mov bx, ax                      ; BX = y1, DX = y2
+    mov [mc_bprev], bx
+    mov bx, ax
     mov ax, [mc_dcx]
     sub ax, [mc_bw]
     mov cx, [mc_dcx]
     add cx, [mc_bw]
     call mc_fillc
+    jmp short .out
+.ring:
+    push bx
+    mov ax, [mc_bprev]              ; the band below the centre
+    inc ax
+    mov dx, [mc_dcy]
+    add dx, bx
+    mov bx, [mc_dcy]
+    add bx, ax
+    mov ax, [mc_dcx]
+    sub ax, [mc_bw]
+    mov cx, [mc_dcx]
+    add cx, [mc_bw]
+    call mc_fillc
+    pop bx
+    push bx
+    mov ax, [mc_bprev]              ; ...and its mirror above
+    inc ax
+    mov dx, [mc_dcy]
+    sub dx, ax
+    mov ax, [mc_dcy]
+    sub ax, bx
+    mov bx, ax
+    mov ax, [mc_dcx]
+    sub ax, [mc_bw]
+    mov cx, [mc_dcx]
+    add cx, [mc_bw]
+    call mc_fillc
+    pop bx
+    mov [mc_bprev], bx
+.out:
     pop dx
     pop cx
     pop bx
@@ -4810,10 +4866,25 @@ mc_sat_shape:
 ;
 ; XOR because the crosshair stands on top of trails, explosions and the ground
 ; alike, and there is nothing behind it to restore: drawing it twice puts back
-; whatever was there. It is the LAST thing drawn each frame and the FIRST thing
-; undone the next, so nothing else ever draws while it is on the screen -
-; which is the only condition an XOR overlay needs - the same argument SPEC.md
-; 32 makes one level up for the window manager's own drag outline.
+; whatever was there. Nothing else may draw while it is on the screen - which
+; is the only condition an XOR overlay needs - the same argument SPEC.md 32
+; makes one level up for the window manager's own drag outline.
+;
+; It used to be the LAST thing drawn each frame and the FIRST thing undone the
+; next, unconditionally, which is eight gfx_xor_fill calls a frame whether the
+; mouse moved or not: the field log measured 8.6 ms of EVERY frame on a 4.77MHz
+; Hercules machine, idle frames included, against a 55 ms tick. It is four
+; one-pixel arms, so there is nothing to win inside the calls - only in not
+; making them (SPEC.md 48.11).
+;
+; So it stays on screen across frames now, and comes off in exactly the two
+; cases that need it: the mouse moved (mc_cross_moved, at the top of the frame,
+; because the crosshair has to go back somewhere else), or something is about
+; to draw through it (mc_cross_need, from the content primitives). The second
+; is what makes it exact rather than approximate - the erase happens BEFORE the
+; overdraw, while the crosshair is still whole, so the XOR is undoing what it
+; drew. A frame that touches neither pays four compares per primitive instead
+; of eight far calls, and mc_cross_on at the end is a compare.
 ; -----------------------------------------------------------------------------
 MC_CHARM  equ 8                     ; arm length. Big enough to read AROUND the
 MC_CHGAP  equ 3                     ; system arrow, which the kernel keeps
@@ -4840,6 +4911,73 @@ mc_cross_off:
     je .out
     mov byte [mc_chshown], 0
     call mc_cross_xor
+.out:
+    ret
+
+; mc_cross_moved - take the crosshair off if it can no longer stay where it is.
+; Called once at the top of a part frame; preserves every register.
+mc_cross_moved:
+    push ax
+    mov ax, [mc_chx]
+    cmp ax, [mc_chpx]
+    jne .off
+    mov ax, [mc_chy]
+    cmp ax, [mc_chpy]
+    je .out
+.off:
+    call mc_cross_off
+.out:
+    pop ax
+    ret
+
+; mc_cross_need - (AX,BX)-(CX,DX) in CONTENT coordinates is about to be drawn;
+; if it reaches the crosshair, the crosshair comes off first. Ends in any
+; order - a line hands over its two endpoints - and unclamped, because an
+; over-large rect only ever costs a redundant erase. Preserves every register.
+mc_cross_need:
+    cmp byte [mc_chshown], 0
+    je .out
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    cmp ax, cx
+    jle .xok
+    xchg ax, cx
+.xok:
+    cmp bx, dx
+    jle .yok
+    xchg bx, dx
+.yok:
+    mov si, [mc_chpx]               ; signed throughout: content coordinates
+    sub si, MC_CHARM                ; go negative and mc_clamp is downstream
+    cmp cx, si
+    jl .miss
+    mov si, [mc_chpx]
+    add si, MC_CHARM
+    cmp ax, si
+    jg .miss
+    mov si, [mc_chpy]
+    sub si, MC_CHARM
+    cmp dx, si
+    jl .miss
+    mov si, [mc_chpy]
+    add si, MC_CHARM
+    cmp bx, si
+    jg .miss
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp mc_cross_off                ; it is still whole, so this erase is exact
+.miss:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
 .out:
     ret
 
@@ -5050,6 +5188,18 @@ mc_field:
 mc_runc:
     push cx
     push dx
+    push ax
+    push bx
+    mov ax, cx                      ; the run's own band, for the overlay
+    mov bx, dx
+    add cx, [mc_runw]
+    dec cx
+    add dx, 7
+    call mc_cross_need
+    mov cx, ax
+    mov dx, bx
+    pop bx
+    pop ax
     cmp byte [mc_fsx], 0
     jne .fsx
     add cx, [mc_ox]
@@ -5248,6 +5398,7 @@ mc_line:
     push cx
     push dx
     push si
+    call mc_cross_need              ; the two endpoints bound the line
     cmp byte [mc_fsx], 0            ; SPEC.md 5.6 does the whole line in one
     jne .own                        ; call now - but not on the Mode X surface
     or ax, ax                       ; (53.7: the drawing slots are off-limits
@@ -5477,7 +5628,8 @@ mc_fillc:
     push bx
     push cx
     push dx
-    call mc_clamp
+    call mc_cross_need              ; the overlay comes off before we draw
+    call mc_clamp                   ; through it, never after (SPEC.md 48.11)
     jc .out
     add ax, [mc_ox]
     add cx, [mc_ox]
@@ -5525,6 +5677,7 @@ mc_framec:
     push bx
     push cx
     push dx
+    call mc_cross_need
     call mc_clamp
     jc .out
     add ax, [mc_ox]
@@ -5966,15 +6119,19 @@ mc_expcol:   db CWHITE, CYELLOW, CLRED, CLMAGENTA
 ; how long IS the game (SPEC.md 48.4), and this leaves it alone.
 mc_step3:    db 0, 0                            ; 0..1:  not yet lit, as OLDRAD
              db 1, 1, 1, 1, 1, 1, 1, 1, 1       ; 2..10
-             db 2, 2, 2, 2, 2, 2, 2             ; 11..17: the peak
-             db 3, 3, 3, 3, 3, 3, 3, 3, 3       ; 18..26: collapsing
-             db 0, 0, 0, 0, 0                   ; 27..31: padding, as mc_rad
-mc_rad3v:    db 0, 5, 13, 5
-; ...and one colour per DRAWN state, all three from SPEC.md 39.4's WHITE
-; class. There is no dithered frame on this path: on the two adapters that
-; reach it a dithered burst is just a grey one, and the flash it was buying
-; is what made the old explosion redraw itself 27 times.
-mc_col3:     db MC_BG, CWHITE, CYELLOW, CLRED
+             db 2, 2, 2, 2, 2, 2, 2, 2, 2, 2    ; 11..20: the peak, HELD
+             db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 21..31: padding, as mc_rad
+mc_rad3v:    db 0, 5, 13
+; ...and one colour per DRAWN state, both from SPEC.md 39.4's WHITE class.
+; There is no dithered frame on this path: on the two adapters that reach it a
+; dithered burst is just a grey one, and the flash it was buying is what made
+; the old explosion redraw itself 27 times.
+;
+; There is no third colour any more either, and that is not an omission -
+; SPEC.md 48.12 dropped the collapse, and a state that changes only the COLOUR
+; would never be drawn: the coarse path's whole economy is that it compares
+; RADIUS, so a same-radius state is a state nobody sees.
+mc_col3:     db MC_BG, CWHITE, CYELLOW
 
 ; The coastline: how many rows the ground rises above its base every 16px.
 ; Fixed rather than random, so a repaint puts back exactly what was there.
@@ -6110,7 +6267,7 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBUF  mc_ea,     MC_MAXEXP      ; 0 free / 1 burning / FF needs erasing
     MBUF  mc_ex,     MC_MAXEXP * 2
     MBUF  mc_ey,     MC_MAXEXP * 2
-    MBUF  mc_et,     MC_MAXEXP      ; frame, 0..26
+    MBUF  mc_et,     MC_MAXEXP      ; frame, 0..[mc_expfr]-1
     MBUF  mc_er,     MC_MAXEXP      ; the radius it is DRAWN at
 
 ; --- the satellite / bomber -----------------------------------------------------
@@ -6193,7 +6350,11 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBYTE mc_ecoarse                ; 1 = SPEC.md 48.8's three-state burst:
                                     ; 1bpp adapter or tier-0 CPU, decided
                                     ; once in mc_entry
+    MBYTE mc_expfr                  ; ...and how many frames a burst lasts,
+                                    ; which the coarse ramp shortens (48.12)
     MWORD mc_bw                     ; mc_blob: the open rect's half-width
+    MWORD mc_bprev                  ; mc_blob: the last band's half-height, -1
+                                    ; before the centre band is drawn
     MWORD mc_bq                     ; ...and how far outside the true circle
                                     ; the drawn edge may run before the next
     MWORD mc_rnew

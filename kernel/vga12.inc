@@ -198,6 +198,16 @@ vga_gc_reset:
     ret
 
 ; -----------------------------------------------------------------------------
+; The two edge masks, by x & 7. They were computed with `shr dl,cl` / `shl
+; dl,cl`, which on an 8088 is 8 clocks plus 4 PER BIT and costs a push/pop of
+; CX to free the count register - about a fifth of vga_rect_setup for two
+; bytes that a table answers outright (PERFORMANCE.md Part 2: the per-call
+; floor is CPU-side setup, and this is setup).
+; -----------------------------------------------------------------------------
+vga_lmtab:  db 0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01  ; FF >> (x1 & 7)
+vga_rmtab:  db 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF  ; FF << 7-(x2&7)
+
+; -----------------------------------------------------------------------------
 ; vga_rect_setup - internal: clip a rect and precompute its geometry
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2  (x1<=x2, y1<=y2)
 ; out:      CF = 1 if the clipped rect is empty (nothing else valid);
@@ -228,30 +238,22 @@ vga_rect_setup:
 .x2ok:
     cmp cx, ax
     jl .empty
-    mov [vga_y1], bx
-    sub dx, bx                  ; rows = y2 - y1 + 1
-    inc dx
-    mov [vga_rows], dx
-    mov dl, al                  ; left mask = FF >> (x1 & 7)
-    and dl, 7
-    push cx
-    mov cl, dl
-    mov dl, 0xFF
-    shr dl, cl
+    mov [vga_y1], bx            ; y1 is banked, so BX is the free register the
+    sub dx, bx                  ; mask lookups below index through - which is
+    inc dx                      ; what retires the two variable shifts and the
+    mov [vga_rows], dx          ; three push/pops the old sequence needed
+    mov bx, ax                  ; left mask = FF >> (x1 & 7)
+    and bx, 7                   ; (BH = 0 falls out of the AND)
+    mov dl, [bx + vga_lmtab]
     mov [vga_lmsk], dl
-    pop cx
-    mov dl, cl                  ; right mask = FF << (7 - (x2 & 7))
-    and dl, 7
-    xor dl, 7
-    push cx
-    mov cl, dl
-    mov dl, 0xFF
-    shl dl, cl
+    mov bx, cx                  ; right mask = FF << (7 - (x2 & 7))
+    and bx, 7
+    mov dl, [bx + vga_rmtab]
     mov [vga_rmsk], dl
+    mov dx, cx                  ; DX = x2; [vga_rows] already banked it
     mov cl, 3
     shr ax, cl                  ; ax = left byte  (x1 / 8)
     mov [vga_lcol], ax          ; kept for the bb_* dirty union (SPEC.md 32)
-    pop dx                      ; dx = x2 (pushed above)
     shr dx, cl                  ; dx = right byte (x2 / 8)
     sub dx, ax
     mov [vga_span], dx          ; span = right byte - left byte
@@ -260,11 +262,9 @@ vga_rect_setup:
     mov dl, [vga_rmsk]          ; one-byte rect: combine the masks
     and [vga_lmsk], dl
 .offs:
-    push ax                     ; left byte
-    mov ax, bx                  ; this one call re-bases every rect primitive
+    mov ax, [vga_y1]            ; this one call re-bases every rect primitive
     call gfx_rowbase            ; in BOTH renderers - on VGA it is still just
-    pop dx                      ; y1 * 80 (SPEC.md 39.3)
-    add ax, dx
+    add ax, [vga_lcol]          ; y1 * 80 (SPEC.md 39.3)
     mov [vga_off], ax
     clc
     ret

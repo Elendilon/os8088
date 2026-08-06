@@ -128,6 +128,21 @@ disk_spt:    dw 9                ; sectors per track  } fallback geometry,
 disk_heads:  dw 2                ; heads              } replaced at mount
 disk_nfiles: dw 0                ; file count, valid after a good mount
 
+%ifdef DISK_COUNTERS
+; The measurement instruments of docs/DISK-PERF-PLAN.md 2, compiled in only by
+; `make DISKCNT=1` and never shipped. Read over QMP with `xp /3xh <linear>`;
+; derive the offset from `nasm -l` after EVERY rebuild, because anything added
+; to an include before this one moves it. They are never reset: take a reading,
+; do the thing, take another, subtract.
+dsk_dbg_mnt: dw 0                ; disk_mount calls - mechanism A's meter
+dsk_dbg_sec: dw 0                ; sectors transferred - the work asked for
+dsk_dbg_i13: dw 0                ; int 13h DATA calls (02h/03h, retries
+                                 ; included; not the 00h resets) - mechanism
+                                 ; C's meter. Phase 1 must drive this DOWN
+                                 ; while dsk_dbg_sec stays put; if both move,
+                                 ; the run splitter is dropping work
+%endif
+
 ; The listing's home. A floppy uses the .lowbss buffers below and a cap of
 ; DSK_NENT; a driver-backed volume uses the claim its driver donated, with a
 ; bigger cap (SPEC.md 22.6). ONE code path, two configurations - every reader
@@ -282,7 +297,9 @@ dsk_xfer:
     call drv_blk_call
     jnc .success
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
-    jmp short .fail             ; so 03h still means write-protected
+    jmp .fail                   ; so 03h still means write-protected (a NEAR
+                                ; jump: the batching below pushed .fail out
+                                ; of short range)
 
 .sector:
     test si, si
@@ -303,15 +320,38 @@ dsk_xfer:
     mov ax, dx
     xor dx, dx
     div word [disk_spt]         ; AX = head, DX = sector-1
+
+    ; --- how many sectors this ONE call may carry (SPEC.md 18.91) ---
+    ; The track first, because a CHS call must not cross one - and this is
+    ; the only place that knows the sector's index within it (DX). AX holds
+    ; the head and CH the cylinder, so both are banked across the sum.
+    push ax                     ; the head, wanted for DH below
+    mov ax, [disk_spt]
+    sub ax, dx                  ; sectors left in THIS track (>= 1)
+    cmp ax, si
+    jbe .runtrk
+    mov ax, si                  ; ...and never more than were asked for
+.runtrk:
+    mov bp, ax
+    call dsk_runcap             ; BP = min(BP, what the BUFFER allows)
+    mov [dsk_run], bp
+%ifdef DISK_COUNTERS
+    add [dsk_dbg_sec], bp
+%endif
+    pop ax                      ; the head again
+
     mov cl, dl
     inc cl                      ; CL = sector, 1-based
     mov dh, al                  ; DH = head
     mov dl, [disk_drive]        ; DL = drive
 
-    mov bp, 3                   ; attempts left for this sector
+    mov bp, 3                   ; attempts left at this run length
 .attempt:
-    mov ah, [dsk_op]            ; 02 read / 03 write
-    mov al, 1                   ; one sector per call, to ES:BX
+%ifdef DISK_COUNTERS
+    inc word [dsk_dbg_i13]
+%endif
+    mov ax, [dsk_run]           ; AL = the run (<= 128, so AH is 0)...
+    mov ah, [dsk_op]            ; ...AH = 02 read / 03 write
     int 0x13
     jnc .ok
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
@@ -322,12 +362,31 @@ dsk_xfer:
     int 0x13
     dec bp
     jnz .attempt
-    jmp short .fail             ; 3 strikes: unrecoverable
+    ; Three strikes at this run length. If it WAS a run, drop to a single
+    ; sector and try again (SPEC.md 18.91): one bad sector must cost its own
+    ; 512 bytes, not the seven good ones beside it. The retry unit widened
+    ; with the transfer, so the fallback is what keeps ageing media readable.
+    cmp word [dsk_run], 1
+    jbe .fail                   ; already per-sector: unrecoverable
+    mov word [dsk_run], 1
+    mov bp, 3
+    jmp short .attempt
 
 .ok:
-    add bx, 512                 ; advance destination
-    inc di                      ; next LBA
-    dec si
+    mov ax, [dsk_run]
+    mov cx, ax                  ; the boot bar counts SECTORS, and a call now
+.notch:                         ; carries a run of them (SPEC.md 18.91) - so
+    call spl_step               ; it is stepped per sector rather than per
+    loop .notch                 ; call, or the bar would under-count exactly
+                                ; as far as the batching won. Preserves every
+                                ; register and the flags, and after
+                                ; spl_finish it is a compare and a return
+                                ; (SPEC.md 15.3)
+    add di, ax                  ; next LBA
+    sub si, ax                  ; sectors still wanted
+    mov cl, 9
+    shl ax, cl                  ; run * 512...
+    add bx, ax                  ; ...advances the destination
     jmp .sector
 
 .success:
@@ -343,6 +402,68 @@ dsk_xfer:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_runcap - cap a transfer run to what the BUFFER allows (SPEC.md 18.91)
+; in:  BP = the run the track and the caller allow, ES:BX = the buffer
+; out: BP = that, capped by the 64KB DMA page and by BX's own 16 bits; never 0
+; clobbers: nothing but BP (the output) and flags
+;
+; Two limits, and the first is the one this optimisation INTRODUCES: a single
+; 512-aligned sector cannot straddle a 64KB physical page, a run can, and the
+; DMA controller answers a straddle with error 09h - the transfer-side twin of
+; mem_claim_dma's rule (SPEC.md 50.3). The second is that the BIOS advances
+; ES:BX itself and must not wrap it.
+;
+; Both are "bytes left before a 16-bit quantity wraps", which is its own
+; negation - and a value that is already at the boundary negates to 0, which
+; means a WHOLE window (128 sectors) and not none. That is why each has a
+; zero test rather than a plain shift.
+; -----------------------------------------------------------------------------
+dsk_runcap:
+    push ax
+    push cx
+    push dx
+    mov ax, es                  ; the low 16 bits of the physical address:
+    mov cl, 4                   ; the carry out of this is the page number,
+    shl ax, cl                  ; which is exactly what we do not want
+    add ax, bx
+    neg ax                      ; bytes to the next 64KB page
+    jz .pgfull                  ; page-aligned: the whole page is ours
+    mov cl, 9
+    shr ax, cl                  ; whole sectors to the page end
+    jmp short .bx
+.pgfull:
+    mov ax, 128                 ; a full 64KB page
+.bx:
+    mov dx, bx                  ; the same sum for BX alone
+    neg dx
+    jz .bxfull
+    mov cl, 9
+    shr dx, cl
+    jmp short .pick
+.bxfull:
+    mov dx, 128
+.pick:
+    cmp dx, ax
+    jae .capped
+    mov ax, dx                  ; whichever bites first
+.capped:
+    or ax, ax
+    jnz .cmp
+    mov ax, 1                   ; only reachable from a base that is not
+                                ; 512-aligned, which SPEC.md 2.4 forbids -
+                                ; and one sector is what that buffer got
+                                ; before this optimisation existed
+.cmp:
+    cmp ax, bp
+    jae .out                    ; the track was the tighter bound
+    mov bp, ax
+.out:
+    pop dx
+    pop cx
     pop ax
     ret
 
@@ -843,6 +964,9 @@ disk_mount:
     push di
     push bp
     push es
+%ifdef DISK_COUNTERS
+    inc word [dsk_dbg_mnt]
+%endif
 
     call dsk_fatw_park          ; the OUTGOING volume's window, banked while
                                 ; [disk_drive] still says which one it is
@@ -1056,16 +1180,26 @@ disk_mount:
     ; 32..95 are the 16x16 icon body. Everything else - type 0, iconless,
     ; read failure - gets the all-zero slot (the generic-icon sentinel).
     ; disk_icons is fully rewritten every mount (SPEC.md 29.1).
+    call asc_use                ; this volume's ASSOC.DAT (SPEC.md 54.7), so
+                                ; the loop below can answer most of its icon
+                                ; reads without doing them
+    mov ax, LOW_SEG             ; asc_use reads the disk: put ES back
+    mov es, ax
     xor dx, dx                  ; DX = entry index
 .harvest:
     cmp dx, bp
-    jae .done
+    jae .harvested
     mov ax, dx
     call dsk_get_dir            ; SI -> dsk_ent, the synthesized entry
     cmp word [si+16], 2         ; a folder or the parent link (SPEC.md 19.5):
     jae .h_folder               ; the one icon that is not harvested off the
     cmp word [si+16], 1         ; disk but built in
     jne .h_zero
+    call asc_lookup             ; cached from a previous session or written
+    jc .h_read                  ; warm by the image builder? (SPEC.md 54.7)
+    call asc_take               ; then this package costs NO sector read
+    jmp .h_next
+.h_read:
     mov ax, [si+18]             ; first cluster (validated at synthesis)
     call dsk_clus2lba
     jc .h_zero
@@ -1081,12 +1215,22 @@ disk_mount:
     jne .h_zero
     cmp byte [dsk_ent+2], 3         ; format version (SPEC.md 20.2)
     jne .h_zero
-    test byte [dsk_ent+3], 1        ; embedded-icon flag
-    jz .h_zero
-    mov si, dsk_secbuf+32       ; the icon body, out of the sector buffer
-    mov ax, dx
-    call dsk_put_icon           ; LOW_SEG:SI -> the listing's slot AX
-    jmp .h_next
+    mov al, [dsk_ent+3]             ; BANK the header flags here. dsk_get_dir
+    mov [assoc_hflags], al          ; below re-stages the DIRECTORY entry over
+                                    ; dsk_ent, so [dsk_ent+3] stops being the
+                                    ; header's flags and becomes the fourth
+                                    ; character of the file's NAME
+    test al, 1                      ; embedded-icon flag
+    jz .h_noicon                ; ...and an ICONLESS package still gets the
+    mov si, dsk_secbuf+32       ; rest of this: its header may DECLARE
+    mov ax, dx                  ; extensions (SPEC.md 54.6), and hanging that
+    call dsk_put_icon           ; off the icon flag skipped precisely the
+.h_noicon:                      ; case the declaration ships on first
+    mov ax, dx                  ; the NAME again - the header staged above
+    call dsk_get_dir            ; overwrote dsk_ent's copy of it
+    call assoc_note_app         ; this program is HERE, declares THIS, and
+    jmp .h_next                 ; looks like THAT (SPEC.md 54.3) - no extra
+                                ; I/O: the sector is the one just read
 
 .h_folder:                      ; every folder gets the same built-in body.
     mov si, dsk_folder_ico      ; The one icon not harvested off the disk,
@@ -1098,6 +1242,32 @@ disk_mount:
 .h_next:
     inc dx
     jmp .harvest
+.harvested:
+
+    ; --- 4b. document icons (SPEC.md 54.3) ------------------------------
+    ; A SECOND pass, and the order is the whole reason it is one: pass A is
+    ; what teaches assoc_note_app where each program is and what it looks
+    ; like, and the listing is sorted by name (SPEC.md 19.4), so a document
+    ; can perfectly well precede its program - BEACH.BMP before PAINT.O88.
+    ; Composing in pass A would draw the page bare for everything above the
+    ; program in the sort. No I/O here at all: both passes read data already
+    ; in hand.
+    xor dx, dx
+.docs:
+    cmp dx, bp
+    jae .done
+    mov ax, dx
+    call dsk_get_dir
+    cmp word [si+16], 0         ; type 0 alone: a package draws its own icon
+    jne .doc_next               ; and a folder has dsk_folder_ico
+    call assoc_docicon          ; CF=0 and dsk_ico holds the composed body
+    jc .doc_next
+    mov ax, dx
+    mov si, dsk_ico
+    call dsk_put_icon_k
+.doc_next:
+    inc dx
+    jmp .docs
 
 .done:
     mov [disk_nfiles], bp       ; publish the count last
@@ -2676,6 +2846,11 @@ dsk_wclus:    resw 1            ; dirw: the cluster being walked, 0 = root
 dsk_wsec:     resw 1            ; dirw: sector index inside it
 dsk_wguard:   resw 1            ; dirw: sectors left before the walk gives up
 dsk_op:       resb 1            ; int 13h function for dsk_xfer: 02h / 03h
+dsk_run:      resw 1            ; sectors in the int 13h call being issued
+                                ; (SPEC.md 18.91). A module word for the same
+                                ; reason dsk_op is one: dsk_xfer holds
+                                ; sch_lock across the whole transfer, so
+                                ; nothing can be inside it twice
 dsk_ioerr:    resb 1            ; status (AH) of the last FAILED transfer;
                                 ; 03h = write-protected media (SPEC.md 18.4)
 
