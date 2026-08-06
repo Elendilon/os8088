@@ -13656,7 +13656,9 @@ radius, to give back the annulus a shrinking burst vacated.
 
 Growing, the new disc covers the old one, so one filled circle is the frame's
 whole work; the colour cycles every frame either way, which is the arcade's
-flashing and costs nothing because the disc is redrawn regardless.
+flashing and **costs nothing because the disc is redrawn regardless** — a
+sentence that was true on a VGA machine and was the whole problem on the
+floor one. §48.8 is what it cost and what replaced it there.
 
 ### 48.5 Two ways a wave could never end
 
@@ -13721,6 +13723,155 @@ Sound is duration-limited `osapi_snd_tone` from the worker throughout, on
 §44.5's argument. The credits panel is §44.7's: drawn inside our own
 content, the worker held off it by `[mc_abon]` under the lock, the game
 paused underneath.
+
+### 48.8 The colour cycle is what redrew the disc — the coarse explosion
+
+On the two 1bpp adapters this game was **unplayably slow**, and the
+explosion was almost all of it: 65–81% of every `gfx_fill` the game issued.
+The measurement, on Hercules under `-icount shift=3,sleep=off` with the
+fill count and the elapsed PIT counts read as two independent numbers
+(PERFORMANCE.md Part 4, rule 7), and priced through `fontbench`'s real-XT
+calibration of 0.359 ms per count:
+
+| Hercules, one frame | fills | real 4.77 MHz XT |
+|---|---|---|
+| quiet sky, nothing burning | 13 | ~15 ms |
+| a four-shot exchange | 104, of which 47 explosion | ~120 ms |
+| an eight-shot exchange | 182, of which 121 explosion | ~211 ms |
+| **the budget (one tick)** | | **55 ms** |
+
+One `gfx_fill` costs **3.11 PIT counts ≈ 337 instructions ≈ 1.16 ms** on
+that machine — about what an 8×8 glyph cell costs (§6.1.1), because both are
+dominated by the same per-call overhead and not by the bytes they write. A
+27-row disc is therefore 31 ms of one 55 ms tick, and one burst pays for
+**twenty-seven** of them plus twelve `mc_erase_ring` annuli: ~750 fills, ~870
+ms, spread over a life of a second and a half.
+
+**The dither is not why, and this was checked rather than assumed.** A
+controlled A/B — the whole `mc_expcol` table forced to `CLMAGENTA` (§39.4's
+dither class) against the whole table forced to `CWHITE` — measured **3.114
+versus 3.106 counts per fill, a difference of 0.26%**. It cannot be
+otherwise: on a 1bpp adapter `bb_ink`'s dither branch only arms `[bb_altm]`,
+and `bb_rect` has already put the row-parity AA/55 byte in `[bb_pat]`, so
+`bb_col` and `bb_plane_op` run the identical instruction sequence with a
+different constant XORed in per row (§39.4/§32). Solid and dithered fills
+are the same code.
+
+What the dither *is* guilty of is belonging to the **colour cycle**, and the
+colour cycle is what forced the redraw. The radius ramp holds still for most
+of a burst — `OLDRAD` repeats a value for two to six frames at a time — so
+almost every one of those 27 discs painted pixels that were already the
+right shape, and only the colour had changed. On mono three of the four
+colours reduce to plain white and the fourth to a grey dither, so the flash
+the redraw was buying is nearly invisible on exactly the machines paying for
+it.
+
+So on a machine that is **1bpp or CPU tier 0** (`[mc_ecoarse]`, set once in
+`mc_entry` from `OSAPI_VIDEO`'s DH and `OSAPI_CPU_INFO` — PERFORMANCE.md
+rule 10's degrade-by-tier, and a fact the code can test rather than a guess
+about speed) the burst keeps its 27-frame life and is drawn in **three
+states**:
+
+- **`mc_step3` is one byte a frame naming the state, and the radius and the
+  colour both hang off it**, through `mc_rad3v` and `mc_col3`. One table, so
+  the shape of the animation and the colour of it cannot disagree — the same
+  reason `mc_erad` is the single radius everything reads.
+- **The three colours are `CWHITE`, `CYELLOW`, `CLRED` — all §39.4 white
+  class.** There is no dithered frame at all on this path, which is what
+  §48.6's rule would have asked for anyway had the flash ever been worth
+  its price here.
+- **A frame draws nothing unless the radius changed.** With the cycle gone
+  that is the only trigger left, and over a whole burst it fires three
+  times: draw, grow, shrink, plus the one erase `.gone` already owed.
+
+The ramp is `5, 13, 5` over 9, 7 and 9 frames, and it is not a guess: both
+of `OLDRAD`'s integrals over its 27 frames are preserved, Σr **exactly**
+(181 = 181) and Σr² to **0.2%** (1633 against 1637). How much sky one ABM
+covers and for how long *is* the game (§48.4), and this leaves it alone.
+
+#### 48.8.1 A disc is a handful of nested rects
+
+`mc_blob` replaces `mc_disc` on that path. The half-width falls
+monotonically as `dy` rises, so a filled circle is **exactly** the union of
+one rect per distinct half-width — nested, widest and shortest first — and
+letting the drawn edge run up to `R/8 + 1` pixels outside the true circle
+before opening a new rect collapses that to four to seven rects at every
+radius this game can produce: **27 fills to 5** at Hercules' peak radius of
+13, 39 to 6 at VGA's 19, 13 to 5 at CGA's 6, and 69 to 7 at the `MC_RMAXP`
+ceiling of 34. It costs one `mc_shrink` walk, the same
+O(R)-for-the-whole-disc square root §48.4 already relies on.
+
+The error is **always outward** — checked at every radius, never once
+inward — which is the direction that matters: `mc_do_damage` already tests
+`r+2` against the object's own half size, so the fireball never kills
+anything it does not visibly touch. It is at most 1px at 13 and 2px at 19,
+so up to VGA's peak the drawn edge also stays *inside* that `r+2`; only a
+window big enough to want radius 24 or more (+3, +4) can draw a burst a
+pixel or two wider than its own kill radius, on a shape 49 to 69 pixels
+across. Nothing else had to agree with the new shape, because `mc_erad`
+stayed the one radius that `mc_do_damage`, `mc_sb_dodge` and the drawing
+all read.
+
+The result, both builds driven through the same two exchanges on Hercules
+and timed with the PIT around `mc_rbody` — so the second column is the whole
+frame's drawing, not the explosion's share of it:
+
+| Hercules, per frame, real 4.77 MHz XT | before | after |
+|---|---|---|
+| explosion fills, four-shot exchange | 29 | **1.0** |
+| explosion fills, eight-shot exchange | 110 | **2.8** |
+| explosion cost, four-shot | 33.9 ms | **3.5 ms** |
+| explosion cost, eight-shot | 124 ms | **7.9 ms** |
+| explosion share of the frame's drawing | 40% / 65% | **6.6% / 10%** |
+| the frame's whole drawing, four-shot | 84 ms | **53 ms** |
+| the frame's whole drawing, eight-shot | 190 ms | **76 ms** |
+| fills over one burst's whole life | ~750 | **22** |
+
+The burst costs **10–16× less** and stops being what the frame is made of.
+Two things about that are worth keeping in mind. A **three-step burst at
+full frame rate is not a downgrade from a 27-step one**, because the 27-step
+one was never being shown: at 190 ms a frame the player was seeing eight or
+ten of those steps, unevenly, and the game underneath them was running at a
+third speed. And the **shrink is the one expensive transition** — it erases
+the peak blob and draws the small one, ten fills, and briefly blanks the
+core between the two. That is a double-draw flash (PERFORMANCE.md Part 1) of
+about 1.5 ms inside one lock hold, once per burst; the flash-free
+alternatives all cost more fills than the erase-and-redraw they replace.
+
+#### 48.8.2 What is left, and it is not the explosion
+
+**This does not on its own buy full speed in the heaviest moments**, and
+saying so is the point of measuring. Against the 55 ms tick the frame's
+drawing now lands at 53 ms in a four-shot exchange and 76 ms in an
+eight-shot one. What remains is the **trails**, and `mc_line` says why in
+its own comment: it coalesces *horizontal* runs, so "a steep line — which is
+what a falling missile draws — still costs one call a row". Counting fills
+per caller over the same run:
+
+| per frame | fills | ~ms |
+|---|---|---|
+| `mc_move_trails` — the live segments | 12.4 | 14 |
+| `mc_wipe_trails` — dead missiles' whole trails | 8.7 *average* | 10 |
+| ground, cities, bases, status, full repaints | 10.1 | 12 |
+| `mc_draw_exp` | 1.6 | 1.8 |
+
+and the average hides the shape of it: the **worst single `mc_wipe_trails`
+call in that run issued 267 fills**, about **310 ms** — a five-tick stall,
+because a dead missile's whole flight path is erased as one `mc_line` in one
+frame, and a near-vertical path is one fill per row.
+
+Two fixes follow from that, and neither is this section's:
+
+- **Coalesce along the major axis.** When `|dy| > |dx|`, emit *vertical*
+  runs — a one-column `gfx_fill` — instead of one horizontal run per row. A
+  steep trail then costs one fill per x-step rather than one per row, which
+  is the same order of win this section got from `mc_blob`, on the routine
+  that is now the game's largest consumer. The trap is `[mc_lfat]`: the
+  erase is dilated by a pixel *across* the run, so a vertical run must be
+  dilated in x where a horizontal one is dilated in y.
+- **Bound the wipe.** Give a dying missile an erase cursor and spend a fixed
+  number of runs a frame on it, so no single frame can owe an entire flight
+  path. That caps the worst frame outright rather than making it cheaper.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
