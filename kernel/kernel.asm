@@ -309,6 +309,8 @@ ovl_desk_init:      call desk_init
                     retf
 ovl_snd_init:       call snd_init
                     retf
+ovl_clk_init:       call clk_init
+                    retf
 section .text
 
 ; =============================================================================
@@ -734,6 +736,21 @@ ovw_xm_arm:         call xm_arm
                     retf
 ovw_dsk_vol_slot:   call dsk_vol_slot
                     retf
+
+; ...and the clock's five. Each is a port helper the READ path (overlay) and
+; the WRITE path (resident, because the Control Panel can set the clock all
+; session) both use, so it cannot move and cannot be duplicated without the
+; two halves drifting apart.
+ovw_clk_at_get:     call clk_at_get
+                    retf
+ovw_clk_at_done:    call clk_at_done
+                    retf
+ovw_clk_ns_put:     call clk_ns_put
+                    retf
+ovw_clk_ns_stamp:   call clk_ns_stamp
+                    retf
+ovw_clk_rp_get:     call clk_rp_get
+                    retf
 ; -----------------------------------------------------------------------------
 api_copyname:
     push ax
@@ -794,7 +811,7 @@ kmain:
 
     call sched_init             ; pre-emption live from here on
     call evq_init
-    call clk_init               ; system clock (SPEC.md 37): probe the RTC,
+    call FAT_SEG:ovl_clk_init   ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the
                                 ; mode set, so the very first menu bar paint
                                 ; already carries a valid clock

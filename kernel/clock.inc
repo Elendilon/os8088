@@ -75,6 +75,8 @@ CLK_RETRY   equ 10              ; bounded coherent-read retries
 %define CLK_FORCE 0
 %endif
 %define CLK_TRY(n) (CLK_FORCE == 0 || CLK_FORCE == n)
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_init - fallback date first, then probe the hardware RTC
@@ -237,6 +239,8 @@ clk_commit:
     mov [clk_day], al
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_dow - the day of the week for the live date
@@ -338,6 +342,8 @@ clk_at_put:
     pop dx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_at_lock - one guarded read, for callers not already inside a burst
@@ -346,9 +352,11 @@ clk_at_put:
 clk_at_lock:
     pushf
     cli
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     popf
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_at_done - leave the index somewhere harmless, NMI back on
@@ -369,6 +377,8 @@ clk_at_done:
     pop dx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_at_probe - is there an MC146818 at 70h/71h?
@@ -412,13 +422,13 @@ clk_at_probe:
     jz .yes
     loop .uip
 .no:
-    call clk_at_done
+    call KERNEL_SEG:ovw_clk_at_done
     pop cx
     pop ax
     stc
     ret
 .yes:
-    call clk_at_done
+    call KERNEL_SEG:ovw_clk_at_done
     pop cx
     pop ax
     clc
@@ -446,48 +456,48 @@ clk_at_read:
     pushf
     cli
     xor al, al
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov bh, al                  ; the seconds, stashed before the UIP test
     mov al, 0x0A
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     test al, 0x80
     jnz .again                  ; an update is imminent or running
     xor al, al
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     cmp al, bh
     jne .again                  ; one happened between the two reads
     mov [clk_rr+0], al
     mov al, 0x02
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+1], al
     mov al, 0x04
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+2], al          ; raw: bit 7 is PM in 12-hour mode
     mov al, 0x07
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+3], al
     mov al, 0x08
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+4], al
     mov al, 0x09
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+5], al          ; the year, two digits and no more
     mov al, 0x32
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+6], al          ; the century byte, if this BIOS keeps one
     mov al, 0x0B
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rb], al            ; Register B: DM and 24/12 live here, and
     mov al, 0x0A                ; reading it here reads it under the guard
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     test al, 0x80
     jnz .again                  ; an update started under the burst
     xor al, al
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     cmp al, bh
     jne .again
     popf
-    call clk_at_done
+    call KERNEL_SEG:ovw_clk_at_done
     mov al, [clk_rb]
     and al, 0x04                ; DM: 0 = BCD, 1 = binary
     call clk_at_dec
@@ -504,7 +514,7 @@ clk_at_read:
     jz .fail                    ; short jump's reach
     jmp .try
 .fail:
-    call clk_at_done
+    call KERNEL_SEG:ovw_clk_at_done
     pop dx
     pop cx
     pop bx
@@ -701,6 +711,8 @@ clk_yr_join:
 .out:
     pop cx
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_at_enc - a binary field back into the format the chip is running in
@@ -862,6 +874,8 @@ CLK_NS_SIG  equ 0x0D            ; RAM: no HIGH nibble - the first signature
 CLK_NS_YRB  equ 0x0E            ; RAM: year - 1980, what 86Box's cards use
 CLK_NS_STAT equ 0x14            ; D0 = a counter rolled during the read
 CLK_NS_MAGIC equ 222
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_xt_charge - drive all-ones onto the ISA data bus before a 2C0h probe
@@ -895,6 +909,8 @@ clk_ns_get:
     in al, dx
     pop dx
     ret
+section .text
+
 
 clk_ns_put:
     push ax
@@ -907,6 +923,8 @@ clk_ns_put:
     pop dx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_ns_fields - the six counters into clk_tb_*
@@ -1068,13 +1086,13 @@ clk_ns_half:
     mov bl, al                  ; the original
     mov al, cl
     mov ah, ch
-    call clk_ns_put
+    call KERNEL_SEG:ovw_clk_ns_put
     mov al, cl
     call clk_ns_get
     mov bh, al                  ; what it answered
     mov al, cl
     mov ah, bl
-    call clk_ns_put
+    call KERNEL_SEG:ovw_clk_ns_put
     mov al, bh
     pop cx
     pop bx
@@ -1102,7 +1120,7 @@ clk_ns_read:
     je .clean
     mov ax, [clk_tb_y]
     mov dl, [clk_tb_mo]
-    call clk_ns_stamp           ; the roll fired: put the corrected year and
+    call KERNEL_SEG:ovw_clk_ns_stamp           ; the roll fired: put the corrected year and
 .clean:                         ; a fresh month shadow BACK on the card, or
     clc                         ; the same single +1 applies again next year
 .out:                           ; and the date drifts one year low per year
@@ -1222,6 +1240,8 @@ clk_ns_roll:
 .out:
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_ns_stamp - write the year bytes and the month shadow back to the card
@@ -1363,6 +1383,8 @@ clk_rp_put:
     pop dx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_rp_digit - one digit, range-checked
@@ -1372,7 +1394,7 @@ clk_rp_put:
 clk_rp_digit:
     push bx
     mov bl, ah
-    call clk_rp_get
+    call KERNEL_SEG:ovw_clk_rp_get
     cmp al, bl
     ja .no
     pop bx
@@ -1527,7 +1549,7 @@ clk_rp_fields:
     pushf
     cli
     xor al, al
-    call clk_rp_get
+    call KERNEL_SEG:ovw_clk_rp_get
     mov bh, al
     call clk_rp_digits
     mov bl, 0
@@ -1535,7 +1557,7 @@ clk_rp_fields:
     mov bl, 1
 .clean:
     xor al, al
-    call clk_rp_get
+    call KERNEL_SEG:ovw_clk_rp_get
     popf
     or bl, bl
     jnz .no                     ; a bad digit, not a torn read
@@ -1578,7 +1600,7 @@ clk_rp_probe:
     push ax
     call clk_xt_charge
     mov al, CLK_RP_MODE
-    call clk_rp_get
+    call KERNEL_SEG:ovw_clk_rp_get
     test al, 0x03
     jnz .no
     call clk_rp_fields
@@ -1639,6 +1661,8 @@ clk_rp_year:
     pop bx
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_rp_yy - the two year digits to store, in this machine's own convention
@@ -1806,6 +1830,8 @@ clk_rp_write:
     pop bx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; =============================================================================
 ; Tier CLK_T_BIOS (4): int 1Ah, the BIOS - probed for its answer SECOND
@@ -1917,6 +1943,8 @@ clk_bios_read:
     pop bx
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_rtc_write - push the live time back to the hardware RTC
@@ -2562,6 +2590,8 @@ clk_put4:
     pop cx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_bcd - packed BCD byte to binary
@@ -2593,6 +2623,8 @@ clk_bcd:
 .out:
     pop cx
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_tobcd - binary byte to packed BCD
