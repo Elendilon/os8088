@@ -279,6 +279,13 @@ checks referenced throughout this document:
 | `fsxtest` | fullscreen exclusive (§53): keys 0–8 cycle every mode with an identifying pattern, `x` runs a same-mode bracket, `t` keys a duration-0 tone for the §53.3 legs; the window shows the `fsx_caps` mask (01EF/000F/0011 by adapter) and the last result (`K`/`R`/`F`/`S`) | `make test TESTAPPS=build/fsxtest.img` (also under `VIDEO=cga` / `VIDEO=herc`; `make test-snd` + two instances for the sound legs) |
 | `stackprobe` | the 256-byte task-stack margin (§8) | `make test TESTAPPS=build/stkprobe.img` |
 
+`benchlib.inc` is the one shared source under `tests/` — the timing loop, the
+48-bit arithmetic, the report arena and the file writer that `gfxbench` and
+`sysbench` both use. It is shared rather than copied for the reason
+PERFORMANCE.md Part 6 rule 7 gives: two harnesses that disagree is how three
+of the four sizing bugs in this project were found, and two harnesses that
+were copy-pasted cannot disagree.
+
 `filetest` also has a fragmented-volume variant, `build/filetest-frag.img`,
 and its results are worth pairing with the host-side fsck — the in-kernel
 free-space check and `python3 tools/os88disk.py --verify <img>` catch
@@ -304,7 +311,9 @@ the ~20 bytes over QEMU's 92 being the BIOS nesting this gate exists to see.
 `gfx_fill` + `font_str` pair and as one `font_run`, each byte-aligned and
 again at x+5. `typebench` prices the *keystroke* (§11.94): 40 characters typed
 into a 40-cell line with the whole line redrawn after each, which is what
-`np_redraw` does to its dirty band.
+`np_redraw` does to its dirty band. `gfxbench` prices the *whole drawing
+surface* on whichever adapter it booted on; `sysbench` prices the *machine*
+underneath it. All four ride one disk.
 
 ```sh
 make bench                                                 # build the two disks
@@ -312,6 +321,76 @@ make test                            TESTAPPS=build/bench.img
 make test VIDEO=cga                  TESTAPPS=build/bench.img
 make test VIDEO=herc HERCSEG=0x7000  TESTAPPS=build/bench.img
 ```
+
+### `gfxbench` and `sysbench` — the two that write a file
+
+The first two benchmarks answer one question each and fit on a screen. These
+two answer forty, and a CGA screen holds seventeen lines — so they page
+(`Space`/`PgDn`/`PgUp`/`Up`/`Dn`/`Home`/`End`, or a click) and they **save
+the whole report to a text file** with `S` or the Bench menu. `R` re-runs.
+That file is the deliverable: it is meant to be carried off the machine and
+pasted into [PERFORMANCE.md](../PERFORMANCE.md).
+
+| what | where it lands |
+|---|---|
+| `gfxbench` on VGA / Hercules / CGA | `GFXVGA.TXT` / `GFXHERC.TXT` / `GFXCGA.TXT` |
+| `sysbench` | `SYSBENCH.TXT` |
+
+**The file goes to the CURRENT volume and directory** (SPEC.md §19.2), which
+right after launching a package off the bench disk is that disk's root — so
+the ordinary thing works. It means the bench floppy must **not** be
+write-protected, and on 86Box that is the `wp://` prefix the config keeps
+growing back.
+
+`gfxbench` is ONE package for Hercules and CGA on purpose. Both are the same
+1bpp software renderer over four different numbers (SPEC.md §39.3), which it
+reads from `OSAPI_VIDEO` at run time; two sources would be two chances to
+drift, and the whole value is that the Hercules column and the CGA column are
+the same measurement. It runs on VGA too, for contrast.
+
+What it measures, and why in that shape:
+
+- **Raw bandwidth first**, because everything above it is explained by it.
+  The same loop — 32 rows of 64 bytes — runs against plain RAM and against
+  the framebuffer, so the ratio between those rows IS the bus penalty with
+  the loop, the addressing and the string instruction identical on both
+  sides. Word write, byte write, word read and byte read-modify-write are
+  priced separately because the kernel's inner loops use all four and on an
+  8-bit bus they are not proportional.
+- **Primitives at TWO SIZES** wherever the cost has a per-call part and a
+  per-pixel part (8×8 against 64×64, 8 px against 256 px). One size cannot
+  separate them, and pricing a rect the harness never drew needs both terms.
+  The derived block does that subtraction and prints its inputs beside it.
+- **`gfx_blit4` twice** — a solid source and a four-pixel-run source. That
+  pair is PERFORMANCE.md Part 3 item 4 made mechanical: a run coalescer that
+  has quietly stopped coalescing shows as a ratio near 100, and one number
+  could never show it.
+- **The same ten characters as `fontbench`**, so the two harnesses check each
+  other for free.
+
+`sysbench`'s headline is the one PERFORMANCE.md Part 2 has been quoting from
+memory: **8086-nominal clocks against a real 8088**, per instruction class,
+with the book figure and the ratio printed beside the measurement. The
+interesting part is that the ratio is not one number — it is near 1.0 for
+`mul`, which is execution-bound, and much worse for `nop`, which is starved
+by a 4-byte prefetch queue behind an 8-bit bus. It also prices RAM
+bandwidth, the clock ladder, the API's far-call floor, **what the kernel's
+own interrupts cost per second of ordinary work** (the same workload timed
+with interrupts off and then on), and the floppy — twice, because the first
+read pays the motor spin-up and quoting either figure alone misleads.
+
+Three things about reading their output:
+
+1. **A method-`t` row of 0 counts finished inside one 55 ms tick.** True on a
+   fast host, and never true on the machine this is for.
+2. **A `!` flag means one iteration came within a third of the PIT wrap.**
+   The number is still probably right; it is no longer trustworthy.
+3. **Under QEMU almost every row is noise**, and two are worse than noise:
+   the retrace period (QEMU's status port toggles on every read so a poll
+   always terminates) and the VRAM rows under `HERCSEG=` (B0000 is unmapped,
+   so those rows measure plain RAM and the bus ratio reads 100). Both say so
+   in the report's own header. `build/bench360.img` on real iron is the
+   point of the exercise.
 
 Every one of these images builds on demand — `TESTAPPS` is a prerequisite of
 the test targets, so naming one is enough. `make bench` exists for building
@@ -387,23 +466,42 @@ slowest machine it will ever run on, not the one in front of you.** A 32-bit
 accumulator folded per iteration costs a few instructions and cannot lap; a
 16-bit one sized "generously" against QEMU is wrong by 20x on hardware.
 
-### Two calibration numbers, so an estimate needs no machine
+### Three calibration numbers, so an estimate needs no machine
 
-- **About 1 ms per 8×8 glyph cell** on a 4.77 MHz 8088 with a Hercules card.
-  Two independent harnesses agree: `fontbench` 10.09 ms per ten cells,
-  `typebench` 33.3 ms per forty. A 40-cell line redraw is ~33 ms, so a
-  keystroke that redraws its row costs about that.
+All three are measured on the 4.77 MHz IBM 5150 this project targets
+(`tests/gfxbench` and `tests/sysbench`, PERFORMANCE.md Part 9), not modelled:
+
+- **About 756 µs of fixed cost per `gfx_*` drawing call**, before it draws a
+  single pixel. `GFX_PIXEL` and an 8-pixel `GFX_HLINE` measured within 1 µs of
+  each other, on Hercules *and* on CGA, whose framebuffers are 13% apart — so
+  the floor is CPU-side (~3,600 clocks of far call, lock, clip test, dispatch
+  and `gfx_rowbase`), not bus-side. **A redraw is priced by how many primitive
+  calls it makes, not by how many pixels it covers.** That is the single most
+  useful sentence in PERFORMANCE.md and it is the one this project spent years
+  not believing.
+- **About 1 ms per 8×8 glyph cell.** Four independent measurements agree:
+  `fontbench` 10.09 ms per ten cells, `typebench` 33.3 ms per forty,
+  `gfxbench` 901 µs for one `font_char` and 915 µs per cell across a whole
+  78×34 page. A 40-cell line redraw is ~36 ms, so a keystroke that redraws its
+  row costs about that.
 - **Instructions are the better proxy, not framebuffer traffic.** SPEC.md
-  §6.1.1 predicted the opposite and was corrected by measurement: per-cell
-  overhead dominates the byte-writes it guards.
+  §6.1.1 predicted the opposite and was corrected by measurement: per-call and
+  per-cell overhead dominate the byte-writes they guard. The general form is
+  the **8088 instruction floor** — 4.34 clocks per instruction *byte*, which
+  is what the prefetch queue can deliver — so an 8086 cycle count under-reports
+  an 8088 by anywhere from 1.01× to 4.34× depending purely on encoding length.
 
-The rest of the calibration table — a framebuffer read-modify-write at ~30
-cycles whether or not it changes a pixel, `repe scasb` at ~7.5 clocks a pixel
-against 75–90 for a per-pixel decode, the back buffer's flush at ~24× its
-render, a 50×90-cell content fill-and-letter at about five seconds — is in
-[PERFORMANCE.md Part 2](../PERFORMANCE.md), together with the standing budget
-every redraw path in the tree has already been measured down to. Check a
-change against that table before concluding it is free.
+Two figures that used to sit here were wrong and are worth knowing were wrong,
+because they are still quoted in old commit messages: a framebuffer
+read-modify-write is **79.6 clocks, not ~30**, and only about 7 of those are
+the bus; and the "add 20–40% for the 8088" rule of thumb was replaced by the
+instruction floor above. The back buffer's ~24× flush-to-render ratio was
+never measured on hardware and cannot be — double buffering is VGA-only
+(SPEC.md §32) and this machine has no VGA.
+
+The full table is [PERFORMANCE.md Part 2](../PERFORMANCE.md), together with the
+standing budget every redraw path in the tree has already been measured down
+to. Check a change against that table before concluding it is free.
 
 ### Count work, don't time it — QEMU is exact about the first and useless at the second
 
@@ -502,13 +600,20 @@ And one the emulator reports as a **success**, which is worse:
 - **An optimisation that kept its shape and lost its substance.**
   `gfx_blit4`'s first version emitted one call per run exactly as designed,
   and decoded every pixel individually inside the scan — 75–90 clocks a pixel
-  against `repe scasb`'s seven and a half. A 448×280 repaint went from about
-  a quarter of a second on a 4.77 MHz 8088 to over two. **Under QEMU it
-  measured as exactly as fast**, because QEMU models no 8086 timing: every
-  screendump was right and every test passed. That is why the cycle counts in
-  `kernel/vga12.inc` are written down rather than measured, and why rewriting
-  something whose *reason* is speed means verifying the reason survived, not
-  the structure.
+  against `repe scasb`'s seven and a half, both written down rather than
+  measured. **Under QEMU it measured as exactly as fast**, because QEMU models
+  no 8086 timing: every screendump was right and every test passed. That is
+  why the cycle counts in `kernel/vga12.inc` are written down rather than
+  measured, and why rewriting something whose *reason* is speed means
+  verifying the reason survived, not the structure.
+
+  This entry used to quantify it as "a 448×280 repaint went from about a
+  quarter of a second to over two". Those two figures came from the same two
+  written-down cycle counts and were never measured; the primitive has since
+  been priced on the target machine, and it costs **`runs × 0.5 ms`** — so
+  what a blit costs is decided by how *flat* the art is, not how big it is
+  (SPEC.md §5.4, PERFORMANCE.md Part 9). The lesson above survives the
+  correction intact. The numbers did not.
 
 For all of these, the emulator's role is to prove *correctness* before you
 burn a floppy. The judgement is made on hardware.

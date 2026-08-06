@@ -146,11 +146,17 @@ Two hard facts about the era shape the design:
   machine, through int 13h.
 - **`rep insw` is a 186 instruction and this tree is `cpu 8086`** — the driver
   macro emits `cpu 8086` too. The portable sector loop is 256 × (`in ax, dx` /
-  `stosw`), about 5,400 8086 cycles ≈ 1.1 ms per sector on the floor machine.
-  On a machine that reports `CPU_286` or better from `OSAPI_CPU_INFO` the driver
-  may emit the two opcode bytes by hand (`db 0F3h, 06Dh`) and take the ~8
-  cycles/word path instead. That is a legitimate optimisation and it is
-  measurable; it is not Phase 1.
+  `stosw`). This said "about 5,400 8086 cycles ≈ 1.1 ms per sector on the floor
+  machine"; that was a book-cycle reading and it is **low by roughly 2.5×**.
+  `tests/sysbench` measures a real ISA port `in` at **8.7 µs** on a 4.77MHz
+  8088 (PERFORMANCE.md Part 9) — about 41 clocks, not the book's 8–14 — so 256
+  of them alone is 2.2 ms and the loop is nearer **2.5–3 ms per sector**. The
+  general form is the 8088 instruction floor (4.34 clocks per instruction
+  *byte*), which is why every hand-counted figure in this plan should be read
+  as a lower bound. On a machine that reports `CPU_286` or better from
+  `OSAPI_CPU_INFO` the driver may emit the two opcode bytes by hand
+  (`db 0F3h, 06Dh`) and take the `rep insw` path instead. That is a legitimate
+  optimisation and it is measurable; it is not Phase 1.
 
 ### 1.3 The transport ladder
 

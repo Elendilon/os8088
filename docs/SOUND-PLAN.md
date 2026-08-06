@@ -30,8 +30,14 @@ Lens: every promise in the API is backed by a per-device budget on the floor mac
 says so at call time (CF/error return) and the Control Panel says so in prose — the
 `bb_avail` idiom, three layers deep: the probe flag gates the setter AND the caption AND
 the click. Cycle figures below are 8086-nominal; a real 8088's 8-bit bus and prefetch
-stalls inflate them 20–40%, which is why every margin claim here is a *bound to be
-validated* at its phase gate, not an established fact.
+stalls inflate them — and that inflation has since been MEASURED, which changes how
+to read every figure below. It is not a percentage: an 8088 costs
+`max(execution clocks, 4.34 x instruction BYTES)`, so the ratio to the 8086 book runs
+from 1.01 for `mul`/`div` (execution-bound, nothing to hide) to 4.34 for a
+register-to-register `mov` (fetch-bound, nothing hidden). See PERFORMANCE.md Part 2.
+A budget here made of long instructions is close to right; one made of short ones can
+be out by 4x, and every margin claim remains a *bound to be validated* at its phase
+gate rather than an established fact.
 
 ## The constraint
 

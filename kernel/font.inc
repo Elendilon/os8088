@@ -223,10 +223,15 @@ font_char:
 ;   a plane, so `test ch, 1` belongs above the eight rows rather than in them.
 ;   Two loops instead of one branch per row.
 ; - **A blank glyph row is skipped whole.** or-ing in 0 and and-ing in FF are
-;   both identity, and a read-modify-write of framebuffer memory is ~30 cycles
-;   on an 8088 whether or not it changes anything. Most glyphs have a blank
-;   descender row and many a blank top row; a SPACE is eight of them, and the
-;   Task Manager's columns are largely spaces.
+;   both identity, and a read-modify-write of framebuffer memory costs the
+;   same on an 8088 whether or not it changes anything. MEASURED on a real
+;   5150 (PERFORMANCE.md Part 9): **79.6 clocks per byte** on a Hercules and
+;   81.0 on a CGA, for the whole five-instruction step. This comment used to
+;   say ~30, which was low by 2.6x AND attributed to the wrong thing - only
+;   about 7 of those clocks are the framebuffer, the rest is the 8088
+;   executing the loop, and the same loop against plain RAM measures 72.8.
+;   Most glyphs have a blank descender row and many a blank top row; a SPACE
+;   is eight of them, and the Task Manager's columns are largely spaces.
 ; - **gfx_nextrow is inlined.** Its body is three instructions and the call
 ;   and ret around them cost as much again - about a third of a row's work
 ;   once the redundant writes above are gone. The CS overrides come with it:

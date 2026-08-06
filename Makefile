@@ -462,8 +462,26 @@ $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88dis
 # what np_redraw does to its dirty band. It is snappable itself and says in
 # its header whether the snap took.
 #
-# BOTH ride one disk, built in both geometries, because they answer the same
-# question at two scales and you want them side by side:
+# GFXBENCH prices the WHOLE DRAWING SURFACE on whichever adapter it boots on
+# (SPEC.md 39): every gfx_* and font_* slot, most of them at two sizes so the
+# per-call and per-pixel terms come apart, plus the raw RAM and framebuffer
+# bandwidth underneath them. One package for Hercules AND CGA on purpose -
+# both are the same 1bpp renderer over four different numbers, and two sources
+# would be two chances to drift.
+#
+# SYSBENCH prices the MACHINE: 8086-nominal clocks against a real 8088 per
+# instruction class, RAM bandwidth, the clock ladder, what the kernel's own
+# interrupts cost per second of work, the API's far-call floor, and the
+# floppy. BENCH.DAT and BENCHSML.DAT on the disk are what its file rows read;
+# they are generated here rather than tracked, like tests/filetest's big.dat.
+#
+# Both of the last two write their report to a TEXT FILE on the current volume
+# (SPEC.md 18.4), because 90 rows do not fit a 640x200 screen and the results
+# are meant to be carried off the machine and pasted into PERFORMANCE.md. That
+# means the bench floppy must NOT be write-protected when you use them.
+#
+# ALL FOUR ride one disk, built in both geometries, because they answer the
+# same question at different scales and you want them side by side:
 #
 #   make bench                                             # build the disks
 #   make test                            TESTAPPS=build/bench.img   # 1.44M, QEMU
@@ -484,7 +502,9 @@ $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88dis
 # reproducible and machine-independent, but not time, and it understates the
 # mono win because what alignment removes is disproportionately memory
 # traffic (SPEC.md 6.1.1).
-BENCHPKGS := $(BUILD)/fontbnch.o88 $(BUILD)/typebnch.o88
+BENCHPKGS := $(BUILD)/fontbnch.o88 $(BUILD)/typebnch.o88 \
+             $(BUILD)/gfxbench.o88 $(BUILD)/sysbench.o88
+BENCHDATA := $(BUILD)/bench.dat $(BUILD)/benchsml.dat
 
 bench: $(BUILD)/bench.img $(BUILD)/bench360.img
 
@@ -502,11 +522,38 @@ $(BUILD)/typebnch.bin: tests/typebench/typebench.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/typebnch.o88: $(BUILD)/typebnch.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/typebnch.bin -o $@
 
-$(BUILD)/bench.img: $(BENCHPKGS) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(BENCHPKGS)
+# The two report-writing harnesses. They share tests/benchlib.inc, which is why
+# these two rules carry -I tests/ and the two above do not.
+$(BUILD)/gfxbench.bin: tests/gfxbench/gfxbench.asm tests/benchlib.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/gfxbench/gfxbench.asm
+	@echo "gfxbench: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/bench360.img: $(BENCHPKGS) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(BENCHPKGS)
+$(BUILD)/gfxbench.o88: $(BUILD)/gfxbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/gfxbench.bin -o $@
+
+$(BUILD)/sysbench.bin: tests/sysbench/sysbench.asm tests/benchlib.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/sysbench/sysbench.asm
+	@echo "sysbench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/sysbench.o88: $(BUILD)/sysbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/sysbench.bin -o $@
+
+# sysbench's floppy rows read these. 16KB is 32 sectors - enough that one
+# int 13h per sector dominates and the number means something, short enough
+# that the two reads together are seconds rather than a minute on a 4.77MHz
+# machine. The one-sector file isolates what finding and opening a file costs
+# with almost no data behind it.
+$(BUILD)/bench.dat: | $(BUILD)
+	python3 -c "import sys; sys.stdout.buffer.write(bytes((i>>9)&0xFF for i in range(16*1024)))" > $@
+
+$(BUILD)/benchsml.dat: | $(BUILD)
+	python3 -c "import sys; sys.stdout.buffer.write(b'os8088 sysbench small file\r\n' * 18)" > $@
+
+$(BUILD)/bench.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BENCHPKGS) $(BENCHDATA)
+
+$(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BENCHPKGS) $(BENCHDATA)
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
 # inside: its worker 0xCC-fills its own slice, spins so every interrupt the
