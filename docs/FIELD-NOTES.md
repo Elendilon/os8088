@@ -387,6 +387,12 @@ recipe in CLAUDE.md, on `dsk_xfer`'s `.sector` — answers A and B outright and
 sizes C, with no hardware needed. **Do that first**; only C's cost per call
 needs the XT.
 
+> **PICKED UP.** `docs/DISK-PERF-PLAN.md` is the plan for all three
+> mechanisms, with the counting phase first, and it carries the budget grant
+> that funds it. The directions below are what that plan was built from and
+> stay here as the evidence; the plan is where the sequencing, the traps and
+> the testing live. This entry stays **open** until the counters say otherwise.
+
 **Directions when this is picked up**, in rough order of value-for-effort:
 
 1. **Count first.** A counter on `.sector` and a walk through two folders.

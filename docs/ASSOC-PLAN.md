@@ -666,17 +666,26 @@ Phase 2 is written.
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
 | **total** | | **~1,340** |
 
-**This no longer fits comfortably** — 87% of the 1,536, before the estimates
-have met a single instruction, and every one of them is a guess from
-comparable routines. Two things follow, and neither is "hope":
+**The budget was raised to cover this.** `KERN_BUDGET` 76,288 → **78,336**
+(+2,048), asked for and granted to fund this plan and `docs/DISK-PERF-PLAN.md`
+together — ~1,340 here and ~200 there against the 1,536 that were spare, which
+the two do not fit. Spare after both: ~2,000.
 
-- Take the 8 × 16 table sizing (−96) as the baseline, not a reserve.
-- **Phase 1 must be built and measured against the guard before Phase 2 is
-  written.** If the real number tracks the estimate, this feature needs a
-  `KERN_BUDGET` decision — which per CLAUDE.md is a conversation with whoever
-  wants it, not a build fix. The honest framing for that conversation: the
-  guard has moved five times, each asked for and granted, and the fifth moved
-  it *down* onto the kernel deliberately.
+Three things that follow from the grant rather than being excused by it:
+
+- **The 12 × 24 table sizing stands.** The 8 × 16 fallback (−96) is back to
+  being a reserve, not the baseline.
+- **Phase 1 is still built and measured against the guard before Phase 2 is
+  written.** Every figure above is a guess from comparable routines, and the
+  grant does not make them measurements.
+- **The raise lands with the first commit that needs it**, not with this
+  document. A raised guard with nothing spent under it is precisely the "guard
+  switched off" failure the fifth (downward) move exists to record — and the
+  sixth move's own comment blames a *stale figure in a doc* for letting three
+  features spend headroom without the constant being revisited.
+
+`docs/DISK-PERF-PLAN.md` §9 carries the same note; the two plans share one
+grant, and the seventh entry in `kernel/kernel.asm`'s comment should name both.
 
 ### 8.1 The "fix the disk instead" argument, and what is left of it
 
