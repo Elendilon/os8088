@@ -1134,6 +1134,19 @@ buffer), written by `cp_flush_close` when the panel closes and restored by
 `drv_boot`. A
 missing or malformed file means the defaults, never an error.
 
+**It is written to the SYSTEM disk, not to whatever is in A:** (SPEC.md
+§51.5.1), and that took a fix: `drv_cfg_save` mounted A: and wrote, on the
+unexamined assumption that the disk you booted from is still in the drive. A
+single-floppy machine swaps to the apps disk to launch anything, so a Control
+Panel change afterwards wrote the settings *there* — the setting never reached
+the system disk, AND the user's data disk gained a hidden+system file that
+§19.6's own protection makes impossible to list or delete from inside os8088.
+`KERNEL.SYS` in the root is now the marker, checked with **`dskw_stat` and not
+`drv_find`** — the latter answers a size and refuses one over 64KB, and the
+kernel is 63,944 bytes today, so it would have started calling the system disk
+foreign the moment the kernel grew. The refusal keeps `[cp_wdirty]`, so
+putting the right disk back and closing again saves.
+
 Two traps. **`build/os8088.img` is now writable and the OS writes to it** —
 any test that touches a Control Panel setting dirties a tracked, shipped
 artifact, exactly like `build/apps.img`; `rm -f build/os8088.img

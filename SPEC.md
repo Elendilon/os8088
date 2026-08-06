@@ -9182,8 +9182,8 @@ caption and the click all read one word, so they cannot disagree.
 then writes `SYSTEM.CFG`. So the page never shows a promise about the next
 boot — what it shows is what is running. The two outcomes are reported
 separately: a load that fails leaves the box clear with its reason, and a
-*save* that fails puts `'Cannot save to the system disk'` in the caption
-while the driver it just loaded stays loaded.
+*save* that fails puts a reason in the caption (§51.5.1) while the driver it
+just loaded stays loaded.
 
 **A click on a row that is unloaded but WANTED clears the want instead of
 retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
@@ -9353,10 +9353,14 @@ a convenience, not a document.
 
 A failed write never undoes the change — that already happened — and
 **leaves `[cp_wdirty]` set**, so the next close or reboot retries rather than
-dropping it silently. It is reported in the Drivers page's caption
-(`'Cannot save to the system disk'`), the one page with room to say it, which
-now means the *next* time the panel is opened: by the time the write happens
-the page it would be reported on is already gone.
+dropping it silently. It is reported in the Drivers page's caption, the
+one page with room to say it, which means the *next* time the panel is opened:
+by the time the write happens the page it would be reported on is already
+gone. **`cp_drv_cap` is why that is now true rather than merely intended** —
+the caption used to be drawn only by `cp_drv_lines`, which runs when a row is
+TICKED, so the report appeared only if the user happened to tick something
+after a failed save in the same session, and `cp_drv_paint` drew everything on
+the page except this. Both painters call it now. Its two strings are §51.5.1's.
 
 ### 31.9 Pages a driver owns
 
@@ -15473,6 +15477,50 @@ buffers there rather than in their image. Those claims are owned by the
 driver's *segment*, and `drv_release` sweeps them with `mem_free_owner`
 **before** freeing the image, because the image's segment is the owner word
 and freeing it first would leave a claim nothing could ever name again.
+
+#### 51.5.1 It is written to the SYSTEM disk, not to whatever is in A:
+
+`drv_cfg_save` mounts drive A: and writes `SYSTEM.CFG` to it, and for a long
+time that was the whole of it — on the unexamined assumption that the disk the
+machine booted from is still the disk in the drive. **It is not.** A
+single-floppy machine swaps to the apps disk to launch anything (§28.3 is
+built around exactly that), and a Control Panel change made afterwards wrote
+the settings to whatever floppy happened to be there.
+
+Two things went wrong at once, and the second is the worse one:
+
+- the setting never reached the system disk, so it did not survive the reboot
+  — which reads as the deferral (§31.8) losing writes rather than as a
+  volume-identity fault;
+- and the user's data disk gained a hidden + system `SYSTEM.CFG` that §19.6's
+  own protection makes **impossible to list or delete from inside os8088**.
+  `DSKW_PROT` refuses hidden|system, and `disk_mount`'s species filter keeps
+  it out of every listing, so it is invisible litter that needs another
+  machine to remove.
+
+So the volume is identified before it is written: **`KERNEL.SYS` in the root
+is what makes a disk the system disk**, and `dskw_stat` answers that off the
+directory sectors — which is the only place a hidden + system entry can be
+seen at all. No marker, no write.
+
+**`dskw_stat` and not `drv_find`**, deliberately. `drv_find` answers a *size*
+and refuses one whose high word is non-zero; `KERNEL.SYS` is 63,944 bytes
+today, so the day the kernel passes 64KB that check would begin reporting that
+the system disk is not the system disk. Existence is the question here, and
+`dskw_stat` is the routine that answers it.
+
+A refusal is `FERR_NOENT`, and it joins `FERR_NODISK` in the one outcome the
+user can act on: the caption says **`'Needs the system disk in A:'`**, while a
+write that genuinely failed — full, protected, I/O — says `'Could not save the
+settings'`. Both are **27 characters**, which is the pane's limit (222px less
+`CP_PMX`); the single string they replace was thirty and painted through the
+window's right border into the desktop, unnoticed because the caption was
+almost never drawn (§31.8).
+
+`[cp_wdirty]` is **kept** on this refusal like any other, so putting the
+system disk back and closing the panel again saves it — verified end to end:
+the apps disk stays byte-identical, the caption names the remedy, and the
+retry writes the setting where it belongs and survives a reboot.
 
 ### 51.6 Author rules
 
