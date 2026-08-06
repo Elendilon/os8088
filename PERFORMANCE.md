@@ -426,6 +426,7 @@ list to check yourself against.
 | Missile Command score strip | the whole strip blanked and re-lettered on every kill | three `font_run` fields, space-padded — no blank interval | §48.9, §6.1 |
 | Missile Command missile trails | an app-side Bresenham emitting one `gfx_hline` per **row** — a whole-trail erase was 267 fills, ~310 ms, a five-tick stall | one `gfx_line`: 59 ms worst frame, and the busy frame whole went 190 ms → **43.5 ms** | §5.6, §48.8.3 |
 | Missile Command crosshair | 8 `gfx_xor_fill` **every frame** whether the mouse moved or not — **8.6 ms of a 55 ms tick**, idle frames included | 0 unless it moved or something drew through it; 4 signed compares per primitive otherwise, and the screen is byte-identical | §48.11 |
+| Missile Command burst life | grow, peak, **collapse**, gone — 39 fills a burst, and the collapse alone is 42% of it for one visible state | grow and hold, with the life cut 27→21 frames so Σr (all a burst's lethality) is preserved to 3.3%: 25 fills, **18.3 → 12.4 ms a frame** | §48.12 |
 | Solitaire stock click | 635 wasted fill runs **every click** | 0 unless the picture changed | §43.7 |
 | Solitaire column redraw | every card, backs included (634 runs each) | buried backs kept; a measured move skips 246 runs | §43.7 |
 | Fractal repaint | re-render from row 0 (~115 s) | replay the pass-0 cache, resume refining | §40.1 |

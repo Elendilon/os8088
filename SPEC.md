@@ -14823,6 +14823,64 @@ order — a line hands over its two endpoints — because over-approximating
 costs at worst one redundant erase, while under-approximating leaves the
 overlay to be painted over and then inverted.
 
+### 48.12 The burst grows and holds, because the collapse was half its cost
+
+§48.11's table leaves `trl` at 36.6 ms of a 55 ms frame, and the explosion is
+most of it. There is nothing wrong with the *shape* any more — §48.10's bands
+write each row once — so the only thing left to cut is **how many times a
+burst is drawn at all**. Priced against the coarse ramp `0, 5, 13, 5`:
+
+| the burst's life | calls | scan lines | cost |
+|---|---|---|---|
+| draw @5 | 7 | 11 | 7.2 ms |
+| draw @13 | 9 | 27 | 11.6 ms |
+| **collapse: erase @13 + draw @5** | **16** | **38** | **18.8 ms** |
+| gone: erase @5 | 7 | 11 | 7.2 ms |
+| **total** | **39** | **87** | **44.9 ms** |
+
+The collapse is **42% of the burst** and it buys one visible state. Removing
+it is not free of consequence, though, because the radius is also what the
+burst *kills* with — `mc_erad` is one table and §48.8 built it that way
+precisely so the drawn shape and the lethal shape cannot disagree. Simply
+holding at 13 would leave the burst lethal for longer and make the game
+easier.
+
+So the ramp is **grown and held, and the life is cut to pay for it**:
+
+```
+was:  2 dark, 9 frames @5, 7 @13, 9 @5     life 27,  Σr = 181
+now:  2 dark, 9 frames @5, 10 @13          life 21,  Σr = 175
+```
+
+Σr — the sum of the radii over the burst, which is the whole of how much a
+burst can kill — is preserved to **3.3%**, and it is preserved by shortening
+the burst rather than by lying about its size. The drawn cost is **25 calls
+and 65 rows, 30.4 ms**, and because the life shortens too, fewer bursts are
+alive at once for the same rate of fire: **18.3 ms a frame → 12.4 ms** at the
+load §48.11 measured.
+
+Three things about it are worth knowing.
+
+- **`MC_EXPFR` is no longer a constant at the point of use.** `[mc_expfr]` is
+  27 or `MC_EXPFR3` (21), set once in `mc_entry` — and the default is written
+  *before* the coarse test, because bss is zeroed and a life of zero kills
+  every burst on the frame it is lit.
+- **There is no third colour any more, and that is not an omission.** A state
+  that changes only the colour would never be drawn: the coarse path's whole
+  economy is `cmp bx, cx / je .next` on the RADIUS, so a same-radius state is
+  a state nobody ever sees. White then yellow is what two drawn states can
+  carry.
+- **The shrink branch in `mc_draw_exp` is now unreachable and stays.** It is
+  the *ramp table* that decides whether the radius ever falls, so the branch
+  is what stops an edited table leaving a ring behind. The annulus erase was
+  measured against it and **lost** — 22 calls to 16, bands or not — so there
+  is no better version of it to write.
+
+Verified the §48.11 way: a cluster of bursts fired and left to die out, the
+game paused, the framebuffer captured, a full repaint forced, the two
+compared — **0 differing pixels of 262,144**, which is what says the `.gone`
+erase still matches what the new ramp drew.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason

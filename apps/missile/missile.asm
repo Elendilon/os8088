@@ -144,6 +144,12 @@ MC_MAXEXP   equ 16                  ; NEXPLO is 20; 16 is what MC_MAXICBM +
                                     ; MC_MAXABM can actually produce at once
 MC_MAXON    equ 7                   ; MXICON: ICBMs on screen at one time
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
+MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
+                                    ; is SHORTER on purpose: with no collapse
+                                    ; the peak is held instead, so the life is
+                                    ; cut to keep the sum of the radii - the
+                                    ; whole of how lethal a burst is - where
+                                    ; the arcade put it (SPEC.md 48.12)
 MC_RMAX     equ 13                  ; ...and the radius it peaks at, on the
                                     ; arcade's 256x231 field
 MC_RMAXP    equ 34                  ; ...and the most mc_escale may scale that
@@ -194,6 +200,8 @@ mc_entry:
     mov [mc_scrw], ax
     mov [mc_dock], cx
 
+    mov byte [mc_expfr], MC_EXPFR   ; bss is zeroed, and a life of zero kills
+                                    ; every burst on the frame it is lit
     cmp dh, 1                       ; a 1bpp adapter, or a tier-0 CPU, gets
     jbe .coarse                     ; the three-state explosion (SPEC.md
     call OSAPI_CPU_INFO             ; 48.8). Both are FACTS this code can
@@ -201,6 +209,7 @@ mc_entry:
     jne .fine                       ; an optimisation only the slow machine
 .coarse:                            ; needs (PERFORMANCE.md rule 10)
     mov byte [mc_ecoarse], 1
+    mov byte [mc_expfr], MC_EXPFR3
 .fine:
 
     call OSAPI_FSX_CAPS             ; can this adapter set Mode X? A fact,
@@ -2363,13 +2372,15 @@ mc_add_exp:
 ; preserves all registers
 ; -----------------------------------------------------------------------------
 mc_do_exp:
+    push ax
     push si
     xor si, si
 .each:
     cmp byte [mc_ea + si], 1
     jne .next
     inc byte [mc_et + si]
-    cmp byte [mc_et + si], MC_EXPFR
+    mov al, [mc_et + si]
+    cmp al, [mc_expfr]              ; 27, or MC_EXPFR3 on the coarse ramp
     jb .next
     mov byte [mc_ea + si], 0FFh     ; done: mc_render owes it one erase
 .next:
@@ -2377,6 +2388,7 @@ mc_do_exp:
     cmp si, MC_MAXEXP
     jb .each
     pop si
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4206,16 +4218,16 @@ mc_draw_exp:
 
 .coarse:                            ; SPEC.md 48.8: with no colour cycle the
     cmp bx, cx                      ; radius is the only thing that can have
-    je .next                        ; changed, and over a burst it does three
-    ja .cdraw                       ; times
+    je .next                        ; changed, and the shipped ramp grows it
+    ja .cdraw                       ; exactly ONCE (48.12)
     push bx                         ; shrank: the old blob back to the sky
-    mov al, MC_BG                   ; whole, because the annulus between two
-    call mc_setcol                  ; nested-rect blobs is more rects than
-    mov ax, [mc_ex + di]            ; the erase-and-redraw pair it replaces
-    mov dx, [mc_ey + di]
-    mov bx, cx
-    call mc_blob
-    pop bx
+    mov al, MC_BG                   ; whole. Unreachable with mc_step3 as it
+    call mc_setcol                  ; ships, and kept because it is the ramp
+    mov ax, [mc_ex + di]            ; table that decides that - edit the table
+    mov dx, [mc_ey + di]            ; and this is what stops the burst leaving
+    mov bx, cx                      ; a ring behind. The annulus was MEASURED
+    call mc_blob                    ; against this pair and lost, 22 calls to
+    pop bx                          ; 16, bands or not (48.11)
 .cdraw:
     mov [mc_er + si], bl
     call mc_exp_pen
@@ -6107,15 +6119,19 @@ mc_expcol:   db CWHITE, CYELLOW, CLRED, CLMAGENTA
 ; how long IS the game (SPEC.md 48.4), and this leaves it alone.
 mc_step3:    db 0, 0                            ; 0..1:  not yet lit, as OLDRAD
              db 1, 1, 1, 1, 1, 1, 1, 1, 1       ; 2..10
-             db 2, 2, 2, 2, 2, 2, 2             ; 11..17: the peak
-             db 3, 3, 3, 3, 3, 3, 3, 3, 3       ; 18..26: collapsing
-             db 0, 0, 0, 0, 0                   ; 27..31: padding, as mc_rad
-mc_rad3v:    db 0, 5, 13, 5
-; ...and one colour per DRAWN state, all three from SPEC.md 39.4's WHITE
-; class. There is no dithered frame on this path: on the two adapters that
-; reach it a dithered burst is just a grey one, and the flash it was buying
-; is what made the old explosion redraw itself 27 times.
-mc_col3:     db MC_BG, CWHITE, CYELLOW, CLRED
+             db 2, 2, 2, 2, 2, 2, 2, 2, 2, 2    ; 11..20: the peak, HELD
+             db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 21..31: padding, as mc_rad
+mc_rad3v:    db 0, 5, 13
+; ...and one colour per DRAWN state, both from SPEC.md 39.4's WHITE class.
+; There is no dithered frame on this path: on the two adapters that reach it a
+; dithered burst is just a grey one, and the flash it was buying is what made
+; the old explosion redraw itself 27 times.
+;
+; There is no third colour any more either, and that is not an omission -
+; SPEC.md 48.12 dropped the collapse, and a state that changes only the COLOUR
+; would never be drawn: the coarse path's whole economy is that it compares
+; RADIUS, so a same-radius state is a state nobody sees.
+mc_col3:     db MC_BG, CWHITE, CYELLOW
 
 ; The coastline: how many rows the ground rises above its base every 16px.
 ; Fixed rather than random, so a repaint puts back exactly what was there.
@@ -6251,7 +6267,7 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBUF  mc_ea,     MC_MAXEXP      ; 0 free / 1 burning / FF needs erasing
     MBUF  mc_ex,     MC_MAXEXP * 2
     MBUF  mc_ey,     MC_MAXEXP * 2
-    MBUF  mc_et,     MC_MAXEXP      ; frame, 0..26
+    MBUF  mc_et,     MC_MAXEXP      ; frame, 0..[mc_expfr]-1
     MBUF  mc_er,     MC_MAXEXP      ; the radius it is DRAWN at
 
 ; --- the satellite / bomber -----------------------------------------------------
@@ -6334,6 +6350,8 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBYTE mc_ecoarse                ; 1 = SPEC.md 48.8's three-state burst:
                                     ; 1bpp adapter or tier-0 CPU, decided
                                     ; once in mc_entry
+    MBYTE mc_expfr                  ; ...and how many frames a burst lasts,
+                                    ; which the coarse ramp shortens (48.12)
     MWORD mc_bw                     ; mc_blob: the open rect's half-width
     MWORD mc_bprev                  ; mc_blob: the last band's half-height, -1
                                     ; before the centre band is drawn
