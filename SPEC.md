@@ -15610,6 +15610,28 @@ The extent is also **clipped to the end of the drive**, because a table
 another machine wrote is input and input is hostile, and refused outright
 below one track — less than that is not worth a drive letter.
 
+**A hole can be an alignment gap, and it is still real space.** This tool's
+floor is LBA = spt — the end of the MBR's own track, where every DOS-era table
+started — while a modern tool 1MB-aligns its partitions at LBA 2048. Take a
+disk this tool filled, delete two partitions on another machine and let it
+make one NTFS partition in the freed space, and the 1,985 sectors between 63
+and 2048 belong to nobody: the scan finds them, because that is what it is
+for, and a Format there produces a working 970KB FAT12 volume that mounts and
+takes files.
+
+What that exposed was a **display** fault and not an allocation one — the size
+column was whole megabytes, so a volume that works read `0M`, which looks like
+a broken tool rather than a small disk. Under a megabyte the column is **KB**
+(`hd_tw_size`); `992K` is the same volume, honestly described.
+
+The policy the scan follows is **the first hole that fits, not the largest**.
+On a disk whose only holes are alignment gaps that is the same answer, but it
+is not in general: with a 1MB gap at the front and 30MB free in the middle, a
+Format spends one of only four primary slots on the 1MB. Taking the largest
+hole instead is about 60 bytes and is the better default — it is not
+implemented, and this paragraph is the record of the choice rather than a
+description of the code.
+
 #### 52.2.2 Formatted, and unmountable
 
 `hd_fmt_isfat` reads the partition's own LBA 0 and asks whether a boot sector

@@ -339,10 +339,7 @@ hd_tw_rowtext:
 .size:
     mov al, [hd_rowslot]
     call hd_part_ent
-    call hd_part_mb             ; AX = megabytes
-    call hd_utoa4
-    mov si, hd_s_mb
-    call hd_scat
+    call hd_tw_size
 .state:
     mov si, hd_s_two
     call hd_scat
@@ -374,6 +371,42 @@ hd_tw_rowtext:
     pop di
     pop si
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_tw_size - one entry's size, in the unit that does not read as zero
+; in:  SI = the entry, DI = the string cursor
+; out: DI advanced past the digits and the unit
+; clobbers: DI (the output), flags
+;
+; **Under a megabyte it is KB**, and that is not decoration. A partition table
+; another machine wrote leaves ALIGNMENT HOLES - a modern tool 1MB-aligns its
+; partitions while this one starts at LBA = spt, the end of the MBR's own
+; track - and the 1,985 sectors in between are real, unclaimed, and exactly
+; what SPEC.md 52.2.1's scan is for. Formatted, that hole is a working 970KB
+; FAT12 volume; in whole MB it read '0M', which looks like a bug in the tool
+; rather than a small disk, and was reported as one.
+; -----------------------------------------------------------------------------
+hd_tw_size:
+    push ax
+    push si
+    mov ax, [si+HP_SECS]
+    cmp word [si+HP_SECS+2], 0
+    jne .mb                     ; more sectors than a word holds: MB, plainly
+    cmp ax, 2048
+    jae .mb
+    shr ax, 1                   ; 512-byte sectors, so KB is a halving
+    call hd_utoa4
+    mov si, hd_s_kb
+    jmp short .unit
+.mb:
+    call hd_part_mb
+    call hd_utoa4
+    mov si, hd_s_mb
+.unit:
+    call hd_scat
+    pop si
     pop ax
     ret
 
@@ -604,6 +637,7 @@ hd_tw_repaint:
     pop ax
     ret
 
+hd_s_kb:      db 'K', 0
 hd_s_thdr:    db 'Slot  Size   State', 0
 hd_s_four:    db '     ', 0     ; slot digit -> size column
 hd_s_nosize:  db '     ', 0     ; ...and the size column when nothing claims it

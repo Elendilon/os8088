@@ -977,7 +977,14 @@ things about it are worth knowing. **A slot is not a 32MB region of the disk**
 `mem_claim`'s bump scan, so a partition sits one cylinder past a foreign 50MB
 one rather than at the next multiple of anything, a hole between two
 partitions is usable, and an entry can never be laid inside somebody else's —
-which is the failure that takes a whole 80MB partition with it. **A slot over
+which is the failure that takes a whole 80MB partition with it. **A hole is
+often an ALIGNMENT GAP**: this tool's floor is LBA = spt and a modern tool
+1MB-aligns at LBA 2048, so a disk repartitioned elsewhere has 1,985 real
+unowned sectors at the front, and formatting them gives a working 970KB FAT12
+volume — which read `0M` until the size column learned KB, and looked like a
+broken tool rather than a small disk. The scan takes the FIRST hole that fits
+and not the largest, which is only the same answer while the holes are all
+alignment gaps (SPEC.md §52.2.1 records why that is the wrong default). **A slot over
 the ceiling or of a foreign type is `Unmountable` and its Format button stays
 LIVE**, because reclaiming the first 32MB of it is the only useful thing left
 to do there. **Nothing in that window is greyed** (§52.2.2), and the row that
