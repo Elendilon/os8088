@@ -896,6 +896,13 @@ trk_fs_enter:
     call OSAPI_FSX_RUN              ; blocks until trk_fsx_main returns; the
                                     ; kernel then repaints the desktop whole
     mov byte [trk_fs], 0            ; back to the windowed splash
+    cmp byte [trk_txbb], 0          ; ...and the user's own back-buffer setting
+    je .out                         ; if the text screen (SPEC.md 45.13) had to
+    mov byte [trk_txbb], 0          ; turn it off to get a foreign mode set.
+    mov al, 1                       ; AFTER the run, not inside it: the desktop
+    call OSAPI_GFX_DBUF             ; mode and its pixels are both back, so
+                                    ; bb_set's seed-from-VRAM reads the screen
+                                    ; the user is actually looking at
 .out:
     pop cx
     pop bx
@@ -929,6 +936,46 @@ trk_fsx_main:
     push dx
     push si
     push di
+    cmp byte [mp_xt], 0             ; XT mode's fullscreen is an 80x25 TEXT
+    je .gfx                         ; screen (SPEC.md 45.13) - see trktxt.inc
+    xor al, al                      ; for the arithmetic. fsx_mode refuses
+    call OSAPI_GFX_DBUF             ; while a back buffer is armed (it
+    jc .txmode                      ; describes DESKTOP geometry), so park the
+    or al, al                       ; user's setting first and note the debt;
+    jz .txmode                      ; trk_fs_enter pays it after the restore
+    mov byte [trk_txbb], 1
+.txmode:
+    call ttx_begin                  ; CF=1: refused, and nothing was changed -
+    jnc .txok                       ; fsx_mode either sets the mode or touches
+    cmp byte [trk_txbb], 0          ; nothing at all. Put the buffer back
+    je .gfx                         ; before the graphics bracket takes over,
+    mov byte [trk_txbb], 0          ; or Smooth's own banking and ours would
+    mov al, 1                       ; both be holding the user's setting
+    call OSAPI_GFX_DBUF
+    jmp short .gfx
+.txok:
+    mov byte [trk_tx], 1
+    call ttx_draw_all
+.txloop:
+    call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
+    mov ah, 1
+    int 0x16                        ; this IS the UI task (SPEC.md 53.1)
+    jz .txdraw
+    xor ah, ah
+    int 0x16
+    cmp al, 27
+    je .txdone
+    call trk_fsx_key
+.txdraw:
+    call ttx_draw_dyn
+    xor al, al                      ; one frame per tick. The SPEC.md 53.5
+    call OSAPI_FSX_WAIT             ; present clause is dead here by
+    jmp .txloop                     ; construction: fsx_mode refused a buffer
+.txdone:
+    mov byte [trk_tx], 0            ; before [trk_fs], so a message set on the
+    mov byte [trk_fs], 0            ; way out reaches the windowed splash
+    jmp .out
+.gfx:
     cmp byte [trk_smooth], 0        ; Smooth (SPEC.md 45.11): arm the 32 back
     je .drawall                     ; buffer, and OSAPI_FSX_WAIT presents it
     cmp byte [trk_bbheld], 0        ; (already borrowed if smooth was toggled
@@ -1082,8 +1129,11 @@ trk_fsx_key:
     call trk_play
     jmp .out
 .xt:
-    call trk_xt_toggle
-    jmp .out
+    cmp byte [trk_tx], 0            ; the XT text screen (SPEC.md 45.13) IS
+    jne .txxt                       ; what XT mode's fullscreen is, so turning
+    call trk_xt_toggle              ; the mode off from inside it would leave
+    jmp .out                        ; the app on a surface it no longer wants.
+                                    ; Say why not (SPEC.md 47), like L does
 .rcyc:
     mov al, [trk_rsel]              ; R cycles 11 -> 22 -> 44 -> 11
     inc al
@@ -1094,8 +1144,19 @@ trk_fsx_key:
     call trk_rate_set
     jmp .out
 .smooth:
-    call trk_smooth_toggle          ; arms / disarms the back buffer live -
+    cmp byte [trk_tx], 0            ; Smooth is the SPEC.md 32 back buffer,
+    jne .txsm                       ; which describes the DESKTOP's geometry -
+    call trk_smooth_toggle          ; there is nothing to double in a text mode
+    jmp .out                        ; and fsx_mode refused it on the way in.
+                                    ; Graphics: it arms / disarms live, and
                                     ; OSAPI_FSX_WAIT's present follows [bb_dbl]
+.txxt:
+    mov si, trk_s_txxt
+    call tui_msg
+    jmp short .out
+.txsm:
+    mov si, trk_s_txsm
+    call tui_msg
 .out:
     pop di
     pop si
@@ -1732,12 +1793,17 @@ trk_s_xtmoff: db 'XT mode off - Enter plays', 0
 trk_s_norate: db '44 kHz needs a DSP 4.x card', 0
 trk_s_smmon:  db 'Smooth on', 0
 trk_s_smmoff: db 'Smooth off', 0
+trk_s_txxt:   db 'XT off is windowed: Esc first', 0
+trk_s_txsm:   db 'Smooth is a graphics mode only', 0
 
 ; =============================================================================
-; The other two thirds of the package
+; The rest of the package: the replayer, and the two renderers of one screen -
+; trkui.inc in pixels, trktxt.inc in character cells (SPEC.md 45.13, which is
+; what XT mode's fullscreen is)
 ; =============================================================================
 %include "trkplay.inc"
 %include "trkui.inc"
+%include "trktxt.inc"
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes TRK_BSS bytes after the image; every
@@ -1747,6 +1813,14 @@ trk_s_smmoff: db 'Smooth off', 0
 
     TRKW trk_win                    ; our window ptr (opaque handle)
     TRKB trk_fs                     ; 1 = fullscreen active (read by trkui)
+    TRKB trk_tx                     ; 1 = that fullscreen is the XT TEXT screen
+                                    ; (SPEC.md 45.13) and the adapter is in a
+                                    ; foreign mode: every kernel drawing slot
+                                    ; is off-limits until the bracket returns
+                                    ; (SPEC.md 53.1). Implies [trk_fs]
+    TRKB trk_txbb                   ; ...and we turned the user's back buffer
+                                    ; off to get that mode set, so we owe them
+                                    ; one re-arm after the restore
     TRKB trk_hired                  ; the worker exists
     TRKB trk_abon                   ; the About panel is up; worker frames drop
     TRKB trk_pmode                  ; 0 = song, 1 = pattern loop

@@ -598,6 +598,13 @@ tui_msg_draw:
     push cx
     push dx
     push si
+    cmp byte [trk_tx], 0            ; the XT text screen (SPEC.md 45.13) owns
+    jne .out                        ; the adapter: every kernel drawing slot
+                                    ; renders DESKTOP geometry after an
+                                    ; OSAPI_FSX_MODE call (SPEC.md 53.1). The
+                                    ; message is already in [tui_msgp] and
+                                    ; ttx_draw_dyn's status line spends it, so
+                                    ; recording it IS delivering it
     mov si, [tui_msgp]
     or si, si
     jnz .have
@@ -1959,6 +1966,31 @@ tui_row_lt:
 ; =============================================================================
 ; Volume bars (every worker frame) and the scope hit-test
 ; =============================================================================
+; tui_vu_step - one channel's needle: rise instantly to the live volume, fall
+;               two units a frame. in BX = channel 0..3; out AL = the level
+;               0..64, also stored. Every other register preserved.
+;
+; Factored out because the SPEC.md 45.13 text bars need the same needle: the
+; rule about how a level moves belongs in one place, or the two surfaces
+; disagree about what the music is doing.
+tui_vu_step:
+    mov al, [mp_chvol + bx]         ; 0..64, 0 while muted/silent
+    cmp al, [tui_vu + bx]
+    jbe .decay
+    mov [tui_vu + bx], al           ; jump up, fall slowly: a VU needle
+    ret
+.decay:
+    mov al, [tui_vu + bx]
+    cmp al, 2
+    jae .sub
+    xor al, al
+    jmp short .st
+.sub:
+    sub al, 2
+.st:
+    mov [tui_vu + bx], al
+    ret
+
 tui_draw_vu:
     push ax
     push bx
@@ -1970,22 +2002,7 @@ tui_draw_vu:
 .c:
     mov bl, [tui_chn]
     xor bh, bh
-    mov al, [mp_chvol + bx]         ; 0..64, 0 while muted/silent
-    cmp al, [tui_vu + bx]
-    jbe .decay
-    mov [tui_vu + bx], al           ; jump up, fall slowly: a VU needle
-    jmp .have
-.decay:
-    mov al, [tui_vu + bx]
-    cmp al, 2
-    jae .sub
-    xor al, al
-    jmp .st
-.sub:
-    sub al, 2
-.st:
-    mov [tui_vu + bx], al
-.have:
+    call tui_vu_step
     xor ah, ah                      ; SI = bar width = vu * vuw / 64
     mul word [tui_vuw]
     mov cl, 6
