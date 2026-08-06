@@ -467,7 +467,19 @@ channel's priority against the app (§48's permanent-refusal shape), and the
 0x011, CGA 0x00F — Mode X included, 13h plus the canonical unchain/retime)
 and fills the caller's 16-byte FSI block; **the kernel's `[vid_*]` live
 block is never touched**, which is why restore is `vid_setmode` + drain
-(keys + evq) + disarm + one `wm_paint_all`. `fsx_wait` is the frame clock
+(keys + evq) + disarm + the desktop back. Restore normally means one
+`wm_paint_all`, but on a **286+/VGA machine with an XMS store** the four
+desktop planes (150KB) are saved at bracket entry and written straight back
+at exit — an instant restore, `fsxc_save`/`fsxc_load` (SPEC.md §53.6.1). The
+engine is **cold code** (§2.6) so it costs guard 1, not guard 2 (63 bytes of
+`.text` glue — two entry thunks + three `cw_xm_*` shims — and ~250 in
+`.cold`); the 8086 target, a mono adapter, an armed back buffer or a refused
+`xm_alloc` all fall through to the repaint, unchanged. This is the first
+consumer of `xm_copy` **under the gfx lock**, which §41.8 now permits (the
+copy touches no VRAM and the freeze leaves no painter to stall — the old
+"never under the gfx lock" was unenforced conservatism whose stated
+286-CPU-reset reason did not survive scrutiny; lifting it makes XMS usable
+from any window callback). `fsx_wait` is the frame clock
 AND the present (it runs `gfx_flush` while a back buffer is armed and the
 mode unswitched — the bracket never unlocks, so it is the only flush a
 buffered renderer gets); every retrace poll is `[ticks]`-bounded. Missile

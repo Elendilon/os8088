@@ -427,11 +427,21 @@ half-working panic key is worse than a documented absence).
      Task Manager IS on screen the flag is never even read. There is nothing
      to show at the moment you could show it. (The instance-vs-task model and
      the `SYS_SNAPSHOT` ABI cost are real too, but secondary to that.)
-   - **XMS desktop stash — DEFERRED** — `xm_copy` the four planes out at entry and back
-     at exit for an instant restore. Real, but it targets tier-1+ (286+ with
-     A20/XMS), which is not the 8086 target, and it only replaces a repaint
-     that already works and is cheap. A performance nicety for off-target
-     hardware; not worth the entry/exit complexity now.
+   - **XMS desktop stash — DONE** (SPEC.md §53.6.1, `fsxc_save`/`fsxc_load`).
+     The four desktop planes (150KB) go to the §41 store at bracket entry and
+     back at exit — an instant restore instead of `wm_paint_all` — on a
+     286+/VGA machine with a store; the 8086 target, a mono adapter, an armed
+     back buffer or a refused claim all fall through to the repaint, unchanged.
+     Built in **`.cold`** at the user's direction so it costs guard 1 (the
+     budget), not guard 2 (measured: 63 bytes of `.text` glue, ~250 in cold).
+     It is the first consumer of `xm_copy` under the gfx lock — which forced a
+     good side quest: the "never under the gfx lock" restriction turned out to
+     be unenforced conservatism (the stated 286-CPU-reset reason does not
+     survive scrutiny), and lifting it (docs-only, no code) makes XMS usable
+     from any window callback. Verified under QEMU: `fsx_stashed`=1 with the
+     block at linear 0x110000, byte-identical restore for a same-mode bracket
+     AND a Mode X bracket (VGA reprogrammed), and the `-m 1M` no-store case
+     falling cleanly through to the repaint.
 
 ## 12. Decisions — all four made, recorded here with their reasoning
 

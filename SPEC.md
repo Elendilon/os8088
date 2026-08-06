@@ -439,7 +439,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_` |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
-| `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, the frame clock/present — prefix `fsx_` |
+| `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, the frame clock/present, and the cold XMS desktop stash (§53.6.1) — prefix `fsx_` |
 
 `kernel/video.inc`, `keyboard.inc`, `string.inc`, `gfx.inc` remain in the
 tree but are **no longer included**; the GUI replaces the text shell.
@@ -14493,11 +14493,12 @@ The app's proc returning is the only exit. In order:
    the game must not land in the desktop ladder. The §34.4 click-abort
    drain is the precedent.
 3. Disarm: `[fsx_task]` = `[fsx_worker]` = 0xFF, under `cli`.
-4. Repaint under the still-held lock: `[menu_bdirty]` forced (the
-   save-under-overdraw precedent, §12.05), then `wm_paint_all`. With
-   `[bb_dbl]` armed the paint renders into the buffer and the callback
-   epilogue's flush carries it to VRAM; without, it writes VRAM direct.
-   Either way the one repaint is the whole cost of coming home.
+4. Bring the desktop back under the still-held lock — the **XMS stash**
+   if one was taken at entry (§53.6.1), else a full `wm_paint_all` with
+   `[menu_bdirty]` forced (the save-under-overdraw precedent, §12.05).
+   With `[bb_dbl]` armed the repaint renders into the buffer and the
+   callback epilogue's flush carries it to VRAM; without, it writes VRAM
+   direct.
 5. Return CF=0. The callback returns; its dispatch epilogue's
    `gfx_unlock` flushes (if buffered) and brings the cursor back with a
    fresh save-under from the restored VRAM — §7's own contract, nothing
@@ -14509,6 +14510,55 @@ from drawing the cursor all session (its first gate), what fences any
 surviving drawer (it parks in the lock's yield loop until the desktop is
 back), and what makes the §11.3 clip machinery unreachable rather than
 stale.
+
+### 53.6.1 The XMS desktop stash — an instant restore on a machine with a store
+
+Coming home is a `wm_paint_all`: a whole-screen planar dither plus every
+window's frame and `W_PAINT`. On a 286+/VGA machine with an extended-memory
+store that is avoidable — the desktop's four planes are 150KB, which fits
+the §41 store — so `fsx_run` **saves** them at entry, while the desktop is
+still on screen and before the app's proc draws, and `fsx_restore` **writes
+them straight back** at exit instead of repainting. `kernel/fsx.inc`,
+`fsxc_save`/`fsxc_load`.
+
+It engages only when it is free of risk and pays off: `[cpu_tier]` ≠ tier 0,
+a VGA adapter (four planes to read; a mono framebuffer is one plane and
+already cheap), and the desktop straight in VRAM (`[bb_dbl]` clear — a back
+buffer holds the desktop elsewhere). Any of those false, or the `xm_alloc`
+refused, and `[fsx_stashed]` stays 0 and step 4 is the ordinary
+`wm_paint_all`. **The 8086 target never touches it** and its restore is
+exactly what it was.
+
+Five things make it correct:
+
+- **The save is at entry, the standard mode is guaranteed.** At `fsx_run`
+  entry the adapter is still in mode 12h (the app has not called `fsx_mode`
+  yet), so the four planes read cleanly through GC Read Map Select. At exit
+  step 1's `vid_setmode` has already restored mode 12h and its standard
+  planar write state (Bit Mask 0xFF, write mode 0) — for a same-mode bracket
+  the app never left it — so the plane writes back through SEQ Map Mask land
+  correctly. Verified: a Mode X bracket (which unchains the VGA) restores
+  byte-identical.
+- **`xm_copy` runs under the held lock, which §41.8 now permits** — the copy
+  touches no VRAM, and the freeze means there is no painter to stall. A plane
+  is 38,400 bytes, past `XM_MAX_COPY`, so each is two even 19,200-byte halves;
+  eight copies each way.
+- **The cursor is not in the saved image.** The lock was taken with the
+  cursor hidden (§7), so the planes hold a cursor-free desktop; step 5's
+  `gfx_unlock` draws the cursor fresh at the live position.
+- **A back buffer armed *during* the bracket is caught at exit.** If the app
+  armed `[bb_dbl]` (Tracker's Smooth) and did not hand it back, the VRAM the
+  stash holds is stale; `fsxc_load` then frees the block and reports it did
+  not write, and step 4 falls back to `wm_paint_all`.
+- **The restored bar carries a stale clock**, because real time passed inside
+  the bracket — so the stash path redraws the **menu bar alone**
+  (`menu_draw_bar`), not the whole screen. Desktop and windows are the saved
+  pixels; only the bar is fresh.
+
+The engine is **cold code** (§2.6): entry and exit are once-per-bracket, never
+a hot path, so it costs guard 1 (the budget) and not guard 2 (the 64KB
+segment) — 63 bytes of `.text` glue (two entry thunks, three `cw_xm_*` shims)
+and ~250 bytes of `.cold`.
 
 ### 53.7 What a bracket may call (binding)
 
