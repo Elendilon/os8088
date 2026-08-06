@@ -361,19 +361,40 @@ to do with this arithmetic.
 Given §2.5.1, the case for caching the answer on disk is strong: **12 apps × 16
 bytes is 192 bytes — one sector.** One read replaces ~140.
 
-`ICONS.DAT` in a volume's root, hidden + system, holding stem + 8×8 glyph per
-app. Read **once when the volume is first mounted in a session**, straight into
-§2.2's table; after that the RAM table serves every lookup and the file is not
-touched again. §19.6's `dskw_write_sys` already exists precisely so the kernel
-can rewrite a hidden + system file, so the write plumbing is not new.
+`ICONS.DAT` in a volume's root, hidden + system. The row is **stem + 8×8 glyph
++ the app's directory cluster** — 18 bytes, padded to 20 for a shiftable
+stride, so 12 apps is 240 bytes and still one sector. The drive is not stored:
+it is whichever volume's file this is.
 
-Four things about it:
+**The cluster is in the row because of the move case, and it is the reason the
+runtime writer is not optional.** A shipped app that gets moved keeps its baked
+glyph (that lives in `kernel.bin`) and loses its *location* — so without a
+writable cache, every session after the move pays §2.5.1's full search again,
+for ever. The cache is the only place a discovered location can outlive a
+reboot; §2.2's `assoc_clus` hint is `.text` RAM and dies with the power.
+
+Read **once when the volume is first mounted in a session**, straight into
+§2.2's table; after that the RAM table serves every lookup. §19.6's
+`dskw_write_sys` already exists precisely so the kernel can rewrite a hidden +
+system file, so the write plumbing is not new.
+
+Five things about it:
 
 - **Build it on the host.** `tools/os88disk.py` already places every `.o88` and
-  can therefore write a correct `ICONS.DAT` into the apps floppy as it builds
-  it. That makes the shipped disk arrive with a warm cache, costs the target
-  nothing, and reduces the runtime writer to an optional extra for
-  user-added packages.
+  knows the cluster it placed each one at, so it can write a correct, fully
+  warm `ICONS.DAT` as it builds the floppy. The shipped disk then costs the
+  target nothing on a machine where nothing has moved.
+- **Write on a MISS, not on a move — do not hook the file operations.** The
+  instinct is to update the cache when the file manager moves or deletes an
+  app, and that is both more work and less complete: it catches only the moves
+  *this OS* made, and the case actually worth surviving is a file moved from
+  DOS, from another machine, or by a rebuild. Healing at the point of discovery
+  covers all of them with one code path — the search has just paid ~35 sectors
+  to learn something the cache did not know, so writing it back is cheap
+  *relative to what was just spent*, and it happens once per app per move
+  rather than once per paste. It also means a **deleted** app cleans itself up
+  the next time one of its documents is opened, with no delete hook either.
+  This is the one place where doing less is also doing more.
 - **The cache may serve icons on faith; it must never serve the open path.** A
   stale hit — someone replaced `NOTEPAD.O88` with a different program of the
   same name — is a cosmetically wrong icon, which is harmless, and would be a
@@ -384,11 +405,18 @@ Four things about it:
 - **A miss is ordinary.** An app moved or deleted behind the OS's back means
   the stem is not where the cache implies; that falls through to §2.7's rungs
   exactly as an empty hint does. No new failure mode.
-- **Writing it at runtime follows SPEC.md §31.8's discipline, or not at all.**
-  A write is the 2+ second frozen-UI sequence quoted above, so it can never
-  land on a click. If the runtime writer is built, it writes at a moment the
-  user already expects disk activity — and it dirties `build/apps.img`, a
-  tracked shipped artifact, which is CLAUDE.md's standing trap.
+- **The write is affordable only because of where it sits.** It is the 2+
+  second frozen-UI sequence CLAUDE.md quotes, and SPEC.md §31.8's rule is that
+  no such write may land on a click. It does not: it lands immediately after a
+  search the user has *already* waited seconds for, on the rare path, and it is
+  what stops that wait recurring. That is the opposite of the Control Panel
+  case the rule was written for — there the work was already done and only the
+  record waited; here the record is the entire point. Worth stating in SPEC.md
+  as an explicit exception rather than leaving it to look like an oversight.
+- **A failed write is a normal outcome.** A write-protected disk — the shipped
+  boot floppy on all seven 86Box machines carries `wp://` deliberately — means
+  no cache, so every session re-searches. Degradation, not an error, and
+  nothing user-visible.
 
 It **composes with the build-time bake rather than replacing it**: a fresh or
 foreign disk has no cache, and the shipped set must be right on the first boot
@@ -588,13 +616,13 @@ so no existing `.o88` is invalidated (SPEC.md §20.8 rule 4).
   estimate in §8 past what is left. I would not take it in v1; if it is
   wanted, the tables should shrink to pay for it, and write timing follows
   SPEC.md §31.8 — on panel close, never on registration.
-- **Phase 2c: the on-disk icon cache** (§2.5.2). One sector in place of ~140,
-  and the host half is nearly free — `tools/os88disk.py` writes `ICONS.DAT`
-  into the apps floppy as it builds it, so the shipped disk arrives warm. Split
-  it: the **reader** (~100 bytes, and the 192-byte staging can borrow
-  `dsk_secbuf`) is the whole of the benefit and should ship with Phase 2; the
-  **runtime writer** (~150 more) only matters for packages the user added
-  themselves, and brings the §31.8 write-timing question with it.
+- **Phase 2c: the on-disk icon cache** (§2.5.2) — **not optional, and it is
+  reader *and* writer.** One sector in place of ~140. The host half is nearly
+  free (`tools/os88disk.py` writes `ICONS.DAT` as it builds the floppy, so a
+  shipped disk arrives warm), and the runtime writer is what keeps it warm once
+  anything moves — including the shipped apps, whose baked glyph survives a
+  move but whose *location* does not. Reader ~100 bytes (the row staging can
+  borrow `dsk_secbuf`), writer ~150.
 - **Phase 2b: the bounded tree walk** (§2.7). Finds a program in a folder
   nobody has browsed and no default names. `filecp.inc`'s frame array is the
   pattern — `FCP_MAXD` = 6, no call stack. ~150 bytes and ~1 second on a
@@ -625,6 +653,7 @@ Phase 2 is written.
 | the hint + default-folder arrays (§2.2) | `.text` | 48 |
 | hint validation + the second notice (§2.7) | `.text` | ~60 |
 | `ICONS.DAT` reader + name (§2.5.2, staging borrows `dsk_secbuf`) | `.text` | ~100 |
+| `ICONS.DAT` heal-on-miss writer (§2.5.2) | `.text` | ~150 |
 | the page frame body | `.text` | 64 |
 | `assoc_find` / `assoc_note_app` | `.text` | ~110 |
 | `assoc_reduce` (majority 2×2) | `.text` | ~70 |
@@ -635,10 +664,25 @@ Phase 2 is written.
 | 2 API cells + the X stub | `.text` | ~40 |
 | notice strings | `.text` | ~40 |
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
-| **total** | | **~1,190** |
+| **total** | | **~1,340** |
 
-About 78% of what is left, and that is close enough to the guard that the
-8 × 16 table sizing (−96) should be assumed rather than held in reserve. The build-time glyph bake (§2.5) is in this table
+**This no longer fits comfortably** — 87% of the 1,536, before the estimates
+have met a single instruction, and every one of them is a guess from
+comparable routines. Two things follow, and neither is "hope":
+
+- Take the 8 × 16 table sizing (−96) as the baseline, not a reserve.
+- **Phase 1 must be built and measured against the guard before Phase 2 is
+  written.** If the real number tracks the estimate, this feature needs a
+  `KERN_BUDGET` decision — which per CLAUDE.md is a conversation with whoever
+  wants it, not a build fix. The honest framing for that conversation: the
+  guard has moved five times, each asked for and granted, and the fifth moved
+  it *down* onto the kernel deliberately.
+
+There is also a real prospect of paying for it rather than asking. FIELD-NOTES
+note 3 — which this plan's costing produced — identifies a same-volume `chdir`
+doing a full `disk_mount` and a nine-sector FAT re-read per directory change.
+Fixing that is a *speed* change, but a same-volume fast path may well be
+smaller than the code it lets `assoc_run` avoid. The build-time glyph bake (§2.5) is in this table
 at zero — it changes where the app slot's 8 bytes come from, not what they
 cost — and `tools/os88mini.py` runs on the host. That is affordable and it is not nothing, and per
 CLAUDE.md the decision to spend it belongs with whoever wants the feature —
