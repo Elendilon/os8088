@@ -174,6 +174,8 @@ MC_BG       equ CBLACK
 MC_NODMG    equ 0x7FFF              ; [mc_gdx1] when the terrain owes nothing
 MC_SFW      equ 10                  ; status fields, in CELLS: score / high
 MC_WFW      equ 9                   ; ...and 'W12 x6' with room to spare
+MC_MSGW     equ 28                  ; the banner's span: 'THE END - N FOR A NEW
+                                    ; GAME' is 26, and the padding is its erase
 
 ; -----------------------------------------------------------------------------
 ; mc_entry - package entry point (SPEC.md 20.2)
@@ -3313,6 +3315,7 @@ mc_draw_all:
     push si
     push di
     mov byte [mc_full], 0
+    mov word [mc_msgp], 0           ; the content fill took the banner with it
     call mc_gdclear
     mov byte [mc_bdirty], 0
     mov byte [mc_sdirty], 0
@@ -4895,6 +4898,7 @@ mc_draw_status:
     mov cx, MC_SFW
     call mc_field
     mov si, mc_sbuf
+    mov word [mc_runw], MC_SFW * 8
     xor cx, cx                      ; hard left, already aligned
     mov dx, [mc_texty]
     mov al, CWHITE
@@ -4909,6 +4913,7 @@ mc_draw_status:
     mov cx, MC_SFW
     call mc_field
     mov si, mc_sbuf
+    mov word [mc_runw], MC_SFW * 8
     mov cx, [mc_cw]
     sub cx, MC_SFW * 8
     shr cx, 1
@@ -4949,6 +4954,7 @@ mc_draw_status:
     mov cx, MC_WFW
     call mc_field
     mov si, mc_sbuf
+    mov word [mc_runw], MC_WFW * 8
     mov cx, [mc_cw]
     sub cx, MC_WFW * 8
     and cx, 0xFFF8
@@ -5013,7 +5019,8 @@ mc_field:
     ret
 
 ; mc_runc - one opaque run in CONTENT coordinates (the mc_textc of SPEC.md 6.1)
-; in:  SI = string, CX = x, DX = y, AL = ink, AH = background
+; in:  SI = string, CX = x, DX = y, AL = ink, AH = background, [mc_runw] = the
+;      field's PIXEL width (the Mode X fallback has to erase it by hand)
 ; preserves all registers.  On the Mode X surface the kernel's drawing slots
 ; are off limits (SPEC.md 53.7), so it falls back to the twins there.
 mc_runc:
@@ -5035,7 +5042,7 @@ mc_runc:
     mov ax, cx                      ; the field's own span, cleared
     mov bx, dx
     mov cx, ax
-    add cx, MC_SFW * 8
+    add cx, [mc_runw]
     dec cx
     mov dx, bx
     add dx, 7
@@ -5055,9 +5062,20 @@ mc_runc:
 ; mc_draw_msg - the banner in the middle of the sky
 ; in:  gfx lock held; preserves all registers
 ;
-; It is erased and redrawn every frame it is showing, which is affordable
-; because it only shows between waves and is one strip. [mc_msgon] is what
-; makes the erase happen on the frame it goes away.
+; SPEC.md 48.9.3. This ran EVERY FRAME the banner was showing, and every one
+; of those frames erased a full-content-width band and then lettered the text
+; back into it - PERFORMANCE.md Part 1's erase-and-letter pair at 18 Hz, for
+; the whole of M_READY and the whole end-of-wave tally. Its own comment called
+; that affordable, which it was in WORK and never was on the glass: the strip
+; is blank between the fill and the glyphs, and nothing that measures time
+; reports it.
+;
+; Two things fix it and both are needed. [mc_msgp] is the banner that is
+; ACTUALLY on screen, so an unchanged one costs a compare and nothing else -
+; which is most frames. And when it does change it is ONE opaque run (SPEC.md
+; 6.1), centred inside a fixed span of spaces, so the padding erases whatever
+; was there and no cell is ever momentarily blank. Taking the banner down is
+; the same call with an empty string.
 ; -----------------------------------------------------------------------------
 mc_draw_msg:
     push ax
@@ -5065,6 +5083,7 @@ mc_draw_msg:
     push cx
     push dx
     push si
+    push di
     mov si, 0
     mov al, [mc_mode]
     cmp al, M_READY
@@ -5090,26 +5109,87 @@ mc_draw_msg:
 .bonus:
     mov si, mc_s_bonus
 .have:
-    or si, si
-    jnz .draw
-    cmp byte [mc_msgon], 0          ; nothing to say: erase the last thing said
-    je .out
-    mov byte [mc_msgon], 0
-    call mc_msg_erase
-    jmp short .out
-.draw:
-    call mc_msg_erase
-    mov byte [mc_msgon], 1
-    mov al, CWHITE
-    call mc_setcol
-    call OSAPI_FONT_WIDTH
+    cmp si, [mc_msgp]               ; the one already on screen? then the
+    jne .paint                      ; frame owes this strip nothing at all -
+    mov al, [mc_mode]               ; UNLESS something can still draw over it.
+    cmp al, M_ENDA                  ; SPEC.md 48.9.1's trap in miniature: the
+    je .paint                       ; every-frame redraw this replaced was
+    cmp al, M_ENDC                  ; also what healed a trail crossing the
+    je .paint                       ; banner. In M_READY and M_PAUSE nothing
+    cmp al, M_OVER                  ; moves, so a compare is the whole cost;
+    je .paint                       ; in the three modes where ABMs are still
+    jmp short .out                  ; finishing it repaints - which is now
+.paint:                             ; opaque, so it costs work and not a flash
+    mov [mc_msgp], si
+    call mc_msgcentre               ; mc_msgbuf = the text inside MC_MSGW
+    mov si, mc_msgbuf               ; cells of spaces, or all spaces for none
+    mov word [mc_runw], MC_MSGW * 8
     mov cx, [mc_cw]
-    sub cx, ax
+    sub cx, MC_MSGW * 8
+    jns .xok
+    xor cx, cx
+.xok:
     shr cx, 1
+    and cx, 0xFFF8                  ; the fast path wants a byte column
     call mc_msgy
     mov dx, ax
-    call mc_textc
+    mov al, CWHITE
+    mov ah, MC_BG
+    call mc_runc
 .out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mc_msgcentre - SI -> a NUL string (or 0), centred in MC_MSGW cells of
+; spaces at mc_msgbuf, NUL terminated. Preserves all registers.
+mc_msgcentre:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, mc_msgbuf               ; the whole field, spaces
+    mov cx, MC_MSGW
+.blank:
+    mov byte [di], ' '
+    inc di
+    loop .blank
+    mov byte [di], 0
+    or si, si
+    jz .out
+    mov bx, si                      ; BX = the string, CX = its length
+    xor cx, cx
+.len:
+    cmp byte [si], 0
+    je .haveln
+    inc si
+    inc cx
+    jmp short .len
+.haveln:
+    cmp cx, MC_MSGW                 ; a banner longer than the field is left
+    ja .out                         ; flush left rather than centred badly
+    mov ax, MC_MSGW
+    sub ax, cx
+    shr ax, 1                       ; AX = the left margin, in cells
+    mov di, mc_msgbuf
+    add di, ax
+    mov si, bx
+.copy:
+    mov al, [si]
+    or al, al
+    jz .out
+    mov [di], al
+    inc di
+    inc si
+    jmp short .copy
+.out:
+    pop di
     pop si
     pop dx
     pop cx
@@ -5124,29 +5204,6 @@ mc_msgy:
     shr ax, 1
     sub ax, 4
     pop bx
-    ret
-
-mc_msg_erase:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    mov al, MC_BG
-    call mc_setcol
-    call mc_msgy
-    mov bx, ax
-    xor ax, ax
-    mov cx, [mc_cw]
-    dec cx
-    mov dx, bx
-    add dx, 8
-    call mc_fillc
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6076,7 +6133,9 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_spx2                   ; drawing this call (SPEC.md 48.9)
     MBYTE mc_bmask                  ; ...and which bases they may touch
     MBYTE mc_sdirty                 ; ...or at least the score strip
-    MBYTE mc_msgon
+    MWORD mc_msgp                   ; the banner ACTUALLY on screen, 0 = none
+    MBUF  mc_msgbuf, MC_MSGW + 2
+    MWORD mc_runw                   ; mc_runc's field width, in pixels
     MBYTE mc_hired                  ; the worker exists
     MBYTE mc_abon                   ; the credits are up
     MWORD mc_abw

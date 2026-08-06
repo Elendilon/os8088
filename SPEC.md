@@ -14372,6 +14372,37 @@ what used to put the other one back.
 - **The explosion's shrink** erases the peak blob and draws the small one
   (§48.8), about 1.5 ms once per burst.
 
+#### 48.9.3 The banner was the worst of them, and it hid in a comment
+
+`mc_draw_msg` is called **every frame** from `mc_rbody`, and every frame the
+banner was showing it erased a full-content-width band and lettered the text
+back into it. Its own comment said this was "affordable because it only shows
+between waves and is one strip" — and it was affordable in **work**, which is
+exactly the trap PERFORMANCE.md Part 1 exists to name. The strip is blank
+between the fill and the glyphs; at 18 Hz, for the whole of `M_READY` and the
+whole end-of-wave tally, that is `DEFEND YOUR CITIES` and `BONUS POINTS`
+strobing. Nothing that measures *time* reports it, and the two methods cost
+the same.
+
+Two changes, and both are needed:
+
+- **`[mc_msgp]` is the banner actually on screen.** An unchanged one costs a
+  compare. That is most frames.
+- **A change is ONE opaque run** (§6.1), the text centred inside `MC_MSGW`
+  cells of spaces at an 8-aligned x. The padding **is** the erase, so taking
+  the banner down is the same call with an empty string, and no cell is ever
+  momentarily blank.
+
+And then §48.9.1's trap again, because it is the same trap: the every-frame
+redraw was also what **healed** a missile trail crossing the banner. Nothing
+moves in `M_READY` or `M_PAUSE`, so a compare really is the whole cost there
+— but in `M_ENDA`, `M_ENDC` and `M_OVER` the ABMs are still finishing, so the
+banner repaints every frame in those three. That costs work and no longer
+costs a flash, which is the whole point of having made it opaque: **the two
+questions "how often does this draw" and "does it blank while it draws" are
+independent, and this file got them wrong in opposite directions in the same
+routine.**
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
