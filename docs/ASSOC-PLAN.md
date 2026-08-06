@@ -755,10 +755,14 @@ Three things make it cheap, and one needs checking:
   through `fmv_get_icon`. The dialog needs the same ~15 lines against
   `dsk_get_icon`, including the all-zero → `ico_app16` fallback. Duplication
   worth taking rather than parameterising a hot path for one caller.
-- **Check the width.** The text area is `FD_LX1+1` .. `FD_SBX-1` — 7..199, so
-  **192 pixels**, and 18 of them go to the icon. A 12-character name is 96px
-  and the size column has to fit in what is left of 174. If it does not, the
-  size column loses digits before the name loses characters.
+- **The width works, with 8 pixels to spare — and that is the whole margin.**
+  Checked rather than assumed: the name is drawn at `cx = 10` and the size
+  column is **right-aligned at 196** (`fdlg.inc:1281`). An icon at 10..25 plus
+  a 2px gap moves the name to 28, so a 12-character name (`FD_NAMEMAX`) ends
+  at 124. The largest size that can exist is bounded by BPB rule 8's 65,535
+  sectors — 33,553,920 bytes, **8 digits**, 64px, starting at 132. Eight pixels
+  of clearance. So a 16px icon fits and an 18px one does not; anything that
+  widens the inset must move the size column instead.
 
 **Verify:** open Paint, File > Open, and confirm the `.BMP` rows carry the same
 document mark the Disk window shows — the two read the same snapshot, so a
@@ -993,6 +997,46 @@ adapter** — CGA and Hercules differ from VGA in kind, not just in depth, and
 four pixels of page margin is exactly where that shows.
 
 Whichever wins, the loser's ~60 bytes come back out.
+
+## 9.2 Order of work, across both plans
+
+The two plans interleave and the order matters for three reasons, so it is
+fixed here rather than decided commit by commit:
+
+1. **DISK-PERF Phase 0 — count.** Cheap, and every later judgement in either
+   plan is measured against it.
+2. **DISK-PERF Phases 1–3.** They make §2.5.1's search cheap, so the
+   association work is built on a foundation that has stopped moving. They also
+   touch `disk_mount` and `dsk_xfer`, which ASSOC Phase 1 touches too —
+   serialising them keeps two sets of changes out of one harvest loop.
+3. **ASSOC Phases 1–5**, in order, with Phase 1 measured against the guard
+   before Phase 2 is written.
+4. **DISK-PERF mechanism D**, which needs `ASSOC.DAT` to exist (ASSOC Phase 3).
+5. **The icon prototype** (§9.1) and the decision it settles.
+
+**The budget raise does not land until step 3.** DISK-PERF's ~380 bytes fit
+inside the 1,536 that are spare today, so moving `KERN_BUDGET` before ASSOC
+Phase 1 would be raising a guard nothing has yet pushed against — which is the
+failure the fifth move exists to record. The seventh entry in
+`kernel/kernel.asm`'s comment goes in with the commit that first overruns.
+
+**SPEC.md goes first within every phase**, not after it. CLAUDE.md is binding:
+"Update SPEC.md *before* changing any interface, not after." §10 lists what
+each phase owes it.
+
+## 9.3 A gate package, which the plan did not have
+
+`tests/` is where this tree proves a capability mechanically — `fmtest` for FM,
+`sbtest` for the streams, `filetest` for the write path, `stackprobe` for the
+stack margin — and none of the phases above has one. **`tests/assoctest`
+should exist**, riding its own scratch image (`make test
+TESTAPPS=build/assoctest.img`) and asserting the parts a screenshot cannot:
+that `OSAPI_ASSOC_SET` takes and refuses correctly at the table's cap, that
+`OSAPI_ARG_FILE` answers once and then reports empty, that a second instance
+does not inherit the document, and that the sticky bit survives a re-browse.
+
+It belongs on the `testing` branch while it is being written, per CLAUDE.md,
+and nothing under `tests/` is tracked or ships.
 
 ## 10. SPEC.md
 

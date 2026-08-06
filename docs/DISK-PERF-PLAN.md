@@ -101,8 +101,14 @@ argument but because it has no donated claim to bank *into* — and its window i
 
 So what is missing is **permission, not machinery**: let a quiet mount reuse
 `FAT_SEG` when it already holds this volume's FAT. That needs one byte
-recording whose FAT is loaded — check `dsk_fatw0`/`dsk_fatd0` first, they may
-already carry it.
+recording whose FAT is loaded, and **checking says it does not exist yet** —
+`dsk_fatw0` is the resident *sector*, `dsk_fatd0` the dirty low end, and
+`dsk_fatww[DVOL_MAX]` is the per-volume saved sector for volumes that own a
+claim. None of them answers "whose FAT is in the shared `FAT_SEG`". Add it
+beside `dsk_fatww`, where the volume-indexed state already lives — and note
+that `dsk_fatw0`/`dsk_fatd0` are deliberately in `.text` with real
+initialisers because `dsk_fatw_park` runs at the machine's first mount; a new
+byte with the same reach needs the same treatment.
 
 Three traps, all of which the driver-backed path already survives and which are
 therefore already written down:
@@ -284,7 +290,24 @@ validating the baked glyphs whether or not any of this lands.
 | the felt speed | `make xt` / `make xt-640`; this is the only test that answers the field report |
 | the other transport | `make test HDD=40` |
 
-**The standing trap:** QEMU mounts `build/apps.img` and `build/os8088.img`
+**The standing trap gets WORSE once mechanism D lands, and this is the one to
+internalise.** Today those images go dirty when a test *saves* something. Once
+`ASSOC.DAT` heals on a miss, **merely opening a folder can write to the disk**
+— so a test that only navigates can dirty a tracked, shipped artifact, and
+`make check-images` reports STALE with nothing in `apps/` changed to explain
+it. A shipped disk arrives warm (`tools/os88disk.py` writes the cache), so a
+hit costs nothing and this bites only on a disk something missed on — but that
+includes every scratch image and every disk built before the feature.
+
+**Two new `make check-images` couplings**, both of which read as STALE if a
+dependency is wrong rather than as an error: the shipped floppies gain
+`ASSOC.DAT` (deterministic — `os88disk.py` already pins the volume serial and
+every timestamp), and `kernel.bin` gains generated glyph data depending on four
+package builds (ASSOC-PLAN §2.5). The generated `.inc` is what makes the second
+self-correcting.
+
+**The rule itself is unchanged and now needs running more often:** QEMU mounts
+`build/apps.img` and `build/os8088.img`
 writable and the OS writes to them, so any test that saves or deletes dirties a
 tracked, shipped artifact. `rm -f build/apps.img build/apps360.img
 build/os8088.img build/os8088-360.img && make` before committing, and
