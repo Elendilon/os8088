@@ -319,6 +319,8 @@ drv_fptr2:   dw PKG_DISP        ; class 2 (DRVC_DISK)
 drv_fseg2:   dw 0
 
 drv_cfgname: db 'SYSTEM.CFG', 0
+drv_sysname: db 'KERNEL.SYS', 0 ; what makes a disk THE system disk (19.6): the
+                                ; settings are written beside it or not at all
 drv_cfgsig:  db 'O88CFG', 0, 0  ; 8 bytes, byte for byte the file's head
 
 drv_tab:
@@ -1997,6 +1999,24 @@ drv_cfg_ser:
 ; Mounts first, because this is reached from a Control Panel click and the
 ; disk in A: may not be the one that booted. UI-task context only, like every
 ; other write (SPEC.md 18.4).
+;
+; **And it may not be the SYSTEM disk at all** (SPEC.md 51.5.1), which is the
+; other half of that sentence and used to go unsaid. A single-floppy machine
+; swaps to the apps disk to launch anything - `ui_tm_open` is built around
+; exactly that - so a Control Panel change made afterwards wrote SYSTEM.CFG to
+; whatever was in the drive. Two things went wrong at once: the setting never
+; reached the system disk, and the user's data disk gained a hidden + system
+; file that SPEC.md 19.6's own protection makes IMPOSSIBLE to list or delete
+; from inside os8088.
+;
+; So the volume is identified before it is written: KERNEL.SYS in the root is
+; what makes a disk the system disk, and dskw_stat answers that off the
+; directory sectors, which is where a hidden + system entry can be seen at all.
+;
+; **dskw_stat and not drv_find**, deliberately: drv_find answers a SIZE and
+; refuses one whose high word is non-zero, and KERNEL.SYS is 63,944 bytes
+; today - so the day the kernel passes 64KB, the check would start reporting
+; that the system disk is not the system disk. Existence is the question here.
 ; -----------------------------------------------------------------------------
 drv_cfg_save:
     push bx
@@ -2007,6 +2027,9 @@ drv_cfg_save:
     push es
     call drv_mounted
     jc .nodisk
+    mov si, drv_sysname
+    call dskw_stat              ; the disk in A: is not guaranteed to be ours
+    jc .notsys
 
     push ds                     ; rebuild the whole file: a settings file is
     pop es                      ; small and a partial one is a bug waiting for
@@ -2021,7 +2044,11 @@ drv_cfg_save:
                                 ; is neither listed nor deletable, and only
                                 ; this entry point may rewrite one (19.6)
     jmp short .out
-.nodisk:
+.notsys:
+    mov ax, FERR_NOENT          ; a disk, but not ours. [cp_dsave] carries it
+    stc                         ; to the Drivers page, whose caption already
+    jmp short .out              ; says 'Cannot save to the system disk' - which
+.nodisk:                        ; is exactly the truth in this case
     mov ax, FERR_NODISK
     stc
 .out:
