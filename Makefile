@@ -731,20 +731,28 @@ test-snd: $(IMG) $(TESTAPPS)
 # wp:// (write-protect) prefix back on the DATA floppy - which makes every
 # SPEC.md 18.4 write fail as FERR_WPROT and reads, from inside the OS, as a
 # filesystem bug rather than an emulator setting. Strip it at launch so the
-# setting cannot silently regress. The BOOT floppy keeps its wp:// on
-# purpose: its sector 0 has no valid BPB, so the kernel refuses to write it
-# anyway, and the prefix is a second lock on the disk carrying the loader.
+# setting cannot silently regress.
+#
+# BOTH floppies now, because the BOOT floppy is a writable FAT12 volume too
+# (SPEC.md 19.3) and SYSTEM.CFG lives in its root: protected, every Control
+# Panel setting silently fails to survive a reboot. Its old justification -
+# "sector 0 has no valid BPB so the kernel refuses to write it anyway" -
+# stopped being true when the system disk became a real volume.
+#
+# The cost is the one QEMU already imposes: a machine that writes its settings
+# dirties build/os8088.img, which is a TRACKED, SHIPPED artifact, so
+# `rm -f build/os8088.img build/os8088-360.img && make` before committing.
 # perl -pi behaves identically on GNU and BSD/macOS, unlike sed -i.
-UNPROTECT_B = perl -pi -e 's{^fdd_02_fn = wp://}{fdd_02_fn = }'
+UNPROTECT = perl -pi -e 's{^fdd_01_fn = wp://}{fdd_01_fn = }; s{^fdd_02_fn = wp://}{fdd_02_fn = }'
 
 # Boot the 360KB image on emulated period hardware in 86Box.
 xt: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VM)/86box.cfg
+	@$(UNPROTECT) $(VM)/86box.cfg
 	$(BOX) -P $(VM) -N
 
 # The same XT with a full 640KB of RAM instead of 256KB.
 xt-640: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VM640)/86box.cfg
+	@$(UNPROTECT) $(VM640)/86box.cfg
 	$(BOX) -P $(VM640) -N
 
 # The two monochrome machines (SPEC.md 39), both 256KB - which is all an
@@ -752,11 +760,11 @@ xt-640: $(IMG360) $(APPSIMG360)
 # exercise the detection probe and the Hercules renderer: QEMU has no such
 # card, so `make test VIDEO=cga` covers the mono renderer but never the probe.
 xt-cga: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VMCGA)/86box.cfg
+	@$(UNPROTECT) $(VMCGA)/86box.cfg
 	$(BOX) -P $(VMCGA) -N
 
 xt-hercules: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VMHERC)/86box.cfg
+	@$(UNPROTECT) $(VMHERC)/86box.cfg
 	$(BOX) -P $(VMHERC) -N
 
 # The other end of the range: an AT-class machine, VGA, more RAM than the OS
@@ -782,15 +790,15 @@ xt-hercules: $(IMG360) $(APPSIMG360)
 # the CMOS to vm/<machine>/nvr/ (gitignored) and every later boot goes
 # straight to the desktop.
 286: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM286)/86box.cfg
+	@$(UNPROTECT) $(VM286)/86box.cfg
 	$(BOX) -P $(VM286) -N
 
 386sx: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM386SX)/86box.cfg
+	@$(UNPROTECT) $(VM386SX)/86box.cfg
 	$(BOX) -P $(VM386SX) -N
 
 386: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM386DX)/86box.cfg
+	@$(UNPROTECT) $(VM386DX)/86box.cfg
 	$(BOX) -P $(VM386DX) -N
 
 # The three sound machines: an XT with a Sound Blaster 2.0 (so the OPL2 is
@@ -800,15 +808,15 @@ xt-hercules: $(IMG360) $(APPSIMG360)
 # bus and clock are period-correct, which is the only place a stream's pacing
 # means anything (SPEC.md 34.5/51.4).
 xt-sound: $(IMG360) $(APPSIMG360)
-	@$(UNPROTECT_B) $(VMXTSND)/86box.cfg
+	@$(UNPROTECT) $(VMXTSND)/86box.cfg
 	$(BOX) -P $(VMXTSND) -N
 
 286-sound: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM286SND)/86box.cfg
+	@$(UNPROTECT) $(VM286SND)/86box.cfg
 	$(BOX) -P $(VM286SND) -N
 
 386-sound: $(IMG) $(APPSIMG)
-	@$(UNPROTECT_B) $(VM386SND)/86box.cfg
+	@$(UNPROTECT) $(VM386SND)/86box.cfg
 	$(BOX) -P $(VM386SND) -N
 
 # check-images - are the git-tracked binaries in build/ what the sources
