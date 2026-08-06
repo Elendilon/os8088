@@ -746,6 +746,67 @@ Command keeps its own Bresenham for two cases the kernel cannot serve: the
 with an endpoint outside its content box, where the kernel would clip to the
 screen and paint over the desktop.
 
+### 5.7 The per-call floor — what a small drawing call spends
+
+**A drawing call costs almost the same whatever it draws**, and the field
+set proved it beyond argument: on a 4.77MHz 5150, `GFX_PIXEL` and
+`GFX_HLINE 8px` measured 765.64 and 764.82 us on a Hercules and 765.70 and
+764.80 on a CGA — two different routines and two physically different cards
+whose framebuffers are 13% apart at the bus, agreeing to one part in ten
+thousand (PERFORMANCE.md Part 9). **~756 us of that is fixed setup, about
+3,600 CPU clocks, and it is CPU-side.** That is why §5.4's blit is priced
+`runs x 0.5 ms`, why §11.90/§11.91 count primitive calls rather than pixels,
+and why this subsection exists at all.
+
+Taken apart, one `gfx_pixel` on a 1bpp adapter was **196 guest instructions**
+(measured under `-icount`, PERFORMANCE.md Part 4) spread over eleven
+routines, with no hot spot anywhere: the API far-call cell, `gfx_pixel`'s
+rect marshalling, §11.3's clip test, `bb_mono_chk`, the `[bb_on]` dispatch,
+`vga_rect_setup`, `gfx_rowbase`, `bb_dirty_rect`, `bb_ink`, `bb_plane_op`
+and `bb_col`. **It is generic machinery, and what it costs is
+register discipline and call structure rather than work** — a third of it
+was push/pop pairs (29.7 clocks each, measured) and near call/rets (52.1).
+
+Seven things hold the floor down. Each is a rule, because each one reads as
+a harmless tidy-up in the other direction:
+
+1. **A one-way flag is tested before it is recomputed.** `bb_mono_chk`
+   opens with `cmp byte [bb_mono], 0` — once the flag is retired there is
+   nothing left to decide — and `bb_init` retires it at boot on a 1bpp
+   adapter, where a back buffer can never be armed (§39.5). Eight
+   instructions on every fill and every glyph become three.
+2. **`bb_dirty_rect` asks `[bb_dbl]` first.** With no buffer armed it was
+   computing a rectangle that `bb_dirty`'s first compare then discarded.
+3. **The edge masks come from tables** (`vga_lmtab`/`vga_rmtab`), not from
+   `shr dl,cl` / `shl dl,cl`. A variable shift is 8 clocks plus 4 per bit on
+   an 8088 and needs CX freed around it; `[vga_y1]` is banked before the
+   masks are built precisely so BX is free to index them.
+4. **`gfx_rowbase` looks its bank base up** (`vid_banktab`) instead of
+   `shl bx, 13`, which is 60 clocks for a value with four possible answers.
+   The formula in §39.3 is unchanged. The `mul` by the stride stays: the
+   alternative is a per-row table, and 480 rows of it is a third of what
+   `KERN_BUDGET` has left.
+5. **`bb_col` preserves nothing** (§32). Its only caller banks BX and DX for
+   the whole plane and reloads AH, DI, SI and BP around every call, so the
+   five push/pop pairs it used to open with were saving registers that
+   caller was about to overwrite. SI and BP then carry `gfx_nextrow`'s step
+   and wrap bit across the row loop.
+6. **`gfx_nextrow` is inlined in every row loop of the renderer**, as it
+   already was in font.inc's (§6.1). Its body is three instructions and the
+   call and ret around them cost as much again — and **a fill walks its rows
+   three times**, once per edge column and once for the interior, so a fill
+   pays it three times per scan line.
+7. **`[bb_pat]` is staged by whoever needs it**, not by `bb_rect` for all
+   three modes: `BBM_GRAY` starts from the dither byte, `BBM_SOLID`'s own
+   dither branch stages it in `bb_ink`, and `BBM_XOR` never reads it.
+
+Together those took a `gfx_pixel` from 196 instructions to 158 and a
+`GFX_FILL 64x64` by 14.5%, with the output byte-identical on all three
+adapters and both renderers (PERFORMANCE.md Part 9, Set 3). What is left is
+mostly irreducible: the far-call cell is the package ABI (§20.1), the eight
+push/pops in `bb_rect` are `gfx_fill`'s "clobbers flags" contract, and
+`vga_rect_setup`'s clipping is the clipping.
+
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h
@@ -9495,6 +9556,23 @@ solid and dither modes, so AL=AH and one `rep stosw` (plus a `stosb` tail on
 an odd width, selected by the `shr cx, 1` carry that the string op leaves
 alone) replaces two `stosb`. Free on an 8088's 8-bit bus, half the bus
 cycles on any 16-bit part.
+
+**Register discipline inside a plane, which is §5.7's floor and not a
+style.** `bb_plane_op` banks BX and DX once per plane and reloads AH, DI, SI
+and BP itself around each call, so **`bb_col` preserves nothing** — the five
+push/pop pairs it used to open with were saving registers its only caller
+was about to overwrite, and a push/pop pair is 29.7 clocks on the target
+machine. What that buys is registers for the row loop: both routines hold
+`gfx_nextrow`'s step and wrap bit (§39.3) in registers and open-code the row
+advance rather than calling it, which matters three times per scan line
+because a fill walks its rows once per edge column and once for the
+interior. `bb_ink` reads `gfx_inktab` through SI for the same reason — BX is
+the plane counter and the colour bits — and it is the only caller that needs
+the table, so `gfx_ink` itself is untouched.
+
+`[bb_pat]` is staged by whichever mode actually reads it: `BBM_GRAY` before
+the plane loop, `BBM_SOLID` inside `bb_ink` and only on its dither branch,
+`BBM_XOR` never. `bb_parity` is that one computation, in one place.
 - XOR ops (`bb_xor_rect/xor_fill` internals): `xor dest, mask` at edges,
   `not dest` for full interior bytes, all four planes — self-inverting
   exactly like the hardware XOR path.
@@ -11107,6 +11185,16 @@ bit the unconditional add carries into once it steps off the last bank. On
 VGA `bmask`/`bshift`/`wrapbit` are all 0, so `gfx_rowbase` reduces to exactly
 `y * 80` and `gfx_nextrow` to `add di, 80` — **with no adapter test on either
 path**, which is why the VGA output is bit-for-bit what it was before.
+
+Two implementation notes, both about the 8088 rather than the formula
+(§5.7). `bank * 0x2000` is a **table lookup** (`vid_banktab`, four entries —
+the maximum the 0x2000 assertion at the foot of the module allows), because
+`shl bx, 13` is 8 clocks plus 4 per bit and this runs on the fixed cost of
+every drawing call. And **`gfx_nextrow` is meant to be inlined wherever a
+row loop can spare the bytes**: its body is three instructions and the call
+and ret around them cost as much again, so font.inc's cell loops (§6.1) and
+the renderer's row loops (§32) both open-code it, CS overrides and all. A
+loop that can hold `rowadd` and `wrapbit` in registers should.
 
 **Both read their parameters through `CS`, not `DS`.** Two callers run with
 DS pointed elsewhere entirely: `bb_xfer`'s save path sets DS to the
