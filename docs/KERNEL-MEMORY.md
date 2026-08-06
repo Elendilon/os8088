@@ -102,15 +102,15 @@ is no longer true:
 
 | | headroom for `.text` + `.bss` |
 |---|---:|
-| guard 2, the segment | **11,582 B** |
+| guard 2, the segment | **11,559 B** |
 | guard 1, the budget | 10,240 B |
 
-At 53,954 bytes of image **guard 1 is the tighter of the two**, and by a
+At 53,977 bytes of image **guard 1 is the tighter of the two**, and by a
 comfortable margin at both ends. The segment used to run out first, and
 hard-disk support (below) is what took it to 71 bytes; the `.lowbss`
 migration, the halved stacks, the boot overlay, the cold segment and finally
 moving the Task Manager out to a package (SPEC.md §28) are what bought it
-back — 71 bytes to 11,582 across those five. So the next thing to hit is a
+back — 71 bytes to 11,559 across those five. So the next thing to hit is a
 conversation about `KERN_BUDGET` rather than the hard 16-bit ceiling, which
 is the intended order: a budget is a decision and a segment is physics.
 
@@ -142,8 +142,8 @@ out of the same constants the guards use.
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | **total** | **70,656 B** | of an 80,896-byte budget — 10,240 B spare |
 
-The image rung is `.text` (50,517) + `.bss` (3,437) = 53,954, rounded up to a
-whole 512 bytes; the 318-byte remainder is the only slack anywhere in the
+The image rung is `.text` (50,540) + `.bss` (3,437) = 53,977, rounded up to a
+whole 512 bytes; the 295-byte remainder is the only slack anywhere in the
 ladder, and it is a rounding artefact rather than a reservation. **The rung
 is no longer pinned at the segment maximum** — it was, from hard-disk support
 until the Task Manager left, and while it was, guard 1's spare could not be
@@ -281,7 +281,7 @@ the interior texture is light so it does not swallow it.
 
 ## Each region in detail
 
-### The image — `.text` 50,517 B + `.bss` 3,437 B
+### The image — `.text` 50,540 B + `.bss` 3,437 B
 
 One flat binary at `KERNEL_SEG:0000`, assembled `-f bin` with no linker.
 `.bss` follows `.text` immediately and is uninitialised by definition, so it
@@ -289,7 +289,7 @@ costs nothing on the floppy and everything in RAM. Where every one of those
 bytes goes is the last section of this document.
 
 The ladder charges the pair **rounded up to a whole 512 bytes** (see the
-alignment invariant below) — 54,272 B, so 318 bytes of the rung are rounding
+alignment invariant below) — 54,272 B, so 295 bytes of the rung are rounding
 remainder.
 
 **The file on disk runs past that rung**, and the gap is not padding for its
@@ -483,6 +483,7 @@ package calls into empty memory.
 | the Control Panel's code into a cold segment (§2.6) | 79 KB | 74 KB |
 | four API cells for what only the kernel could see (§20.9) | 79 KB | 76 KB |
 | the Task Manager becomes a package on the system disk (§28) | 79 KB | 69 KB |
+| selecting a covered drive icon costs a strip of XOR (§26.1) | 79 KB | 69 KB |
 | ...and where it stands now | 79 KB | **69 KB** (70,656 B) |
 
 The last row is the one to re-measure rather than trust: it moves with every
@@ -497,7 +498,7 @@ what was rejected along the way. This document is what it looks like now.
 
 ## Where the code goes
 
-The 53,954 bytes of image, module by module, and one level down inside each.
+The 53,977 bytes of image, module by module, and one level down inside each.
 Every byte is accounted for exactly once: the child rows of a module sum to
 its `.text`, and the module rows sum to the total. Bold rows are `.text` +
 `.bss` together; the child rows are `.text` unless italicised.
@@ -523,7 +524,7 @@ knowing before you go looking:
 | theme | bytes | share |
 |---|---:|---:|
 | the file system, end to end | 19,859 | 36.8% |
-| the window system and its furniture | 12,432 | 23.0% |
+| the window system and its furniture | 12,455 | 23.1% |
 | hardware: clock, mouse, sound, CPU, XMS, drivers | 8,272 | 15.3% |
 | drawing: adapters, primitives, glyphs, icons | 7,649 | 14.2% |
 | the kernel proper: scheduler, heap, API table | 4,130 | 7.7% |
@@ -545,9 +546,9 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;layout, scroll bar and geometry | 371 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the menu item tables | 72 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *309* | |
-| **`wm.inc`** — the window manager (§11) | **4,619** | **8.6%** |
+| **`wm.inc`** — the window manager (§11) | **4,675** | **8.7%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;drawing the frame, title bar and grow box | 850 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the clip region (§11.3) | 801 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the clip region (§11.3) | 857 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;damage-rect repaint (§11.91) | 735 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;create, resize, destroy, fit and snap | 686 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;z-order: show, hide, front, fullscreen | 626 | |
@@ -698,8 +699,8 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;the bar, the percentage and the frame | 328 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the spinner and its cosine table | 268 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;its own primitives (it runs before `vga12`) | 266 | |
-| **`desk.inc`** — the desktop and volume zones (§14/§26.1) | **792** | **1.5%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;the volume zones, now one per mounted volume | 534 | |
+| **`desk.inc`** — the desktop and volume zones (§14/§26.1) | **759** | **1.4%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;the volume zones, now one per mounted volume | 501 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;clicks on the bare desktop | 182 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the dithered background | 62 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *14* | |
@@ -729,7 +730,7 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *134* | |
 | **`cpudet.inc`** — CPU tiers and the A20 gate (§41.1-41.3) | **10** | **0.0%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;the 8086/286/386 tier test | 10 | |
-| **total** | **53,954** | |
+| **total** | **53,977** | |
 <!-- END generated table -->
 
 ### Reading it
@@ -1112,7 +1113,7 @@ Slack in a buffer whose exact size is an expression anyone can evaluate is
 Where that leaves the two guards, on this build:
 
 ```
-guard 2  .text + .bss   53,954 / 65,536  11,582 bytes
+guard 2  .text + .bss   53,977 / 65,536  11,559 bytes
 guard 1  KERN_SIZE      70,656 / 80,896  10,240 bytes
 ```
 
@@ -1127,5 +1128,5 @@ cold (§ *Cold code*); and the Task Manager left the kernel entirely for a
 package on the system disk (SPEC.md §28), which is the only one of the four
 that came off **both** guards.
 
-That is 71 bytes to 11,582, and guard 1 is the tighter of the two again — the
+That is 71 bytes to 11,559, and guard 1 is the tighter of the two again — the
 intended order, since a budget is a decision and a segment is physics.

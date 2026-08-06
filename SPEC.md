@@ -1456,6 +1456,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_ptr2idx`   | in BX = win ptr (record-aligned); out AL = window index, AH = 0. Clobbers nothing else. The one public home of the `(ptr − wm_wins) / WIN_SIZE` idiom. |
 | `wm_obscured`  | in BX = win ptr; out CF=1 if any visible window above BX in z-order overlaps its frame rect. Result is only trustworthy while the caller holds the gfx lock — the UI task mutates `wm_zord`/window rects under it. Kept, but **no longer the right answer for a background painter**: it vetoes a whole frame for one covered pixel. Use `wm_clip_set` (§11.3). |
 | `wm_clip_set`  | in BX = win ptr; **caller holds the gfx lock**. Builds BX's visible region — its content rect less every visible window above it in `wm_zord`, drop shadows included — into the clip list, and arms clipping. out CF=1 the window is entirely invisible: nothing is armed, draw nothing this frame (also the answer when the region needs more than 16 rects). CF=0 armed. Preserves every register. The region is valid only until the next `gfx_unlock`, which clears it (§11.3). API slot 0x0170 (§20.3). |
+| `wm_clip_rect` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); **caller holds the gfx lock**. `wm_clip_set`'s arithmetic for a rect that belongs to no window: the seed is the caller's rect and the occluders are **every** visible window, because the thing under it is the DESKTOP and nothing is below that. out CF=1 the region needs more than 16 rects — nothing is armed and the caller must fall back to something unconditional; CF=0 armed, and **ZF=1 means the rect is wholly covered** (the list is empty, i.e. disarmed: draw nothing at all). Preserves every register. The two degradations are `wm_clip_set`'s, split apart because a caller can act on them differently — an overflow says nothing is *known*, an empty list is a *fact*. Kernel-internal; §26.2 is its consumer. |
 | `wm_clip_clear`| disarm clipping. Preserves every register. `gfx_unlock` already does this, so a painter only needs it to go back to drawing unclipped inside the same lock hold. API slot 0x0178 (§20.3). |
 | `wm_clip_test` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); out CF=0 the whole rect lies inside **one** clip fragment, or nothing is armed; CF=1 it does not. Preserves every register. This is the question `font_char` and `icon_draw16` ask themselves, exposed so a caller that **erases a rect and then draws glyphs into it** can ask it first — see the granularity rule in §11.3. API slot 0x0180 (§20.3). |
 
@@ -1595,6 +1596,14 @@ its occupied rect **including the 1px drop shadow**: (x, y) to (x+w, y+h)
 inclusive, exactly the extent `wm_obscured` has always tested against. Each
 subtraction replaces one rect with up to four fragments — above, below,
 left and right of the occluder.
+
+There are **three** builds and they differ only in what they seed and which
+occluders they subtract, which is why they share one `wm_clip_seed` and one
+`wm_clip_sub`: `wm_clip_set` (content rect, the windows above it in
+`wm_zord`), `wm_covered` (frame rect, same occluders, opposite reading of an
+empty result — §11.91), and `wm_clip_rect` (a bare screen rect, **every**
+visible window, because what is under it is the desktop and nothing is below
+that — §26.2).
 
 **Storage.** `wm_clip_tab`, 16 rects of {x1, y1, x2, y2} inclusive (128
 bytes of .bss), plus `wm_clip_n` — the live count, and **initialized data in
@@ -6310,7 +6319,9 @@ on a white gap 2px around the text, centered in the zone.
 | `desk_zone_rect` | in AL = zone index; out AX,BX,CX,DX = that zone's **drawn** rect, inclusive — `[vid_desk_zl]`..`[vid_desk_zr]`−1 horizontally, so the label's 2px overhang each side is inside it, not the 48px hit zone. Clobbers all four. |
 | `desk_dmg_zones` | in `[wm_dmg_*]` (§11.91); out AL = bit n set = zone n is inside the damage rect, **and the damage rect grown to cover every one of them**. The growth is not slack: a zone is redrawn whole, so a window sitting over it has to be marked too. |
 | `desk_paint_mask` | in AL = the bitmask `desk_dmg_zones` returned; draw those zones. All registers preserved. |
-| `desk_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window and `dock_click` declined the click, §30). Zone hit: if same zone as desk_sel and [ui_click_t]−desk_clkt < 9 (birth ticks, §10) → clear the selection and call `files_open_drive` with AL = drive. Else select it, stamp desk_clkt. Miss: clear any selection. All its own drawing (selection flips) happens under gfx_lock/gfx_unlock acquired internally, redrawing only the affected zones — EXCEPT when a visible window overlaps a zone's drawn rect (x `[vid_desk_zl]`..`[vid_desk_zr]`−1 = zx−2..zx+49 with the label overhang — 582..633 at 640 wide, §39.2 — window rect incl. the 1px shadow): a partial redraw would paint desktop over that window, so the flip falls back to a full wm_paint_all under the same lock. |
+| `desk_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window and `dock_click` declined the click, §30). Zone hit: if same zone as desk_sel and [ui_click_t]−desk_clkt < 9 (birth ticks, §10) → clear the selection and call `files_open_drive` with AL = drive. Else select it, stamp desk_clkt. Miss: clear any selection. All its own drawing (selection flips) happens under gfx_lock/gfx_unlock acquired internally, redrawing only the affected zones — and **`[desk_sel]` is written inside that lock hold**, not before it, because §26.2's partial case flips pixels rather than repainting them. A zone the flip finds under a window is §26.2's business. |
+| `desk_zone_redraw` | in AL = zone index, whose selection state has **just changed**; caller holds the gfx lock. The one entry point for a selection flip outside `wm_paint_all`; preserves every register. §26.2. |
+| `desk_zone_hilite` | in AL = zone index; caller holds the gfx lock and may have a clip region armed. XOR the zone's 48×44 **hit** rect — the only thing that differs between a selected zone and an unselected one, and self-inverse, so it both applies and removes. Clobbers AX/BX/CX/DX. Module-internal, and the one place that owns the highlight's geometry: `desk_draw_zone` and the partial flip both go through it, so they cannot disagree about which pixels it is. |
 
 Selection is purely visual bookkeeping; a window covering an icon simply
 paints over it (desk_paint runs before windows in wm_paint_all), and
@@ -6341,6 +6352,57 @@ CGA       200 high   dock at 176   2 rows   HDD C sits beside Disk A
 A third zone on CGA would otherwise run 152..195 and land **on the dock**.
 This is the §1 rule about `[vid_*]` in its natural habitat: it is invisible on
 VGA, and a drive-zone change is not done until it has been looked at on CGA.
+
+### 26.2 Selecting a covered icon costs a strip of XOR, not the screen
+
+A zone's drawn rect may be overlapped by a visible window, and the `gfx_*`
+primitives clip to the **screen** — so a bare `desk_draw_zone` would paint
+desktop pixels straight over that window. `desk_zone_redraw` answered that
+with a full `wm_paint_all`, and the bill was the same shape as §11.90's:
+**one click on a covered icon repainted the whole screen twice**, because
+picking a new icon redraws the zone losing the selection *and* the zone
+gaining it, and each of them took the fallback. Measured over QMP with a
+counter on `wm_paint_all` and two partly-covered drive zones, a single click
+went 4 → 6.
+
+`wm_clip_rect` (§11) is the replacement: §11.3's region arithmetic seeded
+with the zone's drawn rect and subtracting **every** visible window, since
+the desktop is below all of them. It gives four answers, and each has its
+own right thing to do:
+
+| answer | what `desk_zone_redraw` does |
+|--------|------------------------------|
+| overflow (> 16 fragments) | nothing about the region is known, so `wm_paint_all` stays as the last resort |
+| wholly covered | **draw nothing at all** — which is where the old code was at its worst: it repainted the screen to update pixels that were not on it |
+| clear air (the whole rect inside one fragment) | disarm and do the cheap unclipped single-zone redraw, exactly as before |
+| partially covered | flip the **highlight** — `desk_zone_hilite` under the armed region — and touch nothing else |
+
+**The partial case is a flip, not a repaint, and that is the load-bearing
+part.** A click changes exactly one thing about a zone: whether its hit rect
+is inverted. The gray, the icon and the label are already on screen and are
+identical either way, so re-drawing them would be work with no pixel to show
+for it — and it would not even be *correct*, because `ico_core` clips
+whole-shape (§11.3): a window cutting the 32×32 body means the icon is not
+drawn at all, and a clipped full redraw would leave a gray hole where the
+visible half of the icon should be. `gfx_xor_fill` clips **per fragment**, so
+the inversion lands on the visible part of the icon and nowhere else. Output
+is pixel-identical to the old full repaint — verified by comparing the two
+screendumps byte for byte — at zero repaints instead of two.
+
+Two things it depends on, both of them the caller's job:
+
+- **XOR is self-inverse, so it is exact only against pixels that still carry
+  the previous state.** Every call site is a genuine state change (§26's
+  `desk_click` — select, deselect, and the deselect that precedes a
+  double-click open), and `[desk_sel]` is written **inside** the same lock
+  hold as the flip. Before, the store sat outside it, which was harmless
+  while the redraw was idempotent and is not once it is a flip: a painter
+  that read the new `[desk_sel]` in between would apply the highlight itself
+  and the flip would then cancel it.
+- **The region is valid for exactly one lock hold** (§11.3), which is why it
+  is built inside `desk_zone_redraw` rather than once around both zones of a
+  selection move. Two builds per click is two z-order walks over at most 12
+  windows; it is not the thing that was expensive.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
