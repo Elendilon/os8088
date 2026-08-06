@@ -1417,9 +1417,15 @@ sb_b_scasb:
     pop es
     mov di, sb_ram
     mov cx, SB_BWBYTES
-    mov al, 0xFF                    ; never matches, so the whole run is walked
-    cld
-    repe scasb
+    mov al, 0xFF                    ; never matches, and repNE is what walks
+    cld                             ; the whole run on that: `repe` repeats
+    repne scasb                     ; while EQUAL, so scanning for a byte that
+                                    ; is not there stopped at the first
+                                    ; comparison and the row measured 25 us
+                                    ; for 2,048 bytes on a 4.77MHz machine -
+                                    ; an impossible number that shipped
+                                    ; because nothing on a fast host looks
+                                    ; impossible (PERFORMANCE.md Part 9)
     pop es
     ret
 

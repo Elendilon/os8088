@@ -915,6 +915,10 @@ gb_prims:
     mov si, gb_r_fbox
     xor al, al
     call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [gb_tfbox], ax
+    mov [gb_tfbox+2], dx
 
     call gb_box64                   ; the rest of the rect family, all 64x64,
     mov word [bl_n], 24             ; so the column compares like for like
@@ -1194,6 +1198,21 @@ gb_derived:
     mov cx, GB_BOXW - 8
     call gb_nsper
     mov si, gb_d_hlpx
+    call gb_num32
+
+    mov ax, [gb_tfbox]              ; the fill's SECOND slope, from 64x64 up to
+    mov dx, [gb_tfbox+2]            ; the whole sandbox. If it disagrees with
+    mov cx, 6                       ; the first, the cost is not linear in
+    call gb_percall                 ; PIXELS - and on a 1bpp adapter it is not:
+    call gb_stash                   ; it is ~156 us per ROW plus 0.32 per pixel,
+    mov ax, [gb_tf64]               ; so a narrow rect is nearly all setup.
+    mov dx, [gb_tf64+2]             ; One slope cannot show that; two can
+    mov cx, 24
+    call gb_percall
+    call gb_sub
+    mov cx, 32768 - 4096
+    call gb_nsper
+    mov si, gb_d_fillpx2
     call gb_num32
 
     mov ax, [gb_tcell]              ; one glyph cell - PERFORMANCE.md Part 2's
@@ -1664,8 +1683,15 @@ gb_b_title:
     ret
 
 gb_b_row:
-    mov si, gb_s_test               ; one full-width opaque row: the unit the
-    call bl_pad                     ; page below is built out of
+    mov si, gb_s_full               ; one full-width opaque row: the unit the
+    call bl_pad                     ; page below is built out of - and it must
+                                    ; be full of GLYPHS. Padded with spaces it
+                                    ; measured 186 us a cell against the 915 a
+                                    ; real page costs, because a blank cell on
+                                    ; font_run's fast path is ~5x cheaper than
+                                    ; a lettered one; the page prediction came
+                                    ; out 5x low and the check beside it fired
+                                    ; (PERFORMANCE.md Part 9)
     mov cx, [gb_cx]
     mov dx, [gb_y]
     mov si, bl_draw
@@ -1811,6 +1837,10 @@ gb_s_test:  db 'C-2 01 A0F', 0
 
 gb_pattern: db 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55
 
+; A row shaped like the report's own: label, columns, digits, no runs of
+; blanks. 78 characters, so bl_pad never has to pad it on any adapter.
+gb_s_full:  db 'GFX_FILL_GRAY 64x64        24    356320    12442.99 us  a report row', 0
+
 ; seg, stride, bmask, bshift - vid_tab's four numbers, in VID_* order
 gb_vtab:
     dw 0xA000, 80, 0, 0
@@ -1940,7 +1970,8 @@ gb_r_ti:      db 'WM_TITLE strip', 0
 gb_r_rowdraw: db 'one full-width row', 0
 gb_r_page:    db 'whole page of rows', 0
 
-gb_d_fillpx:   db 'fill ns per pixel', 0
+gb_d_fillpx:   db 'fill ns/px 8-64', 0
+gb_d_fillpx2:  db 'fill ns/px 64-box', 0
 gb_d_hlpx:     db 'hline ns per pixel', 0
 gb_d_cell:     db 'FONT_CHAR us x100', 0
 gb_d_runcell:  db 'RUN cell us x100', 0
@@ -1974,7 +2005,7 @@ gb_it_top:  db 'Top of Report', 0
 ; A hand-totalled figure that is too small is a package writing over
 ; benchlib's arena, which assembles cleanly and produces a report full of
 ; plausible nonsense.
-GB_O_SYSKB  equ 128
+GB_O_SYSKB  equ 136
 GB_O_VROW   equ GB_O_SYSKB + SYSKB_SIZE
 GB_O_RROW   equ GB_O_VROW + GB_BWROWS * 2
 GB_O_RAM    equ GB_O_RROW + GB_BWROWS * 2
@@ -2035,6 +2066,7 @@ gb_tbs      equ os88_image_end + 106
 gb_tbn      equ os88_image_end + 110
 gb_trow     equ os88_image_end + 114
 gb_tpage    equ os88_image_end + 118
+gb_tfbox    equ os88_image_end + 130   ; dword: the 256x128 fill, for slope 2
 gb_tapi     equ os88_image_end + 122   ; dword: 122..125
 gb_ran      equ os88_image_end + 126   ; byte: has the suite been run yet?
 gb_syskb    equ os88_image_end + GB_O_SYSKB    ; SYSKB_SIZE bytes

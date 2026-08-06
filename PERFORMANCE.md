@@ -484,21 +484,204 @@ A report without the four lines below is worth very little:
 | build | the commit the images were built from |
 | date | when it was run |
 
-### The reports
+### Set 1 — IBM 5150, 4.77 MHz 8088, 640KB, Hercules
 
-*No field set has been taken yet.* The harnesses exist, they have been
-verified under QEMU on all three adapters, and the numbers they produced
-there are the host's speed and are not worth writing down (Part 3). When a
-real set arrives it goes here, and the rows it settles come out of Part 2's
-"estimated" column and into its "measured" one — starting with the two the
-whole document leans on:
+| | |
+|---|---|
+| machine | IBM PC 5150, 8088 at 4.77 MHz, 640KB, two floppies, no sound card |
+| adapter | Hercules (720x348), auto-detected. The machine also holds a CGA |
+| build | `62c4172` (`gfxbench`/`sysbench` in `tests/`) |
+| reports | `GFXHERC.TXT`, `SYSBENCH.TXT` |
 
-- **the framebuffer read-modify-write**, quoted at "~30 cycles" from
-  `kernel/font.inc` and never re-measured. `gfxbench`'s `VRAM rmw clocks`
-  row is that number, in the same unit, on the real bus.
-- **the 20–40% an 8086 timing table under-reports an 8088 by**, quoted from
-  docs/SOUND-PLAN.md as a remembered range. `sysbench`'s clocks table is
-  that ratio per instruction class — and the shape matters more than the
-  range, because it is near 1.0 for `mul` and much worse for `nop`, so a
-  single "add 30%" is wrong in both directions depending on what you are
-  adding it to.
+**Take the harness's own agreement first, because everything below rests on
+it.** The two suites share no measurement code path beyond `benchlib`, and
+their four common quantities land on top of each other:
+
+| cross-check | gfxbench | sysbench | apart |
+|---|---|---|---|
+| RAM `rep stosw`, 2048 B | 34,313 counts | 34,317 | 0.012% |
+| RAM read-modify-write | 149,090 | 149,084 | 0.004% |
+| loop overhead, 400 iters | 29,701 | 29,699 | 0.007% |
+
+And the timebase checks itself twice. `PIT counts per tick` measured **65,542
+against the 65,536 the whole conversion assumes** — 0.009% — so method P and
+method T really are the same unit. The CPU-speed estimate, derived
+independently from the `MUL` row and the `DIV` row, came back **4.64 and 4.68
+MHz** against a nominal 4.7727; the 2% shortfall is the book figure for those
+two being a range (118–133 clocks for `MUL`), not a slow machine.
+
+#### The 8088's real instruction cost is a straight line, and it is not a percentage
+
+Part 2 has been ending on "8086-nominal cycle counts under-report an 8088 by
+20–40%", from a plan document. That is not the shape of it:
+
+| instruction | bytes | measured clk | 8086 book | ratio |
+|---|---|---|---|---|
+| `nop` | 1 | 4.34 | 3 | 1.44 |
+| `inc r16` | 1 | 4.34 | 2 | 2.17 |
+| `xchg ax,r16` | 1 | 4.34 | 3 | 1.44 |
+| `mov r16,r16` | 2 | 8.69 | 2 | **4.34** |
+| `add r16,r16` | 2 | 8.69 | 3 | 2.89 |
+| `cmp r16,r16` | 2 | 8.69 | 3 | 2.89 |
+| `shl r16,1` | 2 | 8.69 | 2 | **4.34** |
+| `mov al,[si]` | 2 | 15.22 | 13 | 1.17 |
+| `mov al,[es:si]` | 3 | 19.00 | 15 | 1.26 |
+| `jmp short`, taken | 2 | 18.19 | 15 | 1.21 |
+| `mov ax,[disp16]` | 3 | 21.61 | 14 | 1.54 |
+| `mov [disp16],ax` | 3 | 24.08 | 15 | 1.60 |
+| `push ax`+`pop ax` | 2 | 29.70 | 19 | 1.56 |
+| `call near`+`ret` | 4 | 52.13 | 27 | 1.93 |
+| `mov ax,i`+`mul r16` | 5 | 132.53 | 129 | **1.02** |
+| `xor`+`mov ax,i`+`div r16` | 7 | 162.85 | 160 | **1.01** |
+
+Read the first seven rows down the *bytes* column: **4.34 clocks per
+instruction byte, identically, whatever the instruction does.** That is the
+4-byte prefetch queue behind an 8-bit bus, and it is a floor, not a tax:
+
+> **An 8088 costs `max(execution clocks, 4.34 x instruction bytes)`**, plus
+> ~4 clocks per byte of memory operand, plus a queue refill (~4 clocks per
+> byte of the next instructions) after every taken branch.
+
+So the useful question is never "what percentage do I add" — it is whether the
+code is execution-bound or fetch-bound. `MUL` and `DIV` measure at 1.01–1.02
+because the sequencer is busy long enough to hide every fetch; a run of
+register-to-register moves measures at 4.34x because nothing hides anything.
+**Shorter encodings are faster than cheaper instructions.** A `shl ax,1` and a
+`mov ax,bx` cost exactly the same 8.69 clocks despite the book pricing them at
+2 apiece, and `xchg ax,bx` — one byte — beats both at 4.34.
+
+#### The glyph cell: the Part 2 anchor is right
+
+| | |
+|---|---|
+| `FONT_CHAR`, one cell | **901 us** |
+| `FONT_RUN`, per cell of ten | 905 us |
+| a whole 78x34 page, per cell | 915 us |
+
+Three routes, three numbers within 1.6%. **Part 2's "~1 ms per 8x8 glyph
+cell" is confirmed** — it is 0.90 ms on a Hercules 5150, and that is the
+number to keep estimating with.
+
+`font_run` against the hand-written erase-and-letter pair came out at
+**1.24x** for the skewed case (`skewPAIR/RUN x100 = 124`). tests/fontbench,
+written separately and measured on different hardware, says **1.30**
+(SPEC.md §6.1.1). Two harnesses, two machines, 5% apart.
+
+#### A mono fill is bound by its ROWS, not its pixels
+
+This is the finding the two-size design existed to produce, and the third
+size is what proved it. Net of the ~1,128 us per-call floor:
+
+```
+GFX_FILL  64x64    ( 64 rows,  4,096 px)  12,443 us
+GFX_FILL 256x128   (128 rows, 32,768 px)  31,682 us
+                    ->  156 us per ROW  +  0.32 us per pixel
+```
+
+156 us is **745 clocks of setup per scan line**. A 64-pixel-wide row spends
+156 us arriving and 21 us drawing: **88% overhead**. The per-pixel half is
+already near the bus floor — 0.32 us/px is 2.58 us per framebuffer byte
+against the 3.26 us/byte a raw `rep stosb` to B000 measures — so there is
+nothing to win in the inner loop and roughly **8x to win in the row setup**,
+on every fill in the system.
+
+The single-slope figure the report prints (`fill ns per pixel = 2806`) is
+therefore *wrong as a model*, not as arithmetic: it comes from the 8x8/64x64
+pair, where the row cost dominates. Take the two-slope decomposition above
+instead, and see the harness note below.
+
+#### The framebuffer is barely slower than RAM, which nothing here assumed
+
+| 2,048 bytes, identical loops | RAM | Hercules B000 | ratio |
+|---|---|---|---|
+| `rep stosw` | 3,595 us | 5,651 us | **1.57** |
+| `rep stosb` | 4,918 us | 6,668 us | 1.36 |
+| byte read-modify-write | 31,238 us | 34,169 us | **1.09** |
+
+A Hercules card costs about **4.8 extra clocks per byte written** and almost
+nothing on a read-modify-write, because on a 4.77 MHz 8088 the *instructions*
+are the bottleneck and the card's wait states hide inside them. The
+read-modify-write measures **79.6 clocks per byte** end to end — SPEC.md §39.5
+quotes "~30 cycles" — but only ~7 of those 79.6 are the bus. **The figure was
+low and it was attributed to the wrong thing:** the mono renderer's inner step
+is expensive because it is five 8088 instructions, not because it touches
+video memory.
+
+#### What a screenful costs
+
+| operation | measured |
+|---|---|
+| one `GFX_PIXEL` / `GFX_HLINE 8px` call | 765 us |
+| `GFX_FILL 8x8` | 1.13 ms |
+| `GFX_FILL 64x64` | 12.4 ms |
+| `GFX_FILL 256x128` | 31.7 ms |
+| `GFX_SCROLL 256x128` by 8 | 48.2 ms |
+| `WM_TITLE` strip (§11.92) | **43 ms** |
+| full 78x34 text page | **2.50 s** |
+| whole-screen fill, extrapolated | ~0.76 s |
+| one vertical retrace period | 18.7 ms (53.5 Hz) |
+
+**2.5 seconds for a page of text** is Part 1's "visible redraw" with a number
+on it at last, and it is why §11.90/§11.91's incremental repaints exist. A
+title strip at 43 ms is a fifth of a floppy revolution — cheap, and worth the
+17 rows §11.92 bought.
+
+The API floor is small enough to ignore and worth knowing exactly:
+`GET_TICKS` through the far-call table is **46.7 us**, a near `call`+`ret` is
+11.5 us, `SET_COLOR` 48 us, `WM_GEOM` 79 us, `WM_CLIP_SET`+`CLEAR` 328 us,
+an ISA status-port `in` 8.7 us.
+
+#### The floppy is one sector per revolution
+
+| | |
+|---|---|
+| 16 KB read, cold motor | 7.63 s |
+| 16 KB read, warm | 7.80 s |
+| a one-sector file, open and read | 796 ms |
+| throughput | **2,100 bytes/second** |
+
+32 sectors in 7.63 s is **238 ms per sector**, and a 360KB floppy turns once
+every 200 ms — so `dsk_xfer`'s one-`int 13h`-per-sector loop (§18.4.1) catches
+**one sector per revolution and misses the other eight**. Warm is not faster
+than cold, which confirms it: this is rotational latency, not motor spin-up
+and not bandwidth.
+
+That prices two things that were guesses. A 116KB Tracker module is **57
+seconds**. And a per-track batch — nine sectors per revolution instead of one
+— is worth about **9x on every load in the system**, which is the largest
+single number in this document.
+
+#### The kernel's own interrupts cost 1.2%
+
+The same 800-iteration workload, timed with the `cli` window excluding every
+interrupt and then again with all of them included: **3,430,961 counts against
+3,473,408**. The tick, the mouse poll and the scheduler together take **1.2%**
+of a busy 8088. There is no headroom problem there and never was.
+
+`TASK_YIELD` — a full switch away and back — is **693 us**. `FILE_DFREE`,
+which the SDK correctly says does no disk I/O, is **40 ms**, which is a lot of
+FAT walking for a "free" call and is worth a look.
+
+#### Two rows of this set are wrong, and one is unexplained
+
+Recorded here rather than quietly re-run, because Part 6 rule 8 applies to the
+apparatus too:
+
+- **`RAM repe scasb` (25.77 us) is meaningless.** `repe` repeats *while
+  equal*, so scanning for a byte that is never there stops at the first
+  comparison. It should be `repne`. Fixed after this set; the row is junk in
+  this one.
+- **`one full-width row` (14.5 ms) is not a row of text.** It draws ten
+  glyphs and 68 spaces, and a space cell is ~5x cheaper than a glyph on
+  `font_run`'s fast path — 186 us/cell against the 915 us/cell a real page
+  measures. That is exactly why the report prints `page predicted` beside
+  `page measured`: they came out 0.49 s and 2.50 s, the check fired, and the
+  fault was in the predictor. Fixed after this set; **the 2.50 s measurement
+  is the good one**.
+- **`GFX_BLIT4` is 2.36x SLOWER with a solid source than with 4-pixel runs**
+  (28.2 ms against 12.0 ms for the same 4,096 pixels). That is backwards, it
+  is the opposite of what the same package measures under QEMU (9.7x the
+  other way), and it is not explained. A long run should be the coalescer's
+  best case. Something in the mono path prefers many short runs to one long
+  one, and until someone reads `gfx_blit4` against these two numbers, **the
+  blit is not understood on 1bpp adapters.**
