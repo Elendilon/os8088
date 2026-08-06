@@ -6,16 +6,25 @@ of them and `.text` assembles
 without complaint and emits a displacement computed between two different
 address spaces.  Nothing catches that: not NASM, not the linker (there isn't
 one), and not a boot on the one machine whose rung QEMU can emulate.  This
-walks every `section` block in kernel/ and checks that
+walks every `section` block in kernel/ and refuses any near control transfer
+whose target label lives in a different address space: call, jmp (near and
+short spellings included - `short` was once swallowed by the regex as if it
+were the label, which silently exempted every `jmp short`), and the
+conditional branches and loops.  Local labels (.foo) bind to their parent
+and cannot cross, so they fall out of the label map untested, which is
+correct.
 
-  * a call between two different sections is explicitly far, and
-  * a call within one section is not.
+What it CANNOT see, by construction: an indirect transfer (`call bx`,
+`jmp [table]`) and a code pointer stored in data.  Those stay a review rule:
+a table of `.cold` pointers may live in `.text` only if cold code alone
+dispatches through it (ctrl.inc's page table is the one instance).
 
 Run it from `make`; it is worth more than any amount of reading.
 """
 import re, sys, glob
 
-CALL = re.compile(r'\b(?:call|jmp)\s+(?:near\s+)?(?:(\w+):)?([A-Za-z_]\w*)\b')
+CALL = re.compile(r'\b(?:call|jmp|j[a-z]{1,3}|loop[a-z]{0,2})\s+'
+                  r'(?:(?:near|short)\s+)?(?:(\w+):)?([A-Za-z_]\w*)\b')
 FAR = ('.ovl', '.cold')     # sections with a vstart of their own
 
 

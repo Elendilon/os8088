@@ -85,7 +85,8 @@ KERNEL_SRC := kernel/kernel.asm
 KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 debug test test-snd xt xt-640 xt-cga xt-hercules \
-        286 386sx 386 xt-sound 286-sound 386-sound check-images bench clean
+        286 386sx 386 xt-sound 286-sound 386-sound check-images bench \
+        stackprobe clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -486,6 +487,29 @@ $(BUILD)/bench.img: $(BENCHPKGS) tools/os88disk.py
 
 $(BUILD)/bench360.img: $(BENCHPKGS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BENCHPKGS)
+
+# STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
+# inside: its worker 0xCC-fills its own slice, spins so every interrupt the
+# machine takes lands there, and reports the high-water mark live. The QEMU
+# probe understates a real BIOS (SeaBIOS keeps its interrupt entries on an
+# internal stack; a real int 09h + the tick + the mouse nest on the task
+# slice), so the 360KB image is the one that matters: boot os8088-360.img on
+# the real machine, stkprobe360.img in the other drive, hold keys down and
+# read the number. docs/TESTING.md has the recipe.
+stackprobe: $(BUILD)/stkprobe.img $(BUILD)/stkprobe360.img
+
+$(BUILD)/stkprobe.bin: tests/stackprobe/stackprobe.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/stackprobe/stackprobe.asm
+	@echo "stkprobe: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/stkprobe.o88: $(BUILD)/stkprobe.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/stkprobe.bin -o $@
+
+$(BUILD)/stkprobe.img: $(BUILD)/stkprobe.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/stkprobe.o88
+
+$(BUILD)/stkprobe360.img: $(BUILD)/stkprobe.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/stkprobe.o88
 
 # There WAS a third image here - the same package on a FAT16 volume, built on
 # the 2.88MB test geometry, which exercised the one part of the write path

@@ -237,6 +237,7 @@ list to check yourself against.
 | Task Manager row update | 20 glyphs to change 3, twice a second | the changed chunks only | §28.2 |
 | Menu bar redraw | every window operation | gated on `[menu_bdirty]` | §12.05 |
 | Dock redraw | every window operation | per-tile keys: a focus change is 2 tiles, a quiet desktop is 0 | §30.1 |
+| Arkanoid pause / resume | the whole content — background, both rails, every brick, paddle, ball, capsules, shots, status strip | the banner's 9-row band: `gfx_fill` **89 → 2**, `font_char` **10 → 6** | §44.1 |
 | Solitaire stock click | 635 wasted fill runs **every click** | 0 unless the picture changed | §43.7 |
 | Solitaire column redraw | every card, backs included (634 runs each) | buried backs kept; a measured move skips 246 runs | §43.7 |
 | Fractal repaint | re-render from row 0 (~115 s) | replay the pass-0 cache, resume refining | §40.1 |
@@ -388,6 +389,7 @@ was ruled out (tens of seconds per 448×280 frame before the dither).
 | The mono renderer's inner loop | SPEC.md §39.3, §39.5 |
 | The fractal's restore cache | SPEC.md §40.1; [REDRAW-SPEC.md](REDRAW-SPEC.md) |
 | Solitaire's incremental repaint | SPEC.md §43.7 |
+| Arkanoid's pause band, and what an erase in the play area owes | SPEC.md §44.1 |
 | The tracker on an 8088 | SPEC.md §45.9 – §45.12 |
 | ArtfulType's performance contract | SPEC.md §46.1 |
 | Greying a control honestly | SPEC.md §47 |

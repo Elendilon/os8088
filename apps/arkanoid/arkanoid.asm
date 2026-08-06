@@ -691,10 +691,11 @@ ark_hire:
 ; out: nothing; preserves all registers
 ;
 ; This runs on the UI task and the worker runs the game, so nothing here does
-; anything but set a word the worker reads - except N and P, which change what
-; is on the screen and therefore repaint it, and Space, which is one or the
-; other depending on the mode: a resume when the game is paused (and it
-; repaints, to take the banner down), a word for the worker otherwise.
+; anything but set a word the worker reads - except N, which rebuilds the whole
+; content; P, which draws the banner's band; and Space, which is one or the
+; other depending on the mode: a resume when the game is paused (and then it
+; draws that same band, to take the banner down), a word for the worker
+; otherwise.
 ;
 ; The `or bl, bl` gate is not optional: the numeric keypad sends '4' and '6'
 ; with the arrow scan codes, so without it typing a digit would steer the
@@ -837,6 +838,9 @@ ark_onclick:
 ; ark_cmd_pause TOGGLES, and it is the single place the mode is banked and put
 ; back - the menu item, P, and the sticky focus pause (ark_focuschk) all end
 ; here, so none of them can leave [ark_mode] and [ark_wasmode] disagreeing.
+; It costs a BAND, not a board: ark_draw_msgband, and the reasoning is there.
+; ark_cmd_new is the other way round - a new wall, a new score and a new life
+; count are the whole content, so it is one of the few honest ark_draw_alls.
 ;
 ; Space is deliberately NOT a caller of the halt half. It reaches the resume
 ; half only (ark_onkey), because Space already means serve and fire: a Space
@@ -865,13 +869,13 @@ ark_cmd_pause:
 .halt:
     mov [ark_wasmode], al
     mov byte [ark_mode], M_PAUSE
-    call ark_draw_all
+    call ark_draw_msgband           ; the banner's band, not the content
     jmp .out
 .resume:
     call ark_refocus                ; BEFORE the mode goes live, or the very
     mov al, [ark_wasmode]           ; next worker frame pauses it again
     mov [ark_mode], al
-    call ark_draw_all
+    call ark_draw_msgband
 .out:
     pop bx
     pop ax
@@ -3293,6 +3297,46 @@ ark_draw_msg:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ark_draw_msgband - repaint the banner's BAND and nothing else
+; in:  gfx lock held, origin tracked; preserves every register
+;
+; Pausing and resuming change one thing on screen: the nine rows the banner
+; sits on. Both used to call ark_draw_all - the background, both rails, every
+; brick in the wall, the paddle, the ball, every capsule and shot, and the
+; status strip - to put six characters up and take them down again. On a
+; 4.77MHz machine that is most of a second of drawing, and it is also the
+; whole frame going white and coming back, which reads as a glitch rather
+; than as a pause. Nothing else can have changed: the mode is the only thing
+; the command touched, and while the game is paused nothing moves at all.
+;
+; **The ball is redrawn because a paused game will never redraw it.** The band
+; is play area, so the erase takes whatever is standing in it - and every
+; other object has a path back on the next frame (ark_draw_pu and
+; ark_draw_shots redraw unconditionally, ark_move_paddle on its wipe flag)
+; while ark_move_ball is gated on the ball having MOVED. Paused, it never has,
+; so a ball inside the band would be erased and stay erased until the resume.
+; The capsules and shots are here for the same reason one order lower: they
+; would come back, but a frame later, and a capsule that blinks when you press
+; P is still a bug.
+;
+; The order is ark_draw_all's - objects, then the banner over them - because
+; the banner is what the player is being shown and it belongs on top.
+;
+; This does NOT satisfy [ark_full] or [ark_stat], and must not clear them: a
+; full repaint the worker already owes is still owed, and the status strip is
+; outside this band entirely. It does satisfy [ark_msg], which is exactly what
+; it just drew.
+; -----------------------------------------------------------------------------
+ark_draw_msgband:
+    call ark_clear_msg
+    call ark_draw_ball
+    call ark_draw_pu
+    call ark_draw_shots
+    call ark_draw_msg
+    mov byte [ark_msg], 0
     ret
 
 ; -----------------------------------------------------------------------------

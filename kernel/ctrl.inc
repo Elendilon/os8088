@@ -221,6 +221,8 @@ cp_s_tsec:  db 'Seconds in menu bar', 0 ; option row 1 label
 cp_s_tplus: db '+', 0
 cp_s_tminus: db '-', 0
 cp_s_tcol:  db ':', 0
+cp_s_gone:  db 0                ; the empty string: what a vanished driver's
+                                ; list row letters as (cp_item_name's guard)
 
 ; Date/Time geometry, PANE-relative: the date row above the time row, the
 ; +/- buttons in their own column to the right of both, and the clock's two
@@ -496,7 +498,14 @@ cp_drv_item:
     jb .static
     sub al, CP_ITEMS
     call KERNEL_SEG:cw_drv_cp_class           ; CF=1 if the driver went away under us
+    jc .gone
     ret
+.gone:
+    add al, CP_ITEMS            ; hand back the ROW index, not the rebased
+    stc                         ; one (add clears CF): a CF=1 answer carrying
+    ret                         ; the rebased index read as "static row 5 ->
+                                ; dispatch the Scheduler page", and the
+                                ; consumers below could not tell
 .static:
     stc
     ret
@@ -515,8 +524,14 @@ cp_item_name:
     pop ax
     ret
 .static:
+    cmp al, CP_ITEMS            ; a vanished driver's row has no name; the
+    jae .gone                   ; empty string letters as a blank row
     call cp_entry
     mov si, [si + CP_I_NAME]
+    pop ax
+    ret
+.gone:
+    mov si, cp_s_gone
     pop ax
     ret
 
@@ -546,7 +561,9 @@ cp_item_paint:
     call KERNEL_SEG:cw_drv_cp_call
     jmp short .done
 .static:
-    call cp_entry
+    cmp al, CP_ITEMS            ; a vanished driver's row paints nothing -
+    jae .done                   ; unreachable while cp_drv_gone_x clamps
+    call cp_entry               ; [cp_sel] at detach, and checked anyway
     call [si + CP_I_PAINT]
 .done:
     pop bp
@@ -578,6 +595,8 @@ cp_item_click:
     call KERNEL_SEG:cw_drv_cp_call
     jmp short .done
 .static:
+    cmp al, CP_ITEMS            ; a vanished driver's row refuses the click
+    jae .done                   ; (same reasoning as cp_item_paint's guard)
     call cp_entry
     call [si + CP_I_CLICK]
 .done:
@@ -2465,6 +2484,16 @@ cp_drv_click:
 .load:
     push ax
     call KERNEL_SEG:cw_drv_row
+    cmp byte [bx+DRVR_WANT], 0  ; unloaded but WANTED: the boot tried and
+    je .try                     ; failed (no card, no disk), and on a machine
+    mov byte [bx+DRVR_WANT], 0  ; where that is permanent this click is the
+    mov byte [bx+DRVR_ERR], DRVE_OK ; only gesture there is for "stop asking"
+    pop ax                      ; - without it the boot notice could not be
+    jmp short .save             ; silenced at all, because retrying re-set
+                                ; the want on every click. Clicking AGAIN
+                                ; from here retries the load, so nothing
+                                ; was lost, only unnagged
+.try:
     mov byte [bx+DRVR_WANT], 1  ; wanted first, so a failed load still
     pop ax                      ; persists the intent: put the disk in and
     call KERNEL_SEG:cw_drv_load               ; the next boot picks it up

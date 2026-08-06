@@ -1404,7 +1404,8 @@ tm_update:
     ret
 
 ; -----------------------------------------------------------------------------
-; tm_click - W_ONCLICK (far body via the tm_click shim): ANY content click
+; tm_click - W_ONCLICK (an ordinary near proc; the kernel arrives through
+;             the package dispatcher, SPEC.md 20.2): ANY content click
 ;             toggles the view (SPEC.md 28). ui.inc only feeds clicks to the
 ;             front window, so a raising click never lands here. The lock is
 ;             already held: white-fill the whole content and run the new
@@ -1673,20 +1674,25 @@ tm_pool_kb:
     push di
     xor bx, bx
     xor si, si
+    mov cl, 10
 .slot:
     cmp byte [tm_ist+si], 0
     je .next
     mov di, si
     shl di, 1
-    add bx, [tm_isz+di]
+    mov ax, [tm_isz+di]         ; per slot in KB, not bytes summed and
+    add ax, 1023                ; divided once: three big resident packages
+    shr ax, cl                  ; overrun 65,535 BYTES and a word sum wraps
+    add bx, ax                  ; silently. (A region is whole KB - the
+                                ; loader claims ceil(file/1KB) - so the
+                                ; per-slot rounding loses nothing.) The old
+                                ; byte sum was safe only under the retired
+                                ; 60KB pool, which capped it by construction
 .next:
     inc si
     cmp si, INST_MAX
     jb .slot
     mov ax, bx
-    add ax, 1023
-    mov cl, 10
-    shr ax, cl
     pop di
     pop si
     pop cx
@@ -3827,6 +3833,20 @@ tm_kb       equ os88_image_end + 620   ; osapi_sys_kb: the kernel's footprint an
                                 ; and by every sample
 
 tm_hist     equ os88_image_end + 642   ; history ring: column heights 0..40
+
+; The three buffer slices above are hand-chained literals; these pin them to
+; the SDK's derived sizes, so a kernel table growing (MAX_TASKS, INST_MAX,
+; MEM_MAX, a record gaining a field) fails THIS assembly instead of letting
+; osapi_sys_snapshot write through tm_claims/tm_kb/tm_hist with no diagnostic.
+%if (tm_claims - tm_snapshot) != SYS_SNAPSHOT_SIZE
+  %error "tm_snapshot's slice != SYS_SNAPSHOT_SIZE - re-derive the bss map below"
+%endif
+%if (tm_kb - tm_claims) != CLAIM_SNAPSHOT_SIZE
+  %error "tm_claims' slice != CLAIM_SNAPSHOT_SIZE - re-derive the bss map below"
+%endif
+%if (tm_hist - tm_kb) != SYSKB_SIZE
+  %error "tm_kb's slice != SYSKB_SIZE - re-derive the bss map below"
+%endif
 tm_pos      equ os88_image_end + 867   ; sweep index = next column to write
 tm_lastcol  equ os88_image_end + 869   ; column written by the latest sample
 tm_cnt      equ os88_image_end + 871   ; interval spin count, dword

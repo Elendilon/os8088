@@ -339,6 +339,27 @@ vid_apply:
 ; is ours to do; bb_init's ordering and the first desktop paint both assume a
 ; cleared framebuffer. The explicit `cld` matters: on the splash path this
 ; runs on the boot sector's flags, and spl_tick never issues one.
+;
+; THE HERCULES SEQUENCE BLANKS FIRST AND UNBLANKS LAST, and that ordering is
+; the whole point of the routine rather than a tidiness (SPEC.md 39.6). The
+; obvious order - configure, program the 6845, enable video, then clear - has
+; the card DISPLAYING for the whole length of the clear, and what it displays
+; is 32KB nobody has written: the BIOS's MDA text page reinterpreted as a
+; bitmap, and above it the card's own DRAM as it powered up. That is a bright,
+; roughly half-lit 720x348 field, and the clear is a `rep stosw` of 16,384
+; words on a 4.77MHz 8088 - tens of milliseconds, several whole frames at
+; 50Hz. On an IBM 5151 the step from a mostly-black text page to a half-lit
+; screen and back is a beam-current swing the flyback answers with an audible
+; pop, and the eye reads as a garbled flash immediately before the progress
+; bar. Blanked, the same 32KB is cleared with the tube dark and the first
+; thing the monitor is ever shown in graphics mode is black.
+;
+; Clearing 3B8h bit 3 gates the VIDEO signal only - the 6845 keeps running and
+; both syncs keep coming out - so blanking costs the monitor nothing. The
+; sync transient while R0..R11 are half-written is unavoidable on a 6845 (its
+; registers are not double-buffered; every mode set in the machine's history
+; has one), but it is a single mistimed frame with the drive never stopping,
+; and behind the blank it is invisible.
 ; -----------------------------------------------------------------------------
 vid_setmode:
     push ax
@@ -359,9 +380,17 @@ vid_setmode:
     int 0x10
     jmp short .done
 .herc:
-    mov dx, 0x3BF               ; configuration: graphics allowed, both pages
-    mov al, 3
-    out dx, al
+    mov dx, 0x3BF               ; configuration: graphics allowed. Bit 1 - the
+    mov al, 1                   ; second 32KB page - is deliberately NOT set:
+    out dx, al                  ; that page is at B8000, where a CGA in the
+                                ; same machine lives, and this 5150 has both
+                                ; cards in it. We only ever address page 0
+                                ; (max offset 7E96h), so enabling the second
+                                ; decode buys nothing and puts two cards on
+                                ; the bus for the same addresses.
+    mov dx, 0x3B8               ; graphics + page 0, video DISABLED (bit 3
+    mov al, 0x02                ; clear). From here to the last write of this
+    out dx, al                  ; routine the tube is dark - see the header.
     mov si, vid_6845
     mov dx, 0x3B4
     xor ah, ah                  ; AH = CRTC register index
@@ -375,16 +404,16 @@ vid_setmode:
     inc ah
     cmp ah, 12
     jb .crtc
-    mov dx, 0x3B8               ; graphics, video enabled, display page 0
-    mov al, 0x0A
-    out dx, al
-    mov ax, [vid_seg]           ; 32KB clear - nobody else will do it
-    mov es, ax
-    xor di, di
+    mov ax, [vid_seg]           ; 32KB clear - nobody else will do it, and it
+    mov es, ax                  ; happens BEHIND the blank, so the powered-up
+    xor di, di                  ; contents of the card's DRAM are never shown
     xor ax, ax
     mov cx, 0x4000
     cld
     rep stosw
+    mov dx, 0x3B8               ; graphics, page 0, video ON - last, onto a
+    mov al, 0x0A                ; framebuffer that is already black
+    out dx, al
 .done:
     pop es
     pop bp
@@ -430,9 +459,11 @@ vid_text:
     push es
     cmp byte [vid_kind], VID_HERC
     jne .colour
-    mov dx, 0x3BF               ; lock graphics back out, then 80x25 mono
-    xor al, al
-    out dx, al
+    xor al, al                  ; blank before anything else moves, for the
+    mov dx, 0x3B8               ; same reason vid_setmode does: the BIOS mode
+    out dx, al                  ; 7 set below reprograms the 6845 with video
+    mov dx, 0x3BF               ; live otherwise. Then lock graphics back out
+    out dx, al                  ; (AL is still 0) and let mode 7 re-enable.
     mov ax, 0x0007
     jmp short .go
 .colour:

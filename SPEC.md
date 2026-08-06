@@ -180,7 +180,10 @@ stacks) or **ES** (the disk buffers), never DS. It sits *above* the kernel
 image now, not below it — there is no low memory under the kernel any more,
 because the kernel starts as low as the BIOS lets it.
 
-- `sch_stacks` — 11 × `SCH_STACK` (512) = 5,632 bytes, task slots 1..11 (§8).
+- `sch_stacks` — 11 × `SCH_STACK` (**256**) = 2,816 bytes, task slots 1..11
+  (§8), kept **256-aligned** in `.lowbss` (a `resb` pad before it) so a
+  slice top can be derived from SP alone; a `SCH_MAGIC` canary word sits at
+  the bottom of every slice (§8).
 - Task 0 runs on the same segment at `STK0_TOP`, growing down onto the top
   of `.lowbss` — `STK0_SIZE` = 1,024 bytes. All tasks share one SS, so a
   switch is still an SP swap and SS is not part of the saved frame. **This
@@ -619,13 +622,15 @@ bytes are hard-coded.
 | `font_width` | SI=NUL str               | out AX = pixel width (8 × length)    |
 | `font_str_x` / `font_width_x` | ES:SI = NUL str | the same two, reading the string through **ES** — what the `X` stubs of §20.3 call so a package's string can live in its own segment |
 | `font_run` / `font_run_x` | CX=x, DX=y, SI (ES:SI) = NUL str, AL=ink, AH=background | one **opaque** run: the cells' background AND their glyphs, in a single pass (§6.1). API slot 0x0258 |
-| `osapi_font_glyphs` | — | out SI = the offset of `font_glyphs` in KERNEL_SEG, AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x0218 |
+| `osapi_font_glyphs` | — | out **DX:SI** = the `font_glyphs` table (DX = LOW_SEG — the table left the kernel's own segment when it moved to `.lowbss`), AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x0218, amended from SI-only as a recorded one-time exception to §20.8 rule 4 |
 
 **Handing out the bitmaps** (`osapi_font_glyphs`) is for an app that draws
 text into its OWN pixels rather than onto the screen — apps/paint's text tool
 stamps glyphs into the canvas, so `font_char` is no use to it. The table is
-95 glyphs of 8 rows, row 0 first, bit 7 leftmost, and it is read through ES
-(KERNEL_SEG on entry to every callback, §20.1). Before the slot existed the
+95 glyphs of 8 rows, row 0 first, bit 7 leftmost, and it is read through the
+**DX the cell answers** — the table lives in `.lowbss` (LOW_SEG), NOT in
+KERNEL_SEG, so the ES a callback arrives with is the wrong segment for it;
+load ES (or any segment register) from DX first. Before the slot existed the
 package re-ran `font_init`'s probe — int 10h AX=1130h BH=03h with the
 kernel's own F000:FA6E fallback behind it — to arrive at a table the kernel
 had already built, and got whatever typeface the BIOS happened to hold rather
@@ -920,10 +925,20 @@ not worth what it would do to dragging.
   for eleven slots: a refused `OSAPI_TASK_SPAWN` (CF=1) and a stream
   open's err 6 are ordinary outcomes, not edge cases, and a package must
   degrade rather than abort when it cannot have its worker. Each slot has
-  an `SCH_STACK`-byte stack — **512**, measured (§2.1), not guessed:
+  an `SCH_STACK`-byte stack — **256**, measured (§2.1 — 1.8× the deepest
+  0xCC-fill mark ever recorded), not guessed:
   `sch_stacks resb (MAX_TASKS-1) * SCH_STACK` **in `.lowbss`** (§2.1),
-  slot n's stack top at
-  `sch_stacks + n*SCH_STACK` (slot 1 owns bytes 0..511).
+  256-aligned, slot n's stack top at
+  `sch_stacks + n*SCH_STACK` (slot 1 owns bytes 0..255). **Thin is
+  CHECKED, not trusted**: `SCH_MAGIC` (0x5A57) is written at the bottom
+  word of every slice by `task_spawn`, `sch_switch` compares the outgoing
+  task's canary on every switch away — four instructions, no multiply,
+  because 256 makes the slice base the slot index in BH — and a dead
+  canary halts the machine in `sch_stkdie` rather than letting the next
+  push land in another task's slice, where the symptom would be arbitrary
+  and nowhere near the cause. `tests/stackprobe` re-measures the margin on
+  real hardware, where the BIOS lands interrupt frames QEMU's SeaBIOS
+  services on an internal stack of its own.
 - Task record (8 bytes): `T_STATE` (0 free, 1 ready, 2 sleeping), `T_SP`
   (saved SP), `T_WAKE` (tick count to wake at), `T_INST` at offset 6
   (byte: owning instance index, §29; 0xFF = none — the Task Manager
@@ -1279,7 +1294,45 @@ then, so this is invisible.
   with interrupts on; guard their critical sections with cli/sti so the ISR
   never sees a half-drawn state.
 - Public: `mouse_init`, `mouse_unhook`, `cursor_show`, `cursor_hide`,
-  `mouse_x` (word), `mouse_y` (word), `mouse_btn` (byte).
+  `mouse_x` (word), `mouse_y` (word), `mouse_btn` (byte), `mou_hotplug`
+  (§9.4, the UI task's per-pass call).
+
+### 9.4 Reset, absence and hot-plug (`mou_hotplug`)
+
+A serial mouse is **powered by DTR/RTS and resets itself on DTR's rising
+edge**, and both halves of that sentence are binding on the init sequence.
+`mouse_init` therefore does not write its final MCR value straight away: it
+holds DTR/RTS **low** for `MOU_RSTLOW` ticks (~165ms — the parts want
+≥100ms unpowered to guarantee a power-on reset) and then raises them. On a
+cold boot the lines started low and the hold changes nothing; on a
+Ctrl-Alt-Del warm boot they are still high from the previous session, and
+without the hold the MCR rewrite is **no edge at all** — a mouse that was
+wedged (hot-plugged onto live lines) stayed wedged until the power switch,
+which is how this was found on a real 5150.
+
+There is no probe — a machine with no mouse is indistinguishable from one
+whose mouse has not spoken yet — so absence is handled by **standing
+recovery** rather than detection: while no complete packet has ever arrived
+(`[mou_seen]`, set by the ISR at every third byte and never cleared),
+`mou_hotplug` re-runs the drop-hold-raise every `MOU_REPOLL` ticks (~3s), as
+a two-state machine on the UI task's pass (drop is one visit, raise a later
+one; nothing blocks). A mouse plugged in at any point since the last attempt
+gets the same clean power-on a cold boot with it attached does. OUT2 stays
+up throughout every drop, so the IRQ gate never glitches the bus.
+
+The raise provokes the identify burst ('M', maybe '3', maybe a PnP string —
+bit-6-set bytes the resync rule would read as packet headers), and unlike
+`mouse_init`'s poll-and-discard the burst now arrives through the live ISR.
+So the raise arms `[mou_drain]` and **the ISR discards RX** for `MOU_DRAINT`
+ticks (~0.5s). The accepted seam: motion that *starts* inside a drain window
+is eaten with it, self-healing on the next packet — the price of never
+reading a PnP string as clicks. After the first real packet the whole
+mechanism is one `cmp` per UI pass, forever — with one binding subtlety:
+proof can arrive **mid-cycle** (a byte the UART latched before a drop can
+complete a packet while DTR is low), so the stand-down path must check the
+poller's state and restore DTR/RTS first. Standing down with DTR low would
+leave the mouse unpowered for the session — deader than the bug the poller
+exists to fix.
 
 ## 10. events.inc
 
@@ -2132,8 +2185,9 @@ layout is **three zones, left to right**:
 
 **Everything right of the System menu belongs to whichever application is
 active**, so the bar is rebuilt whenever the active application changes —
-`menu_bar` (`MENU_BARMAX` × `MB_ENTSZ`, .bss) is a *runtime* table, not
-static data.
+`menu_bar` (`MENU_BARMAX` × `MB_ENTSZ`, **`.lowbss`** — reached through
+`ss:`, one of the four tables §2's optimization moved out of the kernel's
+own segment) is a *runtime* table, not static data.
 
 ```nasm
 MENU_APPMAX  equ 4              ; app menus the bar can host
@@ -2800,10 +2854,11 @@ the kind's template (cascaded +16px per pool slot so instances don't
 stack), runs the kind's init proc, and spawns the kind's task if it has
 one. Closing an instance frees all of it.
 
-Per-instance state pools (.bss; slot stride and cap pinned in the §29
-kind table): `app_clk_pool` 10 × 8 (CLK_H/M/S bytes at +0/+1/+2, pad,
-CLK_LAST word at +4, CLK_ACC word at +6), `app_ball_pool` 10 × 8
-(BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
+Per-instance state pools (**`.lowbss`**, reached through `ss:` — two of the
+four tables §2's optimization moved out of the kernel's own segment; slot
+stride and cap pinned in the §29 kind table): `app_clk_pool` 10 × 8
+(CLK_H/M/S bytes at +0/+1/+2, pad, CLK_LAST word at +4, CLK_ACC word at +6),
+`app_ball_pool` 10 × 8 (BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
 §29): `app_clock_kinit` (h/m/s = 0, last =
 [ticks], acc = 0), `app_bounce_kinit` (x=4, y=4, vx=3, vy=2).
 
@@ -3312,7 +3367,7 @@ held, and a read landing outside its destination buffer.
 | 1 | bytes 510..511 | == 0xAA55 | garbage/unformatted-disk gate |
 | 2 | BS_jmpBoot[0] | ∈ {0xEB, 0xE9} | MS-spec first validity test; rejects raw data ending in 55 AA |
 | 3 | BPB_BytsPerSec | == 512 exactly | `disk_read` moves exactly 512 B/sector; all stride and ×512 math |
-| 4 | BPB_SecPerClus | ∈ {1,2,4,8,16,32,64,128} | cluster→LBA mul bounds; 0 ⇒ CountOfClusters div-by-zero |
+| 4 | BPB_SecPerClus | ∈ {1,2,4,8,16,32,64} | cluster→LBA mul bounds; 0 ⇒ CountOfClusters div-by-zero. 128 (a 65,536-byte cluster) is refused: it overflows `dskw_clbytes`' word answer to 0 — a divide fault in `fcp_chunkset` — and under-spans `fcp_clspan`'s chunk granule on a mixed pair, so a copy would skip the tail of every source cluster. The MS spec's own note: values yielding >32KB clusters "do not work properly"; no DOS formats them |
 | 5 | BPB_RsvdSecCnt | ≥ 1 | FAT LBA math (FAT starts at RsvdSecCnt) |
 | 6 | BPB_NumFATs | ∈ {1,2} | FAT2-fallback logic; layout math |
 | 7 | BPB_RootEntCnt | ≥ 1, ≤ 512, (RootEntCnt×32) mod 512 == 0 | FAT12/16 must have a root dir (spec); ≤512 bounds the mount stall (≤32 root sectors); whole-sector count is a spec MUST |
@@ -4868,8 +4923,12 @@ Slot-specific contracts that are not simply their target routine's:
 0x01D0 wm_resize         in BX = win, CX = new outer width, DX = new outer
                          height; lock held. Clamps, re-fits the origin and
                          repaints (§11.1). Never from inside a W_PAINT.
-0x0218 osapi_font_glyphs out SI = the glyph table's offset in KERNEL_SEG,
-                         AL = 32, AH = 126, CX = 8 (§6). Read through ES.
+0x0218 osapi_font_glyphs out DX:SI = the glyph table (DX = LOW_SEG - it is
+                         NOT in KERNEL_SEG), AL = 32, AH = 126, CX = 8 (§6).
+                         Read it through a segment register loaded from DX.
+                         Amended from SI-only when the table left the
+                         kernel's segment: a recorded one-time exception to
+                         §20.8 rule 4, on the 0x0120/0x0128 terms.
 0x0220 wm_onsize         in BX = win, AX = a near proc in the window's own
                          segment (0 clears). The resize negotiator (§11.1).
 0x0228 osapi_file_here   out DX = the current directory's first cluster
@@ -5111,11 +5170,14 @@ Two teardown corollaries, both about not trading a crash for a leak:
    wrong trade. This is the §14 Bounce idiom, and `app_bounce_task` in
    `kernel/apps.inc` is the reference implementation for everything a
    worker does.
-6. **The worker's stack is `SCH_STACK` (512) bytes in `LOW_SEG`, and
+6. **The worker's stack is `SCH_STACK` (**256**) bytes in `LOW_SEG`, and
    SS ≠ DS** (§2.1).
-   No deep recursion, no large stack buffers, and remember that
-   `[bp+disp]` addresses SS — a kernel or package pointer held in BP needs
-   an explicit `ds:` override.
+   No deep recursion, no large stack buffers — the tick, mouse and any
+   sound IRQ land their frames on this slice while the worker runs, so
+   budget well under the 256 — and remember that `[bp+disp]` addresses
+   SS: a kernel or package pointer held in BP needs an explicit `ds:`
+   override. An overrun is caught by §8's canary and HALTS the machine,
+   loudly, at the next switch.
 7. **What a worker may call.** Only the background-task surface: `gfx_*`,
    `osapi_set_color`, `font_*`, `wm_content`, `wm_obscured`,
    `wm_clip_set`/`wm_clip_clear`, `osapi_video`,
@@ -5249,9 +5311,14 @@ per-interval *diff* of a running cycle counter (§8.1), so a torn pair bills
 a real slice to the wrong row and the error stays in the percentages until
 something else disturbs them. Silently, and only while something is closing.
 So the cell holds one `cli` window across both tables, names included; it is
-about 414 bytes of copy, under a millisecond on an 8088, and exactly as long
-as the window the in-kernel code held. **A caller must treat it as a
-twice-a-second call, not a per-frame one.**
+about 414 bytes of copy, and because the copy is field-at-a-time loops (the
+gather is strided, so `rep movsw` cannot carry most of it) that is roughly
+**3.5–4 ms with interrupts off on a 4.77 MHz 8088** — the longest IF=0
+window in the system, and safe by about 2×, not comfortably: the 8250 holds
+exactly one mouse byte and the next arrives ~8.3 ms behind it at 1200 baud,
+and the PIT (55 ms) is merely delayed. **A caller must treat it as a
+twice-a-second call, not a per-frame one** — at that cadence the window is
+noise, per frame it is a stall the mouse can feel.
 
 `SSI_KB` is the one field filled *outside* that window, and deliberately:
 it is a scan of the claim table per instance, which is not what the window
@@ -8667,6 +8734,17 @@ separately: a load that fails leaves the box clear with its reason, and a
 *save* that fails puts `'Cannot save to the system disk'` in the caption
 while the driver it just loaded stays loaded.
 
+**A click on a row that is unloaded but WANTED clears the want instead of
+retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
+no disk — and on a machine where that is permanent (a 5150 that will never
+have an AdLib), this click is the **only** gesture there is for "stop
+asking": without it, every click re-set the want, `SYSTEM.CFG` always said
+try-again, and `drv_notice`'s boot-time Control Panel could not be silenced
+at all. The caption drops to `'Not loaded'`, the notice never fires again,
+and clicking a second time retries the load exactly as before — so a
+machine that gains a card later is one click from using it, and a machine
+that never will is one click from quiet.
+
 A load does floppy I/O with the gfx lock held. That is the bargain every
 file operation in this OS makes (§18.4) — the cursor freezes for the length
 of the read — and the alternative, dropping the lock inside a click handler,
@@ -10596,10 +10674,11 @@ graphics. VGA and CGA get their mode — and their clear — from the BIOS.
 Hercules has no BIOS mode at all:
 
 ```
-out 3BFh, 3                     ; configuration: graphics allowed, both pages
+out 3BFh, 1                     ; configuration: graphics allowed, page 0 only
+out 3B8h, 02h                   ; graphics, page 0, video OFF   <- blank
 6845 at 3B4h/3B5h, R0..R11 = 35 2D 2E 07 5B 02 57 57 02 03 00 00
-out 3B8h, 0Ah                   ; graphics, video on, display page 0
 rep stosw  0x4000 words at B000:0000
+out 3B8h, 0Ah                   ; graphics, page 0, video ON    <- unblank
 ```
 
 The 32KB clear is **load-bearing**: `bb_init`'s ordering and the first
@@ -10607,8 +10686,31 @@ desktop paint both assume a cleared framebuffer, and no BIOS will do it. Its
 `cld` is explicit because on the splash path this runs on the boot sector's
 flags and `spl_tick` never issues one.
 
-`vid_text` (`CMD_REBOOT`) returns VGA and CGA to mode 3; Hercules gets
-`out 3BFh, 0` and mode 7.
+**The blank around the whole sequence is equally load-bearing, and the
+ordering is the reason it exists.** Enabling video before the clear — which
+is what this did until it was tested on a real 5150 — means the card is
+*displaying* for the entire length of the clear, and what it displays is
+32KB nobody has written: the BIOS's MDA text page reinterpreted as a bitmap,
+and above it the card's own DRAM as it powered up. That is a bright, roughly
+half-lit 720x348 field, and the clear is 16,384 `stosw` on a 4.77MHz 8088 —
+tens of milliseconds, several whole frames at 50Hz. On an IBM 5151 the step
+from a mostly-black text page to a half-lit screen and back is a beam-current
+swing the flyback answers with an **audible pop**; on screen, and in PCem, it
+is a garbled flash immediately before the progress bar. Clearing 3B8h bit 3
+gates the video signal only — the 6845 keeps running and both syncs keep
+coming out — so blanking costs the monitor nothing, and behind it the
+unavoidable sync transient of a half-written 6845 (its registers are not
+double-buffered) is invisible too.
+
+**3BFh bit 1 is deliberately clear.** It enables the second 32KB page, which
+is at B8000 — a CGA's framebuffer. A machine can hold both cards (the 5150
+this was found on does), and the kernel only ever addresses page 0 (maximum
+offset 7E96h), so the second decode buys nothing and puts two cards on the
+bus for the same addresses.
+
+`vid_text` (`CMD_REBOOT`) returns VGA and CGA to mode 3; Hercules blanks
+(`out 3B8h, 0`), then gets `out 3BFh, 0` and mode 7 — the BIOS reprograms
+the 6845 there too, so it gets the same blank for the same reason.
 
 ### 39.7 Window placement — `wm_fit`
 
@@ -11621,6 +11723,33 @@ later — and then clears `[ark_full]`, `[ark_msg]` and `[ark_stat]`, exactly as
 `ark_render`'s own full branch does. Without that, every frame spent under the
 panel would have queued a whole-board repaint for the worker to perform a
 second time.
+
+**Pausing is not one of the things that owes a full repaint** —
+`ark_draw_msgband`. The mode is the only thing the command changed, the banner
+is the only thing that draws differently for it, and while the game is paused
+nothing moves at all: so pausing and resuming repaint the nine rows the banner
+sits on and nothing else. Both used to call `ark_draw_all` — the background,
+both rails, every brick in the wall, the paddle, the ball, every capsule and
+shot, and the status strip — to put six characters up and take them down
+again. Counted with PERFORMANCE.md Part 4's method, one `P` keystroke was
+**89 `gfx_fill`s and 10 `font_char`s** and is now **2 and 6**. On a 4.77MHz
+machine the old figure is a *visible redraw* in Part 1's sense — not a
+flicker, a wait you sit through while the wall paints itself back a brick at
+a time — where a banner should simply have appeared.
+
+**The band is play area, so the erase takes whatever is standing in it**, and
+that is the part which does not fall out of `ark_clear_msg` + `ark_draw_msg`
+alone. Every object has a path back on the *next* frame — `ark_draw_pu` and
+`ark_draw_shots` redraw unconditionally, `ark_move_paddle` on its wipe flag —
+with one exception: `ark_move_ball` is gated on the ball having **moved**, and
+a paused ball never has. A ball inside the band would be erased and stay
+erased until the resume. So the band routine redraws the ball, and the
+capsules and shots with it, in `ark_draw_all`'s order — objects, then the
+banner on top of them.
+
+It satisfies `[ark_msg]`, which is exactly what it drew, and deliberately
+**not** `[ark_full]` or `[ark_stat]`: a whole-board repaint the worker already
+owes is still owed, and the status strip is outside this band entirely.
 
 ### 44.2 The keyboard has no key-up, so a hold is inferred from the repeat RATE
 
@@ -13472,13 +13601,20 @@ accesses would need hardware this machine does not have.
 
 ### 50.2 The map
 
-`mem_tab` — `MEM_MAX` (16) records × 6 bytes, kernel `.bss`:
+`mem_tab` — `MEM_MAX` (**32**) records × **8** bytes, in **`.lowbss`**
+(LOW_SEG, reached through `ss:` — the largest of the four tables §2's
+optimization moved out of the kernel's own segment; a reader in another
+segment uses `osapi_claim_snapshot`, §20.9, never a raw pointer):
 
 ```
 MC_SEG   0  word  base segment, 0 = free record
 MC_PARA  2  word  size in paragraphs (KB << 6)
 MC_OWN   4  word  owner: 0..INST_MAX-1 = instance slot;
-                  0xFF00 | tag = the kernel's own (MEM_K_SAVE, MEM_K_BB)
+                  0xFF00 | tag = the kernel's own (MEM_K_SAVE, MEM_K_BB, …);
+                  a package's claims carry the SEGMENT it runs in
+MC_DMA   6  word  the 64KB-page-safe HEAD in paragraphs, 0 = no constraint
+                  (mem_claim_dma, §50.3 — recorded so a claim that MOVES
+                  keeps the property it was granted for)
 ```
 
 The record **is** the allocator, the `inst_tab` idiom of §29.2 rule 7:
