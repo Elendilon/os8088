@@ -46,6 +46,11 @@ HPT_NONE     equ 0x00
 HPT_FAT12    equ 0x01
 HPT_FAT16S   equ 0x04           ; FAT16 under 32MB - what DOS 3.3 wrote, and
                                 ; every partition this driver makes is one
+HPT_FAT16B   equ 0x06           ; FAT16 at or over 32MB, and
+HPT_FAT16L   equ 0x0E           ; ...the LBA-addressed flavour of it. Both are
+                                ; MOUNTABLE even though this driver never
+                                ; writes one: another machine's FDISK did, and
+                                ; the volume inside is the same FAT16
 HP_MAXSEC    equ 65535          ; the kernel's volume ceiling (SPEC.md 18.7)
 
 ; --- the partitioner's window ------------------------------------------------
@@ -180,6 +185,41 @@ hd_part_used:
     stc
     ret
 .yes:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_part_isfat - is this slot a FAT volume we could mount?
+; in:  SI = the entry
+; out: CF = 0 yes; CF = 1 = free, or a type that is not FAT
+; clobbers: flags
+;
+; The TYPE byte, and the type byte only: whether the volume inside is really
+; a FAT one is the mount's question, and `osapi_vol_mount` answering CF=1 is
+; how a partition that lies gets dropped again (SPEC.md 52.4). Extended
+; (05h/0Fh) and FAT32 (0Bh/0Ch) are deliberately not here - the first is a
+; chain this driver does not walk and the second is a format this kernel
+; does not read.
+; -----------------------------------------------------------------------------
+hd_part_isfat:
+    push ax
+    call hd_part_used
+    jc .no
+    mov al, [si+HP_TYPE]
+    cmp al, HPT_FAT12
+    je .yes
+    cmp al, HPT_FAT16S
+    je .yes
+    cmp al, HPT_FAT16B
+    je .yes
+    cmp al, HPT_FAT16L
+    je .yes
+.no:
+    pop ax
+    stc
+    ret
+.yes:
+    pop ax
     clc
     ret
 

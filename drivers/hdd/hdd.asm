@@ -47,8 +47,12 @@
     OS88_DRIVER 'Hard Drive', DRVC_DISK, hd_entry
 
 HD_MAXDEV    equ 4              ; devices the probe will report
-HD_MAXVOL    equ 2              ; volumes mountable at once = the kernel's
-                                ; own spare rows (DVOL_MAX - 2)
+HD_MAXVOL    equ 4              ; volumes mountable at once: ONE PER FAT
+                                ; PARTITION, because four primaries is the
+                                ; whole of what a partition table holds and
+                                ; each is its own drive letter and its own
+                                ; desktop icon (SPEC.md 52.4). It matches the
+                                ; kernel's own spare rows (DVOL_MAX - 2)
 
 ; --- one device row, stride HDD_SIZE ----------------------------------------
 HDD_KIND     equ 0              ; db: HDK_*
@@ -96,6 +100,7 @@ IDE_C_WRITE  equ 0x30
 IDE_C_IDENT  equ 0xEC
 IDE_C_INITP  equ 0x91
 
+%include "cfg.inc"
 %include "part.inc"
 %include "fmt.inc"
 %include "page.inc"
@@ -119,6 +124,8 @@ IDE_C_INITP  equ 0x91
 hd_entry:
     cmp al, DRVV_DETACH
     je hd_detach
+    cmp al, DRVV_READY
+    je hd_ready
     cmp al, DRVV_ATTACH
     jne .refuse                 ; DRVV_TIER means nothing here: this driver
                                 ; has one tier and its refusal changes
@@ -135,6 +142,22 @@ hd_entry:
     ret
 
 ; -----------------------------------------------------------------------------
+; hd_ready - the kernel can take our calls now (SPEC.md 51.2.2/52.6)
+; in:  nothing
+; out: nothing
+;
+; The earliest point at which OSAPI_VOL_* will answer us: their fence is the
+; publication slot and attach runs before it is armed. So this - and not
+; attach - is where the settings file is read and where a drive that was
+; mounted last session is mounted again.
+; -----------------------------------------------------------------------------
+hd_ready:
+    call hd_cfg_load            ; geometry the user typed, and what was up
+    call hd_cfg_automount
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; hd_detach - give everything back (SPEC.md 51.2). Cannot fail.
 ; in:  nothing
 ; out: nothing
@@ -147,6 +170,8 @@ hd_detach:
     push ax
     push bx
     push cx
+    call hd_cfg_flush           ; a geometry typed and not yet acted on is
+                                ; still worth keeping (SPEC.md 52.6)
     mov cx, HD_MAXVOL
     mov bx, hd_vols
 .vol:
@@ -196,6 +221,8 @@ hd_state_init:
     mov byte [hd_ndev], 0
     mov byte [hd_sel], 0
     mov byte [hd_field], 0
+    mov byte [hd_dirty], 0
+    mov byte [hd_wantmnt], 0
     mov word [hd_pwin], 0
     mov word [hd_fwin], 0
     mov word [hd_msg], hd_s_pick
@@ -1103,6 +1130,22 @@ hd_line:     times 64 db 0      ; one line of text under construction
 hd_lineptr:  dw 0               ; ...and where hd_scat/hd_utoa left off
 hd_rowslot:  db 0               ; the page's and the partitioner's loop index
 hd_rowdev:   db 0
+hd_pslot:    db 0               ; the partition hd_mount is working on
+hd_dirty:    db 0               ; 1 = HDD.CFG is owed a write (SPEC.md 52.6)
+hd_wantmnt:  db 0               ; bit n = device n was mounted last session
+hd_selsave:  db 0               ; hd_cfg_automount's saved selection
+hd_cwd:      dw 0               ; the volume+directory a file op borrowed...
+hd_cdrv:     db 0               ; ...and must put back
+hd_cfgi:     db 0               ; hd_cfg_build's loop index and record count
+hd_cfgn:     db 0
+hd_cfglen:   dw 0               ; bytes HDD.CFG actually gave us
+hd_cfgbuf:   times HDC_FBUF db 0
+hd_nmnt:     db 0               ; ...and how many it has mounted this click
+hd_cap:      times 32 db 0      ; the page's caption, when it is BUILT rather
+                                ; than pointed at a literal. Its own buffer:
+                                ; hd_line is rewritten by every device row on
+                                ; the way past, and a caption outlives the
+                                ; paint that put it up
 hd_fldi:     db 0               ; the C/H/S editor's loop index
 hd_fldx:     dw 0
 hd_clx:      dw 0               ; the click being dispatched

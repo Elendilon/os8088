@@ -70,6 +70,18 @@ SND_RT_SB    equ 3              ; Sound Blaster - FM and streams
 DRVV_ATTACH  equ 0              ; out CF=0 and SI = your service table;
                                 ;     CF=1 = no hardware, nothing hooked
 DRVV_DETACH  equ 1              ; out: nothing. Cannot fail.
+DRVV_READY   equ 3              ; "your services are published; the kernel can
+                                ; take your calls now". Sent ONCE, right after
+                                ; attach returns, and it is the earliest point
+                                ; at which you may call anything that comes
+                                ; back through a fence - OSAPI_DRV_TASK,
+                                ; OSAPI_VOL_*, anything keyed on the
+                                ; publication slot. From ATTACH those all
+                                ; refuse, because the slot is armed afterwards
+                                ; and deliberately: a worker or a volume
+                                ; created by an attach that then says no would
+                                ; outlive the image. Optional - return if you
+                                ; have nothing to do here.
 DRVV_TIER    equ 2              ; in AH = how much of yourself the user wants
                                 ; (SPEC.md 34.8); out CF=0 and SI = your
                                 ; service table, which the kernel RE-COPIES

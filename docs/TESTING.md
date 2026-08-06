@@ -144,7 +144,7 @@ make test HDD=40                 # a blank 40MB raw IDE disk, KEPT between runs
 # -> the 'Hard Drive' page appears in the list; select it
 # -> Partition -> New -> Write -> Close
 # -> Format -> Format -> Close
-# -> Mount        ... and 'HDD C' appears on the desktop
+# -> Mount        ... one icon per FAT partition: HDD C, HDD D, ...
 rm -f build/hdd.img              # start over from a blank disk
 ```
 
@@ -164,6 +164,18 @@ print('jmp', b[:3].hex(), 'spc', b[13], 'fatsz', int.from_bytes(b[22:24],'little
       'tot16', int.from_bytes(b[19:21],'little'), 'fstype', b[54:62])
 EOF
 ```
+
+**Persistence needs the Control Panel CLOSED.** The mount itself is written to
+`HDD.CFG` on the spot, but the driver being *loaded* is a `SYSTEM.CFG`
+setting, and the panel defers that write to its teardown (SPEC.md 31.8) - so a
+run that quits QEMU with the panel still open reboots with no driver and
+nothing mounted, which reads exactly like auto-mount being broken. Close the
+window, then quit, then `make test HDD=40` again: Disk A, Disk B and every
+hard-disk volume should be on the desktop with no clicks at all.
+
+Both of these dirty **tracked, shipped artifacts** - `build/os8088.img` gains
+`SYSTEM.CFG` and `HDD.CFG` - so `rm -f build/os8088.img build/os8088-360.img
+&& make` before committing, exactly as for a floppy write test.
 
 What QEMU cannot show: the **MFM** rung — rung 0 against a real XT controller's
 ROM rather than SeaBIOS — and the 8-bit-bus behaviour that gates rung 1 off an

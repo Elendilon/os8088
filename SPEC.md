@@ -13247,6 +13247,24 @@ attach returns and a worker spawned from inside attach would outlive a
 refusal. And `drv_release` clears the right class's pointer, and only that
 one.
 
+### 51.2.2 `DRVV_READY` — the earliest point a driver may call back
+
+Attach happens **before** `drv_publish` arms the class's slot, and that is
+deliberate: a worker or a volume created by an attach that then says no would
+outlive the image the kernel is about to free. But it means every fence keyed
+on the publication slot — `OSAPI_DRV_TASK`, all four `OSAPI_VOL_*` — refuses a
+driver that calls it from attach.
+
+`DRVV_READY` is the answer, sent once by `drv_attach` immediately after the
+publish (and after `DRVV_TIER`, for the class that has one): *your services
+are published and the kernel can take your calls now*. It is optional — a
+driver with nothing to do there returns — and it is where a disk driver reads
+its settings and re-mounts what they say was mounted (§52.6).
+
+It runs inside `drv_boot`, so it is before the desktop's first paint: a volume
+registered there gets its icon from the kernel's own deferred repaint
+(§31.2), on the first paint rather than a second one.
+
 ### 51.3 Loading, and what happens when it fails
 
 `drv_load` is the package loader's order (§21) with the instance half
@@ -13579,12 +13597,81 @@ buttons, in 27 characters by 13 rows. Greying follows §47: one predicate
 tests only facts already known — is there a device, is its geometry usable —
 never "try it and see".
 
-**Mount** claims the listing buffer first (§22.6), then registers the volume
-and mounts it; a refused claim is not an error, it is a 32-entry listing. The
-desktop zone and the drive letter both fall out of the volume index, so
-"HDD C" appearing under Disk B is not something this driver arranges. On CGA
-it appears *beside* Disk A instead, which is §26.1's column wrap and also not
-something this driver knows about.
+**Mount is per PARTITION, not per drive.** It walks all four slots and mounts
+every one that is FAT, so a disk partitioned into three comes up as three
+volumes, three drive letters and three desktop icons. Two tests decide, and
+both are needed:
+
+- the partition **TYPE** byte is one of 01h, 04h, 06h, 0Eh. Extended (05h/0Fh)
+  and FAT32 (0Bh/0Ch) are not — the first is a chain this driver does not walk
+  and the second a format this kernel does not read;
+- and the volume actually **mounts**. A partition whose type says FAT and
+  whose content does not gets its row and its claim handed straight back, and
+  the walk carries on to the next slot. That is the half a type byte cannot
+  answer.
+
+A partition over 65,535 sectors is skipped for §18.7's reason. Each volume
+claims its own listing buffer first (§22.6); a refused claim is not an error,
+it is a 32-entry listing.
+
+**The kernel names them.** The driver passes no label, because the drive
+letter is the kernel's to assign and the driver could not know it: a
+driver-backed volume with no label of its own derives `HDD C`..`HDD F` from
+its index the way a floppy derives `Disk A` (§26.1). So "HDD C appearing under
+Disk B" is not something this driver arranges — and on CGA it appears *beside*
+Disk A instead, which is the column wrap and also not something it knows
+about.
+
+**Unmount is the other half**: it drops every volume the selected device has,
+not the first.
+
+### 52.6 HDD.CFG — the mount survives a reboot
+
+A hard disk the user mounted is a hard disk the user expects to find on the
+desktop next time, and a geometry the user typed in is one they should not
+have to type again. Both live in **`HDD.CFG`**, in the system disk's root,
+written through the ordinary file API.
+
+**It is the driver's file, not `SYSTEM.CFG`'s business.** That file's key
+table is kernel `.text` (§51.5), so putting a driver's settings in it would
+put a driver's settings in the kernel — the thing this whole subsystem is
+arranged not to do.
+
+Its format is a signature and a **whole-file version**, not §51.5's keyed
+records, and the difference is proportionate rather than lazy: `SYSTEM.CFG`
+has many independent settings and several kernel versions reading each
+other's work, while this one has a single owner that rewrites it entire on
+every change. It borrows the rule that matters — a version that does not
+match exactly means **the defaults**, so changing the shape is a bump and
+never a misread.
+
+```
++0   'O88HDD',0,0   +8  dw version   +10 db count  +11 db 0
++12  count x 12:  kind, unit, base, cyl, heads, spt, flags(bit 0 = mounted)
+```
+
+Three things about it are load-bearing:
+
+- **A device is matched by kind+unit+base, never by its row index.** The probe
+  runs again at every attach and a machine can gain or lose a drive between
+  boots; an index would restore one drive's geometry onto another's and mount
+  a partition table belonging to somebody else.
+- **A record exists only for a drive worth remembering** — one whose geometry
+  the user typed in, or one that was mounted. There is nothing to save about a
+  drive the probe describes correctly and nobody mounted.
+- **Every file operation puts the volume back.** File names resolve in the
+  *current* volume and directory (§19.2), and by the time this runs that may
+  well be the hard disk just mounted — so it banks the pair with
+  `OSAPI_FILE_HERE`, works in A:'s root, and goes back. At boot that also
+  leaves the rest of `drv_boot` with the system disk current, exactly as it
+  would have been without a hard disk at all.
+
+The write is **deferred** for `cp_flush`'s reason (§31.8): a floppy write is
+about a second on the floor machine and a session of nudging the cylinder
+count with `+` must not cost one per click. Any action that *uses* the
+geometry — Partition, Format, Mount — spends it, as does detach; a mount or an
+unmount saves outright, because the set of mounted drives is what the next
+boot reads.
 
 ### 52.9 Not in scope
 

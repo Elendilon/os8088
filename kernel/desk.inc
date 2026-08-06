@@ -165,11 +165,22 @@ desk_zone_label:
     call dsk_vol_slot
     lea si, [bx+DV_LBL]
     cmp byte [si], 0
-    jne .out
-    mov si, desk_lbl_gen        ; 'Disk ' + the letter, built in place
+    jne .out                    ; the row named itself
+    mov si, desk_lbl_gen        ; 'Disk ' or 'HDD ' + the letter, built in
+    mov word [desk_lbl_gen+0], 'Di'     ; place. The PREFIX comes from the
+    mov word [desk_lbl_gen+2], 'sk'     ; kind, so a driver that mounts four
+    mov byte [desk_lbl_gen+4], ' '      ; partitions gets HDD C..HDD F for
+    mov cx, 5                           ; nothing - it could not have named
+    cmp byte [bx+DV_KIND], DVK_DRV      ; them itself anyway, since the
+    jne .letter                         ; letter is the kernel's to assign
+    mov word [desk_lbl_gen+0], 'HD'
+    mov word [desk_lbl_gen+2], 'D '
+    mov cx, 4
+.letter:
+    mov bx, cx
     add al, 'A'
-    mov [desk_lbl_gen+5], al
-    mov byte [desk_lbl_gen+6], 0
+    mov [bx+desk_lbl_gen], al
+    mov byte [bx+desk_lbl_gen+1], 0
 .out:
     pop bx
     pop ax
@@ -599,9 +610,9 @@ desk_draw_zone:
     pop ax
     ret
 
-desk_lbl_gen db "Disk X", 0     ; scratch for desk_zone_label's derived form:
+desk_lbl_gen db "Disk X", 0, 0  ; scratch for desk_zone_label's derived form:
                                 ; a volume with no label of its own is named
-                                ; from its index, in place
+                                ; from its KIND and its index, in place
 
 ; -----------------------------------------------------------------------------
 section .bss

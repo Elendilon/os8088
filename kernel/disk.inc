@@ -80,7 +80,12 @@ DSK_R_SIZE   equ 28              ; file size, dword
 ; dsk_read_chain's run coalescer, dskw_flush - is untouched by capacity, and
 ; a volume is capped at 65,535 sectors (31.99MB) by BPB rule 8, which is also
 ; the DOS 3.3 partition limit these machines ran.
-DVOL_MAX     equ 4               ; A:, B:, and two driver-backed volumes
+DVOL_MAX     equ 6               ; A:, B:, and one per PARTITION a disk
+                                 ; driver can mount: four primaries is the
+                                 ; whole of what a partition table holds
+                                 ; (SPEC.md 52.2), and each is its own volume,
+                                 ; its own drive letter and its own desktop
+                                 ; icon - so C: through F:
 DV_KIND      equ 0               ; db: 0 = BIOS int 13h, 1 = driver, 0xFF free
 DV_UNIT      equ 1               ; db: the int 13h DL, or the driver's handle
 DV_FLAGS     equ 2               ; db: bit 0 = show a desktop zone (SPEC 26)
@@ -115,12 +120,7 @@ dsk_vtab:
     db DVK_BIOS, 1, 0, 0         ; volume 1 = B:
     dw 0, 0
     db 'Disk B', 0, 0
-    db DVK_FREE, 0, 0, 0
-    dw 0, 0
-    times 8 db 0
-    db DVK_FREE, 0, 0, 0
-    dw 0, 0
-    times 8 db 0
+    times DVOL_MAX - 2 db DVK_FREE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 ; --- module data (initialized: lives in .text, not .bss) ---------------------
 disk_drive:  db 1                ; current VOLUME (0 = A:, 1 = B:), init B:

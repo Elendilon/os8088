@@ -533,8 +533,10 @@ hd_page_adjust:
     mov [di+HDD_SPT], ax
 .flag:
     and byte [di+HDD_FLAGS], 0xFE   ; typed in by hand is still KNOWN, as
-    call hd_geom_ok                 ; long as it is usable - which is the
-    jc .out                         ; whole point of the editor
+    or byte [di+HDD_FLAGS], 2       ; long as it is usable - which is the
+    mov byte [hd_dirty], 1          ; whole point of the editor. Bit 1 says
+    call hd_geom_ok                 ; the USER set it, which is what makes it
+    jc .out                         ; worth a line in HDD.CFG (SPEC.md 52.6)
     or byte [di+HDD_FLAGS], 1
     mov word [hd_msg], hd_s_typed
 .out:
@@ -711,14 +713,19 @@ hd_page_click:
     call hd_mounted
     jc .domount
     call hd_unmount
-    jmp .repaint
-.domount:
-    call hd_mount
+    jmp short .saved            ; the SET of mounted drives is what the next
+.domount:                       ; boot reads, so it is written out on the
+    call hd_mount               ; spot rather than deferred (SPEC.md 52.6)
+.saved:
+    mov byte [hd_dirty], 1
+    call hd_cfg_flush
     jmp .repaint
 .dopart:
-    call hd_pw_open
+    call hd_cfg_flush           ; opening a tool COMMITS to this geometry,
+    call hd_pw_open             ; which is what spends a deferred edit
     jmp .repaint
 .dofmt:
+    call hd_cfg_flush
     call hd_fw_open
     jmp .repaint
 .refused:
@@ -793,31 +800,72 @@ hd_mount:
     push si
     push di
 
+    mov byte [hd_nmnt], 0
     mov word [hd_msg], hd_s_mnotab
     mov al, [hd_sel]
     call hd_dev_row
     call hd_part_load
     jc .out                     ; no readable table: nothing to mount
 
-    xor cl, cl                  ; find the first FAT partition
+    mov word [hd_msg], hd_s_mnofat
+    mov byte [hd_pslot], 0
 .slot:
-    mov al, cl
+    mov al, [hd_pslot]
     call hd_part_ent
-    call hd_part_used
-    jnc .found
-    inc cl
-    cmp cl, 4
-    jb .slot
-    jmp .out
-.found:
+    call hd_part_isfat
+    jc .next                    ; free, or a type that is not a FAT volume:
+                                ; SKIPPED, which is the whole of "and if it
+                                ; is not FAT, do not" (SPEC.md 52.4)
     cmp word [si+HP_SECS+2], 0
-    jne .toobig
+    jne .next                   ; over 65,535 sectors: not a volume this
+                                ; kernel can carry (SPEC.md 18.7)
+    call hd_already
+    jnc .next                   ; this one is already mounted
+    call hd_mount_one
+.next:
+    inc byte [hd_pslot]
+    cmp byte [hd_pslot], 4
+    jb .slot
+
+    cmp byte [hd_nmnt], 0
+    je .out                     ; the caption is whichever refusal got here
+    call hd_mount_says          ; 'Mounted n volume(s)'
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_mount_one - mount the partition [hd_pslot] names (module internal)
+; in:  SI = its entry, [hd_sel] = the device; the gfx lock is HELD
+; out: [hd_nmnt] incremented on success; [hd_msg] set on a failure
+; clobbers: flags
+;
+; The listing claim comes FIRST and is handed to the kernel with the volume,
+; because a mounted volume with no listing buffer lists 32 entries instead of
+; DSK_VENT and there is no second chance to say so (SPEC.md 22.6). A refused
+; claim is not an error - the volume mounts with the kernel's own floor.
+;
+; A partition whose TYPE says FAT and whose CONTENT does not is dropped here:
+; osapi_vol_mount answers CF=1, the row goes back, and the loop carries on to
+; the next slot. That is the second half of "and if it is not FAT, do not".
+; -----------------------------------------------------------------------------
+hd_mount_one:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
     call hd_vol_new             ; BX = a free hd_vols row
     jc .full
-    mov [bx+HDV_DEV], al
     mov al, [hd_sel]
     mov [bx+HDV_DEV], al
-    mov [bx+HDV_PART], cl
+    mov al, [hd_pslot]
+    mov [bx+HDV_PART], al
     mov ax, [si+HP_LBA]
     mov [bx+HDV_BASE], ax
     mov ax, [si+HP_LBA+2]
@@ -834,19 +882,18 @@ hd_mount:
 
     mov al, [bx+HDV_VOLH]       ; our own handle IS the row index
     mov cx, [bx+HDV_SECS]
-    mov si, hd_s_hddc
-    call OSAPI_VOL_ADD          ; out AL = the kernel's volume index
-    jc .novol
+    xor si, si                  ; no label: the KERNEL derives 'HDD C'..'HDD F'
+    call OSAPI_VOL_ADD          ; from the volume index, which is the only
+    jc .novol                   ; place that knows it (SPEC.md 26.1)
     mov [bx+HDV_VOL], al
     mov byte [bx+HDV_USED], 1
     call OSAPI_VOL_MOUNT        ; AL is still the volume index
     jc .badvol
-    mov word [hd_msg], hd_s_mounted
+    inc byte [hd_nmnt]
     jmp short .out
 .badvol:
-    call hd_unmount_row
-    mov word [hd_msg], hd_s_mbad
-    jmp short .out
+    call hd_unmount_row         ; typed FAT, is not FAT: give it all back and
+    jmp short .out              ; leave the loop to try the next slot
 .novol:
     mov dx, [bx+HDV_LSEG]
     or dx, dx
@@ -856,15 +903,79 @@ hd_mount:
     mov byte [bx+HDV_USED], 0
 .full:
     mov word [hd_msg], hd_s_mfull
-    jmp short .out
-.toobig:
-    mov word [hd_msg], hd_s_mbig
 .out:
-    pop di
     pop si
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_already - is [hd_sel]'s partition [hd_pslot] mounted already?
+; in:  nothing
+; out: CF = 0 yes, CF = 1 no
+; clobbers: flags
+; -----------------------------------------------------------------------------
+hd_already:
+    push ax
+    push bx
+    push cx
+    mov cx, HD_MAXVOL
+    mov bx, hd_vols
+.scan:
+    cmp byte [bx+HDV_USED], 0
+    je .next
+    mov al, [bx+HDV_DEV]
+    cmp al, [hd_sel]
+    jne .next
+    mov al, [bx+HDV_PART]
+    cmp al, [hd_pslot]
+    je .yes
+.next:
+    add bx, HDV_SIZE
+    loop .scan
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+.yes:
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_mount_says - 'Mounted n volume(s)', into the caption buffer (internal)
+; in:  [hd_nmnt]
+; out: [hd_msg] points at it
+; clobbers: flags
+;
+; Its OWN buffer and not hd_line, which every device row rewrites on the way
+; past: a caption outlives the paint that put it up.
+; -----------------------------------------------------------------------------
+hd_mount_says:
+    push ax
+    push si
+    push di
+    mov di, hd_cap
+    mov si, hd_s_mounted
+    call hd_scat
+    mov al, [hd_nmnt]
+    xor ah, ah
+    call hd_utoa
+    mov si, hd_s_vols
+    cmp byte [hd_nmnt], 1
+    jne .plural
+    mov si, hd_s_vol1
+.plural:
+    call hd_scat
+    mov byte [di], 0
+    mov word [hd_msg], hd_cap
+    pop di
+    pop si
     pop ax
     ret
 
@@ -905,13 +1016,25 @@ hd_vol_new:
 ; out: nothing
 ; -----------------------------------------------------------------------------
 hd_unmount:
+    push ax
     push bx
-    call hd_mounted
-    jc .out
-    call hd_unmount_row
+    push cx
+    mov cx, HD_MAXVOL
+    mov bx, hd_vols
+.scan:
+    cmp byte [bx+HDV_USED], 0
+    je .next
+    mov al, [bx+HDV_DEV]
+    cmp al, [hd_sel]
+    jne .next
+    call hd_unmount_row         ; EVERY volume this device has, not the first:
+.next:                          ; Mount put up one icon per FAT partition and
+    add bx, HDV_SIZE            ; Unmount is the other half of that
+    loop .scan
     mov word [hd_msg], hd_s_unmounted
-.out:
+    pop cx
     pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1154,9 +1277,11 @@ hd_s_pick:    db 'Pick a drive, then a button', 0
 hd_s_nodev:   db 'No hard disk found', 0
 hd_s_nogeom:  db 'Geometry unknown: type it', 0
 hd_s_typed:   db 'Geometry set by hand', 0
-hd_s_mounted: db 'Mounted - see the desktop', 0
+hd_s_mounted: db 'Mounted ', 0
+hd_s_vol1:    db ' volume', 0
+hd_s_vols:    db ' volumes', 0
+hd_s_mnofat:  db 'No FAT partition on it', 0
 hd_s_unmounted: db 'Unmounted', 0
 hd_s_mnotab:  db 'No partition table yet', 0
 hd_s_mfull:   db 'No free volume', 0
-hd_s_mbad:    db 'Not a FAT volume: Format', 0
 hd_s_mbig:    db 'Partition is over 32MB', 0

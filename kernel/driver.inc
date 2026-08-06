@@ -97,6 +97,14 @@ DRV_MAX_KB  equ 40              ; the biggest driver image we will claim
 DRVV_ATTACH equ 0               ; probe + hook. out CF=1 = no hardware, and
                                 ; the contract is that NOTHING was hooked
 DRVV_DETACH equ 1               ; silence, unhook, restore. Cannot fail.
+DRVV_READY  equ 3               ; "your services are published and the kernel
+                                ; can take your calls now". Sent once, right
+                                ; after drv_publish, and the ONLY point at
+                                ; which a driver may do anything that comes
+                                ; back through the API - a slot's fence tests
+                                ; the publication slot, and attach runs before
+                                ; it is armed (SPEC.md 51.2.2). Optional: a
+                                ; driver that does not implement it returns.
 DRVV_TIER   equ 2               ; in AH = SND_RT_*: how much of itself the
                                 ; user wants (SPEC.md 34.8). out CF=0 and
                                 ; SI = its service table, RE-COPIED because
@@ -1121,6 +1129,11 @@ drv_attach:
     mov ah, [snd_route]         ; ...then hand it the persisted tier, which
     call drv_tier               ; may take memory back off it (SPEC.md 34.8).
 .notier:
+    mov bp, [bx+DRVR_ENT]       ; ...and only now, when the slot is armed and
+    mov al, DRVV_READY          ; every API cell will answer it, tell the
+    call drv_call               ; driver so (SPEC.md 51.2.2). This is where a
+                                ; disk driver re-mounts what its settings say
+                                ; it had mounted last time
     clc                         ; A refusal is not a failed attach: the driver
                                 ; is up at whatever tier it could reach, and
                                 ; the Sound page shows which
