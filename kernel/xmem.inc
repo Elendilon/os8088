@@ -135,6 +135,12 @@ xm_gdtr:
 ; not "we wrote to the gate" - the thing every consumer keys off, and a 386
 ; whose gate never answered has no reachable store no matter what AH=88h
 ; says.
+
+section .ovl                    ; the boot overlay (SPEC.md 2.5): sizing the store
+                                ; happens once, at boot. xm_arm stays
+                                ; resident - xm_copy re-arms unreal mode
+                                ; inside the window that uses it - so the one
+                                ; call to it from here goes through a shim
 ; -----------------------------------------------------------------------------
 xm_init:
     push ax
@@ -186,7 +192,8 @@ xm_init:
     mov [xm_base_hi], dx        ; xm_base_lo stays 0 - both bases are on a
     cmp byte [cpu_tier], CPU_386        ; 64KB boundary
     jne .publish
-    call xm_arm                 ; unreal mode, once, here (SPEC.md 41.4)
+    call KERNEL_SEG:ovw_xm_arm  ; unreal mode, once, here (SPEC.md 41.4).
+                                ; FAR: this is the overlay calling resident code
 .publish:
     mov [xm_kb], bx             ; LAST, and deliberately so
 .done:
@@ -224,6 +231,8 @@ xm_init:
 ;
 ; There is no far jump. CS is never reloaded and keeps its real-mode base,
 ; which is what makes the instruction after `mov cr0` reachable at all.
+
+section .text
 ; -----------------------------------------------------------------------------
 xm_arm:
     cmp byte [cpu_tier], CPU_386

@@ -86,6 +86,15 @@ cpu_feat        db 0            ; CPU_F_* - what actually verified, as
 ;
 ; This routine is the one place in either module that runs before the tier
 ; is known, so there is no island in it and there cannot be one.
+
+section .ovl                    ; the boot overlay (SPEC.md 2.5): runs once from
+                                ; kmain and is written over by the first
+                                ; mount. cpu_info stays resident below: it is
+                                ; API slot 0x0188 and answers all session
+                                ; long. Nothing here calls out of the overlay
+                                ; and nothing here has data of its own -
+                                ; cpu_tier and cpu_feat are .text, written
+                                ; through DS like any kernel byte
 ; -----------------------------------------------------------------------------
 cpu_detect:
     push ax
@@ -416,6 +425,8 @@ cpu_hma_claim:
 ; Callable from any context, gfx lock held or not - it reads two bytes and
 ; touches no hardware. A package must branch on the KB figure from
 ; xm_caps, never on this tier byte (SPEC.md 41.8).
+
+section .text
 ; -----------------------------------------------------------------------------
 cpu_info:
     mov al, [cpu_tier]

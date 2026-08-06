@@ -812,6 +812,38 @@ gfx_fill_gray_raw:
 ; what made it look like the map was drawing the wrong SHAPE rather than in
 ; the wrong PLACE.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; osapi_gfx_fill_pat - API slot 0x02B0's X body (SPEC.md 20.9)
+; in:  AX/BX/CX/DX = the rect, ES:SI = the caller's 8 pattern bytes
+; out: nothing; SI preserved
+;
+; The eight bytes are staged into the kernel's own segment first, the
+; dsk_get_dir idiom (SPEC.md 2.1), because vga_pat_stage reads [gfx_pat]
+; through DS and DS is KERNEL_SEG by the time it runs. [gfx_pat] is a NEAR
+; pointer and always was; giving it a segment would put one on every kernel
+; caller of a primitive that is drawn per fragment.
+; -----------------------------------------------------------------------------
+osapi_gfx_fill_pat:
+    push ax
+    push cx
+    push si
+    push di
+    mov di, api_pat
+    mov cx, 8
+.copy:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .copy
+    mov word [gfx_pat], api_pat
+    pop di
+    pop si
+    pop cx
+    pop ax
+    call gfx_fill_pat
+    ret
+
 gfx_fill_pat:
     GFXCLIP gfx_fill_pat_raw
 gfx_fill_pat_raw:
@@ -1426,6 +1458,11 @@ gfx_unlock:
 
 ; -----------------------------------------------------------------------------
 section .bss
+
+api_pat:     resb 8             ; osapi_gfx_fill_pat's staging slot: a
+                                ; package's eight pattern bytes, copied into
+                                ; the kernel's segment because vga_pat_stage
+                                ; reads them through DS
 
 gfx_blit_x:  resw 1             ; gfx_blit4's row cursor (SPEC.md 5.4):
 gfx_blit_w:  resw 1             ; destination left, width, rows left and the

@@ -326,13 +326,13 @@ menu_relayout:
 
     ; --- cell 0: the System menu, fixed in every application ---------------
     mov di, menu_bar
-    mov word [di + MB_TITLE], 0 ; 0 = draw the logo glyph
-    mov word [di + MB_ITEMS], menu_items_logo
-    mov word [di + MB_NITEM], 3
-    mov word [di + MB_XL], 0
-    mov word [di + MB_XR], MENU_SYS_XR
-    mov word [di + MB_TX], MENU_SYS_TX
-    mov word [di + MB_SEG], 0   ; the System menu is the kernel's, always
+    mov word [ss:di + MB_TITLE], 0 ; 0 = draw the logo glyph
+    mov word [ss:di + MB_ITEMS], menu_items_logo
+    mov word [ss:di + MB_NITEM], 3
+    mov word [ss:di + MB_XL], 0
+    mov word [ss:di + MB_XR], MENU_SYS_XR
+    mov word [ss:di + MB_TX], MENU_SYS_TX
+    mov word [ss:di + MB_SEG], 0   ; the System menu is the kernel's, always
     mov word [menu_nbar], 1
     add di, MB_ENTSZ
 
@@ -369,20 +369,20 @@ menu_relayout:
                                 ; ui_dispatch's `dec ah` would hand the
                                 ; handler the wrong menu (SPEC.md 12/12.2)
     mov ax, [es:si + AMENU_TITLE]
-    mov [di + MB_TITLE], ax
+    mov [ss:di + MB_TITLE], ax
     mov ax, [es:si + AMENU_ITEMS]
-    mov [di + MB_ITEMS], ax
+    mov [ss:di + MB_ITEMS], ax
     mov ax, [es:si + AMENU_NITEM]
-    mov [di + MB_NITEM], ax
+    mov [ss:di + MB_NITEM], ax
     mov ax, [menu_seg]          ; ...and these are the owner's
-    mov [di + MB_SEG], ax
-    mov [di + MB_XL], bx
+    mov [ss:di + MB_SEG], ax
+    mov [ss:di + MB_XL], bx
     mov ax, bx
     add ax, 6                   ; half of MENU_TITLE_PAD: the text is centred
-    mov [di + MB_TX], ax
+    mov [ss:di + MB_TX], ax
     mov ax, dx
     dec ax
-    mov [di + MB_XR], ax        ; xr = left + width - 1
+    mov [ss:di + MB_XR], ax        ; xr = left + width - 1
     mov bx, dx                  ; next cell starts where this one ended
     inc word [menu_nbar]
     add di, MB_ENTSZ
@@ -460,14 +460,14 @@ menu_ab_cell:
     pop es                      ; the copy is kernel data now, so measure it
     mov si, menu_abstr + MENU_ABPFX_LEN
     call font_width_x           ; AX = the label's pixel width
-    mov [di + MB_TITLE], si
-    mov word [di + MB_ITEMS], menu_abitems
-    mov word [di + MB_NITEM], 1
-    mov word [di + MB_XL], MENU_NAME_X - 6
+    mov [ss:di + MB_TITLE], si
+    mov word [ss:di + MB_ITEMS], menu_abitems
+    mov word [ss:di + MB_NITEM], 1
+    mov word [ss:di + MB_XL], MENU_NAME_X - 6
     add ax, MENU_NAME_X + 5
-    mov [di + MB_XR], ax
-    mov word [di + MB_TX], MENU_NAME_X
-    mov word [di + MB_SEG], 0   ; both its strings are in menu_abstr
+    mov [ss:di + MB_XR], ax
+    mov word [ss:di + MB_TX], MENU_NAME_X
+    mov word [ss:di + MB_SEG], 0   ; both its strings are in menu_abstr
     mov ax, [menu_nbar]
     mov [menu_abcell], ax
     inc word [menu_nbar]
@@ -617,18 +617,18 @@ menu_draw_bar:
     mov cx, [menu_nbar]
 .title:
     push cx
-    mov ax, [si + MB_TITLE]
+    mov ax, [ss:si + MB_TITLE]
     test ax, ax
     jz .glyph
-    mov cx, [si + MB_TX]
+    mov cx, [ss:si + MB_TX]
     mov dx, MENU_TEXT_Y
     push si
     push es
     push cs
     pop es                      ; this cell's own segment (SPEC.md 12.2):
-    cmp word [si + MB_SEG], 0   ; cell 0's title is never drawn (it is the
+    cmp word [ss:si + MB_SEG], 0   ; cell 0's title is never drawn (it is the
     je .tseg                    ; logo), but the rule is the same for all
-    mov es, [si + MB_SEG]
+    mov es, [ss:si + MB_SEG]
 .tseg:
     mov si, ax
     call font_str_x
@@ -636,7 +636,7 @@ menu_draw_bar:
     pop si
     jmp .next
 .glyph:
-    mov cx, [si + MB_TX]
+    mov cx, [ss:si + MB_TX]
     call menu_logo_glyph
 .next:
     pop cx
@@ -723,9 +723,9 @@ menu_track:
     mov di, [menu_nbar]
     mov byte [menu_cell], 0
 .find:
-    cmp cx, [si + MB_XL]
+    cmp cx, [ss:si + MB_XL]
     jb .miss
-    cmp cx, [si + MB_XR]
+    cmp cx, [ss:si + MB_XR]
     jbe .found
 .miss:
     add si, MB_ENTSZ
@@ -741,11 +741,11 @@ menu_track:
                                 ; no flush needed - SPEC.md 32)
 
     ; --- menu rect: width = widest item + 16, items are 16px cells -----------
-    mov bx, [si + MB_ITEMS]
+    mov bx, [ss:si + MB_ITEMS]
     mov [menu_iptr], bx
-    mov ax, [si + MB_SEG]       ; the dropped menu's segment: this CELL's,
+    mov ax, [ss:si + MB_SEG]       ; the dropped menu's segment: this CELL's,
     mov [menu_dseg], ax         ; not the bar owner's (SPEC.md 12.2)
-    mov cx, [si + MB_NITEM]
+    mov cx, [ss:si + MB_NITEM]
     cmp cx, [vid_popmax]        ; the height clamp a bar menu never had: a
     jbe .cnt_ok                 ; package's set is not trusted for count any
     mov cx, [vid_popmax]        ; more than for width (SPEC.md 12.2/2.2)
@@ -753,7 +753,7 @@ menu_track:
     mov [menu_cnt], cx
     call menu_widest            ; AX = widest item text, px (BX/CX in)
     add ax, 16
-    mov bx, [si + MB_XL]        ; the pull-down hangs off the title's left
+    mov bx, [ss:si + MB_XL]        ; the pull-down hangs off the title's left
     mov [menu_x1], bx
     add bx, ax
     dec bx
@@ -1251,9 +1251,9 @@ menu_title_xor:
     push dx
     push si
     mov si, [menu_ent]
-    mov ax, [si + MB_XL]
+    mov ax, [ss:si + MB_XL]
     xor bx, bx
-    mov cx, [si + MB_XR]
+    mov cx, [ss:si + MB_XR]
     mov dx, MBAR_H - 2          ; the black rule stays black
     call gfx_xor_fill
     pop si
@@ -1458,13 +1458,21 @@ menu_loc_set:
 ; -----------------------------------------------------------------------------
 menu_s_abpfx db 'About ', 0     ; + the app's name -> menu_abstr (12.2)
 
+section .lowbss                 ; LOW_SEG (SPEC.md 2.1): the runtime bar is
+                                ; walked by pointer (menu_relayout writes it,
+                                ; menu_draw_bar and menu_hit read it) and is
+                                ; never addressed by name outside this module,
+                                ; so it costs one ss: prefix per field access
+                                ; and nothing in the kernel's 64KB segment
+menu_bar:   resb 84             ; MENU_BARMAX x MB_ENTSZ (6 x 14; a literal
+                                ; per the no-forward-ref-in-bss rule; guard 3b
+                                ; in kernel.asm catches the next cell)
+
 section .bss
 
 menu_win:   resw 1              ; window owning the bar, 0 = Locator (12)
 menu_set:   resw 1              ; its app menu set (SPEC.md 12.2)
 menu_namep: resw 1              ; the name string drawn at MENU_NAME_X
-menu_bar:   resb 84             ; MENU_BARMAX x MB_ENTSZ (6 x 14; a literal
-                                ; per the no-forward-ref-in-bss rule)
 menu_nbar:  resw 1              ; live cells in menu_bar (>= 1: the System
                                 ; menu is always cell 0)
 menu_ent:   resw 1              ; -> bar cell being tracked

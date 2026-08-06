@@ -30,7 +30,14 @@ I_TASK   equ 3                  ; byte: task slot (SPEC.md 8), 0xFF = none
 I_WIN    equ 4                  ; word: window record ptr
 I_SPTR   equ 6                  ; word: builtin state ptr / package base
 I_SIZE   equ 8                  ; word: package region bytes; 0 for builtins
-I_ICON   equ 10                 ; word: 16x16 icon body ptr, 0 = generic
+I_ICO_PKG equ 1                 ; the I_ICON value meaning "in this
+                                ; instance's own region, at LD_HDR_SIZE": 1
+                                ; can never be a real .text body pointer, the
+                                ; kernel image starting well above it
+I_ICON   equ 10                 ; word: 16x16 icon body ptr, 0 = generic,
+                                ; I_ICO_PKG = "in this instance's own region"
+                                ; - reached through inst_icon_ptr, never
+                                ; dereferenced directly
 I_NAME   equ 12                 ; 16 bytes: NUL-terminated copy (<= 15 chars)
 I_CYC    equ 28                 ; dword: CPU cycles billed to this instance's
                                 ; window callbacks (SPEC.md 8.1), zeroed at
@@ -42,9 +49,36 @@ KIND_ABOUT   equ 0
 KIND_CLOCK   equ 1              ; (Note Pad was kind 1 until it became the
 KIND_BOUNCE  equ 2              ;  NOTEPAD package - SPEC.md 27)
 KIND_FILES   equ 3
-KIND_TASKMGR equ 4
-KIND_CTRL    equ 5
+KIND_CTRL    equ 4              ; (the Task Manager was kind 4 until it
+                                ;  became the TASKMGR package - SPEC.md 28)
 KIND_PKG     equ 0x80           ; bit 7: package instance
+
+; --- osapi_sys_snapshot's buffer, API slot 0x0298 (SPEC.md 20.9) ------------------
+; A scheduler header, then one record per instance. Both halves are copied in
+; one cli window, which is the whole reason this is a snapshot rather than a
+; getter - see the routine at the foot of this file. ABI: mirrored in
+; apps/os88api.inc, and every offset here is derived from MAX_TASKS (sched)
+; or INST_MAX (above), so the layout follows the tables it measures.
+SS_TICKS   equ 0                ; word: [ticks] at the moment of the snapshot
+SS_CUR     equ 2                ; byte: the running task slot ([sch_cur])
+SS_COOP    equ 3                ; byte: 0 pre-emptive, 1 cooperative (8.2)
+SS_NTASK   equ 4                ; byte: MAX_TASKS, the same figure AX answers
+SS_NINST   equ 5                ; byte: INST_MAX, likewise BX
+SS_TSTATE  equ 6                ; MAX_TASKS bytes: T_STATE per slot
+SS_TCYC    equ SS_TSTATE + MAX_TASKS       ; MAX_TASKS dwords: sch_cycles
+SS_INST    equ SS_TCYC + MAX_TASKS * 4     ; ...then the instance records
+SSI_STATE  equ 0                ; byte: I_STATE - 0 free, 1 live, 2 dying
+SSI_TASK   equ 1                ; byte: I_TASK - the task slot, 0xFF = none
+SSI_KIND   equ 2                ; byte: I_KIND - bit 7 (KIND_PKG) = package
+SSI_RSVD   equ 3                ; byte: pad, so every word below sits even
+SSI_SIZE   equ 4                ; word: I_SIZE - region BYTES, 0 for built-ins
+SSI_SEG    equ 6                ; word: I_SPTR - the region's base segment
+SSI_CYC    equ 8                ; dword: I_CYC, the cycles billed to this row
+SSI_KB     equ 12               ; word: KB this instance holds off the heap -
+                                ; the ONE field filled outside the cli window
+SSI_NAME   equ 14               ; 16 bytes: I_NAME, NUL-terminated
+SSI_RECSZ  equ 30
+SYS_SNAPSHOT_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
 
 ; --- kind descriptor table (SPEC.md 29.3) -------------------------------------
 KD_TPL   equ 0                  ; word: wm_create template ptr
@@ -73,16 +107,13 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_bounce, app_bounce_task, app_ball_pool, 8,   app_bounce_kinit, app_ttl_bounce
     dw inst_ico_bounce
     db 10, 0                    ; Bounce: 10 x 8-byte ball state, one task each
-    dw fm_tpl,         0,               fm_pool,       18,  fm_kinit,         fm_ttl
+    dw fm_tpl,         0,               fm_pool,       20,  fm_kinit,         fm_ttl
     dw inst_ico_disk
     db VIEW_SLOTS, WF_SIZABLE   ; Disk: FOUR windows, each with its own
                                 ; 18-byte state block and its own claimed
                                 ; listing cache; resizable (SPEC.md 22/22.1).
                                 ; The cap, VIEW_SLOTS and fm_pool's size are
                                 ; one number wearing three hats.
-    dw tm_tpl,         tm_task,         0,             0,   tm_kinit,         tm_sname
-    dw inst_ico_tm
-    db 1, 0                     ; Task Manager: singleton (one sampler task)
     dw cp_tpl,         0,               0,             0,   0,                cp_sname
     dw inst_ico_ctrl
     db 1, 0                     ; Control Panel: stateless task-less singleton
@@ -297,58 +328,6 @@ inst_ico_disk:
     dw 0x4002
     dw 0x4002
     dw 0x7FFE
-    dw 0x0000
-    dw 0x0000
-
-; inst_ico_tm - a bar chart on an axis: distinct from the Control Panel's
-; slider panel at 16px, which a framed list of bars was not
-;   ................
-;   ................
-;   ..#.............
-;   ..#.........##..
-;   ..#.........##..
-;   ..#.....##..##..
-;   ..#.....##..##..
-;   ..#.##..##..##..
-;   ..#.##..##..##..
-;   ..#.##..##..##..
-;   ..#.##..##..##..
-;   ..############..
-;   ................
-;   ................
-;   ................
-;   ................
-inst_ico_tm:
-    dw 0x0000                       ; 16 mask rows
-    dw 0x7000
-    dw 0x701E
-    dw 0x701E
-    dw 0x71FE
-    dw 0x71FE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000                       ; 16 data rows
-    dw 0x0000
-    dw 0x2000
-    dw 0x200C
-    dw 0x200C
-    dw 0x20CC
-    dw 0x20CC
-    dw 0x2CCC
-    dw 0x2CCC
-    dw 0x2CCC
-    dw 0x2CCC
-    dw 0x3FFC
-    dw 0x0000
-    dw 0x0000
     dw 0x0000
     dw 0x0000
 
@@ -602,6 +581,61 @@ inst_bind_win:
     pop si
     pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; inst_icon_ptr - one instance's 16x16 icon body, in the KERNEL segment
+; in:  DI = instance record
+; out: SI -> 64 bytes of icon body; CF = 1 = this instance has no icon of its
+;      own and the caller should use the generic one
+; clobbers: SI (the output), flags
+;
+; I_ICON is either 0 (none), a plain pointer into .text (a built-in kind's,
+; out of its KD_ICON) or I_ICO_PKG - "the icon is in this instance's own
+; region, at the fixed offset every package header puts it at".
+;
+; **That third case is why there is no icon table any more.** There used to be
+; 768 bytes of kernel .bss holding a per-slot COPY of each package's embedded
+; body, made at load time - and the original was in the package's region the
+; whole time, alive for exactly as long as the instance that owns it. The copy
+; was pure duplication: a dock tile is drawn when the dock changes, so staging
+; 64 bytes then costs nothing measurable, and the record's own I_SPTR is the
+; segment to stage them from. A dying instance draws no tile (I_STATE is 2
+; before wm_destroy repaints, SPEC.md 29.2), so the region is never freed
+; under a draw.
+; -----------------------------------------------------------------------------
+inst_icon_ptr:
+    push ax
+    push cx
+    push dx
+    push di
+    mov si, [di+I_ICON]
+    or si, si
+    jz .none
+    cmp si, I_ICO_PKG
+    jne .have                   ; a .text pointer: nothing to stage
+    cmp word [di+I_SIZE], 0
+    je .none                    ; not a package: I_SPTR is a state block
+    mov dx, [di+I_SPTR]         ; the REGION, and byte 32 of it is the body
+    mov si, LD_HDR_SIZE
+    mov di, inst_icobuf
+    mov cx, 64
+    mov ax, cs
+    call dsk_copy_seg
+    mov si, inst_icobuf
+.have:
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    clc
+    ret
+.none:
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1171,17 +1205,169 @@ inst_launch_post:
     pop ax
     ret
 
+; =============================================================================
+; osapi_sys_snapshot - API slot 0x0298: the scheduler and the instance table, in
+;                  ONE cli window (SPEC.md 20.9/28.2)
+;
+; in:  ES:DI = a SYS_SNAPSHOT_SIZE buffer the caller owns
+; out: AX = MAX_TASKS, BX = INST_MAX; the buffer filled; DI unchanged
+; clobbers: AX/BX (outputs) and the flags
+;
+; This is the whole of what a task monitor cannot get any other way, and it
+; is ONE call rather than two on purpose. task_exit frees an instance record
+; inside the same IF=0 window that frees its task slot (SPEC.md 8), so a
+; reader that takes the scheduler half and the instance half separately can
+; see a slot live in one and gone in the other. What that costs is not a
+; wrong row for one frame: both halves feed a per-interval DIFF of a running
+; cycle counter, so a torn pair bills a real slice to the wrong row and the
+; error persists in the percentages until something else disturbs them.
+;
+; The names ride inside the window too. They do not have to - a name is
+; written once at inst_alloc and never again - but they are 192 of the 414
+; bytes and splitting the copy to save 3,300 cycles of IF=0 time on an 8088
+; would put a second loop over the same table for no other reason. The whole
+; window is under a millisecond and the code it replaced held one exactly as
+; long.
+;
+; SSI_KB is the one field filled OUTSIDE it. mem_owned_kb is a scan of the
+; claim table, which is not what the window is protecting, and it takes
+; INST_MAX scans of MEM_MAX records - four hundred iterations that have no
+; business running with interrupts off.
+; =============================================================================
+osapi_sys_snapshot:
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+
+    mov bp, di                  ; BP = the buffer base, for life
+
+    pushf
+    cli
+    mov ax, [ticks]
+    mov [es:di+SS_TICKS], ax
+    mov al, [sch_cur]
+    mov [es:di+SS_CUR], al
+    mov al, [sch_coop]
+    mov [es:di+SS_COOP], al
+    mov byte [es:di+SS_NTASK], MAX_TASKS
+    mov byte [es:di+SS_NINST], INST_MAX
+
+    mov si, sch_tasks + T_STATE ; T_STATE per slot
+    add di, SS_TSTATE
+    mov cx, MAX_TASKS
+.ssnap:
+    mov al, [si]
+    mov [es:di], al
+    add si, T_SIZE
+    inc di
+    loop .ssnap
+
+    mov si, sch_cycles          ; ...and the cycle counters, MAX_TASKS dwords
+    mov di, bp
+    add di, SS_TCYC
+    mov cx, MAX_TASKS * 2
+.csnap:
+    mov ax, [si]
+    mov [es:di], ax
+    add si, 2
+    add di, 2
+    loop .csnap
+
+    mov si, inst_tab            ; the instance table, record for record
+    mov di, bp
+    add di, SS_INST
+    mov dx, INST_MAX
+.isnap:
+    mov al, [si+I_STATE]
+    mov [es:di+SSI_STATE], al
+    mov al, [si+I_TASK]
+    mov [es:di+SSI_TASK], al
+    mov al, [si+I_KIND]
+    mov [es:di+SSI_KIND], al
+    mov byte [es:di+SSI_RSVD], 0
+    mov ax, [si+I_SIZE]
+    mov [es:di+SSI_SIZE], ax
+    mov ax, [si+I_SPTR]
+    mov [es:di+SSI_SEG], ax
+    mov ax, [si+I_CYC]
+    mov [es:di+SSI_CYC], ax
+    mov ax, [si+I_CYC+2]
+    mov [es:di+SSI_CYC+2], ax
+    push si
+    push di
+    add si, I_NAME
+    add di, SSI_NAME
+    mov cx, 16
+.incpy:
+    mov al, [si]
+    mov [es:di], al
+    inc si
+    inc di
+    loop .incpy
+    pop di
+    pop si
+    add si, I_RECSZ
+    add di, SSI_RECSZ
+    dec dx
+    jnz .isnap
+    popf
+
+    ; --- and the heap share per instance, with interrupts back on -----------
+    ; A package's claims are stamped with the segment it runs in and a
+    ; built-in's with its slot (SPEC.md 50.2), so which owner word to ask for
+    ; depends on the record we just copied.
+    mov di, bp
+    add di, SS_INST
+    xor si, si                  ; SI = slot
+.claim:
+    xor ax, ax
+    cmp byte [es:di+SSI_STATE], 0
+    je .cstore
+    mov bx, si
+    test byte [es:di+SSI_KIND], KIND_PKG
+    jz .cown
+    mov bx, [es:di+SSI_SEG]
+.cown:
+    call mem_owned_kb           ; in BX = owner word; out AX = KB
+.cstore:
+    mov [es:di+SSI_KB], ax
+    add di, SSI_RECSZ
+    inc si
+    cmp si, INST_MAX
+    jb .claim
+
+    mov ax, MAX_TASKS
+    mov bx, INST_MAX
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    ret
+
 ; -----------------------------------------------------------------------------
 section .bss
 
 inst_tab:    resb 384           ; INST_MAX x I_RECSZ (12 x 32; literal per
-                                ; the no-forward-ref-in-bss rule)
-inst_icons:  resb 768           ; INST_MAX x 64: a per-slot copy of each
-                                ; package's embedded icon body, staged out
-                                ; of its segment at load (SPEC.md 20.2/25)
+                                ; the no-forward-ref-in-bss rule). It STAYS in
+                                ; the kernel's own segment: I_NAME is handed
+                                ; out as an ordinary near string pointer - a
+                                ; Disk window's W_TITLE aims INTO it
+                                ; (files.inc), and the dock, the menu bar and
+                                ; the Task Manager all letter it through DS -
+                                ; so moving the table to LOW_SEG would need a
+                                ; segment beside every one of those pointers,
+                                ; which is the MB_SEG trap of SPEC.md 12.2 for
+                                ; 384 bytes
+
 inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched
 inst_slot:   resw 1             ; app_launch scratch: state-pool slot
 inst_tplbuf: resb 16            ; app_launch scratch: cascaded template copy
+inst_icobuf: resb 64            ; ...and inst_icon_ptr's staging slot, the
+                                ; dsk_get_icon idiom (SPEC.md 25/30)
+
 
 section .text

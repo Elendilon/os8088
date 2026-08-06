@@ -1240,15 +1240,35 @@ dskw_wbody:
 ;      CF=1 with AX = FERR_*
 ; clobbers: AX (the output), CF
 ;
-; The source advances BY SEGMENT: one disk_write per sector at
-; [dskw_wseg]:[dskw_src], then wseg += 32 paragraphs (SPEC.md 18.4.1). That
-; costs nothing over the old multi-sector call - dsk_xfer already issues one
-; int 13h per sector and walks BX itself - and it is what makes the offset
-; horizon unreachable, so a 100KB file is one dskw_write.
+; The source advances BY SEGMENT (SPEC.md 18.4.1), which is what makes the
+; offset horizon unreachable, so a 100KB file is one dskw_write.
+;
+; **Data goes out in RUNS THAT CROSS CLUSTERS.** The loop allocates, links and
+; addresses one cluster at a time, but it does not write one at a time: each
+; cluster's whole sectors are appended to a pending run, and the run is spent
+; only when the next cluster is not contiguous with it, when it reaches
+; dskw_runmax's cap, or when the file ends. dskw_alloc rovers forward, so on
+; a volume with room the clusters of a new file ARE contiguous and the whole
+; chunk is one transfer.
+;
+; That used to be one disk_write per sector, on the reasoning that dsk_xfer
+; looped int 13h anyway - true for a floppy, and false since a driver-backed
+; volume started handing the count to DSV_BLK in one call (SPEC.md 18.7),
+; where a run is one IDE command instead of N.
+;
+; Three things keep it honest. The run is flushed BEFORE the partial final
+; sector, because those bytes come after it and because flushing is what
+; advances [dskw_wseg] to where the tail's source is. A sector the 8237
+; cannot carry still goes alone through the stage, and dskw_runmax is only
+; ever asked with no run pending, so that path can never orphan one. And
+; every failure exit leaves the run unspent, which is exactly right: a
+; half-built chain is rolled back by dskw_refat and nothing that was not
+; written needs unwriting.
 ; -----------------------------------------------------------------------------
 dskw_wdata:
     mov word [dskw_first], 0
     mov word [dskw_prev], 0
+    mov word [dskw_rlen], 0     ; no data run pending
     mov ax, [dskw_seg]
     mov [dskw_wseg], ax         ; the ADVANCING source segment
     cmp word [dskw_rem], 0
@@ -1289,51 +1309,83 @@ dskw_wdata:
 .take:
     mov [dskw_take], ax
 
-    ; whole sectors of this take, straight out of the caller's buffer
+    ; whole sectors of this take, APPENDED TO THE PENDING RUN rather than
+    ; written here - see the header. CX is the count, [dskw_clba] the cursor.
     mov cx, ax
     call dskw_last_p            ; ZF=1 if this take ends in a partial sector
     jnz .whole
     dec cx                      ; that last sector goes through the stage
 .whole:
-    jcxz .tail
-.sect:                          ; whole sectors, one per write, the source
-    push cx                     ; segment stepping
-    call dskw_cross             ; CF=1: the 8237 cannot move this one
-    jc .stg
-    mov ax, [dskw_lba]
-    mov es, [dskw_wseg]
-    mov bx, [dskw_src]
-    mov cx, 1
-    call disk_write             ; in: AX=LBA, CX=count, ES:BX
-    jc .ioerrp
-    jmp short .next
-.stg:
-    mov es, [dskw_wseg]         ; ...so it goes out through the scratch, which
-    mov si, [dskw_src]          ; is 512-aligned and therefore never straddles
-    mov cx, 512
+    mov ax, [dskw_lba]          ; the cursor, set BEFORE the count is tested:
+    mov [dskw_clba], ax         ; a take that is nothing but a partial sector
+                                ; skips the walk and .tail still reads it
+    or cx, cx                   ; (not jcxz: .tail is out of its reach now)
+    jnz .sect
+    jmp .tail
+.sect:
+    cmp word [dskw_rlen], 0
+    je .newrun
+    mov ax, [dskw_rlba]         ; does this sector continue the pending run?
+    add ax, [dskw_rlen]
+    cmp ax, [dskw_clba]
+    jne .breakrun
+    mov ax, [dskw_rcap]         ; ...and is there room left in it?
+    cmp ax, [dskw_rlen]
+    ja .append
+.breakrun:
+    call dskw_wflush            ; no: spend it and start again here
+    jc .ioerr
+    jmp .sect
+.newrun:
+    call dskw_runmax            ; AX = the cap, from the CURRENT wseg:src -
+    or ax, ax                   ; which is where this run's first byte is
+    jz .stg                     ; not even one sector fits its DMA page
+    mov [dskw_rcap], ax
+    mov ax, [dskw_clba]
+    mov [dskw_rlba], ax         ; ([dskw_rlen] is already 0)
+.append:
+    mov ax, [dskw_rcap]
+    sub ax, [dskw_rlen]         ; room in the run...
+    cmp ax, cx
+    jbe .grow
+    mov ax, cx                  ; ...and what is left of this cluster's take
+.grow:
+    add [dskw_rlen], ax
+    add [dskw_clba], ax
+    sub cx, ax
+    jnz .sect
+    jmp short .tail
+.jioerr:
+    jmp .ioerr
+.stg:                           ; one sector the 8237 cannot carry, alone,
+    mov es, [dskw_wseg]         ; through the scratch - which is 512-aligned
+    mov si, [dskw_src]          ; and therefore never straddles. No run can be
+    push cx                     ; pending here: dskw_runmax answered 0, and it
+    mov cx, 512                 ; is only asked with [dskw_rlen] = 0
     call dskw_stage             ; ES:SI -> LOW_SEG:dsk_secbuf, all 512 of it
     mov ax, LOW_SEG
     mov es, ax
     mov bx, dsk_secbuf
     mov cx, 1
-    mov ax, [dskw_lba]
+    mov ax, [dskw_clba]
     call disk_write
-    jc .ioerrp
-.next:
     pop cx
-    inc word [dskw_lba]         ; next sector...
-    add word [dskw_wseg], 32    ; ...comes from 512 bytes = 32 paragraphs on
-    loop .sect
-    jmp short .tail
-.ioerrp:
-    pop cx
-    jmp .ioerr                  ; (near: the loop body outruns a short jump)
+    jc .jioerr
+    inc word [dskw_clba]
+    add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on
+    dec cx
+    jz .tail
+    jmp .sect
 
     ; the partial final sector: staged zero-filled, so nothing of the
-    ; caller's neighbourhood past EOF ever reaches the disk
+    ; caller's neighbourhood past EOF ever reaches the disk. The run goes
+    ; first - its bytes come BEFORE these, and flushing it is also what
+    ; advances [dskw_wseg] to where the tail's source actually is.
 .tail:
     call dskw_last_p
     jnz .advance
+    call dskw_wflush
+    jc .ioerr
     mov es, [dskw_wseg]
     mov si, [dskw_src]
     mov cx, [dskw_tail]
@@ -1342,7 +1394,7 @@ dskw_wdata:
     mov es, ax
     mov bx, dsk_secbuf
     mov cx, 1
-    mov ax, [dskw_lba]          ; (.sect already advanced dskw_lba to it)
+    mov ax, [dskw_clba]         ; the sector the whole-sector walk stopped at
     call disk_write
     jc .ioerr
 .advance:
@@ -1351,7 +1403,50 @@ dskw_wdata:
     jz .done
     jmp .clus                   ; (near: the loop body outruns a short jump)
 .done:
+    call dskw_wflush            ; the last run of the file
+    jc .ioerr
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_wflush - spend the pending data run (module-internal)
+; in:  [dskw_rlba]/[dskw_rlen], the source at [dskw_wseg]:[dskw_src]
+; out: CF=0 and [dskw_rlen] = 0, [dskw_wseg] advanced past it; CF=1 = I/O
+; clobbers: flags
+;
+; A no-op with nothing pending, which is what lets every path out of the
+; cluster loop call it without asking.
+; -----------------------------------------------------------------------------
+dskw_wflush:
+    push ax
+    push bx
+    push cx
+    push es
+    mov cx, [dskw_rlen]
+    jcxz .out
+    mov ax, [dskw_rlba]
+    mov es, [dskw_wseg]
+    mov bx, [dskw_src]
+    call disk_write             ; in: AX=LBA, CX=count, ES:BX
+    jc .err
+    mov ax, [dskw_rlen]
+    mov word [dskw_rlen], 0
+    mov cl, 5
+    shl ax, cl                  ; sectors -> paragraphs, 32 each
+    add [dskw_wseg], ax
+.out:
+    pop es
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.err:
+    pop es
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1609,6 +1704,47 @@ dskw_norm:
 ;
 ; The test is one add: the low 16 bits of seg*16 + off ARE the offset within
 ; the 64KB page, because the carry out of that add is the page number.
+; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; dskw_runmax - how many sectors one int 13h may carry from here
+; out: AX = 0..127; 0 = not even one (this sector straddles a 64KB DMA page)
+; clobbers: AX (the output), flags
+;
+; dskw_cross's question asked of a RUN rather than a sector, which is what
+; lets the write path issue one transfer per cluster instead of one per
+; sector. That was free when dsk_xfer looped int 13h itself; it stopped being
+; free when a driver-backed volume started handing the whole count to DSV_BLK
+; in one call (SPEC.md 18.7), where a run is one IDE command instead of N.
+;
+; TWO bounds, and both are real:
+;   - the 8237 never carries into the page port, so the run must end inside
+;     the 64KB page it starts in. Same one-add derivation as dskw_cross: the
+;     low 16 bits of seg*16 + off ARE the offset within the page.
+;   - dsk_xfer walks BX from the caller's offset, which dskw_norm leaves at
+;     0..15 (SPEC.md 18.4.1). 127 sectors is the most that cannot overflow
+;     it, and it is also the most a real controller will do in one go.
+; -----------------------------------------------------------------------------
+dskw_runmax:
+    push cx
+    mov ax, [dskw_wseg]
+    mov cl, 4
+    shl ax, cl
+    add ax, [dskw_src]          ; AX = the offset within the DMA page
+    neg ax                      ; ...so this is the bytes left in it, with 0
+    jz .whole                   ; meaning a whole page rather than none
+    mov cl, 9
+    shr ax, cl
+    jmp short .cap
+.whole:
+    mov ax, 128
+.cap:
+    cmp ax, 127
+    jbe .out
+    mov ax, 127
+.out:
+    pop cx
+    ret
+
 ; -----------------------------------------------------------------------------
 dskw_cross:
     push ax
@@ -2469,7 +2605,7 @@ dskw_setfat:
     jb .out
     cmp ax, [dsk_maxclus]
     ja .out
-    mov bx, FAT_SEG
+    mov bx, [dsk_fatseg]
     mov es, bx
     cmp byte [dsk_fattype], 0
     jne .fat16
@@ -2554,7 +2690,7 @@ dskw_flush:
     sub cx, ax
     inc cx                      ; CX = sectors to write
     mov dx, cx
-    mov bx, FAT_SEG
+    mov bx, [dsk_fatseg]
     mov es, bx
     mov bx, ax
     mov cl, 9
@@ -2596,30 +2732,24 @@ dskw_flush:
 ; out: nothing (all registers preserved)
 ;
 ; The rollback for any failure before the commit: a half-built chain must
-; never survive in RAM, or a later unrelated write would flush it. If even
-; the re-read fails, the snapshot is untrustworthy and the write gate
-; closes until the next mount - the one place this module revokes it.
+; never survive in RAM, or a later unrelated write would flush it.
+;
+; **It is an INVALIDATE now, and does no I/O at all** (SPEC.md 18.8): the FAT
+; is a window, so dropping it is one word, and the next access faults a clean
+; window in off the disk - which is precisely what re-reading the whole FAT
+; used to buy. It can no longer fail, so the write gate no longer has a reason
+; to close here.
+;
+; What the window DOES change is the reach of the rollback: an eviction may
+; already have flushed part of a half-built chain to the disk, and no
+; invalidate can take that back. It costs LOST CLUSTERS and never a
+; cross-link - the same guarantee the commit order gives a crash (18.4) - and
+; that is the whole of the difference.
 ; -----------------------------------------------------------------------------
 dskw_refat:
-    push ax
-    push bx
-    push cx
-    push es
-    mov ax, FAT_SEG
-    mov es, ax
-    mov ax, [dsk_fatlba]
-    mov cx, [dsk_fatsz]
-    xor bx, bx
-    call disk_read
-    jnc .ok
-    mov byte [dsk_mntok], 0     ; unknowable FAT: no more writes until a mount
-.ok:
+    mov word [dsk_fatw0], 0xFFFF
     mov word [dsk_fatd0], 0xFFFF
     mov word [dsk_fatd1], 0
-    pop es
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2709,7 +2839,7 @@ dskw_now:
     push ax
     push bx
     push cx
-    call clk_snap               ; read the fields the SPEC.md 37 way
+    call clk_snapshot               ; read the fields the SPEC.md 37 way
     xor ah, ah
     mov al, [clk_sn_hour]
     mov cl, 11
@@ -2895,6 +3025,10 @@ dskw_cap:     resw 1            ; the destination's capacity, low word...
 dskw_caphi:   resw 1            ; ...and high
 dskw_rem:     resw 1            ; sectors still to move
 dskw_tail:    resw 1            ; bytes in the partial final sector (0 = none)
+dskw_rlba:    resw 1            ; the pending data run: its first LBA...
+dskw_rlen:    resw 1            ; ...how many sectors are in it (0 = none)...
+dskw_rcap:    resw 1            ; ...and the most it may ever hold
+dskw_clba:    resw 1            ; the whole-sector walk's cursor inside a take
 dskw_take:    resw 1            ; sectors this cluster contributes
 dskw_lba:     resw 1            ; this cluster's first LBA
 dskw_cur:     resw 1            ; the cluster being written / read

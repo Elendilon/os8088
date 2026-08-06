@@ -688,7 +688,7 @@ snd_disp_set:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; snd_init - initialise the sound layer (kmain, after tm_init)
+; snd_init - initialise the sound layer (kmain, after drv_init)
 ;
 ; in:       nothing
 ; out:      nothing
@@ -700,6 +700,12 @@ snd_disp_set:
 ; probe fully initialises the chip before reporting present, SPEC.md 34.2),
 ; and sets snd_live LAST: the publish that arms snd_tick and the public
 ; entry points (SPEC.md 34.7, the 29.2 publish-last idiom).
+
+section .ovl                    ; the boot overlay (SPEC.md 2.5): saving the boot
+                                ; 61h bits and publishing snd_live happens
+                                ; once. snd_unhook below is the shutdown
+                                ; path and stays resident. Nothing here
+                                ; calls out of the overlay at all
 ; -----------------------------------------------------------------------------
 snd_init:
     push ax
@@ -744,6 +750,8 @@ snd_init:
 ; Called by sched_unhook beside mouse_unhook: 61h bits 0-1 go back to their
 ; saved boot state (upper bits preserved), leaving ch2 quiescent. That is the
 ; whole of it - the speaker owns no vector, no IRQ and no DMA channel.
+
+section .text
 ; -----------------------------------------------------------------------------
 snd_unhook:
     push ax

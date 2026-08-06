@@ -2130,12 +2130,7 @@ wm_clip_set:
     jg .none                    ; degenerate content rect
     cmp dx, si
     jg .none
-    mov [wm_clip_tab+WCR_X1], ax
-    mov [wm_clip_tab+WCR_Y1], dx
-    mov [wm_clip_tab+WCR_X2], cx
-    mov [wm_clip_tab+WCR_Y2], si
-    mov word [wm_clip_n], 1
-
+    call wm_clip_seed
     call wm_clip_occl           ; subtract every visible window above us
     jc .none                    ; the list overflowed: degrade to a skip
     cmp word [wm_clip_n], 0
@@ -2249,11 +2244,7 @@ wm_covered:
     dec cx                      ; fullscreen has no shadow (SPEC.md 11.2)
     dec si
 .seed:
-    mov [wm_clip_tab+WCR_X1], ax
-    mov [wm_clip_tab+WCR_Y1], dx
-    mov [wm_clip_tab+WCR_X2], cx
-    mov [wm_clip_tab+WCR_Y2], si
-    mov word [wm_clip_n], 1
+    call wm_clip_seed
     call wm_clip_occl
     jc .no
     cmp word [wm_clip_n], 0
@@ -2268,6 +2259,83 @@ wm_covered:
     pop si
     pop dx
     pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_clip_seed - internal: arm the list with one rect and nothing subtracted
+; in:  AX = x1, DX = y1, CX = x2, SI = y2 (inclusive, and non-degenerate -
+;      every caller has already tested that in its own terms)
+; out: [wm_clip_n] = 1; all registers preserved, flags included
+;
+; The three region builds below start here and then differ only in WHICH
+; occluders they subtract, which is the whole of what separates them.
+; -----------------------------------------------------------------------------
+wm_clip_seed:
+    mov [wm_clip_tab+WCR_X1], ax
+    mov [wm_clip_tab+WCR_Y1], dx
+    mov [wm_clip_tab+WCR_X2], cx
+    mov [wm_clip_tab+WCR_Y2], si
+    mov word [wm_clip_n], 1
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_clip_rect - arm clipping to a bare screen rect's visible region
+; in:  AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); caller HOLDS the gfx
+;      lock
+; out: CF = 1 the region needs more than WM_CLIP_MAX rects - nothing is armed
+;          and the caller must fall back to something unconditional;
+;      CF = 0 armed, and ZF = 1 means the rect is WHOLLY covered (the list is
+;          empty, i.e. disarmed: every pixel of it belongs to some window).
+;      All registers preserved; the region dies at the next gfx_unlock.
+;
+; wm_clip_set's arithmetic for something that is not a window. The DESKTOP is
+; what needs it (SPEC.md 26.2): it is below every window, so there is no
+; z-order position to find and no "above us" to walk from - every visible
+; window is an occluder. That is the whole difference, and it is why this
+; walks wm_wins directly instead of going through wm_clip_occl.
+;
+; The two degradations are wm_clip_set's, split apart because a caller can
+; act on them differently: an overflow says nothing valid is known (repaint
+; the world), while an empty list is a FACT (draw nothing at all).
+; -----------------------------------------------------------------------------
+wm_clip_rect:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov word [wm_clip_n], 0
+    cmp ax, cx
+    jg .done                    ; degenerate rect: read as wholly covered
+    cmp bx, dx
+    jg .done
+    mov si, dx                  ; wm_clip_seed's argument order, which is
+    mov dx, bx                  ; wm_clip_set's and wm_covered's
+    call wm_clip_seed
+
+    mov bx, wm_wins             ; BX walks the table and the END is the bound,
+.win:                           ; the old desk_zone_redraw idiom: wm_clip_sub
+    test word [bx+W_FLAGS], 2   ; reads through BX and preserves it
+    jz .next
+    call wm_clip_sub            ; subtract it, shadow included. An emptied
+    jc .over                    ; list needs no early exit - the subtractions
+.next:                          ; that follow walk it zero times
+    add bx, WIN_SIZE
+    cmp bx, wm_wins + MAX_WIN*WIN_SIZE
+    jb .win
+.done:
+    cmp word [wm_clip_n], 0     ; ZF = 1: wholly covered. clc leaves it alone,
+    clc                         ; and so does every pop below
+    jmp short .out
+.over:
+    mov word [wm_clip_n], 0
+    stc
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 

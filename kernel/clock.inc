@@ -13,7 +13,7 @@
 ; TASK runs inside wm_destroy (SPEC.md 29.4), so a reader can be pre-empted
 ; mid-format while the UI task carries a second. Hence the two rules of
 ; SPEC.md 37: every write that carries (clk_inc_sec, clk_fld_adj) mutates
-; under pushf/cli, and every reader takes a clk_snap copy under the same
+; under pushf/cli, and every reader takes a clk_snapshot copy under the same
 ; guard and formats from that. Nothing in an ISR touches any of it - the
 ; clock is derived from [ticks], which the PIT hook already owns (SPEC.md 8).
 ;
@@ -75,6 +75,8 @@ CLK_RETRY   equ 10              ; bounded coherent-read retries
 %define CLK_FORCE 0
 %endif
 %define CLK_TRY(n) (CLK_FORCE == 0 || CLK_FORCE == n)
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_init - fallback date first, then probe the hardware RTC
@@ -237,6 +239,8 @@ clk_commit:
     mov [clk_day], al
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_dow - the day of the week for the live date
@@ -338,6 +342,8 @@ clk_at_put:
     pop dx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_at_lock - one guarded read, for callers not already inside a burst
@@ -346,9 +352,11 @@ clk_at_put:
 clk_at_lock:
     pushf
     cli
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     popf
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_at_done - leave the index somewhere harmless, NMI back on
@@ -369,6 +377,8 @@ clk_at_done:
     pop dx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_at_probe - is there an MC146818 at 70h/71h?
@@ -412,13 +422,13 @@ clk_at_probe:
     jz .yes
     loop .uip
 .no:
-    call clk_at_done
+    call KERNEL_SEG:ovw_clk_at_done
     pop cx
     pop ax
     stc
     ret
 .yes:
-    call clk_at_done
+    call KERNEL_SEG:ovw_clk_at_done
     pop cx
     pop ax
     clc
@@ -446,48 +456,48 @@ clk_at_read:
     pushf
     cli
     xor al, al
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov bh, al                  ; the seconds, stashed before the UIP test
     mov al, 0x0A
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     test al, 0x80
     jnz .again                  ; an update is imminent or running
     xor al, al
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     cmp al, bh
     jne .again                  ; one happened between the two reads
     mov [clk_rr+0], al
     mov al, 0x02
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+1], al
     mov al, 0x04
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+2], al          ; raw: bit 7 is PM in 12-hour mode
     mov al, 0x07
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+3], al
     mov al, 0x08
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+4], al
     mov al, 0x09
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+5], al          ; the year, two digits and no more
     mov al, 0x32
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rr+6], al          ; the century byte, if this BIOS keeps one
     mov al, 0x0B
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     mov [clk_rb], al            ; Register B: DM and 24/12 live here, and
     mov al, 0x0A                ; reading it here reads it under the guard
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     test al, 0x80
     jnz .again                  ; an update started under the burst
     xor al, al
-    call clk_at_get
+    call KERNEL_SEG:ovw_clk_at_get
     cmp al, bh
     jne .again
     popf
-    call clk_at_done
+    call KERNEL_SEG:ovw_clk_at_done
     mov al, [clk_rb]
     and al, 0x04                ; DM: 0 = BCD, 1 = binary
     call clk_at_dec
@@ -504,7 +514,7 @@ clk_at_read:
     jz .fail                    ; short jump's reach
     jmp .try
 .fail:
-    call clk_at_done
+    call KERNEL_SEG:ovw_clk_at_done
     pop dx
     pop cx
     pop bx
@@ -607,8 +617,8 @@ clk_at_dec:
 
     ; --- the century. CMOS 32h is BIOS-maintained RAM, not a register, so
     ; --- it is BCD whatever DM says - and many BIOSes never write it back.
-    ; --- Believe it only if it decodes to 19 or 20; otherwise window the
-    ; --- two digits over SPEC.md 37's own 1980..2099 range.
+    ; --- Believe it only if it decodes to 19 or 20; clk_yr_join then has the
+    ; --- second half of the test, and windows the two digits if it fails.
     mov al, [clk_rr+6]
     call clk_bcd
     jc .win
@@ -616,20 +626,13 @@ clk_at_dec:
     jb .win
     cmp al, 20
     ja .win
-    mov [clk_cent], al          ; remembered: clk_at_write puts it back
-    jmp short .year
+    mov [clk_cent], al          ; remembered: clk_at_write puts it back, which
+    jmp short .year             ; is what CORRECTS a stale one on the next Set
 .win:
     mov byte [clk_cent], 0
-    mov al, 20
-    cmp bl, 80
-    jb .year
-    mov al, 19
+    xor al, al                  ; no century byte: window the two digits
 .year:
-    mov bh, 100
-    mul bh                      ; AX = century * 100
-    mov cl, bl
-    xor ch, ch
-    add ax, cx
+    call clk_yr_join            ; in AL = century (0 = none), BL = 0..99
     mov [clk_tb_y], ax
     pop cx
     pop bx
@@ -642,6 +645,74 @@ clk_at_dec:
     pop ax
     stc
     ret
+
+; -----------------------------------------------------------------------------
+; clk_yr_join - a century byte and a two-digit year into a full year
+; in:  AL = the century, 0 = this machine has no century byte at all
+;      BL = the year within it, 0..99
+; out: AX = CLK_YMIN..CLK_YMAX, always inside SPEC.md 37's own range
+; clobbers: AH
+;
+; Shared by the AT rung and by the BIOS rung, which get their century from
+; the same place: CMOS 32h, either read directly or read for us by int 1Ah
+; AH=04h. Two ways it can be useless, and only the first one is obvious:
+;
+;  - THE BYTE IS ABSENT. Many BIOSes never maintain 32h, so it reads 0FFh or
+;    plain setup data. The caller's own 19-or-20 test catches that and hands
+;    us a 0.
+;  - THE BYTE IS STALE, which looks exactly like a good one. An AT whose CMOS
+;    was defaulted holds the century its BIOS defaulted to - 19, beside the
+;    1980 that goes with it - and NOTHING rewrites 32h afterwards except a
+;    trip through the BIOS setup screen's date field. Set the clock from the
+;    outside (86Box syncing the emulated RTC to the host, a DOS `date`
+;    against a BIOS that only writes register 09h) and the two digits move to
+;    26 while the century byte stays 19. That composes to 1926.
+;
+; So the test is not "does the byte look like a century" but "does the year
+; it composes exist": this OS runs 1980..2099 (CLK_YMIN/CLK_YMAX, the range
+; the leap rule and the Date/Time page are both exact over), so 1926 is not
+; a date we mis-read - it is a byte that is not describing this clock. Window
+; the two digits instead, which is what the absent case already did.
+;
+; The window itself cannot fail: it answers 1980..1999 for 80..99 and
+; 2000..2079 below that, so every path out of here is in range and the clamp
+; in clk_commit stays what it was written to be - the guard for the two XT
+; chips, which carry no year at all and RECONSTRUCT one (SPEC.md 37.90).
+;
+; [clk_cent] is deliberately not cleared for the stale case: it means "this
+; machine HAS a century byte", the byte plainly does, and leaving it set is
+; what lets clk_at_write put 20 back into 32h the first time the user sets
+; the clock - fixing the CMOS for DOS as well as for us.
+; -----------------------------------------------------------------------------
+clk_yr_join:
+    push cx
+    or al, al
+    jz .win                     ; no century byte at all
+    mov ah, 100
+    mul ah                      ; AX = century * 100
+    mov cl, bl
+    xor ch, ch
+    add ax, cx
+    cmp ax, CLK_YMIN
+    jb .win                     ; composed a year this OS does not have: the
+    cmp ax, CLK_YMAX            ; byte is stale, not a century
+    jbe .out
+.win:
+    mov al, 20
+    cmp bl, 80
+    jb .wj
+    mov al, 19
+.wj:
+    mov ah, 100
+    mul ah
+    mov cl, bl
+    xor ch, ch
+    add ax, cx
+.out:
+    pop cx
+    ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_at_enc - a binary field back into the format the chip is running in
@@ -803,6 +874,8 @@ CLK_NS_SIG  equ 0x0D            ; RAM: no HIGH nibble - the first signature
 CLK_NS_YRB  equ 0x0E            ; RAM: year - 1980, what 86Box's cards use
 CLK_NS_STAT equ 0x14            ; D0 = a counter rolled during the read
 CLK_NS_MAGIC equ 222
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_xt_charge - drive all-ones onto the ISA data bus before a 2C0h probe
@@ -836,6 +909,8 @@ clk_ns_get:
     in al, dx
     pop dx
     ret
+section .text
+
 
 clk_ns_put:
     push ax
@@ -848,6 +923,8 @@ clk_ns_put:
     pop dx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_ns_fields - the six counters into clk_tb_*
@@ -1009,13 +1086,13 @@ clk_ns_half:
     mov bl, al                  ; the original
     mov al, cl
     mov ah, ch
-    call clk_ns_put
+    call KERNEL_SEG:ovw_clk_ns_put
     mov al, cl
     call clk_ns_get
     mov bh, al                  ; what it answered
     mov al, cl
     mov ah, bl
-    call clk_ns_put
+    call KERNEL_SEG:ovw_clk_ns_put
     mov al, bh
     pop cx
     pop bx
@@ -1043,7 +1120,7 @@ clk_ns_read:
     je .clean
     mov ax, [clk_tb_y]
     mov dl, [clk_tb_mo]
-    call clk_ns_stamp           ; the roll fired: put the corrected year and
+    call KERNEL_SEG:ovw_clk_ns_stamp           ; the roll fired: put the corrected year and
 .clean:                         ; a fresh month shadow BACK on the card, or
     clc                         ; the same single +1 applies again next year
 .out:                           ; and the date drifts one year low per year
@@ -1163,6 +1240,8 @@ clk_ns_roll:
 .out:
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_ns_stamp - write the year bytes and the month shadow back to the card
@@ -1304,6 +1383,8 @@ clk_rp_put:
     pop dx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_rp_digit - one digit, range-checked
@@ -1313,7 +1394,7 @@ clk_rp_put:
 clk_rp_digit:
     push bx
     mov bl, ah
-    call clk_rp_get
+    call KERNEL_SEG:ovw_clk_rp_get
     cmp al, bl
     ja .no
     pop bx
@@ -1468,7 +1549,7 @@ clk_rp_fields:
     pushf
     cli
     xor al, al
-    call clk_rp_get
+    call KERNEL_SEG:ovw_clk_rp_get
     mov bh, al
     call clk_rp_digits
     mov bl, 0
@@ -1476,7 +1557,7 @@ clk_rp_fields:
     mov bl, 1
 .clean:
     xor al, al
-    call clk_rp_get
+    call KERNEL_SEG:ovw_clk_rp_get
     popf
     or bl, bl
     jnz .no                     ; a bad digit, not a torn read
@@ -1519,7 +1600,7 @@ clk_rp_probe:
     push ax
     call clk_xt_charge
     mov al, CLK_RP_MODE
-    call clk_rp_get
+    call KERNEL_SEG:ovw_clk_rp_get
     test al, 0x03
     jnz .no
     call clk_rp_fields
@@ -1580,6 +1661,8 @@ clk_rp_year:
     pop bx
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_rp_yy - the two year digits to store, in this machine's own convention
@@ -1747,6 +1830,8 @@ clk_rp_write:
     pop bx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; =============================================================================
 ; Tier CLK_T_BIOS (4): int 1Ah, the BIOS - probed for its answer SECOND
@@ -1814,11 +1899,11 @@ clk_bios_read:
     je .none
     mov bl, 0                   ; the century, if this BIOS keeps one. A byte
     mov al, ch                  ; that does not decode is NOT fatal - some
-    call clk_bcd                ; BIOSes simply do not maintain it, and the
-    jc .cwin                    ; window rule below covers SPEC.md 37's own
-    cmp al, 19                  ; 1980..2099 range without it
-    jb .cwin
-    cmp al, 20
+    call clk_bcd                ; BIOSes simply do not maintain it, and
+    jc .cwin                    ; clk_yr_join's window covers SPEC.md 37's own
+    cmp al, 19                  ; 1980..2099 range without it. This is CMOS 32h
+    jb .cwin                    ; again, read for us instead of by us, so it
+    cmp al, 20                  ; goes stale in exactly the same way
     ja .cwin
     mov bl, al
 .cwin:
@@ -1828,13 +1913,6 @@ clk_bios_read:
     cmp al, 99
     ja .none
     mov bh, al
-    or bl, bl
-    jnz .cent
-    mov bl, 20
-    cmp bh, 80
-    jb .cent
-    mov bl, 19
-.cent:
     mov al, dh                  ; month
     call clk_bcd
     jc .none
@@ -1851,12 +1929,9 @@ clk_bios_read:
     cmp al, 31
     ja .none
     mov [clk_tb_d], al
-    mov al, bl                  ; year = century*100 + yy
-    mov bl, 100
-    mul bl                      ; AX = AL * BL
-    mov bl, bh
-    mov bh, 0
-    add ax, bx
+    mov al, bl                  ; AL = the century (0 = none), BL = the two
+    mov bl, bh                  ; digits: clk_yr_join's argument pair
+    call clk_yr_join
     mov [clk_tb_y], ax
     clc
     jmp .out
@@ -1868,6 +1943,8 @@ clk_bios_read:
     pop bx
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_rtc_write - push the live time back to the hardware RTC
@@ -2104,7 +2181,7 @@ clk_mlen:
     ret
 
 ; -----------------------------------------------------------------------------
-; clk_snap - take a consistent copy of the clock for the formatters
+; clk_snapshot - take a consistent copy of the clock for the formatters
 ; in:  nothing
 ; out: nothing (clk_sn_* updated)
 ; clobbers: nothing (flags only)
@@ -2115,7 +2192,7 @@ clk_mlen:
 ; one. The pairs are copied as words because the fields are laid out
 ; adjacent for exactly that reason.
 ; -----------------------------------------------------------------------------
-clk_snap:
+clk_snapshot:
     push ax
     pushf
     cli
@@ -2146,7 +2223,7 @@ clk_fmt:
     push bx
     push cx
     push dx
-    call clk_snap
+    call clk_snapshot
     mov bx, clk_str
     mov al, [clk_sn_mon]
     call clk_put_mon
@@ -2218,7 +2295,7 @@ clk_fmt:
 ;      leading zero: '12', '01'..'11')
 ; clobbers: nothing else
 ; Reads the LAST SNAPSHOT and does not take one: a caller drawing several
-; fields (cp_time_rows) calls clk_snap once, so its whole row is one instant.
+; fields (cp_time_rows) calls clk_snapshot once, so its whole row is one instant.
 ; -----------------------------------------------------------------------------
 clk_fld_str:
     push ax
@@ -2513,6 +2590,8 @@ clk_put4:
     pop cx
     pop ax
     ret
+section .ovl                    ; boot overlay (SPEC.md 2.5)
+
 
 ; -----------------------------------------------------------------------------
 ; clk_bcd - packed BCD byte to binary
@@ -2544,6 +2623,8 @@ clk_bcd:
 .out:
     pop cx
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; clk_tobcd - binary byte to packed BCD
@@ -2583,7 +2664,7 @@ clk_bpad:   resb 1              ; a settings toggle), folded into the next
 clk_last:   resw 1              ; last [ticks] sample
 clk_acc:    resw 1              ; tenth-of-tick remainder
 
-clk_sn_sec:  resb 1             ; clk_snap's copy - the ONLY thing the
+clk_sn_sec:  resb 1             ; clk_snapshot's copy - the ONLY thing the
 clk_sn_min:  resb 1             ; formatters read. Same order and adjacency
 clk_sn_hour: resb 1             ; as the live fields above: the snapshot
 clk_sn_day:  resb 1             ; copies sec+min and hour+day as words

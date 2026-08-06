@@ -245,6 +245,12 @@ snd_services:
     dw 0                        ; DSV_NAME
     dw 0                        ; DSV_TONE
     dw 0                        ; DSV_TIERS
+    dw 0                        ; DSV_BLK    - a disk driver's, not ours
+    dw 0                        ; DSV_CPNAME - no Control Panel page: the
+    dw 0                        ; DSV_CPPAINT  Sound and Drivers pages the
+    dw 0                        ; DSV_CPCLICK  kernel already has are this
+                                ; driver's whole interface (SPEC.md 31.7)
+    times DSV_SIZE - ($ - snd_services) db 0
 
 snd_s_opl:  db 'AdLib', 0
 snd_s_sb:   db 'Sound Blaster', 0

@@ -170,53 +170,32 @@ ld_check_hdr:
     ret
 
 ; -----------------------------------------------------------------------------
-; ld_icon - stage an embedded icon out of the package image (SPEC.md 20.2)
+; ld_icon - record where this package's embedded icon is (SPEC.md 20.2/25)
+; in:  DI = the instance record, [ld_base] = the loaded region
+; out: nothing (all registers preserved)
 ;
-; in:  DI = the instance record, [ld_base] = the package's segment
-; out: [DI+I_ICON] = a kernel pointer to the 64-byte body, or 0
-; clobbers: nothing (flags)
-;
-; The icon used to be I_ICON pointing straight into the region, which worked
-; while the region was kernel memory. It is another segment now, and the two
-; icon renderers (VRAM and back-buffer, SPEC.md 25) read the body with plain
-; lodsw - so the 64 bytes are COPIED into a per-slot kernel buffer instead of
-; segment-qualifying two inner loops. 768 bytes of .bss for the whole table,
-; and the dock and the Disk window keep the near pointer they always had.
+; A SENTINEL, not a copy. The icon body is 64 bytes at a fixed offset in the
+; package's own header, and the region holding it lives exactly as long as
+; the instance does - so a per-slot copy in kernel .bss was 768 bytes spent
+; duplicating something that could not go away first. inst_icon_ptr stages
+; one body back into the kernel segment when a tile is actually drawn, which
+; is the dsk_get_icon idiom and costs nothing on any path that does not draw.
 ; -----------------------------------------------------------------------------
 ld_icon:
     push ax
-    push cx
-    push si
-    push di
-    push ds
     push es
     mov word [di+I_ICON], 0
     mov es, [ld_base]
     test byte [es:LD_H_FLAGS], 1
     jz .out
-    mov ax, di                  ; destination = inst_icons + slot*64
-    sub ax, inst_tab
-    mov cl, 5
-    shr ax, cl
-    mov cl, 6
-    shl ax, cl
-    add ax, inst_icons
-    mov [di+I_ICON], ax
-    mov di, ax
-    mov si, LD_HDR_SIZE         ; the body rides right after the header
-    push ds
-    push es
-    pop ds                      ; DS = the package, ES = ours: the movsb
-    pop es                      ; direction the copy needs
-    mov cx, 64
-    cld
-    rep movsb
+    mov word [di+I_ICON], I_ICO_PKG ; the SENTINEL, and no copy: the body is
+                                ; already in the region this instance owns,
+                                ; at the fixed offset every package header
+                                ; puts it at, and it lives exactly as long
+                                ; (SPEC.md 25). inst_icon_ptr stages it when
+                                ; something actually draws a tile
 .out:
     pop es
-    pop ds
-    pop di
-    pop si
-    pop cx
     pop ax
     ret
 

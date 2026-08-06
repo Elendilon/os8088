@@ -921,6 +921,243 @@ ui_post_cmd:
 
 ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
 
+; =============================================================================
+; The Task Manager, which lives on the system disk (SPEC.md 28)
+;
+; It was a built-in kind and is a package now, so the chip menu's item cannot
+; be an app_launch. What it does instead is what a Disk window's double-click
+; does, with the navigation added: bank the current volume and directory,
+; mount A:, find TASKMGR.O88 in the snapshot by name, run the loader, put the
+; volume back. drv_boot does the same dance for a .DRV and for the same
+; reason - every file name resolves in the CURRENT directory (SPEC.md 19.2),
+; which is wherever the user last browsed to.
+;
+; **The item stays live, and it says why when it fails.** Greying it would
+; mean answering "can this be loaded?" without loading it, and the only
+; honest test is the load itself - no disk, a disk without the file, a full
+; instance table, a heap too fragmented to hold seven kilobytes. SPEC.md 47
+; rule 3 is explicit that a control greys on a FACT and never on a guess, so
+; this one is always clickable and the failure is a notice with the reason in
+; it. That is also the only reporting channel here: a Disk window's load
+; failures land in its status line, and a menu item has no status line.
+;
+; It is a SINGLETON from this menu, which it was as a kind. Loading a second
+; copy would cost another seven kilobytes and another task slot to say the
+; same thing twice, so an already-open one is fronted instead. A double-click
+; on TASKMGR.O88 in a Disk window is unaffected and still opens as many as
+; you like - that is the package rule, and this is the menu item's rule.
+; =============================================================================
+ui_s_tmfile: db 'TASKMGR.O88', 0
+ui_s_tmname: db 'TaskMgr', 0     ; the 16-byte header name inst_set_name_x
+                                 ; copied into the record - what identifies
+                                 ; an already-running one
+
+; -----------------------------------------------------------------------------
+; ui_tm_open - front the Task Manager, or load it off the system disk
+; in:  nothing; UI task, no lock held
+; out: nothing (all registers preserved)
+; -----------------------------------------------------------------------------
+ui_tm_open:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+
+    call ui_tm_find             ; already running? front it and stop
+    jc .load
+    call gfx_lock
+    and byte [di+I_FLAGS], 0xFE ; un-minimize, the app_launch cap path's rule
+    mov bx, [di+I_WIN]
+    call wm_show
+    call gfx_unlock
+    jmp short .out
+
+.load:
+    call osapi_file_here        ; bank where the user was: DX = the directory
+    mov [ui_tm_cwd], dx         ; cluster, BL = the drive. Two module words
+    mov [ui_tm_drv], bl         ; rather than the stack, because this is
+                                ; UI-task-only and one load at a time, like
+                                ; ld_fp
+
+    xor dl, dl                  ; A: - the disk we booted from
+    call disk_mount
+    mov si, ui_s_nodisk
+    jc .fail
+    mov si, ui_s_tmfile
+    call dsk_find_name          ; AX = its directory index
+    mov si, ui_s_nofile
+    jc .fail
+
+    mov word [ld_pwin], 0       ; no poster: this is not a Disk window's load,
+    call ld_run_body            ; and so not loader_run either - there is no
+                                ; listing to refresh and no status line to
+                                ; correct. AL = LD_*; it shows the window
+                                ; itself on the way out
+    mov [ld_status], al
+    or al, al
+    jz .back                    ; LD_OK
+    mov bl, al                  ; the reason, out of the same codes a Disk
+    xor bh, bh                  ; window's status line uses
+    shl bx, 1
+    mov si, [bx + ui_tm_errs]
+.fail:
+    push si                     ; the volume FIRST, then the notice: putting
+    call ui_tm_back             ; it back touches the floppy and the notice
+    pop si                      ; takes the gfx lock, and neither wants the
+    call ui_note                ; other held while it runs
+    jmp short .out
+.back:
+    call ui_tm_back
+.out:
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; ui_tm_back - put the volume the user was on back. Preserves everything; a
+; failed remount leaves A: at its root, which is a survivable place to be.
+ui_tm_back:
+    push ax
+    push dx
+    mov ax, [ui_tm_cwd]
+    mov dl, [ui_tm_drv]
+    call dsk_chdir
+    pop dx
+    pop ax
+    ret
+
+ui_tm_cwd:  dw 0                ; the directory and drive to go back to. In
+ui_tm_drv:  db 0                ; .text: -f bin zeroes no .bss, and A:'s root
+                                ; is the right answer before the first load
+
+ui_tm_errs:                     ; indexed by LD_* (loader.inc)
+    dw ui_s_nofile              ; LD_OK never reaches here
+    dw ui_s_dskerr              ; LD_EDISK
+    dw ui_s_badpkg              ; LD_EBAD
+    dw ui_s_toobig              ; LD_EBIG
+    dw ui_s_badpkg              ; LD_EABORT - it loaded and refused itself
+    dw ui_s_nomem               ; LD_ENOMEM
+
+ui_s_nodisk: db 'No system disk in drive A:', 0
+ui_s_nofile: db 'TASKMGR.O88 is not on the disk', 0
+ui_s_dskerr: db 'Disk error reading it', 0
+ui_s_badpkg: db 'TASKMGR.O88 is not a valid package', 0
+ui_s_toobig: db 'TASKMGR.O88 is too large', 0
+ui_s_nomem:  db 'Not enough memory to open it', 0
+
+; -----------------------------------------------------------------------------
+; ui_tm_find - the running Task Manager, by the name in its instance record
+; in:  nothing
+; out: CF = 0 and DI = its record; CF = 1 none open
+; clobbers: DI (the output), flags
+;
+; By NAME and not by a remembered window pointer, because a window slot is
+; reused: a pointer banked at load time names some other app's window the
+; moment this one closes, and fronting that is a bug with no symptom until
+; someone notices the wrong window coming up.
+; -----------------------------------------------------------------------------
+ui_tm_find:
+    push ax
+    push cx
+    push si
+    mov di, inst_tab
+    mov cx, INST_MAX
+.scan:
+    cmp byte [di+I_STATE], 1
+    jne .next
+    test byte [di+I_KIND], KIND_PKG
+    jz .next
+    push di
+    mov si, ui_s_tmname
+    add di, I_NAME
+.cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .nomatch
+    inc si
+    inc di
+    or al, al
+    jnz .cmp
+    pop di
+    clc
+    jmp short .out
+.nomatch:
+    pop di
+.next:
+    add di, I_RECSZ
+    loop .scan
+    stc
+.out:
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ui_note - the kernel's one-line notice window
+; in:  SI = a NUL reason; UI task, no lock held
+; out: nothing (all registers preserved)
+;
+; The species is the file dialog's (SPEC.md 38): a bare wm_create'd window
+; this module owns, with no instance behind it - so no dock tile, no Task
+; Manager row, and a close box that reduces to wm_hide, which is exactly what
+; dismissing a notice means. ONE window, created on first use and shown
+; again after that; [ui_note_win] lives in .text because -f bin zeroes no
+; .bss and this is read before anything writes it (the fdlg_win precedent).
+; -----------------------------------------------------------------------------
+ui_note_tpl: dw 150, 150, 288, 78, ui_note_ttl, ui_note_paint, 0, 0
+ui_note_ttl: db 'Task Manager', 0
+ui_note_s1:  db 'Cannot open the Task Manager:', 0
+ui_note_win: dw 0
+ui_note_msg: dw 0
+
+ui_note:
+    push ax
+    push bx
+    push si
+    mov [ui_note_msg], si
+    call gfx_lock
+    mov bx, [ui_note_win]
+    or bx, bx
+    jnz .have
+    mov si, ui_note_tpl
+    call wm_create              ; CF = the window table is full, in which case
+    jc .out                     ; the notice is simply not shown - there is
+    mov [ui_note_win], bx       ; nothing further to fall back to
+.have:
+    call wm_show                ; ...or bring an already-dismissed one back
+.out:
+    call gfx_unlock
+    pop si
+    pop bx
+    pop ax
+    ret
+
+ui_note_paint:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call gfx_pen_live           ; CBLACK and the disabled flag clear (47)
+    mov bx, si
+    mov dx, [bx+W_Y]
+    add dx, TITLE_H + 16
+    mov si, ui_note_s1
+    call app_about_center
+    add dx, 16
+    mov si, [ui_note_msg]
+    call app_about_center
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; ui_cmd - act on one of the kernel's own menu commands
 ; in:  AX = CMD_* (0 = nothing; ignored)
@@ -967,7 +1204,8 @@ ui_cmd:
     mov al, KIND_BOUNCE
     jmp .launch
 .tasks:
-    mov al, KIND_TASKMGR
+    call ui_tm_open             ; not a kind any more: it is a package on the
+    ret                         ; system disk (SPEC.md 28)
 .launch:
     call app_launch             ; takes its own locks; out CF = tables full
     jnc .launched

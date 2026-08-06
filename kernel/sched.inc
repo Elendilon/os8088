@@ -51,16 +51,34 @@ T_INST      equ 6               ; byte: owning instance index (SPEC.md 29),
                                 ; 0xFF = none (the UI task)
 T_SIZE      equ 8               ; record stride (1 byte padding)
 
-SCH_STACK   equ 512             ; per-task stack bytes. It was 1,536, chosen
-                                ; when the stacks were the only thing in
-                                ; .lowbss and nothing competed with them. A
-                                ; 0xCC fill probe under the heaviest load the
-                                ; machine can carry - Clock, two Bounces and
-                                ; the Fractal's worker all live at once, with
+SCH_STACK   equ 256             ; per-task stack bytes. It was 1,536 when the
+                                ; stacks were the only thing in .lowbss, then
+                                ; 512. A 0xCC fill probe under the heaviest
+                                ; load the machine can carry - Clock, two
+                                ; Bounces, the Fractal's drawing worker and
+                                ; Arkanoid's game loop all live at once, with
                                 ; the tick and mouse ISRs landing on top of
-                                ; them - left its deepest mark 150 bytes down.
-                                ; 512 is 3.4x that, and it is what buys task 0
-                                ; the 6KB it now has (SPEC.md 2.1)
+                                ; them - left its deepest mark 142 bytes down,
+                                ; and Tracker's streaming worker feeding a
+                                ; Sound Blaster through its own IRQ reached
+                                ; the same 142. 256 is 1.8x that, which is
+                                ; thinner than this project usually runs, so
+                                ; SCH_MAGIC below makes an overrun a CAUGHT
+                                ; failure instead of a silent one.
+                                ;
+                                ; It must stay a power of two: sch_switch
+                                ; turns the slot index into the slice's base
+                                ; with a byte swap rather than a multiply,
+                                ; which is what makes the canary check nearly
+                                ; free on the switch path
+%if SCH_STACK != 256
+  %error "sch_switch's canary check assumes SCH_STACK = 256 (a byte swap)"
+%endif
+SCH_MAGIC   equ 0x5A57          ; the word at the BOTTOM of every slice. A
+                                ; stack that reaches it has overrun, and the
+                                ; next push corrupts the slice below - which
+                                ; is another task's, so the symptom would be
+                                ; arbitrary and nowhere near the cause
 SCH_FRAME   equ 24              ; saved-frame size: 9 regs + IP/CS/FLAGS
 
 SCH_WD_TICKS equ 18             ; cooperative mode: the watchdog forces a
@@ -273,6 +291,13 @@ task_spawn:
     mul di                      ; DX:AX = AX * SCH_STACK (high half discarded)
     pop dx
     add ax, sch_stacks
+    push ax                     ; seed this slice's canary before the frame:
+    sub ax, SCH_STACK           ; AX is the slice TOP, so its base is one
+    mov di, ax                  ; SCH_STACK below
+    mov ax, LOW_SEG
+    mov es, ax
+    mov word [es:di], SCH_MAGIC
+    pop ax
     sub ax, SCH_FRAME           ; carve the fake frame at the very top
     mov di, ax
     mov [bx+T_SP], di
@@ -740,6 +765,22 @@ sch_switch:
     shl bx, cl
     mov [bx+sch_tasks+T_SP], sp
 
+    ; --- the outgoing task's canary (SPEC.md 8): slot n's slice starts at
+    ; (n-1)*SCH_STACK, and with SCH_STACK = 256 that is the slot index in the
+    ; HIGH byte and nothing else - no multiply on the switch path. Task 0 owns
+    ; no slice of sch_stacks and is skipped. SS is LOW_SEG, so the read needs
+    ; no segment set-up; sch_stacks is at .lowbss offset 0 but the symbol is
+    ; written out anyway, because that is a layout accident and not a contract.
+    mov bl, [sch_cur]
+    or bl, bl
+    jz .nocanary                ; task 0: its stack is above .lowbss, not in it
+    dec bl
+    mov bh, bl                  ; BX = (cur-1) * 256
+    xor bl, bl
+    cmp word [ss:bx+sch_stacks], SCH_MAGIC
+    jne sch_stkdie
+.nocanary:
+
     mov dl, [sch_cur]           ; scan cur+1, cur+2, ... (cur itself last)
     mov dh, MAX_TASKS
 .scan:
@@ -780,6 +821,30 @@ sch_resume:
     pop cx
     pop ax
     iret
+
+; -----------------------------------------------------------------------------
+; sch_stkdie - a task overran its stack slice (SPEC.md 8)
+;
+; Reached only from sch_switch's canary check, so the machine is already
+; inside a switch with the outgoing frame parked. There is nothing safe to
+; do: the overrun has already written into the slice BELOW this one, which is
+; another task's stack, so every task table entry is now suspect and any
+; attempt to report through the window manager would run on the corrupted
+; stack that got us here.
+;
+; So it stops, loudly and reproducibly. A halted machine is a bug report; a
+; machine that carries on is a bug that gets blamed on something else three
+; subsystems away. This is a can't-happen path - 256 bytes is 1.8x the
+; measured worst case - and it exists so that "can't" is checked rather than
+; assumed. Re-run the 0xCC fill probe (docs/KERNEL-MEMORY.md) if it ever hits.
+; -----------------------------------------------------------------------------
+sch_stkdie:
+    cli
+.hang:
+    hlt
+    jmp short .hang
+
+; -----------------------------------------------------------------------------
 
 ; =============================================================================
 ; scheduler state

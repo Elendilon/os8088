@@ -557,6 +557,143 @@ CPU_8086            equ 0        ; tier 0: 8086/8088. No A20 line, no memory
 CPU_286             equ 1        ; tier 1: A20 + BIOS block move
 CPU_386             equ 2        ; tier 2: the above, plus unreal mode
 ;
+; --- volumes (SPEC.md 18.7/51.8) --------------------------------------------
+; A DRVC_DISK DRIVER's slots, not an application's: all four are fenced on the
+; caller being the driver whose disk services are published, so a package gets
+; CF=1 and nothing else. They are published here because drivers include this
+; file (drivers/os88drv.inc does), and because a slot number belongs in one
+; place (SPEC.md 20.8).
+%define OSAPI_VOL_ADD       KERNEL_SEG:0x0270   ; AL = the driver's own volume
+                                 ; handle, CX = the volume's sector count,
+                                 ; DX = a listing claim's segment (0 = the
+                                 ; kernel's 32-entry floor), SI = a NUL
+                                 ; desktop label in the CALLER's segment (0 =
+                                 ; derive 'Disk X'). out CF=0 and AL = the
+                                 ; VOLUME INDEX - 2 is C:, and the desktop
+                                 ; zone and the drive letter both fall out of
+                                 ; it
+%define OSAPI_VOL_DEL       KERNEL_SEG:0x0278   ; AL = a volume index this
+                                 ; driver registered. Cannot fail
+%define OSAPI_VOL_MOUNT     KERNEL_SEG:0x0280   ; AL = a volume index; mount
+                                 ; and list it. out CF=1 = not a readable
+                                 ; FAT12/16 volume. UI-TASK CONTEXT ONLY,
+                                 ; like every other file slot
+%define OSAPI_VOL_PAINT     KERNEL_SEG:0x0288   ; repaint the desktop's drive
+                                 ; zones. It takes the gfx lock ITSELF, so
+                                 ; never from a callback that holds one
+
+; --- a driver's settings, inside SYSTEM.CFG (SPEC.md 51.9) ------------------
+; A DRIVER's slot, fenced like the four above. The kernel carries DRV_BLOB_SZ
+; opaque bytes to disk and back with the rest of the Control Panel; it never
+; reads them, and it round-trips them untouched on a machine where the driver
+; never loads. Versioning them is the driver's job.
+%define DRV_BLOB_SZ         34
+%define OSAPI_DRV_CFG       KERNEL_SEG:0x0290   ; AL = 0 read / 1 write / 2
+                                 ; write and flush SYSTEM.CFG now, ES:SI = the
+                                 ; driver's buffer, CX = bytes (<= DRV_BLOB_SZ).
+                                 ; out CF=1 = not the published driver, or a
+                                 ; WRITE past DRV_BLOB_SZ; a never-written blob
+                                 ; reads back as zeroes, so put a version byte
+                                 ; in it and treat anything else as the
+                                 ; defaults (SPEC.md 51.5). Verb 1 rides the next
+                                 ; Control Panel flush, verb 2 costs a write
+                                 ; NOW - use it for state a power cut must not
+                                 ; lose, not for a preference
+
+; --- the three snapshots, and a patterned fill (SPEC.md 20.9) ----------------
+; The first three answer questions about the SYSTEM rather than about you: the
+; scheduler and the instance table, the claim map, and how big the kernel is.
+; Every one of them fills a buffer YOU own, through ES:DI, and returns a count
+; so a package built against an older SDK finds out that a table has grown
+; rather than walking off the end of its own buffer. Any context - they take
+; no lock and touch no VRAM.
+;
+; These exist because a task monitor cannot be written without them, and one
+; had to be liftable out of the kernel. Nothing stops another app using them,
+; but note what they cost: SYS_SNAPSHOT runs with interrupts off for the length
+; a table copy, so it is a twice-a-second call, not a per-frame one.
+%define OSAPI_SYS_SNAPSHOT      KERNEL_SEG:0x0298   ; ES:DI = a SYS_SNAPSHOT_SIZE
+                                 ; buffer; out AX = MAX_TASKS, BX = INST_MAX.
+                                 ; The scheduler header (SS_*) then INST_MAX
+                                 ; records of SSI_RECSZ (SSI_*), all inside ONE
+                                 ; cli window - which is the point: an instance
+                                 ; record is freed atomically with its task
+                                 ; slot, so the two halves have to be read
+                                 ; together or a cycle diff lands on the wrong
+                                 ; row
+%define OSAPI_CLAIM_SNAPSHOT    KERNEL_SEG:0x02A0   ; ES:DI = a CLAIM_SNAPSHOT_SIZE
+                                 ; buffer; out AX = MEM_MAX. MEM_MAX records of
+                                 ; CLS_RECSZ: base segment (0 = a free record),
+                                 ; paragraphs, owner word (SPEC.md 50.2)
+%define OSAPI_SYS_KB        KERNEL_SEG:0x02A8   ; ES:DI = a SYSKB_SIZE buffer;
+                                 ; every register preserved. The kernel's own
+                                 ; footprint in KB broken into its parts, which
+                                 ; sum to SK_KERN exactly, then the heap's
+                                 ; totals and the pool above 1MB. The footprint
+                                 ; terms move with every kernel build - that is
+                                 ; why they are a call and not a constant
+%define OSAPI_GFX_FILL_PAT  KERNEL_SEG:0x02B0   ; AX/BX/CX/DX = the rect, SI = 8
+                                 ; pattern bytes in YOUR segment: row y takes
+                                 ; byte [SI + (y & 7)], a set bit is WHITE and
+                                 ; bit 7 is the leftmost pixel of each screen
+                                 ; byte. The pattern is SCREEN-aligned, so two
+                                 ; rects that abut tile seamlessly. Ignores the
+                                 ; pen colour and writes only 0/15, so it never
+                                 ; costs you the mono flush (SPEC.md 32). Lock
+                                 ; held, like every other draw
+
+; --- OSAPI_SYS_SNAPSHOT's buffer -------------------------------------------------
+SS_TICKS   equ 0                ; word: the tick counter at the snapshot
+SS_CUR     equ 2                ; byte: the running task slot
+SS_COOP    equ 3                ; byte: 0 pre-emptive, 1 cooperative
+SS_NTASK   equ 4                ; byte: MAX_TASKS, the same figure AX answers
+SS_NINST   equ 5                ; byte: INST_MAX, likewise BX
+SS_TSTATE  equ 6                ; MAX_TASKS bytes: 0 free, 1 ready, 2 running,
+                                ; 3 sleeping (SPEC.md 8)
+SS_TCYC    equ SS_TSTATE + MAX_TASKS       ; MAX_TASKS dwords: cycles per task
+SS_INST    equ SS_TCYC + MAX_TASKS * 4     ; ...then the instance records
+SSI_STATE  equ 0                ; byte: 0 free, 1 live, 2 dying
+SSI_TASK   equ 1                ; byte: its task slot, 0xFF = task-less
+SSI_KIND   equ 2                ; byte: bit 7 (KIND_PKG) = a loaded package
+SSI_RSVD   equ 3                ; byte: pad
+SSI_SIZE   equ 4                ; word: its region in BYTES, 0 for a built-in
+SSI_SEG    equ 6                ; word: the region's base segment
+SSI_CYC    equ 8                ; dword: cycles billed to its callbacks
+SSI_KB     equ 12               ; word: KB it holds off the claim heap
+SSI_NAME   equ 14               ; 16 bytes: its name, NUL-terminated
+SSI_RECSZ  equ 30
+SYS_SNAPSHOT_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
+
+; --- OSAPI_CLAIM_SNAPSHOT's buffer -----------------------------------------------
+CLS_SEG    equ 0                ; word: base segment, 0 = a free record
+CLS_PARA   equ 2                ; word: size in paragraphs (KB << 6)
+CLS_OWN    equ 4                ; word: owner - an instance slot, a package's
+                                ; own segment, or 0xFFxx for a kernel tag
+CLS_RECSZ  equ 6
+CLAIM_SNAPSHOT_SIZE equ MEM_MAX * CLS_RECSZ
+
+; --- OSAPI_SYS_KB's buffer, all in KB ----------------------------------------
+SK_KERN    equ 0                ; word: the whole kernel span
+SK_IMG     equ 2                ; word: image + scratch + cold code
+SK_FAT     equ 4                ; word: the mount-time FAT window
+SK_STK     equ 6                ; word: the background task stacks
+SK_STK0    equ 8                ; word: task 0's - the UI task's
+SK_DSK     equ 10               ; word: the disk buffers
+SK_BUF     equ 12               ; word: FAT + stacks + disk buffers together
+SK_HEAP    equ 14               ; word: the claim heap's size
+SK_CLAIM   equ 16               ; word: claimed out of it, every owner
+SK_KCLAIM  equ 18               ; word: ...of which the kernel's own
+SK_XMS     equ 20               ; word: the pool above 1MB, 0 with no store
+SYSKB_SIZE equ 22
+
+MAX_TASKS  equ 12               ; the scheduler's slots (SPEC.md 8) - a bound
+INST_MAX   equ 12               ; running instances (SPEC.md 29.1)   on the
+MEM_MAX    equ 32               ; claim records (SPEC.md 50)         buffers
+                                ; above, and each call answers the live figure
+                                ; so a stale SDK is a caught mismatch and not
+                                ; an overrun
+KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
+
 %define OSAPI_CPU_INFO      KERNEL_SEG:0x0188   ; no inputs; out AL = CPU_8086 /
                                  ; CPU_286 / CPU_386, AH = feature bits: bit 0
                                  ; A20 verified open, bit 1 HMA claimed, bit 2
@@ -695,11 +832,13 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
                                  ; the string must OUTLIVE the call - the
                                  ; record keeps the pointer, not the bytes.
 
-%define OSAPI_FONT_GLYPHS   KERNEL_SEG:0x0218   ; out SI = the offset of the
-                                 ; kernel's 8x8 glyph table in KERNEL_SEG,
-                                 ; AL = first character code it covers,
-                                 ; AH = last, CX = bytes per glyph (8). Read
-                                 ; it with ES = KERNEL_SEG. For an app that
+%define OSAPI_FONT_GLYPHS   KERNEL_SEG:0x0218   ; out DX:SI = the kernel's
+                                 ; 8x8 glyph table, AL = first character code
+                                 ; it covers, AH = last, CX = bytes per glyph
+                                 ; (8). Read it with ES = DX - the table is
+                                 ; NOT in KERNEL_SEG, and DX is a recorded
+                                 ; amendment to this slot (SPEC.md 20.8): it
+                                 ; used to answer with SI alone. For an app that
                                  ; needs the BITMAP of a character rather than
                                  ; a drawn one - scaling it, stamping it into
                                  ; a canvas, measuring a cell. It is the same
