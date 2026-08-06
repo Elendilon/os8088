@@ -189,6 +189,13 @@ mc_entry:
     mov [mc_scrw], ax
     mov [mc_dock], cx
 
+    call OSAPI_FSX_CAPS             ; can this adapter set Mode X? A fact,
+    mov [mc_caps], ax               ; decided once (SPEC.md 47/53.4): the
+    test ax, 1 << FSXM_MODEX        ; menu item is renamed to say WHY not,
+    jnz .fsxok                      ; and mc_cmd_modex refuses with the same
+    mov word [mc_mi_game+6], mc_s_xcmdn ; bit - one predicate for both
+.fsxok:
+
     ; The window wants to be big: seven eighths of the desktop band, capped so
     ; a 640x480 screen still shows the desktop around it. Fullscreen (SPEC.md
     ; 11.2) is a menu item away for a player who wants the whole thing.
@@ -278,6 +285,15 @@ mc_track:
     push bx
     push cx
     push dx
+    cmp byte [mc_fsx], 0            ; on the Mode X surface (SPEC.md 53) the
+    je .win                         ; content IS the screen: 320x240 at 0,0,
+    xor ax, ax                      ; and the window record describes a
+    mov [mc_ox], ax                 ; desktop this game is not on
+    mov [mc_oy], ax
+    mov word [mc_cw], 320
+    mov word [mc_ch], 240
+    jmp short .lay
+.win:
     mov bx, si
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
     mov [mc_ox], ax
@@ -286,6 +302,7 @@ mc_track:
     call OSAPI_WM_GEOM              ; CX = content width, DX = content height
     mov [mc_cw], cx
     mov [mc_ch], dx
+.lay:
     call mc_layout
     pop dx
     pop cx
@@ -634,6 +651,10 @@ mc_onkey:
     je .fs
     cmp bl, 'F'
     je .fs
+    cmp bl, 'm'
+    je .modex
+    cmp bl, 'M'
+    je .modex
     jmp .out
 .b1:
     mov al, 0
@@ -665,6 +686,9 @@ mc_onkey:
     jmp short .out
 .new:
     call mc_cmd_new
+    jmp short .out
+.modex:
+    call mc_cmd_modex
 .out:
     pop di
     pop si
@@ -692,6 +716,8 @@ mc_oncmd:
     je .pause
     cmp bl, 2
     je .fs
+    cmp bl, 3
+    je .modex
 .out:
     pop di
     pop si
@@ -704,6 +730,9 @@ mc_oncmd:
     jmp short .out
 .fs:
     call mc_fs_toggle
+    jmp short .out
+.modex:
+    call mc_cmd_modex
     jmp short .out
 
 ; -----------------------------------------------------------------------------
@@ -730,6 +759,164 @@ mc_cmd_pause:
     mov al, [mc_wasmode]
     mov [mc_mode], al
     call mc_draw_all
+.out:
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_cmd_modex - take the game onto the SPEC.md 53 exclusive surface
+; in:  gfx lock held (menu command / key context); preserves all registers
+;
+; The refusal is the greying's own predicate: the caps bit mc_entry tested to
+; rename the menu item. OSAPI_FSX_RUN does not return until mc_fsx_main does;
+; the kernel then repaints the desktop whole, our window included, so there
+; is nothing to redraw here.
+; -----------------------------------------------------------------------------
+mc_cmd_modex:
+    push ax
+    push bx
+    push cx
+    test word [mc_caps], 1 << FSXM_MODEX
+    jz .out
+    mov ax, mc_fsx_main
+    mov bx, [mc_win]
+    xor cx, cx                      ; no flags: our worker freezes with the
+    call OSAPI_FSX_RUN              ; rest, and this loop replaces it
+.out:
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_fsx_main - the exclusive main (SPEC.md 53.1): the arcade at 320x240
+; in:  SI = our window, ES = KERNEL_SEG, DS = CS = ours, gfx lock held for
+;      the whole session, every other task frozen
+; out: near ret = leave the bracket; the kernel restores the desktop
+;
+; The worker's loop, rewritten for a machine we own: input is polled (no
+; events are dispatched in a bracket), one frame per OSAPI_FSX_WAIT tick -
+; the worker's own pace - and mc_rbody draws through the Mode X twins. The
+; worker itself is frozen; when it thaws its deadline is hopelessly behind
+; and its own re-anchor path absorbs that, nothing here needs to.
+; -----------------------------------------------------------------------------
+mc_fsx_main:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call OSAPI_FONT_GLYPHS          ; SI/DX = the kernel glyph table's
+    mov [mc_gtab], si               ; offset and segment, for mx_text
+    mov [mc_gseg], dx
+    push ds
+    pop es
+    mov di, mc_fsi
+    mov al, FSXM_MODEX
+    call OSAPI_FSX_MODE
+    jc .home                        ; refused: straight home, nothing changed
+    mov byte [mc_fsx], 1
+    mov si, [mc_win]
+    call mc_track                   ; 0,0,320,240 and the layout from it
+    mov byte [mc_full], 1           ; everything draws from scratch
+    mov byte [mc_chshown], 0        ; the crosshair is not on this screen yet
+    call OSAPI_MOUSE
+    mov [mc_pbtn], al               ; no fire from the click that got us here
+.loop:
+.keys:
+    mov ah, 1                       ; the bracket's input model: poll int 16h
+    int 0x16                        ; (this IS the UI task, SPEC.md 53.1)
+    jz .nokey
+    xor ah, ah
+    int 0x16
+    cmp al, 27                      ; Esc leaves, exactly as it leaves 11.2
+    je .done
+    call mc_fsx_key
+    jmp short .keys
+.nokey:
+    call OSAPI_MOUSE                ; AL = buttons; a new press fires at the
+    mov ah, [mc_pbtn]               ; crosshair, which mc_do_cross has been
+    mov [mc_pbtn], al               ; tracking all along
+    not ah
+    and ah, al
+    test ah, 1
+    jz .nofire
+    mov ax, [mc_chx]
+    mov [mc_firex], ax
+    mov ax, [mc_chy]
+    mov [mc_firey], ax
+    mov byte [mc_fireb], 0FFh
+    inc word [mc_fire]
+.nofire:
+    call mc_update
+    call mc_rbody
+    xor al, al                      ; one frame a tick - the worker's pace,
+    call OSAPI_FSX_WAIT             ; the frame clock's hlt (SPEC.md 53.5)
+    jmp .loop
+.done:
+    mov byte [mc_fsx], 0
+    mov byte [mc_chshown], 0        ; the crosshair on THIS screen dies with
+                                    ; it - or the thawed worker XOR-erases
+                                    ; one that was never drawn on the desktop
+    mov byte [mc_full], 1
+.home:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mc_fsx_key - the bracket's keyboard: the windowed bindings minus the ones
+; that make no sense with no window (F, Esc handled by the caller)
+; in: AL = ascii
+mc_fsx_key:
+    push ax
+    cmp al, '1'
+    je .b1
+    cmp al, '2'
+    je .b2
+    cmp al, '3'
+    je .b3
+    cmp al, ' '
+    je .bany
+    cmp al, 'p'
+    je .pause
+    cmp al, 'P'
+    je .pause
+    cmp al, 'n'
+    je .new
+    cmp al, 'N'
+    je .new
+    jmp short .out
+.b1:
+    mov al, 0
+    jmp short .fire
+.b2:
+    mov al, 1
+    jmp short .fire
+.b3:
+    mov al, 2
+    jmp short .fire
+.bany:
+    mov al, 0FFh
+.fire:
+    mov [mc_fireb], al
+    mov ax, [mc_chx]
+    mov [mc_firex], ax
+    mov ax, [mc_chy]
+    mov [mc_firey], ax
+    inc word [mc_fire]
+    jmp short .out
+.pause:
+    call mc_cmd_pause
+    jmp short .out
+.new:
+    call mc_cmd_new
 .out:
     pop ax
     ret
@@ -887,11 +1074,11 @@ mc_abdraw:
     mov [mc_abt], ax
 
     mov al, CWHITE
-    call OSAPI_SET_COLOR
+    call mc_setcol
     call .rect
     call mc_fillc
     mov al, CBLACK                  ; black on white: the one pairing that
-    call OSAPI_SET_COLOR            ; survives SPEC.md 39.4 on every adapter
+    call mc_setcol            ; survives SPEC.md 39.4 on every adapter
     call .rect
     call mc_framec
 
@@ -1074,6 +1261,11 @@ mc_do_cross:
     push cx
     push dx
     call OSAPI_MOUSE                ; CX = x, DX = y, AL = buttons
+    cmp byte [mc_fsx], 0            ; the mouse stays in DESKTOP coordinates
+    je .desk                        ; through a bracket (SPEC.md 53.1), and
+    shr cx, 1                       ; Mode X only exists where the desktop is
+    shr dx, 1                       ; 640x480 - one shift maps it onto 320x240
+.desk:
     sub cx, [mc_ox]
     sub dx, [mc_oy]
     mov ax, [mc_cw]                 ; clamp into the content
@@ -2971,12 +3163,35 @@ mc_render:
     mov bx, [mc_win]
     call OSAPI_WM_CLIP_SET
     jc .skip
+    call mc_rbody
+    jmp short .unlock
+.skip:
+    mov byte [mc_full], 1
+.unlock:
+    call OSAPI_GFX_UNLOCK
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_rbody - one frame's drawing, the surface not asked about. Two callers:
+; mc_render above (lock held, clip armed, the windowed worker) and
+; mc_fsx_main's loop (an fsx bracket, where the lock is the caller's for the
+; whole session and every primitive is a Mode X twin).
+; in:  origin tracked; preserves all registers
+; -----------------------------------------------------------------------------
+mc_rbody:
+    push ax
     cmp byte [mc_abon], 0           ; the credits own the content until a click
-    jne .skip                       ; or a key takes them down
+    jne .out                        ; or a key takes them down
     cmp byte [mc_full], 0
     je .parts
     call mc_draw_all
-    jmp short .unlock
+    jmp short .out
 .parts:
     call mc_cross_off               ; the crosshair comes off FIRST: it is an
                                     ; XOR overlay, and everything below draws
@@ -3004,16 +3219,7 @@ mc_render:
 .msg:
     call mc_draw_msg
     call mc_cross_on
-    jmp short .unlock
-.skip:
-    mov byte [mc_full], 1
-.unlock:
-    call OSAPI_GFX_UNLOCK
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
+.out:
     pop ax
     ret
 
@@ -3039,7 +3245,7 @@ mc_draw_all:
     mov byte [mc_sdirty], 0
     mov byte [mc_chshown], 0
     mov al, MC_BG
-    call OSAPI_SET_COLOR
+    call mc_setcol
     xor ax, ax
     xor bx, bx
     mov cx, [mc_cw]
@@ -3086,7 +3292,7 @@ mc_draw_ground:
     push si
     push di
     mov al, [mc_cgnd]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     xor ax, ax                      ; the band itself
     mov bx, [mc_groundy]
     mov cx, [mc_cw]
@@ -3140,7 +3346,7 @@ mc_draw_cities:
     push si
     push di
     mov al, [mc_ccity]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     xor si, si
 .each:
     cmp byte [mc_calive + si], 0
@@ -3267,7 +3473,7 @@ mc_draw_bases:
     mov [mc_dtmp], ax               ; the left edge
 
     mov al, MC_BG                   ; the lane this base owns, cleared
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov ax, [mc_dtmp]
     mov bx, [mc_groundy]
     sub bx, [mc_objh]
@@ -3282,7 +3488,7 @@ mc_draw_bases:
     cmp byte [mc_balive + si], 0
     je .dead
     mov al, [mc_cabm]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     call mc_base_shape
     jmp short .next
 .dead:
@@ -3292,7 +3498,7 @@ mc_draw_bases:
     ; player could not tell a launcher that was gone from one that was merely
     ; out of missiles. A notch bitten out of the ground reads on all three.
     mov al, MC_BG
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov ax, [mc_dtmp]
     add ax, 2
     mov bx, [mc_groundy]
@@ -3303,7 +3509,7 @@ mc_draw_bases:
     add dx, 2
     call mc_fillc
     mov al, [mc_cgnd]               ; ...with a lip either side of it
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov ax, [mc_dtmp]
     mov bx, [mc_groundy]
     dec bx
@@ -3456,7 +3662,7 @@ mc_redraw_trails:
     push si
     push di
     mov al, [mc_cicbm]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     xor si, si
 .icbm:
     mov al, [mc_ia + si]
@@ -3477,7 +3683,7 @@ mc_redraw_trails:
     jb .icbm
 
     mov al, [mc_cabm]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     xor si, si
 .abm:
     cmp byte [mc_aa + si], 1
@@ -3517,7 +3723,7 @@ mc_wipe_trails:
     push si
     push di
     mov al, MC_BG
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov byte [mc_lfat], 1           ; see mc_lflush: an erase has to be one
                                     ; pixel wider than the draw, or half of it
                                     ; stays on the screen
@@ -3585,7 +3791,7 @@ mc_move_trails:
     push si
     push di
     mov al, [mc_cicbm]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     xor si, si
 .icbm:
     mov al, [mc_ia + si]
@@ -3614,7 +3820,7 @@ mc_move_trails:
     jb .icbm
 
     mov al, [mc_cabm]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     xor si, si
 .abm:
     cmp byte [mc_aa + si], 1
@@ -3691,7 +3897,7 @@ mc_draw_exp:
 .gone:
     mov byte [mc_ea + si], 0
     mov al, MC_BG
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov ax, [mc_ex + di]
     mov dx, [mc_ey + di]
     mov bl, [mc_er + si]
@@ -3759,7 +3965,7 @@ mc_exp_pen:
     and bl, 3
     mov bh, 0
     mov al, [mc_expcol + bx]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3783,7 +3989,7 @@ mc_erase_ring:
     mov ax, [mc_ey + di]
     mov [mc_rcy], ax
     mov al, MC_BG
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov ax, [mc_rold]               ; two running half-widths, both falling
     mul ax                          ; monotonically as dy rises - mc_shrink's
     mov [mc_dr2], ax                ; O(R)-per-disc trick, run twice
@@ -4052,7 +4258,7 @@ mc_sat_erase:
     push cx
     push dx
     mov al, MC_BG
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov ax, [mc_satpx]
     sub ax, MC_SATW
     mov bx, [mc_saty]
@@ -4077,7 +4283,7 @@ mc_sat_shape:
     push cx
     push dx
     mov al, [mc_cicbm]
-    call OSAPI_SET_COLOR
+    call mc_setcol
     cmp byte [mc_sata], 2
     je .bomber
     mov ax, [mc_satx]               ; satellite: a 5x5 body...
@@ -4231,7 +4437,7 @@ mc_draw_status:
     push si
     push di
     mov al, MC_BG
-    call OSAPI_SET_COLOR
+    call mc_setcol
     xor ax, ax
     xor bx, bx
     mov cx, [mc_cw]
@@ -4246,7 +4452,7 @@ mc_draw_status:
     mov [mc_texty], ax
 
     mov al, CWHITE
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov ax, [mc_scorelo]
     mov dx, [mc_scorehi]
     call mc_num32
@@ -4256,7 +4462,7 @@ mc_draw_status:
     call mc_textc
 
     mov al, CYELLOW                 ; the high score, centred
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov ax, [mc_hilo]
     mov dx, [mc_hihi]
     call mc_num32
@@ -4278,7 +4484,7 @@ mc_draw_status:
     ; occupied. Colour is decoration here; the strip has to be legible on all
     ; three adapters.
     mov al, CLRED
-    call OSAPI_SET_COLOR
+    call mc_setcol
     mov di, mc_wbuf
     mov byte [di], 'W'
     inc di
@@ -4378,7 +4584,7 @@ mc_draw_msg:
     call mc_msg_erase
     mov byte [mc_msgon], 1
     mov al, CWHITE
-    call OSAPI_SET_COLOR
+    call mc_setcol
     call OSAPI_FONT_WIDTH
     mov cx, [mc_cw]
     sub cx, ax
@@ -4410,7 +4616,7 @@ mc_msg_erase:
     push dx
     push si
     mov al, MC_BG
-    call OSAPI_SET_COLOR
+    call mc_setcol
     call mc_msgy
     mov bx, ax
     xor ax, ax
@@ -4644,7 +4850,12 @@ mc_fillc:
     add cx, [mc_ox]
     add bx, [mc_oy]
     add dx, [mc_oy]
-    call OSAPI_GFX_FILL
+    cmp byte [mc_fsx], 0            ; on Mode X the drawing slots are
+    jne .fsx                        ; off-limits (SPEC.md 53.7) - the twin
+    call OSAPI_GFX_FILL             ; writes A000 itself
+    jmp short .out
+.fsx:
+    call mx_fill
 .out:
     pop dx
     pop cx
@@ -4663,7 +4874,12 @@ mc_xorc:
     add cx, [mc_ox]
     add bx, [mc_oy]
     add dx, [mc_oy]
+    cmp byte [mc_fsx], 0
+    jne .fsx
     call OSAPI_GFX_XOR_FILL
+    jmp short .out
+.fsx:
+    call mx_xor
 .out:
     pop dx
     pop cx
@@ -4682,7 +4898,12 @@ mc_framec:
     add cx, [mc_ox]
     add bx, [mc_oy]
     add dx, [mc_oy]
+    cmp byte [mc_fsx], 0
+    jne .fsx
     call OSAPI_GFX_FRAME
+    jmp short .out
+.fsx:
+    call mx_frame
 .out:
     pop dx
     pop cx
@@ -4730,9 +4951,281 @@ mc_textc:
     push dx
     add cx, [mc_ox]
     add dx, [mc_oy]
+    cmp byte [mc_fsx], 0
+    jne .fsx
     call OSAPI_FONT_STR
+    jmp short .out
+.fsx:
+    call mx_text
+.out:
     pop dx
     pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_setcol - every colour change comes through here. The kernel's
+; [gfx_color] cannot be read back, so the Mode X twins take theirs from the
+; shadow; the API call stays (state only, no drawing - and the desktop path
+; still needs it).
+; -----------------------------------------------------------------------------
+mc_setcol:
+    mov [mc_col], al
+    call OSAPI_SET_COLOR
+    ret
+
+; -----------------------------------------------------------------------------
+; mx_fill / mx_xor / mx_frame / mx_text - the Mode X twins (SPEC.md 53.4).
+; Same registers as the primitives above, coordinates already absolute
+; (origin 0 on this surface). Unchained planar: a column lives in plane
+; x & 3, four pixels to a byte address, stride 80 - one map-mask OUT per
+; COLUMN, not per pixel, and the row walk inside it is adds alone.
+; -----------------------------------------------------------------------------
+mx_fill:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov es, [mc_fsi+FSI_SEG]
+    mov si, ax                      ; SI = the column walker
+.col:
+    push cx
+    push dx
+    mov cx, si
+    and cl, 3
+    mov ah, 1
+    shl ah, cl                      ; AH = the column's plane
+    mov al, 2                       ; SEQ index 2: map mask
+    mov dx, 0x3C4
+    out dx, ax
+    mov di, bx                      ; DI = y1*80 + x/4
+    mov cl, 4
+    shl di, cl
+    mov ax, di
+    shl di, 1
+    shl di, 1
+    add di, ax
+    mov ax, si
+    shr ax, 1
+    shr ax, 1
+    add di, ax
+    pop dx
+    pop cx
+    push bx
+    mov al, [mc_col]
+.row:
+    mov [es:di], al
+    add di, 80
+    inc bx
+    cmp bx, dx
+    jle .row
+    pop bx
+    inc si
+    cmp si, cx
+    jle .col
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+mx_xor:                             ; reads need GC index 4 (read map select,
+    push ax                         ; a plane NUMBER) beside the write mask
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov es, [mc_fsi+FSI_SEG]
+    mov si, ax
+.col:
+    push cx
+    push dx
+    mov cx, si
+    and cl, 3
+    mov ah, 1
+    shl ah, cl
+    mov al, 2
+    mov dx, 0x3C4
+    out dx, ax                      ; write: map mask
+    mov ah, cl
+    mov al, 4
+    mov dx, 0x3CE
+    out dx, ax                      ; read: map select = the plane number
+    mov di, bx
+    mov cl, 4
+    shl di, cl
+    mov ax, di
+    shl di, 1
+    shl di, 1
+    add di, ax
+    mov ax, si
+    shr ax, 1
+    shr ax, 1
+    add di, ax
+    pop dx
+    pop cx
+    push bx
+.row:
+    mov al, [es:di]
+    xor al, [mc_col]
+    mov [es:di], al
+    add di, 80
+    inc bx
+    cmp bx, dx
+    jle .row
+    pop bx
+    inc si
+    cmp si, cx
+    jle .col
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+mx_frame:                           ; four 1px strips of mx_fill
+    push ax
+    push bx
+    push cx
+    push dx
+    push dx
+    mov dx, bx
+    call mx_fill                    ; top
+    pop dx
+    push bx
+    mov bx, dx
+    call mx_fill                    ; bottom
+    pop bx
+    push cx
+    mov cx, ax
+    call mx_fill                    ; left
+    pop cx
+    push ax
+    mov ax, cx
+    call mx_fill                    ; right
+    pop ax
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mx_text - SI = string, CX = x, DX = y. The kernel's glyphs, this game's
+; renderer: each glyph is staged out of KERNEL_SEG into mc_gbuf (two
+; segments are in play and DS holds the string), then plotted a pixel at a
+; time - text on this surface is a score line, not a bandwidth problem.
+mx_text:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+.ch:
+    lodsb
+    or al, al
+    jz .done
+    cmp al, 32
+    jb .skip
+    cmp al, 126
+    ja .skip
+    push si
+    xor ah, ah
+    sub al, 32
+    mov si, ax
+    push cx
+    mov cl, 3
+    shl si, cl                      ; (c-32)*8
+    pop cx
+    add si, [mc_gtab]
+    mov es, [mc_gseg]
+    mov di, 0
+.stage:
+    mov al, [es:si]
+    mov [mc_gbuf+di], al
+    inc si
+    inc di
+    cmp di, 8
+    jb .stage
+    mov es, [mc_fsi+FSI_SEG]
+    xor bx, bx                      ; BX = glyph row
+.grow:
+    mov ah, [mc_gbuf+bx]            ; the row's bits, MSB leftmost
+    xor di, di                      ; DI = bit
+.gbit:
+    shl ah, 1
+    jnc .gnext
+    push ax
+    push cx
+    push dx
+    mov ax, cx
+    add ax, di                      ; x + bit
+    add dx, bx                      ; y + row
+    call mx_px
+    pop dx
+    pop cx
+    pop ax
+.gnext:
+    inc di
+    cmp di, 8
+    jb .gbit
+    inc bx
+    cmp bx, 8
+    jb .grow
+    pop si
+.skip:
+    add cx, 8
+    jmp short .ch
+.done:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mx_px - one pixel: AX = x, DX = y, colour [mc_col]; ES = the framebuffer
+mx_px:
+    push ax
+    push cx
+    push dx
+    push di
+    mov di, dx
+    mov cl, 4
+    shl di, cl
+    mov dx, di
+    shl di, 1
+    shl di, 1
+    add di, dx                      ; y*80
+    mov cx, ax
+    shr ax, 1
+    shr ax, 1
+    add di, ax                      ; + x/4
+    and cl, 3
+    mov ah, 1
+    shl ah, cl
+    mov al, 2
+    mov dx, 0x3C4
+    out dx, ax
+    mov al, [mc_col]
+    mov [es:di], al
+    pop di
+    pop dx
+    pop cx
+    pop ax
     ret
 
 ; =============================================================================
@@ -4747,15 +5240,19 @@ mc_tpl:
 
 ; --- app menu set (SPEC.md 12.2) -----------------------------------------------
     OS88_MENUSET mc_menus, mc_m_name, mc_oncmd
-        OS88_MENU mc_m_game, mc_mi_game, 3
+        OS88_MENU mc_m_game, mc_mi_game, 4
     OS88_MENUSET_END mc_menus
 
 mc_m_name:   db 'Missile', 0
 mc_m_game:   db 'Game', 0
-mc_mi_game:  dw mc_s_new, mc_s_pcmd, mc_s_fcmd
+mc_mi_game:  dw mc_s_new, mc_s_pcmd, mc_s_fcmd, mc_s_xcmd
 mc_s_new:    db 'New Game', 0
 mc_s_pcmd:   db 'Pause', 0
 mc_s_fcmd:   db 'Full Screen', 0
+mc_s_xcmd:   db 'Mode X', 0         ; the SPEC.md 53 exclusive surface -
+mc_s_xcmdn:  db 'Mode X (Vga)', 0   ; mc_entry swaps the pointer to the
+                                    ; second string when the adapter cannot
+                                    ; (SPEC.md 47: say WHY not)
 
 mc_ttl:      db 'Missile Command', 0
 mc_s_ready:  db 'DEFEND YOUR CITIES', 0
@@ -4857,6 +5354,23 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_oy
     MWORD mc_cw
     MWORD mc_ch
+    MBYTE mc_fsx                    ; inside an fsx bracket on Mode X
+                                    ; (SPEC.md 53) - the four primitives,
+                                    ; mc_track and the mouse read dispatch
+                                    ; on it
+    MBYTE mc_col                    ; the colour shadow mc_setcol keeps: the
+                                    ; kernel's [gfx_color] cannot be read
+                                    ; back, and the Mode X twins need it
+    MBYTE mc_pbtn                   ; last-seen mouse buttons (edge detect -
+                                    ; no W_ONCLICK arrives in a bracket)
+    MWORD mc_caps                   ; the OSAPI_FSX_CAPS mask, from mc_entry
+    MWORD mc_gtab                   ; the kernel glyph table's offset, for
+                                    ; mx_text (OSAPI_FONT_GLYPHS, once)
+    MWORD mc_gseg                   ; ...and its SEGMENT: the table lives in
+                                    ; LOW_SEG, not KERNEL_SEG - the slot's DX
+                                    ; answer, not an assumption
+    MBUF  mc_gbuf, 8                ; one glyph staged out of KERNEL_SEG
+    MBUF  mc_fsi, FSI_SIZE          ; the Mode X info block
 
 ; --- the derived layout ---------------------------------------------------------
     MWORD mc_statush

@@ -1569,7 +1569,15 @@ drv_task:
     inc byte [drv_wcnt]         ; BEFORE the task can run, so the count never
     call task_spawn             ; lags a worker that spawned and died at once
     jc .spfail                  ; (task_spawn preserves IF, so nothing runs
-    popf                        ; until our popf)
+    push bx                     ; until our popf)
+    mov bl, al                  ; AL = the slot: a driver's worker is service
+    xor bh, bh                  ; plumbing and survives the fsx freeze
+    shl bx, 1                   ; (SPEC.md 53.2) - stamped inside the same
+    shl bx, 1                   ; IF=0 window, so no tick can scan the record
+    shl bx, 1                   ; before the bit is on
+    or byte [bx+sch_tasks+T_FLAGS], TF_SERVICE
+    pop bx
+    popf
     clc
     jmp short .out
 .spfail:

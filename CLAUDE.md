@@ -447,6 +447,41 @@ Two things keep it affordable, because the flush (VRAM) costs ~24× the render (
 - **`[bb_mono]`** — all four planes hold identical bytes as long as everything is drawn in colour 0 or 15, which is the whole UI (its greys are 0/15 dither). While set, the flush copies *one* plane with Map Mask = 0Fh and the hardware fans it out: a quarter of the VRAM writes, and no mid-flush colour fringing. `bb_mono_chk` retires it one-way on the first other colour (a Minesweeper digit); the planes are always fully rendered, so the flush just reverts to four passes. It hangs off `gfx_fill`/`font_char` ahead of the `bb_on` dispatch, so it tracks colour even while buffering is off — `bb_set` can arm the buffer at any time and seeds it from VRAM.
 - **Transient overlays never enter the back buffer.** The drag outline and the menu highlights are XOR overlays drawn and erased inside one held lock — the cursor's contract — so they call `vga_xor_rect_vram`/`vga_xor_fill_vram` direct, like the cursor calls `vga_save_vram`. Routed through the buffer, a 1px outline dirtied the whole window rect and flushed it twice per drag pass. The public `gfx_xor_*` still dispatch to the buffer: packages reach them through the API table and their output is persistent.
 
+### Fullscreen exclusive — the app borrows the machine (SPEC.md §53, `kernel/fsx.inc`)
+
+§11.2's fullscreen surface is a real window in the desktop's mode; fsx is the
+other thing: `fsx_run` (slot 0x02C0) is a **bracket, not a latch** — called
+from a window callback with the gfx lock held, it far-calls the app's
+exclusive main through the window's own dispatcher and does not return until
+that proc does, so **the kernel never runs while the video mode is foreign**,
+by construction rather than by gates. While it runs, `sch_switch` passes only
+the exclusive task, its `FSXF_KEEPWORKER` worker, and `TF_SERVICE` tasks (the
+task record's old padding byte at offset 7 — set only by the driver-worker
+cell, so a Sound Blaster stream keeps refilling mid-game); the held lock
+keeps the cursor off; and **entry walks `inst_tab` calling
+`snd_release_inst` on every live instance but the caller's** — a frozen
+owner's duration-0 tone would otherwise ring all session AND hold the tone
+channel's priority against the app (§48's permanent-refusal shape), and the
+`[snd_gen]` bump is what makes the thaw safe. `fsx_mode` sets any of nine
+`FSXM_*` modes the adapter's caps bit allows (`fsx_caps`: VGA 0x1EF, HERC
+0x011, CGA 0x00F — Mode X included, 13h plus the canonical unchain/retime)
+and fills the caller's 16-byte FSI block; **the kernel's `[vid_*]` live
+block is never touched**, which is why restore is `vid_setmode` + drain
+(keys + evq) + disarm + one `wm_paint_all`. `fsx_wait` is the frame clock
+AND the present (it runs `gfx_flush` while a back buffer is armed and the
+mode unswitched — the bracket never unlocks, so it is the only flush a
+buffered renderer gets); every retrace poll is `[ticks]`-bounded. Missile
+Command is the reference consumer: its four content-space primitives grew
+Mode X twins, `mc_track` answers 320x240 under `[mc_fsx]`, and the arcade
+runs at its own raster ('m' or the Game menu; the item reads `Mode X (Vga)`
+on 1bpp adapters — §47's say-why-not). Two traps already sprung:
+`OSAPI_FONT_GLYPHS` answers **DX = the glyph table's segment** (LOW_SEG —
+reading it through KERNEL_SEG renders deterministic mush), and a crosshair
+XOR-shown on the exclusive surface must be forgotten (`[mc_chshown]`) before
+the thawed worker "erases" it onto the desktop. `tests/fsxtest` is the gate
+(docs/TESTING.md); `task_sleep` inside a bracket degenerates to an immediate
+resume, so pacing is `fsx_wait`, never sleep.
+
 ### Instances (SPEC.md §29 — how apps live and die)
 
 Everything running — built-in kind or loaded package — is a record in `kernel/instance.inc`'s `inst_tab` (12 × 32B). Boot is clean (no instances); menus call `app_launch` (new instance, or front the existing one at the kind's cap), the close box calls `app_close_win` (task-less: synchronous teardown; task-owned: die flag `I_STATE=2` + hide, the task tears down at next wake), and the title bar's right-hand minimize box hides to the dock (`kernel/dock.inc`, bottom strip rows 456..479, one tile per live instance, stable slot↔tile mapping). A tile carries two independent marks: **minimized** XOR-inverts its interior, **active** — the instance owning the frontmost visible window — doubles its border. Two different kinds of mark on purpose, and a heavier border is the one that survives the 1bpp reduction. `wm_owner[]` maps window slot → instance. The Task Manager lists *instances*, not tasks — one row per `inst_tab` slot plus a "System" row — because task-less apps (About, Disk, and any package that has not claimed a worker) only ever run inside window callbacks. Those callbacks are timed at the `W_PAINT`/`W_ONKEY`/`W_ONCLICK` dispatch sites and billed to `I_CYC` via `task_cycles`/`task_debit`, which *move* the cycles off the running task so the rows still add to one total.

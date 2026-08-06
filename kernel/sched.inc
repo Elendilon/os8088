@@ -49,7 +49,16 @@ T_SP        equ 2               ; word: saved SP (frame above)
 T_WAKE      equ 4               ; word: [ticks] value to wake at
 T_INST      equ 6               ; byte: owning instance index (SPEC.md 29),
                                 ; 0xFF = none (the UI task)
-T_SIZE      equ 8               ; record stride (1 byte padding)
+T_FLAGS     equ 7               ; byte (was padding): bit 0 = TF_SERVICE -
+                                ; set only by the driver-worker cell, read
+                                ; only by the fsx freeze (SPEC.md 53.2)
+T_SIZE      equ 8               ; record stride
+
+TF_SERVICE  equ 1               ; survives the fullscreen-exclusive freeze:
+                                ; a loaded driver's refill/drain worker is
+                                ; plumbing, not app work, and parking it
+                                ; would starve a Sound Blaster stream mid-
+                                ; game (SPEC.md 53.2)
 
 SCH_STACK   equ 256             ; per-task stack bytes. It was 1,536 when the
                                 ; stacks were the only thing in .lowbss, then
@@ -119,6 +128,10 @@ sched_init:
                                 ; boot into a random mode
     mov byte [sch_tasks+T_STATE], 1     ; task 0 = this thread, ready
     mov byte [sch_tasks+T_INST], 0xFF   ; the UI task owns no instance
+    mov byte [sch_tasks+T_FLAGS], 0
+    mov byte [fsx_task], 0xFF   ; fullscreen exclusive off (SPEC.md 53.2);
+    mov byte [fsx_worker], 0xFF ; .bss arrives zeroed but 0 is task 0, so
+                                ; the OFF value must be stored explicitly
 
     ; PIT ch0 -> mode 2 (rate generator), divisor 0 = 65536: the IRQ rate
     ; stays 18.2065 Hz (BIOS timekeeping counts IRQs, unaffected), but the
@@ -325,6 +338,8 @@ task_spawn:
     mov [es:di+20], ax          ; CS = the task's own segment
     mov word [es:di+22], 0x0202 ; FLAGS: IF=1, reserved bit 1 set
     mov [bx+T_INST], dl         ; owning instance (0xFF = none)
+    mov byte [bx+T_FLAGS], 0    ; TF_SERVICE is the driver cell's to set
+                                ; (SPEC.md 53.2), never inherited
 
     mov ax, cx                  ; zero the slot's cycle counter before the
     shl ax, 1                   ; publish, so a reused slot never inherits
@@ -794,7 +809,16 @@ sch_switch:
     mov cl, 3
     shl bx, cl
     cmp byte [bx+sch_tasks+T_STATE], 1
+    jne .skip
+    cmp byte [fsx_task], 0xFF   ; the fsx freeze (SPEC.md 53.2): off means
+    je .pick                    ; every ready task is eligible; armed, only
+    cmp dl, [fsx_task]          ; the exclusive task itself...
     je .pick
+    cmp dl, [fsx_worker]        ; ...its kept worker (FSXF_KEEPWORKER)...
+    je .pick
+    test byte [bx+sch_tasks+T_FLAGS], TF_SERVICE
+    jnz .pick                   ; ...and a driver's service worker may run
+.skip:
     dec dh
     jnz .scan
     mov dl, [sch_cur]           ; nothing ready (task 0 never sleeps, so
@@ -863,6 +887,14 @@ sch_tasks:  resb MAX_TASKS * T_SIZE     ; task records (layout above)
 sch_old08:  resb 4                      ; saved BIOS int 08h vector (off:seg)
 ticks:      resw 1                      ; public tick count, wraps at 65536
 sch_cur:    resb 1                      ; index of the running task
+fsx_task:   resb 1                      ; the fsx freeze (SPEC.md 53.2):
+                                        ; 0xFF off, else the exclusive
+                                        ; task's slot. Scheduler state
+                                        ; because sch_switch reads it every
+                                        ; scan; fsx_run/fsx_restore write
+                                        ; it, sched_init stores the OFF
+                                        ; value (0 would mean task 0)
+fsx_worker: resb 1                      ; the kept worker's slot, 0xFF none
 sch_lock:   resb 1                      ; non-zero: ISR counts but won't switch
 sch_cycles: resw MAX_TASKS * 2          ; per-task CPU time, PIT cycles, dword
                                         ; each (lo word first); readers snap-

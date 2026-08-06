@@ -1249,3 +1249,119 @@ OS88_BSS_SIZE equ 0
                                                 ; before the window is shown.
                                                 ; UI-task context only, like
                                                 ; OSAPI_WM_SIZABLE.
+
+; --- fullscreen exclusive (SPEC.md 53) ---------------------------------------
+
+%define OSAPI_FSX_CAPS      KERNEL_SEG:0x02B8   ; out AX = bitmask (bit n =
+                                                ; FSXM id n settable on the
+                                                ; live adapter), DL =
+                                                ; vid_kind. Any context, lock
+                                                ; held or not. Grey your mode
+                                                ; menu with this (SPEC.md 47)
+                                                ; - fsx_mode refuses with the
+                                                ; same bit, one predicate for
+                                                ; both.
+
+%define OSAPI_FSX_RUN       KERNEL_SEG:0x02C0   ; the bracket (SPEC.md 53.1).
+                                                ; In AX = a near proc in your
+                                                ; image, BX = your window
+                                                ; ptr, CX = flags (bit 0 =
+                                                ; FSXF_KEEPWORKER; all others
+                                                ; must be 0). UI-task window
+                                                ; callback only, lock held -
+                                                ; the wm_fullscreen contract.
+                                                ; DOES NOT RETURN until your
+                                                ; proc does: the kernel
+                                                ; freezes every other task,
+                                                ; silences their sound, calls
+                                                ; your proc (SI = your
+                                                ; window, ES = KERNEL_SEG,
+                                                ; DS = CS = your segment - a
+                                                ; W_ONKEY's environment, near
+                                                ; ret), and on its return
+                                                ; restores the desktop whole.
+                                                ; Out CF=1 refused. Inside:
+                                                ; poll int 16h for keys and
+                                                ; OSAPI_MOUSE for the mouse -
+                                                ; no events are dispatched;
+                                                ; the file API is legal (this
+                                                ; IS the UI task); pace with
+                                                ; OSAPI_FSX_WAIT, never
+                                                ; task_sleep (nothing else is
+                                                ; eligible, so a sleep
+                                                ; returns at once). After
+                                                ; your first OSAPI_FSX_MODE
+                                                ; call every drawing slot is
+                                                ; off-limits until you return
+                                                ; - they render DESKTOP
+                                                ; geometry. Never touch PIT
+                                                ; channel 0, the sound ports
+                                                ; (SPEC.md 34.1) or int 10h
+                                                ; mode sets; everything else
+                                                ; on the video card is yours
+                                                ; while a foreign mode is up.
+
+%define OSAPI_FSX_MODE      KERNEL_SEG:0x02C8   ; in AL = FSXM_*, ES:DI = an
+                                                ; FSI_SIZE buffer of yours
+                                                ; (set ES = DS). Bracket-only.
+                                                ; Out CF=0: mode set, screen
+                                                ; cleared, buffer filled;
+                                                ; CF=1: bad id, not on this
+                                                ; adapter, or your back
+                                                ; buffer is armed - call
+                                                ; OSAPI_GFX_DBUF off first.
+
+%define OSAPI_FSX_WAIT      KERNEL_SEG:0x02D0   ; in AL = 0 return at the
+                                                ; next tick / 1 return in
+                                                ; vertical retrace (bounded -
+                                                ; a dead port times out
+                                                ; rather than hangs).
+                                                ; Bracket-only, CF=1 outside.
+                                                ; THE PRESENT: while your
+                                                ; back buffer is armed and no
+                                                ; mode switch has happened,
+                                                ; it flushes before waiting -
+                                                ; the bracket never unlocks,
+                                                ; so this is the only flush a
+                                                ; buffered renderer gets.
+                                                ; Draw, wait, repeat.
+
+FSXF_KEEPWORKER equ 1           ; OSAPI_FSX_RUN CX bit 0: your worker stays
+                                ; scheduled through the bracket. For workers
+                                ; that FEED - an audio ring, a state word.
+                                ; A kept worker must never take the gfx lock
+                                ; or call a drawing slot: it parks safely on
+                                ; the held lock, but a parked feeder is a
+                                ; starved ring (SPEC.md 53.2).
+
+FSXM_TEXT80 equ 0               ; 80x25 text        VGA CGA HERC
+FSXM_TEXT40 equ 1               ; 40x25 text        VGA CGA
+FSXM_CGA320 equ 2               ; 320x200x4         VGA CGA
+FSXM_CGA640 equ 3               ; 640x200x2         VGA CGA
+FSXM_HERC   equ 4               ; 720x348 mono           HERC
+FSXM_VGA0D  equ 5               ; 320x200x16 planar VGA
+FSXM_VGA13  equ 6               ; 320x200x256       VGA
+FSXM_VGA12  equ 7               ; 640x480x16        VGA
+FSXM_MODEX  equ 8               ; 320x240x256, 3 pages, planar addressing VGA
+
+; the block OSAPI_FSX_MODE fills (SPEC.md 53.4). Text modes take the bare
+; contract: FSI_W/FSI_H are COLUMNS/ROWS there, the CRTC cursor, the pages
+; and the blink bit are yours through the BIOS the bracket may already call
+; (AH=02h move, AH=01h shape/hide, AH=05h page, AH=0Eh teletype, AX=1003h
+; blink-off - a port bit on a real CGA) or the CRTC ports directly.
+FSI_SEG    equ 0                ; word: framebuffer segment
+FSI_W      equ 2                ; word: width  - pixels; COLUMNS in text
+FSI_H      equ 4                ; word: height - pixels; ROWS in text
+FSI_STRIDE equ 6                ; word: bytes per row (Mode X: per PLANE row)
+FSI_FLAGS  equ 8                ; byte: FSIF_*
+FSI_BPP    equ 9                ; byte: bits per pixel (text: 0)
+FSI_BANKS  equ 10               ; byte: interleaved banks (1 = linear)
+FSI_PAGES  equ 11               ; byte: display pages
+FSI_BSTEP  equ 12               ; word: bank step in bytes (0 when linear)
+FSI_MODE   equ 14               ; byte: the FSXM_* id, echoed back
+FSI_RSVD   equ 15               ; byte: 0
+FSI_SIZE   equ 16
+
+FSIF_TEXT   equ 1
+FSIF_PLANAR equ 2
+FSIF_BANKED equ 4

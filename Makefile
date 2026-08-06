@@ -187,6 +187,19 @@ $(BUILD)/fmtest.o88: $(BUILD)/fmtest.bin tools/os88pkg.py
 $(BUILD)/fmtest.img: $(BUILD)/fmtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/fmtest.o88
 
+# FSXTEST: the fullscreen-exclusive gate package (SPEC.md 53.9). Like fmtest
+# it is never on the shipped apps disks and rides its own scratch image:
+#   make test TESTAPPS=build/fsxtest.img
+$(BUILD)/fsxtest.bin: tests/fsxtest/fsxtest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fsxtest/fsxtest.asm
+	@echo "fsxtest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/fsxtest.o88: $(BUILD)/fsxtest.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/fsxtest.bin -o $@
+
+$(BUILD)/fsxtest.img: $(BUILD)/fsxtest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/fsxtest.o88
+
 # SBTEST: the Sound Blaster gate package (SPEC.md 34.5/34.6). Like fmtest it
 # is never on the shipped apps disks and rides its own scratch image:
 #   make test-snd SB16=1 TESTAPPS=build/sbtest.img

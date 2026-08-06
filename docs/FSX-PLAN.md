@@ -1,9 +1,13 @@
 # Fullscreen exclusive — the plan (fsx)
 
-Status: PLAN. Nothing here is implemented. SPEC.md gets the binding version
-(proposed section: **§53** — §52 is spoken for by the hard-disk work in
-flight on the `elendilon` branch) *before* the first line of `kernel/fsx.inc`
-is written, per the §1 rule.
+Status: **IMPLEMENTED** through phase 3. SPEC.md §53 is the binding version
+(written first, per the §1 rule); `kernel/fsx.inc` is the module,
+`tests/fsxtest` the gate, and Missile Command's Mode X path the shipped
+reference consumer — all verified under QEMU on VGA, forced-CGA and
+forced-Hercules, restore-equality and both sound directions included.
+Phase 4 (Tracker + `FSXF_KEEPWORKER`'s implementation — the contract and
+the whitelist hook are already in) is next. This document stays as the
+design record; where it and SPEC.md §53 disagree, §53 wins.
 
 ## 0. What this is
 
@@ -16,7 +20,7 @@ all four CGA modes, both Hercules modes, four standard VGA modes. Mode 13h's
 320x200x256 is the headline; a real text mode for a roguelike is the sleeper.
 
 The two coexist, and the first two consumers are committed: **Missile
-Command** (the reference — Mode X at the arcade's own raster, §9.3) and
+Command** (the reference — Mode X at the arcade's own raster, section 9 item 3) and
 **Tracker immediately after**, whose worker-fed audio ring is what §7's
 `FSXF_KEEPWORKER` opt-in and §6's present clause exist for — both designed
 in from the start because that adoption is a certainty, not a maybe. §11.2
@@ -73,7 +77,7 @@ Instead:
 - **`T_FLAGS`** — the task record's existing padding byte at offset 7 becomes
   a flags byte. `T_SIZE` stays 8, the CL-shift indexing is untouched, no
   layout moves. Bit 0 = `TF_SERVICE`: set on tasks spawned through
-  `osapi_drv_task` (slot 0x0248 — the sound driver's refill/drain workers)
+  `osapi_drv_task` (cell 0x0248 — the sound driver's refill/drain workers)
   and nowhere else. Everything `task_spawn` creates defaults to 0.
 - **`[fsx_task]`** — one `.bss` byte, 0xFF = off, else the slot number of the
   exclusive task. Armed and cleared under `pushf`/`cli`.
@@ -410,7 +414,7 @@ half-working panic key is worse than a documented absence).
    hardware-impossible 640x480x256 (§4). The one open sliver: confirm the
    Mode X substitution is wanted, or ship three VGA modes and leave id 8
    unassigned.
-2. **The reference consumer — DECIDED: Missile Command** (§9.3), with
+2. **The reference consumer — DECIDED: Missile Command** (section 9, item 3 of this plan), with
    Tracker committed immediately after.
 3. **`FSXF_KEEPWORKER` — DECIDED: designed complete in phase 1, ships with
    Tracker's adoption in phase 4** (§7). The freeze, the whitelist and the

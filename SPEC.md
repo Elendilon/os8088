@@ -439,6 +439,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_` |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
+| `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, the frame clock/present — prefix `fsx_` |
 
 `kernel/video.inc`, `keyboard.inc`, `string.inc`, `gfx.inc` remain in the
 tree but are **no longer included**; the GUI replaces the text shell.
@@ -926,8 +927,13 @@ not worth what it would do to dragging.
 - Task record (8 bytes): `T_STATE` (0 free, 1 ready, 2 sleeping), `T_SP`
   (saved SP), `T_WAKE` (tick count to wake at), `T_INST` at offset 6
   (byte: owning instance index, §29; 0xFF = none — the Task Manager
-  resolves slot → instance → name through it), 1 byte padding.
-  `T_SIZE equ 8`.
+  resolves slot → instance → name through it), `T_FLAGS` at offset 7
+  (byte, was padding; bit 0 = `TF_SERVICE`, set only by the 0x0248
+  driver-worker cell — the §53.2 freeze whitelist reads it, and
+  `task_spawn` zeroes the byte for everyone else). `T_SIZE equ 8`.
+  When `[fsx_task]` is armed (§53.2), `sch_switch`'s scan passes only the
+  exclusive task, `[fsx_worker]` and `TF_SERVICE` tasks; nothing else in
+  the scheduler changes.
 - Timer: hook int 08h. Handler: push registers + DS/ES, load DS=KERNEL_SEG,
   chain to the saved BIOS vector first (`pushf` + far call), then
   `inc word [ticks]`, wake sleepers whose `T_WAKE` has passed, and if
@@ -4650,6 +4656,10 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02A0 claim_snapshot
                                                 0x02A8 sys_kb
                                                 0x02B0 gfx_fill_pat  (X)
+                                                0x02B8 fsx_caps
+                                                0x02C0 fsx_run       (X)
+                                                0x02C8 fsx_mode
+                                                0x02D0 fsx_wait
 ```
 
 **Every published slot keeps its number and contract**, on the rule that **a
@@ -4771,14 +4781,33 @@ Slot-specific contracts that are not simply their target routine's:
 0x02B0 gfx_fill_pat      in AX/BX/CX/DX = the rect, SI = 8 pattern bytes
                          in the CALLER's segment (§5). X — vga_pat_stage
                          reads them through DS, so the stub stages them.
+0x02B8 fsx_caps          out AX = the FSXM_* bitmask the live adapter can
+                         set, DL = vid_kind (§53.4). Any context.
+0x02C0 fsx_run           in AX = near entry, BX = own window ptr, CX =
+                         flags (bit 0 FSXF_KEEPWORKER). X — the ownership
+                         fence reads the caller's DS, inst_pkg_spawn's
+                         test. UI-task window callback, lock held; does
+                         NOT return until the app's proc does (§53.1).
+                         out CF=1 refused, CF=0 the desktop is restored.
+0x02C8 fsx_mode          in AL = FSXM_* id, ES:DI = an FSI_SIZE buffer
+                         (ES the caller's own, like gfx_blit4).
+                         Bracket-only (§53.4). CF=1 refused: bad id, not
+                         this adapter, back buffer armed, not the
+                         exclusive task.
+0x02D0 fsx_wait          in AL = 0 next tick / 1 vertical retrace.
+                         Bracket-only, CF=1 outside one. Flushes an armed
+                         back buffer first while no mode switch has
+                         happened — the present (§53.5).
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
 0x01D0 wm_resize         in BX = win, CX = new outer width, DX = new outer
                          height; lock held. Clamps, re-fits the origin and
                          repaints (§11.1). Never from inside a W_PAINT.
-0x0218 osapi_font_glyphs out SI = the glyph table's offset in KERNEL_SEG,
-                         AL = 32, AH = 126, CX = 8 (§6). Read through ES.
+0x0218 osapi_font_glyphs out SI = the glyph table's offset, DX = its
+                         SEGMENT (LOW_SEG since the table moved to .lowbss
+                         — read through DX, never assume KERNEL_SEG),
+                         AL = 32, AH = 126, CX = 8 (§6).
 0x0220 wm_onsize         in BX = win, AX = a near proc in the window's own
                          segment (0 clears). The resize negotiator (§11.1).
 0x0228 osapi_file_here   out DX = the current directory's first cluster
@@ -14184,3 +14213,319 @@ unticked the driver is about to close and write the file anyway.
   page can one day say "not supported" rather than "no drive".
 - **Extended partitions.** Four primaries of ≤32MB is 128MB of usable disk,
   against MFM drives of 10–40MB and early IDE drives of 20–120MB.
+
+## 53. fsx.inc — fullscreen exclusive
+
+§11.2's fullscreen surface is a real window: the desktop's mode, the
+kernel's primitives, the cursor and the event ladder all stay live, which is
+exactly right for an app that wants the whole screen *of the desktop*. This
+module is the other thing: **the app borrows the machine**. Multitasking is
+suspended, every kernel drawer is parked, and — what §11.2 cannot offer —
+the video mode is the app's to change (§53.4: all four CGA modes, both
+Hercules modes, four VGA modes). Module `kernel/fsx.inc`, prefix `fsx_`,
+four API slots (§53.8). The first consumer is Missile Command (§48); the
+second is Tracker (§45), whose worker-fed audio ring is what
+`FSXF_KEEPWORKER` exists for.
+
+### 53.1 The bracket (binding)
+
+`fsx_run` (slot 0x02C0) is called from a window callback — UI-task context,
+gfx lock held, the `wm_fullscreen` contract — and **does not return until
+the app is done being fullscreen**. In: AX = a near entry inside the
+caller's own image, BX = the caller's own window ptr, CX = flags (bit 0 =
+`FSXF_KEEPWORKER`, §53.2; all other bits must be 0). The kernel arms the
+freeze, silences what the freeze strands (§53.3), and calls the entry
+through `wm_pkgcall` — SI = the window ptr, DS = CS = the package's own
+segment, ES = KERNEL_SEG, an ordinary near proc with a near `ret`, exactly
+a `W_ONKEY`'s environment. When that proc returns, the kernel restores
+everything (§53.6) and returns CF=0 to the callback.
+
+Refusals, CF=1, one predicate each: already inside a bracket; the file
+dialog is up (`[fdlg_win]`); the running task is not task 0 (a worker may
+not enter); the ownership fence — the same test as `inst_pkg_spawn`'s: BX
+must be a live package instance's window whose segment is the caller's own
+DS, and AX must lie inside its image+bss. Undefined flag bits in CX also
+refuse, so the word stays extensible.
+
+Why a bracket and not an enter/exit pair like `wm_fullscreen`: a latch that
+survives across callback returns means the UI task's event ladder runs
+between callbacks with the screen in a foreign mode, and then every
+invariant in §12/§13 needs an fsx gate — the clock cell, `fdlg_reap`, the
+ladder's branches, the cursor. The bracket makes the only rule that matters
+— **the kernel never runs while the mode is foreign** — true by
+construction, because the kernel is parked on the stack underneath the app.
+`osapi_snd_play` blocks and the §38 dialog is modal for the same reason.
+
+What falls out, all of it free:
+
+- **No second input model.** The bracket runs on the UI task, the one
+  context allowed int 16h (§7), so the app polls the keyboard directly. The
+  mouse ISR keeps `mouse_x/y/btn` fresh throughout (it never draws — the
+  lock is held, §53.6), so `osapi_mouse` answers live and the app
+  edge-detects buttons itself. No events are dispatched; the queue fills
+  and is drained at exit.
+- **The file API is legal mid-bracket** — it is UI-task-context-only and
+  this IS the UI task. A game may load level data between modes.
+- **Task 0 cannot `task_exit`**, so "the worker died inside the bracket"
+  is structurally unreachable. An app that hangs in the bracket hangs the
+  machine — the same truth as any runaway callback, documented rather than
+  defended.
+- The whole session lives in nested frames on task 0's stack; STK0_SIZE
+  already carries callback depth and this adds one frame of it.
+- The dispatch sites' `snd_disp_set` stamp is still on the stack, so every
+  sound grant the app takes inside the bracket is billed to its instance,
+  and `snd_release_inst` at teardown still catches what it leaks.
+
+### 53.2 The freeze — a whitelist, not `sch_lock` (binding)
+
+`sch_lock` is the wrong tool and sched.inc documents why: it stops the
+voluntary path too, and it would starve a loaded sound driver's refill
+worker — the §51.7 hazard both snd.inc and the SB driver name. Instead:
+
+- **`T_FLAGS`** — the task record's byte at offset 7 (it was padding;
+  `T_SIZE` stays 8). Bit 0 = `TF_SERVICE`: set on tasks spawned through
+  the driver-worker cell (0x0248) and nowhere else; `task_spawn` zeroes
+  the byte for everyone else.
+- **`[fsx_task]`** — one `.bss` byte, 0xFF = off, else the exclusive
+  task's slot. **`[fsx_worker]`** beside it: 0xFF, or the caller's own
+  worker slot when `FSXF_KEEPWORKER` was passed and the instance has one.
+  Both armed and cleared under `pushf`/`cli`.
+- **One test in `sch_switch`'s scan**: a ready task is eligible iff fsx is
+  off, OR its slot is `[fsx_task]` or `[fsx_worker]`, OR its `TF_SERVICE`
+  bit is set. Nothing else in the scheduler changes.
+
+What keeps running, by construction: the int 08h chain to the BIOS (the
+floppy motor), `sch_account`, `snd_tick` (tones and FM sustain need no
+task), the wake scan (sleepers mark ready and wait unpicked — no new
+state, they run the moment the bracket ends), and `TF_SERVICE` workers —
+a Sound Blaster stream keeps playing across a mode switch. What freezes:
+every other instance's tasks, and the caller's own worker unless kept.
+
+**A kept worker feeds data and never takes the gfx lock or a drawing
+slot** (binding). It parks safely if it tries — the held lock is the fence
+— but for a feeder, parking is death by another name: its slices burn in
+the retry loop while the ring drains. Tracker's worker already complies.
+
+Two behavioural notes. `task_sleep` on the UI task degenerates inside the
+bracket (nothing else eligible → `sch_switch`'s nothing-ready path resumes
+the outgoing task at once); pacing is `fsx_wait` or polling `[ticks]`, and
+the SDK says so. And the §8.2 cooperative watchdog needs no special case:
+when it forces a switch the whitelist means it picks a service task or
+resumes the exclusive one — harmless either way.
+
+### 53.3 Entry silences what it strands (binding)
+
+"Sound keeps running" is half a rule; the missing half is a bug with three
+faces. Finite-duration tones are fine — `snd_tick` still expires them. But
+a duration-0 tone, a keyed FM note or a stream owned by a frozen instance
+has an owner whose off-call can never run: the note sustains for the whole
+session. Second face: that owner still holds the tone channel **at its
+priority** in the §34.3 router, so the fullscreen app's own `snd_tone` is
+refused for the entire bracket by an owner that can never release — §48's
+permanent-refusal-coded-as-transient, exactly. Third: a foreign stream's
+feeding worker freezes, the SB driver underruns and parks the DMA
+paused until the bracket ends.
+
+One fix, already in the tree: **after the freeze is armed, entry walks
+`inst_tab` and calls `snd_release_inst` for every live instance except the
+caller's** — the same routine both §29.4 teardown paths call. It routes
+`DSV_RELINST` first (FM key-off, stream teardown), flags down a running
+clip, silences the tone channel, and bumps `[snd_gen]` — which is what
+makes the thaw safe: a frozen owner that wakes after the bracket and
+finally issues its off cannot kill a note the app is playing by then,
+because the generation no longer matches. Exemptions, both deliberate:
+kernel grants (0xFF — finite beeps, `snd_tick` expires them) and the
+caller's own (it keeps running, and that is what carries a
+`FSXF_KEEPWORKER` stream in). There is no symmetric release on exit: the
+caller is alive and responsible afterward, and §29.4 teardown still
+catches what it leaks at close.
+
+### 53.4 Modes — `fsx_mode` and the info block
+
+Mode ids (`FSXM_*`), availability decided by `[vid_kind]` alone — a fact,
+not a guess, §47:
+
+| id | mode                    | set via                  | VGA | CGA | HERC |
+|----|-------------------------|--------------------------|-----|-----|------|
+| 0  | 80x25 text              | `vid_text` (mode 3; mode 7 + 3BFh←0 on Herc) | Y | Y | Y |
+| 1  | 40x25 text              | int 10h AX=0001          | Y | Y | – |
+| 2  | 320x200x4 (CGA)         | int 10h AX=0004          | Y | Y | – |
+| 3  | 640x200x2 (CGA)         | int 10h AX=0006          | Y | Y | – |
+| 4  | 720x348 mono (Herc gfx) | `vid_setmode` (the 6845 body + 32KB clear) | – | – | Y |
+| 5  | 320x200x16 planar (0Dh) | int 10h AX=000D          | Y | – | – |
+| 6  | 320x200x256 (13h)       | int 10h AX=0013          | Y | – | – |
+| 7  | 640x480x16 (12h)        | int 10h AX=0012          | Y | – | – |
+| 8  | 320x240x256 "Mode X"    | 13h + the unchain/retime sequence | Y | – | – |
+
+`fsx_caps` (slot 0x02B8) — out AX = the bitmask of settable ids (bit n =
+id n), DL = `vid_kind`; callable from any context, lock held or not (the
+`osapi_video` precedent), so an app can grey its mode menu per §47
+*before* entering. The masks: VGA 0x1EF, CGA 0x00F, HERC 0x011. One
+documented approximation: `vid_detect` admits EGA-class cards as
+`VID_VGA` (§39.1), and an EGA sets 0Dh but not 12h/13h; if those machines
+ever matter, this is the routine that learns the finer probe.
+
+`fsx_mode` (slot 0x02C8) — in AL = id, ES:DI = a 16-byte `FSI_*` block the
+kernel fills (ES is the caller's own, like `gfx_blit4`). Legal only inside
+the bracket, from the exclusive task. Refusals, CF=1: not in a bracket;
+not this task; id ≥ 9 or its caps bit clear; **the caller's back buffer is
+armed** (`[bb_dbl]` — the buffer describes desktop geometry and nothing
+else, so `osapi_gfx_dbuf` off comes first). The mode set clears the
+screen: the BIOS does, and the Hercules body keeps its load-bearing 32KB
+`rep stosw`. Mode X is 13h plus the canonical ten-write sequence (chain4
+off, 25MHz dot clock, CRTC retimed to 480-scan/240-line, dword off, byte
+mode on, all four planes cleared).
+
+```
+FSI_SEG    equ 0   ; word: framebuffer segment
+FSI_W      equ 2   ; word: width  - pixels; COLUMNS in a text mode
+FSI_H      equ 4   ; word: height - pixels; ROWS in a text mode
+FSI_STRIDE equ 6   ; word: bytes per row (text: per character row)
+FSI_FLAGS  equ 8   ; byte: bit0 text, bit1 planar, bit2 banked
+FSI_BPP    equ 9   ; byte: bits per pixel (text: 0)
+FSI_BANKS  equ 10  ; byte: interleaved banks (1 = linear)
+FSI_PAGES  equ 11  ; byte: display pages
+FSI_BSTEP  equ 12  ; word: bank step in bytes (0 when FSI_BANKS = 1)
+FSI_MODE   equ 14  ; byte: the FSXM_* id, echoed back
+FSI_RSVD   equ 15  ; byte: 0
+FSI_SIZE   equ 16
+```
+
+Three per-adapter fixups, applied after the row copy: id 4's segment is
+read from `[vid_seg]`, not a constant — that is what lets a `HERCSEG=`
+test build (§39.9) flow through to the app, and without it
+`tools/hercshot.py` could never see an fsx frame; id 0 on Hercules is
+segment B000 with 1 page; id 0 on CGA is 4 pages (16KB of card, 4KB per
+80-column page). Mode X's stride is 80 — bytes per *plane* row — with
+3 pages and `FSI_BPP` = 8: the four-pixels-per-address planar layout is
+what the unchaining buys, and the pages with it.
+
+**The kernel's `[vid_*]` live block is never touched.** It keeps
+describing the desktop mode; the info block is the app's only description
+of the foreign one. Nothing kernel-side needs undoing at exit, and nothing
+kernel-side can draw meanwhile because nothing kernel-side runs.
+
+**Text modes take the bare contract** (decided, and the reasoning
+recorded in docs/FSX-PLAN.md): the CRTC cursor — parked at 0,0 by the
+mode set, and never moved by writing B800 — the display pages and the
+blink/bright-background toggle all belong to the app, through the BIOS
+the bracket may already call (AH=02h move, AH=01h shape/hide, AH=05h
+page, AH=0Eh teletype, AX=1003h blink) or the CRTC ports directly. The
+hot path — characters into B800 — was direct VRAM under any contract;
+bare wins by putting nothing between the app and the hardware for the
+rest, and nothing the app pokes outlives the exit mode set.
+
+### 53.5 `fsx_wait` — the frame clock, and the present
+
+`fsx_wait` (slot 0x02D0) — in AL: 0 = return at the next `[ticks]` change
+(`hlt` between polls — the tick wakes it); 1 = return in vertical retrace:
+3DAh bit 3 for the VGA/CGA family, 3BAh bit 7 for Hercules, the port
+chosen by the **current fsx mode**. Bracket-only, CF=1 outside one. Every
+wait is bounded by a `[ticks]` delta (§37.90's rule — the one way to hang
+is to wait forever for a bit that never changes on a machine where every
+read is 0FFh); a timed-out retrace wait returns CF=0 anyway, because
+timing degrades rather than fails. Retrace is what makes palette
+animation and tear-free page flips possible, and on a real CGA in
+80-column text it is the snow window.
+
+**It is also the present.** The bracket never calls `gfx_unlock`, and the
+unlock is where the §32 flush lives — so a §45.11-style renderer would
+draw frames nobody ever sees. `fsx_wait` therefore runs `gfx_flush`
+before waiting whenever `[bb_dbl]` is armed and no mode switch has
+happened: draw into the buffer, `fsx_wait`, repeat — a complete frame
+loop in one slot. After a mode switch the clause is dead by construction
+(`fsx_mode` refused while the buffer was armed), and `fsx_wait` is pure
+clock.
+
+### 53.6 Restore — one path, ordered (binding)
+
+The app's proc returning is the only exit. In order:
+
+1. `vid_setmode` — the desktop adapter mode back, idempotent, skipped
+   when no `fsx_mode` call ever happened (the screen is already the
+   desktop's mode; the repaint below still runs, because the app drew).
+   The BIOS mode set restores the default palette, which is the
+   desktop's; the Hercules body clears its 32KB.
+2. Drain the BIOS key buffer (int 16h AH=01h/AH=00h until empty) and the
+   event queue (`evq_pop` until empty) — keys typed and clicks queued at
+   the game must not land in the desktop ladder. The §34.4 click-abort
+   drain is the precedent.
+3. Disarm: `[fsx_task]` = `[fsx_worker]` = 0xFF, under `cli`.
+4. Repaint under the still-held lock: `[menu_bdirty]` forced (the
+   save-under-overdraw precedent, §12.05), then `wm_paint_all`. With
+   `[bb_dbl]` armed the paint renders into the buffer and the callback
+   epilogue's flush carries it to VRAM; without, it writes VRAM direct.
+   Either way the one repaint is the whole cost of coming home.
+5. Return CF=0. The callback returns; its dispatch epilogue's
+   `gfx_unlock` flushes (if buffered) and brings the cursor back with a
+   fresh save-under from the restored VRAM — §7's own contract, nothing
+   new.
+
+The gfx lock is held from before `fsx_run` to after it returns — the
+caller's hold, never released inside. That is what keeps the mouse ISR
+from drawing the cursor all session (its first gate), what fences any
+surviving drawer (it parks in the lock's yield loop until the desktop is
+back), and what makes the §11.3 clip machinery unreachable rather than
+stale.
+
+### 53.7 What a bracket may call (binding)
+
+Legal throughout: the file slots (UI-task context — this is it),
+`osapi_mouse`, `osapi_get_ticks`, the snd slots, mem/cm/xm slots,
+`cpu_info`, `osapi_video`, `wm_top`, `osapi_font_glyphs` (the glyph
+*data* — how an app letters mode 13h without a renderer of its own), and
+the four `fsx_*` slots. Legal **until the first `fsx_mode` call**, and
+illegal after it: every drawing slot — `gfx_*`, `font_*` bodies,
+`wm_*` that paint, blit, scroll — because they render desktop geometry
+into a foreign framebuffer. A bracket that never switches modes may keep
+drawing with them ("exclusive but same mode": a game loop that wants zero
+jitter), and that costs nothing to allow. Author rule, same enforcement
+class as "workers never call the file API".
+
+Forbidden always, binding: reprogramming PIT channel 0 (the tick feeds
+the floppy motor, `[ticks]` and `snd_tick`); touching channel 2 or any
+§34.1-owned sound port directly; `int 10h` mode sets outside `fsx_mode`
+(the kernel must know what it is restoring *from* — Hercules needs the
+non-BIOS path); `task_exit` and the worker-only slots from the bracket.
+Inside a foreign mode the video hardware is otherwise the app's: the
+6845/CRTC, sequencer, graphics controller, attribute controller and DAC
+ports may all be programmed directly, and the exit mode set reprograms
+everything they touch.
+
+### 53.8 The package ABI (§20.3 slots)
+
+```
+0x02B8 fsx_caps   out AX = FSXM bitmask for the live adapter, DL =
+                  vid_kind. Any context. Everything else preserved.
+0x02C0 fsx_run    in AX = near entry, BX = own window ptr, CX = flags
+                  (bit 0 FSXF_KEEPWORKER). X — the fence reads the
+                  caller's DS. UI-task window callback, lock held. Does
+                  not return until the app's proc does. CF=1 refused.
+0x02C8 fsx_mode   in AL = FSXM_* id, ES:DI = FSI_SIZE buffer (caller's
+                  ES). Bracket-only. CF=0 mode set + block filled;
+                  CF=1 refused (id, adapter, back buffer armed, context).
+0x02D0 fsx_wait   in AL = 0 next tick / 1 vertical retrace. Bracket-only
+                  (CF=1 outside). Flushes the armed back buffer first
+                  while the mode is unswitched (§53.5).
+```
+
+`apps/os88api.inc` publishes `OSAPI_FSX_CAPS`/`RUN`/`MODE`/`WAIT`, the
+`FSXM_*` ids, `FSXF_KEEPWORKER` and the `FSI_*` offsets.
+
+### 53.9 Acceptance
+
+- `tests/fsxtest` (never shipped, §16's tests/ rule): a mode menu built
+  from `fsx_caps`, each mode drawing an identifying pattern and waiting
+  for a key; Esc returns. The strong assertion is **restore equality**:
+  a screendump before entry and after cycling every mode must be
+  byte-identical, scripted over QMP.
+- Sound continuity, both directions, `ADLIB=1`: the app's own held FM
+  note survives three mode switches unbroken; a second instance's
+  duration-0 note stops at entry (§53.3); its stale off after the
+  bracket does not kill the app's tone (the generation).
+- QEMU: ids 0–3 and 5–8 on VGA (screendump follows the CRTC, Mode X
+  included); ids 0–3 gating under `VIDEO=cga`; id 4 rendering under
+  `VIDEO=herc` + hercshot. 86Box: `xt-cga`, `xt-hercules` (the real 6845
+  text↔graphics flip — the one thing QEMU cannot exercise), `286`/`386`.
+- Missile Command (§48) is the shipped reference consumer; Tracker
+  (§45) follows with `FSXF_KEEPWORKER`.

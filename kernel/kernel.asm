@@ -667,7 +667,25 @@ osapi_table:
                                   ;          bytes are the caller's and
                                   ;          vga_pat_stage reads them through
                                   ;          DS
-osapi_table_end:                  ; 0x02B8
+    OSAPI_SLOT fsx_caps           ; 0x02B8 - fullscreen exclusive (SPEC.md
+                                  ;          53): AX = the FSXM bitmask this
+                                  ;          adapter can set, DL = vid_kind.
+                                  ;          Any context - it is how an app
+                                  ;          greys its mode menu (SPEC.md 47)
+    OSAPI_JSLOT api_fsx_run       ; 0x02C0 - the bracket (SPEC.md 53.1): AX =
+                                  ;          near entry, BX = own window, CX =
+                                  ;          flags. X - the ownership fence is
+                                  ;          inst_pkg_spawn's identity test on
+                                  ;          the caller's DS. Does NOT return
+                                  ;          until the app's proc does
+    OSAPI_SLOT fsx_mode           ; 0x02C8 - a foreign mode + its FSI info
+                                  ;          block (SPEC.md 53.4): AL = FSXM
+                                  ;          id, ES:DI = the caller's buffer
+    OSAPI_SLOT fsx_wait           ; 0x02D0 - frame clock / present (SPEC.md
+                                  ;          53.5): AL = 0 tick / 1 retrace;
+                                  ;          flushes an armed back buffer
+                                  ;          first while the mode is unswitched
+osapi_table_end:                  ; 0x02D8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -675,8 +693,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 85 * 8
-%error "os8088 API jump table must be exactly 85 8-byte slots"
+%if OSAPI_TABLE_LEN != 89 * 8
+%error "os8088 API jump table must be exactly 89 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
@@ -725,6 +743,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_vol_mount,  osapi_vol_mount
     OSAPI_XSTUB api_drv_cfg,    osapi_drv_cfg
     OSAPI_XSTUB api_gfx_fill_pat, osapi_gfx_fill_pat
+    OSAPI_XSTUB api_fsx_run,    fsx_run
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
 ; because ES:BX belongs to the caller's data buffer and cannot carry it
@@ -1160,6 +1179,10 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
                                 ; diskw (it reads and writes the system disk)
                                 ; and memory (a driver image is a claim)
 %include "snd.inc"              ; the sound layer (SPEC.md 34): PC speaker
+%include "fsx.inc"              ; fullscreen exclusive (SPEC.md 53): after
+                                ; sched.inc (the freeze bytes), instance.inc
+                                ; (the fence), snd.inc (the release walk)
+                                ; and viddet.inc (the mode leaves)
 
 ; =============================================================================
 ; Size guards (SPEC.md 15.1). Same-section label differences bound via equ -

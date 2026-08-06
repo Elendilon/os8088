@@ -30,8 +30,9 @@ tree, not about the emulator.
 | Sound Blaster 16 | ✅ | `make test-snd SB16=1` | 2.00 s at 1000.0 Hz |
 | Scripted mouse / keys | ✅ | `tools/mouse.py`, `tools/qmp.py` | all adapters, incl. Hercules |
 | Performance benchmarks | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
+| Fullscreen exclusive (SPEC.md §53) | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
 | Video **detection probe** | ❌ | `make xt-cga` / `xt-hercules` | 86Box only |
-| 6845 programming | ❌ | `make xt-hercules` | 86Box only |
+| 6845 programming | ❌ | `make xt-hercules` (and fsx id 4's real mode set) | 86Box only |
 | Period-correct timing | ❌ | `make xt` (4.77 MHz), `286`, `386` | 86Box only |
 
 `VIDEO=` forces a code path; it does not exercise the probe that would have
@@ -268,6 +269,7 @@ checks referenced throughout this document:
 | `fmtest` | the AdLib FM surface (SPEC.md §34.2/§51.4) | `make test-snd ADLIB=1 TESTAPPS=build/fmtest.img` |
 | `sbtest` | the Sound Blaster streams (§34.5/§34.6) | `make test-snd SB16=1 TESTAPPS=build/sbtest.img` |
 | `filetest` | the write path (§18.4) | `make test TESTAPPS=build/filetest.img` |
+| `fsxtest` | fullscreen exclusive (§53): keys 0–8 cycle every mode with an identifying pattern, `x` runs a same-mode bracket, `t` keys a duration-0 tone for the §53.3 legs; the window shows the `fsx_caps` mask (01EF/000F/0011 by adapter) and the last result (`K`/`R`/`F`/`S`) | `make test TESTAPPS=build/fsxtest.img` (also under `VIDEO=cga` / `VIDEO=herc`; `make test-snd` + two instances for the sound legs) |
 
 `filetest` also has a fragmented-volume variant, `build/filetest-frag.img`,
 and its results are worth pairing with the host-side fsck — the in-kernel
