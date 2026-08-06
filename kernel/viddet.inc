@@ -481,13 +481,24 @@ vid_cga_equip:
 ; clobbers: flags
 ;
 ; Idempotent, and deliberately re-run by kmain after the splash already did
-; it - exactly as kmain's mode set has always re-run the splash's own,
-; which is what wipes the loading screen.
+; it - but the MODE SET is now skipped while the splash is still on screen.
+; It used to run unconditionally, and re-setting a mode that is already set
+; is what wiped the loading screen: kmain then spent several more seconds
+; mounting A:, reading SYSTEM.CFG and painting the desktop with the user
+; looking at a blank screen and a progress bar that had been erased at 100%.
+; The splash owns the mode from its first tick until spl_finish, which is the
+; line immediately before the first wm_paint_all (SPEC.md 15.3/39.1).
+;
+; The probe and the publish still re-run, and must: everything between here
+; and that paint reads [vid_w]/[vid_h]/[vid_stride] out of them.
 ; -----------------------------------------------------------------------------
 vid_init:
     call vid_detect
     call vid_apply
+    cmp byte [spl_live], 0      ; the splash set THIS mode on its first tick
+    jne .keep                   ; and is still drawing on it
     call vid_setmode
+.keep:
     ret
 
 ; -----------------------------------------------------------------------------
