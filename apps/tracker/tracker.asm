@@ -348,6 +348,10 @@ trk_onkey:
     je .smooth
     cmp bl, 'S'
     je .smooth
+    cmp bl, 'd'
+    je .diag
+    cmp bl, 'D'
+    je .diag
     cmp bl, '1'
     jb .out
     cmp bl, '4'
@@ -375,6 +379,9 @@ trk_onkey:
     jmp .out
 .smooth:
     call trk_smooth_toggle          ; S (SPEC.md 45.11 - fullscreen reach)
+    jmp .out
+.diag:
+    call trk_diag_msg               ; D: the feed's own margin, measured
     jmp .out
 .play:
     mov al, 0
@@ -628,6 +635,69 @@ trk_trim:
 ; its verdict on the status line. Success starts playback and repaints -
 ; which under WF_FULL also covers the menu-bar strip fdlg_close painted.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; trk_diag_msg - put the feed's measured margin on the status line (D key)
+;
+; in:  nothing; preserves all registers
+;
+; Two numbers, and between them they say where a hitch comes from
+; (docs/FIELD-NOTES.md):
+;
+;   MIN  the smallest ring lead any feed wake has seen, in ring HALVES -
+;        how close the DSP ever came to running dry. 6 means the pre-roll
+;        was never drawn down at all; 0 means the ring emptied and the
+;        stream underran, which is an audible hitch by definition.
+;   LATE how many wakes arrived with under one half in hand.
+;
+; MIN 0 or a climbing LATE says the hitch IS this feed arriving late, and
+; the fix is buffering or mixer cost. MIN staying high while the audio still
+; hitches says the feed was never the problem and the fault is downstream -
+; the DMA half-swap, the IRQ, or the card - which is worth knowing before
+; another cushion is added to a stream that never needed one.
+; -----------------------------------------------------------------------------
+trk_diag_msg:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov ax, [trk_minlead]
+    cmp ax, 0xFFFF                  ; nothing measured yet: say so rather
+    jne .have                       ; than printing 65535 halves
+    xor ax, ax
+    jmp short .shift
+.have:
+    mov cl, 11                      ; bytes -> halves (TRK_HALF = 2048)
+    shr ax, cl
+.shift:
+    add al, '0'
+    cmp al, '9'
+    jbe .minok
+    mov al, '9'                     ; a lead over 9 halves cannot happen
+.minok:
+    mov [trk_s_diag + 4], al
+    mov ax, [trk_late]              ; LATE, three digits, written back to
+    mov di, trk_s_diag + 14         ; front from the LAST one
+    mov cx, 3
+    mov bx, 10
+.dig:
+    xor dx, dx
+    div bx
+    add dl, '0'
+    mov [di], dl
+    dec di
+    loop .dig
+    mov si, trk_s_diag
+    call tui_msg
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; trk_repaint_done - the SPEC.md 38.6 completion repaint, sized to what a
 ;                    load can actually have changed
@@ -1079,12 +1149,19 @@ trk_fsx_key:
     je .smooth
     cmp al, 'S'
     je .smooth
+    cmp al, 'd'
+    je .diag
+    cmp al, 'D'
+    je .diag
     cmp al, '1'
     jb .out
     cmp al, '4'
     ja .out
     sub al, '1'                     ; 1..4: channel mute toggle
     call mp_mutetog
+    jmp .out
+.diag:
+    call trk_diag_msg
     jmp .out
 .load:
     push si
@@ -1225,6 +1302,8 @@ trk_play:
     mov [mp_mixrate], ax
     mov al, [trk_pmode]
     call mp_start
+    mov word [trk_minlead], 0xFFFF  ; the margin meter starts fresh with the
+    mov word [trk_late], 0          ; stream (docs/FIELD-NOTES.md)
     mov word [trk_total], 0
     mov cx, TRK_PREROLL             ; stage the cushion before the open, so
 .pre:                               ; the stream starts TRK_PREROLL halves
@@ -1655,6 +1734,25 @@ trk_feed:
     mov byte [trk_ended], 1         ; latch is left
     jmp .out
 .go:
+    ; --- the margin, measured (docs/FIELD-NOTES.md) -------------------------
+    ; DX is the consumed count this pass polled. lead = total - consumed is
+    ; how much audio the DSP still has in hand at the moment this wake got
+    ; the CPU, and it is the ONE number that says whether a hitch is this
+    ; feed arriving late or something downstream of it. Record the smallest
+    ; lead ever seen and count the wakes that arrived with less than one
+    ; half left; the D key puts both on the status line.
+    push ax
+    mov ax, [trk_total]
+    sub ax, dx                      ; AX = lead in bytes (wrap-exact)
+    cmp ax, [trk_minlead]
+    jae .nomin
+    mov [trk_minlead], ax
+.nomin:
+    cmp ax, TRK_HALF                ; under one half in hand = a late wake,
+    jae .nolate                     ; the shape an underrun arrives in
+    inc word [trk_late]
+.nolate:
+    pop ax
     mov byte [trk_halves], 0
 .fill:
     cmp byte [trk_sopen], 0         ; a UI close mid-pass ends the burst
@@ -1780,6 +1878,7 @@ trk_s_stopd:  db 'Stopped  ENTER play  L load', 0
 trk_s_playing: db 'Playing  SPACE stop  L load', 0
 trk_s_fsload: db 'Load is windowed: Esc first', 0
 trk_s_notmod: db 'Not a .MOD file', 0
+trk_s_diag:   db 'MIN -  LATE ---', 0   ; [+4] halves, [+10..12] late count
 trk_s_nofit:  db 'Too big for free memory', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
@@ -1834,6 +1933,10 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
 
 ; --- the module blob (a heap claim, SPEC.md 50) -------------------------------
     TRKW trk_modseg                 ; grant base segment, 0 = none
+    TRKW trk_minlead                ; smallest ring lead any feed wake has
+                                    ; seen, bytes (0xFFFF = nothing yet)
+    TRKW trk_late                   ; wakes that arrived with under one half
+                                    ; in hand - the underrun shape
     TRKW trk_fsize                  ; the chosen file's size, from the dialog
     TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
     TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown
