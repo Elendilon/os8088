@@ -58,6 +58,9 @@ HF_B_VOLLAB  equ 43
 HF_B_FSTYPE  equ 54
 
 ; --- the formatter's window --------------------------------------------------
+; Its content is HFW_W-2 wide and HFW_H-TITLE_H-1 tall, and every string below
+; fits: 34 characters at HFW_LX. font_str clips to the screen, not to the
+; window (SPEC.md 5), so a longer one paints over the border and beyond.
 HFW_W        equ 280
 HFW_H        equ 120
 HFW_LX       equ 4
@@ -851,25 +854,15 @@ hd_fw_repaint:
     push cx
     push dx
     push si
+    push di
     mov bx, [hd_fwin]
     or bx, bx
     jz .out
-    call OSAPI_WM_CONTENT
-    push ax
-    push dx
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop dx
-    pop ax
-    mov bx, dx
-    mov cx, ax
-    add cx, HFW_W - 3
-    mov dx, bx
-    add dx, HFW_H - 14
-    call OSAPI_GFX_FILL
+    call hd_win_erase           ; the CONTENT, and only the content
     mov si, [hd_fwin]
     call hd_fw_paint
 .out:
+    pop di
     pop si
     pop dx
     pop cx
@@ -884,7 +877,7 @@ hd_s_k:       db 'K', 0
 hd_s_half:    db '512-byte', 0
 hd_s_clus:    db ' clusters', 0
 hd_s_fmt:     db 'Format', 0
-hd_s_fready:  db 'Click the line above to pick a slot', 0
+hd_s_fready:  db 'Click the line above to pick', 0
 hd_s_fdoing:  db 'Writing...', 0
 hd_s_fdone:   db 'Formatted - now Mount it', 0
 hd_s_ferr:    db 'Write failed', 0

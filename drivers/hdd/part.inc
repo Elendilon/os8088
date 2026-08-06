@@ -841,25 +841,15 @@ hd_pw_repaint:
     push cx
     push dx
     push si
+    push di
     mov bx, [hd_pwin]
     or bx, bx
     jz .out
-    call OSAPI_WM_CONTENT       ; AX = left, DX = top
-    push ax
-    push dx
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop dx
-    pop ax
-    mov bx, dx
-    mov cx, ax
-    add cx, HPW_W - 3
-    mov dx, bx
-    add dx, HPW_H - 14
-    call OSAPI_GFX_FILL
+    call hd_win_erase           ; the CONTENT, and only the content
     mov si, [hd_pwin]
     call hd_pw_paint
 .out:
+    pop di
     pop si
     pop dx
     pop cx

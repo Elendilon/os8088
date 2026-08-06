@@ -19,6 +19,12 @@
 ;   [Partition] [Format] [Mount]     could not determine it
 ;   Mounted as C:                 <- and the caption is where the truth goes
 ;
+; **EVERY STRING HERE FITS ITS BOX, and that is a rule and not a habit.** The
+; caption column is 27 characters (221px of pane, text at x=2) and a row is
+; 26; font_str clips to the SCREEN and not to the pane (SPEC.md 5), so a
+; longer one does not stop at the edge - it paints over the panel's border and
+; out the other side. Two captions did.
+;
 ; GREYING FOLLOWS SPEC.md 47: one predicate per control, shared by the
 ; greying, the click refusal and the explanation; a fact and never a guess;
 ; and the whole control, not just its caption. There is no gfx_pen_cf in the
@@ -765,7 +771,7 @@ hd_page_repaint:
     ret
 
 ; =============================================================================
-; Mounting (SPEC.md 52.5)
+; Mounting (SPEC.md 52.4)
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
@@ -957,6 +963,63 @@ hd_win_close_all:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
+; hd_win_erase - white-fill one of our windows' CONTENT, and nothing else
+; in:  BX = the window; the gfx lock is HELD
+; out: nothing (all registers preserved)
+;
+; **The size comes from OSAPI_WM_GEOM, never from the template's own
+; constants**, and that is not caution - it is a bug this had. A window's
+; CONTENT is `W_W - 2` by `W_H - TITLE_H - 1`, and TITLE_H is EIGHTEEN; a
+; repaint that open-coded `HPW_H - 14` filled six rows past the bottom of the
+; content, straight through the window's border and its drop shadow and into
+; whatever was behind it. The kernel's primitives clip to the SCREEN and not
+; to a window (SPEC.md 5), so nothing downstream was ever going to catch it.
+;
+; The frame size is not the answer either, even with the right subtraction:
+; wm_fit clamps a template that does not fit the live screen (SPEC.md 39.7),
+; so the record - not the template - is the truth. Asking is the only thing
+; that is right on all three adapters.
+; -----------------------------------------------------------------------------
+hd_win_erase:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call OSAPI_WM_GEOM          ; CX = content width, DX = content height
+    jc .out                     ; not visible: nothing to erase
+    mov si, cx
+    mov di, dx
+    call OSAPI_WM_CONTENT       ; AX = content left, DX = content top
+    mov bx, dx
+    mov cx, ax
+    add cx, si
+    dec cx                      ; x2 = left + width - 1
+    mov dx, bx
+    add dx, di
+    dec dx                      ; y2 = top + height - 1
+    push ax
+    push bx
+    push cx
+    push dx
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    call OSAPI_GFX_FILL
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; hd_raw - one raw transfer to a DEVICE, outside any volume
 ; in:  [hd_rawop] = 0 read / 1 write, DX:AX = the LBA, ES:BX = the buffer,
 ;      CX = sectors, DI = the device row
@@ -1089,11 +1152,11 @@ hd_s_unmount: db 'Unmount', 0
 hd_s_hddc:    db 'HDD C', 0
 hd_s_pick:    db 'Pick a drive, then a button', 0
 hd_s_nodev:   db 'No hard disk found', 0
-hd_s_nogeom:  db 'Geometry unknown - type it in', 0
+hd_s_nogeom:  db 'Geometry unknown: type it', 0
 hd_s_typed:   db 'Geometry set by hand', 0
 hd_s_mounted: db 'Mounted - see the desktop', 0
 hd_s_unmounted: db 'Unmounted', 0
-hd_s_mnotab:  db 'No partition table - Partition first', 0
+hd_s_mnotab:  db 'No partition table yet', 0
 hd_s_mfull:   db 'No free volume', 0
-hd_s_mbad:    db 'Not a FAT volume - Format it', 0
+hd_s_mbad:    db 'Not a FAT volume: Format', 0
 hd_s_mbig:    db 'Partition is over 32MB', 0
