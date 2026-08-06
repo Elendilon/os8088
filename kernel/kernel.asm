@@ -93,11 +93,19 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; had no heap and could load nothing).
 ;
 ; **Everything from KERNEL_SEG to the end of task 0's stack is the kernel**,
-; and guard 1 holds that whole span to KERN_BUDGET - 79KB just above the
+; and the KERN_BUDGET guard holds that whole span to 72.5KB just above the
 ; BIOS data area. Code, data, scratch, the FAT snapshot, the disk buffers and
 ; every task stack are inside it. The one deliberate exception is the menu
 ; save-under, which is a heap claim (SPEC.md 12.4/50) because it is 20KB that
 ; only exists while a menu is down.
+;
+; The two guards are NAMED, not numbered, and the names are the whole point:
+; KERN_BUDGET is the FOOTPRINT (this whole span, RAM taken from the machine)
+; and KERN_CODE_MAX is the SEGMENT (.text + .bss inside one 64KB window,
+; because offsets are 16 bits). They bind different things and are relieved
+; by different mechanisms - the boot overlay and the cold segment buy
+; KERN_CODE_MAX room and buy KERN_BUDGET nothing at all - and the numbering
+; they used to carry said none of that.
 ;
 ; The sizes are measured, not guessed. With a 0xCC fill in every byte of the
 ; stack region and the machine driven hard - Clock, two Bounces, About, the
@@ -106,10 +114,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
-                                ; is not a build detail - see
+KERN_BUDGET equ 74240           ; the whole kernel's FOOTPRINT. Growing past
+                                ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved four times, every one asked
+                                ; It has moved five times, every one asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -132,7 +140,45 @@ KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
                                 ; granted with the 4KB it costs the claim heap
                                 ; on every machine named up front - Paint
                                 ; gives up one canvas tier for it, and the
-                                ; 128KB RAM floor is untouched
+                                ; 128KB RAM floor is untouched.
+                                ;
+                                ; The fifth move is the first DOWNWARD one:
+                                ; 80,896 -> 74,240. Every raise above was
+                                ; spent and then some of it handed back by the
+                                ; optimisation passes that followed - the Task
+                                ; Manager leaving for the system disk, the
+                                ; Control Panel into a cold segment, the clock
+                                ; ladder and the glyph table out of the
+                                ; segment - until the kernel sat at 72,192
+                                ; with 8,704 bytes of budget above it. Slack
+                                ; that large is not headroom, it is the guard
+                                ; switched off: anything short of an 8KB
+                                ; addition passed without a conversation,
+                                ; which is exactly the conversation this
+                                ; constant exists to force. 74,240 leaves
+                                ; 2,048 bytes - enough that an ordinary bug
+                                ; fix does not trip it, small enough that a
+                                ; FEATURE does. It returns no
+                                ; RAM and is not meant to: HEAP_SEG is
+                                ; KERN_END, so the heap has always started
+                                ; where the kernel ACTUALLY ends and never
+                                ; where the budget said it might. The slack
+                                ; was never costing memory - it was costing
+                                ; scrutiny, and scrutiny is the only thing
+                                ; this constant has ever bought.
+KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
+                                ; both addressed through KERNEL_SEG, so they
+                                ; must fit one 64KB window. Unlike KERN_BUDGET
+                                ; this is NOT a policy figure and cannot be
+                                ; raised by anybody - a 16-bit offset reaches
+                                ; 65,535 and that is the end of it. The boot
+                                ; overlay (SPEC.md 2.5) and the cold segment
+                                ; (SPEC.md 2.6) are the two ways to buy room
+                                ; against it, and neither buys a single byte
+                                ; against KERN_BUDGET: overlay code is still
+                                ; read off the disk into the FAT window, cold
+                                ; code is still resident. Confusing the two is
+                                ; why they are named rather than numbered
 
 ; The relocated boot sector (boot/boot.asm). The kernel now lands at 0x00600
 ; and runs up through 0x7C00, where the BIOS put the sector that is reading
@@ -215,7 +261,7 @@ STK0_TOP    equ KLOW_SIZE + STK0_SIZE - 2   ; task 0's stack top, growing down
                                 ; onto the top of .lowbss; guard 3 proves the
                                 ; two cannot meet
 KERN_END    equ LOW_SEG + LOW_PARA    ; ...and there the kernel stops
-KERN_SIZE   equ (KERN_END - KERNEL_SEG) * 16   ; what guard 1 measures
+KERN_SIZE   equ (KERN_END - KERNEL_SEG) * 16   ; what KERN_BUDGET measures
 
 HEAP_SEG    equ KERN_END        ; the claim heap (SPEC.md 50) starts where
                                 ; the kernel ACTUALLY ends, not where a
@@ -291,7 +337,7 @@ section .text
 ; thing kmain does before the first paint. Every entry below runs before that,
 ; so the overlay is alive for exactly as long as it is needed and is then
 ; written over by the volume's FAT. It costs no RAM at all, and - this is the
-; point - none of it counts against guard 2.
+; point - none of it counts against KERN_CODE_MAX.
 ;
 ; NASM emits the gap between .text and OVL_START as zeros, which is why the
 ; image needs no padding from outside AND why .bss now arrives zeroed.
@@ -1055,7 +1101,7 @@ osapi_rand:
 ;
 ; DX is an AMENDMENT to a shipped slot, which SPEC.md 20.8 rule 4 otherwise
 ; forbids: the cell used to answer with SI alone and the table was an offset
-; in KERNEL_SEG. It moved to LOW_SEG to give guard 2 back 760 bytes - the
+; in KERNEL_SEG. It moved to LOW_SEG to give KERN_CODE_MAX back 760 bytes - the
 ; largest single object the kernel's own segment was carrying - and an offset
 ; without a segment cannot say where it went. Recorded as a one-time exception
 ; on the same terms as slots 0x0120/0x0128: exactly ONE package reads this
@@ -1216,19 +1262,20 @@ OVL_SIZE equ ovl_end - $$
 KERN_KB    equ (KERN_SIZE + 1023) / 1024
 KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 
-; 1. THE budget: the whole kernel - image, scratch, FAT snapshot, disk
-;    buffers and every task stack - is one span starting at KERNEL_SEG, and
-;    it fits KERN_BUDGET (79KB) just above the BIOS data area. This is the guard
-;    the project is steering by; raising KERN_BUDGET is a decision, not a
-;    build fix (docs/KERNEL-MEMORY.md).
+; 1. KERN_BUDGET - the FOOTPRINT. The whole kernel - image, scratch, FAT
+;    snapshot, disk buffers and every task stack - is one span starting at
+;    KERNEL_SEG, and it fits KERN_BUDGET (72.5KB) just above the BIOS data
+;    area. This is the guard the project is steering by; raising KERN_BUDGET
+;    is a decision, not a build fix (docs/KERNEL-MEMORY.md).
 %if KERN_SIZE > KERN_BUDGET
 %error "kernel too big: it must fit KERN_BUDGET - see docs/KERNEL-MEMORY.md"
 %endif
-; 2. the kernel's own segment is 64KB like any other, and .text + .bss are
-;    both addressed through it, so they have to fit one whether or not the
-;    budget above is ever raised.
-%if KTEXT_SIZE + KBSS_SIZE > 65536
-%error "kernel image + bss overflows one 64KB segment"
+; 2. KERN_CODE_MAX - the SEGMENT. The kernel's own segment is 64KB like any
+;    other, and .text + .bss are both addressed through it, so they have to
+;    fit one whether or not the budget above is ever raised. Nobody can raise
+;    this one: it is what a 16-bit offset reaches.
+%if KTEXT_SIZE + KBSS_SIZE > KERN_CODE_MAX
+%error "kernel image + bss overflows KERN_CODE_MAX - one 64KB segment"
 %endif
 ; 3. task 0's stack grows DOWN from STK0_TOP onto the top of .lowbss, and
 ;    both live in LOW_SEG. STK0_SIZE is the whole of the gap between them,
