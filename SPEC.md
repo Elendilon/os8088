@@ -10834,9 +10834,21 @@ subtraction wrong will hand out a base past the top of RAM.
 Five slots: `OSAPI_CPU_INFO` (0x0188), `OSAPI_XMEM_CAPS`
 (0x0190), `OSAPI_XMEM_ALLOC` (0x0198), `OSAPI_XMEM_FREE` (0x01A0) and
 `OSAPI_XMEM_COPY` (0x01A8). What ALLOC returns is an **opaque 32-bit token**,
-not a pointer: every byte crosses through COPY. UI-task context only — on
-tier 1 the copy goes through a BIOS call some 286 BIOSes implement by
-resetting the CPU, which taken under the gfx lock is a dead machine.
+not a pointer: every byte crosses through COPY. UI-task context — the entry
+proc or any window callback, **and the gfx lock may be held** (a callback
+always holds it, and copying a render buffer to or from the store is exactly
+what a callback does). COPY touches no VRAM and takes no drawing lock of its
+own, so the lock is orthogonal to it: on tier 2 it is a pure unreal-mode move
+(§41.4), and on tier 1 it is `int 15h AH=87h`, bounded to 32KB a call so its
+interrupts-off window is short — and where a 286 BIOS implements that by a
+CPU reset, the reset returns transparently (the himem.sys mechanism) with
+conventional RAM, the lock flag included, intact. Not from a **worker** task:
+the tier-1 path is a BIOS call, which the kernel keeps on the UI task (§7),
+and the copy shares `[xm_src]/[xm_dst]` scratch serialized by `sch_lock`
+against a switch, not against re-entry. (An earlier draft forbade COPY *under
+the gfx lock*; that was mistaken — a window callback is the intended caller
+and always holds it — and it made the contract self-contradictory. Lifting it
+changes no code: COPY never reads `gfx_lock_flag`.)
 
 ### 41.9 Forbidden (binding)
 

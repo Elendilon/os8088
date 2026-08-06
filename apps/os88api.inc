@@ -725,11 +725,16 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; 1 no store / 2 the range is not inside a
                                  ; block you own / 3 bad length. ES is restored.
 ;
-; CONTEXT, BINDING: these five are UI-task / window-callback only - a window
-; callback, a menu handler or a file-dialog completion proc. NEVER from your
-; worker task. On tier 1 the copy goes through int 15h AH=87h, and some 286
-; BIOSes implement that call by RESETTING THE CPU to get back to real mode;
-; taken with the gfx lock held that is not a slow frame, it is a dead machine.
+; CONTEXT, BINDING: these five are UI-task context - the entry proc, a window
+; callback, a menu handler or a file-dialog completion proc. THE GFX LOCK MAY
+; BE HELD. A window callback always holds it, and copying a render buffer out
+; to extended memory or back is exactly what you do there - the copy touches
+; no VRAM and takes no drawing lock of its own, so it is just a slow-ish frame,
+; never a hazard. NEVER from your worker task, though: on tier 1 the copy is a
+; BIOS call (int 15h AH=87h) and the kernel keeps BIOS calls on the UI task
+; (SPEC.md 7). Each call is bounded to 32KB so its interrupts-off window stays
+; short, and where a 286 BIOS implements AH=87h by a CPU reset, the reset
+; returns transparently (the himem.sys mechanism), conventional RAM intact.
 
 ; --- window geometry (SPEC.md 11) ----------------------------------------------
 %define OSAPI_WM_GEOM       KERNEL_SEG:0x01B0   ; BX = win ptr; out CX = content
