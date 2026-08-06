@@ -679,6 +679,20 @@ trk_diag_msg:
     mov [trk_s_diag + 4], al
     mov ax, [trk_late]              ; LATE, three digits, written back to
     mov di, trk_s_diag + 14         ; front from the LAST one
+    call .num3
+    mov ax, [trk_under]             ; UND, the same three digits
+    mov di, trk_s_diag + 23
+    call .num3
+    mov si, trk_s_diag
+    call tui_msg
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.num3:                              ; AX -> three digits at [DI] backwards
     mov cx, 3
     mov bx, 10
 .dig:
@@ -688,14 +702,6 @@ trk_diag_msg:
     mov [di], dl
     dec di
     loop .dig
-    mov si, trk_s_diag
-    call tui_msg
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1304,6 +1310,8 @@ trk_play:
     call mp_start
     mov word [trk_minlead], 0xFFFF  ; the margin meter starts fresh with the
     mov word [trk_late], 0          ; stream (docs/FIELD-NOTES.md)
+    mov word [trk_under], 0
+    mov byte [trk_wasund], 0
     mov word [trk_total], 0
     mov cx, TRK_PREROLL             ; stage the cushion before the open, so
 .pre:                               ; the stream starts TRK_PREROLL halves
@@ -1727,6 +1735,23 @@ trk_feed:
     je .dead
     cmp ax, SND_ST_STALE
     je .dead
+    ; --- the DOWNSTREAM underrun (docs/FIELD-NOTES.md) ----------------------
+    ; SND_ST_UNDER is the driver saying its own 2KB double-buffer half was
+    ; not refilled in time - which can happen with OUR ring six halves deep,
+    ; because the two are different buffers with different pacers. Nothing
+    ; else in the app can see it: an underrun-pause stops [consumed]
+    ; advancing, so the margin meter reads a lead that is growing. Count the
+    ; EDGES, not the wakes, so one number is one audible hitch.
+    cmp ax, SND_ST_UNDER
+    je .under
+    mov byte [trk_wasund], 0
+    jmp short .notund
+.under:
+    cmp byte [trk_wasund], 0
+    jne .notund
+    mov byte [trk_wasund], 1
+    inc word [trk_under]
+.notund:
     cmp byte [mp_playing], 0        ; F00 stopped the mixer: wait for the
     jne .go                         ; ring to drain, then flag for the
     cmp dx, [trk_total]             ; UI-side close - mp_stop already ran
@@ -1878,7 +1903,9 @@ trk_s_stopd:  db 'Stopped  ENTER play  L load', 0
 trk_s_playing: db 'Playing  SPACE stop  L load', 0
 trk_s_fsload: db 'Load is windowed: Esc first', 0
 trk_s_notmod: db 'Not a .MOD file', 0
-trk_s_diag:   db 'MIN -  LATE ---', 0   ; [+4] halves, [+10..12] late count
+trk_s_diag:   db 'MIN -  LATE ---  UND ---', 0
+                                        ; [+4] halves, [+12..14] late wakes,
+                                        ; [+21..23] driver underrun edges
 trk_s_nofit:  db 'Too big for free memory', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
@@ -1937,6 +1964,8 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
                                     ; seen, bytes (0xFFFF = nothing yet)
     TRKW trk_late                   ; wakes that arrived with under one half
                                     ; in hand - the underrun shape
+    TRKW trk_under                  ; times the DRIVER reported its own double
+    TRKB trk_wasund                 ; buffer starved (edges, not wakes)
     TRKW trk_fsize                  ; the chosen file's size, from the dialog
     TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
     TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown

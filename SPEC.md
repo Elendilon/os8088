@@ -12766,10 +12766,21 @@ suspended anywhere inside a feed pass finishes it before the UI touches
 worker running) and bounded (the fill loop re-checks `trk_sopen` per half).
 Opening (`trk_play`, reached from
 Enter/Space/P and the load completion proc) allocates one 16KB grant from
-the `SND_SEG` pool (verb 7, once — force-freed at teardown like every
-grant), pre-mixes two 2048-byte halves, stages them at ring offsets 0 and
-2048, and opens a **ring-mode** stream (§20.3 verb 0 with `SND_OPENF_RING`
-in AH, rate request 11,000 Hz, initial valid total 4096). From then on the
+the `SND_SEG` pool (verb 7, once — freed by `trk_stream_close` and
+force-freed at teardown), pre-mixes **six** 2048-byte halves, stages them at
+ring offsets 0..10240, and opens a **ring-mode** stream (§20.3 verb 0 with
+`SND_OPENF_RING` in AH, rate request 11,000 Hz, initial valid total 12288).
+
+**The pre-roll is six halves and not two, and the reason is that it is the
+only mixing the machine ever does with the clock stopped.** Before the open
+there is no DSP consuming anything, so staging costs whatever it costs; after
+it, every half the worker mixes is racing the one being played. Two halves
+left the ring to be *deepened* by the worker in competition with playback —
+the 6-half burst cap means the first wake could be ~1.1 s of mixing against
+372 ms of audio in hand at the XT rate — and that is exactly the hitch a
+listener heard about half a second into the first play after a load, and did
+not hear on a stop-then-restart (the second open re-uses tables the first
+built). Staging the whole cushion up front removes it. From then on the
 worker's every wake runs the feed *before* the draw, lock-free, on the
 verbs the §20.3 amendment made any-task:
 
@@ -12990,6 +13001,7 @@ worker only feeds (§53.2).
 | X | XT mode toggle (§45.9 — also File ▸ the relabeling menu item). Refused on the §45.13 text surface, which IS XT mode's fullscreen: `XT off is windowed: Esc first` |
 | R | Cycle the sample rate 11 → 22 → 44 kHz (§45.10 — also the Rate menu) |
 | S | Smooth toggle (§45.11 — also View ▸ the relabeling menu item). Refused on the text surface: `Smooth is a graphics mode only` |
+| D | The margin meter on the status line (§45.14). Works windowed and on the text surface |
 | Esc | Exit fullscreen (windowed: ignored) |
 
 The `or al, al` keypad gate of §44.2 applies verbatim: the numeric keypad
@@ -13379,6 +13391,39 @@ are never both holding the setting.
 `fsx_wait` is a pure frame clock here: §53.5's present clause is dead by
 construction, because `fsx_mode` had already refused to run with a buffer
 armed.
+
+### 45.14 The margin meter — three numbers that say whose buffer starved
+
+**D** puts `MIN n  LATE nnn  UND nnn` on the status line (`trk_diag_msg`,
+same `[tui_msgp]` every other message uses, so it renders windowed and on
+the §45.13 text surface alike). It exists because "the audio hitches" has
+three completely different causes on a 4.77 MHz machine and listening cannot
+tell them apart. All three counters reset with the stream, in `trk_play`.
+
+| | what it counts | what a bad reading means |
+|---|---|---|
+| `MIN` | the smallest `total − consumed` any feed wake ever saw, in ring **halves** | 0 means Tracker's own 16KB ring ran dry — the mixer is not sustaining real time |
+| `LATE` | wakes that arrived with under one half in hand | climbing means the same thing, earlier |
+| `UND` | **edges** into `SND_ST_UNDER` — the driver reporting that *its* 2KB double-buffer half was not refilled at the block IRQ | climbing means the fault is downstream of this app entirely |
+
+**`UND` is the one that is not obvious, and it is the reason the other two
+can lie.** There are two buffers in the chain and they have different
+pacers: Tracker's 16KB staging ring in its `SND_SEG` grant, fed by the
+package worker, and the driver's 2 × 2KB DMA double buffer at `SND_SEG:0`,
+fed by `sbl_refill_task` (§34.5). Only the first is what `MIN`/`LATE`
+measure. When the second starves, `sbl_isr` pauses output (D0h) and marks
+the stream `SBL_ST_UNDER` — bounded silence, never stale audio — and
+**`consumed` stops advancing while it is paused**, so `total − consumed`
+*grows*. A downstream stall therefore reads as `MIN` pegged at the pre-roll
+value with `LATE 000`: the app's instruments say everything is perfect
+precisely when it is not. Reading the state the app was already polling
+(verb 3 returns it in AX, every wake) closes that hole for the cost of a
+word and a byte.
+
+The unit matters too: one 2KB half is **372 ms** at XT mode's 5,500 Hz, so a
+single un-refilled half is about a third of a second of silence — which is
+the shape of the field report in docs/FIELD-NOTES.md, and why `UND` was worth
+adding before anything was changed.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 

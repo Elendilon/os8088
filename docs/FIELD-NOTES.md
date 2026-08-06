@@ -32,6 +32,62 @@ cases where the drawing path does the least work (§11.3's clip region skips
 it, `wm_obscured` vetoes it) — so a redraw cost that crowds out the audio feed
 is a poor fit for the evidence.
 
+> **PARTLY RESOLVED, and the remainder has moved somewhere specific.** The
+> **first** hitch — the one about half a second into the first play after a
+> load, absent on a stop-then-restart — was the pre-roll boundary, and
+> `TRK_PREROLL` = 6 fixed it: the cushion is now staged before the stream
+> opens, with no DSP consuming anything, instead of being deepened by the
+> worker in competition with playback (SPEC.md §45.2). The reporter confirms
+> it is gone.
+>
+> The **later** hitches are still there, and the margin meter (§45.14, the D
+> key) has now answered the question the analysis below was built to ask.
+> On the reporting machine, across hitches, it reads **`MIN 6  LATE 000`** —
+> pegged. 6 halves is the pre-roll value, so the ring was **never drawn down
+> at all**: at 5,500 Hz the DSP always had 2.2 seconds of audio in hand, and
+> not one feed wake ever arrived with under one half. That kills the two
+> theories the analysis below spends its length on. It is **not** mixer
+> throughput, and it is **not** CPU contention from drawing — a repaint
+> cannot starve a ring that never drains. The meter's own doc comment
+> anticipated this reading: *"MIN staying high while the audio still hitches
+> says the feed was never the problem and the fault is downstream."*
+>
+> **Downstream means one specific buffer.** There are two in the chain and
+> they have different pacers: Tracker's 16KB staging ring in its grant, fed
+> by the package worker (this is all `MIN`/`LATE` can see), and the driver's
+> **2 × 2KB DMA double buffer** at `SND_SEG:0`, fed by `sbl_refill_task`
+> (SPEC.md §34.5). If the half the DSP wants next is not valid at the block
+> IRQ, `sbl_isr` pauses output (D0h) and marks the stream `SBL_ST_UNDER` —
+> bounded silence, never stale audio looping. **One 2KB half at 5,500 Hz is
+> 372 ms**, which is "tails off for about a third of a second" to the
+> precision of the report.
+>
+> Nothing in the app could see that, which is why it went unmeasured for two
+> rounds: an underrun-pause stops `consumed` advancing, so `total − consumed`
+> *grows*, and the meter reads healthier the worse it gets. The app was
+> already polling the state (verb 3 returns it in AX every wake) and
+> discarding everything but `ENDED`/`STALE`.
+>
+> **The next reading is `UND` on the same D line** — edges into
+> `SND_ST_UNDER`, three digits, reset with the stream. It splits the
+> remaining possibilities cleanly and needs no code to interpret:
+>
+> - **`UND` climbs with each audible hitch** → the driver's refill task
+>   missed a 372 ms deadline while sleeping one tick. Then the question is
+>   what delays a task that wakes 18× a second past six of its own periods:
+>   round-robin depth, `sch_lock` held across int 13h (`disk.inc`, the one
+>   sanctioned long lock), or a long IF=0 window somewhere.
+> - **`UND` stays `000` while the audio still hitches** → the driver believes
+>   it is playing throughout, and the fault is below it: the block IRQ, the
+>   8237, or the card. On single-cycle DSPs (< 2.00) sb.inc already records a
+>   known bound of exactly that species — the ISR reprograms the 8237, whose
+>   byte-pair flip-flop is shared with the BIOS's channel-2 programming
+>   inside int 13h.
+>
+> Everything below this line is the earlier analysis, kept because its
+> ruling-out is still valid and because the two theories it eliminates are
+> the ones anybody would reach for again.
+
 **Second report, and it moves the needle a long way.** The hitches land at
 roughly the **same point in the song** each time — so the trigger is
 song-position-correlated, not wall-clock-periodic. There is **always one
