@@ -88,6 +88,11 @@ TTX_BANDY  equ TTX_PATY + TTX_HALF  ; screen row 15
 ; [view], because shadow row (r + TTX_HALF) is pattern row r
 TTX_SHROWS equ 64 + 2 * TTX_HALF
 TTX_SHBYTES equ TTX_SHROWS * TTX_RW * 2
+TTX_SHCHUNK equ 4                   ; rows formatted per frame while a
+                                    ; periodic rebuild runs: ~25 ms of the
+                                    ; ~330 ms the whole pattern costs, and
+                                    ; 4 rows a frame against a view that
+                                    ; moves 7.14 rows a SECOND
 
 ; --- attributes. These three are the whole palette, and they are the three an
 ; --- MDA can actually render, so they mean the same thing on Hercules, CGA and
@@ -200,13 +205,95 @@ ttx_begin:
     ret
 
 ; =============================================================================
-; ttx_shbuild - format the current pattern into the shadow (SPEC.md 45.13.2).
-; Called on entry and whenever [mp_pattern] moves; 256 mp_cell2txt calls and
-; 4,838 word stores into package RAM, ~33 ms on the target machine, against a
-; pattern that lasts about eight seconds. Everything the per-row blit costs
-; was moved in here.
+; The shadow build, in three parts (SPEC.md 45.13.2). It used to be one
+; routine that formatted all 64 rows in a single frame, and PERFORMANCE.md
+; Part 9's field set says what that costs on the target: 256 mp_cell2txt
+; calls plus 3,776 lodsb/stosw pairs plus a 9,676-byte blank at the measured
+; 1.76 us/byte, which comes to 140-330 ms depending on how many cells carry
+; notes. That is not a frame, it is a Part 1 VISIBLE REDRAW, it happened
+; once per pattern - every ~9 s at 125 BPM speed 7 - and it is exactly what
+; the field report describes: the screen stopping for about a third of a
+; second and then jumping.
+;
+; So the periodic build is spread: ttx_shstart claims the pattern and arms a
+; cursor, ttx_shstep formats TTX_SHCHUNK rows, and ttx_draw_dyn calls it once
+; a frame until the cursor runs out. The worst frame goes from ~330 ms to
+; ~25 ms and nothing else changes - the blit still comes out of a shadow, and
+; a row is still formatted exactly once per pattern.
+;
+; Two things make that safe. The cursor starts at the row the VIEW needs
+; (view - TTX_HALF, clamped) and WRAPS, so a Dxx break or a position jump
+; that lands mid-pattern fills the visible window first rather than counting
+; up to it; and the cursor advances at TTX_SHCHUNK rows per frame against a
+; view that advances 7.14 rows a SECOND, so it can never be overtaken.
+;
+; ttx_shbuild is the synchronous whole thing, and the only caller is
+; ttx_draw_all: the bracket has just set the video mode, there are no pixels
+; on screen to stop updating, and paying it there is what lets the first
+; frame after F be complete. It is also the only place that blanks - every
+; later build rewrites all 64 content rows, and the TTX_HALF pad rows are
+; never written at all.
 ; =============================================================================
 ttx_shbuild:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov di, ttx_shadow
+    mov cx, TTX_SHROWS * TTX_RW
+    mov ax, (TTX_A_NORM << 8) | ' '
+    rep stosw
+    call ttx_shstart
+.l:
+    cmp byte [ttx_shbusy], 0
+    je .done
+    call ttx_shstep
+    jmp short .l
+.done:
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ttx_shstart - claim [mp_pattern] and arm the cursor. No formatting.
+;
+; The pattern is claimed at the START, not at the end: ttx_draw_dyn's change
+; test would otherwise refire on every frame of the build. It also closes an
+; old race - the worker can move [mp_pattern] mid-build, and recording it
+; afterwards marked a mixed shadow as current. Recorded first, a mid-build
+; move is caught by the same test on the next frame and simply restarts.
+; -----------------------------------------------------------------------------
+ttx_shstart:
+    push ax
+    mov al, [mp_pattern]
+    mov [ttx_shpat], al
+    mov byte [ttx_shok], 0
+    mov byte [ttx_shbusy], 1
+    mov byte [ttx_sleft], 64
+    mov al, [tui_cvr]               ; the top of the visible window, so a
+    sub al, TTX_HALF                ; jump into the middle of a pattern
+    jnc .set                        ; fills what is on screen first
+    xor al, al
+.set:
+    mov [ttx_srow], al
+    cmp byte [mp_loaded], 0
+    jne .out
+    mov byte [ttx_shbusy], 0        ; no module: an empty grid IS the truth,
+    mov byte [ttx_shok], 1          ; and the blank already wrote it
+.out:
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ttx_shstep - format up to TTX_SHCHUNK rows at the cursor; clears
+;              [ttx_shbusy] and sets [ttx_shok] on the 64th
+; -----------------------------------------------------------------------------
+ttx_shstep:
     push ax
     push bx
     push cx
@@ -217,14 +304,10 @@ ttx_shbuild:
     push ds
     pop es
     cld
-    mov di, ttx_shadow              ; blank first, which is also how the
-    mov cx, TTX_SHROWS * TTX_RW     ; TTX_HALF pad rows above row 0 and below
-    mov ax, (TTX_A_NORM << 8) | ' ' ; row 63 get their contents
-    rep stosw
-    cmp byte [mp_loaded], 0
-    je .done                        ; no module: an empty grid is the truth
-    mov byte [ttx_srow], 0
+    mov byte [ttx_sbudget], TTX_SHCHUNK
 .r:
+    cmp byte [ttx_shbusy], 0
+    je .done
     mov bl, [ttx_srow]
     call ttx_rowtext                ; -> ttx_line, TTX_RW ascii
     mov al, [ttx_srow]
@@ -241,13 +324,19 @@ ttx_shbuild:
     lodsb
     stosw
     loop .w
-    inc byte [ttx_srow]
-    cmp byte [ttx_srow], 64
-    jb .r
-.done:
-    mov al, [mp_pattern]
-    mov [ttx_shpat], al
+    mov al, [ttx_srow]
+    inc al
+    and al, 63                      ; the cursor wraps inside the pattern
+    mov [ttx_srow], al
+    dec byte [ttx_sleft]
+    jnz .budget
+    mov byte [ttx_shbusy], 0
     mov byte [ttx_shok], 1
+    jmp short .done
+.budget:
+    dec byte [ttx_sbudget]
+    jnz .r
+.done:
     pop es
     pop di
     pop si
@@ -744,13 +833,14 @@ ttx_draw_all:
     mov ax, (TTX_A_NORM << 8) | ' '
     call ttx_fill
     mov byte [ttx_shok], 0
+    mov byte [ttx_shbusy], 0
     call ttx_name
     call ttx_header
     call ttx_vuframe
     call ttx_readout
     call ttx_status
-    call ttx_shbuild
-    call tui_viewrow
+    call tui_viewrow                ; before the build: ttx_shstart's cursor
+    call ttx_shbuild                ; starts at the visible window
     call ttx_blit
     mov al, [tui_cvr]
     mov [tui_lcvr], al
@@ -787,13 +877,19 @@ ttx_draw_dyn:
     mov [tui_lplay], al             ; legend into [tui_msgp] and parks the view
     call trk_transport              ; row; the status line below spends it
 .noxn:
+    cmp byte [ttx_shbusy], 0        ; a spread rebuild continues before
+    jne .step                       ; anything looks at the pattern again
     cmp byte [ttx_shok], 0          ; a position move can change the pattern,
     je .rebuild                     ; and a pattern is a whole new shadow
     mov al, [mp_pattern]
     cmp al, [ttx_shpat]
     je .nosh
 .rebuild:
-    call ttx_shbuild
+    call ttx_shstart                ; TTX_SHCHUNK rows a frame from here on,
+    cmp byte [ttx_shbusy], 0        ; never all 64 in one (PERFORMANCE.md
+    je .nosh                        ; Part 1: this was a visible redraw)
+.step:
+    call ttx_shstep
     mov byte [ttx_vdirty], 1
 .nosh:
     call tui_viewrow                ; [tui_cvr]: the playing row, or the
@@ -893,7 +989,11 @@ ttx_s_mute:   db '   MUTE', 0
     TRKB ttx_row                    ; ttx_rowtext's row (mp_cell2txt spends
                                     ; every general register, so it cannot
                                     ; live in one)
-    TRKB ttx_srow                   ; ttx_shbuild's row counter
+    TRKB ttx_srow                   ; the build cursor: the next row to
+                                    ; format, wrapping inside the pattern
+    TRKB ttx_sleft                  ; ...rows still owed, 64 down to 0
+    TRKB ttx_sbudget                ; ...and this frame's share of them
+    TRKB ttx_shbusy                 ; a spread rebuild is in progress
     TRKB ttx_chn                    ; shared small loop counter
     TRKW ttx_lmsg                   ; the status string last drawn
     TRKBUF ttx_vuc, 4               ; last-drawn bar widths, CELLS (SPEC.md

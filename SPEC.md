@@ -13503,14 +13503,45 @@ frame.
 #### 45.13.2 The shadow is what makes a row change a blit
 
 A player never edits, so a pattern's 64 rows are constant text for as long as
-it is the current pattern. `ttx_shbuild` formats all of them **once** into
-`ttx_shadow` as char/attribute words — 256 `mp_cell2txt` calls and 4,838 word
-stores into package RAM, ~33 ms, once every eight seconds or so — and every row
-change after that is 19 `rep movsw`s out of it with no formatting at all.
-`[ttx_shpat]` names the pattern it holds and `[ttx_shok]` whether it holds
-anything; `ttx_draw_all` clears the second on every bracket entry, because a
-load can have happened between two brackets (Open is windowed, §53.7) and the
-shadow has no way to have heard about it.
+it is the current pattern. They are formatted **once** into `ttx_shadow` as
+char/attribute words, and every row change after that is 19 `rep movsw`s out
+of it with no formatting at all. `[ttx_shpat]` names the pattern it holds and
+`[ttx_shok]` whether it holds anything; `ttx_draw_all` clears the second on
+every bracket entry, because a load can have happened between two brackets
+(Open is windowed, §53.7) and the shadow has no way to have heard about it.
+
+**"Once" is not "in one frame", and the difference was a field report.** The
+whole build is 256 `mp_cell2txt` calls, 3,776 `lodsb`/`stosw` pairs and a
+9,676-byte blank; priced against PERFORMANCE.md Part 9's measured 8088 that is
+**140–330 ms**, and it ran once per pattern — every ~9 s at 125 BPM speed 7.
+On the target that is a Part 1 *visible redraw*, and it was reported exactly
+as one: the screen stopping for about a third of a second and then jumping,
+reliably, every eight seconds or so. So the periodic rebuild is **spread**:
+
+- `ttx_shstart` claims `[mp_pattern]`, sets `[ttx_shbusy]` and arms a cursor.
+- `ttx_shstep` formats `TTX_SHCHUNK` (4) rows and returns; `ttx_draw_dyn`
+  calls it once a frame, forcing a blit each time, until the 64th row clears
+  `[ttx_shbusy]` and sets `[ttx_shok]`. Worst frame ~25 ms instead of ~330.
+- `ttx_shbuild` is that loop run to completion, and its **only** caller is
+  `ttx_draw_all`: the mode has just been set, there are no pixels on screen
+  to stop updating, and paying it there is what makes the first frame after
+  F complete. It is also the only place that blanks — every later build
+  rewrites all 64 content rows, and the pad rows are never written at all.
+
+Three things about the spread are load-bearing. **The cursor starts at
+`view − TTX_HALF`** (clamped, then wrapping inside the pattern) rather than at
+row 0, so a `Dxx` break or a position jump that lands mid-pattern fills the
+*visible* window first instead of counting up to it. **It cannot be
+overtaken**: 4 rows a frame against a view that advances 7.14 rows a *second*.
+And **the pattern is claimed at the start, not at the end** — otherwise
+`ttx_draw_dyn`'s change test refires on every frame of the build — which also
+closes an old race, because the worker can move `[mp_pattern]` mid-build and
+recording it afterwards marked a mixed shadow as current. Recorded first, a
+mid-build move is caught by the same test on the next frame and restarts.
+
+While a spread build runs, §45.14's `SHB` reads `--`: there is no complete
+shadow to check, which is honest and doubles as a visible marker of the frames
+a rebuild is spread over.
 
 Three things about it are load-bearing:
 
@@ -13597,6 +13628,13 @@ listening cannot tell them apart. Every counter resets with the stream, in
 | `BLK` | the longest gap, in ticks, between two different `consumed` readings | `consumed` moves by one whole half and only from `sbl_isr`, so this **is** the block-IRQ interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. Doubling means a block arrived a whole period late |
 | `WAKE` | the longest gap, in ticks, between this worker's own feed passes | the control for `BLK`. 1 is healthy |
 | `SHB` | **live**: how many of the text shadow's 64 content rows have a blank row-number field (§45.13.2). `--` = there is no shadow to check — windowed, or before the first build | anything but `00` means the shadow really is losing content, and the blank area on screen is not the pad |
+
+**Latching the meter on also resets the four extremes**, and that is what
+makes them attributable. They otherwise reset only with the stream, so one bad
+moment during the load repaint pins `MIN` and `WAKE` for the whole session and
+every later glitch reads as having changed nothing — which is exactly what the
+first field reading did. D off, D on, watch one glitch: the numbers then
+describe *that* glitch.
 
 **`SHB` is the one live number, and that is why D is a latch rather than a
 one-shot.** The other five are running extremes, so a snapshot taken on the
