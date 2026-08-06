@@ -15763,18 +15763,43 @@ drive and a CMOS type table that predates it. The page carries an editable
 C/H/S triple bounded by what CHS can carry (1..1024, 1..255, 1..63) and
 recomputes the size from it live, in the Date/Time page's field idiom (§31.5).
 
-### 52.2 The partitioner
+### 52.2 The disk tool — one window, one button
 
-Its own window — the unowned species (§38.1), so its close box reduces to
-`wm_hide` and there is no teardown path to write. Four primary slots, New /
-Delete / Write / Close, and **everything but Write edits a copy in RAM**, so a
-user who changes their mind has changed nothing.
+Partitioning and formatting are **one operation to the user and one window in
+the driver**. They were two: a Partition window (New / Delete / Write) and a
+Format window that listed the same four slots through a different frame, and
+between them the user had to know that a table entry is not a volume, that New
+only edits RAM, and that Write is the commit. None of that is a thing anybody
+wants to know about their disk. What they want is four slots and, for each
+one, either what is in it or a button that puts a usable volume there.
+
+```
+Slot  Size   State
+1     31M    FAT16              a volume; Mount will find it
+2      -     Not Formatted      free
+3     50M    Unmountable        foreign, or over the ceiling - greyed
+4     14M    Not Formatted      a claimed region with no volume in it
+[Format]  [Close]
+```
+
+**`Not Formatted` covers unpartitioned AND partitioned-but-empty**, and that
+is deliberate rather than lazy: the difference is the tool's business, both
+mean "there is no volume here and Format will make one", and the second is
+exactly what a format interrupted half way leaves — §52.3 writes the boot
+sector last. The size column distinguishes them for anyone who cares, and is
+blank for a free slot rather than carrying a number nothing has promised: two
+free slots would otherwise both advertise the same megabytes when only one of
+them can have them.
+
+The window is the unowned species (§38.1), so its close box reduces to
+`wm_hide` and there is no teardown path to write; detach must still leave none
+on screen, because the kernel frees the image the moment detach returns.
 
 A partition is capped at **65,535 sectors** by the kernel's volume ceiling
 (§18.7), so four primaries is the whole offering and an extended chain is not
 implemented. Two era conventions are obeyed because DOS reads what is written:
-partitions are cylinder-aligned, and **the CHS halves of an entry must agree
-with its LBA halves** under the geometry the drive is addressed with — a
+partitions start on cylinder boundaries, and **the CHS halves of an entry must
+agree with its LBA halves** under the geometry the drive is addressed with — a
 cylinder past 1023 clamps to the all-ones form every tool of the era wrote,
 which is what says "read the LBA fields instead".
 
@@ -15782,9 +15807,147 @@ The 446 bytes of boot code are **not** left blank: os8088 does not boot from a
 hard disk (§52.9), and a blank MBR is a machine that hangs with no
 explanation, so a stub prints `Not bootable` and halts.
 
+#### 52.2.1 A slot is not a 32MB region of the disk
+
+`hd_slot_extent` answers what a Format would write, and it takes the answer
+out of the **table**. That is the safety property the whole tool rests on: an
+entry laid at a fixed multiple of 32MB lands *inside* an 80MB partition that
+started below it, and takes the whole thing with it.
+
+Three cases, and the first two are the same one seen twice:
+
+- **used, at or under the ceiling** — its own extent, reused in place. The
+  user has already confirmed erasing it (§52.2.3).
+- **used, over the ceiling** — the first 65,535 sectors of its own extent, and
+  the rest goes back to being free space. This is how a 50MB or an 80MB
+  partition is reclaimed without touching a neighbour.
+- **free** — the scan below.
+
+The scan is `mem_claim`'s (§50), and deliberately: start at the era's floor —
+LBA = spt, head 1 sector 1 cylinder 0 — and while any *other* used entry
+contains the candidate, restart at that entry's end rounded up to a cylinder.
+Each bump moves strictly past one entry and there are four, so four passes is
+a proof rather than a guess. The length then runs to the lowest used start
+*above* the candidate, or to the end of the drive, capped at the ceiling.
+
+Two things fall out of that shape, and both were asked for:
+
+- **A partition sits directly on top of a foreign one, not at the next
+  multiple of anything.** A 50MB `0x83` partition at LBA 63 on a 200MB disk is
+  followed by a 31MB FAT16 at LBA 102,816 — one cylinder past its end.
+- **A hole is usable.** With 102,816..168,351 and 200,000..265,535 taken, the
+  next slot gets 169,344..200,000 — 14MB, byte-exact, filling the gap rather
+  than running off the end of the disk.
+
+The extent is also **clipped to the end of the drive**, because a table
+another machine wrote is input and input is hostile, and refused outright
+below one track — less than that is not worth a drive letter.
+
+**A hole can be an alignment gap, and it is still real space.** This tool's
+floor is LBA = spt — the end of the MBR's own track, where every DOS-era table
+started — while a modern tool 1MB-aligns its partitions at LBA 2048. Take a
+disk this tool filled, delete two partitions on another machine and let it
+make one NTFS partition in the freed space, and the 1,985 sectors between 63
+and 2048 belong to nobody: the scan finds them, because that is what it is
+for, and a Format there produces a working 970KB FAT12 volume that mounts and
+takes files.
+
+What that exposed was a **display** fault and not an allocation one — the size
+column was whole megabytes, so a volume that works read `0M`, which looks like
+a broken tool rather than a small disk. Under a megabyte the column is **KB**
+(`hd_tw_size`); `992K` is the same volume, honestly described.
+
+Which is why the scan takes **the largest hole and not the first that fits**,
+and that is about the slots being scarce: there are four, and first-fit spends
+one of them on a 1MB alignment gap while 30MB sits free in the middle of the
+disk. The walk is the same bump-and-limit pair in a loop — the candidate moves
+to the limit that bounded it, the next bump carries it past the entry sitting
+there, so it strictly increases and there are at most four holes to see. A tie
+keeps the **earlier** hole, which leaves the later space contiguous.
+
+Measured, on a 128MB disk with an NTFS partition at 2048..131072 and a FAT16
+at 199584..261072 — a 1,985-sector gap at the front and a 68,512-sector hole
+in the middle:
+
+```
+Format -> 132048 + 65535   the middle hole, cylinder-aligned and capped
+Format -> 63 + 1985        the front gap, now that it is the largest left
+```
+
+Sub-megabyte partitions are kept rather than refused below some floor: 992KB
+is most of three 360KB floppies, which on this machine is a real volume — and
+under largest-hole it is only ever chosen when nothing bigger is free.
+
+#### 52.2.2 Formatted, and unmountable
+
+`hd_fmt_isfat` reads the partition's own LBA 0 and asks whether a boot sector
+is there: the `55AA` signature, `BS_jmpBoot` being EB or E9 (BPB rule 2's own
+test, §18.2), 512-byte sectors, and non-zero `SecPerClus` / `NumFATs` /
+`FATSz`. It is a **display test and the mount is still the authority** — a
+volume that passes here can still be refused by `disk_mount`'s seventeen rules
+— and it costs one sector read per slot that could carry a volume, when the
+window opens and after every format.
+
+The order of the state tests is the order of the certainties: over the ceiling
+and a type this driver does not mount are facts about the *table*, so neither
+costs a read, and only a slot that could carry a volume is asked whether it
+does.
+
+**`Unmountable` is a foreign type or over 65,535 sectors**, and either way
+this kernel will never mount it. Format stays live on such a slot, because
+reclaiming that space is the only thing the user can usefully do with it. The
+page agrees rather than contradicting: a Mount that skipped a partition for
+being over the ceiling now says `Partition is over 32MB` instead of reporting
+"no FAT partition" about a partition that plainly is one.
+
+**Nothing in this window is greyed, and the unmountable row least of all.** It
+was, briefly, and it was wrong twice — this is the §47 case worth keeping,
+because both halves look like details and neither is:
+
+- **Greying is a claim about a CONTROL, and this row is not one.** Rule 1: the
+  disabled pen says *disabled*; the row is selectable and the Format button
+  acts on it. That is rule 4's named failure — "looks unavailable and works" —
+  and it is the drift rule 4 exists to stop, arriving from the direction rule 4
+  does not cover, because there is no predicate here at all: nothing refuses.
+- **It did not even show.** Rule 3: `CDGRAY` *text* rounds to black on the two
+  1bpp adapters (§39.4 rounds a glyph rather than dithering it), and
+  `[gfx_dis]` — the carve-out that makes a disabled glyph a checkerboard — is
+  not in the package ABI (§20.3 publishes no slot). Looked at on CGA per §47.2,
+  the greyed row was pixel-identical to the live row beneath it. Rule 3's
+  package clause is the general form: a package's disabled control **must carry
+  a non-text mark**, which is why `hd_page_button` greys the button's *frame*
+  along with its label and reads correctly on all three adapters, and why a
+  bare row of text can never be made to.
+
+So the **State column is the whole signal**, and it says the same thing on VGA,
+CGA and Hercules. That is not a consolation prize for the missing colour: a
+value in a column is what the rest of the row already is, and §47 does not
+apply to it.
+
+#### 52.2.3 Confirm, and the order of the two commits
+
+**Format on a slot that already holds something asks first**, in the caption,
+by wanting the click again: `Erase slot 2? Click Format again`. A driver has
+no notice window and no modal, and a second click on the same button is the
+cheapest confirm that cannot be mistaken for the first one. Picking another
+row or closing the window disarms it. A free slot is not confirmed — there is
+nothing to lose.
+
+**The table entry goes down before the volume**, which is the same argument as
+the boot sector going last inside the format: every way this can be
+interrupted has to leave a state the tool can describe and re-offer. Entry
+first, volume second means an interruption leaves `Not Formatted` — a claimed
+region with nothing in it — which is exactly what the button is for. The other
+order leaves a volume nothing can see and an entry still pointing at data that
+has just been overwritten.
+
+Afterwards the states are **re-scanned rather than assumed**, so the row
+reports what came back off the disk and not what the driver hoped it wrote.
+
 ### 52.3 The formatter
 
-A **FAT format, not a surface format**. Low-level formatting an MFM surface is
+A **FAT format, not a surface format**. Its window is §52.2's, along with the
+partitioner's. Low-level formatting an MFM surface is
 vendor-specific interleave and defect handling, minutes per drive, and the
 ST-11M ships its own ROM utility that does it correctly (`g=c800:5`).
 
@@ -15822,8 +15985,9 @@ volume its own kernel refuses to mount.
 
 ### 52.4 The page, and mounting
 
-The Control Panel page (§31.9) is a device list, the C/H/S editor and three
-buttons, in 27 characters by 13 rows. Greying follows §47: one predicate
+The Control Panel page (§31.9) is a device list, the C/H/S editor and **two**
+buttons — Format, which opens §52.2's tool, and Mount — in 27 characters by 13
+rows. Greying follows §47: one predicate
 (`hd_btn_ok`) shared by the greying, the click refusal and the caption, and it
 tests only facts already known — is there a device, is its geometry usable —
 never "try it and see".

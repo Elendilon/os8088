@@ -957,7 +957,7 @@ is that a persistence run must close the panel before it quits**, mount
 included, where a mount used to survive a hard quit.
 
 **Everything the user sees is in `drivers/hdd/`**: the probe, the Control
-Panel page, the partitioner, the FAT formatter and Mount. The kernel's half is
+Panel page, the disk tool that partitions and formats, and Mount. The kernel's half is
 five API slots (0x0270..0x0290), a 6-row volume table and a branch. Two things
 about the driver are worth knowing before touching it. Its **rung 1 (the IDE
 task file) is gated on `CPU_286`**, and that is arithmetic: an 8088's
@@ -980,8 +980,43 @@ one FAT entry to walk per 512 bytes of every file. The consequence to know is
 that two partitions on one disk can now have DIFFERENT cluster sizes, which is
 what `fcp_clspan` (SPEC.md §22.5) exists to survive.
 
-**A driver's window is the kernel's to measure.** Both tool windows erase
-their content through `OSAPI_WM_GEOM` and never the template's constants: the
+**Partitioning and formatting are ONE window and one button** (SPEC.md
+§52.2). They were two windows — New/Delete/Write, then pick-a-slot-and-Format —
+which made the user learn that a table entry is not a volume and that Write is
+the commit. Now each of the four slots reports its own state (`FAT16` /
+`Not Formatted` / `Unmountable`) and one Format button does both halves. Four
+things about it are worth knowing. **A slot is not a 32MB region of the disk**
+(§52.2.1): `hd_slot_extent` takes the extent out of the TABLE with
+`mem_claim`'s bump scan, so a partition sits one cylinder past a foreign 50MB
+one rather than at the next multiple of anything, a hole between two
+partitions is usable, and an entry can never be laid inside somebody else's —
+which is the failure that takes a whole 80MB partition with it. **A hole is
+often an ALIGNMENT GAP**: this tool's floor is LBA = spt and a modern tool
+1MB-aligns at LBA 2048, so a disk repartitioned elsewhere has 1,985 real
+unowned sectors at the front, and formatting them gives a working 970KB FAT12
+volume — which read `0M` until the size column learned KB, and looked like a
+broken tool rather than a small disk. The scan walks every hole and
+takes the LARGEST, because the slots are scarce: first-fit spent one of four
+primaries on that 1MB gap while 30MB sat free in the middle of the disk. **A slot over
+the ceiling or of a foreign type is `Unmountable` and its Format button stays
+LIVE**, because reclaiming the first 32MB of it is the only useful thing left
+to do there. **Nothing in that window is greyed** (§52.2.2), and the row that
+briefly was is the §47 case worth reading: greying is a claim about a
+*control*, the row is selectable and Format acts on it (rule 4's "looks
+unavailable and works", arriving where rule 4 does not look because no
+predicate refuses anything) — **and it did not show anyway**, because `CDGRAY`
+text rounds to BLACK on 1bpp and `[gfx_dis]` is not in the package ABI, so on
+CGA it was pixel-identical to the live row beneath it. Rule 3's package clause
+is the general form: a package's disabled control must carry a **non-text
+mark**, which is why `hd_page_button` greys the button *frame* with the label
+and why a bare row of text cannot be made to work. **`Not Formatted` means unpartitioned OR
+partitioned-and-empty** on purpose: both mean Format makes a volume, and the
+second is what an interrupted format leaves. And **the table entry is written
+BEFORE the volume**, for the same reason the boot sector goes last inside the
+format — every interruption has to land on a state the tool can re-offer.
+
+**A driver's window is the kernel's to measure.** The tool window erases
+its content through `OSAPI_WM_GEOM` and never the template's constants: the
 content is `W_W-2` by `W_H-TITLE_H-1`, **TITLE_H is 18**, and `wm_fit` clamps
 a template that does not fit the live screen (SPEC.md §39.7) — so a repaint
 that open-codes a size draws through the border and into whatever is behind
