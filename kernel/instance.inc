@@ -1237,7 +1237,17 @@ inst_launch_post:
 section .bss
 
 inst_tab:    resb 384           ; INST_MAX x I_RECSZ (12 x 32; literal per
-                                ; the no-forward-ref-in-bss rule)
+                                ; the no-forward-ref-in-bss rule). It STAYS in
+                                ; the kernel's own segment: I_NAME is handed
+                                ; out as an ordinary near string pointer - a
+                                ; Disk window's W_TITLE aims INTO it
+                                ; (files.inc), and the dock, the menu bar and
+                                ; the Task Manager all letter it through DS -
+                                ; so moving the table to LOW_SEG would need a
+                                ; segment beside every one of those pointers,
+                                ; which is the MB_SEG trap of SPEC.md 12.2 for
+                                ; 384 bytes
+
 inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched
 inst_slot:   resw 1             ; app_launch scratch: state-pool slot
