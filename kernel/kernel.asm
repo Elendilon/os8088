@@ -506,8 +506,10 @@ osapi_table:
     OSAPI_JSLOT api_mem_free      ; 0x0208   X, same fence as the spawn
     OSAPI_SLOT osapi_mem_avail    ; 0x0210
     OSAPI_SLOT osapi_font_glyphs  ; 0x0218 - the kernel's 8x8 glyph table
-                                  ;          (SPEC.md 6): out SI = its offset
-                                  ;          in KERNEL_SEG, AL = first code,
+                                  ;          (SPEC.md 6): out DX:SI = the
+                                  ;          table (it lives in LOW_SEG now -
+                                  ;          the one-time amendment at the
+                                  ;          body below), AL = first code,
                                   ;          AH = last, CX = bytes per glyph
     OSAPI_SLOT wm_onsize          ; 0x0220 - install the resize negotiator
                                   ;          (SPEC.md 11.1): BX = win, AX =

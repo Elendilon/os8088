@@ -43,7 +43,10 @@
 ; =============================================================================
 
 ; --- task table (SPEC.md 8) --------------------------------------------------
-MAX_TASKS   equ 12
+MAX_TASKS   equ 12              ; mirrored in apps/os88api.inc, which sizes
+                                ; every package's snapshot buffer from it
+                                ; (SPEC.md 20.9) - change them together and
+                                ; rebuild every .o88
 T_STATE     equ 0               ; byte: 0 free, 1 ready, 2 sleeping
 T_SP        equ 2               ; word: saved SP (frame above)
 T_WAKE      equ 4               ; word: [ticks] value to wake at
@@ -766,11 +769,14 @@ sch_switch:
     mov [bx+sch_tasks+T_SP], sp
 
     ; --- the outgoing task's canary (SPEC.md 8): slot n's slice starts at
-    ; (n-1)*SCH_STACK, and with SCH_STACK = 256 that is the slot index in the
-    ; HIGH byte and nothing else - no multiply on the switch path. Task 0 owns
-    ; no slice of sch_stacks and is skipped. SS is LOW_SEG, so the read needs
-    ; no segment set-up; sch_stacks is at .lowbss offset 0 but the symbol is
-    ; written out anyway, because that is a layout accident and not a contract.
+    ; sch_stacks + (n-1)*SCH_STACK, and with SCH_STACK = 256 the offset part
+    ; is the slot index in the HIGH byte and nothing else - no multiply on
+    ; the switch path. Task 0 owns no slice of sch_stacks and is skipped. SS
+    ; is LOW_SEG, so the read needs no segment set-up. sch_stacks is NOT at
+    ; .lowbss offset 0 (font's glyph block precedes it); the math here is
+    ; symbol-relative and does not care, but the alignb at the declaration
+    ; keeps the slices 256-ALIGNED, which SP-only arithmetic (tests/
+    ; stackprobe) does depend on.
     mov bl, [sch_cur]
     or bl, bl
     jz .nocanary                ; task 0: its stack is above .lowbss, not in it
@@ -851,11 +857,26 @@ sch_stkdie:
 ; =============================================================================
 section .lowbss                         ; LOW_SEG, reached through SS (SPEC.md 2.1)
 
+resb (256 - (($-$$) % 256)) % 256       ; keep every slice on a 256-byte
+                                        ; boundary (alignb spelled out - NASM
+                                        ; refuses the macro form against this
+                                        ; nobits section). The canary math
+                                        ; above is symbol-relative and does
+                                        ; not need this, but tests/stackprobe
+                                        ; derives its slice top from SP
+                                        ; alone, and anything else doing SP
+                                        ; arithmetic will assume it too. Free
+                                        ; today: font's 768-byte block
+                                        ; precedes this one and 768 is
+                                        ; already a multiple
 sch_stacks: resb (MAX_TASKS-1) * SCH_STACK ; slots 1..11 only: slot n's stack
-                                        ; top at n*SCH_STACK (slot 0 = the UI task
-                                        ; runs on the task-0 stack, SS:STK0_TOP,
+                                        ; top at n*SCH_STACK relative to
+                                        ; sch_stacks, which is NOT offset 0
+                                        ; of .lowbss (font_glyphs precedes
+                                        ; it). Slot 0 = the UI task runs on
+                                        ; the task-0 stack, SS:STK0_TOP,
                                         ; which grows down from above this
-                                        ; section - it needs no reservation)
+                                        ; section - it needs no reservation
 
 section .bss
 

@@ -43,7 +43,9 @@ I_CYC    equ 28                 ; dword: CPU cycles billed to this instance's
                                 ; window callbacks (SPEC.md 8.1), zeroed at
                                 ; alloc; lo word first
 I_RECSZ  equ 32                 ; power of two: index<<5 via CL
-INST_MAX equ 12
+INST_MAX equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 20.9
+                                ; buffer sizing) - change together, rebuild
+                                ; every .o88
 
 KIND_ABOUT   equ 0
 KIND_CLOCK   equ 1              ; (Note Pad was kind 1 until it became the
@@ -1224,10 +1226,15 @@ inst_launch_post:
 ;
 ; The names ride inside the window too. They do not have to - a name is
 ; written once at inst_alloc and never again - but they are 192 of the 414
-; bytes and splitting the copy to save 3,300 cycles of IF=0 time on an 8088
-; would put a second loop over the same table for no other reason. The whole
-; window is under a millisecond and the code it replaced held one exactly as
-; long.
+; bytes and splitting the copy would put a second loop over the same table
+; for no other reason. The whole window is roughly 3.5-4 ms at 4.77MHz - the
+; copy is field-at-a-time loops (the gather is strided), around 40-55 cycles
+; per byte moved with the 8088's EA and prefetch costs - which is the
+; longest IF=0 window in the system and safe by about 2x: the 8250 holds one
+; mouse byte and the next is ~8.3 ms behind it at 1200 baud, and the PIT is
+; only delayed, never lost. That margin is the reason for the twice-a-second
+; caller rule below, and it shrinks if MAX_TASKS or INST_MAX ever grow -
+; re-derive it before growing either.
 ;
 ; SSI_KB is the one field filled OUTSIDE it. mem_owned_kb is a scan of the
 ; claim table, which is not what the window is protecting, and it takes

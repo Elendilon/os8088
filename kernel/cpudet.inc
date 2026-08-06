@@ -31,11 +31,13 @@
 ; decodes to whatever that machine happens to put there. cpu_a20_enable
 ; returns having touched no port at all, and cpu_hma_claim refuses.
 ;
-; This module is .text only. cpu_detect runs from kmain immediately after
-; far_init and before anything else may key off the tier (SPEC.md 15), and
-; every routine here is plain 8086 code - cpu_detect by necessity, since it
-; runs before the tier it publishes is known, and the other two because
-; nothing they do needs more.
+; This module is almost all BOOT OVERLAY (SPEC.md 2.5): cpu_detect,
+; cpu_a20_enable and cpu_hma_claim run once from kmain - first thing, before
+; sched_init hooks an ISR and before anything else may key off the tier - and
+; are then written over by the first mount's FAT. Only cpu_info stays in
+; .text: it is API slot 0x0188 and answers all session. Every routine here is
+; plain 8086 code - cpu_detect by necessity, since it runs before the tier it
+; publishes is known, and the others because nothing they do needs more.
 ; =============================================================================
 
 ; Feature bits in [cpu_feat]. Mirrored in the osapi_cpu_info contract
