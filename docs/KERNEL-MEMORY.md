@@ -123,11 +123,38 @@ and it is true again, by a wide margin, now that the budget has come down to
 
 | | headroom |
 |---|---:|
-| `KERN_CODE_MAX`, the segment | 10,434 B for `.text` + `.bss` |
-| **`KERN_BUDGET`, the footprint** | **1,536 B** for the whole span |
+| `KERN_CODE_MAX`, the segment | ~9,900 B for `.text` + `.bss` |
+| **`KERN_BUDGET`, the footprint** | **0 B** for the whole span |
 
-So the next thing to hit is a conversation about `KERN_BUDGET`, and it will
-be hit early rather than after 9KB of unexamined growth. The segment used to
+**That zero is not a typo, and the conversation it was predicted to force has
+arrived.** `KERN_SIZE` is 74,240 against a `KERN_BUDGET` of 74,240: the next
+byte of kernel growth of any kind fails the build. `gfx_line` (SPEC.md §5.6)
+is what spent the last of it — 512 bytes, which is one whole step because
+`KIMG_PARA` rounds the image to 512 and the routine's ~430 bytes of code plus
+~40 of `.bss` crossed a boundary.
+
+**The figure in this table was 1,536 B and was stale by 1,024** — measured,
+not estimated: bisecting the guard on the commit before `gfx_line` gives
+`KERN_SIZE` = 73,728, so the real spare was 512. Two rounds of growth had
+landed since the table was written and nothing re-measured it. If you are
+reading this to decide whether something fits, **bisect the guard rather than
+trusting the number**:
+
+```sh
+lo=70000; hi=74240
+while [ $((hi-lo)) -gt 1 ]; do mid=$(((lo+hi)/2))
+  sed -i "s/^KERN_BUDGET equ .*/KERN_BUDGET equ $mid           ; x/" kernel/kernel.asm
+  nasm -f bin -w+error -I kernel/ -o /dev/null kernel/kernel.asm 2>/dev/null \
+      && hi=$mid || lo=$mid
+done; echo "KERN_SIZE = $hi"; git checkout kernel/kernel.asm
+```
+
+Note that **neither relief mechanism helps here**: the boot overlay and the
+cold segment both buy `KERN_CODE_MAX`, and `.cold`'s bytes are resident and
+count against the footprint exactly like `.text`'s. The only levers on this
+guard are deleting kernel code, moving a feature out to a package (SPEC.md
+§28's precedent), or raising the constant — one 512-byte step to 74,752
+being the smallest useful move. The segment used to
 run out first, and hard-disk support (below) is what took it to 71 bytes; the
 `.lowbss` migration, the halved stacks, the boot overlay, the cold segment
 and finally moving the Task Manager out to a package (SPEC.md §28) are what

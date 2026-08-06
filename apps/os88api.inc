@@ -1367,6 +1367,29 @@ OS88_BSS_SIZE equ 0
                                                 ; so this is the only flush a
                                                 ; buffered renderer gets.
                                                 ; Draw, wait, repeat.
+%define OSAPI_GFX_LINE      KERNEL_SEG:0x02E0   ; an arbitrary-angle line (SPEC.md
+                                 ; 5.6): AX/BX = x1/y1, CX/DX = x2/y2,
+                                 ; inclusive, absolute screen coords;
+                                 ; SI = 0 thin / 1 dilated a pixel either
+                                 ; side of the MINOR axis, which is what an
+                                 ; erase owes a line that was DRAWN in short
+                                 ; per-frame segments (5.6.5) - the two
+                                 ; rasterizations differ by a pixel and the
+                                 ; ghost is half the trail. Pen in
+                                 ; SET_COLOR, gfx lock held. Clobbers flags
+                                 ; only. It does NOT replace the area
+                                 ; primitives and defers to them: an
+                                 ; axis-aligned pair tail-calls GFX_HLINE /
+                                 ; GFX_VLINE, and a long axis-aligned run is
+                                 ; theirs at any angle of the argument - a
+                                 ; fill writes eight pixels a store on 1bpp
+                                 ; where a walk writes one (5.6.1). The walk
+                                 ; runs DOWNWARD whichever way you hand it
+                                 ; the ends, so drawing (A,B) and erasing
+                                 ; (B,A) is the same pixel set (5.6.2) - but
+                                 ; a line drawn in per-frame SEGMENTS and
+                                 ; erased whole still is not, and that is
+                                 ; still the caller's to dilate
 
 FSXF_KEEPWORKER equ 1           ; OSAPI_FSX_RUN CX bit 0: your worker stays
                                 ; scheduled through the bracket. For workers

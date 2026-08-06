@@ -741,7 +741,14 @@ osapi_table:
                                   ;          53.5): AL = 0 tick / 1 retrace;
                                   ;          flushes an armed back buffer
                                   ;          first while the mode is unswitched
-osapi_table_end:                  ; 0x02E0
+    OSAPI_SLOT gfx_line           ; 0x02E0 - an arbitrary-angle line (SPEC.md
+                                  ;          5.6): AX/BX = x1/y1, CX/DX =
+                                  ;          x2/y2 inclusive, pen in
+                                  ;          [gfx_color], lock held. An
+                                  ;          axis-aligned pair defers to
+                                  ;          gfx_hline / gfx_vline, which stay
+                                  ;          the right answer for a long run
+osapi_table_end:                  ; 0x02E8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -749,8 +756,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 90 * 8
-%error "os8088 API jump table must be exactly 90 8-byte slots"
+%if OSAPI_TABLE_LEN != 91 * 8
+%error "os8088 API jump table must be exactly 91 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the

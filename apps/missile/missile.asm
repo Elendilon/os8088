@@ -4817,6 +4817,41 @@ mc_line:
     push cx
     push dx
     push si
+    cmp byte [mc_fsx], 0            ; SPEC.md 5.6 does the whole line in one
+    jne .own                        ; call now - but not on the Mode X surface
+    or ax, ax                       ; (53.7: the drawing slots are off-limits
+    js .own                         ; there) and not for a line with an end
+    or bx, bx                       ; outside our content, where the kernel
+    js .own                         ; would clip to the SCREEN and paint over
+    or cx, cx                       ; the desktop. mc_clamp is what stops that
+    js .own                         ; today and a whole-line call cannot carry
+    or dx, dx                       ; it - so the rare line that needs it
+    js .own                         ; keeps the per-run path below
+    cmp ax, [mc_cw]
+    jge .own
+    cmp cx, [mc_cw]
+    jge .own
+    cmp bx, [mc_ch]
+    jge .own
+    cmp dx, [mc_ch]
+    jge .own
+    add ax, [mc_ox]
+    add cx, [mc_ox]
+    add bx, [mc_oy]
+    add dx, [mc_oy]
+    mov si, 0
+    cmp byte [mc_lfat], 0           ; the erase owes the dilation (5.6.5): we
+    je .thin                        ; DRAW in per-frame segments and erase in
+    mov si, 1                       ; one long line, and those two Bresenhams
+.thin:                              ; disagree by a pixel
+    call OSAPI_GFX_LINE
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.own:
     push di
     mov [mc_lx], ax
     mov [mc_ly], bx
