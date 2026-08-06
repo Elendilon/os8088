@@ -678,11 +678,48 @@ comparable routines. Two things follow, and neither is "hope":
   guard has moved five times, each asked for and granted, and the fifth moved
   it *down* onto the kernel deliberately.
 
-There is also a real prospect of paying for it rather than asking. FIELD-NOTES
-note 3 — which this plan's costing produced — identifies a same-volume `chdir`
-doing a full `disk_mount` and a nine-sector FAT re-read per directory change.
-Fixing that is a *speed* change, but a same-volume fast path may well be
-smaller than the code it lets `assoc_run` avoid. The build-time glyph bake (§2.5) is in this table
+### 8.1 The "fix the disk instead" argument, and what is left of it
+
+An earlier draft of this section claimed that fixing FIELD-NOTES note 3's
+same-volume `chdir` "may well be smaller than the code it lets `assoc_run`
+avoid". **That is wrong twice over and is corrected here rather than quietly
+deleted, because the shape of the error is the useful part.**
+
+**Wrong 1: a fast path adds code, it does not remove any.** Both spends land
+against the same `KERN_BUDGET`. Fixing `disk.inc` cannot fund `assoc.inc`;
+there is no ledger in which speed work in one module buys footprint in
+another. The sentence read as though there were.
+
+**Wrong 2: the fix does not retire the cache.** Count it. Today one resolution
+is ~35 sectors (§2.5.1). With a same-volume fast path the boot sector and the
+nine FAT sectors go from both the outbound `chdir_q` and the return `relist`,
+leaving the `APPS` directory walk (~2), the icon (1), and re-scanning
+`DOCUMENTS` on the way back (~2) — call it **5 sectors, so ~20 for four
+filetypes**. Better by 7×, and at mechanism C's revolution-per-sector that is
+still **~4 seconds**. `ICONS.DAT` at one sector still wins decisively, so the
+250 bytes stay.
+
+**What survives is a conditional, and it needs both halves of note 3.** With a
+same-volume fast path *and* multi-sector reads, those 20 sectors become a
+handful of int 13h calls in a few revolutions — under a second, at which point
+the cache is genuinely arguable and its reader, its writer, the hint arrays and
+their validation (~360 bytes together) become a UX preference rather than a
+necessity. That is a real prospect. It is two fixes and a judgement call, not a
+free win, and nothing in this plan should be sequenced as though it were.
+
+**What survives unconditionally is where the bytes are best spent.** A
+same-volume fast path looks small — `dsk_fatw_pick` already carries the exact
+safety rule ("only a QUIET mount may reuse a banked window; a full mount is a
+re-validation, the disk may have been swapped"), and §18.8.1 already banks a
+window per driver-backed volume. A floppy is excluded not by a correctness
+argument but because it has no claim to bank into, and its window is `FAT_SEG`
+— resident, and by that section's own reasoning never sliding. So the policy,
+the buffer and the swap rule all exist; what is missing is letting a quiet
+same-volume mount reuse what is already in memory. Those bytes fix a reported
+symptom in every operation the OS performs. The cache's bytes work around that
+symptom for one feature and carry an invariant (§2.5.2: never serve the open
+path) that must hold for ever. **If only one of the two gets spent, it should
+be the disk.** The build-time glyph bake (§2.5) is in this table
 at zero — it changes where the app slot's 8 bytes come from, not what they
 cost — and `tools/os88mini.py` runs on the host. That is affordable and it is not nothing, and per
 CLAUDE.md the decision to spend it belongs with whoever wants the feature —

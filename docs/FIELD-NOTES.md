@@ -402,7 +402,18 @@ needs the XT.
    honest test on hardware that has it; a media change must still fall back to
    the full path.
 4. **Bank the floppy's FAT window** the way §18.8.1 banks a driver-backed
-   volume's, so a same-volume chdir does not re-read nine sectors.
+   volume's, so a same-volume chdir does not re-read nine sectors. **This may
+   be much smaller than it sounds, and 3 may fall out of it.**
+   `dsk_fatw_pick` already states and enforces the safety rule — "only a QUIET
+   mount may reuse a banked window; a full mount is a re-validation of the
+   whole volume, the disk may have been swapped" — so the swap question is
+   already answered, not open. A floppy is excluded from banking because it has
+   no donated claim to bank *into*, and its window is `FAT_SEG`: resident, and
+   by §18.8.1's own reasoning never sliding. What is missing is not policy or a
+   buffer but permission — letting a quiet, same-volume mount reuse what is
+   already in memory, which needs one byte recording whose FAT `FAT_SEG`
+   currently holds. Check `dsk_fatw0`/`dsk_fatd0` first; they may already carry
+   it.
 
 **Do not** assume the icon harvest is the cost — it is one sector per *type-1*
 file and a folder of documents has none. A and B are paid on **every**
