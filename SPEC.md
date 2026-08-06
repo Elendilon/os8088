@@ -3178,20 +3178,22 @@ run time, §39.6), plus on VGA the right-aligned percentage and one
 spin step of the vector "8088" (cosine-scaled about its vertical axis,
 angle index = AX mod 16). Mono gets the bar alone: the dialog does not fit
 in 200 rows, and int 10h teletype into a Hercules already in graphics
-writes character/attribute pairs into the bitmap. kmain's own `vid_init`
-then wipes the splash.
+writes character/attribute pairs into the bitmap. **The splash then stays on
+screen for the whole of kmain and keeps ticking** — §15.3.
 
 kmain: set DS/ES = `KERNEL_SEG` and SS:SP = `LOW_SEG:STK0_TOP` (§2.1),
 `sti`, `cld`, then:
 `sched_init` → `evq_init` → `clk_init` (§37 — the RTC probe, before the
 mode set so a machine without one is dated from the fallback constants
-from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe,
-apply and mode set) → `bb_init` (§32 — the RAM probe
+from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe
+and apply, and **skips the mode set while the splash is live**, §15.3) →
+`bb_init` (§32 — the RAM probe
 must run after the mode set, which clears VRAM, and before the first
 drawing call) → `font_init` → `wm_init` →
 `inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
-`snd_init` (§34.7 — publishes `snd_live` last) → gfx_lock →
-`wm_paint_all` → gfx_unlock → `cursor_show` → jump
+`snd_init` (§34.7 — publishes `snd_live` last) → `drv_boot` (§51.3) →
+`spl_finish` (§15.3) → gfx_lock →
+`wm_paint_all` → gfx_unlock → `cursor_show` → `drv_notice` (§51.3) → jump
 into `ui_task` (task 0 never returns). (`dock_init` runs right after
 `desk_init`.) **Clean boot**: no app instances exist — the first paint
 shows only the desktop, drive icons, the empty dock strip and menu bar;
@@ -3323,6 +3325,72 @@ runs correctly at 0000:7C00 where the BIOS put it.
 
 `BOOT_RELOC` and `KERNEL_SEG` are mirrored in `kernel/kernel.asm`, whose
 guard 7 proves the kernel ends clear of the relocated stack.
+
+### 15.3 The bar does not stop at the last sector of the kernel
+
+The progress bar used to reach 100% when the boot sector's final sector
+landed, and `vid_init`'s mode set then wiped the whole loading screen — with
+several seconds of kmain still to run. On the field machine (Part 2 of
+PERFORMANCE.md: **238 ms per floppy sector**) that tail is:
+
+| after the last sector of the kernel | cost |
+|---|---|
+| `vid_init`, `font_init`, the rest of the init calls | milliseconds |
+| `mouse_init` — DTR/RTS held low `MOU_RSTLOW` ticks | ~165 ms |
+| `drv_boot` — mount A:, read `SYSTEM.CFG` (**13 sectors**) | **~3.1 s** |
+| ...and a driver `SYSTEM.CFG` asked for (**+27 sectors**) | +6.4 s |
+| `wm_paint_all` — 85 fills + 48 glyphs | ~250 ms |
+
+So the user watched a full bar, then a blank screen, for three seconds on a
+plain boot and nearly ten on a configured one. **The bar is priced in floppy
+sectors and so is the tail**, which is the whole of why this is cheap to fix
+rather than a matter of guessing weights.
+
+Three parts, all in `splash.inc` except the hooks:
+
+- **`SPL_POST` notches are added to the DENOMINATOR** by `spl_tick`, which
+  sees the boot sector's total once per tick. 16 today: thirteen for the
+  mount and three for kmain's phases that are not I/O.
+- **`spl_step`** spends one notch and repaints. `dsk_xfer` calls it **once
+  per sector transferred**, so the mount and any driver read advance the bar
+  exactly as the kernel's own load did; kmain calls it at the three phase
+  boundaries. It preserves **every register and the flags** — its hot caller
+  is the middle of a transfer loop — and it is a compare and a `ret` once the
+  splash is down, which is what makes leaving it on the disk path for the
+  life of the machine free (~13 us against a sector's 238 ms).
+- **`spl_finish`** forces the bar to 100%, repaints once and clears
+  `[spl_live]`. kmain calls it immediately before the first `wm_paint_all`,
+  which is the last moment a full bar is true — and no erase is needed,
+  because that paint covers every pixel (the menu bar's field, the desktop
+  dither *over* the dock strip, then the dock).
+
+Four things are load-bearing:
+
+1. **`[spl_live]` is not `[spl_on]`.** `spl_on` is `spl_tick`'s
+   "the chrome has been drawn" latch; `spl_live` means the splash **owns the
+   screen and the video mode**, and it stays true right through kmain.
+   `vid_init` reads it and skips `vid_setmode` (§39.1) — the mode is already
+   set, and setting it again is precisely what used to wipe the screen.
+   The probe and the publish still re-run and must: everything between there
+   and the paint reads `[vid_w]`/`[vid_h]`/`[vid_stride]`.
+2. **`bb_set` moved to the END of `drv_boot`** (§32/§51.3). It seeds the back
+   buffer *from VRAM*, and until the paint VRAM holds the loading screen — a
+   buffer armed ahead of the reads swallows every notch after it, because a
+   direct VRAM write is what the next flush undoes. Nothing about the heap
+   depends on the order: data claims grow up and a driver's region down
+   (§50.3).
+3. **The allowance is a clamp, not a scale.** `spl_step` stops at
+   `total - 1`, so the last notch always belongs to `spl_finish` and a boot
+   that overruns crowds up against 100% instead of claiming to be finished.
+   `SPL_POST` is tuned for the common boot — a `SYSTEM.CFG` that asks for no
+   driver, which lands on 140 of 141 by itself — and a machine that has
+   enabled one waits at 99% for its 27 sectors. That is strictly better than
+   what every boot used to do for all of it, and it cannot be fixed by
+   raising the total mid-run: the fill is `done × 288 / total`, so raising
+   the denominator makes the bar go **backwards**.
+4. **Mono gets the bar alone**, here as during the load — `spl_paint` is the
+   one frame routine both callers share, so the two cannot disagree about
+   what a frame is.
 
 ## 16. Build & test
 
@@ -9249,10 +9317,23 @@ Three things make deferral the right answer rather than a compromise:
 The one thing a new page may NOT do is decide its setting is important
 enough to be the exception. If a setting genuinely cannot survive being lost
 to a power cut with the panel open, that is an argument about §51.5's file,
-not a licence to write from a click handler. The hard-disk driver's Mount
-and Unmount are the *only* immediate writes in the tree and they are not
-this mechanism at all — they are the driver's own `OSAPI_DRV_CFG` save verbs
-on its own page (§52.6), justified there and nowhere else.
+not a licence to write from a click handler.
+
+**There are no exceptions left, including for a driver's page.** The hard
+disk's Mount and Unmount were the last of them — the driver's own
+`OSAPI_DRV_CFG` verb 2 rather than this mechanism, which is exactly how they
+escaped the rule — and they are gone: §51.9's verb 2 is retired and a
+driver's blob defers like everything else (§52.6). That page made the
+standard argument, that the set of mounted drives is what the next boot
+reads, and it also demonstrated the standard cost and one of its own: the
+write **mounts A: to reach the file**, so clicking Mount made C: the current
+volume and then silently made A: current again, in the middle of the click
+it was meant to be recording.
+
+The rule is therefore mechanical, not a convention every new page has to be
+told about. `cp_flush` has **no `.text` thunk** (§33): `cp_flush_x` is a near
+call inside the cold segment and `cp_flush_close_x` is its only caller, so a
+page, a driver's page or an API cell cannot reach it even by naming it.
 
 **Both ways the panel stops existing flush it**, which is what makes the
 deferral safe:
@@ -11146,8 +11227,12 @@ itself being set behind the BIOS's back (§39.6).
 ### 39.6 Mode set and teardown
 
 `vid_setmode` is idempotent and safe to re-run with the card already in
-graphics. VGA and CGA get their mode — and their clear — from the BIOS.
-Hercules has no BIOS mode at all:
+graphics — but **it is not free of side effects, and `vid_init` no longer
+re-runs it blind**: it clears the framebuffer, and while the splash is still
+on screen that clear is the whole loading screen (§15.3). `vid_init` skips it
+when `[spl_live]` is set; the probe and the publish always re-run. VGA and
+CGA get their mode — and their clear — from the BIOS. Hercules has no BIOS
+mode at all:
 
 ```
 out 3BFh, 1                     ; configuration: graphics allowed, page 0 only
@@ -13503,14 +13588,45 @@ frame.
 #### 45.13.2 The shadow is what makes a row change a blit
 
 A player never edits, so a pattern's 64 rows are constant text for as long as
-it is the current pattern. `ttx_shbuild` formats all of them **once** into
-`ttx_shadow` as char/attribute words — 256 `mp_cell2txt` calls and 4,838 word
-stores into package RAM, ~33 ms, once every eight seconds or so — and every row
-change after that is 19 `rep movsw`s out of it with no formatting at all.
-`[ttx_shpat]` names the pattern it holds and `[ttx_shok]` whether it holds
-anything; `ttx_draw_all` clears the second on every bracket entry, because a
-load can have happened between two brackets (Open is windowed, §53.7) and the
-shadow has no way to have heard about it.
+it is the current pattern. They are formatted **once** into `ttx_shadow` as
+char/attribute words, and every row change after that is 19 `rep movsw`s out
+of it with no formatting at all. `[ttx_shpat]` names the pattern it holds and
+`[ttx_shok]` whether it holds anything; `ttx_draw_all` clears the second on
+every bracket entry, because a load can have happened between two brackets
+(Open is windowed, §53.7) and the shadow has no way to have heard about it.
+
+**"Once" is not "in one frame", and the difference was a field report.** The
+whole build is 256 `mp_cell2txt` calls, 3,776 `lodsb`/`stosw` pairs and a
+9,676-byte blank; priced against PERFORMANCE.md Part 9's measured 8088 that is
+**140–330 ms**, and it ran once per pattern — every ~9 s at 125 BPM speed 7.
+On the target that is a Part 1 *visible redraw*, and it was reported exactly
+as one: the screen stopping for about a third of a second and then jumping,
+reliably, every eight seconds or so. So the periodic rebuild is **spread**:
+
+- `ttx_shstart` claims `[mp_pattern]`, sets `[ttx_shbusy]` and arms a cursor.
+- `ttx_shstep` formats `TTX_SHCHUNK` (4) rows and returns; `ttx_draw_dyn`
+  calls it once a frame, forcing a blit each time, until the 64th row clears
+  `[ttx_shbusy]` and sets `[ttx_shok]`. Worst frame ~25 ms instead of ~330.
+- `ttx_shbuild` is that loop run to completion, and its **only** caller is
+  `ttx_draw_all`: the mode has just been set, there are no pixels on screen
+  to stop updating, and paying it there is what makes the first frame after
+  F complete. It is also the only place that blanks — every later build
+  rewrites all 64 content rows, and the pad rows are never written at all.
+
+Three things about the spread are load-bearing. **The cursor starts at
+`view − TTX_HALF`** (clamped, then wrapping inside the pattern) rather than at
+row 0, so a `Dxx` break or a position jump that lands mid-pattern fills the
+*visible* window first instead of counting up to it. **It cannot be
+overtaken**: 4 rows a frame against a view that advances 7.14 rows a *second*.
+And **the pattern is claimed at the start, not at the end** — otherwise
+`ttx_draw_dyn`'s change test refires on every frame of the build — which also
+closes an old race, because the worker can move `[mp_pattern]` mid-build and
+recording it afterwards marked a mixed shadow as current. Recorded first, a
+mid-build move is caught by the same test on the next frame and restarts.
+
+While a spread build runs, §45.14's `SHB` reads `--`: there is no complete
+shadow to check, which is honest and doubles as a visible marker of the frames
+a rebuild is spread over.
 
 Three things about it are load-bearing:
 
@@ -13597,6 +13713,13 @@ listening cannot tell them apart. Every counter resets with the stream, in
 | `BLK` | the longest gap, in ticks, between two different `consumed` readings | `consumed` moves by one whole half and only from `sbl_isr`, so this **is** the block-IRQ interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. Doubling means a block arrived a whole period late |
 | `WAKE` | the longest gap, in ticks, between this worker's own feed passes | the control for `BLK`. 1 is healthy |
 | `SHB` | **live**: how many of the text shadow's 64 content rows have a blank row-number field (§45.13.2). `--` = there is no shadow to check — windowed, or before the first build | anything but `00` means the shadow really is losing content, and the blank area on screen is not the pad |
+
+**Latching the meter on also resets the four extremes**, and that is what
+makes them attributable. They otherwise reset only with the stream, so one bad
+moment during the load repaint pins `MIN` and `WAKE` for the whole session and
+every later glitch reads as having changed nothing — which is exactly what the
+first field reading did. D off, D on, watch one glitch: the numbers then
+describe *that* glitch.
 
 **`SHB` is the one live number, and that is why D is a latch rather than a
 one-shot.** The other five are running extremes, so a snapshot taken on the
@@ -15178,11 +15301,35 @@ DRVE_MEM    the heap cannot fund it
 DRVE_HW     it loaded and found no hardware
 ```
 
+**Nothing loads that `SYSTEM.CFG` did not ask for, and no row is wanted by
+default.** Both `drv_tab` rows ship with `DRVR_WANT` = 0. The sound row used
+to ship with 1, so a freshly built image — which carries no `SYSTEM.CFG` at
+all — read the whole 5.5KB driver off the floppy on every boot to be told
+there was no card: **27 sectors, about 6.4 seconds** at the field machine's
+238 ms per sector (PERFORMANCE.md Part 2), and then a Control Panel opened
+on a failure nobody had asked for. A driver probes hardware and costs a
+floppy read; both are the user's to ask for, and the tick in the Drivers page
+is both the request and the record of it. The kernel does not guess.
+
+The consequence is deliberate and worth stating plainly: **a fresh image has
+no FM and no digital sound until the Drivers page is ticked once.** The tone
+tier still works — it stays on the PC speaker, which is where it lives when
+no driver publishes `DSV_TONE` (§34) — and the tick loads the driver on the
+spot (§51.4), so the cost of the default is one click, once, on the machines
+that have a card.
+
 The ordering at boot is binding. **`drv_boot` runs before the desktop's first
 paint**, so a machine whose sound driver loads has sound from the first
 frame. **`drv_notice` runs after it**, because a window cannot go up on a
 screen that has not been painted — so a failure is banked in the row and
-reported later, never where it happens.
+reported later, never where it happens. The whole of `drv_boot` is also on
+the boot progress bar: it is floppy sectors, and `dsk_xfer` ticks the bar per
+sector for as long as the loading screen is up (§15.3).
+
+**`bb_set` is the last thing `drv_boot` does**, after the load loop, for the
+§15.3 reason: it seeds the back buffer from VRAM, and until the first paint
+VRAM holds the loading screen. The heap does not care which end it happens
+at — data claims grow up and a driver's region down (§50.3).
 
 `drv_notice` opens the **Control Panel on its Drivers page** rather than
 putting up a notice of its own, and that is a design rather than a saving:
@@ -15272,8 +15419,10 @@ torn or corrupt file therefore costs the settings it did not carry and nothing
 else.
 
 A missing or malformed file means **the defaults**, never an error — which is
-what makes a freshly built image boot with sound enabled and a disk with a
-foreign `SYSTEM.CFG` boot at all.
+what makes a freshly built image, and a disk carrying a foreign
+`SYSTEM.CFG`, boot at all. Since every `DRVR_WANT` default is now 0 (§51.3),
+that also means a machine with no settings file **loads no driver and probes
+no hardware**: the file is the only thing that can ask.
 
 The settings write is a **separate outcome from the load**, and the Control
 Panel reports them separately: a load that succeeds and a save that cannot
@@ -15409,9 +15558,8 @@ the same identity test as the four volume slots) carries them:
 
 ```
 AL = 0  read the blob into ES:SI, at most CX bytes; out CX = bytes handed over
-AL = 1  write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
+AL != 0 write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
         the Control Panel's teardown like every other setting (§31.8)
-AL = 2  ...and write the file NOW
 out CF = 1  not a published driver, or a WRITE longer than DRV_BLOB_SZ (34)
 ```
 
@@ -15440,12 +15588,21 @@ that may have no hard disk. One blob is shared by whichever driver asks, which
 is the honest shape while exactly one class has settings; a second claimant is
 a second key, not a bigger blob.
 
-**Verb 2 exists because a mount is not a preference.** Deferral is right for a
-session of nudging a cylinder count — a floppy write is about a second on the
-floor machine and the panel is frozen for it — but a machine switched off with
-the panel still open would come back with a hard disk it had been told to mount
-and has not. So the geometry editor stages on every click and writes on none,
-and Mount and Unmount write on the spot.
+**There was a verb 2, "and write the file NOW", and it is retired.** It
+existed because a mount is not a preference: a machine switched off with the
+panel still open comes back with a hard disk it had been told to mount and has
+not. That is the argument every page makes for being §31.8's exception, and it
+is refused here for the same reasons, plus one this cell had to itself — the
+write remounts A: to reach the file, so a driver that had just made its own
+volume current lost it inside the click. **A set never touches the disk**; the
+Control Panel's close and Special > Restart are the only two writers in the
+machine.
+
+`AL = 2` is still **accepted** and means exactly what `AL = 1` means, so a
+`.DRV` built against the old contract stores its blob and defers rather than
+failing. Under §20.8 rule 4 that is a narrowing of *when the bytes reach the
+disk*, not of what the call does: the cell still stores, still answers CF the
+same way, and still reads back what was written.
 
 ## 52. HDD.DRV — the hard-disk driver (drivers/hdd/)
 
@@ -15456,10 +15613,12 @@ button — because the kernel's half of this is four API slots and a volume
 table, and nothing above them belongs in a kernel that boots machines with no
 hard disk at all.
 
-It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0), unlike the
-sound driver: this one probes controllers, and a machine with neither should
-not be poking at 1F0h every boot to be told so. The Drivers page turns it on
-and `SYSTEM.CFG` remembers.
+It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0): this one
+probes controllers, and a machine with neither should not be poking at 1F0h
+every boot to be told so. The Drivers page turns it on and `SYSTEM.CFG`
+remembers. The sound row shipped with a 1 here for a while and has since
+joined it at 0, for the same reason plus the read (§51.3) — **no row is
+wanted by default now**, and this passage is the argument that generalised.
 
 ### 52.1 The transport ladder
 
@@ -15656,15 +15815,21 @@ Three things about it are load-bearing:
   disk at all. The mount's *own* save no longer needs this: the kernel owns
   the file and the drive it lives on.
 
-There are three ways out and each is the §51.9 verb its job needs. The
-geometry editor **stages** on every `+` and writes on none, because a floppy
-write is about a second on the floor machine and the panel is frozen for it;
-opening the partitioner or the formatter **spends** a staged edit, because a
-geometry the user is about to format a disk with is one worth surviving a
-hang; and Mount and Unmount **write on the spot**, because the set of mounted
-drives is what the next boot reads. Detach stages — the fence is still open
-(the kernel releases the class after detach returns) and the panel that
-unticked the driver is about to close and write the file anyway.
+**There is one way out, `hd_cfg_mark`, and it never touches a disk.** It hands
+the blob to the kernel — a 34-byte `rep movsb` — and `SYSTEM.CFG` is written
+when the Control Panel closes or Special > Restart is picked, like every other
+setting in the machine (§31.8). Everything that can change the blob calls it:
+the geometry editor on every `+`, Mount and Unmount, and detach.
+
+There were three ways out, and the other two wrote immediately. `hd_cfg_now`
+was Mount and Unmount, on the argument that the set of mounted drives is what
+the next boot reads; `hd_cfg_flush` was opening the partitioner or the
+formatter, on the argument that a geometry about to be formatted with is worth
+surviving a hang. Both are gone with §51.9's verb 2, and what they bought was
+never worth 2+ seconds of frozen UI in the middle of a click — the Mount write
+also remounted A: behind the click that had just made C: current. Neither tool
+needs a stage of its own either: the only thing they use is the geometry, and
+the editor staged that on the click that changed it.
 
 ### 52.9 Not in scope
 

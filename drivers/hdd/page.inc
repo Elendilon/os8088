@@ -716,17 +716,19 @@ hd_page_click:
     jc .domount
     call hd_unmount
     jmp short .saved            ; the SET of mounted drives is what the next
-.domount:                       ; boot reads, so it is written out on the
-    call hd_mount               ; spot rather than deferred (SPEC.md 52.6)
-.saved:
-    call hd_cfg_now
+.domount:                       ; boot reads - STAGED, like every other
+    call hd_mount               ; setting in the machine, and on the disk when
+.saved:                         ; the panel closes (SPEC.md 31.8/52.6)
+    call hd_cfg_mark
     jmp .repaint
+                                ; Neither tool stages anything of its own: the
+                                ; only thing either one uses is the geometry,
+                                ; and the editor staged that on the click that
+                                ; changed it
 .dopart:
-    call hd_cfg_flush           ; opening a tool COMMITS to this geometry,
-    call hd_pw_open             ; which is what spends a deferred edit
+    call hd_pw_open
     jmp .repaint
 .dofmt:
-    call hd_cfg_flush
     call hd_fw_open
     jmp .repaint
 .refused:

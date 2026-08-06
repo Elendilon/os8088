@@ -326,9 +326,19 @@ drv_tab:
     dw drv_f_sound, drv_t_sound
     dw 0, 0
     db DRVC_SOUND
-    db 1                        ; wanted by default: a fresh disk loads it,
-                                ; and a machine with no card simply reports
-                                ; DRVE_HW once and carries on
+    db 0                        ; NOT wanted by default, exactly like the disk
+                                ; driver below. It was 1, so a fresh image -
+                                ; which carries no SYSTEM.CFG at all - read
+                                ; the whole 5.5KB driver off the floppy on
+                                ; every boot to be told there was no card:
+                                ; 27 sectors, and a sector is 238 ms on the
+                                ; machine this is for (PERFORMANCE.md Part 2),
+                                ; so about six and a half seconds. Then it
+                                ; opened the Control Panel to report a failure
+                                ; nobody had asked for. NOTHING LOADS UNLESS
+                                ; SYSTEM.CFG ASKS FOR IT (SPEC.md 51.3), so
+                                ; the tick in the Drivers page is both the
+                                ; request and the record of it
     db DRVE_OK
     db 0
 
@@ -723,7 +733,7 @@ drv_cp_call:
 
 ; -----------------------------------------------------------------------------
 ; osapi_drv_cfg - a driver's own settings, in the kernel's file (SPEC.md 51.9)
-; in:  AL = 0 get / 1 set / 2 set and write the file now
+; in:  AL = 0 get / anything else set
 ;      ES:SI = the driver's buffer, CX = its size
 ; out: get: CX = bytes handed over (never more than either side's size)
 ;      set: CF = 1 = CX is bigger than DRV_BLOB_SZ and nothing was stored
@@ -739,11 +749,19 @@ drv_cp_call:
 ; unchanged. It is not dropped the way an unknown key is (SPEC.md 51.5 rule
 ; 1), and the difference is that this key is known - only its meaning is not.
 ;
-; Verb 2 exists because a MOUNT is not a preference. Every other setting is
-; deferred to the panel's teardown (SPEC.md 31.8) because a floppy write is a
-; second on the floor machine and a session of fiddling must not cost one per
-; click; but a machine powered off with the panel still open would then come
-; back with a hard disk it had been told to mount and has not.
+; **A set never touches the disk**, and there is no verb that does. There was
+; one - verb 2, "set and write NOW" - taken because a MOUNT is not a
+; preference: a machine powered off with the panel still open comes back with
+; a hard disk it had been told to mount and has not. That is the argument
+; every page makes for being SPEC.md 31.8's exception, and it is refused here
+; for the same reasons it is refused there, plus one this cell had to itself -
+; the write remounts A: to reach the file, so a driver that had just made its
+; own volume current silently lost it mid-click.
+;
+; AL = 2 is still ACCEPTED and means exactly what AL = 1 means, so a .DRV
+; built against the old contract stores its blob and defers rather than
+; failing (SPEC.md 20.8 rule 4: a shipped slot keeps its contract; this is a
+; narrowing of when the bytes reach the disk, not of what the call does).
 ; -----------------------------------------------------------------------------
 osapi_drv_cfg:
     push ax
@@ -779,10 +797,10 @@ osapi_drv_cfg:
     pop es
     pop ds
     pop cx
-    mov byte [cp_wdirty], 1     ; the file is owed a write...
-    cmp al, 2
-    jne .ok
-    call cp_flush               ; ...and this verb wants it NOW
+    mov byte [cp_wdirty], 1     ; the file is OWED a write, and the panel's
+                                ; teardown is the only thing that pays it -
+                                ; there is no reachable flush from here now
+                                ; (SPEC.md 31.8)
 .ok:
     pop di
     pop si
@@ -2032,18 +2050,14 @@ drv_boot:
     push ax
     push bx
     push cx
+    xor ch, ch                  ; CH = 1 once a settings RECORD has been read
     call drv_mounted
     jc .nodisk
-    call drv_cfg_load
-    jc .load                    ; no record: every default stands
-    cmp byte [drv_cfg+CFG_BB], 0
-    je .load
-    call gfx_lock               ; the one setting that is not a store: it
-    mov al, 1                   ; claims 150KB and seeds the buffer from
-    call bb_set                 ; VRAM, and refuses itself on an adapter or
-    call gfx_unlock             ; a heap that cannot fund it (SPEC.md 32)
+    call drv_cfg_load           ; CF = 1: no file, so every default stands -
+    jc .load                    ; and every default is now "not wanted", so
+    mov ch, 1                   ; the loop below correctly loads nothing
 .load:
-    xor cx, cx
+    xor cl, cl
 .next:
     mov al, cl
     call drv_row
@@ -2056,10 +2070,27 @@ drv_boot:
     jnc .skip
     mov byte [drv_nerr], 1      ; something to say once there is a screen
 .skip:
-    inc cx
-    cmp cx, DRV_MAX
+    inc cl
+    cmp cl, DRV_MAX
     jb .next
-    jmp short .out
+
+    ; --- and the back buffer LAST (SPEC.md 32) -------------------------------
+    ; It is the one setting that is not a store: it claims 150KB and SEEDS
+    ; ITSELF FROM VRAM. Until this line VRAM holds the loading screen, whose
+    ; bar is still being ticked one notch per sector by everything above
+    ; (SPEC.md 15.3) - a buffer armed ahead of the reads would swallow every
+    ; notch after it, because a direct VRAM write is exactly what the next
+    ; flush undoes. The heap does not care which end of this routine it
+    ; happens at: data claims grow up and a driver's region down (SPEC 50.3).
+    or ch, ch
+    jz .out
+    cmp byte [drv_cfg+CFG_BB], 0
+    je .out
+    call gfx_lock
+    mov al, 1
+    call bb_set                 ; refuses itself on an adapter or a heap that
+    call gfx_unlock             ; cannot fund it - an ordinary answer, not an
+    jmp short .out              ; error (SPEC.md 32/50)
 .nodisk:
     ; No system disk at all. Only a row the user actually wanted counts as a
     ; failure: a machine that has never enabled a driver must not be told

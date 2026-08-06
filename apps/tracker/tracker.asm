@@ -665,11 +665,24 @@ trk_trim:
 ; ttx_draw_dyn re-renders the line every frame while it is set; turning it
 ; off puts [tui_msgp] back to 0, which is the key hint.
 ; -----------------------------------------------------------------------------
+; Latching it on also RESETS the four extremes, which is what makes them
+; attributable: they otherwise reset only with the stream, so one bad moment
+; during the load repaint pins MIN and WAKE for the rest of the session and
+; every later glitch reads as having changed nothing. D off, D on, then watch
+; one glitch, and the numbers describe that glitch.
 trk_diag_tog:
     push si
     cmp byte [trk_diag], 0
     jne .off
     mov byte [trk_diag], 1
+    mov word [trk_minlead], 0xFFFF
+    mov word [trk_late], 0
+    mov word [trk_under], 0
+    mov word [trk_blk], 0
+    mov word [trk_wake], 0
+    call OSAPI_GET_TICKS            ; both clocks restart with the window
+    mov [trk_blkt], ax
+    mov [trk_wakt], ax
     call trk_diag_msg
     pop si
     ret

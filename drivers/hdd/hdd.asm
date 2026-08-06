@@ -171,11 +171,12 @@ hd_detach:
     push bx
     push cx
     call hd_cfg_mark            ; a geometry typed and not yet acted on is
-                                ; still worth keeping (SPEC.md 52.6). Staged,
-                                ; not written: the fence is still open (the
+                                ; still worth keeping (SPEC.md 52.6). Staging
+                                ; is all there is, and it is what this path
+                                ; wanted anyway: the fence is still open (the
                                 ; kernel releases the class AFTER this returns)
                                 ; and the panel that unticked us is about to
-                                ; close and write the file anyway
+                                ; close and write the file
     mov cx, HD_MAXVOL
     mov bx, hd_vols
 .vol:
@@ -225,7 +226,6 @@ hd_state_init:
     mov byte [hd_ndev], 0
     mov byte [hd_sel], 0
     mov byte [hd_field], 0
-    mov byte [hd_dirty], 0
     mov byte [hd_wantmnt], 0
     mov word [hd_pwin], 0
     mov word [hd_fwin], 0
@@ -1220,7 +1220,6 @@ hd_lineptr:  dw 0               ; ...and where hd_scat/hd_utoa left off
 hd_rowslot:  db 0               ; the page's and the partitioner's loop index
 hd_rowdev:   db 0
 hd_pslot:    db 0               ; the partition hd_mount is working on
-hd_dirty:    db 0               ; 1 = the settings blob is owed a write (52.6)
 hd_wantmnt:  db 0               ; bit n = device n was mounted last session
 hd_selsave:  db 0               ; hd_cfg_automount's saved selection
 hd_cwd:      dw 0               ; the volume+directory the automount borrowed...

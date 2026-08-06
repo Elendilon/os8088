@@ -70,28 +70,41 @@ HDC_FBUF     equ HDC_ENT0 + HD_MAXDEV * HDC_ESZ     ; 34 = DRV_BLOB_SZ
 %endif
 
 ; -----------------------------------------------------------------------------
-; hd_cfg_save - hand the current state to the kernel and write SYSTEM.CFG
-; in:  AL = 0 store it / 1 store it and write the file NOW
-;      UI-task context (a Control Panel click), or DRVV_READY
-; out: nothing - a failure is silent here and reported by the caller's caption
+; hd_cfg_mark - hand the current state to the kernel. NO DISK I/O.
+; in:  UI-task context (a Control Panel click), or DRVV_READY
+; out: nothing - the store cannot fail for a blob of the kernel's own size
 ; clobbers: flags
+;
+; **This is the only way out, and that is the rule rather than a shortage of
+; ideas** (SPEC.md 31.8/51.9). The blob is staged into the kernel's settings
+; struct on the spot - a 34-byte rep movsb - and SYSTEM.CFG is written when
+; the Control Panel closes or Special > Restart is picked, which is where
+; every other setting in the machine is written and for the same reason: the
+; write is a mount of A:, a data write, two FAT flushes, a directory write and
+; a coherence remount, 2+ seconds of frozen UI on the floor machine, landing
+; in the middle of a click.
+;
+; Mount and Unmount used to write on the spot (the retired verb 2), and the
+; argument for it - a machine switched off with the panel open comes back
+; without the drive it was told to mount - was the same argument every page
+; makes for being the exception. It also cost more than it looked: the write
+; remounts A: to get at the file, so a mount click silently left A: current
+; immediately after making C: current.
 ;
 ; No volume dance and no file name: the kernel already owns the file and the
 ; drive it lives on.
 ; -----------------------------------------------------------------------------
-hd_cfg_save:
+hd_cfg_mark:
     push ax
     push bx
     push cx
     push si
     push es
-    push ax                     ; the verb, under the buffer build
     call hd_cfg_build           ; CX = the blob's length (always HDC_FBUF)
     push ds
     pop es
     mov si, hd_cfgbuf
-    pop ax
-    inc al                      ; 0 -> set, 1 -> set and flush
+    mov al, 1                   ; set: stored now, on the disk at teardown
     call OSAPI_DRV_CFG
     pop es
     pop si
@@ -384,46 +397,12 @@ hd_cfg_automount:
     ret
 
 ; -----------------------------------------------------------------------------
-; The three ways out, and the reason there are three
+; One way out, and the reason there is only one
 ;
-; Handing the blob to the kernel is a 34-byte copy; WRITING SYSTEM.CFG is a
-; floppy write, about a second on the floor machine with the panel frozen for
-; it. So a session of nudging the cylinder count with the + button stages on
-; every click and writes on none - cp_flush's own trade (SPEC.md 31.8), and
-; the reason a driver's settings ride the kernel's file rather than being
-; timed against it.
-;
-;   hd_cfg_mark   stage it. No I/O; the Control Panel's teardown writes it.
-;                 The geometry editor, and detach.
-;   hd_cfg_flush  stage it and write NOW, if an edit is owed one. What spends
-;                 [hd_dirty] is any action that USES the geometry - opening
-;                 the partitioner or the formatter - because a geometry the
-;                 user is about to format a disk with is one worth surviving
-;                 a hang.
-;   hd_cfg_now    stage it and write NOW, always. Mount and unmount: the SET
-;                 of mounted drives is what the next boot reads, and a machine
-;                 switched off with the panel still open would otherwise come
-;                 back with a hard disk it had been told to mount and has not.
+; There were three - stage, stage-and-write-if-owed, stage-and-write-always -
+; and the two that wrote are gone with the kernel verb they used. Everything
+; that changes the blob now calls hd_cfg_mark and nothing in this driver can
+; reach the disk: the geometry editor on every +, Mount and Unmount, opening
+; the partitioner or the formatter (both of which only ever re-staged what the
+; editor had already staged), and detach. SPEC.md 31.8 is the whole argument.
 ; -----------------------------------------------------------------------------
-hd_cfg_mark:
-    push ax
-    mov byte [hd_dirty], 1
-    xor al, al                  ; stage only
-    call hd_cfg_save
-    pop ax
-    ret
-
-hd_cfg_flush:
-    cmp byte [hd_dirty], 0
-    je .out
-    call hd_cfg_now
-.out:
-    ret
-
-hd_cfg_now:
-    push ax
-    mov byte [hd_dirty], 0      ; there is nothing left owing
-    mov al, 1                   ; ...and the file says so
-    call hd_cfg_save
-    pop ax
-    ret

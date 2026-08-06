@@ -604,17 +604,19 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
 ; reads them, and it round-trips them untouched on a machine where the driver
 ; never loads. Versioning them is the driver's job.
 %define DRV_BLOB_SZ         34
-%define OSAPI_DRV_CFG       KERNEL_SEG:0x0290   ; AL = 0 read / 1 write / 2
-                                 ; write and flush SYSTEM.CFG now, ES:SI = the
-                                 ; driver's buffer, CX = bytes (<= DRV_BLOB_SZ).
+%define OSAPI_DRV_CFG       KERNEL_SEG:0x0290   ; AL = 0 read / anything else
+                                 ; write, ES:SI = the driver's buffer, CX =
+                                 ; bytes (<= DRV_BLOB_SZ).
                                  ; out CF=1 = not the published driver, or a
                                  ; WRITE past DRV_BLOB_SZ; a never-written blob
                                  ; reads back as zeroes, so put a version byte
                                  ; in it and treat anything else as the
-                                 ; defaults (SPEC.md 51.5). Verb 1 rides the next
-                                 ; Control Panel flush, verb 2 costs a write
-                                 ; NOW - use it for state a power cut must not
-                                 ; lose, not for a preference
+                                 ; defaults (SPEC.md 51.5). A WRITE NEVER
+                                 ; TOUCHES THE DISK: the bytes ride the next
+                                 ; Control Panel flush, which is the panel's
+                                 ; close or Special > Restart and nothing else
+                                 ; (SPEC.md 31.8). The old verb 2, "write the
+                                 ; file NOW", is retired and reads as 1
 
 ; --- the three snapshots, and a patterned fill (SPEC.md 20.9) ----------------
 ; The first three answer questions about the SYSTEM rather than about you: the

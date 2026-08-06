@@ -325,6 +325,13 @@ dsk_xfer:
     jmp short .fail             ; 3 strikes: unrecoverable
 
 .ok:
+    call spl_step               ; one notch of the boot bar per sector, for as
+                                ; long as the loading screen is up: kmain's
+                                ; tail is floppy sectors just like the load
+                                ; that preceded it, so it is the same unit
+                                ; (SPEC.md 15.3). Preserves every register and
+                                ; the flags, and after spl_finish it is a
+                                ; compare and a return
     add bx, 512                 ; advance destination
     inc di                      ; next LBA
     dec si

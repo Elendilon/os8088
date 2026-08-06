@@ -152,6 +152,56 @@ is a poor fit for the evidence.
 >   family to think in, and `stackprobe` on the reporting machine is the
 >   cheap first move.
 >
+> **THE TEXT FREEZE IS SOLVED, AND IT WAS NOT THE PAD.** `SHB 00` on the
+> reporting machine settled the pad question — the shadow is intact — and the
+> reporter then described the thing the pad was masking: *"when the scrolling
+> empty lines reach roughly the middle of the screen the entire text screen
+> stops updating for 1/3rd a second or so, then when it resumes it jumps."*
+> **Reliably, every ~8 seconds.**
+>
+> Both halves of that are arithmetic. The blank reaching the middle is
+> row 63; 64 rows at 125 BPM speed 7 is 50 ticks/s ÷ 7 = 7.14 rows/s =
+> **8.96 s a pattern**. So the freeze is the pattern boundary, and the
+> pattern boundary is `ttx_shbuild` — which formatted all 64 rows in one
+> frame. Priced against PERFORMANCE.md Part 9's measured 8088 (RAM
+> `rep stosw` 1.76 us/byte; the 4.34-clocks-per-instruction-byte floor;
+> 4.66 MHz): the 9,676-byte blank is **17 ms**, the 3,776 `lodsb`/`stosw`
+> pairs are **28–32 ms**, and 256 `mp_cell2txt` calls — each one a linear
+> `mp_pfind` scan over up to 36 periods plus three hex fields — are the rest.
+> **140–330 ms**, against a frame that otherwise costs about 6. The reporter's
+> "1/3rd a second" sits at the top of that range, and the *jump* on resume is
+> the view having advanced two rows while nothing was drawn.
+>
+> Fixed by spreading it: `TTX_SHCHUNK` = 4 rows a frame, cursor starting at
+> the visible window and wrapping (SPEC.md §45.13.2). Worst frame ~25 ms.
+>
+> **What it does NOT explain is the audio**, and that has to be said plainly
+> because the temptation is strong. The reporter says the hitch "usually
+> occurs during that freeze, but it doesn't occur every time" — but
+> `ttx_shbuild` runs on the bracket task with the worker still whitelisted and
+> pre-emption still working (a full switch is 693 us, and the kernel's own
+> tick + mouse + scheduler is 1–3% of a busy CPU). A 330 ms drawing stall
+> cannot drain a ring that holds 2.2 s, and `UND 000` says the driver's own
+> buffer never starved either. So the correlation is real and the causation
+> is not established.
+>
+> **The first field reading of `BLK`/`WAKE` was `BLK 32 WAKE 29`, with
+> `MIN 4`** — and those three are consistent with each other rather than with
+> the freeze: 29 ticks is 1.59 s, at 5,500 Hz that is 8,745 bytes, and a ring
+> that starts 8 halves deep and loses 4.3 of them lands at exactly `MIN 4`.
+> `BLK 32` is then explained *by* `WAKE 29`, because `BLK` is sampled by the
+> worker and a worker that did not run could not sample. So one ~1.6 s
+> deschedule accounts for all three — and it is far more likely the load
+> repaint than a pattern boundary, because the extremes reset only with the
+> stream and the load is inside the window.
+>
+> **That is why latching the meter on now resets them** (§45.14). D off, D on,
+> then watch one freeze. If `WAKE` stays `00`–`01` across it, the freeze never
+> touched the worker and the audio hitch is still below the driver — back to
+> the three-way split above. If `WAKE` climbs to ~6 during the freeze, then
+> something in that frame is holding the scheduler and the fix above fixes
+> both.
+>
 > Everything below this line is the earlier analysis, kept because its
 > ruling-out is still valid and because the two theories it eliminates are
 > the ones anybody would reach for again.
