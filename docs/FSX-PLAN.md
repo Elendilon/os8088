@@ -162,16 +162,35 @@ not a guess, per §47:
 | 3  | 640x200x2 (CGA)         | int 10h AX=0006             | Y | Y | – |
 | 4  | 720x348 mono (Herc gfx) | 6845 direct (`vid_setmode`'s Herc body) | – | – | Y |
 | 5  | 320x200x16 planar (0Dh) | int 10h AX=000D             | Y | – | – |
-| 6  | 640x350x16 (10h)        | int 10h AX=0010             | Y | – | – |
+| 6  | 320x200x256 (13h)       | int 10h AX=0013             | Y | – | – |
 | 7  | 640x480x16 (12h)        | int 10h AX=0012             | Y | – | – |
-| 8  | 320x200x256 (13h)       | int 10h AX=0013             | Y | – | – |
+| 8  | 320x240x256 "Mode X"    | int 10h AX=0013 + unchain pokes | Y | – | – |
 
 Ids 0–3 are "all four modes CGA supports" (the colour/BW pairs 0/1, 2/3,
 4/5 collapse; we set the colour variant). Ids 0 and 4 are Hercules text and
-graphics. Ids 5–8 are the proposed "four standard VGA modes" — 0Dh is the
-classic planar game mode, 13h the chunky one; **open decision** below if
-11h (640x480x2) or another set was meant. The enum is open-ended; appending
-costs one table row.
+graphics. Ids 5–8 are the VGA four, **chosen**: 320x200 and 640x480, each
+in 16 and 256 colours — with one substitution forced by the hardware.
+**640x480x256 is not a VGA mode**: 307,200 bytes exceeds both the 64KB
+real-mode window and what standard VGA addressing can display; it is SVGA,
+bank-switched behind vendor registers with no portable interface until
+VESA VBE — nothing in this repo's machine matrix can set it. What that
+wish was reaching for — more 256-colour capability — is **Mode X**:
+mode 13h plus a short standard-register unchain sequence (~30 bytes in the
+mode table), running on every real VGA and faithfully emulated by QEMU and
+86Box. It buys square pixels at 4:3 and, because unchaining frees the
+card's full 256KB, **three display pages** — page-flipping against
+`FSX_WAIT`'s vsync, which single-page 13h cannot do. The cost is
+planar-style addressing (map-mask plane select), which the info block
+already describes; 13h stays in the set as the dead-simple linear model.
+
+The enum is open-ended; appending costs one table row. 10h (640x350x16)
+or 11h (640x480x2) land that way if ever wanted, and an SVGA/VBE mode —
+if such machines ever become a target — arrives as a *loadable video
+driver* the way sound and hard disks did, not as a change to this table.
+One footnote for later: `vid_detect` step 2 admits EGA-class cards as
+`VID_VGA`, and an EGA sets 0Dh but not 12h/13h; if those machines ever
+matter, `FSX_CAPS` is where the finer probe lives — the desktop's
+detection does not change.
 
 - **`OSAPI_FSX_CAPS`** — out AX = bitmask of settable ids for the live
   adapter (bit n = id n), DL = `vid_kind`. Callable from any context, lock
@@ -319,8 +338,9 @@ half-working panic key is worse than a documented absence).
 
 ## 10. Testing beyond the gate
 
-- QEMU exercises ids 0–3 and 5–8 on VGA (SeaVGABIOS sets all of them;
-  `screendump` shows every VGA-set mode), ids 0–3 gating under `VIDEO=cga`,
+- QEMU exercises ids 0–3 and 5–8 on VGA (SeaVGABIOS sets ids 0–7; id 8 is
+  13h plus register pokes QEMU's VGA honours, and `screendump` follows the
+  CRTC so it shows every one, Mode X included), ids 0–3 gating under `VIDEO=cga`,
   and id 4's *rendering* under `VIDEO=herc` + `hercshot.py` (the 6845 pokes
   go into the void there — harmless; the port writes themselves are 86Box's
   to verify).
@@ -346,9 +366,11 @@ half-working panic key is worse than a documented absence).
 
 ## 12. Open decisions (need an answer before phase 2)
 
-1. **Which four VGA modes?** Proposed: 0Dh/10h/12h/13h. If "standard"
-   meant VGA-introduced only, that is 11h/12h/13h — three — and the fourth
-   is a pick. Cheap to change; the enum is open either way.
+1. **Which four VGA modes? — DECIDED**: 320x200 and 640x480, each in 16
+   and 256 colours, with Mode X (320x240x256) standing in for the
+   hardware-impossible 640x480x256 (§4). The one open sliver: confirm the
+   Mode X substitution is wanted, or ship three VGA modes and leave id 8
+   unassigned.
 2. **The reference consumer**: new fire/plasma demo package, or a Missile
    Command 0Dh mode? (Both is fine; one is the phase-4 gate.)
 3. **`FSXF_KEEPWORKER` in v1** or deferred until a streaming fullscreen app
