@@ -6080,6 +6080,28 @@ Four things hold the engine up:
   after a walk is wherever the walk stopped. The flag is **dropped while a
   question is outstanding**: the pause is a trip through the event loop where
   anything else that writes must behave normally.
+- **And `fmv_repaint_all` puts the PIXELS back — the Disk windows, and
+  nothing else on the screen.** `fmv_reload_all` moves every window's cache;
+  what used to follow it was a `wm_paint_all`, so dragging one file between
+  two Disk windows repainted the desktop dither, the drive zones, the chrome
+  and every other application. A paste **reveals nothing** — no window moved,
+  none was hidden, only contents changed — so what it owes is the windows
+  whose listings changed and whatever overlaps them. That is §11.91's
+  mark-and-draw pass, `wm_dmg_wins`, on its own: the same one `wm_dock_under`
+  borrows, without the dither, the zones or the chrome. On the measured drag
+  that is 238 fills and 245 glyphs down to 138 and 169, and no `wm_paint_all`
+  at all.
+
+  Two things about it are load-bearing. It is **one call over the union of
+  the windows, not one call per window**: `wm_dmg_wins` redraws a marked
+  window *whole*, so a per-window loop redraws each overlapping neighbour
+  once per pass — two overlapping Disk windows cost four window paints, which
+  measured *worse* than the `wm_paint_all` it replaced. Inside one call the
+  marking is transitive and every window is painted exactly once. And the
+  windows are redrawn whole rather than in place because of the granularity
+  rule (§11.3): `fm_repaint` is one big fill plus ~40 `font_str`s, the fill
+  clips per pixel and the glyphs per cell, so a window partly covered by
+  another would come back with blank rows wherever a clip edge crossed it.
 - **`fcp_selfchk` refuses a folder pasted into itself or its own subtree**,
   by walking up from the destination looking for the source's cluster —
   the cheapest way to ask "is the source an ancestor" on a file system with
