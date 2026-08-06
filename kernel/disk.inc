@@ -334,13 +334,23 @@ dsk_xfer:
 .runtrk:
     mov bp, ax
     call dsk_runcap             ; BP = min(BP, what the BUFFER allows)
-%ifdef FLOPPY_ONE_SECTOR
-    mov bp, 1                   ; ...and back to one sector a call, the shape
-                                ; before SPEC.md 18.91. A diagnostic knob for
-                                ; a machine whose BIOS or FDC judges a
-                                ; multi-sector read differently from SeaBIOS -
-                                ; everything else about the build is identical
-%endif
+    ; ...and then ONE SECTOR, unconditionally (SPEC.md 18.91).
+    ;
+    ; The batching is disabled, not deleted. It measured 12 int 13h calls per
+    ; directory change down to 5 under QEMU and it hard-locks a real machine:
+    ; every package - Note Pad, Paint, Tracker, Task Manager - froze as its
+    ; window drew, and a build with this line was the only one that worked.
+    ; Advancing by the count int 13h RETURNS rather than the count requested
+    ; was the first theory and did NOT cure it, so whatever a real BIOS or FDC
+    ; does differently here is still unidentified and the run splitter above
+    ; is still suspect.
+    ;
+    ; The arithmetic is left standing because it is the part that was
+    ; reviewed and is probably right - the track bound, the 64KB DMA page and
+    ; the BX wrap - and because the next attempt starts by deleting this line
+    ; and nothing else. Correctness first: a machine that freezes on every
+    ; launch is not worth seven BIOS calls a folder.
+    mov bp, 1
     mov [dsk_run], bp
 %ifdef DISK_COUNTERS
     add [dsk_dbg_sec], bp
