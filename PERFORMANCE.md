@@ -117,6 +117,16 @@ the card barely shows through.
 > **A redraw is priced by how many primitive calls it makes, not by how many
 > pixels it covers.** Everything below is a consequence of that sentence.
 
+**That floor has since been taken apart and cut by about a fifth, and this
+table has NOT been re-measured** (rule 8: a figure carries its machine and
+its build). Part 9 Set 3 is the teardown — one `gfx_pixel` is 196 guest
+instructions across eleven routines, a third of them push/pops and near
+call/rets — and the work it prompted is SPEC.md §5.7. Under `-icount` the
+pixel path came down 19.6% and every `gfx_*` row with it. Until somebody
+runs `gfxbench` on the 5150 again, **estimate with the 756 us above**: it is
+the number that was measured, the improvement is measured in a different
+unit, and an inferred figure must not quietly replace a field one.
+
 ### Measured — drawing
 
 | quantity | Hercules | CGA |
@@ -424,6 +434,8 @@ list to check yourself against.
 | Covered background window | skipped the frame entirely | draws its visible region | §11.3 |
 | Copy a file | 5 volume switches per file | 2, one `dsk_read_chain` per chunk | §22.5 |
 | FAT access across a copy | re-read on every switch | a window per volume: 45 mounts → 3 loads | §18.8.1 |
+| The per-call floor itself (1bpp) | one `gfx_pixel` = **196** guest instructions of generic rect machinery | **158**; `GFX_FILL 8x8` −19.3%, `64x64` −14.5%, `GFX_BLIT4` −13.8%, output byte-identical on all three adapters | §5.7, Part 9 Set 3 |
+| A renderer row step | `call gfx_nextrow`: a near call plus two CS-overridden memory reads, **three times per scan line** | three register instructions, parameters hoisted out of the loop | §39.3, §32 |
 
 Two entries in that table are load-bearing beyond their own numbers.
 **`OSAPI_WM_GROW` was called on every Note Pad keystroke** — free in the
@@ -565,6 +577,7 @@ was ruled out (tens of seconds per 448×280 frame before the dither).
 |---|---|
 | The testing matrix, and modelling the old machine from a fast one | [docs/TESTING.md](docs/TESTING.md) |
 | `font_run`, and the primitive priced four ways | SPEC.md §6.1 – §6.1.4 |
+| The per-call floor, taken apart, and the seven rules holding it down | SPEC.md §5.7 |
 | `gfx_blit4` / `gfx_scroll`, and the cycle counts written down | SPEC.md §5.4, §5.5; `kernel/vga12.inc` |
 | The clip region, and the granularity rule | SPEC.md §11.3 |
 | Show / hide / drag / retitle costs | SPEC.md §11.90 – §11.92 |
@@ -997,3 +1010,89 @@ dwarfs the drawing, and both say the inner loops are already at the bus. A
 redraw is priced by **how many primitive calls it makes**, not by how many
 pixels it covers — which is the opposite of the assumption every estimate in
 Part 2 was built on.
+
+### Set 3 — the floor taken apart, and a fifth of it removed
+
+| | |
+|---|---|
+| machine | **not a machine** — QEMU with `-icount shift=3,sleep=off`, so the PIT counts guest INSTRUCTIONS (Part 4). Reproducible, machine-independent, **not time** |
+| adapter | CGA 640x200 (`VIDEO=cga`) for the mono renderer; VGA 640x480 for the planar one; Hercules for the pixel check only |
+| build | `dc92330` against the same tree plus the §5.7 changes |
+| date | 2026-08-06 |
+
+Set 1 and Set 2 said the floor was CPU-side setup but not **which** setup, so
+the first thing done here was to count it rather than guess (rule 4). One
+`gfx_pixel` on the 1bpp renderer is **196 guest instructions**, and the
+static path agrees: they are spread over eleven routines with no hot spot
+anywhere — the API far-call cell, `gfx_pixel`'s rect marshalling, §11.3's
+clip test, `bb_mono_chk`, the `[bb_on]` dispatch, `vga_rect_setup`,
+`gfx_rowbase`, `bb_dirty_rect`, `bb_ink`, `bb_plane_op`, `bb_col`. **About a
+third of it was register discipline and call structure** — 13 push/pop pairs
+at Part 2's measured 29.7 clocks and ~10 near call/rets at 52.1 — and none
+of it was drawing. SPEC.md §5.7 lists the seven changes and why each is a
+rule rather than a tidy-up.
+
+The mono renderer, before and after, in PIT counts over N iterations:
+
+| row | N | before | after | repeat | per call |
+|---|---|---|---|---|---|
+| `GFX_PIXEL` | 300 | 560 | 451 | 449 | **−19.6%** |
+| `GFX_FILL 8x8` | 200 | 531 | 430 | 427 | −19.3% |
+| `GFX_VLINE 8px` | 200 | 538 | 437 | 435 | −18.9% |
+| `GFX_FRAME 64x64` | 24 | 573 | 468 | — | −18.3% |
+| `GFX_HLINE 8px` | 200 | 375 | 314 | 310 | −16.8% |
+| `GFX_FILL 64x64` | 24 | 688 | 588 | 587 | −14.6% |
+| `GFX_BLIT4 4px runs` | 6 | 15,930 | 13,713 | 13,711 | −13.9% |
+| `GFX_FILL_GRAY 64x64` | 24 | 680 | 586 | 585 | −13.9% |
+| `GFX_BLIT4 solid` | 12 | 2,637 | 2,276 | 2,275 | −13.7% |
+| `GFX_XOR_FILL 64x64` | 24 | 710 | 616 | 614 | −13.4% |
+| `WM_TITLE strip` (§11.92) | 4 | 420 | 368 | 367 | −12.4% |
+| `GFX_FILL 256x128` | 6 | 419 | 372 | — | −11.2% |
+
+**The control rows are the point of the table, not an afterthought** (rule
+7): `GFX_FILL_PAT 64x64` (806 → 802), `GFX_SCROLL 256x128` (1,351 → 1,354)
+and `one full-width row` of text (2,220 → 2,219) are the three drawing paths
+none of these changes touch, and all three sat still. A harness that had
+moved them would have been measuring itself.
+
+The same suite on **VGA**, where the planar VRAM bodies run and `bb_col`
+never does, so only the shared coordinate core changed: `GFX_PIXEL` 424 →
+404 (−4.7%), `GFX_FILL 8x8` 338 → 317 (−6.2%), `GFX_BLIT4 4px runs` 13,110
+→ 12,192 (−7.0%), `GFX_FILL 64x64` and `GFX_SCROLL` unmoved. Nothing on
+either adapter got worse.
+
+**Two honest limits.** First, a repeat run of the whole suite on the
+unchanged kernel puts the noise floor where you would expect: rows in the
+hundreds of counts repeat to under 1% (`GFX_BLIT4 solid` to 0.04%), and rows
+in single digits — `GET_TICKS`, `MOUSE`, `ISA status port in`, `GFX_HLINE
+256px` — swing by more than the effect and **must not be quoted from this
+set at all**. Second and more important, **icount counts instructions and
+the question was clocks**. Three of the seven changes remove clocks without
+removing instructions: two variable shifts (8 clocks plus 4 per bit), a
+`shl bx,13` (60), and push/pop pairs (one instruction, 15 clocks each). A
+hand model over the changed sequences, priced from Set 1's own measured
+per-class table, puts the pixel path at about **−620 clocks of 3,600, −17%**
+— which agrees with the −19.6% instruction figure to within the precision
+either deserves. **What would settle it is `gfxbench` on the 5150 again**,
+and until that happens Part 2's 756 us stands as the number to estimate
+with.
+
+Rendering was verified byte-for-byte rather than by eye, on all three
+adapters and both renderers, over a fixture of desktop dither, window
+frames, a file listing, an XOR selection band, a pull-down menu and its
+save-under restore: **CGA pixel-identical** bar the menu-bar clock's last
+glyph cell, **VGA pixel-identical** with the §32 back buffer both off and
+on, and **Hercules** differing by 10 pixels of menu bar — against 17 between
+two boots of the *same* kernel, so below that fixture's own reproducibility.
+
+#### What is left, and what it would cost
+
+Priced from the same teardown, for whoever comes next:
+
+| still on the floor | worth | why it was not taken |
+|---|---|---|
+| `gfx_rowbase`'s `mul` by the stride | ~145 clocks, 4% | a per-row table is 2 bytes x `[vid_h]` — 960 on VGA, and `KERN_BUDGET` has 1,536 left |
+| `bb_rect`'s eight push/pop pairs | ~240 clocks, 7% | it is `gfx_fill`'s "clobbers flags" contract, which every caller in the tree leans on |
+| the API far-call cell | ~223 clocks, 6% | the package ABI (§20.1) |
+| a dedicated 1-row body for `gfx_hline`/`gfx_pixel` | maybe 25% of what remains | a second implementation of the same pixels, ~100 bytes, and Part 3 item 4's exact failure mode |
+| a one-entry memo on `gfx_rowbase` | ~4% of a text row (78 cells share a y) | it is a *loss* on the single-call case this section is about — the wrong trade for the headline number, the right one for text |

@@ -27,7 +27,19 @@ whatever it draws, **~1ms per 8x8 glyph cell**, **~71ms per 78-cell row of
 text**, and the **8088 instruction floor of 4.34 clocks per instruction
 byte**. The first is the one to internalise — *a redraw is priced by how many
 primitive calls it makes, not by how many pixels it covers*, which is the
-opposite of what every estimate in this tree used to assume. It also carries
+opposite of what every estimate in this tree used to assume. **That floor has
+since been taken apart** (Part 9 Set 3, SPEC.md §5.7): one `gfx_pixel` was
+196 guest instructions of generic rect machinery across eleven routines with
+no hot spot anywhere, a third of it push/pop pairs and near call/rets rather
+than drawing, and seven changes took ~20% off it with the output
+byte-identical on all three adapters. They are seven RULES, not seven tidy-ups
+— a one-way flag is tested before it is recomputed, the edge masks and the
+bank base are tables rather than variable shifts, `bb_col` preserves nothing
+because its only caller reloads everything anyway, and `gfx_nextrow` is
+inlined in every row loop because *a fill walks its rows three times*. Part
+2's 756us is still the figure to ESTIMATE with: the improvement was measured
+in instructions under `-icount`, not in microseconds on iron, and an inferred
+number does not replace a field one. PERFORMANCE.md also carries
 the standing budget every redraw path here has already been measured down
 to — so a change that reintroduces a full repaint is a regression against a
 documented number, not a neutral refactor — and how to count work with a
