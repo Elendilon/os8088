@@ -8705,6 +8705,17 @@ separately: a load that fails leaves the box clear with its reason, and a
 *save* that fails puts `'Cannot save to the system disk'` in the caption
 while the driver it just loaded stays loaded.
 
+**A click on a row that is unloaded but WANTED clears the want instead of
+retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
+no disk — and on a machine where that is permanent (a 5150 that will never
+have an AdLib), this click is the **only** gesture there is for "stop
+asking": without it, every click re-set the want, `SYSTEM.CFG` always said
+try-again, and `drv_notice`'s boot-time Control Panel could not be silenced
+at all. The caption drops to `'Not loaded'`, the notice never fires again,
+and clicking a second time retries the load exactly as before — so a
+machine that gains a card later is one click from using it, and a machine
+that never will is one click from quiet.
+
 A load does floppy I/O with the gfx lock held. That is the bargain every
 file operation in this OS makes (§18.4) — the cursor freezes for the length
 of the read — and the alternative, dropping the lock inside a click handler,

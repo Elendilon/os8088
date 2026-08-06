@@ -2484,6 +2484,16 @@ cp_drv_click:
 .load:
     push ax
     call KERNEL_SEG:cw_drv_row
+    cmp byte [bx+DRVR_WANT], 0  ; unloaded but WANTED: the boot tried and
+    je .try                     ; failed (no card, no disk), and on a machine
+    mov byte [bx+DRVR_WANT], 0  ; where that is permanent this click is the
+    mov byte [bx+DRVR_ERR], DRVE_OK ; only gesture there is for "stop asking"
+    pop ax                      ; - without it the boot notice could not be
+    jmp short .save             ; silenced at all, because retrying re-set
+                                ; the want on every click. Clicking AGAIN
+                                ; from here retries the load, so nothing
+                                ; was lost, only unnagged
+.try:
     mov byte [bx+DRVR_WANT], 1  ; wanted first, so a failed load still
     pop ax                      ; persists the intent: put the disk in and
     call KERNEL_SEG:cw_drv_load               ; the next boot picks it up
