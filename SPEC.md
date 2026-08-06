@@ -3475,7 +3475,7 @@ never diverge between the two directions.
 
 | symbol       | contract                                                      |
 |--------------|----------------------------------------------------------------|
-| `disk_read`  | in: AX=LBA, CX=sector count, ES:BX → dest (advances BX by 512 per sector; caller's ES:BX budget must cover count×512). Drive from `[disk_drive]`. Out: CF=1 on unrecoverable error. Preserves registers per §1. FS-agnostic — it knows nothing of §19. |
+| `disk_read`  | in: AX=LBA, CX=sector count, ES:BX → dest (advances BX by 512 per sector; caller's ES:BX budget must cover count×512). Issues as few int 13h calls as the track, the 64KB DMA page and the buffer allow (§18.91) — the contract is unchanged, only the call count. Drive from `[disk_drive]`. Out: CF=1 on unrecoverable error. Preserves registers per §1. FS-agnostic — it knows nothing of §19. |
 | `disk_write` | identical contract, source instead of destination: in: AX=LBA, CX=sector count, ES:BX → source. Out: CF=1 on unrecoverable error, and `[dsk_ioerr]` = the last int 13h status byte (AH), which is how §18.4 tells write-protected media (03h) from a real failure. Preserves registers per §1, and is likewise FS-agnostic. **No LBA gate of its own beyond `dsk_xfer`'s cyl<80 rule** — every caller is §18.4, which computes LBAs only from the validated §18.1 layout. |
 | `disk_mount` | in: DL=drive (0=A, 1=B). Sets `[disk_drive]`, restores the fallback geometry 9/2 with `disk_nfiles`=0, reads LBA 0 with that *fallback* geometry (CHS 0/0/1 — identical under any real floppy geometry) into `dsk_secbuf`, then runs the §18.3 mount sequence: BPB validation (§18.2), FAT snapshot into `FAT_SEG`, root-directory scan into the synthesized `disk_dir` cache, icon harvest into `disk_icons`. Out: CF=0 with `disk_spt`/`disk_heads`/`disk_nfiles`, the §18.1 variables and both caches filled; CF=1 with `disk_nfiles`=0 and fallback 9/2 (unreadable, unformatted, or any §18.2 rule failed). Clobbers CF only. A torn mount is a failed mount; **no cross-mount state survives** — every open/refresh fully remounts, never stale. |
 | `disk_drive`  | byte variable, current drive (init 1 = B:)                   |
@@ -3495,7 +3495,7 @@ The FAT routines (all UI-task-only like the rest of the module; all in
 | `dsk_bpb_check` | module-internal, ~260 B. in: `dsk_secbuf` holds LBA 0. Out: CF=0 — the §18.2 table passed, the §18.1 variables + `disk_spt`/`disk_heads` are filled and `dsk_fattype` is set per §19's detection; CF=1 — reject, nothing guaranteed stored (the caller resets the fallback). Clobbers CF only (internally saves AX,BX,CX,DX,SI,DI). Rule 1 runs via one es: word compare against `dsk_secbuf`+510; the boot sector's first 64 bytes are then staged into `dsk_bpb` via `dsk_copy_in`, and rules 2–16 run on plain DS reads (odd-offset word loads are plain 8086 loads — no alignment requirement exists). |
 | `dsk_clus2lba` | ~50 B. in: AX = cluster number. Out: CF=0, AX = first LBA of that cluster; CF=1 if AX < 2 or AX > `[dsk_maxclus]` (AX undefined). Clobbers AX (output), CF. Math: LBA = `dsk_datalba` + (AX−2) × `dsk_spc`, 16-bit mul; cannot wrap (AX ≤ maxclus ⇒ (AX−2)×spc ≤ TotSec16 − datalba, §18.2 rules 14/15); DX≠0 after the mul is treated as CF=1 anyway (belt and braces). |
 | `dsk_next_clus` | ~80 B. in: AX = cluster number. Out: CF=0, AX = raw FAT entry value (FAT12: 12-bit); CF=1 if the input is outside [2, `dsk_maxclus`]. Clobbers AX (output), CF. The **single reader of `FAT_SEG`** (§2.1): push ES; ES = `FAT_SEG`. FAT12: off = AX + AX>>1; w = word [es:off] (an unaligned straddle read — legal on 8086; the 3-nibble problem dissolves against a resident FAT); odd cluster → AX = w >> 4, even → AX = w AND 0x0FFF. FAT16: off = AX << 1; AX = word [es:off]. §18.2 rule 16 guarantees off+1 < `dsk_fatsz`×512 for every valid cluster. No EOC/bad-cluster decoding — see `dsk_read_chain`. |
-| `dsk_read_chain` | ~170 B. in: AX = first cluster, DX = sectors to read (= ceil(fsize/512), ≥ 1), ES:BX = destination (advances 512/sector, exactly DX sectors). Out: CF=0 all read; CF=1 with AL = 1 (disk error) / 2 (chain corrupt). Clobbers CF; AL on failure (internally saves the rest). **Size-driven walk with run coalescing**, against the unmodified single-sector `disk_read`: keep a (run_lba, run_len) pending run; per cluster, `dsk_clus2lba` (CF → fail AL=2), take = min(`dsk_spc`, DX remaining) — the final cluster may be partial; a cluster whose LBA extends the run grows it, otherwise the run is flushed (`disk_read` AX=run_lba, CX=run_len; CF → fail AL=1) and restarted. When DX reaches 0, flush and return CF=0; else `dsk_next_clus` — the result must be in [2, `dsk_maxclus`], anything else fails AL=2. Bounds: the iteration count is ≤ the caller's DX (each pass consumes ≥ 1 sector) — a looped or cross-linked chain cannot hang the walk, it just yields wrong bytes, which the loader's in-region header recheck rejects (§21). EOC / bad / free / reserved values need **no dedicated constants**: the walk is size-driven, so ANY next-value outside [2, maxclus] while sectors remain is corruption (the FAT spec guarantees bad/EOC marks never collide with valid cluster numbers under correct type detection). On a freshly built (contiguous, §24) image the whole file flushes as ONE `disk_read` call. |
+| `dsk_read_chain` | ~170 B. in: AX = first cluster, DX = sectors to read (= ceil(fsize/512), ≥ 1), ES:BX = destination (advances 512/sector, exactly DX sectors). Out: CF=0 all read; CF=1 with AL = 1 (disk error) / 2 (chain corrupt). Clobbers CF; AL on failure (internally saves the rest). **Size-driven walk with run coalescing**, against `disk_read` (which since §18.91 batches each run it is handed into as few int 13h calls as the hardware allows): keep a (run_lba, run_len) pending run; per cluster, `dsk_clus2lba` (CF → fail AL=2), take = min(`dsk_spc`, DX remaining) — the final cluster may be partial; a cluster whose LBA extends the run grows it, otherwise the run is flushed (`disk_read` AX=run_lba, CX=run_len; CF → fail AL=1) and restarted. When DX reaches 0, flush and return CF=0; else `dsk_next_clus` — the result must be in [2, `dsk_maxclus`], anything else fails AL=2. Bounds: the iteration count is ≤ the caller's DX (each pass consumes ≥ 1 sector) — a looped or cross-linked chain cannot hang the walk, it just yields wrong bytes, which the loader's in-region header recheck rejects (§21). EOC / bad / free / reserved values need **no dedicated constants**: the walk is size-driven, so ANY next-value outside [2, maxclus] while sectors remain is corruption (the FAT spec guarantees bad/EOC marks never collide with valid cluster numbers under correct type detection). On a freshly built (contiguous, §24) image the whole file flushes as ONE `disk_read` call. |
 
 ### 18.1 Mount-derived variables (kernel .bss)
 
@@ -4295,6 +4295,50 @@ caller, and it has two such paths — `fcp_stop` and the replace question's
 pause — because at both of them the world repaints and other writes become
 legal again. The pause is the sharp one: it is not an end, so nothing else
 would have reconciled it.
+
+### 18.91 The transfer loop batches a run into one int 13h
+
+`dsk_xfer` used to issue **`AL = 1`** — one int 13h per 512 bytes, with the
+CHS conversion recomputed each time — so a nine-sector FAT window was nine
+BIOS calls. On real hardware the next call has missed the sector under the
+head, so consecutive sectors cost a revolution each rather than sharing one.
+Measured on the shipped apps floppy (`docs/DISK-PERF-PLAN.md` §2.1), sectors
+and int 13h calls were **equal in every case**: nothing in the floppy path
+batched.
+
+It now issues the largest run the hardware allows, and **the caller's contract
+is unchanged**: same in/out registers, same `[dsk_ioerr]`, same CF, same
+"advances the internal pointer 512 bytes per sector, the caller's ES:BX budget
+must cover count×512". Only the number of BIOS calls changes.
+
+**A run stops at the first of four boundaries** (`dsk_runcap`, plus the track
+test at the call site):
+
+1. **The end of the track.** A CHS call must not cross one. The old loop
+   recomputed CHS per sector and so never had to notice.
+2. **The 64KB physical DMA page.** This is the boundary the batching
+   *introduces*: one 512-aligned sector per call cannot straddle a page, a run
+   can, and the DMA controller answers a straddle with error 09h. It is the
+   transfer-side twin of `mem_claim_dma`'s rule (§50.3), and the failure it
+   prevents has been seen in this tree before — "Disk error on any save big
+   enough to reach the next 64KB boundary" (§2.4).
+3. **BX's own 16 bits**, since the BIOS advances `ES:BX` and must not wrap.
+4. **The sectors the caller actually asked for.**
+
+`dsk_runcap` computes the low 16 bits of the physical address as
+`(ES << 4) + BX` and negates it to get the bytes remaining in the page — an
+exactly-page-aligned buffer negates to 0, which means a *whole* page and is
+special-cased to 128 sectors rather than none. A cap of **zero** sectors is
+only reachable from a base that is not 512-aligned, which §2.4 forbids; it is
+floored to 1 anyway, which is precisely the old behaviour for that buffer.
+
+**The retry unit is the run, and it degrades to the sector.** Three attempts
+with a controller reset between, exactly as before — but a run that still
+fails is retried **one sector at a time** before the transfer is failed, so a
+single bad sector costs its own 512 bytes and not the eight good ones beside
+it. Losing that would trade speed for data recovery on ageing media, which is
+the wrong trade on the machines this targets. Write-protect (03h) still fails
+immediately at any run length: retrying cannot help.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 

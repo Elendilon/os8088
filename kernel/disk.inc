@@ -297,14 +297,13 @@ dsk_xfer:
     call drv_blk_call
     jnc .success
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
-    jmp short .fail             ; so 03h still means write-protected
+    jmp .fail                   ; so 03h still means write-protected (a NEAR
+                                ; jump: the batching below pushed .fail out
+                                ; of short range)
 
 .sector:
     test si, si
     jz .success                 ; all sectors read (count 0 reads nothing)
-%ifdef DISK_COUNTERS
-    inc word [dsk_dbg_sec]
-%endif
 
     ; --- LBA (DI) -> CHS in CH/CL/DH, drive in DL ---
     mov ax, [disk_spt]
@@ -321,18 +320,38 @@ dsk_xfer:
     mov ax, dx
     xor dx, dx
     div word [disk_spt]         ; AX = head, DX = sector-1
+
+    ; --- how many sectors this ONE call may carry (SPEC.md 18.91) ---
+    ; The track first, because a CHS call must not cross one - and this is
+    ; the only place that knows the sector's index within it (DX). AX holds
+    ; the head and CH the cylinder, so both are banked across the sum.
+    push ax                     ; the head, wanted for DH below
+    mov ax, [disk_spt]
+    sub ax, dx                  ; sectors left in THIS track (>= 1)
+    cmp ax, si
+    jbe .runtrk
+    mov ax, si                  ; ...and never more than were asked for
+.runtrk:
+    mov bp, ax
+    call dsk_runcap             ; BP = min(BP, what the BUFFER allows)
+    mov [dsk_run], bp
+%ifdef DISK_COUNTERS
+    add [dsk_dbg_sec], bp
+%endif
+    pop ax                      ; the head again
+
     mov cl, dl
     inc cl                      ; CL = sector, 1-based
     mov dh, al                  ; DH = head
     mov dl, [disk_drive]        ; DL = drive
 
-    mov bp, 3                   ; attempts left for this sector
+    mov bp, 3                   ; attempts left at this run length
 .attempt:
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_i13]
 %endif
-    mov ah, [dsk_op]            ; 02 read / 03 write
-    mov al, 1                   ; one sector per call, to ES:BX
+    mov ax, [dsk_run]           ; AL = the run (<= 128, so AH is 0)...
+    mov ah, [dsk_op]            ; ...AH = 02 read / 03 write
     int 0x13
     jnc .ok
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
@@ -343,12 +362,23 @@ dsk_xfer:
     int 0x13
     dec bp
     jnz .attempt
-    jmp short .fail             ; 3 strikes: unrecoverable
+    ; Three strikes at this run length. If it WAS a run, drop to a single
+    ; sector and try again (SPEC.md 18.91): one bad sector must cost its own
+    ; 512 bytes, not the seven good ones beside it. The retry unit widened
+    ; with the transfer, so the fallback is what keeps ageing media readable.
+    cmp word [dsk_run], 1
+    jbe .fail                   ; already per-sector: unrecoverable
+    mov word [dsk_run], 1
+    mov bp, 3
+    jmp short .attempt
 
 .ok:
-    add bx, 512                 ; advance destination
-    inc di                      ; next LBA
-    dec si
+    mov ax, [dsk_run]
+    add di, ax                  ; next LBA
+    sub si, ax                  ; sectors still wanted
+    mov cl, 9
+    shl ax, cl                  ; run * 512...
+    add bx, ax                  ; ...advances the destination
     jmp .sector
 
 .success:
@@ -364,6 +394,68 @@ dsk_xfer:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_runcap - cap a transfer run to what the BUFFER allows (SPEC.md 18.91)
+; in:  BP = the run the track and the caller allow, ES:BX = the buffer
+; out: BP = that, capped by the 64KB DMA page and by BX's own 16 bits; never 0
+; clobbers: nothing but BP (the output) and flags
+;
+; Two limits, and the first is the one this optimisation INTRODUCES: a single
+; 512-aligned sector cannot straddle a 64KB physical page, a run can, and the
+; DMA controller answers a straddle with error 09h - the transfer-side twin of
+; mem_claim_dma's rule (SPEC.md 50.3). The second is that the BIOS advances
+; ES:BX itself and must not wrap it.
+;
+; Both are "bytes left before a 16-bit quantity wraps", which is its own
+; negation - and a value that is already at the boundary negates to 0, which
+; means a WHOLE window (128 sectors) and not none. That is why each has a
+; zero test rather than a plain shift.
+; -----------------------------------------------------------------------------
+dsk_runcap:
+    push ax
+    push cx
+    push dx
+    mov ax, es                  ; the low 16 bits of the physical address:
+    mov cl, 4                   ; the carry out of this is the page number,
+    shl ax, cl                  ; which is exactly what we do not want
+    add ax, bx
+    neg ax                      ; bytes to the next 64KB page
+    jz .pgfull                  ; page-aligned: the whole page is ours
+    mov cl, 9
+    shr ax, cl                  ; whole sectors to the page end
+    jmp short .bx
+.pgfull:
+    mov ax, 128                 ; a full 64KB page
+.bx:
+    mov dx, bx                  ; the same sum for BX alone
+    neg dx
+    jz .bxfull
+    mov cl, 9
+    shr dx, cl
+    jmp short .pick
+.bxfull:
+    mov dx, 128
+.pick:
+    cmp dx, ax
+    jae .capped
+    mov ax, dx                  ; whichever bites first
+.capped:
+    or ax, ax
+    jnz .cmp
+    mov ax, 1                   ; only reachable from a base that is not
+                                ; 512-aligned, which SPEC.md 2.4 forbids -
+                                ; and one sector is what that buffer got
+                                ; before this optimisation existed
+.cmp:
+    cmp ax, bp
+    jae .out                    ; the track was the tighter bound
+    mov bp, ax
+.out:
+    pop dx
+    pop cx
     pop ax
     ret
 
@@ -2700,6 +2792,11 @@ dsk_wclus:    resw 1            ; dirw: the cluster being walked, 0 = root
 dsk_wsec:     resw 1            ; dirw: sector index inside it
 dsk_wguard:   resw 1            ; dirw: sectors left before the walk gives up
 dsk_op:       resb 1            ; int 13h function for dsk_xfer: 02h / 03h
+dsk_run:      resw 1            ; sectors in the int 13h call being issued
+                                ; (SPEC.md 18.91). A module word for the same
+                                ; reason dsk_op is one: dsk_xfer holds
+                                ; sch_lock across the whole transfer, so
+                                ; nothing can be inside it twice
 dsk_ioerr:    resb 1            ; status (AH) of the last FAILED transfer;
                                 ; 03h = write-protected media (SPEC.md 18.4)
 

@@ -137,6 +137,48 @@ that run so a single bad sector still yields the sectors around it. Losing that
 graceful degradation would trade speed for data recovery on ageing media, which
 is the wrong trade on machines this old.
 
+### 3.1 Phase 1 result — measured
+
+Sectors unchanged in **every** case, calls down everywhere. That is the shape
+§2.1 demanded: if both had moved, the splitter would be dropping work.
+
+| action (1.44MB) | sectors | int 13h calls before | after |
+|---|---|---|---|
+| boot to desktop | 40 | 40 | **26** |
+| open Drive B | 12 | 12 | **5** |
+| enter `APPS/` | 20 | 20 | **13** |
+| back up to the root | 12 | 12 | **5** |
+| enter `GAMES/` | 17 | 17 | **10** |
+
+**A directory change went from 12 calls to 5** — the boot sector, the
+nine-sector FAT window and the two directory sectors are now four contiguous
+runs instead of twelve separate commands.
+
+**`APPS/` only fell 20 → 13, and the shortfall is mechanism D in plain sight.**
+Eight of its twenty sectors are the first sector of eight *different* files,
+scattered across the disk; nothing can batch them. 5 calls of structure + 8
+unbatchable icon reads = 13. `GAMES/` is the same arithmetic with five: 5 + 5 =
+10. §5.5 is the only thing that can remove those.
+
+**The 360KB geometry is where batching pays most**, because a 9-sector track
+means the old loop paid a command per sector on a disk with more of them:
+launching ArtfulType — a 17KB package, **35 sectors** — is **6 calls**, and
+that read is a `dsk_read_chain` run coalesced by §18's walker and then handed
+to a splitter that keeps it whole up to each track edge.
+
+**Correctness checked four ways**, since this touches every byte the OS reads
+or writes:
+
+- The `APPS/` and `GAMES/` listings are byte-identical to the baseline
+  screenshots — names, sizes and harvested icons.
+- Minesweeper launches from `GAMES/` (a multi-sector chain read).
+- **`tests/filetest` passes all 25 checks** — write, read-back, replace,
+  rename, delete, dfree and the refusals, against both a heap claim past the
+  64KB horizon and the package's own bss, including the 96KB `BIG.DAT`, which
+  is precisely the cross-64KB-page case boundary 2 exists for.
+- `tools/os88disk.py --verify` reports the written image structurally sound
+  from the host afterwards.
+
 ## 4. Phase 2 — bank the floppy's FAT window (mechanism B)
 
 **The policy already exists and already permits this.** `dsk_fatw_pick` states
@@ -368,7 +410,7 @@ raised to **78,336** (§9):
 
 | item | est. bytes |
 |---|---|
-| Phase 1 — run splitter, multi-sector call, run-level retry with per-sector fallback | ~100 |
+| Phase 1 — run splitter, multi-sector call, run-level retry with per-sector fallback | **117 (built)** |
 | Phase 2 — the identity byte and the quiet-reuse branch | ~40 |
 | Phase 3 — the same-volume guard | ~60 |
 | Mechanism D (§5.5) — the fingerprint lookup, the tiered reader and the heal | ~180 |
@@ -378,9 +420,11 @@ Mechanism D's ~1.25KB buffer is a **heap claim, not footprint** — it does not
 touch `KERN_BUDGET` and it is refusable, which is what makes the middle tier in
 §5.5.2 a real path rather than a courtesy.
 
-Phase 1 may come in near zero net: it deletes a per-sector CHS computation and
-a per-sector BIOS call in exchange for a per-run splitter. It is not counted as
-a saving because the retry fallback is new code that has no counterpart today.
+Phase 1 came in at **117 bytes of `.text`** against the ~100 estimated, and at
+**zero against `KERN_BUDGET`**: the growth stayed inside the image's existing
+512-byte `KIMG_PARA` rounding, so the footprint guard reads 74,752 before and
+after. That is luck rather than design and the next phase may well spend the
+remainder of that step.
 
 ## 9. The budget decision
 
