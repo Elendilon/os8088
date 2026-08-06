@@ -268,11 +268,24 @@ checks referenced throughout this document:
 | `fmtest` | the AdLib FM surface (SPEC.md §34.2/§51.4) | `make test-snd ADLIB=1 TESTAPPS=build/fmtest.img` |
 | `sbtest` | the Sound Blaster streams (§34.5/§34.6) | `make test-snd SB16=1 TESTAPPS=build/sbtest.img` |
 | `filetest` | the write path (§18.4) | `make test TESTAPPS=build/filetest.img` |
+| `stackprobe` | the 256-byte task-stack margin (§8) | `make test TESTAPPS=build/stkprobe.img` |
 
 `filetest` also has a fragmented-volume variant, `build/filetest-frag.img`,
 and its results are worth pairing with the host-side fsck — the in-kernel
 free-space check and `python3 tools/os88disk.py --verify <img>` catch
 different bugs.
+
+`stackprobe` is the one gate whose QEMU answer is NOT the answer: its worker
+0xCC-fills its own stack slice, spins so every interrupt the machine takes
+lands there, and reports the live high-water mark against 256 (the canary
+line confirms it watched the word SPEC.md §8 protects). SeaBIOS services its
+interrupt entries on an internal stack, so under QEMU only this kernel's own
+tick and mouse handlers land on the slice (~90 bytes with the worker's own
+frames); a real IBM BIOS runs int 09h on the current task's stack and STIs
+early, so the tick and the mouse nest ON TOP of it. `make stackprobe` builds
+`build/stkprobe360.img` for exactly that trip: boot `os8088-360.img` on the
+real machine (or `make xt`), launch `STKPROBE.O88` off the probe floppy, hold
+a key down, mash the mouse, play a Tracker module — then read High water.
 
 **Benchmarks** answer *how fast*. `fontbench` prices the *primitive* (SPEC.md
 §6.1.1): one ten-character run drawn four ways, as the hand-written

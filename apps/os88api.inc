@@ -31,7 +31,10 @@
 ; your data. A pointer held in BP needs an explicit `ds:` override. That has
 ; always been true inside a callback (you run on the UI task's stack) and
 ; matters more now that a package can own a worker task of its own
-; (OSAPI_TASK_SPAWN below), whose 512-byte stack is likewise in LOW_SEG.
+; (OSAPI_TASK_SPAWN below), whose 256-byte stack is likewise in LOW_SEG -
+; and 256 is a budget to respect, not a suggestion: the tick, the mouse and
+; any sound IRQ land their frames on it while your worker runs (SPEC.md
+; 20.6 rule 6; tests/stackprobe measures the real cost on real hardware).
 ;
 ; A package is assembled at org 0 and OWNS A SEGMENT (SPEC.md 20.1): the
 ; loader puts it on a paragraph boundary and hands it its own CS = DS, so
