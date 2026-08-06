@@ -10596,10 +10596,11 @@ graphics. VGA and CGA get their mode — and their clear — from the BIOS.
 Hercules has no BIOS mode at all:
 
 ```
-out 3BFh, 3                     ; configuration: graphics allowed, both pages
+out 3BFh, 1                     ; configuration: graphics allowed, page 0 only
+out 3B8h, 02h                   ; graphics, page 0, video OFF   <- blank
 6845 at 3B4h/3B5h, R0..R11 = 35 2D 2E 07 5B 02 57 57 02 03 00 00
-out 3B8h, 0Ah                   ; graphics, video on, display page 0
 rep stosw  0x4000 words at B000:0000
+out 3B8h, 0Ah                   ; graphics, page 0, video ON    <- unblank
 ```
 
 The 32KB clear is **load-bearing**: `bb_init`'s ordering and the first
@@ -10607,8 +10608,31 @@ desktop paint both assume a cleared framebuffer, and no BIOS will do it. Its
 `cld` is explicit because on the splash path this runs on the boot sector's
 flags and `spl_tick` never issues one.
 
-`vid_text` (`CMD_REBOOT`) returns VGA and CGA to mode 3; Hercules gets
-`out 3BFh, 0` and mode 7.
+**The blank around the whole sequence is equally load-bearing, and the
+ordering is the reason it exists.** Enabling video before the clear — which
+is what this did until it was tested on a real 5150 — means the card is
+*displaying* for the entire length of the clear, and what it displays is
+32KB nobody has written: the BIOS's MDA text page reinterpreted as a bitmap,
+and above it the card's own DRAM as it powered up. That is a bright, roughly
+half-lit 720x348 field, and the clear is 16,384 `stosw` on a 4.77MHz 8088 —
+tens of milliseconds, several whole frames at 50Hz. On an IBM 5151 the step
+from a mostly-black text page to a half-lit screen and back is a beam-current
+swing the flyback answers with an **audible pop**; on screen, and in PCem, it
+is a garbled flash immediately before the progress bar. Clearing 3B8h bit 3
+gates the video signal only — the 6845 keeps running and both syncs keep
+coming out — so blanking costs the monitor nothing, and behind it the
+unavoidable sync transient of a half-written 6845 (its registers are not
+double-buffered) is invisible too.
+
+**3BFh bit 1 is deliberately clear.** It enables the second 32KB page, which
+is at B8000 — a CGA's framebuffer. A machine can hold both cards (the 5150
+this was found on does), and the kernel only ever addresses page 0 (maximum
+offset 7E96h), so the second decode buys nothing and puts two cards on the
+bus for the same addresses.
+
+`vid_text` (`CMD_REBOOT`) returns VGA and CGA to mode 3; Hercules blanks
+(`out 3B8h, 0`), then gets `out 3BFh, 0` and mode 7 — the BIOS reprograms
+the 6845 there too, so it gets the same blank for the same reason.
 
 ### 39.7 Window placement — `wm_fit`
 
