@@ -199,6 +199,7 @@ trk_entry:
     call OSAPI_MENU_SET             ; preserves registers AND flags, so the
     mov si, trk_about               ; loader's CF survives to the ret
     call OSAPI_ABOUT_SET
+    call trk_arg                    ; were we launched to play a module?
 .out:
     pop di
     pop si
@@ -206,6 +207,96 @@ trk_entry:
 ; =============================================================================
 ; The UI task's half: paint, keys, clicks, menu, About, file dialog
 ; =============================================================================
+
+; -----------------------------------------------------------------------------
+; trk_arg - accept a module handed to us at launch (SPEC.md 54.5)
+; in:  nothing; called from trk_entry once the window exists
+; out: nothing; preserves all registers AND the flags - the loader's CF is
+;      still riding in them
+;
+; It RECORDS and does not load: trk_fdone shows a message, frees and reclaims
+; the module grant and repaints, all of which want the gfx lock HELD, and an
+; entry proc holds none (SPEC.md 20.2). The first W_PAINT spends it.
+; -----------------------------------------------------------------------------
+trk_arg:
+    pushf
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    call OSAPI_ARG_FILE             ; CF=1 = launched empty, the usual case
+    jc .out
+    mov [trk_argclus], dx
+    mov [trk_argdrv], bl
+    mov ax, KERNEL_SEG              ; the name is a KERNEL pointer, so ES is
+    mov es, ax                      ; loaded rather than trusted
+    mov di, trk_argnm
+    mov cx, 12
+.copy:
+    mov al, [es:si]
+    mov [di], al
+    or al, al
+    jz .named
+    inc si
+    inc di
+    loop .copy
+.named:
+    mov byte [trk_argnm+12], 0
+    push ds
+    pop es                          ; ES = DS again, the callback default
+    mov byte [trk_argp], 1
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; trk_argload - spend it, from the first paint (SPEC.md 54.5)
+; in:  the gfx lock HELD, the window visible
+; out: nothing; preserves all registers
+;
+; It hands the name to trk_fdone, the dialog's own completion proc, which
+; copies it through ES:DI - so ES points at OUR segment and DI at our buffer,
+; and every refusal, claim and message below it is the path a dialog open
+; already takes. DX:CX = 0 is "no size", which that path already handles for
+; a typed name.
+; -----------------------------------------------------------------------------
+trk_argload:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov byte [trk_argp], 0          ; once, whatever happens below
+    mov dx, [trk_argclus]
+    mov bl, [trk_argdrv]
+    call OSAPI_FILE_GOTO            ; the folder it was opened from
+    jc .out
+    push ds
+    pop es
+    mov di, trk_argnm
+    xor cx, cx
+    xor dx, dx                      ; no size: the typed-name path
+    xor al, al
+    call trk_fdone
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; trk_paint - W_PAINT: layout init (once), worker hire (retried), full redraw
@@ -218,6 +309,10 @@ trk_paint:
     push dx
     push si
     push di
+    cmp byte [trk_argp], 0          ; a module handed to us at launch
+    je .noarg                       ; (SPEC.md 54.5): here the gfx lock is
+    call trk_argload                ; held and the window is placed, which
+.noarg:                             ; the entry proc could promise neither
     call trk_reap                   ; F00/watchdog leftovers close on any UI
                                     ; event (SPEC.md 45.2)
     cmp byte [tui_inited], 0
@@ -1900,6 +1995,10 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
     TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
     TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown
     TRKW trk_capk                   ; its size in KB
+    TRKBUF trk_argnm, 13            ; a module handed to us at launch (54.5)
+    TRKBUF trk_argp, 1              ; ...1 = the first paint owes the load
+    TRKBUF trk_argdrv, 1            ; ...and where it lives
+    TRKBUF trk_argclus, 2
     TRKBUF trk_fname, 13            ; the chosen 8.3 name, copied out of the
                                     ; kernel's buffer during the completion call
 

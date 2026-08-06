@@ -17031,3 +17031,43 @@ Against the original baseline, opening `APPS/` has gone from **20 int 13h
 commands to 4**. The 12 sectors that remain are the boot sector, the FAT
 window and the directory — §5's mechanisms A and B, which §4 declined to
 touch, so 12 is the floor that decision leaves.
+
+### 54.8 Accepting the document: four apps, and the two traps between them
+
+Note Pad, Paint, Tracker and ArtfulType all take a document handed to them at
+launch, and the shape is the same in all four: the entry proc **records**
+(`OSAPI_ARG_FILE`, then the name copied into the app's own buffer) and the
+first `W_PAINT` **spends**. Recording in the entry proc is forced — the word
+is read-and-clear (§54.5), so it must be taken before anything else asks —
+and spending in the paint is forced too, because every load path in these
+apps shows a toast, repaints or enters fullscreen, and all three want the
+**gfx lock held**, which an entry proc does not hold (§20.2). The paint is
+also the first moment the window is placed and visible.
+
+Two traps, both of which shipped broken and were caught by clicking a saved
+file rather than by reading the code:
+
+- **The load routine's own contract still applies.** `pt_load` takes its name
+  in **SI**, because the dialog's completion proc had one there; the handoff
+  path set `[pt_name]` and called it with whatever SI happened to hold, so
+  Paint launched, drew an empty canvas and reported nothing wrong. Reusing the
+  dialog's loader means reproducing the dialog's *call*, not just its
+  preconditions. ArtfulType's `at_load_named` reads `[at_name]` and so had no
+  equivalent bug — which is the argument for a loader that reads its state
+  rather than its registers.
+- **Loading is not showing.** ArtfulType's `at_paint` draws the splash
+  whenever `[at_fs]` is 0, and `[at_fs]` is 0 at launch — so the document
+  loaded correctly and was then covered by the typewriter. The handoff owes
+  the same fullscreen entry `at_ondlg`'s Open path performs, and because
+  `at_fs_enter` repaints everything itself (through `W_PAINT`, re-entering the
+  handoff with the flag already spent), `at_argload` answers **CF = 1 = the
+  screen is painted, draw nothing**. One test on `[at_fs]` after the fact
+  covers all three ways out — unlistable folder, unreadable file, and a
+  fullscreen refused because another window owns the screen — and each of them
+  correctly falls back to the splash.
+
+Entering fullscreen from inside a `W_PAINT` is safe for the reason
+`wm_grow_paint` is a no-op on a `WF_FULL` window: `wm_draw_win` draws the grow
+box *after* the paint proc returns (§11.1), and by then the window is
+fullscreen, so the box that would have landed in the middle of the page is
+never drawn.
