@@ -282,7 +282,8 @@ $(BUILD)/recorder.o88: $(BUILD)/recorder.bin tools/os88pkg.py
 # 18.4.1) - which is the only reason a 116KB module fits in one call. Three
 # sources, one binary.
 $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
-                      apps/tracker/trkui.inc apps/os88api.inc | $(BUILD)
+                      apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+                      apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 	@echo "tracker: $(call FILESIZE,$@) bytes"
 

@@ -12637,9 +12637,11 @@ un-pauses**, or it has written a pause that only a mouse can undo.
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
 A four-channel ProTracker MOD player: `tracker.asm` (shell, menus, the file
-dialog completion proc), `trkplay.inc` (the loader and the mixer) and
-`trkui.inc` (the FastTracker II-style fullscreen interface). Prefix `trk_`,
-mixer prefix `mp_`, UI prefix `tui_`. It ships with `BEVERLY.MOD` beside it on
+dialog completion proc), `trkplay.inc` (the loader and the mixer),
+`trkui.inc` (the FastTracker II-style graphics interface) and `trktxt.inc`
+(the same screen in 80x25 text, which is what XT mode's fullscreen is —
+§45.13). Prefix `trk_`,
+mixer prefix `mp_`, UI prefix `tui_`, text prefix `ttx_`. It ships with `BEVERLY.MOD` beside it on
 the apps disk, because a player with nothing to play is not a demonstration of
 anything — `os88disk.py` takes any non-`.o88` argument as a plain data file
 (§24).
@@ -12701,9 +12703,19 @@ Tracker's fullscreen never wanted the desktop alive underneath — it wants
 the whole screen and every cycle of a 4.77 MHz machine — which is exactly
 what the exclusive surface gives, with the audio-feeding worker kept alive
 across the freeze so a Sound Blaster stream never underruns while the app
-owns the screen. Tracker does NOT switch video mode: the FT2 screen wants
-the desktop's resolution, so this is "exclusive but same mode" (§53.7) and
-the drawing slots stay legal throughout. Fullscreen is entered ONLY from
+owns the screen.
+
+**Which surface depends on XT mode.** With it off, Tracker does NOT switch
+video mode: the FT2 screen wants the desktop's resolution, so this is
+"exclusive but same mode" (§53.7) and the drawing slots stay legal
+throughout. **With XT mode on the bracket sets `FSXM_TEXT80` and draws the
+same screen out of character cells** (§45.13) — a different renderer, a
+different set of rules (every drawing slot off-limits after the mode set),
+and the full scrolling pattern grid back on a machine that could never
+afford it in pixels. Everything below describes the graphics half unless it
+says otherwise.
+
+Fullscreen is entered ONLY from
 `W_ONKEY`/`W_ONCLICK`/`AM_ONCMD` — the contexts that hold the gfx lock
 `osapi_fsx_run` requires; never the entry proc (no lock there).
 
@@ -12975,9 +12987,9 @@ worker only feeds (§53.2).
 | 1..4 | Toggle channel mute (a click in that scope does the same) |
 | L | Load… (the Standard File dialog). Windowed only: in fullscreen the key answers with `Load is windowed: Esc first` on the status line — the dialog is unreachable in a bracket (§53.7), and a key that did nothing would read as broken (§47: say why not) |
 | F | Fullscreen toggle (also a click on the windowed splash) |
-| X | XT mode toggle (§45.9 — also File ▸ the relabeling menu item) |
+| X | XT mode toggle (§45.9 — also File ▸ the relabeling menu item). Refused on the §45.13 text surface, which IS XT mode's fullscreen: `XT off is windowed: Esc first` |
 | R | Cycle the sample rate 11 → 22 → 44 kHz (§45.10 — also the Rate menu) |
-| S | Smooth toggle (§45.11 — also View ▸ the relabeling menu item) |
+| S | Smooth toggle (§45.11 — also View ▸ the relabeling menu item). Refused on the text surface: `Smooth is a graphics mode only` |
 | Esc | Exit fullscreen (windowed: ignored) |
 
 The `or al, al` keypad gate of §44.2 applies verbatim: the numeric keypad
@@ -13049,6 +13061,13 @@ switch. What it changes, and why each piece pays on an 8088:
   repaints only the band's two hex row numbers (clip-gated per the §11.3
   granularity rule) and the readouts/VU bars, and the whole pattern area
   repaints when the song *position* (or the stopped-scroll view) moves.
+  This is the *windowed* splash's rule and the graphics bracket's; **XT
+  mode's own fullscreen is a text mode now** (§45.13), where the grid
+  scrolls per row again and costs no glyph cells at all.
+- **Fullscreen becomes `FSXM_TEXT80`** (§45.13). Same trade as everything
+  above — fidelity for cycles, taken once and on purpose — and the one that
+  gives something back: the FT2 grid animates again on the machine this mode
+  exists for.
 
 An underrun under XT mode still takes §34.5's honest path — bounded
 silence, resume on catch-up — so an overloaded machine degrades to
@@ -13057,7 +13076,14 @@ modes play the §24 test module at the same pitch — the step math is
 rate-invariant); the wall-clock claim itself is 86Box `make xt-sound`
 territory, cycle-counted here and honestly not QEMU-provable.
 
-### 45.9.1 …and on a real 8088 the pattern view stops being animated at all
+### 45.9.1 …and on a real 8088 the GRAPHICS pattern view stops being animated at all
+
+**This is the graphics bracket's answer, and since §45.13 it is no longer
+what a tier-0 machine normally sees**: XT mode is pre-armed there and XT
+mode's fullscreen is a text screen, where the grid scrolls per row for
+about 4% of the machine. What follows still holds for the graphics
+fullscreen — which a tier-0 user reaches by turning XT mode off — and it
+is the reasoning the text surface exists to escape.
 
 §45.9's per-position repaint is still more than a 4.77 MHz 8088 has. On the
 machine itself the view does not scroll and does not move: one line updates
@@ -13179,16 +13205,25 @@ heap that cannot fund the 150KB claim right now), fullscreen draws exactly
 as before. That second refusal is a **live** condition, not a
 boot-time verdict: `bb_avail` is about the adapter alone and the memory
 question is asked of the heap every time the buffer is armed (§32), so
-Smooth can be refused with Paint open and granted after it closes. Two recorded
+Smooth can be refused with Paint open and granted after it closes. **It is
+refused outright on XT mode's text fullscreen** (§45.13.3) — a back buffer
+describes desktop geometry, so `fsx_mode` will not set a foreign mode while
+one is armed, and a text cell has nothing to double. Two recorded
 consequences: the flush costs VRAM bandwidth (the §32 ~24× figure), which
-is why the toggle exists — a slow-bus VGA machine can decline, and XT
-mode's band-relight keeps the dirty rect small enough that the two modes
-compose well; and a close **while fullscreen** takes the kernel's
+is why the toggle exists — a slow-bus VGA machine can decline; and a close
+**while fullscreen** takes the kernel's
 `wm_destroy` safety net, which the app never sees — the buffer then stays
 armed, a legal user-settable mode the Control Panel's Display page shows
 and can disarm, recorded here rather than fenced with kernel machinery.
 
 ### 45.12 The scroll path and the delta-drawn VU bars
+
+Both belong to the **graphics** renderer; §45.13's text one reaches the same
+end by different means (the whole window is re-blitted out of a shadow, and
+the bars are delta-drawn in character cells against `[ttx_vuc]`). The
+needle rule itself — rise instantly, fall two units a frame — is
+`tui_vu_step`, shared by both, so the two surfaces cannot disagree about
+what the music is doing.
 
 Two updates stopped repainting what had not changed. **The row scroll**:
 when the view moves by exactly one row inside one pattern and position,
@@ -13208,6 +13243,142 @@ reaches any of this (§45.9's band relight short-circuits first).
 difference — a rising bar fills its growth, a falling one erases its
 shrinkage, a steady one costs nothing; `tui_el_scopes` zeroes the four
 widths whenever it repaints the cells under them.
+
+### 45.13 XT mode's fullscreen is an 80x25 TEXT screen — and the grid scrolls again
+
+`apps/tracker/trktxt.inc`, prefix `ttx_`. **While XT mode is on, F enters a
+`FSXM_TEXT80` bracket instead of the graphics one** (§53.4), and on that
+surface the whole 19-row pattern grid comes back, scrolling per row. §45.9.1's
+single banded line in an empty field is the *graphics* bracket's answer and
+stays exactly as it was; it is simply not what a tier-0 machine sees any more,
+because a tier-0 machine boots with XT mode pre-armed (§45.9).
+
+The gate is `[mp_xt]`, not `[trk_cpu0]`. XT mode is the switch that says *this
+machine has no cycles to spare*, and everything else it does — half the sample
+rate, the pre-scaled volume tables, the bounds check out of the inner loop — is
+already a trade of fidelity for cycles. Picking the cheap surface is the same
+trade, taken once. A 386 with XT mode on gets the text screen too, and that is
+correct rather than merely tolerable: the user asked for the cheap mode.
+
+#### 45.13.1 The arithmetic, and it is not close
+
+The FT2 screen (§45.6) is 8x8 glyph cells and a cell costs **~1 ms** on a
+4.77 MHz 8088 with a Hercules card (PERFORMANCE.md Part 2). A Hercules pattern
+row is 44 cells, the grid is 29 rows, so a full `tui_draw_pat` is **~1.28
+seconds** — and even §45.12's one-row scroll is three strips plus two
+`gfx_scroll`s over a banked framebuffer, ~174 ms, against a row that arrives
+every 120 ms at BPM 125 / speed 6. That is the budget §45.9.1 was blown out of.
+
+Counted rather than guessed at, with a cell counter in `font_char` **and
+`font_run_cell`** — the second matters, because on a mono adapter Tracker's
+runs take §6.1's fast path and never reach `font_char`, and a counter on
+`font_char` alone reads 58 cells/s and looks like good news. Hercules, SB16,
+`BEVERLY.MOD`, 30 s of playback each:
+
+| fullscreen | glyph cells/s | `gfx_fill`/s | ≈ drawing work per second of music |
+|---|---|---|---|
+| graphics, XT off — the full scrolling grid | 2,567 | 325 | **~2.6 s** — 2.6x over budget before the mixer's 44% |
+| graphics, XT on — §45.9's band relight | 214 | 78 | ~0.21 s, and the grid does not move |
+| **text, XT on — the full scrolling grid** | **0** | **0** | see below |
+
+Zero, because a text cell is not drawn: it is **one word store**, and the
+card's own ROM font does what `font_char` was doing. No rasterization, no
+shift, no read-modify-write, no bank arithmetic. A `rep movsw` word costs ~25
+clocks on an 8088 (17 nominal, +4 and +4 for the 8-bit bus), call it ~38 with
+MDA wait states, against ~4,770 clocks for a glyph cell.
+
+So the frame, priced from what the code actually does:
+
+- **A row change is 1,121 word stores** — 19 rows of 59 characters, `rep
+  movsw` out of the shadow — plus **59 attribute bytes** to relight the band.
+  ~8.9 ms + ~0.4 ms.
+- **The readouts are one padded 59-cell pass** (~2 ms) and only when a value
+  moved; the bars are delta-drawn per channel; the nameplate, header and rule
+  are drawn once per bracket.
+- Rows arrive **8.3 a second** at BPM 125 / speed 6, ~18.7 on a fast module.
+  That is **~4% of the machine** at the default tempo and ~9% on the fast one,
+  against the ~44% XT mode's mixer already spends (§45.9).
+
+The margin is two orders of magnitude, not a few percent, which is what
+licenses putting the grid back rather than merely making it cheaper.
+
+**And nothing on this surface can flash.** PERFORMANCE.md Part 1's
+double-draw defect is the erase-and-letter pair; a text cell goes from its old
+contents to its final contents in a single word write, so this gets §6.1's
+one-store-per-cell property for free. It is also why every field is written
+**space-padded to its full width** rather than erased and then filled: the pad
+is the rest of the same pass, so a field that got shorter is never blank for a
+frame.
+
+#### 45.13.2 The shadow is what makes a row change a blit
+
+A player never edits, so a pattern's 64 rows are constant text for as long as
+it is the current pattern. `ttx_shbuild` formats all of them **once** into
+`ttx_shadow` as char/attribute words — 256 `mp_cell2txt` calls and 4,838 word
+stores into package RAM, ~33 ms, once every eight seconds or so — and every row
+change after that is 19 `rep movsw`s out of it with no formatting at all.
+`[ttx_shpat]` names the pattern it holds and `[ttx_shok]` whether it holds
+anything; `ttx_draw_all` clears the second on every bracket entry, because a
+load can have happened between two brackets (Open is windowed, §53.7) and the
+shadow has no way to have heard about it.
+
+Three things about it are load-bearing:
+
+- **The shadow carries `TTX_HALF` blank rows above row 0 and below row 63**, so
+  the window into it is `shadow + viewrow * TTX_RW * 2` with **no clamp and no
+  branch**: pattern row *r* lives at shadow row *r + TTX_HALF*, the visible
+  area starts at *view − TTX_HALF*, and the two cancel. The ends of a pattern
+  are not a special case, they are blank rows being blitted like any other.
+- **The band is an attribute, not a redraw.** The shadow holds every row in
+  `TTX_A_NORM`; the blit lands them all and 59 attribute bytes turn the middle
+  row `TTX_A_INV` afterwards. Nothing has to remember which row *used* to be
+  the band, because the blit rewrote it on the way past — which is the whole of
+  what §45.12's three-strip bookkeeping was for.
+- **The row goes through a bss byte, not a register.** `mp_cell2txt` decodes
+  through BX and CX and returns with ES = the pattern segment; there is no
+  general register that survives it.
+
+Attributes are `0x07` / `0x0F` / `0x70` and nothing else. Those three are what
+an **MDA** can render, so they mean the same thing on Hercules, CGA and VGA
+text alike — §39.4's discipline in its text-mode clothes. The box-drawing and
+block characters are CP437, which is the ROM font on every adapter that can set
+this mode.
+
+#### 45.13.3 What the bracket may not do, and the two keys that say why not
+
+After the `fsx_mode` call **every kernel drawing slot is off-limits until the
+bracket returns** (§53.1) — they render desktop geometry into a framebuffer
+that is now a text page. `[trk_tx]` is the flag that says so, and it is read in
+exactly one place outside this module: **`tui_msg_draw` returns early on it**.
+A status message set from `trk_play`'s refusals or from `trk_transport`
+(§45.9.2) still lands in `[tui_msgp]`, and `ttx_draw_dyn`'s own status line
+spends it — so recording the message *is* delivering it, and every message path
+in the app keeps working with no per-caller gate.
+
+Two keys are refused on this surface, both the §47 say-why-not way the L key
+already was:
+
+- **X** would turn XT mode off, and XT mode is *what this surface is*; the
+  bracket cannot re-enter itself as the graphics one. `XT off is windowed: Esc
+  first`.
+- **S** (Smooth, §45.11) is the §32 back buffer, which describes the
+  **desktop's** geometry — there is nothing to double in a text mode, and
+  `fsx_mode` refuses outright while one is armed. `Smooth is a graphics mode
+  only`.
+
+That refusal is also why the entry path **parks the user's back buffer**: a
+Control Panel setting of `on` would make `fsx_mode` refuse and drop the whole
+feature. `trk_fsx_main` turns it off before the mode set, notes the debt in
+`[trk_txbb]`, and `trk_fs_enter` re-arms it **after `fsx_run` returns** — not
+inside the bracket the way Smooth hands its own back (§45.11), because by then
+the desktop mode *and* its pixels are back and `bb_set`'s seed-from-VRAM reads
+the screen the user is actually looking at. A refused `ttx_begin` puts it back
+on the spot and falls through to the graphics bracket, so the two mechanisms
+are never both holding the setting.
+
+`fsx_wait` is a pure frame clock here: §53.5's present clause is dead by
+construction, because `fsx_mode` had already refused to run with a buffer
+armed.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
@@ -15075,6 +15246,14 @@ page, AH=0Eh teletype, AX=1003h blink) or the CRTC ports directly. The
 hot path — characters into B800 — was direct VRAM under any contract;
 bare wins by putting nothing between the app and the hardware for the
 rest, and nothing the app pokes outlives the exit mode set.
+
+**Tracker's XT fullscreen is the reference consumer** (§45.13), and it
+shows what the bare contract costs an app in practice: take `FSI_SEG` out
+of the block (B000 on Hercules and MDA, B800 on the CGA/VGA family — the
+one thing here that is not a constant), hide the cursor with `int 10h`
+AH=01h CX=2000h, write words. That is the whole of it, and the payoff is
+that the frame is a `rep movsw` — 1,121 word stores for a pattern grid that
+cost 2,567 glyph cells a second in pixels.
 
 ### 53.5 `fsx_wait` — the frame clock, and the present
 

@@ -243,6 +243,7 @@ list to check yourself against.
 | Fractal repaint | re-render from row 0 (~115 s) | replay the pass-0 cache, resume refining | §40.1 |
 | Tracker row scroll | 30+ strips erase-then-text | 2 `gfx_scroll` + 3 strips | §45.12 |
 | Tracker on a tier-0 machine | a per-position repaint it does not have | one banded line | §45.9.1 |
+| Tracker's XT fullscreen | the scrolling grid in pixels: **2,567 glyph cells/s**, ~2.6 s of drawing per second of music | an 80x25 text mode: **0** glyph cells, **0** `gfx_fill` — 1,121 `rep movsw` words a row change, ~4% of the machine, and the grid scrolls again | §45.13 |
 | Tracker mixing at 11 kHz | ~7.9M cycles/s against a 4.77M budget | ~2.1M at 5,500 Hz, bounds check out of the inner loop | §45.9 |
 | Paint brush stroke | width² per pixel of travel | the dab's leading edge, one `gfx_fill` per step | docs/PAINT-NOTES.md |
 | Paint undo | whole canvas | row-granular and lazy | ibid |
@@ -345,6 +346,14 @@ In rough order of cost, and you do not always need all of it.
 1. **Count the work.** Put a counter at the drawing primitive your change
    touches (`font_char`, `font_run_cell`, `gfx_fill`, `wm_paint_all`) and read
    it over QMP before and after. If the count went up, stop here.
+   **`font_char` and `font_run_cell` are one number and must both be
+   counted**, and on a mono adapter that is not a nicety: §6.1's fast path
+   letters a cell without going near `font_char`, so a counter on
+   `font_char` alone read **58 cells/s** for a Tracker pattern grid that was
+   drawing **2,567** (§45.13.1). A plausible small number is the failure mode
+   here, exactly as in rule 3 below — and for the same reason, **sample a
+   16-bit counter often enough that it cannot lap between reads** (a second
+   is ample; thirty is not) and accumulate the deltas mod 65,536.
 2. **Look at it on a 1bpp adapter.** `make test VIDEO=cga` and
    `make test VIDEO=herc HERCSEG=0x7000` — the two adapters a 4.77 MHz machine
    actually has, where `[bb_on]` is permanently 1 and the software renderer
