@@ -153,6 +153,15 @@ with `os88disk.py --verify`: the in-kernel checks and a structural read catch
 different bugs, and every bug found while building this was found by the host
 half.
 
+**`tools/os88disk.py --verify` is a FLOPPY fsck and will refuse a hard-disk
+partition** - it checks `BPB_FATSz16 <= 10` and a real floppy geometry, both
+of which a 31MB FAT16 volume legitimately breaks (SPEC.md 18.2 rule 10 drops
+the cap for a driver-backed volume; 18.8 is why). Read the partition by hand
+instead. The snippet below prints the BPB; the one after it is the test that
+actually catches things - **compare every copied file against its source byte
+for byte**, which is how a chunk-size bug that truncated a 116KB file to
+64,512 bytes was found, with no error reported anywhere on screen.
+
 ```sh
 python3 - <<'EOF'
 d = open('build/hdd.img','rb').read()
@@ -162,6 +171,51 @@ print('type', hex(e[4]), 'lba', base, 'secs', int.from_bytes(e[12:16],'little'))
 b = d[base*512:base*512+512]                     # its boot sector
 print('jmp', b[:3].hex(), 'spc', b[13], 'fatsz', int.from_bytes(b[22:24],'little'),
       'tot16', int.from_bytes(b[19:21],'little'), 'fstype', b[54:62])
+EOF
+```
+
+And the one that earns its keep - a FAT16 reader that walks a partition and
+compares every file it finds against the original on the host. `tools/` has
+no hard-disk fsck, so this is it:
+
+```sh
+python3 - <<'EOF'
+d = open('build/hdd.img','rb').read()
+def vol(lba):
+    b = d[lba*512:lba*512+512]
+    return dict(spc=b[13], rsvd=int.from_bytes(b[14:16],'little'), nfat=b[16],
+                root=int.from_bytes(b[17:19],'little'),
+                fatsz=int.from_bytes(b[22:24],'little'), base=lba)
+def rd(v,s,n=1): o=(v['base']+s)*512; return d[o:o+n*512]
+def fat(v,c):
+    off=c*2; b=rd(v, v['rsvd']+off//512); return int.from_bytes(b[off%512:off%512+2],'little')
+def dirsec(v): return v['rsvd']+v['nfat']*v['fatsz']
+def clus(v,c): return dirsec(v)+(v['root']*32+511)//512+(c-2)*v['spc']
+def ents(v, first=None):
+    raw = rd(v, dirsec(v), (v['root']*32+511)//512) if first is None else b''
+    c = first
+    while first is not None and 2 <= c < 0xFFF0:
+        raw += rd(v, clus(v,c), v['spc']); c = fat(v,c)
+    out=[]
+    for i in range(0, len(raw), 32):
+        e = raw[i:i+32]
+        if not e[0]: break
+        if e[0]==0xE5 or (e[11]&0x3F)==0x0F: continue
+        out.append((e[:11].decode('latin1'), e[11],
+                    int.from_bytes(e[26:28],'little'), int.from_bytes(e[28:32],'little')))
+    return out
+def content(v,c,size):
+    o=b''
+    while 2 <= c < 0xFFF0 and len(o) < size: o += rd(v, clus(v,c), v['spc']); c = fat(v,c)
+    return o[:size]
+v = vol(int.from_bytes(d[446+8:446+12],'little'))     # partition 0
+for n,a,c,sz in ents(v):
+    print(n, sz)
+    if a & 0x10:
+        for n2,_,c2,s2 in ents(v,c):
+            if n2.startswith('.'): continue
+            want = open('build/'+n2[:8].strip().lower()+'.o88','rb').read()
+            print('   ', n2, s2, 'OK' if content(v,c2,s2)==want else '*** MISMATCH')
 EOF
 ```
 

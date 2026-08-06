@@ -701,11 +701,13 @@ hd_bios_xfer:
     push bp
     push es
     mov si, [hd_bcnt]
-.sector:
+.run:
     or si, si
     jz .ok
     call hd_chs
     jc .fail
+    call hd_bios_run            ; AX = sectors this one int 13h may carry
+    mov [hd_run], ax
     mov bp, 3
 .attempt:
     mov es, [hd_bseg]           ; reloaded per attempt: the buffer walks a
@@ -715,10 +717,10 @@ hd_bios_xfer:
     je .go
     mov ah, 0x03
 .go:
-    mov al, 1                   ; one sector per call, exactly like the
-    call hd_chs_regs            ; floppy path: a track boundary never matters
-    int 0x13                    ; and an aligned 512 bytes cannot straddle a
-    jnc .next                   ; 64KB DMA page
+    mov al, [hd_run]
+    call hd_chs_regs
+    int 0x13
+    jnc .next
     mov [hd_status], ah
     mov ah, 0x00                ; reset the controller and try again
     mov dl, [di+HDD_UNIT]
@@ -728,9 +730,12 @@ hd_bios_xfer:
     mov al, [hd_status]
     jmp short .fail
 .next:
+    mov cx, [hd_run]            ; hd_buf_step is per sector, and the LBA it
+.step:                          ; walks is what hd_chs reads next time round
     call hd_buf_step
     dec si
-    jmp short .sector
+    loop .step
+    jmp short .run
 .ok:
     pop es
     pop bp
@@ -748,6 +753,62 @@ hd_bios_xfer:
     pop cx
     pop bx
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_bios_run - how many sectors one int 13h may carry from here (internal)
+; in:  DI = the device row, SI = sectors still wanted, [hd_sec], [hd_bseg],
+;      [hd_bofs]
+; out: AX = 1..127
+; clobbers: AX (the output), flags
+;
+; Rung 0 batches too, but it has two bounds the task file does not, and both
+; are the BIOS's rather than the drive's:
+;
+;   - a CHS int 13h MUST NOT CROSS A TRACK. The drive would walk into the
+;     next head itself; the BIOS call does not, and the classic answer is
+;     status 04h or a silent short read. So the run stops at spt.
+;   - the 8237 never carries into the page port, so a DMA transfer must end
+;     inside the 64KB page it starts in - dskw_runmax's rule, applied here
+;     because the kernel bounds only the runs IT issues and this rung splits
+;     them again.
+;
+; One sector always fits both: hd_buf_step keeps the offset carried into the
+; segment, so a 512-byte transfer starts at most 15 bytes into a paragraph
+; and 64KB is a whole number of sectors.
+; -----------------------------------------------------------------------------
+hd_bios_run:
+    push cx
+    push dx
+    mov ax, [di+HDD_SPT]        ; sectors left in this track, [hd_sec] being
+    sub ax, [hd_sec]            ; 1-based
+    inc ax
+    cmp ax, si
+    jbe .page
+    mov ax, si
+.page:
+    mov dx, [hd_bseg]
+    mov cl, 4
+    shl dx, cl
+    add dx, [hd_bofs]           ; DX = the offset within the 64KB DMA page
+    neg dx
+    jz .out                     ; a zero offset means the whole page: no cap
+    mov cl, 9
+    shr dx, cl                  ; ...as sectors
+    cmp ax, dx
+    jbe .out
+    mov ax, dx
+.out:
+    or ax, ax                   ; a bound of zero cannot happen (see above),
+    jnz .cap                    ; but a run of zero would spin forever
+    mov ax, 1
+.cap:
+    cmp ax, 127
+    jbe .done
+    mov ax, 127
+.done:
+    pop dx
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -987,12 +1048,27 @@ hd_ide_setparams:
 ; out: CF = 0 done, else CF = 1 and AL = a status byte
 ; clobbers: AX (the output), flags
 ;
-; One sector per command, for disk.inc's own reason: a 512-byte transfer that
-; starts aligned cannot straddle anything, and the retry policy stays one
-; decision. The PIO loop is `in ax, dx` / `stosw` because this tree is
-; cpu 8086 and `rep insw` is a 186 instruction - a 286-and-up machine could
-; emit its two opcode bytes by hand, and that is an optimisation for a day
-; when someone has measured it.
+; ONE COMMAND PER RUN, and one DRQ handshake per sector inside it. ATA-1's
+; sector-count register is what makes that legal: the drive walks
+; sector/head/cylinder itself, so a run may cross tracks and cylinders freely
+; and the only cap is the register's 255 (0 would mean 256, which nothing
+; here asks for).
+;
+; It used to be one command per sector, on the reasoning that dsk_xfer looped
+; int 13h anyway so a run bought nothing. That stopped being true when a
+; driver-backed volume started handing the whole count to DSV_BLK in one call
+; (SPEC.md 18.7): a command is a task-file write, a BSY poll and a DRQ poll,
+; and paying that per 512 bytes is most of what a copy costs on a real drive.
+; Measured on the reference copy (docs/HDD-PLAN.md part 13): 1,918 commands
+; became 141.
+;
+; No DMA page bound here, unlike the BIOS rung: PIO moves every byte through
+; the CPU, and hd_buf_step carries the offset into the segment.
+;
+; The PIO loop is `in ax, dx` / `stosw` because this tree is cpu 8086 and
+; `rep insw` is a 186 instruction - a 286-and-up machine could emit its two
+; opcode bytes by hand, and that is an optimisation for a day when someone
+; has measured it.
 ; -----------------------------------------------------------------------------
 hd_ide_xfer:
     push bx
@@ -1004,21 +1080,26 @@ hd_ide_xfer:
     mov si, [hd_bcnt]
     mov bp, di                  ; BP = the device row: DI is the PIO loop's
     mov bx, [di+HDD_BASE]
-.sector:
+.run:
     or si, si
     jz .ok
     push bp
     pop di                      ; DI = the row again, for hd_chs
-    call hd_chs
+    call hd_chs                 ; the CHS of the run's FIRST sector
     jc .fail
     mov cl, [di+HDD_UNIT]
     mov ch, [hd_head]
     call hd_ide_select
     jc .fail
+    mov ax, si                  ; the whole remainder in one command, up to
+    cmp ax, 255                 ; what the count register holds
+    jbe .n
+    mov ax, 255
+.n:
+    mov [hd_run], ax
     mov dx, bx
     add dx, IDE_SCNT
-    mov al, 1
-    out dx, al
+    out dx, al                  ; AL = the run: 1..255
     inc dx                      ; IDE_SNUM
     mov al, [hd_sec]
     out dx, al
@@ -1036,7 +1117,8 @@ hd_ide_xfer:
     mov al, IDE_C_WRITE
 .cmd:
     out dx, al
-    call hd_ide_drq
+.sector:                        ; one DRQ handshake per sector, inside the
+    call hd_ide_drq             ; one command above
     jc .fail
     mov dx, bx                  ; IDE_DATA
     mov cx, 256
@@ -1059,7 +1141,9 @@ hd_ide_xfer:
 .advance:
     call hd_buf_step
     dec si
-    jmp .sector
+    dec word [hd_run]
+    jnz .sector
+    jmp .run
 .ok:
     pop es
     pop di
@@ -1117,6 +1201,7 @@ hd_bseg:     dw 0               ; ...and its buffer, count and direction
 hd_bofs:     dw 0
 hd_bcnt:     dw 0
 hd_bop:      db 0
+hd_run:      dw 0               ; sectors in the transfer being issued
 hd_status:   db 0
 hd_pdl:      db 0               ; hd_probe's int 13h drive number
 hd_cyl:      dw 0               ; hd_chs's answer

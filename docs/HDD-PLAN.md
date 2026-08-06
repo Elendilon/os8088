@@ -948,3 +948,69 @@ Kept because the reasoning above is only useful if its errors are visible too.
   boot where the driver never loads — the blob round-trips untouched rather
   than being dropped. The real cost, which the plan would have been right to
   weigh, is that `DRV_BLOB_SZ` is reserved on every machine, hard disk or not.
+
+---
+
+## 13. What a copy actually cost, measured
+
+The plan never asked how *fast* any of this would be, and the answer turned
+out to be "four and a half times more I/O than the files needed". The
+reference workload throughout is `APPS` — nine files, 175,214 bytes,
+**343 sectors** — copied from HDD C to HDD D under `make test HDD=40`, with
+counters dropped into `disk_mount`, `dsk_xfer`, `dsk_fat_window` and the icon
+harvest and read over QMP.
+
+| | before | after |
+|---|---:|---:|
+| `disk_mount` calls | 62 | 45 |
+| sectors read | 1,525 | 873 |
+| sectors written | 393 | 383 |
+| transfer calls (= IDE commands) | 1,420 | 394 |
+| FAT window loads | 62 | 45 |
+| icon-harvest reads | 348 | 8 |
+| directory-scan reads | 62 | 3 |
+| read amplification | 4.44x | 2.55x |
+
+Where the 1,525 reads went, before: **1,030 of them — 68% — were remount**.
+Every `fcp_goto` that crossed volumes ran a full `disk_mount`, and `fcp_xfer`
+crossed about five times per file. A mount is a boot sector, a nine-sector FAT
+window, a directory scan, a sort, and **one read per file in the directory**
+for the icon harvest — so the destination's icons were re-harvested on every
+switch back, and the cost of copying a folder grew with the number of files
+already in it.
+
+Five things changed, and one of them was a bug rather than a speed fix:
+
+1. **A volume switch is not a mount** (SPEC.md §18.9) — `dsk_chdir_q` stops
+   after the FAT window. Harvest reads 348 → 8.
+2. **A file costs two switches, not five** (§22.5) — the destination is
+   created carrying its first chunk, and the loop ends on `[fcp_rsz]` instead
+   of switching to be told there is nothing left.
+3. **`fcp_rdnext` is one `dsk_read_chain` per chunk** (§22.5), not one
+   `disk_read` per cluster; `dskw_wdata` writes runs, not sectors (§18.4.1).
+4. **Both driver transports batch a run into one command** (§52.1). This is
+   the line that matters on real hardware and not at all under QEMU: 1,918
+   IDE commands became 394.
+5. **The formatter picks its cluster size from a capacity table** (§52.3).
+   A 31MB partition's FAT went from 254 sectors to 64.
+
+And the bug: change 5 made two partitions on one disk disagree about cluster
+size for the first time, which exposed that `fcp_chunkset` had always used
+`dskw_clbytes` of *whichever volume was current*. A chunk has to be a multiple
+of both — the destination's for `dskw_append`'s precondition, the source's
+because a take ending mid-cluster skips the rest of it — so a 116KB file
+copied from the 31MB volume to the 6MB one arrived **64,512 bytes long, with
+no error reported**. `fcp_clspan` is the fix. It was latent before only
+because every partition the formatter made had 512-byte clusters.
+
+Two things are worth knowing for whoever picks this up next:
+
+- **Writes are still coalesced only within a cluster** — 383 sectors in 217
+  calls, 1.8 each. Going across contiguous clusters would need the
+  allocate-and-link loop restructured to look ahead, which is the most
+  commit-order-sensitive code in the kernel; the estimate is another ~180
+  commands off the 394.
+- **The FAT window reload is now the whole of the remount cost** — 45 loads ×
+  9 sectors = 405 of the 873 reads. It is 1:1 with mounts, so it falls only by
+  switching less; making it cheaper would mean a window per volume, which is a
+  9KB heap claim each and the first thing here that would actually need one.

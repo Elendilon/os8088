@@ -147,6 +147,11 @@ dsk_nmax:    dw DSK_NENT         ; how many entries fit
 ; cluster chain and the volume lists two lines of noise.
 dsk_cwd:     dw 0                ; current directory's first cluster
 dsk_keepcwd: db 0                ; 1 = this mount is a dsk_chdir: keep it
+dsk_quiet:   db 0                ; 1 = this mount is a VOLUME switch, not a
+                                 ; listing (SPEC.md 18.9) - here for
+                                 ; dsk_keepcwd's reason, a garbage byte at
+                                 ; boot would skip the boot volume's scan
+dsk_lstale:  db 0                ; 1 = the global listing is not this volume's
 
 ; The folder icon (SPEC.md 19.2): 16 mask rows then 16 data rows, bit 15 =
 ; leftmost, the SPEC.md 20.2 body format the harvest copies into a slot. A
@@ -905,6 +910,28 @@ disk_mount:
     mov word [dsk_cwd], 0
 .cwd_ok:
 
+    ; --- 2b. a QUIET mount stops here (SPEC.md 18.9) -------------------------
+    ; Everything above is the VOLUME - the BPB, the geometry, the FAT window
+    ; and the current directory. Everything below is the LISTING, which a file
+    ; operation never looks at: dskw_find and fcp_scan walk directory sectors
+    ; themselves. So a caller that is switching volumes to read or write a
+    ; file, rather than to show one, stops here and skips the scan, the sort
+    ; and the per-file icon harvest.
+    ;
+    ; [disk_nfiles] goes to 0 rather than being left alone, because the
+    ; listing buffer still holds the PREVIOUS volume's entries and a stale
+    ; count is the one thing that could make a reader believe they are this
+    ; volume's. An empty listing is a state the whole kernel already handles;
+    ; a wrong one is not. [dsk_lstale] is the debt, and dsk_relist pays it.
+    cmp byte [dsk_quiet], 0
+    je .listing
+    mov word [disk_nfiles], 0
+    mov byte [dsk_lstale], 1
+    mov byte [dsk_mntok], 1     ; the volume IS validated - writes are legal
+    clc
+    jmp .out
+.listing:
+
     ; --- 3. root-dir scan -> synthesized directory (SPEC.md 19) ---
     ; One sector at a time through dsk_secbuf. DS never leaves the kernel
     ; segment while parsing: raw fields are read via es:, the staged entry is
@@ -1044,6 +1071,7 @@ disk_mount:
 
 .done:
     mov [disk_nfiles], bp       ; publish the count last
+    mov byte [dsk_lstale], 0    ; ...the listing is this volume's again...
     mov byte [dsk_mntok], 1     ; ...and only now open the write gate
     clc
     jmp .out
@@ -1883,6 +1911,45 @@ dsk_chdir:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_chdir_q - dsk_chdir without rebuilding the listing (SPEC.md 18.9)
+; in:  DL = the volume index, AX = the directory's first cluster
+; out: CF as dsk_chdir; [dsk_lstale] = 1
+; clobbers: flags
+;
+; For a caller that is going to READ OR WRITE A FILE here, not show one. It
+; leaves the global snapshot empty and owed - dsk_relist is the payment, and
+; every path that can return to the event loop must make it.
+; -----------------------------------------------------------------------------
+dsk_chdir_q:
+    mov byte [dsk_quiet], 1
+    call dsk_chdir
+    mov byte [dsk_quiet], 0
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_relist - make the global snapshot a real mount again (SPEC.md 18.9)
+; in:  nothing
+; out: nothing (all registers preserved); CF is NOT propagated, for
+;      dskw_sync's reason - the work already happened
+; clobbers: nothing
+;
+; Cheap and idempotent when nothing is owed, which is what lets the copy
+; engine call it on every exit path without asking whether it switched.
+; -----------------------------------------------------------------------------
+dsk_relist:
+    cmp byte [dsk_lstale], 0
+    je .out
+    mov byte [dsk_lstale], 0    ; cleared FIRST: a mount that fails published
+                                ; an empty listing, which is exactly what the
+                                ; flag exists to stop being wrong about, so
+                                ; there is nothing left to owe
+    jmp dskw_sync               ; the same remount-where-we-stand that every
+                                ; successful write already does (18.4) - a
+                                ; tail call, and it preserves everything
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_dotdot - the current directory's parent (SPEC.md 19.2)
 ; in:  nothing; [dsk_cwd] must be non-zero (inside a subdirectory)
 ; out: CF=0, AX = the parent's first cluster, 0 = the root; CF=1 = the '..'
@@ -1933,8 +2000,16 @@ dsk_dotdot:
 ; dsk_read_chain - read a file's cluster chain (SPEC.md 18)
 ; in:  AX = first cluster, DX = sectors to read (= ceil(fsize/512), >= 1),
 ;      ES:BX = destination (advances 512/sector, exactly DX sectors)
-; out: CF=0 all read; CF=1 with AL = 1 (disk error) / 2 (chain corrupt)
+; out: CF=0 all read, and [dsk_chain_end] = the LAST cluster it touched;
+;      CF=1 with AL = 1 (disk error) / 2 (chain corrupt)
 ; clobbers: CF; AL on failure (everything else preserved)
+;
+; [dsk_chain_end] is what makes this RESUMABLE, and it is a variable rather
+; than a register because the loader - the caller this was written for -
+; reads a whole file in one go and would only have to preserve it. A caller
+; that reads a file in chunks (fcp_rdnext, SPEC.md 22.5) steps it once with
+; dsk_next_clus and calls again. The last cluster and not the next one,
+; because stepping costs a FAT lookup that a whole-file read never needs.
 ;
 ; Size-driven walk with run coalescing: contiguous clusters accumulate into
 ; one (run_lba, run_len) pending run, flushed through the unmodified
@@ -1998,6 +2073,7 @@ dsk_read_chain:
 .final:
     call .flush
     jc .fail1
+    mov [dsk_chain_end], si     ; where a chunked caller resumes from
     clc
     pop bp
     pop di
@@ -2314,6 +2390,8 @@ dsk_rootlba:  resw 1            ; first root-dir LBA
 dsk_rootsecs: resw 1            ; root-dir sector count (<= 32)
 dsk_datalba:  resw 1            ; FirstDataSec
 dsk_maxclus:  resw 1            ; CountOfClusters+1 = highest valid cluster
+dsk_chain_end: resw 1           ; dsk_read_chain: the last cluster it touched,
+                                ; so a chunked read can resume (SPEC.md 18)
 dsk_cherr:    resb 1            ; dsk_read_chain: failure code across the
                                 ; register-restore epilogue
 

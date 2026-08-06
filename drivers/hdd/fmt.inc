@@ -82,15 +82,28 @@ HFW_BW1      equ 56
 ;      CF = 1 = no cluster size makes a legal volume of this size
 ; clobbers: flags
 ;
-; Smallest cluster first, because a cluster is the unit of waste. The loop
-; runs at most seven times and each pass is two divides.
+; **Start from a capacity table, not from one sector.** Smallest-cluster-first
+; was the old rule - "a cluster is the unit of waste" - and it is true about
+; SPACE and expensive about everything else. A 32MB partition came out with
+; 512-byte clusters, which is legal and is the worst layout there is: 65,000
+; clusters, a 254-sector FAT that the nine-sector window (SPEC.md 18.8) covers
+; 3% of, and one FAT entry to walk per 512 bytes of every file. DOS's own
+; table (the one in the FAT spec) picks by capacity, and picking the same way
+; costs at most one cluster of slack per file while making the FAT four times
+; smaller and every chain four times shorter.
+;
+; The table is a FLOOR, not an answer: the loop below still walks upward from
+; it, so a size where the chosen cluster yields too few or too many clusters
+; is corrected exactly as before, and FAT12 on a small partition still falls
+; out of the same two tests.
 ; -----------------------------------------------------------------------------
 hd_fmt_plan:
     push ax
     push bx
     push cx
     push dx
-    mov word [hd_fspc], 1
+    call hd_fmt_spc0            ; AX = where to start looking
+    mov [hd_fspc], ax
 .try:
     call hd_fmt_layout          ; -> [hd_ffatsz], [hd_fclus]
     jc .next
@@ -103,8 +116,12 @@ hd_fmt_plan:
     mov byte [hd_ftype], 1      ; FAT16
     jmp short .ok
 .try12:
-    ; Fewer than 4,085 clusters at the smallest cluster size there is: this
-    ; partition is FAT12 and cannot be anything else.
+    ; Fewer than 4,085 clusters at this cluster size, and the walk only ever
+    ; goes UP - which would yield fewer still. So this partition is FAT12.
+    ; Since the start is a capacity floor rather than one sector (hd_fmt_spc0)
+    ; that verdict arrives sooner than it used to: a 4MB partition is FAT12
+    ; with 1KB clusters now where it was FAT16 with 512-byte ones. Both are
+    ; legal, DOS would have said FAT12 too, and it is the smaller FAT.
     cmp word [hd_fclus], 1
     jb .next
     mov byte [hd_ftype], 0
@@ -128,6 +145,30 @@ hd_fmt_plan:
     pop bx
     pop ax
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_fmt_spc0 - the cluster size to start from, by capacity (SPEC.md 52.3)
+; in:  [hd_fsecs] = the partition's sector count
+; out: AX = sectors per cluster, a power of two
+; clobbers: AX (the output), flags
+;
+; Microsoft's DskTableFAT16, trimmed to the sizes a 16-bit volume-relative LBA
+; can reach (SPEC.md 18.7 caps a partition at 65,535 sectors = 31.99MB), so
+; only its first two rows are reachable and the rest would be dead code:
+;
+;   <= 16MB   (32,680 sectors)   2 sectors, 1KB clusters
+;   <= 32MB   (65,535 sectors)   4 sectors, 2KB clusters
+;
+; A partition too small for FAT16 at 1KB clusters walks DOWN by way of
+; hd_fmt_plan's FAT12 branch, which is the same path it always took.
+; -----------------------------------------------------------------------------
+hd_fmt_spc0:
+    mov ax, 2
+    cmp word [hd_fsecs], 32680
+    jbe .out
+    mov ax, 4
+.out:
     ret
 
 ; -----------------------------------------------------------------------------

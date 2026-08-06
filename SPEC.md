@@ -300,6 +300,53 @@ pool `xm_alloc` hands out in 1KB units.
 tier 0 — the target machine — the whole space is zero bytes and every entry
 point refuses.
 
+### 2.5 The boot overlay — code that costs no memory at all
+
+Code that runs **once**, from `kmain`, and is never reachable again:
+`cpu_detect`, `cpu_a20_enable`, `xm_init`, `desk_init`, `snd_init`,
+`clk_init` and the whole of `clock.inc`'s probe ladder. It is assembled into
+a `.ovl` section that `-f bin` places at file offset `OVL_START` — the image
+rung — with its own addresses starting at zero, so the boot sector's **one
+contiguous read** lands it exactly at `FAT_SEG`.
+
+That is the trick: `FAT_SEG` is the 4,608-byte FAT window, and nothing
+touches it until `drv_boot` calls `disk_mount`, which is the last thing
+`kmain` does before the first paint. Every overlay entry runs before that, so
+the overlay is alive exactly as long as it is needed and is then written over
+by the volume's own FAT. **It costs no RAM, and none of it counts against
+guard 2.**
+
+The contract, and all of it matters: `CS = FAT_SEG`, `DS = KERNEL_SEG`,
+`SS = LOW_SEG`. DS is the kernel's, so every reference to kernel data
+assembles and runs exactly as it did in `.text` — nothing to marshal, no `es:`
+prefixes, nothing rewritten, which is what makes moving a module here nearly
+free. The mirror image is the price: **the overlay may not reach its own
+labels through DS.** It has no data of its own today; anything added needs a
+`cs:` override and NASM will not warn.
+
+Calls out of the overlay into resident code must be **far**, so a resident
+routine an overlay entry needs gets a four-byte `call`/`retf` shim (`ovw_*`);
+calls the other way come through the `ovl_*` stubs, which is what lets every
+routine that moved keep its near `ret` and change in no other way.
+`tools/os88ovlchk.py` refuses a near call that crosses the boundary.
+
+### 2.6 The cold segment — resident, but out of the window
+
+Code that is needed all session but is never hot: the Control Panel. Same
+contract as the overlay — `CS = COLD_SEG`, `DS = KERNEL_SEG` — and the same
+four-byte far shims in both directions (`cw_*` resident-side, `cpf_*`
+cold-side). The difference is lifetime: this is not overwritten by anything,
+so it is a real rung on the ladder rather than a squatter.
+
+It sits **between the image and the FAT window**, and that placement is
+forced rather than chosen: it rides the same contiguous boot read, and
+anywhere above the stacks would need the loader to skip `.lowbss`, which is
+`nobits` and not in the file at all.
+
+What both sections buy is the same thing: guard 2 is `.text + .bss` inside
+one 64KB segment, it cannot be raised at any price, and code in `.ovl` or
+`.cold` is in neither.
+
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
 ```nasm
@@ -3499,6 +3546,18 @@ dskw_read   in   SI -> NUL 8.3 name, ES:BX -> the destination, DX:CX = its
                  untouched. DX does not survive the call.
 ```
 
+**The write issues RUNS, not sectors.** `dskw_wdata` used to call
+`disk_write` once per sector, on the reasoning that `dsk_xfer` looped int 13h
+itself so a count bought nothing. That stopped being true when a
+driver-backed volume began handing the whole count to `DSV_BLK` in one call
+(§18.7), where a run is one IDE command instead of N. `dskw_runmax` is
+`dskw_cross`'s question asked of a **run**: how many sectors may go in one
+transfer from the current `[dskw_wseg]:[dskw_src]`, bounded by the 64KB DMA
+page the 8237 cannot carry out of, and by 127 — the most that cannot overflow
+the BX `dsk_xfer` walks from an offset of 0..15. A cluster's whole sectors go
+in as few transfers as those two bounds allow; a sector that straddles a page
+still goes alone through `dsk_secbuf`, exactly as before.
+
 **The mechanism is one routine, `dskw_norm`, called once at the top of each
 pipeline.** It folds the whole paragraph part of BX into ES, leaving an
 offset of 0..15; the transfer loop then holds that offset and advances the
@@ -3843,6 +3902,36 @@ volume, where one allocated cluster can cost a sweep of the whole FAT: 254
 sectors, 29 window loads. DOS has the same worst case and answers it the same
 way — the rover — and `dskw_dfree`, which used to be free against a resident
 FAT, becomes a full sweep on a windowed volume.
+
+### 18.9 A volume switch is not a mount
+
+`dsk_chdir` re-runs the whole of `disk_mount` because the LISTING has to
+follow the current directory. A **file operation** does not want the listing:
+`dskw_find` and `fcp_scan` walk directory sectors themselves, and everything
+they actually need — the BPB, the geometry, the FAT window, the validated
+cwd — is the first half of a mount. `dsk_chdir_q` stops there.
+
+What that skips is the second half: the directory scan, the sort (§19.4) and
+**one icon-harvest read per file in the directory** (§18.3 step 4). The
+harvest is the expensive part and the reason this exists — a copy alternates
+between two volumes, so the destination's icons were re-harvested on every
+switch and the cost of copying a folder grew with the number of files already
+in it. Measured on the reference copy (nine files, 175KB, HDD C to HDD D):
+348 harvest reads became 8.
+
+**A quiet mount publishes an EMPTY listing and records a debt.** The listing
+buffer still holds the previous volume's entries, and a stale `disk_nfiles`
+is the one thing that could make a reader take them for this volume's — so
+it goes to 0, which is a state the whole kernel already handles, and
+`[dsk_lstale]` says the global snapshot is owed a rebuild. `dsk_relist` pays
+it by tail-calling `dskw_sync`, and it is idempotent so a caller may spend it
+without asking whether it switched.
+
+**Every path back to the event loop must pay.** The copy engine is the only
+caller, and it has two such paths — `fcp_stop` and the replace question's
+pause — because at both of them the world repaints and other writes become
+legal again. The pause is the sharp one: it is not an end, so nothing else
+would have reconciled it.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
@@ -5819,36 +5908,78 @@ The copy **buffer** is a heap claim of whatever the machine could spare, and
 a file may be larger than it. (`dskw_write` itself has no size limit — that
 went in §18.4.1 — but a single call still needs the whole file in memory at
 once, which is the thing a floppy-sized copy cannot promise.) A copy is
-therefore a **truncating create followed by a run of appends**: `fcp_xfer`
-opens the
-source with `fcp_rdopen`, writes a zero-length destination through the
-ordinary `dskw_write` (so the replace, the free-slot hunt and the old
-chain's release all keep their §18.4 discipline), then loops read-chunk /
-`dskw_append` until the source runs out. The buffer bounds the **chunk**,
-not the file.
+therefore a **create carrying the first chunk, followed by a run of
+appends**: `fcp_xfer` opens the source with `fcp_rdopen`, takes chunk one
+while the source volume is still current, writes it through the ordinary
+`dskw_write` (so the replace, the free-slot hunt and the old chain's release
+all keep their §18.4 discipline), then loops read-chunk / `dskw_append`
+until the source runs out. The buffer bounds the **chunk**, not the file.
+
+**TWO VOLUME SWITCHES for a file that fits the buffer**, which is every app
+on the disk. It was five, and the three that went were bookkeeping:
+
+- the destination used to be created EMPTY, so the first chunk cost a switch
+  back to a source we had just left. Reading it before leaving removes that
+  switch, and an empty file's directory write and FAT flush with it.
+- the loop used to discover the file was finished by switching to the source
+  and asking for a chunk that was not there. `[fcp_rsz]` already knew, so the
+  test is at the top of the loop where it costs nothing.
+- a switch is a `dsk_chdir_q` and no longer a full mount (§18.9).
 
 **`dskw_append`** (module-internal, no API slot) carries a precondition no
 published entry point could: the file's current size must be a whole number
 of clusters, so an append starts on a fresh one and never has to fill a
 partial sector inside a chain that is already there. `fcp_chunkset`
 guarantees it by rounding the chunk down to a cluster multiple; anything
-else is refused rather than mis-written. Its commit order is §18.4's in the
+else is refused rather than mis-written.
+
+**And the multiple is BOTH volumes', which is `fcp_clspan`.** Two separate
+constraints land on the same number and they belong to different disks: the
+destination's, above, and the **source's**, because `fcp_rdnext` resumes the
+chain by stepping past the last cluster it touched, so a take that ends
+mid-cluster skips the rest of that cluster and loses those bytes. Both sizes
+are powers of two, so a multiple of the larger satisfies both. This used to
+be `dskw_clbytes` of whichever volume happened to be current when the buffer
+was claimed — correct only when the two agree, which they always did while
+the formatter gave every partition 512-byte clusters. It gives them 1KB and
+2KB now (§52.3), and the bug came out at once: a 116KB file copied from a
+31MB volume to a 6MB one arrived 64,512 bytes long, with no error reported.
+`fcp_clspan` visits both volumes once per operation and records the larger. Its commit order is §18.4's in the
 only shape an append can have — build and write the new sub-chain, flush the
 FAT so it is durable, link the last existing cluster to it and flush again,
 and only then let the directory entry take the new size, which is the single
 sector write that makes those bytes part of the file.
 
 **The read side is not a `dskw_` entry point.** Nothing there writes: the
-FAT snapshot is already in RAM, so stepping the chain is a lookup and the
-only I/O is the data. `fcp_rdnext` reads whole clusters and clamps the
-*count*, never the transfer — the trailing bytes of the last cluster are
-allocated sectors of the file's own chain, so reading them costs nothing and
-saves a second, ragged case.
+FAT window is already resident, so stepping the chain is a lookup and the
+only I/O is the data.
+
+**One `dsk_read_chain` call per chunk, not one `disk_read` per cluster.**
+That walker already owns the run coalescer (§18) — contiguous clusters
+accumulate into a single (LBA, count) transfer — and a freshly written file
+is contiguous, so a 63KB chunk off a 1KB-cluster volume is one transfer
+instead of 63. It cost only making the walker **resumable**:
+`[dsk_chain_end]` names the last cluster it touched and one `dsk_next_clus`
+steps past it. A variable rather than a register because the loader, the
+caller it was written for, reads a whole file at once and would only have to
+preserve it.
+
+Two consequences. Reading now stops at the file's **byte count** rather than
+at the end of the cluster holding it, because a sector-driven walker can
+express that and a cluster-driven one could not; the trailing slack was
+harmless to read and is simply not read. And **a chain that ends before the
+size says it should is an error** — `dsk_read_chain` calls it corruption and
+the loader has always treated it so (§21) — where the cluster-at-a-time loop
+returned short and let the caller read that as "finished", silently
+truncating the copy.
 
 **Chunk size.** As much as the heap will give, up to 65,024 bytes — 127
 sectors, because 64KB exactly wraps a 16-bit byte count — then rounded down
-to whole clusters. Big is what we ask for: every chunk is a seek, and a real
-floppy is where that is felt.
+to whole `fcp_clspan` units. Big is what we ask for: every chunk is a seek,
+and a real floppy is where that is felt. **The floor moves with the cluster
+size too**: `fcp_floor` asks for `FCP_MINKB` or one cluster, whichever is
+bigger, because a buffer smaller than a cluster floors the chunk to zero, and
+a zero chunk reads no bytes — which `fcp_xfer` cannot tell from "finished".
 
 **The buffer is 512-byte aligned by hand.** `mem_claim` is only paragraph
 aligned, and §2's rule that every disk-visible base is 512-aligned exists
@@ -13594,9 +13725,24 @@ because this tree is `cpu 8086` and `rep insw` is a 186 instruction.
 addressed with has to be the geometry it was told about, or every read lands
 somewhere else.
 
-Both transports move **one sector per command**, for `disk.inc`'s own two
-reasons: a track boundary never matters, and a 512-byte transfer that starts
-aligned cannot straddle a 64KB DMA page. `hd_chs` needs **one `div` pair and
+**Both transports batch a run into one command**, and the run's bounds differ
+because the two disagree about who walks the geometry. This used to be one
+sector per command, on the reasoning `disk.inc` had for the floppy — but a
+command is a task-file write, a BSY poll and a DRQ poll, and paying that per
+512 bytes is most of what a copy costs on a real drive. Measured on the
+reference copy (nine files, 175KB, HDD C to HDD D): 1,918 commands became 394.
+
+- **Rung 1 caps only at 255**, ATA-1's sector-count register. The DRIVE walks
+  sector/head/cylinder itself, so a run may cross tracks and cylinders freely;
+  one command, then one DRQ handshake per sector inside it. There is no DMA
+  bound because PIO moves every byte through the CPU.
+- **Rung 0 stops at the end of the track** — a CHS int 13h must not cross one,
+  because the BIOS will not walk the head for you and answers 04h or a short
+  read — **and at the 64KB DMA page**, `dskw_runmax`'s rule applied again
+  because the kernel bounds only the runs it issues and this rung splits them
+  further. One sector always fits both, so the run is never zero.
+
+`hd_chs` needs **one `div` pair and
 no 32/16 two-step**, provably: `spt × heads` is at most 63 × 255, the highest
 LBA CHS can name is 1024 × 255 × 63, and the quotient — the cylinder — is under
 1024, so DX before each divide is far below the divisor.
@@ -13632,9 +13778,24 @@ A **FAT format, not a surface format**. Low-level formatting an MFM surface is
 vendor-specific interleave and defect handling, minutes per drive, and the
 ST-11M ships its own ROM utility that does it correctly (`g=c800:5`).
 
-The layout is the FAT specification's own arithmetic, with the cluster size
-chosen as the smallest power of two that lands the count inside FAT16's legal
-range and a FAT12 fallback for a partition too small to reach 4,085 clusters.
+The layout is the FAT specification's own arithmetic, with a FAT12 fallback
+for a partition too small to reach 4,085 clusters.
+
+**The cluster size starts from a CAPACITY TABLE, not from one sector.** The
+old rule was the smallest power of two that lands the count inside FAT16's
+legal range — true about SPACE and expensive about everything else. It gave a
+32MB partition 512-byte clusters, which is legal and is the worst layout
+available: 65,000 clusters, a **254-sector FAT** that the nine-sector window
+(§18.8) covers 3% of, and one FAT entry to walk per 512 bytes of every file.
+`hd_fmt_spc0` is Microsoft's `DskTableFAT16`, trimmed to the two rows a
+65,535-sector ceiling (§18.7) can reach — 1KB clusters to 16MB, 2KB above —
+and the walk still counts upward from there, so a size the table gets wrong
+is corrected exactly as before. A 31MB partition's FAT went from 254 sectors
+to 64. The cost is at most one cluster of slack per file.
+
+One consequence to know: two partitions on one disk can now have **different**
+cluster sizes, which is what §22.5's `fcp_clspan` exists to survive.
+
 **The ceiling is computed in 32 bits**: `TmpVal1` is nearly 65,535 already and
 `TmpVal1 + TmpVal2 - 1` wraps a word for every cluster size there is, which
 read as "no layout fits" for every partition worth having.

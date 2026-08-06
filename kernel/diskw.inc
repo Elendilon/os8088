@@ -1296,18 +1296,25 @@ dskw_wdata:
     dec cx                      ; that last sector goes through the stage
 .whole:
     jcxz .tail
-.sect:                          ; whole sectors, one per write, the source
-    push cx                     ; segment stepping
-    call dskw_cross             ; CF=1: the 8237 cannot move this one
-    jc .stg
+.sect:                          ; whole sectors, in the longest RUNS the two
+    push cx                     ; bounds below allow, the source segment
+    call dskw_runmax            ; stepping by the run
+    or ax, ax
+    jz .stg                     ; not even one sector fits its DMA page
+    cmp ax, cx
+    jbe .run
+    mov ax, cx                  ; ...and never more than this cluster's take
+.run:
+    mov [dskw_run], ax
+    mov cx, ax
     mov ax, [dskw_lba]
     mov es, [dskw_wseg]
     mov bx, [dskw_src]
-    mov cx, 1
     call disk_write             ; in: AX=LBA, CX=count, ES:BX
     jc .ioerrp
     jmp short .next
 .stg:
+    mov word [dskw_run], 1
     mov es, [dskw_wseg]         ; ...so it goes out through the scratch, which
     mov si, [dskw_src]          ; is 512-aligned and therefore never straddles
     mov cx, 512
@@ -1321,9 +1328,16 @@ dskw_wdata:
     jc .ioerrp
 .next:
     pop cx
-    inc word [dskw_lba]         ; next sector...
-    add word [dskw_wseg], 32    ; ...comes from 512 bytes = 32 paragraphs on
-    loop .sect
+    mov ax, [dskw_run]
+    add [dskw_lba], ax          ; the next run starts after this one...
+    sub cx, ax
+    push cx
+    mov cl, 5
+    shl ax, cl                  ; ...and comes from 32 paragraphs a sector on
+    pop cx
+    add [dskw_wseg], ax
+    or cx, cx
+    jnz .sect
     jmp short .tail
 .ioerrp:
     pop cx
@@ -1609,6 +1623,47 @@ dskw_norm:
 ;
 ; The test is one add: the low 16 bits of seg*16 + off ARE the offset within
 ; the 64KB page, because the carry out of that add is the page number.
+; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; dskw_runmax - how many sectors one int 13h may carry from here
+; out: AX = 0..127; 0 = not even one (this sector straddles a 64KB DMA page)
+; clobbers: AX (the output), flags
+;
+; dskw_cross's question asked of a RUN rather than a sector, which is what
+; lets the write path issue one transfer per cluster instead of one per
+; sector. That was free when dsk_xfer looped int 13h itself; it stopped being
+; free when a driver-backed volume started handing the whole count to DSV_BLK
+; in one call (SPEC.md 18.7), where a run is one IDE command instead of N.
+;
+; TWO bounds, and both are real:
+;   - the 8237 never carries into the page port, so the run must end inside
+;     the 64KB page it starts in. Same one-add derivation as dskw_cross: the
+;     low 16 bits of seg*16 + off ARE the offset within the page.
+;   - dsk_xfer walks BX from the caller's offset, which dskw_norm leaves at
+;     0..15 (SPEC.md 18.4.1). 127 sectors is the most that cannot overflow
+;     it, and it is also the most a real controller will do in one go.
+; -----------------------------------------------------------------------------
+dskw_runmax:
+    push cx
+    mov ax, [dskw_wseg]
+    mov cl, 4
+    shl ax, cl
+    add ax, [dskw_src]          ; AX = the offset within the DMA page
+    neg ax                      ; ...so this is the bytes left in it, with 0
+    jz .whole                   ; meaning a whole page rather than none
+    mov cl, 9
+    shr ax, cl
+    jmp short .cap
+.whole:
+    mov ax, 128
+.cap:
+    cmp ax, 127
+    jbe .out
+    mov ax, 127
+.out:
+    pop cx
+    ret
+
 ; -----------------------------------------------------------------------------
 dskw_cross:
     push ax
@@ -2889,6 +2944,7 @@ dskw_cap:     resw 1            ; the destination's capacity, low word...
 dskw_caphi:   resw 1            ; ...and high
 dskw_rem:     resw 1            ; sectors still to move
 dskw_tail:    resw 1            ; bytes in the partial final sector (0 = none)
+dskw_run:     resw 1            ; sectors in the transfer just issued
 dskw_take:    resw 1            ; sectors this cluster contributes
 dskw_lba:     resw 1            ; this cluster's first LBA
 dskw_cur:     resw 1            ; the cluster being written / read

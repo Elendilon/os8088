@@ -595,6 +595,37 @@ build/*.o88        --os88disk.py--> build/apps.img / apps360.img   (FAT12 floppy
 
 The data disk is a standard **FAT12** volume (SPEC.md §19) — DOS, Windows, macOS and Linux all mount and write it, and since SPEC.md §18.4 so does os8088; every byte read off it is still treated as hostile. `disk_mount` validates the BPB against the 17-rule table in SPEC.md §18.2 before trusting any derived number, snapshots the FAT into `FAT_SEG` (ES-only, `dsk_next_clus` its single reader), re-shapes the root directory into synthesized 32-byte entries (volume label, LFN, subdirectory, hidden/system and deleted entries filtered; 8.3 display names like `MINES.O88`; 32-entry cap), and harvests icons by peeking each type-1 entry's first sector — a v3 `.o88` with the embedded-icon flag donates bytes 32..95, everything else gets the all-zero generic-icon sentinel. Loads go through `dsk_read_chain`, a size-driven cluster-chain walk with run coalescing: files a host OS wrote back fragmented load fine, a corrupt chain fails bounded as "Bad package", and FAT16 (reachable only on 2.88M test geometry — cluster count decides, per the Microsoft spec) differs only in `dsk_next_clus`'s entry decode.
 
+**A volume switch is not a mount** (SPEC.md §18.9). `dsk_chdir` rebuilds the
+LISTING because navigation needs it; a FILE OPERATION does not — `dskw_find`
+and `fcp_scan` walk directory sectors themselves — so `dsk_chdir_q` stops
+after the BPB, the FAT window and the cwd, skipping the scan, the sort and
+**one icon-harvest read per file in the directory**. The harvest is why this
+exists: a copy alternates between two volumes, so the destination's icons were
+re-harvested on every switch and copying a folder got slower as it filled. The
+trap is that a quiet mount leaves the global snapshot EMPTY and owed —
+`disk_nfiles` goes to 0 (a wrong listing is worse than no listing) and
+`[dsk_lstale]` is the debt, which `dsk_relist` pays by tail-calling
+`dskw_sync`. **Every path back to the event loop must pay it**, and the copy
+engine has two: `fcp_stop` and the replace question's pause. The pause is the
+sharp one — it is not an end, so nothing else would reconcile it.
+
+**A copy costs two volume switches per file** (SPEC.md §22.5), down from five.
+The destination is created WITH its first chunk instead of empty (so the first
+chunk does not cost a switch back to a source we just left, and an empty
+file's directory write and FAT flush stop existing), and the loop ends on
+`[fcp_rsz]` instead of switching to the source to be told there is nothing
+left. `fcp_rdnext` is **one `dsk_read_chain` call per chunk**, not one
+`disk_read` per cluster — that walker already had the run coalescer and only
+needed making resumable (`[dsk_chain_end]` = the last cluster it touched).
+Two traps. **The chunk must be a multiple of BOTH volumes' cluster sizes**
+(`fcp_clspan`): the destination's for `dskw_append`'s precondition, the
+source's because a take ending mid-cluster skips the rest of it and loses
+those bytes — it was `dskw_clbytes` of whichever volume was current, which was
+only ever right because every partition had 512-byte clusters. And a chain
+that ends before the size says it should is an ERROR now, where the old loop
+returned short and the caller read that as "finished" and truncated in
+silence.
+
 **Writing** is `kernel/diskw.inc` (prefix `dskw_`, the only caller of `disk_write`): seven operations — write (create or replace), read, delete, rename, dfree, plus `dskw_mkdir` and `dskw_rmdir` for folders (SPEC.md §18.5/§18.6) — the first five reached by the OS directly and by packages through API slots 0x0120..0x0140, UI-task context only. Names resolve in the volume's **current directory** (`[dsk_cwd]`, SPEC.md §19.2), not the root. Three rules are binding and easy to break by accident. (1) **Commit order**: allocate + write the data, flush the FAT, *then* write the directory entry (one sector — the commit), *then* free the replaced chain and flush again; a crash leaks lost clusters, never a cross-link. (2) **Rollback**: any failure before the commit re-reads the FAT off the disk (`dskw_refat`), so a half-built chain cannot survive in RAM to be flushed later. (3) **Coherence by remount**: a successful metadata change re-runs `disk_mount`, so `disk_dir`/`disk_icons`/`disk_nfiles` stay exactly a mount snapshot and no new staleness rule enters the kernel. Writes are gated on `[dsk_mntok]`, set only by a fully successful mount — which is why the boot floppy (no valid BPB) can never be written. Verify write changes with the `tests/filetest` gate package (`make test-snd TESTAPPS=build/filetest.img`, plus the `-frag` image) **and** `python3 tools/os88disk.py --verify <img>` from the host afterwards — the in-kernel free-space check and the host fsck catch different bugs.
 
  Packages are format v3 (SPEC.md §20.2) and **own a segment**: assembled at org 0, loaded on a paragraph boundary claimed off the top of the heap (`mem_claim_hi`), bss zeroed, entry far-called with DS = CS = the package's own segment. There is no relocation of any kind — no dual assembly, no reloc table, no author rule about whole-word addresses — and `tools/os88pkg.py` is a validator rather than a generator.
@@ -776,6 +807,19 @@ is lost — an 8088 with a hard disk has a controller with a ROM, and rung 0 is
 that ROM, which is also the whole of MFM support. And its formatter computes
 the FAT-size ceiling in **32 bits**, because `TmpVal1 + TmpVal2 - 1` wraps a
 word for every cluster size there is and reads as "no layout fits".
+
+**Both transports batch a run into one command** (SPEC.md §52.1), and the
+bounds differ because they disagree about who walks the geometry: rung 1 caps
+only at ATA-1's 255, because the DRIVE steps sector/head/cylinder itself, so
+it is one command and then one DRQ handshake per sector; rung 0 stops at the
+end of the TRACK (a CHS int 13h must not cross one) **and** at the 64KB DMA
+page, because the kernel bounds only the runs it issues and this rung splits
+them again. **The formatter picks its cluster size from a capacity table**
+(SPEC.md §52.3) rather than smallest-legal — a 32MB partition was getting
+512-byte clusters, a 254-sector FAT the nine-sector window covers 3% of, and
+one FAT entry to walk per 512 bytes of every file. The consequence to know is
+that two partitions on one disk can now have DIFFERENT cluster sizes, which is
+what `fcp_clspan` (SPEC.md §22.5) exists to survive.
 
 **A driver's window is the kernel's to measure.** Both tool windows erase
 their content through `OSAPI_WM_GEOM` and never the template's constants: the

@@ -709,7 +709,7 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;clicks and keys | 119 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;init | 35 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *29* | |
-| **`events.inc`** — the event ring (§13.1) | **268** | **0.5%** |
+| **`events.inc`** — the event ring (§10) | **268** | **0.5%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;`evq_pop` | 60 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`evq_push` | 55 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`evq_init` | 19 | |
