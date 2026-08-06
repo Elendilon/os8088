@@ -3,8 +3,8 @@
 ;
 ; The loadable hard-disk driver (SPEC.md 51.8/52): MFM through an XT
 ; controller card's own ROM, and CHS-only IDE. Everything the user can see is
-; here - the Control Panel's Hard Drive page, the partitioner, the FAT
-; formatter and the Mount button - because the kernel's half of this is four
+; here - the Control Panel's Hard Drive page, the disk tool that partitions
+; and formats, and the Mount button - because the kernel's half of this is four
 ; API slots and a volume table, and nothing above them belongs in a kernel
 ; that boots machines with no hard disk at all.
 ;
@@ -37,9 +37,10 @@
 ; is not an exotic path - it is a 286 with an early IDE drive and a CMOS type
 ; table that predates it.
 ;
-; Prefix hd_. Sub-modules: part.inc (the partition table and its window),
-; fmt.inc (the FAT formatter and its window), page.inc (the Control Panel
-; page). All near procs with near rets, like any package (SPEC.md 51.1).
+; Prefix hd_. Sub-modules: part.inc (the partition table and the allocator),
+; fmt.inc (the FAT formatter), tool.inc (the one window both of those are
+; reached through), page.inc (the Control Panel page). All near procs with
+; near rets, like any package (SPEC.md 51.1).
 ; =============================================================================
 
 %include "os88drv.inc"
@@ -103,6 +104,7 @@ IDE_C_INITP  equ 0x91
 %include "cfg.inc"
 %include "part.inc"
 %include "fmt.inc"
+%include "tool.inc"
 %include "page.inc"
 
 ; =============================================================================
@@ -227,8 +229,7 @@ hd_state_init:
     mov byte [hd_sel], 0
     mov byte [hd_field], 0
     mov byte [hd_wantmnt], 0
-    mov word [hd_pwin], 0
-    mov word [hd_fwin], 0
+    mov word [hd_twin], 0
     mov word [hd_msg], hd_s_pick
     pop es
     pop di
@@ -1237,13 +1238,22 @@ hd_fldi:     db 0               ; the C/H/S editor's loop index
 hd_fldx:     dw 0
 hd_clx:      dw 0               ; the click being dispatched
 hd_cly:      dw 0
-hd_pwin:     dw 0               ; the partitioner's window, 0 = never opened
-hd_psel:     db 0               ; ...and the slot it has selected
-hd_pmsg:     dw 0
-hd_fwin:     dw 0               ; the formatter's window
-hd_fsel:     db 0               ; ...the partition it will write
-hd_fmsg:     dw 0
-hd_fbase:    dd 0               ; that partition's first LBA
+hd_twin:     dw 0               ; the disk tool's window, 0 = never opened
+hd_tsel:     db 0               ; ...the slot it has selected,
+hd_tarm:     db 0               ; slot+1 when a destructive Format is one click
+                                ; from happening, 0 when it is not (52.2.3)
+hd_tmsg:     dw 0               ; ...and its caption
+hd_tstate:   times 4 db 0       ; HTS_* per slot, worked out when the tool
+                                ; opens and after every format
+hd_ask:      times 40 db 0      ; the confirm question, built into a buffer of
+                                ; its own: hd_line belongs to the row painter
+hd_xslot:    db 0               ; hd_slot_extent's scan: the slot being placed,
+hd_xstart:   dd 0               ; the candidate start,
+hd_xlimit:   dd 0               ; how far it may run,
+hd_xend:     dd 0               ; one entry's end,
+hd_xbest:    dd 0               ; and the largest hole the walk has seen
+hd_xblen:    dd 0               ; (52.2.1)
+hd_fbase:    dd 0               ; the extent a format will write: its first LBA
 hd_fsecs:    dw 0               ; ...and its length
 hd_fspc:     dw 0               ; the plan: sectors per cluster,
 hd_ffatsz:   dw 0               ; FAT sectors,
