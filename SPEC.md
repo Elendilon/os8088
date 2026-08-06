@@ -4363,11 +4363,40 @@ path is derived from an unvalidated field.
 
 ### 19.3 The system disk — a FAT12 volume with the kernel in its reserved area
 
-The disk os8088 boots from is a **real FAT12 volume**: DOS, Linux and macOS
-mount it, and so do os8088's own file manager and write path. That is not
-cosmetic — it is what gives loadable drivers (§51) a place to live and
-settings a place to be kept, without a second on-disk format and a second
-set of readers.
+The disk os8088 boots from is a **real FAT12 volume**, mounted by os8088's own
+file manager and write path and by any reader that honours the BPB. That is
+not cosmetic — it is what gives loadable drivers (§51) a place to live and
+settings a place to be kept, without a second on-disk format and a second set
+of readers.
+
+**DOS is not such a reader, and that is a real limitation of this design
+rather than a bug in the image.** DOS builds a *floppy's* BPB from its own
+table of standard formats rather than from the boot sector — the Build BPB
+device-driver call is handed the first sector of the FAT, not sector 0 — so
+it never sees `BPB_RsvdSecCnt` and puts the FAT and root directory at the
+standard offsets. On this disk those offsets hold the **kernel**, so DOS
+parses machine code as file system: garbled directory entries and **52,224
+bytes free** on the 360KB disk, which is 51 free clusters of the kernel's own
+bytes read as a FAT. Modelling that reading against the shipped image
+reproduces the figure to the byte, and it is the signature of this and
+nothing else.
+
+**Verified on PC-DOS 3.30 and MS-DOS 5.00, identical results** — so this is
+not a quirk of one vintage that a later one fixes. A boot-sector BPB is what
+DOS reads for a hard-disk partition; for a standard floppy format it is not
+consulted at all. The disk is undamaged either way: os8088 reads it
+correctly, and a cold boot from it works normally.
+
+The **data** disks are unaffected — `apps.img` and `apps360.img` have
+`RsvdSecCnt` = 1 and are entirely ordinary, so DOS reads those normally
+(§19).
+
+There is no arrangement that satisfies both: DOS insists the FAT and root
+directory occupy the sectors the kernel is in. Making the system disk readable
+on that vintage means moving the kernel out of the reserved area and into the
+data area as a contiguous hidden file, with its start LBA injected into
+`boot/boot.asm` beside `KERNEL_SECTORS` — which is a change to the boot
+layout, not a build detail.
 
 The trick is one field. `BPB_RsvdSecCnt` covers the sectors between the boot
 sector and FAT1 — the reserved area, which belongs to the boot loader by
