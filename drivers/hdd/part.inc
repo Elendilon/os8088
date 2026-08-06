@@ -317,9 +317,19 @@ hd_cyl_up:
 ; candidate, restart at that entry's end rounded up to a cylinder. Each bump
 ; moves strictly past one entry, so four passes is a proof and not a guess.
 ; The length then runs to the next used entry ABOVE the candidate (or the end
-; of the drive), capped at HP_MAXSEC - so a hole a deleted partition left is
-; usable, and a 32MB partition sits directly on top of a foreign 50MB one
-; rather than at the next multiple of anything.
+; of the drive) - so a 32MB partition sits directly on top of a foreign 50MB
+; one rather than at the next multiple of anything.
+;
+; **It walks EVERY hole and takes the largest**, rather than the first that
+; fits, and that is about the slots being scarce: there are four, and a disk
+; another machine has touched has an ALIGNMENT GAP at the front of it (this
+; tool's floor is LBA = spt; a modern one 1MB-aligns at LBA 2048, and the 1,985
+; sectors between are real, unowned, and a working 970KB volume). First-fit
+; spends a whole primary slot on that while 30MB sits free in the middle of the
+; disk. The walk is the same bump-and-limit pair in a loop: the candidate moves
+; to the limit that bounded it, which the next bump carries past the entry
+; sitting there, so it strictly increases and there are at most four holes to
+; see. A tie keeps the EARLIER hole, which leaves the later space contiguous.
 ; -----------------------------------------------------------------------------
 hd_slot_extent:
     push ax
@@ -350,14 +360,22 @@ hd_slot_extent:
     cmp ax, [hd_fsecs]
     jae .have
     mov [hd_fsecs], ax
-    jmp short .have
+    jmp .have                   ; NEAR: the hole walk below is well past 127
+                                ; bytes, and `jmp short` is how NASM says so
 
 .fresh:
+    xor ax, ax                  ; no hole found yet
+    mov [hd_xblen], ax
+    mov [hd_xblen+2], ax
+    mov [hd_xbest], ax
+    mov [hd_xbest+2], ax
     mov ax, [di+HDD_SPT]        ; the floor: one track in, which is where
     xor dx, dx                  ; every DOS-era table put the first partition
     mov [hd_xstart], ax
     mov [hd_xstart+2], dx
-    mov cl, 4                   ; four entries, so at most four bumps
+    mov ch, 5                   ; four entries bound four holes, and a stop
+.hole:
+    mov cl, 4                   ; each bump consumes one entry
 .bump:
     call hd_x_bump
     jnc .clear
@@ -369,7 +387,36 @@ hd_slot_extent:
     mov dx, [hd_xlimit+2]
     sub ax, [hd_xstart]
     sbb dx, [hd_xstart+2]
-    jc .no                      ; the candidate is past the limit: full
+    jc .step                    ; the candidate is past the limit: nothing here
+    cmp dx, [hd_xblen+2]        ; bigger than the best so far? A tie keeps the
+    ja .take                    ; EARLIER hole, which is the one that leaves
+    jb .step                    ; the later space contiguous
+    cmp ax, [hd_xblen]
+    jbe .step
+.take:
+    mov [hd_xblen], ax
+    mov [hd_xblen+2], dx
+    mov ax, [hd_xstart]
+    mov [hd_xbest], ax
+    mov ax, [hd_xstart+2]
+    mov [hd_xbest+2], ax
+.step:
+    mov ax, [hd_xlimit]         ; on to the entry that bounded this hole; the
+    mov [hd_xstart], ax         ; bump carries us past it next time round, so
+    mov ax, [hd_xlimit+2]       ; the candidate strictly increases and the walk
+    mov [hd_xstart+2], ax       ; terminates
+    call hd_dev_secs
+    cmp dx, [hd_xstart+2]
+    ja .more
+    jb .best
+    cmp ax, [hd_xstart]
+    jbe .best
+.more:
+    dec ch
+    jnz .hole
+.best:
+    mov ax, [hd_xblen]
+    mov dx, [hd_xblen+2]
     or dx, dx
     jnz .cap
     cmp ax, HP_MAXSEC
@@ -377,10 +424,10 @@ hd_slot_extent:
 .cap:
     mov ax, HP_MAXSEC
 .len:
-    mov [hd_fsecs], ax
-    mov ax, [hd_xstart]
+    mov [hd_fsecs], ax          ; zero when no hole was found at all, which
+    mov ax, [hd_xbest]          ; .have refuses below one track
     mov [hd_fbase], ax
-    mov ax, [hd_xstart+2]
+    mov ax, [hd_xbest+2]
     mov [hd_fbase+2], ax
 .have:
     mov ax, [hd_fsecs]

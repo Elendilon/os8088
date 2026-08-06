@@ -1250,7 +1250,9 @@ hd_ask:      times 40 db 0      ; the confirm question, built into a buffer of
 hd_xslot:    db 0               ; hd_slot_extent's scan: the slot being placed,
 hd_xstart:   dd 0               ; the candidate start,
 hd_xlimit:   dd 0               ; how far it may run,
-hd_xend:     dd 0               ; and one entry's end (52.2.1)
+hd_xend:     dd 0               ; one entry's end,
+hd_xbest:    dd 0               ; and the largest hole the walk has seen
+hd_xblen:    dd 0               ; (52.2.1)
 hd_fbase:    dd 0               ; the extent a format will write: its first LBA
 hd_fsecs:    dw 0               ; ...and its length
 hd_fspc:     dw 0               ; the plan: sectors per cluster,

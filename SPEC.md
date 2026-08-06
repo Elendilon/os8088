@@ -15624,13 +15624,26 @@ column was whole megabytes, so a volume that works read `0M`, which looks like
 a broken tool rather than a small disk. Under a megabyte the column is **KB**
 (`hd_tw_size`); `992K` is the same volume, honestly described.
 
-The policy the scan follows is **the first hole that fits, not the largest**.
-On a disk whose only holes are alignment gaps that is the same answer, but it
-is not in general: with a 1MB gap at the front and 30MB free in the middle, a
-Format spends one of only four primary slots on the 1MB. Taking the largest
-hole instead is about 60 bytes and is the better default — it is not
-implemented, and this paragraph is the record of the choice rather than a
-description of the code.
+Which is why the scan takes **the largest hole and not the first that fits**,
+and that is about the slots being scarce: there are four, and first-fit spends
+one of them on a 1MB alignment gap while 30MB sits free in the middle of the
+disk. The walk is the same bump-and-limit pair in a loop — the candidate moves
+to the limit that bounded it, the next bump carries it past the entry sitting
+there, so it strictly increases and there are at most four holes to see. A tie
+keeps the **earlier** hole, which leaves the later space contiguous.
+
+Measured, on a 128MB disk with an NTFS partition at 2048..131072 and a FAT16
+at 199584..261072 — a 1,985-sector gap at the front and a 68,512-sector hole
+in the middle:
+
+```
+Format -> 132048 + 65535   the middle hole, cylinder-aligned and capped
+Format -> 63 + 1985        the front gap, now that it is the largest left
+```
+
+Sub-megabyte partitions are kept rather than refused below some floor: 992KB
+is most of three 360KB floppies, which on this machine is a real volume — and
+under largest-hole it is only ever chosen when nothing bigger is free.
 
 #### 52.2.2 Formatted, and unmountable
 
