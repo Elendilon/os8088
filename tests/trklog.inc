@@ -45,8 +45,14 @@
 ;   FR FD how many drawing frames and feed passes happened in that tick. FR 0
 ;         for a run of ticks is the text screen frozen; FD 0 is the worker not
 ;         running.
-;   FL    what the drawing side did: 1 a shadow rebuild started, 2 a rebuild
-;         step ran, 4 a blit ran, 8 a stream was opened.
+;   FL    1 a shadow rebuild started, 2 a rebuild step ran, 4 a blit ran,
+;         8 a stream was opened - and 10h, the one bit a MACHINE cannot set:
+;         M stamps it, so the listener can put a mark in the file at the
+;         moment they hear a hitch. Everything else here says what the guest
+;         was doing; this says what the guest sounded like, and the first
+;         field capture showed exactly why that is needed - 62 seconds in
+;         which every counter is healthy and nothing in the file knows
+;         whether anything was audible.
 ;   BPM SP  the replayer's tempo, so rows-per-second is derivable per record
 ;         rather than assumed to be the 125/6 default.
 ; =============================================================================
@@ -61,6 +67,7 @@ TLOGF_REBUILD equ 1
 TLOGF_STEP    equ 2
 TLOGF_BLIT    equ 4
 TLOGF_STREAM  equ 8
+TLOGF_MARK    equ 16               ; M: the LISTENER heard something here
 
 ; record field offsets
 TLR_TICK  equ 0
@@ -128,6 +135,22 @@ tlog_key:
 ; -----------------------------------------------------------------------------
 tlog_stream:
     or byte [tlog_flags], TLOGF_STREAM
+    ret
+
+; -----------------------------------------------------------------------------
+; tlog_mark - M: the listener heard something. Stamped into the next record.
+;
+; The one input to this log that is not a measurement. Everything else says
+; what the machine was doing; a hitch is a thing a person hears, and without
+; a mark a file of healthy counters cannot be told from a file of healthy
+; counters taken while the audio was fine.
+; -----------------------------------------------------------------------------
+tlog_mark:
+    push si
+    or byte [tlog_flags], TLOGF_MARK
+    mov si, tlog_s_mark
+    call tui_msg
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -482,9 +505,10 @@ tlog_s_writing: db 'Writing TRKLOG.TXT - 20s of floppy', 0
 tlog_s_wrote:   db 'Wrote TRKLOG.TXT', 0
 tlog_s_werr:    db 'TRKLOG.TXT write failed', 0
 tlog_s_fsw:     db 'Save is windowed: Esc first', 0
+tlog_s_mark:    db 'MARK', 0
 tlog_s_h1:      db 'os8088 tracker log - one record per system tick (18.2065 Hz)', 0
 tlog_s_h2:      db 'CONS advances one 2048-byte half per block IRQ; TOTL-CONS is the ring lead', 0
-tlog_s_h3:      db 'FL bits: 1 rebuild started  2 rebuild step  4 blit  8 stream opened', 0
+tlog_s_h3:      db 'FL bits: 1 rebuild  2 step  4 blit  8 stream opened  10 LISTENER MARK', 0
 tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP', 0
 
 ; --- bss ---------------------------------------------------------------------

@@ -211,9 +211,49 @@ is a poor fit for the evidence.
 > separates the drawing freezing from the worker starving. Verified on QEMU:
 > 706 records, zero tick gaps, block-IRQ median 7 ticks against 6.8 predicted.
 >
-> **The next thing to hand back is that file**, taken across a few pattern
-> boundaries on the reporting machine. It settles the remaining question
-> without another round of asking for numbers read off a status line.
+> **THE FIRST FIELD LOG IS IN, and it settles the TEXT freeze completely.**
+> 755 records over 62.1 s (1,130 ticks), 51.2 s of it inside the bracket.
+> Every frame spacing in the whole fullscreen run: **432 × 1 tick, 247 × 2,
+> 2 × 3, and nothing else.** The 1/3-second stall every ~9 seconds is gone,
+> and it is gone *at the place it used to be*: all five pattern boundaries in
+> the capture are `FL 07` followed by frames spaced 1–2 ticks, **indis-
+> tinguishable from the baseline**. SPEC.md §45.13.2's spread rebuild is
+> confirmed on the target machine, not just modelled.
+>
+> **And the audio chain measures clean over the same 51 seconds.** The DSP
+> consumed **303.2 bytes/tick — an implied 5,521 Hz against the 5,500
+> asked, 0.4% out** — so the card did not stall in aggregate for even one of
+> those windows. The ring lead never fell below **5.0 halves (1.86 s)**, the
+> stream state is `0` in every one of the 755 records, and `UND` (which is
+> now `S 1`) never appears.
+>
+> Three things the log priced that nothing had measured before:
+>
+> - **Bracket entry costs 22 ticks (1.2 s)**, and it is not the video mode.
+>   `trk_play` re-opens the stream there, and its 6-half pre-roll is 12,288
+>   samples of `mp_gen`; at §45.9's ~2.1M cycles/s for 5,500 Hz that is
+>   ~1.0 s on its own. The synchronous `ttx_shbuild` and the mode set are the
+>   rest. That is a legitimate one-off at a moment the user expects a pause,
+>   but it is the largest single stall in the file by a factor of seven.
+> - **Windowed costs 4–5 ticks a frame against fullscreen's 1–2** (the tail
+>   after Esc: 35 × 1 tick, 5 × 4, 14 × 5, 2 × 9). The text mode is ~3×
+>   cheaper per frame in the field, which is §45.13's whole argument arriving
+>   as a measurement.
+> - **A feed pass can span 23 ticks (1.26 s)** — the longest gap between two
+>   `FD 1` records. That is not a starved worker: it is one `TRK_MAXFEED`
+>   burst mixing three halves while being pre-empted, and the ring goes 5
+>   halves → 8 across it. It is worth knowing because it is the closest the
+>   ring came to empty in the whole capture, and a burst twice that long
+>   would drain it.
+>
+> **What the log cannot say is whether anything was audible during it**, and
+> that is now the only missing datum. Every counter in the guest is healthy
+> for 62 seconds; if a hitch happened in there, it is invisible to all of
+> them — the third branch of the split above, below the block IRQ. So the
+> instrument grew the one input that is not a measurement: **`M` stamps
+> `FL` bit 10h into the current tick**, so the listener can mark the moment
+> they hear one. A file with marks in it answers in one pass what no amount
+> of counter-reading can.
 >
 > Everything below this line is the earlier analysis, kept because its
 > ruling-out is still valid and because the two theories it eliminates are

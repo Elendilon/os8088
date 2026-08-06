@@ -357,6 +357,10 @@ trk_onkey:
     je .wlog
     cmp bl, 'W'
     je .wlog
+    cmp bl, 'm'
+    je .mark
+    cmp bl, 'M'
+    je .mark
 %endif
     cmp bl, '1'
     jb .out
@@ -392,6 +396,9 @@ trk_onkey:
     jmp .out
 .wlog:
     call tlog_save                  ; W: TRKLOG.TXT on the current volume
+    jmp .out
+.mark:
+    call tlog_mark                  ; M: the listener heard something
     jmp .out
 %endif
 .play:
@@ -1106,6 +1113,10 @@ trk_fsx_key:
     je .wref
     cmp al, 'W'
     je .wref
+    cmp al, 'm'
+    je .mark
+    cmp al, 'M'
+    je .mark
 %endif
     cmp al, '1'
     jb .out
@@ -1118,7 +1129,10 @@ trk_fsx_key:
 .diag:
     call tlog_key
     jmp .out
-.wref:
+.mark:
+    call tlog_mark                  ; M: stamp the tick the LISTENER heard
+    jmp .out                        ; something - the one input here that is
+.wref:                              ; not a measurement
     push si                         ; W is windowed-only for the same reason
     mov si, tlog_s_fsw              ; L is: the file slots are UI-callback-only
     call tui_msg                    ; and a bracket owns the machine until it

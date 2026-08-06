@@ -308,6 +308,12 @@ make test SB16=1 TESTAPPS=build/trklog.img   # builds the disk on demand
 # Esc  back to windowed  (W is refused in a bracket - the file API is
 #                         UI-callback-only, SPEC.md 53.7)
 # W    write TRKLOG.TXT to B:  -> 'Wrote TRKLOG.TXT'
+#
+# M    at ANY point, windowed or fullscreen: stamp FL bit 10h into the
+#      current tick because you HEARD something. It is the only input to
+#      the file that is not a measurement, and the first field capture is
+#      why it exists - 62 seconds in which every counter was healthy and
+#      nothing in the file knew whether any of it was audible.
 ```
 
 Read it back off the image from the host with a FAT12 extractor, or mount

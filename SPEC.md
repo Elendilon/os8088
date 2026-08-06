@@ -13853,8 +13853,12 @@ shipped disk.
 
 The bench build's keys are **D** (arm / disarm — the record buffer is a 16KB
 heap claim taken and given back, so a log that is not running costs nothing
-and cannot split the heap) and **W** (write `TRKLOG.TXT` to the current
-volume). W is **windowed only**, for the same reason L is: the file slots are
+and cannot split the heap), **W** (write `TRKLOG.TXT` to the current volume)
+and **M** (mark). `M` sets `FL` bit 10h on the current tick and is the one
+input to this file that is **not a measurement**: everything else records
+what the machine was doing, and a hitch is something a person hears. The
+first field capture is why it exists — 62 seconds in which every counter is
+healthy, and nothing in the file could say whether any of it was audible. W is **windowed only**, for the same reason L is: the file slots are
 UI-callback-only and a bracket owns the machine until it returns (§53.7), so
 on the text surface it answers `Save is windowed: Esc first` rather than
 nothing (§47).
@@ -13877,7 +13881,7 @@ old `WAKE` extreme could only report as one number after the fact.
 | `S` | stream state: 0 playing, 1 underrun-paused, 2 watchdog-ended |
 | `PS PT RW` | song position, pattern, row — so any line can be placed in the music |
 | `FR FD` | drawing frames and feed passes in that tick |
-| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened |
+| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened, **10h listener mark (`M`)** |
 | `BP SP` | tempo and speed, so rows-per-second is derivable per record |
 
 Verified under QEMU with an SB16 in XT mode: 706 records, **zero tick gaps**,
