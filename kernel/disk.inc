@@ -380,7 +380,24 @@ dsk_xfer:
     jmp short .attempt
 
 .ok:
-    mov ax, [dsk_run]
+    ; AL = the sectors the BIOS says it ACTUALLY transferred, and that is
+    ; NOT always the number asked for (SPEC.md 18.91). SeaBIOS always returns
+    ; the full count, so QEMU cannot show this; a real BIOS reports what the
+    ; FDC really moved, and a multi-sector read it terminated early comes back
+    ; CF=0 and SHORT. Advancing by the REQUEST then steps the LBA and the
+    ; buffer past the hole - the file comes back with a gap and a shifted
+    ; tail, its first sector intact, so the load succeeds and the package
+    ; dies when its code is reached.
+    xor ah, ah
+    or al, al
+    jnz .moved
+    mov al, 1                   ; a BIOS answering 0 with CF=0 is trusted for
+                                ; one sector: the loop must always progress
+.moved:
+    cmp ax, [dsk_run]
+    jbe .count
+    mov ax, [dsk_run]           ; ...and never believe MORE than was asked
+.count:
     mov cx, ax                  ; the boot bar counts SECTORS, and a call now
 .notch:                         ; carries a run of them (SPEC.md 18.91) - so
     call spl_step               ; it is stepped per sector rather than per

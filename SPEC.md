@@ -4505,6 +4505,23 @@ special-cased to 128 sectors rather than none. A cap of **zero** sectors is
 only reachable from a base that is not 512-aligned, which §2.4 forbids; it is
 floored to 1 anyway, which is precisely the old behaviour for that buffer.
 
+**The count the BIOS RETURNS is the count that happened.** `AH=02h`/`03h`
+answer with `AL` = the sectors actually transferred, and that is **not always
+the number requested**: a real BIOS reports what the FDC really moved, and a
+multi-sector read the controller terminated early comes back **CF=0 and
+short**. `dsk_xfer` advances the LBA, the buffer and the remaining count by
+that returned `AL`, clamped to `[1, dsk_run]` — so a short read simply issues
+another for the remainder, which is self-healing and correct on any BIOS.
+
+This is the one part of §18.91 **QEMU structurally cannot test**: SeaBIOS
+always returns the full count, so an implementation that advances by the
+*request* passes every emulated run and fails on iron. It did: packages loaded
+with a hole and a shifted tail, their first sector intact — so the header
+validated, the load "succeeded", and the machine hard-froze when the package's
+code was reached, which reads as "launching apps freezes" and not as a disk
+fault at all. A count of 0 with CF=0 is trusted for one sector rather than
+refused, so the loop always makes progress.
+
 **The retry unit is the run, and it degrades to the sector.** Three attempts
 with a controller reset between, exactly as before — but a run that still
 fails is retried **one sector at a time** before the transfer is failed, so a
