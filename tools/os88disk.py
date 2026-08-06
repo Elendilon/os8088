@@ -208,6 +208,68 @@ A_SYSTEM = A_RDONLY | A_HIDDEN | A_SYS      # KERNEL.SYS and every *.DRV
 A_LOCKED = A_RDONLY | A_ARCH                # visible, but not yours to delete
 
 
+ASC_NAME  = b"ASSOC   DAT"   # SPEC.md 54.7: the volume's icon + assoc cache
+ASC_MAGIC = b"OS88AC"
+ASC_VER   = 1
+ASC_HDR   = 16
+ASC_ROW   = 80               # stem 8 + size 2 + 6 reserved + a 64-byte icon
+ASC_NAPP  = 16
+ASC_NEXT  = 24
+
+
+def build_assoc(groups) -> bytes:
+    """ASSOC.DAT for this volume (SPEC.md 54.7).
+
+    A warm cache, written HERE because this tool already places every package
+    and therefore already knows its stem, its size and its icon. A shipped
+    disk then arrives with the mount's per-package icon read (mechanism D of
+    docs/DISK-PERF-PLAN.md) already answered - opening APPS/ costs 5 int 13h
+    calls instead of 13, and nothing has to run on the target to earn it.
+
+    The row key is (stem, size) and there is deliberately NO cluster in it:
+    the harvest still has the directory entry, so where a program lives comes
+    from there. That also means this body depends only on the packages and
+    not on the layout, so it can be built before a single cluster is assigned.
+
+    An iconless package still gets a row, holding 64 zero bytes - which is the
+    all-zero "no icon" sentinel the kernel already understands, so caching the
+    ABSENCE saves the read too.
+    """
+    apps, exts = [], []
+    for key in groups:
+        for name11, body, _ in groups[key]:
+            if name11[8:11] != b"O88" or len(apps) >= ASC_NAPP:
+                continue
+            if len(body) < 32 or body[0:2] != b"O8" or body[2] != 3:
+                continue
+            flags = body[3]
+            icon = body[32:96] if flags & 1 and len(body) >= 96 else bytes(64)
+            idx = len(apps)
+            apps.append((name11[0:8], len(body) & 0xFFFF, icon))
+            if flags & 2:                       # a header declaration (54.6)
+                base = 96 if flags & 1 else 32
+                if len(body) >= base + 16:
+                    for i in range(min(body[base], 5)):
+                        e = body[base + 1 + 3 * i:base + 4 + 3 * i]
+                        if len(exts) < ASC_NEXT and e != b"O88":
+                            exts.append((e, idx))
+    if not apps:
+        return b""
+    buf = bytearray(ASC_HDR + ASC_ROW * len(apps) + 4 * len(exts))
+    buf[0:6] = ASC_MAGIC
+    buf[6], buf[7], buf[8] = ASC_VER, len(apps), len(exts)
+    for i, (stem, size, icon) in enumerate(apps):
+        o = ASC_HDR + i * ASC_ROW
+        buf[o:o + 8] = stem
+        struct.pack_into("<H", buf, o + 8, size)
+        buf[o + 16:o + 80] = icon
+    eo = ASC_HDR + ASC_ROW * len(apps)
+    for i, (e, ix) in enumerate(exts):
+        buf[eo + 4 * i:eo + 4 * i + 3] = e
+        buf[eo + 4 * i + 3] = ix
+    return bytes(buf)
+
+
 def sys_attr(name11: bytes, boot: bool) -> int:
     """A root entry's attributes. Only a SYSTEM disk locks anything down: a
     data disk is the user's and everything on it is an ordinary file.
@@ -217,6 +279,8 @@ def sys_attr(name11: bytes, boot: bool) -> int:
     else is visible but read-only, because the boot disk holds nothing a user
     should be deleting by accident. SYSTEM.CFG is not here - the kernel
     creates that one itself, and stamps it the same way (SPEC.md 51.5)."""
+    if name11 == ASC_NAME:
+        return A_HIDDEN | A_SYS     # the kernel rewrites it, so not read-only
     if not boot:
         return A_ARCH
     return A_SYSTEM if name11.endswith(b"DRV") else A_LOCKED
@@ -368,6 +432,15 @@ def build(args) -> int:
     # root-level packages. Folders cost one root entry each.
     dirs = [k for k in groups if k]
     root_files = groups.get("", [])
+
+    # A warm ASSOC.DAT (SPEC.md 54.7), from the packages on this disk. It is
+    # built before any cluster is assigned, which it can be because its rows
+    # are keyed by (stem, size) and carry no layout at all.
+    asc = build_assoc(groups)
+    if asc:
+        root_files = root_files + [(
+            ASC_NAME, asc,
+            max(1, (len(asc) + lay.cluster_bytes - 1) // lay.cluster_bytes))]
     for key in dirs:
         if len(groups[key]) > MAX_FILES:
             fail(f"{len(groups[key])} entries in folder {key}; the kernel "

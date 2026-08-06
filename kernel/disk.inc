@@ -1172,6 +1172,11 @@ disk_mount:
     ; 32..95 are the 16x16 icon body. Everything else - type 0, iconless,
     ; read failure - gets the all-zero slot (the generic-icon sentinel).
     ; disk_icons is fully rewritten every mount (SPEC.md 29.1).
+    call asc_use                ; this volume's ASSOC.DAT (SPEC.md 54.7), so
+                                ; the loop below can answer most of its icon
+                                ; reads without doing them
+    mov ax, LOW_SEG             ; asc_use reads the disk: put ES back
+    mov es, ax
     xor dx, dx                  ; DX = entry index
 .harvest:
     cmp dx, bp
@@ -1182,6 +1187,11 @@ disk_mount:
     jae .h_folder               ; the one icon that is not harvested off the
     cmp word [si+16], 1         ; disk but built in
     jne .h_zero
+    call asc_lookup             ; cached from a previous session or written
+    jc .h_read                  ; warm by the image builder? (SPEC.md 54.7)
+    call asc_take               ; then this package costs NO sector read
+    jmp .h_next
+.h_read:
     mov ax, [si+18]             ; first cluster (validated at synthesis)
     call dsk_clus2lba
     jc .h_zero

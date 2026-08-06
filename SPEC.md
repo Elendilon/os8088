@@ -16194,3 +16194,95 @@ Two traps, both of which bit during implementation:
 TESTAPPS=build/assoctest.img`, then double-click **`TEST.AST`**, not the
 program. Six rows, all of which must read PASS. Launching `ASSTEST.O88` by
 hand is the control — rows 1–4 read `-` and that is correct.
+
+### 54.7 `ASSOC.DAT` — the volume's icon and association cache
+
+The mount reads the **first sector of every package in a directory** to
+harvest its icon, and that is paid again on every re-entry — measured, opening
+`APPS/` cost 20 sectors of which **8 were those reads**
+(`docs/DISK-PERF-PLAN.md` §2.1/§5.5, mechanism D). `ASSOC.DAT` is one file in
+the volume's root, hidden + system, that answers them all:
+
+```
++0    6   'OS88AC'
++6    1   version = 1
++7    1   app rows (<= 16)
++8    1   association rows (<= 24)
++9    7   reserved
++16   ..  app rows, 80 bytes: stem 8, size low word 2, 6 reserved, icon 64
+      ..  association rows, 4 bytes: 3 extension bytes + an app row index
+```
+
+**Hit skips, miss harvests.** Per type-1 entry the harvest looks up
+`(stem, size)`: a hit copies the cached 64-byte body straight into
+`disk_icons` with **no read at all**; a miss reads the sector exactly as
+before. That is what keeps a new package working — harvested once, free
+after — and it means the cache cannot be wrong in a way that matters: any edit
+to a program changes its length, so it misses and is re-harvested. A false hit
+needs a different program with the same name *and* byte-identical size, and
+costs a wrong **icon**, never a wrong load, which §54.4's name re-check
+governs separately.
+
+**A row carries no cluster, deliberately.** A hit still has the directory
+entry, so where the program lives comes from there — which also means the
+file's contents depend only on the packages and not on the disk's layout, so
+`tools/os88disk.py` can build it before a single cluster is assigned. A
+shipped disk therefore arrives **warm**, and nothing has to run on the target
+to earn it.
+
+**An iconless package still gets a row**, holding 64 zero bytes — the
+all-zero "no icon" sentinel the kernel already understands (§19.1), so
+caching the *absence* saves that read too.
+
+**The association rows are not optional.** A hit skips the package's header
+read, and the header is where a declaration lives (§54.6) — so without them,
+warming the cache would silently cost every declaration on the disk.
+`asc_merge_ext` takes them under the same rule a declaration has: a runtime
+claim (`ASSOC_STICKY`) outranks a cached one.
+
+**One shared buffer, not one per volume.** `DVOL_MAX` is 6, so per-volume
+would be up to 12KB of heap, and on the 128KB floor that is over a fifth of
+everything above the kernel. §18.8.1 made this call once already for the FAT
+window and escalated to per-volume for a *stated* reason — a copy alternates
+between two volumes — and **that reason does not transfer**: a copy never
+consults this cache, because `dskw_find` and `fcp_scan` walk directory sectors
+themselves and `dsk_chdir_q` skips the harvest outright (§18.9). It is read
+only on a **full** mount, which is a user navigating. Per-volume remains the
+same escalation if profiling ever disagrees.
+
+**Three tiers, each degrading into the next** (the §50 rule), and none of them
+is a failure the harvest notices — an empty cache simply answers *miss* to
+everything:
+
+| tier | when | per mount |
+|---|---|---|
+| resident | the claim is held and holds this volume | **0 reads** |
+| refused | `mem_claim` said no | today's behaviour |
+| absent | no `ASSOC.DAT` on the volume | today's behaviour |
+
+A failed load still **stamps the volume**, so a disk without the file is
+searched once and not again on every directory change.
+
+`asc_root_find` walks the **root** directly through `dsk_dirw_start` rather
+than using `dskw_stat`, which resolves in the *current* directory — and a
+mount may be landing in a subdirectory, which is exactly when this runs.
+
+**`asc_seg`/`asc_n`/`asc_ne`/`asc_vol` live in `.text` with real
+initialisers**, the `dsk_fatw0` precedent and for the same reason: `-f bin`
+zeroes nothing, `asc_use` runs at the machine's first mount, and garbage there
+is not a wrong answer but a live one — a stale `asc_seg` would have the
+harvest reading icons out of whatever segment those bytes happen to name.
+
+**Measured**, 1.44MB, on top of §18.91's batching:
+
+| action | before D | with D |
+|---|---|---|
+| enter `APPS/` (8 packages) | 20 sectors / 13 calls | **12 / 4** |
+| enter `GAMES/` (5 packages) | 17 / 10 | **12 / 4** |
+| back to the root | 12 / 5 | 11 / 3 |
+| open Drive B (first mount of the volume) | 12 / 5 | 15 / 5 — the cache load, once |
+
+Against the original baseline, opening `APPS/` has gone from **20 int 13h
+commands to 4**. The 12 sectors that remain are the boot sector, the FAT
+window and the directory — §5's mechanisms A and B, which §4 declined to
+touch, so 12 is the floor that decision leaves.

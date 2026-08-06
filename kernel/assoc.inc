@@ -1180,3 +1180,456 @@ assoc_self_glyph:
     pop bx
     pop ax
     ret
+
+; =============================================================================
+; ASSOC.DAT - the volume's icon and association cache (SPEC.md 54.7)
+;
+; The mount reads the first sector of EVERY package in a directory to harvest
+; its icon, and mechanism D of docs/DISK-PERF-PLAN.md is the measurement that
+; makes this worth having: opening APPS/ costs 20 sectors, EIGHT of which are
+; those reads, and it is paid again on every re-entry. Sixteen rows of 80
+; bytes is ONE file - three sectors, read once per volume per session - in
+; place of one scattered read per package per mount.
+;
+; ONE SHARED BUFFER, not one per volume. DVOL_MAX is 6, so per-volume would be
+; up to 12KB of heap and on the 128KB floor that is over a fifth of everything
+; above the kernel. SPEC.md 18.8.1 made the same call for the FAT window and
+; escalated to per-volume for a stated reason - a COPY alternates between two
+; volumes - and that reason does not transfer: a copy never consults this
+; cache, because dskw_find and fcp_scan walk directory sectors themselves and
+; dsk_chdir_q skips the harvest outright (18.9). It is read only on a FULL
+; mount, which is a user navigating.
+;
+; Three tiers, each degrading into the next (the SPEC.md 50 rule): the claim
+; held and holding this volume = 0 reads; a REFUSED claim = the old behaviour,
+; because a miss is what an empty cache answers to everything; no ASSOC.DAT at
+; all = likewise. Nothing here can fail in a way the harvest notices.
+; =============================================================================
+
+ASC_HDR      equ 16             ; magic 6 + version + napp + next + 7 reserved
+ASC_ROW      equ 80             ; stem 8 + size 2 + 6 reserved + a 64-byte icon
+ASC_ROWICO   equ 16             ; ...the icon's offset inside a row
+ASC_NAPP     equ 16
+ASC_NEXT     equ 24
+ASC_KB       equ 2              ; 16*80 + 16 + 24*4 = 1,392 bytes
+
+; -----------------------------------------------------------------------------
+; asc_use - make the cache describe THIS volume (SPEC.md 54.7)
+; in:  [disk_drive] = the volume being mounted; the BPB and FAT window are
+;      loaded, so the root is readable
+; out: nothing (all registers preserved). [asc_n] = 0 means "no cache", which
+;      every lookup below answers as a miss
+;
+; Called once at the top of the harvest. A volume already loaded costs one
+; compare; anything else reloads, and a failure is REMEMBERED (the volume is
+; still stamped) so a disk with no ASSOC.DAT is not searched again on every
+; directory change.
+; -----------------------------------------------------------------------------
+asc_use:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov al, [disk_drive]
+    cmp al, [asc_vol]
+    je .out                     ; already this volume's
+    mov [asc_vol], al
+    mov word [asc_n], 0         ; ...and it holds nothing until proven
+    cmp word [asc_seg], 0
+    jne .haveseg
+    mov ax, ASC_KB
+    mov bx, MEM_K_ASC
+    call mem_claim
+    jc .out                     ; refused: tier 2, every lookup misses
+    mov [asc_seg], dx
+.haveseg:
+    call asc_root_find          ; CF=0, AX = first cluster, DX = sectors
+    jc .out
+    mov es, [asc_seg]
+    xor bx, bx
+    call dsk_read_chain         ; ES:BX = the claim
+    jc .out
+    mov es, [asc_seg]
+    cmp word [es:0], 'OS'       ; 'OS88AC' + a version we understand
+    jne .out
+    cmp word [es:2], '88'
+    jne .out
+    cmp word [es:4], 'AC'
+    jne .out
+    cmp byte [es:6], 1
+    jne .out
+    mov al, [es:7]
+    cmp al, ASC_NAPP
+    ja .out
+    xor ah, ah
+    mov [asc_n], ax
+    mov al, [es:8]
+    cmp al, ASC_NEXT
+    ja .out
+    xor ah, ah
+    mov [asc_ne], ax
+    call asc_merge_ext          ; the declarations this volume knows about
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; asc_root_find - ASSOC.DAT in the volume's ROOT (module-internal)
+; out: CF=0 with AX = its first cluster and DX = its size in sectors;
+;      CF=1 = absent or unreadable
+; clobbers: AX, DX (outputs), CF
+;
+; The ROOT specifically, and walked here rather than through dskw_stat, which
+; resolves in the CURRENT directory - and a mount may be landing in a
+; subdirectory, which is exactly when this runs.
+; -----------------------------------------------------------------------------
+asc_root_find:
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    mov ax, LOW_SEG
+    mov es, ax
+    xor ax, ax                  ; 0 = the root
+    call dsk_dirw_start
+.sector:
+    call dsk_dirw_next
+    jc .no
+    mov cx, 1
+    mov bx, dsk_secbuf
+    call disk_read
+    jc .no
+    mov di, dsk_secbuf
+    mov cx, 512/32
+.entry:
+    mov al, [es:di]
+    or al, al
+    jz .no                      ; 0x00 ends the directory entirely
+    cmp al, 0xE5
+    je .next
+    push cx
+    push di
+    mov si, asc_s_name
+    mov cx, 11
+.cmp:
+    mov al, [es:di]
+    cmp al, [si]
+    jne .nomatch
+    inc si
+    inc di
+    loop .cmp
+    pop di
+    pop cx
+    mov ax, [es:di+26]          ; FstClusLO
+    mov dx, [es:di+28]          ; size low word -> sectors
+    add dx, 511
+    mov cl, 9
+    shr dx, cl
+    or dx, dx
+    jz .no
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    clc
+    ret
+.nomatch:
+    pop di
+    pop cx
+.next:
+    add di, 32
+    loop .entry
+    jmp short .sector
+.no:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; asc_merge_ext - take the cached association rows (SPEC.md 54.7)
+; in:  ES = [asc_seg], [asc_n]/[asc_ne] set
+; out: nothing (all registers preserved)
+;
+; A cache HIT skips the package's header read, and the header is where a
+; declaration lives (54.6) - so without this, warming the cache would silently
+; cost every declaration on the disk. The rows are merged with the same rule a
+; declaration has: a runtime claim (ASSOC_STICKY) outranks them.
+; -----------------------------------------------------------------------------
+asc_merge_ext:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov cx, [asc_ne]
+    jcxz .out
+    mov di, [asc_n]             ; the ext rows begin past the app rows
+    mov ax, ASC_ROW
+    mul di
+    add ax, ASC_HDR
+    mov di, ax
+.row:
+    push cx
+    mov al, [es:di+3]           ; the app row it names
+    cmp al, [asc_n]
+    jae .next
+    push di
+    call asc_slot_of            ; AL = a kernel app slot for that row
+    pop di
+    jc .next
+    mov dl, al
+    mov si, assoc_extb          ; stage the extension, then the usual rules
+    mov al, [es:di]
+    mov [si], al
+    mov al, [es:di+1]
+    mov [si+1], al
+    mov al, [es:di+2]
+    mov [si+2], al
+    cmp byte [si], ' '
+    jbe .next
+    push di
+    call assoc_find
+    jc .fresh
+    call assoc_ext_row
+    test byte [bx+3], ASSOC_STICKY
+    jnz .popnext                ; a runtime claim outranks a cached one
+    jmp short .point
+.fresh:
+    call assoc_ext_new
+    jc .popnext
+.point:
+    mov [bx+3], dl
+.popnext:
+    pop di
+.next:
+    pop cx
+    add di, 4
+    loop .row
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; asc_slot_of - the kernel app slot for a CACHE row (module-internal)
+; in:  AL = cache row index, ES = [asc_seg]
+; out: CF=0 and AL = a kernel app slot (created if the stem is new);
+;      CF=1 = the kernel's table is full
+; clobbers: AX (the output), CF
+; -----------------------------------------------------------------------------
+asc_slot_of:
+    push bx
+    push cx
+    push si
+    push di
+    xor ah, ah
+    mov bx, ASC_ROW
+    mul bx
+    add ax, ASC_HDR
+    mov si, ax                  ; ES:SI = the cache row
+    mov di, assoc_stemb         ; stage its stem into the kernel
+    mov cx, 8
+.cp:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .cp
+    mov si, assoc_stemb
+    call assoc_app_of
+    jnc .have
+    call assoc_app_new
+.have:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; asc_lookup - is this package's icon already cached? (SPEC.md 54.7)
+; in:  SI -> its staged 32-byte directory entry
+; out: CF=0 and DI = the offset of its 64-byte icon within [asc_seg];
+;      CF=1 = a miss, so the caller reads the sector as it always did
+; clobbers: DI (the output), CF
+;
+; Keyed on (stem, SIZE), which is why a modified program can never serve a
+; stale icon: any edit changes the length, so it misses and is re-harvested.
+; A false hit needs a different program with the same name AND byte-identical
+; size, and costs a wrong ICON - never a wrong load, which SPEC.md 54.4's name
+; re-check governs separately.
+; -----------------------------------------------------------------------------
+asc_lookup:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    mov cx, [asc_n]
+    jcxz .no
+    cmp word [asc_seg], 0
+    je .no
+    mov dx, [si+20]             ; the size the directory reports
+    call assoc_stem_of          ; DI -> assoc_stemb
+    mov es, [asc_seg]
+    mov di, ASC_HDR
+.row:
+    push cx
+    mov si, assoc_stemb
+    mov cx, 8
+    mov bx, di
+.cmp:
+    mov al, [es:bx]
+    cmp al, [si]
+    jne .next
+    inc bx
+    inc si
+    loop .cmp
+    cmp dx, [es:di+8]           ; the stem matches: the size must too
+    jne .next
+    pop cx
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    add di, ASC_ROWICO
+    clc
+    ret
+.next:
+    pop cx
+    add di, ASC_ROW
+    loop .row
+.no:
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; asc_take - spend a cache hit: the icon, the location and the glyph
+; in:  DI = the icon's offset in [asc_seg], DX = the listing index,
+;      SI -> the staged directory entry
+; out: nothing (all registers preserved)
+; -----------------------------------------------------------------------------
+asc_take:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call asc_note               ; the program's location and glyph first,
+                                ; while SI still points at its entry
+    push dx                     ; the listing index
+    mov dx, [asc_seg]           ; the cached body -> dsk_ico, in the kernel
+    push ds                     ; segment, which is where dsk_put_icon_k
+    pop ax                      ; takes its source from
+    mov si, di
+    mov di, dsk_ico
+    mov cx, 64
+    call dsk_copy_seg           ; DX = src seg, AX = dst seg
+    pop ax                      ; ...the listing index again
+    mov si, dsk_ico
+    call dsk_put_icon_k
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; asc_note - a cache hit's half of assoc_note_app (module-internal)
+; in:  SI -> the staged entry, DI = the icon's offset in [asc_seg]
+; out: nothing (all registers preserved)
+;
+; The location comes from the DIRECTORY ENTRY, which a hit still has - which
+; is why an ASSOC.DAT row carries no cluster and so depends on nothing about
+; the disk's layout.
+; -----------------------------------------------------------------------------
+asc_note:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push di                     ; the icon offset: assoc_stem_of takes DI
+    call assoc_stem_of
+    mov si, di
+    call assoc_app_of
+    jnc .have
+    call assoc_app_new
+    jc .done
+.have:
+    mov bl, al
+    xor bh, bh
+    mov cl, [disk_drive]
+    mov [assoc_drv+bx], cl
+    push bx
+    shl bx, 1
+    mov ax, [dsk_cwd]
+    mov [assoc_clus+bx], ax
+    pop bx
+    mov cl, 3
+    shl bx, cl
+    mov di, assoc_glyph
+    add di, bx
+    pop si
+    push si
+    add si, 32                  ; the cached body's DATA plane
+    mov es, [asc_seg]
+    call assoc_reduce
+.done:
+    pop di                      ; balance the banked icon offset
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+asc_s_name: db 'ASSOC   DAT'    ; the RAW 8.3 form: this walks directory
+                                ; sectors, not display names
+
+; In .text with real initialisers, NOT .bss - the dsk_fatw0 precedent, and for
+; the same reason: -f bin zeroes nothing, asc_use runs at the machine's very
+; first mount, and garbage here is not a wrong answer but a live one. A stale
+; asc_seg would have the harvest reading icons out of whatever segment those
+; bytes name, and a stale asc_vol would tell the first mount its cache is
+; already loaded.
+asc_seg:  dw 0                  ; the claim, 0 = none (refused, or not yet)
+asc_n:    dw 0                  ; app rows in it, 0 = no usable cache
+asc_ne:   dw 0                  ; ...and association rows
+asc_vol:  db 0xFF               ; whose cache it holds, 0xFF = nobody's
