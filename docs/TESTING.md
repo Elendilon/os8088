@@ -466,23 +466,42 @@ slowest machine it will ever run on, not the one in front of you.** A 32-bit
 accumulator folded per iteration costs a few instructions and cannot lap; a
 16-bit one sized "generously" against QEMU is wrong by 20x on hardware.
 
-### Two calibration numbers, so an estimate needs no machine
+### Three calibration numbers, so an estimate needs no machine
 
-- **About 1 ms per 8×8 glyph cell** on a 4.77 MHz 8088 with a Hercules card.
-  Two independent harnesses agree: `fontbench` 10.09 ms per ten cells,
-  `typebench` 33.3 ms per forty. A 40-cell line redraw is ~33 ms, so a
-  keystroke that redraws its row costs about that.
+All three are measured on the 4.77 MHz IBM 5150 this project targets
+(`tests/gfxbench` and `tests/sysbench`, PERFORMANCE.md Part 9), not modelled:
+
+- **About 756 µs of fixed cost per `gfx_*` drawing call**, before it draws a
+  single pixel. `GFX_PIXEL` and an 8-pixel `GFX_HLINE` measured within 1 µs of
+  each other, on Hercules *and* on CGA, whose framebuffers are 13% apart — so
+  the floor is CPU-side (~3,600 clocks of far call, lock, clip test, dispatch
+  and `gfx_rowbase`), not bus-side. **A redraw is priced by how many primitive
+  calls it makes, not by how many pixels it covers.** That is the single most
+  useful sentence in PERFORMANCE.md and it is the one this project spent years
+  not believing.
+- **About 1 ms per 8×8 glyph cell.** Four independent measurements agree:
+  `fontbench` 10.09 ms per ten cells, `typebench` 33.3 ms per forty,
+  `gfxbench` 901 µs for one `font_char` and 915 µs per cell across a whole
+  78×34 page. A 40-cell line redraw is ~36 ms, so a keystroke that redraws its
+  row costs about that.
 - **Instructions are the better proxy, not framebuffer traffic.** SPEC.md
-  §6.1.1 predicted the opposite and was corrected by measurement: per-cell
-  overhead dominates the byte-writes it guards.
+  §6.1.1 predicted the opposite and was corrected by measurement: per-call and
+  per-cell overhead dominate the byte-writes they guard. The general form is
+  the **8088 instruction floor** — 4.34 clocks per instruction *byte*, which
+  is what the prefetch queue can deliver — so an 8086 cycle count under-reports
+  an 8088 by anywhere from 1.01× to 4.34× depending purely on encoding length.
 
-The rest of the calibration table — a framebuffer read-modify-write at ~30
-cycles whether or not it changes a pixel, `repe scasb` at ~7.5 clocks a pixel
-against 75–90 for a per-pixel decode, the back buffer's flush at ~24× its
-render, a 50×90-cell content fill-and-letter at about five seconds — is in
-[PERFORMANCE.md Part 2](../PERFORMANCE.md), together with the standing budget
-every redraw path in the tree has already been measured down to. Check a
-change against that table before concluding it is free.
+Two figures that used to sit here were wrong and are worth knowing were wrong,
+because they are still quoted in old commit messages: a framebuffer
+read-modify-write is **79.6 clocks, not ~30**, and only about 7 of those are
+the bus; and the "add 20–40% for the 8088" rule of thumb was replaced by the
+instruction floor above. The back buffer's ~24× flush-to-render ratio was
+never measured on hardware and cannot be — double buffering is VGA-only
+(SPEC.md §32) and this machine has no VGA.
+
+The full table is [PERFORMANCE.md Part 2](../PERFORMANCE.md), together with the
+standing budget every redraw path in the tree has already been measured down
+to. Check a change against that table before concluding it is free.
 
 ### Count work, don't time it — QEMU is exact about the first and useless at the second
 
@@ -581,13 +600,20 @@ And one the emulator reports as a **success**, which is worse:
 - **An optimisation that kept its shape and lost its substance.**
   `gfx_blit4`'s first version emitted one call per run exactly as designed,
   and decoded every pixel individually inside the scan — 75–90 clocks a pixel
-  against `repe scasb`'s seven and a half. A 448×280 repaint went from about
-  a quarter of a second on a 4.77 MHz 8088 to over two. **Under QEMU it
-  measured as exactly as fast**, because QEMU models no 8086 timing: every
-  screendump was right and every test passed. That is why the cycle counts in
-  `kernel/vga12.inc` are written down rather than measured, and why rewriting
-  something whose *reason* is speed means verifying the reason survived, not
-  the structure.
+  against `repe scasb`'s seven and a half, both written down rather than
+  measured. **Under QEMU it measured as exactly as fast**, because QEMU models
+  no 8086 timing: every screendump was right and every test passed. That is
+  why the cycle counts in `kernel/vga12.inc` are written down rather than
+  measured, and why rewriting something whose *reason* is speed means
+  verifying the reason survived, not the structure.
+
+  This entry used to quantify it as "a 448×280 repaint went from about a
+  quarter of a second to over two". Those two figures came from the same two
+  written-down cycle counts and were never measured; the primitive has since
+  been priced on the target machine, and it costs **`runs × 0.5 ms`** — so
+  what a blit costs is decided by how *flat* the art is, not how big it is
+  (SPEC.md §5.4, PERFORMANCE.md Part 9). The lesson above survives the
+  correction intact. The numbers did not.
 
 For all of these, the emulator's role is to prove *correctness* before you
 burn a floppy. The judgement is made on hardware.

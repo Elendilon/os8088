@@ -92,30 +92,122 @@ speed against a real person's hands. It cannot be measured here at all.
 
 ## Part 2 — Calibration — estimate without a machine
 
-These are measured, on a real 4.77 MHz 8088 with a Hercules card unless
-stated. They are what lets you price a change in your head before writing it.
+**Everything in the first table was measured on an IBM 5150 — 8088 at 4.77
+MHz, 640KB — with a Hercules card and again with a CGA, by `gfxbench` and
+`sysbench` (Part 9).** Where the two adapters differ, both are given. Nothing
+here is an estimate; the estimates are in the second table, and they are
+labelled.
+
+### The three numbers that price almost everything
+
+| | Hercules | CGA |
+|---|---|---|
+| **Any `gfx_*` drawing call — the fixed part** | **756 us** | 756 us |
+| **One 8×8 glyph cell** | **901 us** | 909 us |
+| **One 78-cell row of text** | **71.4 ms** | 72.7 ms |
+
+The first is the one to internalise, because it is the one nothing in this
+project believed. `GFX_PIXEL` and `GFX_HLINE 8px` measured **765.64 and
+764.82 us on Hercules and 765.70 and 764.80 on CGA** — two different
+routines, two physically different cards whose framebuffers are 13% apart,
+agreeing to one part in ten thousand. Almost the whole cost of a small
+drawing call is fixed setup, about **3,600 CPU clocks**, and it is CPU-side:
+the card barely shows through.
+
+> **A redraw is priced by how many primitive calls it makes, not by how many
+> pixels it covers.** Everything below is a consequence of that sentence.
+
+### Measured — drawing
+
+| quantity | Hercules | CGA |
+|---|---|---|
+| `gfx_fill`, per scan line | 177 us | 182 us |
+| `gfx_fill`, per pixel | 0.28 us | 0.33 us |
+| `gfx_hline`, per pixel past the fixed cost | 1.16 us | 1.20 us |
+| `GFX_FILL 64x64` | 12.4 ms | 13.0 ms |
+| `GFX_FILL 256x128` | 31.7 ms | 33.9 ms |
+| `font_run`, per cell of a ten-cell run | 905 us | 918 us |
+| `font_run` aligned vs. the skewed hand-written pair | 1.24× | 1.24× |
+| `WM_TITLE` strip (§11.92) | 43.2 ms | 44.4 ms |
+| A full text page (78 cells × 34 / 16 rows) | **2.50 s** | 1.24 s |
+| One vertical retrace period | ~20 ms (50 Hz) | ~16.6 ms (60 Hz) |
+
+A fill spends **91% of a 64-pixel-wide row on arriving**: 177 us of setup
+against 18 us of pixels. The per-pixel half is already at the bus (0.28 us/px
+is 2.2 us per framebuffer byte against the 3.26 a raw `rep stosb` costs), so
+there is nothing in the inner loop and most of an order of magnitude in the
+row setup.
+
+### Measured — the machine
+
+| quantity | value |
+|---|---|
+| CPU, from `MUL` and `DIV` independently | **4.64 and 4.68 MHz** (nominal 4.7727) |
+| **8088 instruction floor** | **4.34 clocks per instruction BYTE** — see below |
+| A segment override | +3.78 clocks (one extra instruction byte), *not* the book's 2 |
+| API far-call cell (`OSAPI_*`) | 46.7 us |
+| Near `call` + `ret` | 11.0–11.5 us |
+| `OSAPI_TASK_YIELD` (a full switch) | 693 us |
+| RAM `rep stosw` | 1.76 us/byte |
+| RAM byte read-modify-write (a 5-instruction loop) | 15.3 us/byte = 72.8 clocks |
+| **Framebuffer byte read-modify-write** | **16.7 us/byte = 79.6 clocks** (CGA 81.0) |
+| Framebuffer vs. RAM, word write | 1.57× (CGA 1.78×) |
+| Framebuffer vs. RAM, read-modify-write | 1.09× (CGA 1.11×) |
+| An ISA status-port `in` | 8.7 us |
+| The kernel's own tick + mouse + scheduler | **1–3%** of a busy CPU |
+| Floppy throughput | **2,100 bytes/second** |
+| Floppy, per 512-byte sector | 238 ms — one sector per 200 ms revolution |
+| Floppy, open and read a one-sector file | 800 ms |
+| System tick | 18.2065 Hz; **65,536 PIT counts, measured exactly** |
+| Serial mouse | 1200 baud |
+
+**The framebuffer read-modify-write was quoted at "~30 cycles" here and in
+§39.5 for years. It is 79.6, and only about 7 of those are the bus** — the
+rest is five 8088 instructions. The figure was low, and it was attributed to
+the wrong thing.
+
+### The 8088 instruction floor — what replaced "add 20–40%"
+
+This document used to end Part 2 with "8086-nominal cycle counts under-report
+an 8088 by 20–40%", from a plan document. The measured ratio runs from **1.01
+to 4.34**, and reading it against instruction *bytes* explains all of it:
+
+| instruction | bytes | measured clk | 8086 book | ratio |
+|---|---|---|---|---|
+| `nop` / `inc r16` / `xchg ax,r16` | 1 | **4.34** | 3 / 2 / 3 | 1.44 / 2.17 / 1.44 |
+| `mov r16,r16` / `add` / `cmp` / `shl r16,1` | 2 | **8.69** | 2 / 3 / 3 / 2 | up to **4.34** |
+| `jmp short`, taken | 2 | 18.19 | 15 | 1.21 |
+| `mov ax,[disp16]` | 3 | 21.61 | 14 | 1.54 |
+| `call near` + `ret` | 4 | 52.13 | 27 | 1.93 |
+| `mul r16` (with its reload) | 5 | 132.53 | 129 | **1.02** |
+| `div r16` (with its reloads) | 7 | 162.85 | 160 | **1.01** |
+
+> **An 8088 costs `max(execution clocks, 4.34 × instruction bytes)`**, plus
+> about 4 clocks per byte of memory operand, plus a queue refill after every
+> taken branch.
+
+It is a floor, not a tax. `MUL` and `DIV` measure at 1.01–1.02 because the
+sequencer stays busy long enough to hide every fetch; a run of
+register-to-register moves measures at 4.34× because nothing hides anything.
+**A shorter encoding beats a cheaper instruction** — `xchg ax,bx` (one byte)
+is twice as fast as `mov ax,bx` (two) although the book prices them at 3 and
+2. So the question is never "what percentage do I add"; it is whether the
+code is fetch-bound or execution-bound.
+
+### Still written down rather than measured — treat as estimates
+
+These are readings of the instruction stream that no field set has confirmed.
+The floor above says most of them are **optimistic**, because a written-down
+count is an 8086 count.
 
 | quantity | value | source |
 |---|---|---|
-| **One 8×8 glyph cell** | **~1 ms** | §6.1.1; two independent harnesses agree (`fontbench` 10.09 ms/10 cells, `typebench` 33.3 ms/40) |
-| A 40-cell line redraw | ~33 ms | §11.94 |
-| A 50-row × 90-cell content fill+letter | **~5 seconds** | §27.2 (`np_clean` exists to stop paying it) |
-| Framebuffer read-modify-write | ~30 cycles, **whether or not it changes a pixel** | §39.5 / `kernel/font.inc` |
-| `repe scasb` run scan | ~15 clocks/byte ≈ 7.5 clocks/pixel at 4bpp | `kernel/vga12.inc` |
-| Naive per-pixel decode (shift by CL) | **75–90 clocks/pixel** | ibid — a 4-bit `shr` by CL alone is 24 |
-| A 448×280 canvas repaint | ~0.25 s coalesced; **>2 s** decoded per pixel | ibid |
-| Back-buffer flush vs. its RAM render | **~24×** | §32 |
-| 4-plane flush vs. 1-plane (`bb_mono`) | ~3.7× | §32 |
-| A segment override | 1 byte, 2 clocks | docs/KERNEL-MEMORY.md |
+| `repe scasb` run scan | ~15 clocks/byte | `kernel/vga12.inc` |
+| Naive per-pixel decode (shift by CL) | 75–90 clocks/pixel | ibid — the pre-coalescer `gfx_blit4`, Part 3 |
+| Back-buffer flush vs. its RAM render | ~24× | §32 — **VGA only**, and the field machine has none |
+| 4-plane flush vs. 1-plane (`bb_mono`) | ~3.7× | ibid |
 | Note Pad layout walk iteration | ~500 8086 cycles | §27.4 |
-| ArtfulType `at_getb` | ~32 clocks/character | `apps/artful/atdoc.inc` |
-| CPU budget | 4,772,727 cycles/s | docs/SOUND-PLAN.md |
-| System tick | 18.2065 Hz (~55 ms) | §8 |
-| Serial mouse | 1200 baud | §9 |
-
-**8086-nominal cycle counts under-report an 8088 by 20–40%** — the 8-bit bus
-and prefetch stalls — so a margin computed from an instruction-timing table
-is a bound to validate, not a fact (docs/SOUND-PLAN.md).
+| ArtfulType `at_getb` | ~32 clocks/character | `apps/artful/atdoc.inc` — 9 bytes of instruction, so ≥39 by the floor |
 
 Multiply and say that you did. "~500 cycles per iteration × 404 iterations
 ≈ 42 ms" is a reading of the instruction stream presented honestly; quoting
@@ -139,12 +231,24 @@ And one that is worse than invisible, because it looks like a *success*:
 
 4. **A lost optimisation that kept its shape.** `gfx_blit4`'s first version
    emitted one call per run exactly as designed, and decoded every pixel
-   individually inside the scan instead of comparing byte pairs. Nine times
-   slower on hardware. **Under QEMU it measured as exactly as fast**, because
-   QEMU does not model 8086 timing — so every screendump was right, every
-   test passed, and a 448×280 repaint went from a quarter of a second to over
-   two. This is why the cycle counts in `kernel/vga12.inc` are *written down*
-   rather than measured.
+   individually inside the scan instead of comparing byte pairs. **Under QEMU
+   it measured as exactly as fast**, because QEMU does not model 8086 timing —
+   so every screendump was right and every test passed. This is why the cycle
+   counts in `kernel/vga12.inc` are *written down* rather than measured.
+
+   The three figures this entry used to carry — "nine times slower on
+   hardware", "a quarter of a second", "over two" — were all derived from
+   those same written-down counts and none was ever measured. They are gone
+   rather than corrected, because the field set prices the primitive a
+   different way entirely and it should be the one quoted.
+
+   What the field set adds, and what a caller of the fixed primitive needs:
+   **`gfx_blit4` emits one `gfx_hline` per coalesced run, and a `gfx_hline`
+   costs ~0.5 ms whatever its length.** Measured, 64×64 pixels either way:
+   one run per row (64 calls) is **28 ms**; sixteen runs per row (1,024
+   calls) is **561 ms**. Twenty times, for the same pixels. So the cost of a
+   blit is `runs × 0.5 ms`, the pixel count barely enters it, and *how flat
+   the picture is* is the whole performance story.
 
 ---
 
@@ -236,12 +340,15 @@ so themselves: the retrace period (QEMU's status port toggles on every read,
 so a poll always terminates) and the VRAM rows under a `HERCSEG=` kernel
 (B0000 is unmapped, so they measure plain RAM and the bus ratio reads 100).
 
-**Instructions are the better proxy, not framebuffer traffic.** §6.1.1
-originally predicted the opposite and was corrected by measurement: the XT
-came in at the *instruction* figure to three digits (1.30×), not the 3.6×
-traffic figure. Per-cell overhead dominates the byte-writes it guards.
-Traffic remains the right *explanation* of where the writes went; it is not
-the right predictor of time.
+**Instructions are the better proxy, not framebuffer traffic**, and Part 9
+settles it beyond argument. §6.1.1 originally predicted the opposite and was
+corrected once by measurement: the XT came in at the *instruction* figure
+(1.30×, independently 1.24× on the second harness), not the 3.6× traffic
+figure. The field set then proved the general case — the same two primitives
+measured **0.01% apart on a Hercules and a CGA whose framebuffers are 13%
+apart at the bus**. Per-call and per-row setup dominate the byte-writes they
+guard, on every adapter. Traffic remains the right *explanation* of where the
+writes went; it is not the right predictor of time.
 
 ---
 
@@ -269,7 +376,7 @@ list to check yourself against.
 | Note Pad walk below the view | 6 walks, 10,079 iterations (72% off-screen) | 2 walks, 1,015 | §27.7.1 |
 | Note Pad scroll | letter 19 rows | one blit + 4 rows | §27.7.2 |
 | Note Pad insert at the front | 1,600 cells ≈ most of a second | a scroll, settled later | §27.3 |
-| An opaque text run | 228–336 framebuffer accesses, alignment-dependent | flat **80**; 1.30× on hardware, and no flash | §6.1, §6.1.1 |
+| An opaque text run | 228–336 framebuffer accesses, alignment-dependent | flat **80**; 1.30× on hardware (`fontbench`), 1.24× on a second harness and a second adapter (Part 9), and no flash | §6.1, §6.1.1 |
 | Task Manager row update | 20 glyphs to change 3, twice a second | the changed chunks only | §28.2 |
 | Menu bar redraw | every window operation | gated on `[menu_bdirty]` | §12.05 |
 | Dock redraw | every window operation | per-tile keys: a focus change is 2 tiles, a quiet desktop is 0 | §30.1 |
@@ -322,6 +429,7 @@ failures are structural rather than proportional:
 | a 16-bit elapsed counter, one subtraction start-to-end | rows are 1.5M counts; it lapped silently into a small plausible number |
 | `>= 32768 means the run overran` | most legitimate rows are 32768..65535; it discarded them |
 | a ratio computed from `counts >> 4` | `>> 4` is still 90,000; it overflowed the word and printed 696 for 134 |
+| a per-iteration fold, guarded only *near* the wrap | a 561 ms body reported 561 mod 54.92 = 12 ms, unflagged, and made a primitive doing 20× the work look 2.4× faster (Part 9) |
 | `OSAPI_WM_GROW` on every keystroke | free in the emulator; a flashing 13×13 corner at 33 ms a keystroke |
 
 A 32-bit accumulator folded per iteration costs a few instructions and cannot
@@ -339,7 +447,8 @@ what it cost. Multiply by Part 2 and say that you did.
 `gfx_blit4` is the standing example: one call per run, exactly as designed,
 and 75–90 clocks a pixel inside it. Nine times slower, and QEMU said it was
 identical. When you rewrite something whose *reason* is speed, verify the
-reason survived, not the structure.
+reason survived, not the structure. (The fixed primitive's own cost model is
+in Part 3 item 4: **runs × 0.5 ms**, pixels almost free.)
 
 **7. Prefer a self-checking harness to a careful one.** Three of the four in
 that table were caught by **one number on screen contradicting another**, not

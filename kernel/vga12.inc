@@ -332,20 +332,37 @@ gfx_hline:
 ; line of adapter-specific code - because gfx_fill already does.
 ;
 ; **The run scan compares BYTES, not pixels, and that is the whole speed of
-; it.** A run of colour c is a run of bytes equal to c|c<<4, so `repe scasb`
-; walks it two pixels at a time at about 15 clocks a byte - roughly seven and
-; a half clocks a pixel. The odd ends are handled by hand: the first pixel
-; when the run starts on a low nibble, the last when it ends on a high one.
+; the SCAN.** A run of colour c is a run of bytes equal to c|c<<4, so
+; `repe scasb` walks it two pixels at a time at about 15 clocks a byte -
+; roughly seven and a half clocks a pixel. The odd ends are handled by hand:
+; the first pixel when the run starts on a low nibble, the last when it ends
+; on a high one.
 ;
 ; The first version of this routine decoded every pixel individually instead
 ; - read the byte, test the parity, `shr al, cl` by four, compare, branch -
 ; and that is 75 to 90 clocks a pixel on an 8086, because a 4-bit shift by CL
 ; alone is 24 of them. It kept the SHAPE of the optimisation (one call per
-; run) and threw away the optimisation, so a 448x280 repaint went from about
-; a quarter of a second on a 4.77MHz 8088 to over two, and the far calls it
-; saved were noise against that. QEMU cannot show this - it does not model
-; 8086 timing at all - which is exactly why the cycle counts are written down
-; here rather than measured.
+; run) and threw away the optimisation. Those two cycle counts are still
+; WRITTEN DOWN rather than measured, and the "quarter of a second to over
+; two" figure this comment used to give for a 448x280 repaint was derived
+; from them; the ratio is the point and the absolute numbers are not
+; measurements. What HAS since been measured on the target machine is more
+; important than either, and it is below.
+;
+; **What a blit actually costs, measured on a 4.77MHz 8088 (PERFORMANCE.md
+; Part 9): `runs x 0.5 ms`.** Each coalesced run is one gfx_hline, and a
+; drawing call on this machine has a ~756us FIXED cost - far call, lock, clip
+; test, dispatch, gfx_rowbase - before it draws a pixel. Three routes agree:
+; a 64-run solid blit is 441us a call, a 1,024-run striped one 548us, and
+; GFX_HLINE 8px through the API 765us. So the pixel count barely enters the
+; price at all and **how FLAT the source is decides it**: the same 4,096
+; pixels cost 28.2 ms solid and 561 ms in 4-pixel stripes, a 20x spread with
+; no pixel of difference. A caller that wants a blit to be cheap makes its
+; art flat; a caller that must draw detail should expect ~0.5 ms per colour
+; change per row, and budget accordingly.
+;
+; A plane-parallel VGA fast path would attack exactly that, since it costs
+; one write per 8 pixels regardless of flatness - see below.
 ;
 ; A plane-parallel VGA fast path (build a byte-per-8-pixels mask per plane
 ; and write it through the Map Mask) would beat this on detailed pictures and

@@ -1549,6 +1549,21 @@ pt_undo_swap:
 ; every one of them is a FAR call, and a detailed picture makes thousands per
 ; repaint. gfx_blit4 runs the identical scan from inside the kernel.
 ;
+; WHAT THIS COSTS, AND IT IS NOT WHAT YOU WOULD GUESS (PERFORMANCE.md Part 9,
+; measured on a real 5150). gfx_blit4 still emits one gfx_hline per RUN, and a
+; gfx_hline costs about 0.5 ms on a 4.77MHz 8088 WHATEVER ITS LENGTH - a
+; drawing call on the mono renderer is ~756 us of fixed setup with almost
+; nothing per pixel. So a blit costs `runs x 0.5 ms` and the pixel count
+; barely enters it: the same 64x64 block is 28 ms at one run per row and
+; 561 ms at sixteen.
+;
+; So the picture's FLATNESS decides the repaint, not its size. Flat art at a
+; couple of runs a row is a few hundred milliseconds for the whole canvas;
+; dithered or photographic art at twenty runs a row is SECONDS. Moving the
+; scan into the kernel did not change that - it removed a far call per run,
+; and the run itself is still the unit of cost. Blitting only the band that
+; changed is worth far more here than anything done to the scan.
+;
 ; Two things about the geometry:
 ;
 ;  - the source pointer must start on an EVEN pixel, because gfx_blit4 takes

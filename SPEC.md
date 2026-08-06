@@ -548,15 +548,35 @@ half clocks a pixel — with the odd ends handled by hand: the first pixel when
 the run starts on a low nibble, the last when it ends on a high one. This is
 `apps/paint`'s own `pt_runend` moved into the kernel, unchanged.
 
+**WHAT IT COSTS, MEASURED (PERFORMANCE.md Part 9).** One `gfx_hline` costs
+about **0.5 ms on a 4.77MHz 8088 whatever its length**, because a drawing call
+on the mono renderer is ~756 us of fixed setup and almost nothing per pixel.
+So this primitive costs **runs x 0.5 ms** and the pixel count barely enters
+it. The field measurement is the same 64x64 block drawn two ways: one run per
+row (64 calls) is **28 ms**, sixteen runs per row (1,024 calls) is **561 ms** —
+twenty times, for identical pixels.
+
+The consequence for a caller is the one worth carrying away: **how FLAT the
+picture is, not how big it is, decides what a blit costs.** A 448x280 canvas
+of flat art at a couple of runs a row is a few hundred milliseconds; the same
+canvas of dithered photographic art at twenty runs a row is seconds. An app
+that can keep its art flat, or blit only the band that changed, is choosing
+between those two.
+
 The first version of this routine decoded every pixel individually instead —
 read the byte, test the parity, `shr al, cl` by four, compare, branch — which
 is 75 to 90 clocks a pixel on an 8086, a 4-bit shift by CL being 24 of them
 on its own. It kept the *shape* of the optimisation (one call per run) and
-threw away the optimisation: a 448×280 repaint went from about a quarter of a
-second on a 4.77MHz 8088 to over two, and the far calls it saved were noise
-against that. **QEMU cannot show this — it does not model 8086 timing at all**
-— which is why the cycle counts are written down rather than measured, and
-why a change to this loop wants a cycle count in the commit message.
+threw away the optimisation. **QEMU cannot show this — it does not model 8086
+timing at all** — which is why the two cycle counts in this paragraph are
+written down rather than measured, and why a change to this loop wants a cycle
+count in the commit message.
+
+That paragraph used to end "a 448×280 repaint went from about a quarter of a
+second on a 4.77MHz 8088 to over two", derived from those same written-down
+counts. **The ratio is the point and the two absolute figures were never
+measurements**; the measured block above is a different shape from either of
+them and is the one to quote.
 
 Why it exists at all: a package owns a segment (§20.1), so every gfx call
 from one is a FAR call. The identical run scan written inside the package
@@ -579,6 +599,13 @@ damage rect (§11.91) is the whole view. But the pixels are not *new* — they
 are the pixels one row up. Moving them is a `rep movsb` per row; redrawing
 them is `font_char` per cell, which on a 4.77MHz 8088 is the difference
 between a scroll that keeps up with the key repeat and one that does not.
+
+**Priced against the field set** (PERFORMANCE.md Part 2): a glyph cell is
+**~0.9 ms** on that machine and a raw `rep movsb` to the framebuffer runs at
+**~3.3 µs a byte**, so a 78-cell row costs ~71 ms to letter and under a
+millisecond to move — two orders of magnitude, and it is the per-call floor
+doing it, not the copy. That is why this primitive takes a whole rect rather
+than offering a per-row entry point: the win is in making *one* call.
 
 **The |dy| vacated rows are the caller's to repaint**, and their content
 after the call is unspecified — this primitive moves pixels and invents
@@ -779,9 +806,26 @@ it guards, and instructions are the better proxy. The traffic count remains
 the right *explanation* of where the writes went; it is not the right
 predictor of time, and this section previously said it was.
 
+**A second harness on a second adapter says 1.24x.** `tests/gfxbench`, written
+independently and run on the same 5150 with its CGA card as well as its
+Hercules one, prices the skewed pair against aligned `font_run` at **1.24x on
+both adapters** (PERFORMANCE.md Part 9). Two harnesses, two adapters, 5%
+apart — so 1.24x-1.30x is the range to quote, and the traffic figure (2.85x
+to 4.2x) is not in it at either end.
+
+**What caps the win is the per-call floor**, and gfxbench is what measured it:
+every drawing call on this machine costs about **756 us before it draws
+anything** — the far call, the lock, the clip test, the dispatch and
+`gfx_rowbase` — and the two mono adapters agree on that figure to 0.01%
+despite their framebuffer bandwidths differing by 13%, which is what proves it
+is CPU-side rather than bus-side. `font_run` collapses a fill and ten
+`font_char`s into one call, so what it saves is mostly *floors*, and no amount
+of cleverness inside the renderer can beat a number that is paid outside it.
+
 Worth keeping for its own sake: **about 1 ms per 8x8 cell** on that machine,
-which two independent harnesses agree on (fontbench 10.09 ms per ten cells,
-typebench 33.3 ms per forty). Nothing else in this document measures the
+which four independent measurements agree on (fontbench 10.09 ms per ten
+cells, typebench 33.3 ms per forty, and gfxbench's 901 us for one `font_char`
+against 915 us per cell across a whole 78x34 page). Nothing else in this document measures the
 hardware all of this is for. The aligned row is measured; the rest is that measurement's model
 (fill = two masked edge columns at 8 rows x 2 read-modify-writes, plus the
 interior as word stores; glyphs = one read-modify-write per non-blank glyph
@@ -7172,7 +7216,8 @@ Seven things this has to get right, and the first one is not obvious:
   the content on the way in) and the reconcile of §27.3 (which fills its own
   band) — and a row that trims to nothing is not drawn at all. Without it a
   fullscreen repaint is 50 rows of 90 cells whether the note has 500
-  characters or five, which on a 4.77MHz 8088 is about five seconds.
+  characters or five — 4,500 cells at the measured ~0.9ms each
+  (PERFORMANCE.md Part 2), so **about four seconds** on a 4.77MHz 8088.
 - **The grow box is restored only when the dirty band could have reached it.**
   It is 13x13 at the content's bottom-right, and `OSAPI_WM_GROW` used to be
   called on every keystroke — it had to be, because the band fill spanned the
@@ -7293,12 +7338,17 @@ being inserted, which is what happens at the bottom of the window) sets
 ### 27.4 The layout checkpoint — a keystroke stops walking the whole note
 
 `np_walk` is O(the note) and §27.2 runs it **twice** per keystroke. That is
-about 500 8086 cycles a character a pass, so on a 4.77MHz machine a 400-
-character note costs ~90ms per keystroke in layout alone — against ~2ms of
-drawing. It is invisible until the note is long, and then it is the whole
-cost: a user filled a fullscreen window and reported each keystroke getting
-slower while a counter in `font_run_cell` said the drawing was still two
-cells.
+about 500 8086 cycles a character a pass — a written-down figure, not a
+measured one, and by the **8088 instruction floor** (PERFORMANCE.md Part 2:
+4.34 clocks per instruction *byte*, so an 8086 count under-reports an 8088 by
+up to 4.34×) it is a lower bound rather than an estimate. On a 4.77MHz machine
+a 400-character note therefore costs *at least* ~90ms per keystroke in layout
+alone, against ~2ms of drawing. It is invisible until the note is long, and
+then it is the whole cost: a user filled a fullscreen window and reported each
+keystroke getting slower while a counter in `font_run_cell` said the drawing
+was still two cells. **The optimisation below was verified by counting walk
+iterations, not by trusting that 500** — which is the right way round, and the
+reason the conclusion survived the cycle figure turning out to be soft.
 
 Wrapping is a **left-to-right automaton with no lookahead** — a cell that
 would cross `[np_rgt]` moves to the next row, a newline resets the pen — so
@@ -9305,6 +9355,19 @@ four passes of VRAM writes, and VRAM is the slow side on every target
 (measured on QEMU: a full-screen 4-plane flush costs ~3.7× a one-plane one
 and ~24× the RAM-side render of the same area).
 
+**Treat the ~24× as a QEMU ratio and nothing more, wherever this document
+quotes it.** It has never been measured on hardware and, unlike every other
+figure in this document, it never can be by the usual route: double buffering
+is VGA-only and the machine this project is calibrated against
+(PERFORMANCE.md Part 9) is a 4.77MHz 5150 with Hercules and CGA cards. Worse,
+QEMU services a VRAM write through an MMIO callback and a RAM write through a
+plain host store, so the ratio it reports is substantially an *emulator*
+artifact rather than a bus one — the real hardware figure could be well under
+it. The ~3.7× four-plane-to-one-plane ratio is sound (it is a write count, and
+QEMU counts work exactly); the 24× is not, and no design decision should rest
+on its magnitude. What it is safely used for here is its *sign*: the flush is
+the expensive half, so `[bb_mono]` and the dirty rect are both worth having.
+
 `bb_mono` (initialized data, `db 1`, same reason as `bb_on`) records whether
 all four planes hold identical bytes. That is true at boot — `bb_init` zeroes
 them — and stays true for every pixel drawn in colour 0 or 15, which is the
@@ -10956,10 +11019,14 @@ VRAM path had from the start and the port did not:
   plane and there are two eight-row loops rather than one branch per row.
 - **A blank glyph row is skipped whole.** or-ing in 0 and and-ing in FF are
   both identity, but a read-modify-write of framebuffer memory costs the
-  same ~30 cycles on an 8088 whether or not it changes a pixel. Most glyphs
-  have a blank descender row, many a blank top row, and a space is eight of
-  them. The second byte is skipped on the same test, which is the whole cost
-  of a glyph at a byte-aligned x.
+  same on an 8088 whether or not it changes a pixel — **79.6 clocks a byte,
+  measured** on a real 5150's Hercules and 81.0 on its CGA (PERFORMANCE.md
+  Part 9). This paragraph said "~30 cycles" until that set was taken; it was
+  low by 2.6x, and it credited the framebuffer for what is really the CPU —
+  the identical loop against plain RAM measures 72.8 clocks, so under 7 of
+  the 79.6 are the bus. Most glyphs have a blank descender row, many a blank
+  top row, and a space is eight of them. The second byte is skipped on the
+  same test, which is the whole cost of a glyph at a byte-aligned x.
 - **`gfx_nextrow` is inlined**, CS overrides and all. Its body is three
   instructions and the `call`/`ret` around them cost as much again.
 
@@ -11903,7 +11970,11 @@ Two things a card back makes expensive, and what each costs:
   run boundary every few pixels: **634 runs** for the 32x44 metrics, 336 for
   CGA's 28x28. A face is two fills, four edges and a couple of glyphs. So a
   back is the one drawing in this program worth going out of the way not to
-  repeat, and both rules below exist for it.
+  repeat, and both rules below exist for it. **Priced against §5.4's measured
+  `runs x 0.5 ms`, one whole back is about 0.3 s of drawing on a 4.77MHz 8088**
+  — which is the difference between "an optimisation" and "the reason the game
+  is playable", and why the numbers here are run counts rather than pixel
+  counts.
 - **The stock is only ever redrawn when its PICTURE changes.** That picture is
   one bit — a card back, or the turn-over-again ring — so it changes only when
   the last card leaves the pile and when a recycle refills it. Dealing from a
