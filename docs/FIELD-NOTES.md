@@ -195,12 +195,20 @@ is a poor fit for the evidence.
 > repaint than a pattern boundary, because the extremes reset only with the
 > stream and the load is inside the window.
 >
-> **That is why latching the meter on now resets them** (§45.14). D off, D on,
-> then watch one freeze. If `WAKE` stays `00`–`01` across it, the freeze never
-> touched the worker and the audio hitch is still below the driver — back to
-> the three-way split above. If `WAKE` climbs to ~6 during the freeze, then
-> something in that frame is holding the scheduler and the fix above fixes
-> both.
+> **The meter has been retired for a LOG** (§45.14, `tests/trklog.inc`), and
+> the reason is exactly the reading above: three numbers that are consistent
+> with *one* event cannot say *which* event, and an extreme cannot be placed in
+> time at all. `TRKLOG.O88` is Tracker assembled with `-DTRKLOG` and writes one
+> record per system tick to `TRKLOG.TXT` — tick, consumed, total, stream state,
+> song position, frames, feeds, flags, tempo — which answers all of it at once:
+> a **gap in the TICK column** is the whole machine stopping, `CONS` spacing is
+> every block-IRQ interval rather than the worst, and `FR 0` against `FD 1`
+> separates the drawing freezing from the worker starving. Verified on QEMU:
+> 706 records, zero tick gaps, block-IRQ median 7 ticks against 6.8 predicted.
+>
+> **The next thing to hand back is that file**, taken across a few pattern
+> boundaries on the reporting machine. It settles the remaining question
+> without another round of asking for numbers read off a status line.
 >
 > Everything below this line is the earlier analysis, kept because its
 > ruling-out is still valid and because the two theories it eliminates are

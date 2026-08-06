@@ -86,7 +86,7 @@ KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 debug test test-snd xt xt-640 xt-cga xt-hercules \
         286 386sx 386 xt-sound 286-sound 386-sound check-images bench \
-        stackprobe clean
+        stackprobe trklog clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -440,6 +440,39 @@ $(BUILD)/filetest.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
 # of what --scramble exists to test.
 $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 --scramble $(BUILD)/filetest.o88 $(BUILD)/mines.o88 $(BUILD)/piano.o88 $(BUILD)/big.dat
+
+# --- the tracker log disk (ON DEMAND: `make trklog`) -------------------------
+# TRKLOG.O88 is apps/tracker built with -DTRKLOG, which is the ONLY difference:
+# the shipped TRACKER.O88 has no log, no claims and no D/W keys, and the hooks
+# that reach tests/trklog.inc are every one of them inside %ifdef TRKLOG. One
+# source, two binaries, and the bench one never touches a shipped disk.
+#
+#   make trklog                                    # build the disks
+#   make test SB16=1 TESTAPPS=build/trklog.img     # ...or build and boot
+#
+# The disk carries BEVERLY.MOD because a log of a player with nothing to play
+# is a log of an idle machine. It must NOT be write-protected: W writes
+# TRKLOG.TXT back to it, which is the point (docs/TESTING.md).
+TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
+             apps/tracker/trkui.inc apps/tracker/trktxt.inc tests/trklog.inc
+
+trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
+
+$(BUILD)/trklog.bin: $(TRKLOGSRC) apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -DTRKLOG -I apps/ -I apps/tracker/ -I tests/ \
+		-o $@ apps/tracker/tracker.asm
+	@echo "trklog: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/trklog.o88: $(BUILD)/trklog.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/trklog.bin -o $@
+
+$(BUILD)/trklog.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		$(BUILD)/trklog.o88 apps/tracker/beverly.mod
+
+$(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+		$(BUILD)/trklog.o88 apps/tracker/beverly.mod
 
 # --- the benchmark disk, from tests/ (ON DEMAND: `make bench`) ---------------
 #

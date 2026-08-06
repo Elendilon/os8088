@@ -13179,7 +13179,6 @@ worker only feeds (§53.2).
 | X | XT mode toggle (§45.9 — also File ▸ the relabeling menu item). Refused on the §45.13 text surface, which IS XT mode's fullscreen: `XT off is windowed: Esc first` |
 | R | Cycle the sample rate 11 → 22 → 44 kHz (§45.10 — also the Rate menu) |
 | S | Smooth toggle (§45.11 — also View ▸ the relabeling menu item). Refused on the text surface: `Smooth is a graphics mode only` |
-| D | The margin meter on the status line, on/off (§45.14). Works windowed and on the text surface; on the text surface it refreshes every frame |
 | Esc | Exit fullscreen (windowed: ignored) |
 
 The `or al, al` keypad gate of §44.2 applies verbatim: the numeric keypad
@@ -13539,9 +13538,9 @@ closes an old race, because the worker can move `[mp_pattern]` mid-build and
 recording it afterwards marked a mixed shadow as current. Recorded first, a
 mid-build move is caught by the same test on the next frame and restarts.
 
-While a spread build runs, §45.14's `SHB` reads `--`: there is no complete
-shadow to check, which is honest and doubles as a visible marker of the frames
-a rebuild is spread over.
+A spread build is visible in §45.14's log as one `FL 07` (a rebuild started)
+followed by a run of `FL 06` (a step ran, and a blit put the new rows on
+screen), which is how the chunking was checked rather than asserted.
 
 Three things about it are load-bearing:
 
@@ -13611,78 +13610,60 @@ are never both holding the setting.
 construction, because `fsx_mode` had already refused to run with a buffer
 armed.
 
-### 45.14 The margin meter — three numbers that say whose buffer starved
+### 45.14 The instrumentation is a LOG, and it does not ship
 
-**D** puts `MIN n  LATE nnn  UND nnn  BLK nn  WAKE nn` on the status line
-(`trk_diag_msg`, same `[tui_msgp]` every other message uses, so it renders
-windowed and on the §45.13 text surface alike). It exists because "the audio
-hitches" has several completely different causes on a 4.77 MHz machine and
-listening cannot tell them apart. Every counter resets with the stream, in
-`trk_play`.
+There is no meter on Tracker's status line and no D key in `TRACKER.O88`.
+There was, for a while — five running extremes and a live count — and it did
+its job: it retired the mixer, the drawing, the driver's own double buffer and
+the sample content in turn (docs/FIELD-NOTES.md entry 1). What it could not do
+is the question that was left. An extreme says a bad thing happened; it cannot
+say *when*, or what else was happening in the same tick, or whether the same
+tick was bad twice. The remaining question is a correlation between three
+clocks — the block IRQ, the worker's wakes and the drawing frames — and a
+correlation needs a time series.
 
-| | what it counts | what a bad reading means |
-|---|---|---|
-| `MIN` | the smallest `total − consumed` any feed wake ever saw, in ring **halves** | 0 means Tracker's own 16KB ring ran dry — the mixer is not sustaining real time |
-| `LATE` | wakes that arrived with under one half in hand | climbing means the same thing, earlier |
-| `UND` | **edges** into `SND_ST_UNDER` — the driver reporting that *its* 2KB double-buffer half was not refilled at the block IRQ | climbing means the fault is downstream of this app entirely |
-| `BLK` | the longest gap, in ticks, between two different `consumed` readings | `consumed` moves by one whole half and only from `sbl_isr`, so this **is** the block-IRQ interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. Doubling means a block arrived a whole period late |
-| `WAKE` | the longest gap, in ticks, between this worker's own feed passes | the control for `BLK`. 1 is healthy |
-| `SHB` | **live**: how many of the text shadow's 64 content rows have a blank row-number field (§45.13.2). `--` = there is no shadow to check — windowed, or before the first build | anything but `00` means the shadow really is losing content, and the blank area on screen is not the pad |
+So the instrumentation is now **`tests/trklog.inc`**, a per-tick record
+written to `TRKLOG.TXT`, and it is a **bench build**: `TRKLOG.O88` is this
+same source assembled with `-DTRKLOG` (`make trklog`, docs/TESTING.md). The
+package carries a handful of hooks, every one of them inside `%ifdef TRKLOG`,
+and the shipped binary contains none of it — not the records, not the claims,
+not the two keys. One source, two binaries, and the bench one never reaches a
+shipped disk.
 
-**Latching the meter on also resets the four extremes**, and that is what
-makes them attributable. They otherwise reset only with the stream, so one bad
-moment during the load repaint pins `MIN` and `WAKE` for the whole session and
-every later glitch reads as having changed nothing — which is exactly what the
-first field reading did. D off, D on, watch one glitch: the numbers then
-describe *that* glitch.
+The bench build's keys are **D** (arm / disarm — the record buffer is a 16KB
+heap claim taken and given back, so a log that is not running costs nothing
+and cannot split the heap) and **W** (write `TRKLOG.TXT` to the current
+volume). W is **windowed only**, for the same reason L is: the file slots are
+UI-callback-only and a bracket owns the machine until it returns (§53.7), so
+on the text surface it answers `Save is windowed: Esc first` rather than
+nothing (§47).
 
-**`SHB` is the one live number, and that is why D is a latch rather than a
-one-shot.** The other five are running extremes, so a snapshot taken on the
-keypress says everything about them; `SHB` is the state of the shadow at this
-instant and its whole purpose is to be read *while* the screen is visibly
-emptying. So `trk_diag_tog` sets `[trk_diag]` and `ttx_draw_dyn` re-renders
-and redraws the line every frame while it is set — the `[ttx_lmsg]` pointer
-compare cannot see digits change inside one buffer, so the diag path skips it.
-Turning it off puts `[tui_msgp]` back to 0, which is the key hint.
+One record per system tick, 1,024 of them = 56 seconds. **The rate limit is
+load-bearing, not cosmetic**: inside a bracket `OSAPI_TASK_SLEEP` degenerates
+to an immediate resume (§53.3), so `trk_feed` runs far more often than 18
+times a second and an unlimited log would fill in about a second of music.
+Both producers — the worker's feed pass and the drawing frame — offer a
+record, and **the record is written by whichever reaches the new tick first**.
+That is what makes the file's most important feature work: a tick with *no
+record at all* means neither side ran, which is the whole-machine freeze the
+old `WAKE` extreme could only report as one number after the fact.
 
-The row-**number** field is the probe because it is the one part of a row that
-is never legitimately blank: an empty pattern row has spaces in all four cells
-and still carries `00`..`3F` on both edges. So `SHB` separates the two things
-a blank screen area can mean — the pad (`00`, healthy) from a shadow that lost
-its contents (`nn`) — without needing to know which row the view is on. The
-scan is 64 word reads a frame, which is why it can afford to be live at all.
-It also reads `00` for the pad rows themselves, deliberately: they are outside
-the 64 it walks.
+| column | what it is |
+|---|---|
+| `TICK` | `[ticks]`. **A gap in this column is the most important thing in the file.** |
+| `CONS` | the driver's free-running consumed count — one 2,048-byte half per block IRQ, and only from `sbl_isr`, so the tick spacing between two different values *is* the block-IRQ interval (6.8 ticks at 5,500 Hz) |
+| `TOTL` | the app's staged total; `TOTL − CONS` is the ring lead in bytes |
+| `S` | stream state: 0 playing, 1 underrun-paused, 2 watchdog-ended |
+| `PS PT RW` | song position, pattern, row — so any line can be placed in the music |
+| `FR FD` | drawing frames and feed passes in that tick |
+| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened |
+| `BP SP` | tempo and speed, so rows-per-second is derivable per record |
 
-`BLK` and `WAKE` are a pair and neither is worth reading alone. `BLK` high
-with `WAKE` at 1 is the card or its IRQ stalling while this app ran
-perfectly; both high together is the worker being descheduled, and the
-`sch_lock` held across int 13h (§7) is the first thing to suspect. Both
-normal through an audible hitch puts the fault below the block IRQ, where
-nothing running on the CPU can see it. Measured baseline under QEMU with an
-SB16, XT mode, one minute of playback: `MIN 6  LATE 000  UND 000  BLK 08
-WAKE 01` — 8 ticks is 6.8 rounded up by the one-tick sampling resolution,
-which is the calibration that makes 13 mean something.
-
-**`UND` is the one that is not obvious, and it is the reason the other two
-can lie.** There are two buffers in the chain and they have different
-pacers: Tracker's 16KB staging ring in its `SND_SEG` grant, fed by the
-package worker, and the driver's 2 × 2KB DMA double buffer at `SND_SEG:0`,
-fed by `sbl_refill_task` (§34.5). Only the first is what `MIN`/`LATE`
-measure. When the second starves, `sbl_isr` pauses output (D0h) and marks
-the stream `SBL_ST_UNDER` — bounded silence, never stale audio — and
-**`consumed` stops advancing while it is paused**, so `total − consumed`
-*grows*. A downstream stall therefore reads as `MIN` pegged at the pre-roll
-value with `LATE 000`: the app's instruments say everything is perfect
-precisely when it is not. Reading the state the app was already polling
-(verb 3 returns it in AX, every wake) closes that hole for the cost of a
-word and a byte.
-
-The unit matters too: one 2KB half is **372 ms** at XT mode's 5,500 Hz, so a
-single un-refilled half is about a third of a second of silence — which is
-the shape of the field report in docs/FIELD-NOTES.md, and why `UND` was worth
-adding before anything was changed. It came back `000`, which is what
-promoted `BLK` from an idea to the next instrument.
+Verified under QEMU with an SB16 in XT mode: 706 records, **zero tick gaps**,
+block-IRQ intervals with a median of **7 ticks** (6.8 predicted), and the
+§45.13.2 spread rebuild visible as one `FL 07` followed by a run of `FL 06` —
+which is the chunking doing what it says, read off the data rather than
+asserted.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
