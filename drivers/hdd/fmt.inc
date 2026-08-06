@@ -1,7 +1,8 @@
 ; =============================================================================
 ; os8088 - HDD.DRV / fmt.inc
 ;
-; The FAT formatter (SPEC.md 52.3) and its window. A FAT format, NOT a surface
+; The FAT formatter (SPEC.md 52.3). Its window is tool.inc's, along with the
+; partitioner's - one operation to the user is one window. A FAT format, NOT a surface
 ; format: low-level formatting an MFM surface is vendor-specific interleave
 ; and defect handling, minutes per drive, and the ST-11M ships its own ROM
 ; utility that does it correctly (`g=c800:5` from DEBUG).
@@ -56,24 +57,6 @@ HF_B_BOOTSIG equ 38
 HF_B_VOLID   equ 39
 HF_B_VOLLAB  equ 43
 HF_B_FSTYPE  equ 54
-
-; --- the formatter's window --------------------------------------------------
-; Its content is HFW_W-2 wide and HFW_H-TITLE_H-1 tall, and every string below
-; fits: 34 characters at HFW_LX. font_str clips to the screen, not to the
-; window (SPEC.md 5), so a longer one paints over the border and beyond.
-HFW_W        equ 280
-HFW_H        equ 120
-HFW_LX       equ 4
-HFW_L0Y      equ 8
-HFW_L1Y      equ 22
-HFW_L2Y      equ 36
-HFW_BY       equ 62
-HFW_BH       equ 16
-HFW_CAPY     equ 90
-HFW_B0X      equ 4              ; 'Format'
-HFW_B1X      equ 76             ; 'Close'
-HFW_BW0      equ 64
-HFW_BW1      equ 56
 
 ; -----------------------------------------------------------------------------
 ; hd_fmt_plan - choose a cluster size and lay the volume out
@@ -551,376 +534,68 @@ hd_s_fat12id: db 'FAT12   '    ; it must never reach font_str
 hd_s_f16name: db 'FAT16', 0    ; ...and the display names, which must
 hd_s_f12name: db 'FAT12', 0
 
-; =============================================================================
-; The formatter's window (SPEC.md 52.3)
-; =============================================================================
-
-hd_ftpl:    dw 120, 120, HFW_W, HFW_H, hd_s_ftitle, hd_fw_paint, 0, hd_fw_click
-hd_s_ftitle: db 'Format', 0
+hd_s_two:     db '  ', 0
 
 ; -----------------------------------------------------------------------------
-; hd_fw_open - put the formatter up (module internal)
-; in:  nothing; the gfx lock is HELD
-; out: nothing
-; -----------------------------------------------------------------------------
-hd_fw_open:
-    push ax
-    push bx
-    push si
-    mov al, [hd_sel]
-    call hd_dev_row
-    push di
-    call hd_part_load           ; a fresh table: the target list is its slots
-    pop di
-    mov byte [hd_fsel], 0
-    mov word [hd_fmsg], hd_s_fready
-    mov bx, [hd_fwin]
-    or bx, bx
-    jnz .show
-    mov si, hd_ftpl
-    call OSAPI_WM_CREATE
-    jc .out
-    mov [hd_fwin], bx
-.show:
-    call OSAPI_WM_SHOW
-.out:
-    pop si
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_fw_paint - W_PAINT
-; in:  SI = the window (content white-filled, lock held)
-; out: nothing
-; -----------------------------------------------------------------------------
-hd_fw_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    mov bx, si
-    call OSAPI_WM_CONTENT
-    mov di, ax
-    mov bp, dx
-
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-
-    mov si, hd_s_fhdr
-    mov cx, di
-    add cx, HFW_LX
-    mov dx, bp
-    add dx, HFW_L0Y
-    call OSAPI_FONT_STR
-
-    call hd_fw_target           ; hd_line = 'Partition n  nnnnM'
-    mov si, hd_line
-    mov cx, di
-    add cx, HFW_LX
-    mov dx, bp
-    add dx, HFW_L1Y
-    call OSAPI_FONT_STR
-
-    call hd_fw_planline         ; hd_line = 'FAT16  2K clusters' or a refusal
-    mov si, hd_line
-    mov cx, di
-    add cx, HFW_LX
-    mov dx, bp
-    add dx, HFW_L2Y
-    call OSAPI_FONT_STR
-
-    mov si, hd_s_fmt
-    mov ax, HFW_B0X
-    mov bx, HFW_BW0
-    call hd_fw_button
-    mov si, hd_s_close
-    mov ax, HFW_B1X
-    mov bx, HFW_BW1
-    call hd_fw_button
-
-    mov si, [hd_fmsg]
-    mov cx, di
-    add cx, HFW_LX
-    mov dx, bp
-    add dx, HFW_CAPY
-    call OSAPI_FONT_STR
-
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_fw_button - one framed button, the formatter's row (module internal)
-; in:  AX = x, BX = width, SI = label, DI/BP = the content origin
-; -----------------------------------------------------------------------------
-hd_fw_button:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    add ax, di
-    mov cx, ax
-    add cx, bx
-    dec cx
-    mov bx, bp
-    add bx, HFW_BY
-    mov dx, bx
-    add dx, HFW_BH - 1
-    push ax
-    push bx
-    push cx
-    push dx
-    call OSAPI_GFX_FRAME
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    add ax, 4
-    mov cx, ax
-    mov dx, bx
-    add dx, 4
-    call OSAPI_FONT_STR
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_fw_target - the chosen partition's line, into hd_line (internal)
-; -----------------------------------------------------------------------------
-hd_fw_target:
-    push ax
-    push si
-    push di
-    mov di, hd_line
-    mov si, hd_s_fpart
-    call hd_scat
-    mov al, [hd_fsel]
-    inc al
-    xor ah, ah
-    call hd_utoa
-    mov si, hd_s_two
-    call hd_scat
-    mov al, [hd_fsel]
-    call hd_part_ent
-    call hd_part_used
-    jc .free
-    call hd_part_mb
-    call hd_utoa
-    mov si, hd_s_mb
-    call hd_scat
-    jmp short .done
-.free:
-    mov si, hd_s_free
-    call hd_scat
-.done:
-    mov byte [di], 0
-    pop di
-    pop si
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_fw_planline - what the plan came out as, into hd_line (internal)
-; -----------------------------------------------------------------------------
-hd_fw_planline:
-    push ax
-    push si
-    push di
-    mov di, hd_line
-    call hd_fw_plansel
-    jc .none
-    mov si, hd_s_f16name
-    cmp byte [hd_ftype], 0
-    jne .name
-    mov si, hd_s_f12name
-.name:
-    call hd_scat
-    mov si, hd_s_two
-    call hd_scat
-    mov ax, [hd_fspc]
-    shr ax, 1                   ; sectors -> KB per cluster (512 bytes each)
-    or ax, ax
-    jnz .kb
-    mov si, hd_s_half
-    call hd_scat
-    jmp short .clus
-.kb:
-    call hd_utoa
-    mov si, hd_s_k
-    call hd_scat
-.clus:
-    mov si, hd_s_clus
-    call hd_scat
-    jmp short .done
-.none:
-    mov si, hd_s_fnofit
-    call hd_scat
-.done:
-    mov byte [di], 0
-    pop di
-    pop si
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_fw_plansel - plan the selected partition (module internal)
-; in:  [hd_fsel]
-; out: CF = 0 and the plan + [hd_fbase]/[hd_fsecs]; CF = 1 = nothing to plan
+; hd_fmt_isfat - is there a FAT volume at this partition's LBA 0? (52.2.2)
+; in:  SI = the partition entry, DI = the device row
+; out: CF = 0 yes; CF = 1 = unreadable, or nothing that reads as a boot sector
 ; clobbers: flags
+;
+; **A DISPLAY test, and the mount is still the authority.** It answers the one
+; question the table cannot - "has this partition been formatted, or is it a
+; region somebody reserved and never wrote a volume into" - and it answers it
+; the cheap way, out of the sector the format writes LAST (SPEC.md 52.3). So a
+; format interrupted anywhere reads as Not Formatted, which is the state the
+; tool re-offers, and a volume that passes here can still be refused by
+; disk_mount's seventeen rules (SPEC.md 18.2) when it is actually mounted.
+;
+; It borrows hd_sec0, the formatter's own sector: nothing is in flight when a
+; slot's state is being worked out.
 ; -----------------------------------------------------------------------------
-hd_fw_plansel:
+hd_fmt_isfat:
     push ax
-    push si
-    mov al, [hd_fsel]
-    call hd_part_ent
-    call hd_part_used
-    jc .no
+    push bx
+    push cx
+    push dx
+    push es
+    push ds
+    pop es
+    mov bx, hd_sec0
     mov ax, [si+HP_LBA]
-    mov [hd_fbase], ax
-    mov ax, [si+HP_LBA+2]
-    mov [hd_fbase+2], ax
-    mov ax, [si+HP_SECS]
-    mov [hd_fsecs], ax
-    cmp word [si+HP_SECS+2], 0
-    jne .no                     ; past 65,535 sectors: not a volume this
-    call hd_fmt_plan            ; kernel can carry (SPEC.md 18.7)
+    mov dx, [si+HP_LBA+2]
+    mov cx, 1
+    mov byte [hd_rawop], 0      ; read
+    call hd_raw
     jc .no
-    pop si
+    cmp word [hd_sec0+510], 0xAA55
+    jne .no
+    mov al, [hd_sec0]           ; BPB rule 2's own test (SPEC.md 18.2): a
+    cmp al, 0xEB                ; volume whose first byte is neither of these
+    je .jmpok                   ; is one this kernel refuses to mount, so it
+    cmp al, 0xE9                ; is not a formatted one as far as we are
+    jne .no                     ; concerned either
+.jmpok:
+    cmp word [hd_sec0+HF_B_BPS], 512
+    jne .no
+    cmp byte [hd_sec0+HF_B_SPC], 0
+    je .no
+    cmp byte [hd_sec0+HF_B_NFATS], 0
+    je .no
+    cmp word [hd_sec0+HF_B_FATSZ], 0
+    je .no
+    pop es
+    pop dx
+    pop cx
+    pop bx
     pop ax
     clc
     ret
 .no:
-    pop si
+    pop es
+    pop dx
+    pop cx
+    pop bx
     pop ax
     stc
     ret
-
-; -----------------------------------------------------------------------------
-; hd_fw_click - W_ONCLICK
-; in:  CX = x, DX = y (absolute), SI = the window
-; -----------------------------------------------------------------------------
-hd_fw_click:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    mov bx, si
-    mov si, dx
-    call OSAPI_WM_CONTENT
-    mov di, ax
-    mov bp, dx
-    sub cx, di
-    mov dx, si
-    sub dx, bp
-
-    cmp dx, HFW_L1Y - 2
-    jl .done
-    cmp dx, HFW_L1Y + 10
-    jl .cycle                   ; the target line cycles through the slots
-    cmp dx, HFW_BY
-    jl .done
-    cmp dx, HFW_BY + HFW_BH
-    jge .done
-    mov ax, cx
-    cmp ax, HFW_B0X
-    jl .done
-    cmp ax, HFW_B0X + HFW_BW0
-    jl .format
-    cmp ax, HFW_B1X
-    jl .done
-    cmp ax, HFW_B1X + HFW_BW1
-    jge .done
-    mov bx, [hd_fwin]
-    call OSAPI_WM_HIDE
-    jmp short .done
-
-.cycle:
-    inc byte [hd_fsel]
-    cmp byte [hd_fsel], 4
-    jb .repaint
-    mov byte [hd_fsel], 0
-    jmp short .repaint
-
-.format:
-    call hd_fw_plansel
-    jc .nofit
-    mov al, [hd_sel]
-    call hd_dev_row
-    mov word [hd_fmsg], hd_s_fdoing
-    call hd_fw_repaint          ; say so BEFORE the writes: a 32MB format is
-                                ; a hundred sectors and the user should not
-                                ; watch a frozen window wonder
-    mov al, [hd_sel]
-    call hd_dev_row
-    call hd_fmt_run
-    mov word [hd_fmsg], hd_s_fdone
-    jnc .repaint
-    mov word [hd_fmsg], hd_s_ferr
-    jmp short .repaint
-.nofit:
-    mov word [hd_fmsg], hd_s_fnofit
-.repaint:
-    call hd_fw_repaint
-.done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_fw_repaint - erase and redraw the formatter's content (internal)
-; -----------------------------------------------------------------------------
-hd_fw_repaint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov bx, [hd_fwin]
-    or bx, bx
-    jz .out
-    call hd_win_erase           ; the CONTENT, and only the content
-    mov si, [hd_fwin]
-    call hd_fw_paint
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-hd_s_fhdr:    db 'Format a partition as FAT', 0
-hd_s_fpart:   db 'Partition ', 0
-hd_s_two:     db '  ', 0
-hd_s_k:       db 'K', 0
-hd_s_half:    db '512-byte', 0
-hd_s_clus:    db ' clusters', 0
-hd_s_fmt:     db 'Format', 0
-hd_s_fready:  db 'Click the line above to pick', 0
-hd_s_fdoing:  db 'Writing...', 0
-hd_s_fdone:   db 'Formatted - now Mount it', 0
-hd_s_ferr:    db 'Write failed', 0
-hd_s_fnofit:  db 'No FAT layout fits that partition', 0

@@ -1,9 +1,12 @@
 ; =============================================================================
 ; os8088 - HDD.DRV / part.inc
 ;
-; The partition table (SPEC.md 52.2) and the window that edits it. The KERNEL
-; never sees an MBR: a driver-backed volume's LBAs are volume-relative and
-; the base lives in hd_vols, so everything about partitioning is here.
+; The partition table (SPEC.md 52.2) - the on-disk shape, the arithmetic, and
+; the allocator that decides what a slot's extent is. The WINDOW is tool.inc's,
+; because partitioning and formatting are one operation to the user and one
+; window in the driver. The KERNEL never sees an MBR: a driver-backed volume's
+; LBAs are volume-relative and the base lives in hd_vols, so everything about
+; partitioning is here.
 ;
 ; The on-disk shape, at LBA 0:
 ;
@@ -52,24 +55,6 @@ HPT_FAT16L   equ 0x0E           ; ...the LBA-addressed flavour of it. Both are
                                 ; writes one: another machine's FDISK did, and
                                 ; the volume inside is the same FAT16
 HP_MAXSEC    equ 65535          ; the kernel's volume ceiling (SPEC.md 18.7)
-
-; --- the partitioner's window ------------------------------------------------
-HPW_W        equ 300
-HPW_H        equ 150
-HPW_R0Y      equ 22             ; first slot row, content-relative
-HPW_ROWH     equ 12
-HPW_LX       equ 4
-HPW_BY       equ 96             ; button row
-HPW_BH       equ 16
-HPW_CAPY     equ 120
-HPW_B0X      equ 4              ; 'New'
-HPW_B1X      equ 52             ; 'Delete'
-HPW_B2X      equ 124            ; 'Write'
-HPW_B3X      equ 188            ; 'Close'
-HPW_BW0      equ 40
-HPW_BW1      equ 64
-HPW_BW2      equ 56
-HPW_BW3      equ 56
 
 ; -----------------------------------------------------------------------------
 ; hd_part_load - read the selected device's partition table into hd_mbr
@@ -249,57 +234,22 @@ hd_part_mb:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_part_end - the first LBA past everything already allocated
-; in:  DI = the device row
-; out: DX:AX = that LBA, aligned up to a cylinder boundary
-; clobbers: AX, DX (the outputs), flags
-;
-; The first partition starts at LBA = spt - head 1, sector 1, cylinder 0 -
-; because that is where every DOS-era table put it, and the sectors below it
-; are the master boot record's own track.
+; hd_ent_end - one entry's end LBA, exclusive (module internal)
+; in:  SI = the entry
+; out: [hd_xend] = LBA + sector count, 32-bit
+; clobbers: flags
 ; -----------------------------------------------------------------------------
-hd_part_end:
-    push bx
-    push cx
-    push si
-    mov ax, [di+HDD_SPT]        ; the floor: one track in
-    xor dx, dx
-    mov byte [hd_rowslot], 0    ; the slot index lives in MEMORY: .take below
-.slot:                          ; writes CX, and a counter there would go
-    push ax                     ; with it
-    push dx
-    mov al, [hd_rowslot]
-    call hd_part_ent
-    call hd_part_used
-    pop dx
-    pop ax
-    jc .next
+hd_ent_end:
     push ax
     push dx
-    mov ax, [si+HP_LBA]         ; this partition's end, exclusive
+    mov ax, [si+HP_LBA]
     mov dx, [si+HP_LBA+2]
     add ax, [si+HP_SECS]
     adc dx, [si+HP_SECS+2]
-    mov bx, ax
-    mov cx, dx
+    mov [hd_xend], ax
+    mov [hd_xend+2], dx
     pop dx
     pop ax
-    cmp cx, dx                  ; keep the highest
-    ja .take
-    jb .next
-    cmp bx, ax
-    jbe .next
-.take:
-    mov ax, bx
-    mov dx, cx
-.next:
-    inc byte [hd_rowslot]
-    cmp byte [hd_rowslot], 4
-    jb .slot
-    call hd_cyl_up              ; ...rounded up to a cylinder boundary
-    pop si
-    pop cx
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -340,63 +290,105 @@ hd_cyl_up:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_part_new - fill the first free slot with everything that is left
-; in:  DI = the device row
-; out: CF = 0 made; CF = 1 = no free slot, or no room worth taking
+; hd_slot_extent - what a Format of this slot would write (SPEC.md 52.2.1)
+; in:  AL = slot (0..3), DI = the device row
+; out: CF = 0 and [hd_fbase] (32-bit) / [hd_fsecs] = the extent, which is what
+;      both the entry and the formatter take; CF = 1 = there is no room
 ; clobbers: flags
 ;
-; Capped at HP_MAXSEC, because the kernel's BPB rule 8 refuses a volume whose
-; TotSec16 will not fit a word - so a 100MB drive becomes three partitions and
-; three drive letters, which is exactly what DOS 3.3 did with one.
+; **A slot is not a 32MB region of the disk, and never was.** The extent comes
+; out of the TABLE, so a foreign partition is worked around rather than
+; written through - which is the whole safety property here, because an entry
+; laid at a fixed 32MB multiple lands inside an 80MB partition that started
+; below it and takes the whole thing with it.
+;
+; Three cases, and the first two are the same one seen twice:
+;
+;   used, at or under the ceiling   its OWN extent, reused in place. The user
+;                                   has already confirmed erasing it.
+;   used, over the ceiling          the first HP_MAXSEC of its own extent; the
+;                                   rest goes back to being free space. This is
+;                                   how a 50MB or 80MB partition is reclaimed
+;                                   without touching a neighbour.
+;   free                            the scan below.
+;
+; The scan is `mem_claim`'s (SPEC.md 50): start at the era's floor - LBA = spt,
+; head 1 sector 1 cylinder 0 - and while any OTHER used entry contains the
+; candidate, restart at that entry's end rounded up to a cylinder. Each bump
+; moves strictly past one entry, so four passes is a proof and not a guess.
+; The length then runs to the next used entry ABOVE the candidate (or the end
+; of the drive), capped at HP_MAXSEC - so a hole a deleted partition left is
+; usable, and a 32MB partition sits directly on top of a foreign 50MB one
+; rather than at the next multiple of anything.
 ; -----------------------------------------------------------------------------
-hd_part_new:
+hd_slot_extent:
     push ax
-    push bx
     push cx
     push dx
     push si
-    xor cl, cl
-.slot:
-    mov al, cl
+    mov [hd_xslot], al
     call hd_part_ent
     call hd_part_used
-    jc .free
-    inc cl
-    cmp cl, 4
-    jb .slot
-    jmp .no                     ; four primaries and no extended chain
-.free:
-    push si
-    call hd_part_end            ; DX:AX = where it starts
-    mov bx, ax
-    mov cx, dx
-    call hd_dev_secs            ; DX:AX = the whole device
-    sub ax, bx                  ; ...minus what is taken = what is left
-    sbb dx, cx
-    pop si
+    jc .fresh
+
+    mov ax, [si+HP_LBA]         ; in place: the extent it already claims
+    mov [hd_fbase], ax
+    mov ax, [si+HP_LBA+2]
+    mov [hd_fbase+2], ax
+    mov ax, [si+HP_SECS]
+    cmp word [si+HP_SECS+2], 0
+    je .own                     ; over the ceiling (SPEC.md 18.7): take the
+    mov ax, HP_MAXSEC           ; first 32MB and free the rest
+.own:
+    mov [hd_fsecs], ax
+    call hd_dev_secs            ; ...and never past the end of the drive: a
+    sub ax, [hd_fbase]          ; table another machine wrote is input, and
+    sbb dx, [hd_fbase+2]        ; input is hostile
     jc .no
     or dx, dx
-    jnz .cap                    ; more than 65,535 sectors left: take the cap
-    cmp ax, [di+HDD_SPT]
-    jb .no                      ; less than a track: not worth a letter
+    jnz .have                   ; more room than a word can hold: no clip
+    cmp ax, [hd_fsecs]
+    jae .have
+    mov [hd_fsecs], ax
+    jmp short .have
+
+.fresh:
+    mov ax, [di+HDD_SPT]        ; the floor: one track in, which is where
+    xor dx, dx                  ; every DOS-era table put the first partition
+    mov [hd_xstart], ax
+    mov [hd_xstart+2], dx
+    mov cl, 4                   ; four entries, so at most four bumps
+.bump:
+    call hd_x_bump
+    jnc .clear
+    dec cl
+    jnz .bump
+.clear:
+    call hd_x_limit             ; [hd_xlimit] = the next used start above us,
+    mov ax, [hd_xlimit]         ; or the end of the drive
+    mov dx, [hd_xlimit+2]
+    sub ax, [hd_xstart]
+    sbb dx, [hd_xstart+2]
+    jc .no                      ; the candidate is past the limit: full
+    or dx, dx
+    jnz .cap
     cmp ax, HP_MAXSEC
-    jbe .have
+    jbe .len
 .cap:
     mov ax, HP_MAXSEC
+.len:
+    mov [hd_fsecs], ax
+    mov ax, [hd_xstart]
+    mov [hd_fbase], ax
+    mov ax, [hd_xstart+2]
+    mov [hd_fbase+2], ax
 .have:
-    push ax                     ; AX = the length; BX/CX = the start
-    mov word [si+HP_LBA], bx
-    mov [si+HP_LBA+2], cx
-    mov [si+HP_SECS], ax
-    mov word [si+HP_SECS+2], 0
-    mov byte [si+HP_TYPE], HPT_FAT16S
-    mov byte [si+HP_STATUS], 0
-    call hd_part_chs            ; the CHS halves, which DOS reads and we do not
-    pop ax
+    mov ax, [hd_fsecs]
+    cmp ax, [di+HDD_SPT]
+    jb .no                      ; less than a track: not worth a drive letter
     pop si
     pop dx
     pop cx
-    pop bx
     pop ax
     clc
     ret
@@ -404,9 +396,119 @@ hd_part_new:
     pop si
     pop dx
     pop cx
-    pop bx
     pop ax
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_x_bump - move the candidate out of any other entry (module internal)
+; in:  [hd_xstart], [hd_xslot], DI = the device row
+; out: CF = 1 = it moved and the scan must run again; CF = 0 = it is clear
+; clobbers: flags
+; -----------------------------------------------------------------------------
+hd_x_bump:
+    push ax
+    push cx
+    push dx
+    push si
+    xor cl, cl
+.slot:
+    cmp cl, [hd_xslot]
+    je .next                    ; our own entry is the one being replaced
+    mov al, cl
+    call hd_part_ent
+    call hd_part_used
+    jc .next
+    mov ax, [hd_xstart+2]       ; candidate >= this entry's start?
+    cmp ax, [si+HP_LBA+2]
+    jb .next
+    ja .above
+    mov ax, [hd_xstart]
+    cmp ax, [si+HP_LBA]
+    jb .next
+.above:
+    call hd_ent_end
+    mov ax, [hd_xstart+2]       ; ...and below its end?
+    cmp ax, [hd_xend+2]
+    ja .next
+    jb .hit
+    mov ax, [hd_xstart]
+    cmp ax, [hd_xend]
+    jae .next
+.hit:
+    mov ax, [hd_xend]
+    mov dx, [hd_xend+2]
+    call hd_cyl_up
+    mov [hd_xstart], ax
+    mov [hd_xstart+2], dx
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    stc
+    ret
+.next:
+    inc cl
+    cmp cl, 4
+    jb .slot
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_x_limit - how far the candidate may run (module internal)
+; in:  [hd_xstart], [hd_xslot], DI = the device row
+; out: [hd_xlimit] = the lowest used start above the candidate, or the end of
+;      the drive
+; clobbers: flags
+; -----------------------------------------------------------------------------
+hd_x_limit:
+    push ax
+    push cx
+    push dx
+    push si
+    call hd_dev_secs
+    mov [hd_xlimit], ax
+    mov [hd_xlimit+2], dx
+    xor cl, cl
+.slot:
+    cmp cl, [hd_xslot]
+    je .next
+    mov al, cl
+    call hd_part_ent
+    call hd_part_used
+    jc .next
+    mov ax, [si+HP_LBA+2]       ; above the candidate? one at or below it has
+    cmp ax, [hd_xstart+2]       ; already been stepped past by hd_x_bump
+    jb .next
+    ja .above
+    mov ax, [si+HP_LBA]
+    cmp ax, [hd_xstart]
+    jbe .next
+.above:
+    mov ax, [si+HP_LBA+2]       ; ...and nearer than the limit so far?
+    cmp ax, [hd_xlimit+2]
+    ja .next
+    jb .take
+    mov ax, [si+HP_LBA]
+    cmp ax, [hd_xlimit]
+    jae .next
+.take:
+    mov ax, [si+HP_LBA]
+    mov [hd_xlimit], ax
+    mov ax, [si+HP_LBA+2]
+    mov [hd_xlimit+2], ax
+.next:
+    inc cl
+    cmp cl, 4
+    jb .slot
+    pop si
+    pop dx
+    pop cx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -537,380 +639,9 @@ hd_part_write:
     pop ax
     ret
 
-; =============================================================================
-; The partitioner's window (SPEC.md 52.2)
-;
-; A driver's window is an ordinary wm_create'd one that no INSTANCE owns - the
-; Standard File dialog's species (SPEC.md 38.1) - so its close box reduces to
-; wm_hide and there is no teardown path to write. What there IS is the rule
-; that detach must leave none of them on screen, because the kernel frees this
-; image the moment detach returns.
-; =============================================================================
-
-hd_ptpl:    dw 90, 90, HPW_W, HPW_H, hd_s_ptitle, hd_pw_paint, 0, hd_pw_click
-hd_s_ptitle: db 'Partition', 0
-
-; -----------------------------------------------------------------------------
-; hd_pw_open - put the partitioner up (module internal)
-; in:  nothing; the gfx lock is HELD (a Control Panel click)
-; out: nothing
-; -----------------------------------------------------------------------------
-hd_pw_open:
-    push ax
-    push bx
-    push si
-    mov al, [hd_sel]
-    call hd_dev_row
-    push di
-    call hd_part_load           ; a fresh copy every time it opens: the disk
-    pop di                      ; can be swapped between two clicks
-    mov word [hd_pmsg], hd_s_pready
-    mov bx, [hd_pwin]
-    or bx, bx
-    jnz .show
-    mov si, hd_ptpl
-    call OSAPI_WM_CREATE
-    jc .out
-    mov [hd_pwin], bx
-.show:
-    call OSAPI_WM_SHOW
-.out:
-    pop si
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_pw_paint - W_PAINT (content already white-filled, lock held)
-; in:  SI = the window
-; out: nothing
-; -----------------------------------------------------------------------------
-hd_pw_paint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-
-    mov bx, si
-    call OSAPI_WM_CONTENT       ; AX = content left, DX = content top
-    mov di, ax
-    mov bp, dx
-
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov si, hd_s_phdr
-    mov cx, di
-    add cx, HPW_LX
-    mov dx, bp
-    add dx, 6
-    call OSAPI_FONT_STR
-
-    xor cl, cl
-.row:
-    push cx
-    mov al, cl
-    call hd_pw_rowtext          ; hd_line = 'n  TYPE  nnnnM' or 'n  free'
-    pop cx
-    push cx
-    mov ax, cx
-    mov ah, HPW_ROWH
-    mul ah
-    add ax, HPW_R0Y
-    mov dx, bp
-    add dx, ax                  ; DX = the row's text y
-    push dx
-    mov al, cl
-    cmp al, [hd_psel]
-    jne .plain
-    pop dx                      ; the selected slot: a black bar under it
-    push dx
-    push cx
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di
-    add ax, HPW_LX - 2
-    mov bx, dx
-    dec bx
-    mov cx, di
-    add cx, HPW_W - 14
-    mov dx, bx
-    add dx, 9
-    call OSAPI_GFX_FILL
-    pop cx
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    jmp short .text
-.plain:
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-.text:
-    pop dx
-    mov si, hd_line
-    mov cx, di
-    add cx, HPW_LX
-    call OSAPI_FONT_STR
-    pop cx
-    inc cl
-    cmp cl, 4
-    jb .row
-
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov si, hd_s_new
-    mov ax, HPW_B0X
-    mov bx, HPW_BW0
-    call hd_pw_button
-    mov si, hd_s_del
-    mov ax, HPW_B1X
-    mov bx, HPW_BW1
-    call hd_pw_button
-    mov si, hd_s_write
-    mov ax, HPW_B2X
-    mov bx, HPW_BW2
-    call hd_pw_button
-    mov si, hd_s_close
-    mov ax, HPW_B3X
-    mov bx, HPW_BW3
-    call hd_pw_button
-
-    mov si, [hd_pmsg]
-    mov cx, di
-    add cx, HPW_LX
-    mov dx, bp
-    add dx, HPW_CAPY
-    call OSAPI_FONT_STR
-
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_pw_button - one framed, labelled button (module internal)
-; in:  AX = x, BX = width (both content-relative), SI = the label,
-;      DI/BP = the content origin
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-hd_pw_button:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    add ax, di                  ; AX = x1
-    mov cx, ax
-    add cx, bx
-    dec cx                      ; CX = x2
-    mov bx, bp
-    add bx, HPW_BY              ; BX = y1
-    mov dx, bx
-    add dx, HPW_BH - 1          ; DX = y2
-    push ax
-    push bx
-    push cx
-    push dx
-    call OSAPI_GFX_FRAME
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    add ax, 4                   ; the label, 4px in and centred vertically
-    mov cx, ax
-    mov dx, bx
-    add dx, 4
-    call OSAPI_FONT_STR
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_pw_rowtext - one slot's line, into hd_line (module internal)
-; in:  AL = slot
-; out: hd_line holds a NUL string
-; clobbers: flags
-; -----------------------------------------------------------------------------
-hd_pw_rowtext:
-    push ax
-    push si
-    push di
-    mov [hd_rowslot], al
-    mov di, hd_line
-    add al, '1'
-    mov [di], al
-    inc di
-    mov word [di], '  '
-    inc di
-    inc di
-    mov al, [hd_rowslot]
-    call hd_part_ent            ; SI = the entry
-    call hd_part_used
-    jc .free
-    mov si, hd_s_fat16
-    call hd_scat                ; appends at DI, and advances it
-    mov al, [hd_rowslot]
-    call hd_part_ent
-    call hd_part_mb             ; AX = megabytes
-    call hd_utoa
-    mov si, hd_s_mb
-    call hd_scat
-    jmp short .done
-.free:
-    mov si, hd_s_free
-    call hd_scat
-.done:
-    mov byte [di], 0
-    pop di
-    pop si
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_pw_click - W_ONCLICK (absolute screen coords, lock held)
-; in:  CX = x, DX = y, SI = the window
-; out: nothing
-; -----------------------------------------------------------------------------
-hd_pw_click:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-
-    mov bx, si
-    mov si, dx
-    call OSAPI_WM_CONTENT
-    mov di, ax
-    mov bp, dx
-    sub cx, di                  ; CX = content-relative x
-    mov dx, si
-    sub dx, bp                  ; DX = content-relative y
-
-    cmp dx, HPW_BY
-    jge .buttons
-
-    mov ax, dx                  ; a slot row?
-    sub ax, HPW_R0Y
-    jl .done
-    mov bl, HPW_ROWH
-    div bl                      ; AL = the row, AH = the remainder
-    cmp al, 4
-    jae .done
-    mov [hd_psel], al
-    call hd_pw_repaint
-    jmp .done
-
-.buttons:
-    cmp dx, HPW_BY + HPW_BH
-    jge .done
-    mov ax, cx
-    cmp ax, HPW_B0X
-    jl .done
-    cmp ax, HPW_B0X + HPW_BW0
-    jl .new
-    cmp ax, HPW_B1X
-    jl .done
-    cmp ax, HPW_B1X + HPW_BW1
-    jl .del
-    cmp ax, HPW_B2X
-    jl .done
-    cmp ax, HPW_B2X + HPW_BW2
-    jl .write
-    cmp ax, HPW_B3X
-    jl .done
-    cmp ax, HPW_B3X + HPW_BW3
-    jge .done
-    mov bx, [hd_pwin]
-    call OSAPI_WM_HIDE
-    jmp short .done
-
-.new:
-    mov al, [hd_sel]
-    call hd_dev_row
-    call hd_part_new
-    mov word [hd_pmsg], hd_s_pnew
-    jnc .repaint
-    mov word [hd_pmsg], hd_s_pfull
-    jmp short .repaint
-.del:
-    mov al, [hd_psel]
-    call hd_part_ent
-    mov byte [si+HP_TYPE], HPT_NONE
-    mov word [si+HP_SECS], 0
-    mov word [si+HP_SECS+2], 0
-    mov word [hd_pmsg], hd_s_pdel
-    jmp short .repaint
-.write:
-    mov al, [hd_sel]
-    call hd_dev_row
-    call hd_part_write
-    mov word [hd_pmsg], hd_s_pwrote
-    jnc .repaint
-    mov word [hd_pmsg], hd_s_pwerr
-.repaint:
-    call hd_pw_repaint
-.done:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; hd_pw_repaint - redraw the partitioner's content (module internal)
-; in:  nothing; the lock is held
-; out: nothing (all registers preserved)
-; -----------------------------------------------------------------------------
-hd_pw_repaint:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    mov bx, [hd_pwin]
-    or bx, bx
-    jz .out
-    call hd_win_erase           ; the CONTENT, and only the content
-    mov si, [hd_pwin]
-    call hd_pw_paint
-.out:
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
-
-hd_s_phdr:   db 'Slot  Type       Size', 0
-hd_s_fat16:  db 'FAT16  ', 0
-hd_s_free:   db '(free)', 0
+; --- strings the disk tool and the page share -------------------------------
 hd_s_mb:     db 'M', 0
-hd_s_new:    db 'New', 0
-hd_s_del:    db 'Delete', 0
-hd_s_write:  db 'Write', 0
 hd_s_close:  db 'Close', 0
-hd_s_pready: db 'New adds one; Write commits them', 0
-hd_s_pnew:   db 'Added - Write commits it', 0
-hd_s_pfull:  db 'No free slot or no room left', 0
-hd_s_pdel:   db 'Cleared - Write commits it', 0
-hd_s_pwrote: db 'Partition table written', 0
-hd_s_pwerr:  db 'Could not write the table', 0
 
 ; The MBR's boot code. os8088 does not boot from a hard disk (SPEC.md 52.9),
 ; and 446 blank bytes is a machine that hangs with no explanation - so this

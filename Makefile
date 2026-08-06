@@ -165,7 +165,8 @@ $(BUILD)/sound.drv: $(BUILD)/sound.bin tools/os88drv.py
 	python3 tools/os88drv.py $(BUILD)/sound.bin -o $@
 
 $(BUILD)/hdd.bin: drivers/hdd/hdd.asm drivers/hdd/part.inc drivers/hdd/fmt.inc \
-                  drivers/hdd/page.inc drivers/os88drv.inc apps/os88api.inc | $(BUILD)
+                  drivers/hdd/tool.inc drivers/hdd/page.inc drivers/hdd/cfg.inc \
+                  drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I drivers/hdd/ -I drivers/ -I apps/ -o $@ $<
 	@echo "hdd:    $(call FILESIZE,$@) bytes"
 
