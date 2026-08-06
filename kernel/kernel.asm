@@ -264,6 +264,51 @@ XM_MAX_BLKS equ 8               ; xm_alloc's fixed block table, entries: a
 ; =============================================================================
 section .lowbss  nobits vstart=0
 section .bss     nobits vfollows=.text valign=1
+section .ovl     start=OVL_START vstart=0
+section .text
+
+; =============================================================================
+; The boot overlay (SPEC.md 2.5): code that runs ONCE, from kmain, and is
+; never reachable again.
+;
+; It is assembled into `.ovl`, which -f bin places at file offset OVL_START -
+; the image rung - with its own addresses starting at zero. The boot sector's
+; ONE contiguous read therefore lands it exactly at FAT_SEG, the 4,608-byte
+; FAT window, which nothing touches until drv_boot calls disk_mount: the LAST
+; thing kmain does before the first paint. Every entry below runs before that,
+; so the overlay is alive for exactly as long as it is needed and is then
+; written over by the volume's FAT. It costs no RAM at all, and - this is the
+; point - none of it counts against guard 2.
+;
+; NASM emits the gap between .text and OVL_START as zeros, which is why the
+; image needs no padding from outside AND why .bss now arrives zeroed.
+;
+; The contract, and all of it matters:
+;   CS = FAT_SEG, DS = KERNEL_SEG, SS = LOW_SEG.
+; DS is the kernel's, so every reference to kernel data - [cpu_tier], [xm_kb],
+; the eighteen snd_* words - assembles and runs exactly as it did in .text.
+; That is what makes this nearly free: nothing to marshal, no es: prefixes,
+; nothing rewritten. The price is the mirror image: the overlay may NOT reach
+; its own labels through DS. It has no data of its own today; anything added
+; needs a cs: override, and NASM will not warn about it.
+;
+; Calls out of the overlay into resident code must be FAR, so a resident
+; routine an overlay entry needs gets a four-byte call/retf shim (ovw_*).
+; Calls the other way come through the stubs below, which is what lets every
+; routine that moved keep its near `ret` and change in no other way.
+; =============================================================================
+section .ovl
+ovl_base:
+ovl_cpu_detect:     call cpu_detect
+                    retf
+ovl_cpu_a20:        call cpu_a20_enable
+                    retf
+ovl_xm_init:        call xm_init
+                    retf
+ovl_desk_init:      call desk_init
+                    retf
+ovl_snd_init:       call snd_init
+                    retf
 section .text
 
 ; =============================================================================
@@ -271,16 +316,6 @@ section .text
 ; =============================================================================
 cold_entry:
     jmp kmain
-
-    ; 0060:0004 - KIMG_PARA, the image rung in paragraphs, published for the
-    ; BUILD rather than for the running kernel: tools pad kernel.bin out to
-    ; this so that anything appended to the file lands at the paragraph the
-    ; ladder calls FAT_SEG, in the boot sector's ONE contiguous read. The
-    ; kernel cannot pad itself - the padding would grow KTEXT_SIZE, which
-    ; grows KIMG_PARA, which grows the padding - so the number has to leave
-    ; the assembly for someone else to act on. Nothing reads it at run time.
-    times 0x04 - ($ - $$) db 0
-    dw KIMG_PARA
 
     times 0x08 - ($ - $$) db 0
     jmp near spl_tick           ; 0800:0008 - boot splash tick (SPEC.md 15)
@@ -689,6 +724,16 @@ api_file_rename:
 ; in:  DS:SI = the caller's name, ES:DI = kernel scratch (13 bytes)
 ; out: nothing (all registers preserved); the copy is NUL-terminated even if
 ;      the source was not - a package cannot make this run on
+
+; --- resident shims the overlay far-calls (see the contract above) ----------
+; Four bytes each. A routine gets one only because an overlay entry needs it
+; and it has to stay resident for its own reasons: xm_arm because xm_copy
+; re-arms unreal mode inside the window that uses it, dsk_vol_slot because
+; every zone painter calls it on every repaint.
+ovw_xm_arm:         call xm_arm
+                    retf
+ovw_dsk_vol_slot:   call dsk_vol_slot
+                    retf
 ; -----------------------------------------------------------------------------
 api_copyname:
     push ax
@@ -729,7 +774,7 @@ kmain:
     sti                         ; the kernel's own 64KB window stays for code
     cld
 
-    call cpu_detect             ; CPU tier + memory above 1MB (SPEC.md 41),
+    call FAT_SEG:ovl_cpu_detect ; CPU tier + memory above 1MB (SPEC.md 41),
                                 ; here and nowhere else: BEFORE sched_init,
                                 ; because this is the last moment at which no
                                 ; kernel ISR is installed - the unreal-mode
@@ -738,12 +783,12 @@ kmain:
                                 ; that may fire in it are the BIOS's own, and
                                 ; a tick lost here costs nothing ([ticks] is
                                 ; zeroed by sched_init anyway)
-    call cpu_a20_enable         ; ...and VERIFY it: the feature bit is set by
+    call FAT_SEG:ovl_cpu_a20    ; ...and VERIFY it: the feature bit is set by
                                 ; the wraparound probe, never by the poke
                                 ; (SPEC.md 41.2). A no-op on tier 0 - an 8088
                                 ; has no gate and port 0x92 belongs to
                                 ; something else there
-    call xm_init                ; size the store (int 15h AH=88h, on task 0
+    call FAT_SEG:ovl_xm_init    ; size the store (int 15h AH=88h, on task 0
                                 ; per SPEC.md 7), claim the HMA, arm unreal
                                 ; mode on tier 2, publish [xm_kb] LAST
 
@@ -770,7 +815,7 @@ kmain:
     call inst_init              ; instance table (SPEC.md 29) - clean boot:
                                 ; no app instances exist until launched
     call mouse_init             ; IRQ4 live; cursor stays hidden until shown
-    call desk_init              ; count floppy drives for the desktop icons
+    call FAT_SEG:ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
     call dock_init              ; dock strip scratch (SPEC.md 30)
     call files_init             ; Disk module state (no window at boot)
     call loader_init            ; package loader state
@@ -778,7 +823,7 @@ kmain:
     call drv_init               ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
-    call snd_init               ; sound layer (SPEC.md 34.7): saves the 61h
+    call FAT_SEG:ovl_snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
@@ -984,6 +1029,17 @@ section .bss
 kernel_bss_end:
 KBSS_SIZE equ kernel_bss_end - $$
 
+; The boot overlay's file position IS the image rung, which is what makes the
+; boot sector's single read land it on FAT_SEG. It cannot be expressed as
+; padding inside .text - that would grow KTEXT_SIZE, which grows KIMG_PARA,
+; which grows the padding, and there is no fixed point - but as a SECTION
+; start it is not circular at all: .ovl's own size is not one of the terms.
+OVL_START equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 512
+
+section .ovl
+ovl_end:
+OVL_SIZE equ ovl_end - $$
+
 ; What the Task Manager's RAM view reports (SPEC.md 28), in KB rounded up:
 ; the whole kernel, buffers and stacks included, because since SPEC.md 2 that
 ; is one contiguous span and there is nothing of the kernel outside it.
@@ -1049,6 +1105,19 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 ;     the symptom would be "Disk error" on the LARGE packages only.
 %if MEM_PARA_KB % 32
 %error "a heap claim is not 512-byte aligned - a package image is read into one"
+%endif
+; 4b. the boot overlay has to fit the FAT window it is read into, because
+;    that is the only memory it is ever allowed to occupy: disk_mount writes
+;    over it the first time a volume is mounted (drv_boot, the last thing
+;    kmain does). Overflowing would run the overlay's tail into LOW_SEG - the
+;    task stacks - and the symptom would be arbitrary.
+%if OVL_SIZE > FAT_PARA * 16
+%error "the boot overlay does not fit the FAT window - see docs/KERNEL-MEMORY.md"
+%endif
+; 4c. ...and it has to exist. An empty .ovl means every FAT_SEG: far call in
+;    kmain lands in whatever the FAT buffer happens to hold.
+%if OVL_SIZE < 16
+%error "the boot overlay is empty - the FAT_SEG far calls have nothing to reach"
 %endif
 ; 5. the boot sector relocates itself to BOOT_RELOC before it reads a sector,
 ;    and its stack grows down from there. The kernel's landing zone must end

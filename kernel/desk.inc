@@ -49,6 +49,12 @@ DESK_DBLT   equ 9               ; double-click window, ticks
 ;             Initializes all module state (.bss is not auto-zeroed).
 ; ins:  none
 ; outs: none (all registers preserved)
+
+section .ovl                    ; the boot overlay (SPEC.md 2.5): counting the
+                                ; volumes and laying their zones out happens
+                                ; once, before the first paint. desk_ord and
+                                ; desk_zone_label below are called by the
+                                ; RUNTIME zone painters and stay resident
 ; -----------------------------------------------------------------------------
 desk_init:
     push ax
@@ -77,7 +83,7 @@ desk_init:
     xor cl, cl
 .zloop:
     mov bl, cl
-    call dsk_vol_slot
+    call KERNEL_SEG:ovw_dsk_vol_slot  ; FAR: overlay -> resident
     mov byte [bx+DV_FLAGS], 0
     cmp cl, ah
     jae .zskip
@@ -118,6 +124,8 @@ desk_init:
 ; The zone list IS the volume table (SPEC.md 18.7/26), so there is no second
 ; array to keep in step - which is what makes a driver's C: appear by setting
 ; one flag and disappear by clearing it.
+
+section .text
 ; -----------------------------------------------------------------------------
 desk_ord:
     push bx
