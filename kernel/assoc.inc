@@ -481,3 +481,340 @@ section .bss
 assoc_extb:  resb 3             ; one staged extension (assoc_ext_of)
 assoc_stemb: resb 8             ; one staged stem (assoc_stem_of)
 section .text
+
+; The pending document open. In .text with a real initialiser, not .bss: -f
+; bin zeroes nothing and ui.inc reads this on the machine's very first idle
+; pass, before anything has written it (the fdlg_win precedent).
+assoc_dapp:  db 0xFF            ; the app slot to open it with, 0xFF = none
+
+; =============================================================================
+; The open path (SPEC.md 54.4) - double-clicking a document
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; assoc_post - a document double-click, from under the gfx lock
+; in:  SI -> the staged type-0 entry, DI = the poster's state block
+; out: CF=0 = posted (ui.inc will run it once the lock drops); CF=1 = this
+;      extension has no association, so the caller does what it always did
+; clobbers: CF (everything else preserved)
+;
+; The document's LOCATION is deliberately not banked here. [dsk_cwd] is one
+; global shared by every Disk window, and the window that posted this may not
+; be the one currently mounted - so assoc_run syncs to the poster FIRST and
+; reads the location on the other side of that, exactly as loader_run does
+; with its index (SPEC.md 22.1).
+; -----------------------------------------------------------------------------
+assoc_post:
+    push ax
+    push cx
+    push si
+    push di
+    push si                     ; the entry, for the name copy below
+    call assoc_ext_of
+    jc .no
+    push si
+    mov si, di
+    call assoc_find             ; AL = the app slot
+    pop si
+    jc .no
+    mov [assoc_dapp], al
+    pop si                      ; the entry again
+    push si
+    mov di, assoc_doc           ; stage the document's own name
+    mov cx, 12
+.copy:
+    mov al, [si]
+    mov [di], al
+    or al, al
+    jz .named
+    inc si
+    inc di
+    loop .copy
+    mov byte [di], 0
+.named:
+    pop si
+    pop di
+    mov [assoc_pwin], di
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+.no:
+    pop si
+    pop di
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_fname - build '<STEM>.O88' for the app slot in AL
+; in:  AL = app slot
+; out: assoc_fnb holds the NUL name; all registers preserved
+; -----------------------------------------------------------------------------
+assoc_fname:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov bl, al
+    xor bh, bh
+    mov cl, 3
+    shl bx, cl
+    mov si, assoc_stem
+    add si, bx
+    mov di, assoc_fnb
+    mov cx, 8
+.stem:
+    mov al, [si]
+    cmp al, ' '                 ; the stem is space-padded; the name is not
+    je .ext
+    mov [di], al
+    inc si
+    inc di
+    loop .stem
+.ext:
+    mov word [di], '.O'
+    mov word [di+2], '88'
+    mov byte [di+4], 0
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_try - is the program in THIS directory? (one rung of SPEC.md 54.4)
+; in:  DL = volume, AX = directory cluster (0 = the root)
+; out: CF=0 and AX = its directory index, with that volume+directory CURRENT;
+;      CF=1 = not here (and the mount may have failed, which is the same
+;      answer to the caller)
+; clobbers: AX (the output), CF
+;
+; The name is re-checked on arrival every single time, which is what makes a
+; cluster HINT safe: a cluster means nothing on a disk that has been swapped,
+; so the hint is only ever a place to look.
+; -----------------------------------------------------------------------------
+assoc_try:
+    push si
+    call dsk_chdir
+    jc .no
+    mov si, assoc_fnb
+    call dsk_find_name
+    jc .no
+    pop si
+    clc
+    ret
+.no:
+    pop si
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_tryfold - the same, one folder down from a volume's root
+; in:  DL = volume, BL = 1 = APPS, 2 = GAMES (0 = nothing to try)
+; out: as assoc_try
+; -----------------------------------------------------------------------------
+assoc_tryfold:
+    push si
+    push di
+    or bl, bl
+    jz .no
+    mov si, assoc_s_apps
+    cmp bl, 1
+    je .named
+    mov si, assoc_s_games
+.named:
+    push si
+    xor ax, ax                  ; the volume's root first
+    call dsk_chdir
+    pop si
+    jc .no
+    call dsk_find_name          ; AX = the FOLDER's index
+    jc .no
+    call dsk_get_dir            ; SI -> its staged entry
+    cmp word [si+16], 2         ; ...and it must actually be a folder
+    jne .no
+    mov ax, [si+18]
+    call assoc_try              ; DL is still the volume
+    jc .no
+    pop di
+    pop si
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_locate - find the program, four rungs (SPEC.md 54.4)
+; in:  AL = app slot; [assoc_ddrv]/[assoc_dclus] = where the document lives
+; out: CF=0 and AX = the program's directory index, its volume+directory
+;      CURRENT; CF=1 = not found on any volume that would mount
+; clobbers: AX (the output), CF
+; -----------------------------------------------------------------------------
+assoc_locate:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call assoc_fname            ; assoc_fnb = '<STEM>.O88'
+    mov bl, al
+    xor bh, bh
+    mov di, bx                  ; DI = the slot, wanted after the shifts
+
+    ; --- rung 1: the hint, if this program has ever been seen -------------
+    mov dl, [assoc_drv+bx]
+    cmp dl, 0xFF
+    je .rung2
+    shl bx, 1
+    mov ax, [assoc_clus+bx]
+    call assoc_try
+    jnc .found
+
+    ; --- rung 2: the document's own directory -----------------------------
+.rung2:
+    mov dl, [assoc_ddrv]
+    mov ax, [assoc_dclus]
+    call assoc_try
+    jnc .found
+
+    ; --- rungs 3 and 4: the root, then the folder a default names, on the
+    ; document's volume and then the other floppy --------------------------
+    mov cl, 2                   ; two volumes to try
+    mov dl, [assoc_ddrv]
+.vol:
+    push dx
+    xor ax, ax
+    call assoc_try              ; the root
+    pop dx
+    jnc .found
+    push dx
+    mov bx, di
+    mov bl, [assoc_dfold+bx]
+    call assoc_tryfold
+    pop dx
+    jnc .found
+    xor dl, 1                   ; A: <-> B:, the only other floppy there is
+    dec cl
+    jnz .vol
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    stc
+    ret
+.found:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_run - open the pending document (SPEC.md 54.4)
+; in:  [assoc_dapp] != 0xFF; UI task, NO lock held
+; out: nothing (all registers preserved)
+;
+; Structured like loader_run and ui_tm_open together: sync to the poster so
+; the globals ARE its listing, bank where that is, go and find the program,
+; load it, and put the volume back where the user was. The document is handed
+; to the package by PULL - it asks with OSAPI_ARG_FILE - so nothing here has
+; to be standing in the document's directory when the entry proc runs.
+; -----------------------------------------------------------------------------
+assoc_run:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+
+    mov al, [assoc_dapp]
+    mov byte [assoc_dapp], 0xFF ; consume before running, not after
+    push ax
+
+    mov di, [assoc_pwin]
+    or di, di
+    jz .located
+    call fmv_sync               ; ...the globals become the poster's listing
+.located:
+    mov ax, [dsk_cwd]           ; and only NOW is the document's home known
+    mov [assoc_dclus], ax
+    mov al, [disk_drive]
+    mov [assoc_ddrv], al
+
+    pop ax
+    push ax
+    call assoc_locate           ; AX = the program's index, and we are in its
+    jc .nofile                  ; directory
+
+    mov bx, [assoc_pwin]
+    mov [ld_pwin], bx
+    mov byte [ld_painted], 0
+    call ld_run_body            ; AL = LD_*
+    mov [ld_status], al
+    push ds
+    pop es                      ; ld_run_body's failure exits leave ES adrift
+    call assoc_back             ; the user's volume FIRST, then the window
+    cmp byte [ld_painted], 0
+    jne .painted
+    call files_refresh
+    jmp short .out
+.painted:
+    call files_poster
+    jmp short .out
+
+.nofile:
+    call assoc_back
+    mov si, assoc_s_nofile
+    call ui_note                ; "<PROGRAM> is not on either disk - insert
+    call files_refresh          ; the disk it is on and try again"
+.out:
+    pop ax
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; assoc_back - put the user's volume back where the document is. A failed
+; remount leaves that volume mount-failed at its root with the write gate
+; shut, which is survivable and is exactly ui_tm_back's contract.
+assoc_back:
+    push ax
+    push dx
+    mov ax, [assoc_dclus]
+    mov dl, [assoc_ddrv]
+    call dsk_chdir
+    pop dx
+    pop ax
+    ret
+
+assoc_s_apps:   db 'APPS', 0
+assoc_s_games:  db 'GAMES', 0
+assoc_s_nofile: db 'Program not found - insert the disk it is on', 0
+
+section .bss
+assoc_doc:   resb 13            ; the pending document's 8.3 name
+assoc_fnb:   resb 13            ; '<STEM>.O88', built by assoc_fname
+assoc_dclus: resw 1             ; ...and where it lives: directory cluster
+assoc_ddrv:  resb 1             ; ...and volume
+assoc_pwin:  resw 1             ; the Disk window that posted it
+section .text
