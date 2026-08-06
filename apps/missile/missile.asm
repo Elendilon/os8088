@@ -2757,10 +2757,9 @@ mc_check_wave:
 ; -----------------------------------------------------------------------------
 mc_endwave:
     push ax
-    mov byte [mc_mode], M_ENDA
-    mov word [mc_hold], 6
-    mov byte [mc_tbase], MC_NBASE - 1
-    mov byte [mc_full], 1
+    mov byte [mc_mode], M_ENDA      ; SPEC.md 48.9.4: no repaint. The banner
+    mov word [mc_hold], 6           ; is the only thing this changes and it
+    mov byte [mc_tbase], MC_NBASE - 1   ; draws itself (48.9.3)
     pop ax
     ret
 
@@ -2799,10 +2798,9 @@ mc_tally_abm:
     call mc_beep
     jmp short .out
 .done:
-    mov byte [mc_mode], M_ENDC      ; on to the cities
-    mov word [mc_hold], 8
-    mov byte [mc_tcity], 0
-    mov byte [mc_full], 1
+    mov byte [mc_mode], M_ENDC      ; on to the cities. Nothing on screen
+    mov word [mc_hold], 8           ; changes here at all - M_ENDA and M_ENDC
+    mov byte [mc_tcity], 0          ; show the same banner
 .out:
     pop cx
     pop bx
@@ -2896,14 +2894,30 @@ mc_nextwave:
     jb .find
     jmp short .done
 .give:
-    mov byte [mc_calive + si], 1
+    mov byte [mc_calive + si], 1    ; a city came back: that is terrain
+    push cx                         ; damage, not a screen (SPEC.md 48.9)
+    push di
+    mov di, si
+    add di, di
+    mov ax, [mc_cityx + di]
+    mov cx, [mc_citw]
+    shr cx, 1
+    inc cx
+    push ax
+    sub ax, cx
+    add cx, cx
+    add cx, ax
+    call mc_gdmg
+    pop ax
+    pop di
+    pop cx
     inc cx
     jmp short .regen
 .done:
     inc byte [mc_wave]
     mov byte [mc_mode], M_READY
     mov word [mc_hold], 22
-    mov byte [mc_full], 1
+    mov byte [mc_sdirty], 1         ; the wave counter in the strip moved
 .out:
     pop si
     pop cx
@@ -3004,7 +3018,17 @@ mc_startwave:
     mov word [mc_ltick], 12
     mov word [mc_satcool], 90
     mov byte [mc_mode], M_PLAY
-    mov byte [mc_full], 1
+    mov byte [mc_full], 1           ; THE sweep, and the only one a surviving
+                                    ; wave gets (SPEC.md 48.9.4). It has to be
+                                    ; HERE and not earlier: mc_clear_objects
+                                    ; above clears object STATE and erases
+                                    ; nothing, so an ABM frozen in flight when
+                                    ; the wave ended - the modes between do not
+                                    ; move or draw one - leaves its trail on
+                                    ; screen with nothing that knows to wipe
+                                    ; it. A repaint before the clear would
+                                    ; faithfully redraw those trails and the
+                                    ; clear would then strand them
     mov ax, 523
     mov cx, 4
     call mc_beep_n

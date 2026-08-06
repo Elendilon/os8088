@@ -14403,6 +14403,40 @@ questions "how often does this draw" and "does it blank while it draws" are
 independent, and this file got them wrong in opposite directions in the same
 routine.**
 
+#### 48.9.4 One sweep a wave, and it has to be the last one
+
+The end of a wave was **four** full repaints — `mc_draw_all`, 719 counts,
+**258 ms each**, so about a second of repainting to change a banner and a
+score:
+
+| | what actually changed |
+|---|---|
+| `mc_endwave` → `M_ENDA` | the banner. Nothing else. |
+| `M_ENDA` → `M_ENDC` | **nothing at all** — both modes show `BONUS POINTS` |
+| `mc_nextwave` → `M_READY` | the cities that came back, and the wave number |
+| `mc_startwave` → `M_PLAY` | the board, after `mc_clear_objects` |
+
+The first two are gone: the banner draws itself (§48.9.3) and the tallies
+already mark the launcher and the score strip. The third is **terrain
+damage** now — `.give` hands each regenerated city's own span to `mc_gdmg`
+(§48.9) and sets `[mc_sdirty]` for the wave counter — so a bonus city
+appears during `M_READY` for the cost of one city instead of one screen.
+
+**The fourth stays, and which one survives is not arbitrary.**
+`mc_clear_objects` clears object *state* and erases nothing, and the modes
+between a wave ending and the next starting neither move nor draw the
+objects — so an ABM frozen in flight when the wave ended has its trail on
+screen with nothing that knows to wipe it. That is the stale line a player
+sees. A repaint placed *before* the clear would faithfully redraw those
+trails and the clear would then strand them; only a repaint *after* it
+sweeps them. So the surviving sweep is `mc_startwave`'s, and the losing path
+keeps the same one sweep at `M_OVER`.
+
+Four repaints to one, measured with a counter across a real wave 1 → 2
+transition. The sweep is worth keeping: it is the one thing in this game that
+forgives a dropped pixel anywhere, and after §48.8's and §48.9's arithmetic
+it is also the only full repaint left in ordinary play.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
