@@ -570,25 +570,35 @@ written separately and measured on different hardware, says **1.30**
 #### A mono fill is bound by its ROWS, not its pixels
 
 This is the finding the two-size design existed to produce, and the third
-size is what proved it. Net of the ~1,128 us per-call floor:
+size is what proved it.
 
 ```
+GFX_FILL   8x8     (  8 rows,     64 px)   1,128 us
 GFX_FILL  64x64    ( 64 rows,  4,096 px)  12,443 us
 GFX_FILL 256x128   (128 rows, 32,768 px)  31,682 us
-                    ->  156 us per ROW  +  0.32 us per pixel
+
+fit to the two large sizes:   177 us per ROW  +  0.28 us per pixel
 ```
 
-156 us is **745 clocks of setup per scan line**. A 64-pixel-wide row spends
-156 us arriving and 21 us drawing: **88% overhead**. The per-pixel half is
-already near the bus floor — 0.32 us/px is 2.58 us per framebuffer byte
-against the 3.26 us/byte a raw `rep stosb` to B000 measures — so there is
-nothing to win in the inner loop and roughly **8x to win in the row setup**,
-on every fill in the system.
+177 us is **840 clocks of setup per scan line**. A 64-pixel-wide row spends
+177 us arriving and 18 us drawing: **91% overhead**. The per-pixel half is at
+or below what a raw store costs — 0.28 us/px works out to 2.2 us per
+framebuffer byte against the 3.26 us/byte a raw `rep stosb` to B000 measures
+— so there is nothing to win in the inner loop and most of an order of
+magnitude to win in the row setup, on every fill in the system.
 
-The single-slope figure the report prints (`fill ns per pixel = 2806`) is
-therefore *wrong as a model*, not as arithmetic: it comes from the 8x8/64x64
-pair, where the row cost dominates. Take the two-slope decomposition above
-instead, and see the harness note below.
+**Two caveats on those coefficients, because the model does not quite fit.**
+Solving all three sizes for `c + a*rows + b*px` gives a NEGATIVE per-call
+term, which means the 8x8 point does not lie on the plane the other two
+define; the two-point fit above over-predicts the 8x8 by 1.27x. So treat 177
+and 0.28 as a decomposition of the large sizes, not as a law — the *shape*
+(row-dominated, inner loop already at the bus) is solid, the coefficients
+have a quarter-stop of slack in them.
+
+And the single-slope figure this set's report printed (`fill ns per pixel =
+2806`) is wrong as a model: it came from the 8x8/64x64 pair, where the row
+cost dominates and is charged to the pixels. The harness prints two slopes
+now, so a cost that is not linear in pixels shows itself.
 
 #### The framebuffer is barely slower than RAM, which nothing here assumed
 
@@ -681,7 +691,42 @@ apparatus too:
 - **`GFX_BLIT4` is 2.36x SLOWER with a solid source than with 4-pixel runs**
   (28.2 ms against 12.0 ms for the same 4,096 pixels). That is backwards, it
   is the opposite of what the same package measures under QEMU (9.7x the
-  other way), and it is not explained. A long run should be the coalescer's
-  best case. Something in the mono path prefers many short runs to one long
-  one, and until someone reads `gfx_blit4` against these two numbers, **the
-  blit is not understood on 1bpp adapters.**
+  other way), and a long run should be the coalescer's best case. Reading
+  `gfx_blit4` narrows it but does not settle it: the scanner is right, and
+  `gfx_blit_run` emits exactly one `gfx_hline` per coalesced run — so the
+  solid source makes 64 calls of 64 px and the striped one makes 1,024 calls
+  of 4 px, for identical pixels. **See the next entry: the two are the same
+  puzzle.**
+
+#### The largest unexplained number in the set: a ~756 us floor per drawing call
+
+`GFX_PIXEL` measured **765.64 us** and `GFX_HLINE 8px` measured **764.82 us**
+— two different routines, agreeing to 0.1%. Fitting the two hline sizes gives
+**756 us fixed + 1.16 us per pixel**, so essentially the whole cost of a small
+drawing call is a fixed 756 us, which is **3,600 clocks**.
+
+That is far more than the work: the API far-call cell measures 46.7 us
+(`GET_TICKS` through the same table), and a mono pixel write is a `gfx_rowbase`
+multiply, a mask and a read-modify-write — a few hundred clocks at the outside.
+**718 us per call is unaccounted for.**
+
+And it cannot be right as stated, because the blit contradicts it. If every
+`gfx_hline` cost 756 us, the solid blit's 64 runs would be 53 ms and the
+striped blit's 1,024 runs would be 778 ms. Measured: **28.2 ms and 12.0 ms** —
+both far below, the second by 64x. `gfx_blit_run` reaches `gfx_hline` by a NEAR
+call, so an internal run costs about 11.7 us where the same line through the
+API costs 765.
+
+So one of two things is true, and this set cannot tell which:
+
+1. the API entry path for a *drawing* slot carries ~700 us that the plain
+   `GET_TICKS` cell does not, or
+2. the primitives block of `gfxbench` is measuring something other than the
+   primitive.
+
+Either answer is worth having and neither needs the machine: it is a source
+question with two measured numbers to check against. **Until it is settled,
+do not price a redraw by counting `gfx_*` calls at 765 us each** — the blit
+says the real per-call cost inside the kernel is nearer 12 us, and the page
+repaint (2.50 s for 78x34 cells, 915 us a cell) is the figure to estimate
+from because it is measured end to end.
