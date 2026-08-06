@@ -638,6 +638,24 @@ kernel that reaches `build/` is a machine that boots the wrong adapter for
 everyone, which `make check-images` now reports as STALE precisely because it
 has happened.
 
+### What the next set is being asked
+
+Set 3 spent a model rather than a measurement in three places, and three rows
+were added to the harnesses so the next field set settles them. Each has an
+expected answer, which is the point — a row you cannot be surprised by is not
+worth taking:
+
+| row | what it settles | it should say |
+|---|---|---|
+| `sysbench: shl r16,cl (4)` and `(13)`, and the derived `shl clk/bit x100` | **the variable-shift model.** "8 clocks plus 4 per bit" is the 8086 book, and §5.7 traded two edge-mask shifts and `gfx_rowbase`'s `shl bx,13` for table lookups on the strength of it. One row can only report a total; the SLOPE needs two | the derived line near **400** (4.00 clocks a bit). Well under it and the tables bought less than claimed; well over and they bought more |
+| `sysbench: mov al,[bx+disp16]` | **what a table lookup costs** — the other side of that trade, and the addressing mode all four kernel tables use (`gfx_inktab`, the two mask tables, `vid_banktab`). Nothing measured it before | ~17 clocks by the book, so **~74 us per 1,000**; it must come in well under `shl r16,cl (13)` or the trade is a wash |
+| `sysbench: mov ax,i + mul [m]` | **the `mul` §5.7 did NOT remove** from `gfx_rowbase`, on the argument that the alternative is a per-row table `KERN_BUDGET` cannot fund. Only the register form was measured | close to `mul r16` plus an EA. If it is much worse, the table is worth costing again |
+| `gfxbench: GFX_FILL 256x1`, and the derived `fill ns per row` | **the per-ROW term, cleanly.** Set 1 fitted `c + a*rows + b*px` to three sizes, got a NEGATIVE per-call term and over-predicted the 8x8 by 1.27x, and said so. 256x1 against 256x128 differs by 127 rows and by nothing else | `fill ns per row` near **177,000** on Hercules / 182,000 on CGA. Where it disagrees with the two-point fit, **this one is the measurement and that one is the model** |
+
+None of them says anything on an emulator, and two say so loudly: under
+`-icount` both shift rows measure identically and the derived per-bit line
+reads **0**, which is correct and is the caution block in miniature.
+
 ### What to record with the numbers
 
 **Every figure here is provisional and carries its machine** (Part 6 rule 8).

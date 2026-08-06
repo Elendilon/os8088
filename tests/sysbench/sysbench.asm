@@ -691,6 +691,7 @@ sb_mhz:
     mov si, sb_d_mhzdiv
     mov cx, 9
     call bl_kv
+    call sb_shlbit
     pop si
     pop dx
     pop cx
@@ -709,14 +710,8 @@ sb_est:
     shl bx, cl
     add bx, sb_ctab
     mov si, [bx+4]                  ; SI = the nominal, clocks x100
-    mov cx, [bx+6]                  ; CX = its iteration count
     mov bx, di
-    shl bx, 1
-    shl bx, 1
-    add bx, sb_res
-    mov ax, [bx]                    ; DX:AX = the row's counts
-    mov dx, [bx+2]
-    call sb_clkx100                 ; DX:AX = measured clocks x100 (CX = N)
+    call sb_clkof                   ; DX:AX = measured clocks x100
     mov bx, ax
     mov cx, dx                      ; CX:BX = measured
     mov ax, si                      ; ...and 477 (4.7727 MHz x100) times the
@@ -728,6 +723,78 @@ sb_est:
     pop si
     pop cx
     pop bx
+    ret
+
+; sb_clkof - BX = a row's index in sb_ctab -> DX:AX = its measured clocks x100
+; clobbers: AX, DX, flags
+sb_clkof:
+    push bx
+    push cx
+    push si
+    mov si, bx
+    mov cl, 3
+    shl bx, cl
+    add bx, sb_ctab
+    mov cx, [bx+6]                  ; CX = the row's iteration count
+    mov bx, si
+    shl bx, 1
+    shl bx, 1
+    add bx, sb_res
+    mov ax, [bx]                    ; DX:AX = the row's counts
+    mov dx, [bx+2]
+    call sb_clkx100
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; sb_shlbit - what a variable shift costs PER BIT, from the two shl r16,cl
+;             rows nine bits apart
+;
+; The 8086 book says 8 clocks plus 4 per bit, and this project has been
+; spending that number rather than measuring it: SPEC.md 5.7 traded two edge-
+; mask shifts and gfx_rowbase's shl-by-13 for table lookups on the strength of
+; it, which is most of what came off the per-call floor. A single shl row
+; cannot check it - only the SLOPE can - so this subtracts the two and divides
+; by the nine bits between them. It must land near 400 (4.00 clocks x100), and
+; both rows it is derived from are on the screen above it, which is the point:
+; a reader can recompute it by hand and catch the harness lying
+; (PERFORMANCE.md Part 6 rule 7).
+sb_shlbit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov bx, SB_I_SHL13
+    call sb_clkof
+    mov cx, ax                      ; SI:CX = the 13-bit shift
+    mov si, dx
+    mov bx, SB_I_SHL4
+    call sb_clkof                   ; DX:AX = the 4-bit one
+    sub cx, ax
+    sbb si, dx
+    jc .bad                         ; a negative difference is not a number
+    mov ax, cx                      ; DX:AX = the gap, clocks x100 for 9 bits
+    mov dx, si
+    mov cx, 1
+    call bl_mul48
+    mov cx, 9
+    call bl_div48
+    call bl_get32
+    jmp short .show
+.bad:
+    xor ax, ax
+    xor dx, dx
+.show:
+    mov si, sb_d_shlbit
+    mov cx, 9
+    call bl_kv
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; --- block 3: memory bandwidth (the RAM half; the framebuffer is gfxbench's) -
@@ -1272,8 +1339,23 @@ sb_b_shl1:
 %endrep
     ret
 
+; TWO shift counts, and the pair is the point: one row can only report a
+; total, and the model everything in this tree reasons with - a variable
+; shift costs 8 clocks PLUS 4 PER BIT - is a claim about the slope. Subtract
+; them and divide by 9 and the per-bit cost falls out; sb_shlbit prints it, so
+; the pair and the derived number can contradict each other (PERFORMANCE.md
+; Part 6 rule 7). 13 is not an arbitrary second point: it is the shift
+; gfx_rowbase used to do on every drawing call, until SPEC.md 5.7 made it a
+; table lookup on the strength of exactly this model.
 sb_b_shlcl:
     mov cl, 4
+%rep SB_UNROLL
+    shl ax, cl
+%endrep
+    ret
+
+sb_b_shlcl13:
+    mov cl, 13
 %rep SB_UNROLL
     shl ax, cl
 %endrep
@@ -1310,6 +1392,18 @@ sb_b_ovr:
 %endrep
     ret
 
+; A TABLE LOOKUP, which is what the shift rows above get traded for. The
+; kernel does this in four places now - gfx_inktab, the two edge-mask tables
+; and vid_banktab (SPEC.md 5.7) - and each of those trades was made against a
+; written-down EA cost, never a measured one. [bx+disp16] is the addressing
+; mode all four use.
+sb_b_idx:
+    xor bx, bx
+%rep SB_UNROLL
+    mov al, [bx + sb_scr]
+%endrep
+    ret
+
 sb_b_jmp:
 %rep SB_UNROLL
     jmp short $+2                   ; taken, and it flushes the prefetch queue
@@ -1341,6 +1435,18 @@ sb_b_mul:
 %rep SB_UNROLL
     mov ax, 0x5555
     mul bx
+%endrep
+    ret
+
+; The MEMORY form, because that is the one on the path: gfx_rowbase multiplies
+; by [cs:vid_stride] on every drawing call and SPEC.md 5.7 left it there, on
+; the argument that the alternative is a per-row table KERN_BUDGET cannot
+; fund. The register row above cannot price that decision - this one can.
+sb_b_mulm:
+    mov word [sb_scr], 7
+%rep SB_UNROLL
+    mov ax, 0x5555
+    mul word [sb_scr]
 %endrep
     ret
 
@@ -1550,21 +1656,34 @@ sb_ctab:
     dw sb_c_cmp,     sb_b_cmp,       300, 800    ; cmp r16,r16
     dw sb_c_xchg,    sb_b_xchg,      300, 800    ; xchg ax,r16
     dw sb_c_shl1,    sb_b_shl1,      200, 800    ; shl r16,1
+sb_e_shl4:
     dw sb_c_shlcl,   sb_b_shlcl,    2400, 400    ; shl r16,cl  (8 + 4*4)
+sb_e_shl13:
+    dw sb_c_shlcl13, sb_b_shlcl13,  6000, 400    ; shl r16,cl  (8 + 4*13)
     dw sb_c_load,    sb_b_load,     1400, 400    ; mov ax,[disp16]  (8 + EA 6)
     dw sb_c_store,   sb_b_store,    1500, 400    ; mov [disp16],ax  (9 + EA 6)
     dw sb_c_noovr,   sb_b_noovr,    1300, 400    ; mov al,[si]      (8 + EA 5)
     dw sb_c_ovr,     sb_b_ovr,      1500, 400    ; ...with a segment override
+    dw sb_c_idx,     sb_b_idx,      1700, 400    ; mov al,[bx+disp16] (8 + EA 9)
     dw sb_c_jmp,     sb_b_jmp,      1500, 400    ; jmp short, taken
     dw sb_c_pushpop, sb_b_pushpop,  1900, 300    ; push ax + pop ax (11 + 8)
     dw sb_c_callret, sb_b_callret,  2700, 300    ; call near + ret  (19 + 8)
+sb_e_mul:
     dw sb_c_mul,     sb_b_mul,      12900, 100   ; mov ax,imm + mul r16 (4+125)
+    dw sb_c_mulm,    sb_b_mulm,     13800, 100   ; ...+ mul word [m] (4+128+EA 6)
+sb_e_div:
     dw sb_c_div,     sb_b_div,      16000, 60    ; xor + mov + div r16 (3+4+153)
 sb_ctab_end:
 
 SB_NCPU  equ (sb_ctab_end - sb_ctab) / 8
-SB_I_MUL equ 15                   ; the two execution-bound rows, by index -
-SB_I_DIV equ 16                   ; sb_mhz derives the clock from them
+; The rows other blocks reach for BY INDEX, derived from the table rather
+; than written down: sb_mhz reads the machine's clock out of the two
+; execution-bound rows and sb_shlbit subtracts the two shift rows, so a row
+; inserted above them used to move the answer instead of the row.
+SB_I_MUL   equ (sb_e_mul   - sb_ctab) / 8
+SB_I_DIV   equ (sb_e_div   - sb_ctab) / 8
+SB_I_SHL4  equ (sb_e_shl4  - sb_ctab) / 8
+SB_I_SHL13 equ (sb_e_shl13 - sb_ctab) / 8
 
 sb_c_nop:     db 'nop', 0
 sb_c_movrr:   db 'mov r16,r16', 0
@@ -1574,14 +1693,17 @@ sb_c_cmp:     db 'cmp r16,r16', 0
 sb_c_xchg:    db 'xchg ax,r16', 0
 sb_c_shl1:    db 'shl r16,1', 0
 sb_c_shlcl:   db 'shl r16,cl (4)', 0
+sb_c_shlcl13: db 'shl r16,cl (13)', 0
 sb_c_load:    db 'mov ax,[disp16]', 0
 sb_c_store:   db 'mov [disp16],ax', 0
 sb_c_noovr:   db 'mov al,[si]', 0
 sb_c_ovr:     db 'mov al,[es:si]', 0
+sb_c_idx:     db 'mov al,[bx+disp16]', 0
 sb_c_jmp:     db 'jmp short (taken)', 0
 sb_c_pushpop: db 'push ax + pop ax', 0
 sb_c_callret: db 'call near + ret', 0
 sb_c_mul:     db 'mov ax,i + mul r16', 0
+sb_c_mulm:    db 'mov ax,i + mul [m]', 0
 sb_c_div:     db 'xor+mov+div r16', 0
 
 sb_f_out:   db 'SYSBENCH.TXT', 0
@@ -1657,7 +1779,7 @@ sb_r_sw:   db 'RAM rep stosw', 0
 sb_r_sb:   db 'RAM rep stosb', 0
 sb_r_mw:   db 'RAM rep movsw', 0
 sb_r_mb:   db 'RAM rep movsb', 0
-sb_r_sc:   db 'RAM repe scasb', 0
+sb_r_sc:   db 'RAM repne scasb', 0
 sb_r_rm:   db 'RAM read-mod-write', 0
 
 sb_r_pit:  db 'PIT latch + read', 0
@@ -1684,6 +1806,7 @@ sb_d_mhzdiv: db 'est CPU MHz x100 DIV', 0
 sb_d_tick:   db 'PIT/tick want 65536', 0
 sb_d_isr:    db 'interrupt load pct', 0
 sb_d_rate:   db 'floppy bytes/sec', 0
+sb_d_shlbit: db 'shl clk/bit x100 ~400', 0
 
 sb_s_noclaim: db '  (no 32KB heap claim available: the file rows were skipped)', 0
 
