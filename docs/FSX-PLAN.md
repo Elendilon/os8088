@@ -95,6 +95,42 @@ resumes the outgoing task immediately, the "nothing ready" path that today
 only task-0-never-sleeps makes unreachable). Pacing inside the bracket is
 `OSAPI_FSX_WAIT` (§6) or polling `[ticks]`, and the SDK says so.
 
+### 2.1 The freeze silences what it strands
+
+"Sound keeps running" is only half a rule, and the missing half is a bug
+with three faces. Finite-duration tones are fine — `snd_tick` still runs
+and expires them. But a **duration-0 tone, a keyed FM note or a stream
+owned by a frozen instance** has an owner whose "off" call can never run:
+the note sustains for the whole session. Second face: that frozen owner
+still holds the tone channel **at its priority** in the §34.3 router, so
+the fullscreen app's own `snd_tone` is refused (CF=1) for the entire
+bracket by an owner that can never release — a permanent refusal coded
+like a transient one, the exact failure §48 already names. Third face: a
+foreign stream's feeding worker freezes, the SB driver underruns and parks
+the DMA armed-but-paused until the bracket ends.
+
+All three have one fix, and it already exists: **entry walks `inst_tab`
+and calls `snd_release_inst` for every instance except the caller's** —
+the same routine both §29.4 teardown paths call. It routes the driver's
+`DSV_RELINST` verb first (FM key-off, stream teardown), flags down a
+running clip, silences the tone channel via `snd_town_off`, and bumps
+`[snd_gen]` — which is what makes the thaw safe: when a frozen owner wakes
+after the bracket and finally issues its "off", the generation mismatch
+means the stale call cannot kill a note the fullscreen app is playing by
+then. The router's own comment states the principle — "the release
+ignores priority: the owner is gone" — and frozen is the same condition
+with a delay: an owner that cannot act must not keep grants it cannot
+manage.
+
+The release runs **after** the freeze is armed, so no foreign task can
+take a fresh grant between the two. Exemptions, both deliberate: kernel
+grants (0xFF — finite beeps, `snd_tick` expires them) and the caller's
+own (it keeps running and manages its own sound — which is exactly what
+lets a `FSXF_KEEPWORKER` game carry its stream into the bracket). There is
+no symmetric release on exit: the caller is alive and responsible
+afterward, the same rule a windowed app lives under, and §29.4 teardown
+still catches whatever it leaks at close.
+
 ## 3. The gfx lock stays held for the whole bracket
 
 The caller enters holding it (callback contract); `fsx_run` never releases
@@ -251,9 +287,15 @@ build fix.
    (mode id, border, colour bars), waits for a key, cycles; Esc exits. The
    strong acceptance is **restore equality**: screendump before entry,
    cycle every mode, screendump after — byte-identical, scripted over QMP.
-2. **Sound continuity test** — `make test ADLIB=1` with a held FM note
-   across three mode switches; the wav shows one unbroken tone. This is the
-   freeze-whitelist's proof.
+2. **Sound continuity test, both directions** — `make test ADLIB=1`. One:
+   the fsxtest app holds an FM note of its own across three mode switches;
+   the wav shows one unbroken tone (the freeze-whitelist's proof). Two: a
+   *second* instance keys a duration-0 note, fsxtest enters the bracket,
+   and the wav shows that note **stop at entry** (§2.1's proof — without
+   the release it sustains for the whole capture). Three: after the
+   bracket, the second instance's stale "off" call must not kill a note
+   fsxtest is then playing (the generation check, observable as the tone
+   surviving in the wav).
 3. **A shipped reference consumer** — repo custom: no feature lands without
    one. Cheapest honest option: a small mode 13h effect demo (fire/plasma
    with DAC palette animation, ~2KB, VGA-gated via caps). The more
@@ -292,8 +334,10 @@ half-working panic key is worse than a documented absence).
 ## 11. Phasing
 
 1. **Bracket + freeze**: `T_FLAGS`, the whitelist test, `FSX_RUN` with no
-   mode switching, fsxtest skeleton proving exclusive-same-mode, restore
-   path minus mode set. SPEC §53 first.
+   mode switching, the §2.1 entry release (`snd_release_inst` walk — it is
+   part of the freeze, not a sound feature, and ships with it), fsxtest
+   skeleton proving exclusive-same-mode, restore path minus mode set.
+   SPEC §53 first.
 2. **Modes**: the table, `FSX_MODE` + info block, `FSX_CAPS`, `vid_setmode`
    /`vid_text` factored into leaves, full fsxtest, restore-equality script.
 3. **Frame clock + audio**: `FSX_WAIT`, `FSXF_KEEPWORKER`, sound-continuity
