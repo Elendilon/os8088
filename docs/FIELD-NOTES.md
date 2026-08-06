@@ -68,21 +68,50 @@ is a poor fit for the evidence.
 > already polling the state (verb 3 returns it in AX every wake) and
 > discarding everything but `ENDED`/`STALE`.
 >
-> **The next reading is `UND` on the same D line** — edges into
-> `SND_ST_UNDER`, three digits, reset with the stream. It splits the
-> remaining possibilities cleanly and needs no code to interpret:
+> **`UND` came back `000` too**, on the same machine, across hitches. So the
+> driver believes it is playing throughout: its own double buffer was never
+> starved either. Every buffer in the chain is provably full at the moment
+> the sound tails off.
 >
-> - **`UND` climbs with each audible hitch** → the driver's refill task
->   missed a 372 ms deadline while sleeping one tick. Then the question is
->   what delays a task that wakes 18× a second past six of its own periods:
->   round-robin depth, `sch_lock` held across int 13h (`disk.inc`, the one
->   sanctioned long lock), or a long IF=0 window somewhere.
-> - **`UND` stays `000` while the audio still hitches** → the driver believes
->   it is playing throughout, and the fault is below it: the block IRQ, the
->   8237, or the card. On single-cycle DSPs (< 2.00) sb.inc already records a
->   known bound of exactly that species — the ISR reprograms the 8237, whose
+> **The content is exonerated as well**, and that one was settled here rather
+> than in the field, because content is exactly what QEMU *is* exact about
+> (PERFORMANCE.md). `BEVERLY.MOD` was captured through an SB16 twice —
+> once in XT mode at 5,500 Hz, once at 11,000 — and the two amplitude
+> envelopes match block for block, with their only two real dropouts at
+> **7.50–8.75 s and 16.50–17.50 s in both**. Those are the song. There is no
+> periodic tail-off anywhere in 67 and 80 seconds of capture, at either rate,
+> and a mixer arithmetic bug would neither be rate-independent nor absent.
+> (`make test-snd SB16=1` plus a block-RMS profile of `build/snd.wav`; the
+> two rates matter because a rate-dependent overflow was the leading content
+> theory, and identical envelopes kill it.)
+>
+> **So: the app is fine, the driver is fine, the samples are fine, and the
+> emulator cannot see it.** That is a timing defect that exists only on the
+> real machine, below the driver's bookkeeping — which is a much smaller
+> place than where this started.
+>
+> **The next instrument is `BLK` and `WAKE`, on the same D line** (§45.14).
+> `consumed` advances by one whole half and only from `sbl_isr`, so the
+> wall-clock gap between two different readings **is** the block-IRQ
+> interval — 6.8 ticks at 5,500 Hz — and `WAKE` is the same measurement for
+> the worker's own pass, as a control. Baseline under QEMU: `BLK 08 WAKE 01`.
+> Three outcomes, and they need no interpretation:
+>
+> - **`BLK` ≈ 13–14 with `WAKE` at 01** → a block IRQ arrived one whole
+>   period late or was lost, while this app ran perfectly. 372 ms is the
+>   reported hitch, exactly. On single-cycle DSPs (< 2.00) `sb.inc` already
+>   records a known bound of that species: the ISR reprograms the 8237, whose
 >   byte-pair flip-flop is shared with the BIOS's channel-2 programming
->   inside int 13h.
+>   inside int 13h. Check the reporting machine's DSP version first — that
+>   branch is the one QEMU never runs.
+> - **`BLK` and `WAKE` both climb** → the whole machine was descheduled, and
+>   `sch_lock` held across int 13h (§7, the one sanctioned long lock) is the
+>   first suspect. That is theory 1 below, and this is how it gets confirmed
+>   without instrumenting the kernel.
+> - **Both stay at 08/01 through an audible hitch** → the interruption is
+>   below the block IRQ, in the DSP or the analogue side, and nothing running
+>   on the CPU can measure it. That is the point to stop instrumenting the
+>   guest and start swapping hardware.
 >
 > Everything below this line is the earlier analysis, kept because its
 > ruling-out is still valid and because the two theories it eliminates are

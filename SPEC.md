@@ -13394,17 +13394,30 @@ armed.
 
 ### 45.14 The margin meter — three numbers that say whose buffer starved
 
-**D** puts `MIN n  LATE nnn  UND nnn` on the status line (`trk_diag_msg`,
-same `[tui_msgp]` every other message uses, so it renders windowed and on
-the §45.13 text surface alike). It exists because "the audio hitches" has
-three completely different causes on a 4.77 MHz machine and listening cannot
-tell them apart. All three counters reset with the stream, in `trk_play`.
+**D** puts `MIN n  LATE nnn  UND nnn  BLK nn  WAKE nn` on the status line
+(`trk_diag_msg`, same `[tui_msgp]` every other message uses, so it renders
+windowed and on the §45.13 text surface alike). It exists because "the audio
+hitches" has several completely different causes on a 4.77 MHz machine and
+listening cannot tell them apart. Every counter resets with the stream, in
+`trk_play`.
 
 | | what it counts | what a bad reading means |
 |---|---|---|
 | `MIN` | the smallest `total − consumed` any feed wake ever saw, in ring **halves** | 0 means Tracker's own 16KB ring ran dry — the mixer is not sustaining real time |
 | `LATE` | wakes that arrived with under one half in hand | climbing means the same thing, earlier |
 | `UND` | **edges** into `SND_ST_UNDER` — the driver reporting that *its* 2KB double-buffer half was not refilled at the block IRQ | climbing means the fault is downstream of this app entirely |
+| `BLK` | the longest gap, in ticks, between two different `consumed` readings | `consumed` moves by one whole half and only from `sbl_isr`, so this **is** the block-IRQ interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. Doubling means a block arrived a whole period late |
+| `WAKE` | the longest gap, in ticks, between this worker's own feed passes | the control for `BLK`. 1 is healthy |
+
+`BLK` and `WAKE` are a pair and neither is worth reading alone. `BLK` high
+with `WAKE` at 1 is the card or its IRQ stalling while this app ran
+perfectly; both high together is the worker being descheduled, and the
+`sch_lock` held across int 13h (§7) is the first thing to suspect. Both
+normal through an audible hitch puts the fault below the block IRQ, where
+nothing running on the CPU can see it. Measured baseline under QEMU with an
+SB16, XT mode, one minute of playback: `MIN 6  LATE 000  UND 000  BLK 08
+WAKE 01` — 8 ticks is 6.8 rounded up by the one-tick sampling resolution,
+which is the calibration that makes 13 mean something.
 
 **`UND` is the one that is not obvious, and it is the reason the other two
 can lie.** There are two buffers in the chain and they have different
@@ -13423,7 +13436,8 @@ word and a byte.
 The unit matters too: one 2KB half is **372 ms** at XT mode's 5,500 Hz, so a
 single un-refilled half is about a third of a second of silence — which is
 the shape of the field report in docs/FIELD-NOTES.md, and why `UND` was worth
-adding before anything was changed.
+adding before anything was changed. It came back `000`, which is what
+promoted `BLK` from an idea to the next instrument.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 

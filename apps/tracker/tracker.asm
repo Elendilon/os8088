@@ -683,6 +683,12 @@ trk_diag_msg:
     mov ax, [trk_under]             ; UND, the same three digits
     mov di, trk_s_diag + 23
     call .num3
+    mov ax, [trk_blk]               ; BLK and WAKE, two digits each - a gap
+    mov di, trk_s_diag + 31         ; past 99 ticks is 5.4 seconds and the
+    call .num2                      ; stream is long dead by then
+    mov ax, [trk_wake]
+    mov di, trk_s_diag + 40
+    call .num2
     mov si, trk_s_diag
     call tui_msg
     pop di
@@ -692,8 +698,12 @@ trk_diag_msg:
     pop bx
     pop ax
     ret
+.num2:                              ; AX -> two digits at [DI] backwards
+    mov cx, 2
+    jmp short .digs
 .num3:                              ; AX -> three digits at [DI] backwards
     mov cx, 3
+.digs:
     mov bx, 10
 .dig:
     xor dx, dx
@@ -1312,6 +1322,12 @@ trk_play:
     mov word [trk_late], 0          ; stream (docs/FIELD-NOTES.md)
     mov word [trk_under], 0
     mov byte [trk_wasund], 0
+    mov word [trk_blk], 0
+    mov word [trk_wake], 0
+    mov word [trk_lastc], 0
+    call OSAPI_GET_TICKS            ; both clocks start now, so the first
+    mov [trk_blkt], ax              ; wake measures an interval and not the
+    mov [trk_wakt], ax              ; age of the app
     mov word [trk_total], 0
     mov cx, TRK_PREROLL             ; stage the cushion before the open, so
 .pre:                               ; the stream starts TRK_PREROLL halves
@@ -1735,6 +1751,36 @@ trk_feed:
     je .dead
     cmp ax, SND_ST_STALE
     je .dead
+    ; --- the BLOCK-IRQ clock (docs/FIELD-NOTES.md) --------------------------
+    ; [consumed] advances by one whole half and only from sbl_isr, so the
+    ; wall-clock interval between two different readings IS the block-IRQ
+    ; interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. A card that stops for
+    ; a third of a second doubles it while every other counter here stays
+    ; perfect. WAKE is the control - it is this worker's own wake interval,
+    ; so a BLK that climbs while WAKE stays at 1 is the IRQ arriving late,
+    ; and both climbing together is the worker being descheduled.
+    push ax
+    push bx
+    call OSAPI_GET_TICKS
+    mov bx, ax
+    sub ax, [trk_wakt]
+    mov [trk_wakt], bx
+    cmp ax, [trk_wake]
+    jbe .nowake
+    mov [trk_wake], ax
+.nowake:
+    cmp dx, [trk_lastc]
+    je .noblk
+    mov [trk_lastc], dx
+    mov ax, bx
+    sub ax, [trk_blkt]
+    mov [trk_blkt], bx
+    cmp ax, [trk_blk]
+    jbe .noblk
+    mov [trk_blk], ax
+.noblk:
+    pop bx
+    pop ax
     ; --- the DOWNSTREAM underrun (docs/FIELD-NOTES.md) ----------------------
     ; SND_ST_UNDER is the driver saying its own 2KB double-buffer half was
     ; not refilled in time - which can happen with OUR ring six halves deep,
@@ -1903,9 +1949,11 @@ trk_s_stopd:  db 'Stopped  ENTER play  L load', 0
 trk_s_playing: db 'Playing  SPACE stop  L load', 0
 trk_s_fsload: db 'Load is windowed: Esc first', 0
 trk_s_notmod: db 'Not a .MOD file', 0
-trk_s_diag:   db 'MIN -  LATE ---  UND ---', 0
+trk_s_diag:   db 'MIN -  LATE ---  UND ---  BLK --  WAKE --', 0
                                         ; [+4] halves, [+12..14] late wakes,
-                                        ; [+21..23] driver underrun edges
+                                        ; [+21..23] driver underrun edges,
+                                        ; [+30..31] block-IRQ ticks (max),
+                                        ; [+39..40] worker wake ticks (max)
 trk_s_nofit:  db 'Too big for free memory', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
@@ -1966,6 +2014,11 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
                                     ; in hand - the underrun shape
     TRKW trk_under                  ; times the DRIVER reported its own double
     TRKB trk_wasund                 ; buffer starved (edges, not wakes)
+    TRKW trk_blk                    ; longest gap, in ticks, between two
+    TRKW trk_blkt                   ; different [consumed] readings - the
+    TRKW trk_lastc                  ; block-IRQ interval, measured
+    TRKW trk_wake                   ; ...and this worker's own longest wake
+    TRKW trk_wakt                   ; gap, the control for it
     TRKW trk_fsize                  ; the chosen file's size, from the dialog
     TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
     TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown
