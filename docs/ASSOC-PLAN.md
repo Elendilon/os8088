@@ -551,7 +551,71 @@ Two consequences worth having in mind:
   they are correct — an unresolved association is still a document. It is
   degradation, not breakage, exactly as SPEC.md §50 asks of a refused claim.
 
-### 2.8 1bpp
+### 2.8 A package declares its own extensions — and it is not a version bump
+
+**The correction first: this does not need v5, and it invalidates nothing.**
+An earlier note here called it "a v5 header bump" on the assumption that bytes
+96.. were free. They are not — the layout is header 32, then the icon at 32..95
+*if* flags bit 0, then the code, which is why `os88pkg.py` computes
+`entry_min` as 0x60 with an icon and 0x20 without. There is no spare region.
+
+What there is instead is **flags bit 1**, and that turns out to be enough for a
+change that is compatible in both directions:
+
+```
+flags bit 0   an embedded 16x16 icon follows the header      (existing)
+flags bit 1   a 16-byte ASSOCIATION BLOCK follows the icon   (new)
+              +0   1   count, 0..5
+              +1  15   five 3-byte extensions, uppercase, space-padded
+```
+
+- **An old kernel loading a new package just works.** Everything it reads is
+  unmoved — magic, version, flags, link, entry, sizes, the dispatcher at 12,
+  the name at 16..31, the icon at the fixed 32..95 — and `LD_H_ENTRY` is an
+  absolute offset, so where the code starts is *told*, not derived. The
+  association block is inert bytes inside an image that is loaded whole.
+- **A new kernel loading an old package just works**, because bit 1 is clear
+  and there is no block.
+
+So no `.o88` is invalidated, which is worth having: SPEC.md §20.8 rule 4 exists
+because renumbering costs every package at once, and this change costs none.
+The format version stays **3**. (Version 4 is the driver's, §51; a bump would
+have gone to 5 — that part was right, it is simply not needed.)
+
+**The one gate is the packer.** `os88pkg.py` rejects `flags & 0xFE` as reserved
+bits, so it must learn bit 1, validate the block (count ≤ 5, each extension
+0x21..0x7E and uppercase, **`O88` refused** — a type-1 file never consults an
+association and a package claiming its own extension would burn a slot for
+nothing), and extend `entry_min` by 16 when the bit is set. `OS88_ASSOC16` /
+`OS88_ASSOC16_END` bracket it in the SDK the way `OS88_ICON16` already does,
+asserting the block's start and end offsets so a miscounted `db` fails at
+assembly rather than at mount.
+
+**What it buys is exactly the case that motivated it.** The mount's harvest
+already reads the first sector of every type-1 file, so a folder holding
+`WIDGET.O88` *and* `README.WGT` teaches the OS, in that one existing read, the
+extension, the glyph and the app's cluster — all three, for free. The document
+next to its program opens on the **first** double-click, with no search, no
+prior run, and no visit to wherever the program "should" live. The program
+still has to be *seen* — its directory has to be mounted — but seeing is what
+browsing already does, and running it is no longer the price of admission.
+
+**The sticky bit stops a declaration stealing a user's choice.** A header
+declaration arrives on every mount of that folder, so without a guard it would
+silently take back an extension the user had deliberately reassigned. §2.2's
+ext slot is extension(3) + app index(1), and 12 apps need four bits — so
+**bit 7 of the index byte** is the flag, at no cost:
+
+| source | may take a slot | sets sticky |
+|---|---|---|
+| build-time default | if free | no |
+| header declaration at mount | if not sticky | no |
+| `OSAPI_ASSOC_SET` at runtime | always | **yes** |
+
+`ASSOC.DAT` carries the bit, so a user's override survives a reboot and is not
+undone the next time the app's folder is browsed.
+
+### 2.9 1bpp
 
 Icons are already colourless — `icons.inc` is a mask pass and a data pass, and
 the page frame is 1px black on white, so this feature has no dither class
@@ -670,6 +734,34 @@ Three things make it cheap, and one needs checking:
 document mark the Disk window shows — the two read the same snapshot, so a
 disagreement means one of them is not using it.
 
+## 5.7. Phase 5 — packages declare their own extensions (§2.8)
+
+11. `apps/os88api.inc`: `OS88_ASSOC16` / `OS88_ASSOC16_END`, bracketing the
+    16-byte block and asserting its start and end offsets the way
+    `OS88_ICON16` already does — a miscounted `db` must fail at assembly, not
+    at mount.
+12. `tools/os88pkg.py`: allow flags bit 1, extend `entry_min` by 16 when it is
+    set, and validate the block — count ≤ 5, extension bytes 0x21..0x7E and
+    uppercase, `O88` refused.
+13. `disk.inc` pass A: when bit 1 is set, the block is already in
+    `dsk_secbuf` — the harvest read it. Parse it, take each extension's slot
+    unless sticky (§2.8), and fill the app slot's stem, glyph and cluster from
+    what pass A already knows.
+14. The sticky bit in `OSAPI_ASSOC_SET` and in `ASSOC.DAT`'s ext rows.
+
+**No version bump and no rebuild-the-world.** Format version stays 3 and every
+existing `.o88` keeps loading (§2.8). Ship it on one package first — `hello` is
+the natural choice, since it is the tree's deliberate iconless case and will
+prove the block works with flags bit 0 *clear*, which is the layout arithmetic
+most likely to be got wrong.
+
+**Verify:** put a `.WGT` document and a `WIDGET.O88` that declares it in the
+same folder, on a disk the kernel has never seen, and double-click the
+document **first**. It must open, with the right icon, on the first click — no
+prior run of `WIDGET`, no search. Then reassign `.WGT` to something else at
+runtime, re-browse that folder, and confirm the declaration does **not** take
+it back (§2.8's sticky bit).
+
 ## 6. Optional phases, each with its own cost
 
 - **~~Persistence in `SYSTEM.CFG`~~ — WITHDRAWN**, and not merely deferred:
@@ -693,13 +785,11 @@ disagreement means one of them is not using it.
   been run, which by construction has no association either. ~150 bytes saved
   and `filecp.inc`'s frame array stays a copy-engine concern.
 
-  What that leaves — and it is worth naming rather than hiding — is that
-  **a third-party association requires running the program once**. The clean
-  fix is not a search: it is letting a package *declare* its extensions, so the
-  mount learns them with **no extra I/O at all**, since the harvest already
-  reads every `.O88`'s first sector. Bytes 96.. of the header are free and a
-  fixed layout there (say four 3-byte extensions) would be a v5 format bump.
-  Out of scope here, listed in §9 as the natural successor.
+  What that left — a third-party association requiring the program to be *run*
+  once — is now **fixed by Phase 5** (§2.8/§5.7): a package declares its
+  extensions in its header, the harvest reads that sector already, and a
+  document beside its program opens on the first double-click. The program
+  still has to be *seen*, which browsing does; it no longer has to be run.
 - **~~A second document into a running app~~ — SETTLED, and it needs no code.**
   A second document opens **another instance**, which is what the pull model
   already does by construction: every document open is a launch. Replacing an
@@ -736,6 +826,7 @@ Phase 2 is written.
 | `ASSOC.DAT` reader + merge + name (§2.5.2, staging borrows `dsk_secbuf`) | `.text` | ~140 |
 | `ASSOC.DAT` writer — heal and registration (§2.5.2) | `.text` | ~150 |
 | the dialog's icon column (§5.5) | `.text` | ~80 |
+| the header block's parse in pass A + the sticky bit (§2.8) | `.text` | ~80 |
 | the page frame body | `.text` | 64 |
 | `assoc_find` / `assoc_note_app` | `.text` | ~110 |
 | `assoc_reduce` (majority 2×2) | `.text` | ~70 |
@@ -746,17 +837,18 @@ Phase 2 is written.
 | 2 API cells + the X stub | `.text` | ~40 |
 | notice strings | `.text` | ~40 |
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
-| **total** | | **~1,460** |
+| **total** | | **~1,540** |
 
 **The budget was raised to cover this.** `KERN_BUDGET` 76,288 → **78,336**
 (+2,048), asked for and granted to fund this plan and `docs/DISK-PERF-PLAN.md`
-together — ~1,460 here and ~200 there against the 1,536 that were spare, which
-the two do not fit. Spare after both: ~1,900.
+together — ~1,540 here and ~200 there against the 1,536 that were spare, which
+the two do not fit. Spare after both: ~1,800.
 
-The four decisions taken since the grant moved this figure by +120 net: the
-dialog's icons cost ~80 and the cache's merge ~40, the `SYSTEM.CFG` key was
-withdrawn (it was never in this total but it *was* going to cost ~190 bytes of
-`.bss`), and dropping Phase 2b saved ~150 that likewise never appeared here.
+The decisions taken since the grant moved this figure by +200 net: the dialog's
+icons ~80, the cache's merge ~40, and Phase 5's header parse plus the sticky
+bit ~80. Two savings do not appear in the table because they were never in it —
+the `SYSTEM.CFG` key was withdrawn before it could cost ~190 bytes of `.bss` on
+every machine, and dropping Phase 2b left ~150 unspent.
 
 Three things that follow from the grant rather than being excused by it:
 
@@ -850,19 +942,44 @@ always this way):
    recognisable at 8× the cached RAM — 12 apps × 64 bytes is 768. The grant
    makes it *affordable* where it was not before, so this is now a taste
    question rather than a budget one, and it should be answered by looking at
-   both on a 1bpp adapter (§2.8) rather than on paper.
-2. **Should a package be able to *declare* its extensions in its header?**
-   (§6) It would remove the "run it once" requirement entirely, and cost no
-   I/O at all — the mount's harvest already reads every `.O88`'s first sector.
-   Bytes 96.. are free; it is a v5 header bump and a change to
-   `tools/os88pkg.py`. The natural successor to this plan rather than part of
-   it.
+   both on a 1bpp adapter (§2.9) rather than on paper.
+2. **Nothing else.** (The header declaration is decided and is Phase 5,
+   §2.8/§5.7.)
+
+## 9.1 The icon prototype — the last thing, deliberately
+
+§2.1's choice between the **8×8 inset** and the **full icon + corner badge** is
+settled by looking, not by argument, and the grant has made both affordable —
+the badge's 12 × 64 = 768 bytes was the whole objection to it.
+
+So: build everything else first, then produce **both** and compare. The inset
+is the plan of record and the one to build; the badge is a second
+`assoc_compose` and a second page body, no other change, because §1.1's
+decision to compose into `disk_icons` means the choice is confined to one
+routine. Prototype output must include a Disk window in **both views** (list
+and icon grid) and the §5.5 file dialog, on **VGA and at least one 1bpp
+adapter** — CGA and Hercules differ from VGA in kind, not just in depth, and
+four pixels of page margin is exactly where that shows.
+
+Whichever wins, the loser's ~60 bytes come back out.
 
 ## 10. SPEC.md
 
 SPEC.md is the binding contract and it is updated **before** any of this is
-written, not after: a new **§54, File type associations**, covering the row
-layout, the harvest's two passes and their ordering rule, the resolution
-sources, `OSAPI_ARG_FILE`'s read-and-clear contract, and the two new slot
-numbers. §19.1's icon paragraph gains the sentence that a type-0 slot is no
-longer always blank, and §22's open path gains the association branch.
+written, not after: a new **§54, File type associations**, covering the two
+table layouts and the sticky bit, the harvest's two passes and their ordering
+rule, the four resolution rungs and the name re-check, `ASSOC.DAT`'s format
+and its two write triggers, `OSAPI_ARG_FILE`'s read-and-clear contract, and
+the two new slot numbers.
+
+Four existing sections gain a sentence each:
+
+- **§19.1** — a type-0 icon slot is no longer always blank.
+- **§20.2** — flags **bit 1** and the 16-byte association block, with the note
+  that the format version stays 3 *because* nothing an older kernel reads has
+  moved (§2.8).
+- **§22** — the open path's association branch.
+- **§31.8** — `ASSOC.DAT`'s writes as a stated exception to "never write on a
+  click", with the reason they are not one: they land after work the user has
+  already waited seconds for, and the record *is* the point rather than an
+  afterthought to work already done (§2.5.2).
