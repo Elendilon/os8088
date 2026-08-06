@@ -925,11 +925,26 @@ Kept because the reasoning above is only useful if its errors are visible too.
   cannot be raised. What paid for it was not in the plan at all — the
   768-byte per-instance icon COPY table went away, because a package's icon
   was already in the package's own region at a fixed offset for exactly as
-  long as the instance lived (SPEC.md §25). The final figures are 65,211 of
-  65,536 in the segment and 80,384 of 80,896 in the budget, with no raise.
+  long as the instance lived (SPEC.md §25). The figures are 65,465 of 65,536
+  in the segment and 80,384 of 80,896 in the budget, with no raise — and the
+  segment is the binding one now, at 71 bytes.
 - **"the 32-entry cap is a project of its own; ship it unchanged"** was the
   right call about the *work* and the wrong one about the *shape*. Making the
   listing four words instead of two labels (SPEC.md §22.6) turned out to be
   the small half, and the view cache followed it in twenty lines; what was
   genuinely big — a sparse icon table, lazy harvesting — was not needed once
   the buffer could simply be bigger on the volume that needs it.
+- **Part 6.5's "the driver's own file"** was right that a driver's settings
+  must not become the kernel's business, and wrong that a separate file was
+  the way to keep them out of it. The argument it missed is the one it makes
+  itself two paragraphs later: the file slots resolve in the *current* volume
+  and directory, so putting the volume back is an `OSAPI_FILE_GOTO`, and that
+  is a full **remount**. The driver's boot path was therefore two remounts and
+  a directory search and a read, at every boot, for 34 bytes travelling next
+  to the Control Panel's other 41 in a file the boot already reads.
+  `OSAPI_DRV_CFG` (SPEC.md §51.9) carries them as an opaque blob instead: the
+  kernel knows the key's name and length and nothing about the contents, so
+  the separation the plan was defending survives intact, and it survives a
+  boot where the driver never loads — the blob round-trips untouched rather
+  than being dropped. The real cost, which the plan would have been right to
+  weigh, is that `DRV_BLOB_SZ` is reserved on every machine, hard disk or not.

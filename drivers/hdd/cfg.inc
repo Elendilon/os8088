@@ -1,41 +1,49 @@
 ; =============================================================================
 ; os8088 - HDD.DRV / cfg.inc
 ;
-; HDD.CFG (SPEC.md 52.6): the driver's own settings file, in the system disk's
-; root, written through the ordinary file API. It carries two things, and both
-; are things the driver cannot re-derive:
+; The driver's own settings, carried inside SYSTEM.CFG (SPEC.md 51.9/52.6) as
+; an opaque 34-byte blob the kernel moves and never reads. It holds two things,
+; and both are things the driver cannot re-derive:
 ;
 ;   - the geometry of a drive the PROBE could not determine and the user typed
 ;     in. Losing it means typing it again at every boot.
 ;   - which drives were MOUNTED. A hard disk the user mounted is a hard disk
 ;     the user expects to find on the desktop next time.
 ;
-; **It is the DRIVER's file and not SYSTEM.CFG's business.** SYSTEM.CFG's key
-; table is kernel .text (SPEC.md 51.5), so putting a driver's settings in it
-; would put a driver's settings in the kernel - which is the thing this whole
-; subsystem is arranged not to do.
+; **It rides SYSTEM.CFG because the boot already reads that file.** A file of
+; its own cost a second directory search and a second read - and worse, the
+; volume dance around them: every file slot resolves in the current volume and
+; directory (SPEC.md 19.2), so saving from a session that had just mounted C:
+; meant OSAPI_FILE_HERE, an OSAPI_FILE_GOTO back to A: - which is a full
+; REMOUNT - the read, and another remount to put the volume back. Two remounts
+; and a read, at every boot, for 34 bytes that were about to travel next to
+; SYSTEM.CFG's other 40. OSAPI_DRV_CFG is one memcpy.
 ;
-; The format is a signature and a WHOLE-FILE version, not SYSTEM.CFG's keyed
-; records, and the difference is proportionate rather than lazy: that file has
-; many independent settings and several kernel versions reading each other's
-; work, while this one has a single owner that rewrites it entire on every
-; change. The rule it borrows is the one that matters - **a version that does
-; not match exactly means the defaults**, so changing the shape is a bump and
-; never a misread.
+; What the kernel gives up for it is only that DRV_BLOB_SZ is reserved on every
+; machine, loaded driver or not - 34 bytes of .bss and 38 of the file. What it
+; does NOT give up is the separation: the kernel knows this key's name and its
+; length and nothing whatever about its contents, so every byte below is still
+; the driver's business, and a machine that never loads HDD.DRV round-trips the
+; blob untouched instead of dropping it the way SPEC.md 51.5 rule 1 drops a key
+; it does not know.
 ;
-;   +0   'O88HDD', 0, 0    the signature, byte for byte
-;   +8   dw  version       HDC_VER; anything else = defaults
-;   +10  db  count         devices described below, 0..HD_MAXDEV
-;   +11  db  0
-;   +12  count x HDC_ESZ:
+;   +0   db  version       HDC_VER; anything else (0 included, which is what a
+;                          blob nobody has written reads back as) = defaults
+;   +1   db  count         devices described below, 0..HD_MAXDEV
+;   +2   count x HDC_ESZ:
 ;          db kind         HDK_*      } the three that IDENTIFY a device
 ;          db unit         80h/81h, or 0/1 on its channel
-;          dw base         the IDE task file's base port, 0 for a BIOS drive
-;          dw cyl
-;          dw heads        the geometry to restore
-;          dw spt
+;          db base>>4      the IDE task file's base port, 0 for a BIOS drive.
+;                          Every ISA task file is 16-byte aligned, so the shift
+;                          is lossless and the port fits a byte
 ;          db flags        bit 0 = mount it at boot
-;          db 0
+;          dw cyl
+;          db heads        1..255 }  a word each in the device row, because
+;          db spt          1..63  }  that is what the arithmetic wants
+;
+; Eight bytes a record and four records, so the whole thing is 34 - which is
+; where DRV_BLOB_SZ comes from, and the reason the kernel's constant is the
+; size of what the disk driver needs rather than a round number.
 ;
 ; **A device is matched by kind+unit+base, never by its row index.** The probe
 ; runs again at every attach and a machine can gain or lose a drive between
@@ -44,79 +52,64 @@
 ; =============================================================================
 
 HDC_VER      equ 1
-HDC_NAME     equ 0              ; (the file name is hd_s_cfgname below)
-HDC_COUNT    equ 10
-HDC_ENT0     equ 12
+HDC_COUNT    equ 1
+HDC_ENT0     equ 2
 HDC_E_KIND   equ 0
 HDC_E_UNIT   equ 1
-HDC_E_BASE   equ 2
+HDC_E_BASE   equ 2              ; the port >> 4
+HDC_E_FLAGS  equ 3
 HDC_E_CYL    equ 4
 HDC_E_HEADS  equ 6
-HDC_E_SPT    equ 8
-HDC_E_FLAGS  equ 10
-HDC_ESZ      equ 12
+HDC_E_SPT    equ 7
+HDC_ESZ      equ 8
 HDC_F_MOUNT  equ 1              ; bit 0: this drive was mounted
-HDC_FBUF     equ HDC_ENT0 + HD_MAXDEV * HDC_ESZ     ; 60 bytes
+HDC_FBUF     equ HDC_ENT0 + HD_MAXDEV * HDC_ESZ     ; 34 = DRV_BLOB_SZ
+
+%if HDC_FBUF != DRV_BLOB_SZ
+%error "HDD.DRV's settings blob must be exactly DRV_BLOB_SZ bytes"
+%endif
 
 ; -----------------------------------------------------------------------------
-; hd_cfg_save - write the current state to HDD.CFG
-; in:  nothing; UI-task context (a Control Panel click)
+; hd_cfg_save - hand the current state to the kernel and write SYSTEM.CFG
+; in:  AL = 0 store it / 1 store it and write the file NOW
+;      UI-task context (a Control Panel click), or DRVV_READY
 ; out: nothing - a failure is silent here and reported by the caller's caption
 ; clobbers: flags
 ;
-; **The volume is put back afterwards.** Every file slot resolves in the
-; CURRENT volume and directory (SPEC.md 19.2), and by the time this runs that
-; may well be the hard disk we just mounted - so it banks the pair with
-; OSAPI_FILE_HERE, goes to A:'s root, writes, and goes back. apps/notepad does
-; the same thing around every save, for the same reason.
+; No volume dance and no file name: the kernel already owns the file and the
+; drive it lives on.
 ; -----------------------------------------------------------------------------
 hd_cfg_save:
     push ax
     push bx
     push cx
-    push dx
     push si
-    push di
     push es
-
-    call OSAPI_FILE_HERE        ; DX = the current directory, BL = its drive
-    mov [hd_cwd], dx
-    mov [hd_cdrv], bl
-    xor dx, dx                  ; A:'s root, where the system disk lives
-    xor bl, bl
-    call OSAPI_FILE_GOTO
-    jc .out                     ; no readable system disk: nothing to save to
-
-    call hd_cfg_build           ; CX = the file's length
+    push ax                     ; the verb, under the buffer build
+    call hd_cfg_build           ; CX = the blob's length (always HDC_FBUF)
     push ds
     pop es
-    mov bx, hd_cfgbuf
-    xor dx, dx
-    mov si, hd_s_cfgname
-    call OSAPI_FILE_WRITE
-
-    mov dx, [hd_cwd]            ; ...and back where we were
-    mov bl, [hd_cdrv]
-    call OSAPI_FILE_GOTO
-.out:
+    mov si, hd_cfgbuf
+    pop ax
+    inc al                      ; 0 -> set, 1 -> set and flush
+    call OSAPI_DRV_CFG
     pop es
-    pop di
     pop si
-    pop dx
     pop cx
     pop bx
     pop ax
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_cfg_build - lay the file out in hd_cfgbuf (module internal)
+; hd_cfg_build - lay the blob out in hd_cfgbuf (module internal)
 ; in:  nothing
 ; out: CX = its length
 ; clobbers: CX (the output), flags
 ;
 ; A device earns a record if its geometry was typed in OR it is mounted -
 ; there is nothing to remember about a drive the probe describes correctly and
-; the user has not mounted.
+; the user has not mounted. The blob is zero-filled first, so the records that
+; are not written are not last session's.
 ; -----------------------------------------------------------------------------
 hd_cfg_build:
     push ax
@@ -128,15 +121,15 @@ hd_cfg_build:
     push ds
     pop es
     cld
-    mov si, hd_s_cfgsig
     mov di, hd_cfgbuf
-    mov cx, 8
-    rep movsb
-    mov ax, HDC_VER
-    stosw
+    mov cx, HDC_FBUF
+    xor al, al
+    rep stosb
+    mov di, hd_cfgbuf
+    mov al, HDC_VER
+    stosb
     xor al, al
     stosb                       ; the count, filled in at the end
-    stosb                       ; the pad
     mov byte [hd_cfgi], 0
     mov byte [hd_cfgn], 0
 .dev:
@@ -163,17 +156,17 @@ hd_cfg_build:
     stosb
     mov al, [bx+HDD_UNIT]
     stosb
-    mov ax, [bx+HDD_BASE]
-    stosw
-    mov ax, [bx+HDD_CYL]
-    stosw
-    mov ax, [bx+HDD_HEADS]
-    stosw
-    mov ax, [bx+HDD_SPT]
-    stosw
+    mov ax, [bx+HDD_BASE]       ; a 16-byte-aligned port fits a byte shifted
+    mov cl, 4                   ; down four - 8086: a variable shift only
+    shr ax, cl                  ; goes through CL
+    stosb
     mov al, dl
     stosb
-    xor al, al
+    mov ax, [bx+HDD_CYL]
+    stosw
+    mov al, [bx+HDD_HEADS]      ; 1..255 and 1..63: the high byte of each is
+    stosb                       ; zero by hd_geom_ok's own limits
+    mov al, [bx+HDD_SPT]
     stosb
     inc byte [hd_cfgn]
 .next:
@@ -182,8 +175,9 @@ hd_cfg_build:
 .done:
     mov al, [hd_cfgn]
     mov [hd_cfgbuf+HDC_COUNT], al
-    mov cx, di
-    sub cx, hd_cfgbuf
+    mov cx, HDC_FBUF            ; always the whole blob: the kernel's key has
+                                ; one length and a short write would be a
+                                ; record the file no longer carries
     pop es
     pop di
     pop si
@@ -226,63 +220,34 @@ hd_dev_mounted:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_cfg_load - read HDD.CFG and apply it (SPEC.md 52.6)
+; hd_cfg_load - read the blob back out of the kernel and apply it (52.6)
 ; in:  the probe has run; DRVV_READY context, so the API answers us
 ; out: nothing; geometry restored and [hd_wantmnt] set for the drives to mount
 ; clobbers: flags
 ;
-; A missing or malformed file means the defaults - the probe's own answers and
-; nothing mounted - and never an error. That is `drv_cfg_load`'s rule and the
-; reason a freshly built disk boots at all.
+; A blob nobody has written reads back as zeroes and a zero version is not
+; HDC_VER, so a machine that has never saved gets the defaults - the probe's
+; own answers and nothing mounted - and never an error.
 ; -----------------------------------------------------------------------------
 hd_cfg_load:
     push ax
     push bx
     push cx
-    push dx
     push si
-    push di
     push es
 
     mov byte [hd_wantmnt], 0
-    call OSAPI_FILE_HERE
-    mov [hd_cwd], dx
-    mov [hd_cdrv], bl
-    xor dx, dx
-    xor bl, bl
-    call OSAPI_FILE_GOTO
-    jc .out
-
     push ds
     pop es
-    mov bx, hd_cfgbuf
-    mov cx, HDC_FBUF
-    xor dx, dx
-    mov si, hd_s_cfgname
-    call OSAPI_FILE_READ        ; AX = bytes read
-    pushf
-    push ax
-    mov dx, [hd_cwd]            ; the volume goes back BEFORE anything is
-    mov bl, [hd_cdrv]           ; applied: a mount below changes it again
-    call OSAPI_FILE_GOTO
-    pop ax
-    popf
-    jc .out
-
-    cmp ax, HDC_ENT0
-    jb .out
-    mov [hd_cfglen], ax
     mov si, hd_cfgbuf
-    mov di, hd_s_cfgsig
-    mov cx, 8
-.sig:
-    mov al, [si]
-    cmp al, [di]
-    jne .out                    ; a foreign file of that name: left alone
-    inc si
-    inc di
-    loop .sig
-    cmp word [hd_cfgbuf+8], HDC_VER
+    mov cx, HDC_FBUF
+    xor al, al                  ; get
+    call OSAPI_DRV_CFG
+    jc .out                     ; not published: impossible here, but the
+                                ; answer is the defaults either way
+    cmp cx, HDC_ENT0
+    jb .out
+    cmp byte [hd_cfgbuf], HDC_VER
     jne .out                    ; another version's shape: the defaults, and
                                 ; the next save rewrites it in this one
 
@@ -294,23 +259,13 @@ hd_cfg_load:
     mov si, hd_cfgbuf + HDC_ENT0
 .rec:
     push cx
-    mov ax, si
-    add ax, HDC_ESZ
-    sub ax, hd_cfgbuf
-    cmp ax, [hd_cfglen]
-    ja .recdone                 ; the record would run past what was read
     call hd_cfg_apply
     add si, HDC_ESZ
     pop cx
     loop .rec
-    jmp short .out
-.recdone:
-    pop cx
 .out:
     pop es
-    pop di
     pop si
-    pop dx
     pop cx
     pop bx
     pop ax
@@ -339,14 +294,19 @@ hd_cfg_apply:
     mov al, [si+HDC_E_UNIT]
     cmp al, [di+HDD_UNIT]
     jne .next
-    mov ax, [si+HDC_E_BASE]
+    mov al, [si+HDC_E_BASE]     ; the stored port, back up four bits
+    xor ah, ah
+    mov cl, 4
+    shl ax, cl
     cmp ax, [di+HDD_BASE]
     jne .next
     mov ax, [si+HDC_E_CYL]      ; the geometry, restored whether the probe
     mov [di+HDD_CYL], ax        ; found one or not: a saved record only
-    mov ax, [si+HDC_E_HEADS]    ; exists when the user typed it in or mounted
-    mov [di+HDD_HEADS], ax      ; with it, and either way it is the one that
-    mov ax, [si+HDC_E_SPT]      ; worked
+    mov al, [si+HDC_E_HEADS]    ; exists when the user typed it in or mounted
+    xor ah, ah                  ; with it, and either way it is the one that
+    mov [di+HDD_HEADS], ax      ; worked
+    mov al, [si+HDC_E_SPT]
+    xor ah, ah
     mov [di+HDD_SPT], ax
     and byte [di+HDD_FLAGS], 0xFC
     call hd_geom_ok
@@ -376,11 +336,12 @@ hd_cfg_apply:
 ; out: nothing
 ; clobbers: flags
 ;
-; **The volume is put back afterwards**, for hd_cfg_save's reason and one
-; more: this runs inside drv_boot, before the desktop's first paint, and the
-; rest of the boot expects the system disk to be the current volume. The
-; desktop icons appear anyway - osapi_vol_add posts the kernel's own deferred
-; repaint (SPEC.md 31.2), which is drained after the first paint.
+; **The volume is put back afterwards.** Every file slot resolves in the
+; CURRENT volume and directory (SPEC.md 19.2), and a mount changes both - but
+; this runs inside drv_boot, before the desktop's first paint, and the rest of
+; the boot expects the system disk to be the current volume. The desktop icons
+; appear anyway: osapi_vol_add posts the kernel's own deferred repaint
+; (SPEC.md 31.2), which is drained after the first paint.
 ; -----------------------------------------------------------------------------
 hd_cfg_automount:
     push ax
@@ -389,10 +350,9 @@ hd_cfg_automount:
     push dx
     cmp byte [hd_wantmnt], 0
     je .out
-    call OSAPI_FILE_HERE
+    call OSAPI_FILE_HERE        ; DX = the current directory, BL = its drive
     mov [hd_cwd], dx
     mov [hd_cdrv], bl
-    mov byte [hd_selsave], 0
     mov al, [hd_sel]
     mov [hd_selsave], al
     xor bl, bl
@@ -423,26 +383,47 @@ hd_cfg_automount:
     pop ax
     ret
 
-hd_s_cfgname: db 'HDD.CFG', 0
-hd_s_cfgsig:  db 'O88HDD', 0, 0
-
 ; -----------------------------------------------------------------------------
-; hd_cfg_flush - save, if anything worth saving has changed
-; in:  nothing; UI-task context
-; out: nothing
-; clobbers: flags
+; The three ways out, and the reason there are three
 ;
-; Deferred for cp_flush's reason (SPEC.md 31.8): a floppy write is about a
-; second on the floor machine, and a session of nudging the cylinder count
-; with the + button must not cost one per click. What spends it is any action
-; that USES the geometry - Partition, Format, Mount - plus detach; a mount or
-; an unmount saves outright, because the set of mounted drives is what the
-; next boot reads.
+; Handing the blob to the kernel is a 34-byte copy; WRITING SYSTEM.CFG is a
+; floppy write, about a second on the floor machine with the panel frozen for
+; it. So a session of nudging the cylinder count with the + button stages on
+; every click and writes on none - cp_flush's own trade (SPEC.md 31.8), and
+; the reason a driver's settings ride the kernel's file rather than being
+; timed against it.
+;
+;   hd_cfg_mark   stage it. No I/O; the Control Panel's teardown writes it.
+;                 The geometry editor, and detach.
+;   hd_cfg_flush  stage it and write NOW, if an edit is owed one. What spends
+;                 [hd_dirty] is any action that USES the geometry - opening
+;                 the partitioner or the formatter - because a geometry the
+;                 user is about to format a disk with is one worth surviving
+;                 a hang.
+;   hd_cfg_now    stage it and write NOW, always. Mount and unmount: the SET
+;                 of mounted drives is what the next boot reads, and a machine
+;                 switched off with the panel still open would otherwise come
+;                 back with a hard disk it had been told to mount and has not.
 ; -----------------------------------------------------------------------------
+hd_cfg_mark:
+    push ax
+    mov byte [hd_dirty], 1
+    xor al, al                  ; stage only
+    call hd_cfg_save
+    pop ax
+    ret
+
 hd_cfg_flush:
     cmp byte [hd_dirty], 0
     je .out
-    mov byte [hd_dirty], 0
-    call hd_cfg_save
+    call hd_cfg_now
 .out:
+    ret
+
+hd_cfg_now:
+    push ax
+    mov byte [hd_dirty], 0      ; there is nothing left owing
+    mov al, 1                   ; ...and the file says so
+    call hd_cfg_save
+    pop ax
     ret

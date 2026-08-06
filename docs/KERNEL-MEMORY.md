@@ -421,11 +421,31 @@ does not draw one.
 The FAT window itself cost **no memory at all**: `FAT_SEG` is the same 4,608
 bytes it always was, and only its meaning changed.
 
+Then the driver's *settings* moved into the kernel's file, which cost 254
+bytes more and is the least intuitive line here — the point of it was to make
+the driver's boot path **cheaper**, and it did (a `rep movsb` instead of two
+volume remounts, a directory search and a read), but the memory went the other
+way. `DRV_BLOB_SZ` = 34 bytes of `.bss` for the blob, 38 more of `drv_cfgbuf`
+for its record in the file, and about 180 of `.text` for the slot, its stub
+and the fence. All of it is reserved on **every** machine, including a 128KB
+one with no hard disk — that is the honest cost of not making the one file the
+boot already reads into two, and it is why one blob is shared by whichever
+driver asks rather than one being reserved per class.
+
+Eleven of those bytes came back by making `CFG_FBUF` **derived** rather than
+chosen: the keys tile the settings struct exactly, so the file's length is
+`CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2` and there is nothing to round up.
+Slack in a buffer whose exact size is an expression anyone can evaluate is
+`.bss` nothing can ever use.
+
 Where that leaves the two guards, on this build:
 
 ```
-guard 2  .text + .bss   65,211 / 65,536     325 bytes
+guard 2  .text + .bss   65,465 / 65,536      71 bytes
 guard 1  KERN_SIZE      80,384 / 80,896     512 bytes
 ```
 
-`KERN_BUDGET` was **not** raised for any of this.
+`KERN_BUDGET` was **not** raised for any of this. **Guard 2 is now the binding
+one by a factor of seven**, and it is the one that cannot be raised at any
+price — so the next feature that wants kernel `.text` or `.bss` should expect
+to find its own 768-byte icon table before it starts, not afterwards.

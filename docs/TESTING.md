@@ -165,17 +165,25 @@ print('jmp', b[:3].hex(), 'spc', b[13], 'fatsz', int.from_bytes(b[22:24],'little
 EOF
 ```
 
-**Persistence needs the Control Panel CLOSED.** The mount itself is written to
-`HDD.CFG` on the spot, but the driver being *loaded* is a `SYSTEM.CFG`
-setting, and the panel defers that write to its teardown (SPEC.md 31.8) - so a
-run that quits QEMU with the panel still open reboots with no driver and
-nothing mounted, which reads exactly like auto-mount being broken. Close the
-window, then quit, then `make test HDD=40` again: Disk A, Disk B and every
-hard-disk volume should be on the desktop with no clicks at all.
+**Persistence: which half needs the panel closed, and which does not.** Mount
+and Unmount write `SYSTEM.CFG` on the spot (SPEC.md 51.9 verb 2), and the
+write packs the LIVE state - the driver-wanted bitmap included - so quitting
+QEMU with the Control Panel still open is a fair test of the mount: reboot and
+Disk A, Disk B and every hard-disk volume should be on the desktop with no
+clicks at all. **A geometry typed by hand is the deferred half**, staged on
+every `+` and written at the panel's teardown (SPEC.md 31.8), so *that* one
+does need the window closed before the quit - and a run that skips it reboots
+with the probe's numbers back, which reads exactly like the editor not
+persisting. Close the window, then quit, then `make test HDD=40` again.
 
-Both of these dirty **tracked, shipped artifacts** - `build/os8088.img` gains
-`SYSTEM.CFG` and `HDD.CFG` - so `rm -f build/os8088.img build/os8088-360.img
-&& make` before committing, exactly as for a floppy write test.
+Worth testing once as a pair, because it is the property the blob exists for:
+untick the driver, close the panel, reboot (no driver, no icons), then tick it
+again - the volumes come straight back, having round-tripped through a boot
+where nothing could read them.
+
+Both dirty a **tracked, shipped artifact** - `build/os8088.img` gains
+`SYSTEM.CFG` - so `rm -f build/os8088.img build/os8088-360.img && make` before
+committing, exactly as for a floppy write test.
 
 What QEMU cannot show: the **MFM** rung — rung 0 against a real XT controller's
 ROM rather than SeaBIOS — and the 8-bit-bus behaviour that gates rung 1 off an

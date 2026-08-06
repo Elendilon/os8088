@@ -534,11 +534,13 @@ hd_page_adjust:
 .flag:
     and byte [di+HDD_FLAGS], 0xFE   ; typed in by hand is still KNOWN, as
     or byte [di+HDD_FLAGS], 2       ; long as it is usable - which is the
-    mov byte [hd_dirty], 1          ; whole point of the editor. Bit 1 says
-    call hd_geom_ok                 ; the USER set it, which is what makes it
-    jc .out                         ; worth a line in HDD.CFG (SPEC.md 52.6)
-    or byte [di+HDD_FLAGS], 1
+    call hd_geom_ok                 ; whole point of the editor. Bit 1 says
+    jc .mark                        ; the USER set it, which is what makes it
+    or byte [di+HDD_FLAGS], 1       ; worth a record in the blob (SPEC.md 52.6)
     mov word [hd_msg], hd_s_typed
+.mark:
+    call hd_cfg_mark                ; staged on every click and written on
+                                    ; none: the panel's teardown spends it
 .out:
     pop di
     pop dx
@@ -717,8 +719,7 @@ hd_page_click:
 .domount:                       ; boot reads, so it is written out on the
     call hd_mount               ; spot rather than deferred (SPEC.md 52.6)
 .saved:
-    mov byte [hd_dirty], 1
-    call hd_cfg_flush
+    call hd_cfg_now
     jmp .repaint
 .dopart:
     call hd_cfg_flush           ; opening a tool COMMITS to this geometry,

@@ -558,7 +558,18 @@ osapi_table:
                                   ;          that already holds it - post it
                                   ;          the way a page click posts a
                                   ;          repaint
-osapi_table_end:                  ; 0x0290
+    OSAPI_JSLOT api_drv_cfg       ; 0x0290 - X: the driver's own settings blob
+                                  ;          inside SYSTEM.CFG (SPEC.md 51.9).
+                                  ;          in AL = 0 read / 1 write / 2 write
+                                  ;          and flush now, ES:SI = the driver's
+                                  ;          buffer, CX = bytes. out CF=1 = not
+                                  ;          a published driver, or a write past
+                                  ;          DRV_BLOB_SZ. The kernel carries the
+                                  ;          bytes and never reads them, so a
+                                  ;          never-written blob reads back as
+                                  ;          zeroes and the driver's own version
+                                  ;          byte is what recognises it
+osapi_table_end:                  ; 0x0298
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -566,8 +577,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 80 * 8
-%error "os8088 API jump table must be exactly 80 8-byte slots"
+%if OSAPI_TABLE_LEN != 81 * 8
+%error "os8088 API jump table must be exactly 81 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -607,6 +618,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_vol_add,    osapi_vol_add
     OSAPI_XSTUB api_vol_del,    osapi_vol_del
     OSAPI_XSTUB api_vol_mount,  osapi_vol_mount
+    OSAPI_XSTUB api_drv_cfg,    osapi_drv_cfg
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
 ; because ES:BX belongs to the caller's data buffer and cannot carry it

@@ -738,23 +738,37 @@ which is the half a type byte cannot answer. **The KERNEL names them**: the
 driver passes no label, because the drive letter is the kernel's to assign, so
 `HDD C`..`HDD F` derive from the volume index the way `Disk A` does.
 
-**The mount survives a reboot** (SPEC.md §52.6). `HDD.CFG` in A:'s root holds
-the geometry the user typed and which drives were mounted; the driver reads it
-at **`DRVV_READY`** — a verb the kernel sends right after publishing a
-driver's services, and the earliest point at which any fence keyed on the
-publication slot will answer, because attach deliberately runs before it is
-armed. Two traps: a device is matched by kind+unit+base and never by its row
-index (the probe re-runs and a machine can gain or lose a drive between
-boots), and every file operation banks the current volume with
-`OSAPI_FILE_HERE` and puts it back — at boot that leaves the rest of
-`drv_boot` with the system disk current, exactly as it would have been.
-**Testing it needs the Control Panel CLOSED**: the driver being loaded is a
-`SYSTEM.CFG` setting and the panel defers that write to its teardown, so
-quitting with the panel open reboots with no driver at all.
+**The mount survives a reboot** (SPEC.md §52.6), and it does so **inside
+`SYSTEM.CFG`** rather than a file of the driver's own (SPEC.md §51.9). A
+separate `HDD.CFG` was the first answer and the boot cost killed it: a second
+directory search, a second read, and — because every file slot resolves in the
+*current* volume and directory — two full **remounts** around them to get back
+to A: and then back to where the driver was. `OSAPI_DRV_CFG` (slot 0x0290) is
+a `rep movsb` into a file the boot already reads. The kernel carries
+`DRV_BLOB_SZ` = 34 opaque bytes, knows the key's name and length and nothing
+about its contents, and **round-trips them untouched on a machine whose driver
+never loads** — deliberately unlike §51.5 rule 1, because this key *is* known
+and only its meaning is not. The price is those 34 bytes of `.bss` reserved on
+every machine, hard disk or not.
+
+The driver reads the blob at **`DRVV_READY`** — a verb the kernel sends right
+after publishing a driver's services, and the earliest point at which any
+fence keyed on the publication slot will answer, because attach deliberately
+runs before it is armed. Three traps: a device is matched by kind+unit+base
+and never by its row index (the probe re-runs and a machine can gain or lose a
+drive between boots); the automount still banks the current volume with
+`OSAPI_FILE_HERE` and puts it back, so the rest of `drv_boot` finds the system
+disk current; and **the three save verbs are not interchangeable** — the
+geometry editor stages on every `+` and writes on none, Partition and Format
+spend a staged edit, and Mount and Unmount write the file *now*, because a
+machine switched off with the panel still open would otherwise come back with
+a hard disk it had been told to mount and has not. Testing follows that split:
+a mount survives a hard quit with the panel open, a typed geometry needs the
+panel closed first.
 
 **Everything the user sees is in `drivers/hdd/`**: the probe, the Control
 Panel page, the partitioner, the FAT formatter and Mount. The kernel's half is
-four API slots (0x0270..0x0288), a 6-row volume table and a branch. Two things
+five API slots (0x0270..0x0290), a 6-row volume table and a branch. Two things
 about the driver are worth knowing before touching it. Its **rung 1 (the IDE
 task file) is gated on `CPU_286`**, and that is arithmetic: an 8088's
 `in ax, dx` is two 8-bit bus cycles at the same port, so the drive's high byte

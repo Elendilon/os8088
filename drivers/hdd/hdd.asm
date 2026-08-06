@@ -170,8 +170,12 @@ hd_detach:
     push ax
     push bx
     push cx
-    call hd_cfg_flush           ; a geometry typed and not yet acted on is
-                                ; still worth keeping (SPEC.md 52.6)
+    call hd_cfg_mark            ; a geometry typed and not yet acted on is
+                                ; still worth keeping (SPEC.md 52.6). Staged,
+                                ; not written: the fence is still open (the
+                                ; kernel releases the class AFTER this returns)
+                                ; and the panel that unticked us is about to
+                                ; close and write the file anyway
     mov cx, HD_MAXVOL
     mov bx, hd_vols
 .vol:
@@ -1131,15 +1135,14 @@ hd_lineptr:  dw 0               ; ...and where hd_scat/hd_utoa left off
 hd_rowslot:  db 0               ; the page's and the partitioner's loop index
 hd_rowdev:   db 0
 hd_pslot:    db 0               ; the partition hd_mount is working on
-hd_dirty:    db 0               ; 1 = HDD.CFG is owed a write (SPEC.md 52.6)
+hd_dirty:    db 0               ; 1 = the settings blob is owed a write (52.6)
 hd_wantmnt:  db 0               ; bit n = device n was mounted last session
 hd_selsave:  db 0               ; hd_cfg_automount's saved selection
-hd_cwd:      dw 0               ; the volume+directory a file op borrowed...
+hd_cwd:      dw 0               ; the volume+directory the automount borrowed...
 hd_cdrv:     db 0               ; ...and must put back
 hd_cfgi:     db 0               ; hd_cfg_build's loop index and record count
 hd_cfgn:     db 0
-hd_cfglen:   dw 0               ; bytes HDD.CFG actually gave us
-hd_cfgbuf:   times HDC_FBUF db 0
+hd_cfgbuf:   times HDC_FBUF db 0     ; the blob, staged for OSAPI_DRV_CFG
 hd_nmnt:     db 0               ; ...and how many it has mounted this click
 hd_cap:      times 32 db 0      ; the page's caption, when it is BUILT rather
                                 ; than pointed at a literal. Its own buffer:

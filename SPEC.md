@@ -4479,6 +4479,7 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x0278 vol_del       (X)
                                                 0x0280 vol_mount     (X)
                                                 0x0288 vol_paint
+                                                0x0290 drv_cfg       (X)
 ```
 
 **Every published slot keeps its number and contract**, on the rule that **a
@@ -13336,9 +13337,17 @@ the wrong settings. Every value now travels with a key that says what it is.
         db  data[len]
 ```
 
-Six keys today, 43 bytes: `DW` driver-wanted bitmap, `SR` sound route, `CH`
-clock 12/24, `CS` clock seconds, `SM` scheduler mode, `BB` back buffer. They
-are ASCII so a hex dump of the file reads as the list of settings it is.
+Seven keys today, 81 bytes: `DW` driver-wanted bitmap, `SR` sound route, `CH`
+clock 12/24, `CS` clock seconds, `SM` scheduler mode, `BB` back buffer, and
+`HD` — a **driver's** own settings, whose contents the kernel does not know
+(§51.9). They are ASCII so a hex dump of the file reads as the list of
+settings it is.
+
+The keys **tile the settings struct exactly** — every byte of `drv_cfg`
+belongs to one key and no key overlaps another — which is what lets
+`CFG_FBUF`, the file buffer, be *derived* rather than chosen:
+`CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2`. A new key sizes the buffer
+without anyone remembering to.
 
 Four rules follow, and they are the point of the format:
 
@@ -13348,6 +13357,10 @@ Four rules follow, and they are the point of the format:
    until that older one saves. That is intended: preserving bytes whose
    meaning cannot be checked is worse than losing them, because the next
    kernel to read them cannot tell a stale record from a current one.
+   **`HD` is the deliberate exception, and not a violation of this rule**: it
+   is a key this kernel *does* know — it knows the name and the length, and
+   only the meaning belongs to somebody else — so it round-trips untouched on
+   a machine whose driver never loads.
 2. **A key whose meaning changed carries a new `ver`**, so the old record does
    not match and the **default stands**. This is the case a positional struct
    cannot express at all — same name, different encoding, no way to tell them
@@ -13493,6 +13506,53 @@ reinvented.
 claim goes with it, and every window the driver put on screen is hidden — the
 kernel frees the image the moment detach returns.
 
+### 51.9 A driver's own settings, inside SYSTEM.CFG
+
+A driver has settings the kernel has no business understanding — the geometry
+of a hard disk the probe could not measure, which partitions were mounted — and
+they have to survive a reboot. `OSAPI_DRV_CFG` (slot **0x0290**, X, fenced on
+the same identity test as the four volume slots) carries them:
+
+```
+AL = 0  read the blob into ES:SI, at most CX bytes; out CX = bytes handed over
+AL = 1  write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
+        the Control Panel's teardown like every other setting (§31.8)
+AL = 2  ...and write the file NOW
+out CF = 1  not a published driver, or a WRITE longer than DRV_BLOB_SZ (34)
+```
+
+**It rides the kernel's file rather than owning one, and the reason is the
+boot.** A file of its own is a second directory search and a second read — and
+worse, the *volume dance* around them: every file slot resolves in the current
+volume and directory (§19.2), so a driver that has just mounted C: must bank
+the pair, `OSAPI_FILE_GOTO` back to A: — which is a full **remount** — read,
+and remount again to put the volume back. Two remounts and a read, at every
+boot, for 34 bytes that were about to travel next to the Control Panel's other
+41. This is one `rep movsb`.
+
+**The kernel knows the key's name and its length and nothing else.** It moves
+the bytes, it never reads them, and versioning them is the driver's job — the
+blob a driver has never written reads back as zeroes, so a version byte inside
+it is what tells the defaults from a saved state, exactly as §51.5 rule 2 does
+one level up. The consequence that matters is the machine where the driver is
+**not loaded**: the blob comes off the disk at boot, sits in the settings
+struct, and is written back out unchanged, so unticking a driver, rebooting,
+and ticking it again finds its drives exactly where they were. That is why `HD`
+is a known key rather than an unknown one (§51.5 rule 1).
+
+What it costs is that `DRV_BLOB_SZ` is **reserved on every machine**, loaded
+driver or not: 34 bytes of `.bss` and 38 of the file, on a 128KB floor machine
+that may have no hard disk. One blob is shared by whichever driver asks, which
+is the honest shape while exactly one class has settings; a second claimant is
+a second key, not a bigger blob.
+
+**Verb 2 exists because a mount is not a preference.** Deferral is right for a
+session of nudging a cylinder count — a floppy write is about a second on the
+floor machine and the panel is frozen for it — but a machine switched off with
+the panel still open would come back with a hard disk it had been told to mount
+and has not. So the geometry editor stages on every click and writes on none,
+and Mount and Unmount write on the spot.
+
 ## 52. HDD.DRV — the hard-disk driver (drivers/hdd/)
 
 MFM through an XT controller card's own ROM, and CHS-only IDE, as a loadable
@@ -13625,30 +13685,34 @@ about.
 **Unmount is the other half**: it drops every volume the selected device has,
 not the first.
 
-### 52.6 HDD.CFG — the mount survives a reboot
+### 52.6 The mount survives a reboot
 
 A hard disk the user mounted is a hard disk the user expects to find on the
 desktop next time, and a geometry the user typed in is one they should not
-have to type again. Both live in **`HDD.CFG`**, in the system disk's root,
-written through the ordinary file API.
+have to type again. Both live in the driver's settings blob inside
+`SYSTEM.CFG` (§51.9), reached with `OSAPI_DRV_CFG`.
 
-**It is the driver's file, not `SYSTEM.CFG`'s business.** That file's key
-table is kernel `.text` (§51.5), so putting a driver's settings in it would
-put a driver's settings in the kernel — the thing this whole subsystem is
-arranged not to do.
-
-Its format is a signature and a **whole-file version**, not §51.5's keyed
-records, and the difference is proportionate rather than lazy: `SYSTEM.CFG`
-has many independent settings and several kernel versions reading each
-other's work, while this one has a single owner that rewrites it entire on
-every change. It borrows the rule that matters — a version that does not
-match exactly means **the defaults**, so changing the shape is a bump and
-never a misread.
+**It was its own file, `HDD.CFG`, and that was the wrong answer.** The
+objection was the boot cost and it is a real one: a second directory search, a
+second read, and two full remounts around them to get the current volume back
+to A: and then to where it was (§19.2). `OSAPI_DRV_CFG` is a `rep movsb` into
+a file the boot already reads. What it gives up — 34 bytes reserved on every
+machine — is stated in §51.9; what it does *not* give up is the separation,
+because the kernel still knows nothing about the bytes. A stale `HDD.CFG` left
+on a disk by an older build is inert: nothing reads it, and deleting it is a
+tidy-up rather than an upgrade step.
 
 ```
-+0   'O88HDD',0,0   +8  dw version   +10 db count  +11 db 0
-+12  count x 12:  kind, unit, base, cyl, heads, spt, flags(bit 0 = mounted)
++0   db version (1; 0 = never written = the defaults)   +1  db count
++2   count x 8:  kind, unit, base>>4, flags(bit 0 = mounted), dw cyl,
+                 db heads, db spt
 ```
+
+Four records of eight bytes and a two-byte header is 34, which is where
+`DRV_BLOB_SZ` comes from — the kernel's constant is the size of what the disk
+driver needs, not a round number. `base>>4` is lossless because every ISA task
+file is 16-byte aligned, and heads (1..255) and sectors (1..63) each fit the
+byte the device row spends a word on.
 
 Three things about it are load-bearing:
 
@@ -13658,20 +13722,25 @@ Three things about it are load-bearing:
   a partition table belonging to somebody else.
 - **A record exists only for a drive worth remembering** — one whose geometry
   the user typed in, or one that was mounted. There is nothing to save about a
-  drive the probe describes correctly and nobody mounted.
-- **Every file operation puts the volume back.** File names resolve in the
-  *current* volume and directory (§19.2), and by the time this runs that may
-  well be the hard disk just mounted — so it banks the pair with
-  `OSAPI_FILE_HERE`, works in A:'s root, and goes back. At boot that also
-  leaves the rest of `drv_boot` with the system disk current, exactly as it
-  would have been without a hard disk at all.
+  drive the probe describes correctly and nobody mounted. The blob is
+  zero-filled before it is built, so the records nobody wrote are not last
+  session's.
+- **The automount puts the volume back.** File names resolve in the *current*
+  volume and directory (§19.2) and a mount changes both, so it banks the pair
+  with `OSAPI_FILE_HERE` and restores it — which leaves the rest of `drv_boot`
+  with the system disk current, exactly as it would have been without a hard
+  disk at all. The mount's *own* save no longer needs this: the kernel owns
+  the file and the drive it lives on.
 
-The write is **deferred** for `cp_flush`'s reason (§31.8): a floppy write is
-about a second on the floor machine and a session of nudging the cylinder
-count with `+` must not cost one per click. Any action that *uses* the
-geometry — Partition, Format, Mount — spends it, as does detach; a mount or an
-unmount saves outright, because the set of mounted drives is what the next
-boot reads.
+There are three ways out and each is the §51.9 verb its job needs. The
+geometry editor **stages** on every `+` and writes on none, because a floppy
+write is about a second on the floor machine and the panel is frozen for it;
+opening the partitioner or the formatter **spends** a staged edit, because a
+geometry the user is about to format a disk with is one worth surviving a
+hang; and Mount and Unmount **write on the spot**, because the set of mounted
+drives is what the next boot reads. Detach stages — the fence is still open
+(the kernel releases the class after detach returns) and the panel that
+unticked the driver is about to close and write the file anyway.
 
 ### 52.9 Not in scope
 

@@ -92,6 +92,12 @@ DRV_H_DISP  equ PKG_DISP        ; 12: `call bp / retf`, exactly as a package
 DRV_HDR_SZ  equ 0x20
 DRV_VER     equ 4
 DRV_MAX_KB  equ 40              ; the biggest driver image we will claim
+DRV_BLOB_SZ equ 34              ; a driver's own settings, carried in
+                                ; SYSTEM.CFG (SPEC.md 51.9). 34 bytes is what
+                                ; the disk driver needs for four devices, and
+                                ; it is reserved on every machine - which is
+                                ; the price of not making the ONE file the
+                                ; boot already reads into two
 
 ; --- entry verbs (SPEC.md 51.2) ----------------------------------------------
 DRVV_ATTACH equ 0               ; probe + hook. out CF=1 = no hardware, and
@@ -203,11 +209,6 @@ CFG_GEN_V   equ 3               ; what this kernel writes, and the only one it
                                 ; reads: generation 2 was the positional
                                 ; struct, and a struct read as records is
                                 ; nonsense, so it falls back to the defaults
-CFG_FBUF    equ 64              ; the file buffer. The table below emits 10
-                                ; bytes of header, 31 of records and a 2-byte
-                                ; terminator = 43, so this is the next round
-                                ; number up with room for a few more keys
-
 CFR_KEY     equ 0               ; one record
 CFR_VER     equ 2
 CFR_LEN     equ 3
@@ -223,7 +224,16 @@ CFG_H12     equ 3               ; db: [clk_h12]    (SPEC.md 31.5)
 CFG_SEC     equ 4               ; db: [clk_secs]
 CFG_SCH     equ 5               ; db: the scheduler mode (SPEC.md 8.2)
 CFG_BB      equ 6               ; db: double buffering  (SPEC.md 32)
-CFG_NB      equ 7               ; ...the struct's size
+CFG_DBLOB   equ 7               ; DRV_BLOB_SZ bytes: A DRIVER'S OWN SETTINGS,
+                                ; and the kernel does not know what is in
+                                ; them (SPEC.md 51.9). It knows the NAME and
+                                ; the LENGTH, carries them to disk and back,
+                                ; and hands them over when a driver asks -
+                                ; which is why they round-trip untouched on
+                                ; a machine whose driver never loads, rather
+                                ; than being dropped like a key this kernel
+                                ; does not know (rule 1 above)
+CFG_NB      equ CFG_DBLOB + DRV_BLOB_SZ     ; ...the struct's size
 
 ; key, ver, len, offset into the struct. ONE table drives the reader and the
 ; writer both, so a new setting is five bytes here and nothing else - and the
@@ -245,8 +255,20 @@ drv_cfg_keys:
     db 1, 1, CFG_SCH
     dw 'BB'                     ; Back Buffer
     db 1, 1, CFG_BB
-CFG_NKEY    equ 6
+    dw 'HD'                     ; Hard Disk - the DRIVER's own blob (51.9)
+    db 1, DRV_BLOB_SZ, CFG_DBLOB
+CFG_NKEY    equ 7
 CFG_KESZ    equ 5               ; bytes per table entry
+
+; The file buffer, DERIVED rather than guessed: drv_cfg_ser emits the header,
+; one CFR_HDR-byte header per key, that key's bytes, and a 2-byte terminator -
+; and the keys TILE THE STRUCT EXACTLY (every byte of drv_cfg belongs to one
+; key and no key overlaps another), so the bytes come to CFG_NB. 81 today, and
+; it follows a new key automatically. It used to be a round number chosen by
+; hand with slack under it, and slack in the one buffer that is sized by an
+; expression anyone can evaluate is just .bss nothing can use - which, with
+; guard 2 as tight as it now is, is memory somebody else needs.
+CFG_FBUF    equ CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2
 
 ; The three plain bytes, as (struct offset, kernel byte) pairs: one loop packs
 ; and another unpacks, so a new setting is three bytes of table rather than
@@ -345,6 +367,17 @@ drv_init:
     push cx
     mov byte [drv_nerr], 0
     mov byte [drv_wcnt], 0
+    push di                     ; the driver blob starts EMPTY: -f bin zeroes
+    push es                     ; no .bss, and a garbage blob is one a driver
+    push ds                     ; would be entitled to believe (SPEC.md 51.9)
+    pop es
+    mov di, drv_cfg + CFG_DBLOB
+    mov cx, DRV_BLOB_SZ
+    xor al, al
+    cld
+    rep stosb
+    pop es
+    pop di
     call drv_svc_clear_all
     xor cx, cx                  ; nothing is loaded on a cold boot, and .bss
     mov bx, drv_tab             ; is not what these live in - clear the two
@@ -686,6 +719,84 @@ drv_cp_call:
 .out:
     pop di
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; osapi_drv_cfg - a driver's own settings, in the kernel's file (SPEC.md 51.9)
+; in:  AL = 0 get / 1 set / 2 set and write the file now
+;      ES:SI = the driver's buffer, CX = its size
+; out: get: CX = bytes handed over (never more than either side's size)
+;      set: CF = 1 = CX is bigger than DRV_BLOB_SZ and nothing was stored
+; clobbers: CX (an output), flags
+;
+; **The kernel does not know what is in it.** It knows the key, the length and
+; how to get it to the disk and back; the driver owns the content and versions
+; it itself, which is the only split that lets a setting belong to a driver
+; and still ride in the one file the boot already reads.
+;
+; That matters most on the machine where the driver is NOT loaded: the blob
+; comes off the disk at boot, sits in the struct, and is written back out
+; unchanged. It is not dropped the way an unknown key is (SPEC.md 51.5 rule
+; 1), and the difference is that this key is known - only its meaning is not.
+;
+; Verb 2 exists because a MOUNT is not a preference. Every other setting is
+; deferred to the panel's teardown (SPEC.md 31.8) because a floppy write is a
+; second on the floor machine and a session of fiddling must not cost one per
+; click; but a machine powered off with the panel still open would then come
+; back with a hard disk it had been told to mount and has not.
+; -----------------------------------------------------------------------------
+osapi_drv_cfg:
+    push ax
+    push bx
+    push si
+    push di
+    mov bx, es
+    call drv_pub_seg            ; a published DRIVER's slot, and nobody
+    jc .no                      ; else's - the drv_task fence exactly
+    cmp cx, DRV_BLOB_SZ
+    jbe .size
+    or al, al
+    jnz .no                     ; a set bigger than the blob stores nothing
+    mov cx, DRV_BLOB_SZ         ; ...a get just hands over what there is
+.size:
+    cld
+    push cx                     ; rep eats it, and it is the get's answer
+    or al, al
+    jnz .set
+    mov di, si                  ; get: the store -> the caller's buffer. DS is
+    mov si, drv_cfg + CFG_DBLOB ; the kernel and ES the caller already, so this
+    rep movsb                   ; is one rep movsb with no override
+    pop cx
+    jmp short .ok
+.set:                           ; ...and a set is the SAME copy with the two
+    mov di, drv_cfg + CFG_DBLOB ; segments swapped, rather than a second loop
+    push ds
+    push es
+    push cs
+    pop es                      ; ES = the kernel...
+    mov ds, bx                  ; ...DS = the caller, whose segment is BX
+    rep movsb
+    pop es
+    pop ds
+    pop cx
+    mov byte [cp_wdirty], 1     ; the file is owed a write...
+    cmp al, 2
+    jne .ok
+    call cp_flush               ; ...and this verb wants it NOW
+.ok:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    xor cx, cx
+    pop di
+    pop si
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
