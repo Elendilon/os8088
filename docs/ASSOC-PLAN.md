@@ -1,6 +1,10 @@
 # File type associations — investigation and plan
 
-**Status: proposal. Nothing here is implemented.**
+**Status: Phases 1-5 are BUILT, measured and verified on VGA, CGA and
+Hercules. `tests/assoctest` passes 6/6. What remains is the icon-style
+decision (§9.1 - both variants are built, `ASSOC_ICONS=badge` selects the
+other) and the on-disk cache (§2.5.2 / DISK-PERF-PLAN §5.5), which is scoped
+and not started.**
 
 The ask: a file with a known extension should show the *associated program's*
 icon, marked so it reads as a document rather than as the program; and

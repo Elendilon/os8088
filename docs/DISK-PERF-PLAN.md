@@ -2,7 +2,8 @@
 
 **Status: Phase 0 and Phase 1 are BUILT and measured (§2.1, §3.1). Phases 2
 and 3 are DROPPED (§4). Mechanism D (§5.5) is the remaining work and belongs
-with `docs/ASSOC-PLAN.md`.**
+with `docs/ASSOC-PLAN.md`, whose Phases 1-5 are now built - so its
+prerequisite is met and it is the next thing to build.**
 
 `docs/FIELD-NOTES.md` note 3 records the symptom — disk access on real
 hardware feels far slower than the work being done should justify — and three
