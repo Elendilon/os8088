@@ -10579,8 +10579,35 @@ gfx lock **held**, *after* the dialog window has been destroyed:
 in   AL = mode (0 Open, 1 Save)
      SI = the requester window ptr it registered
      DI = the chosen name, NUL-terminated, <= 12 chars (fdlg_name)
+     DX:CX = that file's SIZE IN BYTES, or 0 when this listing has no such
+             file (a name typed for a Save, a folder, anything not found)
 out  nothing; no register need be preserved
 ```
+
+**The size is there so an app can refuse before touching the disk, and that
+is not a micro-optimisation.** Every loader in this tree used to read the
+whole file and *then* judge it: Tracker's `mp_load` says "Not a MOD" after
+116KB has come off the floppy, and Paint's decoder checks for `BM`/`GI`
+after the read, its own comment admitting "nothing knows the size until the
+read reports it, so the claim was for the largest run the heap had". On the
+target machine that is **ten seconds of motor to be told no**, and a failing
+load is indistinguishable from a working one until it ends. It also made the
+app claim the largest free run blindly, which on a fragmented heap is both
+wasteful and the wrong number.
+
+`fdlg_sizeof` answers it from the **mount snapshot already in RAM** — the
+listing the dialog is displaying, whose right-hand column is this very
+figure — so it costs no I/O at all. With it, an app's completion proc can
+do all of its refusing for free, in this order: wrong extension → refuse;
+size past what it can hold → refuse; size past `OSAPI_MEM_AVAIL`'s
+**largest run** → refuse, naming the shortfall. Only then claim — **exactly
+the size, not the largest run** — and read. `apps/tracker` is the reference
+consumer, and its three early refusals stop nothing and free nothing, so a
+mis-picked file does not interrupt what is already playing.
+
+Adding `DX:CX` is **backward compatible**: it is an extra *input*, and a
+callback written against the older contract simply ignores two registers it
+was already free to clobber.
 
 Same rules as `AM_ONCMD` (§12.2): it may draw, it may call the file slots,
 it must **not** take the lock, and it **must repaint itself** — the kernel

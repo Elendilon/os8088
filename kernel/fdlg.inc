@@ -446,13 +446,19 @@ fdlg_commit:
                                 ; it, forever. The 0xFF stamp also outlives
                                 ; the app, because snd_release_inst releases
                                 ; by instance and nothing owns 0xFF.
-    mov al, [fdlg_mode]         ; the callback's contract: AL = mode,
-    mov ah, 0                   ; SI = its window, ES:DI = the name - ES,
-    mov si, [fdlg_rqwin]        ; because for a package DS is its own
-    mov di, fdlg_name           ; segment and this buffer is ours (20.1)
     push es                     ; the callback owes us nothing (SPEC.md
     push bp                     ; 38.6), and ES is the one register the
     mov bp, cx                  ; kernel cannot shrug off (SPEC.md 1)
+    call fdlg_sizeof            ; DX:CX = the chosen file's size, 0 if this
+                                ; listing has no such file (a typed Save
+                                ; name, a folder). A RAM lookup - no I/O.
+    mov al, [fdlg_mode]         ; the callback's contract: AL = mode,
+    mov ah, 0                   ; SI = its window, ES:DI = the name - ES,
+    mov si, [fdlg_rqwin]        ; because for a package DS is its own
+    mov di, fdlg_name           ; segment and this buffer is ours (20.1) -
+                                ; and DX:CX = the SIZE, so an app can refuse
+                                ; what it cannot fund before touching the
+                                ; disk (SPEC.md 38.6)
     call wm_pkgcall             ; SI = its window, BP = the completion proc
     pop bp
     pop es
@@ -542,6 +548,68 @@ fdlg_setname:
 ; -----------------------------------------------------------------------------
 fdlg_rows:
     mov ax, [disk_nfiles]
+    ret
+
+; -----------------------------------------------------------------------------
+; fdlg_sizeof - how big is the file the box now names? (SPEC.md 38.6)
+;
+; in:  fdlg_name = the chosen name, NUL, as the callback will receive it
+; out: DX:CX = its size in bytes, or 0:0 when this listing has no such FILE -
+;      a name typed for a Save, a folder, or anything not found. All other
+;      registers preserved.
+;
+; A LISTING lookup, not a directory search: the mount snapshot is already in
+; RAM (SPEC.md 38.2 - modality is what lets this module read the global
+; snapshot directly), so this costs no floppy I/O at all. That is the whole
+; point of handing the size to the callback - an app can refuse a load it
+; cannot fund WITHOUT the motor ever spinning up, where before it had to
+; claim a buffer and let dskw_read walk the directory to be told FERR_BIG.
+; -----------------------------------------------------------------------------
+fdlg_sizeof:
+    push ax
+    push bx
+    push si
+    push di
+    xor cx, cx                  ; the not-found answer
+    xor dx, dx
+    call fdlg_rows              ; AX = how many entries this listing has
+    or ax, ax
+    jz .out
+    mov bx, ax
+    xor ax, ax
+.each:
+    call fdlg_stage             ; fdlg_row / fdlg_type / fdlg_size
+    cmp word [fdlg_type], 2     ; a folder has no size to report
+    jae .next
+    push ax
+    mov si, fdlg_row            ; case-sensitive is right: both sides are the
+    mov di, fdlg_name           ; mount's own 8.3 display form (SPEC.md 19)
+.cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .nomatch
+    or al, al
+    jz .match
+    inc si
+    inc di
+    jmp short .cmp
+.nomatch:
+    pop ax
+    jmp short .next
+.match:
+    pop ax
+    mov cx, [fdlg_size]
+    mov dx, [fdlg_sizeh]
+    jmp short .out
+.next:
+    inc ax
+    cmp ax, bx
+    jb .each
+.out:
+    pop di
+    pop si
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

@@ -597,6 +597,54 @@ trk_trim:
 ; its verdict on the status line. Success starts playback and repaints -
 ; which under WF_FULL also covers the menu-bar strip fdlg_close painted.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; trk_is_mod - does [trk_fname] end in .MOD? (SPEC.md 38.6)
+; out: CF = 0 yes, CF = 1 no. All registers preserved.
+;
+; The mount's display names are upper-case 8.3 (SPEC.md 19), so this needs no
+; case folding. It is a NAME test and not a content one on purpose: the point
+; is to refuse before the file is read, and mp_load still has the last word on
+; anything that gets past it - a .MOD that is not one is still caught, just
+; not for free.
+; -----------------------------------------------------------------------------
+trk_is_mod:
+    push ax
+    push si
+    push di
+    xor di, di                      ; DI = the char after the last dot, 0 none
+    mov si, trk_fname
+.find:
+    lodsb
+    or al, al
+    jz .end
+    cmp al, '.'
+    jne .find
+    mov di, si                      ; SI already points past the dot
+    jmp short .find
+.end:
+    mov si, di
+    or si, si
+    jz .no                          ; no dot at all
+    cmp byte [si], 'M'
+    jne .no
+    cmp byte [si+1], 'O'
+    jne .no
+    cmp byte [si+2], 'D'
+    jne .no
+    cmp byte [si+3], 0
+    jne .no
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
+
 trk_fdone:
     push ax
     push bx
@@ -604,6 +652,9 @@ trk_fdone:
     push dx
     push si
     push di
+    mov [trk_fsize], cx             ; DX:CX = the file's size (SPEC.md 38.6),
+    mov [trk_fsize+2], dx           ; banked FIRST: the name copy below uses
+                                    ; CX as its counter and would eat it
     mov si, di                      ; copy the kernel's name buffer out NOW:
     mov di, trk_fname               ; it dies when this call returns
     mov cx, 12
@@ -616,6 +667,41 @@ trk_fdone:
     mov byte [trk_fname + 12], 0
     push ds
     pop es                          ; ES = DS again (the callback default)
+
+    ; --- refuse what we cannot load, BEFORE any disk I/O (SPEC.md 38.6) ------
+    ; Both tests below used to happen after the whole file had been read: the
+    ; extension one as mp_load's verdict, the size one as dskw_read's
+    ; FERR_BIG. Reading 116KB off a 360KB floppy to be told "not a MOD" is
+    ; ten seconds of motor on the target machine, and the user cannot tell a
+    ; failing load from a working one until it ends. The dialog now hands us
+    ; the name AND the size, so both answers are free.
+    call trk_is_mod
+    jc .notmod
+    mov ax, [trk_fsize]             ; DX:AX = the size, and it is genuinely
+    mov dx, [trk_fsize+2]           ; 32-bit: a 116KB MOD has a high word of
+    cmp dx, 2                       ; 1, which an "any high word is too big"
+    jae .toobig2                    ; test rejects. >= 128KB is the real cap
+    mov bx, ax
+    or bx, dx
+    jz .sizeok                      ; 0 = the dialog had no size for it (a
+                                    ; typed name): fall through and let the
+                                    ; file API answer as it always did
+    add ax, 1023                    ; bytes -> KB, rounded up, across 32 bits
+    adc dx, 0
+    mov cl, 10
+    shr ax, cl
+    mov cl, 6
+    shl dx, cl
+    or ax, dx                       ; AX = KB needed
+    mov [trk_needk], ax
+    cmp ax, 128                     ; the same cap the claim used to apply
+    ja .toobig2
+    push ax
+    call OSAPI_MEM_AVAIL            ; AX = LARGEST contiguous run in KB
+    pop bx
+    cmp ax, bx
+    jb .nomem2                      ; not fundable: say so and touch nothing
+.sizeok:
 
     call trk_play_stop              ; silence + close + DRAIN before the blob
                                     ; moves: trk_stream_close spins out the
@@ -630,6 +716,12 @@ trk_fdone:
     call OSAPI_MEM_FREE
     mov word [trk_modseg], 0
 .alloc:
+    mov ax, [trk_needk]             ; the size the DIALOG reported, rounded to
+    or ax, ax                       ; KB: claim what the file needs and not
+    jnz .sized                      ; the whole largest run (SPEC.md 38.6).
+                                    ; 0 = no size was available (a typed
+                                    ; name), so fall back to the old
+                                    ; largest-run-capped-at-128KB shape
     call OSAPI_MEM_AVAIL            ; AX = LARGEST contiguous run in KB, and
     or ax, ax                       ; BX = the total (KB, not
     jz .nomem                       ; paragraphs - SPEC.md 50.3)
@@ -672,6 +764,15 @@ trk_fdone:
 
 .nomem:
     mov si, trk_s_nomem
+    jmp .fail
+.notmod:                            ; the three early refusals: nothing was
+    mov si, trk_s_notmod            ; stopped, nothing was freed and the disk
+    jmp .fail                       ; was never touched, so whatever is
+.toobig2:                           ; playing keeps playing
+    mov si, trk_s_toobig
+    jmp .fail
+.nomem2:
+    mov si, trk_s_nofit
     jmp .fail
 .rderr:
     cmp ax, FERR_BIG
@@ -1560,6 +1661,8 @@ trk_ttl:     db 'Tracker', 0
 trk_s_stopd:  db 'Stopped  ENTER play  L load', 0
 trk_s_playing: db 'Playing  SPACE stop  L load', 0
 trk_s_fsload: db 'Load is windowed: Esc first', 0
+trk_s_notmod: db 'Not a .MOD file', 0
+trk_s_nofit:  db 'Too big for free memory', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
 trk_s_nomem:  db 'Out of memory', 0
@@ -1600,6 +1703,9 @@ trk_s_smmoff: db 'Smooth off', 0
 
 ; --- the module blob (a heap claim, SPEC.md 50) -------------------------------
     TRKW trk_modseg                 ; grant base segment, 0 = none
+    TRKW trk_fsize                  ; the chosen file's size, from the dialog
+    TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
+    TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown
     TRKW trk_capk                   ; its size in KB
     TRKBUF trk_fname, 13            ; the chosen 8.3 name, copied out of the
                                     ; kernel's buffer during the completion call

@@ -348,7 +348,20 @@ VID_CGA    equ 2
 ; the dialog window is gone:
 ;
 ;     in   AL = the mode it ran in, SI = your window ptr, DI = the chosen
-;          name (NUL, <= 12 chars). No register need be preserved.
+;          name (NUL, <= 12 chars), DX:CX = that file's SIZE IN BYTES (0 =
+;          this listing has no such file: a typed Save name, a folder).
+;          No register need be preserved.
+;
+; USE THE SIZE TO REFUSE BEFORE YOU TOUCH THE DISK. It is free - the dialog
+; reads it out of the mount snapshot already in RAM, the same figure its
+; right-hand column shows - and refusing after a read is not: on a 4.77MHz
+; machine reading 116KB off a floppy to then say "wrong format" is about ten
+; seconds of motor, and the user cannot tell that from a load that works.
+; So: check your extension, check the size against what you can hold, check
+; it against OSAPI_MEM_AVAIL's LARGEST RUN, and only then claim - EXACTLY
+; the size, not the largest run - and read. apps/tracker is the worked
+; example, and its refusals stop nothing and free nothing, so a mis-picked
+; file does not interrupt what is already playing.
 ;
 ; Same rules as a menu command (SPEC.md 12.2): you may draw, you may call the
 ; file slots above, you must NOT take the lock, and you MUST repaint your own
