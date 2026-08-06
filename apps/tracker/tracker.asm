@@ -381,7 +381,7 @@ trk_onkey:
     call trk_smooth_toggle          ; S (SPEC.md 45.11 - fullscreen reach)
     jmp .out
 .diag:
-    call trk_diag_msg               ; D: the feed's own margin, measured
+    call trk_diag_tog               ; D: the meter on/off (SPEC.md 45.14)
     jmp .out
 .play:
     mov al, 0
@@ -655,6 +655,31 @@ trk_trim:
 ; the DMA half-swap, the IRQ, or the card - which is worth knowing before
 ; another cushion is added to a stream that never needed one.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; trk_diag_tog - D toggles the meter, because two of its numbers are LIVE
+;
+; MIN/LATE/UND/BLK/WAKE are running extremes, so a snapshot taken on the
+; keypress says everything about them. SHB is not: it is the state of the
+; shadow buffer at this instant, and the whole point of it is to be read
+; while the screen is visibly emptying. So D latches [trk_diag] and
+; ttx_draw_dyn re-renders the line every frame while it is set; turning it
+; off puts [tui_msgp] back to 0, which is the key hint.
+; -----------------------------------------------------------------------------
+trk_diag_tog:
+    push si
+    cmp byte [trk_diag], 0
+    jne .off
+    mov byte [trk_diag], 1
+    call trk_diag_msg
+    pop si
+    ret
+.off:
+    mov byte [trk_diag], 0
+    xor si, si
+    call tui_msg                    ; 0 = the transport/key legend is back
+    pop si
+    ret
+
 trk_diag_msg:
     push ax
     push bx
@@ -662,6 +687,21 @@ trk_diag_msg:
     push dx
     push si
     push di
+    mov bx, 0xFFFF                  ; SHB: content rows of the text shadow
+    cmp byte [ttx_shok], 0          ; whose row-NUMBER field is blank. A row
+    je .shbd                        ; ttx_shbuild wrote always has one, so
+    xor bx, bx                      ; 00 is an ASSERTION and '--' is "there
+    mov si, ttx_shadow + TTX_HALF * TTX_RW * 2  ; this counts rows nothing
+    mov cx, 64                                  ; ever wrote or something
+.shb:                                           ; erased - and it counts
+    cmp byte [si], ' '                          ; NEITHER of the TTX_HALF pad
+    jne .shbn                                   ; rows, which are outside it
+    inc bx                                      ; by construction
+.shbn:
+    add si, TTX_RW * 2
+    loop .shb
+.shbd:
+    mov [trk_shb], bx
     mov ax, [trk_minlead]
     cmp ax, 0xFFFF                  ; nothing measured yet: say so rather
     jne .have                       ; than printing 65535 halves
@@ -689,6 +729,15 @@ trk_diag_msg:
     mov ax, [trk_wake]
     mov di, trk_s_diag + 40
     call .num2
+    mov ax, [trk_shb]
+    mov di, trk_s_diag + 48
+    cmp ax, 0xFFFF                  ; no shadow to check (windowed, or before
+    jne .shnum                      ; the first build): say so rather than
+    mov word [trk_s_diag + 47], '--'; claim a clean count
+    jmp short .shdone
+.shnum:
+    call .num2
+.shdone:
     mov si, trk_s_diag
     call tui_msg
     pop di
@@ -1177,7 +1226,7 @@ trk_fsx_key:
     call mp_mutetog
     jmp .out
 .diag:
-    call trk_diag_msg
+    call trk_diag_tog
     jmp .out
 .load:
     push si
@@ -1949,11 +1998,12 @@ trk_s_stopd:  db 'Stopped  ENTER play  L load', 0
 trk_s_playing: db 'Playing  SPACE stop  L load', 0
 trk_s_fsload: db 'Load is windowed: Esc first', 0
 trk_s_notmod: db 'Not a .MOD file', 0
-trk_s_diag:   db 'MIN -  LATE ---  UND ---  BLK --  WAKE --', 0
+trk_s_diag:   db 'MIN -  LATE ---  UND ---  BLK --  WAKE --  SHB --', 0
                                         ; [+4] halves, [+12..14] late wakes,
                                         ; [+21..23] driver underrun edges,
                                         ; [+30..31] block-IRQ ticks (max),
-                                        ; [+39..40] worker wake ticks (max)
+                                        ; [+39..40] worker wake ticks (max),
+                                        ; [+47..48] blank shadow rows, LIVE
 trk_s_nofit:  db 'Too big for free memory', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
@@ -2019,6 +2069,8 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
     TRKW trk_lastc                  ; block-IRQ interval, measured
     TRKW trk_wake                   ; ...and this worker's own longest wake
     TRKW trk_wakt                   ; gap, the control for it
+    TRKW trk_shb                    ; blank rows in the text shadow, live
+    TRKB trk_diag                   ; the meter is latched on (SPEC.md 45.14)
     TRKW trk_fsize                  ; the chosen file's size, from the dialog
     TRKW trk_fsize_hi               ; (SPEC.md 38.6); 0 = it had none
     TRKW trk_needk                  ; ...as KB, rounded up; 0 = unknown

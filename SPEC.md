@@ -13001,7 +13001,7 @@ worker only feeds (§53.2).
 | X | XT mode toggle (§45.9 — also File ▸ the relabeling menu item). Refused on the §45.13 text surface, which IS XT mode's fullscreen: `XT off is windowed: Esc first` |
 | R | Cycle the sample rate 11 → 22 → 44 kHz (§45.10 — also the Rate menu) |
 | S | Smooth toggle (§45.11 — also View ▸ the relabeling menu item). Refused on the text surface: `Smooth is a graphics mode only` |
-| D | The margin meter on the status line (§45.14). Works windowed and on the text surface |
+| D | The margin meter on the status line, on/off (§45.14). Works windowed and on the text surface; on the text surface it refreshes every frame |
 | Esc | Exit fullscreen (windowed: ignored) |
 
 The `or al, al` keypad gate of §44.2 applies verbatim: the numeric keypad
@@ -13341,6 +13341,16 @@ Three things about it are load-bearing:
   branch**: pattern row *r* lives at shadow row *r + TTX_HALF*, the visible
   area starts at *view − TTX_HALF*, and the two cancel. The ends of a pattern
   are not a special case, they are blank rows being blitted like any other.
+  **Those pad rows are visible, and that is the intended appearance**: at row 0
+  the top nine rows of the area are blank and at row 63 the bottom nine are, so
+  a playing pattern opens with the blank shrinking away and closes with it
+  growing back — the second of which reads, watched rather than reasoned about,
+  as the lower half of the screen losing its text while the upper half keeps
+  scrolling. It has been mistaken for the shadow emptying, which is why
+  §45.14's `SHB` exists to say otherwise in one number. Showing the
+  neighbouring patterns' rows instead would mean a three-pattern shadow and a
+  rebuild whenever *any* of the three moved; the blanks are the price of the
+  no-clamp window.
 - **The band is an attribute, not a redraw.** The shadow holds every row in
   `TTX_A_NORM`; the blit lands them all and 59 attribute bytes turn the middle
   row `TTX_A_INV` afterwards. Nothing has to remember which row *used* to be
@@ -13408,6 +13418,25 @@ listening cannot tell them apart. Every counter resets with the stream, in
 | `UND` | **edges** into `SND_ST_UNDER` — the driver reporting that *its* 2KB double-buffer half was not refilled at the block IRQ | climbing means the fault is downstream of this app entirely |
 | `BLK` | the longest gap, in ticks, between two different `consumed` readings | `consumed` moves by one whole half and only from `sbl_isr`, so this **is** the block-IRQ interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. Doubling means a block arrived a whole period late |
 | `WAKE` | the longest gap, in ticks, between this worker's own feed passes | the control for `BLK`. 1 is healthy |
+| `SHB` | **live**: how many of the text shadow's 64 content rows have a blank row-number field (§45.13.2). `--` = there is no shadow to check — windowed, or before the first build | anything but `00` means the shadow really is losing content, and the blank area on screen is not the pad |
+
+**`SHB` is the one live number, and that is why D is a latch rather than a
+one-shot.** The other five are running extremes, so a snapshot taken on the
+keypress says everything about them; `SHB` is the state of the shadow at this
+instant and its whole purpose is to be read *while* the screen is visibly
+emptying. So `trk_diag_tog` sets `[trk_diag]` and `ttx_draw_dyn` re-renders
+and redraws the line every frame while it is set — the `[ttx_lmsg]` pointer
+compare cannot see digits change inside one buffer, so the diag path skips it.
+Turning it off puts `[tui_msgp]` back to 0, which is the key hint.
+
+The row-**number** field is the probe because it is the one part of a row that
+is never legitimately blank: an empty pattern row has spaces in all four cells
+and still carries `00`..`3F` on both edges. So `SHB` separates the two things
+a blank screen area can mean — the pad (`00`, healthy) from a shadow that lost
+its contents (`nn`) — without needing to know which row the view is on. The
+scan is 64 word reads a frame, which is why it can afford to be live at all.
+It also reads `00` for the pad rows themselves, deliberately: they are outside
+the 64 it walks.
 
 `BLK` and `WAKE` are a pair and neither is worth reading alone. `BLK` high
 with `WAKE` at 1 is the card or its IRQ stalling while this app ran

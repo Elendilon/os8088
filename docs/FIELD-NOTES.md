@@ -113,6 +113,45 @@ is a poor fit for the evidence.
 >   on the CPU can measure it. That is the point to stop instrumenting the
 >   guest and start swapping hardware.
 >
+> **The text screen visibly emptying is a separate observation, and it has
+> two possible meanings that matter very differently.** `SHB` (§45.14) tells
+> them apart in one number, live, and the QEMU reading is `SHB 00` with the
+> top nine rows of the area blank at row 0 — i.e. the expected one.
+>
+> - **`SHB 00` — it is the pad, and the pad is by design** (§45.13.2). The
+>   shadow carries `TTX_HALF` = 9 blank rows above pattern row 0 and below row
+>   63 so the blit window needs no clamp; they are on screen at the ends of
+>   every pattern. Watched rather than reasoned about, the second one reads
+>   exactly as reported: the lower half loses its text while the upper half
+>   keeps scrolling. **The useful consequence is that it is a free, precise,
+>   visible clock.** The blank reaching its full nine rows *is* row 63, so
+>   "the audio hitches at the end of the missing lines" times the hitch to the
+>   **pattern boundary** — the one frame in ~8 seconds that costs 256
+>   `mp_cell2txt` calls and 4,838 word stores instead of 1,121. The honest
+>   reading of that, though, is **correlation and not cause**: a one-frame CPU
+>   stall cannot starve a ring that `MIN 6` says never drew down, and `WAKE
+>   01` says the worker kept its slice. If the hitch really does land there,
+>   what to look at is `BLK` on that same frame — a pattern boundary costing a
+>   block IRQ would be a real finding, and a pattern boundary merely being a
+>   memorable place in the music is the null result.
+> - **`SHB` non-zero — something is writing into Tracker's bss**, and that
+>   would change the audio investigation completely rather than adding to it.
+>   The shadow is 9,676 bytes of a 30,498-byte bss, the largest single object
+>   in it, so a wild write lands there first by probability alone — and the
+>   *same* writer would reach `mp_voltab`, `mp_chans` and `mp_outbuf`, where
+>   the symptom is not a blank row but **a channel going quiet or an
+>   amplitude going wrong**. That is one root cause for both reports, and it
+>   would explain the thing that is otherwise strange about them: every
+>   transport counter reads perfect because the transport is faithfully
+>   delivering corrupted samples. It would also have to be 8088-specific,
+>   since QEMU shows neither symptom — and the one known 8088-specific
+>   memory hazard in this tree is the one `tests/stackprobe` exists for (a
+>   real BIOS services interrupts on the current task stack; SeaBIOS does
+>   not). That lands in `LOW_SEG` rather than package bss and `SCH_MAGIC`
+>   would catch it, so it does not fit as written — but it is the right
+>   family to think in, and `stackprobe` on the reporting machine is the
+>   cheap first move.
+>
 > Everything below this line is the earlier analysis, kept because its
 > ruling-out is still valid and because the two theories it eliminates are
 > the ones anybody would reach for again.
