@@ -48,11 +48,14 @@ by name in a dozen places.
 |---|---|
 | owner | `Elendilon` — owner of this fork, `Elendilon/os8088` |
 | machine | **IBM PC 5150**, Intel 8088 at 4.77 MHz |
-| RAM | **640 KB** |
-| video | **Hercules (720×348) *and* a CGA, both in the machine.** The probe (§39.1) finds the Hercules first, so the CGA column needs a `VIDEO=cga` build |
-| floppies | two |
+| motherboard | the 64–256K board, **256 KB populated** |
+| expansion | **AST SixPakPlus Rev 1** — carries the other **384 KB** (256 + 384 = the 640 KB every set reports) **and the clock** |
+| clock | the SixPakPlus's **MM58167 at 2C0h** — §37.90's **rung 2**, and the machine the whole ladder was written for: an XT BIOS implements `int 1Ah` AH=00h/01h and nothing else, so this BIOS knows nothing about a clock sitting in its own backplane. It is also what keeps rung 3 off a SixPakPlus — rung 3 is claimed only when the BIOS *can* read the clock, and here it cannot |
+| video | **Hercules GB101 → IBM 5151** (mono TTL) **and IBM CGA, new style → IBM 5153** (RGB). **Both cards and both monitors, always, in the machine.** So the second column costs a *build*, never a card swap — but the probe (§39.1) finds the Hercules first, so the CGA needs a kernel told to ignore it |
+| floppy | **one** — a **Tandon TM100-2**, 360 KB 5.25" DD. There is no drive B |
+| hard disk | **Seagate ST-225**, 20 MB MFM, on a **Seagate ST11M** controller, in the second bay |
 | sound | none |
-| clock | a real **MM58167 card at 2C0h** — §37.90's rung 2, field-verified, and the one rung no emulator can reach *(unconfirmed that this is the same machine — see below)* |
+| period | **intentionally, entirely period. No modern hardware is attached to the 5150.** No Gotek, no XT-IDE, no flash. That is the property that makes its floppy and disk timings mean what they say, and it is a deliberate constraint rather than an accident — do not propose "just put a Gotek in it" as a way to shorten a turnaround |
 
 ### What it has measured
 
@@ -75,62 +78,98 @@ Two of those are the load-bearing ones. **756 µs** is the per-call floor
 (SPEC.md §5.7), and **238 ms a sector** is why a 116KB module load is 57
 seconds.
 
-### Unconfirmed — `Elendilon` to fill
+### Two things E1 can test that nothing else here can
 
-Written down as gaps rather than guessed, because this is a provenance file
-and a plausible invention in one is worse than a blank:
-
-1. **The floppy drives.** `bench360.img` is 9 spt / 40 cylinders, so 360KB
-   5.25" DD is the assumption everything here makes. Both drives the same?
-   Which one boots?
-2. **How an image gets onto a floppy** — the actual turnaround for a field
-   run, and the thing nothing in this repo knows. A Greaseweazle, a period
-   machine with a working 5.25", a Gotek?
-3. **Whether the MM58167 is in E1** or in a second machine. §37.90 says "a
-   clock card at 2C0h in a 5150"; if it is this one, say so and the ladder's
-   rungs get a machine.
-4. **What makes it 640 KB** — a SixPakPlus or similar is implied by §37.90's
-   prose, and whether the clock rides on it matters to anyone re-testing.
-5. **The monitors.** Hercules wants TTL mono and CGA wants composite or RGB;
-   is that two monitors, a switch, or a card swap — and does taking the CGA
-   column mean physically changing something?
-6. **Anything else in the slots** (Part 9 says no sound card; an XT-IDE or a
-   hard-disk controller would make §52's driver testable on iron for the
-   first time).
+- **The MFM hard disk.** SPEC.md §52's driver has never run on real spinning
+  MFM. E1 is an ST-225 behind an **ST11M**, which is a controller *with a
+  ROM* — and that is §52's **rung 0**, the int 13h path, which is also the
+  whole of MFM support. Rung 1 (the IDE task file) is gated on `CPU_286` for
+  an arithmetic reason — an 8088's `in ax, dx` is two 8-bit bus cycles at the
+  same port, so the drive's high byte is lost — so **rung 0 is the only rung
+  an 8088 can ever take, and E1 is the only machine that can prove it.**
+  Everything §52 says about partitioning, formatting, the capacity-table
+  cluster sizes and the `SYSTEM.CFG` automount is, on real MFM, untested.
+- **The clock ladder's rung 2.** Already field-verified here (§37.90), and
+  the only rung no emulator can reach.
 
 ---
 
 ## How to take a set on E1
 
-Part 9's own recipe, with the E1 specifics folded in.
+### `make field` — two bootable disks, because there is no drive B
 
 ```sh
-make bench                    # build/bench360.img is the 5.25" one
+make field          # -> build/herc.img and build/cga.img, both 360KB bootable
 ```
 
-- **Do not write-protect the bench floppy.** The reports are saved back to it,
-  and a protected disk answers int 13h status 03h, which the OS correctly
-  reports as `Write protected`.
-- Boot `os8088-360.img`, open Disk B, launch `GFXBENCH.O88`.
-  **`R`** runs it, **`S`** saves `GFXHERC.TXT` (or `GFXCGA.TXT` / `GFXVGA.TXT`
-  — it names the file after the adapter it booted on).
+The shape of these images is E1's shape, and neither of the two decisions in
+them is cosmetic:
+
+- **The benchmarks are on the BOOT disk**, in the root, beside `TASKMGR.O88`
+  and for the same reason it is there (§28.3). With one floppy drive, a
+  benchmark on a separate data floppy means a disk swap mid-session — and on
+  this machine a disk swap is a walk to another room and back (below). Boot
+  either image and the four harnesses are one double-click away in Disk A,
+  and the reports they save land back on the disk they came from.
+  `os88disk.py` marks them visible + read-only (§19.6), so they list and
+  cannot be deleted by accident.
+- **One image per card.** Both cards live in the machine permanently, so the
+  probe can only be asked one question at a time and it answers *Hercules*
+  (§39.1). `herc.img` is the ordinary shipped kernel — it exercises the probe
+  on the way past — and `cga.img` is a `VIDEO=cga` kernel that ignores the
+  Hercules. That kernel is built in `build/cgak/`, never in `build/`: a
+  forced kernel that reaches `build/` is a machine that boots the wrong card
+  for **everyone**, which is a mistake that has been made and is why
+  `make check-images` reports it as STALE.
+
+**Neither disk may be write-protected.** The reports are the point, and a
+protected disk answers int 13h status 03h, which the OS faithfully reports as
+`Write protected`.
+
+They are 8.3-short and unambiguous at a DOS prompt on purpose: DOS 3.3 has no
+tab completion and these names get typed by hand into `dskimage`.
+
+### Then, on the machine
+
+- Boot the image, open **Disk A**, launch `GFXBENCH.O88`.
+  **`R`** runs it, **`S`** saves the report. It names the file after the
+  adapter it found: `GFXHERC.TXT` / `GFXCGA.TXT` / `GFXVGA.TXT`, so the two
+  disks cannot produce a file that overwrites the other's.
 - Then `SYSBENCH.O88`, likewise, to `SYSBENCH.TXT`.
-- Carry the `.TXT` files off the machine and paste them into Part 9 with the
-  four provenance lines Part 9 asks for.
+- `gfxbench` is about fifteen seconds and `sysbench` about forty, most of the
+  second one being its two 16 KB floppy reads. **The machine is frozen while
+  either runs, by design** — the screen sitting still is not a hang, and the
+  bottom line says which block it is on.
+- Bring the `.TXT` files back and paste them into Part 9 with the four
+  provenance lines it asks for.
 
-**The second adapter needs its own build**, and it must not reach `build/`:
+### The path an image takes to get there
 
-```sh
-make BUILD=build/cga VIDEO=cga all     # its OWN directory, or build/ ships
-                                       # a kernel that boots the wrong card
-                                       # for everyone (check-images calls it
-                                       # STALE, which is why that check exists)
-```
+This is the real cost of a field run, and it is why "just rebuild and try
+again" is not a thing anyone should ask for casually. The 5150 has no modern
+storage in it by design, so an image travels:
 
-A run is a few minutes of machine time: `gfxbench` is about fifteen seconds
-now and `sysbench` about forty, most of it the two 16KB floppy reads — and the
-machine is **frozen** while either runs, by design, so the screen sitting
-still is not a hang.
+1. Fetch the SD card from the **writer machine** — a second period box with
+   both a genuine 360 KB drive and a **picomem** (a modern card that boots it
+   from `.vhd` images on SD). The picomem is on *that* machine, never on the
+   5150.
+2. Mount the VHD on the primary system.
+3. Copy the `.img` into the VHD.
+4. Unmount the VHD, then the SD card.
+5. SD card back into the writer machine; boot it to **DOS 3.3**.
+6. `dskimage` writes the 360 KB image to a real 360 KB disk. **It has to be a
+   real 360 KB drive** — head geometry differs between 360 KB and 1.2 MB
+   drives, and a 360 KB disk written in a 1.2 MB drive is not reliably
+   readable in one.
+7. Carry the disk to the 5150 and boot.
+
+Two consequences worth acting on. **Batch the questions**: everything a set
+can answer should be in the image before it is written, because the marginal
+cost of one more benchmark row is nothing and the marginal cost of one more
+*trip* is the seven steps above. And **make the build deterministic before
+you hand it over** — quote a commit, and have `make check-images` clean at
+it, so a disk that behaves oddly is a finding rather than a question about
+which build it was.
 
 ---
 

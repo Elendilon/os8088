@@ -703,10 +703,16 @@ repo forever:
 
 | | |
 |---|---|
-| machine | IBM PC 5150, 8088 at 4.77 MHz, 640KB, two floppies, no sound card |
-| adapter | Hercules (720x348), auto-detected. The machine also holds a CGA |
+| machine | IBM PC 5150, 8088 at 4.77 MHz, 640KB (256 on the board, 384 on an AST SixPakPlus), **one** 360KB floppy and a 20MB MFM hard disk, no sound card — [docs/FIELD-MACHINES.md](docs/FIELD-MACHINES.md) |
+| adapter | Hercules (720x348), auto-detected. The machine also holds a CGA, permanently, on its own monitor |
 | build | `62c4172` (`gfxbench`/`sysbench` in `tests/`) |
 | reports | `GFXHERC.TXT`, `SYSBENCH.TXT` |
+
+*(That machine line was recorded as "two floppies" when this set was taken and
+is corrected here from the owner's own inventory: one Tandon TM100-2 and a
+Seagate ST-225. Nothing in the set rests on it — the floppy rows are
+per-sector on the drive that was actually used — but a provenance line that is
+wrong is worth fixing where it is read rather than where it was written.)*
 
 **Take the harness's own agreement first, because everything below rests on
 it.** The two suites share no measurement code path beyond `benchlib`, and

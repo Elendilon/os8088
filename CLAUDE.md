@@ -46,11 +46,16 @@ documented number, not a neutral refactor — and how to count work with a
 counter read over QMP. docs/TESTING.md is where a test can *run*;
 PERFORMANCE.md is what the target machine *costs*.
 
-**docs/FIELD-MACHINES.md is the third one: who has the hardware, and what is
-in it.** The
+**docs/FIELD-MACHINES.md is the third one: who has the hardware, what is in
+it, and what a run costs them.** The
 project is calibrated against ONE machine - `Elendilon`'s IBM PC 5150, 8088 at
-4.77MHz, 640KB, with a Hercules AND a CGA card in it - and every measured
-number in PERFORMANCE.md Part 2 came off it. It is a register keyed on the
+4.77MHz, 640KB, with a Hercules AND a CGA card in it (both permanent, each on
+its own monitor), ONE 360KB floppy, an ST-225 on an ST11M, and an AST
+SixPakPlus carrying 384KB and the MM58167 the clock ladder's rung 2 was
+written for - and every measured number in PERFORMANCE.md Part 2 came off it.
+It is kept **entirely period on purpose**, which is what makes its floppy and
+disk timings mean what they say, so "put a Gotek in it" is not a way to
+shorten the seven-step path an image takes to reach it - `make field` is. It is a register keyed on the
 GitHub handle of whoever owns the iron, and it is in the repo for a reason
 worth stating: a session is told which account it is running as and forgets it
 at the end, nothing in a commit says which contributor owns a 5150, but a
@@ -109,6 +114,14 @@ make bench    # build the testing apps in tests/ into build/bench.img and
               # bench360.img. ON DEMAND ONLY — `all` never builds tests/ and
               # nothing under it is tracked or ships. Run one with
               # `make test TESTAPPS=build/bench.img` (docs/TESTING.md)
+make field    # ...and the FIELD disks: build/herc.img + build/cga.img, two
+              # BOOTABLE 360KB system disks with the benchmarks in their root.
+              # Shaped by the machine the project is calibrated against
+              # (docs/FIELD-MACHINES.md): it has ONE floppy drive, so a
+              # benchmark on a second disk means a swap; and it holds a
+              # Hercules AND a CGA permanently, so the CGA needs a kernel
+              # told to ignore the Hercules — built in build/cgak/, never in
+              # build/, which check-images would call STALE
 make clean
 ```
 
