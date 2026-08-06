@@ -184,9 +184,14 @@ what makes §2.7's search affordable and is carried alongside, in two parallel
 arrays rather than in the slot, so the power-of-two stride survives:
 
 ```
-assoc_clus  12 words   the directory cluster the app was last SEEN in
-assoc_drv   12 bytes   ...and the volume it was seen on   (36 bytes)
+assoc_clus   12 words   the directory cluster the app was last SEEN in
+assoc_drv    12 bytes   ...and the volume it was seen on
+assoc_dfold  12 bytes   build-time folder: 0 root, 1 APPS, 2 GAMES  (48 bytes)
 ```
+
+`assoc_dfold` is what §2.7 rung 4 reads, and it needs a home of its own because
+the 16-byte app slot is full — it is the one part of a build-time default that
+cannot be a cluster, since no cluster is knowable when the kernel is built.
 
 Uppercase-exact comparison on the extension, matching SPEC.md §19.1's existing
 `"O88"` rule and for the same reason (foreign OSes uppercase short names on
@@ -251,15 +256,52 @@ which is what keeps a program registering four extensions to one slot) and
 fills its glyph on the spot, out of the caller's own header at offset 32
 (SPEC.md §20.2), which the kernel can read through the caller's segment.
 
-### 2.5 The glyph is filled opportunistically, three ways, none of them I/O
+### 2.5 The shipped glyphs are baked at build time; the rest fill in
 
-- **the loader** — a package with the embedded-icon flag has its body at header
-  offset 32..95 in hand at load; if its stem names a row, reduce and store.
-- **the mount** — pass A already reads every type-1 file's first sector.
-  Browsing `APPS/` once lights up every association it holds.
-- **registration** — as above.
+**The first version of this plan resolved every glyph at runtime, and it failed
+the one workflow that matters most.** Boot with the apps disk in B:, open
+Drive B, go straight into a `DOCUMENTS` folder without detouring through
+`APPS/`: `README.TXT` finds its association, finds the Notepad app slot, and
+finds its glyph **unresolved** — because nothing has read `NOTEPAD.O88`'s first
+sector. The document draws a bare page. Double-clicking it *works* (§2.7 rung
+4 knows Notepad lives in `APPS`), so the plan opened the file in the right
+program while refusing to say which program that was. Indefensible, and the
+fix costs no RAM at all.
 
-Until a row is resolved, its documents draw the **bare page frame**. That is a
+**The shipped defaults' glyphs are baked into the table at build time.** They
+are knowable: `build/notepad.o88` bytes 32..95 *are* Notepad's 16×16 icon
+(verified — v3, flags bit 0 set), so the 8×8 reduction can run on the host. The
+8 bytes are already the app slot's glyph field, so this changes **where the
+bytes come from and nothing about what they cost**. Boot, Drive B, Documents:
+Notepad's mark on every `.TXT`, with no disk access, ever.
+
+It must be **generated, not hand-pasted**. `tools/os88mini.py` emits a `db`
+line per shipped app from its `.o88`, and `kernel.bin` gains a dependency on
+those four packages. Two notes: the DAG stays acyclic (packages depend on
+`apps/os88api.inc`, never on `kernel.bin`), and pasted bytes would go stale
+silently when an app's icon changed — a class of staleness `make check-images`
+cannot catch, which is exactly why the dependency is the point rather than the
+cost.
+
+For everything else — third-party packages, and any row taken over at runtime —
+the glyph fills three ways, none of them extra I/O:
+
+- **the loader** — a package with the embedded-icon flag has its body in hand
+  at load; if its stem names a slot, reduce and store. So **opening one
+  document of a type fixes the icon for every document of that type**, which
+  makes the cold case self-healing rather than permanent.
+- **the mount** — pass A already reads every type-1 file's first sector, so
+  browsing the folder an app lives in lights it up.
+- **registration** — out of the caller's own header.
+
+Rejected: **resolving during the mount by going and finding the app.** It is
+the obvious fix for the scenario above and it is the expensive one — a folder
+holding `.TXT`, `.BMP`, `.GIF` and `.MOD` would pay four searches, each a
+`dsk_chdir_q` plus a scan plus a first-sector read plus the walk back, on the
+order of two seconds added to one folder mount. Baking the shipped set removes
+the need, and the loader's fill covers the rest.
+
+Until a slot is resolved its documents draw the **bare page frame**. That is a
 correct, unambiguous document icon and not a placeholder, which is the same
 graceful-degradation rule SPEC.md §50 asks of every claim path.
 
@@ -300,9 +342,11 @@ Three cases, and the first version of this plan got the second and third wrong.
 2. **The current directory** — a document beside its program is the common
    case and costs nothing at all.
 3. **The volume root.**
-4. **The folder the build-time default names**, for the shipped set only —
-   `APPS` and `GAMES` are known at build time *for those rows*, so they are
-   data in the default, not a hard-coded search path.
+4. **The folder `assoc_dfold` names**, for the shipped set only — `APPS` and
+   `GAMES` are known at build time *for those apps*, so they are data in the
+   default, not a hard-coded search path. This is the rung that carries the
+   §2.5 scenario: straight from `DOCUMENTS` to Notepad, having never browsed
+   `APPS/`.
 
 **A hint must be validated by name, always.** A cluster is only meaningful on
 the disk it came from; after a swap, cluster 47 is something else entirely. So
@@ -361,8 +405,12 @@ error shows.
 
 No change to what double-clicking does. Icons only.
 
+0. `tools/os88mini.py` (new): 16×16 icon out of a `.o88`'s bytes 32..95 →
+   the 8×8 majority reduction → a `db` line, and a Makefile rule generating
+   `build/associco.inc` from the four default apps with `kernel.bin` depending
+   on it (§2.5).
 1. `kernel/assoc.inc` (new, included after `disk.inc`): the table in `.text`
-   with the shipped defaults, `assoc_find` (extension → row or CF=1),
+   `%include`ing the generated glyphs, `assoc_find` (extension → slot or CF=1),
    `assoc_reduce` (16×16 data plane → 8×8 majority), `assoc_compose` (row →
    a 64-byte body in scratch), and `assoc_note_app` (this stem is here, fill
    its glyph).
@@ -381,8 +429,11 @@ Shipped defaults: `BMP`→PAINT, `GIF`→PAINT, `TXT`→NOTEPAD, `MOD`→TRACKER
 `MD`→ARTFUL. Five extensions across four apps, leaving 19 extension slots and
 8 app slots free at the recommended 12 × 24.
 
-**Verify:** boot `make test`, open the apps disk, browse `APPS/` (which lights
-the glyphs), then look at a folder holding a `.BMP` and a `.TXT`. Crop and zoom
+**Verify — and this is the acceptance test for the whole phase:** boot
+`make test`, open Drive B, and go **straight into a documents folder without
+entering `APPS/`**. A `.TXT` there must already carry Notepad's mark; a bare
+page means the bake (§2.5) is not working and no amount of browsing will tell
+you that. Then the same for a `.BMP`. Crop and zoom
 (`tools/shot.py --crop`) — a 16px icon change is exactly the thing CLAUDE.md
 warns reads as "nothing happened" in a full screendump. Then `VIDEO=cga` and
 `hercshot.py`.
@@ -472,7 +523,7 @@ Phase 2 is written.
 | item | section | est. bytes |
 |---|---|---|
 | the two tables, 12 × 16 + 24 × 4 (§2.2) | `.text` | 288 |
-| the hint arrays, 12 words + 12 bytes (§2.2) | `.text` | 36 |
+| the hint + default-folder arrays (§2.2) | `.text` | 48 |
 | hint validation + the second notice (§2.7) | `.text` | ~60 |
 | the page frame body | `.text` | 64 |
 | `assoc_find` / `assoc_note_app` | `.text` | ~110 |
@@ -484,9 +535,11 @@ Phase 2 is written.
 | 2 API cells + the X stub | `.text` | ~40 |
 | notice strings | `.text` | ~40 |
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
-| **total** | | **~1,050** |
+| **total** | | **~1,090** |
 
-About 68% of what is left. That is affordable and it is not nothing, and per
+About 71% of what is left. The build-time glyph bake (§2.5) is in this table
+at zero — it changes where the app slot's 8 bytes come from, not what they
+cost — and `tools/os88mini.py` runs on the host. That is affordable and it is not nothing, and per
 CLAUDE.md the decision to spend it belongs with whoever wants the feature —
 not with the build.
 
