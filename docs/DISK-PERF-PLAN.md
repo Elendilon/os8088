@@ -179,6 +179,67 @@ or writes:
 - `tools/os88disk.py --verify` reports the written image structurally sound
   from the host afterwards.
 
+### 3.2 What Phase 1 did to the rest of this plan
+
+Two things came out of building it that change what Phases 2 and 3 are worth,
+and both are worth reading before either is written.
+
+**Phase 1 already captured most of mechanism B.** The FAT window's nine
+sectors are contiguous and on one track, so they were nine revolutions and are
+now **one**. Phase 2 was scoped to remove that read entirely — but what it
+removes is no longer 9/12ths of a directory change, it is **one call out of
+five**. On the numbers above, a directory change is 12 sectors in 5 calls;
+Phase 2 takes it to 4 and Phase 3 to 3. Useful, and an order of magnitude less
+than it looked before the batching existed.
+
+**Navigation is a FULL mount, not a quiet one**, which the plan assumed the
+other way round. `fmv_load` calls `dsk_chdir` (`files.inc:552`); only
+`filecp.inc`'s copy engine uses `dsk_chdir_q`. So `dsk_fatw_pick`'s existing
+permission — *"only a QUIET mount may reuse a banked window"* — **does not
+apply to a single directory change**, and Phase 2 as scoped would deliver
+nothing at all for the case the field report is about.
+
+Making it apply means letting a **full** mount reuse a resident window, and
+that is not a small edit but a trade of a documented property: SPEC.md §18's
+*"a torn mount is a failed mount, and NO cross-mount state survives — every
+open/refresh fully remounts"*, and `dsk_fatw_pick`'s own reason, *"a full mount
+is a re-validation of the whole volume — the disk may have been swapped"*.
+
+**The failure it would buy is not a cosmetic one.** Swap a floppy between two
+navigations and steps 1, 2, 4 and 5 of the mount read the new disk while the
+FAT window still describes the old one. A *read* then yields garbage — which
+the loader's header recheck catches for packages and nothing catches for data.
+A **write** allocates from the wrong free map: `dskw_alloc` hands out clusters
+another file owns, and §18.4's commit order cannot help, because the FAT it is
+committing was already wrong. That is corruption, not staleness. And a
+mid-session swap is not exotic on the target: a single-drive XT is *expected*
+to swap the apps disk in and out.
+
+The honest hardware test is the disk-change line, int 13h `AH=16h` — and it
+answers on AT-class machines while many XT 360K drives do not wire it at all,
+so it delivers on the machines that need it least and declines on the 5150 the
+field report came from. Worse, a BIOS that does not track the line but answers
+`AH=00` anyway is indistinguishable from one that does, and that answer is the
+dangerous direction.
+
+**Meanwhile mechanism D costs no property at all and is now the biggest
+remaining win.** It is keyed on `(stem, size)` read out of the directory the
+mount has *just* re-read, so a swapped disk misses the fingerprint and
+harvests — the safe answer falls out of the design rather than being enforced.
+And on `APPS/` it removes **8 of 13 calls** where Phase 2 removes 1.
+
+| what | calls removed from a `APPS/` open (13 today) | property traded |
+|---|---|---|
+| Phase 2 (full-mount FAT reuse) | 1 | swap safety |
+| Phase 3 (skip the boot sector) | 1 | swap safety, more of it |
+| **Mechanism D (§5.5)** | **8** | **none** |
+
+**Recommendation: do mechanism D next and treat Phases 2 and 3 as a separate
+decision.** They are worth ~2 calls of the remaining 5 on a plain directory
+change, and the price is a safety property this OS deliberately bought. That
+is a call for whoever owns the tree, not a build detail — the same standing
+`KERN_BUDGET` has.
+
 ## 4. Phase 2 — bank the floppy's FAT window (mechanism B)
 
 **The policy already exists and already permits this.** `dsk_fatw_pick` states
