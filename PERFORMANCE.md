@@ -581,6 +581,7 @@ was ruled out (tens of seconds per 448×280 frame before the dither).
 | what | where |
 |---|---|
 | The testing matrix, and modelling the old machine from a fast one | [docs/TESTING.md](docs/TESTING.md) |
+| The real machines, whose they are, and how to take a set on one | [docs/FIELD-MACHINES.md](docs/FIELD-MACHINES.md) |
 | `font_run`, and the primitive priced four ways | SPEC.md §6.1 – §6.1.4 |
 | The per-call floor, taken apart, and the seven rules holding it down | SPEC.md §5.7 |
 | `gfx_blit4` / `gfx_scroll`, and the cycle counts written down | SPEC.md §5.4, §5.5; `kernel/vga12.inc` |
@@ -685,7 +686,11 @@ not done here is that a harness bug is worse than a missing row (rule 8).
 ### What to record with the numbers
 
 **Every figure here is provisional and carries its machine** (Part 6 rule 8).
-A report without the four lines below is worth very little:
+A report without the four lines below is worth very little — and *which*
+machine, who holds it, and how a build gets onto its floppies are in
+[docs/FIELD-MACHINES.md](docs/FIELD-MACHINES.md), because an agent is told
+which account it is running as and forgets it, while a fork's name is in the
+repo forever:
 
 | | |
 |---|---|

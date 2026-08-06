@@ -46,7 +46,20 @@ documented number, not a neutral refactor — and how to count work with a
 counter read over QMP. docs/TESTING.md is where a test can *run*;
 PERFORMANCE.md is what the target machine *costs*.
 
-**docs/FIELD-NOTES.md is the third one, and it is the shortest: what real
+**docs/FIELD-MACHINES.md is the third one: who has the hardware, and what is
+in it.** The
+project is calibrated against ONE machine - `Elendilon`'s IBM PC 5150, 8088 at
+4.77MHz, 640KB, with a Hercules AND a CGA card in it - and every measured
+number in PERFORMANCE.md Part 2 came off it. It is a register keyed on the
+GitHub handle of whoever owns the iron, and it is in the repo for a reason
+worth stating: a session is told which account it is running as and forgets it
+at the end, nothing in a commit says which contributor owns a 5150, but a
+fork's name (`Elendilon/os8088`) is visible to every session and every reader.
+It also carries what a field run is FOR - time, and the three defects QEMU
+cannot show - against what to keep in the container, which is every question
+about work.
+
+**docs/FIELD-NOTES.md is the fourth one, and it is the shortest: what real
 hardware found and the harness could not.** Open, reproduced, unfixed — with
 what has already been *ruled out* for each, so an investigation starts from
 evidence. Three live entries: a periodic ~1/3s audio tail-off in Tracker
