@@ -9897,6 +9897,21 @@ diagnosis, and the Date/Time page prints it (§31.5) because on a machine
 whose clock will not hold a setting, *which* rung answered is the whole
 answer and there is nowhere else to see it.
 
+**Rung 2 is field-verified on a real MM58167** — a clock card at 2C0h in a
+5150, the one rung no emulator can reach (QEMU has neither XT chip; the
+commit that shipped the ladder could only watch it probe and reject). The
+probe claimed the chip through the two missing-half-register signatures and
+the scratch round-trip; the reads decode; a set from the Date/Time page
+writes the counters, the year−1980 cookie and the `CLK_NS_MAGIC` into the
+chip's standby RAM; and the whole setting **survives a warm boot** — both
+Ctrl-Alt-Del and Special→Restart — because the chip runs off bus +5V while
+the machine is powered and the battery only bridges power-off. The same
+machine's **dead battery** confirms the other half: a cold boot finds the
+standby RAM scrambled, `CLK_NS_OK` fails, and the year reconstructs to the
+`CLK_YMIN` floor — the Jan 01 1980 boot is the chip telling the truth about
+its battery, not a probe failure, and one visit to the Date/Time page fixes
+the session and (until power-off) the chip.
+
 **Probe order is the design**, and it is chosen so that no rung ever writes
 to a chip a later rung might have identified differently:
 
