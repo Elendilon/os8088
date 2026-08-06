@@ -11571,6 +11571,30 @@ later — and then clears `[ark_full]`, `[ark_msg]` and `[ark_stat]`, exactly as
 panel would have queued a whole-board repaint for the worker to perform a
 second time.
 
+**Pausing is not one of the things that owes a full repaint** —
+`ark_draw_msgband`. The mode is the only thing the command changed, the banner
+is the only thing that draws differently for it, and while the game is paused
+nothing moves at all: so pausing and resuming repaint the nine rows the banner
+sits on and nothing else. Both used to call `ark_draw_all` — the background,
+both rails, every brick in the wall, the paddle, the ball, every capsule and
+shot, and the status strip — to put six characters up and take them down
+again, which on a 4.77MHz machine is most of a second of drawing and reads as
+the whole board glitching rather than as a pause.
+
+**The band is play area, so the erase takes whatever is standing in it**, and
+that is the part which does not fall out of `ark_clear_msg` + `ark_draw_msg`
+alone. Every object has a path back on the *next* frame — `ark_draw_pu` and
+`ark_draw_shots` redraw unconditionally, `ark_move_paddle` on its wipe flag —
+with one exception: `ark_move_ball` is gated on the ball having **moved**, and
+a paused ball never has. A ball inside the band would be erased and stay
+erased until the resume. So the band routine redraws the ball, and the
+capsules and shots with it, in `ark_draw_all`'s order — objects, then the
+banner on top of them.
+
+It satisfies `[ark_msg]`, which is exactly what it drew, and deliberately
+**not** `[ark_full]` or `[ark_stat]`: a whole-board repaint the worker already
+owes is still owed, and the status strip is outside this band entirely.
+
 ### 44.2 The keyboard has no key-up, so a hold is inferred from the repeat RATE
 
 int 16h delivers keypresses and nothing else. There is no key-up, and a
