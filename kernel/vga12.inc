@@ -336,7 +336,8 @@ gfx_line:
     push dx
     push si
     push di
-    push es
+    push bp                     ; 5.6.6's three-column walk uses it as a plain
+    push es                     ; register - never as an address base
     cmp bx, dx                  ; an axis-aligned pair belongs in the AREA
     je .hline                   ; primitive, whoever asked for a line - and
     cmp ax, cx                  ; it needs no dilation either, its segments
@@ -365,7 +366,8 @@ gfx_line:
     mov word [gfx_ln_fdx], 0    ; SPEC.md 5.6.5: SI = 1 dilates by a pixel
     mov word [gfx_ln_fdy], 0    ; either side of the MINOR axis - three passes
     mov word [gfx_ln_np], 1     ; at the same dx/dy/err, so only the start
-    or si, si                   ; point moves
+    mov byte [gfx_ln_wide], 0   ; point moves
+    or si, si
     jz .passes
     mov word [gfx_ln_np], 3
     mov ax, [gfx_ln_dx]
@@ -379,6 +381,25 @@ gfx_line:
     mov word [gfx_ln_fdx], 1    ; steep: the minor axis is x
     dec word [gfx_ln_x1]
     dec word [gfx_ln_x2]
+
+    ; SPEC.md 5.6.6: on 1bpp, a STEEP dilation is three horizontally adjacent
+    ; pixels a step - the same row, usually the same BYTE - and the three
+    ; passes share dx, dy and err, so pass k visits exactly (x_i + k-1, y_i).
+    ; One walk with a three-bit mask is therefore the identical pixel set at a
+    ; third of the Bresenham. Solid ink only: the dither class alternates with
+    ; x, so the neighbours never carry the centre's bit.
+    cmp byte [bb_on], 0         ; the same two tests gfx_line_raw makes
+    je .passes
+    cmp byte [vid_planes], 1
+    jne .passes
+    mov al, [gfx_color]
+    call gfx_ink
+    cmp al, 1
+    je .passes
+    mov byte [gfx_ln_wide], 1
+    mov word [gfx_ln_np], 1
+    inc word [gfx_ln_x1]        ; undo the shift: the mask spans both sides
+    inc word [gfx_ln_x2]
 .passes:
     cmp word [wm_clip_n], 0     ; SPEC.md 5.6.3: one pass per clip rect, the
     jne .clipped                ; gfx_clip_run idiom. Clipping the ENDPOINTS
@@ -423,6 +444,7 @@ gfx_line:
     jmp .passes
 .out:
     pop es
+    pop bp
     pop di
     pop si
     pop dx
@@ -480,6 +502,8 @@ gfx_line_mono:
     jg .done                    ; there is nothing left to draw
     cmp dx, [gfx_ln_cy1]
     jl .step
+    cmp byte [gfx_ln_wide], 0   ; SPEC.md 5.6.6
+    jne .wide
     cmp si, [gfx_ln_cx1]
     jl .step
     cmp si, [gfx_ln_cx2]
@@ -536,6 +560,67 @@ gfx_line_mono:
     jmp .pixel
 .done:
     ret
+
+; --- SPEC.md 5.6.6: the three columns x-1, x, x+1 of one row, in one visit ---
+; Each column is clipped on its own, exactly as its own pass would have been.
+; At most ONE of them can fall in a neighbouring byte, because the centre bit
+; cannot be both 0x80 and 0x01 - so BH carries that bit and BP its direction.
+.wide:
+    xor ah, ah                  ; AH = the bits of [es:di] this row owes
+    mov bh, 0                   ; BH = a bit in the neighbouring byte, 0 = none
+    cmp si, [gfx_ln_cx1]
+    jl .wleft
+    cmp si, [gfx_ln_cx2]
+    jg .wleft
+    mov ah, bl
+.wleft:
+    dec si
+    cmp si, [gfx_ln_cx1]
+    jl .wright
+    mov al, bl
+    shl al, 1                   ; 0x80 shifts OUT: the column is in [es:di-1]
+    jnz .wlin
+    mov bh, 0x01
+    mov bp, -1
+    jmp short .wright
+.wlin:
+    or ah, al
+.wright:
+    inc si
+    inc si
+    cmp si, [gfx_ln_cx2]
+    jg .wmid
+    mov al, bl
+    shr al, 1                   ; 0x01 shifts OUT: the column is in [es:di+1]
+    jnz .wrin
+    mov bh, 0x80
+    mov bp, 1
+    jmp short .wmid
+.wrin:
+    or ah, al
+.wmid:
+    dec si                      ; SI back to the centre column
+    or ah, ah
+    jz .wnb
+    mov al, [gfx_ln_ink]        ; solid by construction: 00 or FF
+    and al, ah
+    not ah
+    and ah, [es:di]
+    or  ah, al
+    mov [es:di], ah
+.wnb:
+    or bh, bh
+    jz .wout
+    add di, bp
+    mov al, [gfx_ln_ink]
+    and al, bh
+    not bh
+    and bh, [es:di]
+    or  bh, al
+    mov [es:di], bh
+    sub di, bp
+.wout:
+    jmp .step
 
 ; --- major-axis runs, one gfx_fill_raw each ----------------------------------
 ; gfx_fill_raw and not gfx_fill: the region has already been spent above, and
@@ -1858,6 +1943,7 @@ gfx_ln_np       resw 1          ; passes still owed: 1 thin, 3 fat (5.6.5)
 gfx_ln_fdx      resw 1          ; ...and the step between them, which is one
 gfx_ln_fdy      resw 1          ; pixel across the MINOR axis
 gfx_ln_ink      resb 1          ; mono path: gfx_ink's 00 / FF / 01
+gfx_ln_wide     resb 1          ; 1 = the 1bpp three-column walk (5.6.6)
 gfx_ln_majx     resb 1          ; runs path: 1 = the major axis is x
 
 section .text

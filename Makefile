@@ -222,6 +222,20 @@ $(BUILD)/fmtest.o88: $(BUILD)/fmtest.bin tools/os88pkg.py
 $(BUILD)/fmtest.img: $(BUILD)/fmtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/fmtest.o88
 
+# LINETEST: the gate for SPEC.md 5.6.6, the 1bpp three-column walk. A
+# deterministic fan of dilated steep lines and nothing else, so two kernels
+# can be compared byte for byte over a framebuffer dump:
+#   make test VIDEO=herc HERCSEG=0x7000 TESTAPPS=build/linetest.img
+$(BUILD)/linetest.bin: tests/linetest/linetest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/linetest/linetest.asm
+	@echo "linetest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/linetest.o88: $(BUILD)/linetest.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/linetest.bin -o $@
+
+$(BUILD)/linetest.img: $(BUILD)/linetest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/linetest.o88
+
 # FSXTEST: the fullscreen-exclusive gate package (SPEC.md 53.9). Like fmtest
 # it is never on the shipped apps disks and rides its own scratch image:
 #   make test TESTAPPS=build/fsxtest.img
