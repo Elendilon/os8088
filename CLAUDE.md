@@ -703,6 +703,75 @@ The apps disk is **foldered**: `APPS/` and `GAMES/`, via a
 `DIR:` prefix per package in the Makefile. Root indices are 0 = APPS,
 1 = GAMES, and a package is two double-clicks away rather than one.
 
+### Hard disks are a driver, and a volume is an index (SPEC.md §18.7/§52)
+
+`[disk_drive]` is a **volume index** — 0 = A:, 1 = B:, 2 = C: — and never an
+int 13h drive number, which is what keeps `'A'+drive`, `FS_DRV`, the desktop
+zones and `osapi_file_here` all working untouched. The int 13h drive, or a
+`DRVC_DISK` driver's own handle, lives in the `dsk_vtab` row; `dsk_xfer`
+branches once at the top and a driver-backed volume goes out to `DSV_BLK` with
+**the same volume-relative 16-bit LBA**. The driver adds its own 32-bit
+partition base, and that is the whole of what "partitions" means to the
+kernel — which is why the FAT layer, the directory walker and the write path
+are the floppy's code, unchanged. A volume caps at 65,535 sectors (31.99MB),
+which is both BPB rule 8's existing refusal and the DOS 3.3 limit these
+machines ran; more capacity is more partitions.
+
+**The FAT is a WINDOW now** (SPEC.md §18.8). `FAT_SEG` stopped meaning "the
+FAT" and started meaning "these nine FAT sectors" — a 32MB FAT16 volume's FAT
+is 254 sectors and there was never going to be room. A floppy gets the
+degenerate case byte for byte: the window covers the whole FAT and never
+moves. Five routines are the entire blast radius, because `FAT_SEG` always had
+exactly one reader (`dsk_next_clus`) and one writer (`dskw_setfat`). Three
+traps: `dsk_fat_ofs` splits FAT12 from FAT16 because a FAT16 entry's absolute
+byte offset is `clus*2` and **overflows a word** at 65,524 clusters (the
+sector and the in-sector offset each fit; their product does not); rule 16
+compares SECTORS for the same reason; and `dskw_refat` is an invalidate with
+no I/O, whose reach is now shorter — an eviction may already have flushed part
+of a half-built chain, which costs LOST CLUSTERS and can never cross-link.
+
+**Mount is per PARTITION** (SPEC.md §52.4): it walks all four slots and mounts
+every FAT one, so a disk partitioned in three comes up as HDD C, HDD D and
+HDD E with three icons. Two tests decide and both are needed — the type byte
+(01/04/06/0E, never extended or FAT32) and whether the volume actually mounts,
+which is the half a type byte cannot answer. **The KERNEL names them**: the
+driver passes no label, because the drive letter is the kernel's to assign, so
+`HDD C`..`HDD F` derive from the volume index the way `Disk A` does.
+
+**The mount survives a reboot** (SPEC.md §52.6). `HDD.CFG` in A:'s root holds
+the geometry the user typed and which drives were mounted; the driver reads it
+at **`DRVV_READY`** — a verb the kernel sends right after publishing a
+driver's services, and the earliest point at which any fence keyed on the
+publication slot will answer, because attach deliberately runs before it is
+armed. Two traps: a device is matched by kind+unit+base and never by its row
+index (the probe re-runs and a machine can gain or lose a drive between
+boots), and every file operation banks the current volume with
+`OSAPI_FILE_HERE` and puts it back — at boot that leaves the rest of
+`drv_boot` with the system disk current, exactly as it would have been.
+**Testing it needs the Control Panel CLOSED**: the driver being loaded is a
+`SYSTEM.CFG` setting and the panel defers that write to its teardown, so
+quitting with the panel open reboots with no driver at all.
+
+**Everything the user sees is in `drivers/hdd/`**: the probe, the Control
+Panel page, the partitioner, the FAT formatter and Mount. The kernel's half is
+four API slots (0x0270..0x0288), a 6-row volume table and a branch. Two things
+about the driver are worth knowing before touching it. Its **rung 1 (the IDE
+task file) is gated on `CPU_286`**, and that is arithmetic: an 8088's
+`in ax, dx` is two 8-bit bus cycles at the same port, so the drive's high byte
+is lost — an 8088 with a hard disk has a controller with a ROM, and rung 0 is
+that ROM, which is also the whole of MFM support. And its formatter computes
+the FAT-size ceiling in **32 bits**, because `TmpVal1 + TmpVal2 - 1` wraps a
+word for every cluster size there is and reads as "no layout fits".
+
+**A driver's window is the kernel's to measure.** Both tool windows erase
+their content through `OSAPI_WM_GEOM` and never the template's constants: the
+content is `W_W-2` by `W_H-TITLE_H-1`, **TITLE_H is 18**, and `wm_fit` clamps
+a template that does not fit the live screen (SPEC.md §39.7) — so a repaint
+that open-codes a size draws through the border and into whatever is behind
+it, and the gfx primitives clip to the SCREEN and will not stop it. The same
+applies to strings: every one in that driver fits its box, because `font_str`
+does not stop at a window edge either.
+
 ### Loadable drivers (SPEC.md §51, `kernel/driver.inc`)
 
 **A driver is a package that is not an application.** Same 32-byte header,
