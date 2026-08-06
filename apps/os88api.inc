@@ -600,6 +600,100 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
                                  ; NOW - use it for state a power cut must not
                                  ; lose, not for a preference
 
+; --- the three snapshots, and a patterned fill (SPEC.md 20.9) ----------------
+; The first three answer questions about the SYSTEM rather than about you: the
+; scheduler and the instance table, the claim map, and how big the kernel is.
+; Every one of them fills a buffer YOU own, through ES:DI, and returns a count
+; so a package built against an older SDK finds out that a table has grown
+; rather than walking off the end of its own buffer. Any context - they take
+; no lock and touch no VRAM.
+;
+; These exist because a task monitor cannot be written without them, and one
+; had to be liftable out of the kernel. Nothing stops another app using them,
+; but note what they cost: SYS_SNAP runs with interrupts off for the length of
+; a table copy, so it is a twice-a-second call, not a per-frame one.
+%define OSAPI_SYS_SNAP      KERNEL_SEG:0x0298   ; ES:DI = a SYSSNAP_SIZE
+                                 ; buffer; out AX = MAX_TASKS, BX = INST_MAX.
+                                 ; The scheduler header (SS_*) then INST_MAX
+                                 ; records of SSI_RECSZ (SSI_*), all inside ONE
+                                 ; cli window - which is the point: an instance
+                                 ; record is freed atomically with its task
+                                 ; slot, so the two halves have to be read
+                                 ; together or a cycle diff lands on the wrong
+                                 ; row
+%define OSAPI_CLAIM_SNAP    KERNEL_SEG:0x02A0   ; ES:DI = a CLAIMSNAP_SIZE
+                                 ; buffer; out AX = MEM_MAX. MEM_MAX records of
+                                 ; CLS_RECSZ: base segment (0 = a free record),
+                                 ; paragraphs, owner word (SPEC.md 50.2)
+%define OSAPI_SYS_KB        KERNEL_SEG:0x02A8   ; ES:DI = a SYSKB_SIZE buffer;
+                                 ; every register preserved. The kernel's own
+                                 ; footprint in KB broken into its parts, which
+                                 ; sum to SK_KERN exactly, then the heap's
+                                 ; totals and the pool above 1MB. The footprint
+                                 ; terms move with every kernel build - that is
+                                 ; why they are a call and not a constant
+%define OSAPI_GFX_FILL_PAT  KERNEL_SEG:0x02B0   ; AX/BX/CX/DX = the rect, SI = 8
+                                 ; pattern bytes in YOUR segment: row y takes
+                                 ; byte [SI + (y & 7)], a set bit is WHITE and
+                                 ; bit 7 is the leftmost pixel of each screen
+                                 ; byte. The pattern is SCREEN-aligned, so two
+                                 ; rects that abut tile seamlessly. Ignores the
+                                 ; pen colour and writes only 0/15, so it never
+                                 ; costs you the mono flush (SPEC.md 32). Lock
+                                 ; held, like every other draw
+
+; --- OSAPI_SYS_SNAP's buffer -------------------------------------------------
+SS_TICKS   equ 0                ; word: the tick counter at the snapshot
+SS_CUR     equ 2                ; byte: the running task slot
+SS_COOP    equ 3                ; byte: 0 pre-emptive, 1 cooperative
+SS_NTASK   equ 4                ; byte: MAX_TASKS, the same figure AX answers
+SS_NINST   equ 5                ; byte: INST_MAX, likewise BX
+SS_TSTATE  equ 6                ; MAX_TASKS bytes: 0 free, 1 ready, 2 running,
+                                ; 3 sleeping (SPEC.md 8)
+SS_TCYC    equ SS_TSTATE + MAX_TASKS       ; MAX_TASKS dwords: cycles per task
+SS_INST    equ SS_TCYC + MAX_TASKS * 4     ; ...then the instance records
+SSI_STATE  equ 0                ; byte: 0 free, 1 live, 2 dying
+SSI_TASK   equ 1                ; byte: its task slot, 0xFF = task-less
+SSI_KIND   equ 2                ; byte: bit 7 (KIND_PKG) = a loaded package
+SSI_RSVD   equ 3                ; byte: pad
+SSI_SIZE   equ 4                ; word: its region in BYTES, 0 for a built-in
+SSI_SEG    equ 6                ; word: the region's base segment
+SSI_CYC    equ 8                ; dword: cycles billed to its callbacks
+SSI_KB     equ 12               ; word: KB it holds off the claim heap
+SSI_NAME   equ 14               ; 16 bytes: its name, NUL-terminated
+SSI_RECSZ  equ 30
+SYSSNAP_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
+
+; --- OSAPI_CLAIM_SNAP's buffer -----------------------------------------------
+CLS_SEG    equ 0                ; word: base segment, 0 = a free record
+CLS_PARA   equ 2                ; word: size in paragraphs (KB << 6)
+CLS_OWN    equ 4                ; word: owner - an instance slot, a package's
+                                ; own segment, or 0xFFxx for a kernel tag
+CLS_RECSZ  equ 6
+CLAIMSNAP_SIZE equ MEM_MAX * CLS_RECSZ
+
+; --- OSAPI_SYS_KB's buffer, all in KB ----------------------------------------
+SK_KERN    equ 0                ; word: the whole kernel span
+SK_IMG     equ 2                ; word: image + scratch + cold code
+SK_FAT     equ 4                ; word: the mount-time FAT window
+SK_STK     equ 6                ; word: the background task stacks
+SK_STK0    equ 8                ; word: task 0's - the UI task's
+SK_DSK     equ 10               ; word: the disk buffers
+SK_BUF     equ 12               ; word: FAT + stacks + disk buffers together
+SK_HEAP    equ 14               ; word: the claim heap's size
+SK_CLAIM   equ 16               ; word: claimed out of it, every owner
+SK_KCLAIM  equ 18               ; word: ...of which the kernel's own
+SK_XMS     equ 20               ; word: the pool above 1MB, 0 with no store
+SYSKB_SIZE equ 22
+
+MAX_TASKS  equ 12               ; the scheduler's slots (SPEC.md 8) - a bound
+INST_MAX   equ 12               ; running instances (SPEC.md 29.1)   on the
+MEM_MAX    equ 32               ; claim records (SPEC.md 50)         buffers
+                                ; above, and each call answers the live figure
+                                ; so a stale SDK is a caught mismatch and not
+                                ; an overrun
+KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
+
 %define OSAPI_CPU_INFO      KERNEL_SEG:0x0188   ; no inputs; out AL = CPU_8086 /
                                  ; CPU_286 / CPU_386, AH = feature bits: bit 0
                                  ; A20 verified open, bit 1 HMA claimed, bit 2

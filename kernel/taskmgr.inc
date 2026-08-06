@@ -147,27 +147,16 @@ TM_STRMAX   equ TM_LN_RAM + 1
                                 ; anything - a 24-byte buffer once went on
                                 ; silently writing past the end of .bss
 
-; --- what the kernel occupies, in KB (SPEC.md 2/28) --------------------------
-; Every one of these is a compile-time constant, and that is the point: the
-; kernel's footprint is fixed at build time down to the paragraph (SPEC.md 2),
-; so the RAM view can name each buffer without a single runtime check on the
-; drawing path. They are also exhaustive - between them they cover every byte
-; from KERNEL_SEG to the end of task 0's stack, which is the whole kernel.
-TM_KIMG_KB  equ (KTEXT_SIZE + KBSS_SIZE + 1023) / 1024
-                                ; code + read-only data + .bss scratch
-TM_KFAT_KB  equ (DSK_FAT_SECS * 512 + 1023) / 1024
-                                ; the mount-time FAT snapshot (SPEC.md 18)
-TM_KSTK_KB  equ ((MAX_TASKS-1) * SCH_STACK + 1023) / 1024
-                                ; the MAX_TASKS-1 background task stacks
-TM_K0_KB    equ (STK0_SIZE + 1023) / 1024
-                                ; task 0's - the UI task's, so every built-in
-                                ; app's and every window callback's
-TM_KDSK_KB  equ (KLOW_SIZE - (MAX_TASKS-1) * SCH_STACK + 1023) / 1024
-                                ; whatever else is in .lowbss: the directory
-                                ; cache, the icon cache and the sector buffer
-TM_KERN_KB  equ KERN_KB         ; ...and the span that holds all five
-TM_KBUF_KB  equ KBUF_KB         ; the four buffers alone - what the RAM bar
-                                ; draws in its own shade
+; --- what the kernel occupies, in KB -----------------------------------------
+; Seven assembly-time constants used to live here - the image, the FAT
+; snapshot, the stacks, the disk buffers and the two spans over them - and
+; every one of them was a term of the kernel's own memory ladder read
+; straight out of kernel.asm. That is the one thing a program outside the
+; kernel cannot do, and it was the last thing keeping this window inside it.
+; They are the SK_* fields of osapi_sys_kb's buffer now (SPEC.md 20.9), read
+; into [tm_kb] by tm_view_begin and by every sample. Still constants, still
+; free on the drawing path - just fetched rather than assembled in, and the
+; kernel is now the one place that has to know its own size.
 TMM_ROW_Y   equ 67              ; first process row (same TM_ROW_H pitch)
 TM_COLW     equ TM_RW + 9       ; column pitch when the list runs in two of
                                 ; them: a row's own width plus the margin the
@@ -273,6 +262,64 @@ TMR_CPU     equ TMM_ROWS        ; the virtual row index it draws as
 TM_NCK      equ TMM_ROWS + 1    ; ...so tm_rowck holds one more row than
                                 ; either list can show
 
+; =============================================================================
+; How this module reaches kernel state (SPEC.md 20.9)
+;
+; This window is the one place in the tree that wanted to know things no API
+; cell could answer: the scheduler's cycle counters, the instance table, the
+; claim map, and a handful of assembly-time constants describing the kernel's
+; own footprint. It read them directly, because it was part of the kernel and
+; could - which is exactly the property that made it the only built-in that
+; could not be lifted out of one.
+;
+; Four cells answer all of it now, and every use of them in this file goes
+; through the macros below. Built in, they are near calls to the cells'
+; bodies; the bodies are the same code the far cells run, so this proves the
+; API is sufficient while the module is still somewhere easy to debug. What
+; changes when it becomes a package is these macro bodies and nothing else.
+;
+; TM_ES_DATA names the segment this module's own buffers live in - CS here,
+; because kernel code runs with CS = DS = KERNEL_SEG, and a package's DS
+; there. Every snapshot cell writes through ES:DI, so a caller states that
+; once and the cells need no stub.
+; =============================================================================
+%macro TM_ES_DATA 0             ; ES = where tm_snap/tm_claims/tm_kb are
+    push cs
+    pop es
+%endmacro
+
+%macro TM_SYS_SNAP 0            ; in ES:DI = a SYSSNAP_SIZE buffer
+    call osapi_sys_snap
+%endmacro
+
+%macro TM_CLAIM_SNAP 0          ; in ES:DI = a CLAIMSNAP_SIZE buffer
+    call osapi_claim_snap
+%endmacro
+
+%macro TM_SYS_KB 0              ; in ES:DI = a SYSKB_SIZE buffer
+    call osapi_sys_kb
+%endmacro
+
+%macro TM_FILL_PAT 0            ; in AX/BX/CX/DX = rect, SI = 8 pattern bytes
+    push es                     ; ES is the pattern's segment: the far cell is
+    push cs                     ; an X and its stub says this for us
+    pop es
+    call osapi_gfx_fill_pat
+    pop es
+%endmacro
+
+; TM_INK - the pen colour, in AL, preserving AX. It was a store to
+; [gfx_color] at twenty sites, and osapi_set_color has always been the
+; cell for it; a store is three bytes and cannot be reached from outside, so
+; nothing had ever asked. AX is live at enough of those sites that pushing it
+; here is cheaper than auditing each one - and than being wrong about one.
+%macro TM_INK 1
+    push ax
+    mov al, %1
+    call osapi_set_color
+    pop ax
+%endmacro
+
 ; -----------------------------------------------------------------------------
 ; tm_init - read total conventional RAM once (boot thread only)
 ;
@@ -287,9 +334,13 @@ TM_NCK      equ TMM_ROWS + 1    ; ...so tm_rowck holds one more row than
 tm_init:
     push ax
     push bx
+    push cx
     push dx
     int 0x12                    ; AX = conventional memory, KB
     mov [tm_totkb], ax
+    call osapi_video            ; and the live geometry (SPEC.md 39.2): AX =
+    mov [tm_vw], ax             ; width, CX = the dock strip's top row. Banked
+    mov [tm_vdock], cx          ; because everything below spends AX..DX
 
     ; --- fit the window between the menu bar and the dock ---------------------
     ; The template used to carry a fixed 312, which is fine on VGA's 480 rows
@@ -309,7 +360,7 @@ tm_init:
     ; already covering its first row. wm_fit will happily hand out exactly
     ; that (it clamps y to dock_y0 - h), and the whole point of this is that
     ; it must not.
-    mov ax, [vid_dock_y0]
+    mov ax, [tm_vdock]
     sub ax, MBAR_H + 1          ; AX = px available to the whole frame
     sub ax, TITLE_H + 1 + TMM_ROW_Y     ; ...less the chrome and the maps
     jbe .norows
@@ -327,7 +378,7 @@ tm_init:
     mov bx, TM_W
     cmp ax, TM_COL2_MIN
     jae .cols                   ; tall enough: one column shows a useful list
-    mov dx, [vid_w]             ; short: a second column IF the screen is wide
+    mov dx, [tm_vw]             ; short: a second column IF the screen is wide
     cmp dx, TM_W + TM_COLW      ; enough to carry it
     jb .cols
     mov word [tm_cols], 2
@@ -372,7 +423,7 @@ tm_init:
 
     mov ax, [tm_tpl+6]          ; (the y clamp below wants the height back)
 
-    mov dx, [vid_dock_y0]       ; ...and a top that keeps y+h off the dock.
+    mov dx, [tm_vdock]          ; ...and a top that keeps y+h off the dock.
     dec dx                      ; Deriving the height is not enough on its
     sub dx, ax                  ; own: wm_fit clamps y to dock_y0 - h, which
     cmp dx, 100                 ; puts the shadow row back on the strip for
@@ -385,6 +436,7 @@ tm_init:
 .ykeep:
 
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -587,7 +639,7 @@ tm_task:
     call inst_ptr               ; DI = our instance record
     mov bp, di                  ; BP = record for life
 .interval:
-    mov ax, [ticks]
+    call osapi_get_ticks
     mov [tm_t0], ax
     mov word [tm_cnt], 0
     mov word [tm_cnt+2], 0
@@ -595,7 +647,7 @@ tm_task:
     add word [tm_cnt], 1        ; 32-bit spin counter
     adc word [tm_cnt+2], 0
     call task_yield
-    mov ax, [ticks]
+    call osapi_get_ticks
     sub ax, [tm_t0]             ; wrap-safe interval check
     cmp ax, TM_INT
     jb .spin
@@ -642,6 +694,11 @@ tm_sample:
     push dx
     push si
     push di
+    push es
+
+    TM_ES_DATA                  ; the heap's totals, for the RAM figure below
+    mov di, tm_kb
+    TM_SYS_KB
 
     ; --- phased-window max calibration (SPEC.md 28) --------------------------
     ; Epoch rotation first: every TM_EPOCH samples, the current epoch's max
@@ -728,13 +785,23 @@ tm_sample:
     mov [tm_pos], bx
 
     ; --- snapshot scheduler + instance state (one atomic block, 8.1/28) ------
-    ; Task cycles and T_STATE, then the whole instance table: I_STATE,
-    ; I_TASK, I_SIZE, I_CYC and the 16 I_NAME bytes of every slot. One cli
-    ; window for the lot - task_exit frees a record atomically with its task
-    ; slot (SPEC.md 8), so nothing read here can be torn against itself.
-    pushf
-    cli
-    mov si, sch_cycles
+    ; Task cycles and T_STATE, then the whole instance table: I_STATE, I_TASK,
+    ; I_SIZE, I_CYC and the 16 I_NAME bytes of every slot. TM_SYS_SNAP does
+    ; the lot in one cli window - task_exit frees a record atomically with its
+    ; task slot (SPEC.md 8), so nothing read here can be torn against itself,
+    ; and that window is the whole reason the API cell is a table snapshot
+    ; rather than a getter per record (SPEC.md 20.9).
+    ;
+    ; Unpacking it back into the arrays below rather than reading the buffer
+    ; in place is deliberate: this module wants a per-slot array of each field
+    ; anyway - the diffs, the previous sample and the appeared-slot rule all
+    ; index by slot - and unpacking once is forty instructions against a
+    ; stride multiply at every one of a hundred-odd read sites.
+    TM_ES_DATA
+    mov di, tm_snap
+    TM_SYS_SNAP
+
+    mov si, tm_snap + SS_TCYC
     mov di, tm_tnew
     mov cx, MAX_TASKS * 2
 .csnap:
@@ -743,38 +810,42 @@ tm_sample:
     add si, 2
     add di, 2
     loop .csnap
-    mov si, sch_tasks + T_STATE
+    mov si, tm_snap + SS_TSTATE
     mov di, tm_state
     mov cx, MAX_TASKS
 .ssnap:
     mov al, [si]
     mov [di], al
-    add si, T_SIZE
+    inc si
     inc di
     loop .ssnap
-    mov al, [sch_cur]           ; = our own slot (we are running)
+    mov al, [tm_snap + SS_CUR]  ; = our own slot (we are running)
     mov [tm_self], al
+    mov al, [tm_snap + SS_COOP] ; the scheduler's mode rides along (SPEC.md
+    mov [tm_coop], al           ; 8.2): the caption redraws off this sample
 
-    mov si, inst_tab            ; SI = record, BX = instance index
+    mov si, tm_snap + SS_INST   ; SI = record, BX = instance index
     xor bx, bx
 .isnap:
-    mov al, [si+I_STATE]
+    mov al, [si+SSI_STATE]
     mov [tm_ist+bx], al
-    mov al, [si+I_TASK]
+    mov al, [si+SSI_TASK]
     mov [tm_itsk+bx], al
-    mov al, [si+I_KIND]         ; bit 7 = package: the memory view groups on
+    mov al, [si+SSI_KIND]       ; bit 7 = package: the memory view groups on
     mov [tm_iknd+bx], al        ; it, and bills claims by it (SPEC.md 28/50)
     mov di, bx
     shl di, 1                   ; DI = index*2
-    mov ax, [si+I_SIZE]
+    mov ax, [si+SSI_SIZE]
     mov [tm_isz+di], ax
-    mov ax, [si+I_SPTR]         ; region base for the memory view's map
+    mov ax, [si+SSI_SEG]        ; region base for the memory view's map
     mov [tm_ispt+di], ax        ; (meaningless for built-ins: I_SIZE 0
                                 ; filters them out, SPEC.md 28)
+    mov ax, [si+SSI_KB]         ; ...and what it holds off the heap, which the
+    mov [tm_ikb+di], ax         ; kernel worked out from the owner word rule
     shl di, 1                   ; DI = index*4
-    mov ax, [si+I_CYC]
+    mov ax, [si+SSI_CYC]
     mov [tm_inew+di], ax
-    mov ax, [si+I_CYC+2]
+    mov ax, [si+SSI_CYC+2]
     mov [tm_inew+di+2], ax
     mov ax, bx                  ; name goes to tm_inm + index*16
     mov cl, 4
@@ -782,7 +853,7 @@ tm_sample:
     mov di, ax
     add di, tm_inm
     push si
-    add si, I_NAME
+    add si, SSI_NAME
     mov cx, 16
 .incpy:
     mov al, [si]
@@ -791,11 +862,10 @@ tm_sample:
     inc di
     loop .incpy
     pop si
-    add si, I_RECSZ
+    add si, SSI_RECSZ
     inc bx
     cmp bx, INST_MAX
     jb .isnap
-    popf
 
     ; --- per-task diffs ------------------------------------------------------
     xor bx, bx
@@ -982,11 +1052,11 @@ tm_sample:
     ; of an already-inflated figure could read as more RAM than the machine
     ; has. It cannot now - claims live in the heap, the heap is what is left
     ; above the kernel, so kernel + claims is bounded by the total.
-    mov ax, TM_KERN_KB          ; the WHOLE kernel (SPEC.md 2): image,
+    mov ax, [tm_kb+SK_KERN]     ; the WHOLE kernel (SPEC.md 2): image,
                                 ; scratch, FAT snapshot, disk buffers and
                                 ; every task stack are one contiguous span,
                                 ; and there is no growth room in it to bill
-    call mem_claimed_kb        ; + everything claimed out of the heap
+    add ax, [tm_kb+SK_CLAIM]    ; + everything claimed out of the heap
                                 ; (SPEC.md 50): the back buffer while it is
                                 ; armed, the menu save-under while a menu is
                                 ; down, each open Disk window's listing
@@ -1010,6 +1080,7 @@ tm_sample:
     mov word [tm_barw], 0
 .ramdone:
 
+    pop es
     pop di
     pop si
     pop dx
@@ -1069,6 +1140,13 @@ tm_paint:
 tm_view_begin:
     push ax
     push dx
+    push di
+    push es
+    TM_ES_DATA                  ; the kernel's footprint and the heap's
+    mov di, tm_kb               ; totals, live: every figure below this point
+    TM_SYS_KB                   ; reads tm_kb, and a paint may arrive before
+    pop es                      ; the first sample ever runs
+    pop di
     call wm_content             ; AX = content left, DX = content top
     mov [tm_cx], ax
     mov [tm_cy], dx
@@ -1150,7 +1228,7 @@ tm_draw_perf:
 
     call tm_txt_cpu
 
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov ax, [tm_cx]             ; graph frame (6,14)-(TM_RW,55)
     add ax, 6
     mov bx, [tm_cy]
@@ -1176,7 +1254,7 @@ tm_draw_perf:
 
     call tm_txt_ram
 
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov ax, [tm_cx]             ; bar frame (6,71)-(TM_RW,80)
     add ax, 6
     mov bx, [tm_cy]
@@ -1188,7 +1266,7 @@ tm_draw_perf:
     call gfx_frame
     call tm_bar
 
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov cx, [tm_cx]             ; task-list header - once per COLUMN, because
     mov bx, [tm_cols]           ; each carries its own list
     mov dx, [tm_cy]
@@ -1285,7 +1363,7 @@ tm_click:
     mov bx, dx
     mov dx, ax
     pop ax
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     call gfx_fill
     call tm_draw_full           ; SI = window ptr still
 
@@ -1343,7 +1421,7 @@ tm_draw_mem:
     mov ax, TMM_RAM_Y
     call tm_txt_ram_y
 
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov ax, [tm_cx]             ; RAM map frame (6,14)-(TM_RW,29)
     add ax, 6
     mov bx, [tm_cy]
@@ -1429,8 +1507,8 @@ tm_cap_xms:
     push si
     push di
 
-    call xm_caps                ; AX = KB still free, [xm_kb] = the whole pool
-    mov bx, [xm_kb]
+    call xm_caps                ; AX = KB still free, SK_XMS = the whole pool
+    mov bx, [tm_kb+SK_XMS]
     push bx
     sub bx, ax                  ; BX = KB in use: sized minus free
     mov ax, bx
@@ -1460,7 +1538,10 @@ tm_cap_xms:
     mov si, tm_s_cpu            ; 'CPU ' + the tier, ahead of the XMS figures:
     call tm_copy                ; the two belong together, because the tier is
     mov si, tm_s_t86            ; exactly what decides whether there can BE any
-    cmp byte [cpu_tier], CPU_286
+    push ax
+    call cpu_info               ; AL = the tier (SPEC.md 41.1)
+    cmp al, CPU_286
+    pop ax
     jb .tier
     mov si, tm_s_t286
     je .tier
@@ -1491,7 +1572,7 @@ tm_cap_xms:
     mov word [bx], 0            ; so the key must not stand either
     jmp short .out
 .draw:
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov cx, [tm_cx]
     add cx, 6
     mov dx, [tm_cy]
@@ -1561,15 +1642,21 @@ tm_map_ram:
     push si
     push di
 
-    mov si, mem_tab             ; the claim map is the only part of this that
-    mov cx, MEM_MAX * MC_SIZE   ; moves - the kernel, its buffers and the pool
-    xor ax, ax                  ; are assembly-time constants and the total is
-    call tm_sumb                ; the boot int 12h figure - so it IS the key
+    push es                     ; the claim table, whole, before anything is
+    TM_ES_DATA                  ; hashed or drawn: the walk below wants every
+    mov di, tm_claims           ; record and the check word wants every record,
+    TM_CLAIM_SNAP               ; so one call serves both (SPEC.md 20.9)
+    pop es
+
+    mov si, tm_claims           ; the claim map is the only part of this that
+    mov cx, CLAIMSNAP_SIZE      ; moves - the kernel and its buffers are fixed
+    xor ax, ax                  ; at build time and the total is the boot int
+    call tm_sumb                ; 12h figure - so it IS the key
     mov bx, tm_elck + 2*TMC_MRAM
     call tm_elchk
     jc .out
 
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     xor ax, ax                  ; whole interior white first
     mov cx, TM_GW - 1
     mov bx, TMM_M1_Y1
@@ -1577,24 +1664,30 @@ tm_map_ram:
     call gfx_fill
 
     xor ax, ax                  ; [0, kernel end): the BIOS data area and the
-    mov dx, TM_KERN_KB - 1      ; kernel entire - image, scratch, buffers and
-    call tm_band                ; stacks (SPEC.md 2). 50% gray: reserved, and
-    call gfx_fill_gray          ; not available to anything else
+    mov dx, [tm_kb+SK_KERN]     ; kernel entire - image, scratch, buffers and
+    dec dx                      ; stacks (SPEC.md 2). 50% gray: reserved, and
+    call tm_band                ; not available to anything else
+    call gfx_fill_gray
 
-    mov ax, TM_KERN_KB - TM_KBUF_KB   ; ...and its BUFFERS, over the top of
-    mov dx, TM_KERN_KB - 1            ; that, in a texture of their own: the
-    call tm_band                      ; FAT snapshot, the disk caches and
-    mov word [gfx_pat], tm_pat_buf    ; every task stack are the part of the
-    call gfx_fill_pat                 ; kernel that is scratch rather than
-                                      ; program, and the part these figures
-                                      ; are steered by (docs/KERNEL-MEMORY.md)
+    mov ax, [tm_kb+SK_KERN]           ; ...and its BUFFERS, over the top of
+    sub ax, [tm_kb+SK_BUF]            ; that, in a texture of their own: the
+    mov dx, [tm_kb+SK_KERN]           ; FAT snapshot, the disk caches and
+    dec dx                            ; every task stack are the part of the
+    call tm_band                      ; kernel that is scratch rather than
+    mov si, tm_pat_buf                ; program, and the part these figures
+    TM_FILL_PAT                       ; are steered by (docs/KERNEL-MEMORY.md)
 
 
     xor si, si                  ; every live claim, at its real address
 .claim:
-    mov ax, si
-    call mem_claim_get          ; out CF=1 = free record; DX = seg, CX = paras
-    jc .cnext
+    mov ax, si                  ; a record in the snapshot, not in mem_tab:
+    mov cl, CLS_RECSZ           ; the whole table came over in one call at the
+    mul cl                      ; top of this routine, so reading one here is
+    mov di, ax                  ; a stride multiply and not a far call
+    mov dx, [tm_claims+di+CLS_SEG]
+    or dx, dx                   ; 0 = a free record
+    jz .cnext
+    mov cx, [tm_claims+di+CLS_PARA]
     push si
     mov si, cx                  ; bank the size; CL is about to become 6
     mov ax, dx
@@ -1633,28 +1726,24 @@ tm_map_ram:
     mov ax, [tm_isz+di]
     or ax, ax                   ; a built-in owns no region
     jz .rnext
-    mov di, si                  ; [gfx_pat] = tm_pats + slot*8, worked out
-    shl di, 1                   ; while SI still holds the slot
-    shl di, 1
-    shl di, 1
-    add di, tm_pats
-    mov [gfx_pat], di
-
-    push si
+    push si                     ; the slot: .rnext still needs it
     mov di, si
     shl di, 1
     mov ax, [tm_isz+di]
     mov cl, 10
     shr ax, cl                  ; AX = size KB (I_SIZE is a whole KB now)
-    mov si, [tm_ispt+di]        ; SI = base SEGMENT
+    mov di, [tm_ispt+di]        ; DI = base SEGMENT
     mov cl, 6
-    shr si, cl                  ; -> base KB
-    mov dx, si
+    shr di, cl                  ; -> base KB
+    mov dx, di
     add dx, ax
     dec dx                      ; DX = inclusive end KB
-    mov ax, si
+    mov cl, 3                   ; SI = tm_pats + slot*8, this slot's own
+    shl si, cl                  ; texture - and it has to be worked out BEFORE
+    add si, tm_pats             ; tm_band, whose CX output is the rect's right
+    mov ax, di                  ; edge and would be spent on the shift
     call tm_band
-    call gfx_fill_pat
+    TM_FILL_PAT
     pop si
 .rnext:
     inc si
@@ -1734,9 +1823,11 @@ tm_map_claim:
     push bx
     push cx
     push dx
-    mov word [gfx_pat], tm_pat_clm
-    call gfx_fill_pat
-    mov byte [gfx_color], CBLACK
+    push si
+    mov si, tm_pat_clm
+    TM_FILL_PAT
+    pop si
+    TM_INK CBLACK
     call gfx_frame
     pop dx
     pop cx
@@ -1815,36 +1906,38 @@ tm_rows_mem:
     pop si
     mov byte [di], ' '
     inc di
-    mov ax, TM_KERN_KB          ; the kernel, whole (SPEC.md 2)
+    mov ax, [tm_kb+SK_KERN]     ; the kernel, whole (SPEC.md 2)
     call tm_kcol
     mov byte [di], ' '          ; the HEAP column's own gap (tm_s_mhdr)
     inc di
-    xor ax, ax
-    call mem_kernel_kb         ; AX += the kernel's own heap claims, KB
+    mov ax, [tm_kb+SK_KCLAIM]   ; ...and the kernel's own heap claims, KB
     call tm_kcol
     mov word [tm_sqp], tm_pat_gray  ; the kernel's band on the RAM map above
     call tm_mrow_close
 
     ; --- the kernel's own buffers, one row each -------------------------------
     ; Indented under System, and between them they account for every byte of
-    ; it: image + scratch, the task stacks, the disk buffers and the FAT
-    ; snapshot are the whole of KERN_SIZE (SPEC.md 2). All four figures are
-    ; assembly-time constants, so this is four string copies on a path that
-    ; runs once a second.
+    ; it: image + scratch + cold code, the task stacks, the disk buffers and
+    ; the FAT window are the whole of KERN_SIZE (SPEC.md 2). All four figures
+    ; come out of one osapi_sys_kb call, and they sum to the System row above
+    ; exactly - which is the property that block is built around, and which
+    ; the cold segment quietly broke while these were constants of this
+    ; module's own (SPEC.md 20.9).
     mov bx, tm_s_bimg           ; NO square: the image is drawn in the same
-    mov cx, TM_KIMG_KB          ; gray as the System row above it, and a
+    mov cx, [tm_kb+SK_IMG]      ; gray as the System row above it, and a
     xor dx, dx                  ; square that repeats one is not a legend
     call tm_buf_row
     mov bx, tm_s_bstk
-    mov cx, TM_KSTK_KB + TM_K0_KB
+    mov cx, [tm_kb+SK_STK]
+    add cx, [tm_kb+SK_STK0]
     mov dx, tm_pat_buf
     call tm_buf_row
     mov bx, tm_s_bdsk
-    mov cx, TM_KDSK_KB
+    mov cx, [tm_kb+SK_DSK]
     mov dx, tm_pat_buf
     call tm_buf_row
     mov bx, tm_s_bfat
-    mov cx, TM_KFAT_KB
+    mov cx, [tm_kb+SK_FAT]
     mov dx, tm_pat_buf
     call tm_buf_row
 
@@ -2001,14 +2094,10 @@ tm_inst_row:
 tm_inst_claim:
     push bx
     mov bx, si
-    test byte [tm_iknd+si], KIND_PKG
-    jz .have
     shl bx, 1
-    mov bx, [tm_ispt+bx]        ; the package's segment IS its owner word
-.have:
-    call mem_owned_kb          ; in BX; out AX
-    pop bx
-    ret
+    mov ax, [tm_ikb+bx]         ; the snapshot already carries it: the kernel
+    pop bx                      ; applies the owner-word rule while it has the
+    ret                         ; record open (SPEC.md 20.9)
 
 ; -----------------------------------------------------------------------------
 ; tm_buf_row - one indented kernel-buffer row: name, size and legend square
@@ -2370,7 +2459,7 @@ tm_row_draw:
     add dx, 7                   ; chunk needed a register and BX was it
     cmp ax, cx
     ja .tdone
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     call gfx_fill
 .tdone:
     pop dx
@@ -2451,7 +2540,7 @@ tm_row_lead:
     mov bx, [tm_rowy]
     mov dx, bx
     add dx, 7
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     call gfx_fill
     pop dx
     pop cx
@@ -2528,7 +2617,7 @@ tm_rowfill:
     push bx
     push cx
     push dx
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     mov bx, [tm_rowy]
     mov dx, bx
     add dx, 7
@@ -2670,7 +2759,7 @@ tm_sq_frame:
     push bx
     push cx
     push dx
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov ax, [tm_rowx]
     add ax, [tm_sqox]
     mov bx, [tm_rowy]
@@ -2708,9 +2797,8 @@ tm_sq_pat:                      ; SI = the pattern: the kernel's span, a
     push cx
     push dx
     call tm_sq_frame
-    mov [gfx_pat], si
-    call tm_sq_int
-    call gfx_fill_pat
+    call tm_sq_int              ; SI is already the pattern - the cell takes
+    TM_FILL_PAT                 ; it there, and tm_sq_int leaves it alone
     pop dx
     pop cx
     pop bx
@@ -2791,7 +2879,7 @@ tm_col:
 
     cmp si, TM_GH               ; white: rows 15..54-v (skip when v=40)
     jae .black
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     mov bx, cx
     add bx, TM_GF_Y1 + 1
     mov dx, cx
@@ -2801,7 +2889,7 @@ tm_col:
 .black:
     or si, si                   ; black: rows 55-v..54 (skip when v=0)
     jz .done
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov bx, cx
     add bx, TM_GF_Y2
     sub bx, si
@@ -2834,7 +2922,7 @@ tm_gapcol:
     mov dx, bx
     add bx, TM_GF_Y1 + 1
     add dx, TM_GF_Y2 - 1
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     call gfx_vline
 
     pop dx
@@ -2876,9 +2964,9 @@ tm_txt_cpu:
     inc di
     mov byte [di], ' '
     inc di
-    mov si, tm_s_pre            ; chars 9..19: the live scheduler mode
-    call sched_mode_get         ; AL = 0 pre-emptive, 1 cooperative
-    or al, al
+    mov si, tm_s_pre            ; chars 9..19: the scheduler mode, as the
+    mov al, [tm_coop]           ; last sample found it: 0 pre-emptive, 1
+    or al, al                   ; cooperative
     jz .mode
     mov si, tm_s_coop
 .mode:
@@ -2947,7 +3035,8 @@ tm_txt_ram_y:
     je .built
     mov si, tm_s_heap           ; ...whose two leading spaces are where the
     call tm_copy                ; claim swatch goes
-    call mem_total_kb           ; AX = claimed KB, BX = heap size KB
+    mov ax, [tm_kb+SK_CLAIM]    ; AX = claimed KB, BX = heap size KB
+    mov bx, [tm_kb+SK_HEAP]
     call tm_kpair
 .built:
     call tm_rowsum              ; unchanged since the last refresh? then the
@@ -2961,7 +3050,7 @@ tm_txt_ram_y:
     mov word [bx], 0            ; case nothing was drawn and the key tm_elchk
     jmp short .out              ; just recorded is a lie that would keep this
 .draw:                          ; line stale until its content moved again
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov cx, [tm_cx]
     add cx, 6
     mov dx, [tm_cy]
@@ -3007,7 +3096,7 @@ tm_bar:
     mov si, [tm_barw]
     or si, si
     jz .rest
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov ax, [tm_cx]
     add ax, 7
     mov bx, [tm_cy]
@@ -3021,7 +3110,7 @@ tm_bar:
 .rest:
     cmp si, TM_GW
     jae .done
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     mov ax, [tm_cx]
     add ax, 7
     add ax, si                  ; x1 = 7 + barw
@@ -3073,7 +3162,7 @@ tm_xbar:
     mov si, [tm_xbarw]
     or si, si
     jz .rest
-    mov byte [gfx_color], CBLACK
+    TM_INK CBLACK
     mov ax, [tm_cx]
     add ax, 7
     mov bx, [tm_cy]
@@ -3087,7 +3176,7 @@ tm_xbar:
 .rest:
     cmp si, TM_GW
     jae .done
-    mov byte [gfx_color], CWHITE
+    TM_INK CWHITE
     mov ax, [tm_cx]
     add ax, 7
     add ax, si
@@ -3216,10 +3305,10 @@ tm_rows:
     mov bx, si
     mov al, [tm_pct+bx]
     call tm_cpucol
-    mov ax, TM_KERN_KB          ; the kernel's footprint, whole (SPEC.md 2)
+    mov ax, [tm_kb+SK_KERN]     ; the kernel's footprint, whole (SPEC.md 2)
                                 ; - the same term the RAM line above uses, so
                                 ; the rows still sum to the bar
-    call mem_kernel_kb         ; + the kernel's OWN heap claims (SPEC.md
+    add ax, [tm_kb+SK_KCLAIM]   ; + the kernel's OWN heap claims (SPEC.md
                                 ; 42.2): the save-under and the back buffer.
                                 ; A package's claim belongs to its own row.
     call tm_memcol_kb
@@ -3649,6 +3738,16 @@ section .bss
 
 tm_win:     resw 1              ; window record ptr (ui.inc dispatches on it)
 
+; --- what the API cells fill (SPEC.md 20.9) ----------------------------------
+; Three buffers this module owns and the kernel writes through ES:DI.
+; tm_snap is unpacked into the per-slot arrays below the moment it lands (see
+; tm_sample); tm_claims and tm_kb are read where they sit.
+tm_snap:    resb SYSSNAP_SIZE   ; osapi_sys_snap: scheduler + instance table
+tm_claims:  resb CLAIMSNAP_SIZE ; osapi_claim_snap: the claim map
+tm_kb:      resb SYSKB_SIZE     ; osapi_sys_kb: the kernel's footprint and the
+                                ; heap's totals, refreshed by tm_view_begin
+                                ; and by every sample
+
 tm_zero_beg:                    ; tm_init zeroes this whole block
 tm_hist:    resb TM_GW          ; history ring: column heights 0..40
 tm_pos:     resw 1              ; sweep index = next column to write
@@ -3677,6 +3776,9 @@ tm_iknd:    resb INST_MAX       ; I_KIND snapshot: the Builtins/Packages split
                                 ; (SPEC.md 28) needs bit 7, and the CLAIM
                                 ; column needs to know which owner word an
                                 ; instance's claims carry (SPEC.md 50.2)
+tm_ikb:     resw INST_MAX       ; ...and the KB it holds off the heap, which
+                                ; the kernel derives from that same rule
+tm_coop:    resb 1              ; the scheduler mode at the last sample
 tm_mrow:    resw 1              ; the memory view's row cursor
 tm_mfit:    resb 1              ; ...and whether the row it names is on screen
 tm_sqox:    resw 1              ; ...and where its legend square starts
@@ -3733,6 +3835,10 @@ tm_maxrow:  resw 1              ; rows this SCREEN shows, <= TMM_ROWS: derived
                                 ; from [vid_dock_y0] so the window never
                                 ; overlaps the dock (SPEC.md 28.1)
 tm_totkb:   resw 1              ; total conventional RAM (int 12h, boot)
+tm_vw:      resw 1              ; the live screen width and the dock strip's
+tm_vdock:   resw 1              ; top row (osapi_video, SPEC.md 39.2), banked
+                                ; at boot: the template's whole geometry is
+                                ; derived from them
 tm_cx:      resw 1              ; cached content origin (draw paths only,
 tm_cy:      resw 1              ; always under the gfx lock)
 tm_ord:     resb INST_MAX       ; tm_order: display row - 1 -> instance slot

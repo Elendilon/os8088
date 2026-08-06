@@ -76,6 +76,35 @@ MEM_K_COPY equ 0xFF04           ; the file manager's copy buffer (22.3): held
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
 
+; --- osapi_claim_snap's buffer, API slot 0x02A0 (SPEC.md 20.9) ----------------
+; The three fields of a claim record that mean anything outside this module.
+; MC_DMA is not one of them: it is how a claim that MOVES keeps the page
+; property it was granted for, and nothing outside can move a claim.
+CLS_SEG    equ 0                ; word: base segment, 0 = a free record
+CLS_PARA   equ 2                ; word: size in paragraphs (KB << 6)
+CLS_OWN    equ 4                ; word: owner (SPEC.md 50.2)
+CLS_RECSZ  equ 6
+CLAIMSNAP_SIZE equ MEM_MAX * CLS_RECSZ
+
+; --- osapi_sys_kb's buffer, API slot 0x02A8 (SPEC.md 20.9) --------------------
+; The kernel's own footprint broken into its parts, then the heap's totals.
+; The parts sum to SK_KERN exactly - see the routine at the foot of this file
+; for which two of them absorb the rounding, and why.
+SK_KERN    equ 0                ; word: the whole span (SPEC.md 2)
+SK_IMG     equ 2                ; word: image + .bss + the cold segment
+SK_FAT     equ 4                ; word: the mount-time FAT window (18.8)
+SK_STK     equ 6                ; word: the MAX_TASKS-1 background stacks
+SK_STK0    equ 8                ; word: task 0's - the UI task's
+SK_DSK     equ 10               ; word: the disk buffers, the rest of .lowbss
+SK_BUF     equ 12               ; word: FAT + stacks + disk buffers together,
+                                ; the part of the kernel that is scratch
+                                ; rather than program
+SK_HEAP    equ 14               ; word: the claim heap's size
+SK_CLAIM   equ 16               ; word: claimed out of it, every owner
+SK_KCLAIM  equ 18               ; word: ...of which the kernel's own tags
+SK_XMS     equ 20               ; word: the pool above 1MB, 0 on tier 0 (41)
+SYSKB_SIZE equ 22
+
 ; -----------------------------------------------------------------------------
 ; mem_init - size the heap and clear the map (kmain, before anything claims)
 ;
@@ -1236,6 +1265,107 @@ mem_own:
     pop si
     pop cx
     clc
+    ret
+
+; =============================================================================
+; osapi_claim_snap - API slot 0x02A0: the whole claim table into the caller's
+;                    buffer (SPEC.md 20.9/50.5)
+;
+; in:  ES:DI = a CLAIMSNAP_SIZE buffer the caller owns
+; out: AX = MEM_MAX; the buffer filled; DI unchanged
+; clobbers: AX (output) and the flags
+;
+; Whole rather than per record because both things a memory map does with
+; this table want all of it: it walks every record to draw a band, and hashes
+; every record to decide whether any band moved. Per record that is MEM_MAX
+; far calls twice over; here it is one call and a near walk of the copy.
+;
+; No cli. A claim is published by a single word store (MC_SEG last), so a
+; record is either there or not, and a torn table would at worst draw one
+; band wrong for half a second - which is not what osapi_sys_snap's window is
+; guarding against and does not deserve the same price.
+; =============================================================================
+osapi_claim_snap:
+    push cx
+    push dx
+    push si
+    push di
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.rec:
+    mov ax, [ss:si+MC_SEG]
+    mov [es:di+CLS_SEG], ax
+    mov dx, [ss:si+MC_PARA]
+    mov [es:di+CLS_PARA], dx
+    mov ax, [ss:si+MC_OWN]
+    mov [es:di+CLS_OWN], ax
+    add si, MC_SIZE
+    add di, CLS_RECSZ
+    loop .rec
+    mov ax, MEM_MAX
+    pop di
+    pop si
+    pop dx
+    pop cx
+    ret
+
+; =============================================================================
+; osapi_sys_kb - API slot 0x02A8: what the KERNEL occupies and what the heap
+;                holds, in KB (SPEC.md 20.9/2/50)
+;
+; in:  ES:DI = a SYSKB_SIZE buffer the caller owns
+; out: the buffer filled; every register preserved
+;
+; The first seven figures were assembly-time constants of the kernel's own
+; until a task monitor stopped being part of it, and that is precisely what a
+; program outside cannot have: KERN_KB moves with every build, and a package
+; carrying last month's number would report a footprint the machine does not
+; have. They still ARE constants - this call just puts them where something
+; else can read them.
+;
+; SK_IMG deliberately covers the COLD SEGMENT as well as the image and .bss.
+; Cold code is code; it is resident for the whole session and it is inside
+; the span SK_KERN measures, so leaving it out made the parts sum three
+; kilobytes short of the whole and no row on any screen said where they went.
+;
+; SK_IMG and SK_DSK are RESIDUALS, and that is what makes the parts add up.
+; Every rung of the ladder is a whole number of 512-byte sectors (SPEC.md 2),
+; so half of them are an odd half-kilobyte and four independently rounded
+; parts can lose two kilobytes against a total that rounds once. So the two
+; least interesting figures absorb it: SK_IMG is the whole span less the
+; buffers, and SK_DSK is the buffers less the FAT window and the stacks -
+; which is exactly what "whatever else is in .lowbss" already meant.
+; =============================================================================
+SK_STK_KB  equ ((MAX_TASKS-1) * SCH_STACK + 1023) / 1024
+SK_STK0_KB equ (STK0_SIZE + 1023) / 1024
+SK_FAT_KB  equ (FAT_PARA * 16 + 1023) / 1024
+
+osapi_sys_kb:
+    push ax
+    push bx
+    push di
+    mov word [es:di+SK_KERN], KERN_KB
+    mov word [es:di+SK_BUF],  KBUF_KB
+    mov word [es:di+SK_IMG],  KERN_KB - KBUF_KB
+    mov word [es:di+SK_FAT],  SK_FAT_KB
+    mov word [es:di+SK_STK],  SK_STK_KB
+    mov word [es:di+SK_STK0], SK_STK0_KB
+    mov word [es:di+SK_DSK],  KBUF_KB - SK_FAT_KB - SK_STK_KB - SK_STK0_KB
+    push di
+    call mem_total_kb           ; AX = claimed KB, BX = heap size KB
+    pop di
+    mov [es:di+SK_CLAIM], ax
+    mov [es:di+SK_HEAP], bx
+    xor ax, ax
+    push di
+    call mem_kernel_kb          ; AX += the kernel's own tagged claims
+    pop di
+    mov [es:di+SK_KCLAIM], ax
+    mov ax, [xm_kb]             ; the pool above 1MB, 0 on tier 0 (SPEC.md 41)
+    mov [es:di+SK_XMS], ax
+    pop di
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------

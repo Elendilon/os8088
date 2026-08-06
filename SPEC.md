@@ -300,6 +300,59 @@ pool `xm_alloc` hands out in 1KB units.
 tier 0 — the target machine — the whole space is zero bytes and every entry
 point refuses.
 
+### 2.5 The boot overlay — code that costs no memory at all
+
+`section .ovl start=OVL_START vstart=0`, in the *same* assembly as the rest
+of the kernel. It holds code that runs **once**, from `kmain`, and is never
+called again: `cpu_detect`, `cpu_a20_enable`, `xm_init`, `desk_init`,
+`snd_init`, `clk_init` and the clock's whole probe-and-read ladder (§37.90).
+
+**It lands on `FAT_SEG` and is then overwritten by the first mount.** That is
+the entire trick: the FAT window (§18.8) is not filled until a volume is
+mounted, which happens after `kmain` has finished with all of this, so the
+overlay's bytes are free real estate that the ladder already reserved. The
+`start=` is a *file* offset, not an address — it is the image rung — so NASM
+emits the space between `.text` and that rung as zeros and the boot sector's
+existing single contiguous read puts the overlay exactly where the ladder
+says `FAT_SEG` is. No second loop, no gap constant, and `KERNEL_SECTORS`
+still falls out of the file size. Expressing it as a section start is also
+what makes it non-circular: padding *inside* `.text` would grow
+`KTEXT_SIZE`, which grows `KIMG_PARA`, which grows the padding, and there is
+no fixed point, whereas `.ovl`'s own size is not a term in `OVL_START`.
+
+**The contract is CS = `FAT_SEG`, DS = `KERNEL_SEG`.** So a call *into* the
+overlay is a far call, a call *out* of it goes through a four-byte resident
+`ovw_*` shim (`call x` / `retf`), and every data reference is an ordinary
+near one against DS. `tools/os88ovlchk.py` runs before every assembly and
+fails the build on a near call that crosses a section with its own `vstart`
+— the one mistake this arrangement makes easy and the assembler will not
+catch.
+
+Two guards bound it: the overlay must fit `FAT_PARA * 16`, and it must not
+be empty. `docs/KERNEL-MEMORY.md` is the maintained account, including how
+the clock's split was decided.
+
+### 2.6 Cold code — resident, but not in the segment
+
+`section .cold start=COLD_START vstart=0`, same contract as the overlay —
+CS here, DS still `KERNEL_SEG` — and the same shim discipline, but **it does
+not go away**. It sits between the image rung and the FAT window, so it
+rides the same contiguous boot read, and it is live for the whole session.
+
+What it buys is guard 2 and nothing else: cold code is inside
+`KERN_BUDGET`'s span (§15.1 guard 1) and outside the kernel's own 64KB
+segment, which since hard-disk support is the binding limit. The Control
+Panel's three code runs are what live there — a module that is large, cold
+enough that a far call per entry costs nothing measurable, and needed on
+exactly the machine where things are going wrong, so it must stay resident.
+
+Calls out use four-byte `cw_*` shims; calls *in* use six-byte resident
+thunks (`call SEG:x` / `ret`), because `wm_pkgcall` sets DS from `W_SEG` and
+that is the wrong contract for cold code. This is **not** the retired
+`.fartext` (§33): that mechanism copied cold modules to a segment of their
+own at boot and needed a 10,752-byte reservation to hold a 5,455-byte blob.
+Nothing is copied here and nothing is reserved.
+
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
 ```nasm
@@ -4480,6 +4533,10 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x0280 vol_mount     (X)
                                                 0x0288 vol_paint
                                                 0x0290 drv_cfg       (X)
+                                                0x0298 sys_snap
+                                                0x02A0 claim_snap
+                                                0x02A8 sys_kb
+                                                0x02B0 gfx_fill_pat  (X)
 ```
 
 **Every published slot keeps its number and contract**, on the rule that **a
@@ -4587,6 +4644,20 @@ Slot-specific contracts that are not simply their target routine's:
                          KB. The only honest number to size against — int
                          12h does not know what the kernel and the other
                          packages already hold.
+0x0298 sys_snap          in ES:DI = a SYSSNAP_SIZE buffer; out AX =
+                         MAX_TASKS, BX = INST_MAX. The scheduler header
+                         then one record per instance, copied in ONE cli
+                         window (§20.9).
+0x02A0 claim_snap        in ES:DI = a CLAIMSNAP_SIZE buffer; out AX =
+                         MEM_MAX. Every claim record: base segment (0 =
+                         free), paragraphs, owner (§50.2).
+0x02A8 sys_kb            in ES:DI = a SYSKB_SIZE buffer; every register
+                         preserved. The kernel's own footprint in KB
+                         broken into parts that sum to SK_KERN, then the
+                         heap's totals and the store above 1MB (§20.9).
+0x02B0 gfx_fill_pat      in AX/BX/CX/DX = the rect, SI = 8 pattern bytes
+                         in the CALLER's segment (§5). X — vga_pat_stage
+                         reads them through DS, so the stub stages them.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -4939,6 +5010,80 @@ without anyone noticing it was a rule.
 6. **No relocation, reintroduced under any name.** A change that seems to need
    a load-time fixup pass means the org-0, own-segment model is being violated
    somewhere else first. Fix that instead.
+
+### 20.9 Snapshots — a table at a time, into a buffer the caller owns
+
+Four cells (0x0298..0x02B0) exist for one reason: the Task Manager was the
+only built-in that could not be lifted out of the kernel, and every reason
+was the same reason. It read `sch_cycles`, `sch_tasks`, `sch_cur`,
+`inst_tab`, `mem_tab` and seven assembly-time constants of the memory ladder
+directly — because it was inside the kernel and could. Nothing else in the
+tree wanted any of that, so no slot had ever been written for it.
+
+Three of the four are **snapshots**, and the shape is deliberate: a whole
+table copied into a buffer the caller supplies through **ES:DI**, never a
+getter per record. The destination is the caller's own choice, exactly as
+`xm_copy` and `gfx_blit4` already do, so none of them needs an `X` stub.
+Each answers a **count** (`AX`, and `BX` for the second table in
+`sys_snap`), which is what lets a package built against an older SDK notice
+that a table has grown rather than walk off the end of its own buffer.
+
+| slot | fills | answers |
+|------|-------|---------|
+| 0x0298 `sys_snap`   | `SS_*` header + `INST_MAX` × `SSI_RECSZ` records | AX = `MAX_TASKS`, BX = `INST_MAX` |
+| 0x02A0 `claim_snap` | `MEM_MAX` × `CLS_RECSZ` records                  | AX = `MEM_MAX` |
+| 0x02A8 `sys_kb`     | the `SK_*` block, KB                             | — (everything preserved) |
+
+Three things about them are load-bearing.
+
+**`sys_snap` is ONE call, not two, and that is the atomicity rule.**
+`task_exit` frees an instance record inside the same IF=0 window that frees
+its task slot (§8). A reader that takes the scheduler half and the instance
+half separately can therefore see a slot live in one and gone in the other —
+and what that costs is not a wrong row for one frame. Both halves feed a
+per-interval *diff* of a running cycle counter (§8.1), so a torn pair bills
+a real slice to the wrong row and the error stays in the percentages until
+something else disturbs them. Silently, and only while something is closing.
+So the cell holds one `cli` window across both tables, names included; it is
+about 414 bytes of copy, under a millisecond on an 8088, and exactly as long
+as the window the in-kernel code held. **A caller must treat it as a
+twice-a-second call, not a per-frame one.**
+
+`SSI_KB` is the one field filled *outside* that window, and deliberately:
+it is a scan of the claim table per instance, which is not what the window
+protects and has no business running with interrupts off. The kernel fills
+it because the owner-word rule is the kernel's (§50.2) — a package's claims
+are stamped with the segment it runs in and a built-in's with its slot — and
+a reader outside cannot be expected to know which.
+
+**`claim_snap` takes no `cli`, and that is not an oversight.** A claim is
+published by a single word store (`MC_SEG` last), so a record is either
+there or not; a torn table draws one band wrong for half a second, which
+does not deserve `sys_snap`'s price. It is a whole table rather than a
+record at a time for a different reason: both things a memory map does with
+it want all of it — walk every record to draw a band, hash every record to
+decide whether any band moved — so per record it would be `MEM_MAX` far
+calls, twice.
+
+**`sys_kb`'s footprint terms sum to `SK_KERN` exactly, and two of them are
+residuals.** Every rung of the ladder is a whole number of 512-byte sectors
+(§2), so half of them are an odd half-kilobyte and four independently
+rounded parts can lose two kilobytes against a total that rounds once. So
+the two least interesting figures absorb it: `SK_IMG` is the whole span less
+the buffers, and `SK_DSK` is the buffers less the FAT window and the stacks
+— which is what "whatever else is in `.lowbss`" already meant. `SK_IMG`
+covers the **cold segment** (§2.6) as well as the image and `.bss`: cold code
+is code, it is resident for the session and it is inside the span, and
+leaving it out is what made the parts sum three kilobytes short while these
+were constants of the Task Manager's own.
+
+The fourth cell, 0x02B0 `gfx_fill_pat`, is not a snapshot — it is the one
+drawing primitive (§5) that had no slot, because its eight pattern bytes
+reach `vga_pat_stage` through `[gfx_pat]`, a **near** pointer read against
+DS. Giving that variable a segment would put one on every kernel caller of a
+primitive that re-enters per clip fragment, so the cell is an `X` whose stub
+stages the eight bytes into the kernel's own segment first — the
+`dsk_get_dir` idiom of §2.1, at its smallest.
 
 ## 21. loader.inc
 
