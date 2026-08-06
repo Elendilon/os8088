@@ -93,7 +93,10 @@ GB_VSMAX    equ 60000             ; retrace-poll bound. A dead status port must
 gb_entry:
     push si
     call gb_facts                   ; the machine's own numbers, before there
-    mov si, gb_tpl                  ; is a window to draw them in
+    call gb_hint                    ; is a window to draw them in - and the
+                                    ; invitation, so the first thing on screen
+                                    ; is not a blank page
+    mov si, gb_tpl
     call OSAPI_WM_CREATE
     jc .out
     mov [gb_win], bx
@@ -166,6 +169,20 @@ gb_onclick:
     push ax
     push si
     mov [gb_win], si
+    cmp byte [gb_ran], 0            ; never run: a click runs it, which is what
+    jne .page                       ; a user who has just read the invitation
+    push bx                         ; will try (tests/fontbench's idiom)
+    push cx
+    push dx
+    push di
+    call gb_run
+    call gb_repaint
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    jmp short .out
+.page:
     mov al, ' '
     xor ah, ah
     call bl_key
@@ -325,6 +342,7 @@ gb_run:
     mov word [bl_used], 0           ; appending to it
     mov word [bl_top], 0
     mov byte [bl_full], 0
+    mov byte [gb_ran], 1
 
     call gb_geom                    ; the sandbox, from the LIVE window
     call gb_mktab                   ; the adapter record and the row tables
@@ -333,12 +351,24 @@ gb_run:
     mov [gb_bcnt], ax               ; reported net of
     mov [gb_bcnt+2], dx
 
+    mov si, gb_p_head
+    call bl_progress
     call gb_header
 %ifndef GB_ONLYHEAD
+    mov si, gb_p_bw
+    call bl_progress
     call gb_bw
+    mov si, gb_p_prim
+    call bl_progress
     call gb_prims
+    mov si, gb_p_text
+    call bl_progress
     call gb_text
+    mov si, gb_p_api
+    call bl_progress
     call gb_api
+    mov si, gb_p_comp
+    call bl_progress
     call gb_composite
     call gb_derived
 %endif
@@ -368,6 +398,8 @@ gb_geom:
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
     mov [gb_cx], ax
     mov [gb_cy], dx
+    mov [bl_cx], ax                 ; bl_progress draws before bl_paint ever
+    mov [bl_cy], dx                 ; runs, so it cannot wait for these
     add ax, 7                       ; the aligned x: content left rounded UP,
     and ax, 0xFFF8                  ; so font_run's fast path and the byte
     mov [gb_x], ax                  ; column of the raw rows agree
@@ -533,6 +565,38 @@ gb_mkblit:
 ; =============================================================================
 ; the report blocks
 ; =============================================================================
+
+; -----------------------------------------------------------------------------
+; gb_hint - the report an unrun harness shows
+;
+; Built out of the same arena the results use, so it pages, saves and scrolls
+; like anything else and costs no drawing code of its own. A run replaces it.
+; -----------------------------------------------------------------------------
+gb_hint:
+    push si
+    mov si, gb_s_ttl1
+    call bl_sline
+    mov si, gb_s_ttl2
+    call bl_sline
+    call bl_blank
+    mov si, gb_h_1
+    call bl_sline
+    mov si, gb_h_2
+    call bl_sline
+    call bl_blank
+    mov si, gb_h_3
+    call bl_sline
+    mov si, gb_h_4
+    call bl_sline
+    mov si, gb_h_5
+    call bl_sline
+    call bl_blank
+    mov si, gb_h_6
+    call bl_sline
+    mov si, gb_h_7
+    call bl_sline
+    pop si
+    ret
 
 gb_header:
     push ax
@@ -1768,6 +1832,21 @@ gb_n_vga:   db 'VGA 640x480 planar', 0
 gb_n_herc:  db 'HERCULES 720x348 mono', 0
 gb_n_cga:   db 'CGA 640x200 mono', 0
 
+gb_h_1:     db 'Every gfx_* and font_* slot the OS publishes, priced on the adapter', 0
+gb_h_2:     db 'this machine actually has, plus the RAM and framebuffer bandwidth under', 0
+gb_h_3:     db '   R  or the Bench menu   run it.  About 10 seconds on a 4.77MHz 8088,', 0
+gb_h_4:     db '                          and the machine is FROZEN while it runs - the', 0
+gb_h_5:     db '                          bottom line says which block it is on.', 0
+gb_h_6:     db '   S  or the Bench menu   save the report to the current volume.', 0
+gb_h_7:     db '   Space PgDn PgUp Up Dn Home End   page through it afterwards.', 0
+
+gb_p_head:  db 'running: reading the machine...', 0
+gb_p_bw:    db 'running: raw RAM and framebuffer bandwidth (1 of 5)', 0
+gb_p_prim:  db 'running: drawing primitives (2 of 5)', 0
+gb_p_text:  db 'running: text (3 of 5)', 0
+gb_p_api:   db 'running: the API cells (4 of 5)', 0
+gb_p_comp:  db 'running: composite window work - the slow one (5 of 5)', 0
+
 gb_s_ttl1:  db 'os8088 GFXBENCH - drawing primitives priced on this adapter', 0
 gb_s_ttl2:  db '===========================================================', 0
 
@@ -1895,7 +1974,7 @@ gb_it_top:  db 'Top of Report', 0
 ; A hand-totalled figure that is too small is a package writing over
 ; benchlib's arena, which assembles cleanly and produces a report full of
 ; plausible nonsense.
-GB_O_SYSKB  equ 126
+GB_O_SYSKB  equ 128
 GB_O_VROW   equ GB_O_SYSKB + SYSKB_SIZE
 GB_O_RROW   equ GB_O_VROW + GB_BWROWS * 2
 GB_O_RAM    equ GB_O_RROW + GB_BWROWS * 2
@@ -1952,7 +2031,8 @@ gb_tbs      equ os88_image_end + 106
 gb_tbn      equ os88_image_end + 110
 gb_trow     equ os88_image_end + 114
 gb_tpage    equ os88_image_end + 118
-gb_tapi     equ os88_image_end + 122
+gb_tapi     equ os88_image_end + 122   ; dword: 122..125
+gb_ran      equ os88_image_end + 126   ; byte: has the suite been run yet?
 gb_syskb    equ os88_image_end + GB_O_SYSKB    ; SYSKB_SIZE bytes
 gb_vrow     equ os88_image_end + GB_O_VROW     ; GB_BWROWS words: fb offsets
 gb_rrow     equ os88_image_end + GB_O_RROW     ; ...and the RAM ones

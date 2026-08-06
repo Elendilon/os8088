@@ -990,6 +990,51 @@ bl_status:
     ret
 
 ; -----------------------------------------------------------------------------
+; bl_progress - overwrite the status row with a message
+; in:       SI = a NUL string; [bl_cx]/[bl_cy]/[bl_prows]/[bl_vcols] valid;
+;           the gfx lock is HELD
+; clobbers: flags (every register preserved)
+;
+; A suite is ten to forty SECONDS on the machine this is for, and it runs
+; inside one window callback - so the gfx lock is held for all of it, the
+; cursor is parked and nothing on screen moves. That is PERFORMANCE.md Part 1's
+; third defect exactly: a machine that has stopped answering is indistinguishable
+; from a machine that has died, and the first thing a user does about the second
+; is reach for the power switch. One opaque row per block costs about 80 ms of a
+; twenty-second run and is the difference.
+;
+; It is drawn on the STATUS row, which is the first row below GB_BOXH - the
+; drawing sandbox ends at content y 127 and this starts at 128 on the shortest
+; adapter - so it can never be scribbled on by the primitives being measured,
+; and it is outside every measured span.
+; -----------------------------------------------------------------------------
+bl_progress:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call bl_pad                 ; SI -> bl_draw, padded to the full width
+    mov ax, [bl_prows]
+    mov cl, 3
+    shl ax, cl
+    add ax, [bl_cy]
+    mov dx, ax
+    mov cx, [bl_cx]
+    mov si, bl_draw
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN         ; opaque, so there is no blank instant
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; bl_key - the paging keys
 ; in:       AL = ascii, AH = scan
 ; out:      CF = 0 the view moved and the caller should repaint; CF = 1 not

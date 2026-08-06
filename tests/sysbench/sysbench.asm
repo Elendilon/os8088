@@ -84,7 +84,8 @@ SB_TICKTRY  equ 30000             ; bound on every wait-for-tick spin here. A
 sb_entry:
     push si
     call sb_facts
-    mov si, sb_tpl
+    call sb_hint                    ; the invitation, so the first thing on
+    mov si, sb_tpl                  ; screen is not a blank page
     call OSAPI_WM_CREATE
     jc .out
     mov [sb_win], bx
@@ -145,6 +146,20 @@ sb_onclick:
     push ax
     push si
     mov [sb_win], si
+    cmp byte [sb_ran], 0            ; never run: a click runs it, which is what
+    jne .page                       ; a user who has just read the invitation
+    push bx                         ; will try (tests/fontbench's idiom)
+    push cx
+    push dx
+    push di
+    call sb_run
+    call sb_repaint
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    jmp short .out
+.page:
     mov al, ' '
     xor ah, ah
     call bl_key
@@ -277,6 +292,7 @@ sb_run:
     mov word [bl_used], 0
     mov word [bl_top], 0
     mov byte [bl_full], 0
+    mov byte [sb_ran], 1
 
     call sb_geom
     call sb_mktab
@@ -284,13 +300,27 @@ sb_run:
     mov [sb_bcnt], ax
     mov [sb_bcnt+2], dx
 
+    mov si, sb_p_head
+    call bl_progress
     call sb_header
+    mov si, sb_p_cpu
+    call bl_progress
     call sb_cpu
     call sb_cpuderive
+    mov si, sb_p_mem
+    call bl_progress
     call sb_mem
+    mov si, sb_p_clk
+    call bl_progress
     call sb_clock
+    mov si, sb_p_isr
+    call bl_progress
     call sb_isrload
+    mov si, sb_p_os
+    call bl_progress
     call sb_os
+    mov si, sb_p_dsk
+    call bl_progress
     call sb_disk
     call sb_trailer
 
@@ -311,6 +341,10 @@ sb_geom:
     call OSAPI_WM_GEOM
     mov [sb_cw], cx
     mov [sb_ch], dx
+    call OSAPI_WM_CONTENT           ; AX = content left, DX = content top -
+    mov [bl_cx], ax                 ; bl_progress draws before bl_paint ever
+    mov [bl_cy], dx                 ; runs, so it cannot wait for these
+    mov cx, [sb_cw]
     mov ax, cx
     mov cl, 3
     shr ax, cl
@@ -354,6 +388,36 @@ sb_mktab:
 ; =============================================================================
 ; the report blocks
 ; =============================================================================
+
+; -----------------------------------------------------------------------------
+; sb_hint - the report an unrun harness shows. Built out of the same arena the
+; results use, so it pages and saves like anything else; a run replaces it.
+; -----------------------------------------------------------------------------
+sb_hint:
+    push si
+    mov si, sb_s_ttl1
+    call bl_sline
+    mov si, sb_s_ttl2
+    call bl_sline
+    call bl_blank
+    mov si, sb_h_1
+    call bl_sline
+    mov si, sb_h_2
+    call bl_sline
+    call bl_blank
+    mov si, sb_h_3
+    call bl_sline
+    mov si, sb_h_4
+    call bl_sline
+    mov si, sb_h_5
+    call bl_sline
+    call bl_blank
+    mov si, sb_h_6
+    call bl_sline
+    mov si, sb_h_7
+    call bl_sline
+    pop si
+    ret
 
 sb_header:
     push ax
@@ -1522,6 +1586,22 @@ sb_n_386:   db '80386+ (tier 2)', 0
 sb_n_yes:   db 'yes', 0
 sb_n_no:    db 'no (CF set)', 0
 
+sb_h_1:     db 'The machine under the graphics: 8086 book clocks against this CPU, RAM', 0
+sb_h_2:     db 'bandwidth, the clock, what the kernel own interrupts cost, and the floppy.', 0
+sb_h_3:     db '   R  or the Bench menu   run it.  About 40 seconds on a 4.77MHz 8088 -', 0
+sb_h_4:     db '                          most of it the two 16KB floppy reads - and the', 0
+sb_h_5:     db '                          machine is FROZEN throughout. Watch this line.', 0
+sb_h_6:     db '   S  or the Bench menu   save the report to the current volume.', 0
+sb_h_7:     db '   Space PgDn PgUp Up Dn Home End   page through it afterwards.', 0
+
+sb_p_head:  db 'running: reading the machine...', 0
+sb_p_cpu:   db 'running: instruction timings (1 of 6)', 0
+sb_p_mem:   db 'running: RAM bandwidth (2 of 6)', 0
+sb_p_clk:   db 'running: the clock and the timers (3 of 6)', 0
+sb_p_isr:   db 'running: what the kernel interrupts cost - 4 seconds (4 of 6)', 0
+sb_p_os:    db 'running: the API far-call floor (5 of 6)', 0
+sb_p_dsk:   db 'running: the floppy - two 16KB reads, the slow one (6 of 6)', 0
+
 sb_s_ttl1:  db 'os8088 SYSBENCH - cpu, bus, memory, clock, scheduler, floppy', 0
 sb_s_ttl2:  db '============================================================', 0
 
@@ -1652,7 +1732,8 @@ sb_meas     equ os88_image_end + 42    ; dword: the clocks column being built
 sb_wp       equ os88_image_end + 46    ; dword: the workload, interrupts off
 sb_wt       equ os88_image_end + 50    ; dword: ...and on
 sb_td1      equ os88_image_end + 54    ; dword: the cold read
-sb_td2      equ os88_image_end + 58    ; dword: ...and the warm one
+sb_td2      equ os88_image_end + 58    ; dword: ...and the warm one (58..61)
+sb_ran      equ os88_image_end + 62    ; byte: has the suite been run yet?
 sb_syskb    equ os88_image_end + SB_O_SYSKB    ; SYSKB_SIZE bytes
 sb_res      equ os88_image_end + SB_O_RES      ; SB_NCPU dwords
 sb_rrow     equ os88_image_end + SB_O_RROW     ; SB_BWROWS words
