@@ -92,6 +92,8 @@ CP_PCAP2  equ CP_PCAPY + 9      ; 83: second caption row. Only the mono answer
 CP_B0Y1   equ CP_PR0Y - 4                     ; 22: row 0 (Pre-emptive) top
 CP_B0Y2   equ CP_PR0Y + CP_GW + 3             ; 41: row 0 bottom = row 1 top-1
 CP_B1Y2   equ CP_PR0Y + CP_PROWH + CP_GW + 3  ; 61: row 1 (Cooperative) bottom
+section .text
+
 
 ; --- window template: {x, y, w, h, title, paint, onkey, onclick} words -------
 ; No onkey: the panel is mouse-only. Content is 318x121.
@@ -292,6 +294,11 @@ CPS_B0Y1  equ CPS_R0Y - 4               ; 16: route row 0 top
 CPS_B0Y2  equ CPS_R0Y + CP_GW - 1       ; 31: row 0 bottom = row 1 top - 1
 CPS_B1Y2  equ CPS_R1Y + CP_GW - 1       ; 47: route row 1 bottom
 CPS_CBY2  equ CPS_CBY + CP_GW - 1       ; 63: checkbox band bottom
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in
+                                ; its own segment. DS is still KERNEL_SEG, so
+                                ; every reference below - this module's own
+                                ; strings included - is unchanged
+
 
 ; -----------------------------------------------------------------------------
 ; Everything above this line is DATA and everything below is code, and both
@@ -302,14 +309,14 @@ CPS_CBY2  equ CPS_CBY + CP_GW - 1       ; 63: checkbox band bottom
 ; hold a 5,455-byte blob, so it cost more RAM than it saved as soon as the
 ; whole footprint became the number being steered by.
 ; -----------------------------------------------------------------------------
-cp_tick_due:
+cp_tick_due_x:
     push ax
     push bx
     push di
     cmp byte [cp_sel], CP_ITIME
     jne .no
     mov al, KIND_CTRL
-    call inst_find_kind         ; CF = 1: no live Control Panel
+    call KERNEL_SEG:cw_inst_find_kind         ; CF = 1: no live Control Panel
     jc .no
     mov bx, [di+I_WIN]
     test word [bx+W_FLAGS], 2   ; visible?
@@ -324,10 +331,9 @@ cp_tick_due:
     pop ax
     ret
 
-section .text
 
 ; -----------------------------------------------------------------------------
-; cp_paint - W_PAINT for the Control Panel window (far body of cp_paint)
+; cp_paint_x - W_PAINT for the Control Panel window (far body of cp_paint_x)
 ;
 ; in:  SI = window ptr (content already white-filled, gfx lock held)
 ; out: nothing
@@ -337,7 +343,7 @@ section .text
 ; derived from the live window rect, never a screen constant - and every
 ; helper below takes it in the same pair.
 ; -----------------------------------------------------------------------------
-cp_paint:
+cp_paint_x:
     push ax
     push bx
     push cx
@@ -347,7 +353,7 @@ cp_paint:
     push bp
 
     mov bx, si                  ; wm_content takes the window in BX
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content             ; AX = content left, DX = content top
     mov di, ax                  ; DI = content left \ the panel's origin
     mov bp, dx                  ; BP = content top  /
 
@@ -365,7 +371,7 @@ cp_paint:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_onclick - W_ONCLICK for the Control Panel window (far body)
+; cp_onclick_x - W_ONCLICK for the Control Panel window (far body)
 ;
 ; in:  CX = x, DX = y (ABSOLUTE screen coords), SI = window ptr
 ;      (gfx lock held by the caller, call already billed to the instance)
@@ -383,7 +389,7 @@ cp_paint:
 ; wm_paint_all here (that would deadlock or recurse) - a page that needs
 ; other windows repainted posts a deferred flag instead (SPEC.md 31.2).
 ; -----------------------------------------------------------------------------
-cp_onclick:
+cp_onclick_x:
     push ax
     push bx
     push cx
@@ -394,9 +400,9 @@ cp_onclick:
 
     mov bx, si                  ; wm_content takes the window in BX
     mov si, dx                  ; SI = click y; the window ptr is done with
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content             ; AX = content left, DX = content top
     mov di, ax                  ; DI = content left \ same origin pair as
-    mov bp, dx                  ; BP = content top  / cp_paint's
+    mov bp, dx                  ; BP = content top  / cp_paint_x's
     sub cx, di                  ; CX = content-relative click x
     mov dx, si
     sub dx, bp                  ; DX = content-relative click y
@@ -475,7 +481,7 @@ cp_entry:
 ; clobbers: AL (the output), flags
 ; -----------------------------------------------------------------------------
 cp_nitems:
-    call drv_cp_count
+    call KERNEL_SEG:cw_drv_cp_count
     add al, CP_ITEMS
     ret
 
@@ -489,7 +495,7 @@ cp_drv_item:
     cmp al, CP_ITEMS
     jb .static
     sub al, CP_ITEMS
-    call drv_cp_class           ; CF=1 if the driver went away under us
+    call KERNEL_SEG:cw_drv_cp_class           ; CF=1 if the driver went away under us
     ret
 .static:
     stc
@@ -505,7 +511,7 @@ cp_item_name:
     push ax
     call cp_drv_item
     jc .static
-    call drv_cp_name            ; the staged copy, so font_str can read it
+    call KERNEL_SEG:cw_drv_cp_name            ; the staged copy, so font_str can read it
     pop ax
     ret
 .static:
@@ -533,11 +539,11 @@ cp_item_paint:
     jc .static
     mov bx, di                  ; BX = the pane left, banked: drv_cls_svc
     mov dx, bp                  ; answers in DI, and DX is the driver ABI's
-    call drv_cls_svc            ; pane top
+    call KERNEL_SEG:cw_drv_cls_svc            ; pane top
     jc .done                    ; (AL survives: it is drv_cls_svc's input)
     mov bp, [di+DSV_CPPAINT]
     mov di, bx
-    call drv_cp_call
+    call KERNEL_SEG:cw_drv_cp_call
     jmp short .done
 .static:
     call cp_entry
@@ -565,11 +571,11 @@ cp_item_click:
     mov bx, dx                  ; BX = the pane-relative y...
     mov dx, bp                  ; ...DX the pane top, CX already the x
     mov si, di
-    call drv_cls_svc
+    call KERNEL_SEG:cw_drv_cls_svc
     jc .done
     mov bp, [di+DSV_CPCLICK]
     mov di, si
-    call drv_cp_call
+    call KERNEL_SEG:cw_drv_cp_call
     jmp short .done
 .static:
     call cp_entry
@@ -585,7 +591,7 @@ cp_item_click:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_drv_gone - a driver was released; do not leave its page selected
+; cp_drv_gone_x - a driver was released; do not leave its page selected
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ;
@@ -594,7 +600,7 @@ cp_item_click:
 ; segment on the panel's next paint, and the panel need not even be open for
 ; that to happen - [cp_sel] persists across opens by design (SPEC.md 31).
 ; -----------------------------------------------------------------------------
-cp_drv_gone:
+cp_drv_gone_x:
     push ax
     mov al, [cp_sel]
     call cp_drv_item
@@ -671,7 +677,7 @@ cp_list:
     add cx, CP_DIVX - 1
     mov dx, bp
     add dx, CP_CH - 1
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
 
     mov dx, bp
     add dx, CP_I0Y              ; DX = row 0 top, screen y
@@ -695,7 +701,7 @@ cp_list:
     add cx, CP_IBX2
     mov bx, dx                  ; y1 = row top
     add dx, CP_IBH - 1          ; y2
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     pop dx
     pop cx
     pop bx
@@ -711,7 +717,7 @@ cp_list:
     add cx, CP_IX
     push dx
     add dx, CP_ITDY
-    call font_str
+    call KERNEL_SEG:cw_font_str
     pop dx
 
     add dx, CP_IROWH
@@ -744,7 +750,7 @@ cp_divider:
     mov bx, bp
     mov dx, bp
     add dx, CP_CH - 1
-    call gfx_vline              ; in AX = x, BX = y1, DX = y2
+    call KERNEL_SEG:cw_gfx_vline              ; in AX = x, BX = y1, DX = y2
     pop dx
     pop bx
     pop ax
@@ -776,7 +782,7 @@ cp_page:
     add cx, CP_CW - 1
     mov dx, bp
     add dx, CP_CH - 1
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
 
     mov al, [cp_sel]
     add di, CP_RX               ; DI = pane left, BP = pane top
@@ -815,28 +821,28 @@ cp_sched_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PHY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     mov si, cp_s_pre            ; row 0 label
     mov cx, di
     add cx, CP_PLX
     mov dx, bp
     add dx, CP_PR0Y + CP_PLDY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     mov si, cp_s_coop           ; row 1 label
     mov cx, di
     add cx, CP_PLX
     mov dx, bp
     add dx, CP_PR0Y + CP_PROWH + CP_PLDY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     mov si, cp_s_cap            ; caption: the flip is immediate
     mov cx, di
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PCAPY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     call cp_radios              ; both glyphs, filled per the live mode
 
@@ -855,7 +861,7 @@ cp_sched_paint:
 ;           actually changed, untouched otherwise)
 ; The x coordinate is ignored: the two hit bands span the whole pane, so the
 ; glyph and its label both select the row, and so does the gutter left of
-; the pane (SPEC.md 31.2). Comparisons are SIGNED - see cp_onclick. A hit on
+; the pane (SPEC.md 31.2). Comparisons are SIGNED - see cp_onclick_x. A hit on
 ; the row that is ALREADY live does nothing at all; a hit that changes the
 ; mode sets it, redraws ONLY the two glyphs and posts [cp_dirty] so ui_task
 ; repaints the windows that quote the mode (SPEC.md 13/14).
@@ -874,11 +880,11 @@ cp_sched_click:
     mov al, 0                   ; upper band = Pre-emptive
 .set:
     mov ah, al                  ; AH = the mode this row selects
-    call sched_mode_get         ; AL = the live mode
+    call KERNEL_SEG:cw_sched_mode_get         ; AL = the live mode
     cmp al, ah
     je .done                    ; that row is already live: change nothing
     mov al, ah
-    call sched_mode_set         ; live on the next tick (SPEC.md 8.2)
+    call KERNEL_SEG:cw_sched_mode_set         ; live on the next tick (SPEC.md 8.2)
     mov byte [cp_wdirty], 1     ; ...and remembered on close (31.8)
     mov byte [cp_dirty], 1      ; ui_task step 3 repaints the About box's
                                 ; third line and any other mode-quoting
@@ -905,7 +911,7 @@ cp_radios:
     push dx
     push si
 
-    call sched_mode_get         ; AL = 0 pre-emptive, 1 cooperative
+    call KERNEL_SEG:cw_sched_mode_get         ; AL = 0 pre-emptive, 1 cooperative
     mov bl, al                  ; BL = the row whose glyph is filled
 
     mov byte [gfx_color], CBLACK ; the pen cp_glyph draws the bitmap with:
@@ -965,17 +971,17 @@ cp_disp_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PHY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     mov si, cp_s_dbof           ; row 0 label
     mov cx, di
     add cx, CP_PLX
     mov dx, bp
     add dx, CP_PR0Y + CP_PLDY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     call cpf_dbok               ; CF = 1: the option cannot be taken now, so
-    call gfx_pen_cf             ; its label takes the disabled pen (SPEC.md
+    call KERNEL_SEG:cw_gfx_pen_cf             ; its label takes the disabled pen (SPEC.md
                                 ; 31.3/46). One call, because the predicate
                                 ; already answers in CF and the pen is two
                                 ; pieces of state that must not disagree
@@ -984,8 +990,8 @@ cp_disp_paint:
     add cx, CP_PLX
     mov dx, bp
     add dx, CP_PR0Y + CP_PROWH + CP_PLDY
-    call font_str
-    call gfx_pen_live
+    call KERNEL_SEG:cw_font_str
+    call KERNEL_SEG:cw_gfx_pen_live
 
     mov si, cp_s_dcap           ; caption: what it costs...
     call cpf_dbok
@@ -999,7 +1005,7 @@ cp_disp_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PCAPY
-    call font_str
+    call KERNEL_SEG:cw_font_str
     cmp si, cp_s_dmono          ; ...and that one answer runs to a second line.
     jne .capdone                ; font_str clobbers nothing, so SI still names
     mov si, cp_s_dmono2         ; the string that was drawn
@@ -1007,7 +1013,7 @@ cp_disp_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PCAP2
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .capdone:
 
     call cp_dbradios            ; both glyphs, filled per the live state
@@ -1034,7 +1040,7 @@ cpf_dbok:
     jne .yes                    ; already armed: the memory is ours
     push ax
     push bx
-    call mem_avail             ; AX = largest free run, KB
+    call KERNEL_SEG:cw_mem_avail             ; AX = largest free run, KB
     cmp ax, BB_KB
     pop bx
     pop ax
@@ -1084,14 +1090,14 @@ cp_dbradios:
 
     add dx, CP_PROWH            ; --- row 1: double buffered ---
     call cpf_dbok               ; ...which is the row that can be refused
-    call gfx_pen_cf
+    call KERNEL_SEG:cw_gfx_pen_cf
     mov si, cp_radio_off
     cmp bl, 1
     jne .r1
     mov si, cp_radio_on
 .r1:
     call cp_glyph
-    call gfx_pen_live
+    call KERNEL_SEG:cw_gfx_pen_live
 
     pop si
     pop dx
@@ -1120,7 +1126,7 @@ cpf_disp_cap:
     add cx, CP_PRGT
     mov dx, bx
     add dx, CP_PCAP2 - CP_PCAPY + 7
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     mov byte [gfx_color], CBLACK
     mov si, cp_s_dcap
     call cpf_dbok
@@ -1134,7 +1140,7 @@ cpf_disp_cap:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PCAPY
-    call font_str
+    call KERNEL_SEG:cw_font_str
     cmp si, cp_s_dmono              ; same two-line answer as the full paint
     jne .done                       ; (SPEC.md 47 rule 6: a partial redraw
     mov si, cp_s_dmono2             ; path draws what the full paint would)
@@ -1142,7 +1148,7 @@ cpf_disp_cap:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PCAP2
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .done:
     pop si
     pop dx
@@ -1186,7 +1192,7 @@ cp_disp_click:
     call cpf_dbok               ; arming: refuse if it cannot be funded, and
     jc .done                    ; leave the dot where it is (the caption and
 .doit:                          ; the greyed label already say why)
-    call bb_set                ; flips both flags; we hold the lock
+    call KERNEL_SEG:cw_bb_set                ; flips both flags; we hold the lock
     mov byte [cp_wdirty], 1     ; ...and remembered on close (31.8)
     call cp_dbradios            ; the two glyph boxes only
     call cpf_disp_cap           ; the caption can change with the claim:
@@ -1230,7 +1236,7 @@ cp_time_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PHY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     call cp_time_rows           ; both field rows, from the live clock
 
@@ -1245,13 +1251,13 @@ cp_time_paint:
     add cx, CP_PLX
     mov dx, bp
     add dx, CPT_O0Y + CP_PLDY
-    call font_str
+    call KERNEL_SEG:cw_font_str
     mov si, cp_s_tsec
     mov cx, di
     add cx, CP_PLX
     mov dx, bp
     add dx, CPT_O1Y + CP_PLDY
-    call font_str
+    call KERNEL_SEG:cw_font_str
     call cp_timechk
 
     mov byte [gfx_color], CBLACK
@@ -1260,7 +1266,7 @@ cp_time_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CPT_CAP1Y
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     mov si, cp_s_tnrt           ; caption 2: read live from the probe's
     cmp byte [clk_rtc], 0       ; verdict (SPEC.md 37.90) - informative only,
@@ -1276,7 +1282,7 @@ cp_time_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CPT_CAP2Y
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     pop si
     pop dx
@@ -1332,7 +1338,7 @@ cp_time_click:
     jg .done
 .step:
     mov al, [cp_tsel]
-    call clk_fld_adj           ; in AL = field, BL = +1/-1 (SPEC.md 37)
+    call KERNEL_SEG:cw_clk_fld_adj           ; in AL = field, BL = +1/-1 (SPEC.md 37)
     call cp_time_rows
     jmp .done
 
@@ -1366,7 +1372,7 @@ cp_time_click:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_tick - the once-a-second live refresh (far body of the cp_tick shim)
+; cp_tick_x - the once-a-second live refresh (far body of the cp_tick_x shim)
 ;
 ; in:  nothing; the gfx lock is held by ui_task (SPEC.md 13 step 4)
 ; out: nothing
@@ -1378,7 +1384,7 @@ cp_time_click:
 ; nothing may be on top of it. Only then is the origin re-derived from the
 ; live window rect and the two rows redrawn in place.
 ; -----------------------------------------------------------------------------
-cp_tick:
+cp_tick_x:
     push ax
     push bx
     push cx
@@ -1390,14 +1396,14 @@ cp_tick:
     cmp byte [cp_sel], CP_ITIME
     jne .out
     mov al, KIND_CTRL
-    call inst_find_kind         ; CF = 1: no live Control Panel
+    call KERNEL_SEG:cw_inst_find_kind         ; CF = 1: no live Control Panel
     jc .out
     mov bx, [di+I_WIN]
     test word [bx+W_FLAGS], 2   ; visible?
     jz .out
-    call wm_obscured
+    call KERNEL_SEG:cw_wm_obscured
     jc .out
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content             ; AX = content left, DX = content top
     mov di, ax
     add di, CP_RX               ; DI = pane left, BP = pane top
     mov bp, dx
@@ -1439,7 +1445,7 @@ cp_time_rows:
     add cx, CPT_BX - 4
     mov dx, bp
     add dx, CPT_TY + 11
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
 
     mov byte [gfx_color], CBLACK ; the time row's two ':' separators (the
     mov si, cp_s_tcol            ; date row's gaps are simply blank)
@@ -1447,12 +1453,12 @@ cp_time_rows:
     add cx, CPT_FX + 16
     mov dx, bp
     add dx, CPT_TY
-    call font_str
+    call KERNEL_SEG:cw_font_str
     mov cx, di
     add cx, CPT_FX + 40
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
-    call clk_snap               ; ONE snapshot for all the fields, so the
+    call KERNEL_SEG:cw_clk_snap               ; ONE snapshot for all the fields, so the
                                  ; row cannot straddle a second (SPEC.md 37)
     mov ah, 6                   ; active field count: the meridiem exists
     add ah, [clk_h12]           ; only in 12-hour mode (SPEC.md 31.5)
@@ -1517,7 +1523,7 @@ cp_time_fld:
     sub bx, 2                   ; y1 = y - 2
     add dx, 9                   ; y2 = y + 9
     mov byte [gfx_color], CBLACK
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     pop ax
     pop bx
     pop dx
@@ -1528,8 +1534,8 @@ cp_time_fld:
     mov byte [gfx_color], CBLACK
 .text:
     mov al, ah                  ; AL = field index for the formatter
-    call clk_fld_str            ; SI = that field's text (SPEC.md 37)
-    call font_str               ; in SI, CX = x, DX = y
+    call KERNEL_SEG:cw_clk_fld_str            ; SI = that field's text (SPEC.md 37)
+    call KERNEL_SEG:cw_font_str               ; in SI, CX = x, DX = y
 
     pop si
     pop dx
@@ -1674,13 +1680,13 @@ cp_timebtn:
     mov dx, bx
     add dx, CPT_BH - 1          ; DX = y2
     mov byte [gfx_color], CBLACK
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
     inc ax                      ; the interior, one pixel in from the frame
     inc bx
     dec cx
     dec dx
     mov byte [gfx_color], CWHITE
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     pop bx
 
     mov byte [gfx_color], CBLACK ; the 8px glyph, centred in the box
@@ -1688,7 +1694,7 @@ cp_timebtn:
     add cx, CPT_BX + (CPT_BW - 8) / 2
     mov dx, bx
     add dx, (CPT_BH - 8) / 2
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     pop si
     pop dx
@@ -1729,7 +1735,7 @@ cp_glyph:
     mov ax, cx                  ; white box: (x,y) .. (x+11, y+11)
     add cx, CP_GW - 1
     add dx, CP_GW - 1
-    call gfx_fill               ; in AX = x1, BX = y1, CX = x2, DX = y2
+    call KERNEL_SEG:cw_gfx_fill               ; in AX = x1, BX = y1, CX = x2, DX = y2
     pop ax
     mov [gfx_color], al
 
@@ -1742,7 +1748,7 @@ cp_glyph:
 .col:
     shl ax, 1
     jnc .skip
-    call gfx_pixel              ; in CX = x, DX = y, color [gfx_color]
+    call KERNEL_SEG:cw_gfx_pixel              ; in CX = x, DX = y, color [gfx_color]
 .skip:
     inc cx
     dec bl
@@ -1758,13 +1764,14 @@ cp_glyph:
     pop bx
     pop ax
     ret
+section .text
+
 
 ; -----------------------------------------------------------------------------
 ; radio bitmaps: 12x12, one word per row, bit 15 = x offset 0 (the
 ; menu_logo_bmp convention). The low 4 bits of every word are unused.
 ; DATA, so back to the kernel segment - cp_glyph walks them through DS.
 ; -----------------------------------------------------------------------------
-section .text
 
 
 ; cp_radio_off - open ring (the mode that is NOT selected)
@@ -1811,9 +1818,14 @@ cp_chk_off:
     dw 0x8010                   ;  9  #..........#
     dw 0x8010                   ; 10  #..........#
     dw 0xFFF0                   ; 11  ############
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in
+                                ; its own segment. DS is still KERNEL_SEG, so
+                                ; every reference below - this module's own
+                                ; strings included - is unchanged
+
 
 ; -----------------------------------------------------------------------------
-; cp_flush - persist every Control Panel setting (SPEC.md 31.8/51.5)
+; cp_flush_x - persist every Control Panel setting (SPEC.md 31.8/51.5)
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ;
@@ -1826,7 +1838,7 @@ cp_chk_off:
 ; It writes ONCE, when the panel closes, rather than on every click. A floppy
 ; write is ~a second on the floor machine and the panel is frozen for it, so
 ; a session of trying settings out used to cost a second per click. Pages mark
-; [cp_wdirty] instead and cp_flush_close spends it.
+; [cp_wdirty] instead and cp_flush_close_x spends it.
 ;
 ; What that gives up is the crash window: a machine switched off with the
 ; panel still open loses whatever was changed. That is the deliberate trade -
@@ -1836,13 +1848,13 @@ cp_chk_off:
 ;
 ; [cp_dsave] carries a failed write to the Drivers page's caption, the only
 ; page with room to say it. It now says so the NEXT time the panel is opened,
-; because by the time the write happens the page is gone - and cp_flush_close
+; because by the time the write happens the page is gone - and cp_flush_close_x
 ; leaves [cp_wdirty] set on failure, so the next close retries rather than
 ; silently dropping it.
 ; -----------------------------------------------------------------------------
-cp_flush:
+cp_flush_x:
     push ax
-    call drv_cfg_save
+    call KERNEL_SEG:cw_drv_cfg_save
     mov byte [cp_dsave], 0
     jnc .out
     mov byte [cp_dsave], 1
@@ -1851,7 +1863,7 @@ cp_flush:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_flush_close - spend [cp_wdirty], if there is anything to spend
+; cp_flush_close_x - spend [cp_wdirty], if there is anything to spend
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ;
@@ -1864,10 +1876,10 @@ cp_flush:
 ; no disk is in the drive: the flag gates the first two and drv_cfg_save's own
 ; failure path handles the third.
 ; -----------------------------------------------------------------------------
-cp_flush_close:
+cp_flush_close_x:
     cmp byte [cp_wdirty], 0
     je .out
-    call cp_flush
+    call cp_flush_x
     cmp byte [cp_dsave], 0      ; the write failed: KEEP the flag, so closing
     jne .out                    ; the panel again - or rebooting - tries once
     mov byte [cp_wdirty], 0     ; more rather than dropping the settings
@@ -1926,6 +1938,8 @@ CPS_BTX2  equ CP_PGX + 44
 CPS_BTY1  equ 84
 CPS_BTY2  equ 99
 CPS_NOTEY equ 104                       ; the refusal notice's text row
+section .text
+
 
 ; Which row a click asked for, in [snd_route] order, so the band test is an
 ; index rather than a ladder of compares - and the same rows as DSV_TIERS
@@ -1938,6 +1952,11 @@ cp_snd_tbit:  db 0, 1 << SND_RT_FM, 1 << SND_RT_SB
 ; notice line is blank). .text and not .bss for the reason everything else
 ; here is: -f bin zeroes nothing.
 cp_snd_err: db 0
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in
+                                ; its own segment. DS is still KERNEL_SEG, so
+                                ; every reference below - this module's own
+                                ; strings included - is unchanged
+
 
 ; -----------------------------------------------------------------------------
 ; cp_snd_paint - the page: heading, three tier rows, the Test button, notice
@@ -1957,13 +1976,13 @@ cp_snd_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PHY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     xor bx, bx                      ; BX = row 0..2
 .lbl:
     mov al, bl
     call cp_snd_rowok               ; greyed rows still draw - they are what
-    call gfx_pen_cf                 ; the machine does not have, and a missing
+    call KERNEL_SEG:cw_gfx_pen_cf                 ; the machine does not have, and a missing
                                     ; row would just look like a shorter list
     mov si, cp_s_sspk               ; three fixed labels, in ladder order
     or bl, bl
@@ -1980,11 +1999,11 @@ cp_snd_paint:
     mov dx, bp
     add dx, ax
     add dx, CP_PR0Y + CP_PLDY
-    call font_str
+    call KERNEL_SEG:cw_font_str
     inc bl
     cmp bl, 3
     jb .lbl
-    call gfx_pen_live
+    call KERNEL_SEG:cw_gfx_pen_live
 
     mov ax, di                      ; the Test button: a plain framed box
     add ax, CPS_BTX1
@@ -1994,13 +2013,13 @@ cp_snd_paint:
     add cx, CPS_BTX2
     mov dx, bp
     add dx, CPS_BTY2
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
     mov si, cp_s_stest
     mov cx, di
     add cx, CPS_BTX1 + 11
     mov dx, bp
     add dx, CPS_BTY1 + 4
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     call cp_snd_radios
     call cp_snd_note
@@ -2114,7 +2133,7 @@ cp_snd_radios:
 .r:
     mov al, bl
     call cp_snd_rowok           ; ...and the same pen cp_snd_paint gave the
-    call gfx_pen_cf             ; label, so the two halves of a row can
+    call KERNEL_SEG:cw_gfx_pen_cf             ; label, so the two halves of a row can
     mov si, cp_radio_off        ; never disagree about being disabled
     cmp bl, bh
     jne .draw
@@ -2125,7 +2144,7 @@ cp_snd_radios:
     inc bl
     cmp bl, 3
     jb .r
-    call gfx_pen_live
+    call KERNEL_SEG:cw_gfx_pen_live
     pop si
     pop dx
     pop cx
@@ -2164,7 +2183,7 @@ cp_snd_note:
     add cx, CP_PMX
     mov dx, bp
     add dx, CPS_NOTEY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .out:
     pop si
     pop dx
@@ -2202,7 +2221,7 @@ cp_snd_click:
     mov ax, 660                 ; one second of a tone through whatever the
     mov cx, 18                  ; page currently selects. UI priority, so it
     mov dl, SND_PRI_UI          ; outranks anything a package is playing -
-    call osapi_snd_tone         ; the user asked for it
+    call KERNEL_SEG:cw_osapi_snd_tone         ; the user asked for it
     jmp short .done
 
 .rows:
@@ -2228,7 +2247,7 @@ cp_snd_click:
     cmp ah, [snd_route]
     je .redraw                  ; already the setting: still redraw, because
                                 ; the click clears a stale notice
-    call drv_tier               ; ask the driver to move; AL = why not
+    call KERNEL_SEG:cw_drv_tier               ; ask the driver to move; AL = why not
     jnc .take
     mov [cp_snd_err], al        ; the tier stands where it was, and the notice
     jmp short .redraw           ; line says which of the two reasons
@@ -2273,13 +2292,13 @@ cp_drv_paint:
     add cx, CP_PMX
     mov dx, bp
     add dx, CP_PHY
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     xor bx, bx                      ; BX = row index
 .row:
     push bx
     mov al, bl
-    call drv_row                    ; BX = the drv_tab row
+    call KERNEL_SEG:cw_drv_row                    ; BX = the drv_tab row
     cmp word [bx+DRVR_FILE], 0
     je .next                        ; an empty table row draws nothing
     mov si, [bx+DRVR_TITLE]
@@ -2290,17 +2309,17 @@ cp_drv_paint:
     mov cx, di
     add cx, CP_PLX
     add dx, CP_PLDY
-    call font_str                   ; the driver's name
+    call KERNEL_SEG:cw_font_str                   ; the driver's name
     pop bx
 
-    call drv_status                 ; ...and what it is doing right now
+    call KERNEL_SEG:cw_drv_status                 ; ...and what it is doing right now
     pop ax
     push ax
     call cp_drv_rowy
     add dx, CP_PLDY + 9
     mov cx, di
     add cx, CP_PLX
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .next:
     pop bx
     inc bx
@@ -2364,7 +2383,7 @@ cp_drv_boxes:
 .row:
     push bx
     mov al, bl
-    call drv_row
+    call KERNEL_SEG:cw_drv_row
     cmp word [bx+DRVR_FILE], 0
     je .next
     mov si, cp_chk_off
@@ -2426,29 +2445,29 @@ cp_drv_click:
     mov al, 1                   ; lower band = row 1
 .got:
     push ax
-    call drv_row
+    call KERNEL_SEG:cw_drv_row
     cmp word [bx+DRVR_FILE], 0  ; an empty table row is not a control
     pop ax
     je .done
 
     push ax
-    call drv_row
+    call KERNEL_SEG:cw_drv_row
     cmp word [bx+DRVR_SEG], 0
     pop ax
     je .load
-    call drv_unload             ; it is up: take it down
+    call KERNEL_SEG:cw_drv_unload             ; it is up: take it down
     push ax
-    call drv_row
+    call KERNEL_SEG:cw_drv_row
     mov byte [bx+DRVR_WANT], 0
     mov byte [bx+DRVR_ERR], DRVE_OK ; nothing failed - it was turned off
     pop ax
     jmp short .save
 .load:
     push ax
-    call drv_row
+    call KERNEL_SEG:cw_drv_row
     mov byte [bx+DRVR_WANT], 1  ; wanted first, so a failed load still
     pop ax                      ; persists the intent: put the disk in and
-    call drv_load               ; the next boot picks it up
+    call KERNEL_SEG:cw_drv_load               ; the next boot picks it up
 .save:
     mov byte [cp_wdirty], 1     ; ...and only now, the settings file
     push di                     ; a driver that came up or went down may own
@@ -2484,10 +2503,10 @@ cp_drv_lines:
 .row:
     push bx
     mov al, bl
-    call drv_row
+    call KERNEL_SEG:cw_drv_row
     cmp word [bx+DRVR_FILE], 0
     je .next
-    call drv_status
+    call KERNEL_SEG:cw_drv_status
     pop ax
     push ax
     call cp_drv_rowy
@@ -2495,7 +2514,7 @@ cp_drv_lines:
     call cp_drv_wipe
     mov cx, di
     add cx, CP_PLX
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .next:
     pop bx
     inc bx
@@ -2510,7 +2529,7 @@ cp_drv_lines:
     mov si, cp_s_dsave
     mov cx, di
     add cx, CP_PMX
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .out:
     mov byte [gfx_color], CBLACK
     pop si
@@ -2537,13 +2556,15 @@ cp_drv_wipe:
     mov cx, di
     add cx, CP_PRGT             ; the PANE's last column, not the content's
     add dx, 7
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     mov byte [gfx_color], CBLACK
     pop dx
     pop cx
     pop bx
     pop ax
     ret
+section .text
+
 
 ; cp_chk_on - the same square with an X through it (checked)
 cp_chk_on:
@@ -2559,3 +2580,24 @@ cp_chk_on:
     dw 0xA050                   ;  9  #.#......#.#
     dw 0xC030                   ; 10  ##........##
     dw 0xFFF0                   ; 11  ############
+
+section .cold                   ; far entries: the resident thunks in
+                                ; kernel.asm reach the bodies above through
+                                ; these, which is what lets every body keep
+                                ; the near `ret` it always had
+cpf_cp_paint:          call cp_paint_x
+                    retf
+cpf_cp_onclick:        call cp_onclick_x
+                    retf
+cpf_cp_flush:          call cp_flush_x
+                    retf
+cpf_cp_flush_close:    call cp_flush_close_x
+                    retf
+cpf_cp_drv_gone:       call cp_drv_gone_x
+                    retf
+cpf_cp_tick_due:       call cp_tick_due_x
+                    retf
+cpf_cp_tick:           call cp_tick_x
+                    retf
+
+section .text

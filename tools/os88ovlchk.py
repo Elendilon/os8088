@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Prove no call crosses the boot-overlay boundary as a NEAR call.
+"""Prove no call crosses a segment boundary inside the kernel as a NEAR call.
 
-`.ovl` has its own `vstart`, so a near call between it and `.text` assembles
+`.ovl` and `.cold` each have their own `vstart`, so a near call between one
+of them and `.text` assembles
 without complaint and emits a displacement computed between two different
 address spaces.  Nothing catches that: not NASM, not the linker (there isn't
 one), and not a boot on the one machine whose rung QEMU can emulate.  This
 walks every `section` block in kernel/ and checks that
 
-  * a call FROM `.ovl` targets a label defined in `.ovl`, or is explicitly
-    far (`KERNEL_SEG:`), and
-  * a call INTO an `.ovl` label from anywhere else is explicitly far
-    (`FAT_SEG:`).
+  * a call between two different sections is explicitly far, and
+  * a call within one section is not.
 
 Run it from `make`; it is worth more than any amount of reading.
 """
 import re, sys, glob
 
 CALL = re.compile(r'\b(?:call|jmp)\s+(?:near\s+)?(?:(\w+):)?([A-Za-z_]\w*)\b')
+FAR = ('.ovl', '.cold')     # sections with a vstart of their own
 
 
 def sections(path):
@@ -47,15 +47,15 @@ def main():
                 tsect = where.get(tgt)
                 if tsect is None:
                     continue
-                if sect == '.ovl' and tsect != '.ovl' and seg is None:
-                    bad.append((f, n, 'overlay -> resident, near', tgt))
-                if sect != '.ovl' and tsect == '.ovl' and seg is None:
-                    bad.append((f, n, 'resident -> overlay, near', tgt))
+                a = sect if sect in FAR else '.text'
+                b = tsect if tsect in FAR else '.text'
+                if a != b and seg is None:
+                    bad.append((f, n, '%s -> %s, near' % (a, b), tgt))
     for f, n, why, tgt in bad:
         print("%s:%d: %s: %s" % (f, n, why, tgt), file=sys.stderr)
     if bad:
-        sys.exit("os88ovlchk: %d call(s) cross the overlay boundary near" % len(bad))
-    print("os88ovlchk: no near call crosses the overlay boundary")
+        sys.exit("os88ovlchk: %d call(s) cross a segment boundary near" % len(bad))
+    print("os88ovlchk: no near call crosses a segment boundary")
 
 
 if __name__ == '__main__':

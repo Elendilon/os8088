@@ -193,7 +193,19 @@ VIEW_KB     equ 3               ; each cache: 1KB of entries + 2KB of icons
 ; proves it. It used to hold by luck: every base in the map was a round
 ; constant like 0x0300 or 0x2A00, and nothing said why that mattered.
 KIMG_PARA   equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 32   ; image + scratch
-FAT_SEG     equ KERNEL_SEG + KIMG_PARA   ; mount-time FAT snapshot
+COLD_SEG    equ KERNEL_SEG + KIMG_PARA   ; cold code (SPEC.md 2.6): resident
+                                ; for the whole session, but in a segment of
+                                ; its own, so none of it counts against the
+                                ; kernel's 64KB window. Same contract as the
+                                ; boot overlay - CS here, DS still KERNEL_SEG -
+                                ; and it rides the same contiguous boot read,
+                                ; which is why it sits between the image and
+                                ; the FAT window rather than above the stacks:
+                                ; anywhere else would need the loader to skip
+                                ; over .lowbss, which is nobits and not in the
+                                ; file at all
+COLD_PARA   equ ((COLD_SIZE + 511) / 512) * 32
+FAT_SEG     equ COLD_SEG + COLD_PARA   ; mount-time FAT snapshot
                                 ; (SPEC.md 2.1/18), reached via ES ONLY,
                                 ; never DS; dsk_next_clus is the one reader
 LOW_SEG     equ FAT_SEG + FAT_PARA    ; .lowbss (task stacks + disk buffers)
@@ -264,6 +276,7 @@ XM_MAX_BLKS equ 8               ; xm_alloc's fixed block table, entries: a
 ; =============================================================================
 section .lowbss  nobits vstart=0
 section .bss     nobits vfollows=.text valign=1
+section .cold    start=COLD_START vstart=0
 section .ovl     start=OVL_START vstart=0
 section .text
 
@@ -727,6 +740,87 @@ api_file_rename:
 ; out: nothing (all registers preserved); the copy is NUL-terminated even if
 ;      the source was not - a package cannot make this run on
 
+; --- resident shims the COLD segment far-calls (SPEC.md 2.6) ---------------
+; Same four bytes and the same reason as the overlay's ovw_* above: cold code
+; runs with CS elsewhere, so a near call to resident code would be computed
+; between two address spaces. tools/os88ovlchk.py refuses one.
+cw_bb_set:              call bb_set
+                    retf
+cw_clk_fld_adj:         call clk_fld_adj
+                    retf
+cw_clk_fld_str:         call clk_fld_str
+                    retf
+cw_clk_snap:            call clk_snap
+                    retf
+cw_drv_cfg_save:        call drv_cfg_save
+                    retf
+cw_drv_cls_svc:         call drv_cls_svc
+                    retf
+cw_drv_cp_call:         call drv_cp_call
+                    retf
+cw_drv_cp_class:        call drv_cp_class
+                    retf
+cw_drv_cp_count:        call drv_cp_count
+                    retf
+cw_drv_cp_name:         call drv_cp_name
+                    retf
+cw_drv_load:            call drv_load
+                    retf
+cw_drv_row:             call drv_row
+                    retf
+cw_drv_status:          call drv_status
+                    retf
+cw_drv_tier:            call drv_tier
+                    retf
+cw_drv_unload:          call drv_unload
+                    retf
+cw_font_str:            call font_str
+                    retf
+cw_gfx_fill:            call gfx_fill
+                    retf
+cw_gfx_frame:           call gfx_frame
+                    retf
+cw_gfx_pen_cf:          call gfx_pen_cf
+                    retf
+cw_gfx_pen_live:        call gfx_pen_live
+                    retf
+cw_gfx_pixel:           call gfx_pixel
+                    retf
+cw_gfx_vline:           call gfx_vline
+                    retf
+cw_inst_find_kind:      call inst_find_kind
+                    retf
+cw_mem_avail:           call mem_avail
+                    retf
+cw_osapi_snd_tone:      call osapi_snd_tone
+                    retf
+cw_sched_mode_get:      call sched_mode_get
+                    retf
+cw_sched_mode_set:      call sched_mode_set
+                    retf
+cw_wm_content:          call wm_content
+                    retf
+cw_wm_obscured:         call wm_obscured
+                    retf
+
+; ...and the other direction: what the kernel calls IN the Control Panel.
+; cp_tpl and the driver/UI call sites still name these, so nothing outside
+; ctrl.inc changed at all.
+cp_paint:             call COLD_SEG:cpf_cp_paint
+                    ret
+cp_onclick:           call COLD_SEG:cpf_cp_onclick
+                    ret
+cp_flush:             call COLD_SEG:cpf_cp_flush
+                    ret
+cp_flush_close:       call COLD_SEG:cpf_cp_flush_close
+                    ret
+cp_drv_gone:          call COLD_SEG:cpf_cp_drv_gone
+                    ret
+cp_tick_due:          call COLD_SEG:cpf_cp_tick_due
+                    ret
+cp_tick:              call COLD_SEG:cpf_cp_tick
+                    ret
+
 ; --- resident shims the overlay far-calls (see the contract above) ----------
 ; Four bytes each. A routine gets one only because an overlay entry needs it
 ; and it has to stay resident for its own reasons: xm_arm because xm_copy
@@ -1051,7 +1145,12 @@ KBSS_SIZE equ kernel_bss_end - $$
 ; padding inside .text - that would grow KTEXT_SIZE, which grows KIMG_PARA,
 ; which grows the padding, and there is no fixed point - but as a SECTION
 ; start it is not circular at all: .ovl's own size is not one of the terms.
-OVL_START equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 512
+COLD_START equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 512
+OVL_START  equ COLD_START + ((COLD_SIZE + 511) / 512) * 512
+
+section .cold
+cold_end:
+COLD_SIZE equ cold_end - $$
 
 section .ovl
 ovl_end:
