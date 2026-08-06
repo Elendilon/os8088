@@ -1,0 +1,314 @@
+# Fullscreen exclusive — the plan (fsx)
+
+Status: PLAN. Nothing here is implemented. SPEC.md gets the binding version
+(proposed section: **§53** — §52 is spoken for by the hard-disk work in
+flight on the `elendilon` branch) *before* the first line of `kernel/fsx.inc`
+is written, per the §1 rule.
+
+## 0. What this is
+
+§11.2's fullscreen surface is a real window: the desktop's mode, the kernel's
+primitives, the cursor, the event ladder — all still live, which is exactly
+right for Tracker and ArtfulType. This plan is the other thing: **the app
+borrows the machine**. Multitasking suspended, every kernel drawer parked,
+and — the part §11.2 cannot offer — **the video mode is the app's to change**:
+all four CGA modes, both Hercules modes, four standard VGA modes. Mode 13h's
+320x200x256 is the headline; a real text mode for a roguelike is the sleeper.
+
+The two coexist and answer different apps. Tracker *cannot* use this (its own
+worker feeds the audio ring, and the freeze parks it — see §7 below for the
+opt-out); Missile Command at the arcade's own resolution, a mode 13h demo, or
+anything that wants every cycle of a 4.77MHz 8088 with no tick jitter, can.
+
+## 1. The shape: a bracket, not a latch (the load-bearing decision)
+
+`OSAPI_FSX_RUN` is called from a window callback — UI-task context, gfx lock
+held, the `wm_fullscreen` contract — and **does not return until the app is
+done being fullscreen**. The kernel suspends the world, far-calls the app's
+"exclusive main" through the window's own `W_DISP`/`W_SEG` dispatcher (the
+`wm_pkgcall` idiom — the proc is an ordinary near proc, no `retf` for the
+author to forget), and when that proc returns, restores everything in one
+place and returns to the callback.
+
+Why not an enter/exit pair like `wm_fullscreen`? Because a latch that
+survives across callback returns means the UI task's event ladder runs
+between callbacks **with the screen in a foreign mode**, and then every
+invariant in §12/§13 needs an fsx gate: the menu-bar clock, `fdlg_reap`, the
+event ladder's four branches, every background painter's visibility recheck,
+the cursor. §11.2 needed exactly two such gates because it keeps the mode and
+the primitives; a foreign mode needs dozens, each one a silent-corruption bug
+when missed. The bracket makes the only rule that matters — **the kernel
+never runs while the mode is foreign** — true by construction, because the
+kernel is parked on the stack underneath the app. Precedent: `osapi_snd_play`
+blocks; the §38 dialog is modal; both are cheap for the same reason.
+
+Consequences, all free:
+
+- No second input model. The bracket runs on the UI task, the one context
+  allowed int 16h (§7's BIOS rule), so the app polls the keyboard directly.
+  The mouse ISR keeps `mouse_x/y/btn` fresh throughout (it never draws — see
+  §3), so `OSAPI_MOUSE` answers live; the app edge-detects buttons itself.
+  No events are dispatched — there is no ladder running to dispatch them.
+- The file API is legal mid-bracket (it is UI-task-context-only, and this IS
+  the UI task) — a game can load level data between modes. It takes
+  `sch_lock` around int 13h exactly as it always does; the tick still chains.
+- Task 0 cannot `task_exit`, so the "worker dies inside the bracket and
+  strands the machine" class of bug is structurally unreachable.
+- Stack: the whole session lives in nested frames on STK0. A few dozen bytes
+  deeper than a long callback today; bounded and measured at implementation.
+
+## 2. The freeze: a scheduler whitelist, not `sch_lock`
+
+`sch_lock` is the wrong tool, and sched.inc already documents why: it stops
+the *voluntary* path too (`task_yield` self-resumes under it), and — the
+sharper edge — it would starve a loaded sound driver's refill worker, the
+exact hazard `snd.inc` and `sb.inc` each call out by name. A fullscreen game
+with Sound Blaster music is precisely the customer here.
+
+Instead:
+
+- **`T_FLAGS`** — the task record's existing padding byte at offset 7 becomes
+  a flags byte. `T_SIZE` stays 8, the CL-shift indexing is untouched, no
+  layout moves. Bit 0 = `TF_SERVICE`: set on tasks spawned through
+  `osapi_drv_task` (slot 0x0248 — the sound driver's refill/drain workers)
+  and nowhere else. Everything `task_spawn` creates defaults to 0.
+- **`[fsx_task]`** — one `.bss` byte, 0xFF = off, else the slot number of the
+  exclusive task. Armed and cleared under `pushf`/`cli`.
+- **One test in `sch_switch`'s scan**: a task is eligible iff `T_STATE` = 1
+  AND (fsx off, OR slot = `[fsx_task]`, OR `TF_SERVICE`). ~10 bytes, on the
+  switch path only.
+
+What keeps running, by construction: the int 08h chain to the BIOS (floppy
+motor), `sch_account`, `snd_tick` inside IRQ0 (tones and FM sustain — an
+OPL2 note needs no task at all), the wake scan (sleepers mark ready and
+simply wait unpicked; no new state, they run normally the moment the bracket
+ends), and the driver's `TF_SERVICE` workers — so a Sound Blaster stream
+keeps playing across a mode switch. What freezes: every Clock, Bounce,
+sampler, other packages' workers, and the caller's own worker (but see the
+§7 opt-in). The cooperative watchdog needs no special case: when it forces a
+switch, the whitelist means it picks a service task or resumes the exclusive
+task — harmless either way.
+
+One behavioural note to document in the SDK: inside the bracket,
+`task_sleep` on the UI task degenerates (nothing else eligible → `sch_switch`
+resumes the outgoing task immediately, the "nothing ready" path that today
+only task-0-never-sleeps makes unreachable). Pacing inside the bracket is
+`OSAPI_FSX_WAIT` (§6) or polling `[ticks]`, and the SDK says so.
+
+## 3. The gfx lock stays held for the whole bracket
+
+The caller enters holding it (callback contract); `fsx_run` never releases
+it. Three things fall out, none of them new mechanism:
+
+- **The cursor never draws.** The mouse ISR's first gate is
+  `gfx_lock_flag`; it updates coordinates and sets `cur_dirty`, nothing
+  more. At exit, the callback's ordinary epilogue `gfx_unlock` runs
+  `cursor_show`, which takes a fresh save-under from the freshly restored
+  VRAM — §7's existing contract, zero new code.
+- **The lock is the fence.** Anything that somehow runs and tries to draw
+  (a `TF_SERVICE` worker gone wrong, a §7 opt-in worker) parks in
+  `gfx_lock`'s yield-retry loop until the bracket ends. Self-serializing,
+  not corrupting.
+- **`wm_clip_set` state, menu save-under, drag outlines** — none can exist,
+  because all of them live inside single lock holds owned by code that is
+  not running.
+
+## 4. Mode switching — `OSAPI_FSX_MODE`
+
+Mode ids (`FSXM_*`), availability decided by `[vid_kind]` alone — a fact,
+not a guess, per §47:
+
+| id | mode                    | set via                     | VGA | CGA | HERC |
+|----|-------------------------|-----------------------------|-----|-----|------|
+| 0  | 80x25 text              | int 10h AX=0003 / mode 7 on Herc (`vid_text` body) | Y | Y | Y |
+| 1  | 40x25 text              | int 10h AX=0001             | Y | Y | – |
+| 2  | 320x200x4 (CGA)         | int 10h AX=0004             | Y | Y | – |
+| 3  | 640x200x2 (CGA)         | int 10h AX=0006             | Y | Y | – |
+| 4  | 720x348 mono (Herc gfx) | 6845 direct (`vid_setmode`'s Herc body) | – | – | Y |
+| 5  | 320x200x16 planar (0Dh) | int 10h AX=000D             | Y | – | – |
+| 6  | 640x350x16 (10h)        | int 10h AX=0010             | Y | – | – |
+| 7  | 640x480x16 (12h)        | int 10h AX=0012             | Y | – | – |
+| 8  | 320x200x256 (13h)       | int 10h AX=0013             | Y | – | – |
+
+Ids 0–3 are "all four modes CGA supports" (the colour/BW pairs 0/1, 2/3,
+4/5 collapse; we set the colour variant). Ids 0 and 4 are Hercules text and
+graphics. Ids 5–8 are the proposed "four standard VGA modes" — 0Dh is the
+classic planar game mode, 13h the chunky one; **open decision** below if
+11h (640x480x2) or another set was meant. The enum is open-ended; appending
+costs one table row.
+
+- **`OSAPI_FSX_CAPS`** — out AX = bitmask of settable ids for the live
+  adapter (bit n = id n), DL = `vid_kind`. Callable from any context, lock
+  held or not (the `OSAPI_VIDEO` precedent), so an app can grey its own
+  mode menu per §47 *before* entering — one predicate, shared by the greying
+  and the refusal.
+- **`OSAPI_FSX_MODE`** — legal only inside the bracket, from the exclusive
+  task. In AL = id, ES:DI = a 16-byte info block the kernel fills:
+  framebuffer segment, width, height, stride, flags (text / planar /
+  banked), bpp, bank count, bank step, display pages. Exact offsets pinned
+  in SPEC.md at implementation. Out CF=1 = not on this adapter (the caps
+  bit again). The mode set clears the screen (BIOS does; the Hercules body
+  keeps its load-bearing 32KB `rep stosw`).
+
+Rules that hold it up:
+
+- **The kernel's `[vid_*]` live block is never touched.** It keeps
+  describing the desktop mode; the info block is the app's only description
+  of the foreign one. Nothing kernel-side needs undoing at exit, and nothing
+  kernel-side can draw meanwhile because nothing kernel-side runs.
+- **After the first `FSX_MODE` call, every drawing slot is off-limits**
+  (`gfx_*`, `font_*`, `wm_*`, blit, scroll — they'd render desktop geometry
+  into a foreign framebuffer). Before any `FSX_MODE` call the screen is
+  still the desktop's, so a bracket that never switches modes may keep using
+  them — "exclusive but same mode" is a legitimate use (a game loop that
+  wants zero jitter) and costs nothing to allow. Author rule, SDK-documented,
+  same enforcement class as "workers never call the file API".
+- **What stays legal throughout**: file slots, `OSAPI_MOUSE`, ticks, snd,
+  mem/xm, `cpu_info`, `fsx_*`, and `osapi_font_glyphs` — the glyph *data*,
+  which is how an app letters mode 13h without a renderer of its own.
+- Mode-set bodies reuse `vid_setmode`'s Hercules body and `vid_text` as
+  callable leaves rather than duplicating the 6845 table. **The Hercules
+  rows take their segment from the same table `vid_seg` was initialized
+  from**, so a `HERCSEG=` test build flows through to the info block for
+  free — without that, `hercshot.py` can never see an fsx frame.
+- Hercules graphics reports **2 display pages** (`out 3BFh, 3` already
+  allows the B800 page; 3B8h bit 7 flips) — hardware double buffering on a
+  1983 card, for one word in the info block.
+
+## 5. Restore — one path, ordered
+
+When the app's proc returns (the only exit):
+
+1. `vid_setmode` — the desktop adapter mode back, idempotent; the Hercules
+   body clears its 32KB. BIOS mode set restores the default palette, which
+   is the desktop's.
+2. Drain the BIOS key buffer and the event queue (`evq`) — keys typed and
+   clicks queued at the game must not land in the desktop ladder; the
+   `snd.inc` click-abort drain is the precedent.
+3. Disarm: `[fsx_task]` = 0xFF under `cli`.
+4. Repaint under the still-held lock: if `[bb_dbl]` is armed the back buffer
+   still holds the desktop pixel-perfect — full-region flush, cheap. Else
+   `wm_paint_all` with `[menu_bdirty]` forced (the save-under-overdraw
+   precedent).
+5. Return to the callback; its dispatch epilogue's `gfx_unlock` brings the
+   cursor back with a fresh save-under.
+
+Entry saves nothing — a BIOS mode set trashes VRAM regardless, so the
+restore is a repaint by design. The §9 build-out makes it instant on
+machines with XMS.
+
+## 6. `OSAPI_FSX_WAIT` — the frame clock
+
+In AL: 0 = next tick (`hlt` loop on `[ticks]`); 1 = vertical retrace —
+3DAh bit 3 for the VGA/CGA family, 3BAh bit 7 for Hercules, chosen by the
+*current fsx mode*. Bracket-only. Every wait is **bounded by a `[ticks]`
+delta** — §37.90's rule: the one way to hang is to wait forever for a bit
+that never changes on a machine where every read is 0FFh. Retrace is what
+makes palette animation and tear-free page flips possible, and — on a real
+CGA in 80-column text — it is the snow-avoidance window.
+
+## 7. Lifecycle, refusals, and the forbidden list
+
+- Refusals (CF=1, one predicate each): already in a bracket; the file dialog
+  is up (`[fdlg_win]`); the caller is not task 0 with the lock held (the
+  verifiable half of the context contract; the rest is an author rule like
+  the file slots'). The entry offset is fenced inside the owning package's
+  region — the `inst_pkg_spawn` ownership test, reused.
+- The app's window is untouched: its rect, its `WF_FULL` state (§11.2 and
+  fsx are orthogonal), its menus — all exactly as the app left them.
+- An app that hangs in the bracket hangs the machine — the same truth as any
+  runaway callback today, documented rather than defended; an 8086 has no
+  protection ring and pretending otherwise is inventing a clock.
+- **`FSXF_KEEPWORKER`** (flag bit in `FSX_RUN`'s AL, opt-in): the caller's
+  own worker stays eligible — for workers that feed audio rings and nothing
+  else. Safe by construction: a worker that tries to draw parks on the held
+  gfx lock (§3). Ships in phase 3 unless phase 1 turns out to need it.
+- Forbidden inside the bracket, binding: reprogramming PIT channel 0 (the
+  tick feeds the floppy motor, `[ticks]` and `snd_tick`); touching channel 2
+  or any §34.1-owned sound port directly (the sound API is the route);
+  `int 10h` mode sets outside `FSX_MODE` (the kernel must know which mode it
+  is restoring *from* — Hercules needs the non-BIOS path).
+
+## 8. API slots, SDK, budget
+
+Four slots, appended per §20.8 (invisible to built packages): `FSX_CAPS`,
+`FSX_RUN`, `FSX_MODE`, `FSX_WAIT`. Numbers are **the next free block at
+landing time**: 0x0270 on today's `main`, 0x0298 once the §52 hard-disk
+block (0x0270–0x0290, in flight on `elendilon`) merges — whichever lands
+second takes the higher block; nothing renumbers. The SDK gets `OSAPI_FSX_*`,
+`FSXM_*`, `FSXF_*`, and the info-block offsets.
+
+Estimated cost: ~0.6–0.8KB `.text` (bracket + mode table + caps + wait;
+the mode-set bodies are mostly reuse), ~6 bytes `.bss`, ~10 bytes on the
+switch path. Measured against guard 1 at implementation like everything
+else; if it does not fit, that is a decision with whoever asked, not a
+build fix.
+
+## 9. What else to build around it (the answer to "what else")
+
+1. **`tests/fsxtest`** — the gate package, phase 1. A mode menu built from
+   `FSX_CAPS` (greyed per §47); each mode draws an identifying pattern
+   (mode id, border, colour bars), waits for a key, cycles; Esc exits. The
+   strong acceptance is **restore equality**: screendump before entry,
+   cycle every mode, screendump after — byte-identical, scripted over QMP.
+2. **Sound continuity test** — `make test ADLIB=1` with a held FM note
+   across three mode switches; the wav shows one unbroken tone. This is the
+   freeze-whitelist's proof.
+3. **A shipped reference consumer** — repo custom: no feature lands without
+   one. Cheapest honest option: a small mode 13h effect demo (fire/plasma
+   with DAC palette animation, ~2KB, VGA-gated via caps). The more
+   interesting option: an optional Missile Command mode at 0Dh — closer to
+   the arcade's own raster. Open decision below.
+4. **XMS desktop stash** (§41): on 286+ VGA, `xm_copy` the four planes out
+   at entry and back at exit — instant restore, no repaint, and `xm_copy`'s
+   second real consumer. Tier 0 machines keep the repaint. Phase 4 polish.
+5. **Task Manager service badge**: `TF_SERVICE` is the first honest marker
+   of "kernel plumbing vs app work" — one glyph in the task list.
+6. **SDK recipe: text in any mode** — `osapi_font_glyphs` + the info block
+   is a complete "letter mode 13h yourself" story; write it down once.
+7. **Port ownership doc** — inside a foreign mode the 6845/sequencer/GC/
+   attribute/DAC ports are the app's; a table in SPEC §53 saying exactly
+   which, so the §34.1 precedent has a video twin.
+
+Deliberately not built: kernel-side blit/palette helpers for foreign modes
+(the whole point is that the screen is the app's; the kernel stays out), and
+an int 09h escape hatch (the kernel doesn't hook the keyboard today, and a
+half-working panic key is worse than a documented absence).
+
+## 10. Testing beyond the gate
+
+- QEMU exercises ids 0–3 and 5–8 on VGA (SeaVGABIOS sets all of them;
+  `screendump` shows every VGA-set mode), ids 0–3 gating under `VIDEO=cga`,
+  and id 4's *rendering* under `VIDEO=herc` + `hercshot.py` (the 6845 pokes
+  go into the void there — harmless; the port writes themselves are 86Box's
+  to verify).
+- 86Box: `make xt-cga` (real CGA text↔graphics), `make xt-hercules` (the
+  real 6845 flip — THE thing QEMU cannot test), `286`/`386` for VGA.
+  §17 gets a per-adapter acceptance row.
+- docs/TESTING.md gains the fsx rows, including the `--screen` implications
+  for `mouse.py` (none: mouse coordinates stay in desktop space — the app
+  scales, which is one shift for the half-width modes; SDK-documented).
+
+## 11. Phasing
+
+1. **Bracket + freeze**: `T_FLAGS`, the whitelist test, `FSX_RUN` with no
+   mode switching, fsxtest skeleton proving exclusive-same-mode, restore
+   path minus mode set. SPEC §53 first.
+2. **Modes**: the table, `FSX_MODE` + info block, `FSX_CAPS`, `vid_setmode`
+   /`vid_text` factored into leaves, full fsxtest, restore-equality script.
+3. **Frame clock + audio**: `FSX_WAIT`, `FSXF_KEEPWORKER`, sound-continuity
+   test, 86Box sweep.
+4. **Polish**: the demo package, XMS stash, Task Manager badge, docs.
+
+## 12. Open decisions (need an answer before phase 2)
+
+1. **Which four VGA modes?** Proposed: 0Dh/10h/12h/13h. If "standard"
+   meant VGA-introduced only, that is 11h/12h/13h — three — and the fourth
+   is a pick. Cheap to change; the enum is open either way.
+2. **The reference consumer**: new fire/plasma demo package, or a Missile
+   Command 0Dh mode? (Both is fine; one is the phase-4 gate.)
+3. **`FSXF_KEEPWORKER` in v1** or deferred until a streaming fullscreen app
+   exists to want it?
+4. Text-mode ambition: is 80x25 text worth a cursor-shape/page contract in
+   the info block, or is "here is B800 and the geometry" enough for v1?
+   (Proposed: the latter.)
