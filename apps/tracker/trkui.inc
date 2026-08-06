@@ -2573,7 +2573,7 @@ tui_s_splash2: db 'A FastTracker II style MOD player', 0
 tui_s_none:    db 'No module loaded', 0
 tui_s_keys1:   db 'ENTER play  SPACE stop  P pattern', 0
 tui_s_keys2:   db 'ARROWS position  1-4 mute  L load  X xt', 0
-tui_s_anykey:  db 'Press any key for fullscreen', 0
+tui_s_anykey:  db 'Press F or click for fullscreen', 0
 tui_s_hint:    db 'ENTER play  SPACE stop  L load', 0
 
 ; the About panel

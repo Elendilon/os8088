@@ -244,13 +244,14 @@ trk_onkey:
     call trk_reap                   ; F00/watchdog leftovers close first
     call trk_abdismiss              ; any key takes the About panel down and
     jc .out                         ; is spent doing it
-    cmp byte [trk_fs], 0
-    jne .keys
-    cmp byte [trk_fsever], 0
-    jne .keys
-    call trk_fs_enter               ; the splash promise: any key, once
-    jmp .out
-.keys:
+                                    ; every key drives the player from the
+                                    ; first keystroke - fullscreen is F or a
+                                    ; click, deliberately NOT "any key",
+                                    ; because Load/Play/mute all have to work
+                                    ; on the splash BEFORE ever going
+                                    ; fullscreen (a lesson from the field:
+                                    ; any-key-enters made loading first
+                                    ; impossible)
     or bl, bl                       ; the keypad trap: '4'/'6' arrive with
     jnz .ascii                      ; arrow scan codes - ascii==0 first
     cmp bh, 0x4B                    ; left arrow: previous song position
@@ -729,7 +730,6 @@ trk_fs_enter:
     cmp byte [trk_fs], 0
     jne .out                        ; the bracket blocks, so this is belt-only
     mov byte [trk_fs], 1            ; BEFORE the call - see the header
-    mov byte [trk_fsever], 1
     mov ax, trk_fsx_main
     mov bx, [trk_win]
     mov cx, FSXF_KEEPWORKER         ; the worker feeds through the freeze
@@ -856,6 +856,10 @@ trk_fsx_key:
     je .pat
     cmp al, 'P'
     je .pat
+    cmp al, 'l'                     ; Load cannot happen here - the SPEC.md 38
+    je .load                        ; dialog's answer comes through the parked
+    cmp al, 'L'                     ; event ladder (SPEC.md 53.7) - so the key
+    je .load                        ; says WHY not (SPEC.md 47), not nothing
     cmp al, 'x'
     je .xt
     cmp al, 'X'
@@ -874,6 +878,12 @@ trk_fsx_key:
     ja .out
     sub al, '1'                     ; 1..4: channel mute toggle
     call mp_mutetog
+    jmp .out
+.load:
+    push si
+    mov si, trk_s_fsload
+    call tui_msg
+    pop si
     jmp .out
 .prev:
     mov al, -1
@@ -1519,6 +1529,7 @@ trk_ttl:     db 'Tracker', 0
 ; --- status-line strings -------------------------------------------------------
 trk_s_stopd:  db 'Stopped  ENTER play  L load', 0
 trk_s_playing: db 'Playing  SPACE stop  L load', 0
+trk_s_fsload: db 'Load is windowed: Esc first', 0
 trk_s_noload: db 'No module loaded - L loads one', 0
 trk_s_nosb:   db 'No Sound Blaster: viewer only', 0
 trk_s_nomem:  db 'Out of memory', 0
@@ -1546,7 +1557,6 @@ trk_s_smmoff: db 'Smooth off', 0
 
     TRKW trk_win                    ; our window ptr (opaque handle)
     TRKB trk_fs                     ; 1 = fullscreen active (read by trkui)
-    TRKB trk_fsever                 ; the splash promise has been kept once
     TRKB trk_hired                  ; the worker exists
     TRKB trk_abon                   ; the About panel is up; worker frames drop
     TRKB trk_pmode                  ; 0 = song, 1 = pattern loop

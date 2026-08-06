@@ -1,0 +1,123 @@
+# Field notes — things real hardware found that the harness did not
+
+Symptoms observed on a **real 4.77 MHz 8088 under PCem v17** (and on period
+machines generally) that are open, reproduced, and not yet fixed. Each entry
+records what was *seen*, what has been *ruled out*, and the standing theory —
+so the investigation starts from evidence rather than from scratch.
+
+The rule these entries exist to serve: **the emulator is exact about how much
+work the guest does and useless about how long it takes** (PERFORMANCE.md).
+Both notes below are things QEMU cannot show, because QEMU is ~1000x the
+target machine.
+
+---
+
+## 1. Audio tails off for ~1/3 second, every few seconds (Tracker)
+
+**Observed.** A MOD plays normally for a few seconds, then the sound "slows
+down" or tails off for about a third of a second, then continues normally.
+The cycle repeats. Reported on a real 8088 at 4.77 MHz.
+
+**Ruled out — this is NOT the fsx work.** The reporter A/B'd the shipped
+images against `a4facf0`, the commit immediately *before* Tracker moved onto
+the §53 bracket (Tracker still on §11.2 `wm_fullscreen`, its worker still
+doing `feed` then `render` in one slice). **The stutter is present in both.**
+It is therefore older than the fsx adoption and is not the bracket, the
+freeze, `FSXF_KEEPWORKER`, or the drawing/feeding split.
+
+Also ruled out by the same session: it is **not** about what is on screen.
+The reporter saw it fullscreen, windowed, with the Tracker window *completely
+covered* by another window, and *minimized*. Covered and minimized are the
+cases where the drawing path does the least work (§11.3's clip region skips
+it, `wm_obscured` vetoes it) — so a redraw cost that crowds out the audio feed
+is a poor fit for the evidence.
+
+**Standing theories, cheapest first.**
+
+1. **A periodic kernel activity that holds the CPU or `sch_lock` long enough
+   to starve the ring.** The period ("every few seconds") and the duration
+   (~1/3 s ≈ 6 ticks) are the shape of something scheduled, not something
+   continuous. Candidates with a period: the menu-bar clock cell (§12.1, once
+   a second — too frequent), the Control Panel's `cp_tick`, a floppy **motor
+   spin-down** or any residual `disk_read` (`disk.inc` raises `sch_lock`
+   across int 13h — the one sanctioned long lock, §7), and the Task Manager's
+   sampler if a window is open. **A floppy access is the strongest fit**: it
+   is periodic-ish, it holds `sch_lock` for exactly the kind of duration
+   described, and it happens regardless of what is on screen — matching the
+   covered/minimized evidence.
+2. **The mixer's own cost against the ring's depth.** If a refill pass
+   occasionally has to mix more than one half (`TRK_MAXFEED` bounds it at
+   several), the worst-case pass on a 4.77 MHz machine may exceed the ring's
+   remaining play time, and the DSP underruns until the next pass catches up.
+   That would be periodic in the *music*, not the machine — checkable by
+   whether the tail-off lands at the same song positions each loop.
+3. **The §34.5 stream watchdog rewinding on a late refill**, which by design
+   pauses output rather than playing stale samples.
+
+**How to investigate.** The one measurement that separates theory 1 from 2:
+instrument `sch_lock` hold time (or count `disk_read` entries) and see whether
+a spike coincides with the tail-off. PERFORMANCE.md's counter-over-QMP recipe
+is the mechanism, but the *timing* only reproduces on real hardware or a
+cycle-accurate emulator — PCem is the right tool here and QEMU is not.
+
+---
+
+## 2. Heap fragmentation: a second Tracker load says "Out of memory"
+
+**Observed.** On a 384KB machine: launch Tracker, load `BEVERLY.MOD`
+(116,085 bytes) — fine. Then load again (or run a second instance), and the
+splash reads **`Out of memory`**. The Task Manager at that moment showed:
+
+```
+RAM 279/384K   HEAP 208/312K
+System   0600  71K   50K heap
+Packages       41K
+  TRACKER 5640 33K  114K heap
+  TaskMgr 5440  8K    —
+```
+
+So ~104KB of heap was free and the module needs ~114KB — but the interesting
+question is *why the free space could not be reused*, because Tracker **frees
+its old buffer before claiming the new one** (`tracker.asm`: the
+`OSAPI_MEM_FREE` at the top of the load path runs before the
+`OSAPI_MEM_CLAIM`). A straight free-then-claim of the same size should always
+succeed on an unfragmented heap.
+
+**What the code says (checked while writing this note).**
+
+- The Sound Blaster driver's **DMA buffer** is claimed in `sbl_attach` — i.e.
+  at **boot**, on an empty heap, before any app runs — and freed only at
+  detach. It is not a late claim and is *not* the fragmenting party, so the
+  original guess ("the driver took a buffer after Tracker had loaded") is not
+  quite it for that buffer.
+- The driver's **20KB staging pool** (`SBL_POOLKB`) *is* a late claim:
+  `sbl_pool_get` takes it on the first stream grant — that is, **after**
+  Tracker has already claimed its module buffer — and `sbl_pool_put` releases
+  it when the last grant goes. **This is the fragmentation candidate**: it
+  lands *above* Tracker's module claim, so when the module is freed the hole
+  it leaves is bounded above by the pool, and the largest free run can be
+  smaller than the total free.
+- §50.3's design anticipates exactly this: package **regions** are claimed
+  top-down (`mem_claim_hi`) and data claims bottom-up *because* "a long-lived
+  data claim mid-heap permanently splits the space". The pool is precisely
+  such a claim, and it is long-lived relative to a load/free cycle.
+
+**Standing theory.** Free-then-claim of ~114KB fails because the freed hole is
+no longer the largest contiguous run once the driver's staging pool (and
+possibly the Task Manager's own claims, which were open in the screenshot)
+sit inside the heap. The total says there is room; the *largest run* is what
+`mem_claim` needs, and `OSAPI_MEM_AVAIL` deliberately reports both for this
+reason.
+
+**Directions when this is picked up.** In rough order of value-for-effort:
+claim the staging pool at attach like the DMA buffer (trading 20KB of resident
+heap for no mid-heap claim); or take it from the top like a region; or give
+`mem_claim` a compaction-free "grow into the adjacent hole" path
+(`mem_regrow` already does something adjacent); or have Tracker size its
+request from `OSAPI_MEM_AVAIL`'s **largest-run** figure and say so honestly
+rather than failing late. **Do not add a compacting allocator** — a region's
+base is its CS and can never move (§50.3).
+
+**A related honesty bug worth fixing at the same time:** the splash says only
+`Out of memory`. It should say which figure failed and how short it was —
+`bb_avail`'s pattern (§47: say *why* not).

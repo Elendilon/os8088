@@ -12439,11 +12439,14 @@ where this one contradicts it, and every place that took a real correction —
 ### 45.1 Windowed is a splash; the app lives fullscreen
 
 The entry proc creates an ordinary centred 420x180 window — a splash card:
-the name, the loaded module's title, the key map, and *Press any key for
-fullscreen*. That promise is kept literally: while the window has never been
-fullscreen, **any** key or click enters fullscreen; afterwards F toggles and
-Esc returns, and windowed keys drive the player normally (a module keeps
-playing on the splash, which shows a live position line).
+the name, the loaded module's title, the key map, and *Press F or click for
+fullscreen*. Fullscreen is **F or a click, never "any key"** — it used to be
+any-key-once, and the field found the flaw immediately: Load lives in the
+windowed splash (§53.7 — the §38 dialog is unreachable in a bracket), so an
+any-key entry made loading-before-fullscreen impossible; the first keystroke
+of `L` took the screen instead. Every key drives the player from the first
+keystroke, windowed; F toggles, Esc returns, and a module keeps playing on
+the splash, which shows a live position line.
 
 **Tracker's fullscreen is the fsx exclusive surface (§53), and Tracker is
 the `FSXF_KEEPWORKER` reference consumer.** It used to be the first shipped
@@ -12724,8 +12727,8 @@ worker only feeds (§53.2).
 | Left / Right | Song position −/+ (`mp_setpos`) |
 | Up / Down | Scroll pattern rows while stopped |
 | 1..4 | Toggle channel mute (a click in that scope does the same) |
-| L | Load… (the Standard File dialog) |
-| F | Fullscreen toggle |
+| L | Load… (the Standard File dialog). Windowed only: in fullscreen the key answers with `Load is windowed: Esc first` on the status line — the dialog is unreachable in a bracket (§53.7), and a key that did nothing would read as broken (§47: say why not) |
+| F | Fullscreen toggle (also a click on the windowed splash) |
 | X | XT mode toggle (§45.9 — also File ▸ the relabeling menu item) |
 | R | Cycle the sample rate 11 → 22 → 44 kHz (§45.10 — also the Rate menu) |
 | S | Smooth toggle (§45.11 — also View ▸ the relabeling menu item) |

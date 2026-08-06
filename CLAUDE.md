@@ -26,6 +26,15 @@ documented number, not a neutral refactor — and how to count work with a
 counter read over QMP. docs/TESTING.md is where a test can *run*;
 PERFORMANCE.md is what the target machine *costs*.
 
+**docs/FIELD-NOTES.md is the third one, and it is the shortest: what real
+hardware found and the harness could not.** Open, reproduced, unfixed — with
+what has already been *ruled out* for each, so an investigation starts from
+evidence. Two live entries: a periodic ~1/3s audio tail-off in Tracker (A/B'd
+against the pre-fsx commit and present in BOTH, so it is older than that work
+and not the bracket), and a heap-fragmentation refusal where the total says
+there is room and the largest run does not. Read it before you spend a day
+re-deriving either.
+
 ## Commands
 
 ```
