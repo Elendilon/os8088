@@ -1206,6 +1206,37 @@ OS88_BSS_SIZE equ 0
                                                 ; question: it says VISIBLE,
                                                 ; which a wholly covered
                                                 ; window still is.
+                                                ;
+                                                ; It is not the same question
+                                                ; as OSAPI_MENU_OWNER either -
+                                                ; see there.
+
+%define OSAPI_MENU_OWNER    KERNEL_SEG:0x02B8   ; out BX = the window owning
+                                                ; the menu bar, 0 = Locator
+                                                ; (SPEC.md 12). Preserves
+                                                ; everything else and FLAGS,
+                                                ; takes no lock, callable from
+                                                ; a worker.
+                                                ;
+                                                ; "Am I the ACTIVE
+                                                ; APPLICATION?" - compare it
+                                                ; against your own window ptr.
+                                                ; Different from OSAPI_WM_TOP
+                                                ; in exactly one case, and it
+                                                ; is the case that matters:
+                                                ; clicking the BARE DESKTOP
+                                                ; hands the bar to Locator and
+                                                ; moves nothing in the
+                                                ; z-order, so the frontmost
+                                                ; visible window is still
+                                                ; yours while the menu bar has
+                                                ; stopped saying your name.
+                                                ; A real-time app that must
+                                                ; stop when the player walks
+                                                ; away wants BOTH tests: this
+                                                ; one for the desktop click,
+                                                ; WM_TOP for a window raised
+                                                ; over you (SPEC.md 44.8).
 
 %define OSAPI_WM_SNAP       KERNEL_SEG:0x0268   ; BX = window ptr, AL = 0
                                                 ; clear / non-zero set. Out:

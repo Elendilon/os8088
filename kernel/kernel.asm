@@ -667,7 +667,15 @@ osapi_table:
                                   ;          bytes are the caller's and
                                   ;          vga_pat_stage reads them through
                                   ;          DS
-osapi_table_end:                  ; 0x02B8
+    OSAPI_SLOT menu_owner         ; 0x02B8 - out BX = the window owning the
+                                  ;          menu bar, 0 = Locator. "Am I the
+                                  ;          ACTIVE APPLICATION?" - which
+                                  ;          wm_top above cannot answer,
+                                  ;          because clicking the bare desktop
+                                  ;          hands the bar to Locator and
+                                  ;          moves nothing in wm_zord. Takes
+                                  ;          no lock: a worker may ask
+osapi_table_end:                  ; 0x02C0
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -675,8 +683,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 85 * 8
-%error "os8088 API jump table must be exactly 85 8-byte slots"
+%if OSAPI_TABLE_LEN != 86 * 8
+%error "os8088 API jump table must be exactly 86 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the

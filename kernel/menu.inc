@@ -190,6 +190,27 @@ menu_activate:
     ret
 
 ; -----------------------------------------------------------------------------
+; menu_owner - who is the ACTIVE APPLICATION? (API 0x02B8, SPEC.md 12/12.6)
+; in:  nothing
+; out: BX = the window owning the menu bar, 0 = Locator. Every other
+;      register, and FLAGS, preserved.
+;
+; The read half of menu_activate, and the answer to a question wm_top cannot
+; be asked: clicking the bare desktop hands the bar to Locator (SPEC.md 12)
+; and moves nothing in wm_zord, so the frontmost visible window is still
+; whatever it was. A real-time package that must stop when the player walks
+; away needs THIS one - apps/arkanoid (SPEC.md 44.8) pauses on it.
+;
+; Takes no lock and touches no VRAM, so a worker task may call it every
+; frame, exactly like wm_top. It is a plain word read: [menu_win] is written
+; only by menu_activate on the UI task, and the 8086 recognises interrupts
+; only at instruction boundaries, so it cannot be torn.
+; -----------------------------------------------------------------------------
+menu_owner:
+    mov bx, [menu_win]
+    ret
+
+; -----------------------------------------------------------------------------
 ; menu_win_set - attach an app menu set to a window (API 0x0148, SPEC 12.2)
 ; in:  BX = window ptr, SI = menu set ptr (0 = no menus of its own)
 ; out: nothing (all registers preserved, FLAGS INCLUDED)

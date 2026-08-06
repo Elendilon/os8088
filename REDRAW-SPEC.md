@@ -26,8 +26,9 @@ no way to draw part of a window.**
 ### What happened
 
 Moving the Fractal window blanked the image and re-rendered from row 0.
-Under QEMU that is ~0.5 s and reads as a flicker; on a 4.77 MHz XT a full
-frame is ~115 s, and losing it is brutal.
+Under QEMU that is ~0.5 s of visible redraw; on a 4.77 MHz XT a full frame
+is **~115 s**, and losing it is brutal. (It is a redraw, not a flicker —
+PERFORMANCE.md §1 on why the distinction is worth keeping.)
 
 ### Why — two facts, neither of them the app's choice
 
