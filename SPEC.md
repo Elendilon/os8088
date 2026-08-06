@@ -548,15 +548,35 @@ half clocks a pixel — with the odd ends handled by hand: the first pixel when
 the run starts on a low nibble, the last when it ends on a high one. This is
 `apps/paint`'s own `pt_runend` moved into the kernel, unchanged.
 
+**WHAT IT COSTS, MEASURED (PERFORMANCE.md Part 9).** One `gfx_hline` costs
+about **0.5 ms on a 4.77MHz 8088 whatever its length**, because a drawing call
+on the mono renderer is ~756 us of fixed setup and almost nothing per pixel.
+So this primitive costs **runs x 0.5 ms** and the pixel count barely enters
+it. The field measurement is the same 64x64 block drawn two ways: one run per
+row (64 calls) is **28 ms**, sixteen runs per row (1,024 calls) is **561 ms** —
+twenty times, for identical pixels.
+
+The consequence for a caller is the one worth carrying away: **how FLAT the
+picture is, not how big it is, decides what a blit costs.** A 448x280 canvas
+of flat art at a couple of runs a row is a few hundred milliseconds; the same
+canvas of dithered photographic art at twenty runs a row is seconds. An app
+that can keep its art flat, or blit only the band that changed, is choosing
+between those two.
+
 The first version of this routine decoded every pixel individually instead —
 read the byte, test the parity, `shr al, cl` by four, compare, branch — which
 is 75 to 90 clocks a pixel on an 8086, a 4-bit shift by CL being 24 of them
 on its own. It kept the *shape* of the optimisation (one call per run) and
-threw away the optimisation: a 448×280 repaint went from about a quarter of a
-second on a 4.77MHz 8088 to over two, and the far calls it saved were noise
-against that. **QEMU cannot show this — it does not model 8086 timing at all**
-— which is why the cycle counts are written down rather than measured, and
-why a change to this loop wants a cycle count in the commit message.
+threw away the optimisation. **QEMU cannot show this — it does not model 8086
+timing at all** — which is why the two cycle counts in this paragraph are
+written down rather than measured, and why a change to this loop wants a cycle
+count in the commit message.
+
+That paragraph used to end "a 448×280 repaint went from about a quarter of a
+second on a 4.77MHz 8088 to over two", derived from those same written-down
+counts. **The ratio is the point and the two absolute figures were never
+measurements**; the measured block above is a different shape from either of
+them and is the one to quote.
 
 Why it exists at all: a package owns a segment (§20.1), so every gfx call
 from one is a FAR call. The identical run scan written inside the package
@@ -579,6 +599,13 @@ damage rect (§11.91) is the whole view. But the pixels are not *new* — they
 are the pixels one row up. Moving them is a `rep movsb` per row; redrawing
 them is `font_char` per cell, which on a 4.77MHz 8088 is the difference
 between a scroll that keeps up with the key repeat and one that does not.
+
+**Priced against the field set** (PERFORMANCE.md Part 2): a glyph cell is
+**~0.9 ms** on that machine and a raw `rep movsb` to the framebuffer runs at
+**~3.3 µs a byte**, so a 78-cell row costs ~71 ms to letter and under a
+millisecond to move — two orders of magnitude, and it is the per-call floor
+doing it, not the copy. That is why this primitive takes a whole rect rather
+than offering a per-row entry point: the win is in making *one* call.
 
 **The |dy| vacated rows are the caller's to repaint**, and their content
 after the call is unspecified — this primitive moves pixels and invents
@@ -718,6 +745,67 @@ Command keeps its own Bresenham for two cases the kernel cannot serve: the
 §53.4 Mode X surface, where the drawing slots are off-limits, and a line
 with an endpoint outside its content box, where the kernel would clip to the
 screen and paint over the desktop.
+
+### 5.7 The per-call floor — what a small drawing call spends
+
+**A drawing call costs almost the same whatever it draws**, and the field
+set proved it beyond argument: on a 4.77MHz 5150, `GFX_PIXEL` and
+`GFX_HLINE 8px` measured 765.64 and 764.82 us on a Hercules and 765.70 and
+764.80 on a CGA — two different routines and two physically different cards
+whose framebuffers are 13% apart at the bus, agreeing to one part in ten
+thousand (PERFORMANCE.md Part 9). **~756 us of that is fixed setup, about
+3,600 CPU clocks, and it is CPU-side.** That is why §5.4's blit is priced
+`runs x 0.5 ms`, why §11.90/§11.91 count primitive calls rather than pixels,
+and why this subsection exists at all.
+
+Taken apart, one `gfx_pixel` on a 1bpp adapter was **196 guest instructions**
+(measured under `-icount`, PERFORMANCE.md Part 4) spread over eleven
+routines, with no hot spot anywhere: the API far-call cell, `gfx_pixel`'s
+rect marshalling, §11.3's clip test, `bb_mono_chk`, the `[bb_on]` dispatch,
+`vga_rect_setup`, `gfx_rowbase`, `bb_dirty_rect`, `bb_ink`, `bb_plane_op`
+and `bb_col`. **It is generic machinery, and what it costs is
+register discipline and call structure rather than work** — a third of it
+was push/pop pairs (29.7 clocks each, measured) and near call/rets (52.1).
+
+Seven things hold the floor down. Each is a rule, because each one reads as
+a harmless tidy-up in the other direction:
+
+1. **A one-way flag is tested before it is recomputed.** `bb_mono_chk`
+   opens with `cmp byte [bb_mono], 0` — once the flag is retired there is
+   nothing left to decide — and `bb_init` retires it at boot on a 1bpp
+   adapter, where a back buffer can never be armed (§39.5). Eight
+   instructions on every fill and every glyph become three.
+2. **`bb_dirty_rect` asks `[bb_dbl]` first.** With no buffer armed it was
+   computing a rectangle that `bb_dirty`'s first compare then discarded.
+3. **The edge masks come from tables** (`vga_lmtab`/`vga_rmtab`), not from
+   `shr dl,cl` / `shl dl,cl`. A variable shift is 8 clocks plus 4 per bit on
+   an 8088 and needs CX freed around it; `[vga_y1]` is banked before the
+   masks are built precisely so BX is free to index them.
+4. **`gfx_rowbase` looks its bank base up** (`vid_banktab`) instead of
+   `shl bx, 13`, which is 60 clocks for a value with four possible answers.
+   The formula in §39.3 is unchanged. The `mul` by the stride stays: the
+   alternative is a per-row table, and 480 rows of it is a third of what
+   `KERN_BUDGET` has left.
+5. **`bb_col` preserves nothing** (§32). Its only caller banks BX and DX for
+   the whole plane and reloads AH, DI, SI and BP around every call, so the
+   five push/pop pairs it used to open with were saving registers that
+   caller was about to overwrite. SI and BP then carry `gfx_nextrow`'s step
+   and wrap bit across the row loop.
+6. **`gfx_nextrow` is inlined in every row loop of the renderer**, as it
+   already was in font.inc's (§6.1). Its body is three instructions and the
+   call and ret around them cost as much again — and **a fill walks its rows
+   three times**, once per edge column and once for the interior, so a fill
+   pays it three times per scan line.
+7. **`[bb_pat]` is staged by whoever needs it**, not by `bb_rect` for all
+   three modes: `BBM_GRAY` starts from the dither byte, `BBM_SOLID`'s own
+   dither branch stages it in `bb_ink`, and `BBM_XOR` never reads it.
+
+Together those took a `gfx_pixel` from 196 instructions to 158 and a
+`GFX_FILL 64x64` by 14.5%, with the output byte-identical on all three
+adapters and both renderers (PERFORMANCE.md Part 9, Set 3). What is left is
+mostly irreducible: the far-call cell is the package ABI (§20.1), the eight
+push/pops in `bb_rect` are `gfx_fill`'s "clobbers flags" contract, and
+`vga_rect_setup`'s clipping is the clipping.
 
 ## 6. font.inc
 
@@ -880,9 +968,26 @@ it guards, and instructions are the better proxy. The traffic count remains
 the right *explanation* of where the writes went; it is not the right
 predictor of time, and this section previously said it was.
 
+**A second harness on a second adapter says 1.24x.** `tests/gfxbench`, written
+independently and run on the same 5150 with its CGA card as well as its
+Hercules one, prices the skewed pair against aligned `font_run` at **1.24x on
+both adapters** (PERFORMANCE.md Part 9). Two harnesses, two adapters, 5%
+apart — so 1.24x-1.30x is the range to quote, and the traffic figure (2.85x
+to 4.2x) is not in it at either end.
+
+**What caps the win is the per-call floor**, and gfxbench is what measured it:
+every drawing call on this machine costs about **756 us before it draws
+anything** — the far call, the lock, the clip test, the dispatch and
+`gfx_rowbase` — and the two mono adapters agree on that figure to 0.01%
+despite their framebuffer bandwidths differing by 13%, which is what proves it
+is CPU-side rather than bus-side. `font_run` collapses a fill and ten
+`font_char`s into one call, so what it saves is mostly *floors*, and no amount
+of cleverness inside the renderer can beat a number that is paid outside it.
+
 Worth keeping for its own sake: **about 1 ms per 8x8 cell** on that machine,
-which two independent harnesses agree on (fontbench 10.09 ms per ten cells,
-typebench 33.3 ms per forty). Nothing else in this document measures the
+which four independent measurements agree on (fontbench 10.09 ms per ten
+cells, typebench 33.3 ms per forty, and gfxbench's 901 us for one `font_char`
+against 915 us per cell across a whole 78x34 page). Nothing else in this document measures the
 hardware all of this is for. The aligned row is measured; the rest is that measurement's model
 (fill = two masked edge columns at 8 rows x 2 read-modify-writes, plus the
 interior as word stores; glyphs = one read-modify-write per non-blank glyph
@@ -3134,20 +3239,22 @@ run time, §39.6), plus on VGA the right-aligned percentage and one
 spin step of the vector "8088" (cosine-scaled about its vertical axis,
 angle index = AX mod 16). Mono gets the bar alone: the dialog does not fit
 in 200 rows, and int 10h teletype into a Hercules already in graphics
-writes character/attribute pairs into the bitmap. kmain's own `vid_init`
-then wipes the splash.
+writes character/attribute pairs into the bitmap. **The splash then stays on
+screen for the whole of kmain and keeps ticking** — §15.3.
 
 kmain: set DS/ES = `KERNEL_SEG` and SS:SP = `LOW_SEG:STK0_TOP` (§2.1),
 `sti`, `cld`, then:
 `sched_init` → `evq_init` → `clk_init` (§37 — the RTC probe, before the
 mode set so a machine without one is dated from the fallback constants
-from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe,
-apply and mode set) → `bb_init` (§32 — the RAM probe
+from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe
+and apply, and **skips the mode set while the splash is live**, §15.3) →
+`bb_init` (§32 — the RAM probe
 must run after the mode set, which clears VRAM, and before the first
 drawing call) → `font_init` → `wm_init` →
 `inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
-`snd_init` (§34.7 — publishes `snd_live` last) → gfx_lock →
-`wm_paint_all` → gfx_unlock → `cursor_show` → jump
+`snd_init` (§34.7 — publishes `snd_live` last) → `drv_boot` (§51.3) →
+`spl_finish` (§15.3) → gfx_lock →
+`wm_paint_all` → gfx_unlock → `cursor_show` → `drv_notice` (§51.3) → jump
 into `ui_task` (task 0 never returns). (`dock_init` runs right after
 `desk_init`.) **Clean boot**: no app instances exist — the first paint
 shows only the desktop, drive icons, the empty dock strip and menu bar;
@@ -3279,6 +3386,72 @@ runs correctly at 0000:7C00 where the BIOS put it.
 
 `BOOT_RELOC` and `KERNEL_SEG` are mirrored in `kernel/kernel.asm`, whose
 guard 7 proves the kernel ends clear of the relocated stack.
+
+### 15.3 The bar does not stop at the last sector of the kernel
+
+The progress bar used to reach 100% when the boot sector's final sector
+landed, and `vid_init`'s mode set then wiped the whole loading screen — with
+several seconds of kmain still to run. On the field machine (Part 2 of
+PERFORMANCE.md: **238 ms per floppy sector**) that tail is:
+
+| after the last sector of the kernel | cost |
+|---|---|
+| `vid_init`, `font_init`, the rest of the init calls | milliseconds |
+| `mouse_init` — DTR/RTS held low `MOU_RSTLOW` ticks | ~165 ms |
+| `drv_boot` — mount A:, read `SYSTEM.CFG` (**13 sectors**) | **~3.1 s** |
+| ...and a driver `SYSTEM.CFG` asked for (**+27 sectors**) | +6.4 s |
+| `wm_paint_all` — 85 fills + 48 glyphs | ~250 ms |
+
+So the user watched a full bar, then a blank screen, for three seconds on a
+plain boot and nearly ten on a configured one. **The bar is priced in floppy
+sectors and so is the tail**, which is the whole of why this is cheap to fix
+rather than a matter of guessing weights.
+
+Three parts, all in `splash.inc` except the hooks:
+
+- **`SPL_POST` notches are added to the DENOMINATOR** by `spl_tick`, which
+  sees the boot sector's total once per tick. 16 today: thirteen for the
+  mount and three for kmain's phases that are not I/O.
+- **`spl_step`** spends one notch and repaints. `dsk_xfer` calls it **once
+  per sector transferred**, so the mount and any driver read advance the bar
+  exactly as the kernel's own load did; kmain calls it at the three phase
+  boundaries. It preserves **every register and the flags** — its hot caller
+  is the middle of a transfer loop — and it is a compare and a `ret` once the
+  splash is down, which is what makes leaving it on the disk path for the
+  life of the machine free (~13 us against a sector's 238 ms).
+- **`spl_finish`** forces the bar to 100%, repaints once and clears
+  `[spl_live]`. kmain calls it immediately before the first `wm_paint_all`,
+  which is the last moment a full bar is true — and no erase is needed,
+  because that paint covers every pixel (the menu bar's field, the desktop
+  dither *over* the dock strip, then the dock).
+
+Four things are load-bearing:
+
+1. **`[spl_live]` is not `[spl_on]`.** `spl_on` is `spl_tick`'s
+   "the chrome has been drawn" latch; `spl_live` means the splash **owns the
+   screen and the video mode**, and it stays true right through kmain.
+   `vid_init` reads it and skips `vid_setmode` (§39.1) — the mode is already
+   set, and setting it again is precisely what used to wipe the screen.
+   The probe and the publish still re-run and must: everything between there
+   and the paint reads `[vid_w]`/`[vid_h]`/`[vid_stride]`.
+2. **`bb_set` moved to the END of `drv_boot`** (§32/§51.3). It seeds the back
+   buffer *from VRAM*, and until the paint VRAM holds the loading screen — a
+   buffer armed ahead of the reads swallows every notch after it, because a
+   direct VRAM write is what the next flush undoes. Nothing about the heap
+   depends on the order: data claims grow up and a driver's region down
+   (§50.3).
+3. **The allowance is a clamp, not a scale.** `spl_step` stops at
+   `total - 1`, so the last notch always belongs to `spl_finish` and a boot
+   that overruns crowds up against 100% instead of claiming to be finished.
+   `SPL_POST` is tuned for the common boot — a `SYSTEM.CFG` that asks for no
+   driver, which lands on 140 of 141 by itself — and a machine that has
+   enabled one waits at 99% for its 27 sectors. That is strictly better than
+   what every boot used to do for all of it, and it cannot be fixed by
+   raising the total mid-run: the fill is `done × 288 / total`, so raising
+   the denominator makes the bar go **backwards**.
+4. **Mono gets the bar alone**, here as during the load — `spl_paint` is the
+   one frame routine both callers share, so the two cannot disagree about
+   what a frame is.
 
 ## 16. Build & test
 
@@ -7323,7 +7496,8 @@ Seven things this has to get right, and the first one is not obvious:
   the content on the way in) and the reconcile of §27.3 (which fills its own
   band) — and a row that trims to nothing is not drawn at all. Without it a
   fullscreen repaint is 50 rows of 90 cells whether the note has 500
-  characters or five, which on a 4.77MHz 8088 is about five seconds.
+  characters or five — 4,500 cells at the measured ~0.9ms each
+  (PERFORMANCE.md Part 2), so **about four seconds** on a 4.77MHz 8088.
 - **The grow box is restored only when the dirty band could have reached it.**
   It is 13x13 at the content's bottom-right, and `OSAPI_WM_GROW` used to be
   called on every keystroke — it had to be, because the band fill spanned the
@@ -7444,12 +7618,17 @@ being inserted, which is what happens at the bottom of the window) sets
 ### 27.4 The layout checkpoint — a keystroke stops walking the whole note
 
 `np_walk` is O(the note) and §27.2 runs it **twice** per keystroke. That is
-about 500 8086 cycles a character a pass, so on a 4.77MHz machine a 400-
-character note costs ~90ms per keystroke in layout alone — against ~2ms of
-drawing. It is invisible until the note is long, and then it is the whole
-cost: a user filled a fullscreen window and reported each keystroke getting
-slower while a counter in `font_run_cell` said the drawing was still two
-cells.
+about 500 8086 cycles a character a pass — a written-down figure, not a
+measured one, and by the **8088 instruction floor** (PERFORMANCE.md Part 2:
+4.34 clocks per instruction *byte*, so an 8086 count under-reports an 8088 by
+up to 4.34×) it is a lower bound rather than an estimate. On a 4.77MHz machine
+a 400-character note therefore costs *at least* ~90ms per keystroke in layout
+alone, against ~2ms of drawing. It is invisible until the note is long, and
+then it is the whole cost: a user filled a fullscreen window and reported each
+keystroke getting slower while a counter in `font_run_cell` said the drawing
+was still two cells. **The optimisation below was verified by counting walk
+iterations, not by trusting that 500** — which is the right way round, and the
+reason the conclusion survived the cycle figure turning out to be soft.
 
 Wrapping is a **left-to-right automaton with no lookahead** — a cell that
 would cross `[np_rgt]` moves to the next row, a newline resets the pen — so
@@ -9108,8 +9287,8 @@ caption and the click all read one word, so they cannot disagree.
 then writes `SYSTEM.CFG`. So the page never shows a promise about the next
 boot — what it shows is what is running. The two outcomes are reported
 separately: a load that fails leaves the box clear with its reason, and a
-*save* that fails puts `'Cannot save to the system disk'` in the caption
-while the driver it just loaded stays loaded.
+*save* that fails puts a reason in the caption (§51.5.1) while the driver it
+just loaded stays loaded.
 
 **A click on a row that is unloaded but WANTED clears the want instead of
 retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
@@ -9243,10 +9422,23 @@ Three things make deferral the right answer rather than a compromise:
 The one thing a new page may NOT do is decide its setting is important
 enough to be the exception. If a setting genuinely cannot survive being lost
 to a power cut with the panel open, that is an argument about §51.5's file,
-not a licence to write from a click handler. The hard-disk driver's Mount
-and Unmount are the *only* immediate writes in the tree and they are not
-this mechanism at all — they are the driver's own `OSAPI_DRV_CFG` save verbs
-on its own page (§52.6), justified there and nowhere else.
+not a licence to write from a click handler.
+
+**There are no exceptions left, including for a driver's page.** The hard
+disk's Mount and Unmount were the last of them — the driver's own
+`OSAPI_DRV_CFG` verb 2 rather than this mechanism, which is exactly how they
+escaped the rule — and they are gone: §51.9's verb 2 is retired and a
+driver's blob defers like everything else (§52.6). That page made the
+standard argument, that the set of mounted drives is what the next boot
+reads, and it also demonstrated the standard cost and one of its own: the
+write **mounts A: to reach the file**, so clicking Mount made C: the current
+volume and then silently made A: current again, in the middle of the click
+it was meant to be recording.
+
+The rule is therefore mechanical, not a convention every new page has to be
+told about. `cp_flush` has **no `.text` thunk** (§33): `cp_flush_x` is a near
+call inside the cold segment and `cp_flush_close_x` is its only caller, so a
+page, a driver's page or an API cell cannot reach it even by naming it.
 
 **Both ways the panel stops existing flush it**, which is what makes the
 deferral safe:
@@ -9266,10 +9458,14 @@ a convenience, not a document.
 
 A failed write never undoes the change — that already happened — and
 **leaves `[cp_wdirty]` set**, so the next close or reboot retries rather than
-dropping it silently. It is reported in the Drivers page's caption
-(`'Cannot save to the system disk'`), the one page with room to say it, which
-now means the *next* time the panel is opened: by the time the write happens
-the page it would be reported on is already gone.
+dropping it silently. It is reported in the Drivers page's caption, the
+one page with room to say it, which means the *next* time the panel is opened:
+by the time the write happens the page it would be reported on is already
+gone. **`cp_drv_cap` is why that is now true rather than merely intended** —
+the caption used to be drawn only by `cp_drv_lines`, which runs when a row is
+TICKED, so the report appeared only if the user happened to tick something
+after a failed save in the same session, and `cp_drv_paint` drew everything on
+the page except this. Both painters call it now. Its two strings are §51.5.1's.
 
 ### 31.9 Pages a driver owns
 
@@ -9408,6 +9604,23 @@ solid and dither modes, so AL=AH and one `rep stosw` (plus a `stosb` tail on
 an odd width, selected by the `shr cx, 1` carry that the string op leaves
 alone) replaces two `stosb`. Free on an 8088's 8-bit bus, half the bus
 cycles on any 16-bit part.
+
+**Register discipline inside a plane, which is §5.7's floor and not a
+style.** `bb_plane_op` banks BX and DX once per plane and reloads AH, DI, SI
+and BP itself around each call, so **`bb_col` preserves nothing** — the five
+push/pop pairs it used to open with were saving registers its only caller
+was about to overwrite, and a push/pop pair is 29.7 clocks on the target
+machine. What that buys is registers for the row loop: both routines hold
+`gfx_nextrow`'s step and wrap bit (§39.3) in registers and open-code the row
+advance rather than calling it, which matters three times per scan line
+because a fill walks its rows once per edge column and once for the
+interior. `bb_ink` reads `gfx_inktab` through SI for the same reason — BX is
+the plane counter and the colour bits — and it is the only caller that needs
+the table, so `gfx_ink` itself is untouched.
+
+`[bb_pat]` is staged by whichever mode actually reads it: `BBM_GRAY` before
+the plane loop, `BBM_SOLID` inside `bb_ink` and only on its dither branch,
+`BBM_XOR` never. `bb_parity` is that one computation, in one place.
 - XOR ops (`bb_xor_rect/xor_fill` internals): `xor dest, mask` at edges,
   `not dest` for full interior bytes, all four planes — self-inverting
   exactly like the hardware XOR path.
@@ -9455,6 +9668,19 @@ of double buffering: back-buffer rendering is plain RAM, but the flush is
 four passes of VRAM writes, and VRAM is the slow side on every target
 (measured on QEMU: a full-screen 4-plane flush costs ~3.7× a one-plane one
 and ~24× the RAM-side render of the same area).
+
+**Treat the ~24× as a QEMU ratio and nothing more, wherever this document
+quotes it.** It has never been measured on hardware and, unlike every other
+figure in this document, it never can be by the usual route: double buffering
+is VGA-only and the machine this project is calibrated against
+(PERFORMANCE.md Part 9) is a 4.77MHz 5150 with Hercules and CGA cards. Worse,
+QEMU services a VRAM write through an MMIO callback and a RAM write through a
+plain host store, so the ratio it reports is substantially an *emulator*
+artifact rather than a bus one — the real hardware figure could be well under
+it. The ~3.7× four-plane-to-one-plane ratio is sound (it is a write count, and
+QEMU counts work exactly); the 24× is not, and no design decision should rest
+on its magnitude. What it is safely used for here is its *sign*: the flush is
+the expensive half, so `[bb_mono]` and the dirty rect are both worth having.
 
 `bb_mono` (initialized data, `db 1`, same reason as `bb_on`) records whether
 all four planes hold identical bytes. That is true at boot — `bb_init` zeroes
@@ -11008,6 +11234,16 @@ VGA `bmask`/`bshift`/`wrapbit` are all 0, so `gfx_rowbase` reduces to exactly
 `y * 80` and `gfx_nextrow` to `add di, 80` — **with no adapter test on either
 path**, which is why the VGA output is bit-for-bit what it was before.
 
+Two implementation notes, both about the 8088 rather than the formula
+(§5.7). `bank * 0x2000` is a **table lookup** (`vid_banktab`, four entries —
+the maximum the 0x2000 assertion at the foot of the module allows), because
+`shl bx, 13` is 8 clocks plus 4 per bit and this runs on the fixed cost of
+every drawing call. And **`gfx_nextrow` is meant to be inlined wherever a
+row loop can spare the bytes**: its body is three instructions and the call
+and ret around them cost as much again, so font.inc's cell loops (§6.1) and
+the renderer's row loops (§32) both open-code it, CS overrides and all. A
+loop that can hold `rowadd` and `wrapbit` in registers should.
+
 **Both read their parameters through `CS`, not `DS`.** Two callers run with
 DS pointed elsewhere entirely: `bb_xfer`'s save path sets DS to the
 framebuffer segment for its `movsb`, and its restore path sets DS to the
@@ -11107,10 +11343,14 @@ VRAM path had from the start and the port did not:
   plane and there are two eight-row loops rather than one branch per row.
 - **A blank glyph row is skipped whole.** or-ing in 0 and and-ing in FF are
   both identity, but a read-modify-write of framebuffer memory costs the
-  same ~30 cycles on an 8088 whether or not it changes a pixel. Most glyphs
-  have a blank descender row, many a blank top row, and a space is eight of
-  them. The second byte is skipped on the same test, which is the whole cost
-  of a glyph at a byte-aligned x.
+  same on an 8088 whether or not it changes a pixel — **79.6 clocks a byte,
+  measured** on a real 5150's Hercules and 81.0 on its CGA (PERFORMANCE.md
+  Part 9). This paragraph said "~30 cycles" until that set was taken; it was
+  low by 2.6x, and it credited the framebuffer for what is really the CPU —
+  the identical loop against plain RAM measures 72.8 clocks, so under 7 of
+  the 79.6 are the bus. Most glyphs have a blank descender row, many a blank
+  top row, and a space is eight of them. The second byte is skipped on the
+  same test, which is the whole cost of a glyph at a byte-aligned x.
 - **`gfx_nextrow` is inlined**, CS overrides and all. Its body is three
   instructions and the `call`/`ret` around them cost as much again.
 
@@ -11123,8 +11363,12 @@ itself being set behind the BIOS's back (§39.6).
 ### 39.6 Mode set and teardown
 
 `vid_setmode` is idempotent and safe to re-run with the card already in
-graphics. VGA and CGA get their mode — and their clear — from the BIOS.
-Hercules has no BIOS mode at all:
+graphics — but **it is not free of side effects, and `vid_init` no longer
+re-runs it blind**: it clears the framebuffer, and while the splash is still
+on screen that clear is the whole loading screen (§15.3). `vid_init` skips it
+when `[spl_live]` is set; the probe and the publish always re-run. VGA and
+CGA get their mode — and their clear — from the BIOS. Hercules has no BIOS
+mode at all:
 
 ```
 out 3BFh, 1                     ; configuration: graphics allowed, page 0 only
@@ -12054,7 +12298,11 @@ Two things a card back makes expensive, and what each costs:
   run boundary every few pixels: **634 runs** for the 32x44 metrics, 336 for
   CGA's 28x28. A face is two fills, four edges and a couple of glyphs. So a
   back is the one drawing in this program worth going out of the way not to
-  repeat, and both rules below exist for it.
+  repeat, and both rules below exist for it. **Priced against §5.4's measured
+  `runs x 0.5 ms`, one whole back is about 0.3 s of drawing on a 4.77MHz 8088**
+  — which is the difference between "an optimisation" and "the reason the game
+  is playable", and why the numbers here are run counts rather than pixel
+  counts.
 - **The stock is only ever redrawn when its PICTURE changes.** That picture is
   one bit — a card back, or the turn-over-again ring — so it changes only when
   the last card leaves the pile and when a recycle refills it. Dealing from a
@@ -13476,14 +13724,45 @@ frame.
 #### 45.13.2 The shadow is what makes a row change a blit
 
 A player never edits, so a pattern's 64 rows are constant text for as long as
-it is the current pattern. `ttx_shbuild` formats all of them **once** into
-`ttx_shadow` as char/attribute words — 256 `mp_cell2txt` calls and 4,838 word
-stores into package RAM, ~33 ms, once every eight seconds or so — and every row
-change after that is 19 `rep movsw`s out of it with no formatting at all.
-`[ttx_shpat]` names the pattern it holds and `[ttx_shok]` whether it holds
-anything; `ttx_draw_all` clears the second on every bracket entry, because a
-load can have happened between two brackets (Open is windowed, §53.7) and the
-shadow has no way to have heard about it.
+it is the current pattern. They are formatted **once** into `ttx_shadow` as
+char/attribute words, and every row change after that is 19 `rep movsw`s out
+of it with no formatting at all. `[ttx_shpat]` names the pattern it holds and
+`[ttx_shok]` whether it holds anything; `ttx_draw_all` clears the second on
+every bracket entry, because a load can have happened between two brackets
+(Open is windowed, §53.7) and the shadow has no way to have heard about it.
+
+**"Once" is not "in one frame", and the difference was a field report.** The
+whole build is 256 `mp_cell2txt` calls, 3,776 `lodsb`/`stosw` pairs and a
+9,676-byte blank; priced against PERFORMANCE.md Part 9's measured 8088 that is
+**140–330 ms**, and it ran once per pattern — every ~9 s at 125 BPM speed 7.
+On the target that is a Part 1 *visible redraw*, and it was reported exactly
+as one: the screen stopping for about a third of a second and then jumping,
+reliably, every eight seconds or so. So the periodic rebuild is **spread**:
+
+- `ttx_shstart` claims `[mp_pattern]`, sets `[ttx_shbusy]` and arms a cursor.
+- `ttx_shstep` formats `TTX_SHCHUNK` (4) rows and returns; `ttx_draw_dyn`
+  calls it once a frame, forcing a blit each time, until the 64th row clears
+  `[ttx_shbusy]` and sets `[ttx_shok]`. Worst frame ~25 ms instead of ~330.
+- `ttx_shbuild` is that loop run to completion, and its **only** caller is
+  `ttx_draw_all`: the mode has just been set, there are no pixels on screen
+  to stop updating, and paying it there is what makes the first frame after
+  F complete. It is also the only place that blanks — every later build
+  rewrites all 64 content rows, and the pad rows are never written at all.
+
+Three things about the spread are load-bearing. **The cursor starts at
+`view − TTX_HALF`** (clamped, then wrapping inside the pattern) rather than at
+row 0, so a `Dxx` break or a position jump that lands mid-pattern fills the
+*visible* window first instead of counting up to it. **It cannot be
+overtaken**: 4 rows a frame against a view that advances 7.14 rows a *second*.
+And **the pattern is claimed at the start, not at the end** — otherwise
+`ttx_draw_dyn`'s change test refires on every frame of the build — which also
+closes an old race, because the worker can move `[mp_pattern]` mid-build and
+recording it afterwards marked a mixed shadow as current. Recorded first, a
+mid-build move is caught by the same test on the next frame and restarts.
+
+While a spread build runs, §45.14's `SHB` reads `--`: there is no complete
+shadow to check, which is honest and doubles as a visible marker of the frames
+a rebuild is spread over.
 
 Three things about it are load-bearing:
 
@@ -13570,6 +13849,13 @@ listening cannot tell them apart. Every counter resets with the stream, in
 | `BLK` | the longest gap, in ticks, between two different `consumed` readings | `consumed` moves by one whole half and only from `sbl_isr`, so this **is** the block-IRQ interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. Doubling means a block arrived a whole period late |
 | `WAKE` | the longest gap, in ticks, between this worker's own feed passes | the control for `BLK`. 1 is healthy |
 | `SHB` | **live**: how many of the text shadow's 64 content rows have a blank row-number field (§45.13.2). `--` = there is no shadow to check — windowed, or before the first build | anything but `00` means the shadow really is losing content, and the blank area on screen is not the pad |
+
+**Latching the meter on also resets the four extremes**, and that is what
+makes them attributable. They otherwise reset only with the stream, so one bad
+moment during the load repaint pins `MIN` and `WAKE` for the whole session and
+every later glitch reads as having changed nothing — which is exactly what the
+first field reading did. D off, D on, watch one glitch: the numbers then
+describe *that* glitch.
 
 **`SHB` is the one live number, and that is why D is a latch rather than a
 one-shot.** The other five are running extremes, so a snapshot taken on the
@@ -14232,7 +14518,7 @@ covers and for how long *is* the game (§48.4), and this leaves it alone.
 monotonically as `dy` rises, so a filled circle is **exactly** the union of
 one rect per distinct half-width — nested, widest and shortest first — and
 letting the drawn edge run up to `R/8 + 1` pixels outside the true circle
-before opening a new rect collapses that to four to seven rects at every
+collapses that to four to seven levels at every
 radius this game can produce: **27 fills to 5** at Hercules' peak radius of
 13, 39 to 6 at VGA's 19, 13 to 5 at CGA's 6, and 69 to 7 at the `MC_RMAXP`
 ceiling of 34. It costs one `mc_shrink` walk, the same
@@ -14262,7 +14548,7 @@ frame's drawing, not the explosion's share of it:
 | explosion share of the frame's drawing | 40% / 65% | **6.6% / 10%** |
 | the frame's whole drawing, four-shot | 84 ms | **53 ms** |
 | the frame's whole drawing, eight-shot | 190 ms | **76 ms** |
-| fills over one burst's whole life | ~750 | **22** |
+| fills over one burst's whole life | ~750 | **22** (but see §48.10 — these were nested rects, and the *scan lines* they wrote were not counted) |
 
 The burst costs **10–16× less** and stops being what the frame is made of.
 Two things about that are worth keeping in mind. A **three-step burst at
@@ -14480,6 +14766,164 @@ Four repaints to one, measured with a counter across a real wave 1 → 2
 transition. The sweep is worth keeping: it is the one thing in this game that
 forgives a dropped pixel anywhere, and after §48.8's and §48.9's arithmetic
 it is also the only full repaint left in ordinary play.
+
+### 48.10 `mc_blob` cut the calls and multiplied the pixels
+
+A field log from the target machine — an 8088 with a Hercules card, played
+fullscreen and firing hard — said the game was still missing its tick:
+
+| fullscreen, 28 seconds of heavy play | |
+|---|---|
+| frames a second | **10–21, mean 16.1** against 18 |
+| frames that missed their deadline | **251 of 451 — 56%** |
+| worst single frame | **7 ticks, 384 ms** |
+| deadline re-anchors (§44.1) | 13 |
+| `gfx_xor_fill` a frame | **8.0, every second without exception** |
+
+The cause is §48.8's own `mc_blob`, and the 5150 field set is what exposes
+it. **A `gfx_fill` costs 756 µs of arriving plus 177 µs per scan line**
+(PERFORMANCE.md Part 2). `mc_blob` replaced `mc_disc`'s one fill per row with
+a handful of **nested** rects — and nested rects *overlap*, each one spanning
+the blob's whole height at its own width. At the fullscreen Hercules peak
+radius of 19 that is **184 scan lines written to cover a 39-row disc**:
+
+| R = 19 | calls | scan lines | cost |
+|---|---|---|---|
+| `mc_disc` | 39 | 39 | 36.4 ms |
+| `mc_blob`, nested | **6** | **184** | **37.1 ms** |
+| `mc_blob`, banded | 11 | 39 | **15.2 ms** |
+
+Six calls instead of thirty-nine looked like a 6.5× win and was **not a win
+at all** — 37.1 ms against 36.4. §48.8 priced it in *calls*, through a
+conversion measured for a **one-row** fill, at a time when nothing in this
+project knew a fill had a per-scan-line half. That is PERFORMANCE.md Part 3's
+fourth defect exactly — *an optimisation that kept its shape and lost its
+substance* — and it is the second time this repository has shipped one.
+
+The fix is not to go back to `mc_disc`. It is to emit the same shape as
+**non-overlapping bands**: the centre band as one rect, then two rects per
+level for the annulus above and below. Same pixels — verified identical and
+overlap-free for every radius 1..34 — with each row written **once**. 2.4×
+fullscreen, 1.9× windowed, on the single largest item in a busy frame.
+
+**The general rule this leaves behind:** a call count is the right currency
+only while the calls are *small*. `gfx_fill`'s fixed part dominates a row of
+64 pixels 10:1 and is dominated by a rect of 64 rows 15:1. Before trading
+calls for area, price both halves — and if the new shape overlaps itself,
+count the scan lines it actually writes, not the rectangles you drew.
+
+### 48.11 The crosshair paid a redraw for standing still
+
+§48.10's log named `gfx_xor_fill` at **8.0 a frame, every second without
+exception** and left it there. Instrumenting the frame at the *stage* level —
+one span per phase of `mc_render`, read off the PIT, which is a real clock
+even on an emulated machine — said what that cost:
+
+| 8088 / Hercules, fullscreen | idle frame | busy frame |
+|---|---|---|
+| `upd` — all game logic | 2.0 ms | 10.9 ms |
+| `lok` — lock, `mc_track`, `wm_clip_set` | 5.3 | 5.9 |
+| **`crs` — the crosshair** | **8.6** | **8.9** |
+| `trl` — trails + explosions | 6.3 | **36.6** |
+| `rst` — terrain, status, banner | 0.4 | 5.8 |
+| `unl` — unlock | 5.1 | 5.1 |
+| **frame** | **29.2 ms** | **65.8 ms** |
+
+Two separate things are in that table. `trl` is the one that misses the
+55 ms tick, and it is the explosion: modelling `mc_blob` against the coarse
+ramp gives **39 fills per burst** over its 27-frame life, which at eleven
+concurrent bursts predicts **15.9 fills a frame** against the log's measured
+15.8 — the model *is* the game, and that cost is structural.
+
+The other is that **an idle frame costs 29 ms**, of which `lok`+`crs`+`unl`
+is 19 ms that draws nothing at all. The crosshair is 8.6 ms of it: four
+one-pixel arms taken off at the top of every frame and put back at the
+bottom, whether the mouse moved or not. There is nothing to win *inside*
+those calls — an arm is a rect, and 756 µs is what a rect costs to ask for —
+so the only move available is not to make them.
+
+So the overlay **stays on screen across frames**, and comes off in exactly
+the two cases that require it:
+
+- **`mc_cross_moved`**, once at the top of a part frame: the mouse moved, so
+  the crosshair has to go back somewhere else.
+- **`mc_cross_need`**, from `mc_fillc` / `mc_framec` / `mc_runc` / `mc_line`:
+  the rect about to be drawn reaches the crosshair's footprint.
+
+The second is what makes this **exact** rather than approximate, and the
+ordering is the whole of it: the erase happens *before* the overdraw, while
+the crosshair is still whole, so the XOR undoes what the XOR drew. Erase it
+afterwards and you flip pixels belonging to the fill; skip the erase and
+re-XOR at the end and a partly overdrawn cross comes back inside out.
+
+Verified the only way this can be verified — a cluster of bursts detonated
+around a stationary crosshair, the game paused, the framebuffer captured, a
+full repaint forced, and the two compared: **0 differing pixels of 262,144**.
+
+Two things about it are easy to undo. `mc_xorc` must **not** be hooked, or
+the crosshair's own erase recurses into itself. And the rect handed to
+`mc_cross_need` is deliberately the *unclamped* one with its corners in any
+order — a line hands over its two endpoints — because over-approximating
+costs at worst one redundant erase, while under-approximating leaves the
+overlay to be painted over and then inverted.
+
+### 48.12 The burst grows and holds, because the collapse was half its cost
+
+§48.11's table leaves `trl` at 36.6 ms of a 55 ms frame, and the explosion is
+most of it. There is nothing wrong with the *shape* any more — §48.10's bands
+write each row once — so the only thing left to cut is **how many times a
+burst is drawn at all**. Priced against the coarse ramp `0, 5, 13, 5`:
+
+| the burst's life | calls | scan lines | cost |
+|---|---|---|---|
+| draw @5 | 7 | 11 | 7.2 ms |
+| draw @13 | 9 | 27 | 11.6 ms |
+| **collapse: erase @13 + draw @5** | **16** | **38** | **18.8 ms** |
+| gone: erase @5 | 7 | 11 | 7.2 ms |
+| **total** | **39** | **87** | **44.9 ms** |
+
+The collapse is **42% of the burst** and it buys one visible state. Removing
+it is not free of consequence, though, because the radius is also what the
+burst *kills* with — `mc_erad` is one table and §48.8 built it that way
+precisely so the drawn shape and the lethal shape cannot disagree. Simply
+holding at 13 would leave the burst lethal for longer and make the game
+easier.
+
+So the ramp is **grown and held, and the life is cut to pay for it**:
+
+```
+was:  2 dark, 9 frames @5, 7 @13, 9 @5     life 27,  Σr = 181
+now:  2 dark, 9 frames @5, 10 @13          life 21,  Σr = 175
+```
+
+Σr — the sum of the radii over the burst, which is the whole of how much a
+burst can kill — is preserved to **3.3%**, and it is preserved by shortening
+the burst rather than by lying about its size. The drawn cost is **25 calls
+and 65 rows, 30.4 ms**, and because the life shortens too, fewer bursts are
+alive at once for the same rate of fire: **18.3 ms a frame → 12.4 ms** at the
+load §48.11 measured.
+
+Three things about it are worth knowing.
+
+- **`MC_EXPFR` is no longer a constant at the point of use.** `[mc_expfr]` is
+  27 or `MC_EXPFR3` (21), set once in `mc_entry` — and the default is written
+  *before* the coarse test, because bss is zeroed and a life of zero kills
+  every burst on the frame it is lit.
+- **There is no third colour any more, and that is not an omission.** A state
+  that changes only the colour would never be drawn: the coarse path's whole
+  economy is `cmp bx, cx / je .next` on the RADIUS, so a same-radius state is
+  a state nobody ever sees. White then yellow is what two drawn states can
+  carry.
+- **The shrink branch in `mc_draw_exp` is now unreachable and stays.** It is
+  the *ramp table* that decides whether the radius ever falls, so the branch
+  is what stops an edited table leaving a ring behind. The annulus erase was
+  measured against it and **lost** — 22 calls to 16, bands or not — so there
+  is no better version of it to write.
+
+Verified the §48.11 way: a cluster of bursts fired and left to die out, the
+game paused, the framebuffer captured, a full repaint forced, the two
+compared — **0 differing pixels of 262,144**, which is what says the `.gone`
+erase still matches what the new ramp drew.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
@@ -15106,11 +15550,35 @@ DRVE_MEM    the heap cannot fund it
 DRVE_HW     it loaded and found no hardware
 ```
 
+**Nothing loads that `SYSTEM.CFG` did not ask for, and no row is wanted by
+default.** Both `drv_tab` rows ship with `DRVR_WANT` = 0. The sound row used
+to ship with 1, so a freshly built image — which carries no `SYSTEM.CFG` at
+all — read the whole 5.5KB driver off the floppy on every boot to be told
+there was no card: **27 sectors, about 6.4 seconds** at the field machine's
+238 ms per sector (PERFORMANCE.md Part 2), and then a Control Panel opened
+on a failure nobody had asked for. A driver probes hardware and costs a
+floppy read; both are the user's to ask for, and the tick in the Drivers page
+is both the request and the record of it. The kernel does not guess.
+
+The consequence is deliberate and worth stating plainly: **a fresh image has
+no FM and no digital sound until the Drivers page is ticked once.** The tone
+tier still works — it stays on the PC speaker, which is where it lives when
+no driver publishes `DSV_TONE` (§34) — and the tick loads the driver on the
+spot (§51.4), so the cost of the default is one click, once, on the machines
+that have a card.
+
 The ordering at boot is binding. **`drv_boot` runs before the desktop's first
 paint**, so a machine whose sound driver loads has sound from the first
 frame. **`drv_notice` runs after it**, because a window cannot go up on a
 screen that has not been painted — so a failure is banked in the row and
-reported later, never where it happens.
+reported later, never where it happens. The whole of `drv_boot` is also on
+the boot progress bar: it is floppy sectors, and `dsk_xfer` ticks the bar per
+sector for as long as the loading screen is up (§15.3).
+
+**`bb_set` is the last thing `drv_boot` does**, after the load loop, for the
+§15.3 reason: it seeds the back buffer from VRAM, and until the first paint
+VRAM holds the loading screen. The heap does not care which end it happens
+at — data claims grow up and a driver's region down (§50.3).
 
 `drv_notice` opens the **Control Panel on its Drivers page** rather than
 putting up a notice of its own, and that is a design rather than a saving:
@@ -15200,8 +15668,10 @@ torn or corrupt file therefore costs the settings it did not carry and nothing
 else.
 
 A missing or malformed file means **the defaults**, never an error — which is
-what makes a freshly built image boot with sound enabled and a disk with a
-foreign `SYSTEM.CFG` boot at all.
+what makes a freshly built image, and a disk carrying a foreign
+`SYSTEM.CFG`, boot at all. Since every `DRVR_WANT` default is now 0 (§51.3),
+that also means a machine with no settings file **loads no driver and probes
+no hardware**: the file is the only thing that can ask.
 
 The settings write is a **separate outcome from the load**, and the Control
 Panel reports them separately: a load that succeeds and a save that cannot
@@ -15252,6 +15722,50 @@ buffers there rather than in their image. Those claims are owned by the
 driver's *segment*, and `drv_release` sweeps them with `mem_free_owner`
 **before** freeing the image, because the image's segment is the owner word
 and freeing it first would leave a claim nothing could ever name again.
+
+#### 51.5.1 It is written to the SYSTEM disk, not to whatever is in A:
+
+`drv_cfg_save` mounts drive A: and writes `SYSTEM.CFG` to it, and for a long
+time that was the whole of it — on the unexamined assumption that the disk the
+machine booted from is still the disk in the drive. **It is not.** A
+single-floppy machine swaps to the apps disk to launch anything (§28.3 is
+built around exactly that), and a Control Panel change made afterwards wrote
+the settings to whatever floppy happened to be there.
+
+Two things went wrong at once, and the second is the worse one:
+
+- the setting never reached the system disk, so it did not survive the reboot
+  — which reads as the deferral (§31.8) losing writes rather than as a
+  volume-identity fault;
+- and the user's data disk gained a hidden + system `SYSTEM.CFG` that §19.6's
+  own protection makes **impossible to list or delete from inside os8088**.
+  `DSKW_PROT` refuses hidden|system, and `disk_mount`'s species filter keeps
+  it out of every listing, so it is invisible litter that needs another
+  machine to remove.
+
+So the volume is identified before it is written: **`KERNEL.SYS` in the root
+is what makes a disk the system disk**, and `dskw_stat` answers that off the
+directory sectors — which is the only place a hidden + system entry can be
+seen at all. No marker, no write.
+
+**`dskw_stat` and not `drv_find`**, deliberately. `drv_find` answers a *size*
+and refuses one whose high word is non-zero; `KERNEL.SYS` is 63,944 bytes
+today, so the day the kernel passes 64KB that check would begin reporting that
+the system disk is not the system disk. Existence is the question here, and
+`dskw_stat` is the routine that answers it.
+
+A refusal is `FERR_NOENT`, and it joins `FERR_NODISK` in the one outcome the
+user can act on: the caption says **`'Needs the system disk in A:'`**, while a
+write that genuinely failed — full, protected, I/O — says `'Could not save the
+settings'`. Both are **27 characters**, which is the pane's limit (222px less
+`CP_PMX`); the single string they replace was thirty and painted through the
+window's right border into the desktop, unnoticed because the caption was
+almost never drawn (§31.8).
+
+`[cp_wdirty]` is **kept** on this refusal like any other, so putting the
+system disk back and closing the panel again saves it — verified end to end:
+the apps disk stays byte-identical, the caption names the remedy, and the
+retry writes the setting where it belongs and survives a reboot.
 
 ### 51.6 Author rules
 
@@ -15337,9 +15851,8 @@ the same identity test as the four volume slots) carries them:
 
 ```
 AL = 0  read the blob into ES:SI, at most CX bytes; out CX = bytes handed over
-AL = 1  write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
+AL != 0 write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
         the Control Panel's teardown like every other setting (§31.8)
-AL = 2  ...and write the file NOW
 out CF = 1  not a published driver, or a WRITE longer than DRV_BLOB_SZ (34)
 ```
 
@@ -15368,12 +15881,21 @@ that may have no hard disk. One blob is shared by whichever driver asks, which
 is the honest shape while exactly one class has settings; a second claimant is
 a second key, not a bigger blob.
 
-**Verb 2 exists because a mount is not a preference.** Deferral is right for a
-session of nudging a cylinder count — a floppy write is about a second on the
-floor machine and the panel is frozen for it — but a machine switched off with
-the panel still open would come back with a hard disk it had been told to mount
-and has not. So the geometry editor stages on every click and writes on none,
-and Mount and Unmount write on the spot.
+**There was a verb 2, "and write the file NOW", and it is retired.** It
+existed because a mount is not a preference: a machine switched off with the
+panel still open comes back with a hard disk it had been told to mount and has
+not. That is the argument every page makes for being §31.8's exception, and it
+is refused here for the same reasons, plus one this cell had to itself — the
+write remounts A: to reach the file, so a driver that had just made its own
+volume current lost it inside the click. **A set never touches the disk**; the
+Control Panel's close and Special > Restart are the only two writers in the
+machine.
+
+`AL = 2` is still **accepted** and means exactly what `AL = 1` means, so a
+`.DRV` built against the old contract stores its blob and defers rather than
+failing. Under §20.8 rule 4 that is a narrowing of *when the bytes reach the
+disk*, not of what the call does: the cell still stores, still answers CF the
+same way, and still reads back what was written.
 
 ## 52. HDD.DRV — the hard-disk driver (drivers/hdd/)
 
@@ -15384,10 +15906,12 @@ button — because the kernel's half of this is four API slots and a volume
 table, and nothing above them belongs in a kernel that boots machines with no
 hard disk at all.
 
-It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0), unlike the
-sound driver: this one probes controllers, and a machine with neither should
-not be poking at 1F0h every boot to be told so. The Drivers page turns it on
-and `SYSTEM.CFG` remembers.
+It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0): this one
+probes controllers, and a machine with neither should not be poking at 1F0h
+every boot to be told so. The Drivers page turns it on and `SYSTEM.CFG`
+remembers. The sound row shipped with a 1 here for a while and has since
+joined it at 0, for the same reason plus the read (§51.3) — **no row is
+wanted by default now**, and this passage is the argument that generalised.
 
 ### 52.1 The transport ladder
 
@@ -15444,18 +15968,43 @@ drive and a CMOS type table that predates it. The page carries an editable
 C/H/S triple bounded by what CHS can carry (1..1024, 1..255, 1..63) and
 recomputes the size from it live, in the Date/Time page's field idiom (§31.5).
 
-### 52.2 The partitioner
+### 52.2 The disk tool — one window, one button
 
-Its own window — the unowned species (§38.1), so its close box reduces to
-`wm_hide` and there is no teardown path to write. Four primary slots, New /
-Delete / Write / Close, and **everything but Write edits a copy in RAM**, so a
-user who changes their mind has changed nothing.
+Partitioning and formatting are **one operation to the user and one window in
+the driver**. They were two: a Partition window (New / Delete / Write) and a
+Format window that listed the same four slots through a different frame, and
+between them the user had to know that a table entry is not a volume, that New
+only edits RAM, and that Write is the commit. None of that is a thing anybody
+wants to know about their disk. What they want is four slots and, for each
+one, either what is in it or a button that puts a usable volume there.
+
+```
+Slot  Size   State
+1     31M    FAT16              a volume; Mount will find it
+2      -     Not Formatted      free
+3     50M    Unmountable        foreign, or over the ceiling - greyed
+4     14M    Not Formatted      a claimed region with no volume in it
+[Format]  [Close]
+```
+
+**`Not Formatted` covers unpartitioned AND partitioned-but-empty**, and that
+is deliberate rather than lazy: the difference is the tool's business, both
+mean "there is no volume here and Format will make one", and the second is
+exactly what a format interrupted half way leaves — §52.3 writes the boot
+sector last. The size column distinguishes them for anyone who cares, and is
+blank for a free slot rather than carrying a number nothing has promised: two
+free slots would otherwise both advertise the same megabytes when only one of
+them can have them.
+
+The window is the unowned species (§38.1), so its close box reduces to
+`wm_hide` and there is no teardown path to write; detach must still leave none
+on screen, because the kernel frees the image the moment detach returns.
 
 A partition is capped at **65,535 sectors** by the kernel's volume ceiling
 (§18.7), so four primaries is the whole offering and an extended chain is not
 implemented. Two era conventions are obeyed because DOS reads what is written:
-partitions are cylinder-aligned, and **the CHS halves of an entry must agree
-with its LBA halves** under the geometry the drive is addressed with — a
+partitions start on cylinder boundaries, and **the CHS halves of an entry must
+agree with its LBA halves** under the geometry the drive is addressed with — a
 cylinder past 1023 clamps to the all-ones form every tool of the era wrote,
 which is what says "read the LBA fields instead".
 
@@ -15463,9 +16012,147 @@ The 446 bytes of boot code are **not** left blank: os8088 does not boot from a
 hard disk (§52.9), and a blank MBR is a machine that hangs with no
 explanation, so a stub prints `Not bootable` and halts.
 
+#### 52.2.1 A slot is not a 32MB region of the disk
+
+`hd_slot_extent` answers what a Format would write, and it takes the answer
+out of the **table**. That is the safety property the whole tool rests on: an
+entry laid at a fixed multiple of 32MB lands *inside* an 80MB partition that
+started below it, and takes the whole thing with it.
+
+Three cases, and the first two are the same one seen twice:
+
+- **used, at or under the ceiling** — its own extent, reused in place. The
+  user has already confirmed erasing it (§52.2.3).
+- **used, over the ceiling** — the first 65,535 sectors of its own extent, and
+  the rest goes back to being free space. This is how a 50MB or an 80MB
+  partition is reclaimed without touching a neighbour.
+- **free** — the scan below.
+
+The scan is `mem_claim`'s (§50), and deliberately: start at the era's floor —
+LBA = spt, head 1 sector 1 cylinder 0 — and while any *other* used entry
+contains the candidate, restart at that entry's end rounded up to a cylinder.
+Each bump moves strictly past one entry and there are four, so four passes is
+a proof rather than a guess. The length then runs to the lowest used start
+*above* the candidate, or to the end of the drive, capped at the ceiling.
+
+Two things fall out of that shape, and both were asked for:
+
+- **A partition sits directly on top of a foreign one, not at the next
+  multiple of anything.** A 50MB `0x83` partition at LBA 63 on a 200MB disk is
+  followed by a 31MB FAT16 at LBA 102,816 — one cylinder past its end.
+- **A hole is usable.** With 102,816..168,351 and 200,000..265,535 taken, the
+  next slot gets 169,344..200,000 — 14MB, byte-exact, filling the gap rather
+  than running off the end of the disk.
+
+The extent is also **clipped to the end of the drive**, because a table
+another machine wrote is input and input is hostile, and refused outright
+below one track — less than that is not worth a drive letter.
+
+**A hole can be an alignment gap, and it is still real space.** This tool's
+floor is LBA = spt — the end of the MBR's own track, where every DOS-era table
+started — while a modern tool 1MB-aligns its partitions at LBA 2048. Take a
+disk this tool filled, delete two partitions on another machine and let it
+make one NTFS partition in the freed space, and the 1,985 sectors between 63
+and 2048 belong to nobody: the scan finds them, because that is what it is
+for, and a Format there produces a working 970KB FAT12 volume that mounts and
+takes files.
+
+What that exposed was a **display** fault and not an allocation one — the size
+column was whole megabytes, so a volume that works read `0M`, which looks like
+a broken tool rather than a small disk. Under a megabyte the column is **KB**
+(`hd_tw_size`); `992K` is the same volume, honestly described.
+
+Which is why the scan takes **the largest hole and not the first that fits**,
+and that is about the slots being scarce: there are four, and first-fit spends
+one of them on a 1MB alignment gap while 30MB sits free in the middle of the
+disk. The walk is the same bump-and-limit pair in a loop — the candidate moves
+to the limit that bounded it, the next bump carries it past the entry sitting
+there, so it strictly increases and there are at most four holes to see. A tie
+keeps the **earlier** hole, which leaves the later space contiguous.
+
+Measured, on a 128MB disk with an NTFS partition at 2048..131072 and a FAT16
+at 199584..261072 — a 1,985-sector gap at the front and a 68,512-sector hole
+in the middle:
+
+```
+Format -> 132048 + 65535   the middle hole, cylinder-aligned and capped
+Format -> 63 + 1985        the front gap, now that it is the largest left
+```
+
+Sub-megabyte partitions are kept rather than refused below some floor: 992KB
+is most of three 360KB floppies, which on this machine is a real volume — and
+under largest-hole it is only ever chosen when nothing bigger is free.
+
+#### 52.2.2 Formatted, and unmountable
+
+`hd_fmt_isfat` reads the partition's own LBA 0 and asks whether a boot sector
+is there: the `55AA` signature, `BS_jmpBoot` being EB or E9 (BPB rule 2's own
+test, §18.2), 512-byte sectors, and non-zero `SecPerClus` / `NumFATs` /
+`FATSz`. It is a **display test and the mount is still the authority** — a
+volume that passes here can still be refused by `disk_mount`'s seventeen rules
+— and it costs one sector read per slot that could carry a volume, when the
+window opens and after every format.
+
+The order of the state tests is the order of the certainties: over the ceiling
+and a type this driver does not mount are facts about the *table*, so neither
+costs a read, and only a slot that could carry a volume is asked whether it
+does.
+
+**`Unmountable` is a foreign type or over 65,535 sectors**, and either way
+this kernel will never mount it. Format stays live on such a slot, because
+reclaiming that space is the only thing the user can usefully do with it. The
+page agrees rather than contradicting: a Mount that skipped a partition for
+being over the ceiling now says `Partition is over 32MB` instead of reporting
+"no FAT partition" about a partition that plainly is one.
+
+**Nothing in this window is greyed, and the unmountable row least of all.** It
+was, briefly, and it was wrong twice — this is the §47 case worth keeping,
+because both halves look like details and neither is:
+
+- **Greying is a claim about a CONTROL, and this row is not one.** Rule 1: the
+  disabled pen says *disabled*; the row is selectable and the Format button
+  acts on it. That is rule 4's named failure — "looks unavailable and works" —
+  and it is the drift rule 4 exists to stop, arriving from the direction rule 4
+  does not cover, because there is no predicate here at all: nothing refuses.
+- **It did not even show.** Rule 3: `CDGRAY` *text* rounds to black on the two
+  1bpp adapters (§39.4 rounds a glyph rather than dithering it), and
+  `[gfx_dis]` — the carve-out that makes a disabled glyph a checkerboard — is
+  not in the package ABI (§20.3 publishes no slot). Looked at on CGA per §47.2,
+  the greyed row was pixel-identical to the live row beneath it. Rule 3's
+  package clause is the general form: a package's disabled control **must carry
+  a non-text mark**, which is why `hd_page_button` greys the button's *frame*
+  along with its label and reads correctly on all three adapters, and why a
+  bare row of text can never be made to.
+
+So the **State column is the whole signal**, and it says the same thing on VGA,
+CGA and Hercules. That is not a consolation prize for the missing colour: a
+value in a column is what the rest of the row already is, and §47 does not
+apply to it.
+
+#### 52.2.3 Confirm, and the order of the two commits
+
+**Format on a slot that already holds something asks first**, in the caption,
+by wanting the click again: `Erase slot 2? Click Format again`. A driver has
+no notice window and no modal, and a second click on the same button is the
+cheapest confirm that cannot be mistaken for the first one. Picking another
+row or closing the window disarms it. A free slot is not confirmed — there is
+nothing to lose.
+
+**The table entry goes down before the volume**, which is the same argument as
+the boot sector going last inside the format: every way this can be
+interrupted has to leave a state the tool can describe and re-offer. Entry
+first, volume second means an interruption leaves `Not Formatted` — a claimed
+region with nothing in it — which is exactly what the button is for. The other
+order leaves a volume nothing can see and an entry still pointing at data that
+has just been overwritten.
+
+Afterwards the states are **re-scanned rather than assumed**, so the row
+reports what came back off the disk and not what the driver hoped it wrote.
+
 ### 52.3 The formatter
 
-A **FAT format, not a surface format**. Low-level formatting an MFM surface is
+A **FAT format, not a surface format**. Its window is §52.2's, along with the
+partitioner's. Low-level formatting an MFM surface is
 vendor-specific interleave and defect handling, minutes per drive, and the
 ST-11M ships its own ROM utility that does it correctly (`g=c800:5`).
 
@@ -15503,8 +16190,9 @@ volume its own kernel refuses to mount.
 
 ### 52.4 The page, and mounting
 
-The Control Panel page (§31.9) is a device list, the C/H/S editor and three
-buttons, in 27 characters by 13 rows. Greying follows §47: one predicate
+The Control Panel page (§31.9) is a device list, the C/H/S editor and **two**
+buttons — Format, which opens §52.2's tool, and Mount — in 27 characters by 13
+rows. Greying follows §47: one predicate
 (`hd_btn_ok`) shared by the greying, the click refusal and the caption, and it
 tests only facts already known — is there a device, is its geometry usable —
 never "try it and see".
@@ -15584,15 +16272,21 @@ Three things about it are load-bearing:
   disk at all. The mount's *own* save no longer needs this: the kernel owns
   the file and the drive it lives on.
 
-There are three ways out and each is the §51.9 verb its job needs. The
-geometry editor **stages** on every `+` and writes on none, because a floppy
-write is about a second on the floor machine and the panel is frozen for it;
-opening the partitioner or the formatter **spends** a staged edit, because a
-geometry the user is about to format a disk with is one worth surviving a
-hang; and Mount and Unmount **write on the spot**, because the set of mounted
-drives is what the next boot reads. Detach stages — the fence is still open
-(the kernel releases the class after detach returns) and the panel that
-unticked the driver is about to close and write the file anyway.
+**There is one way out, `hd_cfg_mark`, and it never touches a disk.** It hands
+the blob to the kernel — a 34-byte `rep movsb` — and `SYSTEM.CFG` is written
+when the Control Panel closes or Special > Restart is picked, like every other
+setting in the machine (§31.8). Everything that can change the blob calls it:
+the geometry editor on every `+`, Mount and Unmount, and detach.
+
+There were three ways out, and the other two wrote immediately. `hd_cfg_now`
+was Mount and Unmount, on the argument that the set of mounted drives is what
+the next boot reads; `hd_cfg_flush` was opening the partitioner or the
+formatter, on the argument that a geometry about to be formatted with is worth
+surviving a hang. Both are gone with §51.9's verb 2, and what they bought was
+never worth 2+ seconds of frozen UI in the middle of a click — the Mount write
+also remounted A: behind the click that had just made C: current. Neither tool
+needs a stage of its own either: the only thing they use is the geometry, and
+the editor staged that on the click that changed it.
 
 ### 52.9 Not in scope
 

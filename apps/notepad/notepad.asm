@@ -148,8 +148,9 @@ NP_BRK_CELLS equ 60             ; the visual break's trigger (SPEC.md 27.3):
                                 ; resizable and a row is 30 cells or 90
                                 ; depending how wide the user dragged it, so
                                 ; a row count means two different amounts of
-                                ; work. 60 cells is about 60ms on a 4.77MHz
-                                ; 8088 (SPEC.md 6.1.1), which is the point
+                                ; work. A cell is ~0.9ms on a 4.77MHz 8088 -
+                                ; measured four ways, PERFORMANCE.md Part 2 -
+                                ; so 60 cells is ~54ms, which is the point
                                 ; where a keystroke stops keeping up
 NP_IDLE      equ 9              ; ticks of no typing before the break is
                                 ; reconciled: ~500ms at 18.2Hz

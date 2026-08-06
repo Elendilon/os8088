@@ -1007,8 +1007,11 @@ cp_paint:             call COLD_SEG:cpf_cp_paint
                     ret
 cp_onclick:           call COLD_SEG:cpf_cp_onclick
                     ret
-cp_flush:             call COLD_SEG:cpf_cp_flush
-                    ret
+                      ; ...but NOT cp_flush. It has no thunk on purpose: with
+                      ; no way into it from .text, "the panel's teardown is the
+                      ; only thing that writes SYSTEM.CFG" (SPEC.md 31.8) is
+                      ; something the build enforces rather than something
+                      ; every new page has to be told
 cp_flush_close:       call COLD_SEG:cpf_cp_flush_close
                     ret
 cp_drv_gone:          call COLD_SEG:cpf_cp_drv_gone
@@ -1107,9 +1110,10 @@ kmain:
                                 ; mode set, so the very first menu bar paint
                                 ; already carries a valid clock
     call vid_init               ; video adapter (SPEC.md 39): probe, publish
-                                ; the runtime geometry, set the mode. Re-runs
-                                ; what the splash already did, which is what
-                                ; wipes the loading screen.
+                                ; the runtime geometry. Re-runs what the
+                                ; splash already did, EXCEPT the mode set -
+                                ; the loading screen stays up and keeps
+                                ; ticking until spl_finish below (15.3)
     call mem_init               ; the claim heap (SPEC.md 50): int 12h, the
                                 ; empty map. FIRST of the memory users -
                                 ; every claim below goes through it
@@ -1122,7 +1126,12 @@ kmain:
                                 ; the first wm_paint_all already has a bar
     call inst_init              ; instance table (SPEC.md 29) - clean boot:
                                 ; no app instances exist until launched
+    call spl_step               ; a notch: the mode set and the font are done
     call mouse_init             ; IRQ4 live; cursor stays hidden until shown
+    call spl_step               ; ...and another: the serial reset holds
+                                ; DTR/RTS low for MOU_RSTLOW ticks (~165ms),
+                                ; which is the only non-I/O phase up here
+                                ; long enough to see (SPEC.md 15.3)
     call FAT_SEG:ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
     call dock_init              ; dock strip scratch (SPEC.md 30)
     call files_init             ; Disk module state (no window at boot)
@@ -1135,11 +1144,21 @@ kmain:
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
 
+    call spl_step               ; a notch, and the last one kmain spends by
+                                ; hand: everything below is sectors, and
+                                ; dsk_xfer ticks the bar itself (SPEC 15.3)
+
     call drv_boot               ; ...and load what SYSTEM.CFG asks for
                                 ; (SPEC.md 51.3). Before the first paint, so
                                 ; a machine whose sound driver loads has
                                 ; sound from the first frame; nothing here
-                                ; can stop the boot.
+                                ; can stop the boot. NOTHING loads that the
+                                ; settings file did not ask for - a driver is
+                                ; several seconds of floppy on this machine
+
+    call spl_finish             ; the bar to 100% and the screen handed back:
+                                ; the paint below covers every pixel of it,
+                                ; so the loading screen needs no erase
 
     call gfx_lock
     call wm_paint_all

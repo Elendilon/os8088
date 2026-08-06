@@ -9,14 +9,16 @@
 ; slot at detach (SPEC.md 31.9/51.2.1).
 ;
 ; The pane is 221 x 121 px - 27 characters by 13 rows - and the panel is not
-; resizable, so this page is a list, an editor and three buttons, and anything
-; that needs more room is a window of its own.
+; resizable, so this page is a list, an editor and two buttons, and anything
+; that needs more room is a window of its own. Format opens the disk tool
+; (tool.inc), which is partitioning and formatting in one window because they
+; are one operation to the user.
 ;
 ;   Hard Drive
 ;    IDE0  980x 10x 17   81M      <- one row per probed device, the selected
 ;    BIOS  615x  4x 17   20M         one drawn as a black bar
 ;   C[ 980] H[ 10] S[ 17]  - +    <- the geometry, editable when the probe
-;   [Partition] [Format] [Mount]     could not determine it
+;   [Format] [Mount]                 could not determine it
 ;   Mounted as C:                 <- and the caption is where the truth goes
 ;
 ; **EVERY STRING HERE FITS ITS BOX, and that is a rule and not a habit.** The
@@ -47,12 +49,10 @@ HDP_PX       equ 186
 HDP_BTW      equ 24
 HDP_BY       equ 82             ; the button row
 HDP_BH       equ 16
-HDP_B0X      equ 2              ; 'Partition'
-HDP_B1X      equ 84             ; 'Format'
-HDP_B2X      equ 146            ; 'Mount' / 'Unmount'
-HDP_BW0      equ 80
-HDP_BW1      equ 56
-HDP_BW2      equ 72
+HDP_B0X      equ 2              ; 'Format'
+HDP_B1X      equ 78             ; 'Mount' / 'Unmount'
+HDP_BW0      equ 64
+HDP_BW1      equ 72
 HDP_CAPY     equ 104
 
 ; -----------------------------------------------------------------------------
@@ -218,25 +218,20 @@ hd_page_paint:
     mov ax, HDP_PX
     call hd_page_pm
 
-    ; --- the three buttons ----------------------------------------------------
-    mov si, hd_s_part
+    ; --- the two buttons ------------------------------------------------------
+    mov si, hd_s_format
     mov ax, HDP_B0X
     mov bx, HDP_BW0
     mov cl, 0
-    call hd_page_button
-    mov si, hd_s_format
-    mov ax, HDP_B1X
-    mov bx, HDP_BW1
-    mov cl, 1
     call hd_page_button
     mov si, hd_s_mount
     call hd_mounted
     jc .mlabel
     mov si, hd_s_unmount
 .mlabel:
-    mov ax, HDP_B2X
-    mov bx, HDP_BW2
-    mov cl, 2
+    mov ax, HDP_B1X
+    mov bx, HDP_BW1
+    mov cl, 1
     call hd_page_button
 
     ; --- and the caption, which is where the truth goes ----------------------
@@ -366,7 +361,7 @@ hd_page_pm:
 
 ; -----------------------------------------------------------------------------
 ; hd_btn_ok - may this button be clicked? (module internal)
-; in:  AL = 0 Partition / 1 Format / 2 Mount
+; in:  AL = 0 Format / 1 Mount
 ; out: CF = 0 yes, CF = 1 = disabled
 ; clobbers: flags
 ;
@@ -385,8 +380,8 @@ hd_btn_ok:
     call hd_geom_ok
     pop ax
     jc .no                      ; no usable geometry: nothing may be written
-    cmp al, 2
-    jne .yes                    ; Partition and Format need nothing more
+    cmp al, 1
+    jne .yes                    ; Format needs nothing more
     pop di
     pop bx
     clc
@@ -698,36 +693,27 @@ hd_page_click:
     cmp cx, HDP_B1X
     jl .done
     cmp cx, HDP_B1X + HDP_BW1
-    jl .hit
-    mov bl, 2
-    cmp cx, HDP_B2X
-    jl .done
-    cmp cx, HDP_B2X + HDP_BW2
     jge .done
 .hit:
     mov al, bl
     call hd_btn_ok
     jc .refused
     cmp bl, 0
-    je .dopart
-    cmp bl, 1
     je .dofmt
     call hd_mounted
     jc .domount
     call hd_unmount
     jmp short .saved            ; the SET of mounted drives is what the next
-.domount:                       ; boot reads, so it is written out on the
-    call hd_mount               ; spot rather than deferred (SPEC.md 52.6)
-.saved:
-    call hd_cfg_now
+.domount:                       ; boot reads - STAGED, like every other
+    call hd_mount               ; setting in the machine, and on the disk when
+.saved:                         ; the panel closes (SPEC.md 31.8/52.6)
+    call hd_cfg_mark
     jmp .repaint
-.dopart:
-    call hd_cfg_flush           ; opening a tool COMMITS to this geometry,
-    call hd_pw_open             ; which is what spends a deferred edit
-    jmp .repaint
+                                ; The tool stages nothing of its own: the only
+                                ; thing it uses is the geometry, and the editor
+                                ; staged that on the click that changed it
 .dofmt:
-    call hd_cfg_flush
-    call hd_fw_open
+    call hd_tw_open
     jmp .repaint
 .refused:
     ; A greyed control explains itself (SPEC.md 47 rule 5), so the refusal
@@ -818,11 +804,17 @@ hd_mount:
                                 ; SKIPPED, which is the whole of "and if it
                                 ; is not FAT, do not" (SPEC.md 52.4)
     cmp word [si+HP_SECS+2], 0
-    jne .next                   ; over 65,535 sectors: not a volume this
+    jne .big                    ; over 65,535 sectors: not a volume this
                                 ; kernel can carry (SPEC.md 18.7)
     call hd_already
     jnc .next                   ; this one is already mounted
     call hd_mount_one
+    jmp short .next
+.big:
+    mov word [hd_msg], hd_s_mbig    ; the tool calls this slot Unmountable and
+                                    ; so does the page, rather than reporting
+                                    ; 'no FAT partition' about a partition that
+                                    ; plainly is one (SPEC.md 52.2.2)
 .next:
     inc byte [hd_pslot]
     cmp byte [hd_pslot], 4
@@ -1063,22 +1055,17 @@ hd_unmount_row:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_win_close_all - hide both tool windows (detach's obligation)
+; hd_win_close_all - hide the tool window (detach's obligation)
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 hd_win_close_all:
     push bx
-    mov bx, [hd_pwin]
+    mov bx, [hd_twin]
     or bx, bx
-    jz .nop
+    jz .out
     call OSAPI_WM_HIDE
-.nop:
-    mov bx, [hd_fwin]
-    or bx, bx
-    jz .nof
-    call OSAPI_WM_HIDE
-.nof:
+.out:
     pop bx
     ret
 
@@ -1269,11 +1256,9 @@ hd_s_h:       db 'H', 0
 hd_s_s:       db 'S', 0
 hd_s_minus:   db '-', 0
 hd_s_plus:    db '+', 0
-hd_s_part:    db 'Partition', 0
 hd_s_format:  db 'Format', 0
 hd_s_mount:   db 'Mount', 0
 hd_s_unmount: db 'Unmount', 0
-hd_s_hddc:    db 'HDD C', 0
 hd_s_pick:    db 'Pick a drive, then a button', 0
 hd_s_nodev:   db 'No hard disk found', 0
 hd_s_nogeom:  db 'Geometry unknown: type it', 0

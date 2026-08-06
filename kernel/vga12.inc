@@ -198,6 +198,16 @@ vga_gc_reset:
     ret
 
 ; -----------------------------------------------------------------------------
+; The two edge masks, by x & 7. They were computed with `shr dl,cl` / `shl
+; dl,cl`, which on an 8088 is 8 clocks plus 4 PER BIT and costs a push/pop of
+; CX to free the count register - about a fifth of vga_rect_setup for two
+; bytes that a table answers outright (PERFORMANCE.md Part 2: the per-call
+; floor is CPU-side setup, and this is setup).
+; -----------------------------------------------------------------------------
+vga_lmtab:  db 0xFF, 0x7F, 0x3F, 0x1F, 0x0F, 0x07, 0x03, 0x01  ; FF >> (x1 & 7)
+vga_rmtab:  db 0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFF  ; FF << 7-(x2&7)
+
+; -----------------------------------------------------------------------------
 ; vga_rect_setup - internal: clip a rect and precompute its geometry
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2  (x1<=x2, y1<=y2)
 ; out:      CF = 1 if the clipped rect is empty (nothing else valid);
@@ -228,30 +238,22 @@ vga_rect_setup:
 .x2ok:
     cmp cx, ax
     jl .empty
-    mov [vga_y1], bx
-    sub dx, bx                  ; rows = y2 - y1 + 1
-    inc dx
-    mov [vga_rows], dx
-    mov dl, al                  ; left mask = FF >> (x1 & 7)
-    and dl, 7
-    push cx
-    mov cl, dl
-    mov dl, 0xFF
-    shr dl, cl
+    mov [vga_y1], bx            ; y1 is banked, so BX is the free register the
+    sub dx, bx                  ; mask lookups below index through - which is
+    inc dx                      ; what retires the two variable shifts and the
+    mov [vga_rows], dx          ; three push/pops the old sequence needed
+    mov bx, ax                  ; left mask = FF >> (x1 & 7)
+    and bx, 7                   ; (BH = 0 falls out of the AND)
+    mov dl, [bx + vga_lmtab]
     mov [vga_lmsk], dl
-    pop cx
-    mov dl, cl                  ; right mask = FF << (7 - (x2 & 7))
-    and dl, 7
-    xor dl, 7
-    push cx
-    mov cl, dl
-    mov dl, 0xFF
-    shl dl, cl
+    mov bx, cx                  ; right mask = FF << (7 - (x2 & 7))
+    and bx, 7
+    mov dl, [bx + vga_rmtab]
     mov [vga_rmsk], dl
+    mov dx, cx                  ; DX = x2; [vga_rows] already banked it
     mov cl, 3
     shr ax, cl                  ; ax = left byte  (x1 / 8)
     mov [vga_lcol], ax          ; kept for the bb_* dirty union (SPEC.md 32)
-    pop dx                      ; dx = x2 (pushed above)
     shr dx, cl                  ; dx = right byte (x2 / 8)
     sub dx, ax
     mov [vga_span], dx          ; span = right byte - left byte
@@ -260,11 +262,9 @@ vga_rect_setup:
     mov dl, [vga_rmsk]          ; one-byte rect: combine the masks
     and [vga_lmsk], dl
 .offs:
-    push ax                     ; left byte
-    mov ax, bx                  ; this one call re-bases every rect primitive
+    mov ax, [vga_y1]            ; this one call re-bases every rect primitive
     call gfx_rowbase            ; in BOTH renderers - on VGA it is still just
-    pop dx                      ; y1 * 80 (SPEC.md 39.3)
-    add ax, dx
+    add ax, [vga_lcol]          ; y1 * 80 (SPEC.md 39.3)
     mov [vga_off], ax
     clc
     ret
@@ -666,20 +666,37 @@ gfx_line_flush:
 ; line of adapter-specific code - because gfx_fill already does.
 ;
 ; **The run scan compares BYTES, not pixels, and that is the whole speed of
-; it.** A run of colour c is a run of bytes equal to c|c<<4, so `repe scasb`
-; walks it two pixels at a time at about 15 clocks a byte - roughly seven and
-; a half clocks a pixel. The odd ends are handled by hand: the first pixel
-; when the run starts on a low nibble, the last when it ends on a high one.
+; the SCAN.** A run of colour c is a run of bytes equal to c|c<<4, so
+; `repe scasb` walks it two pixels at a time at about 15 clocks a byte -
+; roughly seven and a half clocks a pixel. The odd ends are handled by hand:
+; the first pixel when the run starts on a low nibble, the last when it ends
+; on a high one.
 ;
 ; The first version of this routine decoded every pixel individually instead
 ; - read the byte, test the parity, `shr al, cl` by four, compare, branch -
 ; and that is 75 to 90 clocks a pixel on an 8086, because a 4-bit shift by CL
 ; alone is 24 of them. It kept the SHAPE of the optimisation (one call per
-; run) and threw away the optimisation, so a 448x280 repaint went from about
-; a quarter of a second on a 4.77MHz 8088 to over two, and the far calls it
-; saved were noise against that. QEMU cannot show this - it does not model
-; 8086 timing at all - which is exactly why the cycle counts are written down
-; here rather than measured.
+; run) and threw away the optimisation. Those two cycle counts are still
+; WRITTEN DOWN rather than measured, and the "quarter of a second to over
+; two" figure this comment used to give for a 448x280 repaint was derived
+; from them; the ratio is the point and the absolute numbers are not
+; measurements. What HAS since been measured on the target machine is more
+; important than either, and it is below.
+;
+; **What a blit actually costs, measured on a 4.77MHz 8088 (PERFORMANCE.md
+; Part 9): `runs x 0.5 ms`.** Each coalesced run is one gfx_hline, and a
+; drawing call on this machine has a ~756us FIXED cost - far call, lock, clip
+; test, dispatch, gfx_rowbase - before it draws a pixel. Three routes agree:
+; a 64-run solid blit is 441us a call, a 1,024-run striped one 548us, and
+; GFX_HLINE 8px through the API 765us. So the pixel count barely enters the
+; price at all and **how FLAT the source is decides it**: the same 4,096
+; pixels cost 28.2 ms solid and 561 ms in 4-pixel stripes, a 20x spread with
+; no pixel of difference. A caller that wants a blit to be cheap makes its
+; art flat; a caller that must draw detail should expect ~0.5 ms per colour
+; change per row, and budget accordingly.
+;
+; A plane-parallel VGA fast path would attack exactly that, since it costs
+; one write per 8 pixels regardless of flatness - see below.
 ;
 ; A plane-parallel VGA fast path (build a byte-per-8-pixels mask per plane
 ; and write it through the Map Mask) would beat this on detailed pictures and

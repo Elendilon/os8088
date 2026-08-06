@@ -11,7 +11,9 @@ Notes 1 and 2 are things QEMU cannot show, because QEMU is ~1000x the target
 machine. **Note 3 is the other half of that rule** and the happier case: the
 symptom is only visible on hardware, but the suspected causes are all *work*
 rather than timing, so QEMU can count them and the investigation should start
-there.
+there. **Note 4 is a third shape again** — reproduced on hardware, but its
+mechanism is *identified* rather than theorised, so it needs a fix and not an
+investigation.
 
 ---
 
@@ -154,6 +156,56 @@ is a poor fit for the evidence.
 >   would catch it, so it does not fit as written — but it is the right
 >   family to think in, and `stackprobe` on the reporting machine is the
 >   cheap first move.
+>
+> **THE TEXT FREEZE IS SOLVED, AND IT WAS NOT THE PAD.** `SHB 00` on the
+> reporting machine settled the pad question — the shadow is intact — and the
+> reporter then described the thing the pad was masking: *"when the scrolling
+> empty lines reach roughly the middle of the screen the entire text screen
+> stops updating for 1/3rd a second or so, then when it resumes it jumps."*
+> **Reliably, every ~8 seconds.**
+>
+> Both halves of that are arithmetic. The blank reaching the middle is
+> row 63; 64 rows at 125 BPM speed 7 is 50 ticks/s ÷ 7 = 7.14 rows/s =
+> **8.96 s a pattern**. So the freeze is the pattern boundary, and the
+> pattern boundary is `ttx_shbuild` — which formatted all 64 rows in one
+> frame. Priced against PERFORMANCE.md Part 9's measured 8088 (RAM
+> `rep stosw` 1.76 us/byte; the 4.34-clocks-per-instruction-byte floor;
+> 4.66 MHz): the 9,676-byte blank is **17 ms**, the 3,776 `lodsb`/`stosw`
+> pairs are **28–32 ms**, and 256 `mp_cell2txt` calls — each one a linear
+> `mp_pfind` scan over up to 36 periods plus three hex fields — are the rest.
+> **140–330 ms**, against a frame that otherwise costs about 6. The reporter's
+> "1/3rd a second" sits at the top of that range, and the *jump* on resume is
+> the view having advanced two rows while nothing was drawn.
+>
+> Fixed by spreading it: `TTX_SHCHUNK` = 4 rows a frame, cursor starting at
+> the visible window and wrapping (SPEC.md §45.13.2). Worst frame ~25 ms.
+>
+> **What it does NOT explain is the audio**, and that has to be said plainly
+> because the temptation is strong. The reporter says the hitch "usually
+> occurs during that freeze, but it doesn't occur every time" — but
+> `ttx_shbuild` runs on the bracket task with the worker still whitelisted and
+> pre-emption still working (a full switch is 693 us, and the kernel's own
+> tick + mouse + scheduler is 1–3% of a busy CPU). A 330 ms drawing stall
+> cannot drain a ring that holds 2.2 s, and `UND 000` says the driver's own
+> buffer never starved either. So the correlation is real and the causation
+> is not established.
+>
+> **The first field reading of `BLK`/`WAKE` was `BLK 32 WAKE 29`, with
+> `MIN 4`** — and those three are consistent with each other rather than with
+> the freeze: 29 ticks is 1.59 s, at 5,500 Hz that is 8,745 bytes, and a ring
+> that starts 8 halves deep and loses 4.3 of them lands at exactly `MIN 4`.
+> `BLK 32` is then explained *by* `WAKE 29`, because `BLK` is sampled by the
+> worker and a worker that did not run could not sample. So one ~1.6 s
+> deschedule accounts for all three — and it is far more likely the load
+> repaint than a pattern boundary, because the extremes reset only with the
+> stream and the load is inside the window.
+>
+> **That is why latching the meter on now resets them** (§45.14). D off, D on,
+> then watch one freeze. If `WAKE` stays `00`–`01` across it, the freeze never
+> touched the worker and the audio hitch is still below the driver — back to
+> the three-way split above. If `WAKE` climbs to ~6 during the freeze, then
+> something in that frame is holding the scheduler and the fix above fixes
+> both.
 >
 > Everything below this line is the earlier analysis, kept because its
 > ruling-out is still valid and because the two theories it eliminates are
@@ -446,3 +498,78 @@ contents, so in a folder of *documents* they are the whole story. But in a
 folder of *programs* the harvest is real and can exceed them — which is exactly
 `APPS/`, the folder a user opens most. **Count both**; the counters in the plan
 separate them.
+
+---
+
+## 4. "Bad package" on a file that is perfectly good, until the Disk window is refreshed
+
+**Observed.** On a real 5150, on the boot floppy (drive A:): run `GFXBENCH.O88`
+from an open Disk window, press `S` to save its report — which creates
+`GFXHERC.TXT` in that same directory — close Gfx Bench, then double-click
+`SYSBENCH.O88` in the *still-open* Disk window. It fails as **Bad package**.
+It fails again, every time, five times running. Click **Refresh** in that
+window and it launches normally. A reboot also fixes it.
+
+**Ruled out — the disk is fine, and so is the write path.** The volume was
+dumped afterwards and every file compared byte-for-byte against the originals;
+`SYSBENCH.O88` was intact and `os88disk.py --verify` was clean. The failure
+does not survive a reboot, and it is *deterministic* within a session, which
+also rules out the marginal-media and mis-seek theories that a 40-year-old
+drive invites. Nothing was corrupted at any point.
+
+**Mechanism — this one is identified, not theorised.** It is a stale
+per-window listing cache (SPEC.md §22.1) resolved against a fresh global
+snapshot:
+
+1. A package's `OSAPI_FILE_WRITE` succeeds, so `dskw_write` re-runs
+   `disk_mount` — "coherence by remount" (SPEC.md §18.4). The **global**
+   snapshot now has the new file in it, sorted into place by name (§19.4).
+2. The open Disk window's own cache — `VIEW_KB` of heap behind `FS_VSEG` — is
+   **not** touched. Nothing tells a window that a package wrote to its folder;
+   only the file manager's own operations rebuild caches.
+3. A double-click resolves the clicked row against that cache and hands
+   `loader_run` a **directory INDEX** (SPEC.md §22.1: "the loader gets the
+   poster's state block in `[ld_pwin]` as well as the index").
+4. `loader_run` calls `fmv_sync` — which compares `FS_DRV`/`FS_CWD` against
+   `[disk_drive]`/`[dsk_cwd]`, finds them equal, and **returns without
+   re-listing**. It has no notion of "the directory changed underneath me".
+5. The index is then resolved against the rebuilt globals. Every entry at or
+   after the inserted name has shifted by one.
+
+In the observed case the sorted root went
+
+```
+... FONTBNCH.O88(2) GFXBENCH.O88(3) SYSBENCH.O88(4) TASKMGR.O88(5) ...
+... FONTBNCH.O88(2) GFXBENCH.O88(3) GFXHERC.TXT(4)  SYSBENCH.O88(5) ...
+```
+
+so the row the window still labelled `SYSBENCH.O88` was index 4, and index 4
+in the new listing is `GFXHERC.TXT`. The loader read a text file, found no
+`O8` magic, and said **Bad package** — correctly, about the wrong file.
+
+**Which is why it is rare and why it looked like corruption.** It needs a new
+name that sorts *before* something you then launch. A report saved as
+`SYSBENCH.TXT` would have sorted after `SYSBENCH.O88` and shifted nothing.
+And the error names the file the user thinks they clicked, so it reads as that
+file being damaged.
+
+**Directions when this is picked up.** The invariant to restore is SPEC.md
+§22.1's own sentence — "paints read the cache, actions re-sync". Step 4 is
+where it is false: `fmv_sync` re-lists on a *location* change and not on a
+*content* change. The cheapest honest fix is a **mount generation counter**:
+`disk_mount` bumps a word, each state block records the generation its cache
+was built at, and `fmv_sync` re-lists when the generation differs as well as
+when the drive or cwd does. That is one word of kernel `.bss`, one word per
+state block, and one extra compare on a path that already compares two things
+— and it makes every cache in the system self-invalidating, not just this one.
+
+Worth noting what it is *not*: it is not `[dsk_lstale]` (SPEC.md §18.9), which
+tracks a debt the **global** snapshot owes after a quiet mount. This is the
+opposite direction — the globals are current and a *window* is behind them.
+The two want the same counter and neither can serve the other.
+
+A second, independent hardening is worth considering at the same time:
+`ld_run_body` could check that the entry it resolved is a **type-1 file whose
+name ends `.O88`** before reading it, so a mis-resolved index reports
+something better than "Bad package" — §47's say-*why*-not, applied to the
+loader.

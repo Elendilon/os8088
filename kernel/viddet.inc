@@ -148,6 +148,14 @@ gfx_inktab:
     db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
     db 0x01, 0x01, 0x01, 0x01, 0xFF, 0x01, 0xFF, 0xFF
 
+; The bank number's byte offset, indexed by the bank itself. `shl bx, 13` is
+; 8 clocks plus 4 per bit on an 8088 - 60 for a shift of a value that has
+; four possible answers, and gfx_rowbase is on the fixed cost of EVERY
+; drawing call (PERFORMANCE.md Part 2). Four banks is the maximum the 0x2000
+; window assertion at the bottom of this file allows.
+vid_banktab:
+    dw 0x0000, 0x2000, 0x4000, 0x6000
+
 ; -----------------------------------------------------------------------------
 ; vid_detect - decide which adapter is installed (SPEC.md 39.1)
 ;
@@ -375,6 +383,7 @@ vid_setmode:
     mov ax, 0x0012              ; VGA: 640x480x16 planar
     cmp byte [vid_kind], VID_CGA
     jne .bios
+    call vid_cga_equip          ; ...and see there: on a mono-primary machine
     mov ax, 0x0006              ; CGA: 640x200 monochrome
 .bios:
     int 0x10
@@ -426,6 +435,53 @@ vid_setmode:
     ret
 
 ; -----------------------------------------------------------------------------
+; vid_cga_equip - tell the BIOS this is a colour machine, if it thinks it is not
+;
+; in:       -
+; out:      -
+; clobbers: flags
+;
+; THE PC/XT BIOS's MODE SET IS EQUIPMENT-DRIVEN, NOT MODE-DRIVEN. It reads bits
+; 5:4 of the equipment flag at 40:10 and, when they say 11b (a monochrome card
+; at B000), forces mode 7 and the 3B4h CRTC whatever mode was asked for. So on
+; a machine with BOTH cards and its motherboard switches set to mono - which is
+; every machine a `VIDEO=cga` build exists for, since the reason to force CGA is
+; that the probe found the Hercules first - `int 10h AX=0006h` programs the MDA
+; into 80x25 TEXT and never touches the CGA at all.
+;
+; The symptom is exact and was field-reported: the mono monitor shows a cleared
+; text page with a blinking cursor (that IS the mode 7 set), the colour monitor
+; shows nothing at all (its card was never programmed, so it has no sync), and
+; the machine is otherwise perfectly alive - it finishes the boot read and
+; answers Ctrl-Alt-Del. os8088 then draws into a B8000 nobody initialised.
+;
+; Setting the flag to colour first is what DOS's MODE CO80 does and is the only
+; way to reach the second card. Only when it says mono: a machine that already
+; knows it has a CGA is left exactly as it was, which is every auto-detected
+; machine by construction - vid_detect only answers VID_CGA when these two bits
+; are NOT 11b, so on the probe path this routine reads them and returns.
+;
+; The flag is left colour afterwards on purpose. From here on the CGA is the
+; machine's display, and CMD_REBOOT's vid_text (int 10h AX=0003h) has to land
+; on the same card the user has been looking at.
+; -----------------------------------------------------------------------------
+vid_cga_equip:
+    push ax
+    push ds
+    mov ax, 0x0040              ; the BIOS data area
+    mov ds, ax
+    mov al, [0x0010]            ; equipment flag, bits 5:4 = the display
+    and al, 0x30
+    cmp al, 0x30                ; 11b = monochrome at B000
+    jne .out
+    and byte [0x0010], 0xCF
+    or byte [0x0010], 0x20      ; 10b = 80x25 colour
+.out:
+    pop ds
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; vid_init - the whole boot-time video bring-up: probe, publish, set the mode
 ;
 ; in:       -
@@ -433,13 +489,24 @@ vid_setmode:
 ; clobbers: flags
 ;
 ; Idempotent, and deliberately re-run by kmain after the splash already did
-; it - exactly as kmain's mode set has always re-run the splash's own,
-; which is what wipes the loading screen.
+; it - but the MODE SET is now skipped while the splash is still on screen.
+; It used to run unconditionally, and re-setting a mode that is already set
+; is what wiped the loading screen: kmain then spent several more seconds
+; mounting A:, reading SYSTEM.CFG and painting the desktop with the user
+; looking at a blank screen and a progress bar that had been erased at 100%.
+; The splash owns the mode from its first tick until spl_finish, which is the
+; line immediately before the first wm_paint_all (SPEC.md 15.3/39.1).
+;
+; The probe and the publish still re-run, and must: everything between here
+; and that paint reads [vid_w]/[vid_h]/[vid_stride] out of them.
 ; -----------------------------------------------------------------------------
 vid_init:
     call vid_detect
     call vid_apply
+    cmp byte [spl_live], 0      ; the splash set THIS mode on its first tick
+    jne .keep                   ; and is still drawing on it
     call vid_setmode
+.keep:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -496,9 +563,9 @@ gfx_rowbase:
     push bx
     mov bx, ax
     and bx, [cs:vid_bmask]      ; BX = bank number
-    mov cl, 13
-    shl bx, cl                  ; BX = bank * 0x2000
-    mov cl, [cs:vid_bshift]
+    shl bx, 1
+    mov bx, [cs:bx + vid_banktab]   ; BX = bank * 0x2000, without the 13-bit
+    mov cl, [cs:vid_bshift]         ; shift an 8088 charges 60 clocks for
     shr ax, cl                  ; AX = row within the bank
     mul word [cs:vid_stride]    ; DX:AX; DX is always 0 (86*90 at worst)
     add ax, bx

@@ -374,6 +374,14 @@ dsk_xfer:
 
 .ok:
     mov ax, [dsk_run]
+    mov cx, ax                  ; the boot bar counts SECTORS, and a call now
+.notch:                         ; carries a run of them (SPEC.md 18.91) - so
+    call spl_step               ; it is stepped per sector rather than per
+    loop .notch                 ; call, or the bar would under-count exactly
+                                ; as far as the batching won. Preserves every
+                                ; register and the flags, and after
+                                ; spl_finish it is a compare and a return
+                                ; (SPEC.md 15.3)
     add di, ax                  ; next LBA
     sub si, ax                  ; sectors still wanted
     mov cl, 9

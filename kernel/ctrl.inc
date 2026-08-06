@@ -112,10 +112,13 @@ cp_wdirty:  db 0                ; 1 = a setting changed and SYSTEM.CFG is owed
                                 ; click, so a session of fiddling costs ONE
                                 ; floppy write instead of one per click.
                                 ;
-                                ; **SETTING THIS IS ALL A PAGE MAY DO.** No
-                                ; page calls cp_flush_x from a click handler
-                                ; and a new one must not either - SPEC.md
-                                ; 31.8. A SYSTEM.CFG write is 2+ SECONDS of
+                                ; **SETTING THIS IS ALL A PAGE MAY DO**, and
+                                ; all a DRIVER's page may do either - the
+                                ; hard disk's Mount was the last exception and
+                                ; is gone (SPEC.md 31.8/51.9). Nothing outside
+                                ; cp_flush_close_x calls cp_flush_x, and there
+                                ; is no longer a .text thunk to call it
+                                ; through. A SYSTEM.CFG write is 2+ SECONDS of
                                 ; frozen UI on the floor machine (mount, data,
                                 ; FAT, directory, FAT, remount, all under the
                                 ; gfx lock with the cursor stopped), landing
@@ -203,7 +206,13 @@ cp_s_tcap:  db 'Click a field, then + or -', 0
 ; ON THE SPOT and then writes SYSTEM.CFG, so the box is never a promise about
 ; the next boot: what it shows is what is running right now.
 cp_s_drv:   db 'Drivers', 0     ; list name AND the page heading
-cp_s_dsave: db 'Cannot save to the system disk', 0
+; Both 27 characters, which is the pane's limit: 222px of pane less CP_PMX,
+; and font_str clips to the SCREEN and not to the pane (SPEC.md 5). The one
+; string these replace was THIRTY, and painted through the window's right
+; border into the desktop - invisibly, because until cp_drv_cap existed the
+; caption was only ever drawn by a driver tick.
+cp_s_dsave: db 'Needs the system disk in A:', 0
+cp_s_dserr: db 'Could not save the settings', 0
 
 ; --- Sound page (SPEC.md 31.7/34.8) ------------------------------------------
 ; The three row labels are FIXED and name TIERS, not whatever a driver called
@@ -1859,10 +1868,14 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ;
-; **NOT called by a page.** cp_flush_close_x calls it, from the two ways the
-; panel stops existing, and nothing else does - a page that changed something
-; sets [cp_wdirty] and returns (SPEC.md 31.8, and the flag's own comment for
-; why that is a rule rather than a default). It is one write of one 32-byte
+; **NOT called by a page, and no longer callable by one.** cp_flush_close_x
+; calls it, from the two ways the panel stops existing, and nothing else does -
+; a page that changed something sets [cp_wdirty] and returns (SPEC.md 31.8, and
+; the flag's own comment for why that is a rule rather than a default). It is
+; a near call inside .cold with no .text thunk in front of it, so a page, a
+; driver's page or an API cell cannot reach it even by naming it.
+;
+; It is one write of one 32-byte
 ; file, and the file carries the whole panel - the driver list, the sound
 ; route, the clock options, the scheduler mode and the back buffer - so there
 ; is no per-setting bookkeeping to keep in step.
@@ -1889,6 +1902,12 @@ cp_flush_x:
     call KERNEL_SEG:cw_drv_cfg_save
     mov byte [cp_dsave], 0
     jnc .out
+    mov byte [cp_dsave], 2      ; the write itself failed: full, protected, I/O
+    cmp ax, FERR_NODISK         ; ...as against no disk in A: at all, or a disk
+    je .wrongdisk               ; that is not the SYSTEM one (SPEC.md 51.5.1),
+    cmp ax, FERR_NOENT          ; which is one thing the user can act on and so
+    jne .out                    ; earns a caption that says what to do
+.wrongdisk:
     mov byte [cp_dsave], 1
 .out:
     pop ax
@@ -2359,7 +2378,10 @@ cp_drv_paint:
     jb .row
 
     call cp_drv_boxes               ; every checkbox, from the live state
-
+    call cp_drv_cap                 ; ...and a failed save, which is reported
+                                    ; the next time the panel is OPENED
+                                    ; (SPEC.md 31.8): the write happens at the
+                                    ; close, when this page no longer exists
     pop si
     pop dx
     pop cx
@@ -2569,21 +2591,54 @@ cp_drv_lines:
     cmp bx, DRV_MAX
     jb .row
 
-    mov dx, bp                  ; the caption: only a failed SAVE speaks here
-    add dx, CP_PCAPY
-    call cp_drv_wipe
-    cmp byte [cp_dsave], 0
-    je .out
-    mov si, cp_s_dsave
-    mov cx, di
-    add cx, CP_PMX
-    call KERNEL_SEG:cw_font_str
-.out:
+    call cp_drv_cap
     mov byte [gfx_color], CBLACK
     pop si
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_drv_cap - the save caption, and only a failed save speaks here
+; in:  DI = pane left, BP = pane top; gfx lock held
+; out: nothing (all registers preserved)
+;
+; **Its own proc because BOTH painters owe it.** It used to be inline in
+; cp_drv_lines, which runs when a driver row is TICKED - so the report only
+; ever appeared if the user happened to tick something after a failed save, in
+; the same session. The page's own paint drew everything else and not this,
+; and SPEC.md 31.8 has always said the opposite: by the time the write happens
+; the page is gone, so the failure is reported the NEXT time the panel is
+; opened. That is now true.
+;
+; Calling cp_drv_lines from cp_drv_paint would have done it too, and would
+; have wiped and re-lettered every row's status line that cp_drv_paint has
+; just drawn - the erase-and-letter pair PERFORMANCE.md Part 1 is about.
+; -----------------------------------------------------------------------------
+cp_drv_cap:
+    push ax
+    push cx
+    push dx
+    push si
+    mov dx, bp
+    add dx, CP_PCAPY
+    call cp_drv_wipe            ; ...which leaves the pen CBLACK
+    cmp byte [cp_dsave], 0
+    je .out
+    mov si, cp_s_dsave
+    cmp byte [cp_dsave], 1
+    je .say
+    mov si, cp_s_dserr
+.say:
+    mov cx, di
+    add cx, CP_PMX
+    call KERNEL_SEG:cw_font_str
+.out:
+    pop si
+    pop dx
+    pop cx
     pop ax
     ret
 
@@ -2636,8 +2691,6 @@ section .cold                   ; far entries: the resident thunks in
 cpf_cp_paint:          call cp_paint_x
                     retf
 cpf_cp_onclick:        call cp_onclick_x
-                    retf
-cpf_cp_flush:          call cp_flush_x
                     retf
 cpf_cp_flush_close:    call cp_flush_close_x
                     retf
