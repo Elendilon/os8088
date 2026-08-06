@@ -62,6 +62,18 @@ $(error RTC must be one of: none at ns rp bios)
 endif
 VIDDEF += -DCLK_FORCE=$(RTCFORCE_$(RTC))
 endif
+
+# DISKCNT=1 compiles in the three disk counters of docs/DISK-PERF-PLAN.md 2:
+# mounts, sectors transferred and int 13h data calls. They exist to answer
+# "how much work is a directory change", which QEMU can measure exactly even
+# though it cannot measure how long it takes (PERFORMANCE.md). Folded into
+# VIDDEF so it shares the stamp below - changing it rebuilds the kernel - and
+# so a counted kernel that reached build/ reads as STALE to check-images,
+# which builds knob-free.
+ifneq ($(DISKCNT),)
+VIDDEF += -DDISK_COUNTERS
+
+endif
 # ...and a stamp so that CHANGING VIDEO rebuilds the kernel. Without it make
 # sees an up-to-date kernel.bin, skips it, and boots the PREVIOUS adapter -
 # which reads exactly like the probe or the renderer being broken.
@@ -72,7 +84,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin; \
                                 touch $(VIDSTAMP); })
@@ -86,7 +98,7 @@ KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 debug test test-snd xt xt-640 xt-cga xt-hercules \
         286 386sx 386 xt-sound 286-sound 386-sound check-images bench \
-        field stackprobe clean
+        field stackprobe trklog clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -97,12 +109,27 @@ $(BUILD):
 
 # The kernel is a flat binary loaded at 1000:0000. No linker is involved,
 # which keeps Apple's Mach-O-only toolchain out of the picture entirely.
-$(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) tools/os88ovlchk.py | $(BUILD)
+# The default associations' 8x8 glyphs (SPEC.md 54.3), reduced on the HOST out
+# of each package's own embedded icon so the kernel ships knowing what its own
+# applications look like - a document icon then costs no disk read on the first
+# boot of any machine. GENERATED, and that is the point: hand-pasted bytes go
+# stale in silence when an app's icon changes and `make check-images` cannot
+# see it, where this dependency can. The DAG stays acyclic - a package depends
+# on apps/os88api.inc, never on kernel.bin.
+ASSOCICO := $(BUILD)/associco.inc
+$(ASSOCICO): tools/os88mini.py $(BUILD)/paint.o88 $(BUILD)/notepad.o88 \
+             $(BUILD)/tracker.o88 $(BUILD)/artful.o88 | $(BUILD)
+	python3 tools/os88mini.py -o $@ \
+		PAINT=$(BUILD)/paint.o88 NOTEPAD=$(BUILD)/notepad.o88 \
+		TRACKER=$(BUILD)/tracker.o88 ARTFUL=$(BUILD)/artful.o88
+
+$(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) tools/os88ovlchk.py | $(BUILD)
 	@python3 tools/os88ovlchk.py
-	$(NASM) -f bin -w+error -I kernel/ $(VIDDEF) -o $@ $(KERNEL_SRC)
+	$(NASM) -f bin -w+error -I kernel/ -I $(BUILD)/ $(VIDDEF) -o $@ $(KERNEL_SRC)
 	@echo "kernel: $(call FILESIZE,$@) bytes (image rung + boot overlay)"
 ifneq ($(VIDDEF),)
-	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC): this kernel has a probe FORCED. ***"
+	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC) DISKCNT=$(DISKCNT): this kernel is ***"
+	@echo "  *** BUILT WITH A KNOB - a forced probe and/or disk counters.   ***"
 	@echo "  *** build/ is git-tracked - rebuild with plain \`make\` before  ***"
 	@echo "  *** committing, or every machine boots that way.               ***"
 endif
@@ -448,6 +475,24 @@ $(BUILD)/big.dat: Makefile | $(BUILD)
 $(BUILD)/filetest.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/filetest.o88 $(BUILD)/big.dat
 
+# assoctest: the SPEC.md 54 gate. Its own scratch image, and a TEST.AST for it
+# to be opened WITH - the point of the gate is what happens on a document
+# double-click, so the fixture is half the test:
+#   make test TESTAPPS=build/assoctest.img     then double-click TEST.AST
+# Launching ASSOCTEST.O88 by hand is the control: rows 1-4 read '-'.
+$(BUILD)/assoctest.bin: tests/assoctest/assoctest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/assoctest/assoctest.asm
+	@echo "assoctest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/asstest.o88: $(BUILD)/assoctest.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/assoctest.bin -o $@
+
+$(BUILD)/test.ast: Makefile | $(BUILD)
+	printf 'os8088 association gate fixture\n' > $@
+
+$(BUILD)/assoctest.img: $(BUILD)/asstest.o88 $(BUILD)/test.ast tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/asstest.o88 $(BUILD)/test.ast
+
 # The same package on a legally fragmented volume: --scramble interleaves the
 # chains, so the write path's allocator and the free/replace paths meet holes
 # rather than a clean run of clusters. BIG.DAT rides this image too - checks
@@ -455,6 +500,39 @@ $(BUILD)/filetest.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
 # of what --scramble exists to test.
 $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 --scramble $(BUILD)/filetest.o88 $(BUILD)/mines.o88 $(BUILD)/piano.o88 $(BUILD)/big.dat
+
+# --- the tracker log disk (ON DEMAND: `make trklog`) -------------------------
+# TRKLOG.O88 is apps/tracker built with -DTRKLOG, which is the ONLY difference:
+# the shipped TRACKER.O88 has no log, no claims and no D/W keys, and the hooks
+# that reach tests/trklog.inc are every one of them inside %ifdef TRKLOG. One
+# source, two binaries, and the bench one never touches a shipped disk.
+#
+#   make trklog                                    # build the disks
+#   make test SB16=1 TESTAPPS=build/trklog.img     # ...or build and boot
+#
+# The disk carries BEVERLY.MOD because a log of a player with nothing to play
+# is a log of an idle machine. It must NOT be write-protected: W writes
+# TRKLOG.TXT back to it, which is the point (docs/TESTING.md).
+TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
+             apps/tracker/trkui.inc apps/tracker/trktxt.inc tests/trklog.inc
+
+trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
+
+$(BUILD)/trklog.bin: $(TRKLOGSRC) apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -DTRKLOG -I apps/ -I apps/tracker/ -I tests/ \
+		-o $@ apps/tracker/tracker.asm
+	@echo "trklog: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/trklog.o88: $(BUILD)/trklog.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/trklog.bin -o $@
+
+$(BUILD)/trklog.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		$(BUILD)/trklog.o88 apps/tracker/beverly.mod
+
+$(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+		$(BUILD)/trklog.o88 apps/tracker/beverly.mod
 
 # --- the benchmark disk, from tests/ (ON DEMAND: `make bench`) ---------------
 #

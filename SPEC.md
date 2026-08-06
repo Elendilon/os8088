@@ -3697,7 +3697,7 @@ never diverge between the two directions.
 
 | symbol       | contract                                                      |
 |--------------|----------------------------------------------------------------|
-| `disk_read`  | in: AX=LBA, CX=sector count, ES:BX → dest (advances BX by 512 per sector; caller's ES:BX budget must cover count×512). Drive from `[disk_drive]`. Out: CF=1 on unrecoverable error. Preserves registers per §1. FS-agnostic — it knows nothing of §19. |
+| `disk_read`  | in: AX=LBA, CX=sector count, ES:BX → dest (advances BX by 512 per sector; caller's ES:BX budget must cover count×512). Issues as few int 13h calls as the track, the 64KB DMA page and the buffer allow (§18.91) — the contract is unchanged, only the call count. Drive from `[disk_drive]`. Out: CF=1 on unrecoverable error. Preserves registers per §1. FS-agnostic — it knows nothing of §19. |
 | `disk_write` | identical contract, source instead of destination: in: AX=LBA, CX=sector count, ES:BX → source. Out: CF=1 on unrecoverable error, and `[dsk_ioerr]` = the last int 13h status byte (AH), which is how §18.4 tells write-protected media (03h) from a real failure. Preserves registers per §1, and is likewise FS-agnostic. **No LBA gate of its own beyond `dsk_xfer`'s cyl<80 rule** — every caller is §18.4, which computes LBAs only from the validated §18.1 layout. |
 | `disk_mount` | in: DL=drive (0=A, 1=B). Sets `[disk_drive]`, restores the fallback geometry 9/2 with `disk_nfiles`=0, reads LBA 0 with that *fallback* geometry (CHS 0/0/1 — identical under any real floppy geometry) into `dsk_secbuf`, then runs the §18.3 mount sequence: BPB validation (§18.2), FAT snapshot into `FAT_SEG`, root-directory scan into the synthesized `disk_dir` cache, icon harvest into `disk_icons`. Out: CF=0 with `disk_spt`/`disk_heads`/`disk_nfiles`, the §18.1 variables and both caches filled; CF=1 with `disk_nfiles`=0 and fallback 9/2 (unreadable, unformatted, or any §18.2 rule failed). Clobbers CF only. A torn mount is a failed mount; **no cross-mount state survives** — every open/refresh fully remounts, never stale. |
 | `disk_drive`  | byte variable, current drive (init 1 = B:)                   |
@@ -3717,7 +3717,7 @@ The FAT routines (all UI-task-only like the rest of the module; all in
 | `dsk_bpb_check` | module-internal, ~260 B. in: `dsk_secbuf` holds LBA 0. Out: CF=0 — the §18.2 table passed, the §18.1 variables + `disk_spt`/`disk_heads` are filled and `dsk_fattype` is set per §19's detection; CF=1 — reject, nothing guaranteed stored (the caller resets the fallback). Clobbers CF only (internally saves AX,BX,CX,DX,SI,DI). Rule 1 runs via one es: word compare against `dsk_secbuf`+510; the boot sector's first 64 bytes are then staged into `dsk_bpb` via `dsk_copy_in`, and rules 2–16 run on plain DS reads (odd-offset word loads are plain 8086 loads — no alignment requirement exists). |
 | `dsk_clus2lba` | ~50 B. in: AX = cluster number. Out: CF=0, AX = first LBA of that cluster; CF=1 if AX < 2 or AX > `[dsk_maxclus]` (AX undefined). Clobbers AX (output), CF. Math: LBA = `dsk_datalba` + (AX−2) × `dsk_spc`, 16-bit mul; cannot wrap (AX ≤ maxclus ⇒ (AX−2)×spc ≤ TotSec16 − datalba, §18.2 rules 14/15); DX≠0 after the mul is treated as CF=1 anyway (belt and braces). |
 | `dsk_next_clus` | ~80 B. in: AX = cluster number. Out: CF=0, AX = raw FAT entry value (FAT12: 12-bit); CF=1 if the input is outside [2, `dsk_maxclus`]. Clobbers AX (output), CF. The **single reader of `FAT_SEG`** (§2.1): push ES; ES = `FAT_SEG`. FAT12: off = AX + AX>>1; w = word [es:off] (an unaligned straddle read — legal on 8086; the 3-nibble problem dissolves against a resident FAT); odd cluster → AX = w >> 4, even → AX = w AND 0x0FFF. FAT16: off = AX << 1; AX = word [es:off]. §18.2 rule 16 guarantees off+1 < `dsk_fatsz`×512 for every valid cluster. No EOC/bad-cluster decoding — see `dsk_read_chain`. |
-| `dsk_read_chain` | ~170 B. in: AX = first cluster, DX = sectors to read (= ceil(fsize/512), ≥ 1), ES:BX = destination (advances 512/sector, exactly DX sectors). Out: CF=0 all read; CF=1 with AL = 1 (disk error) / 2 (chain corrupt). Clobbers CF; AL on failure (internally saves the rest). **Size-driven walk with run coalescing**, against the unmodified single-sector `disk_read`: keep a (run_lba, run_len) pending run; per cluster, `dsk_clus2lba` (CF → fail AL=2), take = min(`dsk_spc`, DX remaining) — the final cluster may be partial; a cluster whose LBA extends the run grows it, otherwise the run is flushed (`disk_read` AX=run_lba, CX=run_len; CF → fail AL=1) and restarted. When DX reaches 0, flush and return CF=0; else `dsk_next_clus` — the result must be in [2, `dsk_maxclus`], anything else fails AL=2. Bounds: the iteration count is ≤ the caller's DX (each pass consumes ≥ 1 sector) — a looped or cross-linked chain cannot hang the walk, it just yields wrong bytes, which the loader's in-region header recheck rejects (§21). EOC / bad / free / reserved values need **no dedicated constants**: the walk is size-driven, so ANY next-value outside [2, maxclus] while sectors remain is corruption (the FAT spec guarantees bad/EOC marks never collide with valid cluster numbers under correct type detection). On a freshly built (contiguous, §24) image the whole file flushes as ONE `disk_read` call. |
+| `dsk_read_chain` | ~170 B. in: AX = first cluster, DX = sectors to read (= ceil(fsize/512), ≥ 1), ES:BX = destination (advances 512/sector, exactly DX sectors). Out: CF=0 all read; CF=1 with AL = 1 (disk error) / 2 (chain corrupt). Clobbers CF; AL on failure (internally saves the rest). **Size-driven walk with run coalescing**, against `disk_read` (which since §18.91 batches each run it is handed into as few int 13h calls as the hardware allows): keep a (run_lba, run_len) pending run; per cluster, `dsk_clus2lba` (CF → fail AL=2), take = min(`dsk_spc`, DX remaining) — the final cluster may be partial; a cluster whose LBA extends the run grows it, otherwise the run is flushed (`disk_read` AX=run_lba, CX=run_len; CF → fail AL=1) and restarted. When DX reaches 0, flush and return CF=0; else `dsk_next_clus` — the result must be in [2, `dsk_maxclus`], anything else fails AL=2. Bounds: the iteration count is ≤ the caller's DX (each pass consumes ≥ 1 sector) — a looped or cross-linked chain cannot hang the walk, it just yields wrong bytes, which the loader's in-region header recheck rejects (§21). EOC / bad / free / reserved values need **no dedicated constants**: the walk is size-driven, so ANY next-value outside [2, maxclus] while sectors remain is corruption (the FAT spec guarantees bad/EOC marks never collide with valid cluster numbers under correct type detection). On a freshly built (contiguous, §24) image the whole file flushes as ONE `disk_read` call. |
 
 ### 18.1 Mount-derived variables (kernel .bss)
 
@@ -4518,6 +4518,50 @@ pause — because at both of them the world repaints and other writes become
 legal again. The pause is the sharp one: it is not an end, so nothing else
 would have reconciled it.
 
+### 18.91 The transfer loop batches a run into one int 13h
+
+`dsk_xfer` used to issue **`AL = 1`** — one int 13h per 512 bytes, with the
+CHS conversion recomputed each time — so a nine-sector FAT window was nine
+BIOS calls. On real hardware the next call has missed the sector under the
+head, so consecutive sectors cost a revolution each rather than sharing one.
+Measured on the shipped apps floppy (`docs/DISK-PERF-PLAN.md` §2.1), sectors
+and int 13h calls were **equal in every case**: nothing in the floppy path
+batched.
+
+It now issues the largest run the hardware allows, and **the caller's contract
+is unchanged**: same in/out registers, same `[dsk_ioerr]`, same CF, same
+"advances the internal pointer 512 bytes per sector, the caller's ES:BX budget
+must cover count×512". Only the number of BIOS calls changes.
+
+**A run stops at the first of four boundaries** (`dsk_runcap`, plus the track
+test at the call site):
+
+1. **The end of the track.** A CHS call must not cross one. The old loop
+   recomputed CHS per sector and so never had to notice.
+2. **The 64KB physical DMA page.** This is the boundary the batching
+   *introduces*: one 512-aligned sector per call cannot straddle a page, a run
+   can, and the DMA controller answers a straddle with error 09h. It is the
+   transfer-side twin of `mem_claim_dma`'s rule (§50.3), and the failure it
+   prevents has been seen in this tree before — "Disk error on any save big
+   enough to reach the next 64KB boundary" (§2.4).
+3. **BX's own 16 bits**, since the BIOS advances `ES:BX` and must not wrap.
+4. **The sectors the caller actually asked for.**
+
+`dsk_runcap` computes the low 16 bits of the physical address as
+`(ES << 4) + BX` and negates it to get the bytes remaining in the page — an
+exactly-page-aligned buffer negates to 0, which means a *whole* page and is
+special-cased to 128 sectors rather than none. A cap of **zero** sectors is
+only reachable from a base that is not 512-aligned, which §2.4 forbids; it is
+floored to 1 anyway, which is precisely the old behaviour for that buffer.
+
+**The retry unit is the run, and it degrades to the sector.** Three attempts
+with a controller reset between, exactly as before — but a run that still
+fails is retried **one sector at a time** before the transfer is failed, so a
+single bad sector costs its own 512 bytes and not the eight good ones beside
+it. Losing that would trade speed for data recovery on ageing media, which is
+the wrong trade on the machines this targets. Write-protect (03h) still fails
+immediately at any run length: retrying cannot help.
+
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
 The data floppy (drive B:) is a standard **FAT12** volume — mountable and
@@ -4661,7 +4705,7 @@ subdirectory is an accepted entry with staged type 2 (below) — that is what
 made §19.2's navigation possible, and it is why the `.`/`..` rule had to be
 added in the same change.
 
-### The synthesized directory entry (the normative staged layout)
+### 19.1 The synthesized directory entry (the normative staged layout)
 
 Each accepted entry is synthesized into the 32-byte staged shape that
 `dsk_get_dir` serves — this layout, not any on-disk one, is the contract
@@ -13405,7 +13449,6 @@ worker only feeds (§53.2).
 | X | XT mode toggle (§45.9 — also File ▸ the relabeling menu item). Refused on the §45.13 text surface, which IS XT mode's fullscreen: `XT off is windowed: Esc first` |
 | R | Cycle the sample rate 11 → 22 → 44 kHz (§45.10 — also the Rate menu) |
 | S | Smooth toggle (§45.11 — also View ▸ the relabeling menu item). Refused on the text surface: `Smooth is a graphics mode only` |
-| D | The margin meter on the status line, on/off (§45.14). Works windowed and on the text surface; on the text surface it refreshes every frame |
 | Esc | Exit fullscreen (windowed: ignored) |
 
 The `or al, al` keypad gate of §44.2 applies verbatim: the numeric keypad
@@ -13765,9 +13808,9 @@ closes an old race, because the worker can move `[mp_pattern]` mid-build and
 recording it afterwards marked a mixed shadow as current. Recorded first, a
 mid-build move is caught by the same test on the next frame and restarts.
 
-While a spread build runs, §45.14's `SHB` reads `--`: there is no complete
-shadow to check, which is honest and doubles as a visible marker of the frames
-a rebuild is spread over.
+A spread build is visible in §45.14's log as one `FL 07` (a rebuild started)
+followed by a run of `FL 06` (a step ran, and a blit put the new rows on
+screen), which is how the chunking was checked rather than asserted.
 
 Three things about it are load-bearing:
 
@@ -13837,78 +13880,60 @@ are never both holding the setting.
 construction, because `fsx_mode` had already refused to run with a buffer
 armed.
 
-### 45.14 The margin meter — three numbers that say whose buffer starved
+### 45.14 The instrumentation is a LOG, and it does not ship
 
-**D** puts `MIN n  LATE nnn  UND nnn  BLK nn  WAKE nn` on the status line
-(`trk_diag_msg`, same `[tui_msgp]` every other message uses, so it renders
-windowed and on the §45.13 text surface alike). It exists because "the audio
-hitches" has several completely different causes on a 4.77 MHz machine and
-listening cannot tell them apart. Every counter resets with the stream, in
-`trk_play`.
+There is no meter on Tracker's status line and no D key in `TRACKER.O88`.
+There was, for a while — five running extremes and a live count — and it did
+its job: it retired the mixer, the drawing, the driver's own double buffer and
+the sample content in turn (docs/FIELD-NOTES.md entry 1). What it could not do
+is the question that was left. An extreme says a bad thing happened; it cannot
+say *when*, or what else was happening in the same tick, or whether the same
+tick was bad twice. The remaining question is a correlation between three
+clocks — the block IRQ, the worker's wakes and the drawing frames — and a
+correlation needs a time series.
 
-| | what it counts | what a bad reading means |
-|---|---|---|
-| `MIN` | the smallest `total − consumed` any feed wake ever saw, in ring **halves** | 0 means Tracker's own 16KB ring ran dry — the mixer is not sustaining real time |
-| `LATE` | wakes that arrived with under one half in hand | climbing means the same thing, earlier |
-| `UND` | **edges** into `SND_ST_UNDER` — the driver reporting that *its* 2KB double-buffer half was not refilled at the block IRQ | climbing means the fault is downstream of this app entirely |
-| `BLK` | the longest gap, in ticks, between two different `consumed` readings | `consumed` moves by one whole half and only from `sbl_isr`, so this **is** the block-IRQ interval: 6.8 ticks at 5,500 Hz, 3.4 at 11,000. Doubling means a block arrived a whole period late |
-| `WAKE` | the longest gap, in ticks, between this worker's own feed passes | the control for `BLK`. 1 is healthy |
-| `SHB` | **live**: how many of the text shadow's 64 content rows have a blank row-number field (§45.13.2). `--` = there is no shadow to check — windowed, or before the first build | anything but `00` means the shadow really is losing content, and the blank area on screen is not the pad |
+So the instrumentation is now **`tests/trklog.inc`**, a per-tick record
+written to `TRKLOG.TXT`, and it is a **bench build**: `TRKLOG.O88` is this
+same source assembled with `-DTRKLOG` (`make trklog`, docs/TESTING.md). The
+package carries a handful of hooks, every one of them inside `%ifdef TRKLOG`,
+and the shipped binary contains none of it — not the records, not the claims,
+not the two keys. One source, two binaries, and the bench one never reaches a
+shipped disk.
 
-**Latching the meter on also resets the four extremes**, and that is what
-makes them attributable. They otherwise reset only with the stream, so one bad
-moment during the load repaint pins `MIN` and `WAKE` for the whole session and
-every later glitch reads as having changed nothing — which is exactly what the
-first field reading did. D off, D on, watch one glitch: the numbers then
-describe *that* glitch.
+The bench build's keys are **D** (arm / disarm — the record buffer is a 16KB
+heap claim taken and given back, so a log that is not running costs nothing
+and cannot split the heap) and **W** (write `TRKLOG.TXT` to the current
+volume). W is **windowed only**, for the same reason L is: the file slots are
+UI-callback-only and a bracket owns the machine until it returns (§53.7), so
+on the text surface it answers `Save is windowed: Esc first` rather than
+nothing (§47).
 
-**`SHB` is the one live number, and that is why D is a latch rather than a
-one-shot.** The other five are running extremes, so a snapshot taken on the
-keypress says everything about them; `SHB` is the state of the shadow at this
-instant and its whole purpose is to be read *while* the screen is visibly
-emptying. So `trk_diag_tog` sets `[trk_diag]` and `ttx_draw_dyn` re-renders
-and redraws the line every frame while it is set — the `[ttx_lmsg]` pointer
-compare cannot see digits change inside one buffer, so the diag path skips it.
-Turning it off puts `[tui_msgp]` back to 0, which is the key hint.
+One record per system tick, 1,024 of them = 56 seconds. **The rate limit is
+load-bearing, not cosmetic**: inside a bracket `OSAPI_TASK_SLEEP` degenerates
+to an immediate resume (§53.3), so `trk_feed` runs far more often than 18
+times a second and an unlimited log would fill in about a second of music.
+Both producers — the worker's feed pass and the drawing frame — offer a
+record, and **the record is written by whichever reaches the new tick first**.
+That is what makes the file's most important feature work: a tick with *no
+record at all* means neither side ran, which is the whole-machine freeze the
+old `WAKE` extreme could only report as one number after the fact.
 
-The row-**number** field is the probe because it is the one part of a row that
-is never legitimately blank: an empty pattern row has spaces in all four cells
-and still carries `00`..`3F` on both edges. So `SHB` separates the two things
-a blank screen area can mean — the pad (`00`, healthy) from a shadow that lost
-its contents (`nn`) — without needing to know which row the view is on. The
-scan is 64 word reads a frame, which is why it can afford to be live at all.
-It also reads `00` for the pad rows themselves, deliberately: they are outside
-the 64 it walks.
+| column | what it is |
+|---|---|
+| `TICK` | `[ticks]`. **A gap in this column is the most important thing in the file.** |
+| `CONS` | the driver's free-running consumed count — one 2,048-byte half per block IRQ, and only from `sbl_isr`, so the tick spacing between two different values *is* the block-IRQ interval (6.8 ticks at 5,500 Hz) |
+| `TOTL` | the app's staged total; `TOTL − CONS` is the ring lead in bytes |
+| `S` | stream state: 0 playing, 1 underrun-paused, 2 watchdog-ended |
+| `PS PT RW` | song position, pattern, row — so any line can be placed in the music |
+| `FR FD` | drawing frames and feed passes in that tick |
+| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened |
+| `BP SP` | tempo and speed, so rows-per-second is derivable per record |
 
-`BLK` and `WAKE` are a pair and neither is worth reading alone. `BLK` high
-with `WAKE` at 1 is the card or its IRQ stalling while this app ran
-perfectly; both high together is the worker being descheduled, and the
-`sch_lock` held across int 13h (§7) is the first thing to suspect. Both
-normal through an audible hitch puts the fault below the block IRQ, where
-nothing running on the CPU can see it. Measured baseline under QEMU with an
-SB16, XT mode, one minute of playback: `MIN 6  LATE 000  UND 000  BLK 08
-WAKE 01` — 8 ticks is 6.8 rounded up by the one-tick sampling resolution,
-which is the calibration that makes 13 mean something.
-
-**`UND` is the one that is not obvious, and it is the reason the other two
-can lie.** There are two buffers in the chain and they have different
-pacers: Tracker's 16KB staging ring in its `SND_SEG` grant, fed by the
-package worker, and the driver's 2 × 2KB DMA double buffer at `SND_SEG:0`,
-fed by `sbl_refill_task` (§34.5). Only the first is what `MIN`/`LATE`
-measure. When the second starves, `sbl_isr` pauses output (D0h) and marks
-the stream `SBL_ST_UNDER` — bounded silence, never stale audio — and
-**`consumed` stops advancing while it is paused**, so `total − consumed`
-*grows*. A downstream stall therefore reads as `MIN` pegged at the pre-roll
-value with `LATE 000`: the app's instruments say everything is perfect
-precisely when it is not. Reading the state the app was already polling
-(verb 3 returns it in AX, every wake) closes that hole for the cost of a
-word and a byte.
-
-The unit matters too: one 2KB half is **372 ms** at XT mode's 5,500 Hz, so a
-single un-refilled half is about a third of a second of silence — which is
-the shape of the field report in docs/FIELD-NOTES.md, and why `UND` was worth
-adding before anything was changed. It came back `000`, which is what
-promoted `BLK` from an idea to the next instrument.
+Verified under QEMU with an SB16 in XT mode: 706 records, **zero tick gaps**,
+block-IRQ intervals with a median of **7 ticks** (6.8 predicted), and the
+§45.13.2 spread rebuild visible as one `FL 07` followed by a run of `FL 06` —
+which is the chunking doing what it says, read off the data rather than
+asserted.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
@@ -16679,3 +16704,309 @@ everything they touch.
   text↔graphics flip — the one thing QEMU cannot exercise), `286`/`386`.
 - Missile Command (§48) is the shipped reference consumer; Tracker
   (§45) follows with `FSXF_KEEPWORKER`.
+
+---
+
+## 54. assoc.inc — file type associations
+
+A file with a known extension shows the **associated program's** icon, marked
+so it reads as a document rather than as the program, and double-clicking it
+opens it in that program. Build-time defaults ship in the kernel; a running
+program may register a new association or take over an existing one.
+
+### 54.1 Compose at MOUNT, never at draw time
+
+`disk_icons` is `dsk_nmax` × 64 bytes, already allocated, **already rewritten
+every mount** (§18.3 step 4), and a type-0 file's slot was **already all
+zero** — the generic-icon sentinel. A document icon composed into that slot
+therefore costs **no new per-file RAM and no work in any paint**, and every
+consumer of the mount snapshot gets it with no change to a drawing path: both
+Disk window views, the per-window view caches (§22.1), and the file dialog
+(§38), which reads the snapshot directly because it is modal.
+
+This is the binding decision of the section. Putting the answer in the
+snapshot rather than in a drawing path is what makes "every place that shows a
+file" true by construction instead of by discipline, and it is why
+`fm_draw_icon16` did not change by one instruction.
+
+### 54.2 Two tables, and no flags byte in either
+
+An extension names a **program**, and the program owns the glyph — `BMP` and
+`GIF` both mean Paint, and a flat row would cache Paint's glyph twice.
+
+```
+assoc_stem[i]    8 bytes   the app's 8.3 stem, space-padded ('.O88' implied)
+assoc_glyph[i]   8 bytes   its icon reduced to 8x8, one byte a row
+assoc_ext[j]     4 bytes   3 extension bytes + the app index it names
+assoc_clus[i]    word      the directory it was last SEEN in
+assoc_drv[i]     byte      ...on which volume (0xFF = never seen)
+assoc_dfold[i]   byte      build-time folder: 0 root, 1 APPS, 2 GAMES
+```
+
+`ASSOC_NAPP` = 12, `ASSOC_NEXT` = 24. **Every stride is a power of two** so
+the lookup the harvest does once per listed file is a shift through CL rather
+than the `mul` an odd stride would force.
+
+**Neither table carries a flags byte.** "Slot free" is `stem[0] == 0` /
+`ext[0] == 0` — a sanitized display name's bytes are 0x21..0x7E and can never
+be 0 (§19.1) — and "glyph unresolved" is the eight bytes ORing to zero, which
+is exactly the all-zero sentinel `fm_draw_icon16` already reads on
+`disk_icons`. An icon whose reduction is genuinely blank is indistinguishable
+from an unresolved one and draws the bare page, which is the right answer for
+it anyway.
+
+**All of it is in `.text`, not `.bss`**: `-f bin` zeroes nothing, so
+initialised data is in the image and writable at runtime (the `ui_tm_cwd` /
+`dsk_fatw0` / `fdlg_win` idiom). The build-time defaults **are** the table and
+a runtime registration writes over a row — one copy of the data, no init code,
+and "take over an existing one" needs no special case.
+
+Extension comparison is **uppercase-exact**, matching §19.1's own `"O88"` rule
+and for the same reason. A short extension is space-padded, so a file named
+`X.MD` matches a declared `'MD '`.
+
+Associations are consulted for **type 0 only**, so a package can never be
+shadowed by an `O88` row and a folder is never associated. That falls out of
+where the test sits; it is not a separate rule.
+
+### 54.3 The icon: a page frame with the program's glyph inset
+
+`assoc_page` is a 16×16 dog-eared page in `assoc.inc`'s `.text` — the second
+icon in this kernel that is not harvested off a disk (`dsk_folder_ico` is the
+other). Its white interior holds an **8×8 inset at x=4..11, y=5..12**, one
+pixel clear of the border on every side. `assoc_compose` copies the frame and
+ORs the glyph into data rows 5..12, shifted left by 4 so a glyph byte's bit 7
+lands on x=4.
+
+**The reduction is majority-of-2×2**: a block lights if two or more of its
+four source pixels are ink. OR-of-4 turns a typical 40%-ink icon into a
+near-solid blob and point-sampling drops every one-pixel stroke; majority is
+the one that keeps a silhouette at 8×8 on a 1bpp adapter. Only the **data**
+plane is reduced — the glyph lands in an interior the frame has already
+cleared to white, so "ink" is the whole of what it means, and that is what
+makes the cache 8 bytes and not 16.
+
+`assoc_reduce` (kernel, `ES:SI` because the source is usually `LOW_SEG`) and
+`reduce8()` in `tools/os88mini.py` (host) **must stay byte-identical**, or a
+baked default and a harvested icon for the same program would not match.
+
+**The shipped defaults' glyphs are baked at build time.** `tools/os88mini.py`
+reduces each package's own embedded icon (`.o88` bytes 32..95) into
+`build/associco.inc`, which `assoc.inc` `%include`s — so the bytes are `db`
+bytes inside `kernel.bin`, riding the boot sector's existing contiguous kernel
+read, and **a document icon costs no disk read on the first boot of any
+machine**. It is generated and never hand-pasted: pasted bytes go stale in
+silence when an app's icon changes and `make check-images` cannot see that,
+where the make dependency can. The DAG stays acyclic — a package depends on
+`apps/os88api.inc`, never on `kernel.bin`.
+
+Defaults: `BMP`/`GIF` → PAINT, `TXT` → NOTEPAD, `MOD` → TRACKER, `MD` →
+ARTFUL.
+
+### 54.3.1 The harvest is two passes, and the order is the point
+
+Pass A is §18.3 step 4 unchanged, plus one call: every type-1 file whose first
+sector it reads goes to `assoc_note_app`, which records the program's volume,
+its directory cluster and its reduced glyph. **No extra I/O at all** — the
+sector it reduces is the one the harvest just read.
+
+Pass B walks the listing again and composes a document icon for every type-0
+entry whose extension is associated, into `dsk_ico` and then
+`dsk_put_icon_k`.
+
+**They cannot be one pass.** The listing is sorted by name (§19.4), so a
+document can precede its program — `BEACH.BMP` before `PAINT.O88` — and a
+single pass would draw the bare page for everything above the program in the
+sort. Neither pass reads the disk; both walk data already in hand.
+
+`assoc_docicon` borrows `dsk_ico`, `dsk_get_icon`'s staging buffer, to save 64
+bytes of footprint. That is safe because nothing calls `dsk_get_icon` during a
+mount, which is the only place it runs — state the invariant if either moves.
+
+### 54.4 Degradation
+
+An unresolved glyph composes to the **bare page**, which is a correct,
+unambiguous document icon and not a placeholder — the §50 degradation rule
+applied to an icon. A machine that has never seen the program's folder shows
+bare pages, and they are right.
+
+Because the glyph is cached in the app slot rather than resolved on demand,
+**the icons survive the disk leaving the drive**: browse `APPS/` once, swap to
+a documents floppy, and every `.MOD` there still carries Tracker's mark.
+
+### 54.5 The API: the app PULLS its document, and may claim an extension
+
+Two cells, **appended past the last one**, so no `.o88` is invalidated
+(§20.8 rule 4).
+
+| slot | contract |
+|---|---|
+| `OSAPI_ARG_FILE` **0x02E8** | no inputs. Out CF=1 = launched empty, the ordinary case; CF=0 with SI → the document's NUL 8.3 name **in the kernel segment** (read it through ES, which is `KERNEL_SEG` on entry to every package proc — §20.2), DX = the directory cluster it lives in, BL = its volume. **READ-AND-CLEAR.** |
+| `OSAPI_ASSOC_SET` **0x02F0** | an **X stub**. ES:SI → 3 extension bytes then 8 stem bytes, both space-padded (`OS88_ASSOC` lays it out). Out CF=1 = the tables are full and nothing was stored. |
+
+**DX and BL are exactly the pair `OSAPI_FILE_HERE` answers and
+`OSAPI_FILE_GOTO` takes**, so the whole of accepting a document is: copy the
+name, GOTO, READ — with slots the app already had. No new file plumbing.
+
+**Pull, not push, and that is forced rather than preferred.** `ld_run_body`
+reads the program's image out of the *program's* directory and far-calls its
+entry as one unit, so the kernel cannot be standing in the document's
+directory when that entry runs. Handing over the locator moves the one
+`dsk_chdir` to where it can happen. It is also why there is no new callback
+pointer: the instance record is **full** at 32 bytes (§29) and growing the
+window record is a `WIN_SIZE` stride change that has broken this tree before.
+
+**Read-and-clear is what makes two open documents independent.** The first
+proc to ask gets it and the word is spent, so an instance launched later — by
+any route — can never inherit one. A second document therefore opens a
+**second instance**, which is what the pull model does by construction:
+replacing an open document would destroy work nobody asked to lose, and no
+package in this tree holds two at once. No cap applies — `inst_kinds`' caps
+are built-in kinds only, so package instances are bounded by `INST_MAX` and
+the heap, and past either the existing `LD_ENOMEM` is an honest answer.
+
+**The caller supplies its own stem** because the kernel cannot: `I_NAME` holds
+the 16-byte *header* name (`SOLITAIRE`), not the 8.3 file name (`SOLITAIR`),
+and nothing in the instance record records where a package was loaded from. A
+program claiming four extensions **reuses one app slot**, not four.
+
+There is deliberately **no ownership model** — "take over an existing one" is
+the ask, so a matching extension is repointed. Registering grants nothing: the
+worst outcome is that the wrong program opens a file. A runtime claim sets
+**`ASSOC_STICKY`** (bit 7 of the ext row's index byte, free because 12 apps
+need four bits), which is what stops §54.6's declaration taking it back.
+
+### 54.6 A package may DECLARE its extensions — and it is not a version bump
+
+**Flags bit 1** says a **16-byte association block** follows the icon (offset
+96) or, with no icon, the header (offset 32): a count byte and up to five
+3-byte extensions, uppercase and space-padded. `OS88_ASSOC16` /
+`OS88_ASSOC_EXT` / `OS88_ASSOC16_END` bracket it and assert both offsets, so a
+miscounted `db` fails at assembly rather than at mount.
+
+**The format version stays 3.** An old kernel loading a new package works —
+everything it reads is unmoved (magic, flags, the dispatcher at 12, the name
+at 16..31, the icon at a fixed 32..95) and `LD_H_ENTRY` is absolute, so where
+the code starts is *told*, not derived; the block is inert bytes in an image
+loaded whole. A new kernel loading an old package works because the bit is
+clear. Nothing is invalidated, which matters because §20.8 rule 4 exists
+precisely to avoid costing every package at once.
+
+`tools/os88pkg.py` is the gate: it allows bit 1, extends `entry_min` by 16,
+and validates the block — count ≤ 5, printable and uppercase, and **`O88`
+refused**, since a package is never opened through an association.
+
+**What it buys is the case that motivated it.** The mount's harvest already
+reads every type-1 file's first sector, so a folder holding `WIDGET.O88` *and*
+`README.WGT` teaches the OS the extension, the glyph and the location in that
+one existing read. The document opens on the **first** double-click — no prior
+run, no search. The program must be **seen**, which browsing does; it no
+longer has to be **run**.
+
+Two traps, both of which bit during implementation:
+
+- **The declaration must not hang off the icon flag.** An iconless package is
+  precisely the case the block ships on first, and gating the parse on bit 0
+  skipped it entirely. Pass A now notes every valid v3 header, icon or not.
+- **The header flags must be banked before `dsk_get_dir` re-stages the
+  directory entry.** The harvest copies the header into `dsk_ent`, then reads
+  the *name* back out of `dsk_ent`, so `[dsk_ent+3]` stops being the flags and
+  becomes the fourth character of the file's name. `[assoc_hflags]` holds it
+  across that.
+
+`tests/assoctest` is the gate package (docs/TESTING.md): `make test
+TESTAPPS=build/assoctest.img`, then double-click **`TEST.AST`**, not the
+program. Six rows, all of which must read PASS. Launching `ASSTEST.O88` by
+hand is the control — rows 1–4 read `-` and that is correct.
+
+### 54.7 `ASSOC.DAT` — the volume's icon and association cache
+
+The mount reads the **first sector of every package in a directory** to
+harvest its icon, and that is paid again on every re-entry — measured, opening
+`APPS/` cost 20 sectors of which **8 were those reads**
+(`docs/DISK-PERF-PLAN.md` §2.1/§5.5, mechanism D). `ASSOC.DAT` is one file in
+the volume's root, hidden + system, that answers them all:
+
+```
++0    6   'OS88AC'
++6    1   version = 1
++7    1   app rows (<= 16)
++8    1   association rows (<= 24)
++9    7   reserved
++16   ..  app rows, 80 bytes: stem 8, size low word 2, 6 reserved, icon 64
+      ..  association rows, 4 bytes: 3 extension bytes + an app row index
+```
+
+**Hit skips, miss harvests.** Per type-1 entry the harvest looks up
+`(stem, size)`: a hit copies the cached 64-byte body straight into
+`disk_icons` with **no read at all**; a miss reads the sector exactly as
+before. That is what keeps a new package working — harvested once, free
+after — and it means the cache cannot be wrong in a way that matters: any edit
+to a program changes its length, so it misses and is re-harvested. A false hit
+needs a different program with the same name *and* byte-identical size, and
+costs a wrong **icon**, never a wrong load, which §54.4's name re-check
+governs separately.
+
+**A row carries no cluster, deliberately.** A hit still has the directory
+entry, so where the program lives comes from there — which also means the
+file's contents depend only on the packages and not on the disk's layout, so
+`tools/os88disk.py` can build it before a single cluster is assigned. A
+shipped disk therefore arrives **warm**, and nothing has to run on the target
+to earn it.
+
+**An iconless package still gets a row**, holding 64 zero bytes — the
+all-zero "no icon" sentinel the kernel already understands (§19.1), so
+caching the *absence* saves that read too.
+
+**The association rows are not optional.** A hit skips the package's header
+read, and the header is where a declaration lives (§54.6) — so without them,
+warming the cache would silently cost every declaration on the disk.
+`asc_merge_ext` takes them under the same rule a declaration has: a runtime
+claim (`ASSOC_STICKY`) outranks a cached one.
+
+**One shared buffer, not one per volume.** `DVOL_MAX` is 6, so per-volume
+would be up to 12KB of heap, and on the 128KB floor that is over a fifth of
+everything above the kernel. §18.8.1 made this call once already for the FAT
+window and escalated to per-volume for a *stated* reason — a copy alternates
+between two volumes — and **that reason does not transfer**: a copy never
+consults this cache, because `dskw_find` and `fcp_scan` walk directory sectors
+themselves and `dsk_chdir_q` skips the harvest outright (§18.9). It is read
+only on a **full** mount, which is a user navigating. Per-volume remains the
+same escalation if profiling ever disagrees.
+
+**Three tiers, each degrading into the next** (the §50 rule), and none of them
+is a failure the harvest notices — an empty cache simply answers *miss* to
+everything:
+
+| tier | when | per mount |
+|---|---|---|
+| resident | the claim is held and holds this volume | **0 reads** |
+| refused | `mem_claim` said no | today's behaviour |
+| absent | no `ASSOC.DAT` on the volume | today's behaviour |
+
+A failed load still **stamps the volume**, so a disk without the file is
+searched once and not again on every directory change.
+
+`asc_root_find` walks the **root** directly through `dsk_dirw_start` rather
+than using `dskw_stat`, which resolves in the *current* directory — and a
+mount may be landing in a subdirectory, which is exactly when this runs.
+
+**`asc_seg`/`asc_n`/`asc_ne`/`asc_vol` live in `.text` with real
+initialisers**, the `dsk_fatw0` precedent and for the same reason: `-f bin`
+zeroes nothing, `asc_use` runs at the machine's first mount, and garbage there
+is not a wrong answer but a live one — a stale `asc_seg` would have the
+harvest reading icons out of whatever segment those bytes happen to name.
+
+**Measured**, 1.44MB, on top of §18.91's batching:
+
+| action | before D | with D |
+|---|---|---|
+| enter `APPS/` (8 packages) | 20 sectors / 13 calls | **12 / 4** |
+| enter `GAMES/` (5 packages) | 17 / 10 | **12 / 4** |
+| back to the root | 12 / 5 | 11 / 3 |
+| open Drive B (first mount of the volume) | 12 / 5 | 15 / 5 — the cache load, once |
+
+Against the original baseline, opening `APPS/` has gone from **20 int 13h
+commands to 4**. The 12 sectors that remain are the boot sector, the FAT
+window and the directory — §5's mechanisms A and B, which §4 declined to
+touch, so 12 is the floor that decision leaves.

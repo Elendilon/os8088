@@ -282,6 +282,7 @@ checks referenced throughout this document:
 | `filetest` | the write path (§18.4) | `make test TESTAPPS=build/filetest.img` |
 | `fsxtest` | fullscreen exclusive (§53): keys 0–8 cycle every mode with an identifying pattern, `x` runs a same-mode bracket, `t` keys a duration-0 tone for the §53.3 legs; the window shows the `fsx_caps` mask (01EF/000F/0011 by adapter) and the last result (`K`/`R`/`F`/`S`) | `make test TESTAPPS=build/fsxtest.img` (also under `VIDEO=cga` / `VIDEO=herc`; `make test-snd` + two instances for the sound legs) |
 | `stackprobe` | the 256-byte task-stack margin (§8) | `make test TESTAPPS=build/stkprobe.img` |
+| `trklog` | not a gate — a **recorder**. Tracker itself, built with `-DTRKLOG`, logging one record per system tick and writing it to `TRKLOG.TXT` (SPEC.md §45.14) | `make test SB16=1 TESTAPPS=build/trklog.img` |
 
 `benchlib.inc` is the one shared source under `tests/` — the timing loop, the
 48-bit arithmetic, the report arena and the file writer that `gfxbench` and
@@ -289,6 +290,31 @@ checks referenced throughout this document:
 PERFORMANCE.md Part 6 rule 7 gives: two harnesses that disagree is how three
 of the four sizing bugs in this project were found, and two harnesses that
 were copy-pasted cannot disagree.
+
+`trklog` is the odd one out and worth reading the shape of before writing
+another like it. It is not a separate program: it is `apps/tracker` assembled
+a second time with `-DTRKLOG`, so the thing being measured is the shipped code
+and not a copy of it that can drift from it. The hooks in `apps/tracker` are
+every one of them inside `%ifdef TRKLOG`; the shipped `TRACKER.O88` carries no
+records, no claims and no D/W keys. Recipe:
+
+```
+make test SB16=1 TESTAPPS=build/trklog.img   # builds the disk on demand
+# double-click Disk B, launch TRKLOG.O88
+# X    XT mode (5,500 Hz - what the 4.77MHz floor machine boots with)
+# L    load BEVERLY.MOD (it is on the same disk), which starts playback
+# D    arm the log       -> the status line counts 'LOG nnnn /1024'
+# F    fullscreen; let it run through a few pattern boundaries (~9 s each)
+# Esc  back to windowed  (W is refused in a bracket - the file API is
+#                         UI-callback-only, SPEC.md 53.7)
+# W    write TRKLOG.TXT to B:  -> 'Wrote TRKLOG.TXT'
+```
+
+Read it back off the image from the host with a FAT12 extractor, or mount
+`build/trklog.img` — it is an ordinary floppy. **The disk must not be
+write-protected**, for the same reason the bench disks must not be. The log
+buffer is a heap claim taken at D and given back at D, so an unarmed log costs
+no memory and cannot split the heap.
 
 `filetest` also has a fragmented-volume variant, `build/filetest-frag.img`,
 and its results are worth pairing with the host-side fsck — the in-kernel
@@ -447,6 +473,33 @@ untracked is what lets `all` stay free of them. Tracking one would force it
 back into `all` — which is exactly the arrangement this folder replaced.
 
 ---
+
+### `tests/assoctest` — the file type association gate (SPEC.md 54)
+
+```
+make test TESTAPPS=build/assoctest.img
+```
+
+...then **double-click `TEST.AST`, not `ASSTEST.O88`**. Every row is about
+what happens when a *document* is opened, so launching the program by hand is
+the control: rows 1-4 read `-` and that is correct, not a failure.
+
+Six rows, all of which must read **PASS**:
+
+1. the **header declaration** (§54.6) routed the document here - nothing was
+   registered at runtime, so only a rule in this package's header can have.
+   It ships **no icon**, so its block sits at offset 32 rather than 96, which
+   is the layout arithmetic most likely to be got wrong
+2. `OSAPI_ARG_FILE` handed over a name, and it is `TEST.AST`
+3. the locator works - `FILE_GOTO` then `FILE_READ` returns bytes
+4. `ARG_FILE` is **read-and-clear** - the second ask reports nothing, which is
+   what stops a later instance inheriting a document
+5. `OSAPI_ASSOC_SET` takes a registration
+6. ...and **refuses honestly** when the table fills, rather than corrupting it
+
+Before the double-click, the listing itself is half the test: `TEST.AST` must
+already carry a **document page icon**, and a *bare* one, because the program
+ships no glyph to inset.
 
 ## Modelling the old machine from a fast one
 

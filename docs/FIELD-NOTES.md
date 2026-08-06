@@ -7,8 +7,13 @@ so the investigation starts from evidence rather than from scratch.
 
 The rule these entries exist to serve: **the emulator is exact about how much
 work the guest does and useless about how long it takes** (PERFORMANCE.md).
-Both notes below are things QEMU cannot show, because QEMU is ~1000x the
-target machine.
+Notes 1 and 2 are things QEMU cannot show, because QEMU is ~1000x the target
+machine. **Note 3 is the other half of that rule** and the happier case: the
+symptom is only visible on hardware, but the suspected causes are all *work*
+rather than timing, so QEMU can count them and the investigation should start
+there. **Note 4 is a third shape again** — reproduced on hardware, but its
+mechanism is *identified* rather than theorised, so it needs a fix and not an
+investigation.
 
 ---
 
@@ -195,12 +200,20 @@ is a poor fit for the evidence.
 > repaint than a pattern boundary, because the extremes reset only with the
 > stream and the load is inside the window.
 >
-> **That is why latching the meter on now resets them** (§45.14). D off, D on,
-> then watch one freeze. If `WAKE` stays `00`–`01` across it, the freeze never
-> touched the worker and the audio hitch is still below the driver — back to
-> the three-way split above. If `WAKE` climbs to ~6 during the freeze, then
-> something in that frame is holding the scheduler and the fix above fixes
-> both.
+> **The meter has been retired for a LOG** (§45.14, `tests/trklog.inc`), and
+> the reason is exactly the reading above: three numbers that are consistent
+> with *one* event cannot say *which* event, and an extreme cannot be placed in
+> time at all. `TRKLOG.O88` is Tracker assembled with `-DTRKLOG` and writes one
+> record per system tick to `TRKLOG.TXT` — tick, consumed, total, stream state,
+> song position, frames, feeds, flags, tempo — which answers all of it at once:
+> a **gap in the TICK column** is the whole machine stopping, `CONS` spacing is
+> every block-IRQ interval rather than the worst, and `FR 0` against `FD 1`
+> separates the drawing freezing from the worker starving. Verified on QEMU:
+> 706 records, zero tick gaps, block-IRQ median 7 ticks against 6.8 predicted.
+>
+> **The next thing to hand back is that file**, taken across a few pattern
+> boundaries on the reporting machine. It settles the remaining question
+> without another round of asking for numbers read off a status line.
 >
 > Everything below this line is the earlier analysis, kept because its
 > ruling-out is still valid and because the two theories it eliminates are
@@ -381,7 +394,122 @@ base is its CS and can never move (§50.3).
 
 ---
 
-## 3. "Bad package" on a file that is perfectly good, until the Disk window is refreshed
+## 3. Disk access is horribly slow, and three mechanisms are already visible
+
+**Observed.** Navigating the file manager on real hardware feels far slower
+than the work being done should justify. Not a specific operation — the
+general texture of using the disk.
+
+**This entry is different from 1 and 2 in one important way**: nothing here has
+been measured yet. It was found by *code reading*, while costing the file-type
+association plan (`docs/ASSOC-PLAN.md` §2.5.1), and it is recorded because
+three plausible mechanisms are visible in the source and each is separately
+addressable. The symptom is a field report; the causes below are hypotheses
+with line numbers.
+
+**Mechanism A — `dsk_chdir` is a full `disk_mount`.** The body is four lines
+and the middle one is `call disk_mount`. So moving between two folders *on the
+same volume already mounted* re-validates the BPB against SPEC.md §18.2's
+17 rules, re-snapshots the FAT window, re-scans, re-sorts and re-harvests every
+icon. Nothing about the volume changed. `dsk_chdir_q` (§18.9) exists and skips
+the second half, but skips none of the first.
+
+**Mechanism B — the FAT window is re-read on every one of those.**
+`DSK_FAT_SECS` is 9, so that is 9 sectors per directory change on a floppy,
+for a FAT that cannot have changed if nothing wrote. §18.8.1 already gives
+*driver-backed* volumes a banked per-volume window for exactly this reason
+("that is what stops a copy reloading nine sectors on every switch: 45 mounts,
+3 loads") — **and a floppy explicitly gets none**, on the reasoning that its
+window is the whole FAT and never moves. That reasoning is about the window
+never *sliding*; it does not cover re-reading it from the disk.
+
+**Mechanism C — one int 13h per sector.** `dsk_xfer`'s `.sector` loop
+recomputes CHS and calls the BIOS once per 512 bytes. On real hardware a
+single-sector read has missed the sector under the head by the time the next
+call is issued, so consecutive sectors plausibly cost a full revolution each —
+200 ms at 300 RPM. Nine "consecutive" FAT sectors would then be ~1.8 s rather
+than the ~200 ms one multi-sector read would take. int 13h AH=02h takes a
+sector *count*; the loop exists because it also walks the destination, which
+`dskw_norm` (§18.4.1) has since made unnecessary — the offset is 0..15 and the
+segment advances, so a run within one track and one 64KB page could be issued
+as a single call.
+
+**Corroboration, from an unrelated route.** CLAUDE.md already records that a
+`SYSTEM.CFG` write is "2+ seconds of completely frozen UI on the floor machine
+(mount, data, FAT, directory, FAT, remount)" — which puts a single mount near a
+second, and was observed long before this analysis.
+
+**What the harness can and cannot answer.** PERFORMANCE.md's rule cuts
+favourably here for once: QEMU is useless about the *time* but exact about the
+*work*, and all three mechanisms are **work**, not timing. Counting int 13h
+calls per directory change under QEMU — the `inc word [cs:dbg_x]` counter
+recipe in CLAUDE.md, on `dsk_xfer`'s `.sector` — answers A and B outright and
+sizes C, with no hardware needed. **Do that first**; only C's cost per call
+needs the XT.
+
+> **PARTLY FIXED, and the rest deliberately declined.** Mechanism C is done:
+> `dsk_xfer` batches a run into one int 13h (SPEC.md 18.91), which took a
+> directory change from 12 BIOS calls to 5 and, because the FAT window's nine
+> sectors are contiguous, took most of mechanism B with it. Mechanisms A and B
+> are **not** being fixed: the only honest swap test is int 13h AH=16h and a
+> 5150 with a Tandon TM100 has no change line, so reusing a FAT window there
+> would give a file manager that lists correctly and reads garbage. Mechanism D
+> is the remaining work. Details below and in docs/DISK-PERF-PLAN.md 3.2/4.
+>
+> **PICKED UP.** `docs/DISK-PERF-PLAN.md` is the plan for all three
+> mechanisms, with the counting phase first, and it carries the budget grant
+> that funds it. The directions below are what that plan was built from and
+> stay here as the evidence; the plan is where the sequencing, the traps and
+> the testing live. This entry stays **open** until the counters say otherwise.
+
+**Directions when this is picked up**, in rough order of value-for-effort:
+
+1. **Count first.** A counter on `.sector` and a walk through two folders.
+   Everything below is speculation until that number exists.
+2. **Multi-sector int 13h** for a run inside one track and one 64KB DMA page.
+   This is mechanism C and probably the largest single win; the run coalescer
+   in `dsk_read_chain` already computes runs, and §52.1 records that *both*
+   hard-disk transports already batch a run into one command — so the floppy
+   path is the one that did not follow.
+3. **A same-volume, same-BPB fast path in `dsk_chdir`** — if the volume index
+   and the media are unchanged and nothing has written, the BPB and the FAT
+   window are already right. The disk-change line (int 13h AH=16h) is the
+   honest test on hardware that has it; a media change must still fall back to
+   the full path.
+4. **Bank the floppy's FAT window** the way §18.8.1 banks a driver-backed
+   volume's, so a same-volume chdir does not re-read nine sectors. **This may
+   be much smaller than it sounds, and 3 may fall out of it.**
+   `dsk_fatw_pick` already states and enforces the safety rule — "only a QUIET
+   mount may reuse a banked window; a full mount is a re-validation of the
+   whole volume, the disk may have been swapped" — so the swap question is
+   already answered, not open. A floppy is excluded from banking because it has
+   no donated claim to bank *into*, and its window is `FAT_SEG`: resident, and
+   by §18.8.1's own reasoning never sliding. What is missing is not policy or a
+   buffer but permission — letting a quiet, same-volume mount reuse what is
+   already in memory, which needs one byte recording whose FAT `FAT_SEG`
+   currently holds. Check `dsk_fatw0`/`dsk_fatd0` first; they may already carry
+   it.
+
+**Mechanism D — the icon harvest re-reads every package on every mount.**
+Added after the first three. `disk_mount` step 4 reads the first sector of
+every type-1 file in the directory, and mechanism A means every directory
+change is a mount — so entering `APPS/` (8 packages) costs 8 extra sector
+reads, ~1.6 s at C's revolution apiece, **every time you open that folder**.
+It is already correctly conditional — a type-0 file gets no read and a folder
+uses the built-in body — so there is nothing to save per *file*; the waste is
+in doing it again per *mount*. `docs/DISK-PERF-PLAN.md` §5.5 has the options.
+
+**What this means for the earlier caution below:** it was written before D and
+said "do not assume the icon harvest is the cost". Half of that stands and half
+does not. A and B are still paid on **every** directory change regardless of
+contents, so in a folder of *documents* they are the whole story. But in a
+folder of *programs* the harvest is real and can exceed them — which is exactly
+`APPS/`, the folder a user opens most. **Count both**; the counters in the plan
+separate them.
+
+---
+
+## 4. "Bad package" on a file that is perfectly good, until the Disk window is refreshed
 
 **Observed.** On a real 5150, on the boot floppy (drive A:): run `GFXBENCH.O88`
 from an open Disk window, press `S` to save its report — which creates

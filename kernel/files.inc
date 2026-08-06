@@ -1870,6 +1870,11 @@ fm_open_sel:
     mov bx, [si+18]             ; its first cluster, banked before the mount
     cmp word [si+16], 2         ; 2 = a folder, 3 = the parent link (19.5):
     jae .folder                 ; both of them navigate, neither is loadable
+    cmp word [si+16], 0         ; a DATA file with an association opens in
+    jne .package                ; its program instead of reaching the loader
+    call assoc_post             ; (SPEC.md 54.4); without one it still goes
+    jnc .out                    ; there and still says "Bad package", which
+.package:                       ; is the truthful verdict it always was
     inc ax                      ; index + 1: ui.inc runs the loader once the
     mov [ld_pending], ax        ; lock drops (SPEC.md 21)
     mov [ld_pwin], di           ; ...resolved against THIS window (22.1)

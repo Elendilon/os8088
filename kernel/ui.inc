@@ -263,11 +263,19 @@ ui_task:
     call app_launch             ; in: AL = kind; does its own locking
 .chk_ld:
     cmp word [ld_pending], 0    ; set by files.inc's click handler
-    je .chk_pcmd
+    je .chk_assoc               ; ...and NOT .chk_pcmd: a document open posts
+                                ; no package index, so skipping past the step
+                                ; below on "no package pending" is skipping
+                                ; the only case that can be pending
     mov ax, [ld_pending]        ; stored as directory index + 1
     dec ax
     mov word [ld_pending], 0    ; consume before running, not after
     call loader_run             ; in: AX = index; does its own locking
+.chk_assoc:
+    cmp byte [assoc_dapp], 0xFF ; a document double-click (SPEC.md 54.4):
+    je .chk_pcmd                ; find its program, load it, and hand the
+    call assoc_run              ; document over by pull. Consumes the slot
+                                ; itself, and does its own locking
 .chk_pcmd:
     mov ax, [ui_pcmd]           ; a kernel menu command posted from under
     or ax, ax                   ; the lock (ui_post_cmd, SPEC.md 13)
