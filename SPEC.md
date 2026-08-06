@@ -12070,25 +12070,48 @@ fullscreen, **any** key or click enters fullscreen; afterwards F toggles and
 Esc returns, and windowed keys drive the player normally (a module keeps
 playing on the splash, which shows a live position line).
 
-Tracker is the first shipped client of `wm_fullscreen` (§11.2), and its
-lifecycle is the section's contract exercised end to end. Fullscreen is
-entered ONLY from `W_ONKEY`/`W_ONCLICK`/`AM_ONCMD` — the contexts that hold
-the gfx lock the slot requires; never the entry proc (no lock there). One
-ordering detail is load-bearing: **`[trk_fs]` is flipped before the
-`osapi_fullscreen` call**, because entering fronts and repaints under the
-held lock — the `W_PAINT` that runs *inside* the call must already see the
-fullscreen answer, or it paints the splash across the bare screen. A refusal
-(CF=1, someone else owns the screen) flips it back. Exit is Esc in
-`W_ONKEY`, the documented convention; the close and minimize boxes need
-nothing, because `wm_fs_drop` runs on both paths (§11.2).
+**Tracker's fullscreen is the fsx exclusive surface (§53), and Tracker is
+the `FSXF_KEEPWORKER` reference consumer.** It used to be the first shipped
+client of `wm_fullscreen` (§11.2), and the move to §53 is the natural one:
+Tracker's fullscreen never wanted the desktop alive underneath — it wants
+the whole screen and every cycle of a 4.77 MHz machine — which is exactly
+what the exclusive surface gives, with the audio-feeding worker kept alive
+across the freeze so a Sound Blaster stream never underruns while the app
+owns the screen. Tracker does NOT switch video mode: the FT2 screen wants
+the desktop's resolution, so this is "exclusive but same mode" (§53.7) and
+the drawing slots stay legal throughout. Fullscreen is entered ONLY from
+`W_ONKEY`/`W_ONCLICK`/`AM_ONCMD` — the contexts that hold the gfx lock
+`osapi_fsx_run` requires; never the entry proc (no lock there).
 
-Under `WF_FULL` the menu bar is unreachable, so the bar's two commands
-(File ▸ Open…, View ▸ Fullscreen) are duplicates of keys (L, F) — the
-Arkanoid rule. `About Tracker` (`OSAPI_ABOUT_SET`) is the `[ark_abon]`
-panel-in-content pattern verbatim: the flag is checked by the worker **under
-the lock, right after the clip is armed**, and the whole frame is dropped
-while it is set — but only the *drawing* pauses; the audio feed keeps
-running, because a dropped frame should not stop the music.
+Three ordering details are load-bearing, and each is the §53 contract met
+head on:
+
+- **`[trk_fs]` is set BEFORE `osapi_fsx_run`, not inside the bracket main.**
+  A tick can preempt task 0 between the freeze arming and the app's main, and
+  the worker must already see `[trk_fs]=1` at its render check — or it enters
+  its one lock-held draw, parks on the bracket's soon-held lock and starves
+  the ring for the whole session (§53.2's kept-worker rule, the sharp end).
+- **`[trk_fs]` is cleared inside the bracket main, before it returns**, so
+  `fsx_restore`'s desktop repaint (§53.6) — which calls Tracker's own
+  `W_PAINT` under the still-held lock — sees `[trk_fs]=0` and paints the
+  splash windowed. Left at 1, `trk_paint` would redraw the fullscreen FT2
+  frame over the desktop and nothing would come back. (Missile Command's
+  `[mc_fsx]` follows the same discipline; getting it wrong there was the one
+  bug this consumer found.)
+- **The bracket is the one drawer.** Input is polled (int 16h — this IS the
+  UI task, §53.1; no events are dispatched in a bracket), one frame per
+  `osapi_fsx_wait`, which also presents the §32 back buffer (§45.11). The
+  worker keeps *feeding* and nothing else. A refusal (CF=1) flips `[trk_fs]`
+  back. Exit is Esc, polled in the bracket; the close and minimize boxes
+  and any stray path are covered because `[trk_fs]` is only ever 1 while the
+  blocking `osapi_fsx_run` is on the stack.
+
+Under fullscreen the menu bar is unreachable, so the bar's commands are
+duplicates of keys (L load, F fullscreen) — the Arkanoid rule; **Load is
+absent from the bracket's keyboard on purpose**, because the §38 file dialog
+is unreachable in a bracket (its completion arrives through the parked event
+ladder, §53.7) and Open lives in the windowed splash. `About Tracker`
+(`OSAPI_ABOUT_SET`) is a windowed-only pull-down for the same reason.
 
 ### 45.2 The audio is a ring stream, and the worker feeds it
 
@@ -12302,15 +12325,19 @@ Every erase+text pair obeys the §11.3 granularity rule the `fr_status` way:
 one `osapi_wm_clip_test` per unit — a pattern row strip, a readout value, a
 whole desktop element — and the pair is skipped whole when any of it is
 covered, so a partly covered element goes *stale*, never half-blank. Pure
-fills (backgrounds, VU bars) clip per pixel and are never gated. In
-fullscreen the only thing that ever covers this window is the file dialog,
-which is exactly when the gates earn their bytes.
+fills (backgrounds, VU bars) clip per pixel and are never gated. This is
+the *windowed* splash's discipline; in the fsx bracket nothing can cover
+the surface (§53.1 freezes every other drawer and the dialog is
+unreachable), so the bracket calls `tui_draw_dyn` with no clip armed and
+the gates are simply no-ops.
 
-The worker's frame (`tui_draw_dyn`) is change-driven: the pattern area and
+`tui_draw_dyn` is the same change-driven frame in both: the pattern area and
 position readouts redraw only when row/position/pattern moved, tempo
 readouts on change, mute flags on toggle; the VU bars every frame (rise
 instantly, decay 2 units a frame, so they read as needles); the top band
-every 16th frame (§45.3's dialog-cancel rule).
+every 16th frame (§45.3's dialog-cancel rule). Windowed it is the worker's
+one lock-held burst; in the bracket the bracket loop calls it, and the
+worker only feeds (§53.2).
 
 ### 45.7 Keys
 
@@ -12514,10 +12541,13 @@ where the default is loafing, refused honestly where it is not.
 The pattern scroll repaints 30-plus row strips erase-then-text, and on a
 direct-to-VRAM path the CRT catches every intermediate state — the flicker
 is architectural, not a bug in the strips. The cure is the §32 back
-buffer: while it is armed, a worker draw burst renders to RAM and
-`gfx_unlock` flushes the finished frame once. **View ▸ `Smooth: On/Off`**
-(the relabeling idiom; key **S**; default Off — the flush cost is opt-in)
-makes the tracker arm it via
+buffer: while it is armed, a draw burst renders to RAM and the frame is
+flushed once. **In the fsx bracket (§53) that flush is `osapi_fsx_wait`'s
+present** — the bracket never calls `gfx_unlock`, so `fsx_wait` running
+`gfx_flush` before it waits (while the mode is unswitched, which Tracker's
+same-mode bracket always is) is the only flush a buffered frame gets
+(§53.5). **View ▸ `Smooth: On/Off`** (the relabeling idiom; key **S**;
+default Off — the flush cost is opt-in) makes the tracker arm it via
 slot 0x01F0 **on entering fullscreen** and hand back the user's previous
 state on leaving; while Smooth is off, or where the slot refuses (mono
 adapters — where the software renderer already IS the direct path — or a

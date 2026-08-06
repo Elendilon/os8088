@@ -404,8 +404,25 @@ half-working panic key is worse than a documented absence).
    /`vid_text` factored into leaves, full fsxtest, restore-equality script.
 3. **Frame clock + the reference consumer**: `FSX_WAIT` (clock + present),
    Missile Command's Mode X path, sound-continuity tests, 86Box sweep.
-4. **Tracker + polish**: Tracker's fsx adoption with `FSXF_KEEPWORKER`,
-   XMS stash, Task Manager badge, docs.
+4. **Tracker + polish**: Tracker's fsx adoption with `FSXF_KEEPWORKER`
+   (DONE — §45's fullscreen is the bracket now, verified with a real
+   Sound Blaster wav produced entirely inside it, and the one bug it found
+   — `[trk_fs]` must clear before `fsx_restore`'s repaint — fixed), docs
+   (DONE). The two brainstormed polish items are **deliberately deferred**,
+   with reasons, not silently dropped:
+   - **Task Manager service badge** — the Task Manager lists *instances*,
+     not tasks (SPEC.md §28/§29, by design), and a `TF_SERVICE` worker has
+     no instance: it is already folded into the "System" row. Surfacing the
+     flag would take a `SYS_SNAPSHOT` ABI change (slot 0x0298) plus a new
+     task-level view, for a marker that could only ever annotate one
+     aggregate row. Disproportionate to the "one glyph" it was imagined as,
+     and against the instance model. Left for if the Task Manager ever grows
+     a genuine task-level pane.
+   - **XMS desktop stash** — `xm_copy` the four planes out at entry and back
+     at exit for an instant restore. Real, but it targets tier-1+ (286+ with
+     A20/XMS), which is not the 8086 target, and it only replaces a repaint
+     that already works and is cheap. A performance nicety for off-target
+     hardware; not worth the entry/exit complexity now.
 
 ## 12. Decisions — all four made, recorded here with their reasoning
 

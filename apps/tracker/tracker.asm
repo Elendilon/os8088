@@ -708,58 +708,229 @@ trk_fdone:
     pop ax
     ret
 ; =============================================================================
-; Fullscreen (SPEC.md 11.2) - entered only from W_ONKEY / W_ONCLICK /
-; AM_ONCMD, all of which hold the gfx lock, which OSAPI_FULLSCREEN requires.
-; [trk_fs] is flipped BEFORE the call: entering fronts + repaints under the
-; held lock, so the W_PAINT that runs inside the call must already see the
-; fullscreen answer or it would draw the splash across the bare screen.
+; Fullscreen is the fsx exclusive surface (SPEC.md 53) - entered from
+; W_ONKEY / W_ONCLICK / AM_ONCMD, all of which hold the gfx lock, which
+; OSAPI_FSX_RUN requires. Tracker is the FSXF_KEEPWORKER reference consumer:
+; the machine is ours, every other task frozen, but our audio-feeding worker
+; keeps running so the Sound Blaster stream never underruns while we own the
+; screen (SPEC.md 53.2). We do NOT switch video mode - the FT2 screen wants
+; the desktop's resolution, so this is "exclusive but same mode" (SPEC.md
+; 53.7) and the drawing slots stay legal throughout.
+;
+; [trk_fs] is set BEFORE OSAPI_FSX_RUN, not inside trk_fsx_main: a tick can
+; preempt task 0 between the freeze arming and our main, and the worker must
+; already see [trk_fs]=1 at its render check (above) or it enters trk_render,
+; parks on our soon-held lock and starves the ring for the whole session.
 ; =============================================================================
 trk_fs_enter:
     push ax
     push bx
+    push cx
     cmp byte [trk_fs], 0
-    jne .out
-    mov byte [trk_fs], 1
-    mov al, 1
-    mov bx, [trk_win]
-    call OSAPI_FULLSCREEN
-    jnc .ok
-    mov byte [trk_fs], 0            ; refused: someone else owns the screen
-    jmp .out
-.ok:
+    jne .out                        ; the bracket blocks, so this is belt-only
+    mov byte [trk_fs], 1            ; BEFORE the call - see the header
     mov byte [trk_fsever], 1
-    cmp byte [trk_smooth], 0        ; Smooth (SPEC.md 45.11): borrow the 32
-    je .draw                        ; back buffer for the fullscreen stay
-    mov al, 1
-    call OSAPI_GFX_DBUF             ; lock held (we are in a key/click/menu
-    jc .draw                        ; callback); CF=1 = mono or small: draw
-    mov [trk_bbprev], al            ; direct as before
-    mov byte [trk_bbheld], 1
-.draw:
-    call tui_draw_all
+    mov ax, trk_fsx_main
+    mov bx, [trk_win]
+    mov cx, FSXF_KEEPWORKER         ; the worker feeds through the freeze
+    call OSAPI_FSX_RUN              ; blocks until trk_fsx_main returns; the
+                                    ; kernel then repaints the desktop whole
+    mov byte [trk_fs], 0            ; back to the windowed splash
 .out:
+    pop cx
     pop bx
     pop ax
     ret
 
+; trk_fs_exit - windowed callers still name this (the .esc / Fullscreen-toggle
+; branches), but the bracket now owns the exit: Esc is POLLED inside
+; trk_fsx_main (the event ladder is parked, SPEC.md 53.1), which returns and
+; unwinds trk_fs_enter. So while [trk_fs]=1 the ladder cannot run to call
+; this, and once it is 0 there is nothing to do - a clean guard either way.
 trk_fs_exit:
+    ret
+
+; -----------------------------------------------------------------------------
+; trk_fsx_main - the exclusive main (SPEC.md 53.1): SI = our window, ES =
+;                KERNEL_SEG, DS = CS = ours, gfx lock held for the whole
+;                session, every task but us and our feeder frozen.
+;                Returns (near) on Esc; the kernel restores the desktop.
+;
+; The worker's drawing moved HERE: the bracket is the one drawer (lock held
+; throughout), input is polled (no events are dispatched in a bracket), the
+; Smooth back buffer is presented through OSAPI_FSX_WAIT - the bracket never
+; unlocks, so that flush is the only one a buffered frame gets (SPEC.md
+; 53.5/45.11). The worker keeps feeding audio and nothing else.
+; -----------------------------------------------------------------------------
+trk_fsx_main:
     push ax
     push bx
-    cmp byte [trk_fs], 0
-    je .out
-    cmp byte [trk_bbheld], 0        ; hand back the user's buffer state
-    je .fs                          ; BEFORE the exit repaint, so the
-    mov al, [trk_bbprev]            ; desktop redraw takes the mode the
-    call OSAPI_GFX_DBUF             ; user actually chose (SPEC.md 45.11);
-    mov byte [trk_bbheld], 0        ; a close-while-fullscreen never runs
-                                    ; this - recorded in 45.11, not fenced
-.fs:
-    mov byte [trk_fs], 0
-    mov al, 0
-    mov bx, [trk_win]
-    call OSAPI_FULLSCREEN           ; restores geometry + wm_paint_all, which
-                                    ; re-enters trk_paint windowed
+    push cx
+    push dx
+    push si
+    push di
+    cmp byte [trk_smooth], 0        ; Smooth (SPEC.md 45.11): arm the 32 back
+    je .drawall                     ; buffer, and OSAPI_FSX_WAIT presents it
+    cmp byte [trk_bbheld], 0        ; (already borrowed if smooth was toggled
+    jne .drawall                    ; on before entry - it never is, but the
+    mov al, 1                       ; guard keeps this and trk_smooth_toggle
+    call OSAPI_GFX_DBUF             ; agreeing on one [trk_bbheld])
+    jc .drawall                     ; mono / no RAM: draw straight to VRAM
+    mov [trk_bbprev], al
+    mov byte [trk_bbheld], 1
+.drawall:
+    call tui_draw_all               ; the whole FT2 screen, into bb or VRAM
+.loop:
+    call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
+    mov ah, 1                       ; poll the keyboard - this IS the UI task
+    int 0x16                        ; (SPEC.md 53.1), so int 16h is legal
+    jz .draw
+    xor ah, ah
+    int 0x16
+    cmp al, 27                      ; Esc leaves, exactly as it left 11.2
+    je .done
+    call trk_fsx_key
+.draw:
+    call tui_draw_dyn               ; the animated frame (no clip: we own the
+                                    ; screen, nothing is on top)
+    xor al, al                      ; one frame per tick - the worker's pace,
+    call OSAPI_FSX_WAIT             ; and the back-buffer present with it
+    jmp .loop
+.done:
+    mov byte [trk_fs], 0            ; BEFORE the return: fsx_restore repaints
+                                    ; the desktop under the still-held lock
+                                    ; (SPEC.md 53.6), and that repaint calls
+                                    ; OUR W_PAINT - with [trk_fs] still 1 it
+                                    ; would redraw the fullscreen FT2 frame
+                                    ; over the desktop and nothing would come
+                                    ; back. Clearing it here makes the paint
+                                    ; windowed. (The worker may park one frame
+                                    ; on our held lock now, harmless - we are
+                                    ; leaving; trk_fs_enter's clear covers the
+                                    ; fsx_run-refused path where we never ran)
+    cmp byte [trk_bbheld], 0        ; hand the buffer back BEFORE the return,
+    je .out                         ; so the kernel's desktop repaint takes
+    mov al, [trk_bbprev]            ; the mode the user actually chose
+    call OSAPI_GFX_DBUF
+    mov byte [trk_bbheld], 0
 .out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; trk_fsx_key - the bracket's keyboard: the fullscreen-relevant subset of
+; trk_onkey, called under the held lock. Load is absent on purpose - the
+; Standard File dialog is unreachable in a bracket (its completion comes
+; through the parked event ladder, SPEC.md 53.7), and Tracker's Open lives in
+; the windowed splash. in: AL = ascii, AH = scan.
+; -----------------------------------------------------------------------------
+trk_fsx_key:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    or al, al                       ; the keypad trap again: arrows arrive
+    jnz .ascii                      ; ascii 0 with a scan code
+    cmp ah, 0x4B
+    je .prev
+    cmp ah, 0x4D
+    je .next
+    cmp ah, 0x48
+    je .up
+    cmp ah, 0x50
+    je .down
+    jmp .out
+.ascii:
+    cmp al, 13                      ; Enter: play the song
+    je .play
+    cmp al, ' '                     ; Space: stop / play toggle
+    je .space
+    cmp al, 'p'
+    je .pat
+    cmp al, 'P'
+    je .pat
+    cmp al, 'x'
+    je .xt
+    cmp al, 'X'
+    je .xt
+    cmp al, 'r'
+    je .rcyc
+    cmp al, 'R'
+    je .rcyc
+    cmp al, 's'
+    je .smooth
+    cmp al, 'S'
+    je .smooth
+    cmp al, '1'
+    jb .out
+    cmp al, '4'
+    ja .out
+    sub al, '1'                     ; 1..4: channel mute toggle
+    call mp_mutetog
+    jmp .out
+.prev:
+    mov al, -1
+    call mp_setpos
+    jmp .out
+.next:
+    mov al, 1
+    call mp_setpos
+    jmp .out
+.up:
+    cmp byte [mp_playing], 0
+    jne .out
+    cmp byte [tui_vrow], 0
+    je .out
+    dec byte [tui_vrow]
+    jmp .out
+.down:
+    cmp byte [mp_playing], 0
+    jne .out
+    cmp byte [tui_vrow], 63
+    jae .out
+    inc byte [tui_vrow]
+    jmp .out
+.play:
+    mov al, 0
+    call trk_play
+    jmp .out
+.space:
+    cmp byte [mp_playing], 0
+    je .play
+    call trk_play_stop
+    call trk_transport
+    jmp .out
+.pat:
+    mov al, 1
+    call trk_play
+    jmp .out
+.xt:
+    call trk_xt_toggle
+    jmp .out
+.rcyc:
+    mov al, [trk_rsel]              ; R cycles 11 -> 22 -> 44 -> 11
+    inc al
+    cmp al, 3
+    jb .rset
+    xor al, al
+.rset:
+    call trk_rate_set
+    jmp .out
+.smooth:
+    call trk_smooth_toggle          ; arms / disarms the back buffer live -
+                                    ; OSAPI_FSX_WAIT's present follows [bb_dbl]
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -1163,8 +1334,13 @@ trk_worker:
     mov ax, 1
     call OSAPI_TASK_SLEEP           ; ~18 wakes a second
     call trk_feed                   ; audio first - it must not starve behind
-    call trk_render                 ; a slow frame ([trk_abon] drops the frame
-    jmp .loop                       ; inside trk_render, under the lock)
+    cmp byte [trk_fs], 0            ; a slow frame ([trk_abon] drops the frame
+    jne .loop                       ; inside trk_render, under the lock).
+    call trk_render                 ; On the fsx surface (SPEC.md 53.2) the
+    jmp .loop                       ; BRACKET draws and this worker is the
+                                    ; kept feeder - it must NOT take the gfx
+                                    ; lock, or it parks on the bracket's hold
+                                    ; and the ring starves. It keeps feeding.
 
 ; -----------------------------------------------------------------------------
 ; trk_feed - keep the ring ahead of the DSP. Lock-free, worker context: verbs

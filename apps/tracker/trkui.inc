@@ -194,6 +194,17 @@ tui_track:
     push bx
     push cx
     push dx
+    cmp byte [trk_fs], 0            ; on the fsx surface (SPEC.md 53) the
+    je .win                         ; screen IS the content: origin 0, the
+    xor ax, ax                      ; whole adapter. fsx does not resize the
+    mov [tui_ox], ax                ; window record the way WF_FULL did, so
+    mov [tui_oy], ax                ; the kernel would answer the WINDOWED
+    mov ax, [tui_vw]                ; box - the FT2 screen is drawn from the
+    mov [tui_cw], ax                ; live adapter size instead (tui_vw/vh,
+    mov ax, [tui_vh]                ; from OSAPI_VIDEO at layout init)
+    mov [tui_ch], ax
+    jmp short .out
+.win:
     mov bx, [trk_win]
     call OSAPI_WM_CONTENT           ; AX = content left, DX = top
     mov [tui_ox], ax
@@ -201,6 +212,7 @@ tui_track:
     call OSAPI_WM_GEOM              ; CX = content width, DX = height
     mov [tui_cw], cx
     mov [tui_ch], dx
+.out:
     pop dx
     pop cx
     pop bx
