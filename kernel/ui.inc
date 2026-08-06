@@ -301,6 +301,9 @@ ui_task:
     ; taken only when the bar's text really changed (mask bit 1), or when a
     ; Date/Time page is on screen and wants its seconds (SPEC.md 13/37).
 .clock:
+    call mou_hotplug            ; a mouse plugged in after boot gets its
+                                ; reset edge (SPEC.md 9.4); one cmp per pass
+                                ; once any packet has ever arrived
     call clk_tick               ; AL: bit0 = a second passed, bit1 = the bar
     mov bl, al                  ; text changed
     or al, al

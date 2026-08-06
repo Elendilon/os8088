@@ -22,6 +22,16 @@ MOU_COM1    equ 0x3F8           ; COM1 base: +1 IER, +2 IIR, +3 LCR, +4 MCR,
                                 ;            +5 LSR (DLAB: +0 DLL, +1 DLM)
 MOU_INTVEC  equ 0x30            ; int 0x0C vector offset in the IVT
 
+MOU_RSTLOW  equ 3               ; ticks DTR/RTS are held LOW in a reset
+                                ; (~165ms; a serial mouse wants >=100ms
+                                ; unpowered to guarantee its power-on reset)
+MOU_REPOLL  equ 55              ; ticks between hot-plug reset attempts
+                                ; (~3s) while no packet has ever arrived
+MOU_DRAINT  equ 9               ; ticks the ISR discards RX after a hot-plug
+                                ; raise (~0.5s): the identify/PnP burst is
+                                ; bit-6-set bytes the resync rule would read
+                                ; as packet headers - phantom clicks
+
 CUR_W       equ 16              ; cursor cell size, px
 CUR_H       equ 16
 CUR_SAVE_SZ equ 192             ; 3 bytes wide x 16 rows x 4 planes
@@ -64,9 +74,30 @@ mouse_init:
     mov dx, MOU_COM1+3          ; LCR: DLAB=0, 7N1
     mov al, 0x02
     out dx, al
+
+    ; --- reset the mouse: DTR/RTS LOW, hold, then raise ----------------------
+    ; A serial mouse is POWERED by DTR/RTS and resets itself on the RISING
+    ; edge. Writing the final MCR value straight away only makes that edge on
+    ; a cold boot, where the lines start low; on a Ctrl-Alt-Del warm boot
+    ; they are still high from the previous session, the rewrite is no edge
+    ; at all, and a mouse that was wedged (hot-plugged onto live lines, say)
+    ; STAYS wedged until the user finds the power switch - which is exactly
+    ; how this was found on a real 5150. Hold low for ~150ms (the parts want
+    ; >=100ms unpowered to guarantee a reset), then raise: every boot now
+    ; hands the mouse the same clean power-on a cold start does.
+    push bx
+    mov dx, MOU_COM1+4          ; MCR: OUT2 only - DTR and RTS low. OUT2
+    mov al, 0x08                ; stays up throughout so the IRQ gate never
+    out dx, al                  ; glitches the bus
+    mov bx, [ticks]
+.rstlow:
+    mov ax, [ticks]
+    sub ax, bx
+    cmp ax, MOU_RSTLOW
+    jb .rstlow
     mov dx, MOU_COM1+4          ; MCR: DTR|RTS|OUT2 - powers the mouse and
-    mov al, 0x0B                ; gates the IRQ onto the bus
-    out dx, al
+    mov al, 0x0B                ; gates the IRQ onto the bus; this rising
+    out dx, al                  ; edge is the mouse's reset
 
     ; --- drain the identify burst (IER still 0, IRQ4 still masked) -----------
     ; The DTR/RTS edge makes a real Microsoft mouse announce itself: 'M',
@@ -74,7 +105,6 @@ mouse_init:
     ; ISR's resync rule would misread as packet headers (phantom clicks,
     ; cursor jumps). Poll-and-discard for ~1 second before enabling RX
     ; interrupts; sched_init already runs, so [ticks] is live.
-    push bx
     mov bx, [ticks]
 .settle:
     mov dx, MOU_COM1+5          ; LSR: RX data ready?
@@ -112,6 +142,78 @@ mouse_init:
     pop es
     pop dx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mou_hotplug - keep offering a hot-plugged mouse its reset (SPEC.md 9.4)
+; in:  nothing; UI task, every pass, no lock needed (port I/O + .bss only)
+; out: nothing (all registers preserved)
+;
+; mouse_init runs blind - there is no probe, and a machine with no mouse at
+; boot is indistinguishable from one whose mouse has not spoken yet. So while
+; NO packet has ever arrived ([mou_seen]), this re-runs init's reset edge
+; every MOU_REPOLL ticks: drop DTR/RTS (the mouse's power), hold MOU_RSTLOW,
+; raise - and a mouse plugged in at any point since the last attempt gets the
+; same clean power-on a cold boot with it attached does. The identify burst
+; the raise provokes arrives through the ISR this time (IER is live), so the
+; raise arms [mou_drain] and the ISR discards RX for MOU_DRAINT.
+;
+; The first complete packet sets [mou_seen] and this becomes one cmp per
+; pass, forever. Until then the cost of being wrong is nil: with no serial
+; card the writes land on a floating bus, and with a healthy-but-idle mouse
+; a cycle re-identifies it and the drain eats the burst. The one visible
+; seam is that motion STARTED inside a drain window is eaten with it -
+; up to half a second, self-healing on the next packet - which is the price
+; of never mistaking a PnP string for a click.
+; -----------------------------------------------------------------------------
+mou_hotplug:
+    cmp byte [mou_seen], 0
+    jne .have                   ; the mouse exists: stand down - but see .have
+    push ax
+    push bx
+    push dx
+    mov bx, [ticks]
+    mov ax, bx
+    sub ax, [mou_hpt]           ; wrap-safe: elapsed since the state's stamp
+    cmp byte [mou_hpst], 1
+    je .low
+    cmp ax, MOU_REPOLL          ; state 0: waiting out the poll interval
+    jb .done
+    mov dx, MOU_COM1+4          ; drop DTR/RTS - power the mouse down. OUT2
+    mov al, 0x08                ; stays up so the IRQ gate never glitches
+    out dx, al
+    mov [mou_hpt], bx
+    mov byte [mou_hpst], 1
+    jmp short .done
+.low:
+    cmp ax, MOU_RSTLOW          ; state 1: held low long enough?
+    jb .done
+    mov dx, MOU_COM1+4
+    mov al, 0x0B                ; the rising edge a serial mouse resets on
+    out dx, al
+    mov [mou_hpt], bx
+    mov byte [mou_hpst], 0
+    mov [mou_dstamp], bx        ; the burst comes through the ISR now: arm
+    mov byte [mou_drain], 1     ; the discard window
+    mov byte [mou_phase], 0
+.done:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+.have:                          ; proof can arrive at an awkward moment: a
+    cmp byte [mou_hpst], 0      ; byte the UART latched before a drop can
+    je .out                     ; complete a packet while DTR is LOW, and
+    push ax                     ; standing down right there would leave the
+    push dx                     ; mouse UNPOWERED forever - deader than the
+    mov dx, MOU_COM1+4          ; bug this exists to fix. Put the power back
+    mov al, 0x0B                ; up first, then never come here again in
+    out dx, al                  ; anger
+    mov byte [mou_hpst], 0
+    pop dx
+    pop ax
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -171,6 +273,14 @@ mou_isr:
     mov dx, MOU_COM1
     in  al, dx
 
+    cmp byte [mou_drain], 0     ; a hot-plug raise just happened (below):
+    je .live                    ; this is the identify/PnP burst, and its
+    mov bx, [ticks]             ; bit-6 bytes would resync as headers. BX is
+    sub bx, [mou_dstamp]        ; free - pushed above, first used well below
+    cmp bx, MOU_DRAINT
+    jb .eoi                     ; discard the byte
+    mov byte [mou_drain], 0     ; window over: this byte is live
+.live:
     test al, 0x40               ; bit 6 set -> first byte of a packet
     jz .cont
     mov [mou_b0], al
@@ -188,6 +298,8 @@ mou_isr:
     cmp byte [mou_phase], 2     ; anything else is a stray byte - drop it
     jne .eoi
     mov byte [mou_phase], 0     ; third byte: Y low 6 bits, packet complete
+    mov byte [mou_seen], 1      ; ...and a packet is PROOF OF MOUSE: the
+                                ; hot-plug poller stands down for the session
     mov bl, al                  ; BL = Y low bits, decoded below
 
     ; --- dx = sign-extended {X7X6 from b0, X5..X0 from b1} -------------------
@@ -719,6 +831,14 @@ mou_phase   db 0                ; packet state: 0 idle, 1 got b0, 2 got b1
 mou_b0      db 0                ; packet byte 0: 1 LB RB Y7 Y6 X7 X6
 mou_b1      db 0                ; packet byte 1: X low 6 bits
 mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only)
+mou_seen    db 0                ; a complete packet has arrived this session;
+                                ; set by the ISR, read by mou_hotplug, and
+                                ; never cleared - proof the mouse exists
+mou_hpst    db 0                ; hot-plug poller state: 0 waiting out the
+                                ; interval, 1 DTR/RTS held low
+mou_hpt     dw 0                ; tick stamp for whichever wait state 0/1 is in
+mou_drain   db 0                ; ISR discards RX while set (armed by a
+mou_dstamp  dw 0                ; hot-plug raise; expires MOU_DRAINT later)
 
 section .bss
 cur_save    resb CUR_SAVE_SZ    ; save-under: 3 bytes x 16 rows x 4 planes

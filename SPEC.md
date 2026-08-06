@@ -1294,7 +1294,45 @@ then, so this is invisible.
   with interrupts on; guard their critical sections with cli/sti so the ISR
   never sees a half-drawn state.
 - Public: `mouse_init`, `mouse_unhook`, `cursor_show`, `cursor_hide`,
-  `mouse_x` (word), `mouse_y` (word), `mouse_btn` (byte).
+  `mouse_x` (word), `mouse_y` (word), `mouse_btn` (byte), `mou_hotplug`
+  (§9.4, the UI task's per-pass call).
+
+### 9.4 Reset, absence and hot-plug (`mou_hotplug`)
+
+A serial mouse is **powered by DTR/RTS and resets itself on DTR's rising
+edge**, and both halves of that sentence are binding on the init sequence.
+`mouse_init` therefore does not write its final MCR value straight away: it
+holds DTR/RTS **low** for `MOU_RSTLOW` ticks (~165ms — the parts want
+≥100ms unpowered to guarantee a power-on reset) and then raises them. On a
+cold boot the lines started low and the hold changes nothing; on a
+Ctrl-Alt-Del warm boot they are still high from the previous session, and
+without the hold the MCR rewrite is **no edge at all** — a mouse that was
+wedged (hot-plugged onto live lines) stayed wedged until the power switch,
+which is how this was found on a real 5150.
+
+There is no probe — a machine with no mouse is indistinguishable from one
+whose mouse has not spoken yet — so absence is handled by **standing
+recovery** rather than detection: while no complete packet has ever arrived
+(`[mou_seen]`, set by the ISR at every third byte and never cleared),
+`mou_hotplug` re-runs the drop-hold-raise every `MOU_REPOLL` ticks (~3s), as
+a two-state machine on the UI task's pass (drop is one visit, raise a later
+one; nothing blocks). A mouse plugged in at any point since the last attempt
+gets the same clean power-on a cold boot with it attached does. OUT2 stays
+up throughout every drop, so the IRQ gate never glitches the bus.
+
+The raise provokes the identify burst ('M', maybe '3', maybe a PnP string —
+bit-6-set bytes the resync rule would read as packet headers), and unlike
+`mouse_init`'s poll-and-discard the burst now arrives through the live ISR.
+So the raise arms `[mou_drain]` and **the ISR discards RX** for `MOU_DRAINT`
+ticks (~0.5s). The accepted seam: motion that *starts* inside a drain window
+is eaten with it, self-healing on the next packet — the price of never
+reading a PnP string as clicks. After the first real packet the whole
+mechanism is one `cmp` per UI pass, forever — with one binding subtlety:
+proof can arrive **mid-cycle** (a byte the UART latched before a drop can
+complete a packet while DTR is low), so the stand-down path must check the
+poller's state and restore DTR/RTS first. Standing down with DTR low would
+leave the mouse unpowered for the session — deader than the bug the poller
+exists to fix.
 
 ## 10. events.inc
 
