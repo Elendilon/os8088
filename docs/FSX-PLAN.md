@@ -15,10 +15,13 @@ and — the part §11.2 cannot offer — **the video mode is the app's to change
 all four CGA modes, both Hercules modes, four standard VGA modes. Mode 13h's
 320x200x256 is the headline; a real text mode for a roguelike is the sleeper.
 
-The two coexist and answer different apps. Tracker *cannot* use this (its own
-worker feeds the audio ring, and the freeze parks it — see §7 below for the
-opt-out); Missile Command at the arcade's own resolution, a mode 13h demo, or
-anything that wants every cycle of a 4.77MHz 8088 with no tick jitter, can.
+The two coexist, and the first two consumers are committed: **Missile
+Command** (the reference — Mode X at the arcade's own raster, §9.3) and
+**Tracker immediately after**, whose worker-fed audio ring is what §7's
+`FSXF_KEEPWORKER` opt-in and §6's present clause exist for — both designed
+in from the start because that adoption is a certainty, not a maybe. §11.2
+stays the right answer for apps that want the desktop's mode with the
+desktop alive underneath — ArtfulType stays put.
 
 ## 1. The shape: a bracket, not a latch (the load-bearing decision)
 
@@ -252,7 +255,7 @@ Entry saves nothing — a BIOS mode set trashes VRAM regardless, so the
 restore is a repaint by design. The §9 build-out makes it instant on
 machines with XMS.
 
-## 6. `OSAPI_FSX_WAIT` — the frame clock
+## 6. `OSAPI_FSX_WAIT` — the frame clock, and the present
 
 In AL: 0 = next tick (`hlt` loop on `[ticks]`); 1 = vertical retrace —
 3DAh bit 3 for the VGA/CGA family, 3BAh bit 7 for Hercules, chosen by the
@@ -261,6 +264,18 @@ delta** — §37.90's rule: the one way to hang is to wait forever for a bit
 that never changes on a machine where every read is 0FFh. Retrace is what
 makes palette animation and tear-free page flips possible, and — on a real
 CGA in 80-column text — it is the snow-avoidance window.
+
+**It is also the present, and that is Tracker's requirement designed in
+now.** The bracket never calls `gfx_unlock`, and the unlock is where the
+§32 back-buffer flush lives — so a §45.11-style renderer (Tracker's smooth
+fullscreen redraw rides the buffer) would draw frames nobody ever sees.
+`FSX_WAIT` therefore runs `gfx_flush` **before** waiting whenever
+`[bb_dbl]` is armed and the mode is unswitched: draw into the buffer,
+`FSX_WAIT`, repeat — a complete frame loop in one slot. Two edges pinned
+with it: **`FSX_MODE` refuses (CF=1) while the caller's back buffer is
+armed** — the buffer describes desktop geometry and nothing else, so
+dbuf-off comes first (one predicate, §47 style); and after a mode switch
+the flush clause is dead by construction, `FSX_WAIT` is pure clock.
 
 ## 7. Lifecycle, refusals, and the forbidden list
 
@@ -275,9 +290,24 @@ CGA in 80-column text — it is the snow-avoidance window.
   runaway callback today, documented rather than defended; an 8086 has no
   protection ring and pretending otherwise is inventing a clock.
 - **`FSXF_KEEPWORKER`** (flag bit in `FSX_RUN`'s AL, opt-in): the caller's
-  own worker stays eligible — for workers that feed audio rings and nothing
-  else. Safe by construction: a worker that tries to draw parks on the held
-  gfx lock (§3). Ships in phase 3 unless phase 1 turns out to need it.
+  own worker stays eligible. **Designed complete now, because its consumer
+  is committed**: Tracker adopts fsx immediately after Missile Command, and
+  its worker-fed audio ring is exactly this flag. The kept-worker contract
+  is binding and has teeth beyond "it parks safely": a worker that touches
+  the gfx lock parks on it without corrupting anything (§3) — but for a
+  feeder, parking is death by another name, its slices burned in the
+  retry loop while the ring drains and the music stops. So: **a kept
+  worker feeds data — the ring, a shared word — and never takes the lock
+  or a drawing slot.** Tracker's worker already complies. The flag's
+  implementation may land with Tracker's adoption; the SPEC contract, the
+  whitelist bit and the entry-release exemption that carries the caller's
+  stream in are all phase-1 shape, so nothing gets revisited.
+- **The §38 file dialog is unreachable inside a bracket, by design**: its
+  answer arrives through a completion callback dispatched by the event
+  ladder, which is parked under the app on the stack. An app that wants
+  Open/Save exits the bracket first — Tracker's Load flow already lives in
+  its windowed splash, so its adoption needs no contortion, and `FSX_RUN`
+  already refuses while a dialog is up.
 - Forbidden inside the bracket, binding: reprogramming PIT channel 0 (the
   tick feeds the floppy motor, `[ticks]` and `snd_tick`); touching channel 2
   or any §34.1-owned sound port directly (the sound API is the route);
@@ -315,11 +345,16 @@ build fix.
    bracket, the second instance's stale "off" call must not kill a note
    fsxtest is then playing (the generation check, observable as the tone
    surviving in the wav).
-3. **A shipped reference consumer** — repo custom: no feature lands without
-   one. Cheapest honest option: a small mode 13h effect demo (fire/plasma
-   with DAC palette animation, ~2KB, VGA-gated via caps). The more
-   interesting option: an optional Missile Command mode at 0Dh — closer to
-   the arcade's own raster. Open decision below.
+3. **The reference consumer — DECIDED: Missile Command.** Mode X's
+   320x240 holds the arcade's native 256x231 playfield 1:1 with square
+   pixels — no scaling, the 6502 sources' own coordinates — and §48.6's
+   palette cycling becomes real DAC writes instead of a reduced-palette
+   approximation. The fsx path is a menu item gated on `FSX_CAPS` per §47
+   (greyed on CGA/Hercules with the mode named); windowed play stays
+   exactly as shipped. Its trail-erase, wave and refusal lessons (§48)
+   carry over untouched — the game logic does not know the mode changed.
+   **Tracker follows immediately** as the second consumer and the
+   `FSXF_KEEPWORKER` + present-semantics proof (§6, §7).
 4. **XMS desktop stash** (§41): on 286+ VGA, `xm_copy` the four planes out
    at entry and back at exit — instant restore, no repaint, and `xm_copy`'s
    second real consumer. Tier 0 machines keep the repaint. Phase 4 polish.
@@ -357,12 +392,16 @@ half-working panic key is worse than a documented absence).
    mode switching, the §2.1 entry release (`snd_release_inst` walk — it is
    part of the freeze, not a sound feature, and ships with it), fsxtest
    skeleton proving exclusive-same-mode, restore path minus mode set.
-   SPEC §53 first.
+   **SPEC §53 first, and written COMPLETE** — the `FSXF_KEEPWORKER`
+   contract and `FSX_WAIT`'s present clause included, so the committed
+   consumers (Missile Command, then Tracker) are designed for from the
+   first line even where implementation lands later.
 2. **Modes**: the table, `FSX_MODE` + info block, `FSX_CAPS`, `vid_setmode`
    /`vid_text` factored into leaves, full fsxtest, restore-equality script.
-3. **Frame clock + audio**: `FSX_WAIT`, `FSXF_KEEPWORKER`, sound-continuity
-   test, 86Box sweep.
-4. **Polish**: the demo package, XMS stash, Task Manager badge, docs.
+3. **Frame clock + the reference consumer**: `FSX_WAIT` (clock + present),
+   Missile Command's Mode X path, sound-continuity tests, 86Box sweep.
+4. **Tracker + polish**: Tracker's fsx adoption with `FSXF_KEEPWORKER`,
+   XMS stash, Task Manager badge, docs.
 
 ## 12. Open decisions (need an answer before phase 2)
 
@@ -371,10 +410,23 @@ half-working panic key is worse than a documented absence).
    hardware-impossible 640x480x256 (§4). The one open sliver: confirm the
    Mode X substitution is wanted, or ship three VGA modes and leave id 8
    unassigned.
-2. **The reference consumer**: new fire/plasma demo package, or a Missile
-   Command 0Dh mode? (Both is fine; one is the phase-4 gate.)
-3. **`FSXF_KEEPWORKER` in v1** or deferred until a streaming fullscreen app
-   exists to want it?
-4. Text-mode ambition: is 80x25 text worth a cursor-shape/page contract in
-   the info block, or is "here is B800 and the geometry" enough for v1?
-   (Proposed: the latter.)
+2. **The reference consumer — DECIDED: Missile Command** (§9.3), with
+   Tracker committed immediately after.
+3. **`FSXF_KEEPWORKER` — DECIDED: designed complete in phase 1, ships with
+   Tracker's adoption in phase 4** (§7). The freeze, the whitelist and the
+   entry-release exemption are built keepworker-shaped from the start;
+   only the flag's few bytes wait.
+4. **Text-mode contract depth — still open, question spelled out.** A text
+   mode brings three pieces of hardware state a graphics mode does not
+   have: the CRTC's own blinking cursor (parked at 0,0 by the mode set —
+   writing B800 never moves it), the 4–8 display pages, and the attribute
+   blink/bright-background toggle. The decision is who owns them: FSX
+   slots, or the app through the BIOS it is already allowed to call (the
+   bracket IS the UI task). Proposed: the app — for text, the ROM BIOS is
+   a complete portable driver (AH=02h cursor move, AH=01h shape/hide,
+   AH=05h page flip, AH=0Eh teletype, AX=1003h blink-off), nothing the app
+   pokes outlives the exit mode set, and the kernel spends zero bytes; the
+   SDK recipe lists the incantations, including the per-adapter blink
+   difference (int 10h on EGA/VGA, port 3D8h bit 5 on a real CGA). A
+   helper slot is one §20.8 append away if the first real text app proves
+   the recipe annoying.
