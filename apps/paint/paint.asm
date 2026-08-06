@@ -6200,10 +6200,76 @@ pt_dlg:
 ;      UI task, gfx lock HELD, the dialog window already destroyed
 ; out: nothing; no register need be preserved
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; pt_readable - can we even try this name? (SPEC.md 38.6)
+; in:  [pt_name] = the chosen name, NUL
+; out: CF = 0 the extension is one we decode, CF = 1 it is not.
+;      All registers preserved.
+;
+; A NAME test, deliberately, and not a content one: its whole job is to refuse
+; BEFORE the file is read. The decoders keep the last word - a .BMP that is
+; not one still ends at pt_s_badpic, just not for free - and this stays a
+; cheap filter rather than a second opinion about the format.
+; -----------------------------------------------------------------------------
+pt_readable:
+    push ax
+    push si
+    push di
+    xor di, di                      ; DI = past the last dot, 0 = no extension
+    mov si, pt_name
+.find:
+    lodsb
+    or al, al
+    jz .end
+    cmp al, '.'
+    jne .find
+    mov di, si
+    jmp short .find
+.end:
+    or di, di
+    jz .no
+    mov si, pt_exts                 ; walk the table of NUL 3-char extensions
+.try:
+    cmp byte [si], 0
+    je .no
+    mov al, [si]
+    cmp al, [di]
+    jne .nextext
+    mov al, [si+1]
+    cmp al, [di+1]
+    jne .nextext
+    mov al, [si+2]
+    cmp al, [di+2]
+    jne .nextext
+    cmp byte [di+3], 0              ; and nothing after it
+    jne .nextext
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+.nextext:
+    add si, 4
+    jmp short .try
+.no:
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
+
+pt_exts:                            ; what the decoders below actually read;
+    db 'BMP', 0                     ; the mount's display names are upper-case
+    db 'GIF', 0                     ; 8.3 (SPEC.md 19), so no case folding
+    db 0
+
 pt_ondlg:
     mov [pt_dmode], al              ; to MEMORY, not to a register: the name
                                     ; copy below wants AL and pt_org wants BX,
                                     ; so the mode has to outlive both
+    mov [pt_fsize], cx              ; DX:CX = the file's size (SPEC.md 38.6),
+    mov [pt_fsize+2], dx            ; banked FIRST for the same reason - the
+                                    ; copy below uses CX as its counter
     mov si, di
     mov di, pt_name
     mov cx, PT_NAMEMAX              ; bounded even though SPEC.md 38.6 promises
@@ -6221,6 +6287,37 @@ pt_ondlg:
     call pt_org                     ; the window moved while the dialog was up
     cmp byte [pt_dmode], FDLG_SAVE
     je .save
+
+    ; --- refuse before the disk, not after it (SPEC.md 38.6) ----------------
+    ; The decoders below judge a picture by its first bytes, which used to
+    ; mean reading the WHOLE file to find out it was not one - and on a
+    ; 4.77MHz machine a wrong pick then costs exactly what a right one does.
+    ; The dialog now hands us the name and the size, so both refusals are
+    ; free: no toast, no staging claim, no motor.
+    call pt_readable
+    jc .badfile
+    mov ax, [pt_fsize]              ; a size we could never stage is the other
+    mov dx, [pt_fsize+2]            ; one. PT_STAGE_MAX is the cap, and the
+    mov bx, ax                      ; heap's largest run is the real limit
+    or bx, dx
+    jz .sizeok                      ; 0 = the dialog had no size (a typed
+                                    ; name): let the old path answer
+    add ax, 1023                    ; bytes -> KB, rounded up, across 32 bits
+    adc dx, 0
+    mov cl, 10
+    shr ax, cl
+    mov cl, 6
+    shl dx, cl
+    or ax, dx                       ; AX = KB the file needs
+    cmp ax, PT_STAGE_MAX
+    ja .toobig
+    push ax
+    call OSAPI_MEM_AVAIL            ; AX = the largest free run, KB
+    pop bx
+    cmp ax, bx
+    jb .toobig
+.sizeok:
+
     mov si, pt_s_loading            ; a floppy read and a decode is seconds of
     call pt_msg_show                ; silence: say so BEFORE starting, not after
     call pt_wait                    ; and let go of the lock once, or a
@@ -6229,6 +6326,12 @@ pt_ondlg:
                                     ; announces
     mov si, pt_name
     call pt_load
+    jmp short .draw
+.badfile:
+    mov word [pt_msgp], pt_s_badpic ; nothing was claimed and nothing was
+    jmp short .draw                 ; read: the canvas is untouched
+.toobig:
+    mov word [pt_msgp], pt_s_bigpic
     jmp short .draw
 .save:
     mov si, pt_s_saving             ; and a write is no quicker than a read: a
@@ -8360,6 +8463,7 @@ pt_s_wrote:   db 'Saved', 0
 pt_s_opened:  db 'Opened', 0
 pt_s_nofmt:   db 'Only BMP and GIF are supported', 0
 pt_s_badpic:  db 'Not a picture we can read', 0
+pt_s_bigpic:  db 'Picture too big for free memory', 0
 pt_s_nocomp:  db 'Compressed BMP not supported', 0
 pt_s_nodepth: db 'Need a 1, 4, 8 or 24-bit BMP', 0
 pt_s_toobig:  db 'GIF too big to save - try Bmp', 0
@@ -8695,6 +8799,8 @@ pt_ic_text:
     PTBYTE pt_mbi                   ; pt_map16's best index so far
     PTBYTE pt_btd                   ; the BMP is top-down
     PTBYTE pt_dmode                 ; the mode the file dialog ran in
+    PTWORD pt_fsize                 ; the chosen file's size, from the dialog
+    PTWORD pt_fsize_hi              ; (SPEC.md 38.6); 0 = it reported none
     PTBYTE pt_trunc                 ; the loaded picture was cropped: File >
                                     ; Save must not overwrite the original
     PTBYTE pt_fitcut                ; pt_fit had to give something up
