@@ -334,6 +334,13 @@ dsk_xfer:
 .runtrk:
     mov bp, ax
     call dsk_runcap             ; BP = min(BP, what the BUFFER allows)
+%ifdef FLOPPY_ONE_SECTOR
+    mov bp, 1                   ; ...and back to one sector a call, the shape
+                                ; before SPEC.md 18.91. A diagnostic knob for
+                                ; a machine whose BIOS or FDC judges a
+                                ; multi-sector read differently from SeaBIOS -
+                                ; everything else about the build is identical
+%endif
     mov [dsk_run], bp
 %ifdef DISK_COUNTERS
     add [dsk_dbg_sec], bp
