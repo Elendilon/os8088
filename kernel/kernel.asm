@@ -108,7 +108,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; they used to carry said none of that.
 ;
 ; The sizes are measured, not guessed. With a 0xCC fill in every byte of the
-; stack region and the machine driven hard - Clock, two Bounces, About, the
+; stack region and the machine driven hard - Timer, two Bounces, About, the
 ; Control Panel on both its pages, the Task Manager with a window drag, a Disk
 ; window, the Fractal with its worker task, and Paint saving a GIF into a
 ; folder it created from the file dialog - the deepest mark left was 246 bytes

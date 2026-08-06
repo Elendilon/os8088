@@ -56,20 +56,34 @@ BPB_END      equ 62             ; where a DOS BPB stops and our code starts
 ; -----------------------------------------------------------------------------
 ; The first 62 bytes are NOT ours. tools/os88disk.py writes a full FAT12 BPB
 ; over them when it builds the image (SPEC.md 19.3), because the OS disk is a
-; real FAT12 volume now: the kernel sits in the RESERVED AREA, sectors 1..K,
-; which BPB_RsvdSecCnt covers and no file system structure can ever reach. So
-; the raw LBA read below is unchanged and still correct, and at the same time
-; DOS, Linux, macOS - and os8088's own file manager and write path - can all
-; mount drive A: and see the files after it.
+; real FAT12 volume: the kernel is an ordinary FILE in the data area, and this
+; sector finds it by doing the arithmetic the BPB describes.
 ;
-; Everything above `entry` therefore has to be exactly the three bytes DOS
-; expects (a short jump and a NOP) followed by a hole. The jump is `short`,
-; not `near`, because that is what BS_jmpBoot's first-byte test looks for
-; (mount rule 2, SPEC.md 18.2) - and it is our own mount code that would
-; refuse the disk otherwise.
+; **The kernel used to live in the reserved area** - sectors 1..K, covered by
+; BPB_RsvdSecCnt - and the read below was a flat `LBA 1..K`. That is a legal
+; use of the field and no reader that honours it was ever confused, but DOS
+; does not honour it on a floppy: it builds a floppy's BPB from its own table
+; of standard formats, puts the FAT and root directory at the standard
+; offsets, and reads the kernel as file system. Verified on PC-DOS 3.30 and
+; MS-DOS 5.00 alike (SPEC.md 19.3).
+;
+; The fields below are named rather than left as a hole, because the load
+; needs four of them. The jump is `short`, not `near`, because that is what
+; BS_jmpBoot's first-byte test looks for (mount rule 2, SPEC.md 18.2) - and
+; it is our own mount code that would refuse the disk otherwise.
 ; -----------------------------------------------------------------------------
     jmp short entry
     nop
+bpb_oem:     times 8 db 0        ; +3
+bpb_bps:     dw 0                ; +11  bytes per sector (always 512 here)
+bpb_spc:     db 0                ; +13
+bpb_rsvd:    dw 0                ; +14  reserved sectors - 1 on a normal
+                                 ;      volume, and 1 here now
+bpb_nfat:    db 0                ; +16
+bpb_rootent: dw 0                ; +17
+bpb_tot16:   dw 0                ; +19
+bpb_media:   db 0                ; +21
+bpb_fatsz:   dw 0                ; +22
     times BPB_END - ($ - $$) db 0
 
 entry:
@@ -118,12 +132,33 @@ entry:
     mov dl, [boot_drive]
     int 0x13
 
-    ; --- copy KERNEL_SECTORS sectors, starting at LBA 1, to KERNEL_SEG:0000 --
+    ; --- copy KERNEL_SECTORS sectors, the kernel FILE, to KERNEL_SEG:0000 ---
+    ; It starts at the first data cluster, so its LBA is where the data area
+    ; begins and the BPB above says where that is:
+    ;
+    ;     rsvd + nfat * fatsz + ceil(rootent * 32 / 512)
+    ;
+    ; Derived here rather than injected, so nothing outside os88disk.py has to
+    ; know a geometry - the same reason the sector count is measured from the
+    ; kernel rather than guessed. os88disk.py allocates the kernel FIRST and
+    ; CONTIGUOUSLY (cluster 2 onward, never scrambled), which is what lets a
+    ; flat run of reads stand in for walking its cluster chain in 512 bytes.
+    ;
     ; The destination segment advances one sector (0x20 paragraphs) per read
     ; with BX held at zero, so the pointer can never wrap inside a segment,
     ; and every transfer is 512 bytes at a 512-aligned linear address - which
     ; is what keeps a single read from ever straddling a 64KB DMA boundary.
-    mov word [lba], 1
+    mov al, [bpb_nfat]
+    xor ah, ah
+    mul word [bpb_fatsz]        ; AX = both FATs (DX is 0: 2 x 9 at the most)
+    add ax, [bpb_rsvd]
+    mov bx, ax
+    mov ax, [bpb_rootent]       ; 32 bytes an entry, 16 to a sector
+    add ax, 15
+    mov cl, 4
+    shr ax, cl
+    add ax, bx
+    mov [lba], ax
     mov cx, KERNEL_SECTORS
 
 .load_next:
@@ -133,12 +168,13 @@ entry:
     call read_sector
     add word [dest_seg], 0x20
 
-    mov ax, [lba]               ; tick the splash once it is fully resident:
-    cmp ax, SPL_RESIDENT        ; AX = sectors done, DX = total (SPEC.md 15)
-    jb .no_tick
-    mov dx, KERNEL_SECTORS
-    call KERNEL_SEG:SPLASH_OFF
-.no_tick:
+    inc word [done]             ; tick the splash once it is fully resident:
+    mov ax, [done]              ; AX = sectors done, DX = total (SPEC.md 15).
+    cmp ax, SPL_RESIDENT        ; Counted on its own, NOT from [lba] - that is
+    jb .no_tick                 ; an absolute LBA into the data area now, and
+    mov dx, KERNEL_SECTORS      ; it starts past SPL_RESIDENT on both
+    call KERNEL_SEG:SPLASH_OFF  ; geometries, so the splash would be called
+.no_tick:                       ; before a byte of it had landed.
 
     inc word [lba]
     pop cx
@@ -219,6 +255,7 @@ print:
 ; -----------------------------------------------------------------------------
 boot_drive  db 0
 lba         dw 0
+done        dw 0
 dest_seg    dw KERNEL_SEG
 
 msg_err     db 'os8088: disk error', 13, 10, 0

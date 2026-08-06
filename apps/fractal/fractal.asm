@@ -38,7 +38,7 @@
 ; proc: the loader publishes the instance only after the entry returns, so a
 ; spawn there is refused by contract. Every restart (fr_kick -> fr_hire)
 ; retries until one is granted, because a full task table is a normal,
-; TRANSIENT outcome - close a Clock and the next repaint gets the worker.
+; TRANSIENT outcome - close a Timer and the next repaint gets the worker.
 ; Until then the canvas carries a notice and nothing renders: with no frame
 ; buffer, a fallback that renders under the caller's lock would either be
 ; erased by the next repaint before it finished a second band, or hold the
@@ -466,8 +466,8 @@ fr_worker:
 ;
 ; Called from fr_kick, so EVERY paint, click and menu command retries the
 ; spawn. Refusal is a normal outcome - the 12-slot task table fills with
-; Clocks, Bounces, tm_task and a transient SB refill task - and it is
-; transient: the slot the user frees by closing a Clock has to be reachable
+; Timers, Bounces, tm_task and a transient SB refill task - and it is
+; transient: the slot the user frees by closing a Timer has to be reachable
 ; without relaunching the package, so fr_spawned latches only on SUCCESS.
 ;
 ; There is no inline-render fallback, deliberately. With no frame buffer a

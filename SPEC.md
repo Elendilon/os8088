@@ -32,7 +32,7 @@ via the PIT timer interrupt, switchable at run time to cooperative from the
 Control Panel (§8.2/§31). Serial Microsoft mouse on COM1. Boots from floppy
 straight into the GUI: gray dithered desktop, menu bar with pull-down menus,
 draggable overlapping windows with title bars and close boxes. Built-in apps:
-About dialog, Clock and Bounce (each running as its own
+About dialog, Timer and Bounce (each running as its own
 pre-empted background task, updating live while the user types or drags).
 
 ## 1. Hard rules (apply to every module)
@@ -139,7 +139,7 @@ the floor is **128KB of RAM** rather than 256KB.
 read-only data, `.bss`, the FAT snapshot, the disk caches, the sector buffer
 and every task stack — and the **`KERN_BUDGET`** guard (§15.1) holds the whole
 of it to 74,240 bytes (72.5KB) just above the BIOS data area. It measures
-72,192 bytes on the shipped build, so 2,048 are spare. **`docs/KERNEL-MEMORY.md`
+72,704 bytes on the shipped build, so 1,536 are spare. **`docs/KERNEL-MEMORY.md`
 is the maintained account of what that is spent on**; raising `KERN_BUDGET` is
 a decision to be taken with whoever asked for the feature, not a build fix.
 
@@ -212,7 +212,7 @@ because the kernel starts as low as the BIOS lets it.
 
 **The stack numbers are measured, not guessed.** Every byte of the stack
 region was filled with 0xCC at the top of `kmain` and the machine driven as
-hard as it goes — Clock, two Bounces, About, the Control Panel on both its
+hard as it goes — Timer, two Bounces, About, the Control Panel on both its
 pages, the Task Manager with a window drag, a Disk window, the Fractal with
 its worker task, and Paint saving a GIF into a folder it created from the
 file dialog. The deepest mark left was **246 bytes** on task 0's stack and
@@ -443,7 +443,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_` |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
-| `kernel/apps.inc`   | built-in app kinds: About, Clock, Bounce — state pools, kinit procs, per-instance tasks |
+| `kernel/apps.inc`   | built-in app kinds: About, Timer, Bounce — state pools, kinit procs, per-instance tasks |
 | `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19) |
 | `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write` |
 | `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21) |
@@ -1205,7 +1205,7 @@ inside a window callback while it holds the gfx lock.
 look like a ready-made "don't switch" flag, but `task_yield` checks it too
 and self-resumes when it is set (§8), so raising `sch_lock` does not make
 multitasking cooperative — it stops multitasking altogether, freezing every
-Clock and Bounce instance forever, since their `task_sleep` would never
+Timer and Bounce instance forever, since their `task_sleep` would never
 hand the CPU to anyone else. Cooperative mode must leave the *voluntary*
 path fully working and suppress only the *involuntary* one, which is
 exactly why the mode is a separate byte tested after `sch_lock`.
@@ -1214,7 +1214,7 @@ exactly why the mode is a separate byte tested after `sch_lock`.
 owe it).** Every wait loop the kernel owns already yields: `ui_task`'s idle
 pass (§13 step 4), `ui_drag`'s track loop and its linger loop (§13),
 `menu_track`'s poll loop (§12), the `gfx_lock` spin (§7), the Task Manager's
-measurement spin (§28), and Clock/Bounce through `task_sleep` (§14). No
+measurement spin (§28), and Timer/Bounce through `task_sleep` (§14). No
 built-in path depends on being pre-empted, and a worker task is invisible
 to every decision the tick makes — `sch_isr` tests `sch_lock`, `sch_coop`
 and `sch_hold` and reads nothing instance-shaped, so the mode flip needs no
@@ -1534,7 +1534,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 
 Paint procs and key handlers run on the **UI task** (via wm_paint_all /
 dispatch) or on the window's own background task — which, since §20.6, may
-be a package's worker as well as a Clock or Bounce task. In all cases the
+be a package's worker as well as a Timer or Bounce task. In all cases the
 caller of W_PAINT already holds the gfx lock. **W_PAINT must not lock and
 must not block.** `OSAPI_TASK_SPAWN` (§20.6) is legal here and is
 idempotent by construction — the second call refuses with CF=1 because the
@@ -1607,7 +1607,7 @@ The SDK/kernel foundation for apps that want the whole screen (640×480 on
 VGA, §39): a
 fullscreen surface **is a real window** — that one decision buys almost
 everything, because wm_obscured (which gates every unbidden background
-drawer: Clock, Bounce, the Task Manager sampler) sees a frame covering the
+drawer: Timer, Bounce, the Task Manager sampler) sees a frame covering the
 entire screen and reports "covered" to everyone beneath it.
 
 `wm_fullscreen` (API slot 0x0110; caller holds the gfx lock):
@@ -1654,7 +1654,7 @@ all, skip the whole frame*. It had to be that blunt, because the `gfx_*`
 primitives draw in absolute screen coordinates with no clipping beyond the
 screen edge, so a covered window that drew would paint over the window on
 top of it. The visible consequence was that a Bounce with one covered pixel
-looked frozen, a Clock's digits stopped, and a fractal that takes two
+looked frozen, a Timer's digits stopped, and a fractal that takes two
 minutes on an XT stopped rendering the moment anything touched its corner.
 
 The region replaces the veto. `wm_clip_set` builds the window's **visible
@@ -1755,8 +1755,8 @@ and it is re-blanked on every update. Two ways out, both in the tree:
 
 - **Erase per cell.** Ask `wm_clip_test` for the 8x8 cell; if it answers yes,
   fill that cell and draw the glyph; if no, touch neither. The two decisions
-  are then the same decision. `app_clk_render` (§14) does this, which is why
-  a half-covered Clock shows whole digits on clean white rather than a blank
+  are then the same decision. `app_tmr_render` (§14) does this, which is why
+  a half-covered Timer shows whole digits on clean white rather than a blank
   band.
 - **Gate the whole thing.** When the erased rect is one unit — a status
   strip, a pane — ask `wm_clip_test` for the whole rect and skip both
@@ -1785,7 +1785,7 @@ at both ends, so its two operations clip alike by construction.
    Date/Time rows (§31.5) and `tm_update` (§28) both keep it.
 
 **What changed in the applications.** Bounce (§14) now **always steps** and
-only the erase and the redraw are conditional; Clock (§14) substitutes
+only the erase and the redraw are conditional; Timer (§14) substitutes
 `wm_clip_set` for its veto; and `apps/fractal`'s `fr_emit_body` (§40) does
 the same, so a partly covered fractal keeps rendering the part you can see.
 
@@ -2317,7 +2317,8 @@ it too, because `-f bin` zeroes no `.bss`.
 
 **The clock is outside all of this.** `menu_draw_clock` fills its own cell and
 is called unconditionally at the end of `menu_draw_bar`, as well as directly
-by the Clock task (§12.1).
+by the UI task's own clock step (§12.1) — nothing to do with the Timer
+application of §14.
 
 ### 12.1 The menu-bar clock
 
@@ -2422,7 +2423,7 @@ Registering later is legal (`menu_win_set` relayouts when the window is
 active) but draws nothing of itself — the bar catches up on the next
 `wm_paint_all`. A window with `W_MENUS` = 0 owns the bar the same way; it
 simply contributes a name and no menus, which is the correct result for an
-accessory like Clock or Bounce.
+accessory like Timer or Bounce.
 
 **Disabled items.** An item string that begins with the byte `MENU_DIS` (1)
 is unavailable: `menu_drop` draws the rest of it in `CDGRAY` and skips the
@@ -2480,7 +2481,7 @@ whenever no window owns it.
 `AM_NAME` = `'Locator'` and **`AM_ONCMD` = 0**, the one value reserved to
 mean *dispatched by the kernel*: ui.inc recognises it and reconstructs a
 `CMD_*` instead of calling through (§13). Its menus are unchanged from the
-pre-Locator bar — **File**: "Clock" (CMD_CLOCK), "Bounce" (CMD_BOUNCE),
+pre-Locator bar — **File**: "Timer" (CMD_TIMER), "Bounce" (CMD_BOUNCE),
 "Disk" (CMD_FILES), "Close Window" (CMD_CLOSE); **Special**: "Restart"
 (CMD_REBOOT) — and so is the System menu, which is cell 0 for every
 application: "About os8088..." (CMD_ABOUT), "Control Panel" (CMD_CTRL,
@@ -2492,7 +2493,7 @@ bar — the item list is static `.text` and nothing relays the bar out when the
 last window goes, so layout time is too early. It is the §46 rule 5 case in
 its purest form (a stable, one-word fact) and the one a user meets on the
 desktop at boot before meeting any other; it used to be a live item that
-answered with a beep. The tables-full refusals beside it — Clock, Bounce and
+answered with a beep. The tables-full refusals beside it — Timer, Bounce and
 Disk at the instance cap — stay beeps on purpose: `MAX_TASKS` is 12, and the
 predicate is per-kind rather than one word.
 
@@ -2500,7 +2501,7 @@ predicate is per-kind rather than one word.
 CMD_ABOUT  equ 1   ; --- System (cell 0, every application) ---
 CMD_CTRL   equ 2
 CMD_TASKS  equ 3
-CMD_CLOCK  equ 4   ; --- Locator: File ---
+CMD_TIMER  equ 4   ; --- Locator: File ---
 CMD_BOUNCE equ 5
 CMD_FILES  equ 6
 CMD_CLOSE  equ 7
@@ -2697,7 +2698,7 @@ Loop forever:
      the mouse has not moved. **Ordering is binding: the gfx lock may only
      be released while the outline is erased** — XOR draw/erase is
      self-inverting only if nothing touches the covered pixels in between,
-     and Clock/Bounce repaint the instant the lock drops (the outline is
+     and Timer/Bounce repaint the instant the lock drops (the outline is
      not a window, so wm_obscured does not protect it). On release (the
      loop exits with the outline drawn and the lock held): xor-erase the
      outline, update W_X/W_Y (clamp: title bar fully on screen,
@@ -2833,7 +2834,7 @@ nothing selected). Three routes, decided in this order:
    command = `CMD_ABOUT + AL`, handled by `ui_cmd` below.
 2. **`[menu_set]` has `AM_ONCMD` = 0** — a kernel-dispatched set, i.e.
    Locator: command = `ui_loc_base[AH] + AL`, where `ui_loc_base` is the
-   three-word table {CMD_ABOUT, CMD_CLOCK, CMD_REBOOT} that restores the
+   three-word table {CMD_ABOUT, CMD_TIMER, CMD_REBOOT} that restores the
    old consecutive-commands arithmetic (§12). Handled by `ui_cmd`.
 3. **otherwise** — an application's own set (§12.2): gfx_lock,
    `inst_win_owner` on `[menu_win]` for billing, `snd_disp_set`,
@@ -2850,7 +2851,7 @@ Control Panel of §31). It runs on the UI task with
 no lock held, so the call is direct — the deferred `inst_launch` channel
 in step 3 exists for lock-held posters (e.g. W_ONCLICK handlers, and now
 every app menu handler, which runs under the lock by contract §12.2).
-Clock/Bounce launch a **new instance** each time (up to their §29
+Timer/Bounce launch a **new instance** each time (up to their §29
 caps); About/Control Panel/Task Manager are singletons — at cap,
 app_launch fronts (and un-minimizes) the existing instance instead. CMD_FILES → call
 `files_open` (§22 — mounts, then launches/fronts the Disk singleton via
@@ -2864,7 +2865,7 @@ All wm_* calls that repaint are made under gfx_lock by the UI task.
 
 ## 14. apps.inc
 
-The built-in app **kinds**: About, Clock, Bounce. Nothing is
+The built-in app **kinds**: About, Timer, Bounce. Nothing is
 created at boot (there is no `apps_init`) — every instance is launched on
 demand through `app_launch` (§29), which allocates an instance record and
 a per-instance state block from the kind's pool, creates the window from
@@ -2874,13 +2875,18 @@ one. Closing an instance frees all of it.
 
 Per-instance state pools (**`.lowbss`**, reached through `ss:` — two of the
 four tables §2's optimization moved out of the kernel's own segment; slot
-stride and cap pinned in the §29 kind table): `app_clk_pool` 10 × 8
-(CLK_H/M/S bytes at +0/+1/+2, pad, CLK_LAST word at +4, CLK_ACC word at +6),
+stride and cap pinned in the §29 kind table): `app_tmr_pool` 10 × 8
+(TMR_HRS/MIN/SEC bytes at +0/+1/+2, **TMR_RUN byte at +3**, TMR_LAST word at
++4, TMR_ACC word at +6),
 `app_ball_pool` 10 × 8 (BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
-§29): `app_clock_kinit` (h/m/s = 0, last =
+§29): `app_tmr_kinit` (h/m/s = 0, **run = 1**, last =
 [ticks], acc = 0), `app_bounce_kinit` (x=4, y=4, vx=3, vy=2).
 
-Paint/onkey procs receive SI = window ptr (§11) and find their state via
+`TMR_RUN` is the byte that used to be the stride's padding, which is the
+whole reason the Timer's buttons cost no memory: the pool, the cap and the
+8-byte stride are all exactly what the Clock's were.
+
+Paint/onkey/onclick procs receive SI = window ptr (§11) and find their state via
 `inst_of_win` (§29) + `I_SPTR`; module-level draw scratch (used only under
 the gfx lock) may stay shared. Kind behavior:
 
@@ -2893,27 +2899,77 @@ the gfx lock) may stay shared. Kind behavior:
   be a constant in the third line any more, which is why it moved into a
   fourth; `app_about_center` re-measures every string, so unequal line
   lengths cost nothing. No onkey. Singleton (cap 1).
-- **Clock** — 130×60 at (350,60), title "Clock". Cap 10 (on VGA the template
-  position keeps the whole +16·9 cascade on-screen and above the dock; on a
+- **Timer** — 160×60 at (330,60), title "Timer": a stopwatch, HH:MM:SS over a
+  row of three buttons. Cap 10 (the template
+  position keeps the whole +16·9 cascade on-screen and above the dock —
+  330 + 144 + 160 = 634 on a 640px screen; on a
   shorter screen `wm_fit` clamps its tail back onto it, §39.7).
   Per-instance
-  task (`app_clock_task`; entry receives DX = instance index, caches the
+  task (`app_tmr_task`; entry receives DX = instance index, caches the
   record and state ptrs): loop { task_sleep 9; **if I_STATE = 2 →
   teardown via `inst_task_die`** (§29); AX = [ticks]; delta = AX −
-  CLK_LAST (subtraction idiom, safe across wrap); CLK_LAST = AX; CLK_ACC
-  += delta*10; while CLK_ACC >= 182: CLK_ACC −= 182 and advance seconds
-  with carries (s 60→0/m+1, m 60→0/h+1, h 24→0). This time-keeping runs
+  TMR_LAST (subtraction idiom, safe across wrap); **TMR_LAST = AX
+  unconditionally**; if TMR_RUN = 0 the delta is discarded here; else TMR_ACC
+  += delta*10, and while TMR_ACC >= 182: TMR_ACC −= 182 and advance seconds
+  with carries (s 60→0/m+1, m 60→0/h+1, h 24→0). This sampling runs
   every iteration; only drawing is conditional: gfx_lock; **re-check
   under the lock** that the window (I_WIN) is visible, then `wm_clip_set`
   (§11.3) — if either fails, gfx_unlock and skip; else draw HH:MM:SS from
-  the instance's CLK_H/M/S centered in content; gfx_unlock }. A half-covered
-  Clock therefore redraws the half that shows, whole glyphs only, instead of
+  the instance's TMR_HRS/MIN/SEC; gfx_unlock }. A half-covered
+  Timer therefore redraws the half that shows, whole glyphs only, instead of
   stopping. **The white background is erased one 8x8 cell at a time**, inside
-  `app_clk_render`, each cell gated on the `wm_clip_test` answer `font_char`
+  `app_tmr_render`, each cell gated on the `wm_clip_test` answer `font_char`
   is about to give: that is §11.3's granularity rule, and a single 64x8 fill
   followed by `font_str` would blank the visible band of a horizontally cut
-  Clock twice a second. Paint proc renders the same string from the state
-  block. The accumulator design is binding.
+  Timer twice a second. Paint proc renders the same string from the state
+  block and then the three buttons. The accumulator design is binding.
+
+  **Sampling the tick while stopped is what Stop means.** The delta is taken
+  and banked into TMR_LAST on every wake whether the timer runs or not, so a
+  stopped interval is *thrown away* rather than owed; leaving TMR_LAST alone
+  would make Start jump forward by however long the timer had been stopped.
+  `app_tmr_onclick`'s Start re-stamps TMR_LAST for the same reason at finer
+  grain — up to 9 ticks of stopped time can be sitting unsampled at the
+  moment of the click.
+
+  **Layout** (content-relative; the window is fixed-size, never resizable,
+  and 160×60 fits inside every adapter's desktop band — CGA's is the
+  tightest — so `wm_fit` cannot shrink it and these may be constants rather
+  than another read of `[vid_*]`, §1/§39.7). Content is 158 × 41. Digits:
+  8 cells = 64px wide, centred across the content, top at +5. Buttons:
+  three of 46 × 15 with 6px gaps, left inset 4, top at +20 — rows 20..34 of
+  the 41 the content has. A label sits at +3 within its button, centred by
+  `font_width`.
+
+  **Start · Stop · Reset**, in that index order, hit-tested by
+  `app_tmr_hit` from those same constants (the `fm_hit` argument, §22.2):
+  Start sets TMR_RUN = 1 and re-stamps TMR_LAST; Stop clears TMR_RUN; Reset
+  zeroes h/m/s **and** TMR_ACC **and** re-stamps TMR_LAST — the part-second
+  in flight goes at both ends — and leaves TMR_RUN alone, so a reset while
+  running keeps running. **Opening the Timer starts it** (`app_tmr_kinit`
+  sets TMR_RUN = 1): the buttons are there to stop it and to put it back,
+  not to arm it.
+
+  **Greying follows §47.** `app_tmr_bok` is the one predicate — Start is
+  refused while running, Stop while stopped, Reset never — and it is what
+  both `gfx_pen_cf` and the click path read, so the greying and the refusal
+  cannot disagree (rule 2). The frame greys with the label, never just the
+  caption; a click on a greyed button does nothing at all, with no beep and
+  no notice, because a greyed control already explains itself (rule 6).
+  On the two 1bpp adapters that reads as a dotted frame around a
+  checkerboard label (§39.4), which is where it was looked at.
+
+  **`app_tmr_btn` erases its own button before drawing it**, and the fill and
+  the label are gated *together* on one `wm_clip_test` over the whole button:
+  a button is one control, so it is drawn whole or not at all, and §11.3's
+  granularity rule cannot bite. Both callers run with the clip disarmed —
+  `W_PAINT`, and `W_ONCLICK`, which fires on the frontmost window alone —
+  so the test always answers "free" today; it is there so the routine stays
+  safe to call from anywhere. A Start/Stop click redraws **those two buttons
+  and nothing else**; a Reset click redraws **the digits and nothing else**.
+  `app_tmr_cell` sets its pen with `gfx_pen_live` rather than a bare
+  `[gfx_color]` store, because a button drawn just before may have left
+  `[gfx_dis]` set and a flagged glyph is a checkerboard.
 - **Bounce** — 150×130 at (300,150), title "Bounce". Cap 10 (on VGA the
   template position keeps the whole +16·9 cascade on-screen and above the
   dock; on a shorter screen `wm_fit` clamps its tail back onto it, §39.7).
@@ -2932,7 +2988,7 @@ the gfx lock) may stay shared. Kind behavior:
 
 The close protocol for these tasks is §29's: the UI task never destroys a
 task-owned instance's window — it sets I_STATE = 2 and hides; the task
-notices at its next wake (≤ 9 ticks for Clock, ≤ 2 for Bounce) and tears
+notices at its next wake (≤ 9 ticks for Timer, ≤ 2 for Bounce) and tears
 itself down with `inst_task_die` → `task_exit`. A package's worker (§20.6)
 reaches exactly this path through `OSAPI_TASK_ALIVE`, whose whole job is to
 be the worker's "next wake" check; there the latency bound is whatever the
@@ -3210,7 +3266,7 @@ guard 7 proves the kernel ends clear of the relocated stack.
    + Special), drive icons, the empty dock strip at the bottom, arrow
    cursor — no windows, nothing running. The scheduler boots
    **pre-emptive** (§8.2).
-3. Apps launch from the menus as closable instances — two Clocks tick
+3. Apps launch from the menus as closable instances — two Timers tick
    independently, and they keep ticking **while** typing in the Note Pad
    package and
    while a drag outline is being moved (pre-emption visibly working).
@@ -3234,12 +3290,12 @@ guard 7 proves the kernel ends clear of the relocated stack.
 10. System → Task Manager opens a window with a live CPU load gauge and
     history graph (near 0% idle, visibly rising while dragging a window),
     a RAM readout, and the per-instance process list with each row's CPU
-    share and memory — all updating twice a second while launched Clocks
+    share and memory — all updating twice a second while launched Timers
     and Bounces keep running, rows appearing and freeing as instances
     launch and quit. **Task-less apps are listed too**: About,
     Disk and every loaded package **that owns no worker** show state
     `evt` — a package with a §20.6 worker shows the worker's
-    `run`/`rdy`/`slp` exactly like Clock and Bounce, with the two
+    `run`/`rdy`/`slp` exactly like Timer and Bounce, with the two
     counters summed onto its one row (§28) — plus their own region size
     under MEM (`-` for built-ins, which own no region), and a CPU share
     that rises with the work their window callbacks actually do — a
@@ -3260,7 +3316,7 @@ guard 7 proves the kernel ends clear of the relocated stack.
     scheduling word within the same UI pass (the `cp_dirty` repaint of
     §31.2), the Task Manager's SCHED field follows at its next sample, and
     no user-visible string anywhere says "watchdog" (§31).
-    In cooperative mode Clocks keep ticking, Bounce keeps moving, menus
+    In cooperative mode Timers keep ticking, Bounce keeps moving, menus
     still pull down and Note Pad still types — every wait loop yields
     (§8.2) — and a runaway package's callback is still cut off after
     `SCH_WD_TICKS` ticks (`sch_wd_hits` advances, readable with QMP `xp` on
@@ -4436,63 +4492,91 @@ which is the same state a bad disk produces. A directory whose entries are
 garbage simply lists nothing. Neither can crash, because no LBA in either
 path is derived from an unvalidated field.
 
-### 19.3 The system disk — a FAT12 volume with the kernel in its reserved area
+### 19.3 The system disk — a FAT12 volume, and the kernel is a file on it
 
 The disk os8088 boots from is a **real FAT12 volume**, mounted by os8088's own
-file manager and write path and by any reader that honours the BPB. That is
-not cosmetic — it is what gives loadable drivers (§51) a place to live and
-settings a place to be kept, without a second on-disk format and a second set
-of readers.
+file manager and write path and by any reader at all. That is not cosmetic —
+it is what gives loadable drivers (§51) a place to live and settings a place
+to be kept, without a second on-disk format and a second set of readers.
 
-**DOS is not such a reader, and that is a real limitation of this design
-rather than a bug in the image.** DOS builds a *floppy's* BPB from its own
-table of standard formats rather than from the boot sector — the Build BPB
+`KERNEL.SYS` is an **ordinary file in the data area**, allocated first and
+contiguously (cluster 2 onward), hidden and system and read-only (§19.6). The
+boot sector finds it by doing the arithmetic the BPB describes and reads that
+run of sectors flat, without walking a cluster chain — 512 bytes has no room
+for a chain walker, and `tools/os88disk.py` guarantees the run by laying the
+kernel down before any other file:
+
+```
+    LBA = RsvdSecCnt + NumFATs * FATSz16 + ceil(RootEntCnt * 32 / 512)
+```
+
+Every term is read out of the BPB at run time rather than injected by the
+Makefile, so nothing outside `os88disk.py` has to know a geometry — the same
+reason `KERNEL_SECTORS` is measured from the built kernel rather than
+guessed. The count of sectors to read is still `KERNEL_SECTORS`, and the
+destination still advances one sector of paragraphs per read with `BX` held
+at zero, so every transfer is 512 bytes at a 512-aligned linear address and
+none can straddle a 64KB DMA boundary.
+
+**The trap this sprang, and it is the only one:** the splash tick (§15) is
+armed once `SPL_RESIDENT` sectors are aboard, and the loop used to test
+`[lba]` for that — true while the kernel started at LBA 1 and *sectors done*
+and *sector number* were the same quantity. They are not any more: `[lba]`
+starts at 33 on the 1.44MB geometry and 12 on the 360KB one, both already
+past `SPL_RESIDENT`, so the splash was far-called before a byte of it had
+landed and the machine hung with a black screen inside `KERNEL_SEG`. Sectors
+done is now counted on its own.
+
+#### Why: DOS does not read `BPB_RsvdSecCnt` on a floppy
+
+**The kernel used to live in the reserved area** — sectors 1..K, covered by
+`BPB_RsvdSecCnt`, with the boot sector doing a flat `read LBA 1..K`. That is
+a legal use of the field and no reader that honours it was ever confused.
+DOS does not honour it: it builds a *floppy's* BPB from its own table of
+standard formats rather than from the boot sector — the Build BPB
 device-driver call is handed the first sector of the FAT, not sector 0 — so
-it never sees `BPB_RsvdSecCnt` and puts the FAT and root directory at the
-standard offsets. On this disk those offsets hold the **kernel**, so DOS
-parses machine code as file system: garbled directory entries and **52,224
-bytes free** on the 360KB disk, which is 51 free clusters of the kernel's own
-bytes read as a FAT. Modelling that reading against the shipped image
-reproduces the figure to the byte, and it is the signature of this and
-nothing else.
+it put the FAT and root directory at the standard offsets, which on that
+layout held the kernel. DOS parsed machine code as file system: garbled
+directory entries and **52,224 bytes free** on the 360KB disk, which is 51
+free clusters of the kernel's own bytes read as a FAT. Modelling that reading
+against the old image reproduced the figure to the byte.
 
-**Verified on PC-DOS 3.30 and MS-DOS 5.00, identical results** — so this is
-not a quirk of one vintage that a later one fixes. A boot-sector BPB is what
-DOS reads for a hard-disk partition; for a standard floppy format it is not
-consulted at all. The disk is undamaged either way: os8088 reads it
-correctly, and a cold boot from it works normally.
+**Verified on PC-DOS 3.30 and MS-DOS 5.00 alike**, so it was not a quirk of
+one vintage that a later one fixes. A boot-sector BPB is what DOS reads for a
+hard-disk *partition*; for a standard floppy format it is not consulted at
+all — which is why the fix is not "write a better BPB" but "put nothing where
+DOS is going to look". The image is now a byte-exact standard format on both
+geometries:
 
-The **data** disks are unaffected — `apps.img` and `apps360.img` have
-`RsvdSecCnt` = 1 and are entirely ordinary, so DOS reads those normally
-(§19).
+| | 1.44MB | 360KB |
+|---|---:|---:|
+| `BytsPerSec` | 512 | 512 |
+| `SecPerClus` | 1 | 2 |
+| `RsvdSecCnt` | 1 | 1 |
+| `NumFATs` | 2 | 2 |
+| `RootEntCnt` | 224 | 112 |
+| `TotSec16` | 2880 | 720 |
+| `Media` | F0h | FDh |
+| `FATSz16` | 9 | 2 |
+| data area at LBA | 33 | 12 |
 
-There is no arrangement that satisfies both: DOS insists the FAT and root
-directory occupy the sectors the kernel is in. Making the system disk readable
-on that vintage means moving the kernel out of the reserved area and into the
-data area as a contiguous hidden file, with its start LBA injected into
-`boot/boot.asm` beside `KERNEL_SECTORS` — which is a change to the boot
-layout, not a build detail.
+Three consequences fall out, all wanted:
 
-The trick is one field. `BPB_RsvdSecCnt` covers the sectors between the boot
-sector and FAT1 — the reserved area, which belongs to the boot loader by
-definition and which no file system structure can reach. `tools/os88disk.py`
-sets it to `1 + ceil(kernel/512)` and writes the kernel there, so
-**boot/boot.asm's raw `read LBA 1..K` is unchanged and still correct** while
-everything after it is an ordinary file system. Mount rule 5 (§18.2) has
-always been `RsvdSecCnt >= 1`; nothing was relaxed to allow this.
-
-Two consequences fall out, both wanted:
-
-- **Drive A: mounts.** The Disk browser opens it, `SOUND.DRV` and
-  `SYSTEM.CFG` are listed there, and the write gate (`[dsk_mntok]`, §18.4)
-  opens for it — which is what lets the Control Panel keep a setting.
-- **The boot sector carries a BPB.** Its first three bytes are
+- **Drive A: mounts, in os8088 and in DOS.** The Disk browser opens it and
+  the write gate (`[dsk_mntok]`, §18.4) opens for it — which is what lets the
+  Control Panel keep a setting — and a host OS sees the same volume with the
+  same free space.
+- **The boot sector carries a real BPB.** Its first three bytes are
   `EB 3C 90` (a short jump past the BPB, and `short` because mount rule 2
-  tests `BS_jmpBoot[0]`), then a 59-byte hole `os88disk.py` fills, then the
-  loader at offset 62. `boot/boot.asm` reserves the hole and asserts
-  nothing about its contents.
+  tests `BS_jmpBoot[0]`), then the BPB fields, then the loader at offset 62.
+  `boot/boot.asm` declares the fields as zeroed `db`/`dw`s and
+  `os88disk.py` fills them; four of them are read by the load.
+- **Nothing on the disk is hidden from os8088 by being hidden from DOS.**
+  The system files are hidden by *attribute* (§19.6), which both readers
+  honour and neither is confused by.
 
-The volume is labelled `OS8088SYS`; the apps disk stays `OS8088APPS`.
+The volume is labelled `OS8088SYS`; the apps disk stays `OS8088APPS`, and the
+data disks never had a reserved area to begin with.
 
 ### 19.4 The listing is sorted by name, in the mount
 
@@ -4594,6 +4678,61 @@ Three consequences worth stating:
 **Folder ▸ Up One Folder and Backspace stay.** They are the same
 destination by a different route, and a one-button machine in a fullscreen
 window needs the keyboard one.
+
+
+### 19.6 The system files are hidden, and one of them is the kernel's to rewrite
+
+Everything on the system disk that belongs to the *machine* rather than to
+the user is stamped so that neither DOS's `DIR` nor os8088's own file manager
+lists it. Three attribute sets, and which one a file gets is decided in one
+place — `sys_attr` in `tools/os88disk.py` — for everything the build ships:
+
+| file | attributes | why |
+|---|---|---|
+| `KERNEL.SYS` | read-only + hidden + system | deleting it unboots the disk, and it is not a document |
+| `*.DRV` | read-only + hidden + system | the same, per driver (§51) |
+| `SYSTEM.CFG` | hidden + system | written by the kernel, so **not** read-only |
+| `TASKMGR.O88` | read-only + archive | **visible**: it is an application, and the chip menu loads it by name (§28). Read-only so it cannot be deleted out from under that menu |
+| everything on a data disk | archive | ordinary |
+
+The hiding itself costs nothing new. `disk_mount`'s species filter (§19) has
+always dropped hidden and system entries from the listing — the DOS
+convention — so the Disk window, the icon grid, the Standard File dialog and
+every view cache follow for free, and so does DOS.
+
+Two things do NOT follow, and both had to be arranged:
+
+- **`drv_find` may not use the listing.** It used `dsk_find_name`, which
+  walks the mount *snapshot* — and the snapshot is the filtered display
+  listing, so the moment a driver became hidden every driver on the disk read
+  as "Not on the system disk" in the Control Panel, a long way from the
+  cause. It uses `dskw_stat` now, which walks the directory sectors
+  themselves and answers about a file whether or not it is meant to be shown.
+  `ui_tm_open` keeps `dsk_find_name`, correctly: `TASKMGR.O88` is visible on
+  purpose, and what that path needs is a directory *index* for the loader.
+- **The kernel must be able to rewrite its own config.** `DSKW_PROT` (§18.4)
+  treats hidden and system as untouchable, so the first `SYSTEM.CFG` save
+  would create the file and every save after it would be refused
+  `FERR_PROT` by the very bits the first one set. `dskw_write_sys` is the
+  narrow exemption: **kernel-only, no API slot and there must never be one**,
+  because the whole point of this section is that a package cannot make a
+  file the user can neither see nor delete. It differs from `dskw_write` in
+  exactly two ways, both keyed off `[dskw_syswr]`:
+
+  1. a file it **creates** is stamped hidden + system, and
+  2. a file it **replaces** may already be hidden + system — the mask
+     becomes `DSKW_SPROT`, which is `DSKW_PROT` without those two bits, so a
+     read-only file, the volume label and a subdirectory still refuse.
+
+  The flag is one-shot, cleared by `dskw_write` on the way out so it can
+  never leak into the next caller's write, and it lives in `.text` with a
+  real initialiser for `[dskw_isdir]`'s hard-won reason (§18.4): `-f bin`
+  zeroes nothing, and garbage in this byte would make *every* package's write
+  create a hidden system file and overwrite one.
+
+Read-only needs no exemption anywhere, because nothing in the kernel ever
+rewrites a read-only file: `KERNEL.SYS` and the drivers are replaced by
+rebuilding the disk, not by the running system.
 
 
 ## 20. Loadable programs — the .o88 package format
@@ -5236,11 +5375,11 @@ Two teardown corollaries, both about not trading a crash for a leak:
    None of this is enforced.
 
 **Refusal is normal, not exceptional.** `MAX_TASKS` is 12 and the UI task,
-up to ten Clock/Bounce instances, the Task Manager's worker and a transient SB refill/drain
+up to ten Timer/Bounce instances, the Task Manager's worker and a transient SB refill/drain
 task (§34.5) all draw from the same eleven dynamic slots, so CF=1 is an
 ordinary outcome. A package must degrade — stay a perfectly good task-less
 package, window, callbacks, menus and close box all working — and **should
-retry**, because the condition is transient: closing one Clock frees the
+retry**, because the condition is transient: closing one Timer frees the
 slot, and a package that latched its refusal is broken until it is
 relaunched. On refusal nothing was created and `I_TASK` is untouched, so a
 retry is free — ask again from every callback that already runs under the
@@ -5862,7 +6001,7 @@ cells are `font_width + MENU_TITLE_PAD`:
 | **File** | 44 | 110..153 | Open · New Folder… · Rename… · Delete · Close Window |
 | **Folder** | 60 | 154..213 | New Window · Open in New Window · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: · Free Space |
 | **View** | 44 | 214..257 | as List · as Icons |
-| **Special** | 68 | 258..325 | Clock · Bounce · Restart |
+| **Special** | 68 | 258..325 | Timer · Bounce · Restart |
 
 325 against a 434 limit is 108px of slack — enough that a longer item
 string can never push a *title* off the bar, since item widths do not enter
@@ -5891,7 +6030,7 @@ only by the UI task (§7) and `fm_oncmd` runs *inside* it:
 | Up One Folder / Root Folder | inline: `fmv_sync`, then `dsk_dotdot` + `fmv_load` / `fmv_load` AX=0 |
 | New Window / Open in New Window | **deferred** — seed + `inst_launch_post` (§29.4); at cap, `snd_beep` and nothing else, because `app_launch` would front an existing window and silently drop the seed |
 | as List / as Icons | inline: set `FS_VIEW`, reset `FS_SCRL` |
-| Clock / Bounce | **deferred** — `inst_launch_post` (§29.4); `app_launch` takes the lock |
+| Timer / Bounce | **deferred** — `inst_launch_post` (§29.4); `app_launch` takes the lock |
 | Close Window | **deferred** — `ui_post_cmd` CMD_CLOSE (§13); `ui_cmd` takes the lock |
 | Restart | **deferred** — `ui_post_cmd` CMD_REBOOT; `ui_cmd` takes the lock and never gives it back |
 
@@ -6636,8 +6775,8 @@ db height        ; rows
 
 **Every built-in kind carries one** (`KD_ICON`, §29.3), in the header-less
 `icon_draw16` layout, stored in `instance.inc`'s `.text` next to
-`inst_kinds`: About is the DIP chip the System menu draws, Clock a face with
-hands, Bounce a ball with its arc and floor, Disk a folder (the drive icon is
+`inst_kinds`: About is the DIP chip the System menu draws, Timer a stopwatch
+(crown, face, two hands), Bounce a ball with its arc and floor, Disk a folder (the drive icon is
 desk.inc's job, §26), Task Manager a bar chart on an axis, Control Panel
 three sliders. `KD_ICON` = 0 still means "the generic icon" and still works;
 what it stops meaning is "every built-in", which made the dock six identical
@@ -6918,9 +7057,9 @@ path uses. Neither call happens in the paint proc — both run in onkey,
 which already holds the gfx lock, so the write's stall (§18.4) lands on a
 keystroke and not on a repaint.
 
-Removing the kind renumbered two pinned sets — `KIND_CLOCK`..`KIND_CTRL`
-down by one (§29) and `CMD_CLOCK`..`CMD_REBOOT` down by one (§12), the File
-menu losing its first item and re-basing on `CMD_CLOCK`. Directory order on
+Removing the kind renumbered two pinned sets — kind 1..`KIND_CTRL`
+down by one (§29) and command 4..`CMD_REBOOT` down by one (§12), the File
+menu losing its first item and re-basing on what is now `CMD_TIMER`. Directory order on
 the apps disk stays mines, hello, notepad: the first two keep their indices
 so existing tests are unaffected.
 
@@ -7685,7 +7824,7 @@ account, and the rows partition one total.
 **Drawing.** `tm_paint` (W_PAINT) dispatches on `[tm_view]` and runs the
 active view's full body — bare and unconditional, no lock, no visibility
 check (wm_paint_all calls it with the lock already held, §11). tm_worker's
-periodic path wraps its drawing Clock-style (§14): gfx_lock, arm
+periodic path wraps its drawing Timer-style (§14): gfx_lock, arm
 `wm_clip_set` under the lock (else skip), and touches only what changed.
 Performance view: the CPU + scheduler text line (checked per chunk like a
 row, so a mode change shows up within one sample period without any extra
@@ -7861,7 +8000,7 @@ full text cache would need. Three rules keep it honest:
   the I_NAME snapshot. State: I_STATE 2 → `die`; else I_TASK = 0xFF (or ≥
   MAX_TASKS) → `evt` (no worker task: it only runs inside window callbacks —
   a package that claimed a §20.6 worker renders `run`/`rdy`/`slp` here like
-  Clock, which is correct and not a bug); else its task's slot = `sch_cur` →
+  Timer, which is correct and not a bug); else its task's slot = `sch_cur` →
   `run`, T_STATE 2 → `slp`, otherwise `rdy`. MEM = the region rounded up to
   KB **plus every KB the instance holds off the claim heap** (§50.5), or
   `"   -"` (no `'K'`) when the sum is zero — a built-in with no claims owns
@@ -8173,8 +8312,10 @@ I_CYC    equ 28   ; dword (lo word first): PIT cycles billed to this
 I_RECSZ  equ 32
 
 KIND_ABOUT   equ 0
-KIND_CLOCK   equ 1       ; (Note Pad was kind 1 until it became the
-KIND_BOUNCE  equ 2       ;  NOTEPAD package, §27 — the numbering closed up)
+KIND_TIMER   equ 1       ; (Note Pad was kind 1 until it became the
+KIND_BOUNCE  equ 2       ;  NOTEPAD package, §27 — the numbering closed up;
+                         ;  kind 1 was the Clock until it gained its buttons
+                         ;  and became the Timer, §14)
 KIND_FILES   equ 3
 KIND_CTRL    equ 5       ; Control Panel (§31)
 KIND_PKG     equ 0x80    ; bit 7: package instance
@@ -8235,12 +8376,12 @@ only feature bits (WF_SIZABLE — never bits 0/1, and WF_FULL makes no
 sense at create time). The Disk kind sets WF_SIZABLE (§22); every other
 row keeps 0.
 
-Pinned caps: About 1 (stateless), Clock 10
+Pinned caps: About 1 (stateless), Timer 10
 (stride 8), Bounce 10 (stride 8), **Files 4 (stride 16, pool `fm_pool`)**,
 TaskMgr 1 (one sampler), Control Panel 1 (no per-instance state, §31). The
 Files cap is 4 because each window claims its own `VIEW_KB` cache (§2.3); `KD_CAP`, `VIEW_SLOTS` and the `fm_pool` size are one
 number wearing three hats and must move together. The
-per-kind caps deliberately over-subscribe INST_MAX now that Clock and
+per-kind caps deliberately over-subscribe INST_MAX now that Timer and
 Bounce allow 10 each — `INST_MAX` (and MAX_TASKS, §8) is the real ceiling,
 and a launch on a full table simply fails with CF=1. Since §20.6 and §34.5
 put package workers and transient sound tasks in the same pool, MAX_TASKS
@@ -8274,7 +8415,7 @@ init-less:
 | `app_close_win` | in BX = window ptr; **caller holds the gfx lock**; UI task only. Unowned window → wm_hide (fallback). I_STATE = 2 already → wm_hide (idempotent). Task-less (I_TASK = 0xFF) → I_STATE ← 2, wm_destroy (clears wm_owner, repaints), I_WIN ← 0, I_STATE ← 0 — for a package instance that final store frees the region (rule 29.2.7). Task-owned → I_STATE ← 2 (the die flag), wm_hide (instant feedback); the task tears down at its next wake — and for a package instance that took a §20.6 worker, `task_exit`'s release-byte store is what frees the region. A package instance reaches this second branch exactly when it owns a worker. |
 | `inst_minimize` | in BX = window ptr, lock held: set I_FLAGS bit0 (unowned → skip), wm_hide. |
 | `inst_restore` | in DI = record, lock held: clear I_FLAGS bit0, wm_show I_WIN. |
-| `inst_task_die` | in DI = the CURRENT task's instance record; no lock held; **never returns**: gfx_lock, wm_destroy I_WIN (clears wm_owner), I_WIN ← 0, gfx_unlock, then `jmp task_exit` with BX = record ptr (I_STATE is offset 0 — the release byte). Reached from Clock's and Bounce's own loops (§14) and, for packages, from `inst_pkg_alive` (§20.6). |
+| `inst_task_die` | in DI = the CURRENT task's instance record; no lock held; **never returns**: gfx_lock, wm_destroy I_WIN (clears wm_owner), I_WIN ← 0, gfx_unlock, then `jmp task_exit` with BX = record ptr (I_STATE is offset 0 — the release byte). Reached from Timer's and Bounce's own loops (§14) and, for packages, from `inst_pkg_alive` (§20.6). |
 | `inst_wchk` | module-internal (§20.6). in BX = an untrusted window ptr; out CF=0 if BX lies inside `wm_wins` and is record-aligned, CF=1 otherwise. Preserves everything but the flags. The fence in front of `inst_of_win` for package-supplied pointers, whose `div cl` would otherwise fault. |
 | `inst_pkg_spawn` | API slot 0x0160 (§20.6). in AX = near worker entry, BX = the package's own window ptr; **caller holds the gfx lock** (exclusion against another *spawner* is `task_spawn`'s own IF=0 window, §8, not this lock). Refuses (CF=1, nothing created) when BX fails `inst_wchk`, names no owner, names a record with I_STATE ≠ 1, that record already has I_TASK ≠ 0xFF, or the **ownership fence** rejects it — the record must be a package (I_KIND bit 7) and AX must satisfy I_SPTR ≤ AX < I_SPTR + I_SIZE, which is what ties the spawn to the *calling* instance — or when `task_spawn` finds the table full. Else `task_spawn` (AX = entry, DX = instance index derived as (record − inst_tab) >> 5, the `app_launch` idiom), I_TASK ← slot, CF=0, AL = slot. Preserves every register but AL and the flags. No rollback exists or is needed — the instance is already published and stays live on refusal. |
 | `inst_pkg_alive` | API slot 0x0168 (§20.6). in BX = the package's own window ptr; **gfx lock NOT held**; called from the worker only. Returns with every register and the flags preserved while BX names a record with I_STATE = 1 — and returns unconditionally, without exiting anything, when `sch_cur` = 0: the UI task must never `task_exit` (§8), so a wrong-context call is refused. Otherwise recovers the *running task's* record from `T_INST` (§8) and `jmp inst_task_die` — never returns. A record with I_WIN = 0 (corrupt table: nothing to `wm_destroy`, and BX = 0 there would zero the cold-entry `jmp` at 0800:0000) still exits with BX = the record, so the record, its region and its dock/tm rows are released. Only T_INST ≥ INST_MAX exits with BX = 0 — no release byte because there is no record — the `sbl_refill_task` precedent (§34.5). |
@@ -8878,6 +9019,39 @@ It writes **once, when the panel closes**, not on every click. Pages set
 on the floor machine and the panel is frozen for it, so trying five settings
 out used to cost five seconds of frozen UI for a state only the last one
 describes.
+
+#### No page writes immediately. This is a rule, not a default.
+
+**Every page defers, without exception, and a new page must too.** This is
+the single most re-litigated decision in the panel: each setting added since
+has looked like the one that is different — a driver that loads on the spot,
+a volume that mounts on the spot, a clock the machine will lose — and the
+argument is the same every time and wrong every time. A `SYSTEM.CFG` write
+is **two or more seconds of completely frozen UI** on the floor machine: a
+mount of A:, a data write, a FAT flush, a directory write, a second FAT
+flush and a coherence remount, all with the gfx lock held and the mouse
+cursor stopped. Two seconds is not a hitch, it is the machine appearing to
+have crashed, and it lands *in the middle of a click* — while the user is
+still looking at the page, quite possibly on their way to the next row.
+
+Three things make deferral the right answer rather than a compromise:
+
+- **What the setting DOES still happens on the spot.** A ticked driver loads
+  before the box is redrawn; a picked sound route is live for the next beep.
+  Only the *record* of it waits. So the page is never showing a promise
+  about the next boot, and the deferral costs the user nothing they can see.
+- **The state only the last click describes is the only state worth
+  writing.** Five clicks is one file either way.
+- **The close is a decision the user makes.** They are done; a pause there
+  reads as putting the settings away, not as a freeze.
+
+The one thing a new page may NOT do is decide its setting is important
+enough to be the exception. If a setting genuinely cannot survive being lost
+to a power cut with the panel open, that is an argument about §51.5's file,
+not a licence to write from a click handler. The hard-disk driver's Mount
+and Unmount are the *only* immediate writes in the tree and they are not
+this mechanism at all — they are the driver's own `OSAPI_DRV_CFG` save verbs
+on its own page (§52.6), justified there and nowhere else.
 
 **Both ways the panel stops existing flush it**, which is what makes the
 deferral safe:
@@ -9774,9 +9948,10 @@ they reduce to §39.4's three inks.
 
 The wall clock: one date + time of day for the whole system, seeded from
 the hardware RTC when the machine has one and advanced from the PIT
-afterwards. Label prefix `clk_` (the built-in Clock **app** of §14 keeps
-its own `app_clk_` names and its own per-instance stopwatch state — the two
-are unrelated). Included right after `events.inc`; `clk_init` runs in kmain
+afterwards. Label prefix `clk_` (the built-in **Timer** app of §14 keeps its
+own `app_tmr_` names and its own per-instance stopwatch state — the two are
+unrelated, and the app's rename away from "Clock" is what finally makes the
+two prefixes read differently). Included right after `events.inc`; `clk_init` runs in kmain
 right after `evq_init` (§15). All code is near `.text`: it is called from
 the UI task's inner loop and from the Control
 Panel's far page (§31.5).
@@ -13295,7 +13470,7 @@ refusals *ought* to grey and do not, and three answer no:
 
 - **A press outside the modal dialog** (`fdlg_grab`, §38.2). Greying the whole
   desktop is not a control state, and the dialog's presence is the explanation.
-- **Clock / Bounce / Disk at the instance cap** (§12.3). `MAX_TASKS` is 12 and
+- **Timer / Bounce / Disk at the instance cap** (§12.3). `MAX_TASKS` is 12 and
   the predicate is per-kind rather than one word; the cost is not worth a fact
   a user meets about never.
 - **The Disk window's context menus** (`files.inc`, §22). Up One Folder at the
@@ -14618,11 +14793,11 @@ unticked the driver is about to close and write the file anyway.
 
 ### 52.9 Not in scope
 
-- **Booting os8088 from the hard disk.** `boot/boot.asm` reads LBA 1..K with
-  the floppy geometry injected at build time and relocates itself to
-  `BOOT_RELOC`; hard-disk boot needs an MBR, an AH=08h geometry probe and a
-  second boot sector variant. The system disk stays A:, and `SYSTEM.CFG` with
-  it.
+- **Booting os8088 from the hard disk.** `boot/boot.asm` reads `KERNEL.SYS`
+  as a flat run from the data area (§19.3) with the floppy geometry injected
+  at build time and relocates itself to `BOOT_RELOC`; hard-disk boot needs an
+  MBR, an AH=08h geometry probe and a second boot sector variant. The system
+  disk stays A:, and `SYSTEM.CFG` with it.
 - **Low-level (surface) MFM formatting**, §52.3.
 - **The XT DCB register path**, §52.1. The row exists in the ladder so the
   page can one day say "not supported" rather than "no drive".

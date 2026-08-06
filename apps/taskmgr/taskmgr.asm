@@ -46,7 +46,7 @@
 ; a rolling maximum, not absolute rates, so a spin iteration that costs more
 ; recalibrates within two epochs and only the granularity moves.
 ;
-; Locking follows the Clock pattern (SPEC.md 14): tm_paint is a bare,
+; Locking follows the Timer pattern (SPEC.md 14): tm_paint is a bare,
 ; unconditional full redraw (the kernel calls it with the gfx lock already
 ; held); the worker's periodic path takes the lock itself, re-checks visible +
 ; arms OSAPI_WM_CLIP_SET under it, and redraws only what changed (one graph
@@ -541,7 +541,7 @@ tm_entry:
 ; out: nothing (all registers preserved)
 ;
 ; Latches on SUCCESS only, so a refusal is retried by the next paint rather
-; than being permanent - MAX_TASKS is 12 and shared, and closing one Clock
+; than being permanent - MAX_TASKS is 12 and shared, and closing one Timer
 ; frees a slot. Without a worker the window is still correct, just static
 ; until something repaints it.
 ; -----------------------------------------------------------------------------

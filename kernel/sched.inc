@@ -66,7 +66,7 @@ TF_SERVICE  equ 1               ; survives the fullscreen-exclusive freeze:
 SCH_STACK   equ 256             ; per-task stack bytes. It was 1,536 when the
                                 ; stacks were the only thing in .lowbss, then
                                 ; 512. A 0xCC fill probe under the heaviest
-                                ; load the machine can carry - Clock, two
+                                ; load the machine can carry - Timer, two
                                 ; Bounces, the Fractal's drawing worker and
                                 ; Arkanoid's game loop all live at once, with
                                 ; the tick and mouse ISRs landing on top of
@@ -643,7 +643,7 @@ task_debit:
 ; sch_lock is deliberately NOT reused as the "don't switch" flag even though
 ; it looks like one: task_yield tests it too and self-resumes when it is set
 ; (see task_yield above), so raising sch_lock would not make multitasking
-; cooperative - it would stop multitasking altogether and freeze every Clock
+; cooperative - it would stop multitasking altogether and freeze every Timer
 ; and Bounce instance forever, their task_sleep never handing the CPU on.
 ; Cooperative mode must leave the VOLUNTARY path fully working and suppress
 ; only the INVOLUNTARY one, hence a separate byte tested after sch_lock.
