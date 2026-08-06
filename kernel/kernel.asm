@@ -114,10 +114,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 74240           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 76288           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved five times, every one asked
+                                ; It has moved six times, every one asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -162,10 +162,32 @@ KERN_BUDGET equ 74240           ; the whole kernel's FOOTPRINT. Growing past
                                 ; RAM and is not meant to: HEAP_SEG is
                                 ; KERN_END, so the heap has always started
                                 ; where the kernel ACTUALLY ends and never
-                                ; where the budget said it might. The slack
+                                ; where the budget said it might - which is
+                                ; also why the SIXTH move below costs the
+                                ; machine nothing at all. The slack
                                 ; was never costing memory - it was costing
                                 ; scrutiny, and scrutiny is the only thing
                                 ; this constant has ever bought.
+                                ;
+                                ; The sixth move, 74,240 -> 76,288, is that
+                                ; scrutiny working. Two features landed in
+                                ; parallel and met at the guard: SPEC.md
+                                ; 5.6's gfx_line, the arbitrary-angle line
+                                ; primitive (512 bytes, one KIMG_PARA step),
+                                ; and the file dialog handing an app the SIZE
+                                ; so a load can be refused for free (SPEC.md
+                                ; 38.6). Either alone fitted; together they
+                                ; overran by 512. Asked for and granted at
+                                ; 2KB rather than the 512 the merge needed,
+                                ; because the fifth move's stated intent was
+                                ; 2,048 bytes of headroom and by the time
+                                ; anyone measured it there were 512 - three
+                                ; features had spent it without the constant
+                                ; being revisited, which is the failure mode
+                                ; a stale number in docs/KERNEL-MEMORY.md let
+                                ; through. That doc now carries the bisect
+                                ; recipe instead of a figure, so the next
+                                ; author measures rather than trusts.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
@@ -741,7 +763,14 @@ osapi_table:
                                   ;          53.5): AL = 0 tick / 1 retrace;
                                   ;          flushes an armed back buffer
                                   ;          first while the mode is unswitched
-osapi_table_end:                  ; 0x02E0
+    OSAPI_SLOT gfx_line           ; 0x02E0 - an arbitrary-angle line (SPEC.md
+                                  ;          5.6): AX/BX = x1/y1, CX/DX =
+                                  ;          x2/y2 inclusive, pen in
+                                  ;          [gfx_color], lock held. An
+                                  ;          axis-aligned pair defers to
+                                  ;          gfx_hline / gfx_vline, which stay
+                                  ;          the right answer for a long run
+osapi_table_end:                  ; 0x02E8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -749,8 +778,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 90 * 8
-%error "os8088 API jump table must be exactly 90 8-byte slots"
+%if OSAPI_TABLE_LEN != 91 * 8
+%error "os8088 API jump table must be exactly 91 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the

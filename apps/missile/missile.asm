@@ -189,6 +189,15 @@ mc_entry:
     mov [mc_scrw], ax
     mov [mc_dock], cx
 
+    cmp dh, 1                       ; a 1bpp adapter, or a tier-0 CPU, gets
+    jbe .coarse                     ; the three-state explosion (SPEC.md
+    call OSAPI_CPU_INFO             ; 48.8). Both are FACTS this code can
+    cmp al, CPU_8086                ; test, which is the honest way to spend
+    jne .fine                       ; an optimisation only the slow machine
+.coarse:                            ; needs (PERFORMANCE.md rule 10)
+    mov byte [mc_ecoarse], 1
+.fine:
+
     call OSAPI_FSX_CAPS             ; can this adapter set Mode X? A fact,
     mov [mc_caps], ax               ; decided once (SPEC.md 47/53.4): the
     test ax, 1 << FSXM_MODEX        ; menu item is renamed to say WHY not,
@@ -479,12 +488,19 @@ mc_escale:
 
     xor si, si                      ; scale the whole ramp once, here, so no
 .ramp:                              ; frame ever multiplies
-    mov al, [mc_rad + si]
+    mov al, [mc_rad + si]           ; the arcade's own ramp...
+    cmp byte [mc_ecoarse], 0
+    je .src
+    mov bl, [mc_step3 + si]         ; ...or SPEC.md 48.8's three-state one,
+    mov bh, 0                       ; through the one table that names the
+    mov al, [mc_rad3v + bx]         ; state, so radius and colour agree
+.src:
+    mov bl, al                      ; BL = the unscaled radius, either way
     mov ah, 0
     mul word [mc_escl]
     mov cl, 3
     shr ax, cl
-    cmp byte [mc_rad + si], 0       ; a step the arcade gives a radius keeps
+    or bl, bl                       ; a step the ramp gives a radius keeps
     je .store                       ; one, however small the window
     or ax, ax
     jnz .store
@@ -3859,7 +3875,12 @@ mc_move_trails:
 ; Growing, the new disc covers the old one, so one filled circle is the whole
 ; frame's work. Shrinking, the ring it vacated has to be erased first. The
 ; colour cycles every frame either way, which is the arcade's flashing and
-; costs nothing because the disc is redrawn regardless.
+; costs nothing because the disc is redrawn regardless - which was true on a
+; VGA machine and was the whole problem on the floor one, because it is what
+; made every frame a redraw when the RADIUS had not moved. SPEC.md 48.8: on
+; 1bpp or a tier-0 CPU the cycle goes, and a burst is then drawn only when
+; the radius changes - three times over its 27-frame life, as mc_step3 lays
+; it out - through mc_blob rather than mc_disc.
 ; -----------------------------------------------------------------------------
 mc_draw_exp:
     push ax
@@ -3882,6 +3903,8 @@ mc_draw_exp:
     mov bh, 0                       ; BX = the radius it should be now
     mov cl, [mc_er + si]
     mov ch, 0                       ; CX = the radius it is drawn at
+    cmp byte [mc_ecoarse], 0
+    jne .coarse
     cmp bx, cx
     jae .draw
     call mc_erase_ring              ; shrank: give the ring back to the sky
@@ -3893,7 +3916,29 @@ mc_draw_exp:
     mov bl, [mc_er + si]
     mov bh, 0
     call mc_disc
-    jmp short .next
+    jmp .next
+
+.coarse:                            ; SPEC.md 48.8: with no colour cycle the
+    cmp bx, cx                      ; radius is the only thing that can have
+    je .next                        ; changed, and over a burst it does three
+    ja .cdraw                       ; times
+    push bx                         ; shrank: the old blob back to the sky
+    mov al, MC_BG                   ; whole, because the annulus between two
+    call mc_setcol                  ; nested-rect blobs is more rects than
+    mov ax, [mc_ex + di]            ; the erase-and-redraw pair it replaces
+    mov dx, [mc_ey + di]
+    mov bx, cx
+    call mc_blob
+    pop bx
+.cdraw:
+    mov [mc_er + si], bl
+    call mc_exp_pen
+    mov ax, [mc_ex + di]
+    mov dx, [mc_ey + di]
+    mov bl, [mc_er + si]
+    mov bh, 0
+    call mc_blob
+    jmp .next
 .gone:
     mov byte [mc_ea + si], 0
     mov al, MC_BG
@@ -3902,7 +3947,13 @@ mc_draw_exp:
     mov dx, [mc_ey + di]
     mov bl, [mc_er + si]
     mov bh, 0
-    call mc_disc                    ; the last disc, back to sky
+    cmp byte [mc_ecoarse], 0        ; the last shape, back to sky - and it
+    je .gdisc                       ; must be the SAME shape that was drawn,
+    call mc_blob                    ; or the erase misses pixels or takes
+    jmp short .gdone                ; ones the burst never wrote
+.gdisc:
+    call mc_disc
+.gdone:
     mov byte [mc_er + si], 0
     mov ax, [mc_ey + di]
     mov bl, [mc_erad + 13]          ; the scaled peak radius
@@ -3945,6 +3996,11 @@ mc_draw_exp_all:
     mov dx, [mc_ey + di]
     mov bl, [mc_er + si]
     mov bh, 0
+    cmp byte [mc_ecoarse], 0
+    je .disc
+    call mc_blob
+    jmp short .next
+.disc:
     call mc_disc
 .next:
     inc si
@@ -3962,11 +4018,18 @@ mc_draw_exp_all:
 ; in: SI = explosion; clobbers AX and BX like the drawing around it
 mc_exp_pen:
     mov bl, [mc_et + si]
-    and bl, 3
     mov bh, 0
+    cmp byte [mc_ecoarse], 0
+    jne .coarse
+    and bl, 3
     mov al, [mc_expcol + bx]
     call mc_setcol
     ret
+.coarse:
+    mov bl, [mc_step3 + bx]         ; one colour per DRAWN state, and all
+    mov al, [mc_col3 + bx]          ; three from SPEC.md 39.4's white class:
+    call mc_setcol                  ; a dithered frame reduces to grey on the
+    ret                             ; two 1bpp adapters and buys nothing
 
 ; -----------------------------------------------------------------------------
 ; mc_erase_ring - the annulus between radius CX (drawn) and BX (wanted)
@@ -4200,6 +4263,110 @@ mc_shrink:
     jmp short .loop
 .out:
     pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_blob - the coarse explosion's disc: a few NESTED rects instead of one
+;           filled row per scan line (SPEC.md 48.8.1)
+; in:  AX = centre x, DX = centre y, BX = radius; pen set; gfx lock held
+; preserves all registers
+;
+; The half-width falls monotonically as dy rises, so a filled circle is
+; EXACTLY the union of one rect per distinct half-width - nested, widest and
+; shortest first. Letting the drawn edge run up to R/8 + 1 pixels outside the
+; true circle before a new rect is opened collapses that to four to seven
+; rects at every radius this game can produce: 27 fills to 5 at Hercules'
+; peak radius of 13, 39 to 6 at VGA's 19, 13 to 5 at CGA's 6, 69 to 7 at the
+; MC_RMAXP ceiling. One gfx_fill costs about what an 8x8 glyph cell does on
+; the floor machine - it is per-call overhead, not the bytes written - so
+; that ratio is the whole optimisation.
+;
+; The error is ALWAYS OUTWARD - checked at every radius, never once inward -
+; which is the direction that matters: mc_do_damage already tests r+2 against
+; the object's own half size, so the burst never kills anything it does not
+; visibly touch. It costs one mc_shrink walk - the same O(R)-for-the-whole-
+; disc square root mc_disc uses, and for the same reason.
+; -----------------------------------------------------------------------------
+mc_blob:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    or bx, bx
+    jz .out
+    cmp bx, MC_RMAXP
+    jbe .r
+    mov bx, MC_RMAXP
+.r:
+    mov [mc_dcx], ax
+    mov [mc_dcy], dx
+    mov [mc_dr], bx
+    mov ax, bx
+    mul bx
+    mov [mc_dr2], ax                ; r squared, the loop's only invariant
+    mov [mc_dhalf], bx              ; the running half-width, R at dy = 0
+    mov [mc_bw], bx                 ; ...and the half-width of the rect that
+                                    ; is currently open, which lags it
+    mov ax, bx
+    mov cl, 3
+    shr ax, cl
+    inc ax
+    mov [mc_bq], ax                 ; the quantum: R/8 + 1
+    mov di, 1                       ; DI = dy; row 0 is inside the first rect
+.row:
+    cmp di, [mc_dr]
+    jg .last
+    mov ax, di
+    mul ax
+    mov [mc_dd2], ax
+    call mc_shrink                  ; [mc_dhalf] = isqrt(r2 - dy2)
+    mov ax, [mc_dhalf]
+    add ax, [mc_bq]
+    cmp ax, [mc_bw]                 ; has the true edge fallen a whole
+    ja .next                        ; quantum inside what we are drawing?
+    mov bx, di
+    dec bx
+    call mc_blob_rect               ; then close the open rect one row back...
+    mov ax, [mc_dhalf]
+    mov [mc_bw], ax                 ; ...and open one at the new width
+.next:
+    inc di
+    jmp short .row
+.last:
+    mov bx, [mc_dr]                 ; the innermost rect reaches the poles,
+    call mc_blob_rect               ; so the blob is as TALL as the circle
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mc_blob_rect - one nested rect: half-width [mc_bw], half-height BX, about
+;                ([mc_dcx],[mc_dcy]). Preserves all registers
+mc_blob_rect:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [mc_dcy]
+    sub ax, bx
+    mov dx, [mc_dcy]
+    add dx, bx
+    mov bx, ax                      ; BX = y1, DX = y2
+    mov ax, [mc_dcx]
+    sub ax, [mc_bw]
+    mov cx, [mc_dcx]
+    add cx, [mc_bw]
+    call mc_fillc
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -4650,6 +4817,41 @@ mc_line:
     push cx
     push dx
     push si
+    cmp byte [mc_fsx], 0            ; SPEC.md 5.6 does the whole line in one
+    jne .own                        ; call now - but not on the Mode X surface
+    or ax, ax                       ; (53.7: the drawing slots are off-limits
+    js .own                         ; there) and not for a line with an end
+    or bx, bx                       ; outside our content, where the kernel
+    js .own                         ; would clip to the SCREEN and paint over
+    or cx, cx                       ; the desktop. mc_clamp is what stops that
+    js .own                         ; today and a whole-line call cannot carry
+    or dx, dx                       ; it - so the rare line that needs it
+    js .own                         ; keeps the per-run path below
+    cmp ax, [mc_cw]
+    jge .own
+    cmp cx, [mc_cw]
+    jge .own
+    cmp bx, [mc_ch]
+    jge .own
+    cmp dx, [mc_ch]
+    jge .own
+    add ax, [mc_ox]
+    add cx, [mc_ox]
+    add bx, [mc_oy]
+    add dx, [mc_oy]
+    mov si, 0
+    cmp byte [mc_lfat], 0           ; the erase owes the dilation (5.6.5): we
+    je .thin                        ; DRAW in per-frame segments and erase in
+    mov si, 1                       ; one long line, and those two Bresenhams
+.thin:                              ; disagree by a pixel
+    call OSAPI_GFX_LINE
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.own:
     push di
     mov [mc_lx], ax
     mov [mc_ly], bx
@@ -5322,6 +5524,27 @@ mc_pal:
 ; class or the dither class for the reason above.
 mc_expcol:   db CWHITE, CYELLOW, CLRED, CLMAGENTA
 
+; SPEC.md 48.8: the coarse ramp, for a 1bpp adapter or a tier-0 CPU. The same
+; 27-frame life, drawn in THREE states - one byte a frame naming the state,
+; with the radius and the colour both hanging off it, so the shape of the
+; animation and the colour of it cannot disagree.
+;
+; 5, 13, 5 over 9, 7 and 9 frames is not a guess: it preserves BOTH of
+; OLDRAD's integrals over its 27 frames, sum(r) exactly (181 = 181) and
+; sum(r^2) to 0.2% (1633 against 1637). How much sky one ABM covers and for
+; how long IS the game (SPEC.md 48.4), and this leaves it alone.
+mc_step3:    db 0, 0                            ; 0..1:  not yet lit, as OLDRAD
+             db 1, 1, 1, 1, 1, 1, 1, 1, 1       ; 2..10
+             db 2, 2, 2, 2, 2, 2, 2             ; 11..17: the peak
+             db 3, 3, 3, 3, 3, 3, 3, 3, 3       ; 18..26: collapsing
+             db 0, 0, 0, 0, 0                   ; 27..31: padding, as mc_rad
+mc_rad3v:    db 0, 5, 13, 5
+; ...and one colour per DRAWN state, all three from SPEC.md 39.4's WHITE
+; class. There is no dithered frame on this path: on the two adapters that
+; reach it a dithered burst is just a grey one, and the flash it was buying
+; is what made the old explosion redraw itself 27 times.
+mc_col3:     db MC_BG, CWHITE, CYELLOW, CLRED
+
 ; The coastline: how many rows the ground rises above its base every 16px.
 ; Fixed rather than random, so a repaint puts back exactly what was there.
 mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
@@ -5528,7 +5751,13 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_rn2
     MWORD mc_rhalf
     MWORD mc_escl                   ; explosion scale, eighths
-    MBUF  mc_erad, 32               ; mc_rad scaled onto this window
+    MBUF  mc_erad, 32               ; the ramp scaled onto this window
+    MBYTE mc_ecoarse                ; 1 = SPEC.md 48.8's three-state burst:
+                                    ; 1bpp adapter or tier-0 CPU, decided
+                                    ; once in mc_entry
+    MWORD mc_bw                     ; mc_blob: the open rect's half-width
+    MWORD mc_bq                     ; ...and how far outside the true circle
+                                    ; the drawn edge may run before the next
     MWORD mc_rnew
     MWORD mc_rold
     MWORD mc_rho

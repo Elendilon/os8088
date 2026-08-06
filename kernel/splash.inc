@@ -23,7 +23,7 @@
 ; the first tick can arrive.
 ; =============================================================================
 
-SPL_RESIDENT equ 6              ; sectors the boot sector waits for before
+SPL_RESIDENT equ 7              ; sectors the boot sector waits for before
                                 ; ticking us (must match boot/boot.asm)
 SPL_GC      equ 0x3CE           ; VGA Graphics Controller index port
 

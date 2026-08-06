@@ -618,6 +618,107 @@ Verified against a byte-exact reference on all three: the mono path over
 CGA's bank boundary, and the buffered path pixel-for-pixel against the
 direct one.
 
+### 5.6 `gfx_line` — an arbitrary-angle line (API slot 0x02E0)
+
+**in** AX/BX = x1/y1, CX/DX = x2/y2, inclusive, absolute screen
+coordinates; SI = 0 thin / 1 dilated (§5.6.5); the pen is `[gfx_color]`;
+caller holds the gfx lock. **out** nothing. **clobbers** flags only.
+
+There was no line primitive for thirteen packages, and the one app that
+needed one — Missile Command's missile trails — carried its own Bresenham
+that coalesced horizontal runs into `gfx_hline` calls. §48.8.2 measured
+what that cost on the floor machine: **one `gfx_fill` is ~1.16 ms on a
+4.77 MHz 8088**, almost all of it per-call overhead, and a steep trail is
+one call per *row* — the worst measured whole-trail erase was 267 calls,
+about 310 ms, a five-tick stall.
+
+#### 5.6.1 It does not replace the area primitives, and it defers to them
+
+A fill is an **area**: on a 1bpp adapter `gfx_fill` writes eight pixels per
+store and handles the two masked edge bytes once. A line walk writes one
+pixel at a time. The crossover is about **27 pixels** — a 100px rule costs
+~280 instructions as a fill and ~1,000 as a pixel walk — so a long
+axis-aligned run belongs in `gfx_fill`/`gfx_hline`/`gfx_vline` and always
+will. `gfx_line` is for the case those cannot serve, and it is *only* faster
+than them because **a line's runs are short by construction** unless the
+line is nearly axis-aligned.
+
+Which is why the first thing it does is test for `y1 == y2` and `x1 == x2`
+and tail-call `gfx_hline` / `gfx_vline`. Twelve bytes, and it means a caller
+may hand this routine any two points — including a degenerate pair from a
+generic path — without falling off a cliff.
+
+#### 5.6.2 The walk always runs downward, and that is a contract
+
+`gfx_line` normalises so `y1 <= y2`, swapping both endpoints if needed.
+Bresenham is **not symmetric under endpoint swap** — the ties break the
+other way — so a line drawn as (A,B) and erased as (B,A) would leave a
+scatter of pixels behind. Normalising makes the pixel set a property of the
+*pair*, not of the order, and it is also what lets the mono walk step rows
+with `gfx_nextrow` (which only goes down) instead of recomputing
+`gfx_rowbase` per pixel.
+
+It does **not** fix the other asymmetry, and callers must still know about
+it: a line drawn in short per-frame *segments* and erased as one long line
+rasterizes differently in the minor axis, because the segment endpoints are
+not on the long line's lattice. That is §48's `[mc_lfat]` dilation and it
+stays the caller's problem.
+
+#### 5.6.3 Clipping is one pass per region rect
+
+§11.3's clipped primitives are all rect-based, and a line is not a rect.
+Clipping the *endpoints* to the region is the obvious answer and is wrong:
+it moves the start point, Bresenham from a moved start plots a different
+lattice, and the erase misses. So the rasterization is never touched —
+the full line is walked and each pixel tested against a box.
+
+The region is spent the way `gfx_clip_run` spends it: **one pass over the
+line per clip rect**, with the box set from that rect, and the region's
+rects are disjoint so no pixel is written twice. Disarmed, there is a single
+pass with the box set to the screen — which is also where the primitive gets
+its screen clipping, so there is no separate edge test on the path.
+
+#### 5.6.4 Two inner loops, split where the slow machine is
+
+| `[bb_on]` and `[vid_planes]` | how |
+|---|---|
+| software renderer, **1 plane** — all three mono adapters | per-pixel: one `gfx_rowbase`, then a rotating bit mask, `gfx_nextrow` per row step, and one read-modify-write per pixel. `gfx_ink`'s three inks are all honoured, the dither by `(x^y)&1`. |
+| everything else — VGA direct, VGA + back buffer | Bresenham coalescing along the **major** axis, one `gfx_fill_raw` per run. |
+
+The split is deliberate and not a gap. Mono *is* the 4.77 MHz machine (§39),
+so it gets the tight loop; VGA is the fast one, and major-axis coalescing
+already makes its run count `min(|dx|,|dy|) + 1` where the app-side
+horizontal-only version paid `|dy| + 1` — so no adapter is slower than
+before this primitive existed, and the one that needed help got it.
+
+#### 5.6.5 SI = 1, because a line drawn in segments is not the line
+
+The one thing that stops a caller replacing an incremental drawing path with
+this routine outright. A trail is drawn as short per-frame **segments** and
+erased as **one long line**, and those two rasterizations differ by up to a
+pixel in the minor axis — the segments' endpoints are not on the long line's
+lattice. Erase with the long line alone and about half the trail stays on
+screen as a dashed ghost; §48 records it as a shipped bug.
+
+`SI = 1` is that dilation: three passes at the *same* `dx`/`dy`/`err`, one
+pixel either side across the minor axis, so only the start point moves. It
+covers the segments because each rasterization sits within half a pixel of
+the ideal line and therefore within one of the other. **The degenerate
+entries ignore it, correctly**: a horizontal or vertical line's segments lie
+on exactly the same lattice as the whole line, so there is nothing to
+dilate.
+
+It costs three walks rather than one, which is why a caller should pass 0
+for a draw and 1 only for an erase-what-was-drawn-in-pieces.
+
+Measured on Hercules, the paths this was written for: a trail **segment**
+(the per-frame draw, thin) and a **whole-trail erase** (fat), against the
+`gfx_hline`-per-run version they replace — §48.8.3 has the numbers. Missile
+Command keeps its own Bresenham for two cases the kernel cannot serve: the
+§53.4 Mode X surface, where the drawing slots are off-limits, and a line
+with an endpoint outside its content box, where the kernel would clip to the
+screen and paint over the desktop.
+
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h
@@ -4952,6 +5053,7 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02C8 fsx_run       (X)
                                                 0x02D0 fsx_mode
                                                 0x02D8 fsx_wait
+                                                0x02E0 gfx_line
 ```
 
 **Every published slot keeps its number and contract**, on the rule that **a
@@ -5097,6 +5199,11 @@ Slot-specific contracts that are not simply their target routine's:
                          Bracket-only, CF=1 outside one. Flushes an armed
                          back buffer first while no mode switch has
                          happened — the present (§53.5).
+0x02E0 gfx_line          in AX/BX = x1/y1, CX/DX = x2/y2 inclusive, pen in
+                         [gfx_color], lock held (§5.6). Any direction;
+                         an axis-aligned pair defers to gfx_hline /
+                         gfx_vline, which stay the right answer for a long
+                         run. Clobbers flags only.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -13913,7 +14020,9 @@ radius, to give back the annulus a shrinking burst vacated.
 
 Growing, the new disc covers the old one, so one filled circle is the frame's
 whole work; the colour cycles every frame either way, which is the arcade's
-flashing and costs nothing because the disc is redrawn regardless.
+flashing and **costs nothing because the disc is redrawn regardless** — a
+sentence that was true on a VGA machine and was the whole problem on the
+floor one. §48.8 is what it cost and what replaced it there.
 
 ### 48.5 Two ways a wave could never end
 
@@ -13978,6 +14087,186 @@ Sound is duration-limited `osapi_snd_tone` from the worker throughout, on
 §44.5's argument. The credits panel is §44.7's: drawn inside our own
 content, the worker held off it by `[mc_abon]` under the lock, the game
 paused underneath.
+
+### 48.8 The colour cycle is what redrew the disc — the coarse explosion
+
+On the two 1bpp adapters this game was **unplayably slow**, and the
+explosion was almost all of it: 65–81% of every `gfx_fill` the game issued.
+The measurement, on Hercules under `-icount shift=3,sleep=off` with the
+fill count and the elapsed PIT counts read as two independent numbers
+(PERFORMANCE.md Part 4, rule 7), and priced through `fontbench`'s real-XT
+calibration of 0.359 ms per count:
+
+| Hercules, one frame | fills | real 4.77 MHz XT |
+|---|---|---|
+| quiet sky, nothing burning | 13 | ~15 ms |
+| a four-shot exchange | 104, of which 47 explosion | ~120 ms |
+| an eight-shot exchange | 182, of which 121 explosion | ~211 ms |
+| **the budget (one tick)** | | **55 ms** |
+
+One `gfx_fill` costs **3.11 PIT counts ≈ 337 instructions ≈ 1.16 ms** on
+that machine — about what an 8×8 glyph cell costs (§6.1.1), because both are
+dominated by the same per-call overhead and not by the bytes they write. A
+27-row disc is therefore 31 ms of one 55 ms tick, and one burst pays for
+**twenty-seven** of them plus twelve `mc_erase_ring` annuli: ~750 fills, ~870
+ms, spread over a life of a second and a half.
+
+**The dither is not why, and this was checked rather than assumed.** A
+controlled A/B — the whole `mc_expcol` table forced to `CLMAGENTA` (§39.4's
+dither class) against the whole table forced to `CWHITE` — measured **3.114
+versus 3.106 counts per fill, a difference of 0.26%**. It cannot be
+otherwise: on a 1bpp adapter `bb_ink`'s dither branch only arms `[bb_altm]`,
+and `bb_rect` has already put the row-parity AA/55 byte in `[bb_pat]`, so
+`bb_col` and `bb_plane_op` run the identical instruction sequence with a
+different constant XORed in per row (§39.4/§32). Solid and dithered fills
+are the same code.
+
+What the dither *is* guilty of is belonging to the **colour cycle**, and the
+colour cycle is what forced the redraw. The radius ramp holds still for most
+of a burst — `OLDRAD` repeats a value for two to six frames at a time — so
+almost every one of those 27 discs painted pixels that were already the
+right shape, and only the colour had changed. On mono three of the four
+colours reduce to plain white and the fourth to a grey dither, so the flash
+the redraw was buying is nearly invisible on exactly the machines paying for
+it.
+
+So on a machine that is **1bpp or CPU tier 0** (`[mc_ecoarse]`, set once in
+`mc_entry` from `OSAPI_VIDEO`'s DH and `OSAPI_CPU_INFO` — PERFORMANCE.md
+rule 10's degrade-by-tier, and a fact the code can test rather than a guess
+about speed) the burst keeps its 27-frame life and is drawn in **three
+states**:
+
+- **`mc_step3` is one byte a frame naming the state, and the radius and the
+  colour both hang off it**, through `mc_rad3v` and `mc_col3`. One table, so
+  the shape of the animation and the colour of it cannot disagree — the same
+  reason `mc_erad` is the single radius everything reads.
+- **The three colours are `CWHITE`, `CYELLOW`, `CLRED` — all §39.4 white
+  class.** There is no dithered frame at all on this path, which is what
+  §48.6's rule would have asked for anyway had the flash ever been worth
+  its price here.
+- **A frame draws nothing unless the radius changed.** With the cycle gone
+  that is the only trigger left, and over a whole burst it fires three
+  times: draw, grow, shrink, plus the one erase `.gone` already owed.
+
+The ramp is `5, 13, 5` over 9, 7 and 9 frames, and it is not a guess: both
+of `OLDRAD`'s integrals over its 27 frames are preserved, Σr **exactly**
+(181 = 181) and Σr² to **0.2%** (1633 against 1637). How much sky one ABM
+covers and for how long *is* the game (§48.4), and this leaves it alone.
+
+#### 48.8.1 A disc is a handful of nested rects
+
+`mc_blob` replaces `mc_disc` on that path. The half-width falls
+monotonically as `dy` rises, so a filled circle is **exactly** the union of
+one rect per distinct half-width — nested, widest and shortest first — and
+letting the drawn edge run up to `R/8 + 1` pixels outside the true circle
+before opening a new rect collapses that to four to seven rects at every
+radius this game can produce: **27 fills to 5** at Hercules' peak radius of
+13, 39 to 6 at VGA's 19, 13 to 5 at CGA's 6, and 69 to 7 at the `MC_RMAXP`
+ceiling of 34. It costs one `mc_shrink` walk, the same
+O(R)-for-the-whole-disc square root §48.4 already relies on.
+
+The error is **always outward** — checked at every radius, never once
+inward — which is the direction that matters: `mc_do_damage` already tests
+`r+2` against the object's own half size, so the fireball never kills
+anything it does not visibly touch. It is at most 1px at 13 and 2px at 19,
+so up to VGA's peak the drawn edge also stays *inside* that `r+2`; only a
+window big enough to want radius 24 or more (+3, +4) can draw a burst a
+pixel or two wider than its own kill radius, on a shape 49 to 69 pixels
+across. Nothing else had to agree with the new shape, because `mc_erad`
+stayed the one radius that `mc_do_damage`, `mc_sb_dodge` and the drawing
+all read.
+
+The result, both builds driven through the same two exchanges on Hercules
+and timed with the PIT around `mc_rbody` — so the second column is the whole
+frame's drawing, not the explosion's share of it:
+
+| Hercules, per frame, real 4.77 MHz XT | before | after |
+|---|---|---|
+| explosion fills, four-shot exchange | 29 | **1.0** |
+| explosion fills, eight-shot exchange | 110 | **2.8** |
+| explosion cost, four-shot | 33.9 ms | **3.5 ms** |
+| explosion cost, eight-shot | 124 ms | **7.9 ms** |
+| explosion share of the frame's drawing | 40% / 65% | **6.6% / 10%** |
+| the frame's whole drawing, four-shot | 84 ms | **53 ms** |
+| the frame's whole drawing, eight-shot | 190 ms | **76 ms** |
+| fills over one burst's whole life | ~750 | **22** |
+
+The burst costs **10–16× less** and stops being what the frame is made of.
+Two things about that are worth keeping in mind. A **three-step burst at
+full frame rate is not a downgrade from a 27-step one**, because the 27-step
+one was never being shown: at 190 ms a frame the player was seeing eight or
+ten of those steps, unevenly, and the game underneath them was running at a
+third speed. And the **shrink is the one expensive transition** — it erases
+the peak blob and draws the small one, ten fills, and briefly blanks the
+core between the two. That is a double-draw flash (PERFORMANCE.md Part 1) of
+about 1.5 ms inside one lock hold, once per burst; the flash-free
+alternatives all cost more fills than the erase-and-redraw they replace.
+
+#### 48.8.2 What is left, and it is not the explosion
+
+**This does not on its own buy full speed in the heaviest moments**, and
+saying so is the point of measuring. Against the 55 ms tick the frame's
+drawing now lands at 53 ms in a four-shot exchange and 76 ms in an
+eight-shot one. What remains is the **trails**, and `mc_line` says why in
+its own comment: it coalesces *horizontal* runs, so "a steep line — which is
+what a falling missile draws — still costs one call a row". Counting fills
+per caller over the same run:
+
+| per frame | fills | ~ms |
+|---|---|---|
+| `mc_move_trails` — the live segments | 12.4 | 14 |
+| `mc_wipe_trails` — dead missiles' whole trails | 8.7 *average* | 10 |
+| ground, cities, bases, status, full repaints | 10.1 | 12 |
+| `mc_draw_exp` | 1.6 | 1.8 |
+
+and the average hides the shape of it: the **worst single `mc_wipe_trails`
+call in that run issued 267 fills**, about **310 ms** — a five-tick stall,
+because a dead missile's whole flight path is erased as one `mc_line` in one
+frame, and a near-vertical path is one fill per row.
+
+Two fixes followed from that, and §48.8.3 is what happened to them: the
+first was **subsumed** by §5.6's `gfx_line` — major-axis coalescing belongs
+inside the primitive, not in the app — and the second was **measured and
+dropped**.
+
+
+#### 48.8.3 `gfx_line`, and why the erase cursor was not built
+
+`mc_line` was the app-side Bresenham that coalesced horizontal runs into
+`gfx_hline` calls, and §5.6 replaced it: one `OSAPI_GFX_LINE` per trail,
+`SI = 1` on the erase for §5.6.5's dilation. It keeps the old body for two
+cases the kernel cannot serve — the §53.4 Mode X surface, where the drawing
+slots are off-limits, and a line with an endpoint outside the content box,
+where the kernel clips to the *screen* and `mc_clamp` is what stops a trail
+painting over the desktop.
+
+Measured the same way — the same two exchanges on Hercules, the PIT around
+`mc_rbody` and now around `mc_update` as well:
+
+| Hercules, per frame, real 4.77 MHz XT | original | + §48.8 | + `gfx_line` |
+|---|---|---|---|
+| four-shot exchange, drawing | 84 ms | 53 ms | **31 ms** |
+| eight-shot exchange, drawing | 190 ms | 76 ms | **40 ms** |
+| the game update (`mc_update`) | — | — | 3.9 ms |
+| **the whole frame, eight-shot** | — | — | **43.5 ms** |
+| `gfx_fill` calls a frame, eight-shot | 154 | 50 | **11** |
+| worst single `mc_wipe_trails` | ~310 ms | ~310 ms | **59 ms** |
+| the budget | 55 ms | 55 ms | 55 ms |
+
+**43.5 ms of a 55 ms tick, so the game holds 18 fps through a busy wave on
+the machine it was written for** — which is what the two sections together
+were for. The update is 3.9 ms of that: the drawing was always the cost.
+
+**The erase cursor was then not worth building, and that is a measurement
+rather than a judgement.** It existed to cap a *five-tick* stall — an entire
+flight path erased in one frame at ~310 ms. `gfx_line` puts that frame at
+**59 ms**: one frame, 8% over budget, and `MC_LAGMAX` already absorbs four
+frames of lag before the worker re-anchors its deadline. Buying that 4 ms
+would mean keeping a dying missile's slot alive in an erasing state, with a
+cursor, a bounded spend per frame, and the `[mc_gdirty]` ground test moved
+to wherever the erase finishes — which is exactly the shape of change that
+produced both of §48.5's wave-never-ends hangs. The trade is a bad one at
+59 ms and would have been an obvious one at 310.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 

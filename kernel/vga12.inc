@@ -309,6 +309,340 @@ gfx_hline:
     ret
 
 ; -----------------------------------------------------------------------------
+; gfx_line - an arbitrary-angle line in [gfx_color] (SPEC.md 5.6)
+;
+; in:       AX = x1, BX = y1, CX = x2, DX = y2, inclusive, absolute screen
+;           coordinates. SI = 0 thin / 1 dilated (SPEC.md 5.6.5). Pen in
+;           [gfx_color]; caller holds the gfx lock.
+; out:      -
+; clobbers: flags
+;
+; It does NOT replace the area primitives and defers to them: a fill writes
+; eight pixels a store on 1bpp where a walk writes one, so a long axis-
+; aligned run is gfx_fill's job whatever the angle of the argument (SPEC.md
+; 5.6.1, crossover ~27px). The two compares below are what let a caller hand
+; this routine any pair of points, degenerate ones included.
+;
+; The walk always runs DOWNWARD (SPEC.md 5.6.2). Bresenham is not symmetric
+; under endpoint swap, so a line drawn as (A,B) and erased as (B,A) leaves a
+; scatter behind; normalising makes the pixel set a property of the pair. It
+; is also what lets the mono loop step rows with gfx_nextrow, which only goes
+; down, instead of a gfx_rowbase per pixel.
+; -----------------------------------------------------------------------------
+gfx_line:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cmp bx, dx                  ; an axis-aligned pair belongs in the AREA
+    je .hline                   ; primitive, whoever asked for a line - and
+    cmp ax, cx                  ; it needs no dilation either, its segments
+    je .vline                   ; being on the same lattice as the whole line
+    cmp bx, dx                  ; SIGNED: y1 <= y2, or swap both ends
+    jle .ord
+    xchg ax, cx
+    xchg bx, dx
+.ord:
+    mov [gfx_ln_x1], ax
+    mov [gfx_ln_y1], bx
+    mov [gfx_ln_x2], cx
+    mov [gfx_ln_y2], dx
+    sub dx, bx                  ; dy = y2 - y1, and cannot be negative now
+    mov [gfx_ln_dy], dx
+    mov word [gfx_ln_sx], 1
+    sub cx, ax                  ; dx = |x2 - x1|, sx = its sign
+    jns .dxok
+    neg cx
+    mov word [gfx_ln_sx], -1
+.dxok:
+    mov [gfx_ln_dx], cx
+    sub cx, dx                  ; err = dx - dy
+    mov [gfx_ln_err], cx
+
+    mov word [gfx_ln_fdx], 0    ; SPEC.md 5.6.5: SI = 1 dilates by a pixel
+    mov word [gfx_ln_fdy], 0    ; either side of the MINOR axis - three passes
+    mov word [gfx_ln_np], 1     ; at the same dx/dy/err, so only the start
+    or si, si                   ; point moves
+    jz .passes
+    mov word [gfx_ln_np], 3
+    mov ax, [gfx_ln_dx]
+    cmp ax, [gfx_ln_dy]
+    jb .fatx
+    mov word [gfx_ln_fdy], 1    ; shallow: the minor axis is y
+    dec word [gfx_ln_y1]
+    dec word [gfx_ln_y2]
+    jmp short .passes
+.fatx:
+    mov word [gfx_ln_fdx], 1    ; steep: the minor axis is x
+    dec word [gfx_ln_x1]
+    dec word [gfx_ln_x2]
+.passes:
+    cmp word [wm_clip_n], 0     ; SPEC.md 5.6.3: one pass per clip rect, the
+    jne .clipped                ; gfx_clip_run idiom. Clipping the ENDPOINTS
+    xor ax, ax                  ; would move the lattice and the erase would
+    mov [gfx_ln_cx1], ax        ; then miss; disarmed, one pass at the screen
+    mov [gfx_ln_cy1], ax        ; edge, which is also where this gets its
+    mov ax, [vid_wm1]           ; screen clipping
+    mov [gfx_ln_cx2], ax
+    mov ax, [vid_hm1]
+    mov [gfx_ln_cy2], ax
+    call gfx_line_raw
+    jmp short .nextpass
+.clipped:
+    mov si, wm_clip_tab
+    mov di, [wm_clip_n]
+.frag:
+    mov ax, [si+WCR_X1]         ; the rects are disjoint, so no pixel of the
+    mov [gfx_ln_cx1], ax        ; line is ever written twice
+    mov ax, [si+WCR_Y1]
+    mov [gfx_ln_cy1], ax
+    mov ax, [si+WCR_X2]
+    mov [gfx_ln_cx2], ax
+    mov ax, [si+WCR_Y2]
+    mov [gfx_ln_cy2], ax
+    push si
+    push di
+    call gfx_line_raw
+    pop di
+    pop si
+    add si, WCR_SZ
+    dec di
+    jnz .frag
+.nextpass:
+    dec word [gfx_ln_np]
+    jz .out
+    mov ax, [gfx_ln_fdx]        ; the next parallel pass, one pixel across
+    add [gfx_ln_x1], ax
+    add [gfx_ln_x2], ax
+    mov ax, [gfx_ln_fdy]
+    add [gfx_ln_y1], ax
+    add [gfx_ln_y2], ax
+    jmp .passes
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.hline:
+    cmp ax, cx                  ; gfx_hline wants x1 <= x2 in AX/BX, y in DX
+    jle .hord
+    xchg ax, cx
+.hord:
+    mov bx, cx
+    call gfx_hline
+    jmp short .out
+.vline:
+    cmp bx, dx                  ; gfx_vline wants x in AX, y1/y2 in BX/DX
+    jle .vord
+    xchg bx, dx
+.vord:
+    call gfx_vline
+    jmp short .out
+
+; gfx_line_raw - internal: one pass over the line, drawing only inside the
+;                box in gfx_ln_c*. The Bresenham state is already staged.
+; clobbers: everything but the segment registers
+gfx_line_raw:
+    cmp byte [bb_on], 0         ; SPEC.md 5.6.4: mono IS the 4.77MHz machine
+    je gfx_line_runs            ; and gets the per-pixel loop; VGA is the fast
+    cmp byte [vid_planes], 1    ; one and gets major-axis runs, still fewer
+    jne gfx_line_runs           ; calls than the app-side horizontal-only
+                                ; coalescing this replaces
+; --- the 1bpp per-pixel walk -------------------------------------------------
+gfx_line_mono:
+    mov al, [gfx_color]
+    call gfx_ink                ; AL = 00 black / FF white / 01 the dither
+    mov [gfx_ln_ink], al
+    mov es, [vid_rseg]
+    mov ax, [gfx_ln_y1]
+    call gfx_rowbase            ; clobbers AX/CX/DX, preserves BX
+    mov di, ax
+    mov ax, [gfx_ln_x1]
+    mov cl, 3
+    shr ax, cl
+    add di, ax
+    mov cx, [gfx_ln_x1]         ; BL = the rotating bit mask
+    and cl, 7
+    mov bl, 0x80
+    shr bl, cl
+    mov si, [gfx_ln_x1]         ; SI = x, DX = y, CX = err
+    mov dx, [gfx_ln_y1]
+    mov cx, [gfx_ln_err]
+.pixel:
+    cmp dx, [gfx_ln_cy2]        ; y only ever grows, so past the box's bottom
+    jg .done                    ; there is nothing left to draw
+    cmp dx, [gfx_ln_cy1]
+    jl .step
+    cmp si, [gfx_ln_cx1]
+    jl .step
+    cmp si, [gfx_ln_cx2]
+    jg .step
+    mov al, [gfx_ln_ink]
+    cmp al, 1                   ; the dither class: lit where (x+y) is even
+    jne .solid
+    mov ax, si
+    xor ax, dx
+    and al, 1
+    dec al                      ; 0 (even) -> FF lit, 1 -> 00
+.solid:
+    and al, bl                  ; AL = the bit to set, 0 if this ink clears it
+    mov ah, bl
+    not ah
+    and ah, [es:di]             ; one read and one write, not two RMW
+    or  ah, al
+    mov [es:di], ah
+.step:
+    cmp si, [gfx_ln_x2]
+    jne .go
+    cmp dx, [gfx_ln_y2]
+    je .done
+.go:
+    mov ax, cx                  ; e2 = 2 * err; BOTH tests read the same e2,
+    add ax, ax                  ; which is what makes it one Bresenham
+    mov [gfx_ln_e2], ax
+    mov ax, [gfx_ln_dy]
+    neg ax
+    cmp [gfx_ln_e2], ax         ; e2 > -dy: step x
+    jle .noxs
+    sub cx, [gfx_ln_dy]
+    cmp word [gfx_ln_sx], 0
+    jl .xleft
+    inc si
+    shr bl, 1
+    jnz .noxs
+    mov bl, 0x80
+    inc di
+    jmp short .noxs
+.xleft:
+    dec si
+    shl bl, 1
+    jnz .noxs
+    mov bl, 0x01
+    dec di
+.noxs:
+    mov ax, [gfx_ln_e2]
+    cmp ax, [gfx_ln_dx]         ; e2 < dx: step y
+    jge .pixel
+    add cx, [gfx_ln_dx]
+    inc dx
+    call gfx_nextrow            ; DI and flags only - CX/SI/DX/BX survive
+    jmp .pixel
+.done:
+    ret
+
+; --- major-axis runs, one gfx_fill_raw each ----------------------------------
+; gfx_fill_raw and not gfx_fill: the region has already been spent above, and
+; re-entering GFXCLIP per run would clip the same line twice.
+gfx_line_runs:
+    mov si, [gfx_ln_x1]
+    mov dx, [gfx_ln_y1]
+    mov cx, [gfx_ln_err]
+    mov ax, [gfx_ln_dx]         ; the major axis: x if dx >= dy, else y
+    cmp ax, [gfx_ln_dy]
+    jae .majx
+    mov byte [gfx_ln_majx], 0
+    mov [gfx_ln_rs], dx         ; a vertical run starts at this y
+    jmp short .step
+.majx:
+    mov byte [gfx_ln_majx], 1
+    mov [gfx_ln_rs], si         ; ...a horizontal one at this x
+.step:
+    cmp si, [gfx_ln_x2]
+    jne .go
+    cmp dx, [gfx_ln_y2]
+    je .last
+.go:
+    mov ax, cx
+    add ax, ax
+    mov [gfx_ln_e2], ax
+    mov ax, [gfx_ln_dy]
+    neg ax
+    cmp [gfx_ln_e2], ax
+    jle .noxs
+    sub cx, [gfx_ln_dy]
+    cmp byte [gfx_ln_majx], 0   ; a MINOR-axis step ends the open run
+    jne .xok
+    call gfx_line_flush
+.xok:
+    add si, [gfx_ln_sx]
+    cmp byte [gfx_ln_majx], 0
+    jne .noxs
+    mov [gfx_ln_rs], dx         ; the next vertical run starts here
+.noxs:
+    mov ax, [gfx_ln_e2]
+    cmp ax, [gfx_ln_dx]
+    jge .step
+    add cx, [gfx_ln_dx]
+    cmp byte [gfx_ln_majx], 0
+    je .yok
+    call gfx_line_flush
+.yok:
+    inc dx
+    cmp byte [gfx_ln_majx], 0
+    je .step
+    mov [gfx_ln_rs], si
+    jmp short .step
+.last:
+    call gfx_line_flush
+    ret
+
+; gfx_line_flush - internal: the open run, clipped to the box, as one rect.
+; in:  SI = x, DX = y (the run's far end), [gfx_ln_rs] its near end
+; clobbers: ax, bx, di, flags. SI/CX/DX are the walk's and are preserved.
+gfx_line_flush:
+    push cx
+    push dx
+    push si
+    cmp byte [gfx_ln_majx], 0
+    je .vert
+    mov ax, [gfx_ln_rs]         ; horizontal: (rs..x, y..y)
+    mov cx, si
+    cmp ax, cx
+    jle .hord
+    xchg ax, cx
+.hord:
+    mov bx, dx
+    jmp short .clip
+.vert:
+    mov ax, si                  ; vertical: (x..x, rs..y)
+    mov cx, si
+    mov bx, [gfx_ln_rs]
+.clip:
+    cmp ax, [gfx_ln_cx1]
+    jge .c1
+    mov ax, [gfx_ln_cx1]
+.c1:
+    cmp cx, [gfx_ln_cx2]
+    jle .c2
+    mov cx, [gfx_ln_cx2]
+.c2:
+    cmp ax, cx
+    jg .out
+    cmp bx, [gfx_ln_cy1]
+    jge .c3
+    mov bx, [gfx_ln_cy1]
+.c3:
+    cmp dx, [gfx_ln_cy2]
+    jle .c4
+    mov dx, [gfx_ln_cy2]
+.c4:
+    cmp bx, dx
+    jg .out
+    call gfx_fill_raw
+.out:
+    pop si
+    pop dx
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
 ; gfx_blit4 - draw a block of packed 4bpp pixels (SPEC.md 5.4/42)
 ;
 ; in:       ES:SI = source, packed 4 bits per pixel, 2 pixels per byte, the
@@ -1487,5 +1821,26 @@ gfx_cl_y1       resw 1          ; held while the raw body runs per fragment
 gfx_cl_x2       resw 1
 gfx_cl_y2       resw 1
 gfx_cl_fn       resw 1          ; ...and the raw body's near pointer
+
+gfx_ln_x1       resw 1          ; gfx_line (SPEC.md 5.6): the normalised
+gfx_ln_y1       resw 1          ; endpoints - y1 <= y2 always, so the walk
+gfx_ln_x2       resw 1          ; runs downward and the pixel set is a
+gfx_ln_y2       resw 1          ; property of the PAIR, not of its order
+gfx_ln_dx       resw 1          ; |x2-x1|, and y2-y1 which cannot be negative
+gfx_ln_dy       resw 1
+gfx_ln_sx       resw 1          ; +1 / -1
+gfx_ln_err      resw 1          ; the Bresenham error term at the start
+gfx_ln_e2       resw 1          ; ...and 2*err inside the loop
+gfx_ln_cx1      resw 1          ; the box this pass draws inside - a clip
+gfx_ln_cy1      resw 1          ; rect, or the screen when the region is
+gfx_ln_cx2      resw 1          ; disarmed (5.6.3)
+gfx_ln_cy2      resw 1
+gfx_ln_rs       resw 1          ; runs path: the open run's near end, on the
+                                ; major axis
+gfx_ln_np       resw 1          ; passes still owed: 1 thin, 3 fat (5.6.5)
+gfx_ln_fdx      resw 1          ; ...and the step between them, which is one
+gfx_ln_fdy      resw 1          ; pixel across the MINOR axis
+gfx_ln_ink      resb 1          ; mono path: gfx_ink's 00 / FF / 01
+gfx_ln_majx     resb 1          ; runs path: 1 = the major axis is x
 
 section .text

@@ -123,11 +123,44 @@ and it is true again, by a wide margin, now that the budget has come down to
 
 | | headroom |
 |---|---:|
-| `KERN_CODE_MAX`, the segment | 10,434 B for `.text` + `.bss` |
+| `KERN_CODE_MAX`, the segment | ~9,400 B for `.text` + `.bss` |
 | **`KERN_BUDGET`, the footprint** | **1,536 B** for the whole span |
 
-So the next thing to hit is a conversation about `KERN_BUDGET`, and it will
-be hit early rather than after 9KB of unexamined growth. The segment used to
+**Do not trust that second figure — measure it.** It said 1,536 B once
+before and was stale by 1,024, which is how two features met at the guard
+without either author knowing it was close. `KERN_SIZE` is 74,752 against a
+`KERN_BUDGET` of 76,288 as this is written, and the sixth raise
+(74,240 → 76,288, the history in `kernel/kernel.asm`) is what made room:
+SPEC.md §5.6's `gfx_line` cost 512 bytes — one whole step, because
+`KIMG_PARA` rounds the image to 512 and its ~430 bytes of code plus ~40 of
+`.bss` crossed a boundary — and the file dialog's size-before-load work
+(§38.6) landed at the same time. Either alone fitted; together they overran
+by 512.
+
+**Raising this constant returns no RAM to the machine and costs it none.**
+`HEAP_SEG` is `KERN_END`, so the heap has always started where the kernel
+*actually* ends, never where the budget said it might. What the number buys
+is scrutiny, and the only way to keep it honest is to **bisect the guard
+rather than trust the table**:
+
+```sh
+lo=70000; hi=74240
+while [ $((hi-lo)) -gt 1 ]; do mid=$(((lo+hi)/2))
+  sed -i "s/^KERN_BUDGET equ .*/KERN_BUDGET equ $mid           ; x/" kernel/kernel.asm
+  nasm -f bin -w+error -I kernel/ -o /dev/null kernel/kernel.asm 2>/dev/null \
+      && hi=$mid || lo=$mid
+done; echo "KERN_SIZE = $hi"; git checkout kernel/kernel.asm
+```
+
+Note that **neither relief mechanism helps here**: the boot overlay and the
+cold segment both buy `KERN_CODE_MAX`, and `.cold`'s bytes are resident and
+count against the footprint exactly like `.text`'s. The only levers on this
+guard are deleting kernel code, moving a feature out to a package (SPEC.md
+§28's precedent), or raising the constant. It has room to rise: the boot
+sector relocates to `BOOT_LIN` = 86,016 with 2,048 bytes of stack below it,
+so the guard at line 1374 caps `KERN_SIZE` at **82,432** — about 6KB above
+where it now stands. Past that, `BOOT_RELOC` moves too, and it is mirrored
+in `boot/boot.asm`. The segment used to
 run out first, and hard-disk support (below) is what took it to 71 bytes; the
 `.lowbss` migration, the halved stacks, the boot overlay, the cold segment
 and finally moving the Task Manager out to a package (SPEC.md §28) are what
