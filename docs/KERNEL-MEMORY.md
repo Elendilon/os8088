@@ -13,15 +13,32 @@ written, and the section at the end says how to re-measure each one.
 ## The rule
 
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
-includes its buffers.** The span is `KERN_BUDGET` bytes — 79KB today, and
+includes its buffers.** The span is `KERN_BUDGET` bytes — 72.5KB today, and
 64KB for as long as that was affordable (see below). It currently runs
-0x00600 through 0x119FF, and the budget's ceiling is 0x14200.
+0x00600 through 0x11FFF, and the budget's ceiling is 0x12800.
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
 data, `.bss`, the FAT window, the directory and icon caches, the sector
 buffer and every task stack are one contiguous span starting at
-`KERNEL_SEG`. Guard 1 in `kernel/kernel.asm` measures that whole span
-against `KERN_BUDGET` and fails the build if it is over.
+`KERNEL_SEG`. The **`KERN_BUDGET`** guard in `kernel/kernel.asm` measures
+that whole span and fails the build if it is over.
+
+**The two guards are named, not numbered**, and if you have read an older
+copy of this file or an older commit message they were "guard 1" and "guard
+2". The numbering was the reason the distinction kept getting lost, because
+nothing about "1" and "2" says which is which:
+
+| name | what it bounds | can it be raised? |
+|---|---|---|
+| **`KERN_BUDGET`** | the **footprint** — this whole span, RAM taken from the machine | yes, by asking (see below) |
+| **`KERN_CODE_MAX`** | the **segment** — `.text` + `.bss` in one 64KB window | **no.** It is what a 16-bit offset reaches |
+
+They are relieved by different things, and that is the distinction that
+matters in practice: the boot overlay (SPEC.md §2.5) and the cold segment
+(SPEC.md §2.6) buy room against `KERN_CODE_MAX` and **nothing at all**
+against `KERN_BUDGET` — overlay code is still read off the disk into the FAT
+window, cold code is still resident. Moving a module cold to fix a footprint
+overrun is a no-op that looks like a fix.
 
 **There is exactly one deliberate exception**, and it is a heap claim rather
 than a reservation: the menu save-under (SPEC.md §12.4), which exists only
@@ -58,11 +75,12 @@ build fix.** Raise `KERN_BUDGET` only after explaining to whoever asked for
 the feature what it costs and getting an explicit yes. The guard's error
 message points here for that reason.
 
-### The four raises
+### The five moves
 
 `KERN_BUDGET` was 65,536 — the first 64KB above the BIOS data area, which is
-where the "one region" rule came from. It has moved four times, each one
-asked for and granted:
+where the "one region" rule came from. It has moved five times; the four
+raises were each asked for and granted, and the fifth move is the first one
+downward:
 
 | | budget | bought |
 |---|---:|---|
@@ -70,6 +88,7 @@ asked for and granted:
 | 2 | 71,680 → **72,704** (71KB) | the loadable sound driver (SPEC.md §51) and the Control Panel pages that drive it |
 | 3 | 72,704 → **76,800** (75KB) | SPEC.md §51.5's keyed `SYSTEM.CFG` — a settings file where nothing is positional costs a key table, a bounded record walker and a writer |
 | 4 | 76,800 → **80,896** (79KB) | the file manager's Cut/Copy/Paste, its recursive paste engine and the drag (SPEC.md §22.3/§22.4) |
+| 5 | 80,896 → **74,240** (72.5KB) | *nothing — this one gives back.* The optimisation passes after raise 4 (the Task Manager to the system disk, the Control Panel cold, the clock ladder and the glyph table out) left the kernel at 72,192 with **8,704 bytes** of budget above it. Slack that large is the guard switched off: any addition short of 8KB passed without the conversation this constant exists to force. 74,240 leaves 2,048 — enough that a bug fix does not trip it, small enough that a feature does. It frees **no RAM**, and is not meant to: `HEAP_SEG` is `KERN_END`, so the heap always started where the kernel actually ends. The slack was costing scrutiny, not memory |
 
 Raise 2 is the one that **bought more than it spent**: `sndfm.inc` and
 `sndsb.inc` were 3,260 lines of resident kernel code on every machine whether
@@ -90,41 +109,44 @@ up one canvas tier for it, and the 128KB RAM floor is untouched.
 relocated boot sector's stack. It is mirrored in `boot/boot.asm` and the two
 must change together.
 
-### The segment is what binds now, not the budget
+### `KERN_BUDGET` is what binds, and now decisively
 
 `.text` + `.bss` are addressed through one segment with 16-bit offsets, so
-guard 2 caps them at 65,536 **whatever the budget says**. That limit is
-untouched and cannot be raised at all.
+`KERN_CODE_MAX` caps them at 65,536 **whatever the budget says**. That limit
+is untouched and cannot be raised at all.
 
 For most of this project's life the budget was the tighter of the two, which
-is the intended order — a budget is a decision and a segment is physics. It
-is no longer true:
+is the intended order — a budget is a decision and a segment is physics. That
+stopped being true when hard-disk support took the segment to 71 bytes free,
+and it is true again, by a wide margin, now that the budget has come down to
+72.5KB:
 
-| | headroom for `.text` + `.bss` |
+| | headroom |
 |---|---:|
-| guard 2, the segment | **10,626 B** |
-| guard 1, the budget | 9,216 B |
+| `KERN_CODE_MAX`, the segment | 10,434 B for `.text` + `.bss` |
+| **`KERN_BUDGET`, the footprint** | **2,048 B** for the whole span |
 
-At 54,910 bytes of image **guard 1 is the tighter of the two**, and by a
-comfortable margin at both ends. The segment used to run out first, and
-hard-disk support (below) is what took it to 71 bytes; the `.lowbss`
-migration, the halved stacks, the boot overlay, the cold segment and finally
-moving the Task Manager out to a package (SPEC.md §28) are what bought it
-back — 71 bytes to 11,559 across those five, spent back down to 10,920 by
-the copy pipeline, the per-volume FAT windows (§18.9/§18.8.1) and the review
-fixes that followed them. So the next thing to hit is a
-conversation about `KERN_BUDGET` rather than the hard 16-bit ceiling, which
-is the intended order: a budget is a decision and a segment is physics.
+So the next thing to hit is a conversation about `KERN_BUDGET`, and it will
+be hit early rather than after 9KB of unexamined growth. The segment used to
+run out first, and hard-disk support (below) is what took it to 71 bytes; the
+`.lowbss` migration, the halved stacks, the boot overlay, the cold segment
+and finally moving the Task Manager out to a package (SPEC.md §28) are what
+bought it back — 71 bytes to 11,559 across those five, spent back down to
+10,434 by the copy pipeline, the per-volume FAT windows (§18.9/§18.8.1), the
+review fixes and the mouse hot-plug poller that followed them.
 
 The two are also coupled through the rounding, and that coupling is
-load-bearing in both directions. **The image rung is still 65,536 bytes — the
-segment maximum exactly** — so guard 1's spare cannot be spent on code at any
-price; only the buffers and stacks reach it. And a byte moved from `.bss` to
-`.lowbss` is guard-2 positive but guard-1 *negative* until the image falls far
-enough to drop a 512-byte step: when the `.lowbss` rung is full, the very
-first byte moved costs a whole step. That is why the migration below and the
-stack halving had to land together — the first was not affordable without the
-second.
+load-bearing in both directions. **The image rung was pinned at 65,536 bytes
+— the segment maximum exactly — for as long as the segment was full**, and
+while it was, the budget's spare could not be spent on code at any price;
+only the buffers and stacks reached it. And a byte moved from `.bss` to
+`.lowbss` helps `KERN_CODE_MAX` but *hurts* `KERN_BUDGET` until the image
+falls far enough to drop a 512-byte step: when the `.lowbss` rung is full,
+the very first byte moved costs a whole step. That is why the migration below
+and the stack halving had to land together — the first was not affordable
+without the second. With only 2,048 bytes of budget spare, that direction
+matters again: **moving data out of the segment is no longer free**, and four
+512-byte steps is the whole of the remaining headroom.
 
 ---
 
@@ -138,21 +160,28 @@ out of the same constants the guards use.
 | image (`.text` + `.bss`) | 55,296 B | all kernel code, its read-only data, and its scratch |
 | task stacks | 3,840 B | 11 background slots of 256 B + task 0's 1,024 |
 | `.lowbss` tables | 1,268 B | the glyph table, `mem_tab`, `menu_bar` and the two built-in state pools |
-| cold code | 3,072 B | the Control Panel's 3,057 bytes of code, resident but in a segment of its own |
+| cold code | 3,584 B | the Control Panel's 3,074 bytes of code, resident but in a segment of its own |
 | the boot overlay | 0 B | 2,504 bytes of code inside the FAT window, gone by the first mount |
 | disk buffers | 3,584 B | directory cache, icon cache, sector scratch |
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
-| **total** | **71,680 B** | of an 80,896-byte budget — 9,216 B spare |
+| **total** | **72,192 B** | of a 74,240-byte budget — 2,048 B spare |
 
-The image rung is `.text` (51,431) + `.bss` (3,479) = 54,910, rounded up to a
-whole 512 bytes; the 386-byte remainder is the only slack anywhere in the
+The image rung is `.text` (51,623) + `.bss` (3,479) = 55,102, rounded up to a
+whole 512 bytes; the 194-byte remainder is the only slack anywhere in the
 ladder, and it is a rounding artefact rather than a reservation. **The rung
 is no longer pinned at the segment maximum** — it was, from hard-disk support
-until the Task Manager left, and while it was, guard 1's spare could not be
-spent on code at any price.
+until the Task Manager left, and while it was, the budget's spare could not
+be spent on code at any price.
 
 The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0DE0,
-`FAT_SEG` 0x0EA0, `LOW_SEG` 0x0FC0, `HEAP_SEG` 0x11E0.
+`FAT_SEG` 0x0EC0, `LOW_SEG` 0x0FE0, `HEAP_SEG` 0x1200.
+
+**The cold rung is where the rounding last bit.** The Drivers-page fix added
+seventeen bytes of `ctrl.inc` — 3,057 → 3,074 — which crossed the 3,072
+boundary and moved the rung 3,072 → 3,584. Seventeen bytes of code, 512 bytes
+of footprint. With 2,048 bytes of budget spare that is a quarter of the
+headroom, and it is the clearest available demonstration of why a rung step
+is the unit to reason in rather than a byte count.
 
 Everything above that is the claim heap, up to whatever int 12h reports. The
 arithmetic is exact and worth writing down, because every RAM figure in this
@@ -512,7 +541,9 @@ package calls into empty memory.
 | the copy pipeline, write runs and a FAT window per volume (§18.9/§18.8.1/§22.5) | 79 KB | 69.5 KB |
 | the review fixes: park banks unconditionally, ES discipline, floor guards | 79 KB | 69.5 KB |
 | the elendilon merge: paste and zone-grid repaints, Arkanoid pause | 79 KB | 70 KB |
-| ...and where it stands now | 79 KB | **70 KB** (71,680 B) |
+| the mouse reset edge and hot-plug poller; the Drivers page's "stop asking" | 79 KB | 70.5 KB |
+| the guards renamed, and `KERN_BUDGET` lowered onto the kernel (move 5) | **72.5 KB** | 70.5 KB |
+| ...and where it stands now | 72.5 KB | **70.5 KB** (72,192 B) |
 
 The last row is the one to re-measure rather than trust: it moves with every
 commit that adds code, and it is not the budget — it is what the budget is
@@ -819,14 +850,14 @@ checkable:
 
 Both steps are throwaway; nothing in the tree needs to carry them. The
 constants they check (`KTEXT_SIZE`, `KBSS_SIZE`, `KLOW_SIZE`, `KERN_SIZE`)
-are the same ones the guards use, so a build that passes guard 1 already
-agrees with the totals above.
+are the same ones the guards use, so a build that passes `KERN_BUDGET`
+already agrees with the totals above.
 
 ---
 
 ## Moving data out of the segment, and where that stops
 
-Guard 2 counts `.text` + `.bss`. It does **not** count `.lowbss`, which lives
+`KERN_CODE_MAX` counts `.text` + `.bss`. It does **not** count `.lowbss`, which lives
 in `LOW_SEG` and is reached through SS — so a table moved from one to the
 other costs the kernel nothing in RAM and hands its whole size back to the
 binding guard. `SS` is `LOW_SEG` from `kmain` onwards and never changes
@@ -1001,8 +1032,8 @@ land in whatever the FAT buffer happens to hold.
 
 The boot overlay works because its code is *transient*. Most cold code is not:
 the Control Panel has to be there whenever the user opens it. `.cold` is for
-that — a second code segment, resident for the whole session, that guard 2
-cannot see.
+that — a second code segment, resident for the whole session, that
+`KERN_CODE_MAX` cannot see.
 
 **This is `.fartext` returning, and both reasons it was retired have
 inverted.** It died (SPEC.md §33) because the mechanism needed a fixed
@@ -1023,7 +1054,7 @@ reference in the module is unchanged, its own included. Only calls moved:
 | Control Panel code into `.cold` | −2,676 |
 | 29 `cw_*` shims for what it calls back (4 bytes each) | +116 |
 | 7 resident thunks for what calls *it* | +42 |
-| **net off guard 2** | **−2,518** |
+| **net off `KERN_CODE_MAX`** | **−2,518** |
 
 **The module had already been split once**, and the split was still in the
 file: two bare `section .text` directives, one of them under the comment
@@ -1056,8 +1087,9 @@ single module left — and it went somewhere better instead. See below.
 
 ## The Task Manager leaves the kernel
 
-A cold segment would have taken about 4,900 bytes off guard 2 and **nothing**
-off guard 1: cold code is resident, so the footprint is unchanged. Making it
+A cold segment would have taken about 4,900 bytes off `KERN_CODE_MAX` and
+**nothing** off `KERN_BUDGET`: cold code is resident, so the footprint is
+unchanged. Making it
 a package on the system disk took 6,040 off *both* — the span went 76 KB → 69
 KB and the segment gained 5,380 — and the memory it uses is now spent only
 while the window is open. SPEC.md §28 has the design; what is worth recording
@@ -1077,7 +1109,7 @@ the module move. That way the API was proved sufficient while the code was
 still somewhere a debugger could reach, and a missing field showed up with
 everything else unchanged.
 
-| | guard 2 | guard 1 |
+| | `KERN_CODE_MAX` | `KERN_BUDGET` |
 |---|---:|---:|
 | four API cells, module still built in | +1,240 | +1,024 |
 | the module leaves (`taskmgr.inc`, 6,279) | −6,279 | −5,632 |
@@ -1085,9 +1117,9 @@ everything else unchanged.
 | unwiring the kind, its icon and `tm_init` | −682 | −1,024 |
 | **net** | **−5,380** | **−5,120** |
 
-(The guard-1 column moves in 512-byte steps because the image rung rounds to
-whole sectors, which is why its arithmetic does not match guard 2's row for
-row.)
+(The `KERN_BUDGET` column moves in 512-byte steps because the image rung
+rounds to whole sectors, which is why its arithmetic does not match
+`KERN_CODE_MAX`'s row for row.)
 
 The cost is real and worth stating in the same place as the saving: opening
 the Task Manager now needs a working disk and about 7.3 KB of free heap, on
@@ -1104,9 +1136,9 @@ puts up a notice naming the reason.
 
 Adding the volume table, the FAT window, driver-owned Control Panel pages and
 volume-driven desktop zones (SPEC.md §18.7, §18.8, §26.1, §31.9, §51.2.1) took
-about 1,700 bytes of `.text`. It overran **guard 2** — `.text` + `.bss` inside
-one 64KB segment — which is the 16-bit offset and cannot be raised at any
-price.
+about 1,700 bytes of `.text`. It overran **`KERN_CODE_MAX`** — `.text` +
+`.bss` inside one 64KB segment — which is the 16-bit offset and cannot be
+raised at any price.
 
 **What paid for it was the per-instance icon table**: 768 bytes of `.bss`
 holding a COPY of each loaded package's 16x16 icon body, made at load time.
@@ -1151,12 +1183,12 @@ the park/pick/claim/drop routines.
 Where that leaves the two guards, on this build:
 
 ```
-guard 2  .text + .bss   54,910 / 65,536  10,626 bytes
-guard 1  KERN_SIZE      71,680 / 80,896   9,216 bytes
+KERN_CODE_MAX  .text + .bss   55,102 / 65,536  10,434 bytes
+KERN_BUDGET    KERN_SIZE      72,192 / 74,240   2,048 bytes
 ```
 
-`KERN_BUDGET` was **not** raised for any of this, and guard 2 was the binding
-one for a while afterwards — 71 bytes free at its worst. Every candidate named
+`KERN_BUDGET` was **not** raised for any of this, and `KERN_CODE_MAX` was the
+binding one for a while afterwards — 71 bytes free at its worst. Every candidate named
 here at the time has since been spent, in this order: the bulk `.bss` arrays
 that are walked through a pointer rather than addressed by name went to
 `.lowbss` and the background stacks halved (§ *Moving data out of the
@@ -1166,6 +1198,8 @@ cold (§ *Cold code*); and the Task Manager left the kernel entirely for a
 package on the system disk (SPEC.md §28), which is the only one of the four
 that came off **both** guards.
 
-That is 71 bytes to 11,559 (10,920 after the copy engine and the review
-fixes), and guard 1 is the tighter of the two again — the intended order,
-since a budget is a decision and a segment is physics.
+That is 71 bytes to 11,559 (10,434 after the copy engine, the review fixes
+and the mouse poller), and `KERN_BUDGET` is the tighter of the two again — the intended
+order, since a budget is a decision and a segment is physics. Lowering the
+budget onto the kernel (move 5 above) is what made it tighter by 5x rather
+than by a hair.

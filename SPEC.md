@@ -134,14 +134,25 @@ the floor is **128KB of RAM** rather than 256KB.
 | 0xB0000       | 0xB000  | Hercules framebuffer, 4 banks × 0x2000, 90 bytes/row (§39) — mono adapters only |
 | 0xB8000       | 0xB800  | CGA framebuffer, 2 banks × 0x2000, 80 bytes/row (§39) — mono adapters only |
 
-**The kernel is the first four rungs, and it fits in 64KB.** `KERNEL_SEG`
-through the top of task 0's stack is one contiguous span — code, read-only
-data, `.bss`, the FAT snapshot, the disk caches, the sector buffer and every
-task stack — and guard 1 (§15.1) holds the whole of it to `KERN_BUDGET` =
-65,536, the first 64KB above the BIOS data area. It measures 65,024 bytes
-on the shipped build. **`docs/KERNEL-MEMORY.md` is the maintained account of
-what that is spent on**; raising `KERN_BUDGET` is a decision to be taken
-with whoever asked for the feature, not a build fix.
+**The kernel is the first four rungs, and it fits `KERN_BUDGET`.**
+`KERNEL_SEG` through the top of task 0's stack is one contiguous span — code,
+read-only data, `.bss`, the FAT snapshot, the disk caches, the sector buffer
+and every task stack — and the **`KERN_BUDGET`** guard (§15.1) holds the whole
+of it to 74,240 bytes (72.5KB) just above the BIOS data area. It measures
+72,192 bytes on the shipped build, so 2,048 are spare. **`docs/KERNEL-MEMORY.md`
+is the maintained account of what that is spent on**; raising `KERN_BUDGET` is
+a decision to be taken with whoever asked for the feature, not a build fix.
+
+**The two guards are named, not numbered, and they bind different things.**
+`KERN_BUDGET` is the **footprint** — the span above, RAM taken from the
+machine. **`KERN_CODE_MAX`** is the **segment** — `.text` + `.bss` inside one
+64KB window, because a kernel offset is 16 bits. `KERN_BUDGET` is a policy
+figure and can be raised by asking; `KERN_CODE_MAX` cannot be raised by
+anyone. The boot overlay (§2.5) and the cold segment (§2.6) buy room against
+`KERN_CODE_MAX` and **nothing at all** against `KERN_BUDGET`: overlay code is
+still read off the disk into the FAT window, cold code is still resident.
+They were "guard 1" and "guard 2" until the numbering was found to be the
+reason that distinction kept getting lost.
 
 The one deliberate exception is the menu save-under (§12.4), which is a heap
 **claim** rather than a reservation: 20KB that exists only while a pull-down
@@ -351,9 +362,9 @@ CS here, DS still `KERNEL_SEG` — and the same shim discipline, but **it does
 not go away**. It sits between the image rung and the FAT window, so it
 rides the same contiguous boot read, and it is live for the whole session.
 
-What it buys is guard 2 and nothing else: cold code is inside
-`KERN_BUDGET`'s span (§15.1 guard 1) and outside the kernel's own 64KB
-segment, which since hard-disk support is the binding limit. The Control
+What it buys is `KERN_CODE_MAX` and nothing else: cold code is inside
+`KERN_BUDGET`'s span (§15.1) and outside the kernel's own 64KB segment,
+which since hard-disk support is the binding limit. The Control
 Panel's three code runs are what live there — a module that is large, cold
 enough that a far call per entry costs nothing measurable, and needed on
 exactly the machine where things are going wrong, so it must stay resident.
@@ -371,7 +382,8 @@ Nothing is copied here and nothing is reserved.
 KERNEL_SEG   equ 0x0800                ; linear 0x08000 - guard 8 fences it
 VGA_SEG      equ 0xA000                ; against the boot sector at 0x7C00
 ; the memory ladder (§2) - each rung is the one below plus its size
-KERN_BUDGET  equ 65536                 ; the WHOLE kernel, guard 1 (§2)
+KERN_BUDGET  equ 74240                 ; the WHOLE kernel's footprint (§2)
+KERN_CODE_MAX equ 65536                ; .text + .bss in one segment (§2)
 KIMG_PARA    equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 32   ; 512-rounded
 FAT_SEG      equ KERNEL_SEG + KIMG_PARA   ; FAT snapshot, via ES ONLY (§18)
 DSK_FAT_SECS equ 9                     ; resident FAT cap, sectors (4,608 B)
@@ -381,7 +393,7 @@ LOW_PARA     equ ((KLOW_SIZE + STK0_SIZE + 511) / 512) * 32
 STK0_SIZE    equ 1024                  ; task 0's own stack (§2.1)
 STK0_TOP     equ KLOW_SIZE + STK0_SIZE - 2
 KERN_END     equ LOW_SEG + LOW_PARA    ; ...and there the kernel stops
-KERN_SIZE    equ (KERN_END - KERNEL_SEG) * 16  ; what guard 1 measures
+KERN_SIZE    equ (KERN_END - KERNEL_SEG) * 16  ; what KERN_BUDGET measures
 HEAP_SEG     equ KERN_END              ; the claim heap (§50). There is no
                                        ; package pool: a region is a claim
 ; VGA reference geometry, and the initializers of the live block (§39.2);
@@ -3049,8 +3061,8 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 %if KERN_SIZE > KERN_BUDGET
 %error "kernel too big: it must fit KERN_BUDGET - see docs/KERNEL-MEMORY.md"
 %endif
-%if KTEXT_SIZE + KBSS_SIZE > 65536
-%error "kernel image + bss overflows one 64KB segment"
+%if KTEXT_SIZE + KBSS_SIZE > KERN_CODE_MAX
+%error "kernel image + bss overflows KERN_CODE_MAX - one 64KB segment"
 %endif
 %if STK0_SIZE < 512
 %error "STK0_SIZE is too small to be a stack"
@@ -3072,11 +3084,13 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 %endif
 ```
 
-**Guard 1 is the one the project is steered by**: the kernel's whole
+**`KERN_BUDGET` is the one the project is steered by**: the kernel's whole
 footprint — image, scratch, FAT snapshot, disk buffers and every task stack
-— against 64KB (§2). Raising `KERN_BUDGET` is a decision to be taken with
+— against 74,240 bytes (§2). Raising it is a decision to be taken with
 whoever asked for the feature, which is why its message points at
 `docs/KERNEL-MEMORY.md` rather than telling you what to edit.
+**`KERN_CODE_MAX`** is the guard immediately below it, and no conversation
+can move that one: 65,536 is what a 16-bit offset reaches.
 
 Guard 4 is the menu save-under, the one kernel buffer deliberately outside
 that budget because it is a heap claim (§12.4/§50) that exists only while a
@@ -4418,11 +4432,40 @@ path is derived from an unvalidated field.
 
 ### 19.3 The system disk — a FAT12 volume with the kernel in its reserved area
 
-The disk os8088 boots from is a **real FAT12 volume**: DOS, Linux and macOS
-mount it, and so do os8088's own file manager and write path. That is not
-cosmetic — it is what gives loadable drivers (§51) a place to live and
-settings a place to be kept, without a second on-disk format and a second
-set of readers.
+The disk os8088 boots from is a **real FAT12 volume**, mounted by os8088's own
+file manager and write path and by any reader that honours the BPB. That is
+not cosmetic — it is what gives loadable drivers (§51) a place to live and
+settings a place to be kept, without a second on-disk format and a second set
+of readers.
+
+**DOS is not such a reader, and that is a real limitation of this design
+rather than a bug in the image.** DOS builds a *floppy's* BPB from its own
+table of standard formats rather than from the boot sector — the Build BPB
+device-driver call is handed the first sector of the FAT, not sector 0 — so
+it never sees `BPB_RsvdSecCnt` and puts the FAT and root directory at the
+standard offsets. On this disk those offsets hold the **kernel**, so DOS
+parses machine code as file system: garbled directory entries and **52,224
+bytes free** on the 360KB disk, which is 51 free clusters of the kernel's own
+bytes read as a FAT. Modelling that reading against the shipped image
+reproduces the figure to the byte, and it is the signature of this and
+nothing else.
+
+**Verified on PC-DOS 3.30 and MS-DOS 5.00, identical results** — so this is
+not a quirk of one vintage that a later one fixes. A boot-sector BPB is what
+DOS reads for a hard-disk partition; for a standard floppy format it is not
+consulted at all. The disk is undamaged either way: os8088 reads it
+correctly, and a cold boot from it works normally.
+
+The **data** disks are unaffected — `apps.img` and `apps360.img` have
+`RsvdSecCnt` = 1 and are entirely ordinary, so DOS reads those normally
+(§19).
+
+There is no arrangement that satisfies both: DOS insists the FAT and root
+directory occupy the sectors the kernel is in. Making the system disk readable
+on that vintage means moving the kernel out of the reserved area and into the
+data area as a contiguous hidden file, with its start LBA injected into
+`boot/boot.asm` beside `KERNEL_SECTORS` — which is a change to the boot
+layout, not a build detail.
 
 The trick is one field. `BPB_RsvdSecCnt` covers the sectors between the boot
 sector and FAT1 — the reserved area, which belongs to the boot loader by
