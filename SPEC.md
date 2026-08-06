@@ -3178,20 +3178,22 @@ run time, §39.6), plus on VGA the right-aligned percentage and one
 spin step of the vector "8088" (cosine-scaled about its vertical axis,
 angle index = AX mod 16). Mono gets the bar alone: the dialog does not fit
 in 200 rows, and int 10h teletype into a Hercules already in graphics
-writes character/attribute pairs into the bitmap. kmain's own `vid_init`
-then wipes the splash.
+writes character/attribute pairs into the bitmap. **The splash then stays on
+screen for the whole of kmain and keeps ticking** — §15.3.
 
 kmain: set DS/ES = `KERNEL_SEG` and SS:SP = `LOW_SEG:STK0_TOP` (§2.1),
 `sti`, `cld`, then:
 `sched_init` → `evq_init` → `clk_init` (§37 — the RTC probe, before the
 mode set so a machine without one is dated from the fallback constants
-from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe,
-apply and mode set) → `bb_init` (§32 — the RAM probe
+from the first paint onward) → `vid_init` (§39 — re-runs the splash's probe
+and apply, and **skips the mode set while the splash is live**, §15.3) →
+`bb_init` (§32 — the RAM probe
 must run after the mode set, which clears VRAM, and before the first
 drawing call) → `font_init` → `wm_init` →
 `inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
-`snd_init` (§34.7 — publishes `snd_live` last) → gfx_lock →
-`wm_paint_all` → gfx_unlock → `cursor_show` → jump
+`snd_init` (§34.7 — publishes `snd_live` last) → `drv_boot` (§51.3) →
+`spl_finish` (§15.3) → gfx_lock →
+`wm_paint_all` → gfx_unlock → `cursor_show` → `drv_notice` (§51.3) → jump
 into `ui_task` (task 0 never returns). (`dock_init` runs right after
 `desk_init`.) **Clean boot**: no app instances exist — the first paint
 shows only the desktop, drive icons, the empty dock strip and menu bar;
@@ -3323,6 +3325,72 @@ runs correctly at 0000:7C00 where the BIOS put it.
 
 `BOOT_RELOC` and `KERNEL_SEG` are mirrored in `kernel/kernel.asm`, whose
 guard 7 proves the kernel ends clear of the relocated stack.
+
+### 15.3 The bar does not stop at the last sector of the kernel
+
+The progress bar used to reach 100% when the boot sector's final sector
+landed, and `vid_init`'s mode set then wiped the whole loading screen — with
+several seconds of kmain still to run. On the field machine (Part 2 of
+PERFORMANCE.md: **238 ms per floppy sector**) that tail is:
+
+| after the last sector of the kernel | cost |
+|---|---|
+| `vid_init`, `font_init`, the rest of the init calls | milliseconds |
+| `mouse_init` — DTR/RTS held low `MOU_RSTLOW` ticks | ~165 ms |
+| `drv_boot` — mount A:, read `SYSTEM.CFG` (**13 sectors**) | **~3.1 s** |
+| ...and a driver `SYSTEM.CFG` asked for (**+27 sectors**) | +6.4 s |
+| `wm_paint_all` — 85 fills + 48 glyphs | ~250 ms |
+
+So the user watched a full bar, then a blank screen, for three seconds on a
+plain boot and nearly ten on a configured one. **The bar is priced in floppy
+sectors and so is the tail**, which is the whole of why this is cheap to fix
+rather than a matter of guessing weights.
+
+Three parts, all in `splash.inc` except the hooks:
+
+- **`SPL_POST` notches are added to the DENOMINATOR** by `spl_tick`, which
+  sees the boot sector's total once per tick. 16 today: thirteen for the
+  mount and three for kmain's phases that are not I/O.
+- **`spl_step`** spends one notch and repaints. `dsk_xfer` calls it **once
+  per sector transferred**, so the mount and any driver read advance the bar
+  exactly as the kernel's own load did; kmain calls it at the three phase
+  boundaries. It preserves **every register and the flags** — its hot caller
+  is the middle of a transfer loop — and it is a compare and a `ret` once the
+  splash is down, which is what makes leaving it on the disk path for the
+  life of the machine free (~13 us against a sector's 238 ms).
+- **`spl_finish`** forces the bar to 100%, repaints once and clears
+  `[spl_live]`. kmain calls it immediately before the first `wm_paint_all`,
+  which is the last moment a full bar is true — and no erase is needed,
+  because that paint covers every pixel (the menu bar's field, the desktop
+  dither *over* the dock strip, then the dock).
+
+Four things are load-bearing:
+
+1. **`[spl_live]` is not `[spl_on]`.** `spl_on` is `spl_tick`'s
+   "the chrome has been drawn" latch; `spl_live` means the splash **owns the
+   screen and the video mode**, and it stays true right through kmain.
+   `vid_init` reads it and skips `vid_setmode` (§39.1) — the mode is already
+   set, and setting it again is precisely what used to wipe the screen.
+   The probe and the publish still re-run and must: everything between there
+   and the paint reads `[vid_w]`/`[vid_h]`/`[vid_stride]`.
+2. **`bb_set` moved to the END of `drv_boot`** (§32/§51.3). It seeds the back
+   buffer *from VRAM*, and until the paint VRAM holds the loading screen — a
+   buffer armed ahead of the reads swallows every notch after it, because a
+   direct VRAM write is what the next flush undoes. Nothing about the heap
+   depends on the order: data claims grow up and a driver's region down
+   (§50.3).
+3. **The allowance is a clamp, not a scale.** `spl_step` stops at
+   `total - 1`, so the last notch always belongs to `spl_finish` and a boot
+   that overruns crowds up against 100% instead of claiming to be finished.
+   `SPL_POST` is tuned for the common boot — a `SYSTEM.CFG` that asks for no
+   driver, which lands on 140 of 141 by itself — and a machine that has
+   enabled one waits at 99% for its 27 sectors. That is strictly better than
+   what every boot used to do for all of it, and it cannot be fixed by
+   raising the total mid-run: the fill is `done × 288 / total`, so raising
+   the denominator makes the bar go **backwards**.
+4. **Mono gets the bar alone**, here as during the load — `spl_paint` is the
+   one frame routine both callers share, so the two cannot disagree about
+   what a frame is.
 
 ## 16. Build & test
 
@@ -11159,8 +11227,12 @@ itself being set behind the BIOS's back (§39.6).
 ### 39.6 Mode set and teardown
 
 `vid_setmode` is idempotent and safe to re-run with the card already in
-graphics. VGA and CGA get their mode — and their clear — from the BIOS.
-Hercules has no BIOS mode at all:
+graphics — but **it is not free of side effects, and `vid_init` no longer
+re-runs it blind**: it clears the framebuffer, and while the splash is still
+on screen that clear is the whole loading screen (§15.3). `vid_init` skips it
+when `[spl_live]` is set; the probe and the publish always re-run. VGA and
+CGA get their mode — and their clear — from the BIOS. Hercules has no BIOS
+mode at all:
 
 ```
 out 3BFh, 1                     ; configuration: graphics allowed, page 0 only
@@ -15184,11 +15256,35 @@ DRVE_MEM    the heap cannot fund it
 DRVE_HW     it loaded and found no hardware
 ```
 
+**Nothing loads that `SYSTEM.CFG` did not ask for, and no row is wanted by
+default.** Both `drv_tab` rows ship with `DRVR_WANT` = 0. The sound row used
+to ship with 1, so a freshly built image — which carries no `SYSTEM.CFG` at
+all — read the whole 5.5KB driver off the floppy on every boot to be told
+there was no card: **27 sectors, about 6.4 seconds** at the field machine's
+238 ms per sector (PERFORMANCE.md Part 2), and then a Control Panel opened
+on a failure nobody had asked for. A driver probes hardware and costs a
+floppy read; both are the user's to ask for, and the tick in the Drivers page
+is both the request and the record of it. The kernel does not guess.
+
+The consequence is deliberate and worth stating plainly: **a fresh image has
+no FM and no digital sound until the Drivers page is ticked once.** The tone
+tier still works — it stays on the PC speaker, which is where it lives when
+no driver publishes `DSV_TONE` (§34) — and the tick loads the driver on the
+spot (§51.4), so the cost of the default is one click, once, on the machines
+that have a card.
+
 The ordering at boot is binding. **`drv_boot` runs before the desktop's first
 paint**, so a machine whose sound driver loads has sound from the first
 frame. **`drv_notice` runs after it**, because a window cannot go up on a
 screen that has not been painted — so a failure is banked in the row and
-reported later, never where it happens.
+reported later, never where it happens. The whole of `drv_boot` is also on
+the boot progress bar: it is floppy sectors, and `dsk_xfer` ticks the bar per
+sector for as long as the loading screen is up (§15.3).
+
+**`bb_set` is the last thing `drv_boot` does**, after the load loop, for the
+§15.3 reason: it seeds the back buffer from VRAM, and until the first paint
+VRAM holds the loading screen. The heap does not care which end it happens
+at — data claims grow up and a driver's region down (§50.3).
 
 `drv_notice` opens the **Control Panel on its Drivers page** rather than
 putting up a notice of its own, and that is a design rather than a saving:
@@ -15278,8 +15374,10 @@ torn or corrupt file therefore costs the settings it did not carry and nothing
 else.
 
 A missing or malformed file means **the defaults**, never an error — which is
-what makes a freshly built image boot with sound enabled and a disk with a
-foreign `SYSTEM.CFG` boot at all.
+what makes a freshly built image, and a disk carrying a foreign
+`SYSTEM.CFG`, boot at all. Since every `DRVR_WANT` default is now 0 (§51.3),
+that also means a machine with no settings file **loads no driver and probes
+no hardware**: the file is the only thing that can ask.
 
 The settings write is a **separate outcome from the load**, and the Control
 Panel reports them separately: a load that succeeds and a save that cannot
@@ -15470,10 +15568,12 @@ button — because the kernel's half of this is four API slots and a volume
 table, and nothing above them belongs in a kernel that boots machines with no
 hard disk at all.
 
-It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0), unlike the
-sound driver: this one probes controllers, and a machine with neither should
-not be poking at 1F0h every boot to be told so. The Drivers page turns it on
-and `SYSTEM.CFG` remembers.
+It is **not wanted by default** (`drv_tab` row 1, `DRVR_WANT` = 0): this one
+probes controllers, and a machine with neither should not be poking at 1F0h
+every boot to be told so. The Drivers page turns it on and `SYSTEM.CFG`
+remembers. The sound row shipped with a 1 here for a while and has since
+joined it at 0, for the same reason plus the read (§51.3) — **no row is
+wanted by default now**, and this passage is the argument that generalised.
 
 ### 52.1 The transport ladder
 
