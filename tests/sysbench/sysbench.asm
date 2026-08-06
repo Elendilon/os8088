@@ -1701,8 +1701,12 @@ SB_O_RES   equ SB_O_SYSKB + SYSKB_SIZE
 SB_O_RROW  equ SB_O_RES + SB_NCPU * 4
 SB_O_RAM   equ SB_O_RROW + SB_BWROWS * 2
 SB_O_RAM2  equ SB_O_RAM + SB_BWBYTES
-SB_BSS_OWN equ SB_O_RAM2 + SB_BWBYTES
+SB_BSS_OWN equ ((SB_O_RAM2 + SB_BWBYTES + 511) / 512) * 512   ; benchlib's base must be
+                                        ; 512-ALIGNED: bl_out is an int 13h target
 
+    align 512                   ; ...and os88_image_end likewise, which this
+                                ; costs up to 511 bytes of image and buys the
+                                ; alignment of every bss offset below
     OS88_BSS SB_BSS_OWN + BL_BSS_SIZE
     OS88_IMAGE_END
 

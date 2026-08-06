@@ -1980,8 +1980,12 @@ GB_O_RROW   equ GB_O_VROW + GB_BWROWS * 2
 GB_O_RAM    equ GB_O_RROW + GB_BWROWS * 2
 GB_O_SOLID  equ GB_O_RAM + GB_BWBYTES
 GB_O_STRIPE equ GB_O_SOLID + GB_BLITSZ
-GB_BSS_OWN  equ GB_O_STRIPE + GB_BLITSZ
+GB_BSS_OWN  equ ((GB_O_STRIPE + GB_BLITSZ + 511) / 512) * 512   ; benchlib's base must be
+                                        ; 512-ALIGNED: bl_out is an int 13h target
 
+    align 512                   ; ...and os88_image_end likewise, which this
+                                ; costs up to 511 bytes of image and buys the
+                                ; alignment of every bss offset below
     OS88_BSS GB_BSS_OWN + BL_BSS_SIZE
     OS88_IMAGE_END
 

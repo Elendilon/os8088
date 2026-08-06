@@ -1107,6 +1107,28 @@ bl_key:
 ; UI-task context only, which every caller of this is (a menu command or a key
 ; handler). The lines go out CR LF terminated so a DOS or a modern host reads
 ; the file as text without a converter.
+;
+; --- WHY bl_out IS 512-ALIGNED, AND WHY QEMU WILL NEVER TELL YOU -------------
+;
+; dsk_xfer issues `int 13h` DIRECTLY TO ES:BX. There is no staging buffer: the
+; floppy controller's DMA reads the bytes out of THIS package's memory. An ISA
+; bus master cannot carry into the 8237's page port, so a transfer that would
+; cross a 64KB PHYSICAL boundary wraps to the start of its page and moves the
+; wrong memory instead - which is why every disk-visible base in this system is
+; 512-byte aligned (CLAUDE.md; a 512-aligned start plus 512 bytes cannot cross
+; one). A package's bss offset is aligned to nothing at all.
+;
+; So BL_BSS puts bl_out first and the caller passes a base that is a multiple
+; of 512: `align 512` before OS88_IMAGE_END makes os88_image_end one, the
+; caller's own bss size is rounded up to one, and the loader's region base
+; already is one (roundup512 of image+bss, claimed in whole KB). The offset is
+; then a multiple of 512 from a 512-aligned base, which is what dskw_norm's
+; arithmetic needs.
+;
+; None of this can fail under QEMU, whose floppy DMA does not model the page
+; wrap - PERFORMANCE.md Part 3's shape exactly, one layer down. The symptom on
+; real hardware is a saved report full of memory that belongs to something
+; else, or a "Disk error" on the save.
 ; -----------------------------------------------------------------------------
 bl_save:
     push ax
@@ -1200,12 +1222,16 @@ bl_s_werr:  db 'SAVE FAILED', 0
 ; and size OS88_BSS as MY_BSS_OWN + BL_BSS_SIZE.
 ; -----------------------------------------------------------------------------
 %macro BL_BSS 1
-bl_lscr    equ (%1) + 0                 ; the line under construction
+bl_out     equ (%1) + 0                 ; the CR LF image bl_save writes - and
+                                        ; FIRST, because it is the one buffer
+                                        ; here that int 13h touches. The caller
+                                        ; must pass a 512-ALIGNED offset; see
+                                        ; the note above bl_save.
+bl_lscr    equ bl_out + BL_OUTSZ        ; the line under construction
 bl_draw    equ bl_lscr + BL_MAXLINE + 4 ; ...padded for one font_run
 bl_arena   equ bl_draw + BL_MAXLINE + 4 ; packed NUL-terminated line text
 bl_idx     equ bl_arena + BL_ARENA      ; BL_MAXROWS words: offsets into it
-bl_out     equ bl_idx + BL_MAXROWS * 2  ; the CR LF image bl_save writes
-bl_nrow    equ bl_out + BL_OUTSZ        ; word: lines in the report
+bl_nrow    equ bl_idx + BL_MAXROWS * 2  ; word: lines in the report
 bl_used    equ bl_nrow + 2              ; word: arena bytes spent
 bl_top     equ bl_used + 2              ; word: first line on screen
 bl_prows   equ bl_top + 2               ; word: text rows the content holds
