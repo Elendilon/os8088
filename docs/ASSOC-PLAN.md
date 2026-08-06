@@ -177,12 +177,16 @@ app is taken over, that app's slot leaks. With 12 slots and no expected churn
 that is acceptable; a compaction sweep on a full-table registration is ~30
 bytes if it ever bites.
 
-Rejected: a **(drive, cluster) locator**. A cluster cannot be written at build
-time, does not survive a disk rebuild, and does not survive the floppy being
-swapped. A name survives all three, and the search that resolves it runs once
-per double-click — an operation that already costs a remount. A (drive,
-cluster) **hint** filled opportunistically and tried before the search is a
-sound later optimisation at +3 bytes a row; it is not needed for correctness.
+Rejected as the *primary* key: a **(drive, cluster) locator**. A cluster cannot
+be written at build time, does not survive a disk rebuild, and does not survive
+the floppy being swapped. A name survives all three. But a cluster **hint** is
+what makes §2.7's search affordable and is carried alongside, in two parallel
+arrays rather than in the slot, so the power-of-two stride survives:
+
+```
+assoc_clus  12 words   the directory cluster the app was last SEEN in
+assoc_drv   12 bytes   ...and the volume it was seen on   (36 bytes)
+```
 
 Uppercase-exact comparison on the extension, matching SPEC.md §19.1's existing
 `"O88"` rule and for the same reason (foreign OSes uppercase short names on
@@ -259,7 +263,89 @@ Until a row is resolved, its documents draw the **bare page frame**. That is a
 correct, unambiguous document icon and not a placeholder, which is the same
 graceful-degradation rule SPEC.md §50 asks of every claim path.
 
-### 2.6 1bpp
+### 2.6 Nothing is harvested at boot, and that is the whole point
+
+**Boot cost of this feature is zero disk reads.** Nothing walks the apps disk
+looking for icons — not at boot, not ever. `drv_boot` mounts A:, whose only
+*visible* type-1 file is `TASKMGR.O88` (SPEC.md §19.6 hides the kernel, the
+drivers and `SYSTEM.CFG`), so the boot mount's harvest is one first-sector read
+that already happens today. All this feature adds to it is a table scan per
+listed entry — a few hundred cycles against a floppy access.
+
+What that avoids is worth stating, because "harvest the app icons at boot" is
+the obvious design and it is unaffordable. Calculated from 5.25" drive
+mechanics — **not measured, and worth checking on the XT before it is quoted**:
+300 RPM is a 200 ms revolution, so ~100 ms of average rotational latency;
+average seek across 40 tracks at a 6 ms step is ~80 ms plus ~15 ms of head
+settle. That is **~150–200 ms per first-sector read once the motor is up**, and
+a spun-down motor adds most of a second. Thirteen shipped packages across two
+folders on the *other* volume is thirteen reads plus the folder mounts plus two
+volume switches: **on the order of 2.5–3 seconds of grinding at every boot**,
+for icons most sessions never look at.
+
+And on a **single-drive machine it is not merely slow but impossible** — the
+apps disk is not in the drive at boot, it is what the user swaps in later.
+
+So resolution is lazy and opportunistic (§2.5), and the icons cost their
+~150 ms each exactly once, inside a mount the user asked for anyway.
+
+### 2.7 Where the program is, and what happens when its disk is out
+
+Three cases, and the first version of this plan got the second and third wrong.
+
+**Resolution order** on a double-click, first hit wins:
+
+1. **The hint** — `assoc_clus`/`assoc_drv` (§2.2): one `dsk_chdir_q` and a
+   `dskw_stat` for `<stem>.O88`.
+2. **The current directory** — a document beside its program is the common
+   case and costs nothing at all.
+3. **The volume root.**
+4. **The folder the build-time default names**, for the shipped set only —
+   `APPS` and `GAMES` are known at build time *for those rows*, so they are
+   data in the default, not a hard-coded search path.
+
+**A hint must be validated by name, always.** A cluster is only meaningful on
+the disk it came from; after a swap, cluster 47 is something else entirely. So
+the hint is a place to *look*, never an answer — `dsk_chdir_q` there and
+confirm `<stem>.O88` is present, and fall through if it is not. A stale hint
+must never load the wrong file, and the name check is what makes that
+structural rather than careful.
+
+The hint is filled wherever the app is **seen**, all three free of extra I/O:
+the mount's pass A (which knows the current drive and `[dsk_cwd]`), the loader,
+and registration. In practice it is populated by the user having browsed to the
+program once — which is how the program got onto their disk in the first place.
+
+**Q3, an app in neither `APPS` nor `GAMES`:** covered by 1–3 above once it has
+been seen, and *not* covered on a cold first double-click. Hard-coding a folder
+list was the wrong instinct — this codebase's own rule is that nothing may be
+built on a fixed listing position (SPEC.md §19.4). The complete fix is a
+bounded tree walk, and `filecp.inc` already has the machinery for it: an
+explicit frame array with `FCP_MAXD` = 6 and **no call stack**, because a task
+stack cannot fund recursion. That is Phase 2b in §6 — ~150 bytes and ~1 second
+for a case the hint usually pre-empts, so I would not ship it in v1.
+
+**Q2, the program's disk is not in the drive:** the tree already makes this
+*safe*, and the first version of this plan made it *rude*. `desk_init` keeps a
+volume row live for a drive the machine does not have, and the comment there is
+explicit that "a mount of an absent drive is an ordinary failed mount" — so the
+search fails cleanly, no hang, on a one-drive XT as much as anywhere. What was
+wrong was the message: "Program not found" is a lie when the program exists and
+the *floppy* is out. That case needs its own notice naming the program and the
+disk to insert — the Macintosh answer, and one string.
+
+Two consequences worth having in mind:
+
+- **The icons survive the disk leaving the drive.** The glyph is cached in the
+  app slot, not resolved on demand, so browsing `APPS/` once and then swapping
+  to a documents floppy still shows Paint's mark on every `.BMP`. That is a
+  property of caching in the table rather than only in `disk_icons`, and it is
+  most of why §2.2 spends 8 bytes a program.
+- **A machine that has never seen the apps disk shows bare page icons**, and
+  they are correct — an unresolved association is still a document. It is
+  degradation, not breakage, exactly as SPEC.md §50 asks of a refused claim.
+
+### 2.8 1bpp
 
 Icons are already colourless — `icons.inc` is a mask pass and a data pass, and
 the page frame is 1px black on white, so this feature has no dither class
@@ -309,16 +395,25 @@ warns reads as "nothing happened" in a full screendump. Then `VIDEO=cga` and
 5. `ui.inc`: `assoc_run`, modelled line for line on `ui_tm_open` — bank the
    volume, search for `<stem>.O88`, `ld_run_body`, restore, report `LD_*`
    through `ui_note`, plus one new notice for "the program was not found".
-6. The search: current directory, then the root, `APPS` and `GAMES` of the
-   current volume, then the same on the other. `dsk_chdir_q` (SPEC.md §18.9)
-   is the right walker — it skips the scan, the sort and the per-file icon
-   harvest — but it leaves the global snapshot **empty and owed**, and
-   `[dsk_lstale]` must be paid on every path back to the event loop. That is
-   the trap §18.9 records against `fcp_stop`, and it applies here identically.
+6. The search is §2.7's four rungs, over the current volume and then the other.
+   `dsk_chdir_q` (SPEC.md §18.9) is the right walker — it skips the scan, the
+   sort and the per-file icon harvest — but it leaves the global snapshot
+   **empty and owed**, and `[dsk_lstale]` must be paid on every path back to
+   the event loop. That is the trap §18.9 records against `fcp_stop`, and it
+   applies here identically.
+7. Two notices, not one: **"…not found"** when the volume mounted and the
+   program is genuinely absent, and **"Insert the disk holding PAINT.O88"**
+   when the volume it should be on would not mount (§2.7).
 
 **Verify:** double-click a `.BMP` and watch Paint open with it; double-click a
-`.XYZ` with no row and confirm it still says "Bad package"; double-click a
-`.BMP` with the apps floppy holding no PAINT.O88 and confirm the notice.
+`.XYZ` with no association and confirm it still says "Bad package";
+double-click a `.BMP` with the apps floppy holding no `PAINT.O88` and confirm
+the not-found notice. Then the absent-disk case, which is the one QEMU makes
+easy to get wrong — boot `make xt` (one drive, `vm/xt`) with only the system
+disk, double-click a document on it, and confirm the *insert-the-disk* notice
+rather than not-found. Then swap in the apps disk, browse `APPS/`, swap back,
+and confirm the icons are still Paint's (§2.7) and the double-click now works
+from the hint.
 
 ## 5. Phase 3 — registration and the document handoff
 
@@ -350,6 +445,11 @@ so no existing `.o88` is invalidated (SPEC.md §20.8 rule 4).
   estimate in §8 past what is left. I would not take it in v1; if it is
   wanted, the tables should shrink to pay for it, and write timing follows
   SPEC.md §31.8 — on panel close, never on registration.
+- **Phase 2b: the bounded tree walk** (§2.7). Finds a program in a folder
+  nobody has browsed and no default names. `filecp.inc`'s frame array is the
+  pattern — `FCP_MAXD` = 6, no call stack. ~150 bytes and ~1 second on a
+  floppy, for a case the hint usually pre-empts. Worth it only if third-party
+  packages in arbitrary folders turn out to be common.
 - **A second document into a running app.** The pull model reaches a fresh
   instance only. Today a second document launches a second instance, and at an
   app's cap it fronts the running one and the document is dropped with a
@@ -372,6 +472,8 @@ Phase 2 is written.
 | item | section | est. bytes |
 |---|---|---|
 | the two tables, 12 × 16 + 24 × 4 (§2.2) | `.text` | 288 |
+| the hint arrays, 12 words + 12 bytes (§2.2) | `.text` | 36 |
+| hint validation + the second notice (§2.7) | `.text` | ~60 |
 | the page frame body | `.text` | 64 |
 | `assoc_find` / `assoc_note_app` | `.text` | ~110 |
 | `assoc_reduce` (majority 2×2) | `.text` | ~70 |
@@ -382,9 +484,9 @@ Phase 2 is written.
 | 2 API cells + the X stub | `.text` | ~40 |
 | notice strings | `.text` | ~40 |
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
-| **total** | | **~950** |
+| **total** | | **~1,050** |
 
-About 62% of what is left. That is affordable and it is not nothing, and per
+About 68% of what is left. That is affordable and it is not nothing, and per
 CLAUDE.md the decision to spend it belongs with whoever wants the feature —
 not with the build.
 
@@ -405,6 +507,10 @@ guard before Phase 2 is written.
    8× the cached RAM (§2.1). Worth it only if the footprint guard moves.
 4. **The dialog's icons in scope now, or later?** Cheap, and it is the "file
    save/load" half of the request.
+5. **Is the cold third-party case worth Phase 2b?** Without the tree walk, a
+   program in a folder nobody has browsed and no build-time default names
+   cannot be found on a first double-click — it works after the program has
+   been seen once. ~150 bytes buys the cold case (§2.7).
 
 ## 10. SPEC.md
 
