@@ -73,6 +73,15 @@ endif
 ifneq ($(DISKCNT),)
 VIDDEF += -DDISK_COUNTERS
 endif
+
+# ASSOC_ICONS=badge builds the OTHER document-icon style of SPEC.md 54.3 - the
+# program's icon whole with a page stamped in its corner, instead of the
+# program reduced to 8x8 inside a page. It exists to be LOOKED at next to the
+# default (docs/ASSOC-PLAN.md 9.1); it also costs 768 bytes of cached icon
+# against 96, which is the whole argument between them.
+ifeq ($(ASSOC_ICONS),badge)
+VIDDEF += -DASSOC_BADGE
+endif
 # ...and a stamp so that CHANGING VIDEO rebuilds the kernel. Without it make
 # sees an up-to-date kernel.bin, skips it, and boots the PREVIOUS adapter -
 # which reads exactly like the probe or the renderer being broken.
@@ -83,7 +92,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(ASSOC_ICONS),-ai$(ASSOC_ICONS))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin; \
                                 touch $(VIDSTAMP); })

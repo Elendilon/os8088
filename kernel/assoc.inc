@@ -79,6 +79,17 @@ assoc_ext:
     db 'MD ', 3                 ; -> ARTFUL
     times (ASSOC_NEXT - 5) * 4 db 0
 
+%ifdef ASSOC_BADGE
+; The BADGE variant of SPEC.md 54.3, for the side-by-side of ASSOC-PLAN 9.1:
+; the program's icon at FULL SIZE with a small page stamped into its corner,
+; instead of the program shrunk to 8x8 inside a page. More recognisable, and
+; it costs the full 16x16 per program rather than 8 bytes - 768 against 96,
+; which is the entire argument between the two. Built with ASSOC_ICONS=badge.
+assoc_ico16: times ASSOC_NAPP * 64 db 0
+ASSOC_BADGY  equ 9              ; the badge occupies x=9..15, y=9..15
+ASSOC_BADGM  equ 0x007F         ; ...which is bits 6..0 of the row word
+%endif
+
 ; --- per-app side arrays ---------------------------------------------------
 ; Parallel rather than inside the slot, so the 8-byte strides survive. The
 ; hint is a place to LOOK and never an answer: a cluster means nothing on a
@@ -366,6 +377,53 @@ assoc_compose:
     push es
     push ds
     pop es                      ; ES = DS = KERNEL_SEG for the frame copy
+%ifdef ASSOC_BADGE
+    push ax                     ; the BADGE variant (ASSOC-PLAN 9.1): the
+    mov bl, al                  ; program's own icon, whole, with a page
+    xor bh, bh                  ; stamped into its corner
+    mov cl, 6
+    shl bx, cl                  ; slot * 64
+    mov si, assoc_ico16
+    add si, bx
+    push di
+    mov cx, 32
+    cld
+    rep movsw
+    pop di
+    push di
+    add di, 2 * ASSOC_BADGY     ; the mask plane's row 9: the badge is
+    mov cx, 7                   ; OPAQUE, so it knocks the program's own
+.bmask:                         ; pixels out from under itself
+    or word [di], ASSOC_BADGM
+    inc di
+    inc di
+    loop .bmask
+    pop di
+    add di, 32 + 2 * ASSOC_BADGY
+    mov cx, 7
+    mov si, assoc_badge
+.bdata:
+    mov ax, ASSOC_BADGM
+    not ax
+    and [di], ax                ; clear the corner...
+    mov ax, [si]
+    or [di], ax                 ; ...then the page outline into it
+    inc si
+    inc si
+    inc di
+    inc di
+    loop .bdata
+    pop ax
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+assoc_badge:
+    dw 0x007F, 0x0041, 0x0041, 0x0041, 0x0041, 0x0041, 0x007F
+%endif
     mov bl, al
     xor bh, bh
     mov cl, 3
@@ -557,6 +615,21 @@ assoc_note_app:
     add di, bx
     mov si, dsk_secbuf+64       ; the DATA plane of the embedded icon
     call assoc_reduce           ; ES = LOW_SEG, per SPEC.md 2.1
+%ifdef ASSOC_BADGE
+    shr bx, cl                  ; ...and the WHOLE icon for the badge variant
+    mov cl, 6
+    shl bx, cl                  ; slot * 64
+    mov di, assoc_ico16
+    add di, bx
+    mov si, dsk_secbuf+32
+    mov cx, 64
+.bcopy:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .bcopy
+%endif
 .out:
     pop di
     pop si
