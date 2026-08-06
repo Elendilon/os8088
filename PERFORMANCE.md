@@ -661,18 +661,105 @@ seconds**. And a per-track batch — nine sectors per revolution instead of one
 — is worth about **9x on every load in the system**, which is the largest
 single number in this document.
 
-#### The kernel's own interrupts cost 1.2%
+#### The kernel's own interrupts cost 1–3%
 
 The same 800-iteration workload, timed with the `cli` window excluding every
-interrupt and then again with all of them included: **3,430,961 counts against
-3,473,408**. The tick, the mouse poll and the scheduler together take **1.2%**
-of a busy 8088. There is no headroom problem there and never was.
+interrupt and then again with all of them included. Two runs:
+
+```
+run 1   3,430,961 excluded   3,473,408 included   1.2%   (53 ticks)
+run 2   3,430,971            3,538,944            3.1%   (54 ticks)
+```
+
+The excluded halves agree to 0.001%; the included halves differ by exactly one
+tick, because method T quantises to 54.92 ms and this row is only ~1.9 s long.
+**So the answer is 1–3% and the method resolves to ±1.9%** — quoting the 1.2%
+alone, as the first draft of this section did, was reading a difference of two
+numbers to a precision neither has. The tick, the mouse poll and the scheduler
+are somewhere under a twentieth of a busy 8088 either way, and there is no
+headroom problem.
 
 `TASK_YIELD` — a full switch away and back — is **693 us**. `FILE_DFREE`,
 which the SDK correctly says does no disk I/O, is **40 ms**, which is a lot of
 FAT walking for a "free" call and is worth a look.
 
-#### Two rows of this set are wrong, and one is unexplained
+### Set 2 — the same 5150, driven as a CGA, plus a second `sysbench`
+
+| | |
+|---|---|
+| machine | as Set 1 |
+| adapter | **CGA (640x200)**, `VIDEO=cga` forced — the probe finds the Hercules first |
+| build | `62c4172` (so it carries Set 1's two bad rows too) |
+| reports | `GFXCGA.TXT`, a second `SYSBENCH.TXT` |
+
+#### The harness repeats to 0.05% across two boots
+
+`sysbench` measures nothing adapter-dependent, so running it on both boots is a
+straight reproducibility test — twelve rows, two separate power-ups, a
+different video card live:
+
+```
+loop overhead 29,699 / 29,695     mul       106,029 / 106,030
+nop           27,807 / 27,822     div        78,171 /  78,153
+mov r16,r16   55,672 / 55,676     RAM stosw  34,317 /  34,311
+TASK_YIELD   248,030 / 248,033    FILE_DFREE 2,860,360 / 2,860,368
+```
+
+**Worst disagreement: 0.054%.** `PIT counts per tick` read 65,542 the first
+time and **65,536 exactly** the second. Whatever else is wrong in these
+reports, the measurement is not noisy.
+
+#### The floor is in the CPU, not the framebuffer — and this is the proof
+
+The four RAM rows match Set 1 to 0.015%, as they must. The framebuffer rows do
+not, because they are the actual card:
+
+| 2,048 bytes, identical loops | Hercules | CGA | |
+|---|---|---|---|
+| `rep stosw` | 5,651 us | 6,393 us | CGA **+13%** |
+| `rep stosb` | 6,668 us | 7,418 us | +11% |
+| word read | 12,777 us | 13,922 us | +9% |
+| read-modify-write | 34,169 us | 34,774 us | +2% |
+| **VRAM/RAM, word write** | **1.57x** | **1.78x** | |
+
+So a CGA is measurably slower to write than a Hercules — the contention every
+period programmer knows about, and it is 13%, not the order of magnitude
+folklore suggests, because at 4.77 MHz the 8088 cannot go fast enough to
+suffer much. Now put the primitives beside it:
+
+| | Hercules | CGA | |
+|---|---|---|---|
+| `GFX_PIXEL` | 765.64 us | 765.70 us | **+0.008%** |
+| `GFX_HLINE 8px` | 764.82 us | 764.80 us | **-0.003%** |
+| `FONT_CHAR` one cell | 901.37 us | 908.56 us | +0.8% |
+| `FONT_RUN` 10 aligned | 9,049 us | 9,175 us | +1.4% |
+| `GFX_FILL 64x64` | 12,443 us | 12,961 us | +4.2% |
+
+**Two physically different video cards, 13% apart at the bus, and the two
+smallest primitives agree to one part in ten thousand.** That is as clean a
+proof as this project will ever get that the ~756 us floor is CPU-side setup
+and not framebuffer access — and it explains the gradient down the table:
+the more of a call's time is actually spent writing pixels, the more the card
+shows through (0.0% for a single pixel, 4.2% for a 4,096-pixel fill).
+
+The fill decomposition agrees across the two adapters as well: **182 us per row
++ 0.33 us per pixel** on CGA against 177 + 0.28 on Hercules — the per-row
+constant, which is pure setup, is 3% apart; the per-pixel term, which is the
+bus, is 16% apart.
+
+#### And the page repaint agrees across two screen heights
+
+| | rows | measured | per row | per cell |
+|---|---|---|---|---|
+| Hercules | 34 + status | 2,499 ms | 71,403 us | 915 us |
+| CGA | 16 + status | 1,236 ms | 72,696 us | 932 us |
+
+Half the screen, half the time, **1.8% apart per row** — two independent
+measurements of the same quantity on the same machine. A text page costs
+roughly **72 ms per 78-cell row** on a 4.77 MHz 8088 whatever it is displayed
+on.
+
+#### Three rows of these sets are wrong
 
 Recorded here rather than quietly re-run, because Part 6 rule 8 applies to the
 apparatus too:
@@ -688,8 +775,17 @@ apparatus too:
   `page measured`: they came out 0.49 s and 2.50 s, the check fired, and the
   fault was in the predictor. Fixed after this set; **the 2.50 s measurement
   is the good one**.
-- **`GFX_BLIT4`'s striped row LAPPED THE COUNTER TEN TIMES**, and everything
-  that looked wrong about the blit was that. See below.
+- **`one retrace period` is biased low by up to one frame in N.** The body
+  waits for the retrace bit to fall and then rise, so it *leaves* the phase at
+  a rising edge and every later iteration is a whole frame — but the first
+  starts wherever the suite happened to be and can return almost at once. At
+  N = 4 that is a quarter of the answer: the CGA read **80.6 Hz** where three
+  of its four iterations were a clean **60.4 Hz**, and Hercules read 53.5 Hz
+  against a card that runs at 50. Fixed after these sets with an untimed
+  priming call and N = 12; **treat both retrace figures here as ~1 frame low.**
+- **`GFX_BLIT4`'s striped row LAPPED THE COUNTER TEN TIMES**, on both adapters
+  (Hercules 12.0 ms, CGA 13.2 ms reported; both ~10 laps short of ~20x their
+  solid row). Everything that looked wrong about the blit was that. See below.
 
 #### The blit anomaly was a lapped counter, and settling it produced the real finding
 

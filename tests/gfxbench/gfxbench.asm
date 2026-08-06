@@ -829,8 +829,18 @@ gb_bw:
     mov si, gb_r_in
     xor al, al
     call bl_run
-    mov word [bl_n], 4              ; ...and one whole vertical retrace period:
-    mov word [bl_body], gb_b_vsync  ; the refresh rate, measured
+    call gb_b_vsync                 ; ...and one whole vertical retrace period:
+    mov word [bl_n], 12             ; the refresh rate, measured. The UNTIMED
+    mov word [bl_body], gb_b_vsync  ; call first is the fix for a real bias:
+                                    ; the body waits for the bit to fall and
+                                    ; then rise, so it leaves the phase AT a
+                                    ; rising edge and every later iteration is
+                                    ; a whole frame - but the FIRST one starts
+                                    ; wherever the suite happened to be and can
+                                    ; return almost at once. At N = 4 that was
+                                    ; up to a quarter of the answer: a CGA read
+                                    ; 80.6 Hz where three of its four
+                                    ; iterations were a clean 60.4
     mov si, gb_r_vs
     xor al, al
     call bl_run
