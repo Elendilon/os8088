@@ -1000,52 +1000,23 @@ drv_mounted:
 ; out: CF = 0 and AX = its size; CF = 1 not found
 ; clobbers: AX (the output), flags
 ;
-; The snapshot, not a directory walk: disk_mount has already synthesized every
-; root entry and dsk_get_dir stages one back into the kernel segment, so this
-; is a string compare against memory we own. It is also what lets the claim be
-; made at exactly the right size before a byte of the file is read.
+; The search itself is dsk_find_name's (SPEC.md 18.3) - it was written here
+; and moved down to disk.inc the day the chip menu needed the same walk to
+; find TASKMGR.O88 by name. What stays here is the one thing a DRIVER wants
+; out of the entry: its size, which is what lets the claim be made at exactly
+; the right size before a byte of the file is read.
 ; -----------------------------------------------------------------------------
 drv_find:
-    push bx
-    push cx
-    push dx
     push si
-    push di
-    mov dx, si                  ; DX = the name wanted (SI is the walker's)
-    xor bx, bx                  ; BX = entry index
-.next:
-    cmp bx, [disk_nfiles]
-    jae .no
-    mov ax, bx
+    call dsk_find_name          ; AX = the directory index
+    jc .no
     call dsk_get_dir            ; SI -> dsk_ent, in our own segment
-    mov di, dx
-.cmp:
-    mov al, [si]
-    mov ah, [di]
-    cmp al, ah
-    jne .nextent
-    inc si
-    inc di
-    or al, al
-    jnz .cmp
-    mov si, dsk_ent             ; matched to the NUL
     mov ax, [si+LD_DE_SIZE]
-    pop di
     pop si
-    pop dx
-    pop cx
-    pop bx
     clc
     ret
-.nextent:
-    inc bx
-    jmp short .next
 .no:
-    pop di
     pop si
-    pop dx
-    pop cx
-    pop bx
     stc
     ret
 

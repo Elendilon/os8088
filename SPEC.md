@@ -428,7 +428,6 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/icons.inc`  | 1-bit icon format, draw routine, built-in library (§25) |
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
-| `kernel/taskmgr.inc`| Task Manager window: CPU load gauge + history graph, RAM readout, per-instance process list with CPU + memory (§28) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_` |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 
@@ -1171,7 +1170,7 @@ exactly why the mode is a separate byte tested after `sch_lock`.
 **Liveness (why cooperative mode is safe for the kernel, and what packages
 owe it).** Every wait loop the kernel owns already yields: `ui_task`'s idle
 pass (§13 step 4), `ui_drag`'s track loop and its linger loop (§13),
-`menu_track`'s poll loop (§12), the `gfx_lock` spin (§7), `tm_task`'s
+`menu_track`'s poll loop (§12), the `gfx_lock` spin (§7), the Task Manager's
 measurement spin (§28), and Clock/Bounce through `task_sleep` (§14). No
 built-in path depends on being pre-empted, and a worker task is invisible
 to every decision the tick makes — `sch_isr` tests `sch_lock`, `sch_coop`
@@ -2858,14 +2857,14 @@ apply and mode set) → `bb_init` (§32 — the RAM probe
 must run after the mode set, which clears VRAM, and before the first
 drawing call) → `font_init` → `wm_init` →
 `inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
-`tm_init` → `snd_init` (§34.7 — publishes `snd_live` last) → gfx_lock →
+`snd_init` (§34.7 — publishes `snd_live` last) → gfx_lock →
 `wm_paint_all` → gfx_unlock → `cursor_show` → jump
 into `ui_task` (task 0 never returns). (`dock_init` runs right after
 `desk_init`.) **Clean boot**: no app instances exist — the first paint
 shows only the desktop, drive icons, the empty dock strip and menu bar;
 everything is launched from the menus (§13/§29). Include order:
 `instance.inc` right after `wm.inc`; `icons.inc`, `desk.inc`, `dock.inc`,
-`taskmgr.inc` and then `ctrl.inc` (§31) after `files.inc`; `clock.inc`
+`ctrl.inc` (§31) after `files.inc`; `clock.inc`
 (§37) right after `events.inc`, since it reads `[ticks]`;
 `farcall.inc` (§33) before all of them, since it defines the macros they use. The Control
 Panel has no init routine — it is task-less and stateless, so nothing runs
@@ -4929,7 +4928,7 @@ Two teardown corollaries, both about not trading a crash for a leak:
    None of this is enforced.
 
 **Refusal is normal, not exceptional.** `MAX_TASKS` is 12 and the UI task,
-up to ten Clock/Bounce instances, `tm_task` and a transient SB refill/drain
+up to ten Clock/Bounce instances, the Task Manager's worker and a transient SB refill/drain
 task (§34.5) all draw from the same eleven dynamic slots, so CF=1 is an
 ordinary outcome. A package must degrade — stay a perfectly good task-less
 package, window, callbacks, menus and close box all working — and **should
@@ -7053,20 +7052,63 @@ Verified by differential: the same scripted run against a build whose
 `np_scrollpaint` always refuses is **pixel-identical inside the window**, on
 VGA over nine states and on Hercules over six.
 
-## 28. taskmgr.inc — the Task Manager window
+## 28. apps/taskmgr — the Task Manager
 
-Built-in singleton app kind (KIND_TASKMGR, cap 1 — one sampler), window
-"Task Manager", 200×264 at (250,100) — 176 until the memory view grew a
-CLAIM column (below). Label prefix `tm_`. No onkey, no
-boot-time window or task: `tm_init` (from kmain, after
-loader_init) only reads total conventional RAM once via int 12h (kmain
-runs on task 0, so §7's only-the-UI-task-calls-BIOS rule holds). The
-window + monitor task exist only while an instance is open: `app_launch`
-runs `tm_kinit` (zeroes all module state including the history ring —
-the gauge calibration restarts from scratch at every launch — and caches
-the window ptr in `tm_win`), then spawns `tm_task` with DX = the instance
-index. `tm_task` checks I_STATE = 2 once per interval (after the spin
-phase) and tears down via `inst_task_die` (§29).
+**A package on the SYSTEM disk** (`TASKMGR.O88`, drive A:), not a built-in
+kind. Window "Task Manager", 232×312 at (250,100), fitted to the live screen
+at every launch (§28.1). Label prefix `tm_`. No onkey. It owns one worker,
+`tm_worker`, claimed from its first `W_PAINT` — the apps/fractal precedent
+(§40), and necessary for the same reason: the kernel publishes `I_STATE` and
+binds `wm_owner` only after the entry proc returns, so `OSAPI_TASK_SPAWN`
+from the entry would find no instance and refuse. Teardown is
+`OSAPI_TASK_ALIVE` at the top of the worker's loop, with the lock free
+(§20.6 rule 4).
+
+**Why it stopped being a built-in.** It is a *viewer* — nothing in it can
+kill a task — so as kernel code it cost about six kilobytes on every machine,
+forever, for a window most sessions never open. It came off **both** guards
+(§15.1) at once: the whole span went 74 KB → 69 KB and the segment gained
+5,380 bytes across the move. As a package it costs ~7.3 KB of heap while it
+is open (5,442 image + 1,883 bss) and nothing at all when it is not.
+
+What that buys is not free, and the cost is worth stating plainly: it now
+needs a working disk and about seven kilobytes of free heap to open at all,
+on the machine where you are opening it precisely because something is
+wrong. Two things make that acceptable. The **Control Panel** — the one you
+want when a driver will not attach, and where `drv_notice` sends you — is
+resident and stayed that way (§2.6). And the failure **says what it is**
+rather than being silent (below).
+
+**Nothing in it reads kernel state directly any more.** That was the one
+obstacle, and §20.9's four cells are the answer: the scheduler and instance
+tables in one `cli` window, the claim map, and the kernel's own footprint in
+KB. Every use of them goes through one macro block at the top of the module,
+which is all that changed when the module moved — the logic below it is what
+it was inside the kernel. The cells were added, and the still-built-in module
+converted to them, as a separate step, so the API was proved sufficient
+before anything moved.
+
+**The chip menu's item stays live** (`ui_tm_open`, kernel/ui.inc). It banks
+the current volume and directory, mounts A:, finds `TASKMGR.O88` in the
+snapshot with `dsk_find_name`, runs `ld_run_body`, and puts the volume back —
+the `drv_boot` dance, and for the same reason: every file name resolves in
+the CURRENT directory (§19.2), which is wherever the user last browsed to.
+Greying the item would mean answering "can this be loaded?" without loading
+it, and §47 rule 3 forbids exactly that: the only honest test is the load.
+So it is always clickable, and a failure puts up `ui_note` — a one-line
+notice window of the file dialog's species (§38: a bare `wm_create`d window
+with no instance behind it, whose close box reduces to `wm_hide`) naming the
+reason, out of the same `LD_*` codes a Disk window's status line uses. A
+menu item has no status line, which is why the notice exists at all.
+
+From that menu it is a **singleton**: an already-open one is fronted rather
+than loading a second seven kilobytes and a second task slot to say the same
+thing twice. `ui_tm_find` identifies it by the name in its instance record,
+never by a remembered window pointer — a window slot is reused, so a banked
+pointer names some other app's window the moment this one closes. A
+double-click on `TASKMGR.O88` in a Disk window is unaffected and opens as
+many as you like; that is the package rule, and the singleton is the menu
+item's rule.
 
 **Two views.** `[tm_view]` (0 = performance, 1 = memory) selects what the
 content shows; both share the sampler, the instance snapshot and the
@@ -7081,7 +7123,7 @@ launch opens in the performance view. The sampler never looks at the view
 — history keeps accumulating while the memory view is up, so toggling
 back shows a gapless graph.
 
-**Load gauge — idle-spin calibration.** tm_task never sleeps. Each
+**Load gauge — idle-spin calibration.** `tm_worker` never sleeps. Each
 interval it spins { 32-bit counter += 1; `task_yield` } until 9 ticks have
 elapsed (wrap-safe compare), measuring how quickly a yield loop gets the
 CPU back; this self-calibrates away the UI task's constant busy-poll cost.
@@ -7177,7 +7219,7 @@ account, and the rows partition one total.
 
 **Drawing.** `tm_paint` (W_PAINT) dispatches on `[tm_view]` and runs the
 active view's full body — bare and unconditional, no lock, no visibility
-check (wm_paint_all calls it with the lock already held, §11). tm_task's
+check (wm_paint_all calls it with the lock already held, §11). tm_worker's
 periodic path wraps its drawing Clock-style (§14): gfx_lock, arm
 `wm_clip_set` under the lock (else skip), and touches only what changed.
 Performance view: the CPU + scheduler text line (checked per chunk like a
@@ -7509,8 +7551,9 @@ white) chosen to stay tellable-apart at a few pixels' width; none is the
 "system-reserved".
 
 Menu/dispatch: see §12/§13 — "Task Manager" (CMD_TASKS = 3) is the System
-menu's third item, under "Control Panel"; dispatch calls `app_launch`
-KIND_TASKMGR like the §14 kinds.
+menu's third item, under "Control Panel". Its dispatch is `ui_tm_open`
+rather than `app_launch`, because it is a package on the system disk and not
+a kind (above).
 
 
 ### 28.1 The window is sized to the SCREEN, not to a constant
@@ -7523,9 +7566,13 @@ so every window opened on top of it paid for that with a full repaint. On CGA's 
 rows it never fitted at all. (`wm_dock_under` has since made that case cost a
 rectangle rather than the screen, but a window that fits is still the point.)
 
-`tm_init` derives the height once, at boot, from `[vid_dock_y0]`: as many
-process rows as the space between the menu bar and the dock will take, capped
-at `TMM_ROWS`, and never fewer than one. That count is `[tm_colrows]`.
+`tm_init` derives the height from `OSAPI_VIDEO`'s dock row: as many process
+rows as the space between the menu bar and the dock will take, capped at
+`TMM_ROWS`, and never fewer than one. That count is `[tm_colrows]`. It runs
+from the entry proc, once per launch — it read `[vid_dock_y0]` from `kmain`
+while this was a built-in, and the change costs one `int 12h` and a divide
+per launch in exchange for the geometry following an adapter that changed
+underneath it.
 
 **One pixel of that space is spent before the frame gets any of it.**
 `wm_dock_clear` tests `y+h` against `[vid_dock_y0]` with `jae`, because the
@@ -7664,7 +7711,6 @@ KIND_ABOUT   equ 0
 KIND_CLOCK   equ 1       ; (Note Pad was kind 1 until it became the
 KIND_BOUNCE  equ 2       ;  NOTEPAD package, §27 — the numbering closed up)
 KIND_FILES   equ 3
-KIND_TASKMGR equ 4
 KIND_CTRL    equ 5       ; Control Panel (§31)
 KIND_PKG     equ 0x80    ; bit 7: package instance
 ```
@@ -7892,7 +7938,7 @@ repaints when the window moves away — desk-icon semantics throughout.
 
 Built-in singleton app kind (KIND_CTRL = 5, cap 1), window "Control Panel",
 **320×140** at (160,130). Label prefix `cp_`. Included from kernel.asm right
-after `taskmgr.inc`. (It was 320×120 until the Date/Time page of §31.5
+after `files.inc`. (It was 320×120 until the Date/Time page of §31.5
 needed two more control rows; the frame grew rather than that page being
 cramped, and every other page simply has more white space below it.)
 
@@ -8234,7 +8280,7 @@ selected one — white on a black `gfx_fill` box inset 2px around the glyphs
 - `cp_tick_due` — the cheap gate ui_task consults *before* taking the lock
   (§13 step 4): CF = 1 if the panel is live, visible and showing this
   page. **Near code, not far** (it runs every second and is a dozen
-  instructions — the `tm_init` precedent of §33), and it reads the
+  instructions — the `cp_init` precedent of §33), and it reads the
   instance table with **no lock held**, which is safe because only the UI
   task allocates or frees a task-less instance and `cp_tick_due` *is* the
   UI task; a stale answer costs one wasted lock, and `cp_tick` re-checks
@@ -8644,7 +8690,7 @@ the buffer on is a deliberate act, and `make xt` (256K) cannot do it at all.
 ## 33. Far code — retired
 
 There used to be a `.fartext` section and a `kernel/farcall.inc` to serve it.
-Cold modules — `ctrl.inc`, `taskmgr.inc` and one routine of `snd.inc` — put
+Cold modules — `ctrl.inc`, the Task Manager and one routine of `snd.inc` — put
 their **code** there; it was assembled at `vstart=0`, shipped at the tail of
 the kernel image, and copied down to its own segment below the kernel by
 `far_init` as kmain's first act. The point was that those 5,455 bytes did not
@@ -9101,7 +9147,7 @@ because `AX = 0` is how every stream verb says OK. The slot tests
 - **Buffers: none.** The layer owns no memory outside its own `.bss` —
   `osapi_snd_play` reads the caller's `ES:SI` in place. This is the whole
   reason `SND_SEG` could be deleted from §2 rather than merely shrunk.
-- **Boot**: `snd_init` joins kmain's §15 sequence **after `tm_init`**:
+- **Boot**: `snd_init` joins kmain's §15 sequence **after `drv_init`**:
   save the 61h boot bits, store the `.bss` state, set `snd_live` last.
   There is nothing to probe. Boot stays clean — no instances, no tasks,
   no sound.

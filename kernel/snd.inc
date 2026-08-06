@@ -688,7 +688,7 @@ snd_disp_set:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; snd_init - initialise the sound layer (kmain, after tm_init)
+; snd_init - initialise the sound layer (kmain, after drv_init)
 ;
 ; in:       nothing
 ; out:      nothing

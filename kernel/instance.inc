@@ -49,8 +49,8 @@ KIND_ABOUT   equ 0
 KIND_CLOCK   equ 1              ; (Note Pad was kind 1 until it became the
 KIND_BOUNCE  equ 2              ;  NOTEPAD package - SPEC.md 27)
 KIND_FILES   equ 3
-KIND_TASKMGR equ 4
-KIND_CTRL    equ 5
+KIND_CTRL    equ 4              ; (the Task Manager was kind 4 until it
+                                ;  became the TASKMGR package - SPEC.md 28)
 KIND_PKG     equ 0x80           ; bit 7: package instance
 
 ; --- osapi_sys_snap's buffer, API slot 0x0298 (SPEC.md 20.9) ------------------
@@ -114,9 +114,6 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
                                 ; listing cache; resizable (SPEC.md 22/22.1).
                                 ; The cap, VIEW_SLOTS and fm_pool's size are
                                 ; one number wearing three hats.
-    dw tm_tpl,         tm_task,         0,             0,   tm_kinit,         tm_sname
-    dw inst_ico_tm
-    db 1, 0                     ; Task Manager: singleton (one sampler task)
     dw cp_tpl,         0,               0,             0,   0,                cp_sname
     dw inst_ico_ctrl
     db 1, 0                     ; Control Panel: stateless task-less singleton
@@ -331,58 +328,6 @@ inst_ico_disk:
     dw 0x4002
     dw 0x4002
     dw 0x7FFE
-    dw 0x0000
-    dw 0x0000
-
-; inst_ico_tm - a bar chart on an axis: distinct from the Control Panel's
-; slider panel at 16px, which a framed list of bars was not
-;   ................
-;   ................
-;   ..#.............
-;   ..#.........##..
-;   ..#.........##..
-;   ..#.....##..##..
-;   ..#.....##..##..
-;   ..#.##..##..##..
-;   ..#.##..##..##..
-;   ..#.##..##..##..
-;   ..#.##..##..##..
-;   ..############..
-;   ................
-;   ................
-;   ................
-;   ................
-inst_ico_tm:
-    dw 0x0000                       ; 16 mask rows
-    dw 0x7000
-    dw 0x701E
-    dw 0x701E
-    dw 0x71FE
-    dw 0x71FE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x7FFE
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000                       ; 16 data rows
-    dw 0x0000
-    dw 0x2000
-    dw 0x200C
-    dw 0x200C
-    dw 0x20CC
-    dw 0x20CC
-    dw 0x2CCC
-    dw 0x2CCC
-    dw 0x2CCC
-    dw 0x2CCC
-    dw 0x3FFC
-    dw 0x0000
-    dw 0x0000
     dw 0x0000
     dw 0x0000
 

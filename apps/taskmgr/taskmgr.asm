@@ -1,39 +1,57 @@
 ; =============================================================================
-; os8088 - taskmgr.inc
+; os8088 - Task Manager (SPEC.md 28)
 ;
-; The Task Manager window (SPEC.md 28): a live CPU load gauge with an
-; oscilloscope-sweep history graph, a RAM readout, and the process list with
-; per-instance CPU shares and memory from the PIT cycle accounting
-; (SPEC.md 8.1). A content click toggles a second, memory view: the RAM
-; readout, a conventional-memory map, a kernel-segment map with each
-; resident package's region drawn in its slot's dither pattern, and the
-; process list re-columned as NAME/ADDR/SIZE with a matching legend square
-; per package row.
+; A live CPU load gauge with an oscilloscope-sweep history graph, a RAM
+; readout, and the process list with per-instance CPU shares and memory from
+; the PIT cycle accounting (SPEC.md 8.1). A content click toggles a second,
+; memory view: the RAM readout, a conventional-memory map, and the process
+; list re-columned as NAME/ADDR/SIZE with each resident package's region drawn
+; in its slot's dither pattern and a matching legend square per row.
+;
+; **This was a built-in, and the reason it stopped being one is memory.** It
+; is a VIEWER, not a manager - nothing here can kill a task - so six kilobytes
+; of kernel, on every machine, forever, bought a window most sessions never
+; open. As a package it costs that much heap while it is open and nothing at
+; all when it is not, and the two guards it came off (SPEC.md 15.1) got the
+; whole of it back. What it costs in exchange is honest and worth stating: it
+; now needs a working disk and about seven kilobytes of free heap to open at
+; all, on the machine where you are opening it precisely because something is
+; wrong. The Control Panel, which is the one you want when a driver will not
+; attach, stayed resident (SPEC.md 2.6), and the chip menu says exactly why a
+; launch failed rather than greying itself out on a guess (SPEC.md 47 rule 3).
+;
+; Everything it knows about the kernel arrives through the four cells of
+; SPEC.md 20.9 - the scheduler and instance tables in one cli window, the
+; claim map, the kernel's own footprint in KB - and through the ordinary
+; drawing and window slots. There is no other channel, and there was no other
+; obstacle: the module's logic is unchanged from the day it lived inside.
 ;
 ; The list is an INSTANCE list, not a task list (SPEC.md 29). A task list
 ; would show only the kinds that own a task; every task-less app - About,
-; Disk, and every loaded package that has not claimed a worker (SPEC.md
-; 20.6) - runs purely inside window callbacks on the UI task and
-; would be invisible. Each instance's row therefore adds two counters: the
-; I_CYC that wm.inc/ui.inc bill to it around every W_PAINT / W_ONKEY /
-; W_ONCLICK, and, if it owns a task, that task's sch_cycles. Row 0 is
-; "System" - task 0's remainder, i.e. the kernel's own work once every
-; callback has been debited away. The two counters are disjoint by
-; construction (task_debit moves cycles rather than copying them), so the
-; rows partition one total.
+; Disk, and every loaded package that has not claimed a worker (SPEC.md 20.6)
+; - runs purely inside window callbacks on the UI task and would be invisible.
+; Each instance's row therefore adds two counters: the callback cycles the
+; kernel bills to it around every W_PAINT / W_ONKEY / W_ONCLICK, and, if it
+; owns a task, that task's own. Row 0 is "System" - task 0's remainder, i.e.
+; the kernel's own work once every callback has been debited away. The two
+; are disjoint by construction, so the rows partition one total.
 ;
-; tm_task is the monitor task and doubles as the system idle soak: it never
-; sleeps, spinning { count += 1; task_yield } for 9-tick intervals. The spin
-; count measures how quickly a yield loop gets the CPU back, calibrated
-; against a rolling maximum - this self-calibrates away the UI task's
-; constant busy-poll cost, so the gauge reads ~0% at idle and rises when any
-; task (including the UI) holds the CPU.
+; tm_worker is the monitor task and doubles as the system idle soak: it never
+; sleeps, spinning { count += 1; OSAPI_TASK_YIELD } for 9-tick intervals. The
+; spin count measures how quickly a yield loop gets the CPU back, calibrated
+; against a rolling maximum - this self-calibrates away the UI task's constant
+; busy-poll cost, so the gauge reads ~0% at idle and rises when any task
+; (including the UI) holds the CPU. It also absorbs the far-call overhead of
+; every measurement below, for the same reason: the percentages are shares of
+; a rolling maximum, not absolute rates, so a spin iteration that costs more
+; recalibrates within two epochs and only the granularity moves.
 ;
 ; Locking follows the Clock pattern (SPEC.md 14): tm_paint is a bare,
-; unconditional full redraw (wm_paint_all calls it with the gfx lock already
-; held); the task's periodic path takes the lock itself, re-checks visible +
-; arms wm_clip_set under it, and redraws only what changed (one graph column,
-; the text lines, the bar, the rows) so the lock hold stays Bounce-scale.
+; unconditional full redraw (the kernel calls it with the gfx lock already
+; held); the worker's periodic path takes the lock itself, re-checks visible +
+; arms OSAPI_WM_CLIP_SET under it, and redraws only what changed (one graph
+; column, the text lines, the bar, the rows) so the lock hold stays
+; Bounce-scale.
 ;
 ; **A region, not the wm_obscured veto.** The veto was the right answer while
 ; this repainted its whole pane in one go; it has not done that since the
@@ -41,13 +59,42 @@
 ; because something overlapped a corner. SPEC.md 11.3's granularity rule
 ; applies in return: a fill clips per PIXEL and a glyph per whole CELL, so
 ; anything that erases a band and then letters it gates BOTH on one
-; wm_clip_test of that band - tm_rowok - or a row crossed by a clip edge goes
-; blank rather than stale, and re-blanks every refresh. The maps and the
+; OSAPI_WM_CLIP_TEST of that band - tm_rowok - or a row crossed by a clip edge
+; goes blank rather than stale, and re-blanks every refresh. The maps and the
 ; graph are fills only and need no gate.
 ; tm_sample runs without the lock and only touches module state; a sample
 ; landing mid-tm_paint can at worst misplace the sweep gap by one column for
 ; one frame.
 ; =============================================================================
+
+%include "os88api.inc"
+
+; --- the dock/desktop icon (SPEC.md 20.2): a bar chart on an axis ------------
+; Distinct from the Control Panel's slider panel at 16px, which a framed list
+; of bars was not.
+;   ................
+;   ................
+;   ..#.............
+;   ..#.........##..
+;   ..#.........##..
+;   ..#.....##..##..
+;   ..#.....##..##..
+;   ..#.##..##..##..
+;   ..#.##..##..##..
+;   ..#.##..##..##..
+;   ..#.##..##..##..
+;   ..############..
+;   ................
+;   ................
+;   ................
+;   ................
+    OS88_HEADER 'TaskMgr', tm_entry, 1
+    OS88_ICON16
+    dw 0x0000, 0x7000, 0x701E, 0x701E, 0x71FE, 0x71FE, 0x7FFE, 0x7FFE
+    dw 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x0000, 0x0000, 0x0000
+    dw 0x0000, 0x0000, 0x2000, 0x200C, 0x200C, 0x20CC, 0x20CC, 0x2CCC
+    dw 0x2CCC, 0x2CCC, 0x2CCC, 0x3FFC, 0x0000, 0x0000, 0x0000, 0x0000
+    OS88_ICON16_END
 
 ; --- geometry / cadence (SPEC.md 28) -----------------------------------------
 TM_INT      equ 9               ; sample interval, ticks (~0.5s)
@@ -269,14 +316,14 @@ TM_NCK      equ TMM_ROWS + 1    ; ...so tm_rowck holds one more row than
 ; cell could answer: the scheduler's cycle counters, the instance table, the
 ; claim map, and a handful of assembly-time constants describing the kernel's
 ; own footprint. It read them directly, because it was part of the kernel and
-; could - which is exactly the property that made it the only built-in that
+; could - which was exactly the property that made it the only built-in that
 ; could not be lifted out of one.
 ;
 ; Four cells answer all of it now, and every use of them in this file goes
-; through the macros below. Built in, they are near calls to the cells'
-; bodies; the bodies are the same code the far cells run, so this proves the
-; API is sufficient while the module is still somewhere easy to debug. What
-; changes when it becomes a package is these macro bodies and nothing else.
+; through the macros below. They were near calls to the cells' own bodies
+; while this module was still built in - which is how the API got proved
+; sufficient before the move - and the move changed these macro bodies and
+; nothing else.
 ;
 ; TM_ES_DATA names the segment this module's own buffers live in - CS here,
 ; because kernel code runs with CS = DS = KERNEL_SEG, and a package's DS
@@ -284,51 +331,52 @@ TM_NCK      equ TMM_ROWS + 1    ; ...so tm_rowck holds one more row than
 ; once and the cells need no stub.
 ; =============================================================================
 %macro TM_ES_DATA 0             ; ES = where tm_snap/tm_claims/tm_kb are
-    push cs
-    pop es
-%endmacro
+    push ds                     ; our own segment, and the three cells write
+    pop es                      ; through ES:DI. Restore ES afterwards: it is
+%endmacro                       ; KERNEL_SEG on entry to every callback AND to
+                                ; the worker, which is what makes [es:bx+W_*]
+                                ; legal below
 
 %macro TM_SYS_SNAP 0            ; in ES:DI = a SYSSNAP_SIZE buffer
-    call osapi_sys_snap
+    call OSAPI_SYS_SNAP
 %endmacro
 
 %macro TM_CLAIM_SNAP 0          ; in ES:DI = a CLAIMSNAP_SIZE buffer
-    call osapi_claim_snap
+    call OSAPI_CLAIM_SNAP
 %endmacro
 
 %macro TM_SYS_KB 0              ; in ES:DI = a SYSKB_SIZE buffer
-    call osapi_sys_kb
+    call OSAPI_SYS_KB
 %endmacro
 
 %macro TM_FILL_PAT 0            ; in AX/BX/CX/DX = rect, SI = 8 pattern bytes
-    push es                     ; ES is the pattern's segment: the far cell is
-    push cs                     ; an X and its stub says this for us
-    pop es
-    call osapi_gfx_fill_pat
-    pop es
+    call OSAPI_GFX_FILL_PAT     ; X: the stub puts our DS in ES for the stage
 %endmacro
 
 ; TM_INK - the pen colour, in AL, preserving AX. It was a store to
-; [gfx_color] at twenty sites, and osapi_set_color has always been the
-; cell for it; a store is three bytes and cannot be reached from outside, so
-; nothing had ever asked. AX is live at enough of those sites that pushing it
-; here is cheaper than auditing each one - and than being wrong about one.
+; [gfx_color] at twenty sites while this was kernel code; OSAPI_SET_COLOR has
+; always been the cell for it, and a store is three bytes and cannot be
+; reached from outside, so nothing had ever asked. AX is live at enough of
+; those sites that pushing it here is cheaper than auditing each one - and
+; than being wrong about one.
 %macro TM_INK 1
     push ax
     mov al, %1
-    call osapi_set_color
+    call OSAPI_SET_COLOR
     pop ax
 %endmacro
 
 ; -----------------------------------------------------------------------------
-; tm_init - read total conventional RAM once (boot thread only)
+; tm_init - total conventional RAM and the window's derived geometry
 ;
-; Runs on task 0 from kmain (after loader_init), so the int 12h call honors
-; the only-the-UI-task-calls-BIOS rule. Nothing else happens at boot: the
-; window and monitor task exist only while an instance is open (SPEC.md 28).
+; Called from tm_entry, which the loader runs on the UI task - so the int 12h
+; call honours the only-the-UI-task-calls-BIOS rule, exactly as it did from
+; kmain. It runs per LAUNCH now rather than once at boot, which costs one int
+; 12h and a divide and buys the geometry being recomputed if the adapter ever
+; changed underneath us.
 ;
 ; in:       nothing
-; out:      nothing; [tm_totkb] set
+; out:      nothing; [tm_totkb] and the tm_tpl geometry set
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
 tm_init:
@@ -338,7 +386,7 @@ tm_init:
     push dx
     int 0x12                    ; AX = conventional memory, KB
     mov [tm_totkb], ax
-    call osapi_video            ; and the live geometry (SPEC.md 39.2): AX =
+    call OSAPI_VIDEO            ; and the live geometry (SPEC.md 39.2): AX =
     mov [tm_vw], ax             ; width, CX = the dock strip's top row. Banked
     mov [tm_vdock], cx          ; because everything below spends AX..DX
 
@@ -442,39 +490,75 @@ tm_init:
     ret
 
 ; -----------------------------------------------------------------------------
-; tm_kinit - KD_INIT for the Task Manager kind (SPEC.md 29.3)
+; tm_kinit - bind the window and ask for the byte-aligned content origin
 ;
-; Zeroes all module state including the history ring (.bss is not zeroed at
-; boot, and a relaunched instance must not inherit the previous one's
-; calibration or graph) and caches the window ptr.
+; The loader zeroes our bss, so the state block does not need clearing the way
+; it did as a built-in kind: a relaunched instance is a fresh image with a
+; fresh bss and cannot inherit the previous one's calibration or graph.
 ;
-; in:  BX = window ptr, DI = state ptr (0 - module state), SI = record
+; in:  BX = window ptr
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
 tm_kinit:
     push ax
-    push cx
-    push di
-    push es
-
-    push ds                     ; zero the state block (DF=0 per SPEC.md 1)
-    pop es
-    mov di, tm_zero_beg
-    mov cx, tm_zero_end - tm_zero_beg
-    xor al, al
-    rep stosb
     mov [tm_win], bx
 
     mov al, 1                   ; every row this window draws is an opaque
-    call wm_snap                ; text run, so it asks for its content origin
+    call OSAPI_WM_SNAP          ; text run, so it asks for its content origin
                                 ; on a multiple of 8 and every one of them
                                 ; reaches font_run's single-store path
-                                ; (SPEC.md 11.94/6.1). A no-op on VGA
+                                ; (SPEC.md 11.94/6.1). A no-op on VGA. It
+                                ; PRESERVES FLAGS, which the entry proc's own
+                                ; ret owes the loader
 
-    pop es
-    pop di
-    pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_entry - the package entry proc (SPEC.md 20.2)
+; in:  nothing; DS = CS = our segment, ES = KERNEL_SEG, UI task, no lock
+; out: CF = 0 launched, CF = 1 the loader tears us down
+;
+; The worker is NOT spawned here, and cannot be: the kernel sets I_STATE = 1
+; and binds our window to the record only after this returns (SPEC.md 21),
+; so OSAPI_TASK_SPAWN would find no instance and refuse. tm_paint does it -
+; the apps/fractal precedent (SPEC.md 40).
+; -----------------------------------------------------------------------------
+tm_entry:
+    push si
+    call tm_init                ; int 12h, then the template's live geometry
+    mov si, tm_tpl
+    call OSAPI_WM_CREATE        ; BX = window ptr, CF = the table is full
+    jc .out
+    call tm_kinit               ; preserves the flags, so the CF our ret owes
+.out:                           ; the loader is wm_create's
+    pop si                      ; POP leaves the flags alone
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_hire - claim the worker task, retrying until one is free (SPEC.md 20.6)
+; in:  [tm_win] valid; called from tm_paint, which holds the gfx lock
+; out: nothing (all registers preserved)
+;
+; Latches on SUCCESS only, so a refusal is retried by the next paint rather
+; than being permanent - MAX_TASKS is 12 and shared, and closing one Clock
+; frees a slot. Without a worker the window is still correct, just static
+; until something repaints it.
+; -----------------------------------------------------------------------------
+tm_hire:
+    cmp byte [tm_spawned], 0
+    jne .out
+    push ax
+    push bx
+    mov ax, tm_worker
+    mov bx, [tm_win]
+    call OSAPI_TASK_SPAWN       ; CF=1 refused: nothing was created
+    jc .norun
+    mov byte [tm_spawned], 1
+.norun:
+    pop bx
+    pop ax
+.out:
     ret
 
 ; --- window template: {x, y, w, h, title, paint, onkey, onclick} words -------
@@ -615,53 +699,46 @@ tm_pats:
     db 0x88, 0x00, 0x22, 0x00, 0x88, 0x00, 0x22, 0x00   ; 11: dense dots
 
 ; -----------------------------------------------------------------------------
-; This module used to split here: strings and the template above, code below
-; in .fartext, copied down to its own segment at boot so its ~3,600 bytes
-; would not count against the kernel's 64KB window. SPEC.md 33 records why
-; that was retired. It is all one .text module now.
+; tm_worker - the monitor task: spin-measure for TM_INT ticks, sample, redraw
+; in:  DX = our instance index (the spawn argument, SPEC.md 8); DS = CS = our
+;      segment, ES = KERNEL_SEG, SS = LOW_SEG. NEVER RETURNS - it leaves
+;      through OSAPI_TASK_ALIVE when the close box is clicked.
 ;
-; tm_task is still worth a note: task_spawn builds a frame with CS =
-; KERNEL_SEG (SPEC.md 8) and can only launch a near entry. tm_task never
-; returns, so
-; the shim's own `ret` is dead code and its `call far` return address is
-; simply abandoned with the rest of the stack at task_exit.
+; The order of the loop is the contract of SPEC.md 20.6 rule 4:
+; OSAPI_TASK_ALIVE with the lock NOT held, because it takes the lock itself
+; and gfx_lock is not reentrant. It is also the only teardown path - as a
+; built-in this read I_STATE off its own instance record and far-jumped to
+; inst_task_die, which is the same operation with the kernel's side of it
+; exposed.
 ; -----------------------------------------------------------------------------
-
-section .text
-
-; -----------------------------------------------------------------------------
-; tm_task - the monitor task: spin-measure for TM_INT ticks, sample, redraw,
-;           die on request
-; in:  DX = instance index (the spawn argument, SPEC.md 8); never returns
-; -----------------------------------------------------------------------------
-tm_task:
-    mov al, dl
-    call inst_ptr               ; DI = our instance record
-    mov bp, di                  ; BP = record for life
+tm_worker:
 .interval:
-    call osapi_get_ticks
+    call OSAPI_GET_TICKS
     mov [tm_t0], ax
     mov word [tm_cnt], 0
     mov word [tm_cnt+2], 0
 .spin:
     add word [tm_cnt], 1        ; 32-bit spin counter
     adc word [tm_cnt+2], 0
-    call task_yield
-    call osapi_get_ticks
+    call OSAPI_TASK_YIELD
+    call OSAPI_GET_TICKS
     sub ax, [tm_t0]             ; wrap-safe interval check
     cmp ax, TM_INT
     jb .spin
 
-    cmp byte [ds:bp+I_STATE], 2    ; close requested? (once per interval)
-    je .die
+    mov bx, [tm_win]            ; close requested? (once per interval) - this
+    call OSAPI_TASK_ALIVE       ; may never come back, and the lock is free
+                                ; here, which rule 4 requires
 
     call tm_sample              ; no lock: computes load, shares, RAM
 
-    call gfx_lock
+    call OSAPI_GFX_LOCK
     mov bx, [tm_win]
-    test word [bx+W_FLAGS], 2   ; re-check under the lock (SPEC.md 14)
-    jz .skip
-    call wm_clip_set            ; a REGION, not wm_obscured's veto (SPEC.md
+    test word [es:bx+W_FLAGS], 2   ; re-check under the lock (SPEC.md 14).
+    jz .skip                    ; ES is KERNEL_SEG here: task_spawn seeds a
+                                ; worker's ES with it and every TM_ES_DATA in
+                                ; this file puts it back
+    call OSAPI_WM_CLIP_SET            ; a REGION, not wm_obscured's veto (SPEC.md
     jc .skip                    ; 11.3): one covered pixel used to skip the
                                 ; whole refresh, so a Task Manager with a
                                 ; corner under something stopped updating at
@@ -670,14 +747,8 @@ tm_task:
                                 ; do mean skip. gfx_unlock disarms it
     call tm_update              ; incremental redraw, lock held
 .skip:
-    call gfx_unlock
+    call OSAPI_GFX_UNLOCK
     jmp .interval
-
-.die:
-    mov di, bp
-    jmp KERNEL_SEG:inst_task_die    ; destroys the window, frees the
-                                ; record, task_exit - never returns, so a far
-                                ; jmp needs no wrapper and leaves no frame
 
 ; -----------------------------------------------------------------------------
 ; tm_sample - one measurement pass: load gauge, history push, per-instance CPU
@@ -1104,7 +1175,8 @@ tm_sample:
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
 tm_paint:
-    call tm_draw_full
+    call tm_hire                ; the first paint is the earliest point at
+    call tm_draw_full           ; which our instance exists to attach one to
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1147,12 +1219,12 @@ tm_view_begin:
     TM_SYS_KB                   ; reads tm_kb, and a paint may arrive before
     pop es                      ; the first sample ever runs
     pop di
-    call wm_content             ; AX = content left, DX = content top
+    call OSAPI_WM_CONTENT             ; AX = content left, DX = content top
     mov [tm_cx], ax
     mov [tm_cy], dx
     mov [tm_rowx], ax           ; column 0 until tm_mrow_open says otherwise
-    mov ax, [bx+W_Y]
-    add ax, [bx+W_H]
+    mov ax, [es:bx+W_Y]
+    add ax, [es:bx+W_H]
     sub ax, 9                   ; 1px bottom border + the row's 8px band
     mov [tm_ylim], ax
     pop dx
@@ -1237,7 +1309,7 @@ tm_draw_perf:
     add cx, TM_RW
     mov dx, [tm_cy]
     add dx, TM_GF_Y2
-    call gfx_frame
+    call OSAPI_GFX_FRAME
 
     xor bx, bx                  ; every column; tm_pos is the sweep gap
 .col:
@@ -1263,7 +1335,7 @@ tm_draw_perf:
     add cx, TM_RW
     mov dx, [tm_cy]
     add dx, TM_BAR_Y2
-    call gfx_frame
+    call OSAPI_GFX_FRAME
     call tm_bar
 
     TM_INK CBLACK
@@ -1276,7 +1348,7 @@ tm_draw_perf:
     push dx
     add cx, TM_PEN              ; the PEN, not the band's left edge: the
     mov si, tm_s_hdr            ; captions have to stand over the columns
-    call font_str               ; they name, and tm_rows letters from here
+    call OSAPI_FONT_STR               ; they name, and tm_rows letters from here
     pop dx
     pop cx
     add cx, TM_COLW
@@ -1349,13 +1421,13 @@ tm_click:
 
     xor byte [tm_view], 1
     mov bx, si
-    call wm_content             ; AX = content left, DX = content top
+    call OSAPI_WM_CONTENT             ; AX = content left, DX = content top
     push ax                     ; ...and the far corner off the record, not
-    mov ax, [bx+W_Y]            ; a pair of constants: this fill is the ONLY
-    add ax, [bx+W_H]            ; thing that erases the outgoing view, and a
+    mov ax, [es:bx+W_Y]            ; a pair of constants: this fill is the ONLY
+    add ax, [es:bx+W_H]            ; thing that erases the outgoing view, and a
     sub ax, 2                   ; short one leaves its tail rows lettered
-    mov cx, [bx+W_X]            ; under the incoming one (they were 198x245
-    add cx, [bx+W_W]            ; against a content that had grown to 231x282).
+    mov cx, [es:bx+W_X]            ; under the incoming one (they were 198x245
+    add cx, [es:bx+W_W]            ; against a content that had grown to 231x282).
     sub cx, 2                   ; TWO, not one: y+h-1 and x+w-1 are the frame's
                                 ; own bottom and right BORDERS, and a fill that
                                 ; reached them left the window open-sided until
@@ -1364,7 +1436,7 @@ tm_click:
     mov dx, ax
     pop ax
     TM_INK CWHITE
-    call gfx_fill
+    call OSAPI_GFX_FILL
     call tm_draw_full           ; SI = window ptr still
 
     pop dx
@@ -1430,7 +1502,7 @@ tm_draw_mem:
     add cx, TM_RW
     mov dx, [tm_cy]
     add dx, TMM_M1_Y2
-    call gfx_frame
+    call OSAPI_GFX_FRAME
 
 
     mov ax, [tm_cx]             ; XMS bar frame (6,71)-(TM_RW,80) - here and
@@ -1441,7 +1513,7 @@ tm_draw_mem:
     add cx, TM_RW
     mov dx, [tm_cy]
     add dx, TMM_XB_Y2
-    call gfx_frame
+    call OSAPI_GFX_FRAME
 
     mov cx, [tm_cx]             ; header, at the rows' text x - once per
     mov bx, [tm_cols]           ; COLUMN, because each carries its own list
@@ -1452,7 +1524,7 @@ tm_draw_mem:
     push dx
     add cx, 16
     mov si, tm_s_mhdr
-    call font_str
+    call OSAPI_FONT_STR
     pop dx
     pop cx
     add cx, TM_COLW
@@ -1507,7 +1579,7 @@ tm_cap_xms:
     push si
     push di
 
-    call xm_caps                ; AX = KB still free, SK_XMS = the whole pool
+    call OSAPI_XMEM_CAPS                ; AX = KB still free, SK_XMS = the whole pool
     mov bx, [tm_kb+SK_XMS]
     push bx
     sub bx, ax                  ; BX = KB in use: sized minus free
@@ -1539,7 +1611,7 @@ tm_cap_xms:
     call tm_copy                ; the two belong together, because the tier is
     mov si, tm_s_t86            ; exactly what decides whether there can BE any
     push ax
-    call cpu_info               ; AL = the tier (SPEC.md 41.1)
+    call OSAPI_CPU_INFO               ; AL = the tier (SPEC.md 41.1)
     cmp al, CPU_286
     pop ax
     jb .tier
@@ -1578,7 +1650,7 @@ tm_cap_xms:
     mov dx, [tm_cy]
     add dx, TMM_XMS_Y
     mov si, tm_str
-    call font_str
+    call OSAPI_FONT_STR
 .out:
     pop di
     pop si
@@ -1661,13 +1733,13 @@ tm_map_ram:
     mov cx, TM_GW - 1
     mov bx, TMM_M1_Y1
     call tm_map_rect
-    call gfx_fill
+    call OSAPI_GFX_FILL
 
     xor ax, ax                  ; [0, kernel end): the BIOS data area and the
     mov dx, [tm_kb+SK_KERN]     ; kernel entire - image, scratch, buffers and
     dec dx                      ; stacks (SPEC.md 2). 50% gray: reserved, and
     call tm_band                ; not available to anything else
-    call gfx_fill_gray
+    call OSAPI_GFX_FILL_GRAY
 
     mov ax, [tm_kb+SK_KERN]           ; ...and its BUFFERS, over the top of
     sub ax, [tm_kb+SK_BUF]            ; that, in a texture of their own: the
@@ -1828,7 +1900,7 @@ tm_map_claim:
     TM_FILL_PAT
     pop si
     TM_INK CBLACK
-    call gfx_frame
+    call OSAPI_GFX_FRAME
     pop dx
     pop cx
     pop bx
@@ -2416,7 +2488,7 @@ tm_row_draw:
     mov dx, [tm_rowy]
     mov bx, dx
     add dx, 7                   ; AX/BX/CX/DX = the chunk's rect
-    call wm_clip_test           ; NOT a veto any more - font_run decides per
+    call OSAPI_WM_CLIP_TEST           ; NOT a veto any more - font_run decides per
     pushf                       ; CELL on both its paths (SPEC.md 6.1.2), so
                                 ; this only asks whether the chunk will be
                                 ; drawn WHOLE, which is whether its check word
@@ -2436,7 +2508,7 @@ tm_row_draw:
     push ax
     mov al, CBLACK              ; AL = ink, AH = background: the erase and the
     mov ah, CWHITE              ; letters as one decision per cell
-    call font_run
+    call OSAPI_FONT_RUN
     pop ax
     pop bx
     mov [bx], ah
@@ -2460,7 +2532,7 @@ tm_row_draw:
     cmp ax, cx
     ja .tdone
     TM_INK CWHITE
-    call gfx_fill
+    call OSAPI_GFX_FILL
 .tdone:
     pop dx
     pop cx
@@ -2541,7 +2613,7 @@ tm_row_lead:
     mov dx, bx
     add dx, 7
     TM_INK CWHITE
-    call gfx_fill
+    call OSAPI_GFX_FILL
     pop dx
     pop cx
     pop bx
@@ -2605,7 +2677,7 @@ tm_rowok:
     add ax, 6
     mov cx, [tm_rowx]
     add cx, TM_RW
-    call wm_clip_test
+    call OSAPI_WM_CLIP_TEST
     pop dx
     pop cx
     pop bx
@@ -2625,7 +2697,7 @@ tm_rowfill:
     add ax, 6
     mov cx, [tm_rowx]
     add cx, TM_RW
-    call gfx_fill
+    call OSAPI_GFX_FILL
     pop dx
     pop cx
     pop bx
@@ -2767,7 +2839,7 @@ tm_sq_frame:
     add cx, 7
     mov dx, bx
     add dx, 7
-    call gfx_frame
+    call OSAPI_GFX_FRAME
     pop dx
     pop cx
     pop bx
@@ -2885,7 +2957,7 @@ tm_col:
     mov dx, cx
     add dx, TM_GF_Y2 - 1
     sub dx, si
-    call gfx_vline
+    call OSAPI_GFX_VLINE
 .black:
     or si, si                   ; black: rows 55-v..54 (skip when v=0)
     jz .done
@@ -2895,7 +2967,7 @@ tm_col:
     sub bx, si
     mov dx, cx
     add dx, TM_GF_Y2 - 1
-    call gfx_vline
+    call OSAPI_GFX_VLINE
 .done:
     pop si
     pop dx
@@ -2923,7 +2995,7 @@ tm_gapcol:
     add bx, TM_GF_Y1 + 1
     add dx, TM_GF_Y2 - 1
     TM_INK CWHITE
-    call gfx_vline
+    call OSAPI_GFX_VLINE
 
     pop dx
     pop bx
@@ -3056,7 +3128,7 @@ tm_txt_ram_y:
     mov dx, [tm_cy]
     add dx, [tm_liny]
     mov si, tm_str
-    call font_str
+    call OSAPI_FONT_STR
 
     cmp byte [tm_view], 0
     je .out
@@ -3106,7 +3178,7 @@ tm_bar:
     dec cx                      ; x2 = 7 + barw - 1
     mov dx, [tm_cy]
     add dx, TM_BAR_Y2 - 1
-    call gfx_fill
+    call OSAPI_GFX_FILL
 .rest:
     cmp si, TM_GW
     jae .done
@@ -3120,7 +3192,7 @@ tm_bar:
     add cx, TM_RW - 1
     mov dx, [tm_cy]
     add dx, TM_BAR_Y2 - 1
-    call gfx_fill
+    call OSAPI_GFX_FILL
 .done:
     pop si
     pop dx
@@ -3172,7 +3244,7 @@ tm_xbar:
     dec cx
     mov dx, [tm_cy]
     add dx, TMM_XB_Y2 - 1
-    call gfx_fill
+    call OSAPI_GFX_FILL
 .rest:
     cmp si, TM_GW
     jae .done
@@ -3186,7 +3258,7 @@ tm_xbar:
     add cx, TM_RW - 1
     mov dx, [tm_cy]
     add dx, TMM_XB_Y2 - 1
-    call gfx_fill
+    call OSAPI_GFX_FILL
 .done:
     pop si
     pop dx
@@ -3733,76 +3805,81 @@ tm_put3:
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-section .bss
+    OS88_BSS TM_BSS_TOTAL
+    OS88_IMAGE_END
 
-tm_win:     resw 1              ; window record ptr (ui.inc dispatches on it)
+; --- loader-zeroed bss (SPEC.md 21 step 5) -----------------------------------
+; All zero is the performance view, an empty history ring and no worker, which
+; is exactly what a fresh launch wants. As a built-in this block had to be
+; cleared by hand at every kinit, because .bss survives between instances of a
+; kind; a package gets a fresh image and a zeroed bss per launch instead.
+
+tm_win      equ os88_image_end + 0     ; word: our window ptr
 
 ; --- what the API cells fill (SPEC.md 20.9) ----------------------------------
 ; Three buffers this module owns and the kernel writes through ES:DI.
 ; tm_snap is unpacked into the per-slot arrays below the moment it lands (see
 ; tm_sample); tm_claims and tm_kb are read where they sit.
-tm_snap:    resb SYSSNAP_SIZE   ; osapi_sys_snap: scheduler + instance table
-tm_claims:  resb CLAIMSNAP_SIZE ; osapi_claim_snap: the claim map
-tm_kb:      resb SYSKB_SIZE     ; osapi_sys_kb: the kernel's footprint and the
+tm_snap     equ os88_image_end + 2     ; osapi_sys_snap: scheduler + instance table
+tm_claims   equ os88_image_end + 428   ; osapi_claim_snap: the claim map
+tm_kb       equ os88_image_end + 620   ; osapi_sys_kb: the kernel's footprint and the
                                 ; heap's totals, refreshed by tm_view_begin
                                 ; and by every sample
 
-tm_zero_beg:                    ; tm_init zeroes this whole block
-tm_hist:    resb TM_GW          ; history ring: column heights 0..40
-tm_pos:     resw 1              ; sweep index = next column to write
-tm_lastcol: resw 1              ; column written by the latest sample
-tm_cnt:     resw 2              ; interval spin count, dword
-tm_cmax:    resw 2              ; calibration max, current epoch, dword
-tm_pmax:    resw 2              ; calibration max, previous epoch, dword
-tm_epc:     resb 1              ; samples into the current epoch
-tm_t0:      resw 1              ; interval start tick
-tm_load:    resw 1              ; latest load, 0..100
-tm_told:    resw MAX_TASKS * 2  ; previous sch_cycles snapshot
-tm_tnew:    resw MAX_TASKS * 2  ; current snapshot
-tm_tdif:    resw MAX_TASKS * 2  ; per-task interval cycles
-tm_state:   resb MAX_TASKS      ; T_STATE snapshot
-tm_pstate:  resb MAX_TASKS      ; previous sample's T_STATE (appeared rule)
-tm_self:    resb 1              ; our own slot ([sch_cur] at snapshot)
-tm_iold:    resw INST_MAX * 2   ; previous I_CYC snapshot
-tm_inew:    resw INST_MAX * 2   ; current snapshot
-tm_idif:    resw INST_MAX * 2   ; per-instance interval callback cycles
-tm_ist:     resb INST_MAX       ; I_STATE snapshot
-tm_pist:    resb INST_MAX       ; previous sample's I_STATE (appeared rule)
-tm_itsk:    resb INST_MAX       ; I_TASK snapshot (owning task or 0xFF)
-tm_isz:     resw INST_MAX       ; I_SIZE snapshot, bytes
-tm_ispt:    resw INST_MAX       ; I_SPTR snapshot (memory view, SPEC.md 28)
-tm_iknd:    resb INST_MAX       ; I_KIND snapshot: the Builtins/Packages split
+tm_hist     equ os88_image_end + 642   ; history ring: column heights 0..40
+tm_pos      equ os88_image_end + 867   ; sweep index = next column to write
+tm_lastcol  equ os88_image_end + 869   ; column written by the latest sample
+tm_cnt      equ os88_image_end + 871   ; interval spin count, dword
+tm_cmax     equ os88_image_end + 875   ; calibration max, current epoch, dword
+tm_pmax     equ os88_image_end + 879   ; calibration max, previous epoch, dword
+tm_epc      equ os88_image_end + 883   ; samples into the current epoch
+tm_t0       equ os88_image_end + 884   ; interval start tick
+tm_load     equ os88_image_end + 886   ; latest load, 0..100
+tm_told     equ os88_image_end + 888   ; previous sch_cycles snapshot
+tm_tnew     equ os88_image_end + 936   ; current snapshot
+tm_tdif     equ os88_image_end + 984   ; per-task interval cycles
+tm_state    equ os88_image_end + 1032  ; T_STATE snapshot
+tm_pstate   equ os88_image_end + 1044  ; previous sample's T_STATE (appeared rule)
+tm_self     equ os88_image_end + 1056  ; our own slot ([sch_cur] at snapshot)
+tm_iold     equ os88_image_end + 1057  ; previous I_CYC snapshot
+tm_inew     equ os88_image_end + 1105  ; current snapshot
+tm_idif     equ os88_image_end + 1153  ; per-instance interval callback cycles
+tm_ist      equ os88_image_end + 1201  ; I_STATE snapshot
+tm_pist     equ os88_image_end + 1213  ; previous sample's I_STATE (appeared rule)
+tm_itsk     equ os88_image_end + 1225  ; I_TASK snapshot (owning task or 0xFF)
+tm_isz      equ os88_image_end + 1237  ; I_SIZE snapshot, bytes
+tm_ispt     equ os88_image_end + 1261  ; I_SPTR snapshot (memory view, SPEC.md 28)
+tm_iknd     equ os88_image_end + 1285  ; I_KIND snapshot: the Builtins/Packages split
                                 ; (SPEC.md 28) needs bit 7, and the CLAIM
                                 ; column needs to know which owner word an
                                 ; instance's claims carry (SPEC.md 50.2)
-tm_ikb:     resw INST_MAX       ; ...and the KB it holds off the heap, which
+tm_ikb      equ os88_image_end + 1297  ; ...and the KB it holds off the heap, which
                                 ; the kernel derives from that same rule
-tm_coop:    resb 1              ; the scheduler mode at the last sample
-tm_mrow:    resw 1              ; the memory view's row cursor
-tm_mfit:    resb 1              ; ...and whether the row it names is on screen
-tm_sqox:    resw 1              ; ...and where its legend square starts
-tm_sqp:     resw 1              ; ...and its texture, or 0 for no square. A
+tm_coop     equ os88_image_end + 1321  ; the scheduler mode at the last sample
+tm_mrow     equ os88_image_end + 1322  ; the memory view's row cursor
+tm_mfit     equ os88_image_end + 1324  ; ...and whether the row it names is on screen
+tm_sqox     equ os88_image_end + 1325  ; ...and where its legend square starts
+tm_sqp      equ os88_image_end + 1327  ; ...and its texture, or 0 for no square. A
                                 ; REQUEST, not a draw: tm_mrow_close erases
                                 ; the band before it letters it, so a square
                                 ; drawn while the row was being composed
                                 ; would be erased again
-tm_elck:    resw TMC_N          ; the last drawn state of the non-row
+tm_elck     equ os88_image_end + 1329  ; the last drawn state of the non-row
                                 ; elements, one word each (TMC_*)
-tm_rowx:    resw 1              ; the left edge of the row being drawn: tm_cx
+tm_rowx     equ os88_image_end + 1341  ; the left edge of the row being drawn: tm_cx
                                 ; for column 0, one TM_COLW on for column 1
-tm_xbarw:   resw 1              ; the XMS bar's black run, px (TMC_XBAR)
-tm_penx:    resw 1              ; where the row's text starts: the process
+tm_xbarw    equ os88_image_end + 1343  ; the XMS bar's black run, px (TMC_XBAR)
+tm_penx     equ os88_image_end + 1345  ; where the row's text starts: the process
                                 ; list letters from tm_rowx+6 and the memory
                                 ; list from tm_rowx+16, and tm_row_draw has to
                                 ; be told which - drawing a process row at the
                                 ; memory list's pen puts it 10px right of the
                                 ; text it is replacing
-tm_ci:      resw 1              ; tm_row_draw's chunk index (BP is the task's
+tm_ci       equ os88_image_end + 1347  ; tm_row_draw's chunk index (BP is the task's
                                 ; instance record and cannot be borrowed)
-tm_ckb:     resw 1              ; ...and the running check-word pointer, for
+tm_ckb      equ os88_image_end + 1349  ; ...and the running check-word pointer, for
                                 ; the same reason
-tm_rowck:   resw TM_NCK * TM_NCHUNK  ; the last drawn content of each row, a
+tm_rowck    equ os88_image_end + 1351  ; the last drawn content of each row, a
                                 ; word per CHUNK (tm_chunksum), plus one
                                 ; virtual row for the CPU caption (TMR_CPU).
                                 ; Shared by both views - TM_ROWS is the
@@ -3812,42 +3889,47 @@ tm_rowck:   resw TM_NCK * TM_NCHUNK  ; the last drawn content of each row, a
                                 ; cleared as one span on the strength of
                                 ; being declared adjacent, which they have
                                 ; not been for some time
-tm_view:    resb 1              ; 0 = performance view, 1 = memory view
-tm_inm:     resb INST_MAX * 16  ; I_NAME snapshots
-tm_rcyc:    resw TM_ROWS * 2    ; per-ROW cycles: task + instance, dword
-tm_total:   resw 2              ; sum of the rows, dword
-tm_pct:     resb TM_ROWS        ; per-row share, 0..100
-tm_usedk:   resw 1              ; used RAM, KB
-tm_barw:    resw 1              ; RAM bar black width, 0..TM_GW
-tm_zero_end:
+tm_view     equ os88_image_end + 1551  ; 0 = performance view, 1 = memory view
+tm_inm      equ os88_image_end + 1552  ; I_NAME snapshots
+tm_rcyc     equ os88_image_end + 1744  ; per-ROW cycles: task + instance, dword
+tm_total    equ os88_image_end + 1796  ; sum of the rows, dword
+tm_pct      equ os88_image_end + 1800  ; per-row share, 0..100
+tm_usedk    equ os88_image_end + 1813  ; used RAM, KB
+tm_barw     equ os88_image_end + 1815  ; RAM bar black width, 0..TM_GW
 
-; --- set ONCE by tm_init, at boot, and OUTSIDE the block above ---------------
-; tm_kinit zeroes tm_zero_beg..tm_zero_end every time a window opens, so a
-; value tm_init worked out at boot cannot live in there: it would survive
-; exactly until the first launch and then read back as zero. That cost a
-; divide-by-zero the first time this window was opened, because tm_colrows is
-; a divisor.
-tm_cols:    resw 1              ; process-list columns, 1 or 2 (SPEC.md 28.1)
-tm_colrows: resw 1              ; rows in COLUMN 0, which starts under the maps
-tm_col2rows: resw 1             ; rows in each LATER column, which starts at the
+; --- worked out once by tm_init, before the window exists --------------------
+; These used to need saying out loud, because a built-in's .bss survives
+; between instances of its kind and tm_kinit therefore cleared the block above
+; by hand - leaving anything tm_init had computed at BOOT to be wiped by the
+; first launch. It cost a divide by zero the first time the window was opened,
+; tm_colrows being a divisor. A package has no such hazard: the bss is zeroed
+; once per launch, before the entry proc runs, and tm_init runs inside it.
+tm_cols     equ os88_image_end + 1817  ; process-list columns, 1 or 2 (SPEC.md 28.1)
+tm_colrows  equ os88_image_end + 1819  ; rows in COLUMN 0, which starts under the maps
+tm_col2rows equ os88_image_end + 1821  ; rows in each LATER column, which starts at the
                                 ; top and so holds more - A DIVISOR, never 0
-tm_maxrow:  resw 1              ; rows this SCREEN shows, <= TMM_ROWS: derived
+tm_maxrow   equ os88_image_end + 1823  ; rows this SCREEN shows, <= TMM_ROWS: derived
                                 ; from [vid_dock_y0] so the window never
                                 ; overlaps the dock (SPEC.md 28.1)
-tm_totkb:   resw 1              ; total conventional RAM (int 12h, boot)
-tm_vw:      resw 1              ; the live screen width and the dock strip's
-tm_vdock:   resw 1              ; top row (osapi_video, SPEC.md 39.2), banked
+tm_totkb    equ os88_image_end + 1825  ; total conventional RAM (int 12h, boot)
+tm_vw       equ os88_image_end + 1827  ; the live screen width and the dock strip's
+tm_vdock    equ os88_image_end + 1829  ; top row (osapi_video, SPEC.md 39.2), banked
                                 ; at boot: the template's whole geometry is
                                 ; derived from them
-tm_cx:      resw 1              ; cached content origin (draw paths only,
-tm_cy:      resw 1              ; always under the gfx lock)
-tm_ord:     resb INST_MAX       ; tm_order: display row - 1 -> instance slot
-tm_rowi:    resb 1              ; ...the one tm_rows is drawing right now
-tm_rowy:    resw 1              ; tm_rows/tm_rows_mem scratch: current row y
-tm_ylim:    resw 1              ; ...and the lowest row top the frame holds
+tm_cx       equ os88_image_end + 1831  ; cached content origin (draw paths only,
+tm_cy       equ os88_image_end + 1833  ; always under the gfx lock)
+tm_ord      equ os88_image_end + 1835  ; tm_order: display row - 1 -> instance slot
+tm_rowi     equ os88_image_end + 1847  ; ...the one tm_rows is drawing right now
+tm_rowy     equ os88_image_end + 1848  ; tm_rows/tm_rows_mem scratch: current row y
+tm_ylim     equ os88_image_end + 1850  ; ...and the lowest row top the frame holds
                                 ; (tm_view_begin): the row lists are fixed-pitch
                                 ; and nothing clips a draw to a window
-tm_liny:    resw 1              ; tm_txt_ram_y scratch: the line's y
-tm_str:     resb TM_STRMAX      ; line-format scratch
+tm_liny     equ os88_image_end + 1852  ; tm_txt_ram_y scratch: the line's y
+tm_str      equ os88_image_end + 1854  ; line-format scratch
 
-section .text
+tm_spawned  equ os88_image_end + 1882  ; byte: 1 = this instance owns its
+                                       ; worker. Latches on SUCCESS only, so
+                                       ; every paint retries until a task slot
+                                       ; frees up (SPEC.md 20.6)
+
+TM_BSS_TOTAL equ 1883

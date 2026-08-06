@@ -976,7 +976,6 @@ kmain:
     call dock_init              ; dock strip scratch (SPEC.md 30)
     call files_init             ; Disk module state (no window at boot)
     call loader_init            ; package loader state
-    call tm_init                ; Task Manager total-RAM read (no window)
     call drv_init               ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
@@ -1156,7 +1155,6 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "icons.inc"
 %include "desk.inc"
 %include "dock.inc"
-%include "taskmgr.inc"
 %include "ctrl.inc"
 %include "driver.inc"           ; loadable drivers (SPEC.md 51): after
                                 ; diskw (it reads and writes the system disk)

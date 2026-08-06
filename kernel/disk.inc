@@ -2154,6 +2154,66 @@ dsk_get_dir:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_find_name - a display name's index in the mount snapshot (SPEC.md 18.3)
+; in:  SI -> a NUL display name, upper case as dsk_synth writes them
+; out: CF = 0 and AX = the directory index; CF = 1 not found
+; clobbers: AX (the output), flags
+;
+; The snapshot, not a directory walk: disk_mount has already synthesized every
+; entry in the current directory and dsk_get_dir stages one back into the
+; kernel segment, so this is a string compare against memory we own - no
+; floppy I/O at all.
+;
+; It answers the INDEX, because that is the currency every consumer speaks:
+; ld_run_body loads by index, dsk_get_dir reads by index, and a caller that
+; wants the size or the first cluster gets them by asking for the entry. The
+; two callers are drv_load, finding a .DRV by the name in its table row, and
+; the chip menu finding TASKMGR.O88 (SPEC.md 28).
+; -----------------------------------------------------------------------------
+dsk_find_name:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov dx, si                  ; DX = the name wanted (SI is the walker's)
+    xor bx, bx                  ; BX = entry index
+.next:
+    cmp bx, [disk_nfiles]
+    jae .no
+    mov ax, bx
+    call dsk_get_dir            ; SI -> dsk_ent, in our own segment
+    mov di, dx
+.cmp:
+    mov al, [si]
+    mov ah, [di]
+    cmp al, ah
+    jne .nextent
+    inc si
+    inc di
+    or al, al
+    jnz .cmp
+    mov ax, bx                  ; matched to the NUL
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    clc
+    ret
+.nextent:
+    inc bx
+    jmp short .next
+.no:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_ent_ofs / dsk_ico_ofs - one listing slot's offset (module internal)
 ; in:       AX = entry index
 ; out:      SI = its offset inside [dsk_dseg]
