@@ -960,8 +960,11 @@ cp_paint:             call COLD_SEG:cpf_cp_paint
                     ret
 cp_onclick:           call COLD_SEG:cpf_cp_onclick
                     ret
-cp_flush:             call COLD_SEG:cpf_cp_flush
-                    ret
+                      ; ...but NOT cp_flush. It has no thunk on purpose: with
+                      ; no way into it from .text, "the panel's teardown is the
+                      ; only thing that writes SYSTEM.CFG" (SPEC.md 31.8) is
+                      ; something the build enforces rather than something
+                      ; every new page has to be told
 cp_flush_close:       call COLD_SEG:cpf_cp_flush_close
                     ret
 cp_drv_gone:          call COLD_SEG:cpf_cp_drv_gone

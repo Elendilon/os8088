@@ -9249,10 +9249,23 @@ Three things make deferral the right answer rather than a compromise:
 The one thing a new page may NOT do is decide its setting is important
 enough to be the exception. If a setting genuinely cannot survive being lost
 to a power cut with the panel open, that is an argument about §51.5's file,
-not a licence to write from a click handler. The hard-disk driver's Mount
-and Unmount are the *only* immediate writes in the tree and they are not
-this mechanism at all — they are the driver's own `OSAPI_DRV_CFG` save verbs
-on its own page (§52.6), justified there and nowhere else.
+not a licence to write from a click handler.
+
+**There are no exceptions left, including for a driver's page.** The hard
+disk's Mount and Unmount were the last of them — the driver's own
+`OSAPI_DRV_CFG` verb 2 rather than this mechanism, which is exactly how they
+escaped the rule — and they are gone: §51.9's verb 2 is retired and a
+driver's blob defers like everything else (§52.6). That page made the
+standard argument, that the set of mounted drives is what the next boot
+reads, and it also demonstrated the standard cost and one of its own: the
+write **mounts A: to reach the file**, so clicking Mount made C: the current
+volume and then silently made A: current again, in the middle of the click
+it was meant to be recording.
+
+The rule is therefore mechanical, not a convention every new page has to be
+told about. `cp_flush` has **no `.text` thunk** (§33): `cp_flush_x` is a near
+call inside the cold segment and `cp_flush_close_x` is its only caller, so a
+page, a driver's page or an API cell cannot reach it even by naming it.
 
 **Both ways the panel stops existing flush it**, which is what makes the
 deferral safe:
@@ -15402,9 +15415,8 @@ the same identity test as the four volume slots) carries them:
 
 ```
 AL = 0  read the blob into ES:SI, at most CX bytes; out CX = bytes handed over
-AL = 1  write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
+AL != 0 write ES:SI/CX into the blob. SYSTEM.CFG is owed a write, deferred to
         the Control Panel's teardown like every other setting (§31.8)
-AL = 2  ...and write the file NOW
 out CF = 1  not a published driver, or a WRITE longer than DRV_BLOB_SZ (34)
 ```
 
@@ -15433,12 +15445,21 @@ that may have no hard disk. One blob is shared by whichever driver asks, which
 is the honest shape while exactly one class has settings; a second claimant is
 a second key, not a bigger blob.
 
-**Verb 2 exists because a mount is not a preference.** Deferral is right for a
-session of nudging a cylinder count — a floppy write is about a second on the
-floor machine and the panel is frozen for it — but a machine switched off with
-the panel still open would come back with a hard disk it had been told to mount
-and has not. So the geometry editor stages on every click and writes on none,
-and Mount and Unmount write on the spot.
+**There was a verb 2, "and write the file NOW", and it is retired.** It
+existed because a mount is not a preference: a machine switched off with the
+panel still open comes back with a hard disk it had been told to mount and has
+not. That is the argument every page makes for being §31.8's exception, and it
+is refused here for the same reasons, plus one this cell had to itself — the
+write remounts A: to reach the file, so a driver that had just made its own
+volume current lost it inside the click. **A set never touches the disk**; the
+Control Panel's close and Special > Restart are the only two writers in the
+machine.
+
+`AL = 2` is still **accepted** and means exactly what `AL = 1` means, so a
+`.DRV` built against the old contract stores its blob and defers rather than
+failing. Under §20.8 rule 4 that is a narrowing of *when the bytes reach the
+disk*, not of what the call does: the cell still stores, still answers CF the
+same way, and still reads back what was written.
 
 ## 52. HDD.DRV — the hard-disk driver (drivers/hdd/)
 
@@ -15649,15 +15670,21 @@ Three things about it are load-bearing:
   disk at all. The mount's *own* save no longer needs this: the kernel owns
   the file and the drive it lives on.
 
-There are three ways out and each is the §51.9 verb its job needs. The
-geometry editor **stages** on every `+` and writes on none, because a floppy
-write is about a second on the floor machine and the panel is frozen for it;
-opening the partitioner or the formatter **spends** a staged edit, because a
-geometry the user is about to format a disk with is one worth surviving a
-hang; and Mount and Unmount **write on the spot**, because the set of mounted
-drives is what the next boot reads. Detach stages — the fence is still open
-(the kernel releases the class after detach returns) and the panel that
-unticked the driver is about to close and write the file anyway.
+**There is one way out, `hd_cfg_mark`, and it never touches a disk.** It hands
+the blob to the kernel — a 34-byte `rep movsb` — and `SYSTEM.CFG` is written
+when the Control Panel closes or Special > Restart is picked, like every other
+setting in the machine (§31.8). Everything that can change the blob calls it:
+the geometry editor on every `+`, Mount and Unmount, and detach.
+
+There were three ways out, and the other two wrote immediately. `hd_cfg_now`
+was Mount and Unmount, on the argument that the set of mounted drives is what
+the next boot reads; `hd_cfg_flush` was opening the partitioner or the
+formatter, on the argument that a geometry about to be formatted with is worth
+surviving a hang. Both are gone with §51.9's verb 2, and what they bought was
+never worth 2+ seconds of frozen UI in the middle of a click — the Mount write
+also remounted A: behind the click that had just made C: current. Neither tool
+needs a stage of its own either: the only thing they use is the geometry, and
+the editor staged that on the click that changed it.
 
 ### 52.9 Not in scope
 

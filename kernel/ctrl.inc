@@ -112,10 +112,13 @@ cp_wdirty:  db 0                ; 1 = a setting changed and SYSTEM.CFG is owed
                                 ; click, so a session of fiddling costs ONE
                                 ; floppy write instead of one per click.
                                 ;
-                                ; **SETTING THIS IS ALL A PAGE MAY DO.** No
-                                ; page calls cp_flush_x from a click handler
-                                ; and a new one must not either - SPEC.md
-                                ; 31.8. A SYSTEM.CFG write is 2+ SECONDS of
+                                ; **SETTING THIS IS ALL A PAGE MAY DO**, and
+                                ; all a DRIVER's page may do either - the
+                                ; hard disk's Mount was the last exception and
+                                ; is gone (SPEC.md 31.8/51.9). Nothing outside
+                                ; cp_flush_close_x calls cp_flush_x, and there
+                                ; is no longer a .text thunk to call it
+                                ; through. A SYSTEM.CFG write is 2+ SECONDS of
                                 ; frozen UI on the floor machine (mount, data,
                                 ; FAT, directory, FAT, remount, all under the
                                 ; gfx lock with the cursor stopped), landing
@@ -1859,10 +1862,14 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ;
-; **NOT called by a page.** cp_flush_close_x calls it, from the two ways the
-; panel stops existing, and nothing else does - a page that changed something
-; sets [cp_wdirty] and returns (SPEC.md 31.8, and the flag's own comment for
-; why that is a rule rather than a default). It is one write of one 32-byte
+; **NOT called by a page, and no longer callable by one.** cp_flush_close_x
+; calls it, from the two ways the panel stops existing, and nothing else does -
+; a page that changed something sets [cp_wdirty] and returns (SPEC.md 31.8, and
+; the flag's own comment for why that is a rule rather than a default). It is
+; a near call inside .cold with no .text thunk in front of it, so a page, a
+; driver's page or an API cell cannot reach it even by naming it.
+;
+; It is one write of one 32-byte
 ; file, and the file carries the whole panel - the driver list, the sound
 ; route, the clock options, the scheduler mode and the back buffer - so there
 ; is no per-setting bookkeeping to keep in step.
@@ -2636,8 +2643,6 @@ section .cold                   ; far entries: the resident thunks in
 cpf_cp_paint:          call cp_paint_x
                     retf
 cpf_cp_onclick:        call cp_onclick_x
-                    retf
-cpf_cp_flush:          call cp_flush_x
                     retf
 cpf_cp_flush_close:    call cp_flush_close_x
                     retf

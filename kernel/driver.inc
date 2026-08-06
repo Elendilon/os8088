@@ -723,7 +723,7 @@ drv_cp_call:
 
 ; -----------------------------------------------------------------------------
 ; osapi_drv_cfg - a driver's own settings, in the kernel's file (SPEC.md 51.9)
-; in:  AL = 0 get / 1 set / 2 set and write the file now
+; in:  AL = 0 get / anything else set
 ;      ES:SI = the driver's buffer, CX = its size
 ; out: get: CX = bytes handed over (never more than either side's size)
 ;      set: CF = 1 = CX is bigger than DRV_BLOB_SZ and nothing was stored
@@ -739,11 +739,19 @@ drv_cp_call:
 ; unchanged. It is not dropped the way an unknown key is (SPEC.md 51.5 rule
 ; 1), and the difference is that this key is known - only its meaning is not.
 ;
-; Verb 2 exists because a MOUNT is not a preference. Every other setting is
-; deferred to the panel's teardown (SPEC.md 31.8) because a floppy write is a
-; second on the floor machine and a session of fiddling must not cost one per
-; click; but a machine powered off with the panel still open would then come
-; back with a hard disk it had been told to mount and has not.
+; **A set never touches the disk**, and there is no verb that does. There was
+; one - verb 2, "set and write NOW" - taken because a MOUNT is not a
+; preference: a machine powered off with the panel still open comes back with
+; a hard disk it had been told to mount and has not. That is the argument
+; every page makes for being SPEC.md 31.8's exception, and it is refused here
+; for the same reasons it is refused there, plus one this cell had to itself -
+; the write remounts A: to reach the file, so a driver that had just made its
+; own volume current silently lost it mid-click.
+;
+; AL = 2 is still ACCEPTED and means exactly what AL = 1 means, so a .DRV
+; built against the old contract stores its blob and defers rather than
+; failing (SPEC.md 20.8 rule 4: a shipped slot keeps its contract; this is a
+; narrowing of when the bytes reach the disk, not of what the call does).
 ; -----------------------------------------------------------------------------
 osapi_drv_cfg:
     push ax
@@ -779,10 +787,10 @@ osapi_drv_cfg:
     pop es
     pop ds
     pop cx
-    mov byte [cp_wdirty], 1     ; the file is owed a write...
-    cmp al, 2
-    jne .ok
-    call cp_flush               ; ...and this verb wants it NOW
+    mov byte [cp_wdirty], 1     ; the file is OWED a write, and the panel's
+                                ; teardown is the only thing that pays it -
+                                ; there is no reachable flush from here now
+                                ; (SPEC.md 31.8)
 .ok:
     pop di
     pop si

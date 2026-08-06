@@ -227,16 +227,18 @@ for n,a,c,sz in ents(v):
 EOF
 ```
 
-**Persistence: which half needs the panel closed, and which does not.** Mount
-and Unmount write `SYSTEM.CFG` on the spot (SPEC.md 51.9 verb 2), and the
-write packs the LIVE state - the driver-wanted bitmap included - so quitting
-QEMU with the Control Panel still open is a fair test of the mount: reboot and
-Disk A, Disk B and every hard-disk volume should be on the desktop with no
-clicks at all. **A geometry typed by hand is the deferred half**, staged on
-every `+` and written at the panel's teardown (SPEC.md 31.8), so *that* one
-does need the window closed before the quit - and a run that skips it reboots
-with the probe's numbers back, which reads exactly like the editor not
-persisting. Close the window, then quit, then `make test HDD=40` again.
+**Persistence: EVERYTHING needs the panel closed first.** Nothing on this page
+writes `SYSTEM.CFG` from a click any more - not the geometry editor, and since
+SPEC.md 51.9's verb 2 was retired not Mount and Unmount either. All of it is
+staged into the kernel's settings struct on the spot and written at the panel's
+teardown (SPEC.md 31.8), so a persistence run is: mount, type a geometry,
+**click the close box on the LEFT of the title bar**, then quit QEMU, then
+`make test HDD=40` again - and Disk A, Disk B and every hard-disk volume should
+be on the desktop with no clicks at all. A run that quits with the panel still
+open reboots with the probe's numbers back and nothing mounted, which reads
+exactly like the blob not persisting and is the test being wrong. **Minimizing
+is not closing**, and neither is a hard reset from outside; Special > Restart
+is the other way that does flush.
 
 Worth testing once as a pair, because it is the property the blob exists for:
 untick the driver, close the panel, reboot (no driver, no icons), then tick it
