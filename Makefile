@@ -70,9 +70,6 @@ endif
 # VIDDEF so it shares the stamp below - changing it rebuilds the kernel - and
 # so a counted kernel that reached build/ reads as STALE to check-images,
 # which builds knob-free.
-ifneq ($(FLOPPY1),)
-VIDDEF += -DFLOPPY_ONE_SECTOR
-endif
 ifneq ($(DISKCNT),)
 VIDDEF += -DDISK_COUNTERS
 
@@ -87,7 +84,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1)
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin; \
                                 touch $(VIDSTAMP); })
