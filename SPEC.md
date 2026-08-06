@@ -763,18 +763,28 @@ every step *i* of one Bresenham. When the minor axis is **x** — a steep line �
 those three pixels are on the *same row* and usually in the *same byte*. So
 one walk that writes a three-bit mask is the identical pixel set:
 
-| dilated steep line, Hercules | |
-|---|---|
-| three passes | 353,211 |
-| one walk, three-bit mask | **180,644** |
-| | **1.96×** |
+**How much cheaper is not settled.** `tests/linetest` times 20 fans of 48
+dilated steep lines and says **1.3× to 1.9×** — that is the spread of the
+same two builds measured four times, not a confidence interval, and it is
+the spread because QEMU host time is not a measurement. PERFORMANCE.md Part 4
+is explicit that QEMU is exact about *work* and useless about time, and this
+figure was taken the wrong way round; an `-icount` run or a field number is
+what would settle it. What is not in doubt is the direction — every pairing
+put the one-walk build ahead — and the arithmetic, which is that two of three
+Bresenham walks stop happening.
 
-(`tests/linetest`, 20 fans of 48 lines, PIT counts.) Verified the way this
-kind of change has to be: the same fan drawn by both kernels and the
-framebuffer compared byte for byte — **0 differing pixels** on Hercules and
-**0** on CGA, with the only difference anywhere being the menu-bar clock
-ticking between runs. It costs about 100 bytes, which fit inside the image's
+**That the pixels are identical IS settled**, and it is the half that
+matters: the same fan drawn by both kernels and the framebuffer compared byte
+for byte — **0 differing pixels** on Hercules and **0** on CGA, repeated
+across four runs, with the only difference anywhere being the menu-bar clock
+ticking between them. It costs about 100 bytes, which fit inside the image's
 existing 512-byte padding, so the kernel binary did not change size at all.
+
+**Missile Command sees less of this than the ratio suggests**, and that is
+geometry rather than anything about the code: only **53%** of its trail
+erases are steep (counted over a scripted game — 15 dilated erases, 8 steep),
+because an ICBM falling 300 rows can travel 600 columns doing it. The other
+half still walks three times.
 
 Four things about it are load-bearing:
 

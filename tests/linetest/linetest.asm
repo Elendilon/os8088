@@ -200,7 +200,86 @@ lt_onkey:
     mov [lt_res], ax
     mov [lt_res+2], dx
     call lt_report
+    call lt_write
     pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; lt_write - the count to LINE.TXT on the current volume. tests/gfxbench and
+; tests/sysbench write their reports to a file for the room; this one does it
+; because a number READ BACK OFF THE FRAMEBUFFER is a number you can misread,
+; and this harness produced a 10x-wrong figure that way before it wrote one.
+lt_write:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, ds
+    mov es, ax
+    mov di, lt_buf
+    mov ax, [lt_res]
+    mov dx, [lt_res+2]
+    call lt_dec
+    mov al, 13
+    stosb
+    mov al, 10
+    stosb
+    mov cx, di
+    sub cx, lt_buf
+    mov bx, lt_buf
+    xor dx, dx
+    mov si, lt_s_name
+    call OSAPI_FILE_WRITE
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; lt_dec - DX:AX as decimal at ES:DI, DI left past the last digit
+lt_dec:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, lt_num + 11
+    mov byte [si], 0
+    mov bx, 10
+.d:
+    mov cx, ax
+    mov ax, dx
+    xor dx, dx
+    div bx
+    push ax
+    mov ax, cx
+    div bx
+    add dl, '0'
+    dec si
+    mov [si], dl
+    pop dx
+    mov cx, ax
+    or ax, dx
+    mov ax, cx
+    jnz .d
+.c:
+    mov al, [si]
+    or al, al
+    jz .e
+    stosb
+    inc si
+    jmp short .c
+.e:
     pop si
     pop dx
     pop cx
@@ -307,6 +386,8 @@ lt_ch:      dw 0
 lt_win:     dw 0
 lt_t0:      dw 0, 0
 lt_res:     dw 0, 0
-lt_buf:     times 12 db 0
+lt_buf:     times 24 db 0
+lt_num:     times 12 db 0
+lt_s_name:  db 'LINE.TXT', 0
 
     OS88_IMAGE_END
