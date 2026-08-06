@@ -150,9 +150,11 @@ zone, end to end:
 make test HDD=40                 # a blank 40MB raw IDE disk, KEPT between runs
 # System menu -> Control Panel -> Drivers -> tick Hard Drive
 # -> the 'Hard Drive' page appears in the list; select it
-# -> Partition -> New -> Write -> Close
-# -> Format -> Format -> Close
-# -> Mount        ... one icon per FAT partition: HDD C, HDD D, ...
+# -> Format -> pick a slot -> Format   ... partitions AND formats it (SPEC.md
+#                                          52.2); a slot with something in it
+#                                          asks for the click again first
+# -> Close -> Mount                    ... one icon per FAT partition: HDD C,
+#                                          HDD D, ...
 rm -f build/hdd.img              # start over from a blank disk
 ```
 
@@ -342,7 +344,8 @@ pasted into [PERFORMANCE.md](../PERFORMANCE.md).
 right after launching a package off the bench disk is that disk's root — so
 the ordinary thing works. It means the bench floppy must **not** be
 write-protected, and on 86Box that is the `wp://` prefix the config keeps
-growing back.
+growing back — which `make xt` and friends now strip off both floppy keys at
+launch.
 
 `gfxbench` is ONE package for Hercules and CGA on purpose. Both are the same
 1bpp software renderer over four different numbers (SPEC.md §39.3), which it
@@ -643,4 +646,9 @@ Two 86Box-specific traps worth knowing before blaming the OS: it silently
 clamps `mem_size` to the machine's maximum, and a `wp://` prefix on an
 `fdd_0N_fn` path mounts that floppy write-protected — which the OS then
 faithfully reports as "Write protected", and which means `SYSTEM.CFG`
-settings do not survive a reboot.
+settings do not survive a reboot. No shipped profile carries it on either
+floppy now, and every `make` target that launches 86Box strips it from both
+keys first, because 86Box rewrites its own config on exit and has twice put
+it back. The price is the one QEMU already charges: a session that changes a
+Control Panel setting dirties `build/os8088.img`, a tracked shipped artifact,
+so rebuild it before committing.

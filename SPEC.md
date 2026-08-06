@@ -746,6 +746,67 @@ Command keeps its own Bresenham for two cases the kernel cannot serve: the
 with an endpoint outside its content box, where the kernel would clip to the
 screen and paint over the desktop.
 
+### 5.7 The per-call floor — what a small drawing call spends
+
+**A drawing call costs almost the same whatever it draws**, and the field
+set proved it beyond argument: on a 4.77MHz 5150, `GFX_PIXEL` and
+`GFX_HLINE 8px` measured 765.64 and 764.82 us on a Hercules and 765.70 and
+764.80 on a CGA — two different routines and two physically different cards
+whose framebuffers are 13% apart at the bus, agreeing to one part in ten
+thousand (PERFORMANCE.md Part 9). **~756 us of that is fixed setup, about
+3,600 CPU clocks, and it is CPU-side.** That is why §5.4's blit is priced
+`runs x 0.5 ms`, why §11.90/§11.91 count primitive calls rather than pixels,
+and why this subsection exists at all.
+
+Taken apart, one `gfx_pixel` on a 1bpp adapter was **196 guest instructions**
+(measured under `-icount`, PERFORMANCE.md Part 4) spread over eleven
+routines, with no hot spot anywhere: the API far-call cell, `gfx_pixel`'s
+rect marshalling, §11.3's clip test, `bb_mono_chk`, the `[bb_on]` dispatch,
+`vga_rect_setup`, `gfx_rowbase`, `bb_dirty_rect`, `bb_ink`, `bb_plane_op`
+and `bb_col`. **It is generic machinery, and what it costs is
+register discipline and call structure rather than work** — a third of it
+was push/pop pairs (29.7 clocks each, measured) and near call/rets (52.1).
+
+Seven things hold the floor down. Each is a rule, because each one reads as
+a harmless tidy-up in the other direction:
+
+1. **A one-way flag is tested before it is recomputed.** `bb_mono_chk`
+   opens with `cmp byte [bb_mono], 0` — once the flag is retired there is
+   nothing left to decide — and `bb_init` retires it at boot on a 1bpp
+   adapter, where a back buffer can never be armed (§39.5). Eight
+   instructions on every fill and every glyph become three.
+2. **`bb_dirty_rect` asks `[bb_dbl]` first.** With no buffer armed it was
+   computing a rectangle that `bb_dirty`'s first compare then discarded.
+3. **The edge masks come from tables** (`vga_lmtab`/`vga_rmtab`), not from
+   `shr dl,cl` / `shl dl,cl`. A variable shift is 8 clocks plus 4 per bit on
+   an 8088 and needs CX freed around it; `[vga_y1]` is banked before the
+   masks are built precisely so BX is free to index them.
+4. **`gfx_rowbase` looks its bank base up** (`vid_banktab`) instead of
+   `shl bx, 13`, which is 60 clocks for a value with four possible answers.
+   The formula in §39.3 is unchanged. The `mul` by the stride stays: the
+   alternative is a per-row table, and 480 rows of it is a third of what
+   `KERN_BUDGET` has left.
+5. **`bb_col` preserves nothing** (§32). Its only caller banks BX and DX for
+   the whole plane and reloads AH, DI, SI and BP around every call, so the
+   five push/pop pairs it used to open with were saving registers that
+   caller was about to overwrite. SI and BP then carry `gfx_nextrow`'s step
+   and wrap bit across the row loop.
+6. **`gfx_nextrow` is inlined in every row loop of the renderer**, as it
+   already was in font.inc's (§6.1). Its body is three instructions and the
+   call and ret around them cost as much again — and **a fill walks its rows
+   three times**, once per edge column and once for the interior, so a fill
+   pays it three times per scan line.
+7. **`[bb_pat]` is staged by whoever needs it**, not by `bb_rect` for all
+   three modes: `BBM_GRAY` starts from the dither byte, `BBM_SOLID`'s own
+   dither branch stages it in `bb_ink`, and `BBM_XOR` never reads it.
+
+Together those took a `gfx_pixel` from 196 instructions to 158 and a
+`GFX_FILL 64x64` by 14.5%, with the output byte-identical on all three
+adapters and both renderers (PERFORMANCE.md Part 9, Set 3). What is left is
+mostly irreducible: the far-call cell is the package ABI (§20.1), the eight
+push/pops in `bb_rect` are `gfx_fill`'s "clobbers flags" contract, and
+`vga_rect_setup`'s clipping is the clipping.
+
 ## 6. font.inc
 
 `font_init` runs **after** `vid_setmode` (§39.6): zero ES:BP, then int 10h
@@ -9182,8 +9243,8 @@ caption and the click all read one word, so they cannot disagree.
 then writes `SYSTEM.CFG`. So the page never shows a promise about the next
 boot — what it shows is what is running. The two outcomes are reported
 separately: a load that fails leaves the box clear with its reason, and a
-*save* that fails puts `'Cannot save to the system disk'` in the caption
-while the driver it just loaded stays loaded.
+*save* that fails puts a reason in the caption (§51.5.1) while the driver it
+just loaded stays loaded.
 
 **A click on a row that is unloaded but WANTED clears the want instead of
 retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
@@ -9353,10 +9414,14 @@ a convenience, not a document.
 
 A failed write never undoes the change — that already happened — and
 **leaves `[cp_wdirty]` set**, so the next close or reboot retries rather than
-dropping it silently. It is reported in the Drivers page's caption
-(`'Cannot save to the system disk'`), the one page with room to say it, which
-now means the *next* time the panel is opened: by the time the write happens
-the page it would be reported on is already gone.
+dropping it silently. It is reported in the Drivers page's caption, the
+one page with room to say it, which means the *next* time the panel is opened:
+by the time the write happens the page it would be reported on is already
+gone. **`cp_drv_cap` is why that is now true rather than merely intended** —
+the caption used to be drawn only by `cp_drv_lines`, which runs when a row is
+TICKED, so the report appeared only if the user happened to tick something
+after a failed save in the same session, and `cp_drv_paint` drew everything on
+the page except this. Both painters call it now. Its two strings are §51.5.1's.
 
 ### 31.9 Pages a driver owns
 
@@ -9495,6 +9560,23 @@ solid and dither modes, so AL=AH and one `rep stosw` (plus a `stosb` tail on
 an odd width, selected by the `shr cx, 1` carry that the string op leaves
 alone) replaces two `stosb`. Free on an 8088's 8-bit bus, half the bus
 cycles on any 16-bit part.
+
+**Register discipline inside a plane, which is §5.7's floor and not a
+style.** `bb_plane_op` banks BX and DX once per plane and reloads AH, DI, SI
+and BP itself around each call, so **`bb_col` preserves nothing** — the five
+push/pop pairs it used to open with were saving registers its only caller
+was about to overwrite, and a push/pop pair is 29.7 clocks on the target
+machine. What that buys is registers for the row loop: both routines hold
+`gfx_nextrow`'s step and wrap bit (§39.3) in registers and open-code the row
+advance rather than calling it, which matters three times per scan line
+because a fill walks its rows once per edge column and once for the
+interior. `bb_ink` reads `gfx_inktab` through SI for the same reason — BX is
+the plane counter and the colour bits — and it is the only caller that needs
+the table, so `gfx_ink` itself is untouched.
+
+`[bb_pat]` is staged by whichever mode actually reads it: `BBM_GRAY` before
+the plane loop, `BBM_SOLID` inside `bb_ink` and only on its dither branch,
+`BBM_XOR` never. `bb_parity` is that one computation, in one place.
 - XOR ops (`bb_xor_rect/xor_fill` internals): `xor dest, mask` at edges,
   `not dest` for full interior bytes, all four planes — self-inverting
   exactly like the hardware XOR path.
@@ -11107,6 +11189,16 @@ bit the unconditional add carries into once it steps off the last bank. On
 VGA `bmask`/`bshift`/`wrapbit` are all 0, so `gfx_rowbase` reduces to exactly
 `y * 80` and `gfx_nextrow` to `add di, 80` — **with no adapter test on either
 path**, which is why the VGA output is bit-for-bit what it was before.
+
+Two implementation notes, both about the 8088 rather than the formula
+(§5.7). `bank * 0x2000` is a **table lookup** (`vid_banktab`, four entries —
+the maximum the 0x2000 assertion at the foot of the module allows), because
+`shl bx, 13` is 8 clocks plus 4 per bit and this runs on the fixed cost of
+every drawing call. And **`gfx_nextrow` is meant to be inlined wherever a
+row loop can spare the bytes**: its body is three instructions and the call
+and ret around them cost as much again, so font.inc's cell loops (§6.1) and
+the renderer's row loops (§32) both open-code it, CS overrides and all. A
+loop that can hold `rowadd` and `wrapbit` in registers should.
 
 **Both read their parameters through `CS`, not `DS`.** Two callers run with
 DS pointed elsewhere entirely: `bb_xfer`'s save path sets DS to the
@@ -15529,6 +15621,50 @@ driver's *segment*, and `drv_release` sweeps them with `mem_free_owner`
 **before** freeing the image, because the image's segment is the owner word
 and freeing it first would leave a claim nothing could ever name again.
 
+#### 51.5.1 It is written to the SYSTEM disk, not to whatever is in A:
+
+`drv_cfg_save` mounts drive A: and writes `SYSTEM.CFG` to it, and for a long
+time that was the whole of it — on the unexamined assumption that the disk the
+machine booted from is still the disk in the drive. **It is not.** A
+single-floppy machine swaps to the apps disk to launch anything (§28.3 is
+built around exactly that), and a Control Panel change made afterwards wrote
+the settings to whatever floppy happened to be there.
+
+Two things went wrong at once, and the second is the worse one:
+
+- the setting never reached the system disk, so it did not survive the reboot
+  — which reads as the deferral (§31.8) losing writes rather than as a
+  volume-identity fault;
+- and the user's data disk gained a hidden + system `SYSTEM.CFG` that §19.6's
+  own protection makes **impossible to list or delete from inside os8088**.
+  `DSKW_PROT` refuses hidden|system, and `disk_mount`'s species filter keeps
+  it out of every listing, so it is invisible litter that needs another
+  machine to remove.
+
+So the volume is identified before it is written: **`KERNEL.SYS` in the root
+is what makes a disk the system disk**, and `dskw_stat` answers that off the
+directory sectors — which is the only place a hidden + system entry can be
+seen at all. No marker, no write.
+
+**`dskw_stat` and not `drv_find`**, deliberately. `drv_find` answers a *size*
+and refuses one whose high word is non-zero; `KERNEL.SYS` is 63,944 bytes
+today, so the day the kernel passes 64KB that check would begin reporting that
+the system disk is not the system disk. Existence is the question here, and
+`dskw_stat` is the routine that answers it.
+
+A refusal is `FERR_NOENT`, and it joins `FERR_NODISK` in the one outcome the
+user can act on: the caption says **`'Needs the system disk in A:'`**, while a
+write that genuinely failed — full, protected, I/O — says `'Could not save the
+settings'`. Both are **27 characters**, which is the pane's limit (222px less
+`CP_PMX`); the single string they replace was thirty and painted through the
+window's right border into the desktop, unnoticed because the caption was
+almost never drawn (§31.8).
+
+`[cp_wdirty]` is **kept** on this refusal like any other, so putting the
+system disk back and closing the panel again saves it — verified end to end:
+the apps disk stays byte-identical, the caption names the remedy, and the
+retry writes the setting where it belongs and survives a reboot.
+
 ### 51.6 Author rules
 
 1. **Attach all-or-nothing, detach cannot fail.** Restated because it is the
@@ -15730,18 +15866,43 @@ drive and a CMOS type table that predates it. The page carries an editable
 C/H/S triple bounded by what CHS can carry (1..1024, 1..255, 1..63) and
 recomputes the size from it live, in the Date/Time page's field idiom (§31.5).
 
-### 52.2 The partitioner
+### 52.2 The disk tool — one window, one button
 
-Its own window — the unowned species (§38.1), so its close box reduces to
-`wm_hide` and there is no teardown path to write. Four primary slots, New /
-Delete / Write / Close, and **everything but Write edits a copy in RAM**, so a
-user who changes their mind has changed nothing.
+Partitioning and formatting are **one operation to the user and one window in
+the driver**. They were two: a Partition window (New / Delete / Write) and a
+Format window that listed the same four slots through a different frame, and
+between them the user had to know that a table entry is not a volume, that New
+only edits RAM, and that Write is the commit. None of that is a thing anybody
+wants to know about their disk. What they want is four slots and, for each
+one, either what is in it or a button that puts a usable volume there.
+
+```
+Slot  Size   State
+1     31M    FAT16              a volume; Mount will find it
+2      -     Not Formatted      free
+3     50M    Unmountable        foreign, or over the ceiling - greyed
+4     14M    Not Formatted      a claimed region with no volume in it
+[Format]  [Close]
+```
+
+**`Not Formatted` covers unpartitioned AND partitioned-but-empty**, and that
+is deliberate rather than lazy: the difference is the tool's business, both
+mean "there is no volume here and Format will make one", and the second is
+exactly what a format interrupted half way leaves — §52.3 writes the boot
+sector last. The size column distinguishes them for anyone who cares, and is
+blank for a free slot rather than carrying a number nothing has promised: two
+free slots would otherwise both advertise the same megabytes when only one of
+them can have them.
+
+The window is the unowned species (§38.1), so its close box reduces to
+`wm_hide` and there is no teardown path to write; detach must still leave none
+on screen, because the kernel frees the image the moment detach returns.
 
 A partition is capped at **65,535 sectors** by the kernel's volume ceiling
 (§18.7), so four primaries is the whole offering and an extended chain is not
 implemented. Two era conventions are obeyed because DOS reads what is written:
-partitions are cylinder-aligned, and **the CHS halves of an entry must agree
-with its LBA halves** under the geometry the drive is addressed with — a
+partitions start on cylinder boundaries, and **the CHS halves of an entry must
+agree with its LBA halves** under the geometry the drive is addressed with — a
 cylinder past 1023 clamps to the all-ones form every tool of the era wrote,
 which is what says "read the LBA fields instead".
 
@@ -15749,9 +15910,147 @@ The 446 bytes of boot code are **not** left blank: os8088 does not boot from a
 hard disk (§52.9), and a blank MBR is a machine that hangs with no
 explanation, so a stub prints `Not bootable` and halts.
 
+#### 52.2.1 A slot is not a 32MB region of the disk
+
+`hd_slot_extent` answers what a Format would write, and it takes the answer
+out of the **table**. That is the safety property the whole tool rests on: an
+entry laid at a fixed multiple of 32MB lands *inside* an 80MB partition that
+started below it, and takes the whole thing with it.
+
+Three cases, and the first two are the same one seen twice:
+
+- **used, at or under the ceiling** — its own extent, reused in place. The
+  user has already confirmed erasing it (§52.2.3).
+- **used, over the ceiling** — the first 65,535 sectors of its own extent, and
+  the rest goes back to being free space. This is how a 50MB or an 80MB
+  partition is reclaimed without touching a neighbour.
+- **free** — the scan below.
+
+The scan is `mem_claim`'s (§50), and deliberately: start at the era's floor —
+LBA = spt, head 1 sector 1 cylinder 0 — and while any *other* used entry
+contains the candidate, restart at that entry's end rounded up to a cylinder.
+Each bump moves strictly past one entry and there are four, so four passes is
+a proof rather than a guess. The length then runs to the lowest used start
+*above* the candidate, or to the end of the drive, capped at the ceiling.
+
+Two things fall out of that shape, and both were asked for:
+
+- **A partition sits directly on top of a foreign one, not at the next
+  multiple of anything.** A 50MB `0x83` partition at LBA 63 on a 200MB disk is
+  followed by a 31MB FAT16 at LBA 102,816 — one cylinder past its end.
+- **A hole is usable.** With 102,816..168,351 and 200,000..265,535 taken, the
+  next slot gets 169,344..200,000 — 14MB, byte-exact, filling the gap rather
+  than running off the end of the disk.
+
+The extent is also **clipped to the end of the drive**, because a table
+another machine wrote is input and input is hostile, and refused outright
+below one track — less than that is not worth a drive letter.
+
+**A hole can be an alignment gap, and it is still real space.** This tool's
+floor is LBA = spt — the end of the MBR's own track, where every DOS-era table
+started — while a modern tool 1MB-aligns its partitions at LBA 2048. Take a
+disk this tool filled, delete two partitions on another machine and let it
+make one NTFS partition in the freed space, and the 1,985 sectors between 63
+and 2048 belong to nobody: the scan finds them, because that is what it is
+for, and a Format there produces a working 970KB FAT12 volume that mounts and
+takes files.
+
+What that exposed was a **display** fault and not an allocation one — the size
+column was whole megabytes, so a volume that works read `0M`, which looks like
+a broken tool rather than a small disk. Under a megabyte the column is **KB**
+(`hd_tw_size`); `992K` is the same volume, honestly described.
+
+Which is why the scan takes **the largest hole and not the first that fits**,
+and that is about the slots being scarce: there are four, and first-fit spends
+one of them on a 1MB alignment gap while 30MB sits free in the middle of the
+disk. The walk is the same bump-and-limit pair in a loop — the candidate moves
+to the limit that bounded it, the next bump carries it past the entry sitting
+there, so it strictly increases and there are at most four holes to see. A tie
+keeps the **earlier** hole, which leaves the later space contiguous.
+
+Measured, on a 128MB disk with an NTFS partition at 2048..131072 and a FAT16
+at 199584..261072 — a 1,985-sector gap at the front and a 68,512-sector hole
+in the middle:
+
+```
+Format -> 132048 + 65535   the middle hole, cylinder-aligned and capped
+Format -> 63 + 1985        the front gap, now that it is the largest left
+```
+
+Sub-megabyte partitions are kept rather than refused below some floor: 992KB
+is most of three 360KB floppies, which on this machine is a real volume — and
+under largest-hole it is only ever chosen when nothing bigger is free.
+
+#### 52.2.2 Formatted, and unmountable
+
+`hd_fmt_isfat` reads the partition's own LBA 0 and asks whether a boot sector
+is there: the `55AA` signature, `BS_jmpBoot` being EB or E9 (BPB rule 2's own
+test, §18.2), 512-byte sectors, and non-zero `SecPerClus` / `NumFATs` /
+`FATSz`. It is a **display test and the mount is still the authority** — a
+volume that passes here can still be refused by `disk_mount`'s seventeen rules
+— and it costs one sector read per slot that could carry a volume, when the
+window opens and after every format.
+
+The order of the state tests is the order of the certainties: over the ceiling
+and a type this driver does not mount are facts about the *table*, so neither
+costs a read, and only a slot that could carry a volume is asked whether it
+does.
+
+**`Unmountable` is a foreign type or over 65,535 sectors**, and either way
+this kernel will never mount it. Format stays live on such a slot, because
+reclaiming that space is the only thing the user can usefully do with it. The
+page agrees rather than contradicting: a Mount that skipped a partition for
+being over the ceiling now says `Partition is over 32MB` instead of reporting
+"no FAT partition" about a partition that plainly is one.
+
+**Nothing in this window is greyed, and the unmountable row least of all.** It
+was, briefly, and it was wrong twice — this is the §47 case worth keeping,
+because both halves look like details and neither is:
+
+- **Greying is a claim about a CONTROL, and this row is not one.** Rule 1: the
+  disabled pen says *disabled*; the row is selectable and the Format button
+  acts on it. That is rule 4's named failure — "looks unavailable and works" —
+  and it is the drift rule 4 exists to stop, arriving from the direction rule 4
+  does not cover, because there is no predicate here at all: nothing refuses.
+- **It did not even show.** Rule 3: `CDGRAY` *text* rounds to black on the two
+  1bpp adapters (§39.4 rounds a glyph rather than dithering it), and
+  `[gfx_dis]` — the carve-out that makes a disabled glyph a checkerboard — is
+  not in the package ABI (§20.3 publishes no slot). Looked at on CGA per §47.2,
+  the greyed row was pixel-identical to the live row beneath it. Rule 3's
+  package clause is the general form: a package's disabled control **must carry
+  a non-text mark**, which is why `hd_page_button` greys the button's *frame*
+  along with its label and reads correctly on all three adapters, and why a
+  bare row of text can never be made to.
+
+So the **State column is the whole signal**, and it says the same thing on VGA,
+CGA and Hercules. That is not a consolation prize for the missing colour: a
+value in a column is what the rest of the row already is, and §47 does not
+apply to it.
+
+#### 52.2.3 Confirm, and the order of the two commits
+
+**Format on a slot that already holds something asks first**, in the caption,
+by wanting the click again: `Erase slot 2? Click Format again`. A driver has
+no notice window and no modal, and a second click on the same button is the
+cheapest confirm that cannot be mistaken for the first one. Picking another
+row or closing the window disarms it. A free slot is not confirmed — there is
+nothing to lose.
+
+**The table entry goes down before the volume**, which is the same argument as
+the boot sector going last inside the format: every way this can be
+interrupted has to leave a state the tool can describe and re-offer. Entry
+first, volume second means an interruption leaves `Not Formatted` — a claimed
+region with nothing in it — which is exactly what the button is for. The other
+order leaves a volume nothing can see and an entry still pointing at data that
+has just been overwritten.
+
+Afterwards the states are **re-scanned rather than assumed**, so the row
+reports what came back off the disk and not what the driver hoped it wrote.
+
 ### 52.3 The formatter
 
-A **FAT format, not a surface format**. Low-level formatting an MFM surface is
+A **FAT format, not a surface format**. Its window is §52.2's, along with the
+partitioner's. Low-level formatting an MFM surface is
 vendor-specific interleave and defect handling, minutes per drive, and the
 ST-11M ships its own ROM utility that does it correctly (`g=c800:5`).
 
@@ -15789,8 +16088,9 @@ volume its own kernel refuses to mount.
 
 ### 52.4 The page, and mounting
 
-The Control Panel page (§31.9) is a device list, the C/H/S editor and three
-buttons, in 27 characters by 13 rows. Greying follows §47: one predicate
+The Control Panel page (§31.9) is a device list, the C/H/S editor and **two**
+buttons — Format, which opens §52.2's tool, and Mount — in 27 characters by 13
+rows. Greying follows §47: one predicate
 (`hd_btn_ok`) shared by the greying, the click refusal and the caption, and it
 tests only facts already known — is there a device, is its geometry usable —
 never "try it and see".
