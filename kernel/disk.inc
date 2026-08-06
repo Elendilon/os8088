@@ -128,6 +128,21 @@ disk_spt:    dw 9                ; sectors per track  } fallback geometry,
 disk_heads:  dw 2                ; heads              } replaced at mount
 disk_nfiles: dw 0                ; file count, valid after a good mount
 
+%ifdef DISK_COUNTERS
+; The measurement instruments of docs/DISK-PERF-PLAN.md 2, compiled in only by
+; `make DISKCNT=1` and never shipped. Read over QMP with `xp /3xh <linear>`;
+; derive the offset from `nasm -l` after EVERY rebuild, because anything added
+; to an include before this one moves it. They are never reset: take a reading,
+; do the thing, take another, subtract.
+dsk_dbg_mnt: dw 0                ; disk_mount calls - mechanism A's meter
+dsk_dbg_sec: dw 0                ; sectors transferred - the work asked for
+dsk_dbg_i13: dw 0                ; int 13h DATA calls (02h/03h, retries
+                                 ; included; not the 00h resets) - mechanism
+                                 ; C's meter. Phase 1 must drive this DOWN
+                                 ; while dsk_dbg_sec stays put; if both move,
+                                 ; the run splitter is dropping work
+%endif
+
 ; The listing's home. A floppy uses the .lowbss buffers below and a cap of
 ; DSK_NENT; a driver-backed volume uses the claim its driver donated, with a
 ; bigger cap (SPEC.md 22.6). ONE code path, two configurations - every reader
@@ -287,6 +302,9 @@ dsk_xfer:
 .sector:
     test si, si
     jz .success                 ; all sectors read (count 0 reads nothing)
+%ifdef DISK_COUNTERS
+    inc word [dsk_dbg_sec]
+%endif
 
     ; --- LBA (DI) -> CHS in CH/CL/DH, drive in DL ---
     mov ax, [disk_spt]
@@ -310,6 +328,9 @@ dsk_xfer:
 
     mov bp, 3                   ; attempts left for this sector
 .attempt:
+%ifdef DISK_COUNTERS
+    inc word [dsk_dbg_i13]
+%endif
     mov ah, [dsk_op]            ; 02 read / 03 write
     mov al, 1                   ; one sector per call, to ES:BX
     int 0x13
@@ -843,6 +864,9 @@ disk_mount:
     push di
     push bp
     push es
+%ifdef DISK_COUNTERS
+    inc word [dsk_dbg_mnt]
+%endif
 
     call dsk_fatw_park          ; the OUTGOING volume's window, banked while
                                 ; [disk_drive] still says which one it is

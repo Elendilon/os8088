@@ -55,6 +55,54 @@ for timing but *exact about work*, and all three mechanisms are work. So:
 No phase below is judged on anything but that pair of numbers. Only C's
 **cost per call** needs the XT.
 
+### 2.1 The baseline — measured, and it is worse than the estimate
+
+`make DISKCNT=1` compiles in three counters (`dsk_dbg_mnt` / `_sec` / `_i13`,
+`disk.inc`, never shipped — the knob shares the `VIDEO=`/`RTC=` stamp, so
+changing it rebuilds the kernel and a counted kernel that reached `build/`
+reads as STALE to `make check-images`). Read over QMP with `xp /3xh`; they are
+never reset, so a measurement is two readings subtracted.
+
+Measured on the 1.44MB apps floppy under QEMU, at `f43e3dc`:
+
+| action | mounts | sectors | int 13h calls |
+|---|---|---|---|
+| boot to desktop | 2 | 40 | 40 |
+| open Drive B (root: 2 folders + 1 package) | 1 | **12** | 12 |
+| enter `APPS/` (8 packages) | 1 | **20** | 20 |
+| back up to the root | 1 | **12** | 12 |
+| enter `APPS/` **again** | 1 | **20** | 20 |
+| enter `GAMES/` (5 packages) | 1 | **17** | 17 |
+
+Four things this settles:
+
+- **Mechanism C is exactly 1:1.** Sectors and int 13h calls are equal in every
+  row, everywhere. There is no batching anywhere in the floppy path.
+- **A directory change costs 12 sectors before it reads a single icon** —
+  1 boot sector + 9 FAT + 2 directory. **Mechanisms A and B are 10 of those
+  12**, i.e. 83% of the fixed cost of going anywhere, and none of it can have
+  changed since the mount a moment earlier.
+- **Mechanism D is exactly one sector per package**, confirmed by subtraction
+  rather than assumed: `APPS/` (8 packages) is 20 and `GAMES/` (5) is 17 — the
+  same 12 fixed, plus one per package, and the 3-package difference shows up as
+  3 sectors.
+- **It is paid every single time.** Entering `APPS/`, leaving, and entering
+  again cost 20, 12, 20 — the second visit is not a byte cheaper than the
+  first.
+
+**At mechanism C's revolution per sector, opening `APPS/` is ~4 seconds**, and
+~2.4 s of that is re-reading a boot sector and a FAT window that were already
+in memory. That is the field report, in numbers, and it is larger than §1's
+estimate because that estimate did not count the directory sectors or notice
+that the harvest is paid on re-entry.
+
+**Ceilings this sets for Phases 1–4.** Phase 1 leaves `sectors` alone and must
+drive `int 13h calls` down — if both move, the splitter is dropping work.
+Phases 2, 3 and 5.5 each remove sectors: 9, 1 and *n*-packages respectively, so
+a perfect outcome for `APPS/` is **20 → 2** and for a re-entry the same. The
+2 that remain are the directory itself, which is the only part that had to be
+read.
+
 ## 3. Phase 1 — multi-sector transfers (mechanism C)
 
 `AH=02h`/`03h` take `AL` = a sector count. Issue a run in one call, splitting

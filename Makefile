@@ -62,6 +62,17 @@ $(error RTC must be one of: none at ns rp bios)
 endif
 VIDDEF += -DCLK_FORCE=$(RTCFORCE_$(RTC))
 endif
+
+# DISKCNT=1 compiles in the three disk counters of docs/DISK-PERF-PLAN.md 2:
+# mounts, sectors transferred and int 13h data calls. They exist to answer
+# "how much work is a directory change", which QEMU can measure exactly even
+# though it cannot measure how long it takes (PERFORMANCE.md). Folded into
+# VIDDEF so it shares the stamp below - changing it rebuilds the kernel - and
+# so a counted kernel that reached build/ reads as STALE to check-images,
+# which builds knob-free.
+ifneq ($(DISKCNT),)
+VIDDEF += -DDISK_COUNTERS
+endif
 # ...and a stamp so that CHANGING VIDEO rebuilds the kernel. Without it make
 # sees an up-to-date kernel.bin, skips it, and boots the PREVIOUS adapter -
 # which reads exactly like the probe or the renderer being broken.
@@ -72,7 +83,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin; \
                                 touch $(VIDSTAMP); })
@@ -102,7 +113,8 @@ $(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) tools/os88ovlchk.py | $(BUILD)
 	$(NASM) -f bin -w+error -I kernel/ $(VIDDEF) -o $@ $(KERNEL_SRC)
 	@echo "kernel: $(call FILESIZE,$@) bytes (image rung + boot overlay)"
 ifneq ($(VIDDEF),)
-	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC): this kernel has a probe FORCED. ***"
+	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC) DISKCNT=$(DISKCNT): this kernel is ***"
+	@echo "  *** BUILT WITH A KNOB - a forced probe and/or disk counters.   ***"
 	@echo "  *** build/ is git-tracked - rebuild with plain \`make\` before  ***"
 	@echo "  *** committing, or every machine boots that way.               ***"
 endif
