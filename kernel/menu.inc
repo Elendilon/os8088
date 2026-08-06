@@ -46,7 +46,7 @@
 CMD_ABOUT   equ 1               ; --- System (cell 0, every application) ---
 CMD_CTRL    equ 2
 CMD_TASKS   equ 3
-CMD_CLOCK   equ 4               ; --- Locator: File ---
+CMD_TIMER   equ 4               ; --- Locator: File ---
 CMD_BOUNCE  equ 5
 CMD_FILES   equ 6
 CMD_CLOSE   equ 7
@@ -278,7 +278,7 @@ menu_check:
 ; out: nothing (all registers preserved)
 ;
 ; The name falls back twice: the set's AM_NAME, else the owning instance's
-; I_NAME (an accessory like Clock has no menu set at all), else the
+; I_NAME (an accessory like Timer has no menu set at all), else the
 ; window's own title. Locator - [menu_win] = 0 - takes menu_loc_set, whose
 ; AM_NAME is the string 'Locator'.
 ; -----------------------------------------------------------------------------
@@ -581,7 +581,8 @@ menu_des:
 ; which only two things can do - a fullscreen window (SPEC.md 11.2) and a
 ; dropped menu whose save-under was refused - so wm_paint_all and menu_track
 ; set it rather than reason about it. The clock is outside all of this:
-; menu_draw_clock fills its own cell and is what the Clock task calls direct.
+; menu_draw_clock fills its own cell and is what the UI task's own clock
+; step calls direct - nothing to do with the Timer app (SPEC.md 14).
 ; -----------------------------------------------------------------------------
 menu_draw_bar:
     push ax
@@ -1441,7 +1442,7 @@ menu_s_special  db 'Special', 0
 
 menu_s_about    db 'About os8088...', 0
 menu_s_ctrl     db 'Control Panel', 0
-menu_s_clock    db 'Clock', 0
+menu_s_timer    db 'Timer', 0
 menu_s_bounce   db 'Bounce', 0
 menu_s_disk     db 'Disk', 0
 menu_s_close    db 'Close Window', 0
@@ -1456,7 +1457,7 @@ menu_items_logo:
     dw menu_s_ctrl
     dw menu_s_tasks
 menu_items_file:
-    dw menu_s_clock
+    dw menu_s_timer
     dw menu_s_bounce
     dw menu_s_disk
     dw menu_s_close

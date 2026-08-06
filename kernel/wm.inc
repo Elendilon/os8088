@@ -40,7 +40,7 @@ W_SEG   equ 22                  ; reach this window's procs - {PKG_DISP, the
                                 ; record is relative to: title, paint, onkey,
                                 ; onclick, menus. Zero for a kernel window,
                                 ; and zero is what makes the dispatch near
-                                ; again for About/Clock/Disk/TaskMgr/Ctrl and
+                                ; again for About/Timer/Disk/TaskMgr/Ctrl and
                                 ; the file dialog (SPEC.md 11/20.1).
 W_ONSIZE equ 24                 ; word: near ptr or 0 - the resize negotiator
                                 ; (SPEC.md 11.1). Called BEFORE a new size is

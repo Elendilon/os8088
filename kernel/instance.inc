@@ -48,8 +48,10 @@ INST_MAX equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 20.9
                                 ; every .o88
 
 KIND_ABOUT   equ 0
-KIND_CLOCK   equ 1              ; (Note Pad was kind 1 until it became the
-KIND_BOUNCE  equ 2              ;  NOTEPAD package - SPEC.md 27)
+KIND_TIMER   equ 1              ; (Note Pad was kind 1 until it became the
+KIND_BOUNCE  equ 2              ;  NOTEPAD package - SPEC.md 27; kind 1 was
+                                ;  the Clock until it gained its buttons and
+                                ;  became the Timer - SPEC.md 14)
 KIND_FILES   equ 3
 KIND_CTRL    equ 4              ; (the Task Manager was kind 4 until it
                                 ;  became the TASKMGR package - SPEC.md 28)
@@ -103,9 +105,9 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_about,  0,               0,             0,   0,                app_ttl_about
     dw inst_ico_about
     db 1, 0                     ; About: stateless singleton
-    dw app_tpl_clock,  app_clock_task,  app_clk_pool,  8,   app_clock_kinit,  app_ttl_clock
-    dw inst_ico_clock
-    db 10, 0                    ; Clock: 10 x 8-byte time state, one task each
+    dw app_tpl_timer,  app_tmr_task,    app_tmr_pool,  8,   app_tmr_kinit,    app_ttl_timer
+    dw inst_ico_timer
+    db 10, 0                    ; Timer: 10 x 8-byte time state, one task each
     dw app_tpl_bounce, app_bounce_task, app_ball_pool, 8,   app_bounce_kinit, app_ttl_bounce
     dw inst_ico_bounce
     db 10, 0                    ; Bounce: 10 x 8-byte ball state, one task each
@@ -178,8 +180,9 @@ inst_ico_about:
     dw 0x0000
     dw 0x0000
 
-; inst_ico_clock - a clock face, hour hand at 12 and minute hand at 4
-;   ................
+; inst_ico_timer - a stopwatch: crown on top, hands at 12 and 3
+;   ......####......
+;   ......####......
 ;   .....######.....
 ;   ....##oooo##....
 ;   ...##oooooo##...
@@ -187,32 +190,32 @@ inst_ico_about:
 ;   .##oooo#ooooo##.
 ;   .#ooooo#oooooo#.
 ;   .#ooooo#oooooo#.
-;   .#ooooo##ooooo#.
-;   .#ooooooo#oooo#.
-;   .##ooooooo#oo##.
+;   .#ooooo####ooo#.
+;   .#oooooooooooo#.
+;   .##oooooooooo##.
 ;   ..##oooooooo##..
 ;   ...##oooooo##...
 ;   ....##oooo##....
 ;   .....######.....
-;   ................
-inst_ico_clock:
-    dw 0x0FF0                       ; 16 mask rows
+inst_ico_timer:
+    dw 0x03C0                       ; 16 mask rows
+    dw 0x03C0
+    dw 0x07E0
+    dw 0x0FF0
     dw 0x1FF8
     dw 0x3FFC
     dw 0x7FFE
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
-    dw 0xFFFF
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
+    dw 0x7FFE
     dw 0x7FFE
     dw 0x3FFC
     dw 0x1FF8
     dw 0x0FF0
-    dw 0x0000                       ; 16 data rows
+    dw 0x07E0
+    dw 0x03C0                       ; 16 data rows
+    dw 0x03C0
     dw 0x07E0
     dw 0x0C30
     dw 0x1818
@@ -220,14 +223,13 @@ inst_ico_clock:
     dw 0x6106
     dw 0x4102
     dw 0x4102
-    dw 0x4182
-    dw 0x4042
-    dw 0x6026
+    dw 0x41E2
+    dw 0x4002
+    dw 0x6006
     dw 0x300C
     dw 0x1818
     dw 0x0C30
     dw 0x07E0
-    dw 0x0000
 
 ; inst_ico_bounce - a ball, its trajectory and the floor it will come off
 ;   ................
@@ -959,7 +961,7 @@ inst_restore:
 ;      held
 ; out: NEVER RETURNS - ends in task_exit
 ;
-; Reached from Clock's and Bounce's own loops (SPEC.md 14) and, for a
+; Reached from Timer's and Bounce's own loops (SPEC.md 14) and, for a
 ; package that took a worker, from inst_pkg_alive below (SPEC.md 20.6).
 ; -----------------------------------------------------------------------------
 inst_task_die:
