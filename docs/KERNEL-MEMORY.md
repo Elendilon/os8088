@@ -609,7 +609,7 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;record bookkeeping | 249 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;a package's worker task, and its fence | 168 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;staging a package's icon on demand (SPEC.md §25) | 54 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;`osapi_sys_snap` — one cli window over two tables (§20.9) | 234 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;`osapi_sys_snapshot` — one cli window over two tables (§20.9) | 234 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *469* | |
 | **`vga12.inc`** — the VGA planar primitives (§5) | **2,090** | **3.9%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;fills: solid, 50% gray and patterned | 613 | |
@@ -943,7 +943,7 @@ two `section` lines. It interleaves each rung's *read* helpers with its
 set the clock all session — so the boundary had to be derived rather than
 eyeballed. It was: build the module's call graph, take everything reachable
 from `clk_init`, subtract everything reachable from the six symbols called
-from outside the module (`clk_tick`, `clk_snap`, `clk_fmt`, `clk_fld_str`,
+from outside the module (`clk_tick`, `clk_snapshot`, `clk_fmt`, `clk_fld_str`,
 `clk_fld_adj`, `clk_rtc_write`), and what is left is movable by construction.
 
 That answered 26 routines, 1,788 bytes, in eight non-contiguous runs — and

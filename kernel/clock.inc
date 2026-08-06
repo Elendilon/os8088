@@ -13,7 +13,7 @@
 ; TASK runs inside wm_destroy (SPEC.md 29.4), so a reader can be pre-empted
 ; mid-format while the UI task carries a second. Hence the two rules of
 ; SPEC.md 37: every write that carries (clk_inc_sec, clk_fld_adj) mutates
-; under pushf/cli, and every reader takes a clk_snap copy under the same
+; under pushf/cli, and every reader takes a clk_snapshot copy under the same
 ; guard and formats from that. Nothing in an ISR touches any of it - the
 ; clock is derived from [ticks], which the PIT hook already owns (SPEC.md 8).
 ;
@@ -2181,7 +2181,7 @@ clk_mlen:
     ret
 
 ; -----------------------------------------------------------------------------
-; clk_snap - take a consistent copy of the clock for the formatters
+; clk_snapshot - take a consistent copy of the clock for the formatters
 ; in:  nothing
 ; out: nothing (clk_sn_* updated)
 ; clobbers: nothing (flags only)
@@ -2192,7 +2192,7 @@ clk_mlen:
 ; one. The pairs are copied as words because the fields are laid out
 ; adjacent for exactly that reason.
 ; -----------------------------------------------------------------------------
-clk_snap:
+clk_snapshot:
     push ax
     pushf
     cli
@@ -2223,7 +2223,7 @@ clk_fmt:
     push bx
     push cx
     push dx
-    call clk_snap
+    call clk_snapshot
     mov bx, clk_str
     mov al, [clk_sn_mon]
     call clk_put_mon
@@ -2295,7 +2295,7 @@ clk_fmt:
 ;      leading zero: '12', '01'..'11')
 ; clobbers: nothing else
 ; Reads the LAST SNAPSHOT and does not take one: a caller drawing several
-; fields (cp_time_rows) calls clk_snap once, so its whole row is one instant.
+; fields (cp_time_rows) calls clk_snapshot once, so its whole row is one instant.
 ; -----------------------------------------------------------------------------
 clk_fld_str:
     push ax
@@ -2664,7 +2664,7 @@ clk_bpad:   resb 1              ; a settings toggle), folded into the next
 clk_last:   resw 1              ; last [ticks] sample
 clk_acc:    resw 1              ; tenth-of-tick remainder
 
-clk_sn_sec:  resb 1             ; clk_snap's copy - the ONLY thing the
+clk_sn_sec:  resb 1             ; clk_snapshot's copy - the ONLY thing the
 clk_sn_min:  resb 1             ; formatters read. Same order and adjacency
 clk_sn_hour: resb 1             ; as the live fields above: the snapshot
 clk_sn_day:  resb 1             ; copies sec+min and hour+day as words

@@ -1458,7 +1458,7 @@ cp_time_rows:
     add cx, CPT_FX + 40
     call KERNEL_SEG:cw_font_str
 
-    call KERNEL_SEG:cw_clk_snap               ; ONE snapshot for all the fields, so the
+    call KERNEL_SEG:cw_clk_snapshot               ; ONE snapshot for all the fields, so the
                                  ; row cannot straddle a second (SPEC.md 37)
     mov ah, 6                   ; active field count: the meridiem exists
     add ah, [clk_h12]           ; only in 12-hour mode (SPEC.md 31.5)

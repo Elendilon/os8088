@@ -2703,7 +2703,7 @@ dskw_now:
     push ax
     push bx
     push cx
-    call clk_snap               ; read the fields the SPEC.md 37 way
+    call clk_snapshot               ; read the fields the SPEC.md 37 way
     xor ah, ah
     mov al, [clk_sn_hour]
     mov cl, 11

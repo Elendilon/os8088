@@ -79,6 +79,15 @@ pre-empted background task, updating live while the user types or drags).
    `wm_`, `menu_`, `ui_`, `app_`, `inst_`, `dsk_`/`disk_`, `ld_`/`loader_`,
    `fm_`/`files_`, `ico_`/`icon_`, `desk_`, `dock_`, `tm_`, `cp_`, `snd_`,
    `opl_`, `sbl_`, `vid_`) or use NASM local labels (`.foo`).
+
+   **`snap` means window alignment and nothing else.** `wm_snap`, `WF_SNAP`,
+   `OSAPI_WM_SNAP` and `wm_dock_snap` all mean "move this window's origin
+   onto a boundary" (§11.94/§11.90). A consistent copy of a table taken under
+   `pushf`/`cli` is a **snapshot**, spelled out: `osapi_sys_snapshot`,
+   `osapi_claim_snapshot`, `clk_snapshot`. The two were one word apart for
+   exactly one commit, which is one longer than it should have been — a
+   reader who knows `wm_snap` reads `sys_snap` as "align something", and
+   these are the parts of the kernel where a wrong guess is expensive.
 6. Public drawing routines may assume the caller holds the **gfx lock**
    (§7) and that the cursor is hidden. They must not take the lock
    themselves.
@@ -4532,8 +4541,8 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x0280 vol_mount     (X)
                                                 0x0288 vol_paint
                                                 0x0290 drv_cfg       (X)
-                                                0x0298 sys_snap
-                                                0x02A0 claim_snap
+                                                0x0298 sys_snapshot
+                                                0x02A0 claim_snapshot
                                                 0x02A8 sys_kb
                                                 0x02B0 gfx_fill_pat  (X)
 ```
@@ -4643,11 +4652,11 @@ Slot-specific contracts that are not simply their target routine's:
                          KB. The only honest number to size against — int
                          12h does not know what the kernel and the other
                          packages already hold.
-0x0298 sys_snap          in ES:DI = a SYSSNAP_SIZE buffer; out AX =
+0x0298 sys_snapshot      in ES:DI = a SYS_SNAPSHOT_SIZE buffer; out AX =
                          MAX_TASKS, BX = INST_MAX. The scheduler header
                          then one record per instance, copied in ONE cli
                          window (§20.9).
-0x02A0 claim_snap        in ES:DI = a CLAIMSNAP_SIZE buffer; out AX =
+0x02A0 claim_snapshot    in ES:DI = a CLAIM_SNAPSHOT_SIZE buffer; out AX =
                          MEM_MAX. Every claim record: base segment (0 =
                          free), paragraphs, owner (§50.2).
 0x02A8 sys_kb            in ES:DI = a SYSKB_SIZE buffer; every register
@@ -5024,18 +5033,18 @@ table copied into a buffer the caller supplies through **ES:DI**, never a
 getter per record. The destination is the caller's own choice, exactly as
 `xm_copy` and `gfx_blit4` already do, so none of them needs an `X` stub.
 Each answers a **count** (`AX`, and `BX` for the second table in
-`sys_snap`), which is what lets a package built against an older SDK notice
+`sys_snapshot`), which is what lets a package built against an older SDK notice
 that a table has grown rather than walk off the end of its own buffer.
 
 | slot | fills | answers |
 |------|-------|---------|
-| 0x0298 `sys_snap`   | `SS_*` header + `INST_MAX` × `SSI_RECSZ` records | AX = `MAX_TASKS`, BX = `INST_MAX` |
-| 0x02A0 `claim_snap` | `MEM_MAX` × `CLS_RECSZ` records                  | AX = `MEM_MAX` |
+| 0x0298 `sys_snapshot`   | `SS_*` header + `INST_MAX` × `SSI_RECSZ` records | AX = `MAX_TASKS`, BX = `INST_MAX` |
+| 0x02A0 `claim_snapshot` | `MEM_MAX` × `CLS_RECSZ` records                  | AX = `MEM_MAX` |
 | 0x02A8 `sys_kb`     | the `SK_*` block, KB                             | — (everything preserved) |
 
 Three things about them are load-bearing.
 
-**`sys_snap` is ONE call, not two, and that is the atomicity rule.**
+**`sys_snapshot` is ONE call, not two, and that is the atomicity rule.**
 `task_exit` frees an instance record inside the same IF=0 window that frees
 its task slot (§8). A reader that takes the scheduler half and the instance
 half separately can therefore see a slot live in one and gone in the other —
@@ -5055,10 +5064,10 @@ it because the owner-word rule is the kernel's (§50.2) — a package's claims
 are stamped with the segment it runs in and a built-in's with its slot — and
 a reader outside cannot be expected to know which.
 
-**`claim_snap` takes no `cli`, and that is not an oversight.** A claim is
+**`claim_snapshot` takes no `cli`, and that is not an oversight.** A claim is
 published by a single word store (`MC_SEG` last), so a record is either
 there or not; a torn table draws one band wrong for half a second, which
-does not deserve `sys_snap`'s price. It is a whole table rather than a
+does not deserve `sys_snapshot`'s price. It is a whole table rather than a
 record at a time for a different reason: both things a memory map does with
 it want all of it — walk every record to draw a band, hash every record to
 decide whether any band moved — so per record it would be `MEM_MAX` far
@@ -8236,7 +8245,7 @@ selected one — white on a black `gfx_fill` box inset 2px around the glyphs
 
 - `cp_time_rows` (module-internal, in DI/BP, lock held) white-fills the
   band the two rows occupy (pane x 0..`CPT_BX`−4, y `CPT_DY`−4..`CPT_TY`+11
-  — the button column excluded), takes ONE `clk_snap` (§37) and redraws
+  — the button column excluded), takes ONE `clk_snapshot` (§37) and redraws
   both rows from it. It is therefore the redraw path for **every** change:
   a new selection, a `+`/`-` step, an option toggle, and the once-a-second
   tick.
@@ -8287,7 +8296,7 @@ selected one — white on a black `gfx_fill` box inset 2px around the glyphs
   everything under it anyway.
 
 Kernel routines this page reaches (all ordinary near calls since §33):
-`inst_find_kind`, `clk_snap`,
+`inst_find_kind`, `clk_snapshot`,
 `clk_fld_str`, `clk_fld_adj` (§33; `wm_content`, `wm_obscured`, `gfx_fill`,
 `gfx_frame` and `font_str` already have wrappers).
 
@@ -9351,11 +9360,11 @@ mid-format while the UI task carries a second. Two rules make that safe, and bot
    never mid-carry. The guard sits inside `clk_inc_sec`, per second, rather
    than around `clk_tick`'s catch-up loop — an hour of held-open menu owes
    3600 seconds and must not hold interrupts off for all of them at once.
-2. **Every reader formats from `clk_snap`**, which copies the six fields
+2. **Every reader formats from `clk_snapshot`**, which copies the six fields
    under the same guard (sec+min and hour+day as words — that is why they
    are laid out adjacent). `clk_fmt` snapshots itself; `clk_fld_str` reads
    the last snapshot *without* taking one, so `cp_time_rows` calls
-   `clk_snap` once and its whole row is a single instant.
+   `clk_snapshot` once and its whole row is a single instant.
 
 Nothing in an ISR touches any of it; the clock is derived from `[ticks]`,
 which the PIT hook already owns (§8).
@@ -9401,9 +9410,9 @@ the caller cannot know which rung answered.
 |--------|-----------|
 | `clk_init` | Boot: display settings to their defaults (24-hour, no seconds), fallback date, then the RTC probe. Preserves all registers. |
 | `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only. |
-| `clk_snap` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
-| `clk_fmt` | Calls `clk_snap`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 26 bytes. Out: SI = `clk_str`. Preserves everything else. |
-| `clk_fld_str` | In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snap` and does **not** take one. Preserves everything else. Read by §31.5. |
+| `clk_snapshot` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
+| `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 26 bytes. Out: SI = `clk_str`. Preserves everything else. |
+| `clk_fld_str` | In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snapshot` and does **not** take one. Preserves everything else. Read by §31.5. |
 | `clk_fld_adj` | In: AL = field 0..6, BL = +1 or −1. Steps that field with wrap (month 1..12, day 1..month length, year 1980..2099, hour 0..23, min/sec 0..59); field 6 flips the meridiem by ±12 hours, either sign. Then re-clamps the day to the new month length (31 Mar − 1 month = 28 Feb, never 31 Feb), zeroes `clk_acc` and re-samples `clk_last` so the new second starts from now, and sets `[clk_dirty]` + `[clk_barq]`. Preserves all registers. Read by §31.5. |
 
 **The hour is always stored 0..23** and stepped 0..23 — 12-hour mode is a

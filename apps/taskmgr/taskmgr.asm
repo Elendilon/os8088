@@ -330,19 +330,19 @@ TM_NCK      equ TMM_ROWS + 1    ; ...so tm_rowck holds one more row than
 ; there. Every snapshot cell writes through ES:DI, so a caller states that
 ; once and the cells need no stub.
 ; =============================================================================
-%macro TM_ES_DATA 0             ; ES = where tm_snap/tm_claims/tm_kb are
+%macro TM_ES_DATA 0             ; ES = where tm_snapshot/tm_claims/tm_kb are
     push ds                     ; our own segment, and the three cells write
     pop es                      ; through ES:DI. Restore ES afterwards: it is
 %endmacro                       ; KERNEL_SEG on entry to every callback AND to
                                 ; the worker, which is what makes [es:bx+W_*]
                                 ; legal below
 
-%macro TM_SYS_SNAP 0            ; in ES:DI = a SYSSNAP_SIZE buffer
-    call OSAPI_SYS_SNAP
+%macro TM_SYS_SNAPSHOT 0            ; in ES:DI = a SYS_SNAPSHOT_SIZE buffer
+    call OSAPI_SYS_SNAPSHOT
 %endmacro
 
-%macro TM_CLAIM_SNAP 0          ; in ES:DI = a CLAIMSNAP_SIZE buffer
-    call OSAPI_CLAIM_SNAP
+%macro TM_CLAIM_SNAPSHOT 0          ; in ES:DI = a CLAIM_SNAPSHOT_SIZE buffer
+    call OSAPI_CLAIM_SNAPSHOT
 %endmacro
 
 %macro TM_SYS_KB 0              ; in ES:DI = a SYSKB_SIZE buffer
@@ -857,7 +857,7 @@ tm_sample:
 
     ; --- snapshot scheduler + instance state (one atomic block, 8.1/28) ------
     ; Task cycles and T_STATE, then the whole instance table: I_STATE, I_TASK,
-    ; I_SIZE, I_CYC and the 16 I_NAME bytes of every slot. TM_SYS_SNAP does
+    ; I_SIZE, I_CYC and the 16 I_NAME bytes of every slot. TM_SYS_SNAPSHOT does
     ; the lot in one cli window - task_exit frees a record atomically with its
     ; task slot (SPEC.md 8), so nothing read here can be torn against itself,
     ; and that window is the whole reason the API cell is a table snapshot
@@ -869,10 +869,10 @@ tm_sample:
     ; index by slot - and unpacking once is forty instructions against a
     ; stride multiply at every one of a hundred-odd read sites.
     TM_ES_DATA
-    mov di, tm_snap
-    TM_SYS_SNAP
+    mov di, tm_snapshot
+    TM_SYS_SNAPSHOT
 
-    mov si, tm_snap + SS_TCYC
+    mov si, tm_snapshot + SS_TCYC
     mov di, tm_tnew
     mov cx, MAX_TASKS * 2
 .csnap:
@@ -881,7 +881,7 @@ tm_sample:
     add si, 2
     add di, 2
     loop .csnap
-    mov si, tm_snap + SS_TSTATE
+    mov si, tm_snapshot + SS_TSTATE
     mov di, tm_state
     mov cx, MAX_TASKS
 .ssnap:
@@ -890,12 +890,12 @@ tm_sample:
     inc si
     inc di
     loop .ssnap
-    mov al, [tm_snap + SS_CUR]  ; = our own slot (we are running)
+    mov al, [tm_snapshot + SS_CUR]  ; = our own slot (we are running)
     mov [tm_self], al
-    mov al, [tm_snap + SS_COOP] ; the scheduler's mode rides along (SPEC.md
+    mov al, [tm_snapshot + SS_COOP] ; the scheduler's mode rides along (SPEC.md
     mov [tm_coop], al           ; 8.2): the caption redraws off this sample
 
-    mov si, tm_snap + SS_INST   ; SI = record, BX = instance index
+    mov si, tm_snapshot + SS_INST   ; SI = record, BX = instance index
     xor bx, bx
 .isnap:
     mov al, [si+SSI_STATE]
@@ -1717,11 +1717,11 @@ tm_map_ram:
     push es                     ; the claim table, whole, before anything is
     TM_ES_DATA                  ; hashed or drawn: the walk below wants every
     mov di, tm_claims           ; record and the check word wants every record,
-    TM_CLAIM_SNAP               ; so one call serves both (SPEC.md 20.9)
+    TM_CLAIM_SNAPSHOT               ; so one call serves both (SPEC.md 20.9)
     pop es
 
     mov si, tm_claims           ; the claim map is the only part of this that
-    mov cx, CLAIMSNAP_SIZE      ; moves - the kernel and its buffers are fixed
+    mov cx, CLAIM_SNAPSHOT_SIZE      ; moves - the kernel and its buffers are fixed
     xor ax, ax                  ; at build time and the total is the boot int
     call tm_sumb                ; 12h figure - so it IS the key
     mov bx, tm_elck + 2*TMC_MRAM
@@ -3818,10 +3818,10 @@ tm_win      equ os88_image_end + 0     ; word: our window ptr
 
 ; --- what the API cells fill (SPEC.md 20.9) ----------------------------------
 ; Three buffers this module owns and the kernel writes through ES:DI.
-; tm_snap is unpacked into the per-slot arrays below the moment it lands (see
+; tm_snapshot is unpacked into the per-slot arrays below the moment it lands (see
 ; tm_sample); tm_claims and tm_kb are read where they sit.
-tm_snap     equ os88_image_end + 2     ; osapi_sys_snap: scheduler + instance table
-tm_claims   equ os88_image_end + 428   ; osapi_claim_snap: the claim map
+tm_snapshot     equ os88_image_end + 2     ; osapi_sys_snapshot: scheduler + instance table
+tm_claims   equ os88_image_end + 428   ; osapi_claim_snapshot: the claim map
 tm_kb       equ os88_image_end + 620   ; osapi_sys_kb: the kernel's footprint and the
                                 ; heap's totals, refreshed by tm_view_begin
                                 ; and by every sample

@@ -76,7 +76,7 @@ MEM_K_COPY equ 0xFF04           ; the file manager's copy buffer (22.3): held
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
 
-; --- osapi_claim_snap's buffer, API slot 0x02A0 (SPEC.md 20.9) ----------------
+; --- osapi_claim_snapshot's buffer, API slot 0x02A0 (SPEC.md 20.9) ----------------
 ; The three fields of a claim record that mean anything outside this module.
 ; MC_DMA is not one of them: it is how a claim that MOVES keeps the page
 ; property it was granted for, and nothing outside can move a claim.
@@ -84,7 +84,7 @@ CLS_SEG    equ 0                ; word: base segment, 0 = a free record
 CLS_PARA   equ 2                ; word: size in paragraphs (KB << 6)
 CLS_OWN    equ 4                ; word: owner (SPEC.md 50.2)
 CLS_RECSZ  equ 6
-CLAIMSNAP_SIZE equ MEM_MAX * CLS_RECSZ
+CLAIM_SNAPSHOT_SIZE equ MEM_MAX * CLS_RECSZ
 
 ; --- osapi_sys_kb's buffer, API slot 0x02A8 (SPEC.md 20.9) --------------------
 ; The kernel's own footprint broken into its parts, then the heap's totals.
@@ -1268,10 +1268,10 @@ mem_own:
     ret
 
 ; =============================================================================
-; osapi_claim_snap - API slot 0x02A0: the whole claim table into the caller's
+; osapi_claim_snapshot - API slot 0x02A0: the whole claim table into the caller's
 ;                    buffer (SPEC.md 20.9/50.5)
 ;
-; in:  ES:DI = a CLAIMSNAP_SIZE buffer the caller owns
+; in:  ES:DI = a CLAIM_SNAPSHOT_SIZE buffer the caller owns
 ; out: AX = MEM_MAX; the buffer filled; DI unchanged
 ; clobbers: AX (output) and the flags
 ;
@@ -1282,10 +1282,10 @@ mem_own:
 ;
 ; No cli. A claim is published by a single word store (MC_SEG last), so a
 ; record is either there or not, and a torn table would at worst draw one
-; band wrong for half a second - which is not what osapi_sys_snap's window is
+; band wrong for half a second - which is not what osapi_sys_snapshot's window is
 ; guarding against and does not deserve the same price.
 ; =============================================================================
-osapi_claim_snap:
+osapi_claim_snapshot:
     push cx
     push dx
     push si

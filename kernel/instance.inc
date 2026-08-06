@@ -53,7 +53,7 @@ KIND_CTRL    equ 4              ; (the Task Manager was kind 4 until it
                                 ;  became the TASKMGR package - SPEC.md 28)
 KIND_PKG     equ 0x80           ; bit 7: package instance
 
-; --- osapi_sys_snap's buffer, API slot 0x0298 (SPEC.md 20.9) ------------------
+; --- osapi_sys_snapshot's buffer, API slot 0x0298 (SPEC.md 20.9) ------------------
 ; A scheduler header, then one record per instance. Both halves are copied in
 ; one cli window, which is the whole reason this is a snapshot rather than a
 ; getter - see the routine at the foot of this file. ABI: mirrored in
@@ -78,7 +78,7 @@ SSI_KB     equ 12               ; word: KB this instance holds off the heap -
                                 ; the ONE field filled outside the cli window
 SSI_NAME   equ 14               ; 16 bytes: I_NAME, NUL-terminated
 SSI_RECSZ  equ 30
-SYSSNAP_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
+SYS_SNAPSHOT_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
 
 ; --- kind descriptor table (SPEC.md 29.3) -------------------------------------
 KD_TPL   equ 0                  ; word: wm_create template ptr
@@ -1206,10 +1206,10 @@ inst_launch_post:
     ret
 
 ; =============================================================================
-; osapi_sys_snap - API slot 0x0298: the scheduler and the instance table, in
+; osapi_sys_snapshot - API slot 0x0298: the scheduler and the instance table, in
 ;                  ONE cli window (SPEC.md 20.9/28.2)
 ;
-; in:  ES:DI = a SYSSNAP_SIZE buffer the caller owns
+; in:  ES:DI = a SYS_SNAPSHOT_SIZE buffer the caller owns
 ; out: AX = MAX_TASKS, BX = INST_MAX; the buffer filled; DI unchanged
 ; clobbers: AX/BX (outputs) and the flags
 ;
@@ -1234,7 +1234,7 @@ inst_launch_post:
 ; INST_MAX scans of MEM_MAX records - four hundred iterations that have no
 ; business running with interrupts off.
 ; =============================================================================
-osapi_sys_snap:
+osapi_sys_snapshot:
     push cx
     push dx
     push si

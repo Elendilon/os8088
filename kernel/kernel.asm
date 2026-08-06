@@ -629,10 +629,10 @@ osapi_table:
                                   ;          never-written blob reads back as
                                   ;          zeroes and the driver's own version
                                   ;          byte is what recognises it
-    OSAPI_SLOT osapi_sys_snap     ; 0x0298 - the scheduler AND the instance
+    OSAPI_SLOT osapi_sys_snapshot     ; 0x0298 - the scheduler AND the instance
                                   ;          table, in ONE cli window
                                   ;          (SPEC.md 28.2). in ES:DI = a
-                                  ;          SYSSNAP_SIZE buffer; out AX =
+                                  ;          SYS_SNAPSHOT_SIZE buffer; out AX =
                                   ;          MAX_TASKS, BX = INST_MAX. ES:DI
                                   ;          is the caller's own choice, so
                                   ;          no X stub is involved. It is one
@@ -644,7 +644,7 @@ osapi_table:
                                   ;          one half and live in the other,
                                   ;          and the cycle diffs that CPU% is
                                   ;          built from go quietly wrong
-    OSAPI_SLOT osapi_claim_snap   ; 0x02A0 - the claim table (SPEC.md 50.5),
+    OSAPI_SLOT osapi_claim_snapshot   ; 0x02A0 - the claim table (SPEC.md 50.5),
                                   ;          all MEM_MAX records into ES:DI
                                   ;          as CLS_RECSZ triples; out AX =
                                   ;          MEM_MAX. A cell over
@@ -796,7 +796,7 @@ cw_clk_fld_adj:         call clk_fld_adj
                     retf
 cw_clk_fld_str:         call clk_fld_str
                     retf
-cw_clk_snap:            call clk_snap
+cw_clk_snapshot:            call clk_snapshot
                     retf
 cw_drv_cfg_save:        call drv_cfg_save
                     retf

@@ -610,9 +610,9 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
 ;
 ; These exist because a task monitor cannot be written without them, and one
 ; had to be liftable out of the kernel. Nothing stops another app using them,
-; but note what they cost: SYS_SNAP runs with interrupts off for the length of
+; but note what they cost: SYS_SNAPSHOT runs with interrupts off for the length
 ; a table copy, so it is a twice-a-second call, not a per-frame one.
-%define OSAPI_SYS_SNAP      KERNEL_SEG:0x0298   ; ES:DI = a SYSSNAP_SIZE
+%define OSAPI_SYS_SNAPSHOT      KERNEL_SEG:0x0298   ; ES:DI = a SYS_SNAPSHOT_SIZE
                                  ; buffer; out AX = MAX_TASKS, BX = INST_MAX.
                                  ; The scheduler header (SS_*) then INST_MAX
                                  ; records of SSI_RECSZ (SSI_*), all inside ONE
@@ -621,7 +621,7 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
                                  ; slot, so the two halves have to be read
                                  ; together or a cycle diff lands on the wrong
                                  ; row
-%define OSAPI_CLAIM_SNAP    KERNEL_SEG:0x02A0   ; ES:DI = a CLAIMSNAP_SIZE
+%define OSAPI_CLAIM_SNAPSHOT    KERNEL_SEG:0x02A0   ; ES:DI = a CLAIM_SNAPSHOT_SIZE
                                  ; buffer; out AX = MEM_MAX. MEM_MAX records of
                                  ; CLS_RECSZ: base segment (0 = a free record),
                                  ; paragraphs, owner word (SPEC.md 50.2)
@@ -642,7 +642,7 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
                                  ; costs you the mono flush (SPEC.md 32). Lock
                                  ; held, like every other draw
 
-; --- OSAPI_SYS_SNAP's buffer -------------------------------------------------
+; --- OSAPI_SYS_SNAPSHOT's buffer -------------------------------------------------
 SS_TICKS   equ 0                ; word: the tick counter at the snapshot
 SS_CUR     equ 2                ; byte: the running task slot
 SS_COOP    equ 3                ; byte: 0 pre-emptive, 1 cooperative
@@ -662,15 +662,15 @@ SSI_CYC    equ 8                ; dword: cycles billed to its callbacks
 SSI_KB     equ 12               ; word: KB it holds off the claim heap
 SSI_NAME   equ 14               ; 16 bytes: its name, NUL-terminated
 SSI_RECSZ  equ 30
-SYSSNAP_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
+SYS_SNAPSHOT_SIZE equ SS_INST + INST_MAX * SSI_RECSZ
 
-; --- OSAPI_CLAIM_SNAP's buffer -----------------------------------------------
+; --- OSAPI_CLAIM_SNAPSHOT's buffer -----------------------------------------------
 CLS_SEG    equ 0                ; word: base segment, 0 = a free record
 CLS_PARA   equ 2                ; word: size in paragraphs (KB << 6)
 CLS_OWN    equ 4                ; word: owner - an instance slot, a package's
                                 ; own segment, or 0xFFxx for a kernel tag
 CLS_RECSZ  equ 6
-CLAIMSNAP_SIZE equ MEM_MAX * CLS_RECSZ
+CLAIM_SNAPSHOT_SIZE equ MEM_MAX * CLS_RECSZ
 
 ; --- OSAPI_SYS_KB's buffer, all in KB ----------------------------------------
 SK_KERN    equ 0                ; word: the whole kernel span
