@@ -356,15 +356,57 @@ completely frozen UI on the floor machine (mount, data, FAT, directory, FAT,
 remount)", which puts a mount at roughly a second by a route that has nothing
 to do with this arithmetic.
 
-### 2.5.2 The on-disk icon cache — worth doing, and it composes
+### 2.5.2 The on-disk association cache — worth doing, and it composes
 
 Given §2.5.1, the case for caching the answer on disk is strong: **12 apps × 16
 bytes is 192 bytes — one sector.** One read replaces ~140.
 
-`ICONS.DAT` in a volume's root, hidden + system. The row is **stem + 8×8 glyph
-+ the app's directory cluster** — 18 bytes, padded to 20 for a shiftable
-stride, so 12 apps is 240 bytes and still one sector. The drive is not stored:
-it is whichever volume's file this is.
+`ASSOC.DAT` in a volume's root, hidden + system — **the whole table, not just
+the icons**, which is why it is not called `ICONS.DAT`:
+
+```
+app rows  12 x 20   stem 8 + glyph 8 + directory cluster 2 + pad 2   240
+ext rows  24 x 4    extension 3 + app index 1                         96
+                    + a small header (magic, version, counts)     ~ 350 = one sector
+```
+
+The drive is not stored: it is whichever volume's file this is.
+
+**Runtime registrations live here, not in `SYSTEM.CFG`, because an association
+is bound to a disk.** An association names a program, a program is a file on a
+volume, and taking that volume out of the drive makes the association
+meaningless — so the machine's config file is the wrong home for it and this
+one is the right one. Three consequences, all good: §6's `SYSTEM.CFG` option is
+**withdrawn entirely** along with the ~190 bytes of `.bss` it wanted; the
+on-disk format becomes exactly §2.2's two tables serialised, so there is one
+layout rather than two; and a disk carried to another machine brings its
+associations with it.
+
+**Mounting a volume MERGES its file into the live table; it does not replace
+it.** Replace would lose the apps disk's associations the moment a documents
+disk went in. On a conflict the later mount wins — the same rule runtime
+registration already follows for "take over an existing one" (§2.4). Entries
+for apps on a volume no longer in the drive simply stay and cost nothing:
+their icons remain correct, and §2.7's name re-check is what stops a stale
+locator ever being acted on.
+
+The baked defaults (§2.5) and a disk's file do not fight: the disk's row for
+`PAINT` carries a **cluster**, which a baked default cannot, so it is strictly
+better and wins on merge. A disk with no `ASSOC.DAT` at all — user-built, or
+predating this feature — still works off the baked defaults and rung 4, and
+gets a file written the first time something heals.
+
+**Registration writes too, and that is what makes a third-party association
+survive a reboot.** A runtime registration lives in `.text` RAM and dies with
+the power, so if the only write trigger were "heal after a miss", a package's
+association would be gone by the next session and the user would have to run
+it again to get its icons back. So the triggers are **two**: a heal, and a
+registration that changed the table. The second is affordable for the same
+reason the first is — it lands immediately after `ld_run_body` returns from a
+load the user has just double-clicked and watched, on the UI task where
+`ui_tm_open`'s volume banking already happens, **not inside the entry proc**
+and not on a click that expects to be instant. SPEC.md §31.8 is honoured by
+where it sits, not by luck.
 
 **The cluster is in the row because of the move case, and it is the reason the
 runtime writer is not optional.** A shipped app that gets moved keeps its baked
@@ -382,7 +424,7 @@ Five things about it:
 
 - **Build it on the host.** `tools/os88disk.py` already places every `.o88` and
   knows the cluster it placed each one at, so it can write a correct, fully
-  warm `ICONS.DAT` as it builds the floppy. The shipped disk then costs the
+  warm `ASSOC.DAT` as it builds the floppy. The shipped disk then costs the
   target nothing on a machine where nothing has moved.
 - **Write on a MISS, not on a move — do not hook the file operations.** The
   instinct is to update the cache when the file manager moves or deletes an
@@ -600,39 +642,78 @@ from the hint.
 **Note:** renumbering is not involved — these are appended past the last cell,
 so no existing `.o88` is invalidated (SPEC.md §20.8 rule 4).
 
+## 5.5. Phase 4 — icons in the Standard File dialog
+
+The other half of "file save/load", and in scope.
+
+10. `fdlg.inc`'s row painter gains a 16×16 icon at the row's left, the name and
+    size origins shifting right by 18.
+
+Three things make it cheap, and one needs checking:
+
+- **`FD_ROWH` is already 16** (`fdlg.inc:65`), so a 16px icon is the row height
+  exactly and no geometry moves vertically.
+- **The listing is already the global mount snapshot**, read directly *because
+  the dialog is modal* (SPEC.md §38.2), so `dsk_get_icon` serves it with no
+  view cache and no new plumbing — and folders and the `..` row get their
+  icons from the same slots for free.
+- **It cannot share `fm_draw_icon16`**, which reads *this window's* view cache
+  through `fmv_get_icon`. The dialog needs the same ~15 lines against
+  `dsk_get_icon`, including the all-zero → `ico_app16` fallback. Duplication
+  worth taking rather than parameterising a hot path for one caller.
+- **Check the width.** The text area is `FD_LX1+1` .. `FD_SBX-1` — 7..199, so
+  **192 pixels**, and 18 of them go to the icon. A 12-character name is 96px
+  and the size column has to fit in what is left of 174. If it does not, the
+  size column loses digits before the name loses characters.
+
+**Verify:** open Paint, File > Open, and confirm the `.BMP` rows carry the same
+document mark the Disk window shows — the two read the same snapshot, so a
+disagreement means one of them is not using it.
+
 ## 6. Optional phases, each with its own cost
 
-- **The file dialog gets icons.** `FD_ROWH` is already 16 (`fdlg.inc:65`), so
-  the geometry is free — it is a 16px inset on the text origin and one
-  `fm_draw_icon16`-shaped call per row. The dialog reads the global snapshot
-  directly *because it is modal* (SPEC.md §38.2), so the icons are already
-  there. Small, and genuinely the other half of "file save/load".
-- **Persistence in `SYSTEM.CFG`.** It is a keyed record file (SPEC.md §51.5)
-  and takes new keys, so this is mechanically easy — but the glyphs are the
-  only part of §2.2's tables that need not be persisted, so the key is
-  12 × 8 stems + 24 × 4 extensions = **192 bytes**, growing `CFG_NB` from 81
-  to 273 and `CFG_FBUF` with it. That is ~190 bytes of `.bss` on **every**
-  machine for a feature most sessions never touch, and it would take the
-  estimate in §8 past what is left. I would not take it in v1; if it is
-  wanted, the tables should shrink to pay for it, and write timing follows
-  SPEC.md §31.8 — on panel close, never on registration.
-- **Phase 2c: the on-disk icon cache** (§2.5.2) — **not optional, and it is
+- **~~Persistence in `SYSTEM.CFG`~~ — WITHDRAWN**, and not merely deferred:
+  `ASSOC.DAT` (§2.5.2) is the better home, because an association is bound to
+  the disk its program lives on rather than to the machine. `SYSTEM.CFG` does
+  not grow, `CFG_NB` stays 81, and the ~190 bytes of `.bss` it would have cost
+  every machine are not spent.
+- **Phase 2c: the on-disk association cache** (§2.5.2) — **not optional, and it is
   reader *and* writer.** One sector in place of ~140. The host half is nearly
-  free (`tools/os88disk.py` writes `ICONS.DAT` as it builds the floppy, so a
+  free (`tools/os88disk.py` writes `ASSOC.DAT` as it builds the floppy, so a
   shipped disk arrives warm), and the runtime writer is what keeps it warm once
   anything moves — including the shipped apps, whose baked glyph survives a
   move but whose *location* does not. Reader ~100 bytes (the row staging can
   borrow `dsk_secbuf`), writer ~150.
-- **Phase 2b: the bounded tree walk** (§2.7). Finds a program in a folder
-  nobody has browsed and no default names. `filecp.inc`'s frame array is the
-  pattern — `FCP_MAXD` = 6, no call stack. ~150 bytes and ~1 second on a
-  floppy, for a case the hint usually pre-empts. Worth it only if third-party
-  packages in arbitrary folders turn out to be common.
-- **A second document into a running app.** The pull model reaches a fresh
-  instance only. Today a second document launches a second instance, and at an
-  app's cap it fronts the running one and the document is dropped with a
-  notice. A push hook is the fix and it needs the record space §2.3 says is not
-  there — worth doing only if the dropped-document case turns out to annoy.
+- **~~Phase 2b: the bounded tree walk~~ — DROPPED.** It existed for a program
+  in a folder nobody has browsed and no default names. `ASSOC.DAT` covers that
+  case properly: the program must be run once to register its association at
+  all, running it is what fills its cluster, and §2.5.2's registration trigger
+  writes both to the disk — so the second session opens it from the cache with
+  no search. The tree walk would only have served a program that had *never*
+  been run, which by construction has no association either. ~150 bytes saved
+  and `filecp.inc`'s frame array stays a copy-engine concern.
+
+  What that leaves — and it is worth naming rather than hiding — is that
+  **a third-party association requires running the program once**. The clean
+  fix is not a search: it is letting a package *declare* its extensions, so the
+  mount learns them with **no extra I/O at all**, since the harvest already
+  reads every `.O88`'s first sector. Bytes 96.. of the header are free and a
+  fixed layout there (say four 3-byte extensions) would be a v5 format bump.
+  Out of scope here, listed in §9 as the natural successor.
+- **~~A second document into a running app~~ — SETTLED, and it needs no code.**
+  A second document opens **another instance**, which is what the pull model
+  already does by construction: every document open is a launch. Replacing an
+  open document with a clicked one would destroy work the user did not ask to
+  lose, and no package in this tree can hold two documents at once anyway.
+
+  The cap worry that made this an open question was misplaced: `inst_kinds`'
+  caps are **built-in kinds only** (`instance.inc:104`) and a package is not in
+  that table, so package instances are bounded by `INST_MAX` = 12 and the heap.
+  Past either, the load fails with the existing `LD_ENOMEM` — an honest
+  message on a path that already exists. So there is nothing to build and no
+  push hook to regret: §2.3's read-and-clear is the whole mechanism, and its
+  "a second instance cannot inherit the document" rule is what makes two open
+  documents independent.
 
 ## 7. What this does *not* change
 
@@ -652,8 +733,9 @@ Phase 2 is written.
 | the two tables, 12 × 16 + 24 × 4 (§2.2) | `.text` | 288 |
 | the hint + default-folder arrays (§2.2) | `.text` | 48 |
 | hint validation + the second notice (§2.7) | `.text` | ~60 |
-| `ICONS.DAT` reader + name (§2.5.2, staging borrows `dsk_secbuf`) | `.text` | ~100 |
-| `ICONS.DAT` heal-on-miss writer (§2.5.2) | `.text` | ~150 |
+| `ASSOC.DAT` reader + merge + name (§2.5.2, staging borrows `dsk_secbuf`) | `.text` | ~140 |
+| `ASSOC.DAT` writer — heal and registration (§2.5.2) | `.text` | ~150 |
+| the dialog's icon column (§5.5) | `.text` | ~80 |
 | the page frame body | `.text` | 64 |
 | `assoc_find` / `assoc_note_app` | `.text` | ~110 |
 | `assoc_reduce` (majority 2×2) | `.text` | ~70 |
@@ -664,12 +746,17 @@ Phase 2 is written.
 | 2 API cells + the X stub | `.text` | ~40 |
 | notice strings | `.text` | ~40 |
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
-| **total** | | **~1,340** |
+| **total** | | **~1,460** |
 
 **The budget was raised to cover this.** `KERN_BUDGET` 76,288 → **78,336**
 (+2,048), asked for and granted to fund this plan and `docs/DISK-PERF-PLAN.md`
-together — ~1,340 here and ~200 there against the 1,536 that were spare, which
-the two do not fit. Spare after both: ~2,000.
+together — ~1,460 here and ~200 there against the 1,536 that were spare, which
+the two do not fit. Spare after both: ~1,900.
+
+The four decisions taken since the grant moved this figure by +120 net: the
+dialog's icons cost ~80 and the cache's merge ~40, the `SYSTEM.CFG` key was
+withdrawn (it was never in this total but it *was* going to cost ~190 bytes of
+`.bss`), and dropping Phase 2b saved ~150 that likewise never appeared here.
 
 Three things that follow from the grant rather than being excused by it:
 
@@ -705,7 +792,7 @@ nine FAT sectors go from both the outbound `chdir_q` and the return `relist`,
 leaving the `APPS` directory walk (~2), the icon (1), and re-scanning
 `DOCUMENTS` on the way back (~2) — call it **5 sectors, so ~20 for four
 filetypes**. Better by 7×, and at mechanism C's revolution-per-sector that is
-still **~4 seconds**. `ICONS.DAT` at one sector still wins decisively, so the
+still **~4 seconds**. `ASSOC.DAT` at one sector still wins decisively, so the
 250 bytes stay.
 
 **What survives is a conditional, and it needs both halves of note 3.** With a
@@ -739,22 +826,37 @@ constants: 8 × 16 gives back 96 bytes and still allows 16 associations —
 double the flat design this replaced. Phase 1 should be measured against the
 guard before Phase 2 is written.
 
-## 9. Open questions
+## 9. Settled, and what is left
 
-1. **Is 12 apps / 24 extensions the right cap?** Both are one constant each
-   (§2.2), and the byte cost is 16 and 4 respectively — 32 extensions is only
-   32 bytes more than 24. Five extensions across four apps are spoken for by
-   the shipped set.
-2. **Persistence?** Not proposed for v1 (§6, ~90 bytes of `.bss` on every
-   machine). Say if a registration surviving a reboot is part of the ask.
-3. **Full icon + corner badge instead of the inset?** More recognisable,
-   8× the cached RAM (§2.1). Worth it only if the footprint guard moves.
-4. **The dialog's icons in scope now, or later?** Cheap, and it is the "file
-   save/load" half of the request.
-5. **Is the cold third-party case worth Phase 2b?** Without the tree walk, a
-   program in a folder nobody has browsed and no build-time default names
-   cannot be found on a first double-click — it works after the program has
-   been seen once. ~150 bytes buys the cold case (§2.7).
+**Settled** (these were §9's open questions and are now decisions, recorded
+here so the reasoning is not lost when the sections above read as if they were
+always this way):
+
+- **Persistence → `ASSOC.DAT`, not `SYSTEM.CFG`** (§2.5.2). An association is
+  bound to the disk its program lives on, not to the machine. `SYSTEM.CFG` is
+  untouched and ~190 bytes of `.bss` are not spent.
+- **The dialog's icons are in scope** — Phase 4, §5.5.
+- **Phase 2b, the tree walk, is dropped** (§6). `ASSOC.DAT` covers the cold
+  third-party case once the program has been run once, which it must be
+  anyway for its association to exist at all.
+- **A second document opens another instance** (§6). No cap applies to
+  packages and no code is needed.
+- **12 apps / 24 extensions stands**, the grant having removed the pressure to
+  shrink it.
+
+**Still open:**
+
+1. **Full icon + corner badge instead of the 8×8 inset?** (§2.1) More
+   recognisable at 8× the cached RAM — 12 apps × 64 bytes is 768. The grant
+   makes it *affordable* where it was not before, so this is now a taste
+   question rather than a budget one, and it should be answered by looking at
+   both on a 1bpp adapter (§2.8) rather than on paper.
+2. **Should a package be able to *declare* its extensions in its header?**
+   (§6) It would remove the "run it once" requirement entirely, and cost no
+   I/O at all — the mount's harvest already reads every `.O88`'s first sector.
+   Bytes 96.. are free; it is a v5 header bump and a change to
+   `tools/os88pkg.py`. The natural successor to this plan rather than part of
+   it.
 
 ## 10. SPEC.md
 
