@@ -1247,6 +1247,9 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "menu.inc"
 %include "ui.inc"
 %include "apps.inc"
+%include "assoc.inc"          ; file type associations (SPEC.md 54): the
+                              ; tables and the icon composition. BEFORE
+                              ; disk.inc, whose harvest calls into it
 %include "disk.inc"
 %include "diskw.inc"          ; the FAT write path (SPEC.md 18.4): after
                                 ; disk.inc, whose constants and layout it uses

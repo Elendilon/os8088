@@ -1,0 +1,483 @@
+; =============================================================================
+; assoc.inc - file type associations (SPEC.md 54)
+;
+; An extension names a PROGRAM, and the program owns the glyph. Two tables
+; rather than one flat row, because BMP and GIF both mean Paint and a flat
+; table would cache Paint's glyph twice:
+;
+;   assoc_stem[i]   8 bytes   the app's 8.3 stem, space-padded ('.O88' implied)
+;   assoc_glyph[i]  8 bytes   its icon reduced to 8x8, one byte a row
+;   assoc_ext[j]    4 bytes   3 extension bytes + the app index it names
+;
+; Every stride is a power of two on purpose: an 8086 has no `shl reg, imm`
+; past 1, so a shift through CL is far cheaper than the `mul` an odd stride
+; would force - and the harvest does this lookup once per listed file.
+;
+; NO TABLE CARRIES A FLAGS BYTE. "Slot free" is stem[0] / ext[0] == 0 - a
+; sanitized display name's bytes are 0x21..0x7E and can never be 0 (SPEC.md
+; 19.1) - and "glyph unresolved" is the eight bytes ORing to zero, which is
+; exactly the all-zero sentinel fm_draw_icon16 already reads on disk_icons.
+;
+; ALL OF IT LIVES IN .text, not .bss: -f bin zeroes nothing, so initialised
+; data is in the image and is writable at runtime (the ui_tm_cwd / dsk_fatw0 /
+; fdlg_win idiom). The build-time defaults ARE the table, and a runtime
+; registration writes over a row - one copy of the data, no init code, and
+; "take over an existing one" needs no special case.
+; =============================================================================
+
+ASSOC_NAPP   equ 12             ; app slots
+ASSOC_NEXT   equ 24             ; extension slots
+ASSOC_STICKY equ 0x80           ; ext slot bit 7: claimed by a RUNTIME
+                                ; registration, so a header declaration
+                                ; (SPEC.md 54.5) may not take it back
+ASSOC_IX     equ 0x7F           ; ...and the index under it
+
+; The document page: the 16x16 body every document icon is built on, and the
+; second icon in this kernel that is not harvested off a disk (dsk_folder_ico
+; is the other). A dog-eared page with its top-right corner cut, whose white
+; interior holds an 8x8 inset at x=4..11, y=5..12 - one pixel clear of the
+; border on every side. 16 mask words (the white underlay, so the page reads
+; on the desktop dither) then 16 data words, bit 15 = leftmost.
+assoc_page:
+    dw 0x3FE0, 0x3FF0, 0x3FF8, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC
+    dw 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC, 0x3FFC
+    dw 0x3FE0, 0x2030, 0x2028, 0x203C, 0x2004, 0x2004, 0x2004, 0x2004
+    dw 0x2004, 0x2004, 0x2004, 0x2004, 0x2004, 0x2004, 0x2004, 0x3FFC
+
+ASSOC_INSET  equ 32 + 2*5       ; the first inset row's word in the body:
+                                ; past the 16 mask words, then data row 5
+ASSOC_INSHL  equ 4              ; ...and x=4 is bit 11, so a glyph byte's
+                                ; bit 7 lands there with one shift by 4
+
+; --- the app slots: stems, then glyphs -------------------------------------
+assoc_stem:
+    db 'PAINT   '
+    db 'NOTEPAD '
+    db 'TRACKER '
+    db 'ARTFUL  '
+    times (ASSOC_NAPP - 4) * 8 db 0
+
+; The four defaults' glyphs are BAKED AT BUILD TIME by tools/os88mini.py out
+; of each package's own .o88, so the kernel ships knowing what its own
+; applications look like and a document icon costs no disk read on the first
+; boot of any machine. Generated and never hand-pasted: pasted bytes go stale
+; in silence when an app's icon changes, and make check-images cannot see
+; that - the make dependency can.
+assoc_glyph:
+%include "associco.inc"
+    times (ASSOC_NAPP - 4) * 8 db 0
+
+; --- the extension slots ---------------------------------------------------
+assoc_ext:
+    db 'BMP', 0                 ; -> PAINT
+    db 'GIF', 0                 ; -> PAINT
+    db 'TXT', 1                 ; -> NOTEPAD
+    db 'MOD', 2                 ; -> TRACKER
+    db 'MD ', 3                 ; -> ARTFUL
+    times (ASSOC_NEXT - 5) * 4 db 0
+
+; --- per-app side arrays ---------------------------------------------------
+; Parallel rather than inside the slot, so the 8-byte strides survive. The
+; hint is a place to LOOK and never an answer: a cluster means nothing on a
+; disk that has been swapped, so the open path re-checks the name on arrival.
+assoc_clus:  times ASSOC_NAPP dw 0     ; the directory it was last SEEN in
+assoc_drv:   times ASSOC_NAPP db 0xFF  ; ...on which volume (0xFF = never seen)
+assoc_dfold: db 1, 1, 1, 1             ; build-time folder: 0 root, 1 APPS,
+             times ASSOC_NAPP - 4 db 0 ; 2 GAMES. The one part of a default
+                                       ; that cannot be a cluster, because no
+                                       ; cluster is knowable at build time
+
+; -----------------------------------------------------------------------------
+; assoc_ext_of - the extension of a staged display name (SPEC.md 54.2)
+; in:  SI -> a NUL-padded 16-byte display name (the SPEC.md 19.1 staged shape)
+; out: CF=0 and DI -> 3 space-padded extension bytes in assoc_extb;
+;      CF=1 = the name carries no extension
+; clobbers: DI (the output), CF
+;
+; Uppercase-exact throughout, matching SPEC.md 19.1's own "O88" rule and for
+; the same reason: foreign OSes uppercase short names on write, and a name
+; that reaches here has already been sanitized to 0x21..0x7E.
+; -----------------------------------------------------------------------------
+assoc_ext_of:
+    push ax
+    push cx
+    push dx
+    push si
+    mov di, assoc_extb
+    mov byte [di], ' '          ; a short extension pads itself, so a two-
+    mov byte [di+1], ' '        ; letter 'MD' matches a declared 'MD '
+    mov byte [di+2], ' '
+    xor ax, ax                  ; AX = the byte after the dot, 0 = none seen
+    mov cx, 16
+.scan:
+    mov dl, [si]                ; DL, never AH: AX is holding the offset of
+    or dl, dl                   ; the dot and a byte load into AH would eat
+    jz .dot                     ; its high half on the very next pass
+    cmp dl, '.'
+    jne .next
+    mov ax, si
+    inc ax
+.next:
+    inc si
+    loop .scan
+.dot:
+    or ax, ax
+    jz .none
+    mov si, ax
+    mov cx, 3
+.copy:
+    mov al, [si]
+    or al, al
+    jz .done
+    mov [di], al
+    inc si
+    inc di
+    loop .copy
+.done:
+    mov di, assoc_extb
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    clc
+    ret
+.none:
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_stem_of - the 8.3 STEM of a staged display name (SPEC.md 54.2)
+; in:  SI -> the NUL-padded display name
+; out: DI -> 8 space-padded bytes in assoc_stemb (always succeeds)
+; clobbers: DI (the output), flags
+; -----------------------------------------------------------------------------
+assoc_stem_of:
+    push ax
+    push cx
+    push si
+    push di
+    mov di, assoc_stemb
+    mov cx, 8
+.pad:
+    mov byte [di], ' '
+    inc di
+    loop .pad
+    mov di, assoc_stemb
+    mov cx, 8
+.copy:
+    mov al, [si]
+    or al, al
+    jz .done
+    cmp al, '.'
+    je .done
+    mov [di], al
+    inc si
+    inc di
+    loop .copy
+.done:
+    pop di
+    pop si
+    pop cx
+    pop ax
+    mov di, assoc_stemb
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_find - the app an extension names (SPEC.md 54.2)
+; in:  SI -> 3 extension bytes
+; out: CF=0 and AL = app slot index; CF=1 = no association
+; clobbers: AX (output), CF
+; -----------------------------------------------------------------------------
+assoc_find:
+    push bx
+    push cx
+    push di
+    mov bx, assoc_ext
+    mov cx, ASSOC_NEXT
+.row:
+    cmp byte [bx], 0
+    je .next                    ; a free slot never matches
+    mov di, si
+    mov al, [bx]
+    cmp al, [di]
+    jne .next
+    mov al, [bx+1]
+    cmp al, [di+1]
+    jne .next
+    mov al, [bx+2]
+    cmp al, [di+2]
+    je .hit
+.next:
+    add bx, 4
+    loop .row
+.miss:
+    pop di
+    pop cx
+    pop bx
+    stc
+    ret
+.hit:
+    mov al, [bx+3]
+    and al, ASSOC_IX
+    cmp al, ASSOC_NAPP
+    jae .miss                   ; a corrupt index names no app
+    pop di
+    pop cx
+    pop bx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_app_of - the app slot a stem names
+; in:  SI -> 8 stem bytes
+; out: CF=0 and AL = slot index; CF=1 = this stem is in no slot
+; clobbers: AX (output), CF
+; -----------------------------------------------------------------------------
+assoc_app_of:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, assoc_stem
+    xor dh, dh
+.row:
+    cmp dh, ASSOC_NAPP
+    jae .miss
+    cmp byte [bx], 0
+    je .next                    ; a free slot never matches
+    mov di, bx
+    mov cx, 8
+    push si
+.cmp:
+    mov al, [si]
+    cmp al, [di]
+    jne .nomatch
+    inc si
+    inc di
+    loop .cmp
+    pop si
+    mov al, dh                  ; all eight matched
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    clc
+    ret
+.nomatch:
+    pop si
+.next:
+    add bx, 8
+    inc dh
+    jmp .row
+.miss:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_reduce - a 16x16 icon's DATA plane -> the 8x8 glyph (SPEC.md 54.3)
+; in:  ES:SI -> 16 data words (bit 15 = leftmost), DI -> 8 bytes in the
+;      kernel segment
+; out: nothing (all registers preserved)
+;
+; MAJORITY of each 2x2 block: it lights if two or more of its four source
+; pixels are ink. OR-of-4 turns a typical 40%-ink icon into a near-solid blob
+; and point-sampling drops every one-pixel stroke; majority is the one that
+; keeps a silhouette at 8x8 on a 1bpp adapter. Byte-identical to reduce8() in
+; tools/os88mini.py, which bakes the shipped glyphs - the two MUST agree, or a
+; default and a harvested icon for the same program would not match.
+;
+; ES rather than DS because the source is usually LOW_SEG (the harvest's
+; sector buffer), which SPEC.md 2.1 forbids reaching through DS.
+; -----------------------------------------------------------------------------
+assoc_reduce:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov ch, 8                   ; output rows left
+.row:
+    mov ax, [es:si]             ; the two source rows this one reduces
+    mov dx, [es:si+2]
+    xor bl, bl                  ; the output byte, built MSB first
+    mov cl, 8                   ; output columns left
+.col:
+    shl bl, 1
+    xor bh, bh                  ; how many of the four are ink
+    shl ax, 1
+    adc bh, 0
+    shl ax, 1
+    adc bh, 0
+    shl dx, 1
+    adc bh, 0
+    shl dx, 1
+    adc bh, 0
+    cmp bh, 2
+    jb .dark
+    or bl, 1
+.dark:
+    dec cl
+    jnz .col
+    mov [di], bl
+    inc di
+    add si, 4                   ; two source rows per output row
+    dec ch
+    jnz .row
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_compose - a document icon for one app slot (SPEC.md 54.3)
+; in:  AL = app slot index, DI -> 64 bytes in the kernel segment
+; out: the composed 16x16 body (icon_draw16's layout)
+; clobbers: nothing (all registers preserved)
+;
+; The page frame, then the app's glyph OR'd into the interior the frame has
+; already cleared to white. An UNRESOLVED glyph is eight zero bytes and
+; composes to the bare page, which is a correct document icon and not a
+; placeholder - the SPEC.md 50 degradation rule, applied to an icon.
+; -----------------------------------------------------------------------------
+assoc_compose:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es                      ; ES = DS = KERNEL_SEG for the frame copy
+    mov bl, al
+    xor bh, bh
+    mov cl, 3
+    shl bx, cl                  ; slot * 8
+    push di
+    mov si, assoc_page
+    mov cx, 32
+    cld
+    rep movsw
+    pop di
+    mov si, assoc_glyph
+    add si, bx
+    add di, ASSOC_INSET
+    mov cx, 8
+.inset:
+    mov al, [si]
+    xor ah, ah
+    push cx
+    mov cl, ASSOC_INSHL
+    shl ax, cl
+    pop cx
+    or [di], ax
+    inc si
+    inc di
+    inc di
+    loop .inset
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_docicon - compose a document icon for one directory entry
+; in:  SI -> a staged 32-byte entry (SPEC.md 19.1)
+; out: CF=0 and dsk_ico holds the 64-byte body; CF=1 = no association
+; clobbers: CF (everything else preserved)
+;
+; dsk_ico is dsk_get_icon's staging buffer, borrowed here to save 64 bytes of
+; footprint. Safe because nothing calls dsk_get_icon during a mount, which is
+; the only place this runs - state the invariant if either ever moves.
+; -----------------------------------------------------------------------------
+assoc_docicon:
+    push ax
+    push si
+    push di
+    call assoc_ext_of           ; DI -> assoc_extb
+    jc .no
+    mov si, di
+    call assoc_find             ; AL = the app slot
+    jc .no
+    mov di, dsk_ico
+    call assoc_compose
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_note_app - record where a program is, and what it looks like
+; in:  SI -> its staged 32-byte entry; ES = LOW_SEG with dsk_secbuf holding
+;      its first sector, header validated as a v3 .o88 WITH an icon
+; out: nothing (all registers preserved)
+;
+; Called from the harvest for every package it reads, so browsing the folder
+; a program lives in teaches the OS its location and its glyph at no extra
+; I/O - the read already happened.
+; -----------------------------------------------------------------------------
+assoc_note_app:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call assoc_stem_of          ; DI -> assoc_stemb; SI untouched
+    mov dx, si                  ; bank the entry
+    mov si, di
+    call assoc_app_of
+    mov si, dx
+    jc .out                     ; not a program any association names
+    mov bl, al
+    xor bh, bh
+    mov cl, [disk_drive]
+    mov [assoc_drv+bx], cl      ; where it was seen...
+    push bx
+    shl bx, 1
+    mov ax, [dsk_cwd]
+    mov [assoc_clus+bx], ax
+    pop bx
+    mov cl, 3
+    shl bx, cl                  ; slot * 8
+    mov di, assoc_glyph
+    add di, bx
+    mov si, dsk_secbuf+64       ; ...and what it looks like: the DATA plane
+    call assoc_reduce           ; of the embedded icon, ES = LOW_SEG
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+section .bss
+assoc_extb:  resb 3             ; one staged extension (assoc_ext_of)
+assoc_stemb: resb 8             ; one staged stem (assoc_stem_of)
+section .text

@@ -1175,7 +1175,7 @@ disk_mount:
     xor dx, dx                  ; DX = entry index
 .harvest:
     cmp dx, bp
-    jae .done
+    jae .harvested
     mov ax, dx
     call dsk_get_dir            ; SI -> dsk_ent, the synthesized entry
     cmp word [si+16], 2         ; a folder or the parent link (SPEC.md 19.5):
@@ -1202,7 +1202,11 @@ disk_mount:
     mov si, dsk_secbuf+32       ; the icon body, out of the sector buffer
     mov ax, dx
     call dsk_put_icon           ; LOW_SEG:SI -> the listing's slot AX
-    jmp .h_next
+    mov ax, dx                  ; the NAME again - the header staged above
+    call dsk_get_dir            ; overwrote dsk_ent's copy of it
+    call assoc_note_app         ; this program is HERE, and looks like THIS
+    jmp .h_next                 ; (SPEC.md 54.3) - no extra I/O: the sector
+                                ; it reduces is the one just read
 
 .h_folder:                      ; every folder gets the same built-in body.
     mov si, dsk_folder_ico      ; The one icon not harvested off the disk,
@@ -1214,6 +1218,32 @@ disk_mount:
 .h_next:
     inc dx
     jmp .harvest
+.harvested:
+
+    ; --- 4b. document icons (SPEC.md 54.3) ------------------------------
+    ; A SECOND pass, and the order is the whole reason it is one: pass A is
+    ; what teaches assoc_note_app where each program is and what it looks
+    ; like, and the listing is sorted by name (SPEC.md 19.4), so a document
+    ; can perfectly well precede its program - BEACH.BMP before PAINT.O88.
+    ; Composing in pass A would draw the page bare for everything above the
+    ; program in the sort. No I/O here at all: both passes read data already
+    ; in hand.
+    xor dx, dx
+.docs:
+    cmp dx, bp
+    jae .done
+    mov ax, dx
+    call dsk_get_dir
+    cmp word [si+16], 0         ; type 0 alone: a package draws its own icon
+    jne .doc_next               ; and a folder has dsk_folder_ico
+    call assoc_docicon          ; CF=0 and dsk_ico holds the composed body
+    jc .doc_next
+    mov ax, dx
+    mov si, dsk_ico
+    call dsk_put_icon_k
+.doc_next:
+    inc dx
+    jmp .docs
 
 .done:
     mov [disk_nfiles], bp       ; publish the count last

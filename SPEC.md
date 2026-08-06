@@ -4483,7 +4483,7 @@ subdirectory is an accepted entry with staged type 2 (below) — that is what
 made §19.2's navigation possible, and it is why the `.`/`..` rule had to be
 added in the same change.
 
-### The synthesized directory entry (the normative staged layout)
+### 19.1 The synthesized directory entry (the normative staged layout)
 
 Each accepted entry is synthesized into the 32-byte staged shape that
 `dsk_get_dir` serves — this layout, not any on-disk one, is the contract
@@ -15980,3 +15980,132 @@ everything they touch.
   text↔graphics flip — the one thing QEMU cannot exercise), `286`/`386`.
 - Missile Command (§48) is the shipped reference consumer; Tracker
   (§45) follows with `FSXF_KEEPWORKER`.
+
+---
+
+## 54. assoc.inc — file type associations
+
+A file with a known extension shows the **associated program's** icon, marked
+so it reads as a document rather than as the program, and double-clicking it
+opens it in that program. Build-time defaults ship in the kernel; a running
+program may register a new association or take over an existing one.
+
+### 54.1 Compose at MOUNT, never at draw time
+
+`disk_icons` is `dsk_nmax` × 64 bytes, already allocated, **already rewritten
+every mount** (§18.3 step 4), and a type-0 file's slot was **already all
+zero** — the generic-icon sentinel. A document icon composed into that slot
+therefore costs **no new per-file RAM and no work in any paint**, and every
+consumer of the mount snapshot gets it with no change to a drawing path: both
+Disk window views, the per-window view caches (§22.1), and the file dialog
+(§38), which reads the snapshot directly because it is modal.
+
+This is the binding decision of the section. Putting the answer in the
+snapshot rather than in a drawing path is what makes "every place that shows a
+file" true by construction instead of by discipline, and it is why
+`fm_draw_icon16` did not change by one instruction.
+
+### 54.2 Two tables, and no flags byte in either
+
+An extension names a **program**, and the program owns the glyph — `BMP` and
+`GIF` both mean Paint, and a flat row would cache Paint's glyph twice.
+
+```
+assoc_stem[i]    8 bytes   the app's 8.3 stem, space-padded ('.O88' implied)
+assoc_glyph[i]   8 bytes   its icon reduced to 8x8, one byte a row
+assoc_ext[j]     4 bytes   3 extension bytes + the app index it names
+assoc_clus[i]    word      the directory it was last SEEN in
+assoc_drv[i]     byte      ...on which volume (0xFF = never seen)
+assoc_dfold[i]   byte      build-time folder: 0 root, 1 APPS, 2 GAMES
+```
+
+`ASSOC_NAPP` = 12, `ASSOC_NEXT` = 24. **Every stride is a power of two** so
+the lookup the harvest does once per listed file is a shift through CL rather
+than the `mul` an odd stride would force.
+
+**Neither table carries a flags byte.** "Slot free" is `stem[0] == 0` /
+`ext[0] == 0` — a sanitized display name's bytes are 0x21..0x7E and can never
+be 0 (§19.1) — and "glyph unresolved" is the eight bytes ORing to zero, which
+is exactly the all-zero sentinel `fm_draw_icon16` already reads on
+`disk_icons`. An icon whose reduction is genuinely blank is indistinguishable
+from an unresolved one and draws the bare page, which is the right answer for
+it anyway.
+
+**All of it is in `.text`, not `.bss`**: `-f bin` zeroes nothing, so
+initialised data is in the image and writable at runtime (the `ui_tm_cwd` /
+`dsk_fatw0` / `fdlg_win` idiom). The build-time defaults **are** the table and
+a runtime registration writes over a row — one copy of the data, no init code,
+and "take over an existing one" needs no special case.
+
+Extension comparison is **uppercase-exact**, matching §19.1's own `"O88"` rule
+and for the same reason. A short extension is space-padded, so a file named
+`X.MD` matches a declared `'MD '`.
+
+Associations are consulted for **type 0 only**, so a package can never be
+shadowed by an `O88` row and a folder is never associated. That falls out of
+where the test sits; it is not a separate rule.
+
+### 54.3 The icon: a page frame with the program's glyph inset
+
+`assoc_page` is a 16×16 dog-eared page in `assoc.inc`'s `.text` — the second
+icon in this kernel that is not harvested off a disk (`dsk_folder_ico` is the
+other). Its white interior holds an **8×8 inset at x=4..11, y=5..12**, one
+pixel clear of the border on every side. `assoc_compose` copies the frame and
+ORs the glyph into data rows 5..12, shifted left by 4 so a glyph byte's bit 7
+lands on x=4.
+
+**The reduction is majority-of-2×2**: a block lights if two or more of its
+four source pixels are ink. OR-of-4 turns a typical 40%-ink icon into a
+near-solid blob and point-sampling drops every one-pixel stroke; majority is
+the one that keeps a silhouette at 8×8 on a 1bpp adapter. Only the **data**
+plane is reduced — the glyph lands in an interior the frame has already
+cleared to white, so "ink" is the whole of what it means, and that is what
+makes the cache 8 bytes and not 16.
+
+`assoc_reduce` (kernel, `ES:SI` because the source is usually `LOW_SEG`) and
+`reduce8()` in `tools/os88mini.py` (host) **must stay byte-identical**, or a
+baked default and a harvested icon for the same program would not match.
+
+**The shipped defaults' glyphs are baked at build time.** `tools/os88mini.py`
+reduces each package's own embedded icon (`.o88` bytes 32..95) into
+`build/associco.inc`, which `assoc.inc` `%include`s — so the bytes are `db`
+bytes inside `kernel.bin`, riding the boot sector's existing contiguous kernel
+read, and **a document icon costs no disk read on the first boot of any
+machine**. It is generated and never hand-pasted: pasted bytes go stale in
+silence when an app's icon changes and `make check-images` cannot see that,
+where the make dependency can. The DAG stays acyclic — a package depends on
+`apps/os88api.inc`, never on `kernel.bin`.
+
+Defaults: `BMP`/`GIF` → PAINT, `TXT` → NOTEPAD, `MOD` → TRACKER, `MD` →
+ARTFUL.
+
+### 54.3.1 The harvest is two passes, and the order is the point
+
+Pass A is §18.3 step 4 unchanged, plus one call: every type-1 file whose first
+sector it reads goes to `assoc_note_app`, which records the program's volume,
+its directory cluster and its reduced glyph. **No extra I/O at all** — the
+sector it reduces is the one the harvest just read.
+
+Pass B walks the listing again and composes a document icon for every type-0
+entry whose extension is associated, into `dsk_ico` and then
+`dsk_put_icon_k`.
+
+**They cannot be one pass.** The listing is sorted by name (§19.4), so a
+document can precede its program — `BEACH.BMP` before `PAINT.O88` — and a
+single pass would draw the bare page for everything above the program in the
+sort. Neither pass reads the disk; both walk data already in hand.
+
+`assoc_docicon` borrows `dsk_ico`, `dsk_get_icon`'s staging buffer, to save 64
+bytes of footprint. That is safe because nothing calls `dsk_get_icon` during a
+mount, which is the only place it runs — state the invariant if either moves.
+
+### 54.4 Degradation
+
+An unresolved glyph composes to the **bare page**, which is a correct,
+unambiguous document icon and not a placeholder — the §50 degradation rule
+applied to an icon. A machine that has never seen the program's folder shows
+bare pages, and they are right.
+
+Because the glyph is cached in the app slot rather than resolved on demand,
+**the icons survive the disk leaving the drive**: browse `APPS/` once, swap to
+a documents floppy, and every `.MOD` there still carries Tracker's mark.

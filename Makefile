@@ -108,9 +108,23 @@ $(BUILD):
 
 # The kernel is a flat binary loaded at 1000:0000. No linker is involved,
 # which keeps Apple's Mach-O-only toolchain out of the picture entirely.
-$(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) tools/os88ovlchk.py | $(BUILD)
+# The default associations' 8x8 glyphs (SPEC.md 54.3), reduced on the HOST out
+# of each package's own embedded icon so the kernel ships knowing what its own
+# applications look like - a document icon then costs no disk read on the first
+# boot of any machine. GENERATED, and that is the point: hand-pasted bytes go
+# stale in silence when an app's icon changes and `make check-images` cannot
+# see it, where this dependency can. The DAG stays acyclic - a package depends
+# on apps/os88api.inc, never on kernel.bin.
+ASSOCICO := $(BUILD)/associco.inc
+$(ASSOCICO): tools/os88mini.py $(BUILD)/paint.o88 $(BUILD)/notepad.o88 \
+             $(BUILD)/tracker.o88 $(BUILD)/artful.o88 | $(BUILD)
+	python3 tools/os88mini.py -o $@ \
+		PAINT=$(BUILD)/paint.o88 NOTEPAD=$(BUILD)/notepad.o88 \
+		TRACKER=$(BUILD)/tracker.o88 ARTFUL=$(BUILD)/artful.o88
+
+$(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) tools/os88ovlchk.py | $(BUILD)
 	@python3 tools/os88ovlchk.py
-	$(NASM) -f bin -w+error -I kernel/ $(VIDDEF) -o $@ $(KERNEL_SRC)
+	$(NASM) -f bin -w+error -I kernel/ -I $(BUILD)/ $(VIDDEF) -o $@ $(KERNEL_SRC)
 	@echo "kernel: $(call FILESIZE,$@) bytes (image rung + boot overlay)"
 ifneq ($(VIDDEF),)
 	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC) DISKCNT=$(DISKCNT): this kernel is ***"
