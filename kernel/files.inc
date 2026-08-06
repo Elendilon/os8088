@@ -815,7 +815,7 @@ fm_items_fold:
 fm_items_view:
     dw fm_s_aslist, fm_s_asicon
 fm_items_spec:
-    dw menu_s_clock, menu_s_bounce, menu_s_restart
+    dw menu_s_timer, menu_s_bounce, menu_s_restart
 
 fm_menus:
     dw menu_loc_name            ; AM_NAME: still 'Locator' (SPEC.md 12.3)
@@ -2098,7 +2098,7 @@ FMC_DRVB    equ 14
 FMC_FREE    equ 15
 FMC_LIST    equ 16              ; View
 FMC_ICONS   equ 17
-FMC_CLOCK   equ 18              ; Special
+FMC_TIMER   equ 18              ; Special
 FMC_BOUNCE  equ 19
 FMC_RESTART equ 20
 FMC_PASTEIN equ 21              ; no menu CELL of its own: the context menu's
@@ -2111,7 +2111,7 @@ FMC_COUNT   equ 22
 
 FM_NMENUS   equ 4               ; = fm_menus' AM_COUNT = MENU_APPMAX
 fm_menu_base:
-    db FMC_OPEN, FMC_NEWWIN, FMC_LIST, FMC_CLOCK
+    db FMC_OPEN, FMC_NEWWIN, FMC_LIST, FMC_TIMER
 
 ; The jump table. Every entry records WHICH SIDE OF THE GFX LOCK it is on,
 ; because fm_oncmd runs under that lock and the lock is a non-recursive spin
@@ -2144,7 +2144,7 @@ fm_jmp:
                                 ;         snapshot - no I/O at all)
     dw fm_c_list                ; inline (FS_VIEW = 0)
     dw fm_c_icons               ; inline (FS_VIEW = 1)
-    dw fm_c_clock               ; POSTED - app_launch takes the lock
+    dw fm_c_timer               ; POSTED - app_launch takes the lock
     dw fm_c_bounce              ; POSTED - app_launch takes the lock
     dw fm_c_restart             ; POSTED - ui_cmd takes the lock
     dw fm_c_pastein             ; inline (fm_c_paste with another target), forever
@@ -2367,8 +2367,8 @@ fm_c_restart:                   ; Special > Restart
     mov ax, CMD_REBOOT
     jmp ui_post_cmd
 
-fm_c_clock:                     ; Special > Clock
-    mov al, KIND_CLOCK
+fm_c_timer:                     ; Special > Timer
+    mov al, KIND_TIMER
     jmp inst_launch_post        ; NOT app_launch: it takes the lock (29.4)
 
 fm_c_bounce:                    ; Special > Bounce

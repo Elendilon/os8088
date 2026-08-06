@@ -51,7 +51,7 @@ than by taste. Call it **1,000–1,100 bytes of kernel `.text` + `.bss`**, again
 ```
 build/kernel.bin  57,182 bytes (.text)
 KERN_SIZE         78,848 bytes  (image + .bss + FAT_SEG + .lowbss + STK0)
-KERN_BUDGET       80,896 bytes
+KERN_BUDGET       80,896 bytes   (74,240 today; see KERNEL-MEMORY.md)
 headroom           2,048 bytes
 ```
 
@@ -921,7 +921,7 @@ SPEC first, always — every one of these lands before its code:
 Kept because the reasoning above is only useful if its errors are visible too.
 
 - **"~1,000–1,100 bytes of kernel"** was close on the code and silent on the
-  consequence: the additions overran **guard 2**, the 64KB segment, which
+  consequence: the additions overran **`KERN_CODE_MAX`**, the 64KB segment, which
   cannot be raised. What paid for it was not in the plan at all — the
   768-byte per-instance icon COPY table went away, because a package's icon
   was already in the package's own region at a fixed offset for exactly as

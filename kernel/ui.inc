@@ -769,7 +769,7 @@ ui_grow:
 ;
 ; NOT called before a popup (§12.4) or from menu_relayout: this list is only
 ; ever read while a menu is dropping, and one call site is one thing to keep
-; right. The tables-full refusals below (Clock, Bounce, Disk at the instance
+; right. The tables-full refusals below (Timer, Bounce, Disk at the instance
 ; cap) stay beeps - MAX_TASKS is 12, a user reaches it about never, and the
 ; predicate is per-kind rather than one word.
 ; -----------------------------------------------------------------------------
@@ -901,7 +901,7 @@ ui_dispatch:
 ; the base CMD_* of each kernel-dispatched bar cell (SPEC.md 12.3): the
 ; System menu, then Locator's File and Special
 ui_loc_base:
-    dw CMD_ABOUT, CMD_CLOCK, CMD_REBOOT
+    dw CMD_ABOUT, CMD_TIMER, CMD_REBOOT
 
 ; -----------------------------------------------------------------------------
 ; ui_post_cmd - defer one of the kernel's own menu commands (SPEC.md 13)
@@ -1212,8 +1212,8 @@ ui_cmd:
     je .about
     cmp ax, CMD_CTRL
     je .ctrl
-    cmp ax, CMD_CLOCK
-    je .clock
+    cmp ax, CMD_TIMER
+    je .timer
     cmp ax, CMD_BOUNCE
     je .bounce
     cmp ax, CMD_FILES
@@ -1233,8 +1233,8 @@ ui_cmd:
 .ctrl:
     mov al, KIND_CTRL
     jmp .launch
-.clock:
-    mov al, KIND_CLOCK
+.timer:
+    mov al, KIND_TIMER
     jmp .launch
 .bounce:
     mov al, KIND_BOUNCE

@@ -817,7 +817,7 @@ section .lowbss                 ; LOW_SEG (SPEC.md 2.1): 760 bytes is the
                                 ; segment was carrying, against five reads -
                                 ; the glyph-row loops - so it costs five ss:
                                 ; prefixes and buys the whole table back for
-                                ; guard 2. font_init fills both from the ROM.
+                                ; KERN_CODE_MAX. font_init fills both from the ROM.
 font_glyphs:    resb 760        ; glyphs 32..126, 8 bytes per row (FONT_BYTES)
 font_zero:      resb 8          ; the blank cell an unprintable character
                                 ; draws. It has to live BESIDE the table: the

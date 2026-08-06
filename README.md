@@ -40,7 +40,7 @@ make clean
 ```
 
 ![what it looks like: gray dithered desktop, menu bar, drive icons, Note Pad,
-Clock, Bounce, Control Panel and Task Manager windows, and the dock
+Timer, Bounce, Control Panel and Task Manager windows, and the dock
 strip](docs/screenshot.png)
 
 ## What it does
@@ -56,7 +56,7 @@ the menus. All of classic Mac's core interactions work:
   the dock.
 - **Apps as instances** — every running thing, built-in or loaded from disk,
   is a record in one instance table (12 slots). Launching from the menu opens
-  a *new* instance up to that app's cap — two Note Pads, ten Clocks — and at
+  a *new* instance up to that app's cap — two Note Pads, ten Timers — and at
   the cap it fronts the one already open instead. Closing frees the slot, the
   task and the memory.
 - **Dock** — the bottom strip carries one tile per live instance. Click a
@@ -82,7 +82,7 @@ the menus. All of classic Mac's core interactions work:
   swaps back to **Locator**, which is what the OS itself is called when it
   is acting as an application (the desktop, the drive icons, the Disk
   browser, and the menus that launch everything else): Locator →
-  File → Clock / Bounce / Disk / Close Window, Special → Restart. Apps get
+  File → Timer / Bounce / Disk / Close Window, Special → Restart. Apps get
   their menus from one SDK call, so a loaded `.o88` from the software
   floppy takes over the bar exactly like a built-in.
 - **Note Pad** — a loadable package on the software floppy. Type; it wraps
@@ -111,8 +111,14 @@ the menus. All of classic Mac's core interactions work:
   minesweeper that ships on `build/apps.img`, loaded through the Disk
   window. Blue 1s, green 2s, red flags, first-click-safe mine placement,
   flood fill; `F` toggles flag mode, `N` starts a new game.
-- **Clock** and **Bounce** — each instance runs as its *own pre-empted task*,
-  up to ten of each. The clocks tick and the balls bounce while you type or
+- **Timer** and **Bounce** — each instance runs as its *own pre-empted task*,
+  up to ten of each. The Timer is a stopwatch: it starts counting the moment
+  you open it, and **Start · Stop · Reset** sit under the digits — Start greys
+  out while it runs and Stop while it does not, so a button never looks
+  available and then refuses. Stopping throws its interval away rather than
+  owing it, so Start picks up where the digits stand; Reset zeroes them
+  without stopping the count. The timers tick and the balls bounce while you
+  type or
   hold a drag: that is the PIT timer interrupt switching tasks out from under
   each other, on an 8086. Cover half of one and it keeps going in the half
   you can see — the kernel hands a background task the *visible region* of
@@ -224,7 +230,7 @@ kernel/instance.inc  the instance table: app kinds, launch, close, billing
 kernel/menu.inc      menu bar: the active app's name + menus, runtime bar
                      layout, pull-down tracking, Locator's own menu set
 kernel/ui.inc        UI task: event pump, keyboard, drags, dispatch
-kernel/apps.inc      About, Note Pad, Clock task, Bounce task
+kernel/apps.inc      About, Timer task, Bounce task
 kernel/disk.inc      int 13h floppy transfers, FAT12/16 mount + chain walk
 kernel/diskw.inc     the FAT write path: allocate, flush, directory entries
 kernel/loader.inc    .o88 package validation, region alloc, relocate, launch
@@ -332,7 +338,7 @@ screen, and picking "EXIT FOR BOOT" once writes `vm/<machine>/nvr/`.)
 ```
 python3 tools/mouse.py build/qmp.sock to 110 8          # Locator's File menu
 python3 tools/mouse.py build/qmp.sock down              # menus need press...
-python3 tools/mouse.py build/qmp.sock to 110 30         # ...drag to Clock...
+python3 tools/mouse.py build/qmp.sock to 110 30         # ...drag to Timer...
 python3 tools/mouse.py build/qmp.sock up                # ...release to choose
 python3 tools/qmp.py build/qmp.sock 'sendkey h' 'sendkey i'
 python3 tools/qmp.py build/qmp.sock 'screendump /abs/path/shot.ppm'

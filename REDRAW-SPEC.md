@@ -116,7 +116,7 @@ cache is still wanted either way.
 ### What happened
 
 Covering any part of a Bounce window stopped the ball. It looked frozen. The
-same was true of Clock and of Fractal, whose percentage stuck and whose
+same was true of the Timer and of Fractal, whose percentage stuck and whose
 canvas went blank.
 
 ### Why
@@ -165,7 +165,7 @@ the plan as originally written:
 - **Which means fills and glyphs do not clip alike**, and anything that
   erases a rect and then draws text into it has to reconcile them or it goes
   *blank* rather than stale. A third slot, `wm_clip_test` (0x00C8), is what
-  lets a caller ask the glyphs' question first: the Clock erases per cell
+  lets a caller ask the glyphs' question first: the Timer erases per cell
   behind it, the fractal's status strip gates the whole strip on it. This
   was not in the plan and is the one thing the plan would have got wrong;
   SPEC.md 11.3 calls it the granularity rule.
@@ -195,7 +195,7 @@ the plan as originally written:
   taking `build/kernel.bin` from 40,825 to 41,739 against the 45,056 limit —
   3,317 bytes of slack left. The overrun over the estimate is the
   `gfx_xor_rect` decomposition, three API slots rather than two, the icon
-  hook and the Clock's per-cell erase.
+  hook and the Timer's per-cell erase.
 
 ---
 
