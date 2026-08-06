@@ -410,10 +410,11 @@ desk_click:
     cmp bx, DESK_DBLT
     jae .restamp
     ; --- double-click: deselect + redraw under our lock, then open ----------
-    mov byte [desk_sel], 0xFF
-    call gfx_lock
-    call desk_zone_redraw       ; AL = zone (now unselected -> no XOR)
-    call gfx_unlock
+    call gfx_lock               ; the store is INSIDE the lock, here and in
+    mov byte [desk_sel], 0xFF   ; both paths below: desk_zone_redraw's partial
+    call desk_zone_redraw       ; case flips the highlight rather than redrawing
+    call gfx_unlock             ; it, so no other painter may see the new
+                                ; selection and act on it in between
     call files_open_drive       ; AL = drive; must be called with NO lock
     jmp .out                    ; held - it locks internally (SPEC 22)
 
@@ -423,11 +424,11 @@ desk_click:
     jmp .out
 
 .select:                        ; new selection: redraw old + new zones
-    mov ah, [desk_sel]          ; AH = old zone (0xFF = none)
-    mov [desk_sel], al
     mov bx, [ui_click_t]
     mov [desk_clkt], bx
     call gfx_lock
+    mov ah, [desk_sel]          ; AH = old zone (0xFF = none)
+    mov [desk_sel], al
     cmp ah, 0xFF
     je .selnew
     xchg al, ah                 ; deselect redraw of the old zone
@@ -442,8 +443,8 @@ desk_click:
     mov al, [desk_sel]          ; empty desktop click clears the selection
     cmp al, 0xFF
     je .out
-    mov byte [desk_sel], 0xFF
     call gfx_lock
+    mov byte [desk_sel], 0xFF
     call desk_zone_redraw       ; AL = the old zone
     call gfx_unlock
 
@@ -457,65 +458,89 @@ desk_click:
     ret
 
 ; -----------------------------------------------------------------------------
-; desk_zone_redraw - flip one zone OUTSIDE wm_paint_all. The zone's drawn
-; rect (the gray refill spans x 582..633 - the label overhangs the hit
-; zone) may be overlapped by a visible window; a bare desk_draw_zone would
-; paint desktop pixels over that window. So: if any visible window
-; intersects the drawn rect (frame + 1px shadow), fall back to a full
-; wm_paint_all; otherwise do the cheap single-zone redraw. (SPEC.md 26)
-; in:  AL = zone index; caller holds the gfx lock
+; desk_zone_redraw - flip one zone's SELECTION outside wm_paint_all
+; in:  AL = zone index, whose selection state has just changed; caller holds
+;      the gfx lock
 ; out: nothing; preserves all registers
+;
+; The zone's drawn rect (the gray refill spans x [vid_desk_zl]..[vid_desk_zr]
+; - the label overhangs the hit zone) may be overlapped by a visible window,
+; and the gfx_* primitives clip to the SCREEN, so a bare desk_draw_zone would
+; paint desktop pixels straight over that window. This used to answer that
+; with a full wm_paint_all, which cost the whole screen twice for one click:
+; picking a new icon redraws the old zone and the new one, and each of them
+; repainted the world. wm_clip_rect (SPEC.md 11.3) is the region arithmetic
+; that replaces it, and there are four answers (SPEC.md 26.2):
+;
+;   overflow    - more than 16 fragments; nothing about the region is known,
+;                 so the old full repaint stays as the last resort
+;   covered     - not one pixel of the zone is on screen: draw NOTHING
+;   clear air   - the whole drawn rect is inside one fragment: the cheap
+;                 unclipped single-zone redraw, exactly as before
+;   partial     - draw only what actually changed, which is the highlight:
+;                 gfx_xor_fill clips per fragment, so it lands on the visible
+;                 part of the icon and nowhere else. Everything else in the
+;                 zone - the gray, the icon, the label - is already on screen
+;                 and identical either way, and redrawing it clipped would
+;                 lose the icon anyway (ico_core clips whole-shape).
+;
+; That last case is why this is a FLIP and not a repaint, and why the caller
+; must have changed [desk_sel] under the same lock hold: XOR is self-inverse,
+; so it is exact only against pixels that still carry the previous state.
 ; -----------------------------------------------------------------------------
 desk_zone_redraw:
     push ax
     push bx
     push cx
     push dx
-    push si
-    push di
 
     push ax                     ; keep the volume index for the draw call
     call desk_zone_rect         ; AX/BX = x1/y1, CX/DX = x2/y2 (inclusive)
-    mov si, ax
-    mov di, cx                  ; SI/DI = the drawn rect's columns
-    mov cx, bx                  ; CX/DX = its rows
-    inc di                      ; one past the right edge, for the tests
-
-    mov bx, wm_wins             ; BX walks the table and the END is the
-.win:                           ; bound - nothing here has a register to
-                                ; spare for a counter, and AH held it once,
-                                ; which the first [bx+W_X] then ate
-    test word [bx+W_FLAGS], 2   ; visible?
-    jz .next
-    mov ax, [bx+W_X]
-    cmp ax, di                  ; window left past the rect's right edge?
-    jae .next
-    add ax, [bx+W_W]            ; right edge + the 1px drop shadow
-    cmp ax, si
-    jb .next
-    mov ax, [bx+W_Y]
-    cmp ax, dx                  ; top below the rect?
-    ja .next
-    add ax, [bx+W_H]            ; bottom edge + shadow
-    cmp ax, cx
-    jb .next
-    pop ax                      ; overlapped: repaint the world (zone
-    call wm_paint_all           ; included)
-    jmp short .done
-.next:
-    add bx, WIN_SIZE
-    cmp bx, wm_wins + MAX_WIN*WIN_SIZE
-    jb .win
-    pop ax                      ; clear air: cheap single-zone redraw
+    call wm_clip_rect           ; the zone less every visible window; the rect
+                                ; survives in AX/BX/CX/DX for the test below
+    jc .full                    ; too many fragments: repaint the world
+    jz .none                    ; wholly covered: nothing of it is on screen
+    call wm_clip_test           ; is the WHOLE zone inside one fragment?
+    jc .part
+    call wm_clip_clear          ; yes - clear air, so the region has no work
+    pop ax                      ; to do and the icon draws whole
     call desk_draw_zone
+    jmp short .done
+.part:
+    pop ax                      ; cut by a window: flip the visible part of
+    call desk_zone_hilite       ; the highlight and touch nothing else
+    jmp short .done
+.full:
+    pop ax
+    call wm_paint_all
+    jmp short .done
+.none:
+    pop ax                      ; the list is already empty, i.e. disarmed
 .done:
-    pop di
-    pop si
     pop dx
     pop cx
     pop bx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; desk_zone_hilite - XOR one zone's hit rect: the selection highlight, and
+;                    the ONLY thing that differs between a selected zone and
+;                    an unselected one. Self-inverse, so it both applies and
+;                    removes. Internal.
+; ins:  AL = volume index; caller holds the gfx lock (a clip region may be
+;       armed - gfx_xor_fill clips per fragment)
+; outs: none; clobbers AX, BX, CX, DX - both call sites have them pushed and
+;       dead, and this is the last thing either does
+; -----------------------------------------------------------------------------
+desk_zone_hilite:
+    call desk_zone_xy           ; AX = zone left, DX = zone top
+    mov bx, dx
+    mov cx, ax
+    add cx, DESK_ZW-1
+    add dx, DESK_ZH-1
+    jmp gfx_xor_fill            ; tail call: it preserves everything and this
+                                ; frame has nothing left to restore
 
 ; -----------------------------------------------------------------------------
 ; desk_draw_zone - repaint one drive zone from scratch: gray desktop fill
@@ -593,14 +618,9 @@ desk_draw_zone:
     mov al, [desk_sel]
     cmp al, byte [desk_zdrv]
     jne .done
-    mov ax, [desk_zx]
-    mov bx, [desk_zy]
-    mov cx, ax
-    add cx, DESK_ZW-1
-    mov dx, [desk_zy]
-    add dx, DESK_ZH-1
-    call gfx_xor_fill
-.done:
+    mov ax, [desk_zdrv]         ; one place owns the highlight's geometry, so
+    call desk_zone_hilite       ; the full repaint and the partial flip cannot
+.done:                          ; disagree about which pixels it is
     mov al, [desk_gcol]
     mov [gfx_color], al
     pop si
