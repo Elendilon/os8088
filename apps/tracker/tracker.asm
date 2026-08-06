@@ -121,6 +121,30 @@ TRK_RATE22  equ 22050               ; Rate menu (SPEC.md 45.10): still the
                                     ; classic TC regime, any DSP
 TRK_RATE44  equ 44100               ; the 34.5 wide-rate regime - DSP >= 4
                                     ; only; an older card refuses err 2
+TRK_PREROLL equ 6                   ; ring halves staged before the stream is
+                                    ; opened - the cushion the worker's first
+                                    ; refill has to arrive within. It was TWO
+                                    ; (four above 22 kHz, so that a wide 4KB
+                                    ; kernel half was covered), which at the
+                                    ; XT rate is 744ms and at 22 kHz is 186ms,
+                                    ; and the field reports a hitch landing
+                                    ; almost exactly there on the first play
+                                    ; after a load - the moment the pre-roll
+                                    ; runs out and the worker carries the
+                                    ; stream alone for the first time
+                                    ; (docs/FIELD-NOTES.md). Six is still
+                                    ; under the feed's own ceiling of
+                                    ; TRK_RING - TRK_HALF (seven halves), so
+                                    ; the first wake can top up rather than
+                                    ; finding the ring already full, and it
+                                    ; stays EVEN, which is what the old
+                                    ; wide-rate special case was for: above
+                                    ; 22 kHz the kernel plays 4KB halves and
+                                    ; an odd pre-roll covers one of them.
+                                    ; The cost is four more halves mixed on
+                                    ; the UI task inside the Play handler -
+                                    ; a tenth of a second on an XT, paid
+                                    ; where the user is already waiting
 TRK_MAXFEED equ 6                   ; halves mixed per worker wake, at most -
                                     ; bounds the lock-free burst so a wake
                                     ; never mixes more than ~1.1s of audio
@@ -1141,12 +1165,10 @@ trk_play:
     mov al, [trk_pmode]
     call mp_start
     mov word [trk_total], 0
-    call trk_mix_stage              ; pre-mix two halves at ring offsets
-    call trk_mix_stage              ; 0 and 2048: the open's initial CX
-    cmp word [mp_mixrate], 22222    ; the wide regime plays 4KB kernel
-    jbe .preok                      ; halves (SPEC.md 34.5): pre-roll two
-    call trk_mix_stage              ; more so the open covers both wide
-    call trk_mix_stage              ; halves, not one
+    mov cx, TRK_PREROLL             ; stage the cushion before the open, so
+.pre:                               ; the stream starts TRK_PREROLL halves
+    call trk_mix_stage              ; ahead of the DSP instead of two
+    loop .pre                       ; (trk_mix_stage preserves everything)
 .preok:
     mov al, 0                       ; verb 0: open-out, ring mode - the flag
     mov ah, SND_OPENF_RING          ; rides AH (verb 0 carries no handle,
