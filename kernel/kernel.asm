@@ -829,9 +829,18 @@ osapi_rand:
     ret
 
 ; ---- osapi_font_glyphs - the kernel's own 8x8 font (SPEC.md 6/20.3) ---------
-; out: SI = font_glyphs (an offset in KERNEL_SEG - read it through ES, which
-;      is KERNEL_SEG on entry to every callback), AL = FONT_FIRST, AH =
-;      FONT_LAST, CX = 8 bytes per glyph, row 0 first, bit 7 leftmost.
+; out: DX:SI = the glyph table, AL = FONT_FIRST, AH = FONT_LAST, CX = 8 bytes
+;      per glyph, row 0 first, bit 7 leftmost.
+;
+; DX is an AMENDMENT to a shipped slot, which SPEC.md 20.8 rule 4 otherwise
+; forbids: the cell used to answer with SI alone and the table was an offset
+; in KERNEL_SEG. It moved to LOW_SEG to give guard 2 back 760 bytes - the
+; largest single object the kernel's own segment was carrying - and an offset
+; without a segment cannot say where it went. Recorded as a one-time exception
+; on the same terms as slots 0x0120/0x0128: exactly ONE package reads this
+; cell (apps/paint's text tool), it is in this tree, and `make` rebuilds it.
+; A package that ignores DX now reads the wrong segment, so this invalidates
+; every .o88 the same way a renumbering would.
 ;
 ; For an app that draws text into its OWN pixels rather than onto the screen
 ; (apps/paint's text tool). Before this it re-probed the ROM font through
@@ -839,6 +848,7 @@ osapi_rand:
 ; at a table the kernel already had.
 osapi_font_glyphs:
     mov si, font_glyphs
+    mov dx, LOW_SEG
     mov al, FONT_FIRST
     mov ah, FONT_LAST
     mov cx, 8

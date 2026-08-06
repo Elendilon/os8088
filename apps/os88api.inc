@@ -738,11 +738,13 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
                                  ; the string must OUTLIVE the call - the
                                  ; record keeps the pointer, not the bytes.
 
-%define OSAPI_FONT_GLYPHS   KERNEL_SEG:0x0218   ; out SI = the offset of the
-                                 ; kernel's 8x8 glyph table in KERNEL_SEG,
-                                 ; AL = first character code it covers,
-                                 ; AH = last, CX = bytes per glyph (8). Read
-                                 ; it with ES = KERNEL_SEG. For an app that
+%define OSAPI_FONT_GLYPHS   KERNEL_SEG:0x0218   ; out DX:SI = the kernel's
+                                 ; 8x8 glyph table, AL = first character code
+                                 ; it covers, AH = last, CX = bytes per glyph
+                                 ; (8). Read it with ES = DX - the table is
+                                 ; NOT in KERNEL_SEG, and DX is a recorded
+                                 ; amendment to this slot (SPEC.md 20.8): it
+                                 ; used to answer with SI alone. For an app that
                                  ; needs the BITMAP of a character rather than
                                  ; a drawn one - scaling it, stamping it into
                                  ; a canvas, measuring a cell. It is the same
