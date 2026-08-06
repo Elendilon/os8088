@@ -3277,9 +3277,9 @@ mc_rbody:
     call mc_draw_all
     jmp short .out
 .parts:
-    call mc_cross_off               ; the crosshair comes off FIRST: it is an
-                                    ; XOR overlay, and everything below draws
-                                    ; through where it was
+    call mc_cross_moved             ; the crosshair STAYS on screen unless the
+                                    ; mouse moved; anything that draws through
+                                    ; it takes it off itself (SPEC.md 48.11)
     call mc_wipe_trails
     call mc_draw_exp
     call mc_move_trails
@@ -4854,10 +4854,25 @@ mc_sat_shape:
 ;
 ; XOR because the crosshair stands on top of trails, explosions and the ground
 ; alike, and there is nothing behind it to restore: drawing it twice puts back
-; whatever was there. It is the LAST thing drawn each frame and the FIRST thing
-; undone the next, so nothing else ever draws while it is on the screen -
-; which is the only condition an XOR overlay needs - the same argument SPEC.md
-; 32 makes one level up for the window manager's own drag outline.
+; whatever was there. Nothing else may draw while it is on the screen - which
+; is the only condition an XOR overlay needs - the same argument SPEC.md 32
+; makes one level up for the window manager's own drag outline.
+;
+; It used to be the LAST thing drawn each frame and the FIRST thing undone the
+; next, unconditionally, which is eight gfx_xor_fill calls a frame whether the
+; mouse moved or not: the field log measured 8.6 ms of EVERY frame on a 4.77MHz
+; Hercules machine, idle frames included, against a 55 ms tick. It is four
+; one-pixel arms, so there is nothing to win inside the calls - only in not
+; making them (SPEC.md 48.11).
+;
+; So it stays on screen across frames now, and comes off in exactly the two
+; cases that need it: the mouse moved (mc_cross_moved, at the top of the frame,
+; because the crosshair has to go back somewhere else), or something is about
+; to draw through it (mc_cross_need, from the content primitives). The second
+; is what makes it exact rather than approximate - the erase happens BEFORE the
+; overdraw, while the crosshair is still whole, so the XOR is undoing what it
+; drew. A frame that touches neither pays four compares per primitive instead
+; of eight far calls, and mc_cross_on at the end is a compare.
 ; -----------------------------------------------------------------------------
 MC_CHARM  equ 8                     ; arm length. Big enough to read AROUND the
 MC_CHGAP  equ 3                     ; system arrow, which the kernel keeps
@@ -4884,6 +4899,73 @@ mc_cross_off:
     je .out
     mov byte [mc_chshown], 0
     call mc_cross_xor
+.out:
+    ret
+
+; mc_cross_moved - take the crosshair off if it can no longer stay where it is.
+; Called once at the top of a part frame; preserves every register.
+mc_cross_moved:
+    push ax
+    mov ax, [mc_chx]
+    cmp ax, [mc_chpx]
+    jne .off
+    mov ax, [mc_chy]
+    cmp ax, [mc_chpy]
+    je .out
+.off:
+    call mc_cross_off
+.out:
+    pop ax
+    ret
+
+; mc_cross_need - (AX,BX)-(CX,DX) in CONTENT coordinates is about to be drawn;
+; if it reaches the crosshair, the crosshair comes off first. Ends in any
+; order - a line hands over its two endpoints - and unclamped, because an
+; over-large rect only ever costs a redundant erase. Preserves every register.
+mc_cross_need:
+    cmp byte [mc_chshown], 0
+    je .out
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    cmp ax, cx
+    jle .xok
+    xchg ax, cx
+.xok:
+    cmp bx, dx
+    jle .yok
+    xchg bx, dx
+.yok:
+    mov si, [mc_chpx]               ; signed throughout: content coordinates
+    sub si, MC_CHARM                ; go negative and mc_clamp is downstream
+    cmp cx, si
+    jl .miss
+    mov si, [mc_chpx]
+    add si, MC_CHARM
+    cmp ax, si
+    jg .miss
+    mov si, [mc_chpy]
+    sub si, MC_CHARM
+    cmp dx, si
+    jl .miss
+    mov si, [mc_chpy]
+    add si, MC_CHARM
+    cmp bx, si
+    jg .miss
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp mc_cross_off                ; it is still whole, so this erase is exact
+.miss:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
 .out:
     ret
 
@@ -5094,6 +5176,18 @@ mc_field:
 mc_runc:
     push cx
     push dx
+    push ax
+    push bx
+    mov ax, cx                      ; the run's own band, for the overlay
+    mov bx, dx
+    add cx, [mc_runw]
+    dec cx
+    add dx, 7
+    call mc_cross_need
+    mov cx, ax
+    mov dx, bx
+    pop bx
+    pop ax
     cmp byte [mc_fsx], 0
     jne .fsx
     add cx, [mc_ox]
@@ -5292,6 +5386,7 @@ mc_line:
     push cx
     push dx
     push si
+    call mc_cross_need              ; the two endpoints bound the line
     cmp byte [mc_fsx], 0            ; SPEC.md 5.6 does the whole line in one
     jne .own                        ; call now - but not on the Mode X surface
     or ax, ax                       ; (53.7: the drawing slots are off-limits
@@ -5521,7 +5616,8 @@ mc_fillc:
     push bx
     push cx
     push dx
-    call mc_clamp
+    call mc_cross_need              ; the overlay comes off before we draw
+    call mc_clamp                   ; through it, never after (SPEC.md 48.11)
     jc .out
     add ax, [mc_ox]
     add cx, [mc_ox]
@@ -5569,6 +5665,7 @@ mc_framec:
     push bx
     push cx
     push dx
+    call mc_cross_need
     call mc_clamp
     jc .out
     add ax, [mc_ox]
