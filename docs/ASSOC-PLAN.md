@@ -275,6 +275,20 @@ are knowable: `build/notepad.o88` bytes 32..95 *are* Notepad's 16×16 icon
 bytes come from and nothing about what they cost**. Boot, Drive B, Documents:
 Notepad's mark on every `.TXT`, with no disk access, ever.
 
+**Nothing is read at boot because the bytes are *in* `kernel.bin`.** They are
+`db` bytes in `.text` — the boot sector already loads the kernel as one
+contiguous run, and those 32 bytes (4 apps × 8) ride along inside the existing
+512-byte image rounding, so not even one extra sector is read. The host does
+the reading, once, at build time. This is the same standing that
+`dsk_folder_ico` and the menu-bar logo already have: icons that live in the
+image because there is nothing on disk to harvest them from at the moment they
+are needed.
+
+The one thing that is *not* true of a baked glyph: it describes the
+`NOTEPAD.O88` this tree built. Put a different program of that name on the
+disk and the mark is wrong until something re-resolves it — which the loader's
+fill does the first time it is actually run.
+
 It must be **generated, not hand-pasted**. `tools/os88mini.py` emits a `db`
 line per shipped app from its `.o88`, and `kernel.bin` gains a dependency on
 those four packages. Two notes: the DAG stays acyclic (packages depend on
@@ -294,16 +308,94 @@ the glyph fills three ways, none of them extra I/O:
   browsing the folder an app lives in lights it up.
 - **registration** — out of the caller's own header.
 
-Rejected: **resolving during the mount by going and finding the app.** It is
-the obvious fix for the scenario above and it is the expensive one — a folder
-holding `.TXT`, `.BMP`, `.GIF` and `.MOD` would pay four searches, each a
-`dsk_chdir_q` plus a scan plus a first-sector read plus the walk back, on the
-order of two seconds added to one folder mount. Baking the shipped set removes
-the need, and the loader's fill covers the rest.
+Rejected: **resolving during the mount by going and finding the app** — see
+§2.5.1, which is also a correction: it is far dearer than the two seconds an
+earlier draft of this document claimed.
 
 Until a slot is resolved its documents draw the **bare page frame**. That is a
 correct, unambiguous document icon and not a placeholder, which is the same
 graceful-degradation rule SPEC.md §50 asks of every claim path.
+
+### 2.5.1 Why "go and find the app" is not four sector reads
+
+The four icon sectors are about **3% of the cost**. The rest is the machinery
+that gets the head to them, and it is worth counting because the intuition that
+this is cheap is the reason it keeps looking like the obvious fix.
+
+**`dsk_chdir` is `disk_mount`.** Not a seek, not a cheap re-point — the body is
+four lines and the middle one is `call disk_mount`, so changing directory
+*within one volume* re-reads the boot sector and re-snapshots the FAT window.
+`dsk_chdir_q` (SPEC.md §18.9) skips the scan, the sort and the per-file icon
+harvest, and skips **none of that**. `DSK_FAT_SECS` is 9.
+
+And **`dsk_xfer` issues one int 13h per sector** — its `.sector` loop recomputes
+CHS and calls the BIOS once per 512 bytes. Consecutive sectors are separate
+BIOS calls, so on real hardware each one has missed the sector that was under
+the head and waits a full revolution: at 300 RPM that is **200 ms a sector**,
+not 200 ms a track.
+
+One association resolved from a `DOCUMENTS` folder, same volume:
+
+| step | sectors |
+|---|---|
+| `dsk_chdir_q` to `APPS` — boot sector + FAT window | 10 |
+| walk `APPS`'s directory for `NOTEPAD.O88` | ~2 |
+| **the icon: `NOTEPAD.O88`'s first sector** | **1** |
+| the way back — `dsk_relist` → `dskw_sync`, a **full** remount of `DOCUMENTS`, scan and sort and its own icon harvest included | ~12+ |
+| | **~35** |
+
+So four filetypes in one folder is **~140 sector reads to obtain 4**, and at a
+revolution each that is on the order of **7–8 seconds**, not the two an earlier
+draft of this plan claimed. The correction runs the same direction as the
+verdict, which is the only reason it did not change it.
+
+The per-revolution model is reasoning from drive mechanics and **should be
+measured on the XT before it is quoted as fact** — but it does not stand alone:
+CLAUDE.md independently records that a `SYSTEM.CFG` write is "2+ seconds of
+completely frozen UI on the floor machine (mount, data, FAT, directory, FAT,
+remount)", which puts a mount at roughly a second by a route that has nothing
+to do with this arithmetic.
+
+### 2.5.2 The on-disk icon cache — worth doing, and it composes
+
+Given §2.5.1, the case for caching the answer on disk is strong: **12 apps × 16
+bytes is 192 bytes — one sector.** One read replaces ~140.
+
+`ICONS.DAT` in a volume's root, hidden + system, holding stem + 8×8 glyph per
+app. Read **once when the volume is first mounted in a session**, straight into
+§2.2's table; after that the RAM table serves every lookup and the file is not
+touched again. §19.6's `dskw_write_sys` already exists precisely so the kernel
+can rewrite a hidden + system file, so the write plumbing is not new.
+
+Four things about it:
+
+- **Build it on the host.** `tools/os88disk.py` already places every `.o88` and
+  can therefore write a correct `ICONS.DAT` into the apps floppy as it builds
+  it. That makes the shipped disk arrive with a warm cache, costs the target
+  nothing, and reduces the runtime writer to an optional extra for
+  user-added packages.
+- **The cache may serve icons on faith; it must never serve the open path.** A
+  stale hit — someone replaced `NOTEPAD.O88` with a different program of the
+  same name — is a cosmetically wrong icon, which is harmless, and would be a
+  *wrong program loaded*, which is not. So the locator still goes through
+  §2.7's name re-check on the disk, every time. That is the same boundary the
+  cluster hint already draws, and it is the one invariant this feature must not
+  lose.
+- **A miss is ordinary.** An app moved or deleted behind the OS's back means
+  the stem is not where the cache implies; that falls through to §2.7's rungs
+  exactly as an empty hint does. No new failure mode.
+- **Writing it at runtime follows SPEC.md §31.8's discipline, or not at all.**
+  A write is the 2+ second frozen-UI sequence quoted above, so it can never
+  land on a click. If the runtime writer is built, it writes at a moment the
+  user already expects disk activity — and it dirties `build/apps.img`, a
+  tracked shipped artifact, which is CLAUDE.md's standing trap.
+
+It **composes with the build-time bake rather than replacing it**: a fresh or
+foreign disk has no cache, and the shipped set must be right on the first boot
+of any machine. The bake covers the four shipped apps with zero I/O forever;
+the cache covers everything else with one sector.
+
+This is Phase 2c in §6.
 
 ### 2.6 Nothing is harvested at boot, and that is the whole point
 
@@ -496,6 +588,13 @@ so no existing `.o88` is invalidated (SPEC.md §20.8 rule 4).
   estimate in §8 past what is left. I would not take it in v1; if it is
   wanted, the tables should shrink to pay for it, and write timing follows
   SPEC.md §31.8 — on panel close, never on registration.
+- **Phase 2c: the on-disk icon cache** (§2.5.2). One sector in place of ~140,
+  and the host half is nearly free — `tools/os88disk.py` writes `ICONS.DAT`
+  into the apps floppy as it builds it, so the shipped disk arrives warm. Split
+  it: the **reader** (~100 bytes, and the 192-byte staging can borrow
+  `dsk_secbuf`) is the whole of the benefit and should ship with Phase 2; the
+  **runtime writer** (~150 more) only matters for packages the user added
+  themselves, and brings the §31.8 write-timing question with it.
 - **Phase 2b: the bounded tree walk** (§2.7). Finds a program in a folder
   nobody has browsed and no default names. `filecp.inc`'s frame array is the
   pattern — `FCP_MAXD` = 6, no call stack. ~150 bytes and ~1 second on a
@@ -525,6 +624,7 @@ Phase 2 is written.
 | the two tables, 12 × 16 + 24 × 4 (§2.2) | `.text` | 288 |
 | the hint + default-folder arrays (§2.2) | `.text` | 48 |
 | hint validation + the second notice (§2.7) | `.text` | ~60 |
+| `ICONS.DAT` reader + name (§2.5.2, staging borrows `dsk_secbuf`) | `.text` | ~100 |
 | the page frame body | `.text` | 64 |
 | `assoc_find` / `assoc_note_app` | `.text` | ~110 |
 | `assoc_reduce` (majority 2×2) | `.text` | ~70 |
@@ -535,9 +635,10 @@ Phase 2 is written.
 | 2 API cells + the X stub | `.text` | ~40 |
 | notice strings | `.text` | ~40 |
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
-| **total** | | **~1,090** |
+| **total** | | **~1,190** |
 
-About 71% of what is left. The build-time glyph bake (§2.5) is in this table
+About 78% of what is left, and that is close enough to the guard that the
+8 × 16 table sizing (−96) should be assumed rather than held in reserve. The build-time glyph bake (§2.5) is in this table
 at zero — it changes where the app slot's 8 bytes come from, not what they
 cost — and `tools/os88mini.py` runs on the host. That is affordable and it is not nothing, and per
 CLAUDE.md the decision to spend it belongs with whoever wants the feature —
