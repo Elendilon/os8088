@@ -159,6 +159,13 @@ creates and never deletes.** The write half of the picture stays unmeasured
 on purpose, because a run interrupted between creating a scratch file and
 removing it would break rule 2.
 
+Both of its paths were verified under QEMU before it was ever pointed at real
+hardware — with no hard disk it prints its refusal and the report still saves
+to A:, and with a 20 MB FAT16 partition on ST-225 geometry every row produces
+a number, the read returns the file's exact size, and **the disk image is
+byte-for-byte identical afterwards**. That last check is the one that matters
+here, and it is the one to repeat if anything in that block changes.
+
 ---
 
 ## PCem — the other place results come from
@@ -229,10 +236,13 @@ version control that no source change updates, which is the exact failure
   adapter it found: `GFXHERC.TXT` / `GFXCGA.TXT` / `GFXVGA.TXT`, so the two
   disks cannot produce a file that overwrites the other's.
 - Then `SYSBENCH.O88`, likewise, to `SYSBENCH.TXT`.
-- `gfxbench` is about fifteen seconds and `sysbench` about forty, most of the
-  second one being its two 16 KB floppy reads. **The machine is frozen while
-  either runs, by design** — the screen sitting still is not a hang, and the
-  bottom line says which block it is on.
+- `gfxbench` is about fifteen seconds. `sysbench` is about a minute on a
+  floppy-only machine and **two or more with the hard disk mounted** — its
+  read row calibrates itself off the first read and then runs for about six
+  seconds, because a benchmark here has to be accurate and useful rather than
+  quick, and method T quantises to 54.92 ms. It prints the iteration count it
+  chose. **The machine is frozen while either runs, by design** — the screen
+  sitting still is not a hang, and the bottom line says which block it is on.
 - Bring the `.TXT` files back and paste them into Part 9 with the four
   provenance lines it asks for.
 
