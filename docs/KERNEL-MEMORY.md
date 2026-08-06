@@ -395,6 +395,17 @@ it actually protects. Boot the 360KB pair on real iron (or `make xt`), run
 `STKPROBE.O88` off its test floppy, and hammer the keyboard and mouse while
 it counts (docs/TESTING.md).
 
+**And it has been run there.** On a real 5150 (640K, Hercules, a 20MB MFM
+disk through its controller ROM) with a floppy-to-hard-disk copy running,
+the keyboard mashed for typematic and the mouse in motion, 217 samples over
+~2 minutes read **112 of 256, canary intact** — against 92 for the same
+probe under QEMU, so the real BIOS's interrupt nesting costs ~20 bytes the
+emulator cannot show. The probe's own frames are ~30 of that 112, putting
+the pure ISR + switch component near 82; add the deepest *application*
+depth the 0xCC fills have ever recorded (~80, the Fractal/Tracker workers)
+and the projected real-hardware worst case is ~160–170 of 256 — a ~1.6×
+margin, with `SCH_MAGIC` still underneath it. The halving stands.
+
 ### Disk buffers — 3,584 B
 
 Three buffers in `.lowbss`, written by int 13h through ES:BX and read only

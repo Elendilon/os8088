@@ -293,6 +293,9 @@ early, so the tick and the mouse nest ON TOP of it. `make stackprobe` builds
 `build/stkprobe360.img` for exactly that trip: boot `os8088-360.img` on the
 real machine (or `make xt`), launch `STKPROBE.O88` off the probe floppy, hold
 a key down, mash the mouse, play a Tracker module — then read High water.
+Measured on a real 5150 (Hercules, 20MB MFM) under a floppy-to-hard-disk
+copy plus typematic plus mouse: **112 of 256, canary intact, 217 samples** —
+the ~20 bytes over QEMU's 92 being the BIOS nesting this gate exists to see.
 
 **Benchmarks** answer *how fast*. `fontbench` prices the *primitive* (SPEC.md
 §6.1.1): one ten-character run drawn four ways, as the hand-written
