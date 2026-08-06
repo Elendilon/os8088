@@ -287,6 +287,7 @@ pt_entry:
     jc .out                         ; no window: nothing to flag, nothing to
                                     ; claim - the region stays untouched
     mov [pt_win], bx
+    call pt_arg                     ; were we launched to open a picture?
     cmp byte [pt_mode], PT_M_LIVE
     jne .menus
     push ax
@@ -2624,6 +2625,10 @@ pt_brush:
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
 pt_paint:
+    cmp byte [pt_argp], 0           ; a picture handed to us at launch
+    je .painting                    ; (SPEC.md 54.5): the lock is held here
+    call pt_argload                 ; and the window is placed, which the
+.painting:                          ; entry proc could promise neither
     push ax
     push bx
     push cx
@@ -6210,6 +6215,89 @@ pt_dlg:
     ret
 
 ; -----------------------------------------------------------------------------
+; pt_arg - accept a picture handed to us at launch (SPEC.md 54.5)
+; in:  nothing; called from pt_entry once the window exists
+; out: nothing; preserves all registers AND the flags - the CF this package
+;      owes the loader is still riding in them
+;
+; It RECORDS and does not load. Paint's load path shows a toast, calls
+; pt_wait and repaints, all of which assume the gfx lock is HELD - and an
+; entry proc holds no lock (SPEC.md 20.2). The first W_PAINT is the natural
+; place instead: the lock is held, the window is visible and positioned, and
+; the picture is on screen the moment it arrives with no extra repaint.
+; -----------------------------------------------------------------------------
+pt_arg:
+    pushf
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    call OSAPI_ARG_FILE             ; CF=1 = launched empty, the usual case
+    jc .out
+    mov [pt_argclus], dx
+    mov [pt_argdrv], bl
+    mov ax, KERNEL_SEG              ; the name is a KERNEL pointer, so ES is
+    mov es, ax                      ; loaded rather than trusted
+    mov di, pt_name
+    mov cx, PT_NAMEMAX
+.copy:
+    mov al, [es:si]
+    mov [di], al
+    or al, al
+    jz .named
+    inc si
+    inc di
+    loop .copy
+    mov byte [di], 0
+.named:
+    push ds
+    pop es                          ; ES = DS again, the callback default
+    call pt_readable                ; refuse a format we do not decode BEFORE
+    jc .clear                       ; the disk, exactly as the dialog does
+    mov byte [pt_argp], 1
+    jmp short .out
+.clear:
+    mov byte [pt_name], 0           ; not ours: start blank rather than named
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; pt_argload - spend it, from the first paint (SPEC.md 54.5)
+; in:  the gfx lock HELD, the window visible
+; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+pt_argload:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov byte [pt_argp], 0           ; once, whatever happens below
+    mov dx, [pt_argclus]
+    mov bl, [pt_argdrv]
+    call OSAPI_FILE_GOTO            ; the folder it was opened from
+    jc .out                         ; unlistable: pt_load would only fail
+    call pt_load                    ; ...and this is the dialog's own load
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; pt_ondlg - the dialog's completion callback (SPEC.md 38.6)
 ; in:  AL = the mode it ran in, SI = our window ptr, DI = the chosen name;
 ;      UI task, gfx lock HELD, the dialog window already destroyed
@@ -8894,6 +8982,11 @@ pt_ic_text:
     PTBUF  pt_dimbuf, 8             ; "x464", NUL - the palette's size readout
     PTBUF  pt_pmap, 256             ; a loaded palette -> our sixteen
     PTBUF  pt_name, 14              ; the current document
+    PTBUF  pt_argp, 1               ; 1 = we were LAUNCHED to open pt_name
+                                    ; (SPEC.md 54.5) and the first paint owes
+                                    ; the load
+    PTBUF  pt_argdrv, 1             ; ...and where it lives
+    PTBUF  pt_argclus, 2
 
     OS88_BSS PT_BSS
     OS88_IMAGE_END
