@@ -38,7 +38,34 @@ want published.
 
 ---
 
-## Machine E1 — `Elendilon`'s IBM PC 5150
+## The rule that comes before any of the numbers
+
+> **A result is not a field result because a human handed it to you.** Do not
+> assume any figure came off the 5150 unless the run on it was actually
+> discussed. **Ask.**
+
+The owner of the 5150 also tests on **PCem**, routinely — and PCem is not
+QEMU, so this is not the usual "emulators lie" caution. It models period
+hardware at period speed, which makes its numbers *plausible in the same
+units* as the iron's, and that is exactly what makes an unlabelled one
+dangerous: a QEMU figure announces itself by being absurd, and a PCem figure
+does not.
+
+This is PERFORMANCE.md Part 6 rule 8 — every figure carries its machine —
+applied to the conversation rather than to the document. A number whose
+provenance you assumed is a number you will write into Part 9 under the wrong
+heading, and the next reader has no way to catch it.
+
+| you were given | what it is worth |
+|---|---|
+| a `.TXT` report the owner says came off the 5150 | a **field set**. Part 9, with its four provenance lines |
+| a report from **PCem** | a good cross-check of *work* and a reasonable sanity check on *time* — but it is a model of the machine, not the machine. Label it PCem in Part 9 or leave it out |
+| a report from **QEMU** | instruction counts only, and only under `-icount`. Never microseconds |
+| a screenshot, a description, "it looked fine" | evidence about behaviour, not about time |
+
+---
+
+## The IBM 5150 — `Elendilon`'s
 
 **The machine this project is calibrated against.** Every measured number in
 PERFORMANCE.md Part 2 came off it (Part 9 Sets 1 and 2), and SPEC.md quotes it
@@ -56,6 +83,25 @@ by name in a dozen places.
 | hard disk | **Seagate ST-225**, 20 MB MFM, on a **Seagate ST11M** controller, in the second bay |
 | sound | none |
 | period | **intentionally, entirely period. No modern hardware is attached to the 5150.** No Gotek, no XT-IDE, no flash. That is the property that makes its floppy and disk timings mean what they say, and it is a deliberate constraint rather than an accident — do not propose "just put a Gotek in it" as a way to shorten a turnaround |
+
+### The clock reads 1980 after a power cycle, and that is correct
+
+A **failed diode** on the SixPakPlus means it cannot hold time across a power
+*off*: the backup battery ends up trying to backfeed the whole ISA bus and
+sags to 0.6 V. So a cold start comes up at **1980**, the §37.90 fallback, and
+that is the hardware behaving as this hardware behaves.
+
+**It is not a clock bug, and it is not the fallback misfiring.** Across a
+*warm* start the SixPak's RTC still has its 5 V, and everything survives —
+the year included. So on this machine:
+
+- **reading and writing the clock both fully work**, which is what makes it a
+  valid rung-2 witness (§37.90's verification is explicitly "survives a warm
+  boot");
+- a report of "the date is wrong after switching it on" from here is
+  **expected**, and chasing it is chasing a diode;
+- a report of the time **not surviving a warm boot, or the year being
+  dropped**, is a real defect and worth acting on.
 
 ### What it has measured
 
@@ -78,23 +124,63 @@ Two of those are the load-bearing ones. **756 µs** is the per-call floor
 (SPEC.md §5.7), and **238 ms a sector** is why a 116KB module load is 57
 seconds.
 
-### Two things E1 can test that nothing else here can
+### Two things the 5150 can test that nothing else here can
 
 - **The MFM hard disk.** SPEC.md §52's driver has never run on real spinning
-  MFM. E1 is an ST-225 behind an **ST11M**, which is a controller *with a
-  ROM* — and that is §52's **rung 0**, the int 13h path, which is also the
+  MFM — though **the volume mounts**: that much has been tried, and it worked
+  first time. This is an ST-225 behind an **ST11M**, which is a controller
+  *with a ROM* — and that is §52's **rung 0**, the int 13h path, which is also the
   whole of MFM support. Rung 1 (the IDE task file) is gated on `CPU_286` for
   an arithmetic reason — an 8088's `in ax, dx` is two 8-bit bus cycles at the
   same port, so the drive's high byte is lost — so **rung 0 is the only rung
-  an 8088 can ever take, and E1 is the only machine that can prove it.**
+  an 8088 can ever take, and the 5150 is the only machine that can prove it.**
   Everything §52 says about partitioning, formatting, the capacity-table
   cluster sizes and the `SYSTEM.CFG` automount is, on real MFM, untested.
 - **The clock ladder's rung 2.** Already field-verified here (§37.90), and
   the only rung no emulator can reach.
 
+### The hard disk is a real DOS 3.3 install, and it is not yours
+
+The rules for anything that touches C: on this machine, from its owner:
+
+1. **Do not format it. Do not partition it.** §52's disk tool is exactly the
+   thing that must not be pointed at it.
+2. **Do not leave anything behind.** Whatever a test writes, it removes.
+3. **Do not delete anything you did not write.** Not even something that
+   looks like scratch.
+
+That rules out a whole class of measurement, and it is the right trade — a
+20 MB drive with somebody's DOS install on it is not a scratch volume. What
+it leaves is **reads**, which is most of what is interesting anyway, and
+`sysbench`'s hard-disk block is built to that constraint: it mounts, walks
+the FAT, reads one file that a DOS 3.3 disk is guaranteed to have
+(`COMMAND.COM`), and puts the current volume back. **It never writes, never
+creates and never deletes.** The write half of the picture stays unmeasured
+on purpose, because a run interrupted between creating a scratch file and
+removing it would break rule 2.
+
 ---
 
-## How to take a set on E1
+## PCem — the other place results come from
+
+Not a machine in the register's sense, but it belongs here because reports
+come off it and they are easy to mistake for field sets.
+
+PCem emulates period hardware at period speed, which puts it in a different
+class from QEMU entirely: its numbers are in the right units and the right
+order of magnitude, so nothing about them looks wrong. Treat it as a **very
+good model** and never as the machine —
+
+- it is the right tool for *reproducing* something the 5150 showed, without
+  spending the seven-step trip below;
+- it is the right tool for anything the 5150 must not be pointed at — a
+  format, a partition, a disk tool run, anything that writes;
+- and its figures go into Part 9 **labelled PCem**, or not at all. Part 9's
+  four provenance lines exist for exactly this.
+
+---
+
+## How to take a set on the 5150
 
 ### `make field` — two bootable disks, because there is no drive B
 
@@ -102,8 +188,7 @@ seconds.
 make field          # -> build/herc.img and build/cga.img, both 360KB bootable
 ```
 
-The shape of these images is E1's shape, and neither of the two decisions in
-them is cosmetic:
+Both are shaped by the machine, and neither decision in them is cosmetic:
 
 - **The benchmarks are on the BOOT disk**, in the root, beside `TASKMGR.O88`
   and for the same reason it is there (§28.3). With one floppy drive, a
@@ -128,6 +213,14 @@ protected disk answers int 13h status 03h, which the OS faithfully reports as
 
 They are 8.3-short and unambiguous at a DOS prompt on purpose: DOS 3.3 has no
 tab completion and these names get typed by hand into `dskimage`.
+
+**They are never committed.** `build/` is gitignored and these two are not
+among the artifacts force-added into it, so `make check-images` cannot see
+them and `all` never builds them. They are somebody's test disks, built on
+demand and **sent** — attach them to the person who is going to write them to
+a floppy. Adding them to the repo would put a pair of large binaries under
+version control that no source change updates, which is the exact failure
+`check-images` exists to catch for the ones that *are* shipped.
 
 ### Then, on the machine
 
@@ -173,7 +266,7 @@ which build it was.
 
 ---
 
-## What to ask E1's owner for, and what not to
+## What to ask the 5150's owner for, and what not to
 
 **Worth a field run** — nothing else can answer these:
 

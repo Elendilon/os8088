@@ -655,6 +655,7 @@ worth taking:
 | `gfxbench: FULLSCREEN in+out` | **the whole-screen repaint.** Part 1 calls it a "visible redraw", Part 5's entire budget table is organised around avoiding it, and no field set has ever put a number on it — because a package cannot reach one. `wm_fullscreen`'s exit is a `wm_paint_all`, and it is the ONE composition call legal from a window callback (below) | **seconds**, and it is method T for that reason. What is in it: the desktop dither, the drive zones, the dock, the menu bar and every visible window — one of which is this report, priced separately by `whole page of rows` |
 | `gfxbench: GFX_FILL 64x64 clipped` | **what §11.3's clip region costs a covered background window.** `WM_CLIP_SET+CLEAR` was measured; drawing *under* one never was. It sits next to its own unclipped row, so the gap is the answer | a little over the unclipped row plus the `SET+CLEAR` cell. Much more and `gfx_clip_run`'s re-entry is dearer than the region arithmetic it saves |
 | `gfxbench:` the whole **fullscreen block** | **whether a primitive costs what it costs wherever it is drawn.** Same code, same sandbox, different place on the glass, no chrome around it. The rows carry the same labels as their windowed twins so they diff by name | the primitives to be **boring** — landing on their twins. One that does not has found something position-dependent nobody believed was |
+| `sysbench:` the **hard-disk block** | **§52's driver on real spinning MFM, which has never been measured** — and the first hard-disk twin of the floppy rows. Read-only by construction: it mounts, walks the FAT, reads one file and puts the volume back, because the disk it will run against is somebody's DOS 3.3 install (docs/FIELD-MACHINES.md) | anything at all. The floppy is 2,100 bytes/second and 238 ms a sector; whatever `hdd bytes/sec` says is the first number on the other side of that. `HDD FILE_DFREE` is the one to watch — the 9-sector FAT window (§18.8) has to page across a 41-sector FAT, which is what §18.8.1 was written against |
 
 None of them says anything on an emulator, and two say so loudly: under
 `-icount` both shift rows measure identically and the derived per-bit line
@@ -690,7 +691,13 @@ A report without the four lines below is worth very little — and *which*
 machine, who holds it, and how a build gets onto its floppies are in
 [docs/FIELD-MACHINES.md](docs/FIELD-MACHINES.md), because an agent is told
 which account it is running as and forgets it, while a fork's name is in the
-repo forever:
+repo forever.
+
+**A result is not a field result because a human handed it to you.** The 5150's
+owner also tests routinely on **PCem**, which models period hardware at period
+speed — so unlike a QEMU figure, a PCem one is in the right units and does not
+announce itself. Do not assume a number came off the iron unless the run on it
+was actually discussed; **ask**, and label the set with what it was:
 
 | | |
 |---|---|

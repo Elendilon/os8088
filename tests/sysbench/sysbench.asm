@@ -322,6 +322,9 @@ sb_run:
     mov si, sb_p_dsk
     call bl_progress
     call sb_disk
+    mov si, sb_p_hdd
+    call bl_progress
+    call sb_hdd
     call sb_trailer
 
     pop di
@@ -1629,6 +1632,220 @@ sb_b_rdsml:
     pop es
     ret
 
+; --- block 8: the hard disk, if the machine has one ---------------------------
+;
+; Every row in the floppy block above has a hard-disk twin nobody has ever
+; seen, starting with the one that decides whether a hard disk is worth having
+; as a system volume at all: a floppy moves 2,100 bytes a second and takes
+; 238 ms to fetch one sector (PERFORMANCE.md Part 9). It is also the only
+; measurement of SPEC.md 52's driver on real spinning MFM - rung 0, the
+; controller ROM, which is the only rung an 8088 can take at all.
+;
+; THIS BLOCK NEVER WRITES. It does not format, does not partition, does not
+; create a file, and does not delete one. That is not timidity about the code,
+; it is a fact about the disk: the machine this was written for
+; (docs/FIELD-MACHINES.md, E1) has a real DOS 3.3 install on its C:, with its
+; owner's data on it, and a benchmark has no business leaving anything behind
+; or removing anything it did not put there. What that costs is the write half
+; of the picture - a `bytes/second written` row would need a scratch file, and
+; a run interrupted between creating and deleting one would break that promise.
+; Reads are the half that can be taken safely, so reads are what this takes.
+;
+; The file it reads is COMMAND.COM, because a DOS 3.3 system disk has one and
+; reading it changes nothing. The report NAMES it, so nobody has to guess what
+; the throughput row was reading.
+;
+; IT MUST SURVIVE THERE BEING NO HARD DISK, which is every other machine
+; including the one it was developed on. There is no cheaper way to ask than
+; to try: no package-visible call enumerates volumes (OSAPI_VOL_* are the
+; driver's, and answer a package CF=1), so the probe is a FILE_GOTO to volume
+; index 2 and a refusal prints a line and skips the rows. On a floppy-only
+; machine that costs one failed mount, once.
+;
+; AND IT MUST PUT THE CURRENT VOLUME BACK, on every path including the failed
+; probe - which leaves the volume elsewhere by contract. Every name the file
+; API resolves goes through ONE global current-volume/current-directory pair
+; shared with the Disk windows and the file dialog, so a block that walked off
+; to C: and did not come back would send the user's next `S` - save the report
+; - to the hard disk.
+;
+; BOTH PATHS ARE VERIFIED, under QEMU, because neither can be debugged on the
+; machine it was written for. With no hard disk the block prints its refusal
+; and the report still saves to A:, which is the volume-restore working. With
+; one - a 20MB FAT16 partition on an emulated ST-225 geometry, mounted through
+; the driver's rung 0 - all four rows produce numbers, the read returns error
+; 0 and the file's exact size, and THE DISK IMAGE IS BYTE-FOR-BYTE IDENTICAL
+; AFTERWARDS. That last one is the property that matters, and it is the one to
+; re-check if anything in this block is ever changed.
+sb_hdd:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call bl_blank
+    mov si, sb_s_h_hdd
+    call bl_sline
+    mov si, sb_s_h_hdd2
+    call bl_sline
+    call bl_head
+
+    call OSAPI_FILE_HERE            ; bank where we are BEFORE anything moves
+    mov [sb_hclus], dx
+    mov [sb_hdrv], bl
+
+    call sb_hdd_go
+    jc .none
+
+    mov ax, SB_BIGKB                ; on C: now
+    call OSAPI_MEM_CLAIM
+    jc .noclaim
+    mov [sb_bseg], dx
+
+    mov word [bl_n], 8              ; the FAT walk on a 20MB FAT16 volume. On
+    mov word [bl_body], sb_b_dfree  ; a floppy the whole FAT is resident and
+    mov si, sb_r_hdf                ; this is 40 ms; here the 9-sector window
+    xor al, al                      ; (SPEC.md 18.8) has to page, which is the
+    call bl_run                     ; number 18.8.1 was written against
+
+    mov word [bl_n], 4              ; ...and a whole-file read, for the one
+    mov word [bl_body], sb_b_hddrd  ; figure that prices the drive itself.
+    mov si, sb_r_hdr                ; FOUR, where the floppy's 16KB read is
+    mov al, 1                       ; one: this should be a fraction of a
+    call bl_run                     ; second, and method T quantises to 54.92
+                                    ; ms, so one iteration would be +-25%
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [sb_thd], ax
+    mov [sb_thd+2], dx
+    mov si, sb_l_hderr              ; say whether it worked, and on what
+    mov ax, [sb_herr]
+    call sb_num
+    mov si, sb_l_hdsz
+    mov ax, [sb_hsz]
+    call sb_num
+    mov si, sb_l_hdfn
+    mov di, sb_f_cmd
+    call bl_kvs
+
+    mov ax, [sb_bseg]               ; hand the claim back before the mount row
+    mov dx, ax
+    call OSAPI_MEM_FREE
+    call sb_hdd_back
+
+    mov word [bl_n], 2              ; one mount of each volume per iteration:
+    mov word [bl_body], sb_b_hdmnt  ; what a copy pays per file (SPEC.md 22.5)
+    mov si, sb_r_hdm
+    mov al, 1
+    call bl_run
+    call sb_hdd_back                ; the row ends where it started, but this
+                                    ; block does not get to ASSUME that
+    call sb_hddrate
+    jmp short .out
+.noclaim:
+    call sb_hdd_back
+    mov si, sb_s_noclaim
+    call bl_sline
+    jmp short .out
+.none:
+    call sb_hdd_back                ; a failed goto leaves the volume elsewhere
+    mov si, sb_s_hddno
+    call bl_sline
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; sb_hddrate - bytes/second from the read row, the floppy block's arithmetic
+sb_hddrate:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    cmp word [sb_hsz], 0            ; nothing read: nothing to divide
+    je .out
+    mov ax, [sb_thd]
+    mov dx, [sb_thd+2]
+    mov cx, 1193
+    call gb_div_sb
+    mov bx, ax
+    mov cx, dx
+    or bx, bx
+    jnz .have
+    or cx, cx
+    jnz .have
+    mov bx, 1                       ; too fast to time: do not divide by zero
+.have:
+    mov ax, [sb_hsz]
+    xor dx, dx
+    mov si, 1000
+    call sb_mul16
+    call sb_divby
+    mov si, sb_d_hdrate
+    mov cx, 9
+    call bl_kv
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; sb_hdd_go   - make volume index 2 current, at its root. CF = there is none.
+; sb_hdd_back - put the banked volume back. Safe to call twice.
+sb_hdd_go:
+    push ax
+    push bx
+    push dx
+    xor dx, dx
+    mov bl, 2
+    call OSAPI_FILE_GOTO
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+sb_hdd_back:
+    push ax
+    push bx
+    push dx
+    mov dx, [sb_hclus]
+    mov bl, [sb_hdrv]
+    call OSAPI_FILE_GOTO
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+sb_b_hddrd:
+    push es
+    mov es, [sb_bseg]
+    xor bx, bx
+    mov si, sb_f_cmd
+    mov cx, SB_BIGKB * 1024
+    xor dx, dx
+    call OSAPI_FILE_READ            ; out CF=0 and DX:AX = the file's size
+    jc .err
+    mov [sb_hsz], ax
+    mov word [sb_herr], 0
+    pop es
+    ret
+.err:
+    mov [sb_herr], ax
+    mov word [sb_hsz], 0
+    pop es
+    ret
+
+sb_b_hdmnt:
+    call sb_hdd_go
+    call sb_hdd_back
+    ret
+
 %include "benchlib.inc"
 
 ; =============================================================================
@@ -1707,6 +1924,7 @@ sb_c_mulm:    db 'mov ax,i + mul [m]', 0
 sb_c_div:     db 'xor+mov+div r16', 0
 
 sb_f_out:   db 'SYSBENCH.TXT', 0
+sb_f_cmd:   db 'COMMAND.COM', 0
 sb_f_big:   db 'BENCH.DAT', 0
 sb_f_sml:   db 'BENCHSML.DAT', 0
 
@@ -1724,13 +1942,18 @@ sb_h_5:     db '                          machine is FROZEN throughout. Watch th
 sb_h_6:     db '   S  or the Bench menu   save the report to the current volume.', 0
 sb_h_7:     db '   Space PgDn PgUp Up Dn Home End   page through it afterwards.', 0
 
+sb_s_h_hdd:  db '-- the hard disk (SPEC.md 52), if this machine has one --', 0
+sb_s_h_hdd2: db '   READ ONLY: nothing here formats, partitions, writes or deletes.', 0
+sb_s_hddno:  db 'No volume at index 2 - no hard disk mounted. Rows skipped.', 0
+
 sb_p_head:  db 'running: reading the machine...', 0
 sb_p_cpu:   db 'running: instruction timings (1 of 6)', 0
 sb_p_mem:   db 'running: RAM bandwidth (2 of 6)', 0
 sb_p_clk:   db 'running: the clock and the timers (3 of 6)', 0
 sb_p_isr:   db 'running: what the kernel interrupts cost - 4 seconds (4 of 6)', 0
 sb_p_os:    db 'running: the API far-call floor (5 of 6)', 0
-sb_p_dsk:   db 'running: the floppy - two 16KB reads, the slow one (6 of 6)', 0
+sb_p_dsk:   db 'running: the floppy - two 16KB reads, the slow one (6 of 7)', 0
+sb_p_hdd:   db 'running: the hard disk, if there is one (7 of 7)', 0
 
 sb_s_ttl1:  db 'os8088 SYSBENCH - cpu, bus, memory, clock, scheduler, floppy', 0
 sb_s_ttl2:  db '============================================================', 0
@@ -1755,6 +1978,9 @@ sb_l_rtc:     db 'int 1Ah AH=02h', 0
 sb_l_rtch:    db '  its hour, BCD', 0
 sb_l_derr:    db '  read error code', 0
 sb_l_dsz:     db '  bytes read', 0
+sb_l_hderr:   db '  hdd read error code', 0
+sb_l_hdsz:    db '  hdd bytes read', 0
+sb_l_hdfn:    db '  hdd file read', 0
 
 sb_s_pit1:  db 'One PIT count is 838 ns and EXACTLY four 4.77MHz CPU clocks: both', 0
 sb_s_pit2:  db 'divide the 14.31818MHz crystal, the PIT by 12 and the 8088 by 3.', 0
@@ -1800,12 +2026,16 @@ sb_r_df:   db 'FILE_DFREE', 0
 sb_r_d1:   db 'read 16K, cold motor', 0
 sb_r_d2:   db 'read 16K, warm', 0
 sb_r_ds:   db 'read 1 sector file', 0
+sb_r_hdf:  db 'HDD FILE_DFREE', 0
+sb_r_hdr:  db 'HDD read COMMAND.COM', 0
+sb_r_hdm:  db 'HDD mount + back to A', 0
 
 sb_d_mhzmul: db 'est CPU MHz x100 MUL', 0
 sb_d_mhzdiv: db 'est CPU MHz x100 DIV', 0
 sb_d_tick:   db 'PIT/tick want 65536', 0
 sb_d_isr:    db 'interrupt load pct', 0
 sb_d_rate:   db 'floppy bytes/sec', 0
+sb_d_hdrate: db 'hdd bytes/sec', 0
 sb_d_shlbit: db 'shl clk/bit x100 ~400', 0
 
 sb_s_noclaim: db '  (no 32KB heap claim available: the file rows were skipped)', 0
@@ -1870,6 +2100,11 @@ sb_wt       equ os88_image_end + 50    ; dword: ...and on
 sb_td1      equ os88_image_end + 54    ; dword: the cold read
 sb_td2      equ os88_image_end + 58    ; dword: ...and the warm one (58..61)
 sb_ran      equ os88_image_end + 62    ; byte: has the suite been run yet?
+sb_hdrv     equ os88_image_end + 63    ; byte: the volume the hdd block banked
+sb_hclus    equ os88_image_end + 64    ; word: ...and its directory cluster
+sb_hsz      equ os88_image_end + 66    ; word: bytes the hard-disk read got
+sb_herr     equ os88_image_end + 68    ; word: ...or the FERR_* it refused with
+sb_thd      equ os88_image_end + 70    ; dword: that read's counts (70..73)
 sb_syskb    equ os88_image_end + SB_O_SYSKB    ; SYSKB_SIZE bytes
 sb_res      equ os88_image_end + SB_O_RES      ; SB_NCPU dwords
 sb_rrow     equ os88_image_end + SB_O_RROW     ; SB_BWROWS words

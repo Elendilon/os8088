@@ -62,7 +62,13 @@ at the end, nothing in a commit says which contributor owns a 5150, but a
 fork's name (`Elendilon/os8088`) is visible to every session and every reader.
 It also carries what a field run is FOR - time, and the three defects QEMU
 cannot show - against what to keep in the container, which is every question
-about work.
+about work. Two rules in it bind whoever reads a result: **a number is not a
+field number because a human handed it to you** (the same owner tests
+routinely on PCem, which models period hardware at period speed, so its
+figures are in the right units and do not announce themselves - ASK which
+machine a report came from), and **the 5150's C: is a real DOS 3.3 install**,
+so nothing may format, partition, write or delete on it. `make field`'s two
+images are built on demand and SENT, never committed.
 
 **docs/FIELD-NOTES.md is the fourth one, and it is the shortest: what real
 hardware found and the harness could not.** Open, reproduced, unfixed — with
