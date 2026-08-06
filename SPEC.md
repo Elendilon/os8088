@@ -4693,7 +4693,7 @@ place — `sys_attr` in `tools/os88disk.py` — for everything the build ships:
 | `*.DRV` | read-only + hidden + system | the same, per driver (§51) |
 | `SYSTEM.CFG` | hidden + system | written by the kernel, so **not** read-only |
 | `TASKMGR.O88` | read-only + archive | **visible**: it is an application, and the chip menu loads it by name (§28). Read-only so it cannot be deleted out from under that menu |
-| everything on a data disk | archive | ordinary |
+| everything on a data disk | archive | ordinary — **including the apps disk's own copy of `TASKMGR.O88`** (§28.3): the rule is the DISK, not the name, because that disk is the user's |
 
 The hiding itself costs nothing new. `disk_mount`'s species filter (§19) has
 always dropped hidden and system entries from the listing — the DOS
@@ -6727,18 +6727,22 @@ and non-zero exit + stderr message on any validation failure.
   apps/os88api.inc) — a single assembly each since v3 — fed to os88pkg.py,
   then `build/apps.img` (1440) + `build/apps360.img` (360) via os88disk.py;
   all built by `all`.
-  Directory order on the apps disks stays pinned, because scripted tests
-  click by row (§22) — but it is pinned **per folder**: the root is
-  `APPS` then `GAMES`, `APPS` holds hello, notepad, piano, fractal,
-  paint, recorder, tracker, artful and then the data file `BEVERLY.MOD`
-  (the shipped module the Tracker package plays; a data file rides its
-  folder exactly like a package, always after every `.o88` so package row
-  indices never shift), and `GAMES` holds mines, solitaire, arkanoid,
-  each new package appending at the end of its own folder. The grouping
-  lives in the Makefile (`APPS_TOOLS`/`APPS_GAMES` → the `DIR:`-prefixed
-  `APPSARGS`), not in the tool. `run`/`debug`/`test` attach
-  build/apps.img as floppy index 1. 86Box's fdd_02 gets apps360.img
-  (best-effort config keys).
+  The apps disks are **foldered**: the root holds `APPS`, `GAMES` and the
+  one root-level file `TASKMGR.O88` (§28.3 — the chip menu's copy, for a
+  single-floppy machine). `APPS` holds the tools plus the data file
+  `BEVERLY.MOD` (the shipped module the Tracker package plays; a data file
+  rides its folder exactly like a package), `GAMES` holds the games. The
+  grouping lives in the Makefile — `APPS_TOOLS`/`APPS_GAMES`/`APPS_DATA`
+  become the `DIR:`-prefixed `APPSARGS`, and `APPS_ROOT` is passed with no
+  prefix — not in the tool.
+  **Order within a list means nothing and nothing may be built on it**: the
+  mount sorts by name (§19.4), so a folder lists alphabetically whoever
+  wrote it. It used to be pinned, because the listing was directory order
+  and the scripted tests clicked by row index; that did not survive the disk
+  becoming writable by a host OS. What is left in the Makefile is which
+  packages ship and which folder each lands in.
+  `run`/`debug`/`test` attach build/apps.img as floppy index 1. 86Box's
+  fdd_02 gets apps360.img (best-effort config keys).
 
 ### 24.1 Data files on a volume
 
@@ -7658,9 +7662,10 @@ VGA over nine states and on Hercules over six.
 
 ## 28. apps/taskmgr — the Task Manager
 
-**A package on the SYSTEM disk** (`TASKMGR.O88`, drive A:), not a built-in
-kind. Window "Task Manager", 232×312 at (250,100), fitted to the live screen
-at every launch (§28.1). Label prefix `tm_`. No onkey. It owns one worker,
+**A package in the root of every shipped floppy** (`TASKMGR.O88`) — the
+system disk and the apps disk both, for the single-floppy machine's sake
+(§28.3) — not a built-in kind. Window "Task Manager", 232×312 at (250,100),
+fitted to the live screen at every launch (§28.1). Label prefix `tm_`. No onkey. It owns one worker,
 `tm_worker`, claimed from its first `W_PAINT` — the apps/fractal precedent
 (§40), and necessary for the same reason: the kernel publishes `I_STATE` and
 binds `wm_owner` only after the entry proc returns, so `OSAPI_TASK_SPAWN`
@@ -8269,6 +8274,45 @@ character that no name in the tree needs — so the row stops at 25 and the
 band keeps 16 px of white at the right. `TM_PEN` cannot absorb that by moving
 either: the memory view's 27-character `RAM … HEAP` caption is drawn at it
 and is exactly what makes `TM_RW` 223.
+
+### 28.3 It is on the apps disk too, for the single-floppy machine
+
+`ui_tm_open` mounts **A:** and resolves `TASKMGR.O88` in that volume's root.
+On a two-drive machine that is always the system disk and the story ends
+there. **A single-drive machine has one A:, and it is whatever disk is in
+it** — so the moment the user swaps to the apps disk to go and find a
+program, which is the whole reason they own that disk, the chip menu's Task
+Manager stops working and says `TASKMGR.O88 is not on the disk`. That is not
+a rare corner: a 5150 with one floppy drive was the ordinary machine, and
+swapping disks is what you do on one.
+
+So the file ships in the **root** of the apps disks as well, and the two
+copies differ in exactly one way:
+
+- on the system disk it is **read-only** (§19.6), because the chip menu
+  loads it by name and deleting it would break a menu item with no other
+  way back;
+- on the apps disk it is an **ordinary file** — archive, nothing else —
+  because that disk is the user's. It can be renamed, deleted or replaced
+  like anything else on it, and if it is, the chip menu simply says so the
+  next time, which is the failure it already has words for.
+
+Three things about the placement:
+
+- **The root, not `APPS/`.** `ui_tm_open` looks in the root and nowhere
+  else; a copy inside a folder would be invisible to it. It also keeps the
+  Task Manager out of the folder a user browses to pick a program — it is
+  the chip menu's, not something to go and double-click, and two of them a
+  double-click apart would be the confusing arrangement.
+- **It is still a package like any other.** A double-click on the row opens
+  as many as you like; the singleton rule is the *menu item's*, not the
+  file's (§28), and neither cares which volume it came off.
+- **The apps disk root is no longer "`APPS` and `GAMES` and nothing else"**
+  (§19.2/§24), which it had been since the disk was foldered. It is those
+  two folders plus this one file, and the Disk window shows all three.
+
+The cost is 5,444 bytes twice: 6 clusters of the 360KB disk's 354, which had
+141 free.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 

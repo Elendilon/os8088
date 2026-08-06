@@ -135,10 +135,16 @@ $(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 # DRIVERS is the list, one .drv per line, root-level: the kernel resolves them
 # by name in the volume's current directory and the file manager shows them.
 #
-# SYSAPPS rides beside them: applications that are not on the APPS disk because
-# the KERNEL loads them by name off A: (SPEC.md 28). Only the Task Manager so
-# far, which the chip menu opens - so it has to be on the disk the machine
-# booted from, not on whatever happens to be in drive B:.
+# SYSAPPS rides beside them: applications the KERNEL loads by name off A:
+# rather than by double-click (SPEC.md 28). Only the Task Manager so far,
+# which the chip menu opens - so it has to be on the disk in drive A:.
+#
+# It is on the APPS disk TOO, in the root, for the SINGLE-FLOPPY machine
+# (SPEC.md 28.1): there, swapping to the apps disk makes it A:, and the chip
+# menu would otherwise stop working the moment the user went to look for a
+# program. Same file, different attributes - on the system disk it is
+# read-only (SPEC.md 19.6), on the apps disk it is an ordinary file, because
+# that disk is the user's.
 DRIVERS := $(BUILD)/sound.drv $(BUILD)/hdd.drv
 SYSAPPS := $(BUILD)/taskmgr.o88
 
@@ -532,8 +538,10 @@ $(BUILD)/stkprobe360.img: $(BUILD)/stkprobe.o88 tools/os88disk.py
 # mount. dsk_next_clus / dskw_setfat keep their FAT16 halves, unreachable.
 
 # The software floppies (drive B:) hold packages, not boot code - os88fs only.
-# The volume is FOLDERED (SPEC.md 19.2): the root holds APPS and GAMES and
-# nothing else, so a package is two double-clicks away rather than one.
+# The volume is FOLDERED (SPEC.md 19.2): the root holds APPS and GAMES, so a
+# package is two double-clicks away rather than one. The one root-level file
+# is TASKMGR.O88, which is there for the chip menu on a single-floppy machine
+# (SPEC.md 28.1) and not to be double-clicked.
 #
 # The order of these lists DOES NOT MATTER and nothing may be built on it.
 # It used to: the listing was directory order, so the order a package was
@@ -555,14 +563,22 @@ APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/mines.o88 $(BUILD)/missile.o88 \
 # against - so it travels with it rather than being something you have to
 # find. 116KB, which the 360KB disk can still hold alongside every package.
 APPS_DATA := apps/tracker/beverly.mod
-APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA)
+
+# The Task Manager, in the ROOT and not in a folder, because that is where
+# ui_tm_open looks: it mounts A: and resolves TASKMGR.O88 in the root
+# (SPEC.md 28.1). Not in APPS_TOOLS - it is not a program to go and find,
+# it is the chip menu's, and a copy in APPS/ would be a second one to
+# double-click by mistake.
+APPS_ROOT := $(SYSAPPS)
+APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_ROOT)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
-# in the tool.
+# in the tool; no prefix means the root.
 APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
             $(addprefix GAMES:,$(APPS_GAMES)) \
-            $(addprefix APPS:,$(APPS_DATA))
+            $(addprefix APPS:,$(APPS_DATA)) \
+            $(APPS_ROOT)
 
 $(APPSIMG): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(APPSARGS)
