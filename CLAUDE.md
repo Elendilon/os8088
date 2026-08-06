@@ -176,7 +176,7 @@ Testing quirks (learned the hard way):
 - Only QEMU is routinely verified. `vm/xt/86box.cfg` keys are best-effort guesses and 86Box rewrites its own preference keys on exit (harmless drift — except that it silently clamps `mem_size` to the machine's maximum: `ibmxt` caps at 256K, which is why `vm/xt640` uses `ibmxt86`, the 1986 board revision; the same trap rules out `ibmat` for the 1MB 286, which 86Box clamps to 512K). The cheap way to test a candidate machine without booting it: launch 86Box on a throwaway copy of the config, `kill -TERM` it, and read the config back — 86Box rewrites it on exit with whatever it actually accepted.
 - The AT-class targets (`286`, `386sx`, `386`) boot the **1.44MB** images, not the 360KB ones, and they have a CMOS the XT does not: on a fresh `vm/<machine>/nvr/` the BIOS stops at its setup screen and wants "EXIT FOR BOOT" picked once. That is a one-time cost per VM directory, not a failure.
 - 86Box's `wp://` prefix on an `fdd_0N_fn` path mounts that floppy **write-protected**, and int 13h then answers status 03h — which the OS faithfully reports as "Write protected" (`FERR_WPROT`). The data floppy carried `wp://` from the read-only-filesystem era and had to lose it before SPEC.md §18.4 writes could work on the XT; the **boot** floppy keeps it deliberately, on all seven 86Box machines. If saving to B: starts failing on 86Box again, check this before suspecting `diskw.inc` — 86Box may have rewritten the key on exit.
-- **That `wp://` on the boot floppy means more than it used to.** Since the system disk became a FAT12 volume (SPEC.md §19.3), `SYSTEM.CFG` in its root is where the whole Control Panel lives, and it is rewritten when the panel is CLOSED — `cp_flush_close`, one floppy write per session rather than one per click (SPEC.md §31.8). Only the Drivers page writes immediately, because loading or unloading a driver is not a setting you can take back. **Minimizing is not closing** and deliberately does not write, and neither does a hard reset from outside — so a persistence test has to click the close box on the LEFT of the title bar and let the OS run. Write-protected, those writes fail and **nothing persists across a reboot** — the driver list, the sound route, the clock options and the back-buffer setting all come back at their defaults. That is not a bug in `ctrl.inc`, and it matters most on exactly the three machines added for the sound driver: a card enabled on `make xt-sound` will not still be enabled next boot. Drop the `wp://` on that machine's `fdd_01_fn` if you are testing persistence, and put it back afterwards — an unprotected boot floppy is a tracked, shipped artifact the OS will happily dirty.
+- **That `wp://` on the boot floppy means more than it used to.** Since the system disk became a FAT12 volume (SPEC.md §19.3), `SYSTEM.CFG` in its root is where the whole Control Panel lives, and it is rewritten when the panel is CLOSED — `cp_flush_close`, one floppy write per session rather than one per click (SPEC.md §31.8). **Every** page defers, the Drivers page included — a driver loads or unloads on the spot, but the *setting* that says so is only written on the close, and a test that ticks a driver and then resets from outside measures nothing. (The hard-disk driver's own Mount and Unmount are the exception, and they are its page, not this one: SPEC.md §52.6.) **Minimizing is not closing** and deliberately does not write, and neither does a hard reset from outside — so a persistence test has to click the close box on the LEFT of the title bar and let the OS run. Write-protected, those writes fail and **nothing persists across a reboot** — the driver list, the sound route, the clock options and the back-buffer setting all come back at their defaults. That is not a bug in `ctrl.inc`, and it matters most on exactly the three machines added for the sound driver: a card enabled on `make xt-sound` will not still be enabled next boot. Drop the `wp://` on that machine's `fdd_01_fn` if you are testing persistence, and put it back afterwards — an unprotected boot floppy is a tracked, shipped artifact the OS will happily dirty.
 
 ## Architecture
 
@@ -958,11 +958,38 @@ the first paint so a loaded driver is live from frame one, and `drv_notice`
 runs after it and opens the **Control Panel on its Drivers page**, which
 already names every driver and says what its last attempt answered.
 
-**The system disk is a FAT12 volume now** (SPEC.md §19.3) and that is what
-makes all of it possible: `BPB_RsvdSecCnt` covers the kernel's sectors, so
-`boot/boot.asm`'s raw `read LBA 1..K` is untouched while everything after it
-is an ordinary file system — drive A: mounts, browses and **writes**.
-`SYSTEM.CFG` in its root is 32 bytes carrying the *whole* Control Panel (the
+**The system disk is a FAT12 volume, and the kernel is a FILE on it** (SPEC.md
+§19.3) — an ordinary one in the data area, allocated first and contiguously so
+that 512 bytes of boot sector can read it as a flat run without walking a
+cluster chain. Drive A: mounts, browses and **writes**, in os8088 and in DOS
+alike. It used to live in the reserved area with `BPB_RsvdSecCnt` covering it,
+which is legal and which **DOS does not honour on a floppy**: DOS builds a
+floppy's BPB from its own table of standard formats, so it read the kernel as
+FAT and root directory and reported garbled entries and 52,224 bytes free.
+Both geometries are now byte-exact standard formats. The boot sector derives
+the kernel's LBA from the four BPB fields it needs rather than having it
+injected — and **the one trap it sprang is that `[lba]` stopped being a count
+of sectors done**: it starts at 33 (or 12 on 360KB), both past
+`SPL_RESIDENT`, so the splash tick fired before a byte of the splash had
+landed and the machine hung black inside `KERNEL_SEG`. Sectors done is counted
+on its own now.
+
+**The system files are hidden** (SPEC.md §19.6): `KERNEL.SYS` and every
+`*.DRV` are read-only + hidden + system, `SYSTEM.CFG` is hidden + system (not
+read-only — the kernel rewrites it), and `TASKMGR.O88` is visible + read-only
+because it is an application the chip menu loads by name. `disk_mount`'s
+species filter already dropped hidden and system entries, so the Disk window,
+the icon grid, the file dialog and DOS all follow for free. Two things did
+not: **`drv_find` had to stop using `dsk_find_name`** (that walks the filtered
+display listing, so every driver read as "Not on the system disk" the moment
+it became hidden) and uses `dskw_stat`, which walks the directory sectors;
+and the kernel needs `dskw_write_sys` to rewrite `SYSTEM.CFG`, because
+`DSKW_PROT` treats hidden|system as untouchable and the *first* save would
+otherwise lock out every save after it. That entry point is kernel-only and
+**must never get an API slot** — the point of the section is that a package
+cannot make a file the user can neither see nor delete.
+
+`SYSTEM.CFG` in the root is 32 bytes carrying the *whole* Control Panel (the
 driver list, the sound route, the clock options, the scheduler mode, the back
 buffer), written by `cp_flush_close` when the panel closes and restored by
 `drv_boot`. A

@@ -4416,63 +4416,91 @@ which is the same state a bad disk produces. A directory whose entries are
 garbage simply lists nothing. Neither can crash, because no LBA in either
 path is derived from an unvalidated field.
 
-### 19.3 The system disk — a FAT12 volume with the kernel in its reserved area
+### 19.3 The system disk — a FAT12 volume, and the kernel is a file on it
 
 The disk os8088 boots from is a **real FAT12 volume**, mounted by os8088's own
-file manager and write path and by any reader that honours the BPB. That is
-not cosmetic — it is what gives loadable drivers (§51) a place to live and
-settings a place to be kept, without a second on-disk format and a second set
-of readers.
+file manager and write path and by any reader at all. That is not cosmetic —
+it is what gives loadable drivers (§51) a place to live and settings a place
+to be kept, without a second on-disk format and a second set of readers.
 
-**DOS is not such a reader, and that is a real limitation of this design
-rather than a bug in the image.** DOS builds a *floppy's* BPB from its own
-table of standard formats rather than from the boot sector — the Build BPB
+`KERNEL.SYS` is an **ordinary file in the data area**, allocated first and
+contiguously (cluster 2 onward), hidden and system and read-only (§19.6). The
+boot sector finds it by doing the arithmetic the BPB describes and reads that
+run of sectors flat, without walking a cluster chain — 512 bytes has no room
+for a chain walker, and `tools/os88disk.py` guarantees the run by laying the
+kernel down before any other file:
+
+```
+    LBA = RsvdSecCnt + NumFATs * FATSz16 + ceil(RootEntCnt * 32 / 512)
+```
+
+Every term is read out of the BPB at run time rather than injected by the
+Makefile, so nothing outside `os88disk.py` has to know a geometry — the same
+reason `KERNEL_SECTORS` is measured from the built kernel rather than
+guessed. The count of sectors to read is still `KERNEL_SECTORS`, and the
+destination still advances one sector of paragraphs per read with `BX` held
+at zero, so every transfer is 512 bytes at a 512-aligned linear address and
+none can straddle a 64KB DMA boundary.
+
+**The trap this sprang, and it is the only one:** the splash tick (§15) is
+armed once `SPL_RESIDENT` sectors are aboard, and the loop used to test
+`[lba]` for that — true while the kernel started at LBA 1 and *sectors done*
+and *sector number* were the same quantity. They are not any more: `[lba]`
+starts at 33 on the 1.44MB geometry and 12 on the 360KB one, both already
+past `SPL_RESIDENT`, so the splash was far-called before a byte of it had
+landed and the machine hung with a black screen inside `KERNEL_SEG`. Sectors
+done is now counted on its own.
+
+#### Why: DOS does not read `BPB_RsvdSecCnt` on a floppy
+
+**The kernel used to live in the reserved area** — sectors 1..K, covered by
+`BPB_RsvdSecCnt`, with the boot sector doing a flat `read LBA 1..K`. That is
+a legal use of the field and no reader that honours it was ever confused.
+DOS does not honour it: it builds a *floppy's* BPB from its own table of
+standard formats rather than from the boot sector — the Build BPB
 device-driver call is handed the first sector of the FAT, not sector 0 — so
-it never sees `BPB_RsvdSecCnt` and puts the FAT and root directory at the
-standard offsets. On this disk those offsets hold the **kernel**, so DOS
-parses machine code as file system: garbled directory entries and **52,224
-bytes free** on the 360KB disk, which is 51 free clusters of the kernel's own
-bytes read as a FAT. Modelling that reading against the shipped image
-reproduces the figure to the byte, and it is the signature of this and
-nothing else.
+it put the FAT and root directory at the standard offsets, which on that
+layout held the kernel. DOS parsed machine code as file system: garbled
+directory entries and **52,224 bytes free** on the 360KB disk, which is 51
+free clusters of the kernel's own bytes read as a FAT. Modelling that reading
+against the old image reproduced the figure to the byte.
 
-**Verified on PC-DOS 3.30 and MS-DOS 5.00, identical results** — so this is
-not a quirk of one vintage that a later one fixes. A boot-sector BPB is what
-DOS reads for a hard-disk partition; for a standard floppy format it is not
-consulted at all. The disk is undamaged either way: os8088 reads it
-correctly, and a cold boot from it works normally.
+**Verified on PC-DOS 3.30 and MS-DOS 5.00 alike**, so it was not a quirk of
+one vintage that a later one fixes. A boot-sector BPB is what DOS reads for a
+hard-disk *partition*; for a standard floppy format it is not consulted at
+all — which is why the fix is not "write a better BPB" but "put nothing where
+DOS is going to look". The image is now a byte-exact standard format on both
+geometries:
 
-The **data** disks are unaffected — `apps.img` and `apps360.img` have
-`RsvdSecCnt` = 1 and are entirely ordinary, so DOS reads those normally
-(§19).
+| | 1.44MB | 360KB |
+|---|---:|---:|
+| `BytsPerSec` | 512 | 512 |
+| `SecPerClus` | 1 | 2 |
+| `RsvdSecCnt` | 1 | 1 |
+| `NumFATs` | 2 | 2 |
+| `RootEntCnt` | 224 | 112 |
+| `TotSec16` | 2880 | 720 |
+| `Media` | F0h | FDh |
+| `FATSz16` | 9 | 2 |
+| data area at LBA | 33 | 12 |
 
-There is no arrangement that satisfies both: DOS insists the FAT and root
-directory occupy the sectors the kernel is in. Making the system disk readable
-on that vintage means moving the kernel out of the reserved area and into the
-data area as a contiguous hidden file, with its start LBA injected into
-`boot/boot.asm` beside `KERNEL_SECTORS` — which is a change to the boot
-layout, not a build detail.
+Three consequences fall out, all wanted:
 
-The trick is one field. `BPB_RsvdSecCnt` covers the sectors between the boot
-sector and FAT1 — the reserved area, which belongs to the boot loader by
-definition and which no file system structure can reach. `tools/os88disk.py`
-sets it to `1 + ceil(kernel/512)` and writes the kernel there, so
-**boot/boot.asm's raw `read LBA 1..K` is unchanged and still correct** while
-everything after it is an ordinary file system. Mount rule 5 (§18.2) has
-always been `RsvdSecCnt >= 1`; nothing was relaxed to allow this.
-
-Two consequences fall out, both wanted:
-
-- **Drive A: mounts.** The Disk browser opens it, `SOUND.DRV` and
-  `SYSTEM.CFG` are listed there, and the write gate (`[dsk_mntok]`, §18.4)
-  opens for it — which is what lets the Control Panel keep a setting.
-- **The boot sector carries a BPB.** Its first three bytes are
+- **Drive A: mounts, in os8088 and in DOS.** The Disk browser opens it and
+  the write gate (`[dsk_mntok]`, §18.4) opens for it — which is what lets the
+  Control Panel keep a setting — and a host OS sees the same volume with the
+  same free space.
+- **The boot sector carries a real BPB.** Its first three bytes are
   `EB 3C 90` (a short jump past the BPB, and `short` because mount rule 2
-  tests `BS_jmpBoot[0]`), then a 59-byte hole `os88disk.py` fills, then the
-  loader at offset 62. `boot/boot.asm` reserves the hole and asserts
-  nothing about its contents.
+  tests `BS_jmpBoot[0]`), then the BPB fields, then the loader at offset 62.
+  `boot/boot.asm` declares the fields as zeroed `db`/`dw`s and
+  `os88disk.py` fills them; four of them are read by the load.
+- **Nothing on the disk is hidden from os8088 by being hidden from DOS.**
+  The system files are hidden by *attribute* (§19.6), which both readers
+  honour and neither is confused by.
 
-The volume is labelled `OS8088SYS`; the apps disk stays `OS8088APPS`.
+The volume is labelled `OS8088SYS`; the apps disk stays `OS8088APPS`, and the
+data disks never had a reserved area to begin with.
 
 ### 19.4 The listing is sorted by name, in the mount
 
@@ -4574,6 +4602,61 @@ Three consequences worth stating:
 **Folder ▸ Up One Folder and Backspace stay.** They are the same
 destination by a different route, and a one-button machine in a fullscreen
 window needs the keyboard one.
+
+
+### 19.6 The system files are hidden, and one of them is the kernel's to rewrite
+
+Everything on the system disk that belongs to the *machine* rather than to
+the user is stamped so that neither DOS's `DIR` nor os8088's own file manager
+lists it. Three attribute sets, and which one a file gets is decided in one
+place — `sys_attr` in `tools/os88disk.py` — for everything the build ships:
+
+| file | attributes | why |
+|---|---|---|
+| `KERNEL.SYS` | read-only + hidden + system | deleting it unboots the disk, and it is not a document |
+| `*.DRV` | read-only + hidden + system | the same, per driver (§51) |
+| `SYSTEM.CFG` | hidden + system | written by the kernel, so **not** read-only |
+| `TASKMGR.O88` | read-only + archive | **visible**: it is an application, and the chip menu loads it by name (§28). Read-only so it cannot be deleted out from under that menu |
+| everything on a data disk | archive | ordinary |
+
+The hiding itself costs nothing new. `disk_mount`'s species filter (§19) has
+always dropped hidden and system entries from the listing — the DOS
+convention — so the Disk window, the icon grid, the Standard File dialog and
+every view cache follow for free, and so does DOS.
+
+Two things do NOT follow, and both had to be arranged:
+
+- **`drv_find` may not use the listing.** It used `dsk_find_name`, which
+  walks the mount *snapshot* — and the snapshot is the filtered display
+  listing, so the moment a driver became hidden every driver on the disk read
+  as "Not on the system disk" in the Control Panel, a long way from the
+  cause. It uses `dskw_stat` now, which walks the directory sectors
+  themselves and answers about a file whether or not it is meant to be shown.
+  `ui_tm_open` keeps `dsk_find_name`, correctly: `TASKMGR.O88` is visible on
+  purpose, and what that path needs is a directory *index* for the loader.
+- **The kernel must be able to rewrite its own config.** `DSKW_PROT` (§18.4)
+  treats hidden and system as untouchable, so the first `SYSTEM.CFG` save
+  would create the file and every save after it would be refused
+  `FERR_PROT` by the very bits the first one set. `dskw_write_sys` is the
+  narrow exemption: **kernel-only, no API slot and there must never be one**,
+  because the whole point of this section is that a package cannot make a
+  file the user can neither see nor delete. It differs from `dskw_write` in
+  exactly two ways, both keyed off `[dskw_syswr]`:
+
+  1. a file it **creates** is stamped hidden + system, and
+  2. a file it **replaces** may already be hidden + system — the mask
+     becomes `DSKW_SPROT`, which is `DSKW_PROT` without those two bits, so a
+     read-only file, the volume label and a subdirectory still refuse.
+
+  The flag is one-shot, cleared by `dskw_write` on the way out so it can
+  never leak into the next caller's write, and it lives in `.text` with a
+  real initialiser for `[dskw_isdir]`'s hard-won reason (§18.4): `-f bin`
+  zeroes nothing, and garbage in this byte would make *every* package's write
+  create a hidden system file and overwrite one.
+
+Read-only needs no exemption anywhere, because nothing in the kernel ever
+rewrites a read-only file: `KERNEL.SYS` and the drivers are replaced by
+rebuilding the disk, not by the running system.
 
 
 ## 20. Loadable programs — the .o88 package format
@@ -14517,11 +14600,11 @@ unticked the driver is about to close and write the file anyway.
 
 ### 52.9 Not in scope
 
-- **Booting os8088 from the hard disk.** `boot/boot.asm` reads LBA 1..K with
-  the floppy geometry injected at build time and relocates itself to
-  `BOOT_RELOC`; hard-disk boot needs an MBR, an AH=08h geometry probe and a
-  second boot sector variant. The system disk stays A:, and `SYSTEM.CFG` with
-  it.
+- **Booting os8088 from the hard disk.** `boot/boot.asm` reads `KERNEL.SYS`
+  as a flat run from the data area (§19.3) with the floppy geometry injected
+  at build time and relocates itself to `BOOT_RELOC`; hard-disk boot needs an
+  MBR, an AH=08h geometry probe and a second boot sector variant. The system
+  disk stays A:, and `SYSTEM.CFG` with it.
 - **Low-level (surface) MFM formatting**, §52.3.
 - **The XT DCB register path**, §52.1. The row exists in the ladder so the
   page can one day say "not supported" rather than "no drive".

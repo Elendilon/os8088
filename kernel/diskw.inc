@@ -75,6 +75,19 @@ DSKW_NPROT   equ 0x0F          ; the RENAME mask (SPEC.md 18.4) - the same
                                ; those would strand the subtree.
 DSKW_ARCH    equ 0x20          ; archive: what a fresh entry carries
 DSKW_DIR     equ 0x10          ; directory: what dskw_mkdir stamps (18.5)
+DSKW_HID     equ 0x02          ; hidden
+DSKW_SYS     equ 0x04          ; system
+DSKW_SYSAT   equ DSKW_HID | DSKW_SYS
+                               ; what a KERNEL file wears (SPEC.md 19.6):
+                               ; hidden + system, so neither DOS's DIR nor
+                               ; our own file manager lists it
+DSKW_SPROT   equ DSKW_PROT & ~DSKW_SYSAT
+                               ; the replace mask for dskw_write_sys - the
+                               ; same refusals WITHOUT hidden and system,
+                               ; because those two are what the kernel just
+                               ; stamped on its own file and it must be able
+                               ; to rewrite it. Read-only, the volume label
+                               ; and a subdirectory still refuse.
 DSK_R_CTIME  equ 14            ; create time (word)
 DSK_R_CDATE  equ 16            ; create date (word)
 DSK_R_ADATE  equ 18            ; last-access date (word)
@@ -108,6 +121,12 @@ dskw_batch: db 0                ; 1 = a MULTI-FILE operation is running and
                                 ; A .text `db`, not .bss, for dskw_isdir's
                                 ; reason: -f bin zeroes nothing, and the very
                                 ; first write must not see a garbage flag
+dskw_syswr: db 0                ; 1 = dskw_write_sys, not dskw_write: this
+                                ; file is the KERNEL's (SPEC.md 19.6). Here
+                                ; for the same reason again, and with the
+                                ; sharper edge - garbage in this byte would
+                                ; make every package's write create a hidden
+                                ; system file and overwrite one
 
 ; -----------------------------------------------------------------------------
 ; dskw_write - create or replace a whole file (SPEC.md 18.4, slot 0x0120)
@@ -135,7 +154,8 @@ dskw_write:
     mov [dskw_len], cx
     mov [dskw_lenhi], dx
     call dskw_wbody             ; out: CF + AX (pops do not touch flags)
-    pop es
+    mov byte [dskw_syswr], 0    ; one shot, cleared here so it can never
+    pop es                      ; leak into the next caller's write
     pop bp
     pop di
     pop si
@@ -143,6 +163,28 @@ dskw_write:
     pop cx
     pop bx
     ret
+
+; -----------------------------------------------------------------------------
+; dskw_write_sys - dskw_write, for a file that belongs to the KERNEL
+; in/out: dskw_write's, exactly
+;
+; KERNEL-ONLY - there is no API slot and there must never be one, because
+; the whole point of SPEC.md 19.6 is that a package cannot make a file the
+; user can neither see nor delete. Two differences from the ordinary write,
+; both keyed off [dskw_syswr] and both inside dskw_commit / dskw_wbody:
+;
+;   1. a file it CREATES is stamped hidden + system, and
+;   2. a file it REPLACES may already be hidden + system.
+;
+; The second is not a courtesy: SYSTEM.CFG is rewritten every time the
+; Control Panel closes, and without it the first save would make the file
+; and every save after that would be refused FERR_PROT by the very bits the
+; first one set. Nothing else relaxes - a read-only SYSTEM.CFG, or a folder
+; by that name, is still refused.
+; -----------------------------------------------------------------------------
+dskw_write_sys:
+    mov byte [dskw_syswr], 1
+    jmp short dskw_write        ; ...which clears it again on the way out
 
 ; -----------------------------------------------------------------------------
 ; dskw_read - read a whole file by name (SPEC.md 18.4, slot 0x0128)
@@ -1179,7 +1221,12 @@ dskw_wbody:
     mov byte [dskw_new], 0
     call dskw_ent_load          ; dskw_raw = the entry's 32 raw bytes
     jc .out
-    test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT
+    mov al, DSKW_PROT
+    cmp byte [dskw_syswr], 0    ; a kernel file's own rewrite forgives the
+    je .pmask                   ; two bits it stamped itself (SPEC.md 19.6)
+    mov al, DSKW_SPROT
+.pmask:
+    test byte [dskw_raw+DSK_R_ATTR], al
     jz .keep
     mov ax, FERR_PROT           ; read-only, hidden, system, label or dir
     stc
@@ -2206,6 +2253,10 @@ dskw_commit:
     mov cx, 11
     call dskw_copy11
     mov byte [dskw_raw+DSK_R_ATTR], DSKW_ARCH
+    cmp byte [dskw_syswr], 0    ; ...or hidden + system, if the kernel is
+    je .notsys1                 ; making one of its own (SPEC.md 19.6)
+    mov byte [dskw_raw+DSK_R_ATTR], DSKW_SYSAT
+.notsys1:
     cmp byte [dskw_isdir], 0     ; a folder is ATTR_DIRECTORY and
     je .notdir1                 ; never ARCHIVE (SPEC.md 18.5)
     mov byte [dskw_raw+DSK_R_ATTR], DSKW_DIR

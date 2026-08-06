@@ -994,29 +994,46 @@ drv_mounted:
     ret
 
 ; -----------------------------------------------------------------------------
-; drv_find - a file's byte size, out of the mount snapshot
+; drv_find - a file's byte size, straight out of the directory
 ; in:  SI -> a NUL display name (upper case, as dsk_synth writes them);
 ;      drive A: already mounted
 ; out: CF = 0 and AX = its size; CF = 1 not found
 ; clobbers: AX (the output), flags
 ;
-; The search itself is dsk_find_name's (SPEC.md 18.3) - it was written here
-; and moved down to disk.inc the day the chip menu needed the same walk to
-; find TASKMGR.O88 by name. What stays here is the one thing a DRIVER wants
-; out of the entry: its size, which is what lets the claim be made at exactly
-; the right size before a byte of the file is read.
+; **dskw_stat, NOT dsk_find_name** (SPEC.md 19.6). The latter walks the mount
+; SNAPSHOT, and the snapshot is a display listing: dsk_synth filters the
+; hidden and system entries out of it, which is exactly what a .DRV is now.
+; Through it every driver on the disk reads as "not on the system disk" -
+; and the Control Panel says so on its Drivers page, which is a long way
+; from the cause. dskw_stat walks the directory sectors themselves and so
+; sees a file whether or not it is meant to be shown.
+;
+; What stays here is the one thing a DRIVER wants out of the entry: its size,
+; which is what lets the claim be made at exactly the right size before a
+; byte of the file is read. DX:CX is a 32-bit size and a driver is capped at
+; DRV_MAX_KB, so a non-zero high word is simply not one of ours.
 ; -----------------------------------------------------------------------------
 drv_find:
+    push bx
+    push cx
+    push dx
     push si
-    call dsk_find_name          ; AX = the directory index
-    jc .no
-    call dsk_get_dir            ; SI -> dsk_ent, in our own segment
-    mov ax, [si+LD_DE_SIZE]
+    call dskw_stat              ; AL = attribute, BX = first cluster,
+    jc .no                      ; DX:CX = the size
+    test dx, dx
+    jnz .no
+    mov ax, cx
     pop si
+    pop dx
+    pop cx
+    pop bx
     clc
     ret
 .no:
     pop si
+    pop dx
+    pop cx
+    pop bx
     stc
     ret
 
@@ -1973,7 +1990,10 @@ drv_cfg_save:
     mov bx, drv_cfgbuf
     xor dx, dx                  ; DX:CX = the count; a settings file is bytes
     mov si, drv_cfgname
-    call dskw_write             ; ES is already ours, which is where it reads
+    call dskw_write_sys         ; ES is already ours, which is where it reads.
+                                ; _sys: SYSTEM.CFG is hidden + system, so it
+                                ; is neither listed nor deletable, and only
+                                ; this entry point may rewrite one (19.6)
     jmp short .out
 .nodisk:
     mov ax, FERR_NODISK
