@@ -1446,7 +1446,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_paint_chrome` | the dock and the menu bar and nothing else, for a change that revealed no pixels. Declines to `wm_paint_dmg` over the dock strip when a window hangs over it. Caller holds the gfx lock. |
 | `wm_covered`   | in BX = win ptr; out CF=1 = every pixel of its **frame** rect (drop shadow included) is covered by visible windows above it, so a back-to-front painter may skip it entirely — **W_PAINT included**. Overflow of the 16-rect list answers "not covered". Leaves the clip list disarmed. Caller holds the gfx lock. §11.91. |
 | `wm_win_rect`  | in SI = win ptr; out AX,BX,CX,DX = its occupied rect, inclusive, drop shadow included (WF_FULL: no shadow). Clobbers only those four. |
-| `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x0260 (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8). |
+| `wm_top`       | out BX = frontmost visible window ptr, 0 if none. Takes no lock, touches no VRAM and reads only `wm_zord`, so a **worker task** may call it — which is what API slot 0x0260 (§20.3) is for: a package is told when it *gains* the front (`W_ONCLICK`, `W_PAINT`) and never when it loses it, and `W_FLAGS` bit 1 answers *visible*, which a covered window still is. apps/arkanoid pauses on it (§44.8) — together with `menu_owner` (§12.6), which answers the other half: a click on the bare desktop changes the active application without touching `wm_zord`, so this routine correctly reports that nothing moved. |
 | `wm_hit`       | in CX=x, DX=y; out BX = topmost visible window ptr containing the point (0 if none), AL = 0 content, 1 title bar, 2 close box, 3 minimize box, 4 grow box. AL=2/AL=3 only when BX is the frontmost visible window (the only one with the boxes drawn); on any other window those regions report AL=1. AL=4 only when BX is the frontmost visible window **and** has WF_SIZABLE (and not WF_FULL): the 13×13 grow-box rect of the frame drawing above; anywhere else that region is plain content (AL=0). A WF_FULL window reports AL=0 for every point — it has no chrome. |
 | `wm_paint_all` | full repaint: desktop gray (below menu bar), then `desk_paint` (§26 — desktop icons sit on the desktop, under every window), then `dock_paint` (§30 — the dock strip sits on the desktop under every window, like the icons), menu bar, every visible window back→front (frame + white content + W_PAINT) — **except** one `wm_covered` answers yes about, which is skipped whole (§11.91). Caller holds gfx lock. |
 | `wm_content`   | in BX = win ptr; out AX = content left, DX = content top. WF_FULL set → AX = W_X, DX = W_Y (no border, no title bar — §11.2). |
@@ -2189,6 +2189,7 @@ sites that already exist:
 |-----------------|-------------------------------------------------------------|
 | `menu_init`     | boot: `[menu_win]` = 0 and one `menu_relayout`, so the very first `wm_paint_all` already draws Locator's bar. Called from kmain after `wm_init`. |
 | `menu_activate` | in: BX = window ptr, or 0 for Locator. Out: **CF = 1 if the active application changed** (the caller owes the bar a repaint), CF = 0 if it was already active. Draws nothing, takes no lock, preserves every register. |
+| `menu_owner`    | out: BX = `[menu_win]` — the window owning the bar, 0 = Locator. Every other register **and the flags** preserved; takes no lock and touches no VRAM, so a worker task may call it, exactly like `wm_top`. The read half of `menu_activate`, and API slot 0x02B8 (§20.3) — see §12.6 for why a package needs it and `wm_top` is not the same question. |
 | `menu_relayout` | recompute `[menu_set]`, `[menu_namep]` and the whole `menu_bar` from `[menu_win]`. Preserves all registers. |
 | `menu_win_set`  | in: BX = window ptr, SI = menu set ptr (0 = none) — stores `[bx+W_MENUS]` and relayouts if BX is the active window. The `OSAPI_MENU_SET` target (§20.3). Preserves every register **and the flags**: its intended call site sits between a package's `wm_create` and the `ret` that owes the loader that call's CF (§20.2). |
 | `menu_check`    | if `[menu_win]` names a window that is no longer visible, `menu_activate` on `wm_top` — the promoted window, or 0 for Locator when none is left. No-op while the owner is visible or already Locator. Preserves every register. Called only from `menu_draw_bar`, so it always runs under the gfx lock on the UI task. |
@@ -2538,6 +2539,45 @@ slot through which a package could supply another. **A width clamp in
 `menu_popup` is the fix the day that stops being true** — a 16-item popup
 of screen-wide items would want ~83KB and would run off the end of the
 heap into `VIEW_SEG`.
+
+### 12.6 "Am I active?" is not "am I frontmost" — `menu_owner`, slot 0x02B8
+
+Two facts about focus exist and they are not the same fact. `wm_top` (§11)
+answers **who is frontmost visible**, out of `wm_zord`. `menu_owner` answers
+**who is the active application**, out of `[menu_win]`. Every ordinary
+transition moves both together, because raising a window activates it — so
+for a long time one of them was published (slot 0x0260) and that seemed
+enough.
+
+**Clicking the bare desktop is the case where they part.** That branch calls
+`menu_activate` with BX = 0 and touches the z-order not at all: Locator owns
+the bar, the desktop has the selection, and the frontmost visible window is
+still whatever it was, pinstripes and all. A package asking `wm_top` is told
+nothing happened. That is right for a package asking "may I draw my content
+unclipped" and wrong for one asking "is the player still here" — apps/arkanoid
+(§44.8) is the second question, and a live ball kept bouncing while the player
+was reading Locator's File menu.
+
+So the slot is a second question rather than a change to the first: `wm_top`
+keeps its number and its contract exactly (§20.8 rule 4), and 0x02B8 is
+`menu_owner`. It is one word read behind an ordinary slot, so it costs what
+`wm_top` costs and carries the same two properties a worker needs — no lock,
+no VRAM. A real-time app wanting "did the player walk away" asks **both**, and
+continues only while both name its own window; a raise is caught by either,
+and the desktop click by this one alone.
+
+The two remaining ways to lose the player are already covered and need no
+third question: being covered is `W_FLAGS` bit 1 plus §11.3's region, and
+being closed does not arise, because the instance is gone.
+
+**Whoever pauses on this owes a re-activation when it un-pauses.** Keyboard
+input follows `wm_top` (§13) and the bar follows `[menu_win]`, so a package
+can be handed a keystroke while it is not the active application — which is
+exactly the state a desktop click leaves it in. A pause keyed on this question
+and a resume that does not answer it is a pause no key can undo: the resume
+sets the mode, the next worker frame reads the same unchanged owner and pauses
+again. `OSAPI_WM_FRONT` on the frontmost window is the whole fix, and §44.8.1
+is the worked example.
 
 ## 13. ui.inc — the UI task (task 0)
 
@@ -4604,7 +4644,7 @@ below the table. There are two families:
   `fdlg_open`, plus a hand-written `api_file_rename` that stages both names.
 
 The table's start (0x0010) and its span are proved by two build-time
-assertions in kernel.asm; the span is **80 × 8** today. `apps/os88api.inc`
+assertions in kernel.asm; the span is **86 × 8** today. `apps/os88api.inc`
 mirrors every offset as an `OSAPI_*` `%define` (§20.5).
 
 ```
@@ -4650,6 +4690,7 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02A0 claim_snapshot
                                                 0x02A8 sys_kb
                                                 0x02B0 gfx_fill_pat  (X)
+                                                0x02B8 menu_owner
 ```
 
 **Every published slot keeps its number and contract**, on the rule that **a
@@ -4771,6 +4812,13 @@ Slot-specific contracts that are not simply their target routine's:
 0x02B0 gfx_fill_pat      in AX/BX/CX/DX = the rect, SI = 8 pattern bytes
                          in the CALLER's segment (§5). X — vga_pat_stage
                          reads them through DS, so the stub stages them.
+0x02B8 menu_owner        no inputs; out BX = the window owning the menu
+                         bar, 0 = Locator. Everything else and the FLAGS
+                         preserved. No lock, no VRAM: worker-safe, like
+                         0x0260. "Am I the ACTIVE APPLICATION?", which
+                         0x0260 cannot answer — a click on the bare
+                         desktop moves the bar and not the z-order
+                         (§12.6).
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -11986,38 +12034,97 @@ as a hung window, which is the only reason the slot is non-zero. It is the
 window's *content* that dispatches it: a click on the frame or the drop shadow
 never reaches a callback, so the panel correctly survives one.
 
-### 44.8 Losing the front pauses the rally, and the pause is sticky
+### 44.8 Walking away pauses the rally, and the pause is sticky
 
 A ball that keeps moving while its window is covered is deliberate — §44.1's
 whole argument is that a dropped *frame* must not stop the game — and it is
-exactly wrong when the player has gone to another window. They come back to a
+exactly wrong when the player has gone somewhere else. They come back to a
 lost life they never saw.
 
 `ark_focuschk` runs once per frame, from `ark_update` just after the paddle
-moves. If `[ark_mode]` is `M_PLAY` and `OSAPI_WM_TOP` (slot 0x0260, §20.3)
-answers something other than this window, it banks `M_PLAY` in
-`[ark_wasmode]`, drops to `M_PAUSE` and raises `[ark_full]`. Only `M_PLAY` is
-interrupted: every other
-mode is already still, and `M_READY` has the ball parked on the paddle where
-losing the front costs nothing.
+moves. If `[ark_mode]` is `M_PLAY` it asks **two** questions, and banks
+`M_PLAY` in `[ark_wasmode]`, drops to `M_PAUSE` and raises `[ark_full]` unless
+both answer this window:
 
-**Coming back to the front does not resume**, and that is the point rather
-than an omission. A ball that starts moving the instant a window is raised is
-a ball nobody was watching yet — the same reason a new life waits on Space. It
+- `OSAPI_WM_TOP` (slot 0x0260, §20.3) — **is this window frontmost?** Catches
+  a window raised over the game.
+- `OSAPI_MENU_OWNER` (slot 0x02B8, §12.6) — **is this the active
+  application?** Catches the click on the **bare desktop**, which hands the
+  menu bar to Locator and moves nothing in `wm_zord`. `wm_top` reads that as
+  nothing having happened, correctly and uselessly: the game is still the
+  frontmost window, complete with pinstripes, while the player is off in
+  Locator's menus with a live ball on screen. One question could not cover
+  both, and neither one is a superset of the other.
+
+Only `M_PLAY` is interrupted: every other mode is already still, and `M_READY`
+has the ball parked on the paddle where losing the front costs nothing.
+
+**Coming back does not resume**, and that is the point rather than an
+omission. A ball that starts moving the instant a window is raised is a ball
+nobody was watching yet — the same reason a new life waits on Space. It
 resumes the way every other pause does, through `ark_cmd_pause`, and it uses
 `ark_cmd_pause`'s own `[ark_wasmode]` so the two cannot leave the mode in
 different places.
 
 Three things about where it runs:
 
-- **It is on the WORKER, holding no lock.** That is what `wm_top` can be asked
-  from: it takes no lock, touches no VRAM and answers out of `wm_zord`.
+- **It is on the WORKER, holding no lock.** That is what both slots can be
+  asked from: neither takes a lock or touches VRAM — one reads `wm_zord`, the
+  other one word.
 - **It does not draw.** `[ark_full]` makes the next `ark_render` repaint the
   board with its banner, under the gfx lock, where drawing belongs.
 - **It needs asking rather than telling.** A package learns it *has* the front
   (`W_ONCLICK`, `W_PAINT`), but nothing tells it when it *loses* the front —
   `W_FLAGS` bit 1 only says visible, and a covered window is still visible.
-  `OSAPI_WM_TOP` exists for this.
+  Both slots exist for this.
+
+### 44.8.1 Space resumes, and Space alone never pauses
+
+The pause TOGGLES from exactly one place, `ark_cmd_pause`, so the menu item,
+`P` and §44.8's sticky focus pause cannot leave `[ark_mode]` and
+`[ark_wasmode]` disagreeing. **Space reaches only its resume half**, and the
+asymmetry is deliberate on both sides:
+
+- **It must resume**, because a player who has been pushed into `M_PAUSE` by
+  §44.8 never asked for a pause and has no reason to know which key undoes
+  one. Space is the key already in front of them — it is what serves the
+  ball — and §44.8's whole argument is that the rally restarts when the
+  player is back and ready, which is the same event a serve is.
+- **It must not pause**, because Space already means *serve* and *fire the
+  laser*. A Space that toggled would stop the game every time a laser was
+  fired a frame after the ball left the paddle, and the two meanings are
+  indistinguishable at the key.
+
+So the modes are asymmetric by design: from `M_PAUSE`, Space resumes and sets
+no launch flag — it is spent on the resume, exactly as the key that takes the
+credits panel down is spent on that (§44.7). From every other mode it does
+what it always did: sets `[ark_launch]` and lets the worker decide whether
+that is a serve or a shot.
+
+**A resume takes the menu bar back** (`ark_refocus`), and that is not a
+courtesy — without it the game could not be resumed from the keyboard at all
+after a desktop click. **A key reaches `wm_top`'s window (§13) while the menu
+bar follows `[menu_win]` (§12)**, and §44.8's second question is about the
+second of those. So after a click on the bare desktop, Space still arrives at
+Arkanoid, `ark_cmd_pause` sets `M_PLAY` — and `ark_focuschk` puts it back to
+`M_PAUSE` on the next worker frame, 55 ms later, with nothing on screen to
+show for it. The pause is meant to be sticky, not permanent.
+
+`OSAPI_WM_FRONT` is precisely the call that fixes it, because it *activates*
+before it raises: the game ends up running and named in the bar, which are the
+same fact and were never meant to be two.
+
+**It is gated on `OSAPI_WM_TOP` answering this window, and that gate is
+load-bearing.** On the already-frontmost window `wm_front` takes its
+chrome-only path (§11.90) — `menu_activate`, the bar, the dock, and no window
+repaint. On any other window it repaints, which from inside a callback means
+re-entering the package's own dispatcher through `W_PAINT` while it is still
+in it. So a game that is not frontmost refuses to refocus and `ark_focuschk`
+correctly leaves it paused — which is the right answer anyway.
+
+This is the first package to need the distinction, and it generalises: **any
+real-time package that pauses on §12.6's question must re-activate when it
+un-pauses**, or it has written a pause that only a mouse can undo.
 
 ## 45. Tracker — the tenth package (apps/tracker/tracker.asm)
 
