@@ -14297,6 +14297,81 @@ to wherever the erase finishes — which is exactly the shape of change that
 produced both of §48.5's wave-never-ends hangs. The trade is a bad one at
 59 ms and would have been an obvious one at 310.
 
+
+### 48.9 The hitch was a boolean, and the flicker was an erase-and-letter pair
+
+Two defects reported together, both visible **windowed and on the exclusive
+surface**, which is what says they live in `mc_rbody` rather than in anything
+the window manager does.
+
+**The hitch.** `[mc_gdirty]` was one byte meaning *something touched the
+terrain*, and what it bought was the whole band redrawn plus all six cities
+and all three bases. Measured on Hercules with the PIT around that branch:
+**398 counts — 143 ms, about two and a half ticks — and it fired five times
+in 86 frames** just by letting a wave land. Every ICBM that reaches the deck
+and every burst that touches it sets that byte, so during ordinary play it is
+constant.
+
+It is a **span** now, not a boolean: `mc_gdmg` unions an x range, and the
+four sites that damage terrain all knew their x already — a city or a base
+destroyed (its own width), a trail erase that reached the ground (its
+endpoint), a burst that reached it (its diameter). `mc_draw_ground`,
+`mc_draw_cities` and `mc_draw_bases` take that span through `mc_spanset` and
+skip whatever it does not touch. **143 ms → 16.5 ms**, and the repaired band
+is **byte-for-byte identical to what a full repaint produces** — 0 differing
+pixels of 46,800, which is the check worth running because "close enough" and
+"correct" look the same on a screendump.
+
+`[mc_bdirty]` was the same mistake in miniature: one byte, three lanes
+cleared and three pyramids redrawn — **on every shot**, because a trail
+starts on the launcher and the wipe says so. It is a bit per base now
+(`mc_bdirty_i` by index, `mc_bdirty_at` by a point in a lane), so a launch
+costs the launcher it actually came from.
+
+**The flicker.** `mc_draw_status` blanked the **entire strip across the
+content width** and then lettered three figures into it, and `[mc_sdirty]` is
+set on every kill. That is PERFORMANCE.md Part 1's erase-and-letter pair in
+its classic form, on the widest element this game draws, several times a
+second. §6.1's `font_run` is the fix and exists for exactly this: three
+opaque runs, each space-padded to a fixed cell span so the padding **is** the
+erase — a score that loses a digit has the cell it vacated painted background
+by the same call that draws the rest — and each cell goes from what it held
+to what it will hold in one store, so the strip is never momentarily blank.
+
+The fields sit at multiples of 8 in **content** coordinates, and the window
+asks for `OSAPI_WM_SNAP` (§11.94) so the content origin is 8-aligned too.
+Fullscreen gets that for free (origin 0); windowed it is what makes the
+difference between the single-store path and the erase-and-letter fallback,
+at the price of 8px drag steps on the two 1bpp adapters.
+
+#### 48.9.1 Repairing terrain now has to put the bursts back
+
+`mc_exp_restore` exists because these two sections met. Terrain is drawn
+**after** the bursts, so a repair writes ground over any burst low enough to
+overlap it. That was harmless while §48.4's explosion redrew its disc every
+frame — the hole healed on the next one — and §48.8 made the disc redraw only
+when its **radius** changes, which is up to nine frames. The repair therefore
+repaints every live burst standing in the span it just fixed, at `[mc_er]`,
+the radius actually on screen, so it restores and never advances a state.
+
+An optimisation that stops something being redrawn every frame inherits
+every place that used to rely on that redraw. There is no general fix for
+this; the only defence is to ask, of each thing that draws over another,
+what used to put the other one back.
+
+#### 48.9.2 What was found and left alone
+
+- **`mc_draw_all`** is a full black fill and then everything — 719 counts,
+  **258 ms**. It is a genuine full repaint and the blank is inherent to
+  starting a wave, but it is worth knowing it costs nearly five ticks. It
+  fires at wave transitions, game start and end, and on entering or leaving
+  the exclusive surface — not during play.
+- **`mc_draw_sat`** erases its 27×15 box and then draws the shape, every
+  frame the satellite moves: four fills, a blank of about a millisecond.
+  Real, small, and on an object that is only sometimes present.
+- **The explosion's shrink** erases the peak blob and draws the small one
+  (§48.8), about 1.5 ms once per burst.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason

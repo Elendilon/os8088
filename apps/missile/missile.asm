@@ -171,6 +171,9 @@ M_OVER      equ 4
 M_PAUSE     equ 5
 
 MC_BG       equ CBLACK
+MC_NODMG    equ 0x7FFF              ; [mc_gdx1] when the terrain owes nothing
+MC_SFW      equ 10                  ; status fields, in CELLS: score / high
+MC_WFW      equ 9                   ; ...and 'W12 x6' with room to spare
 
 ; -----------------------------------------------------------------------------
 ; mc_entry - package entry point (SPEC.md 20.2)
@@ -268,6 +271,16 @@ mc_entry:
     call OSAPI_WM_CREATE
     jc .full
     mov [mc_win], bx
+    mov al, 1                       ; keep our CONTENT ORIGIN 8-aligned
+    call OSAPI_WM_SNAP              ; (SPEC.md 11.94): mono-only, a no-op on
+                                    ; VGA, and what lets the status strip's
+                                    ; three opaque runs take font_run's
+                                    ; single-store path WINDOWED as well as
+                                    ; fullscreen (SPEC.md 48.9). It preserves
+                                    ; FLAGS, so the CF the loader reads is
+                                    ; still WM_CREATE's. The price is 8px
+                                    ; drag steps on the two 1bpp adapters,
+                                    ; which for a game window is nothing
     mov si, mc_menus
     call OSAPI_MENU_SET
     mov si, mc_about
@@ -1462,7 +1475,7 @@ mc_launch_abm:
     mov byte [mc_aa + si], 1
 
     dec byte [mc_bmis + bx]         ; the base is one missile lighter, and its
-    mov byte [mc_bdirty], 1         ; pyramid has to lose a dot
+    call mc_bdirty_i                ; pyramid has to lose a dot - THAT pyramid
     mov ax, 1400
     call mc_beep
 .out:
@@ -1937,7 +1950,20 @@ mc_destroy:
     jle .cdirty
     dec word [mc_lives]
 .cdirty:
-    mov byte [mc_gdirty], 1
+    push di                         ; the city's own span, not the whole band
+    mov di, bx
+    add di, di
+    mov ax, [mc_cityx + di]
+    mov cx, [mc_citw]
+    shr cx, 1
+    inc cx
+    push ax
+    sub ax, cx
+    add cx, cx
+    add cx, ax
+    call mc_gdmg
+    pop ax
+    pop di
     jmp short .out
 .base:
     sub bx, MC_NCITY
@@ -1945,8 +1971,24 @@ mc_destroy:
     je .out
     mov byte [mc_balive + bx], 0
     mov byte [mc_bmis + bx], 0      ; and everything still in its magazine
-    mov byte [mc_gdirty], 1
-    mov byte [mc_bdirty], 1
+    push di
+    mov di, bx
+    add di, di
+    mov ax, [mc_basex + di]
+    mov cx, [mc_basw]
+    shr cx, 1
+    inc cx
+    push ax
+    sub ax, cx
+    add cx, cx
+    add cx, ax
+    call mc_gdmg
+    pop ax
+    pop di
+    mov cl, bl                      ; ...and that launcher alone
+    mov al, 1
+    shl al, cl
+    or [mc_bdirty], al
 .out:
     pop bx
     pop ax
@@ -2750,7 +2792,7 @@ mc_tally_abm:
     mov ch, 0
     mul cx
     call mc_score_add
-    mov byte [mc_bdirty], 1
+    call mc_bdirty_i
     mov ax, 1760
     call mc_beep
     jmp short .out
@@ -3216,16 +3258,31 @@ mc_rbody:
     call mc_draw_exp
     call mc_move_trails
     call mc_draw_sat
-    cmp byte [mc_gdirty], 0
-    je .base
-    mov byte [mc_gdirty], 0
+    cmp word [mc_gdx1], MC_NODMG    ; SPEC.md 48.9: repair the span that was
+    je .base                        ; bitten, not the whole band
+    mov ax, [mc_gdx1]
+    mov cx, [mc_gdx2]
+    call mc_gdclear
+    mov dl, 7                       ; every base inside the span
+    call mc_spanset
     call mc_draw_ground
     call mc_draw_cities
     call mc_draw_bases
+    call mc_exp_restore             ; the terrain just painted over any burst
+                                    ; standing in it, and SPEC.md 48.8's
+                                    ; explosion only redraws when its RADIUS
+                                    ; changes - so it would stay holed for up
+                                    ; to nine frames. It used to heal itself
+                                    ; because the disc was redrawn every frame
 .base:
     cmp byte [mc_bdirty], 0
     je .stat
+    xor ax, ax                      ; a launch owes ONE launcher, anywhere
+    mov cx, [mc_cw]
+    dec cx
+    mov dl, [mc_bdirty]
     mov byte [mc_bdirty], 0
+    call mc_spanset
     call mc_draw_bases
 .stat:
     cmp byte [mc_sdirty], 0
@@ -3256,10 +3313,15 @@ mc_draw_all:
     push si
     push di
     mov byte [mc_full], 0
-    mov byte [mc_gdirty], 0
+    call mc_gdclear
     mov byte [mc_bdirty], 0
     mov byte [mc_sdirty], 0
     mov byte [mc_chshown], 0
+    xor ax, ax                      ; a full repaint IS the whole span
+    mov cx, [mc_cw]
+    dec cx
+    mov dl, 7
+    call mc_spanset
     mov al, MC_BG
     call mc_setcol
     xor ax, ax
@@ -3293,6 +3355,180 @@ mc_draw_all:
     ret
 
 ; -----------------------------------------------------------------------------
+; mc_exp_restore - put back every live burst standing in the armed span
+; in:  gfx lock held, mc_spanset armed; preserves all registers
+;
+; Terrain is drawn AFTER the bursts, so a repair writes ground over any burst
+; low enough to overlap it. That was harmless while the disc was redrawn
+; every frame and is not now (SPEC.md 48.8/48.9). Drawn at [mc_er], the
+; radius actually on screen, so this repaints and never advances a state.
+; -----------------------------------------------------------------------------
+mc_exp_restore:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    xor si, si
+.each:
+    cmp byte [mc_ea + si], 1
+    jne .next
+    mov bl, [mc_er + si]
+    mov bh, 0
+    or bx, bx
+    jz .next
+    mov di, si
+    add di, di
+    mov ax, [mc_ex + di]
+    mov cx, ax
+    sub ax, bx
+    add cx, bx
+    call mc_spanhit
+    jc .next
+    call mc_exp_pen
+    mov ax, [mc_ex + di]
+    mov dx, [mc_ey + di]
+    mov bl, [mc_er + si]
+    mov bh, 0
+    cmp byte [mc_ecoarse], 0
+    je .disc
+    call mc_blob
+    jmp short .next
+.disc:
+    call mc_disc
+.next:
+    inc si
+    cmp si, MC_MAXEXP
+    jb .each
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_gdmg - the ground was bitten between x AX and x CX; remember the span
+; preserves all registers (SPEC.md 48.9)
+;
+; This used to be one byte meaning "something touched the terrain", and the
+; repair it bought was the WHOLE band plus all six cities and all three bases
+; - 398 PIT counts, 143 ms on a 4.77MHz XT, about two and a half ticks, and
+; it fires every time an ICBM or a burst reaches the deck. Measured at five
+; times in 86 frames just by letting a wave land. A span costs two words and
+; repairs what was actually damaged.
+; -----------------------------------------------------------------------------
+mc_gdmg:
+    push ax
+    push cx
+    cmp ax, cx                      ; callers hand it either way round
+    jle .ord
+    xchg ax, cx
+.ord:
+    cmp ax, [mc_gdx1]
+    jge .lo
+    mov [mc_gdx1], ax
+.lo:
+    cmp cx, [mc_gdx2]
+    jle .hi
+    mov [mc_gdx2], cx
+.hi:
+    pop cx
+    pop ax
+    ret
+
+; mc_gdclear / mc_gdall - forget the damage, or claim all of it
+; preserve all registers
+mc_gdclear:
+    mov word [mc_gdx1], MC_NODMG
+    mov word [mc_gdx2], -1
+    ret
+mc_gdall:
+    push ax
+    mov word [mc_gdx1], 0
+    mov ax, [mc_cw]
+    dec ax
+    mov [mc_gdx2], ax
+    pop ax
+    ret
+
+; mc_bdirty_i / mc_bdirty_at - one launcher owes a redraw, named by index BL
+; or by a point AX inside its lane. Both preserve every register.
+;
+; SPEC.md 48.9: this was one byte meaning "some launcher changed", and it
+; cost all three lanes cleared and all three pyramids redrawn - on EVERY
+; shot, because a trail starts on the launcher and the wipe says so.
+mc_bdirty_i:
+    push ax
+    push cx
+    mov cl, bl
+    mov al, 1
+    shl al, cl
+    or [mc_bdirty], al
+    pop cx
+    pop ax
+    ret
+
+mc_bdirty_at:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    xor si, si
+.each:
+    mov di, si
+    add di, di
+    mov cx, [mc_basex + di]
+    sub cx, ax
+    jns .abs
+    neg cx
+.abs:
+    mov dx, [mc_basw]
+    shr dx, 1
+    cmp cx, dx
+    ja .next
+    mov cx, si
+    mov bl, 1
+    shl bl, cl
+    or [mc_bdirty], bl
+.next:
+    inc si
+    cmp si, MC_NBASE
+    jb .each
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mc_spanset - arm the three terrain painters for one span and base mask
+; in:  AX = x1, CX = x2, DL = base mask; preserves all registers
+mc_spanset:
+    mov [mc_spx1], ax
+    mov [mc_spx2], cx
+    mov [mc_bmask], dl
+    ret
+
+; mc_spanhit - does [AX..CX] overlap the armed span? CF=0 yes, CF=1 no
+; preserves all registers
+mc_spanhit:
+    cmp cx, [mc_spx1]
+    jl .no
+    cmp ax, [mc_spx2]
+    jg .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
 ; mc_draw_ground - the terrain band, with a coastline on top of it
 ; in:  gfx lock held; preserves all registers
 ;
@@ -3309,10 +3545,9 @@ mc_draw_ground:
     push di
     mov al, [mc_cgnd]
     call mc_setcol
-    xor ax, ax                      ; the band itself
+    mov ax, [mc_spx1]               ; the band itself, only across the span
     mov bx, [mc_groundy]
-    mov cx, [mc_cw]
-    dec cx
+    mov cx, [mc_spx2]
     mov dx, [mc_ch]
     dec dx
     call mc_fillc
@@ -3322,6 +3557,11 @@ mc_draw_ground:
 .bump:                              ; table, DI is the column
     cmp di, [mc_cw]
     jae .out
+    mov ax, di                      ; a step outside the span is somebody
+    mov cx, di                      ; else's pixels
+    add cx, 15
+    call mc_spanhit
+    jc .next
     mov bx, si
     and bx, 15
     mov bl, [mc_coast + bx]         ; BL = how many rows this step rises
@@ -3373,6 +3613,11 @@ mc_draw_cities:
     mov bx, [mc_citw]
     shr bx, 1
     sub ax, bx                      ; AX = left edge
+    mov cx, ax
+    add cx, [mc_citw]
+    dec cx
+    call mc_spanhit                 ; a city clear of the damage keeps its
+    jc .next                        ; pixels, and costs nothing
     mov [mc_dtmp], ax
     call mc_city_shape
 .next:
@@ -3481,12 +3726,22 @@ mc_draw_bases:
 .each:
     mov di, si
     add di, di
+    mov cx, si                      ; SPEC.md 48.9: a launch dirties ONE
+    mov al, [mc_bmask]              ; launcher, not all three - CL is si, so
+    shr al, cl                      ; bit si is this base's
+    test al, 1
+    jz .next
     mov ax, [mc_basex + di]
     mov bx, [mc_basw]
     shr bx, 1
     mov [mc_dtw], bx
     sub ax, bx
     mov [mc_dtmp], ax               ; the left edge
+    mov cx, ax
+    add cx, [mc_basw]
+    dec cx
+    call mc_spanhit
+    jc .next
 
     mov al, MC_BG                   ; the lane this base owns, cleared
     call mc_setcol
@@ -3756,8 +4011,11 @@ mc_wipe_trails:
     mov dx, [mc_ipy + di]
     call mc_line
     cmp dx, [mc_groundy]            ; a trail that reached the ground took a
-    jl .inext                       ; bite out of it on the way out
-    mov byte [mc_gdirty], 1
+    jl .inext                       ; bite out of it on the way out - and the
+    mov ax, cx                      ; bite is at the trail's END, not across
+    sub ax, 2                       ; the whole band (SPEC.md 48.9)
+    add cx, 2
+    call mc_gdmg
 .inext:
     inc si
     cmp si, MC_MAXICBM
@@ -3775,7 +4033,8 @@ mc_wipe_trails:
     mov cx, [mc_apx + di]
     mov dx, [mc_apy + di]
     call mc_line
-    mov byte [mc_bdirty], 1         ; the trail starts ON the launcher
+    call mc_bdirty_at               ; the trail starts ON the launcher - and
+                                    ; AX is still its launch x
 .anext:
     inc si
     cmp si, MC_MAXABM
@@ -3961,7 +4220,11 @@ mc_draw_exp:
     add ax, bx
     cmp ax, [mc_groundy]
     jl .next
-    mov byte [mc_gdirty], 1         ; it bit into the ground on the way out
+    mov ax, [mc_ex + di]            ; it bit into the ground on the way out,
+    mov cx, ax                      ; across its own diameter and no further
+    sub ax, bx
+    add cx, bx
+    call mc_gdmg
 .next:
     inc si
     cmp si, MC_MAXEXP
@@ -4603,44 +4866,57 @@ mc_draw_status:
     push dx
     push si
     push di
-    mov al, MC_BG
-    call mc_setcol
-    xor ax, ax
-    xor bx, bx
-    mov cx, [mc_cw]
-    dec cx
-    mov dx, [mc_statush]
-    dec dx
-    call mc_fillc
-
     mov ax, [mc_statush]            ; the baseline, centred in the strip
     sub ax, 8
     shr ax, 1
     mov [mc_texty], ax
 
-    mov al, CWHITE
-    call mc_setcol
+    ; SPEC.md 48.9: three OPAQUE runs, not one full-width erase and then the
+    ; figures. [mc_sdirty] is set on every kill, so the old shape blanked the
+    ; whole strip and re-lettered it several times a second - PERFORMANCE.md
+    ; Part 1's erase-and-letter pair, in its classic form, on the widest
+    ; element this game draws. font_run (SPEC.md 6.1) is the fix: each cell
+    ; goes from what it held to what it will hold in one store, so the strip
+    ; is never momentarily blank. Every field is space-padded to a FIXED span
+    ; because that padding IS the erase - a score that loses a digit has the
+    ; cell it vacated painted background by the same call that draws the rest.
+    ;
+    ; Each x is a multiple of 8 in CONTENT coordinates, which is what the
+    ; fast path wants (SPEC.md 6.1.2 - one store a cell row, no shift, no
+    ; read). Fullscreen puts the content origin at 0, so there it is aligned
+    ; absolutely and the run is genuinely flash-free; windowed it depends on
+    ; where the window sits, and the fallback costs what the old pair did
+    ; while flashing only its own field instead of the whole strip.
     mov ax, [mc_scorelo]
     mov dx, [mc_scorehi]
     call mc_num32
     mov si, [mc_numptr]
-    mov cx, 2
+    mov di, mc_sbuf
+    mov cx, MC_SFW
+    call mc_field
+    mov si, mc_sbuf
+    xor cx, cx                      ; hard left, already aligned
     mov dx, [mc_texty]
-    call mc_textc
+    mov al, CWHITE
+    mov ah, MC_BG
+    call mc_runc
 
-    mov al, CYELLOW                 ; the high score, centred
-    call mc_setcol
-    mov ax, [mc_hilo]
-    mov dx, [mc_hihi]
+    mov ax, [mc_hilo]               ; the high score, centred on its SPAN so
+    mov dx, [mc_hihi]               ; the field does not move as it grows
     call mc_num32
     mov si, [mc_numptr]
-    call OSAPI_FONT_WIDTH
+    mov di, mc_sbuf
+    mov cx, MC_SFW
+    call mc_field
+    mov si, mc_sbuf
     mov cx, [mc_cw]
-    sub cx, ax
+    sub cx, MC_SFW * 8
     shr cx, 1
-    mov si, [mc_numptr]
+    and cx, 0xFFF8
     mov dx, [mc_texty]
-    call mc_textc
+    mov al, CYELLOW
+    mov ah, MC_BG
+    call mc_runc
 
     ; Wave and multiplier, right-aligned. All THREE figures in this strip are
     ; drawn from SPEC.md 39.4's white class (15, 14, 12) and none from its
@@ -4650,8 +4926,6 @@ mc_draw_status:
     ; not faint, ABSENT, with zero lit pixels across the hundred columns it
     ; occupied. Colour is decoration here; the strip has to be legible on all
     ; three adapters.
-    mov al, CLRED
-    call mc_setcol
     mov di, mc_wbuf
     mov byte [di], 'W'
     inc di
@@ -4671,13 +4945,17 @@ mc_draw_status:
     call mc_wcat
     mov byte [di], 0
     mov si, mc_wbuf
-    call OSAPI_FONT_WIDTH
+    mov di, mc_sbuf
+    mov cx, MC_WFW
+    call mc_field
+    mov si, mc_sbuf
     mov cx, [mc_cw]
-    sub cx, ax
-    sub cx, 3
-    mov si, mc_wbuf
+    sub cx, MC_WFW * 8
+    and cx, 0xFFF8
     mov dx, [mc_texty]
-    call mc_textc
+    mov al, CLRED
+    mov ah, MC_BG
+    call mc_runc
     pop di
     pop si
     pop dx
@@ -4686,7 +4964,8 @@ mc_draw_status:
     pop ax
     ret
 
-; mc_wcat - append the NUL string at SI to DI; DI ends past the last character
+; mc_wcat - append the NUL string at SI to DI, leaving DI past it
+; preserves every register but DI/SI
 mc_wcat:
     push ax
 .each:
@@ -4699,6 +4978,77 @@ mc_wcat:
     jmp short .each
 .out:
     pop ax
+    ret
+
+; mc_field - SI -> a NUL string, into the CX-cell buffer at DI, space padded
+; and NUL terminated. The padding is what erases a field that got SHORTER.
+; preserves all registers
+mc_field:
+    push ax
+    push cx
+    push si
+    push di
+.copy:
+    or cx, cx
+    jz .term
+    mov al, [si]
+    or al, al
+    jz .pad
+    inc si
+    mov [di], al
+    inc di
+    dec cx
+    jmp short .copy
+.pad:
+    mov byte [di], ' '
+    inc di
+    dec cx
+    jnz .pad
+.term:
+    mov byte [di], 0
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; mc_runc - one opaque run in CONTENT coordinates (the mc_textc of SPEC.md 6.1)
+; in:  SI = string, CX = x, DX = y, AL = ink, AH = background
+; preserves all registers.  On the Mode X surface the kernel's drawing slots
+; are off limits (SPEC.md 53.7), so it falls back to the twins there.
+mc_runc:
+    push cx
+    push dx
+    cmp byte [mc_fsx], 0
+    jne .fsx
+    add cx, [mc_ox]
+    add dx, [mc_oy]
+    call OSAPI_FONT_RUN
+    jmp short .out
+.fsx:
+    push ax
+    mov al, ah
+    call mc_setcol
+    push cx
+    push dx
+    push si
+    mov ax, cx                      ; the field's own span, cleared
+    mov bx, dx
+    mov cx, ax
+    add cx, MC_SFW * 8
+    dec cx
+    mov dx, bx
+    add dx, 7
+    call mc_fillc
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    call mc_setcol
+    call mc_textc
+.out:
+    pop dx
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5718,8 +6068,13 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
 
 ; --- drawing state --------------------------------------------------------------
     MBYTE mc_full                   ; the next frame must repaint everything
-    MBYTE mc_gdirty                 ; ...or at least the ground
-    MBYTE mc_bdirty                 ; ...or at least the bases
+    MWORD mc_gdx1                   ; ...or at least the ground the frame BIT
+    MWORD mc_gdx2                   ; INTO: an x span, MC_NODMG = nothing owed
+    MBYTE mc_bdirty                 ; ...or at least the bases, one bit each
+    MBUF  mc_sbuf, 16               ; mc_field's padded status field
+    MWORD mc_spx1                   ; the span the three terrain painters are
+    MWORD mc_spx2                   ; drawing this call (SPEC.md 48.9)
+    MBYTE mc_bmask                  ; ...and which bases they may touch
     MBYTE mc_sdirty                 ; ...or at least the score strip
     MBYTE mc_msgon
     MBYTE mc_hired                  ; the worker exists
