@@ -403,7 +403,7 @@ half-working panic key is worse than a documented absence).
 4. **Tracker + polish**: Tracker's fsx adoption with `FSXF_KEEPWORKER`,
    XMS stash, Task Manager badge, docs.
 
-## 12. Open decisions (need an answer before phase 2)
+## 12. Decisions — all four made, recorded here with their reasoning
 
 1. **Which four VGA modes? — DECIDED**: 320x200 and 640x480, each in 16
    and 256 colours, with Mode X (320x240x256) standing in for the
@@ -416,17 +416,24 @@ half-working panic key is worse than a documented absence).
    Tracker's adoption in phase 4** (§7). The freeze, the whitelist and the
    entry-release exemption are built keepworker-shaped from the start;
    only the flag's few bytes wait.
-4. **Text-mode contract depth — still open, question spelled out.** A text
-   mode brings three pieces of hardware state a graphics mode does not
-   have: the CRTC's own blinking cursor (parked at 0,0 by the mode set —
-   writing B800 never moves it), the 4–8 display pages, and the attribute
-   blink/bright-background toggle. The decision is who owns them: FSX
-   slots, or the app through the BIOS it is already allowed to call (the
-   bracket IS the UI task). Proposed: the app — for text, the ROM BIOS is
-   a complete portable driver (AH=02h cursor move, AH=01h shape/hide,
-   AH=05h page flip, AH=0Eh teletype, AX=1003h blink-off), nothing the app
-   pokes outlives the exit mode set, and the kernel spends zero bytes; the
-   SDK recipe lists the incantations, including the per-adapter blink
-   difference (int 10h on EGA/VGA, port 3D8h bit 5 on a real CGA). A
-   helper slot is one §20.8 append away if the first real text app proves
-   the recipe annoying.
+4. **Text-mode contract depth — DECIDED: the bare contract.** A text mode
+   brings three pieces of hardware state a graphics mode does not have:
+   the CRTC's own blinking cursor (parked at 0,0 by the mode set — writing
+   B800 never moves it), the 4–8 display pages, and the attribute
+   blink/bright-background toggle. All three belong to the **app**,
+   through the BIOS it is already allowed to call (the bracket IS the UI
+   task) or the CRTC ports directly: for text, the ROM BIOS is a complete
+   portable driver (AH=02h cursor move, AH=01h shape/hide, AH=05h page
+   flip, AH=0Eh teletype, AX=1003h blink-off), and nothing the app pokes
+   outlives the exit mode set. The performance framing, honestly: the hot
+   path — characters into B800 — was direct VRAM under any contract; bare
+   wins by putting nothing between the app and the hardware for the rest
+   (a kernel slot would wrap the same operations behind a far call, and
+   would have to *forbid* direct CRTC pokes to stay coherent), and by
+   spending zero kernel bytes. The SDK recipe lists the incantations,
+   including the per-adapter blink difference (int 10h on EGA/VGA, port
+   3D8h bit 5 on a real CGA). A helper slot remains one §20.8 append away
+   if a real text app ever proves the recipe annoying.
+
+**All four decisions are now made.** The plan is complete and phase 1
+(SPEC §53, written in full, then the bracket and the freeze) can start.
