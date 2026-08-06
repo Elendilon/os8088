@@ -109,7 +109,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
                                 ; is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved three times, every one asked
+                                ; It has moved four times, every one asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -119,12 +119,12 @@ KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
                                 ; spends, the OPL2 and Sound Blaster code it
                                 ; makes loadable being thousands of lines that
                                 ; would otherwise be resident on a machine
-                                ; with neither card; and 72,704 -> here for
+                                ; with neither card; 72,704 -> 76,800 for
                                 ; SPEC.md 51.5's keyed SYSTEM.CFG, granted in
                                 ; ADVANCE of further work with an optimisation
-                                ; pass to follow, so the slack under this one
-                                ; is temporary rather than an invitation; and
-                                ; 72,704 -> 80,896 for the file manager's
+                                ; pass to follow, so the slack under that one
+                                ; was temporary rather than an invitation; and
+                                ; 76,800 -> here for the file manager's
                                 ; Cut/Copy/Paste, its recursive paste engine
                                 ; and the drag (SPEC.md 22.3/22.4), which
                                 ; overran the previous figure by 512 bytes
@@ -138,7 +138,7 @@ KERN_BUDGET equ 80896           ; the whole kernel, guard 1. Growing past this
 ; and runs up through 0x7C00, where the BIOS put the sector that is reading
 ; it - so the sector copies ITSELF out of the way first, keeping its own
 ; offset so every label in it still resolves at org 0x7C00. BOOT_RELOC:7C00
-; is linear 0x13C00; its stack grows down from there, and guard 5 keeps the
+; is linear 0x15000; its stack grows down from there, and guard 5 keeps the
 ; kernel clear of both. Both constants are mirrored in boot/boot.asm.
 BOOT_RELOC  equ 0x0D40          ; 0x0D40*16 + 0x7C00 = linear 0x15000
 BOOT_LIN    equ BOOT_RELOC*16 + 0x7C00
@@ -193,7 +193,19 @@ VIEW_KB     equ 3               ; each cache: 1KB of entries + 2KB of icons
 ; proves it. It used to hold by luck: every base in the map was a round
 ; constant like 0x0300 or 0x2A00, and nothing said why that mattered.
 KIMG_PARA   equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 32   ; image + scratch
-FAT_SEG     equ KERNEL_SEG + KIMG_PARA   ; mount-time FAT snapshot
+COLD_SEG    equ KERNEL_SEG + KIMG_PARA   ; cold code (SPEC.md 2.6): resident
+                                ; for the whole session, but in a segment of
+                                ; its own, so none of it counts against the
+                                ; kernel's 64KB window. Same contract as the
+                                ; boot overlay - CS here, DS still KERNEL_SEG -
+                                ; and it rides the same contiguous boot read,
+                                ; which is why it sits between the image and
+                                ; the FAT window rather than above the stacks:
+                                ; anywhere else would need the loader to skip
+                                ; over .lowbss, which is nobits and not in the
+                                ; file at all
+COLD_PARA   equ ((COLD_SIZE + 511) / 512) * 32
+FAT_SEG     equ COLD_SEG + COLD_PARA   ; mount-time FAT snapshot
                                 ; (SPEC.md 2.1/18), reached via ES ONLY,
                                 ; never DS; dsk_next_clus is the one reader
 LOW_SEG     equ FAT_SEG + FAT_PARA    ; .lowbss (task stacks + disk buffers)
@@ -264,6 +276,54 @@ XM_MAX_BLKS equ 8               ; xm_alloc's fixed block table, entries: a
 ; =============================================================================
 section .lowbss  nobits vstart=0
 section .bss     nobits vfollows=.text valign=1
+section .cold    start=COLD_START vstart=0
+section .ovl     start=OVL_START vstart=0
+section .text
+
+; =============================================================================
+; The boot overlay (SPEC.md 2.5): code that runs ONCE, from kmain, and is
+; never reachable again.
+;
+; It is assembled into `.ovl`, which -f bin places at file offset OVL_START -
+; the image rung - with its own addresses starting at zero. The boot sector's
+; ONE contiguous read therefore lands it exactly at FAT_SEG, the 4,608-byte
+; FAT window, which nothing touches until drv_boot calls disk_mount: the LAST
+; thing kmain does before the first paint. Every entry below runs before that,
+; so the overlay is alive for exactly as long as it is needed and is then
+; written over by the volume's FAT. It costs no RAM at all, and - this is the
+; point - none of it counts against guard 2.
+;
+; NASM emits the gap between .text and OVL_START as zeros, which is why the
+; image needs no padding from outside AND why .bss now arrives zeroed.
+;
+; The contract, and all of it matters:
+;   CS = FAT_SEG, DS = KERNEL_SEG, SS = LOW_SEG.
+; DS is the kernel's, so every reference to kernel data - [cpu_tier], [xm_kb],
+; the eighteen snd_* words - assembles and runs exactly as it did in .text.
+; That is what makes this nearly free: nothing to marshal, no es: prefixes,
+; nothing rewritten. The price is the mirror image: the overlay may NOT reach
+; its own labels through DS. It has no data of its own today; anything added
+; needs a cs: override, and NASM will not warn about it.
+;
+; Calls out of the overlay into resident code must be FAR, so a resident
+; routine an overlay entry needs gets a four-byte call/retf shim (ovw_*).
+; Calls the other way come through the stubs below, which is what lets every
+; routine that moved keep its near `ret` and change in no other way.
+; =============================================================================
+section .ovl
+ovl_base:
+ovl_cpu_detect:     call cpu_detect
+                    retf
+ovl_cpu_a20:        call cpu_a20_enable
+                    retf
+ovl_xm_init:        call xm_init
+                    retf
+ovl_desk_init:      call desk_init
+                    retf
+ovl_snd_init:       call snd_init
+                    retf
+ovl_clk_init:       call clk_init
+                    retf
 section .text
 
 ; =============================================================================
@@ -679,6 +739,112 @@ api_file_rename:
 ; in:  DS:SI = the caller's name, ES:DI = kernel scratch (13 bytes)
 ; out: nothing (all registers preserved); the copy is NUL-terminated even if
 ;      the source was not - a package cannot make this run on
+
+; --- resident shims the COLD segment far-calls (SPEC.md 2.6) ---------------
+; Same four bytes and the same reason as the overlay's ovw_* above: cold code
+; runs with CS elsewhere, so a near call to resident code would be computed
+; between two address spaces. tools/os88ovlchk.py refuses one.
+cw_bb_set:              call bb_set
+                    retf
+cw_clk_fld_adj:         call clk_fld_adj
+                    retf
+cw_clk_fld_str:         call clk_fld_str
+                    retf
+cw_clk_snap:            call clk_snap
+                    retf
+cw_drv_cfg_save:        call drv_cfg_save
+                    retf
+cw_drv_cls_svc:         call drv_cls_svc
+                    retf
+cw_drv_cp_call:         call drv_cp_call
+                    retf
+cw_drv_cp_class:        call drv_cp_class
+                    retf
+cw_drv_cp_count:        call drv_cp_count
+                    retf
+cw_drv_cp_name:         call drv_cp_name
+                    retf
+cw_drv_load:            call drv_load
+                    retf
+cw_drv_row:             call drv_row
+                    retf
+cw_drv_status:          call drv_status
+                    retf
+cw_drv_tier:            call drv_tier
+                    retf
+cw_drv_unload:          call drv_unload
+                    retf
+cw_font_str:            call font_str
+                    retf
+cw_gfx_fill:            call gfx_fill
+                    retf
+cw_gfx_frame:           call gfx_frame
+                    retf
+cw_gfx_pen_cf:          call gfx_pen_cf
+                    retf
+cw_gfx_pen_live:        call gfx_pen_live
+                    retf
+cw_gfx_pixel:           call gfx_pixel
+                    retf
+cw_gfx_vline:           call gfx_vline
+                    retf
+cw_inst_find_kind:      call inst_find_kind
+                    retf
+cw_mem_avail:           call mem_avail
+                    retf
+cw_osapi_snd_tone:      call osapi_snd_tone
+                    retf
+cw_sched_mode_get:      call sched_mode_get
+                    retf
+cw_sched_mode_set:      call sched_mode_set
+                    retf
+cw_wm_content:          call wm_content
+                    retf
+cw_wm_obscured:         call wm_obscured
+                    retf
+
+; ...and the other direction: what the kernel calls IN the Control Panel.
+; cp_tpl and the driver/UI call sites still name these, so nothing outside
+; ctrl.inc changed at all.
+cp_paint:             call COLD_SEG:cpf_cp_paint
+                    ret
+cp_onclick:           call COLD_SEG:cpf_cp_onclick
+                    ret
+cp_flush:             call COLD_SEG:cpf_cp_flush
+                    ret
+cp_flush_close:       call COLD_SEG:cpf_cp_flush_close
+                    ret
+cp_drv_gone:          call COLD_SEG:cpf_cp_drv_gone
+                    ret
+cp_tick_due:          call COLD_SEG:cpf_cp_tick_due
+                    ret
+cp_tick:              call COLD_SEG:cpf_cp_tick
+                    ret
+
+; --- resident shims the overlay far-calls (see the contract above) ----------
+; Four bytes each. A routine gets one only because an overlay entry needs it
+; and it has to stay resident for its own reasons: xm_arm because xm_copy
+; re-arms unreal mode inside the window that uses it, dsk_vol_slot because
+; every zone painter calls it on every repaint.
+ovw_xm_arm:         call xm_arm
+                    retf
+ovw_dsk_vol_slot:   call dsk_vol_slot
+                    retf
+
+; ...and the clock's five. Each is a port helper the READ path (overlay) and
+; the WRITE path (resident, because the Control Panel can set the clock all
+; session) both use, so it cannot move and cannot be duplicated without the
+; two halves drifting apart.
+ovw_clk_at_get:     call clk_at_get
+                    retf
+ovw_clk_at_done:    call clk_at_done
+                    retf
+ovw_clk_ns_put:     call clk_ns_put
+                    retf
+ovw_clk_ns_stamp:   call clk_ns_stamp
+                    retf
+ovw_clk_rp_get:     call clk_rp_get
+                    retf
 ; -----------------------------------------------------------------------------
 api_copyname:
     push ax
@@ -719,7 +885,7 @@ kmain:
     sti                         ; the kernel's own 64KB window stays for code
     cld
 
-    call cpu_detect             ; CPU tier + memory above 1MB (SPEC.md 41),
+    call FAT_SEG:ovl_cpu_detect ; CPU tier + memory above 1MB (SPEC.md 41),
                                 ; here and nowhere else: BEFORE sched_init,
                                 ; because this is the last moment at which no
                                 ; kernel ISR is installed - the unreal-mode
@@ -728,18 +894,18 @@ kmain:
                                 ; that may fire in it are the BIOS's own, and
                                 ; a tick lost here costs nothing ([ticks] is
                                 ; zeroed by sched_init anyway)
-    call cpu_a20_enable         ; ...and VERIFY it: the feature bit is set by
+    call FAT_SEG:ovl_cpu_a20    ; ...and VERIFY it: the feature bit is set by
                                 ; the wraparound probe, never by the poke
                                 ; (SPEC.md 41.2). A no-op on tier 0 - an 8088
                                 ; has no gate and port 0x92 belongs to
                                 ; something else there
-    call xm_init                ; size the store (int 15h AH=88h, on task 0
+    call FAT_SEG:ovl_xm_init    ; size the store (int 15h AH=88h, on task 0
                                 ; per SPEC.md 7), claim the HMA, arm unreal
                                 ; mode on tier 2, publish [xm_kb] LAST
 
     call sched_init             ; pre-emption live from here on
     call evq_init
-    call clk_init               ; system clock (SPEC.md 37): probe the RTC,
+    call FAT_SEG:ovl_clk_init   ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the
                                 ; mode set, so the very first menu bar paint
                                 ; already carries a valid clock
@@ -760,7 +926,7 @@ kmain:
     call inst_init              ; instance table (SPEC.md 29) - clean boot:
                                 ; no app instances exist until launched
     call mouse_init             ; IRQ4 live; cursor stays hidden until shown
-    call desk_init              ; count floppy drives for the desktop icons
+    call FAT_SEG:ovl_desk_init  ; volume zones for the desktop (SPEC.md 26.1)
     call dock_init              ; dock strip scratch (SPEC.md 30)
     call files_init             ; Disk module state (no window at boot)
     call loader_init            ; package loader state
@@ -768,7 +934,7 @@ kmain:
     call drv_init               ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
-    call snd_init               ; sound layer (SPEC.md 34.7): saves the 61h
+    call FAT_SEG:ovl_snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
@@ -829,9 +995,18 @@ osapi_rand:
     ret
 
 ; ---- osapi_font_glyphs - the kernel's own 8x8 font (SPEC.md 6/20.3) ---------
-; out: SI = font_glyphs (an offset in KERNEL_SEG - read it through ES, which
-;      is KERNEL_SEG on entry to every callback), AL = FONT_FIRST, AH =
-;      FONT_LAST, CX = 8 bytes per glyph, row 0 first, bit 7 leftmost.
+; out: DX:SI = the glyph table, AL = FONT_FIRST, AH = FONT_LAST, CX = 8 bytes
+;      per glyph, row 0 first, bit 7 leftmost.
+;
+; DX is an AMENDMENT to a shipped slot, which SPEC.md 20.8 rule 4 otherwise
+; forbids: the cell used to answer with SI alone and the table was an offset
+; in KERNEL_SEG. It moved to LOW_SEG to give guard 2 back 760 bytes - the
+; largest single object the kernel's own segment was carrying - and an offset
+; without a segment cannot say where it went. Recorded as a one-time exception
+; on the same terms as slots 0x0120/0x0128: exactly ONE package reads this
+; cell (apps/paint's text tool), it is in this tree, and `make` rebuilds it.
+; A package that ignores DX now reads the wrong segment, so this invalidates
+; every .o88 the same way a renumbering would.
 ;
 ; For an app that draws text into its OWN pixels rather than onto the screen
 ; (apps/paint's text tool). Before this it re-probed the ROM font through
@@ -839,6 +1014,7 @@ osapi_rand:
 ; at a table the kernel already had.
 osapi_font_glyphs:
     mov si, font_glyphs
+    mov dx, LOW_SEG
     mov al, FONT_FIRST
     mov ah, FONT_LAST
     mov cx, 8
@@ -964,6 +1140,22 @@ section .bss
 kernel_bss_end:
 KBSS_SIZE equ kernel_bss_end - $$
 
+; The boot overlay's file position IS the image rung, which is what makes the
+; boot sector's single read land it on FAT_SEG. It cannot be expressed as
+; padding inside .text - that would grow KTEXT_SIZE, which grows KIMG_PARA,
+; which grows the padding, and there is no fixed point - but as a SECTION
+; start it is not circular at all: .ovl's own size is not one of the terms.
+COLD_START equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 512
+OVL_START  equ COLD_START + ((COLD_SIZE + 511) / 512) * 512
+
+section .cold
+cold_end:
+COLD_SIZE equ cold_end - $$
+
+section .ovl
+ovl_end:
+OVL_SIZE equ ovl_end - $$
+
 ; What the Task Manager's RAM view reports (SPEC.md 28), in KB rounded up:
 ; the whole kernel, buffers and stacks included, because since SPEC.md 2 that
 ; is one contiguous span and there is nothing of the kernel outside it.
@@ -1029,6 +1221,19 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 ;     the symptom would be "Disk error" on the LARGE packages only.
 %if MEM_PARA_KB % 32
 %error "a heap claim is not 512-byte aligned - a package image is read into one"
+%endif
+; 4b. the boot overlay has to fit the FAT window it is read into, because
+;    that is the only memory it is ever allowed to occupy: disk_mount writes
+;    over it the first time a volume is mounted (drv_boot, the last thing
+;    kmain does). Overflowing would run the overlay's tail into LOW_SEG - the
+;    task stacks - and the symptom would be arbitrary.
+%if OVL_SIZE > FAT_PARA * 16
+%error "the boot overlay does not fit the FAT window - see docs/KERNEL-MEMORY.md"
+%endif
+; 4c. ...and it has to exist. An empty .ovl means every FAT_SEG: far call in
+;    kmain lands in whatever the FAT buffer happens to hold.
+%if OVL_SIZE < 16
+%error "the boot overlay is empty - the FAT_SEG far calls have nothing to reach"
 %endif
 ; 5. the boot sector relocates itself to BOOT_RELOC before it reads a sector,
 ;    and its stack grows down from there. The kernel's landing zone must end

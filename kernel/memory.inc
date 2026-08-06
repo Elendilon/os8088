@@ -97,8 +97,8 @@ mem_init:
     push di
     push es
 
-    push ds
-    pop es
+    push ss                     ; mem_tab is in LOW_SEG now (SPEC.md 2.1), so
+    pop es                      ; the clear writes through SS, not DS
     mov di, mem_tab             ; every record free
     mov cx, MEM_MAX * MC_SIZE
     xor al, al
@@ -234,9 +234,9 @@ mem_claim:
     mov cx, MEM_MAX             ; the table is a shared resource and running
     xor si, si                  ; it out stops packages LOADING, so the app
 .own:                           ; that wants a ninth claim pays, not the next
-    cmp word [di+MC_SEG], 0     ; app to ask for its first
+    cmp word [ss:di+MC_SEG], 0     ; app to ask for its first
     je .ownext
-    cmp [di+MC_OWN], bx
+    cmp [ss:di+MC_OWN], bx
     jne .ownext
     inc si
 .ownext:
@@ -247,7 +247,7 @@ mem_claim:
 
     mov di, mem_tab             ; a free record next: refusing early costs
 .rec:                           ; nothing and keeps the scan simple
-    cmp word [di+MC_SEG], 0
+    cmp word [ss:di+MC_SEG], 0
     je .haverec
     add di, MC_SIZE
     cmp di, mem_tab + MEM_MAX*MC_SIZE
@@ -294,12 +294,12 @@ mem_claim:
 
     mov si, mem_tab             ; overlap scan: CX is the candidate end and
 .scan:                          ; the only register free, so it doubles as
-    cmp word [si+MC_SEG], 0     ; the claim-end scratch and is rebuilt after
+    cmp word [ss:si+MC_SEG], 0     ; the claim-end scratch and is rebuilt after
     je .next
-    cmp [si+MC_SEG], cx         ; claim starts at/past our end: no overlap
+    cmp [ss:si+MC_SEG], cx         ; claim starts at/past our end: no overlap
     jae .next
-    mov cx, [si+MC_SEG]
-    add cx, [si+MC_PARA]        ; CX = this claim's end
+    mov cx, [ss:si+MC_SEG]
+    add cx, [ss:si+MC_PARA]        ; CX = this claim's end
     cmp cx, dx
     jbe .nover                  ; claim ends at/before our start: ditto
     cmp word [mem_dir], 0
@@ -307,7 +307,7 @@ mem_claim:
     mov dx, cx                  ; overlap: restart just past this claim...
     jmp .retry
 .down:                          ; ...or just BELOW it, coming down from the
-    mov dx, [si+MC_SEG]         ; top. Monotonic either way, so it terminates
+    mov dx, [ss:si+MC_SEG]         ; top. Monotonic either way, so it terminates
     sub dx, ax
     jc .fail
     cmp dx, [mem_base]
@@ -321,12 +321,12 @@ mem_claim:
     cmp si, mem_tab + MEM_MAX*MC_SIZE
     jb .scan
 
-    mov [di+MC_SEG], dx         ; publish the claim
-    mov [di+MC_PARA], ax
-    mov [di+MC_OWN], bx
+    mov [ss:di+MC_SEG], dx         ; publish the claim
+    mov [ss:di+MC_PARA], ax
+    mov [ss:di+MC_OWN], bx
     push ax
     mov ax, [mem_dma]           ; ...and the page constraint it was granted
-    mov [di+MC_DMA], ax         ; under, so a later move can honour it
+    mov [ss:di+MC_DMA], ax         ; under, so a later move can honour it
     pop ax
     popf
     clc
@@ -358,12 +358,12 @@ mem_runfree:
 .next:
     cmp bx, [mem_skip]
     je .skip
-    cmp word [bx+MC_SEG], 0
+    cmp word [ss:bx+MC_SEG], 0
     je .skip
-    mov ax, [bx+MC_SEG]
+    mov ax, [ss:bx+MC_SEG]
     cmp ax, di
     jae .skip                   ; it starts at or past our end
-    add ax, [bx+MC_PARA]
+    add ax, [ss:bx+MC_PARA]
     cmp ax, cx
     ja .busy                    ; ...and it ends past our start: overlap
 .skip:
@@ -451,10 +451,10 @@ mem_hifit:
 .step:                          ; ...then the end of each live claim, and the
     cmp bx, mem_tab + MEM_MAX*MC_SIZE   ; table bound is the loop bound: a
     jae .done                           ; count could walk one record past it
-    cmp word [bx+MC_SEG], 0
+    cmp word [ss:bx+MC_SEG], 0
     je .skiprec                 ; a free record has no end to try
-    mov cx, [bx+MC_SEG]
-    add cx, [bx+MC_PARA]
+    mov cx, [ss:bx+MC_SEG]
+    add cx, [ss:bx+MC_PARA]
     add bx, MC_SIZE
     jmp short .cand
 .skiprec:
@@ -578,20 +578,20 @@ mem_regrow:
     mov si, mem_tab             ; it must be a base, and yours
     mov cx, MEM_MAX
 .find:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .fnext
-    cmp [si+MC_SEG], dx
+    cmp [ss:si+MC_SEG], dx
     jne .fnext
-    cmp [si+MC_OWN], bx
+    cmp [ss:si+MC_OWN], bx
     je .found
 .fnext:
     add si, MC_SIZE
     loop .find
     jmp short .fail
 .found:
-    cmp ax, [si+MC_PARA]
+    cmp ax, [ss:si+MC_PARA]
     ja .grow
-    mov [si+MC_PARA], ax        ; 1. shrink or level: the tail is free now
+    mov [ss:si+MC_PARA], ax        ; 1. shrink or level: the tail is free now
     jmp short .ok
 
 .grow:
@@ -602,16 +602,16 @@ mem_regrow:
     ja .move
     mov [mem_skip], si          ; our own paragraphs are not in the way
     mov cx, dx
-    add cx, [si+MC_PARA]        ; CX = our end = the extension's start
+    add cx, [ss:si+MC_PARA]        ; CX = our end = the extension's start
     call mem_runfree
     mov word [mem_skip], 0
     jc .move
-    mov [si+MC_PARA], ax        ; it does: extend, copy nothing
+    mov [ss:si+MC_PARA], ax        ; it does: extend, copy nothing
     jmp short .ok
 
 .move:                          ; 3. the highest block that will take it
     push ax                     ; the constraint this block was GRANTED under
-    mov ax, [si+MC_DMA]         ; travels with it: mem_hifit rejects a base
+    mov ax, [ss:si+MC_DMA]         ; travels with it: mem_hifit rejects a base
     mov [mem_dma], ax           ; whose head would straddle, exactly as the
     pop ax                      ; first claim did. Paths 1 and 2 need no such
                                 ; care - the rule is on the HEAD, so a shrink
@@ -624,7 +624,7 @@ mem_regrow:
     push ax
     push cx
     mov di, cx
-    mov cx, [si+MC_PARA]        ; only what is in use travels
+    mov cx, [ss:si+MC_PARA]        ; only what is in use travels
     mov si, dx
     call mem_bcopy
     pop cx
@@ -633,16 +633,16 @@ mem_regrow:
 .rfind:                         ; bounded, though it cannot miss - the record
     cmp si, mem_tab + MEM_MAX*MC_SIZE   ; was found once already and nothing
     jae .fail                           ; since could clear it
-    cmp [si+MC_SEG], dx
+    cmp [ss:si+MC_SEG], dx
     jne .rnext
-    cmp [si+MC_OWN], bx
+    cmp [ss:si+MC_OWN], bx
     je .rgot
 .rnext:
     add si, MC_SIZE
     jmp short .rfind
 .rgot:
-    mov [si+MC_SEG], cx         ; the record follows the bytes; MC_DMA is
-    mov [si+MC_PARA], ax        ; already right - it never changed
+    mov [ss:si+MC_SEG], cx         ; the record follows the bytes; MC_DMA is
+    mov [ss:si+MC_PARA], ax        ; already right - it never changed
     mov dx, cx                  ; ...and the caller is told where it went
 .ok:
     popf
@@ -678,13 +678,13 @@ mem_free:
     mov si, mem_tab
     mov cx, MEM_MAX
 .scan:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .next                    ; a free record can match a DX of 0
-    cmp [si+MC_SEG], dx
+    cmp [ss:si+MC_SEG], dx
     jne .next
-    cmp [si+MC_OWN], bx
+    cmp [ss:si+MC_OWN], bx
     jne .next
-    mov word [si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
+    mov word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
     popf
     clc
     jmp short .out
@@ -716,11 +716,11 @@ mem_free_owner:
     mov si, mem_tab
     mov cx, MEM_MAX
 .scan:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .next
-    cmp [si+MC_OWN], bx
+    cmp [ss:si+MC_OWN], bx
     jne .next
-    mov word [si+MC_SEG], 0
+    mov word [ss:si+MC_SEG], 0
 .next:
     add si, MC_SIZE
     loop .scan
@@ -779,10 +779,10 @@ mem_avail:
     mov ax, cx                  ; AX = largest run, paragraphs
     mov di, mem_tab             ; then every claim's end
 .cand:
-    cmp word [di+MC_SEG], 0
+    cmp word [ss:di+MC_SEG], 0
     je .cnext
-    mov dx, [di+MC_SEG]
-    add dx, [di+MC_PARA]
+    mov dx, [ss:di+MC_SEG]
+    add dx, [ss:di+MC_PARA]
     cmp dx, [mem_top]
     jae .cnext
     call mem_run                ; CX = free paragraphs from DX up
@@ -799,9 +799,9 @@ mem_avail:
     sub bx, [mem_base]
     mov cx, MEM_MAX
 .tot:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .tnext
-    sub bx, [si+MC_PARA]
+    sub bx, [ss:si+MC_PARA]
 .tnext:
     add si, MC_SIZE
     loop .tot
@@ -830,9 +830,9 @@ mem_run:
     mov si, mem_tab             ; that starts at or above DX
     mov di, MEM_MAX
 .scan:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .next
-    mov ax, [si+MC_SEG]
+    mov ax, [ss:si+MC_SEG]
     cmp ax, dx
     jb .below
     cmp ax, cx
@@ -840,7 +840,7 @@ mem_run:
     mov cx, ax                  ; nearer ceiling
     jmp short .next
 .below:                         ; a claim that starts below DX still blocks
-    add ax, [si+MC_PARA]        ; us if it ENDS above it - only possible when
+    add ax, [ss:si+MC_PARA]        ; us if it ENDS above it - only possible when
     cmp ax, dx                  ; DX is another claim's end inside it, which
     jbe .next                   ; cannot happen; the guard is free
     mov cx, dx
@@ -888,11 +888,11 @@ mem_claim_get:
     mov si, ax
     pop ax
     add si, mem_tab
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .none
-    mov dx, [si+MC_SEG]
-    mov cx, [si+MC_PARA]
-    mov bx, [si+MC_OWN]
+    mov dx, [ss:si+MC_SEG]
+    mov cx, [ss:si+MC_PARA]
+    mov bx, [ss:si+MC_OWN]
     clc
     pop si
     ret
@@ -914,11 +914,11 @@ mem_owned_kb:
     mov si, mem_tab
     mov cx, MEM_MAX
 .scan:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .next
-    cmp [si+MC_OWN], bx
+    cmp [ss:si+MC_OWN], bx
     jne .next
-    add ax, [si+MC_PARA]
+    add ax, [ss:si+MC_PARA]
 .next:
     add si, MC_SIZE
     loop .scan
@@ -961,21 +961,21 @@ mem_sum_kb:
     mov si, mem_tab
     mov cx, MEM_MAX
 .scan:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .next
     or bx, bx
     jz .take
-    cmp byte [si+MC_OWN+1], 0xFF    ; the kernel tags are 0xFFxx; an instance
+    cmp byte [ss:si+MC_OWN+1], 0xFF    ; the kernel tags are 0xFFxx; an instance
     je .take                        ; slot is 0..INST_MAX-1
     push bx                         ; ...and a LOADED DRIVER's own buffers,
-    mov bx, [si+MC_OWN]             ; which name themselves by the segment the
+    mov bx, [ss:si+MC_OWN]             ; which name themselves by the segment the
     call drv_owns_seg               ; driver runs in and so match neither test
     pop bx                          ; above. They belong under System, where
     jc .next                        ; the driver's image already is (51.3) -
                                     ; without this they were in the totals and
                                     ; in the map, and in no row at all
 .take:
-    add dx, [si+MC_PARA]
+    add dx, [ss:si+MC_PARA]
 .next:
     add si, MC_SIZE
     loop .scan
@@ -1000,9 +1000,9 @@ mem_total_kb:
     mov si, mem_tab
     mov cx, MEM_MAX
 .scan:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     je .next
-    add ax, [si+MC_PARA]
+    add ax, [ss:si+MC_PARA]
 .next:
     add si, MC_SIZE
     loop .scan
@@ -1081,7 +1081,7 @@ osapi_mem_free:
 ;                    caller's segment; out: mem_regrow's, CF=1 if not yours
 ;
 ; The slot needs this wrapper for the same reason osapi_mem_free does, and
-; went without it: mem_regrow's fence is `cmp [si+MC_OWN], bx`, and nothing
+; went without it: mem_regrow's fence is `cmp [ss:si+MC_OWN], bx`, and nothing
 ; put an owner in BX. OSAPI_XSTUB stamps ES from the caller's DS and stops
 ; there, so what the fence actually compared was whatever the package left in
 ; BX - a size, a loop counter - against an owner segment. It never matched,
@@ -1168,7 +1168,7 @@ osapi_cm_caps:
     xor bx, bx                  ; BL = free claim records (main: free
     mov si, mem_tab             ; block-table entries)
 .rec:
-    cmp word [si+MC_SEG], 0
+    cmp word [ss:si+MC_SEG], 0
     jne .used
     inc bx
 .used:
@@ -1214,11 +1214,11 @@ mem_own:
     mov si, mem_tab
     mov cx, MEM_MAX
 .scan:
-    cmp [si+MC_SEG], bx         ; a claim that starts exactly here...
+    cmp [ss:si+MC_SEG], bx         ; a claim that starts exactly here...
     jne .next
-    cmp word [si+MC_OWN], INST_MAX   ; ...owned by an instance slot: a
+    cmp word [ss:si+MC_OWN], INST_MAX   ; ...owned by an instance slot: a
     jb .yes                          ; PACKAGE's region...
-    cmp word [si+MC_OWN], MEM_K_DRV  ; ...or by the driver tag: a DRIVER's
+    cmp word [ss:si+MC_OWN], MEM_K_DRV  ; ...or by the driver tag: a DRIVER's
     je .yes                          ; image, which is the same kind of thing
                                      ; and the same kind of caller. Without
                                      ; this a driver cannot claim the bulk
@@ -1239,9 +1239,17 @@ mem_own:
     ret
 
 ; -----------------------------------------------------------------------------
+section .lowbss                 ; LOW_SEG (SPEC.md 2.1). The claim map is
+                                ; scanned through a pointer and never
+                                ; addressed by name outside this module, so it
+                                ; costs one ss: prefix per field and nothing in
+                                ; the kernel's own 64KB segment - which since
+                                ; hard-disk support is the binding guard
+mem_tab:  resb MEM_MAX * MC_SIZE  ; the claim map (layout above)
+
 section .bss
 
-mem_tab:  resb MEM_MAX * MC_SIZE  ; the claim map (layout above)
+
 mem_dir:  resw 1                  ; 0 = mem_claim (bottom up), 1 = mem_claim_hi
                                   ; (top down, a package's region). A word so
                                   ; the entries can stage it in a register and

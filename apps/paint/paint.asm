@@ -1073,11 +1073,13 @@ pt_bmp_hdr:
 pt_font_init:
     push ax
     push cx
-    push si
-    call OSAPI_FONT_GLYPHS          ; SI = the table's offset in KERNEL_SEG,
-    mov [pt_foff], si               ; AL = the first code it covers (32)
-    mov word [pt_fseg], KERNEL_SEG
+    push dx                         ; the slot answers the table's SEGMENT in
+    push si                         ; DX now, and this proc preserves it
+    call OSAPI_FONT_GLYPHS          ; DX:SI = the table, AL = the first code
+    mov [pt_foff], si               ; it covers (32). The SEGMENT comes from
+    mov [pt_fseg], dx               ; the call now - it is not KERNEL_SEG
     pop si
+    pop dx
     pop cx
     pop ax
     ret

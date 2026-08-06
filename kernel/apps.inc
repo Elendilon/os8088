@@ -71,21 +71,21 @@ app_about_v2:   db 'CGA - 640x200 - mono', 0
 ; ---- app_clock_kinit - fresh Clock: 00:00:00, accumulator seeded now ---------
 app_clock_kinit:
     push ax
-    mov byte [di+CLK_H], 0
-    mov byte [di+CLK_M], 0
-    mov byte [di+CLK_S], 0
+    mov byte [ss:di+CLK_H], 0
+    mov byte [ss:di+CLK_M], 0
+    mov byte [ss:di+CLK_S], 0
     mov ax, [ticks]
-    mov [di+CLK_LAST], ax
-    mov word [di+CLK_ACC], 0
+    mov [ss:di+CLK_LAST], ax
+    mov word [ss:di+CLK_ACC], 0
     pop ax
     ret
 
 ; ---- app_bounce_kinit - fresh Bounce: ball at (4,4), velocity (3,2) ----------
 app_bounce_kinit:
-    mov word [di+BAL_X], 4
-    mov word [di+BAL_Y], 4
-    mov word [di+BAL_VX], 3
-    mov word [di+BAL_VY], 2
+    mov word [ss:di+BAL_X], 4
+    mov word [ss:di+BAL_Y], 4
+    mov word [ss:di+BAL_VX], 3
+    mov word [ss:di+BAL_VY], 2
     ret
 
 ; =============================================================================
@@ -192,37 +192,37 @@ app_clock_task:
     ; --- time-keeping, every iteration ---
     mov ax, [ticks]
     mov dx, ax
-    sub ax, [si+CLK_LAST]       ; delta, safe across the 65536 wrap
-    mov [si+CLK_LAST], dx
+    sub ax, [ss:si+CLK_LAST]       ; delta, safe across the 65536 wrap
+    mov [ss:si+CLK_LAST], dx
     mov dx, 10
     mul dx                      ; DX:AX = delta * 10 (tenths of a tick) - keep
-    add ax, [si+CLK_ACC]        ; the high half: one long gfx_lock starvation
+    add ax, [ss:si+CLK_ACC]        ; the high half: one long gfx_lock starvation
     adc dx, 0                   ; (a held-open menu) can owe > 65535 tenths
     mov cx, 182
     div cx                      ; AX = whole seconds owed, DX = leftover
-    mov [si+CLK_ACC], dx        ; (quotient <= 3602, so DIV cannot fault)
+    mov [ss:si+CLK_ACC], dx        ; (quotient <= 3602, so DIV cannot fault)
     mov cx, ax
 .adv:
     jcxz .draw
     dec cx
-    mov al, [si+CLK_S]          ; + 1 second, with carries
+    mov al, [ss:si+CLK_S]          ; + 1 second, with carries
     inc al
-    mov [si+CLK_S], al
+    mov [ss:si+CLK_S], al
     cmp al, 60
     jb .adv
-    mov byte [si+CLK_S], 0
-    mov al, [si+CLK_M]
+    mov byte [ss:si+CLK_S], 0
+    mov al, [ss:si+CLK_M]
     inc al
-    mov [si+CLK_M], al
+    mov [ss:si+CLK_M], al
     cmp al, 60
     jb .adv
-    mov byte [si+CLK_M], 0
-    mov al, [si+CLK_H]
+    mov byte [ss:si+CLK_M], 0
+    mov al, [ss:si+CLK_H]
     inc al
-    mov [si+CLK_H], al
+    mov [ss:si+CLK_H], al
     cmp al, 24
     jb .adv
-    mov byte [si+CLK_H], 0
+    mov byte [ss:si+CLK_H], 0
     jmp .adv
 
     ; --- drawing, only when the window can actually be seen ---
@@ -317,19 +317,19 @@ app_clk_pos:
 ; -----------------------------------------------------------------------------
 app_clk_render:
     push si
-    mov al, [di+CLK_H]
+    mov al, [ss:di+CLK_H]
     aam                         ; AH = tens, AL = ones
     add ax, 0x3030              ; both to ASCII, leading zero for free
     mov [app_clk_str], ah
     mov [app_clk_str+1], al
     mov byte [app_clk_str+2], ':'
-    mov al, [di+CLK_M]
+    mov al, [ss:di+CLK_M]
     aam
     add ax, 0x3030
     mov [app_clk_str+3], ah
     mov [app_clk_str+4], al
     mov byte [app_clk_str+5], ':'
-    mov al, [di+CLK_S]
+    mov al, [ss:di+CLK_S]
     aam
     add ax, 0x3030
     mov [app_clk_str+6], ah
@@ -448,33 +448,33 @@ app_bounce_task:
 ; -----------------------------------------------------------------------------
 app_ball_step:
     push ax
-    mov ax, [si+BAL_X]          ; step + bounce, x axis
-    add ax, [si+BAL_VX]
+    mov ax, [ss:si+BAL_X]          ; step + bounce, x axis
+    add ax, [ss:si+BAL_VX]
     jns .xhigh
     mov ax, 0                   ; hit the left wall
-    neg word [si+BAL_VX]
+    neg word [ss:si+BAL_VX]
     jmp short .xdone
 .xhigh:
     cmp ax, APP_BALL_XMAX
     jle .xdone
     mov ax, APP_BALL_XMAX       ; hit the right wall
-    neg word [si+BAL_VX]
+    neg word [ss:si+BAL_VX]
 .xdone:
-    mov [si+BAL_X], ax
+    mov [ss:si+BAL_X], ax
 
-    mov ax, [si+BAL_Y]          ; step + bounce, y axis
-    add ax, [si+BAL_VY]
+    mov ax, [ss:si+BAL_Y]          ; step + bounce, y axis
+    add ax, [ss:si+BAL_VY]
     jns .yhigh
     mov ax, 0                   ; hit the top
-    neg word [si+BAL_VY]
+    neg word [ss:si+BAL_VY]
     jmp short .ydone
 .yhigh:
     cmp ax, APP_BALL_YMAX
     jle .ydone
     mov ax, APP_BALL_YMAX       ; hit the bottom
-    neg word [si+BAL_VY]
+    neg word [ss:si+BAL_VY]
 .ydone:
-    mov [si+BAL_Y], ax
+    mov [ss:si+BAL_Y], ax
     pop ax
     ret
 
@@ -513,8 +513,8 @@ app_ball_fill:
     push dx
 
     call wm_content             ; AX = content left, DX = content top
-    add ax, [di+BAL_X]          ; AX = x1
-    add dx, [di+BAL_Y]
+    add ax, [ss:di+BAL_X]          ; AX = x1
+    add dx, [ss:di+BAL_Y]
     mov bx, dx                  ; BX = y1
     mov cx, ax
     add cx, 7                   ; CX = x2
@@ -528,11 +528,18 @@ app_ball_fill:
     ret
 
 ; -----------------------------------------------------------------------------
+section .lowbss                 ; LOW_SEG (SPEC.md 2.1): both state pools are
+                                ; walked through a POINTER the instance record
+                                ; hands over, never addressed by name, so they
+                                ; cost one ss: prefix per access and nothing in
+                                ; the kernel's own 64KB segment. SS is LOW_SEG
+                                ; from kmain onwards and never changes, so the
+                                ; prefix needs no setup and cannot be clobbered
+app_clk_pool:   resb 80         ; 10 x 8: CLK_H/M/S + CLK_LAST + CLK_ACC
+app_ball_pool:  resb 80         ; 10 x 8: BAL_X/Y/VX/VY
+
 section .bss
 
-app_clk_pool:   resb 80         ; 10 x 8: CLK_H/M/S + CLK_LAST + CLK_ACC
 app_clk_str:    resb 9          ; "HH:MM:SS",0 scratch (drawn under the lock)
-
-app_ball_pool:  resb 80         ; 10 x 8: BAL_X/Y/VX/VY
 
 section .text
