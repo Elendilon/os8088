@@ -1197,16 +1197,22 @@ disk_mount:
     jne .h_zero
     cmp byte [dsk_ent+2], 3         ; format version (SPEC.md 20.2)
     jne .h_zero
-    test byte [dsk_ent+3], 1        ; embedded-icon flag
-    jz .h_zero
-    mov si, dsk_secbuf+32       ; the icon body, out of the sector buffer
-    mov ax, dx
-    call dsk_put_icon           ; LOW_SEG:SI -> the listing's slot AX
+    mov al, [dsk_ent+3]             ; BANK the header flags here. dsk_get_dir
+    mov [assoc_hflags], al          ; below re-stages the DIRECTORY entry over
+                                    ; dsk_ent, so [dsk_ent+3] stops being the
+                                    ; header's flags and becomes the fourth
+                                    ; character of the file's NAME
+    test al, 1                      ; embedded-icon flag
+    jz .h_noicon                ; ...and an ICONLESS package still gets the
+    mov si, dsk_secbuf+32       ; rest of this: its header may DECLARE
+    mov ax, dx                  ; extensions (SPEC.md 54.6), and hanging that
+    call dsk_put_icon           ; off the icon flag skipped precisely the
+.h_noicon:                      ; case the declaration ships on first
     mov ax, dx                  ; the NAME again - the header staged above
     call dsk_get_dir            ; overwrote dsk_ent's copy of it
-    call assoc_note_app         ; this program is HERE, and looks like THIS
-    jmp .h_next                 ; (SPEC.md 54.3) - no extra I/O: the sector
-                                ; it reduces is the one just read
+    call assoc_note_app         ; this program is HERE, declares THIS, and
+    jmp .h_next                 ; looks like THAT (SPEC.md 54.3) - no extra
+                                ; I/O: the sector is the one just read
 
 .h_folder:                      ; every folder gets the same built-in body.
     mov si, dsk_folder_ico      ; The one icon not harvested off the disk,

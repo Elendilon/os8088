@@ -459,6 +459,24 @@ $(BUILD)/big.dat: Makefile | $(BUILD)
 $(BUILD)/filetest.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/filetest.o88 $(BUILD)/big.dat
 
+# assoctest: the SPEC.md 54 gate. Its own scratch image, and a TEST.AST for it
+# to be opened WITH - the point of the gate is what happens on a document
+# double-click, so the fixture is half the test:
+#   make test TESTAPPS=build/assoctest.img     then double-click TEST.AST
+# Launching ASSOCTEST.O88 by hand is the control: rows 1-4 read '-'.
+$(BUILD)/assoctest.bin: tests/assoctest/assoctest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/assoctest/assoctest.asm
+	@echo "assoctest: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/asstest.o88: $(BUILD)/assoctest.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/assoctest.bin -o $@
+
+$(BUILD)/test.ast: Makefile | $(BUILD)
+	printf 'os8088 association gate fixture\n' > $@
+
+$(BUILD)/assoctest.img: $(BUILD)/asstest.o88 $(BUILD)/test.ast tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/asstest.o88 $(BUILD)/test.ast
+
 # The same package on a legally fragmented volume: --scramble interleaves the
 # chains, so the write path's allocator and the free/replace paths meet holes
 # rather than a clean run of clusters. BIG.DAT rides this image too - checks

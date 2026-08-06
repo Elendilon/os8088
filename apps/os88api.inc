@@ -1079,6 +1079,42 @@ WT_SIZE    equ 16
 %endmacro
 
 ; -----------------------------------------------------------------------------
+; OS88_ASSOC16 / OS88_ASSOC16_END - bracket the association block (SPEC.md
+; 54.6). Only valid when OS88_HEADER was given flags bit 1, and it goes
+; IMMEDIATELY after the icon (offset 96) or, with no icon, immediately after
+; the header (offset 32). Between the two macros write a count byte and up to
+; five 3-byte extensions, uppercase and space-padded - OS88_ASSOC_EXT lays one
+; out. The block is a fixed 16 bytes and the macros assert its start and end,
+; so a miscounted db fails at ASSEMBLY rather than at mount.
+;
+; Declaring costs nothing at runtime: the mount's icon harvest already reads
+; this sector, so a document beside your program opens on the FIRST
+; double-click, with no prior run and no search.
+; -----------------------------------------------------------------------------
+%macro OS88_ASSOC16 0
+    %if ($ - $$) != 96 && ($ - $$) != 32
+        %error "OS88_ASSOC16 must sit at offset 96 (with an icon) or 32 (without)"
+    %endif
+    %assign OS88_ASSOC_BASE ($ - $$)
+%endmacro
+
+%macro OS88_ASSOC_EXT 1
+    %strlen %%xl %1
+    %if %%xl > 3
+        %error "OS88_ASSOC_EXT: an extension is at most 3 characters"
+    %endif
+    db %1
+    times 3 - %%xl db ' '
+%endmacro
+
+%macro OS88_ASSOC16_END 0
+    %if ($ - $$) > OS88_ASSOC_BASE + 16
+        %error "the association block is 16 bytes: a count byte and up to five extensions"
+    %endif
+    times OS88_ASSOC_BASE + 16 - ($ - $$) db 0
+%endmacro
+
+; -----------------------------------------------------------------------------
 ; OS88_ICON16 / OS88_ICON16_END - bracket the embedded 16x16 icon (SPEC.md
 ; 20.2/20.5). Only valid when OS88_HEADER was given flags bit 0. The author
 ; writes exactly 32 hand-authored dw rows between the two macros: 16 mask

@@ -16109,3 +16109,88 @@ bare pages, and they are right.
 Because the glyph is cached in the app slot rather than resolved on demand,
 **the icons survive the disk leaving the drive**: browse `APPS/` once, swap to
 a documents floppy, and every `.MOD` there still carries Tracker's mark.
+
+### 54.5 The API: the app PULLS its document, and may claim an extension
+
+Two cells, **appended past the last one**, so no `.o88` is invalidated
+(§20.8 rule 4).
+
+| slot | contract |
+|---|---|
+| `OSAPI_ARG_FILE` **0x02E8** | no inputs. Out CF=1 = launched empty, the ordinary case; CF=0 with SI → the document's NUL 8.3 name **in the kernel segment** (read it through ES, which is `KERNEL_SEG` on entry to every package proc — §20.2), DX = the directory cluster it lives in, BL = its volume. **READ-AND-CLEAR.** |
+| `OSAPI_ASSOC_SET` **0x02F0** | an **X stub**. ES:SI → 3 extension bytes then 8 stem bytes, both space-padded (`OS88_ASSOC` lays it out). Out CF=1 = the tables are full and nothing was stored. |
+
+**DX and BL are exactly the pair `OSAPI_FILE_HERE` answers and
+`OSAPI_FILE_GOTO` takes**, so the whole of accepting a document is: copy the
+name, GOTO, READ — with slots the app already had. No new file plumbing.
+
+**Pull, not push, and that is forced rather than preferred.** `ld_run_body`
+reads the program's image out of the *program's* directory and far-calls its
+entry as one unit, so the kernel cannot be standing in the document's
+directory when that entry runs. Handing over the locator moves the one
+`dsk_chdir` to where it can happen. It is also why there is no new callback
+pointer: the instance record is **full** at 32 bytes (§29) and growing the
+window record is a `WIN_SIZE` stride change that has broken this tree before.
+
+**Read-and-clear is what makes two open documents independent.** The first
+proc to ask gets it and the word is spent, so an instance launched later — by
+any route — can never inherit one. A second document therefore opens a
+**second instance**, which is what the pull model does by construction:
+replacing an open document would destroy work nobody asked to lose, and no
+package in this tree holds two at once. No cap applies — `inst_kinds`' caps
+are built-in kinds only, so package instances are bounded by `INST_MAX` and
+the heap, and past either the existing `LD_ENOMEM` is an honest answer.
+
+**The caller supplies its own stem** because the kernel cannot: `I_NAME` holds
+the 16-byte *header* name (`SOLITAIRE`), not the 8.3 file name (`SOLITAIR`),
+and nothing in the instance record records where a package was loaded from. A
+program claiming four extensions **reuses one app slot**, not four.
+
+There is deliberately **no ownership model** — "take over an existing one" is
+the ask, so a matching extension is repointed. Registering grants nothing: the
+worst outcome is that the wrong program opens a file. A runtime claim sets
+**`ASSOC_STICKY`** (bit 7 of the ext row's index byte, free because 12 apps
+need four bits), which is what stops §54.6's declaration taking it back.
+
+### 54.6 A package may DECLARE its extensions — and it is not a version bump
+
+**Flags bit 1** says a **16-byte association block** follows the icon (offset
+96) or, with no icon, the header (offset 32): a count byte and up to five
+3-byte extensions, uppercase and space-padded. `OS88_ASSOC16` /
+`OS88_ASSOC_EXT` / `OS88_ASSOC16_END` bracket it and assert both offsets, so a
+miscounted `db` fails at assembly rather than at mount.
+
+**The format version stays 3.** An old kernel loading a new package works —
+everything it reads is unmoved (magic, flags, the dispatcher at 12, the name
+at 16..31, the icon at a fixed 32..95) and `LD_H_ENTRY` is absolute, so where
+the code starts is *told*, not derived; the block is inert bytes in an image
+loaded whole. A new kernel loading an old package works because the bit is
+clear. Nothing is invalidated, which matters because §20.8 rule 4 exists
+precisely to avoid costing every package at once.
+
+`tools/os88pkg.py` is the gate: it allows bit 1, extends `entry_min` by 16,
+and validates the block — count ≤ 5, printable and uppercase, and **`O88`
+refused**, since a package is never opened through an association.
+
+**What it buys is the case that motivated it.** The mount's harvest already
+reads every type-1 file's first sector, so a folder holding `WIDGET.O88` *and*
+`README.WGT` teaches the OS the extension, the glyph and the location in that
+one existing read. The document opens on the **first** double-click — no prior
+run, no search. The program must be **seen**, which browsing does; it no
+longer has to be **run**.
+
+Two traps, both of which bit during implementation:
+
+- **The declaration must not hang off the icon flag.** An iconless package is
+  precisely the case the block ships on first, and gating the parse on bit 0
+  skipped it entirely. Pass A now notes every valid v3 header, icon or not.
+- **The header flags must be banked before `dsk_get_dir` re-stages the
+  directory entry.** The harvest copies the header into `dsk_ent`, then reads
+  the *name* back out of `dsk_ent`, so `[dsk_ent+3]` stops being the flags and
+  becomes the fourth character of the file's name. `[assoc_hflags]` holds it
+  across that.
+
+`tests/assoctest` is the gate package (docs/TESTING.md): `make test
+TESTAPPS=build/assoctest.img`, then double-click **`TEST.AST`**, not the
+program. Six rows, all of which must read PASS. Launching `ASSTEST.O88` by
+hand is the control — rows 1–4 read `-` and that is correct.

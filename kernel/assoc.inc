@@ -31,6 +31,9 @@ ASSOC_STICKY equ 0x80           ; ext slot bit 7: claimed by a RUNTIME
                                 ; registration, so a header declaration
                                 ; (SPEC.md 54.5) may not take it back
 ASSOC_IX     equ 0x7F           ; ...and the index under it
+ASSOC_DECLMAX equ 5             ; extensions one header block can declare
+                                ; (SPEC.md 54.6) - the block is 16 bytes: a
+                                ; count and five 3-byte extensions
 
 ; The document page: the 16x16 body every document icon is built on, and the
 ; second icon in this kernel that is not harvested off a disk (dsk_folder_ico
@@ -431,6 +434,79 @@ assoc_docicon:
     ret
 
 ; -----------------------------------------------------------------------------
+; assoc_declare - take the extensions a package's header declares (SPEC.md 54.6)
+; in:  AL = its app slot; ES = LOW_SEG with dsk_secbuf holding its first
+;      sector, header validated as a v3 .o88 whose flags bit 1 is set
+; out: nothing (all registers preserved)
+;
+; The block is a count byte and up to five 3-byte extensions, and the harvest
+; ALREADY READ this sector - so a folder holding a program and its documents
+; teaches the OS the extension, the glyph and the location in one existing
+; read. The program still has to be SEEN; it no longer has to be run.
+;
+; A declaration may NOT take an extension a runtime registration claimed
+; (ASSOC_STICKY). It arrives on every mount of the folder, so without that
+; guard it would silently undo the user's own choice every time they browsed.
+; -----------------------------------------------------------------------------
+assoc_declare:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov dl, al                  ; DL = the app slot
+    mov si, dsk_secbuf + 32     ; the block: after the header, and after the
+    test byte [assoc_hflags], 1 ; icon when there is one
+    jz .based
+    add si, 64
+.based:
+    mov cl, [es:si]             ; the count
+    cmp cl, ASSOC_DECLMAX
+    ja .out                     ; a corrupt count declares nothing
+    or cl, cl
+    jz .out
+    xor ch, ch
+    inc si
+.one:
+    push cx
+    mov di, assoc_extb          ; stage it: everything below reads through DS
+    mov al, [es:si]
+    mov [di], al
+    mov al, [es:si+1]
+    mov [di+1], al
+    mov al, [es:si+2]
+    mov [di+2], al
+    add si, 3
+    push si
+    mov si, assoc_extb
+    cmp byte [si], ' '          ; a blank extension names nothing
+    jbe .next
+    call assoc_find             ; already claimed?
+    jc .fresh
+    call assoc_ext_row          ; BX = that row
+    test byte [bx+3], ASSOC_STICKY
+    jnz .next                   ; a runtime claim outranks a declaration
+    jmp short .point
+.fresh:
+    call assoc_ext_new
+    jc .next                    ; the table is full: the rest are dropped
+.point:
+    mov [bx+3], dl              ; ...pointed here, sticky bit CLEAR
+.next:
+    pop si
+    pop cx
+    loop .one
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; assoc_note_app - record where a program is, and what it looks like
 ; in:  SI -> its staged 32-byte entry; ES = LOW_SEG with dsk_secbuf holding
 ;      its first sector, header validated as a v3 .o88 WITH an icon
@@ -452,7 +528,18 @@ assoc_note_app:
     mov si, di
     call assoc_app_of
     mov si, dx
-    jc .out                     ; not a program any association names
+    jnc .haveslot
+    test byte [assoc_hflags], 2 ; no slot yet - but a package that DECLARES
+    jz .out                     ; extensions is asking for one (SPEC.md 54.6)
+    call assoc_app_new          ; (assoc_stemb still holds its stem)
+    jc .out                     ; the table is full: nothing to record
+.haveslot:
+    push ax
+    test byte [assoc_hflags], 2
+    jz .nodecl
+    call assoc_declare          ; AL = the slot
+.nodecl:
+    pop ax
     mov bl, al
     xor bh, bh
     mov cl, [disk_drive]
@@ -462,12 +549,14 @@ assoc_note_app:
     mov ax, [dsk_cwd]
     mov [assoc_clus+bx], ax
     pop bx
-    mov cl, 3
-    shl bx, cl                  ; slot * 8
+    test byte [assoc_hflags], 1 ; ...and what it looks like, IF it ships an
+    jz .out                     ; icon at all - an iconless package leaves
+    mov cl, 3                   ; the glyph unresolved and its documents draw
+    shl bx, cl                  ; the bare page, which is honest
     mov di, assoc_glyph
     add di, bx
-    mov si, dsk_secbuf+64       ; ...and what it looks like: the DATA plane
-    call assoc_reduce           ; of the embedded icon, ES = LOW_SEG
+    mov si, dsk_secbuf+64       ; the DATA plane of the embedded icon
+    call assoc_reduce           ; ES = LOW_SEG, per SPEC.md 2.1
 .out:
     pop di
     pop si
@@ -478,6 +567,9 @@ assoc_note_app:
     ret
 
 section .bss
+assoc_hflags: resb 1            ; the header flags of the package the harvest
+                                ; is looking at, banked because dsk_get_dir
+                                ; re-stages the directory entry over dsk_ent
 assoc_extb:  resb 3             ; one staged extension (assoc_ext_of)
 assoc_stemb: resb 8             ; one staged stem (assoc_stem_of)
 section .text

@@ -364,6 +364,33 @@ back into `all` — which is exactly the arrangement this folder replaced.
 
 ---
 
+### `tests/assoctest` — the file type association gate (SPEC.md 54)
+
+```
+make test TESTAPPS=build/assoctest.img
+```
+
+...then **double-click `TEST.AST`, not `ASSTEST.O88`**. Every row is about
+what happens when a *document* is opened, so launching the program by hand is
+the control: rows 1-4 read `-` and that is correct, not a failure.
+
+Six rows, all of which must read **PASS**:
+
+1. the **header declaration** (§54.6) routed the document here - nothing was
+   registered at runtime, so only a rule in this package's header can have.
+   It ships **no icon**, so its block sits at offset 32 rather than 96, which
+   is the layout arithmetic most likely to be got wrong
+2. `OSAPI_ARG_FILE` handed over a name, and it is `TEST.AST`
+3. the locator works - `FILE_GOTO` then `FILE_READ` returns bytes
+4. `ARG_FILE` is **read-and-clear** - the second ask reports nothing, which is
+   what stops a later instance inheriting a document
+5. `OSAPI_ASSOC_SET` takes a registration
+6. ...and **refuses honestly** when the table fills, rather than corrupting it
+
+Before the double-click, the listing itself is half the test: `TEST.AST` must
+already carry a **document page icon**, and a *bare* one, because the program
+ships no glyph to inset.
+
 ## Modelling the old machine from a fast one
 
 Everything above is about *where* to run a test. This is about the systematic
