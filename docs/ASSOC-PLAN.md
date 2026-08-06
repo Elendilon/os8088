@@ -111,10 +111,10 @@ dog-eared page frame in `disk.inc`'s `.text` (the `dsk_folder_ico` precedent —
 "the one icon not harvested off the disk"), with the app's glyph reduced to
 8×8 and OR'd into the page's cleared white interior.
 
-| option | RAM cached per association | verdict |
+| option | RAM cached per **app** (§2.2) | verdict |
 |---|---|---|
 | **page frame + 8×8 inset** | **8 bytes** | recommended |
-| app's full 16×16 body + corner badge | 64 bytes | **rejected on budget**: 8 associations = 512 bytes, a third of everything left |
+| app's full 16×16 body + corner badge | 64 bytes | **rejected on budget**: 12 apps = 768 bytes, half of everything left |
 | page frame + 3 letters of the extension | 0 bytes | rejected: the ask was the program's icon |
 | a diagonal or overlay across the app's icon | 64 bytes | rejected: same cost as the badge, and it destroys the glyph it is marking on a 1bpp screen |
 
@@ -132,16 +132,50 @@ Only the icon's **data** plane is reduced, not its mask: the glyph lands inside
 a page interior the frame has already cleared to white, so "ink" is the whole
 of what the inset means. That is what makes the cache 8 bytes and not 16.
 
-### 2.2 The row: extension + the app's 8.3 stem — **recommended**
+### 2.2 Two tables, not one: extensions point at apps — **recommended**
+
+A flat row of extension + stem + glyph is the obvious layout and it is the
+wrong one, because **the glyph belongs to the app and not to the extension**.
+`BMP` and `GIF` both mean Paint, and a flat table caches Paint's glyph twice.
+Normalising costs one indirection and buys roughly triple the associations per
+byte:
 
 ```
-+0   3   extension, uppercase, space-padded      'BMP'
-+3   8   the app's 8.3 STEM, space-padded        'PAINT   '   ('.O88' implied)
-+11  1   flags: bit0 = row live, bit1 = glyph resolved
-+12  8   the mini glyph, 8x8, one byte a row, bit 7 leftmost
-         ------
-         20 bytes; 8 rows = 160 bytes of .text
+app slot - 16 bytes, indexed by shl 4
+  +0   8   the app's 8.3 STEM, space-padded    'PAINT   '   ('.O88' implied)
+  +8   8   the mini glyph, 8x8, one byte a row, bit 7 leftmost
+
+ext slot - 4 bytes, indexed by shl 2
+  +0   3   extension, uppercase, space-padded  'BMP'
+  +3   1   app slot index
 ```
+
+Both strides are powers of two on purpose: an 8086 has no `shl reg, imm` past
+1, so a shift through CL is still far cheaper than the `mul` a 17- or 20-byte
+stride would force, and the harvest does this lookup once per listed file.
+
+**No flags byte in either.** "Slot free" is `stem[0] == 0` / `ext[0] == 0` — a
+sanitized display name's bytes are 0x21..0x7E and can never be 0 (SPEC.md
+§19.1) — and "glyph unresolved" is the 8 bytes ORing to zero, which is exactly
+the all-zero sentinel `fm_draw_icon16` already uses on `disk_icons`. An icon
+whose reduction is genuinely blank is indistinguishable from an unresolved one
+and draws the bare page, which is the correct answer for it anyway.
+
+Sizing is two constants, and the recommendation is the middle row:
+
+| apps × exts | bytes | shipped defaults leave |
+|---|---|---|
+| 8 × 16 | 192 | 4 apps, 11 exts free |
+| **12 × 24** | **288** | **8 apps, 19 exts free** |
+| 16 × 32 | 384 | 12 apps, 27 exts free |
+
+For comparison, the flat 20-byte row this replaces was 160 bytes for **8**
+associations total. 12 × 24 is +128 bytes for 24 across 12 distinct programs.
+
+One known limitation, not worth code in v1: if every extension pointing at an
+app is taken over, that app's slot leaks. With 12 slots and no expected churn
+that is acceptable; a compaction sweep on a full-table registration is ~30
+bytes if it ever bites.
 
 Rejected: a **(drive, cluster) locator**. A cluster cannot be written at build
 time, does not survive a disk rebuild, and does not survive the floppy being
@@ -204,12 +238,14 @@ instance record records where the package was loaded from. The app knows both
 at build time; an `OS88_ASSOC 'BMP','PAINT'` macro makes it one line.
 
 There is deliberately **no ownership model** — "take over an existing one" was
-the ask, so a matching extension overwrites the row. Registering an association
-grants nothing: the worst outcome is that the wrong program opens a file.
+the ask, so a matching extension is repointed at the caller's app slot.
+Registering an association grants nothing: the worst outcome is that the wrong
+program opens a file.
 
-Registration also fills the row's glyph on the spot, out of the caller's own
-header at offset 32 (SPEC.md §20.2), which the kernel can read through the
-caller's segment.
+Registration takes an app slot (or reuses the one already naming that stem —
+which is what keeps a program registering four extensions to one slot) and
+fills its glyph on the spot, out of the caller's own header at offset 32
+(SPEC.md §20.2), which the kernel can read through the caller's segment.
 
 ### 2.5 The glyph is filled opportunistically, three ways, none of them I/O
 
@@ -256,7 +292,8 @@ footprint. It couples two modules through one buffer, so it is worth a comment
 naming the invariant; I would take the saving.
 
 Shipped defaults: `BMP`→PAINT, `GIF`→PAINT, `TXT`→NOTEPAD, `MOD`→TRACKER,
-`MD`→ARTFUL. That is 5 of 8 rows, leaving 3 for runtime.
+`MD`→ARTFUL. Five extensions across four apps, leaving 19 extension slots and
+8 app slots free at the recommended 12 × 24.
 
 **Verify:** boot `make test`, open the apps disk, browse `APPS/` (which lights
 the glyphs), then look at a folder holding a `.BMP` and a `.TXT`. Crop and zoom
@@ -305,12 +342,14 @@ so no existing `.o88` is invalidated (SPEC.md §20.8 rule 4).
   directly *because it is modal* (SPEC.md §38.2), so the icons are already
   there. Small, and genuinely the other half of "file save/load".
 - **Persistence in `SYSTEM.CFG`.** It is a keyed record file (SPEC.md §51.5)
-  and takes new keys, so this is mechanically easy — but 8 rows × 11 bytes
-  grows `CFG_NB` from 81 to ~169 and `CFG_FBUF` with it, which is ~90 bytes of
-  `.bss` on **every** machine for a feature most sessions never touch. I would
-  not take it in v1. If it is wanted, note that the glyph must not be
-  persisted (it re-resolves) and that write timing follows SPEC.md §31.8: on
-  panel close, never on registration.
+  and takes new keys, so this is mechanically easy — but the glyphs are the
+  only part of §2.2's tables that need not be persisted, so the key is
+  12 × 8 stems + 24 × 4 extensions = **192 bytes**, growing `CFG_NB` from 81
+  to 273 and `CFG_FBUF` with it. That is ~190 bytes of `.bss` on **every**
+  machine for a feature most sessions never touch, and it would take the
+  estimate in §8 past what is left. I would not take it in v1; if it is
+  wanted, the tables should shrink to pay for it, and write timing follows
+  SPEC.md §31.8 — on panel close, never on registration.
 - **A second document into a running app.** The pull model reaches a fresh
   instance only. Today a second document launches a second instance, and at an
   app's cap it fronts the running one and the document is dropped with a
@@ -332,9 +371,9 @@ Phase 2 is written.
 
 | item | section | est. bytes |
 |---|---|---|
-| the table, 8 × 20 | `.text` | 160 |
+| the two tables, 12 × 16 + 24 × 4 (§2.2) | `.text` | 288 |
 | the page frame body | `.text` | 64 |
-| `assoc_find` / `assoc_note_app` | `.text` | ~90 |
+| `assoc_find` / `assoc_note_app` | `.text` | ~110 |
 | `assoc_reduce` (majority 2×2) | `.text` | ~70 |
 | `assoc_compose` | `.text` | ~60 |
 | harvest pass B | `.text` | ~50 |
@@ -343,20 +382,23 @@ Phase 2 is written.
 | 2 API cells + the X stub | `.text` | ~40 |
 | notice strings | `.text` | ~40 |
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
-| **total** | | **~800** |
+| **total** | | **~950** |
 
-About half of what is left. That is affordable and it is not nothing, and per
+About 62% of what is left. That is affordable and it is not nothing, and per
 CLAUDE.md the decision to spend it belongs with whoever wants the feature —
 not with the build.
 
-Two levers if it comes out tight: drop the table to 6 rows (−40), and drop
-`GIF`/`MD` from the defaults so the shipped set is `BMP`/`TXT`/`MOD` with 3
-free rows.
+The lever if it comes out tight is the table sizing alone, and it is two
+constants: 8 × 16 gives back 96 bytes and still allows 16 associations —
+double the flat design this replaced. Phase 1 should be measured against the
+guard before Phase 2 is written.
 
 ## 9. Open questions
 
-1. **8 rows enough?** Five are spoken for by the shipped apps. 8 is the
-   proposal; 6 and 12 are both one constant.
+1. **Is 12 apps / 24 extensions the right cap?** Both are one constant each
+   (§2.2), and the byte cost is 16 and 4 respectively — 32 extensions is only
+   32 bytes more than 24. Five extensions across four apps are spoken for by
+   the shipped set.
 2. **Persistence?** Not proposed for v1 (§6, ~90 bytes of `.bss` on every
    machine). Say if a registration surviving a reboot is part of the ask.
 3. **Full icon + corner badge instead of the inset?** More recognisable,
