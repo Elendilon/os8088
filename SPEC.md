@@ -79,6 +79,15 @@ pre-empted background task, updating live while the user types or drags).
    `wm_`, `menu_`, `ui_`, `app_`, `inst_`, `dsk_`/`disk_`, `ld_`/`loader_`,
    `fm_`/`files_`, `ico_`/`icon_`, `desk_`, `dock_`, `tm_`, `cp_`, `snd_`,
    `opl_`, `sbl_`, `vid_`) or use NASM local labels (`.foo`).
+
+   **`snap` means window alignment and nothing else.** `wm_snap`, `WF_SNAP`,
+   `OSAPI_WM_SNAP` and `wm_dock_snap` all mean "move this window's origin
+   onto a boundary" (§11.94/§11.90). A consistent copy of a table taken under
+   `pushf`/`cli` is a **snapshot**, spelled out: `osapi_sys_snapshot`,
+   `osapi_claim_snapshot`, `clk_snapshot`. The two were one word apart for
+   exactly one commit, which is one longer than it should have been — a
+   reader who knows `wm_snap` reads `sys_snap` as "align something", and
+   these are the parts of the kernel where a wrong guess is expensive.
 6. Public drawing routines may assume the caller holds the **gfx lock**
    (§7) and that the cursor is hidden. They must not take the lock
    themselves.
@@ -302,50 +311,56 @@ point refuses.
 
 ### 2.5 The boot overlay — code that costs no memory at all
 
-Code that runs **once**, from `kmain`, and is never reachable again:
-`cpu_detect`, `cpu_a20_enable`, `xm_init`, `desk_init`, `snd_init`,
-`clk_init` and the whole of `clock.inc`'s probe ladder. It is assembled into
-a `.ovl` section that `-f bin` places at file offset `OVL_START` — the image
-rung — with its own addresses starting at zero, so the boot sector's **one
-contiguous read** lands it exactly at `FAT_SEG`.
+`section .ovl start=OVL_START vstart=0`, in the *same* assembly as the rest
+of the kernel. It holds code that runs **once**, from `kmain`, and is never
+called again: `cpu_detect`, `cpu_a20_enable`, `xm_init`, `desk_init`,
+`snd_init`, `clk_init` and the clock's whole probe-and-read ladder (§37.90).
 
-That is the trick: `FAT_SEG` is the 4,608-byte FAT window, and nothing
-touches it until `drv_boot` calls `disk_mount`, which is the last thing
-`kmain` does before the first paint. Every overlay entry runs before that, so
-the overlay is alive exactly as long as it is needed and is then written over
-by the volume's own FAT. **It costs no RAM, and none of it counts against
-guard 2.**
+**It lands on `FAT_SEG` and is then overwritten by the first mount.** That is
+the entire trick: the FAT window (§18.8) is not filled until a volume is
+mounted, which happens after `kmain` has finished with all of this, so the
+overlay's bytes are free real estate that the ladder already reserved. The
+`start=` is a *file* offset, not an address — it is the image rung — so NASM
+emits the space between `.text` and that rung as zeros and the boot sector's
+existing single contiguous read puts the overlay exactly where the ladder
+says `FAT_SEG` is. No second loop, no gap constant, and `KERNEL_SECTORS`
+still falls out of the file size. Expressing it as a section start is also
+what makes it non-circular: padding *inside* `.text` would grow
+`KTEXT_SIZE`, which grows `KIMG_PARA`, which grows the padding, and there is
+no fixed point, whereas `.ovl`'s own size is not a term in `OVL_START`.
 
-The contract, and all of it matters: `CS = FAT_SEG`, `DS = KERNEL_SEG`,
-`SS = LOW_SEG`. DS is the kernel's, so every reference to kernel data
-assembles and runs exactly as it did in `.text` — nothing to marshal, no `es:`
-prefixes, nothing rewritten, which is what makes moving a module here nearly
-free. The mirror image is the price: **the overlay may not reach its own
-labels through DS.** It has no data of its own today; anything added needs a
-`cs:` override and NASM will not warn.
+**The contract is CS = `FAT_SEG`, DS = `KERNEL_SEG`.** So a call *into* the
+overlay is a far call, a call *out* of it goes through a four-byte resident
+`ovw_*` shim (`call x` / `retf`), and every data reference is an ordinary
+near one against DS. `tools/os88ovlchk.py` runs before every assembly and
+fails the build on a near call that crosses a section with its own `vstart`
+— the one mistake this arrangement makes easy and the assembler will not
+catch.
 
-Calls out of the overlay into resident code must be **far**, so a resident
-routine an overlay entry needs gets a four-byte `call`/`retf` shim (`ovw_*`);
-calls the other way come through the `ovl_*` stubs, which is what lets every
-routine that moved keep its near `ret` and change in no other way.
-`tools/os88ovlchk.py` refuses a near call that crosses the boundary.
+Two guards bound it: the overlay must fit `FAT_PARA * 16`, and it must not
+be empty. `docs/KERNEL-MEMORY.md` is the maintained account, including how
+the clock's split was decided.
 
-### 2.6 The cold segment — resident, but out of the window
+### 2.6 Cold code — resident, but not in the segment
 
-Code that is needed all session but is never hot: the Control Panel. Same
-contract as the overlay — `CS = COLD_SEG`, `DS = KERNEL_SEG` — and the same
-four-byte far shims in both directions (`cw_*` resident-side, `cpf_*`
-cold-side). The difference is lifetime: this is not overwritten by anything,
-so it is a real rung on the ladder rather than a squatter.
+`section .cold start=COLD_START vstart=0`, same contract as the overlay —
+CS here, DS still `KERNEL_SEG` — and the same shim discipline, but **it does
+not go away**. It sits between the image rung and the FAT window, so it
+rides the same contiguous boot read, and it is live for the whole session.
 
-It sits **between the image and the FAT window**, and that placement is
-forced rather than chosen: it rides the same contiguous boot read, and
-anywhere above the stacks would need the loader to skip `.lowbss`, which is
-`nobits` and not in the file at all.
+What it buys is guard 2 and nothing else: cold code is inside
+`KERN_BUDGET`'s span (§15.1 guard 1) and outside the kernel's own 64KB
+segment, which since hard-disk support is the binding limit. The Control
+Panel's three code runs are what live there — a module that is large, cold
+enough that a far call per entry costs nothing measurable, and needed on
+exactly the machine where things are going wrong, so it must stay resident.
 
-What both sections buy is the same thing: guard 2 is `.text + .bss` inside
-one 64KB segment, it cannot be raised at any price, and code in `.ovl` or
-`.cold` is in neither.
+Calls out use four-byte `cw_*` shims; calls *in* use six-byte resident
+thunks (`call SEG:x` / `ret`), because `wm_pkgcall` sets DS from `W_SEG` and
+that is the wrong contract for cold code. This is **not** the retired
+`.fartext` (§33): that mechanism copied cold modules to a segment of their
+own at boot and needed a 10,752-byte reservation to hold a 5,455-byte blob.
+Nothing is copied here and nothing is reserved.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
@@ -422,7 +437,6 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/icons.inc`  | 1-bit icon format, draw routine, built-in library (§25) |
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
-| `kernel/taskmgr.inc`| Task Manager window: CPU load gauge + history graph, RAM readout, per-instance process list with CPU + memory (§28) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_` |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 
@@ -1165,7 +1179,7 @@ exactly why the mode is a separate byte tested after `sch_lock`.
 **Liveness (why cooperative mode is safe for the kernel, and what packages
 owe it).** Every wait loop the kernel owns already yields: `ui_task`'s idle
 pass (§13 step 4), `ui_drag`'s track loop and its linger loop (§13),
-`menu_track`'s poll loop (§12), the `gfx_lock` spin (§7), `tm_task`'s
+`menu_track`'s poll loop (§12), the `gfx_lock` spin (§7), the Task Manager's
 measurement spin (§28), and Clock/Bounce through `task_sleep` (§14). No
 built-in path depends on being pre-empted, and a worker task is invisible
 to every decision the tick makes — `sch_isr` tests `sch_lock`, `sch_coop`
@@ -1442,6 +1456,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_ptr2idx`   | in BX = win ptr (record-aligned); out AL = window index, AH = 0. Clobbers nothing else. The one public home of the `(ptr − wm_wins) / WIN_SIZE` idiom. |
 | `wm_obscured`  | in BX = win ptr; out CF=1 if any visible window above BX in z-order overlaps its frame rect. Result is only trustworthy while the caller holds the gfx lock — the UI task mutates `wm_zord`/window rects under it. Kept, but **no longer the right answer for a background painter**: it vetoes a whole frame for one covered pixel. Use `wm_clip_set` (§11.3). |
 | `wm_clip_set`  | in BX = win ptr; **caller holds the gfx lock**. Builds BX's visible region — its content rect less every visible window above it in `wm_zord`, drop shadows included — into the clip list, and arms clipping. out CF=1 the window is entirely invisible: nothing is armed, draw nothing this frame (also the answer when the region needs more than 16 rects). CF=0 armed. Preserves every register. The region is valid only until the next `gfx_unlock`, which clears it (§11.3). API slot 0x0170 (§20.3). |
+| `wm_clip_rect` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); **caller holds the gfx lock**. `wm_clip_set`'s arithmetic for a rect that belongs to no window: the seed is the caller's rect and the occluders are **every** visible window, because the thing under it is the DESKTOP and nothing is below that. out CF=1 the region needs more than 16 rects — nothing is armed and the caller must fall back to something unconditional; CF=0 armed, and **ZF=1 means the rect is wholly covered** (the list is empty, i.e. disarmed: draw nothing at all). Preserves every register. The two degradations are `wm_clip_set`'s, split apart because a caller can act on them differently — an overflow says nothing is *known*, an empty list is a *fact*. Kernel-internal; §26.2 is its consumer. |
 | `wm_clip_clear`| disarm clipping. Preserves every register. `gfx_unlock` already does this, so a painter only needs it to go back to drawing unclipped inside the same lock hold. API slot 0x0178 (§20.3). |
 | `wm_clip_test` | in AX = x1, BX = y1, CX = x2, DX = y2 (inclusive); out CF=0 the whole rect lies inside **one** clip fragment, or nothing is armed; CF=1 it does not. Preserves every register. This is the question `font_char` and `icon_draw16` ask themselves, exposed so a caller that **erases a rect and then draws glyphs into it** can ask it first — see the granularity rule in §11.3. API slot 0x0180 (§20.3). |
 
@@ -1581,6 +1596,14 @@ its occupied rect **including the 1px drop shadow**: (x, y) to (x+w, y+h)
 inclusive, exactly the extent `wm_obscured` has always tested against. Each
 subtraction replaces one rect with up to four fragments — above, below,
 left and right of the occluder.
+
+There are **three** builds and they differ only in what they seed and which
+occluders they subtract, which is why they share one `wm_clip_seed` and one
+`wm_clip_sub`: `wm_clip_set` (content rect, the windows above it in
+`wm_zord`), `wm_covered` (frame rect, same occluders, opposite reading of an
+empty result — §11.91), and `wm_clip_rect` (a bare screen rect, **every**
+visible window, because what is under it is the desktop and nothing is below
+that — §26.2).
 
 **Storage.** `wm_clip_tab`, 16 rects of {x1, y1, x2, y2} inclusive (128
 bytes of .bss), plus `wm_clip_n` — the live count, and **initialized data in
@@ -2852,14 +2875,14 @@ apply and mode set) → `bb_init` (§32 — the RAM probe
 must run after the mode set, which clears VRAM, and before the first
 drawing call) → `font_init` → `wm_init` →
 `inst_init` → `mouse_init` → `desk_init` → `files_init` → `loader_init` →
-`tm_init` → `snd_init` (§34.7 — publishes `snd_live` last) → gfx_lock →
+`snd_init` (§34.7 — publishes `snd_live` last) → gfx_lock →
 `wm_paint_all` → gfx_unlock → `cursor_show` → jump
 into `ui_task` (task 0 never returns). (`dock_init` runs right after
 `desk_init`.) **Clean boot**: no app instances exist — the first paint
 shows only the desktop, drive icons, the empty dock strip and menu bar;
 everything is launched from the menus (§13/§29). Include order:
 `instance.inc` right after `wm.inc`; `icons.inc`, `desk.inc`, `dock.inc`,
-`taskmgr.inc` and then `ctrl.inc` (§31) after `files.inc`; `clock.inc`
+`ctrl.inc` (§31) after `files.inc`; `clock.inc`
 (§37) right after `events.inc`, since it reads `[ticks]`;
 `farcall.inc` (§33) before all of them, since it defines the macros they use. The Control
 Panel has no init routine — it is task-less and stateless, so nothing runs
@@ -4623,6 +4646,10 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x0280 vol_mount     (X)
                                                 0x0288 vol_paint
                                                 0x0290 drv_cfg       (X)
+                                                0x0298 sys_snapshot
+                                                0x02A0 claim_snapshot
+                                                0x02A8 sys_kb
+                                                0x02B0 gfx_fill_pat  (X)
 ```
 
 **Every published slot keeps its number and contract**, on the rule that **a
@@ -4730,6 +4757,20 @@ Slot-specific contracts that are not simply their target routine's:
                          KB. The only honest number to size against — int
                          12h does not know what the kernel and the other
                          packages already hold.
+0x0298 sys_snapshot      in ES:DI = a SYS_SNAPSHOT_SIZE buffer; out AX =
+                         MAX_TASKS, BX = INST_MAX. The scheduler header
+                         then one record per instance, copied in ONE cli
+                         window (§20.9).
+0x02A0 claim_snapshot    in ES:DI = a CLAIM_SNAPSHOT_SIZE buffer; out AX =
+                         MEM_MAX. Every claim record: base segment (0 =
+                         free), paragraphs, owner (§50.2).
+0x02A8 sys_kb            in ES:DI = a SYSKB_SIZE buffer; every register
+                         preserved. The kernel's own footprint in KB
+                         broken into parts that sum to SK_KERN, then the
+                         heap's totals and the store above 1MB (§20.9).
+0x02B0 gfx_fill_pat      in AX/BX/CX/DX = the rect, SI = 8 pattern bytes
+                         in the CALLER's segment (§5). X — vga_pat_stage
+                         reads them through DS, so the stub stages them.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -5001,7 +5042,7 @@ Two teardown corollaries, both about not trading a crash for a leak:
    None of this is enforced.
 
 **Refusal is normal, not exceptional.** `MAX_TASKS` is 12 and the UI task,
-up to ten Clock/Bounce instances, `tm_task` and a transient SB refill/drain
+up to ten Clock/Bounce instances, the Task Manager's worker and a transient SB refill/drain
 task (§34.5) all draw from the same eleven dynamic slots, so CF=1 is an
 ordinary outcome. A package must degrade — stay a perfectly good task-less
 package, window, callbacks, menus and close box all working — and **should
@@ -5082,6 +5123,80 @@ without anyone noticing it was a rule.
 6. **No relocation, reintroduced under any name.** A change that seems to need
    a load-time fixup pass means the org-0, own-segment model is being violated
    somewhere else first. Fix that instead.
+
+### 20.9 Snapshots — a table at a time, into a buffer the caller owns
+
+Four cells (0x0298..0x02B0) exist for one reason: the Task Manager was the
+only built-in that could not be lifted out of the kernel, and every reason
+was the same reason. It read `sch_cycles`, `sch_tasks`, `sch_cur`,
+`inst_tab`, `mem_tab` and seven assembly-time constants of the memory ladder
+directly — because it was inside the kernel and could. Nothing else in the
+tree wanted any of that, so no slot had ever been written for it.
+
+Three of the four are **snapshots**, and the shape is deliberate: a whole
+table copied into a buffer the caller supplies through **ES:DI**, never a
+getter per record. The destination is the caller's own choice, exactly as
+`xm_copy` and `gfx_blit4` already do, so none of them needs an `X` stub.
+Each answers a **count** (`AX`, and `BX` for the second table in
+`sys_snapshot`), which is what lets a package built against an older SDK notice
+that a table has grown rather than walk off the end of its own buffer.
+
+| slot | fills | answers |
+|------|-------|---------|
+| 0x0298 `sys_snapshot`   | `SS_*` header + `INST_MAX` × `SSI_RECSZ` records | AX = `MAX_TASKS`, BX = `INST_MAX` |
+| 0x02A0 `claim_snapshot` | `MEM_MAX` × `CLS_RECSZ` records                  | AX = `MEM_MAX` |
+| 0x02A8 `sys_kb`     | the `SK_*` block, KB                             | — (everything preserved) |
+
+Three things about them are load-bearing.
+
+**`sys_snapshot` is ONE call, not two, and that is the atomicity rule.**
+`task_exit` frees an instance record inside the same IF=0 window that frees
+its task slot (§8). A reader that takes the scheduler half and the instance
+half separately can therefore see a slot live in one and gone in the other —
+and what that costs is not a wrong row for one frame. Both halves feed a
+per-interval *diff* of a running cycle counter (§8.1), so a torn pair bills
+a real slice to the wrong row and the error stays in the percentages until
+something else disturbs them. Silently, and only while something is closing.
+So the cell holds one `cli` window across both tables, names included; it is
+about 414 bytes of copy, under a millisecond on an 8088, and exactly as long
+as the window the in-kernel code held. **A caller must treat it as a
+twice-a-second call, not a per-frame one.**
+
+`SSI_KB` is the one field filled *outside* that window, and deliberately:
+it is a scan of the claim table per instance, which is not what the window
+protects and has no business running with interrupts off. The kernel fills
+it because the owner-word rule is the kernel's (§50.2) — a package's claims
+are stamped with the segment it runs in and a built-in's with its slot — and
+a reader outside cannot be expected to know which.
+
+**`claim_snapshot` takes no `cli`, and that is not an oversight.** A claim is
+published by a single word store (`MC_SEG` last), so a record is either
+there or not; a torn table draws one band wrong for half a second, which
+does not deserve `sys_snapshot`'s price. It is a whole table rather than a
+record at a time for a different reason: both things a memory map does with
+it want all of it — walk every record to draw a band, hash every record to
+decide whether any band moved — so per record it would be `MEM_MAX` far
+calls, twice.
+
+**`sys_kb`'s footprint terms sum to `SK_KERN` exactly, and two of them are
+residuals.** Every rung of the ladder is a whole number of 512-byte sectors
+(§2), so half of them are an odd half-kilobyte and four independently
+rounded parts can lose two kilobytes against a total that rounds once. So
+the two least interesting figures absorb it: `SK_IMG` is the whole span less
+the buffers, and `SK_DSK` is the buffers less the FAT window and the stacks
+— which is what "whatever else is in `.lowbss`" already meant. `SK_IMG`
+covers the **cold segment** (§2.6) as well as the image and `.bss`: cold code
+is code, it is resident for the session and it is inside the span, and
+leaving it out is what made the parts sum three kilobytes short while these
+were constants of the Task Manager's own.
+
+The fourth cell, 0x02B0 `gfx_fill_pat`, is not a snapshot — it is the one
+drawing primitive (§5) that had no slot, because its eight pattern bytes
+reach `vga_pat_stage` through `[gfx_pat]`, a **near** pointer read against
+DS. Giving that variable a segment would put one on every kernel caller of a
+primitive that re-enters per clip fragment, so the cell is an `X` whose stub
+stages the eight bytes into the kernel's own segment first — the
+`dsk_get_dir` idiom of §2.1, at its smallest.
 
 ## 21. loader.inc
 
@@ -6342,7 +6457,9 @@ on a white gap 2px around the text, centered in the zone.
 | `desk_zone_rect` | in AL = zone index; out AX,BX,CX,DX = that zone's **drawn** rect, inclusive — `[vid_desk_zl]`..`[vid_desk_zr]`−1 horizontally, so the label's 2px overhang each side is inside it, not the 48px hit zone. Clobbers all four. |
 | `desk_dmg_zones` | in `[wm_dmg_*]` (§11.91); out AL = bit n set = zone n is inside the damage rect, **and the damage rect grown to cover every one of them**. The growth is not slack: a zone is redrawn whole, so a window sitting over it has to be marked too. |
 | `desk_paint_mask` | in AL = the bitmask `desk_dmg_zones` returned; draw those zones. All registers preserved. |
-| `desk_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window and `dock_click` declined the click, §30). Zone hit: if same zone as desk_sel and [ui_click_t]−desk_clkt < 9 (birth ticks, §10) → clear the selection and call `files_open_drive` with AL = drive. Else select it, stamp desk_clkt. Miss: clear any selection. All its own drawing (selection flips) happens under gfx_lock/gfx_unlock acquired internally, redrawing only the affected zones — EXCEPT when a visible window overlaps a zone's drawn rect (x `[vid_desk_zl]`..`[vid_desk_zr]`−1 = zx−2..zx+49 with the label overhang — 582..633 at 640 wide, §39.2 — window rect incl. the 1px shadow): a partial redraw would paint desktop over that window, so the flip falls back to a full wm_paint_all under the same lock. |
+| `desk_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window and `dock_click` declined the click, §30). Zone hit: if same zone as desk_sel and [ui_click_t]−desk_clkt < 9 (birth ticks, §10) → clear the selection and call `files_open_drive` with AL = drive. Else select it, stamp desk_clkt. Miss: clear any selection. All its own drawing (selection flips) happens under gfx_lock/gfx_unlock acquired internally, redrawing only the affected zones — and **`[desk_sel]` is written inside that lock hold**, not before it, because §26.2's partial case flips pixels rather than repainting them. A zone the flip finds under a window is §26.2's business. |
+| `desk_zone_redraw` | in AL = zone index, whose selection state has **just changed**; caller holds the gfx lock. The one entry point for a selection flip outside `wm_paint_all`; preserves every register. §26.2. |
+| `desk_zone_hilite` | in AL = zone index; caller holds the gfx lock and may have a clip region armed. XOR the zone's 48×44 **hit** rect — the only thing that differs between a selected zone and an unselected one, and self-inverse, so it both applies and removes. Clobbers AX/BX/CX/DX. Module-internal, and the one place that owns the highlight's geometry: `desk_draw_zone` and the partial flip both go through it, so they cannot disagree about which pixels it is. |
 
 Selection is purely visual bookkeeping; a window covering an icon simply
 paints over it (desk_paint runs before windows in wm_paint_all), and
@@ -6373,6 +6490,57 @@ CGA       200 high   dock at 176   2 rows   HDD C sits beside Disk A
 A third zone on CGA would otherwise run 152..195 and land **on the dock**.
 This is the §1 rule about `[vid_*]` in its natural habitat: it is invisible on
 VGA, and a drive-zone change is not done until it has been looked at on CGA.
+
+### 26.2 Selecting a covered icon costs a strip of XOR, not the screen
+
+A zone's drawn rect may be overlapped by a visible window, and the `gfx_*`
+primitives clip to the **screen** — so a bare `desk_draw_zone` would paint
+desktop pixels straight over that window. `desk_zone_redraw` answered that
+with a full `wm_paint_all`, and the bill was the same shape as §11.90's:
+**one click on a covered icon repainted the whole screen twice**, because
+picking a new icon redraws the zone losing the selection *and* the zone
+gaining it, and each of them took the fallback. Measured over QMP with a
+counter on `wm_paint_all` and two partly-covered drive zones, a single click
+went 4 → 6.
+
+`wm_clip_rect` (§11) is the replacement: §11.3's region arithmetic seeded
+with the zone's drawn rect and subtracting **every** visible window, since
+the desktop is below all of them. It gives four answers, and each has its
+own right thing to do:
+
+| answer | what `desk_zone_redraw` does |
+|--------|------------------------------|
+| overflow (> 16 fragments) | nothing about the region is known, so `wm_paint_all` stays as the last resort |
+| wholly covered | **draw nothing at all** — which is where the old code was at its worst: it repainted the screen to update pixels that were not on it |
+| clear air (the whole rect inside one fragment) | disarm and do the cheap unclipped single-zone redraw, exactly as before |
+| partially covered | flip the **highlight** — `desk_zone_hilite` under the armed region — and touch nothing else |
+
+**The partial case is a flip, not a repaint, and that is the load-bearing
+part.** A click changes exactly one thing about a zone: whether its hit rect
+is inverted. The gray, the icon and the label are already on screen and are
+identical either way, so re-drawing them would be work with no pixel to show
+for it — and it would not even be *correct*, because `ico_core` clips
+whole-shape (§11.3): a window cutting the 32×32 body means the icon is not
+drawn at all, and a clipped full redraw would leave a gray hole where the
+visible half of the icon should be. `gfx_xor_fill` clips **per fragment**, so
+the inversion lands on the visible part of the icon and nowhere else. Output
+is pixel-identical to the old full repaint — verified by comparing the two
+screendumps byte for byte — at zero repaints instead of two.
+
+Two things it depends on, both of them the caller's job:
+
+- **XOR is self-inverse, so it is exact only against pixels that still carry
+  the previous state.** Every call site is a genuine state change (§26's
+  `desk_click` — select, deselect, and the deselect that precedes a
+  double-click open), and `[desk_sel]` is written **inside** the same lock
+  hold as the flip. Before, the store sat outside it, which was harmless
+  while the redraw was idempotent and is not once it is a flip: a painter
+  that read the new `[desk_sel]` in between would apply the highlight itself
+  and the flip would then cancel it.
+- **The region is valid for exactly one lock hold** (§11.3), which is why it
+  is built inside `desk_zone_redraw` rather than once around both zones of a
+  selection move. Two builds per click is two z-order walks over at most 12
+  windows; it is not the thing that was expensive.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -7093,20 +7261,63 @@ Verified by differential: the same scripted run against a build whose
 `np_scrollpaint` always refuses is **pixel-identical inside the window**, on
 VGA over nine states and on Hercules over six.
 
-## 28. taskmgr.inc — the Task Manager window
+## 28. apps/taskmgr — the Task Manager
 
-Built-in singleton app kind (KIND_TASKMGR, cap 1 — one sampler), window
-"Task Manager", 200×264 at (250,100) — 176 until the memory view grew a
-CLAIM column (below). Label prefix `tm_`. No onkey, no
-boot-time window or task: `tm_init` (from kmain, after
-loader_init) only reads total conventional RAM once via int 12h (kmain
-runs on task 0, so §7's only-the-UI-task-calls-BIOS rule holds). The
-window + monitor task exist only while an instance is open: `app_launch`
-runs `tm_kinit` (zeroes all module state including the history ring —
-the gauge calibration restarts from scratch at every launch — and caches
-the window ptr in `tm_win`), then spawns `tm_task` with DX = the instance
-index. `tm_task` checks I_STATE = 2 once per interval (after the spin
-phase) and tears down via `inst_task_die` (§29).
+**A package on the SYSTEM disk** (`TASKMGR.O88`, drive A:), not a built-in
+kind. Window "Task Manager", 232×312 at (250,100), fitted to the live screen
+at every launch (§28.1). Label prefix `tm_`. No onkey. It owns one worker,
+`tm_worker`, claimed from its first `W_PAINT` — the apps/fractal precedent
+(§40), and necessary for the same reason: the kernel publishes `I_STATE` and
+binds `wm_owner` only after the entry proc returns, so `OSAPI_TASK_SPAWN`
+from the entry would find no instance and refuse. Teardown is
+`OSAPI_TASK_ALIVE` at the top of the worker's loop, with the lock free
+(§20.6 rule 4).
+
+**Why it stopped being a built-in.** It is a *viewer* — nothing in it can
+kill a task — so as kernel code it cost about six kilobytes on every machine,
+forever, for a window most sessions never open. It came off **both** guards
+(§15.1) at once: the whole span went 74 KB → 69 KB and the segment gained
+5,380 bytes across the move. As a package it costs ~7.3 KB of heap while it
+is open (5,442 image + 1,883 bss) and nothing at all when it is not.
+
+What that buys is not free, and the cost is worth stating plainly: it now
+needs a working disk and about seven kilobytes of free heap to open at all,
+on the machine where you are opening it precisely because something is
+wrong. Two things make that acceptable. The **Control Panel** — the one you
+want when a driver will not attach, and where `drv_notice` sends you — is
+resident and stayed that way (§2.6). And the failure **says what it is**
+rather than being silent (below).
+
+**Nothing in it reads kernel state directly any more.** That was the one
+obstacle, and §20.9's four cells are the answer: the scheduler and instance
+tables in one `cli` window, the claim map, and the kernel's own footprint in
+KB. Every use of them goes through one macro block at the top of the module,
+which is all that changed when the module moved — the logic below it is what
+it was inside the kernel. The cells were added, and the still-built-in module
+converted to them, as a separate step, so the API was proved sufficient
+before anything moved.
+
+**The chip menu's item stays live** (`ui_tm_open`, kernel/ui.inc). It banks
+the current volume and directory, mounts A:, finds `TASKMGR.O88` in the
+snapshot with `dsk_find_name`, runs `ld_run_body`, and puts the volume back —
+the `drv_boot` dance, and for the same reason: every file name resolves in
+the CURRENT directory (§19.2), which is wherever the user last browsed to.
+Greying the item would mean answering "can this be loaded?" without loading
+it, and §47 rule 3 forbids exactly that: the only honest test is the load.
+So it is always clickable, and a failure puts up `ui_note` — a one-line
+notice window of the file dialog's species (§38: a bare `wm_create`d window
+with no instance behind it, whose close box reduces to `wm_hide`) naming the
+reason, out of the same `LD_*` codes a Disk window's status line uses. A
+menu item has no status line, which is why the notice exists at all.
+
+From that menu it is a **singleton**: an already-open one is fronted rather
+than loading a second seven kilobytes and a second task slot to say the same
+thing twice. `ui_tm_find` identifies it by the name in its instance record,
+never by a remembered window pointer — a window slot is reused, so a banked
+pointer names some other app's window the moment this one closes. A
+double-click on `TASKMGR.O88` in a Disk window is unaffected and opens as
+many as you like; that is the package rule, and the singleton is the menu
+item's rule.
 
 **Two views.** `[tm_view]` (0 = performance, 1 = memory) selects what the
 content shows; both share the sampler, the instance snapshot and the
@@ -7121,7 +7332,7 @@ launch opens in the performance view. The sampler never looks at the view
 — history keeps accumulating while the memory view is up, so toggling
 back shows a gapless graph.
 
-**Load gauge — idle-spin calibration.** tm_task never sleeps. Each
+**Load gauge — idle-spin calibration.** `tm_worker` never sleeps. Each
 interval it spins { 32-bit counter += 1; `task_yield` } until 9 ticks have
 elapsed (wrap-safe compare), measuring how quickly a yield loop gets the
 CPU back; this self-calibrates away the UI task's constant busy-poll cost.
@@ -7217,7 +7428,7 @@ account, and the rows partition one total.
 
 **Drawing.** `tm_paint` (W_PAINT) dispatches on `[tm_view]` and runs the
 active view's full body — bare and unconditional, no lock, no visibility
-check (wm_paint_all calls it with the lock already held, §11). tm_task's
+check (wm_paint_all calls it with the lock already held, §11). tm_worker's
 periodic path wraps its drawing Clock-style (§14): gfx_lock, arm
 `wm_clip_set` under the lock (else skip), and touches only what changed.
 Performance view: the CPU + scheduler text line (checked per chunk like a
@@ -7549,8 +7760,9 @@ white) chosen to stay tellable-apart at a few pixels' width; none is the
 "system-reserved".
 
 Menu/dispatch: see §12/§13 — "Task Manager" (CMD_TASKS = 3) is the System
-menu's third item, under "Control Panel"; dispatch calls `app_launch`
-KIND_TASKMGR like the §14 kinds.
+menu's third item, under "Control Panel". Its dispatch is `ui_tm_open`
+rather than `app_launch`, because it is a package on the system disk and not
+a kind (above).
 
 
 ### 28.1 The window is sized to the SCREEN, not to a constant
@@ -7563,9 +7775,13 @@ so every window opened on top of it paid for that with a full repaint. On CGA's 
 rows it never fitted at all. (`wm_dock_under` has since made that case cost a
 rectangle rather than the screen, but a window that fits is still the point.)
 
-`tm_init` derives the height once, at boot, from `[vid_dock_y0]`: as many
-process rows as the space between the menu bar and the dock will take, capped
-at `TMM_ROWS`, and never fewer than one. That count is `[tm_colrows]`.
+`tm_init` derives the height from `OSAPI_VIDEO`'s dock row: as many process
+rows as the space between the menu bar and the dock will take, capped at
+`TMM_ROWS`, and never fewer than one. That count is `[tm_colrows]`. It runs
+from the entry proc, once per launch — it read `[vid_dock_y0]` from `kmain`
+while this was a built-in, and the change costs one `int 12h` and a divide
+per launch in exchange for the geometry following an adapter that changed
+underneath it.
 
 **One pixel of that space is spent before the frame gets any of it.**
 `wm_dock_clear` tests `y+h` against `[vid_dock_y0]` with `jae`, because the
@@ -7704,7 +7920,6 @@ KIND_ABOUT   equ 0
 KIND_CLOCK   equ 1       ; (Note Pad was kind 1 until it became the
 KIND_BOUNCE  equ 2       ;  NOTEPAD package, §27 — the numbering closed up)
 KIND_FILES   equ 3
-KIND_TASKMGR equ 4
 KIND_CTRL    equ 5       ; Control Panel (§31)
 KIND_PKG     equ 0x80    ; bit 7: package instance
 ```
@@ -7932,7 +8147,7 @@ repaints when the window moves away — desk-icon semantics throughout.
 
 Built-in singleton app kind (KIND_CTRL = 5, cap 1), window "Control Panel",
 **320×140** at (160,130). Label prefix `cp_`. Included from kernel.asm right
-after `taskmgr.inc`. (It was 320×120 until the Date/Time page of §31.5
+after `files.inc`. (It was 320×120 until the Date/Time page of §31.5
 needed two more control rows; the frame grew rather than that page being
 cramped, and every other page simply has more white space below it.)
 
@@ -8230,7 +8445,7 @@ selected one — white on a black `gfx_fill` box inset 2px around the glyphs
 
 - `cp_time_rows` (module-internal, in DI/BP, lock held) white-fills the
   band the two rows occupy (pane x 0..`CPT_BX`−4, y `CPT_DY`−4..`CPT_TY`+11
-  — the button column excluded), takes ONE `clk_snap` (§37) and redraws
+  — the button column excluded), takes ONE `clk_snapshot` (§37) and redraws
   both rows from it. It is therefore the redraw path for **every** change:
   a new selection, a `+`/`-` step, an option toggle, and the once-a-second
   tick.
@@ -8274,14 +8489,14 @@ selected one — white on a black `gfx_fill` box inset 2px around the glyphs
 - `cp_tick_due` — the cheap gate ui_task consults *before* taking the lock
   (§13 step 4): CF = 1 if the panel is live, visible and showing this
   page. **Near code, not far** (it runs every second and is a dozen
-  instructions — the `tm_init` precedent of §33), and it reads the
+  instructions — the `cp_init` precedent of §33), and it reads the
   instance table with **no lock held**, which is safe because only the UI
   task allocates or frees a task-less instance and `cp_tick_due` *is* the
   UI task; a stale answer costs one wasted lock, and `cp_tick` re-checks
   everything under it anyway.
 
 Kernel routines this page reaches (all ordinary near calls since §33):
-`inst_find_kind`, `clk_snap`,
+`inst_find_kind`, `clk_snapshot`,
 `clk_fld_str`, `clk_fld_adj` (§33; `wm_content`, `wm_obscured`, `gfx_fill`,
 `gfx_frame` and `font_str` already have wrappers).
 
@@ -8684,7 +8899,7 @@ the buffer on is a deliberate act, and `make xt` (256K) cannot do it at all.
 ## 33. Far code — retired
 
 There used to be a `.fartext` section and a `kernel/farcall.inc` to serve it.
-Cold modules — `ctrl.inc`, `taskmgr.inc` and one routine of `snd.inc` — put
+Cold modules — `ctrl.inc`, the Task Manager and one routine of `snd.inc` — put
 their **code** there; it was assembled at `vstart=0`, shipped at the tail of
 the kernel image, and copied down to its own segment below the kernel by
 `far_init` as kmain's first act. The point was that those 5,455 bytes did not
@@ -9141,7 +9356,7 @@ because `AX = 0` is how every stream verb says OK. The slot tests
 - **Buffers: none.** The layer owns no memory outside its own `.bss` —
   `osapi_snd_play` reads the caller's `ES:SI` in place. This is the whole
   reason `SND_SEG` could be deleted from §2 rather than merely shrunk.
-- **Boot**: `snd_init` joins kmain's §15 sequence **after `tm_init`**:
+- **Boot**: `snd_init` joins kmain's §15 sequence **after `drv_init`**:
   save the 61h boot bits, store the `.bss` state, set `snd_live` last.
   There is nothing to probe. Boot stays clean — no instances, no tasks,
   no sound.
@@ -9345,11 +9560,11 @@ mid-format while the UI task carries a second. Two rules make that safe, and bot
    never mid-carry. The guard sits inside `clk_inc_sec`, per second, rather
    than around `clk_tick`'s catch-up loop — an hour of held-open menu owes
    3600 seconds and must not hold interrupts off for all of them at once.
-2. **Every reader formats from `clk_snap`**, which copies the six fields
+2. **Every reader formats from `clk_snapshot`**, which copies the six fields
    under the same guard (sec+min and hour+day as words — that is why they
    are laid out adjacent). `clk_fmt` snapshots itself; `clk_fld_str` reads
    the last snapshot *without* taking one, so `cp_time_rows` calls
-   `clk_snap` once and its whole row is a single instant.
+   `clk_snapshot` once and its whole row is a single instant.
 
 Nothing in an ISR touches any of it; the clock is derived from `[ticks]`,
 which the PIT hook already owns (§8).
@@ -9395,9 +9610,9 @@ the caller cannot know which rung answered.
 |--------|-----------|
 | `clk_init` | Boot: display settings to their defaults (24-hour, no seconds), fallback date, then the RTC probe. Preserves all registers. |
 | `clk_tick` | UI task only. Advances the clock from the `[ticks]` delta. Out: AL = the change mask above. Clobbers AX only. |
-| `clk_snap` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
-| `clk_fmt` | Calls `clk_snap`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 26 bytes. Out: SI = `clk_str`. Preserves everything else. |
-| `clk_fld_str` | In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snap` and does **not** take one. Preserves everything else. Read by §31.5. |
+| `clk_snapshot` | Copies the six fields to `clk_sn_*` under `pushf`/`cli`. Preserves all registers. Read by §31.5. |
+| `clk_fmt` | Calls `clk_snapshot`, then formats the bar's line into `clk_str` in the live form: `'Mmm DD YYYY  HH:MM'`, plus `':SS'` if `[clk_secs]`, and in 12-hour mode the hour drawn 1..12 **without a leading zero** and a trailing `' AM'`/`' PM'`. 18..24 glyphs; `clk_str` is 26 bytes. Out: SI = `clk_str`. Preserves everything else. |
+| `clk_fld_str` | In: AL = field 0..6 (month, day, year, hour, minute, second, meridiem). Out: SI = a NUL string for that field alone in `clk_fbuf` — `'Mmm'`, `'DD'`, `'YYYY'`, `'HH'`, `'MM'`, `'SS'`, `'AM'`/`'PM'`. Always the field's **full width, zero-padded** — unlike `clk_fmt`, because a field is a fixed-width editable cell whose highlight box must not change size under it; in 12-hour mode the hour reads `'12'`, `'01'`..`'11'`. Reads the last `clk_snapshot` and does **not** take one. Preserves everything else. Read by §31.5. |
 | `clk_fld_adj` | In: AL = field 0..6, BL = +1 or −1. Steps that field with wrap (month 1..12, day 1..month length, year 1980..2099, hour 0..23, min/sec 0..59); field 6 flips the meridiem by ±12 hours, either sign. Then re-clamps the day to the new month length (31 Mar − 1 month = 28 Feb, never 31 Feb), zeroes `clk_acc` and re-samples `clk_last` so the new second starts from now, and sets `[clk_dirty]` + `[clk_barq]`. Preserves all registers. Read by §31.5. |
 
 **The hour is always stored 0..23** and stepped 0..23 — 12-hour mode is a

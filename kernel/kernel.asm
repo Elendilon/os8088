@@ -629,7 +629,45 @@ osapi_table:
                                   ;          never-written blob reads back as
                                   ;          zeroes and the driver's own version
                                   ;          byte is what recognises it
-osapi_table_end:                  ; 0x0298
+    OSAPI_SLOT osapi_sys_snapshot     ; 0x0298 - the scheduler AND the instance
+                                  ;          table, in ONE cli window
+                                  ;          (SPEC.md 28.2). in ES:DI = a
+                                  ;          SYS_SNAPSHOT_SIZE buffer; out AX =
+                                  ;          MAX_TASKS, BX = INST_MAX. ES:DI
+                                  ;          is the caller's own choice, so
+                                  ;          no X stub is involved. It is one
+                                  ;          call and not two because
+                                  ;          task_exit frees an instance
+                                  ;          record atomically with its task
+                                  ;          slot (SPEC.md 8): read in two
+                                  ;          windows, a slot can be gone from
+                                  ;          one half and live in the other,
+                                  ;          and the cycle diffs that CPU% is
+                                  ;          built from go quietly wrong
+    OSAPI_SLOT osapi_claim_snapshot   ; 0x02A0 - the claim table (SPEC.md 50.5),
+                                  ;          all MEM_MAX records into ES:DI
+                                  ;          as CLS_RECSZ triples; out AX =
+                                  ;          MEM_MAX. A cell over
+                                  ;          mem_claim_get, whole rather than
+                                  ;          per record: the memory map walks
+                                  ;          every record to draw it and
+                                  ;          hashes every record to decide
+                                  ;          whether to
+    OSAPI_SLOT osapi_sys_kb       ; 0x02A8 - what the KERNEL occupies and what
+                                  ;          the heap holds, in KB, into ES:DI
+                                  ;          (SK_* below). Every term used to
+                                  ;          be an assembly-time constant of
+                                  ;          the kernel's own, which is
+                                  ;          exactly what a package cannot
+                                  ;          have: the kernel's footprint
+                                  ;          moves with every build
+    OSAPI_JSLOT api_gfx_fill_pat  ; 0x02B0 - a patterned fill (SPEC.md 5):
+                                  ;          AX/BX/CX/DX = the rect, SI = 8
+                                  ;          row bytes. X, because those eight
+                                  ;          bytes are the caller's and
+                                  ;          vga_pat_stage reads them through
+                                  ;          DS
+osapi_table_end:                  ; 0x02B8
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -637,10 +675,17 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 81 * 8
-%error "os8088 API jump table must be exactly 81 8-byte slots"
+%if OSAPI_TABLE_LEN != 85 * 8
+%error "os8088 API jump table must be exactly 85 8-byte slots"
 %endif
 
+; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
+; CALLER owns, and their layouts are ABI like the slot numbers themselves.
+; They are declared with the tables they copy - SS_*/SSI_* in instance.inc,
+; CLS_* and SK_* in memory.inc - because every one of those layouts is
+; derived from MAX_TASKS, INST_MAX or MEM_MAX, and a constant belongs beside
+; the table it measures. All of them are mirrored in apps/os88api.inc.
+;
 ; =============================================================================
 ; The stubs the X and N cells jump to (SPEC.md 20.3). Each ends in retf and
 ; restores every segment register it borrowed.
@@ -679,6 +724,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_vol_del,    osapi_vol_del
     OSAPI_XSTUB api_vol_mount,  osapi_vol_mount
     OSAPI_XSTUB api_drv_cfg,    osapi_drv_cfg
+    OSAPI_XSTUB api_gfx_fill_pat, osapi_gfx_fill_pat
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
 ; because ES:BX belongs to the caller's data buffer and cannot carry it
@@ -750,7 +796,7 @@ cw_clk_fld_adj:         call clk_fld_adj
                     retf
 cw_clk_fld_str:         call clk_fld_str
                     retf
-cw_clk_snap:            call clk_snap
+cw_clk_snapshot:            call clk_snapshot
                     retf
 cw_drv_cfg_save:        call drv_cfg_save
                     retf
@@ -930,7 +976,6 @@ kmain:
     call dock_init              ; dock strip scratch (SPEC.md 30)
     call files_init             ; Disk module state (no window at boot)
     call loader_init            ; package loader state
-    call tm_init                ; Task Manager total-RAM read (no window)
     call drv_init               ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
@@ -1110,7 +1155,6 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "icons.inc"
 %include "desk.inc"
 %include "dock.inc"
-%include "taskmgr.inc"
 %include "ctrl.inc"
 %include "driver.inc"           ; loadable drivers (SPEC.md 51): after
                                 ; diskw (it reads and writes the system disk)

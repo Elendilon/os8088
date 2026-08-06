@@ -133,7 +133,20 @@ $(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 #
 # DRIVERS is the list, one .drv per line, root-level: the kernel resolves them
 # by name in the volume's current directory and the file manager shows them.
+#
+# SYSAPPS rides beside them: applications that are not on the APPS disk because
+# the KERNEL loads them by name off A: (SPEC.md 28). Only the Task Manager so
+# far, which the chip menu opens - so it has to be on the disk the machine
+# booted from, not on whatever happens to be in drive B:.
 DRIVERS := $(BUILD)/sound.drv $(BUILD)/hdd.drv
+SYSAPPS := $(BUILD)/taskmgr.o88
+
+$(BUILD)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/taskmgr/taskmgr.asm
+	@echo "taskmgr: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/taskmgr.o88: $(BUILD)/taskmgr.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/taskmgr.bin -o $@
 
 $(BUILD)/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc \
                     drivers/os88drv.inc apps/os88api.inc | $(BUILD)
@@ -152,13 +165,13 @@ $(BUILD)/hdd.bin: drivers/hdd/hdd.asm drivers/hdd/part.inc drivers/hdd/fmt.inc \
 $(BUILD)/hdd.drv: $(BUILD)/hdd.bin tools/os88drv.py
 	python3 tools/os88drv.py $(BUILD)/hdd.bin -o $@
 
-$(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) tools/os88disk.py
+$(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
-		--boot $(BUILD)/boot.bin --kernel $(BUILD)/kernel.bin $(DRIVERS)
+		--boot $(BUILD)/boot.bin --kernel $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS)
 
-$(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) tools/os88disk.py
+$(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin $(DRIVERS)
+		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS)
 
 # FMTEST: the AdLib gate package (SPEC.md 34.2/51.4). NEVER on the shipped
 # apps disks - their directory order is pinned (SPEC.md 24) - so it rides its
