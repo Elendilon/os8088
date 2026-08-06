@@ -32,6 +32,62 @@ cases where the drawing path does the least work (§11.3's clip region skips
 it, `wm_obscured` vetoes it) — so a redraw cost that crowds out the audio feed
 is a poor fit for the evidence.
 
+**Second report, and it moves the needle a long way.** The hitches land at
+roughly the **same point in the song** each time — so the trigger is
+song-position-correlated, not wall-clock-periodic. There is **always one
+about half a second into the first play after a load**, and that one **does
+not happen on a stop-then-restart**. A later one lands maybe ten seconds in
+(approximate — not measured).
+
+That set is very restrictive, and the arithmetic of the ring is what makes it
+so. On a tier-0 machine XT mode is auto-armed (§45.9, `osapi_cpu_info` in the
+entry proc), so the rate is 5,500 Hz, and with `TRK_RING` = 16,384 and
+`TRK_HALF` = 2,048:
+
+| quantity | at 5,500 Hz (XT) | at 11,000 Hz |
+|---|---|---|
+| one ring half | 372 ms | 186 ms |
+| whole ring | 2.98 s | 1.49 s |
+| **pre-roll (2 halves)** | **744 ms** | **372 ms** |
+
+**The first hitch is the pre-roll boundary.** `trk_play` pre-mixes two halves
+and starts; that buffer is all the slack there is, and when it runs out the
+worker's own refill has to carry the stream for the first time. Half a second
+in is exactly where that happens. So the question is not "what stalls the
+machine at 0.5 s" — nothing does — it is **"what is competing with the worker
+during the first second after a load, and only then"**.
+
+The answer that fits *"not on a restart"* is the **full-screen repaint a load
+performs and a restart does not**: the completion callback ends in
+`tui_draw_all`, the whole FT2 screen, which on a 4.77 MHz machine is hundreds
+of glyph cells and hundreds of milliseconds of UI-task work. It cannot block
+the worker (the feed takes no lock), but it does halve its CPU share while
+round-robin has two runnable tasks — and if the mixer needs more than half a
+CPU at this rate, the ring drains for exactly as long as the repaint lasts.
+The later hitches fit the same shape at pattern boundaries, where
+`tui_draw_dyn` escalates to a full pattern redraw: a 64-row pattern at 125 BPM
+speed 6 is **7.7 s**, which is the right order for "maybe ten seconds", and
+pattern boundaries are at fixed song positions — the "same point in the song"
+observation.
+
+**The one piece of evidence that does not fit** is from the first report:
+covering the window completely and minimizing it did not help. Both should
+skip the drawing outright (`wm_clip_set` refuses, `wm_obscured` vetoes). If
+that holds up under a careful re-test, the drawing theory is dead and the
+answer is the other one below — the mixer simply not sustaining real time on
+this content, with the ring hiding it until it drains.
+
+**Two decisive experiments, in this order.** Both are minutes of listening,
+no code:
+
+1. **The Rate menu (R, or Rate ▸).** Mixer cost is linear in output samples,
+   so 22 kHz doubles it while leaving every UI cost identical. If the hitches
+   get markedly worse or more frequent, the cause is **mixer throughput**; if
+   they are unchanged, it is **CPU contention from drawing**.
+2. **Minimize, then play through a known hitch point** (say the ~10 s one),
+   twice, listening for it. This re-tests the one contradictory data point
+   deliberately rather than in passing.
+
 **Standing theories, cheapest first.**
 
 1. **A periodic kernel activity that holds the CPU or `sch_lock` long enough
