@@ -1,6 +1,8 @@
 # Disk performance — the same-volume path
 
-**Status: proposal. Nothing here is implemented.**
+**Status: Phase 0 and Phase 1 are BUILT and measured (§2.1, §3.1). Phases 2
+and 3 are DROPPED (§4). Mechanism D (§5.5) is the remaining work and belongs
+with `docs/ASSOC-PLAN.md`.**
 
 `docs/FIELD-NOTES.md` note 3 records the symptom — disk access on real
 hardware feels far slower than the work being done should justify — and three
@@ -240,7 +242,29 @@ change, and the price is a safety property this OS deliberately bought. That
 is a call for whoever owns the tree, not a build detail — the same standing
 `KERN_BUDGET` has.
 
-## 4. Phase 2 — bank the floppy's FAT window (mechanism B)
+## 4. Phase 2 and Phase 3 — DROPPED
+
+**Decided, not deferred.** The two phases that skip re-reading the FAT window
+and the boot sector on a same-volume mount are not being built, for the reason
+§3.2 sets out: after Phase 1 they are worth ~2 calls out of 5 on a directory
+change, and the price is the swap-safety property in §18.
+
+The deciding fact is the hardware. `AH=16h` was the only honest test and the
+machines this targets do not answer it: a 5150 with a **Tandon TM100/TM100-2**
+has no disk-change line, so the BIOS cannot distinguish a swapped floppy from
+an untouched one. Reusing a FAT window there means a mount whose directory
+comes from the new disk and whose free map comes from the old — and the user
+sees, not an error, but a file manager that lists correctly and reads garbage,
+with a write that allocates over live data. **Confusing wrong behaviour is a
+worse outcome than the two calls are worth.**
+
+What remains of mechanism B is already banked: Phase 1 turned its nine
+sectors from nine revolutions into one.
+
+The sections below are kept as the record of what was considered and why it
+was declined; nothing in them is scheduled.
+
+### 4.1 (not building) Bank the floppy's FAT window (mechanism B)
 
 **The policy already exists and already permits this.** `dsk_fatw_pick` states
 and enforces the rule verbatim: *"Only a QUIET mount may reuse a banked window.
@@ -275,7 +299,7 @@ therefore already written down:
   off the disk; a window that now believes itself valid would defeat exactly
   that.
 
-## 5. Phase 3 — the same-volume quiet chdir (mechanism A)
+### 4.2 (not building) The same-volume quiet chdir (mechanism A)
 
 Skip the boot sector read and the BPB re-validation when **all** of: the mount
 is quiet, the volume index is unchanged, and `[dsk_mntok]` is set.

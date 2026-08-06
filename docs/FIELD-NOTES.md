@@ -387,6 +387,15 @@ recipe in CLAUDE.md, on `dsk_xfer`'s `.sector` — answers A and B outright and
 sizes C, with no hardware needed. **Do that first**; only C's cost per call
 needs the XT.
 
+> **PARTLY FIXED, and the rest deliberately declined.** Mechanism C is done:
+> `dsk_xfer` batches a run into one int 13h (SPEC.md 18.91), which took a
+> directory change from 12 BIOS calls to 5 and, because the FAT window's nine
+> sectors are contiguous, took most of mechanism B with it. Mechanisms A and B
+> are **not** being fixed: the only honest swap test is int 13h AH=16h and a
+> 5150 with a Tandon TM100 has no change line, so reusing a FAT window there
+> would give a file manager that lists correctly and reads garbage. Mechanism D
+> is the remaining work. Details below and in docs/DISK-PERF-PLAN.md 3.2/4.
+>
 > **PICKED UP.** `docs/DISK-PERF-PLAN.md` is the plan for all three
 > mechanisms, with the counting phase first, and it carries the budget grant
 > that funds it. The directions below are what that plan was built from and
