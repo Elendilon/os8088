@@ -362,6 +362,28 @@ completely alone, because Paint grown to nearly the whole screen is a legal
 size). In `ui_grow` a snap moves the **origin**, which nothing else in a resize
 does, so bank the old rect's last row before the call and union against it.
 
+### A paste repaints the Disk windows, not the screen (SPEC.md §22.3)
+
+`fmv_reload_all` moves every Disk window's cache and **`fmv_repaint_all`**
+puts the pixels back. It used to be `wm_paint_all`, so a drag-and-drop
+between two Disk windows repainted the desktop dither, the drive zones, the
+chrome and every other app on screen. A paste **reveals nothing** — no window
+moved, none was hidden, only contents changed — so what it owes is the
+windows whose listings changed and whatever overlaps them: `wm_dmg_wins`,
+§11.91's mark-and-draw pass on its own, the same one `wm_dock_under` borrows.
+Measured on one dragged file: 238 fills and 245 glyphs down to 138 and 169,
+and no `wm_paint_all` at all.
+
+Two traps. It is **one call over the UNION** and not one call per window —
+`wm_dmg_wins` redraws a marked window *whole*, so per-window two overlapping
+Disk windows cost four window paints, which measured WORSE than the
+`wm_paint_all` it replaced; inside one call the marking is transitive and
+every window is painted once. And the windows are redrawn whole rather than
+in place because of §11.3's granularity rule: `fm_repaint` is one big fill
+plus ~40 `font_str`s, the fill clips per pixel and the glyphs per cell, so a
+partly covered window would come back with blank rows where a clip edge
+crossed it.
+
 ### Selecting a file costs two inverted bands (SPEC.md §22.2/§38.3)
 
 The selection in a Disk window and in the Standard File dialog is an XOR

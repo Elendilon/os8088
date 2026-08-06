@@ -3097,13 +3097,14 @@ fm_paste_res:
     mov al, [fcp_err]
     mov [di+FS_FERR], al
 .all:
-    call wm_paint_all           ; fmv_reload_all moved every window's CACHE;
+    call fmv_repaint_all        ; fmv_reload_all moved every window's CACHE;
     jmp short .out              ; their PIXELS are still the old listing, and
-                                ; a paste is the one operation that can
-                                ; change three windows at once. The caller's
-                                ; own repaint then lands on top of ours,
-                                ; which is one window against the disk I/O
-                                ; this operation has already done
+                                ; a paste is the one operation that can change
+                                ; three windows at once - so it owes those
+                                ; windows, and nothing else on the screen. The
+                                ; caller's own repaint then lands on top of
+                                ; ours, which is one window against the disk
+                                ; I/O this operation has already done
 .ask:
     push si
     push cx
@@ -3119,6 +3120,131 @@ fm_paste_res:
 .out:
     pop di
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fmv_repaint_all - put every Disk window's PIXELS where fmv_reload_all just
+;                   put its cache (SPEC.md 22.3)
+; in:  the gfx lock HELD - both callers are inside one (the drag loop keeps
+;      it to the end, and the replace answer is a W_ONKEY callback), which is
+;      also why the wm_paint_all this replaced was called bare
+; out: nothing (all registers preserved)
+;
+; One wm_paint_dmg per Disk window (SPEC.md 11.91), and it replaced a
+; wm_paint_all. An operation that changed three listings owes three windows
+; and whatever overlaps them - not the desktop dither, not the drive zones,
+; not every other application on screen. On the measured case, a file dragged
+; between two Disk windows, that is 245 glyphs down to 96.
+;
+; **ONE call over their union, not one call per window**, and the difference
+; is not subtle: wm_paint_dmg redraws a marked window WHOLE, so a per-window
+; loop redraws each overlapping neighbour once per pass - two overlapping Disk
+; windows cost four window paints, which measured WORSE than the wm_paint_all
+; it was meant to replace. Inside one call the marking is transitive and every
+; window is painted exactly once.
+;
+; **wm_dmg_wins and not wm_paint_dmg**, because a paste REVEALS nothing: no
+; window moved, none was hidden, only contents changed. So there is no
+; desktop to put back, no drive zone to redraw and no chrome to correct -
+; only windows. wm_dmg_wins is 11.91's mark-and-draw pass on its own, the
+; same one wm_dock_under borrows, and skipping the other three steps is what
+; takes the union of two Disk windows from "very nearly a wm_paint_all" to
+; the windows themselves.
+;
+; The windows are still redrawn WHOLE rather than in place, and that is the
+; granularity rule (SPEC.md 11.3) rather than laziness: fm_repaint is one big
+; fill plus ~40 font_strs, the fill clips per pixel and the glyphs per cell,
+; so a window partly covered by another would come back with blank rows
+; wherever a clip edge crossed it.
+;
+; The walk is over wm_zord and not inst_tab, because the question is "which
+; VISIBLE windows are Disk windows" - inst_win_owner answers it in that
+; direction, and the other way round would need a reverse map that does not
+; exist.
+; -----------------------------------------------------------------------------
+fmv_repaint_all:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov byte [fmv_uany], 0
+    mov si, wm_zord
+    mov cl, [wm_zn]
+    xor ch, ch
+    jcxz .done
+.scan:
+    mov al, [si]
+    inc si
+    push cx
+    push si
+    call wm_idx2ptr             ; BX = the window record
+    test word [bx+W_FLAGS], 2   ; hidden windows have no pixels to correct
+    jz .next
+    call inst_win_owner         ; DI = its instance, 0 = unowned
+    or di, di
+    jz .next
+    cmp byte [di+I_KIND], KIND_FILES
+    jne .next
+    mov si, bx
+    call wm_win_rect            ; AX/BX/CX/DX = its frame, inclusive
+    call fmv_uadd
+.next:
+    pop si
+    pop cx
+    loop .scan
+.done:
+    cmp byte [fmv_uany], 0
+    je .out
+    mov ax, [fmv_ux1]           ; seed 11.91's rect directly: the pass below
+    mov [wm_dmg_x1], ax         ; is the only part of it we want, so there is
+    mov ax, [fmv_uy1]           ; no wm_paint_dmg to do the clamping for us -
+    mov [wm_dmg_y1], ax         ; and none is needed, because every rect
+    mov ax, [fmv_ux2]           ; folded in came from wm_win_rect and a window
+    mov [wm_dmg_x2], ax         ; is already on the screen (SPEC.md 11)
+    mov ax, [fmv_uy2]
+    mov [wm_dmg_y2], ax
+    call wm_dmg_wins
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fmv_uadd - grow the pending union by the rect in AX/BX/CX/DX (internal)
+; out: nothing (all registers preserved)
+; -----------------------------------------------------------------------------
+fmv_uadd:
+    cmp byte [fmv_uany], 0
+    jne .grow
+    mov [fmv_ux1], ax
+    mov [fmv_uy1], bx
+    mov [fmv_ux2], cx
+    mov [fmv_uy2], dx
+    mov byte [fmv_uany], 1
+    ret
+.grow:
+    cmp ax, [fmv_ux1]           ; screen coordinates, so unsigned throughout
+    jae .g1
+    mov [fmv_ux1], ax
+.g1:
+    cmp bx, [fmv_uy1]
+    jae .g2
+    mov [fmv_uy1], bx
+.g2:
+    cmp cx, [fmv_ux2]
+    jbe .g3
+    mov [fmv_ux2], cx
+.g3:
+    cmp dx, [fmv_uy2]
+    jbe .g4
+    mov [fmv_uy2], dx
+.g4:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4149,6 +4275,11 @@ fm_ultoa:
 section .bss
 
 ; --- per-window state (SPEC.md 22): the kind's KD_POOL, one block per window
+fmv_ux1:    resw 1              ; fmv_repaint_all's pending union: the rect
+fmv_uy1:    resw 1              ; every Disk window's frame is folded into,
+fmv_ux2:    resw 1              ; spent as ONE wm_paint_dmg so that no window
+fmv_uy2:    resw 1              ; is painted twice
+fmv_uany:   resb 1              ; 0 = nothing folded in yet
 fm_pool:    resb 80             ; FM_MAXWIN x FS_SIZE (4 x 20; a literal per
                                 ; the no-forward-ref-in-bss rule)
 
