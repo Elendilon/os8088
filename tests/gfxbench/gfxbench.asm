@@ -694,6 +694,8 @@ gb_header:
     call bl_sline
     mov si, gb_s_pit2
     call bl_sline
+    mov si, gb_s_pit3
+    call bl_sline
     mov si, gb_l_ovh
     mov ax, [gb_bcnt]
     mov dx, [gb_bcnt+2]
@@ -1905,7 +1907,8 @@ gb_l_ovh:     db 'loop overhead counts', 0
 gb_l_ovh1:    db 'loop overhead usx100', 0
 
 gb_s_pit1:  db 'One PIT count is 838 ns and four 4.77MHz CPU clocks. us/op is PER', 0
-gb_s_pit2:  db 'ITERATION, net of the loop overhead. t = tick-timed, ! = near the wrap.', 0
+gb_s_pit2:  db 'ITERATION, net of the loop overhead. t = tick-timed, ! = near the wrap,', 0
+gb_s_pit3:  db 'w = an iteration LAPPED the counter, so that row is tick-timed and coarse.', 0
 gb_s_warn1: db 'CAUTION: under QEMU the us column is the HOST speed and means nothing.', 0
 gb_s_warn2: db 'Boot -icount shift=3,sleep=off and read counts as guest INSTRUCTIONS.', 0
 gb_s_warn3: db 'The VRAM rows assume the real framebuffer address, so a kernel built', 0

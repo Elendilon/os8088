@@ -49,11 +49,36 @@
 ; Elapsed is the MODULAR subtraction start - end (the counter counts DOWN), and
 ; it must be: the counter reloads every 55 ms whatever we are doing, so
 ; `end > start` means the iteration straddled the reload, not that it overran.
-; What DOES overrun is a single iteration longer than 55 ms, and the guard for
-; that is [bl_max], the largest single-iteration delta seen: a row whose worst
-; iteration passed BL_SUSPECT counts is flagged '!' in the report, because it
-; is close enough to the wrap to be untrustworthy. Anything genuinely bigger
-; than a tick must use METHOD T instead.
+; What DOES overrun is a single iteration longer than 55 ms, and there are TWO
+; guards because the first one is not enough.
+;
+; [bl_max] is the largest single-iteration delta seen, and a row whose worst
+; iteration passed BL_SUSPECT counts is flagged '!' - it is close enough to the
+; wrap to be untrustworthy. That catches an iteration APPROACHING a lap.
+;
+; It cannot catch one that LAPS, and that is the dangerous case: a body taking
+; 561 ms reports 561 mod 54.92 = 12 ms, a small plausible number with a small
+; plausible max delta and no flag at all. That happened - GFX_BLIT4's striped
+; row on a real 5150 lapped ten times and was published at 12 ms, making a
+; primitive that does 20x the work look 2.4x FASTER than its own best case
+; (PERFORMANCE.md Part 9).
+;
+; So the row is ALSO bracketed by the TICK counter, read outside the cli
+; windows. THE TEST IS NOT "how much time do the ticks say passed" - and that
+; mistake cost a debugging round, so it is worth stating. While IF = 0 the 8259
+; latches ONE pending IRQ0 however many the PIT raises, so a body that laps ten
+; times still yields exactly one tick when interrupts come back on between
+; iterations: the tick count under-reports a lapping row by the lap factor and
+; cannot measure it.
+;
+; What it CAN do is detect one. `ticks >= N` says every single iteration
+; crossed a tick boundary, i.e. each ran for a whole 54.92 ms - which for
+; anything the PIT total claims is shorter than that is a contradiction, and
+; the second half of the test (`ticks > the PIT total's high word`) is that
+; contradiction stated. When it fires the row is simply RE-RUN with method T,
+; where interrupts stay on and the tick counter is not throttled, and flagged
+; 'w'. That costs one repeat of a row that was already slow, and it is the only
+; way to get a number rather than a warning.
 ;
 ; --- the two methods ---------------------------------------------------------
 ;
@@ -137,6 +162,10 @@ bl_time:
     push cx
     push si
     push di
+    call OSAPI_GET_TICKS        ; the lap detector - see bl_run. Read OUTSIDE
+    mov [bl_t0], ax             ; every cli window, and the loop below
+                                ; re-enables interrupts between iterations, so
+                                ; the tick really does advance across the row
     mov word [bl_acc], 0
     mov word [bl_acc+2], 0
     mov word [bl_max], 0
@@ -163,6 +192,9 @@ bl_time:
     pop cx                      ; refill are serviced HERE, outside the span
     loop .loop
 .out:
+    call OSAPI_GET_TICKS
+    sub ax, [bl_t0]             ; modular; the tick counter wraps at midnight
+    mov [bl_tick], ax
     mov ax, [bl_acc]
     mov dx, [bl_acc+2]
     pop di
@@ -269,6 +301,22 @@ bl_run:
     or al, al
     jnz .tick
     call bl_time
+    ; --- DID A SINGLE ITERATION LAP THE COUNTER? (see the header) The tick
+    ; count across the whole row is an upper bound on its true length, so
+    ; comparing it against the PIT total's HIGH WORD is the same comparison as
+    ; "ticks x 65536 > counts + two laps" and costs three instructions. Two
+    ; laps of slack absorbs the tick's own 55 ms quantisation and the
+    ; interrupt time between iterations, neither of which is in the PIT total.
+    mov byte [bl_lapped], 0
+    mov bx, [bl_tick]
+    cmp bx, [bl_n]              ; did EVERY iteration cross a tick boundary?
+    jb .nolap                   ; no: nothing here ran for a whole 54.92 ms
+    cmp bx, dx                  ; ...and are there more ticks than the PIT
+    jbe .nolap                  ; total's own high word accounts for?
+    mov byte [bl_lapped], 1     ; then some iteration lapped. Redo the row with
+    call bl_time_t              ; interrupts ON, where the tick counter is not
+    jmp short .fmt              ; throttled - see the header
+.nolap:
     ; --- net of the loop overhead: ovhx * N / 256, floored at zero
     push ax
     push dx
@@ -317,6 +365,11 @@ bl_run:
     mov si, bl_s_us
     mov di, BL_C_UNIT
     call bl_lput
+    cmp byte [bl_lapped], 0
+    je .mflag
+    mov byte [bl_lscr + BL_C_FLAG], 'w'
+    jmp short .done
+.mflag:
     cmp byte [bl_meth], 0
     je .pflag
     mov byte [bl_lscr + BL_C_FLAG], 't'
@@ -1254,9 +1307,12 @@ bl_last    equ bl_savemsg + 2           ; dword: the last row's net counts
 bl_lastus  equ bl_last + 4              ; dword: ...and its hundredths of a us
 bl_ovhx    equ bl_lastus + 4            ; word: loop overhead, 1/256 counts
 bl_bcnt    equ bl_ovhx + 2              ; dword: the baseline row's raw counts
-bl_m       equ bl_bcnt + 4              ; 3 words: the 48-bit accumulator
+bl_t0      equ bl_bcnt + 4               ; word: the tick at the row's start
+bl_tick    equ bl_t0 + 2                 ; word: ...and ticks elapsed over it
+bl_lapped  equ bl_tick + 2               ; byte: the row lapped the PIT
+bl_m       equ bl_lapped + 1             ; 3 words: the 48-bit accumulator
 %endmacro
 
 ; ...and its size, for the caller's OS88_BSS. The tail past bl_out is 57
 ; bytes of scalars; 64 is that with the slack a new scalar would want.
-BL_BSS_SIZE equ BL_MAXLINE * 2 + 8 + BL_ARENA + BL_MAXROWS * 2 + BL_OUTSZ + 64
+BL_BSS_SIZE equ BL_MAXLINE * 2 + 8 + BL_ARENA + BL_MAXROWS * 2 + BL_OUTSZ + 80

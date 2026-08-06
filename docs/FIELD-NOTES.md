@@ -148,3 +148,78 @@ base is its CS and can never move (§50.3).
 **A related honesty bug worth fixing at the same time:** the splash says only
 `Out of memory`. It should say which figure failed and how short it was —
 `bb_avail`'s pattern (§47: say *why* not).
+
+---
+
+## 3. "Bad package" on a file that is perfectly good, until the Disk window is refreshed
+
+**Observed.** On a real 5150, on the boot floppy (drive A:): run `GFXBENCH.O88`
+from an open Disk window, press `S` to save its report — which creates
+`GFXHERC.TXT` in that same directory — close Gfx Bench, then double-click
+`SYSBENCH.O88` in the *still-open* Disk window. It fails as **Bad package**.
+It fails again, every time, five times running. Click **Refresh** in that
+window and it launches normally. A reboot also fixes it.
+
+**Ruled out — the disk is fine, and so is the write path.** The volume was
+dumped afterwards and every file compared byte-for-byte against the originals;
+`SYSBENCH.O88` was intact and `os88disk.py --verify` was clean. The failure
+does not survive a reboot, and it is *deterministic* within a session, which
+also rules out the marginal-media and mis-seek theories that a 40-year-old
+drive invites. Nothing was corrupted at any point.
+
+**Mechanism — this one is identified, not theorised.** It is a stale
+per-window listing cache (SPEC.md §22.1) resolved against a fresh global
+snapshot:
+
+1. A package's `OSAPI_FILE_WRITE` succeeds, so `dskw_write` re-runs
+   `disk_mount` — "coherence by remount" (SPEC.md §18.4). The **global**
+   snapshot now has the new file in it, sorted into place by name (§19.4).
+2. The open Disk window's own cache — `VIEW_KB` of heap behind `FS_VSEG` — is
+   **not** touched. Nothing tells a window that a package wrote to its folder;
+   only the file manager's own operations rebuild caches.
+3. A double-click resolves the clicked row against that cache and hands
+   `loader_run` a **directory INDEX** (SPEC.md §22.1: "the loader gets the
+   poster's state block in `[ld_pwin]` as well as the index").
+4. `loader_run` calls `fmv_sync` — which compares `FS_DRV`/`FS_CWD` against
+   `[disk_drive]`/`[dsk_cwd]`, finds them equal, and **returns without
+   re-listing**. It has no notion of "the directory changed underneath me".
+5. The index is then resolved against the rebuilt globals. Every entry at or
+   after the inserted name has shifted by one.
+
+In the observed case the sorted root went
+
+```
+... FONTBNCH.O88(2) GFXBENCH.O88(3) SYSBENCH.O88(4) TASKMGR.O88(5) ...
+... FONTBNCH.O88(2) GFXBENCH.O88(3) GFXHERC.TXT(4)  SYSBENCH.O88(5) ...
+```
+
+so the row the window still labelled `SYSBENCH.O88` was index 4, and index 4
+in the new listing is `GFXHERC.TXT`. The loader read a text file, found no
+`O8` magic, and said **Bad package** — correctly, about the wrong file.
+
+**Which is why it is rare and why it looked like corruption.** It needs a new
+name that sorts *before* something you then launch. A report saved as
+`SYSBENCH.TXT` would have sorted after `SYSBENCH.O88` and shifted nothing.
+And the error names the file the user thinks they clicked, so it reads as that
+file being damaged.
+
+**Directions when this is picked up.** The invariant to restore is SPEC.md
+§22.1's own sentence — "paints read the cache, actions re-sync". Step 4 is
+where it is false: `fmv_sync` re-lists on a *location* change and not on a
+*content* change. The cheapest honest fix is a **mount generation counter**:
+`disk_mount` bumps a word, each state block records the generation its cache
+was built at, and `fmv_sync` re-lists when the generation differs as well as
+when the drive or cwd does. That is one word of kernel `.bss`, one word per
+state block, and one extra compare on a path that already compares two things
+— and it makes every cache in the system self-invalidating, not just this one.
+
+Worth noting what it is *not*: it is not `[dsk_lstale]` (SPEC.md §18.9), which
+tracks a debt the **global** snapshot owes after a quiet mount. This is the
+opposite direction — the globals are current and a *window* is behind them.
+The two want the same counter and neither can serve the other.
+
+A second, independent hardening is worth considering at the same time:
+`ld_run_body` could check that the entry it resolved is a **type-1 file whose
+name ends `.O88`** before reading it, so a mis-resolved index reports
+something better than "Bad package" — §47's say-*why*-not, applied to the
+loader.

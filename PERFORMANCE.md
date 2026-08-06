@@ -688,45 +688,68 @@ apparatus too:
   `page measured`: they came out 0.49 s and 2.50 s, the check fired, and the
   fault was in the predictor. Fixed after this set; **the 2.50 s measurement
   is the good one**.
-- **`GFX_BLIT4` is 2.36x SLOWER with a solid source than with 4-pixel runs**
-  (28.2 ms against 12.0 ms for the same 4,096 pixels). That is backwards, it
-  is the opposite of what the same package measures under QEMU (9.7x the
-  other way), and a long run should be the coalescer's best case. Reading
-  `gfx_blit4` narrows it but does not settle it: the scanner is right, and
-  `gfx_blit_run` emits exactly one `gfx_hline` per coalesced run — so the
-  solid source makes 64 calls of 64 px and the striped one makes 1,024 calls
-  of 4 px, for identical pixels. **See the next entry: the two are the same
-  puzzle.**
+- **`GFX_BLIT4`'s striped row LAPPED THE COUNTER TEN TIMES**, and everything
+  that looked wrong about the blit was that. See below.
 
-#### The largest unexplained number in the set: a ~756 us floor per drawing call
+#### The blit anomaly was a lapped counter, and settling it produced the real finding
 
-`GFX_PIXEL` measured **765.64 us** and `GFX_HLINE 8px` measured **764.82 us**
-— two different routines, agreeing to 0.1%. Fitting the two hline sizes gives
-**756 us fixed + 1.16 us per pixel**, so essentially the whole cost of a small
-drawing call is a fixed 756 us, which is **3,600 clocks**.
+As published, the set said `GFX_BLIT4` was **2.36x slower with a solid source
+than with 4-pixel runs** — 28.2 ms against 12.0 ms for the same 4,096 pixels.
+That is backwards: a long run is the coalescer's best case, and the same
+package measures 13-20x the *other* way on every adapter under QEMU.
 
-That is far more than the work: the API far-call cell measures 46.7 us
-(`GET_TICKS` through the same table), and a mono pixel write is a `gfx_rowbase`
-multiply, a mask and a read-modify-write — a few hundred clocks at the outside.
-**718 us per call is unaccounted for.**
+Reading `gfx_blit4` cleared the primitive: the scanner is right, and
+`gfx_blit_run` emits exactly one `gfx_hline` per coalesced run — so the solid
+source makes 64 calls of 64 px and the striped one makes 1,024 calls of 4 px.
+The striped source therefore does about **20x the work**, which is exactly what
+the emulator says. The arithmetic then falls out:
 
-And it cannot be right as stated, because the blit contradicts it. If every
-`gfx_hline` cost 756 us, the solid blit's 64 runs would be 53 ms and the
-striped blit's 1,024 runs would be 778 ms. Measured: **28.2 ms and 12.0 ms** —
-both far below, the second by 64x. `gfx_blit_run` reaches `gfx_hline` by a NEAR
-call, so an internal run costs about 11.7 us where the same line through the
-API costs 765.
+```
+reported striped         12.0 ms
++ 10 PIT laps (54.92 ms) 549.2 ms
+= true                  561.2 ms   -> 19.87x the solid row
+QEMU/Hercules work ratio             20.3x
+```
 
-So one of two things is true, and this set cannot tell which:
+**`bl_fold`'s modular subtraction is correct and its `!` guard is not enough.**
+The guard flags an iteration *approaching* the wrap; an iteration that laps
+reports its remainder, which is small, plausible, and unflagged. A 561 ms body
+published itself as 12 ms.
 
-1. the API entry path for a *drawing* slot carries ~700 us that the plain
-   `GET_TICKS` cell does not, or
-2. the primitives block of `gfxbench` is measuring something other than the
-   primitive.
+The harness now brackets every method-P row with the tick counter and re-runs
+it under method T when they contradict each other (flag `w`). One subtlety cost
+a debugging round and is worth repeating: **ticks cannot measure a lapping row,
+only detect one.** With IF = 0 the 8259 latches a single pending IRQ0 however
+many the PIT raises, so a body that laps ten times still yields one tick — the
+tick count under-reports by the lap factor. The usable test is `ticks >= N`,
+which says *every* iteration crossed a tick boundary and contradicts any PIT
+total claiming they were shorter than 54.92 ms. Verified by injecting a body
+that laps deliberately: unflagged and 5x low before, flagged and correct after,
+with no false positive anywhere else in the suite.
 
-Either answer is worth having and neither needs the machine: it is a source
-question with two measured numbers to check against. **Until it is settled,
-do not price a redraw by counting `gfx_*` calls at 765 us each** — the blit
-says the real per-call cost inside the kernel is nearer 12 us, and the page
-repaint (2.50 s for 78x34 cells, 915 us a cell) is the figure to estimate
-from because it is measured end to end.
+#### And so: a `gfx_hline` costs ~0.5 ms whatever its length
+
+With the blit row corrected, the number that looked like a contradiction
+becomes the corroboration:
+
+| route to one `gfx_hline` | per call |
+|---|---|
+| solid blit, 64 calls in 28.2 ms | 441 us |
+| striped blit, 1,024 calls in 561 ms | 548 us |
+| `GFX_HLINE 8px` through the API | 765 us |
+
+`GFX_PIXEL` measured 765.64 us and `GFX_HLINE 8px` 764.82 us — two different
+routines agreeing to 0.1% — and fitting the two hline sizes gives **756 us
+fixed + 1.16 us per pixel**. So the cost of a small drawing call is almost
+entirely a fixed **~3,600 clocks**, three independent routes agree on it to
+within the difference between a 4-, 8- and 64-pixel line, and the API far-call
+cell is not it (`GET_TICKS` through the same table is 46.7 us).
+
+**That is the largest single lever in the graphics system, and it is the same
+lever the fill block found from the other side.** A fill costs ~177 us per
+scan line with the pixels nearly free; an hline costs ~756 us with the pixels
+nearly free. Both say the per-call and per-row setup in the mono renderer
+dwarfs the drawing, and both say the inner loops are already at the bus. A
+redraw is priced by **how many primitive calls it makes**, not by how many
+pixels it covers — which is the opposite of the assumption every estimate in
+Part 2 was built on.

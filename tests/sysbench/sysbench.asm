@@ -497,6 +497,8 @@ sb_header:
     call bl_sline
     mov si, sb_s_pit2
     call bl_sline
+    mov si, sb_s_pit3
+    call bl_sline
     mov si, sb_l_ovh
     mov ax, [sb_bcnt]
     mov dx, [sb_bcnt+2]
@@ -1634,6 +1636,7 @@ sb_l_dsz:     db '  bytes read', 0
 
 sb_s_pit1:  db 'One PIT count is 838 ns and EXACTLY four 4.77MHz CPU clocks: both', 0
 sb_s_pit2:  db 'divide the 14.31818MHz crystal, the PIT by 12 and the 8088 by 3.', 0
+sb_s_pit3:  db 't = tick-timed, ! = near the 55ms wrap, w = it LAPPED and is tick-timed.', 0
 sb_s_warn1: db 'CAUTION: under QEMU every time column is the HOST speed. Boot with', 0
 sb_s_warn2: db '-icount shift=3,sleep=off and read counts as guest INSTRUCTIONS.', 0
 sb_s_warn3: db 'A tick-timed (t) row of 0 counts means it finished inside one 55ms', 0
