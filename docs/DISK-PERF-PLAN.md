@@ -141,6 +141,66 @@ opening a Disk window, Refresh, a drive change, a volume switch — still
 re-validates from the disk. This phase only makes the OS stop re-proving a
 volume to itself in the middle of an operation it is already inside.
 
+## 5.5. Mechanism D — the icon harvest re-reads every package, every mount
+
+**Found while planning associations, and it is a fourth mechanism for
+FIELD-NOTES 3 rather than a consequence of that work.** It is here and not in
+`docs/ASSOC-PLAN.md` because it slows the OS as it stands today.
+
+`disk_mount` step 4 reads the **first sector of every type-1 file in the
+directory** to harvest its icon. Three facts about it:
+
+- **It is already conditional and correctly so.** A type-0 file gets no read
+  at all (the slot stays the all-zero sentinel), and a folder gets
+  `dsk_folder_ico` out of `.text`. Only a validated `.O88` is read. There is
+  no waste *per file* to remove here.
+- **The waste is per MOUNT.** The harvest runs on the current directory every
+  time, and §5's mechanism A means every directory change is a mount. `APPS/`
+  holds **8** packages and `GAMES/` **5**, so entering `APPS/` costs 8 extra
+  sector reads — at mechanism C's revolution apiece, **~1.6 seconds every time
+  you open that folder**, and again every time you come back to it.
+- **It re-reads icons the kernel may already have.** With ASSOC-PLAN §2.5's
+  baked glyphs, the kernel ships knowing what four of these files look like
+  and reads them off the disk anyway.
+
+**The cheap partial fix is a fingerprint, and it is nearly free.** The staged
+entry already carries name and size, so `stem + size` identifies "this is the
+build I know" at zero I/O (ASSOC-PLAN §2.5). Skip the read when it matches.
+**But it only pays where the kernel holds the full icon**, and the baked thing
+is the 8×8 *reduction* — 8 bytes, for composing document icons. Drawing the app
+in a listing needs the full **16×16**, 64 bytes, so skipping the harvest for
+all 13 shipped packages means baking **832 bytes** into the kernel: a quarter
+of the grant, to speed up shipped disks only, duplicating bytes that are
+already on the floppy.
+
+**The better fix is the one already chosen for associations: put it on the
+disk.** `ASSOC.DAT` becomes a per-volume desktop database carrying the full
+16×16 icon per package keyed by (stem, size) — read **once per volume per
+session** instead of 8–13 reads per folder mount, covering user-added packages
+as well as shipped ones, and written warm by `tools/os88disk.py`, which already
+places every `.o88` and knows its icon. The 8×8 glyph is derived from the 16×16
+by the same majority reduction, so only one of the two is ever stored.
+
+Three things make this a real design question rather than an obvious win, which
+is why it is scoped here and not decided:
+
+- **Where the icons live in RAM.** 16 packages × 64 bytes is 1KB, which does
+  not belong in `.text`. A heap claim per volume is the natural home (the file
+  manager already claims 3KB per Disk window), and a refused claim degrades to
+  today's behaviour exactly.
+- **The file grows past one sector.** ~80 bytes a row is 3 sectors for 16
+  packages against `ASSOC.DAT`'s current one — still far better than 13
+  scattered first-sector reads, but no longer a single read.
+- **It changes `disk_icons`' contract**, which SPEC.md §18.3 step 4 and §29.1
+  both describe as harvested fresh every mount. A cached source needs that
+  wording changed deliberately, not by implication.
+
+**Sequencing:** this comes after Phases 1–3 and after ASSOC-PLAN Phase 3, both
+because it builds on `ASSOC.DAT` and because Phase 1's counters are what say
+how much of the folder-entry cost is really the harvest as against the mount
+around it. Take the fingerprint (ASSOC-PLAN §2.5, 24 bytes) regardless — it
+earns its place validating the baked glyphs whether or not any of this lands.
+
 ## 6. What must not break
 
 - **The write path's commit order and rollback** (§18.4 rules 1–3), which is

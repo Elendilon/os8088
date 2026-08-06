@@ -421,6 +421,19 @@ needs the XT.
    currently holds. Check `dsk_fatw0`/`dsk_fatd0` first; they may already carry
    it.
 
-**Do not** assume the icon harvest is the cost — it is one sector per *type-1*
-file and a folder of documents has none. A and B are paid on **every**
-directory change regardless of contents.
+**Mechanism D — the icon harvest re-reads every package on every mount.**
+Added after the first three. `disk_mount` step 4 reads the first sector of
+every type-1 file in the directory, and mechanism A means every directory
+change is a mount — so entering `APPS/` (8 packages) costs 8 extra sector
+reads, ~1.6 s at C's revolution apiece, **every time you open that folder**.
+It is already correctly conditional — a type-0 file gets no read and a folder
+uses the built-in body — so there is nothing to save per *file*; the waste is
+in doing it again per *mount*. `docs/DISK-PERF-PLAN.md` §5.5 has the options.
+
+**What this means for the earlier caution below:** it was written before D and
+said "do not assume the icon harvest is the cost". Half of that stands and half
+does not. A and B are still paid on **every** directory change regardless of
+contents, so in a folder of *documents* they are the whole story. But in a
+folder of *programs* the harvest is real and can exceed them — which is exactly
+`APPS/`, the folder a user opens most. **Count both**; the counters in the plan
+separate them.

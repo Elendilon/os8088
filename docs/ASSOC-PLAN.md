@@ -284,10 +284,30 @@ the reading, once, at build time. This is the same standing that
 image because there is nothing on disk to harvest them from at the moment they
 are needed.
 
-The one thing that is *not* true of a baked glyph: it describes the
-`NOTEPAD.O88` this tree built. Put a different program of that name on the
-disk and the mark is wrong until something re-resolves it — which the loader's
-fill does the first time it is actually run.
+**A baked glyph describes the `NOTEPAD.O88` this tree built, and a two-byte
+fingerprint is what makes that checkable rather than assumed.** Put a different
+program of that name on a disk and the baked mark is simply wrong. The staged
+directory entry already carries the file's **size** at zero cost (§19.1
+offset 20, and a type-1 entry's high word is required to be 0), so baking the
+expected size alongside each default — `assoc_size[12]`, 24 bytes, a fourth
+parallel array — turns "assume it is ours" into "know it is ours":
+
+- **name and size match** → the baked glyph is right, use it.
+- **they do not** → treat the slot as unresolved and let §2.5's fillers
+  harvest the real icon. A stranger's `NOTEPAD.O88` gets a bare page until it
+  is seen, which is honest, instead of Notepad's mark, which is a lie.
+
+A false match needs a different program with the same name *and* byte-identical
+length; the consequence is a cosmetically wrong icon and never a wrong load,
+because §2.7's name re-check governs the open path independently. The FAT write
+timestamp would be a stronger key, but `tools/os88disk.py` **pins every
+timestamp for determinism** (`make check-images` depends on it), so it is a
+clean "was this written by our tool" signal rather than a unique one — worth
+knowing, not worth the bytes.
+
+This same fingerprint is the enabling half of a larger optimisation that
+belongs to the disk work rather than to this plan — see
+`docs/DISK-PERF-PLAN.md` §5.5, mechanism D.
 
 It must be **generated, not hand-pasted**. `tools/os88mini.py` emits a `db`
 line per shipped app from its `.o88`, and `kernel.bin` gains a dependency on
@@ -827,6 +847,7 @@ Phase 2 is written.
 | `ASSOC.DAT` writer — heal and registration (§2.5.2) | `.text` | ~150 |
 | the dialog's icon column (§5.5) | `.text` | ~80 |
 | the header block's parse in pass A + the sticky bit (§2.8) | `.text` | ~80 |
+| `assoc_size` + the baked-glyph fingerprint check (§2.5) | `.text` | ~50 |
 | the page frame body | `.text` | 64 |
 | `assoc_find` / `assoc_note_app` | `.text` | ~110 |
 | `assoc_reduce` (majority 2×2) | `.text` | ~70 |
@@ -837,12 +858,12 @@ Phase 2 is written.
 | 2 API cells + the X stub | `.text` | ~40 |
 | notice strings | `.text` | ~40 |
 | compose scratch (0 if `dsk_ico` is reused) | `.bss` | 0–64 |
-| **total** | | **~1,540** |
+| **total** | | **~1,590** |
 
 **The budget was raised to cover this.** `KERN_BUDGET` 76,288 → **78,336**
 (+2,048), asked for and granted to fund this plan and `docs/DISK-PERF-PLAN.md`
-together — ~1,540 here and ~200 there against the 1,536 that were spare, which
-the two do not fit. Spare after both: ~1,800.
+together — ~1,590 here and ~200 there against the 1,536 that were spare, which
+the two do not fit. Spare after both: ~1,750.
 
 The decisions taken since the grant moved this figure by +200 net: the dialog's
 icons ~80, the cache's merge ~40, and Phase 5's header parse plus the sticky
