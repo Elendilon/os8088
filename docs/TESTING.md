@@ -16,6 +16,13 @@ Every recipe below was run end to end on a stock QEMU 8.2.2 and the measured
 result is quoted with it. If one of them fails, that is a finding about the
 tree, not about the emulator.
 
+**This document answers *where a test can run*. [PERFORMANCE.md](../PERFORMANCE.md)
+answers *what the target machine costs* — the calibration numbers, the
+standing budget every redraw path has already been measured down to, and the
+three visible defects the emulator cannot show. Read that one before changing
+anything that draws or loops; "Modelling the old machine from a fast one",
+below, is the short version of it.**
+
 ---
 
 ## The matrix
@@ -315,12 +322,21 @@ machine is worth very little.
 
 **Under QEMU the numbers are not time at all.** QEMU runs the guest at host
 speed, so add `-icount shift=3,sleep=off` and the PIT counts guest
-*instructions* — reproducible and machine-independent, but not microseconds,
-and it understates the mono win because what alignment removes is
-disproportionately memory traffic. `build/bench360.img` on a real 4.77 MHz
-8088 (or 86Box) is where the PIT is a wall clock and the microsecond column
-means microseconds. That is where these numbers are worth taking. A VGA run
-measures the *fallback* path by design — `font_run`'s fast path is mono-only.
+*instructions* — reproducible and machine-independent (±1 count across runs),
+but not microseconds, and it understates the mono win because what alignment
+removes is disproportionately memory traffic. The Makefile has no knob for
+it; override the whole command instead, which is the shortest correct form:
+
+```sh
+make bench
+make test TESTAPPS=build/bench.img \
+     QEMU="qemu-system-i386 -icount shift=3,sleep=off"
+```
+
+`build/bench360.img` on a real 4.77 MHz 8088 (or 86Box) is where the PIT is a
+wall clock and the microsecond column means microseconds. That is where these
+numbers are worth taking. A VGA run measures the *fallback* path by design —
+`font_run`'s fast path is mono-only.
 
 One trap if you ever track a bench artifact: `make check-images` reads its
 list from `git ls-files build`, so a tracked image `all` does not build reads
@@ -362,6 +378,14 @@ accumulator folded per iteration costs a few instructions and cannot lap; a
 - **Instructions are the better proxy, not framebuffer traffic.** SPEC.md
   §6.1.1 predicted the opposite and was corrected by measurement: per-cell
   overhead dominates the byte-writes it guards.
+
+The rest of the calibration table — a framebuffer read-modify-write at ~30
+cycles whether or not it changes a pixel, `repe scasb` at ~7.5 clocks a pixel
+against 75–90 for a per-pixel decode, the back buffer's flush at ~24× its
+render, a 50×90-cell content fill-and-letter at about five seconds — is in
+[PERFORMANCE.md Part 2](../PERFORMANCE.md), together with the standing budget
+every redraw path in the tree has already been measured down to. Check a
+change against that table before concluding it is free.
 
 ### Count work, don't time it — QEMU is exact about the first and useless at the second
 
@@ -426,21 +450,59 @@ number per run is one you have to trust.
 
 ### What the emulator cannot show at all
 
-Not "shows inaccurately" — cannot show:
+Not "shows inaccurately" — cannot show. **Do not call all of these
+"flicker"**: they are three defects with three causes and three fixes, and
+lumping them together is how one gets fixed and the others ship
+([PERFORMANCE.md Part 1](../PERFORMANCE.md) is the full vocabulary).
 
-- **Flicker.** The erase-and-letter pair leaves a line blank between the fill
-  and the last glyph. On an XT that gap is tens of milliseconds and plainly
-  visible; under QEMU it is microseconds and invisible at any frame rate a
-  screendump can sample. Note Pad's per-keystroke flash (SPEC.md §27.2) and
-  the grow box's were both found by a person watching the real machine, and
+- **A visible redraw, which is not a flicker at all.** A window's whole
+  content, or the whole screen, being painted again. On real hardware you
+  *watch it happen* — the fill sweeps, then the text lands row by row — and
+  on a heavy application (Paint, the Task Manager, a full Disk window) that
+  is **seconds**, not a flash. Under QEMU it is microseconds and a
+  screendump taken either side of it is identical. This is the single most
+  expensive mistake available in this codebase, and the one an emulator is
+  least able to warn about.
+- **A double-draw flash.** Anything drawn twice — background, then content.
+  The erase-and-letter pair is the canonical case: it leaves a line blank
+  between the fill and the last glyph, tens of milliseconds on an XT,
+  several display frames. The area is smaller than a full redraw so it reads
+  as a flash rather than a wait, but it is still **very plainly visible**, on
+  every keystroke. Note Pad's per-keystroke flash (SPEC.md §27.2) and the
+  grow box's were both found by a person watching the real machine, and
   neither appears in any timing column, because the two methods take
   comparable *time* and differ in what is on screen during it.
 - **Perceived latency and input overrun.** Whether a human can outpace the
   redraw — and start losing keystrokes to a full BIOS buffer — is a property
-  of the real machine's speed against a real person's typing.
+  of the real machine's speed against a real person's typing. A view that
+  costs more than its frame budget reads as a *hung* display rather than a
+  slow one, which is why the tracker stops animating its grid on a tier-0
+  machine (SPEC.md §45.9.1).
 
-For both, the emulator's role is to prove *correctness* before you burn a
-floppy. The judgement is made on hardware.
+And one the emulator reports as a **success**, which is worse:
+
+- **An optimisation that kept its shape and lost its substance.**
+  `gfx_blit4`'s first version emitted one call per run exactly as designed,
+  and decoded every pixel individually inside the scan — 75–90 clocks a pixel
+  against `repe scasb`'s seven and a half. A 448×280 repaint went from about
+  a quarter of a second on a 4.77 MHz 8088 to over two. **Under QEMU it
+  measured as exactly as fast**, because QEMU models no 8086 timing: every
+  screendump was right and every test passed. That is why the cycle counts in
+  `kernel/vga12.inc` are written down rather than measured, and why rewriting
+  something whose *reason* is speed means verifying the reason survived, not
+  the structure.
+
+For all of these, the emulator's role is to prove *correctness* before you
+burn a floppy. The judgement is made on hardware.
+
+**Wall clock here is still a lower bound worth having.** Paint's figures
+under `make run-640` — a full-canvas flood fill in ~4 s, a 448×280 4bpp BMP
+open in ~8 s — are useful precisely because they are already slow *in the
+emulator*. A real 8 MHz machine is several times slower and a 4.77 MHz 8088
+slower again, so anything measured in seconds here is out of reach on the
+target. That is how JPEG was ruled out (docs/PAINT-NOTES.md), and the
+AT-class 86Box targets (`make 286`, `make 386sx`, `make 386`) are the honest
+middle of that range.
 
 ## What 86Box is genuinely for
 

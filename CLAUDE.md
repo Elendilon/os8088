@@ -8,6 +8,24 @@ os8088: a Macintosh System 1-style GUI OS for the Intel 8086, written entirely i
 
 **SPEC.md is the binding contract.** Every symbol name, register contract, constant, and data layout is pinned there. Update SPEC.md *before* changing any interface, not after.
 
+**PERFORMANCE.md is the other one you must read before you write code.** The
+target is a 4.77MHz 8088 and you are testing on a machine ~1000x faster, which
+means the emulator is exact about how much *work* the guest does and useless
+about how long it takes. Three visible defects cannot be observed here at all
+— a **visible redraw** (a full window or screen repaint: on real hardware you
+watch it happen, and on Paint or the Task Manager that is *seconds*, not a
+flicker), a **double-draw flash** (anything drawn twice — background, then
+content — which is a smaller area and so reads as a flash, but is still very
+plainly visible), and **input overrun**. A fourth is worse: an optimisation
+that keeps its shape and loses its substance measures as a *success* here
+(`gfx_blit4`, nine times slower on hardware, identical under QEMU).
+PERFORMANCE.md carries the calibration numbers (~1ms per 8x8 glyph cell), the
+standing budget every redraw path in this tree has already been measured down
+to — so a change that reintroduces a full repaint is a regression against a
+documented number, not a neutral refactor — and how to count work with a
+counter read over QMP. docs/TESTING.md is where a test can *run*;
+PERFORMANCE.md is what the target machine *costs*.
+
 ## Commands
 
 ```

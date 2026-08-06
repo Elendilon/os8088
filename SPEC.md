@@ -685,14 +685,15 @@ take comparable time and differ in what is on screen during it.
 
 #### 6.1.1 What it is worth, measured
 
-`apps/fontbench` is the measurement. It lives on the **`testing` branch**, not
-here — it ships on no disk and nothing in this tree builds or cites it, so it
-is tooling rather than system, and the numbers below stand on their own record
-the way any other measured figure in this document does. What it does: draws
-the same ten-character run (`'C-2 01 A0F'`, a tracker pattern cell) 120 times
-four ways — the hand-written `gfx_fill` + `font_str` PAIR and one `font_run`,
-each at a byte-aligned x and again at x+5 — and times each against counter 0
-of the 8253 read directly, because a 55ms tick cannot resolve a 3ms row.
+`tests/fontbench` is the measurement. It lives in **`tests/`**, built only by
+`make bench` — it ships on no disk, `all` never builds it and nothing under
+that folder is tracked, so it is tooling rather than system, and the numbers
+below stand on their own record the way any other measured figure in this
+document does. What it does: draws the same ten-character run
+(`'C-2 01 A0F'`, a tracker pattern cell) 120 times four ways — the
+hand-written `gfx_fill` + `font_str` PAIR and one `font_run`, each at a
+byte-aligned x and again at x+5 — and times each against counter 0 of the
+8253 read directly, because a 55ms tick cannot resolve a 3ms row.
 
 Run under QEMU with `-icount`, so the PIT counts guest **instructions**
 rather than host time and the result is deterministic and machine-independent
@@ -2058,8 +2059,8 @@ failed" on Hercules, which is the shape every mono-gated bug in this system
 has.
 
 **What it is worth, at the workload level.** §6.1.1 prices the primitive;
-`apps/typebench` (on the `testing` branch, like fontbench and for the same
-reason) prices the *keystroke* — 40 random characters typed into a 40-cell
+`tests/typebench` (in `tests/`, like fontbench and for the same reason)
+prices the *keystroke* — 40 random characters typed into a 40-cell
 line, the whole line redrawn after each one, which is what `np_redraw` does to
 its dirty band (§27.2). Under `-icount`:
 
@@ -3079,18 +3080,31 @@ guard 7 proves the kernel ends clear of the relocated stack.
 - **`docs/TESTING.md` is the testing map**, and its section on modelling the
   old machine from a fast one is what to read before taking any number: the
   container is ~1000x a 4.77MHz 8088, so a constant sized against it encodes
-  the wrong range, and flicker and input overrun cannot be observed there.
-- The **benchmarks are not here.** `apps/fontbench` (§6.1.1) and
-  `apps/typebench` (§11.94) are the same idea for a *measurement* rather than
-  a gate, and they live on the **`testing` branch**: they ship on no disk,
-  nothing in this tree builds or cites them, and a harness that only ever
-  answers a question once is tooling rather than system. Both time their
+  the wrong range, and a visible redraw, a double-draw flash and input
+  overrun cannot be observed there at all (PERFORMANCE.md Parts 1 and 3).
+- The **benchmarks are not in `apps/`.** `tests/fontbench` (§6.1.1) and
+  `tests/typebench` (§11.94) are the same idea for a *measurement* rather than
+  a gate, and they live in **`tests/`** with the gate packages: they ship on
+  no disk, `all` builds none of them, nothing under that folder is tracked,
+  and a harness that only ever answers a question once is tooling rather than
+  system. `make bench` builds both onto `build/bench.img` and
+  `build/bench360.img`; their *development* stays on the `testing` branch, so
+  the midway artifacts of correcting a harness do not land in this history.
+  Both time their
   drawing paths against counter 0 of the 8253 read directly, because a 55ms
   tick cannot resolve a 3ms row. **Run either under QEMU with `-icount
-  shift=3,sleep=off`** and the PIT counts guest **instructions** instead of
+  shift=3,sleep=off`** — the Makefile has no knob, so override the command:
+  `make test TESTAPPS=build/bench.img QEMU="qemu-system-i386 -icount
+  shift=3,sleep=off"` — and the PIT counts guest **instructions** instead of
   host time, which is what makes a result reproducible (±1 count across runs)
   and independent of the machine it is taken on. Without `-icount` they
   measure the host, which is not an 8088 and not a number worth quoting.
+- **PERFORMANCE.md is the performance map**, the way `docs/TESTING.md` is the
+  testing one: the calibration numbers that let a change be priced without a
+  machine, the standing budget every redraw path in this tree has already been
+  measured down to, and the vocabulary for the three visible defects the
+  emulator cannot show — a *visible redraw* (seconds on a heavy window, and
+  not a flicker), a *double-draw flash*, and *input overrun*.
 - **`check-images`**: `build/` is gitignored but a curated set inside it is
   force-added and shipped — the kernel, both boot sectors, both bootable
   floppies, both software floppies, and every package's `.bin`/`.o88`.
