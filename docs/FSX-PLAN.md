@@ -362,8 +362,18 @@ build fix.
 4. **XMS desktop stash** (§41): on 286+ VGA, `xm_copy` the four planes out
    at entry and back at exit — instant restore, no repaint, and `xm_copy`'s
    second real consumer. Tier 0 machines keep the repaint. Phase 4 polish.
-5. **Task Manager service badge**: `TF_SERVICE` is the first honest marker
-   of "kernel plumbing vs app work" — one glyph in the task list.
+5. ~~**Task Manager service badge**~~ — **DROPPED, not deferred.** The
+   idea was to surface `TF_SERVICE` as "kernel plumbing vs app work" in the
+   task list. But `TF_SERVICE` has exactly one reader (`sch_switch`'s
+   whitelist) and exactly one effect: keeping a driver service task runnable
+   *while a bracket is up*. A bracket means the app owns the whole screen —
+   so the Task Manager can never be visible when the flag is doing anything,
+   and whenever the Task Manager IS visible (`[fsx_task]` = 0xFF) the flag is
+   never consulted at all. The badge would draw a distinction with no
+   observable consequence at the only moment it could be drawn. It is not a
+   cost/model question (though the Task Manager also lists instances, not
+   tasks, and a service worker has no instance): it is that there is nothing
+   worth showing.
 6. **SDK recipe: text in any mode** — `osapi_font_glyphs` + the info block
    is a complete "letter mode 13h yourself" story; write it down once.
 7. **Port ownership doc** — inside a foreign mode the 6845/sequencer/GC/
@@ -408,17 +418,15 @@ half-working panic key is worse than a documented absence).
    (DONE — §45's fullscreen is the bracket now, verified with a real
    Sound Blaster wav produced entirely inside it, and the one bug it found
    — `[trk_fs]` must clear before `fsx_restore`'s repaint — fixed), docs
-   (DONE). The two brainstormed polish items are **deliberately deferred**,
-   with reasons, not silently dropped:
-   - **Task Manager service badge** — the Task Manager lists *instances*,
-     not tasks (SPEC.md §28/§29, by design), and a `TF_SERVICE` worker has
-     no instance: it is already folded into the "System" row. Surfacing the
-     flag would take a `SYS_SNAPSHOT` ABI change (slot 0x0298) plus a new
-     task-level view, for a marker that could only ever annotate one
-     aggregate row. Disproportionate to the "one glyph" it was imagined as,
-     and against the instance model. Left for if the Task Manager ever grows
-     a genuine task-level pane.
-   - **XMS desktop stash** — `xm_copy` the four planes out at entry and back
+   (DONE). The two brainstormed polish items did not ship, for different
+   reasons:
+   - **Task Manager service badge — DROPPED** (§9.5). `TF_SERVICE` only ever
+     does anything inside a bracket, and a bracket owns the whole screen, so
+     the Task Manager can never be on screen when the flag matters; when the
+     Task Manager IS on screen the flag is never even read. There is nothing
+     to show at the moment you could show it. (The instance-vs-task model and
+     the `SYS_SNAPSHOT` ABI cost are real too, but secondary to that.)
+   - **XMS desktop stash — DEFERRED** — `xm_copy` the four planes out at entry and back
      at exit for an instant restore. Real, but it targets tier-1+ (286+ with
      A20/XMS), which is not the 8086 target, and it only replaces a repaint
      that already works and is cheap. A performance nicety for off-target
