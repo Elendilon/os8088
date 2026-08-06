@@ -96,9 +96,10 @@ $(BUILD):
 
 # The kernel is a flat binary loaded at 1000:0000. No linker is involved,
 # which keeps Apple's Mach-O-only toolchain out of the picture entirely.
-$(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) | $(BUILD)
+$(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) tools/os88pad.py | $(BUILD)
 	$(NASM) -f bin -w+error -I kernel/ $(VIDDEF) -o $@ $(KERNEL_SRC)
-	@echo "kernel: $(call FILESIZE,$@) bytes"
+	@python3 tools/os88pad.py $@
+	@echo "kernel: $(call FILESIZE,$@) bytes (image rung; .text is smaller)"
 ifneq ($(VIDDEF),)
 	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC): this kernel has a probe FORCED. ***"
 	@echo "  *** build/ is git-tracked - rebuild with plain \`make\` before  ***"

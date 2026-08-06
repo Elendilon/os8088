@@ -274,7 +274,27 @@ bytes goes is the last section of this document.
 
 The ladder charges the pair **rounded up to a whole 512 bytes** (see the
 alignment invariant below) — 65,536 B, so 1,141 bytes of the rung are rounding
-remainder. Measure the unrounded pair by appending `section .text` /
+remainder.
+
+**The file on disk is padded to that rung**, which it did not used to be:
+`.bss` is nobits, so `kernel.bin` was `.text` alone and the boot sector's
+contiguous read landed sector K at offset K·512 — somewhere inside `.bss`
+rather than at the paragraph the ladder calls `FAT_SEG`. Two things fall out
+of closing that gap, and they are why the ~9 extra sectors are worth reading:
+anything **appended** to `kernel.bin` now lands exactly at `FAT_SEG` in the
+same read, so a boot-time overlay needs no second loop in the boot sector and
+no gap constant; and **the whole of `.bss` is zeroed before `kmain` runs**,
+which nothing previously did — `nasm -f bin` zeroes nothing, which is why
+`[fdlg_win]` had to live in `.text` as a `dw 0` (`fdlg_grab` reads it on the
+machine's very first mouse press). The splash is safe through it: `viddet`
+and `splash` keep all their data in `.text` precisely because they run during
+the load.
+
+The kernel cannot pad itself — padding inside `.text` grows `KTEXT_SIZE`,
+which grows `KIMG_PARA`, which grows the padding, and there is no fixed
+point — so `KIMG_PARA` is published as a word at **offset 4 of the image**
+and `tools/os88pad.py` acts on it from outside. `KERNEL_SECTORS` still falls
+out of the file size exactly as before. Measure the unrounded pair by appending `section .text` /
 `times KBSS_SIZE db 0` to `kernel/kernel.asm`, assembling, and taking the file
 size; revert afterwards. `make`'s own `kernel: n bytes` line is `.text` alone.
 
@@ -440,6 +460,7 @@ package calls into empty memory.
 | hard disks as a driver (§18.7/§18.8/§51.2.1) — budget **not** raised | 79 KB | 78.5 KB |
 | `.lowbss` migration + 256-byte task stacks | 79 KB | 76.5 KB |
 | the glyph table follows it out (§6/§20.3) | 79 KB | 76 KB |
+| the image padded to its rung — the load path for an overlay | 79 KB | 76 KB |
 | ...and where it stands now | 79 KB | **76 KB** (77,824 B) |
 
 The last row is the one to re-measure rather than trust: it moves with every

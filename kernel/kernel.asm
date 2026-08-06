@@ -272,6 +272,16 @@ section .text
 cold_entry:
     jmp kmain
 
+    ; 0060:0004 - KIMG_PARA, the image rung in paragraphs, published for the
+    ; BUILD rather than for the running kernel: tools pad kernel.bin out to
+    ; this so that anything appended to the file lands at the paragraph the
+    ; ladder calls FAT_SEG, in the boot sector's ONE contiguous read. The
+    ; kernel cannot pad itself - the padding would grow KTEXT_SIZE, which
+    ; grows KIMG_PARA, which grows the padding - so the number has to leave
+    ; the assembly for someone else to act on. Nothing reads it at run time.
+    times 0x04 - ($ - $$) db 0
+    dw KIMG_PARA
+
     times 0x08 - ($ - $$) db 0
     jmp near spl_tick           ; 0800:0008 - boot splash tick (SPEC.md 15)
 
