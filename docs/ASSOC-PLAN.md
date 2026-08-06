@@ -307,7 +307,17 @@ knowing, not worth the bytes.
 
 This same fingerprint is the enabling half of a larger optimisation that
 belongs to the disk work rather than to this plan — see
-`docs/DISK-PERF-PLAN.md` §5.5, mechanism D.
+`docs/DISK-PERF-PLAN.md` §5.5, mechanism D, where a cache **hit skips the
+harvest read entirely and a miss harvests as today**, so a new package still
+works and then stops costing anything.
+
+**One consequence lands back here and must not be blurred: `ASSOC.DAT` will
+serve two consumers with different lifetimes.** Its *association* rows merge
+into the global `.text` table of §2.2 and live for the whole session across
+every volume; its *icon* rows serve the current volume's mount and are dropped
+on a volume switch. One file, two sections, two lifetimes. Anything that treats
+them as one thing will either leak a volume's icons into another's listing or
+throw away associations on a switch.
 
 It must be **generated, not hand-pasted**. `tools/os88mini.py` emits a `db`
 line per shipped app from its `.o88`, and `kernel.bin` gains a dependency on

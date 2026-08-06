@@ -181,25 +181,84 @@ as well as shipped ones, and written warm by `tools/os88disk.py`, which already
 places every `.o88` and knows its icon. The 8×8 glyph is derived from the 16×16
 by the same majority reduction, so only one of the two is ever stored.
 
-Three things make this a real design question rather than an obvious win, which
-is why it is scoped here and not decided:
+### 5.5.1 The rule: hit skips, miss harvests
 
-- **Where the icons live in RAM.** 16 packages × 64 bytes is 1KB, which does
-  not belong in `.text`. A heap claim per volume is the natural home (the file
-  manager already claims 3KB per Disk window), and a refused claim degrades to
-  today's behaviour exactly.
-- **The file grows past one sector.** ~80 bytes a row is 3 sectors for 16
-  packages against `ASSOC.DAT`'s current one — still far better than 13
-  scattered first-sector reads, but no longer a single read.
+Per type-1 entry in the directory, look up its `(stem, size)` fingerprint in
+the loaded cache:
+
+- **Hit** → copy the cached 64-byte icon into `disk_icons[i]`. **No read.**
+- **Miss** → harvest exactly as today (read the file's first sector), and mark
+  the cache **owed**.
+
+That is what keeps a new package working: a file the cache has never seen is
+harvested the first time and written into the cache after, so it is free from
+then on. It also means the cache can never be *wrong* in a way that matters —
+a modified file has a different size, misses, and re-harvests.
+
+**One heal rule now covers the whole file.** The associations already heal on a
+miss (ASSOC-PLAN §2.5.2); icons heal on a miss the same way, at the end of the
+mount that discovered them, into the same `ASSOC.DAT`. One write trigger, one
+file, one discipline.
+
+Two limits worth stating rather than discovering:
+
+- **The cache is capped** (16 packages is the proposal). A volume with more
+  gets the first 16 cached and the rest harvested every mount — slower, never
+  wrong. No eviction policy, because a policy that thrashes is worse than a cap
+  that is understood.
+- **Stale rows for deleted files are harmless.** Lookups are driven by the
+  listing, so a row nothing names is never consulted; it costs its bytes and
+  goes when the file is next rewritten.
+
+### 5.5.2 Where it lives: one buffer, not six
+
+DVOL_MAX is 6 — A:, B: and up to four partitions (§52.2) — so a claim *per
+volume* at ~1.25KB each is up to **12KB of heap**, which on the 128KB floor
+machine is over a fifth of everything above the kernel. The configuration that
+costs the most (four hard-disk partitions) is the one least likely to appear on
+that machine, but that is a reason not to worry, not a reason to spend.
+
+**Take one shared buffer plus a volume-identity byte instead: ~1.25KB total,
+reloaded on a volume switch.** The tree has already made this exact decision
+once, for the FAT window — shared by default, per-volume *only* where a driver
+donates the claim, and §18.8.1 spells out why that escalation existed: a copy
+alternates between two volumes, so the window was being reloaded constantly.
+
+**That reasoning does not transfer here, which is the point.** A copy never
+consults this cache: `dskw_find` and `fcp_scan` walk directory sectors
+themselves, and `dsk_chdir_q` skips the harvest entirely (§18.9). The icon
+cache is read only on a **full** mount — a user navigating — so the alternating
+case that justified per-volume FAT windows has no counterpart. If profiling
+ever says otherwise, per-volume is the same escalation and it is already
+written down.
+
+Three tiers, each degrading into the next, which is the §50 discipline:
+
+| tier | when | cost per mount |
+|---|---|---|
+| resident cache | claim held, right volume | **0 reads** |
+| claim refused | `mem_claim` said no | 3 reads — scan the file a sector at a time out of `dsk_secbuf` |
+| no `ASSOC.DAT` | fresh or foreign disk | today's behaviour, 8–13 reads |
+
+### 5.5.3 What still has to be decided deliberately
+
+- **The file grows past one sector.** ~80 bytes a row is ~3 sectors for 16
+  packages against `ASSOC.DAT`'s single sector today — far better than 13
+  scattered first-sector reads, but no longer one read.
 - **It changes `disk_icons`' contract**, which SPEC.md §18.3 step 4 and §29.1
   both describe as harvested fresh every mount. A cached source needs that
   wording changed deliberately, not by implication.
+- **`ASSOC.DAT` now serves two consumers with different lifetimes**, and
+  conflating them would be easy: the *association* rows merge into the global
+  `.text` table and live for the session across every volume, while the *icon*
+  rows serve the current volume's mount and are dropped on a switch. One file,
+  two sections, two lifetimes — say so in SPEC.md.
 
-**Sequencing:** this comes after Phases 1–3 and after ASSOC-PLAN Phase 3, both
-because it builds on `ASSOC.DAT` and because Phase 1's counters are what say
-how much of the folder-entry cost is really the harvest as against the mount
-around it. Take the fingerprint (ASSOC-PLAN §2.5, 24 bytes) regardless — it
-earns its place validating the baked glyphs whether or not any of this lands.
+**Sequencing:** after Phases 1–3 and after ASSOC-PLAN Phase 3, both because it
+builds on `ASSOC.DAT` and because Phase 1's counters are what say how much of a
+folder-entry really is the harvest as against the mount around it. Take the
+fingerprint (ASSOC-PLAN §2.5, ~50 bytes) regardless — it earns its place
+validating the baked glyphs whether or not any of this lands.
 
 ## 6. What must not break
 
@@ -241,7 +300,12 @@ raised to **78,336** (§9):
 | Phase 1 — run splitter, multi-sector call, run-level retry with per-sector fallback | ~100 |
 | Phase 2 — the identity byte and the quiet-reuse branch | ~40 |
 | Phase 3 — the same-volume guard | ~60 |
-| **total** | **~200** |
+| Mechanism D (§5.5) — the fingerprint lookup, the tiered reader and the heal | ~180 |
+| **total** | **~380** |
+
+Mechanism D's ~1.25KB buffer is a **heap claim, not footprint** — it does not
+touch `KERN_BUDGET` and it is refusable, which is what makes the middle tier in
+§5.5.2 a real path rather than a courtesy.
 
 Phase 1 may come in near zero net: it deletes a per-sector CHS computation and
 a per-sector BIOS call in exchange for a per-run splitter. It is not counted as
@@ -250,8 +314,8 @@ a saving because the retry fallback is new code that has no counterpart today.
 ## 9. The budget decision
 
 `KERN_BUDGET` **76,288 → 78,336** (+2,048), asked for and granted to cover this
-plan and `docs/ASSOC-PLAN.md` together: ~200 here and ~1,340 there against
-1,536 spare, which the two do not fit.
+plan and `docs/ASSOC-PLAN.md` together: ~380 here and ~1,590 there against
+1,536 spare, which the two do not fit. Spare after both: ~1,560.
 
 Per CLAUDE.md and the constant's own comment, the raise **lands with the first
 commit that needs it, not before** — a raised guard with nothing spent under it
