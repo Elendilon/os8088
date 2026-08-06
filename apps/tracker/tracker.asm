@@ -976,8 +976,12 @@ trk_play:
                                     ; makes the mp_start reset and the two
                                     ; UI-task mp_gen pre-rolls below safe
                                     ; against a mid-mix feed pass
-    cmp byte [trk_ghave], 0         ; the 16KB ring grant, allocated once and
-    jne .granted                    ; force-freed by teardown (SPEC.md 34.3)
+    cmp byte [trk_ghave], 0         ; the 16KB ring grant, taken per PLAY and
+    jne .granted                    ; given back by trk_stream_close so the
+                                    ; driver can release its staging pool
+                                    ; while we are stopped (SPEC.md 34.6);
+                                    ; teardown still force-frees it (34.3) if
+                                    ; a close never ran
     mov al, 7
     mov ah, 0                       ; sub-op 0 = alloc
     mov cx, TRK_RING
@@ -1111,6 +1115,32 @@ trk_stream_close:
                                     ; worker cannot be inside mp_gen, so the
                                     ; caller may reset the replayer, pre-roll
                                     ; on the UI task, or free the module blob.
+
+    ; ...and give the 16KB ring grant back, which is what lets the DRIVER
+    ; release its 20KB staging pool (SPEC.md 34.6): the pool is a LATE heap
+    ; claim - taken on the first grant, after this app already holds its
+    ; module buffer - so a grant held across a whole session parks 20KB in
+    ; the MIDDLE of the heap and splits it (SPEC.md 50.3's warning, and the
+    ; refusal docs/FIELD-NOTES.md records). The grant used to be allocated
+    ; once and left to teardown; stopped is exactly when nobody needs it.
+    ;
+    ; This is the sanctioned free point, not merely a convenient one. The
+    ; SDK's one author rule is "never verb-7-free a grant your worker may be
+    ; mid-stage into - only after your own handshake says it is parked", and
+    ; the drain above IS that handshake; the stream is closed first, so the
+    ; driver's own live-stream-overlap refusal cannot fire either.
+    cmp byte [trk_ghave], 0
+    je .nogr
+    push si
+    mov si, [trk_grant]             ; SI = the grant's offset (sbl_grant_find)
+    mov al, 7
+    mov ah, 1                       ; sub-op 1 = free
+    call OSAPI_SND_STREAM
+    pop si
+    or ax, ax
+    jnz .nogr                       ; refused: keep the latch, so the next
+    mov byte [trk_ghave], 0         ; play reuses the grant we still hold
+.nogr:
     pop ax
     ret
 

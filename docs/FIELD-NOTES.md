@@ -64,6 +64,33 @@ cycle-accurate emulator — PCem is the right tool here and QEMU is not.
 
 ## 2. Heap fragmentation: a second Tracker load says "Out of memory"
 
+> **RESOLVED — two real bugs, both fixed.** The reporter's order of
+> operations (open Tracker, load, **play**, close, reopen the file manager,
+> open the Task Manager, open Tracker again, load → refused) pinned it. The
+> driver's 20KB staging pool was being stranded mid-heap two different ways:
+>
+> 1. **`DSV_RELINST` only released the FM half.** The cell published
+>    `opl_release_inst`, which keys off OPL channels and touches nothing of
+>    the Sound Blaster — so **closing a package that had streamed left its
+>    staging grant behind, and with it the pool, for the rest of the
+>    session**. That is the reporter's exact path. It is now
+>    `snd_release_both`, which releases both halves and is published by
+>    *either* half attaching (a card with no OPL still has memory to give
+>    back). Measured: System heap stayed at 122K after a close-while-playing
+>    and now returns to 102K.
+> 2. **Tracker held its ring grant for its whole lifetime**, allocating it
+>    once and leaving it to teardown — so even a *stopped* Tracker kept the
+>    pool claimed. It now frees the grant in `trk_stream_close`, after the
+>    worker-park handshake the SDK's one author rule requires. Measured:
+>    System 122K while playing → 102K on stop → 122K on replay.
+>
+> The general lesson is the one §50.3 already states and this is the first
+> field proof of: **a long-lived claim in the middle of the heap splits it**,
+> and the total free figure will happily say there is room while the largest
+> run says otherwise. The analysis below is kept because it is still the
+> right way to think about the next one.
+
+
 **Observed.** On a 384KB machine: launch Tracker, load `BEVERLY.MOD`
 (116,085 bytes) — fine. Then load again (or run a second instance), and the
 splash reads **`Out of memory`**. The Task Manager at that moment showed:
