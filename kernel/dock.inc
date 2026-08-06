@@ -293,9 +293,8 @@ dock_draw_tile:
     mov dx, [vid_dock_ty0]
     add dx, 2
     push si
-    mov si, [di+I_ICON]
-    or si, si
-    jnz .icon
+    call inst_icon_ptr          ; SI -> 64 bytes in OUR segment, staged if
+    jnc .icon                   ; this instance's body lives in LOW_SEG
     mov si, ico_app16 + 2       ; generic fallback: skip the library
 .icon:                          ; record's 2-byte header (SPEC.md 25/30)
     call icon_draw16

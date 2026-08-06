@@ -19,6 +19,12 @@ make test ADLIB=1 # ...with an emulated AdLib at 388h, so the sound DRIVER
               # (SPEC.md 51.4) has something to attach to. SB16=1 likewise.
               # QEMU HAS both cards; the two gate packages verify them
               # mechanically (docs/TESTING.md). Sound is NOT 86Box-only.
+make test HDD=40 # ...with a 40MB blank IDE disk at 1F0h, for the hard-disk
+              # DRIVER (SPEC.md 52). Without one its probe correctly finds
+              # nothing, which is the right answer and not the one you want to
+              # be testing against - the ADLIB= reasoning exactly. The image
+              # (build/hdd.img) is created once and KEPT, because partitioning
+              # and formatting it is the thing under test; rm it to start over
 make test-snd # make test + PC speaker captured to build/snd.wav; verify with
               # tools/sndcheck.py (note: the wav holds speaker-ON time only, not
               # wall time - a silent boot yields an empty capture, and QEMU leaves
@@ -555,6 +561,21 @@ Two invariants that are easy to break, both asserted:
 
 - `boot/boot.asm` — 512-byte boot sector; geometry comes from `-DSPT`/`-DHEADS`, sector count from the measured kernel size (both injected by the Makefile).
 - `kernel/kernel.asm` — constants, the derived memory ladder and its guards, boot sequence, the os8088 API jump table at 0060:0010, `%include`s of all modules, final .bss and size assertions. Module ownership is the table in SPEC.md §4; each `.inc` owns one subsystem (viddet, vga12, font, mouse, sched, events, wm, instance, menu, ui, apps, disk, diskw, loader, files, fdlg, icons, desk, dock, taskmgr, ctrl).
+- **A driver may own a Control Panel page** (SPEC.md 31.9). The item list is
+  the five static rows plus one per loaded driver that publishes `DSV_CPNAME`,
+  so a page exists exactly while its driver is attached - which falls out of
+  the publication slot being cleared at detach rather than being arranged. Two
+  traps: the page's list NAME is staged into the kernel, because `font_str`
+  reads through DS and a pointer into the driver's segment renders the
+  driver's own image; and `[cp_sel]` is clamped at detach, or the panel
+  dispatches through a freed segment on its next paint - and the panel need
+  not be open for that to be owed.
+- **Desktop zones ARE the volume table** (SPEC.md 26.1), and they wrap into a
+  new column to the LEFT when one will not fit above the dock. `[desk_rows]`
+  is computed at boot from the live geometry: 7 on VGA, 4 on Hercules, **2 on
+  CGA**, where a third zone would otherwise land on the dock at row 176. The
+  §1 rule about `[vid_*]` in its natural habitat - invisible on VGA, so a
+  drive-zone change is not done until it has been looked at on CGA.
 - `kernel/font.inc` — the 8x8 text renderers. `font_char` is transparent-background and clips per whole cell; **`font_run` (API 0x0258, SPEC.md §6.1) is the erase-and-letter pair as ONE operation** — both colours, each cell painted complete. It is a SPEED optimisation for the mono adapters and is measured, not asserted: `tests/fontbench` (in **`tests/`**, built only by `make bench` — the testing apps are tooling and never ship) says **1.30x** for a ten-character run, and that figure is from a REAL 4.77MHz XT with a Hercules card, where a cell costs about 1ms. Under QEMU it also says 1.26-1.30x in instructions but 2.85x in framebuffer traffic — and the XT came in at the INSTRUCTION figure, so the per-cell overhead dominates the writes it guards and traffic is the explanation, not the predictor. **The bigger win is that it does not FLICKER**: the erase-and-letter pair leaves the run blank between the fill and the last glyph, which on an XT is tens of milliseconds and plainly visible, and `font_run` writes each cell from old to final in one store (SPEC.md §6.1). On a 1bpp adapter at a byte-aligned x the cell owns its whole framebuffer byte, so a cell row is a single store — no shift, no read, no second byte, no separate fill pass. **Two things about it are commonly got wrong.** The fast path needs `[bb_on]` **and** `x & 7 == 0` **and** `[gfx_dis]` clear, and anything else falls back to `gfx_fill` + `font_str` — which costs **2.5% MORE** than writing that pair by hand (the far call, the gates, `font_width_x`), so it is not free on VGA and the tracker calls it on mono only. The "cannot produce §11.3's granularity failure" property is now the CALL's, not just the fast path's — the fallback used to be literally the fill-then-letter pair and blanked a cut line, and it picks per-cell drawing when a clip edge actually crosses the run (SPEC.md §6.1.2), so a caller may draw under an armed region without gating. Tracker's pattern columns were moved onto 8-pixel boundaries to earn it; **`WF_SNAP`/`OSAPI_WM_SNAP` (SPEC.md §11.94) is how an ordinary window earns it** — an opt-in, mono-only flag that keeps the window's CONTENT origin on a multiple of 8 through every `W_X` write, at the price of 8px drag steps. The Task Manager and Note Pad use it; the Disk window was measured and left alone, because `fm_repaint`'s one big fill plus ~40 `font_str`s is already cheaper than 40 self-erasing runs. **`wm_snap` preserves FLAGS** — a package entry proc returns CF to the loader, and the mono-only `cmp` inside it left CF set, so asking to be snapped aborted the launch on Hercules while loading fine on VGA.
 - `kernel/viddet.inc` — adapter detection, runtime geometry, `gfx_rowbase`/`gfx_nextrow`/`gfx_ink`. Included **before** `splash.inc`: the splash probes and sets the mode on its first tick, so this must be resident in the first `SPL_RESIDENT` sectors and all its data lives in `.text`, never `.bss`.
 - `kernel/video.inc`, `keyboard.inc`, `string.inc`, `gfx.inc` are dead — left in the tree but **no longer included** (relics of the pre-GUI text shell, as is `kernel-shell.asm.bak`).
@@ -682,6 +703,89 @@ The apps disk is **foldered**: `APPS/` and `GAMES/`, via a
 `DIR:` prefix per package in the Makefile. Root indices are 0 = APPS,
 1 = GAMES, and a package is two double-clicks away rather than one.
 
+### Hard disks are a driver, and a volume is an index (SPEC.md §18.7/§52)
+
+`[disk_drive]` is a **volume index** — 0 = A:, 1 = B:, 2 = C: — and never an
+int 13h drive number, which is what keeps `'A'+drive`, `FS_DRV`, the desktop
+zones and `osapi_file_here` all working untouched. The int 13h drive, or a
+`DRVC_DISK` driver's own handle, lives in the `dsk_vtab` row; `dsk_xfer`
+branches once at the top and a driver-backed volume goes out to `DSV_BLK` with
+**the same volume-relative 16-bit LBA**. The driver adds its own 32-bit
+partition base, and that is the whole of what "partitions" means to the
+kernel — which is why the FAT layer, the directory walker and the write path
+are the floppy's code, unchanged. A volume caps at 65,535 sectors (31.99MB),
+which is both BPB rule 8's existing refusal and the DOS 3.3 limit these
+machines ran; more capacity is more partitions.
+
+**The FAT is a WINDOW now** (SPEC.md §18.8). `FAT_SEG` stopped meaning "the
+FAT" and started meaning "these nine FAT sectors" — a 32MB FAT16 volume's FAT
+is 254 sectors and there was never going to be room. A floppy gets the
+degenerate case byte for byte: the window covers the whole FAT and never
+moves. Five routines are the entire blast radius, because `FAT_SEG` always had
+exactly one reader (`dsk_next_clus`) and one writer (`dskw_setfat`). Three
+traps: `dsk_fat_ofs` splits FAT12 from FAT16 because a FAT16 entry's absolute
+byte offset is `clus*2` and **overflows a word** at 65,524 clusters (the
+sector and the in-sector offset each fit; their product does not); rule 16
+compares SECTORS for the same reason; and `dskw_refat` is an invalidate with
+no I/O, whose reach is now shorter — an eviction may already have flushed part
+of a half-built chain, which costs LOST CLUSTERS and can never cross-link.
+
+**Mount is per PARTITION** (SPEC.md §52.4): it walks all four slots and mounts
+every FAT one, so a disk partitioned in three comes up as HDD C, HDD D and
+HDD E with three icons. Two tests decide and both are needed — the type byte
+(01/04/06/0E, never extended or FAT32) and whether the volume actually mounts,
+which is the half a type byte cannot answer. **The KERNEL names them**: the
+driver passes no label, because the drive letter is the kernel's to assign, so
+`HDD C`..`HDD F` derive from the volume index the way `Disk A` does.
+
+**The mount survives a reboot** (SPEC.md §52.6), and it does so **inside
+`SYSTEM.CFG`** rather than a file of the driver's own (SPEC.md §51.9). A
+separate `HDD.CFG` was the first answer and the boot cost killed it: a second
+directory search, a second read, and — because every file slot resolves in the
+*current* volume and directory — two full **remounts** around them to get back
+to A: and then back to where the driver was. `OSAPI_DRV_CFG` (slot 0x0290) is
+a `rep movsb` into a file the boot already reads. The kernel carries
+`DRV_BLOB_SZ` = 34 opaque bytes, knows the key's name and length and nothing
+about its contents, and **round-trips them untouched on a machine whose driver
+never loads** — deliberately unlike §51.5 rule 1, because this key *is* known
+and only its meaning is not. The price is those 34 bytes of `.bss` reserved on
+every machine, hard disk or not.
+
+The driver reads the blob at **`DRVV_READY`** — a verb the kernel sends right
+after publishing a driver's services, and the earliest point at which any
+fence keyed on the publication slot will answer, because attach deliberately
+runs before it is armed. Three traps: a device is matched by kind+unit+base
+and never by its row index (the probe re-runs and a machine can gain or lose a
+drive between boots); the automount still banks the current volume with
+`OSAPI_FILE_HERE` and puts it back, so the rest of `drv_boot` finds the system
+disk current; and **the three save verbs are not interchangeable** — the
+geometry editor stages on every `+` and writes on none, Partition and Format
+spend a staged edit, and Mount and Unmount write the file *now*, because a
+machine switched off with the panel still open would otherwise come back with
+a hard disk it had been told to mount and has not. Testing follows that split:
+a mount survives a hard quit with the panel open, a typed geometry needs the
+panel closed first.
+
+**Everything the user sees is in `drivers/hdd/`**: the probe, the Control
+Panel page, the partitioner, the FAT formatter and Mount. The kernel's half is
+five API slots (0x0270..0x0290), a 6-row volume table and a branch. Two things
+about the driver are worth knowing before touching it. Its **rung 1 (the IDE
+task file) is gated on `CPU_286`**, and that is arithmetic: an 8088's
+`in ax, dx` is two 8-bit bus cycles at the same port, so the drive's high byte
+is lost — an 8088 with a hard disk has a controller with a ROM, and rung 0 is
+that ROM, which is also the whole of MFM support. And its formatter computes
+the FAT-size ceiling in **32 bits**, because `TmpVal1 + TmpVal2 - 1` wraps a
+word for every cluster size there is and reads as "no layout fits".
+
+**A driver's window is the kernel's to measure.** Both tool windows erase
+their content through `OSAPI_WM_GEOM` and never the template's constants: the
+content is `W_W-2` by `W_H-TITLE_H-1`, **TITLE_H is 18**, and `wm_fit` clamps
+a template that does not fit the live screen (SPEC.md §39.7) — so a repaint
+that open-codes a size draws through the border and into whatever is behind
+it, and the gfx primitives clip to the SCREEN and will not stop it. The same
+applies to strings: every one in that driver fits its box, because `font_str`
+does not stop at a window edge either.
+
 ### Loadable drivers (SPEC.md §51, `kernel/driver.inc`)
 
 **A driver is a package that is not an application.** Same 32-byte header,
@@ -701,6 +805,16 @@ read.
 a driver says no, so anything it hooked outlives it — and `DRVV_DETACH`
 cannot fail. Detach happens BEFORE the free, always: freeing the claim under
 a live interrupt vector points it at whatever claims that memory next.
+
+**Publication is per CLASS** (SPEC.md 51.2.1), and that is a fix rather than a
+generalisation: `[drv_owner]`, the far pointer and the copied table used to be
+one of each, so on a machine with a sound card *and* a hard disk the second
+attach silently disconnected the first - and "sound stops when the disk driver
+is enabled" is a symptom nowhere near its cause. Class 1 is index 0, so not one
+line of `snd.inc` changed. `drv_blk_call` is a second BODY rather than a class
+argument, because the disk ABI spends every register the sound ABI does;
+`drv_cp_call` *can* take the class in AL, because the Control Panel page ABI
+leaves AX alone.
 
 A driver publishes a **service table** the kernel copies into `.bss` at
 attach (the `dsk_get_dir` staging idiom), so every later dispatch is a near

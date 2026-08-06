@@ -15,10 +15,10 @@ written, and the section at the end says how to re-measure each one.
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
 includes its buffers.** The span is `KERN_BUDGET` bytes — 79KB today, and
 64KB for as long as that was affordable (see below). It currently runs
-0x00600 through 0x139FF, and the budget's ceiling is 0x14200.
+0x00600 through 0x13FFF, and the budget's ceiling is 0x14200.
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
-data, `.bss`, the FAT snapshot, the directory and icon caches, the sector
+data, `.bss`, the FAT window, the directory and icon caches, the sector
 buffer and every task stack are one contiguous span starting at
 `KERNEL_SEG`. Guard 1 in `kernel/kernel.asm` measures that whole span
 against `KERN_BUDGET` and fails the build if it is over.
@@ -102,15 +102,21 @@ is no longer true:
 
 | | headroom for `.text` + `.bss` |
 |---|---:|
-| guard 2, the segment | **1,884 B** |
-| guard 1, the budget | 2,396 B |
+| guard 2, the segment | **71 B** |
+| guard 1, the budget | 583 B |
 
-At 63,652 bytes of image the segment runs out first, by 512 bytes. So the
-next thing to hit is not a conversation about `KERN_BUDGET` — it is a hard
-16-bit ceiling that no decision can move, and the only ways past it are doing
-less or doing it smaller. (Guard 1's headroom is quoted for the image alone:
-the budget's 2,048-byte spare would let the image rung grow by four more
-512-byte steps, of which the segment permits three.)
+At 65,465 bytes of image the segment runs out first **by a factor of eight**,
+and hard-disk support (below) is what took it there. So the next thing to hit
+is not a conversation about `KERN_BUDGET` — it is a hard 16-bit ceiling that
+no decision can move, and the only ways past it are doing less, doing it
+smaller, or moving it out of the segment.
+
+The two are also coupled through the rounding, and that coupling is now
+load-bearing: **the image rung is 65,536 bytes — the segment maximum
+exactly.** Guard 1's remaining 512 bytes therefore cannot be spent on code at
+any price; only the buffers and stacks can reach them. Conversely, the first
+71 bytes the image gives back are worth nothing to guard 1, and the 583rd
+drops the rung a whole 512-byte step and hands that back to the heap.
 
 ---
 
@@ -121,30 +127,31 @@ out of the same constants the guards use.
 
 | region | size | what it is |
 |---|---:|---|
-| image (`.text` + `.bss`) | 64,000 B | all kernel code, its read-only data, and its scratch |
+| image (`.text` + `.bss`) | 65,536 B | all kernel code, its read-only data, and its scratch |
 | task stacks | 6,656 B | 11 background slots + task 0's |
 | disk buffers | 3,584 B | directory cache, icon cache, sector scratch |
-| FAT snapshot | 4,608 B | the mounted volume's FAT, resident |
-| **total** | **78,848 B** | of an 80,896-byte budget — 2,048 B spare |
+| FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
+| **total** | **80,384 B** | of an 80,896-byte budget — 512 B spare |
 
-The image rung is `.text` (57,182) + `.bss` (6,470) = 63,652, rounded up to a
-whole 512 bytes; the 348-byte remainder is the only slack anywhere in the
-ladder, and it is a rounding artefact rather than a reservation.
+The image rung is `.text` (59,572) + `.bss` (5,893) = 65,465, rounded up to a
+whole 512 bytes; the 71-byte remainder is the only slack anywhere in the
+ladder, and it is a rounding artefact rather than a reservation. That rung is
+also, as of hard-disk support, the largest it can ever be.
 
-The ladder lands on these segments: `KERNEL_SEG` 0x0060, `FAT_SEG` 0x1000,
-`LOW_SEG` 0x1120, `HEAP_SEG` 0x13A0.
+The ladder lands on these segments: `KERNEL_SEG` 0x0060, `FAT_SEG` 0x1060,
+`LOW_SEG` 0x1180, `HEAP_SEG` 0x1400.
 
 Everything above that is the claim heap, up to whatever int 12h reports. The
 arithmetic is exact and worth writing down, because every RAM figure in this
 project falls out of it:
 
-> **heap KB = what int 12h reports − 78.5**
+> **heap KB = what int 12h reports − 80**
 
-`KERN_END` is 5,024 paragraphs = 80,384 bytes = 78.5KB, and the heap starts
-there. Checked against a live machine: QEMU with `-m 1M` reports **639KB**
-and the Task Manager shows **560KB** of heap. 639 − 78.5 = 560.5, and the
-readout truncates. Re-derive this after any budget change — it has moved with
-all four of them. It used to be *nothing* on a small machine: the package
+`KERN_END` is 5,120 paragraphs = 81,920 bytes = exactly 80KB, and the heap
+starts there. Checked against a live machine: QEMU with `-m 1M` reports
+**639KB** and the Task Manager shows **559KB** of heap. Re-derive this after
+any budget change — it has moved with all four of them, and again with
+hard-disk support without the budget moving at all. It used to be *nothing* on a small machine: the package
 pool's own top sat above 128KB, so a 128KB machine had no heap and could load
 no package at all.
 
@@ -157,20 +164,23 @@ tree.) Three different questions, three different answers:
 | RAM | heap | what happens |
 |---|---|---|
 | < 84.5KB | — | **cannot boot.** Nothing to do with the heap: `boot/boot.asm` relocates itself to `BOOT_RELOC:7C00` = linear 0x15000 and reads the kernel from there, so the machine has to have the 512 bytes through 0x151FF. Guard 5 checks the kernel clears its stack |
-| 86KB | 7KB | boots, full desktop, browses both floppies, **loads a package** (`hello`) |
-| 102KB | 23KB | Note Pad runs. Paint loads and puts up its "Not enough memory" notice — the designed tier, not a crash |
-| 166KB | 87KB | Paint still gets the notice |
-| 182KB | 103KB | **Paint runs live**, full 448×280 canvas |
-| 640KB | 560KB | everything, including the 150KB back buffer |
+| 87KB | 7KB | boots, full desktop, browses both floppies, **loads a package** (`hello`) |
+| 103KB | 23KB | Note Pad runs. Paint loads and puts up its "Not enough memory" notice — the designed tier, not a crash |
+| 167KB | 87KB | Paint still gets the notice |
+| 183KB | 103KB | **Paint runs live**, full 448×280 canvas |
+| 640KB | 559KB | everything, including the 150KB back buffer |
 
-So the honest floor is **86KB to boot and load something**, and **~182KB for
+So the honest floor is **87KB to boot and load something**, and **~183KB for
 every shipped app at full function**. The often-quoted "128KB" sits between
 those: it runs the OS and most of the packages, and Paint declines.
 
-Those thresholds are properties of the **heap**, not of the machine, so they
-move by exactly whatever the budget moves: the same table before raises 3 and
-4 read 80KB / 96KB / 160KB / 176KB / 640KB against the identical heap figures.
-The outcome column was re-verified boot by boot at the sizes above.
+Those thresholds are properties of the **heap**, not of the machine, so the
+RAM column moves by exactly whatever `KERN_END` moves — before raises 3 and 4
+this table read 80KB / 96KB / 160KB / 176KB against the identical heap
+figures, and hard-disk support shifted it 1.5KB again without touching the
+budget. **The outcome column was measured boot by boot** with `mem_init`
+clamped; the RAM column is those measurements re-derived onto today's
+`KERN_END`.
 
 Two things this table is not. It is not a promise about *speed* — these were
 measured under QEMU, which does not model 8086 timing at all (SPEC.md §5.4).
@@ -193,14 +203,14 @@ The page is **one map, captioned on the line directly above it** — the
 second used to magnify the package pool, and there is no pool:
 
 ```
-RAM  77/639K [] HEAP   0/560K       <- the map's caption, both figures
+RAM  79/639K [] HEAP   0/559K       <- the map's caption, both figures
 [==============================]    <- every byte the machine has
 XMS   0/64448K                      <- and what it has no address for
 [==============================]
 ```
 
-Its four buffer rows read `Code+data 63K`, `Stacks 7K`, `Disk bufs 4K` and
-`FAT snap 5K` against a `System` row of `77K`. They sum to 79, not 77,
+Its four buffer rows read `Code+data 64K`, `Stacks 7K`, `Disk bufs 4K` and
+`FAT snap 5K` against a `System` row of `79K`. They sum to 80, not 79,
 because each row rounds its own KB up independently while `System` rounds the
 whole span once — the rows are exhaustive, not additive.
 
@@ -250,7 +260,7 @@ the interior texture is light so it does not swallow it.
 
 ## Each region in detail
 
-### The image — `.text` 57,182 B + `.bss` 6,470 B
+### The image — `.text` 59,572 B + `.bss` 5,893 B
 
 One flat binary at `KERNEL_SEG:0000`, assembled `-f bin` with no linker.
 `.bss` follows `.text` immediately and is uninitialised by definition, so it
@@ -258,7 +268,7 @@ costs nothing on the floppy and everything in RAM. Where every one of those
 bytes goes is the last section of this document.
 
 The ladder charges the pair **rounded up to a whole 512 bytes** (see the
-alignment invariant below) — 64,000 B, so 348 bytes of the rung are rounding
+alignment invariant below) — 65,536 B, so 71 bytes of the rung are rounding
 remainder. Measure the unrounded pair by appending `section .text` /
 `times KBSS_SIZE db 0` to `kernel/kernel.asm`, assembling, and taking the file
 size; revert afterwards. `make`'s own `kernel: n bytes` line is `.text` alone.
@@ -293,11 +303,13 @@ SS ≠ DS everywhere in the kernel (SPEC.md §1).
 then the machine driven as hard as it goes — Clock, two Bounces, About, the
 Control Panel on both its pages, the Task Manager with a window drag, a Disk
 window, the Fractal with its worker task, and Paint saving a GIF into a
-folder it created from the file dialog — leaves its deepest mark at **246
-bytes** on task 0's stack and **150** on a background task's. ISR frames are
+folder it created from the file dialog — leaves its deepest mark at **274
+bytes** on task 0's stack and **142** on a background task's — the latter
+confirmed twice over, by the Fractal's drawing worker and by Tracker's
+streaming worker with a Sound Blaster's IRQs nesting on top of it. ISR frames are
 included in that: the tick and mouse handlers run on whichever stack they
-interrupt. So 512 is 3.4× the worst observed background depth and 1,024 is
-4× task 0's.
+interrupt. So 512 is 3.6× the worst observed background depth and 1,024 is
+3.7× task 0's.
 
 Task 0 gets the larger share because it is the UI task: every window
 callback, every menu track, every file-dialog interaction and every built-in
@@ -307,7 +319,7 @@ app runs on it.
 "whatever is left between the top of `.lowbss` and the kernel segment" —
 which meant task 0's stack silently absorbed every byte saved anywhere below
 it. Two rounds of shrinking the buffers under that rule freed exactly
-nothing: the FAT snapshot gave up 7KB and task 0's stack grew by 7KB. Naming
+nothing: the FAT buffer gave up 7KB and task 0's stack grew by 7KB. Naming
 the number is what turned those savings into memory.
 
 Re-run the fill probe before lowering either number. Guard 3 only proves
@@ -330,9 +342,10 @@ segments:
 Together they are exactly `.lowbss` minus the eleven background stacks, which
 is how the Task Manager's `Disk bufs` row derives itself.
 
-### FAT snapshot — 4,608 B
+### FAT window — 4,608 B
 
-`DSK_FAT_SECS` × 512, re-read from the volume on **every** mount, with
+`DSK_FAT_SECS` × 512 — the whole FAT on any floppy, and a sliding window on a
+hard disk (SPEC.md §18.8). Re-read from the volume on **every** mount, with
 `dsk_next_clus` its single reader and `dskw_setfat` its single writer, both
 through ES only.
 
@@ -358,7 +371,7 @@ but **does not stop one from straddling a 64KB physical boundary**. Only
 starting on a 512-byte boundary does that, and the DMA controller answers a
 straddle with error 09h.
 
-Every base in this ladder is an int 13h target: the FAT snapshot, the disk
+Every base in this ladder is an int 13h target: the FAT window, the disk
 buffers, a package image being loaded, and a package's file buffer out of
 the heap. So the image rounds up to a whole **512 bytes** rather than to a
 paragraph, and because `FAT_PARA` (288) and `LOW_PARA` are both multiples of
@@ -378,7 +391,7 @@ Paint's 63KB BMP hit it immediately, a Note Pad text file never would.
 The BIOS loads `boot/boot.asm` to 0000:7C00 and it is *still executing*
 while the kernel's sectors arrive — it far-calls the splash at
 `KERNEL_SEG:0008` after every one. With the kernel landing at 0x00600 and
-running up past 78KB, it covers 0x7C00 long before the last sector.
+running up to 80KB, it covers 0x7C00 long before the last sector.
 
 So the sector's first act is to copy itself to `BOOT_RELOC:7C00` (linear
 **0x15000**, above anything the kernel can reach) and far-jump there. **The
@@ -386,7 +399,7 @@ copy keeps the same offset**, so every label in the file still resolves at
 `org 0x7C00` and only the segment registers change; its stack rides along at
 the same offset and grows down from 0x15000, with `BOOT_STACK` = 2,048 bytes
 reserved under it. Guard 5 proves the kernel ends clear of that stack, and at
-today's size it does so with 3,584 bytes to spare.
+today's size it does so with 2,048 bytes to spare.
 
 `BOOT_RELOC` and `KERNEL_SEG` are mirrored in `boot/boot.asm`, which is
 assembled separately. `apps/os88api.inc` carries a third copy of
@@ -407,7 +420,8 @@ package calls into empty memory.
 | raise 2 — the SPEC.md §51 driver subsystem | 71 KB | 70.5 KB |
 | raise 3 — SPEC.md §51.5's keyed `SYSTEM.CFG` | 75 KB | not recorded |
 | raise 4 — SPEC.md §22.3/§22.4 Cut/Copy/Paste and the drag | 79 KB | not recorded |
-| ...and where it stands now | 79 KB | **77 KB** (78,848 B) |
+| hard disks as a driver (§18.7/§18.8/§51.2.1) — budget **not** raised | 79 KB | 78.5 KB |
+| ...and where it stands now | 79 KB | **78.5 KB** (80,384 B) |
 
 The last row is the one to re-measure rather than trust: it moves with every
 commit that adds code, and it is not the budget — it is what the budget is
@@ -421,7 +435,7 @@ what was rejected along the way. This document is what it looks like now.
 
 ## Where the code goes
 
-The 63,652 bytes of image, module by module, and one level down inside each.
+The 65,465 bytes of image, module by module, and one level down inside each.
 Every byte is accounted for exactly once: the child rows of a module sum to
 its `.text`, and the module rows sum to the total. Bold rows are `.text` +
 `.bss` together; the child rows are `.text` unless italicised.
@@ -429,45 +443,45 @@ its `.text`, and the module rows sum to the total. Bold rows are `.text` +
 Read this before assuming where the weight is. Three results are worth
 knowing before you go looking:
 
-- **The file system is 29.5% of the kernel** — `disk` + `diskw` + `files` +
-  `filecp` + `fdlg` + `loader` come to 18,760 bytes, half again as much as
-  the whole window system and its furniture. FAT12 is not a small thing to
+- **The file system is 30.3% of the kernel** — `disk` + `diskw` + `files` +
+  `filecp` + `fdlg` + `loader` come to 19,804 bytes, two thirds again as much
+  as the whole window system and its furniture. FAT12 is not a small thing to
   implement twice (read and write), and the Disk window is the largest single
   module in the tree.
-- **The two utility windows are 15.1%** — the Task Manager and the Control
-  Panel are 9,634 bytes between them, for two windows most sessions never
-  open. That is what `.fartext` used to exist to hide, and it is the first
-  place to look if the segment ceiling ever has to be met by doing less.
+- **The two utility windows are 15.0%** — the Task Manager and the Control
+  Panel are 9,801 bytes between them, for two windows most sessions never
+  open. That is what `.fartext` used to exist to hide, and with 71 bytes left
+  under guard 2 it is now the first place to look.
 - **The three built-in apps are 1.6%.** About, Clock and Bounce cost 1,046
   bytes together — moving Note Pad out to a package (SPEC.md §27) was worth
   ~1.4KB on its own, which is more than all three of these.
 
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 18,760 | 29.5% |
-| the window system and its furniture | 12,292 | 19.3% |
-| hardware: clock, mouse, sound, CPU, XMS, drivers | 9,996 | 15.7% |
-| the two utility windows | 9,634 | 15.1% |
-| drawing: adapters, primitives, glyphs, icons | 8,103 | 12.7% |
-| the kernel proper: scheduler, heap, API table | 3,821 | 6.0% |
+| the file system, end to end | 19,804 | 30.3% |
+| the window system and its furniture | 11,901 | 18.2% |
+| hardware: clock, mouse, sound, CPU, XMS, drivers | 10,643 | 16.3% |
+| the two utility windows | 9,801 | 15.0% |
+| drawing: adapters, primitives, glyphs, icons | 8,361 | 12.8% |
+| the kernel proper: scheduler, heap, API table | 3,909 | 6.0% |
 | the three task-less built-ins | 1,046 | 1.6% |
 
 <!-- BEGIN generated table -->
 | | bytes | of image |
 |---|---:|---:|
-| **`files.inc`** — the Disk window (SPEC.md §22) | **6,318** | **9.9%** |
+| **`files.inc`** — the Disk window (SPEC.md §22) | **6,489** | **9.9%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;drawing the content, status line and selection | 1,425 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;clicks, keys, hit-testing and context menus | 910 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the per-window view cache (§22.1) | 748 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;every string, error table and the template | 614 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;opening, navigating, titling | 601 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the per-window view cache (§22.1) | 778 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;every string, error table and the template | 739 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;opening, navigating, titling | 609 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the menu set and its command handlers | 446 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;drag and drop | 429 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the in-place rename editor | 401 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;layout, scroll bar and geometry | 371 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the menu item tables | 72 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *301* | |
-| **`taskmgr.inc`** — the Task Manager (§28) | **6,279** | **9.9%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *309* | |
+| **`taskmgr.inc`** — the Task Manager (§28) | **6,279** | **9.6%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;the memory view: rows, figures, XMS line | 1,298 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;sampling: the history ring and per-instance cycles | 1,076 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the process view: rows, ordering, the CPU bar | 836 | |
@@ -475,7 +489,7 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;the chunked row painter (§11.3) | 562 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the RAM map, its textures and legend squares | 529 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *1,204* | |
-| **`wm.inc`** — the window manager (§11) | **4,619** | **7.3%** |
+| **`wm.inc`** — the window manager (§11) | **4,619** | **7.1%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;drawing the frame, title bar and grow box | 850 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the clip region (§11.3) | 801 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;damage-rect repaint (§11.91) | 735 | |
@@ -483,8 +497,8 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;z-order: show, hide, front, fullscreen | 626 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;hit test, record access and `wm_pkgcall` | 398 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *523* | |
-| **`diskw.inc`** — the FAT write path (§18.4-18.6) | **4,077** | **6.4%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;the FAT, the directory entry and the commit | 878 | |
+| **`diskw.inc`** — the FAT write path (§18.4-18.6) | **4,051** | **6.2%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;the FAT, the directory entry and the commit | 852 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`dskw_rmtree` — recursive delete | 592 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;folders: mkdir, rmdir and the dot entries | 579 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`dskw_write` — the 32-bit write pipeline | 571 | |
@@ -493,7 +507,7 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;delete and rename | 261 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`dskw_append` | 221 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *128* | |
-| **`clock.inc`** — the clock ladder (§37) | **3,660** | **5.8%** |
+| **`clock.inc`** — the clock ladder (§37) | **3,660** | **5.6%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;rung 1 — MC146818 at 70h/71h | 722 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;rung 3 — RP5C01/TC8521 at 2C0h | 698 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;formatting and the Date/Time field editor | 598 | |
@@ -502,17 +516,17 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;the ladder walk and its dispatch | 328 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;rung 4 — int 1Ah | 263 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *89* | |
-| **`ctrl.inc`** — the Control Panel (§31) | **3,355** | **5.3%** |
+| **`ctrl.inc`** — the Control Panel (§31) | **3,522** | **5.4%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;the Date/Time page and its field editor | 769 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;every label on all five pages | 528 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;every label on all five pages | 679 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the page frame: list, divider, dispatch | 452 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the Sound page | 446 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the page frame: list, divider, dispatch | 446 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the Drivers page | 389 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the Drivers page | 399 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the Display page (and its greying test) | 380 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;radios, checkboxes and their glyphs | 225 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the Scheduler page | 128 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;writing SYSTEM.CFG back | 44 | |
-| **`fdlg.inc`** — the Standard File dialog (§38) | **3,263** | **5.1%** |
+| **`fdlg.inc`** — the Standard File dialog (§38) | **3,263** | **5.0%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;painting the dialog, its list and its buttons | 1,024 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;clicks | 571 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;keys and the name box | 519 | |
@@ -521,34 +535,37 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;New Folder | 241 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;strings and the window template | 124 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *94* | |
-| **`instance.inc`** — instances and the built-in kinds (§29) | **2,591** | **4.1%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;launch, close and the two teardown paths | 521 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the built-in kind table and its six icons | 480 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;record bookkeeping | 249 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;a package's worker task, and its fence | 168 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *1,173* | |
-| **`disk.inc`** — mount and the FAT read path (§18-19) | **2,259** | **3.5%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;`disk_mount` and the 17-rule BPB check | 884 | |
+| **`disk.inc`** — volumes, mount and the FAT read path (§18-19) | **3,195** | **4.9%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;`disk_mount` and the 17-rule BPB check | 966 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the volume table and the FAT window (§18.7/§18.8) | 789 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;synthesizing the listing, and sorting it | 426 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;cluster-chain walking and directory scan | 357 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the current directory and entry staging | 261 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;int 13h with retry | 130 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the drive geometry words | 9 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *192* | |
-| **`filecp.inc`** — Cut/Copy/Paste (§22.3-22.5) | **2,126** | **3.3%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;cluster-chain walking and directory scan | 354 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the current directory and entry staging | 265 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;int 13h with retry | 188 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the drive geometry words | 8 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *199* | |
+| **`driver.inc`** — loadable drivers + SYSTEM.CFG (§51) | **2,511** | **3.8%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;SYSTEM.CFG: the keyed record, read and write | 600 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;load, attach, detach, free | 587 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;driver-owned Control Panel pages and the block class (§51.2.1) | 435 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the boot pass and its notice | 322 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the published service table | 221 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the five failure strings | 144 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *202* | |
+| **`filecp.inc`** — Cut/Copy/Paste (§22.3-22.5) | **2,126** | **3.2%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;the recursive walk and its explicit stack | 737 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;copying one file, in buffer-sized chunks | 540 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the destination, and the move half of a Cut | 311 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;arming the clipboard, and refusing self-paste | 300 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the copy buffer claim | 105 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *133* | |
-| **`menu.inc`** — the menu bar and pull-downs (§12) | **2,062** | **3.2%** |
+| **`menu.inc`** — the menu bar and pull-downs (§12) | **2,062** | **3.1%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;tracking, the pull-down and its save-under | 769 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`menu_relayout` — rebuilding the bar | 568 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;drawing the bar, the logo and the clock | 419 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;ownership and Locator's own set | 129 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *177* | |
-| **`vga12.inc`** — the VGA planar primitives (§5) | **2,049** | **3.2%** |
+| **`vga12.inc`** — the VGA planar primitives (§5) | **2,049** | **3.1%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;fills: solid, 50% gray and patterned | 580 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;XOR overlays, VRAM-direct and clipped | 448 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;lines, pixels and the 4bpp blit | 390 | |
@@ -556,20 +573,20 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;save/restore (the cursor and menu save-under) | 213 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the pen, the disabled flag and the lock | 71 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *45* | |
-| **`font.inc`** — the 8x8 text renderers (§6) | **1,908** | **3.0%** |
+| **`instance.inc`** — instances and the built-in kinds (§29) | **1,941** | **3.0%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;launch, close and the two teardown paths | 521 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the built-in kind table and its six icons | 480 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;record bookkeeping | 249 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;a package's worker task, and its fence | 168 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;staging a package's icon on demand (SPEC.md §25) | 54 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *469* | |
+| **`font.inc`** — the 8x8 text renderers (§6) | **1,908** | **2.9%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;one glyph: the VRAM and buffer renderers | 521 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`font_run` — erase-and-letter as one op | 491 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the ROM font handover | 70 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`font_str` and width | 49 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *777* | |
-| **`driver.inc`** — loadable drivers + SYSTEM.CFG (§51) | **1,864** | **2.9%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;SYSTEM.CFG: the keyed record, read and write | 595 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;load, attach, detach, free | 547 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the boot pass and its notice | 312 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the published service table | 179 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the five failure strings | 138 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *93* | |
-| **`memory.inc`** — the claim heap (§50) | **1,649** | **2.6%** |
+| **`memory.inc`** — the claim heap (§50) | **1,649** | **2.5%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;`mem_claim` and the DMA-page-safe scan | 529 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;reporting for the Task Manager | 332 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`mem_regrow` and its block copy | 232 | |
@@ -583,70 +600,70 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;grant ownership and the IRQ0 tick | 181 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;init and unhook | 130 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *299* | |
-| **`ui.inc`** — the UI task and the event ladder (§13) | **1,582** | **2.5%** |
+| **`ui.inc`** — the UI task and the event ladder (§13) | **1,582** | **2.4%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;`ui_task` — the event ladder | 692 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;command dispatch | 321 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`ui_drag` and its XOR outline | 270 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`ui_grow` | 267 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *32* | |
-| **`vgabb.inc`** — the software renderer / back buffer (§32, §39.5) | **1,563** | **2.5%** |
+| **`vgabb.inc`** — the software renderer / back buffer (§32, §39.5) | **1,563** | **2.4%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;the software renderer (also *the* mono renderer) | 535 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;arming, seeding from VRAM and the flush | 428 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`gfx_scroll` and its two bank copiers | 363 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;save/restore into the buffer | 121 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the dirty rect | 89 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *27* | |
+| **`icons.inc`** — the icon renderer (§10) | **1,343** | **2.1%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;the icon renderer, VRAM and buffer | 727 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the three built-in icons (floppy, hard disk, app) | 582 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *34* | |
 | **`xmem.inc`** — memory above 1MB (§41.4-41.5) | **1,285** | **2.0%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;the 286+ block move through a GDT | 528 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the pool and its allocator | 520 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the int 15h fallback | 113 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *124* | |
-| **`mouse.inc`** — serial mouse and the cursor (§9) | **1,256** | **2.0%** |
+| **`kernel.asm`** — the API table, entry points and `kmain` | **1,270** | **1.9%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;the API jump table and its X/N stubs | 1,052 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the three fixed entry points and `kmain` | 118 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;API bodies small enough to live here | 100 | |
+| **`mouse.inc`** — serial mouse and the cursor (§9) | **1,256** | **1.9%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;drawing the cursor, colour and mono | 523 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the IRQ4 packet decoder | 312 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;COM port probe and hook | 167 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the arrow bitmap | 58 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *196* | |
-| **`kernel.asm`** — the API table, entry points and `kmain` | **1,182** | **1.9%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;the API jump table and its X/N stubs | 964 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the three fixed entry points and `kmain` | 118 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;API bodies small enough to live here | 100 | |
-| **`icons.inc`** — the icon renderer (§10) | **1,085** | **1.7%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;the icon renderer, VRAM and buffer | 727 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the two built-in icons (drive, generic app) | 324 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *34* | |
 | **`apps.inc`** — the three task-less built-ins (§16) | **1,046** | **1.6%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;Clock | 373 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;About | 258 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;Bounce | 246 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *169* | |
-| **`sched.inc`** — pre-emptive scheduling (§7-8) | **990** | **1.6%** |
+| **`sched.inc`** — pre-emptive scheduling (§7-8) | **990** | **1.5%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;spawn, yield, sleep, exit | 268 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;init and the int 08h hook | 194 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the switch itself, inside IRQ0 | 171 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;cycle accounting and callback billing | 171 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the pre-empt/cooperative switch | 24 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *162* | |
-| **`splash.inc`** — the boot splash (§15) | **862** | **1.4%** |
+| **`desk.inc`** — the desktop and volume zones (§14/§26.1) | **887** | **1.4%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;the volume zones, now one per mounted volume | 534 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;clicks on the bare desktop | 182 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;the dithered background | 157 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *14* | |
+| **`splash.inc`** — the boot splash (§15) | **862** | **1.3%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;the bar, the percentage and the frame | 328 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the spinner and its cosine table | 268 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;its own primitives (it runs before `vga12`) | 266 | |
-| **`loader.inc`** — the package loader (§20) | **717** | **1.1%** |
+| **`loader.inc`** — the package loader (§20) | **680** | **1.0%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;`ld_run_body` — claim, read, zero bss, enter | 428 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;header validation and the icon donation | 165 | |
+| &nbsp;&nbsp;&nbsp;&nbsp;header validation and the icon donation | 128 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the post slots the UI task drains | 66 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *58* | |
 | **`viddet.inc`** — adapter detection and geometry (§39) | **636** | **1.0%** |
 | &nbsp;&nbsp;&nbsp;&nbsp;probe, mode set and geometry publish | 438 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;the per-adapter table and ink map | 138 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`gfx_rowbase`/`gfx_nextrow`/`gfx_ink` | 60 | |
-| **`desk.inc`** — the desktop and drive zones (§14) | **626** | **1.0%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;the drive zones | 352 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;clicks on the bare desktop | 165 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;the dithered background | 98 | |
-| &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *11* | |
-| **`dock.inc`** — the dock (§30) | **544** | **0.9%** |
-| &nbsp;&nbsp;&nbsp;&nbsp;painting tiles, and the two marks | 361 | |
+| **`dock.inc`** — the dock (§30) | **542** | **0.8%** |
+| &nbsp;&nbsp;&nbsp;&nbsp;painting tiles, and the two marks | 359 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;clicks and keys | 119 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;init | 35 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *29* | |
@@ -659,7 +676,7 @@ knowing before you go looking:
 | &nbsp;&nbsp;&nbsp;&nbsp;`evq_push` | 55 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;`evq_init` | 19 | |
 | &nbsp;&nbsp;&nbsp;&nbsp;*.bss scratch* | *134* | |
-| **total** | **63,652** | |
+| **total** | **65,465** | |
 <!-- END generated table -->
 
 ### Reading it
@@ -672,8 +689,8 @@ A few of the rows say something that is not obvious from the size alone.
   can ever run on a given machine, and there is no way to know which until
   the probe has walked them — which is exactly why none of it could be
   loadable the way the sound tiers are.
-- **`kernel.asm`'s own 1,182 bytes are almost entirely the API table.**
-  76 slots × 8 bytes is 608 bytes of `push ds / push cs / pop ds / call /
+- **`kernel.asm`'s own 1,270 bytes are almost entirely the API table.**
+  Its slots × 8 bytes is 656 bytes of `push ds / push cs / pop ds / call /
   pop ds / retf`, plus 268 bytes of the longer X and N stubs. That is the
   price of a package living in its own segment (SPEC.md §20.1), and it is
   paid once rather than at every call site.
@@ -681,10 +698,14 @@ A few of the rows say something that is not obvious from the size alone.
   777 bytes are the ROM font staging and the `font_run` line buffer; the
   four renderers themselves are 1,131 bytes for what is, on a 1bpp adapter
   at a byte-aligned x, a single store per cell row (SPEC.md §6.1).
-- **`instance.inc` carries 480 bytes of icon art** — six 64-byte built-in
-  icons plus the kind table. A package's icon is donated by its own file
-  (SPEC.md §19), so this cost stops growing the moment an app moves out to
-  a `.o88`.
+- **`instance.inc` no longer keeps a copy of every package's icon.** It used
+  to hold 768 bytes of `.bss` — one 64-byte body per instance, staged at load
+  time — while the original sat in the package's own region at the fixed
+  header offset the whole time, living exactly as long as the instance that
+  owned it. `I_ICON` is a sentinel now and `inst_icon_ptr` stages 64 bytes
+  only when a dock tile is actually drawn (the `dsk_get_icon` idiom), which
+  is what paid for hard-disk support. Its remaining 480 bytes of art are the
+  six built-in kinds' own icons.
 - **`splash.inc` pays 266 bytes for primitives that already exist.** It runs
   inside the first `SPL_RESIDENT` sectors, before `vga12.inc` is aboard, so
   it cannot call `gfx_*` and open-codes its own hline, vline and fill.
@@ -716,3 +737,59 @@ Both steps are throwaway; nothing in the tree needs to carry them. The
 constants they check (`KTEXT_SIZE`, `KBSS_SIZE`, `KLOW_SIZE`, `KERN_SIZE`)
 are the same ones the guards use, so a build that passes guard 1 already
 agrees with the totals above.
+
+---
+
+## What hard-disk support cost, and what paid for it
+
+Adding the volume table, the FAT window, driver-owned Control Panel pages and
+volume-driven desktop zones (SPEC.md §18.7, §18.8, §26.1, §31.9, §51.2.1) took
+about 1,700 bytes of `.text`. It overran **guard 2** — `.text` + `.bss` inside
+one 64KB segment — which is the 16-bit offset and cannot be raised at any
+price.
+
+**What paid for it was the per-instance icon table**: 768 bytes of `.bss`
+holding a COPY of each loaded package's 16x16 icon body, made at load time.
+The original was in the package's own region the whole time, at the fixed
+offset every package header puts it at, and it lives exactly as long as the
+instance that owns it — so the copy was pure duplication. `I_ICON` is a
+sentinel now and `inst_icon_ptr` stages 64 bytes when a dock tile is actually
+drawn, which is the `dsk_get_icon` idiom and costs nothing on any path that
+does not draw one.
+
+The FAT window itself cost **no memory at all**: `FAT_SEG` is the same 4,608
+bytes it always was, and only its meaning changed.
+
+Then the driver's *settings* moved into the kernel's file, which cost 254
+bytes more and is the least intuitive line here — the point of it was to make
+the driver's boot path **cheaper**, and it did (a `rep movsb` instead of two
+volume remounts, a directory search and a read), but the memory went the other
+way. `DRV_BLOB_SZ` = 34 bytes of `.bss` for the blob, 38 more of `drv_cfgbuf`
+for its record in the file, and about 180 of `.text` for the slot, its stub
+and the fence. All of it is reserved on **every** machine, including a 128KB
+one with no hard disk — that is the honest cost of not making the one file the
+boot already reads into two, and it is why one blob is shared by whichever
+driver asks rather than one being reserved per class.
+
+Eleven of those bytes came back by making `CFG_FBUF` **derived** rather than
+chosen: the keys tile the settings struct exactly, so the file's length is
+`CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2` and there is nothing to round up.
+Slack in a buffer whose exact size is an expression anyone can evaluate is
+`.bss` nothing can ever use.
+
+Where that leaves the two guards, on this build:
+
+```
+guard 2  .text + .bss   65,465 / 65,536      71 bytes
+guard 1  KERN_SIZE      80,384 / 80,896     512 bytes
+```
+
+`KERN_BUDGET` was **not** raised for any of this. **Guard 2 is now the binding
+one by a factor of eight**, and it is the one that cannot be raised at any
+price — so the next feature that wants kernel `.text` or `.bss` should expect
+to find its own 768-byte icon table before it starts, not afterwards. The
+measured candidates, in the order they pay: the Task Manager and the Control
+Panel (9,801 bytes, and the only lever big enough to change the situation
+rather than postpone it), the clock's probe-and-read ladder (about 1,700, and
+boot-only by construction), and the bulk `.bss` arrays that are walked through
+a pointer rather than addressed by name (about 1,100).

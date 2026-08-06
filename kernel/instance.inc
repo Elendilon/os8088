@@ -30,7 +30,14 @@ I_TASK   equ 3                  ; byte: task slot (SPEC.md 8), 0xFF = none
 I_WIN    equ 4                  ; word: window record ptr
 I_SPTR   equ 6                  ; word: builtin state ptr / package base
 I_SIZE   equ 8                  ; word: package region bytes; 0 for builtins
-I_ICON   equ 10                 ; word: 16x16 icon body ptr, 0 = generic
+I_ICO_PKG equ 1                 ; the I_ICON value meaning "in this
+                                ; instance's own region, at LD_HDR_SIZE": 1
+                                ; can never be a real .text body pointer, the
+                                ; kernel image starting well above it
+I_ICON   equ 10                 ; word: 16x16 icon body ptr, 0 = generic,
+                                ; I_ICO_PKG = "in this instance's own region"
+                                ; - reached through inst_icon_ptr, never
+                                ; dereferenced directly
 I_NAME   equ 12                 ; 16 bytes: NUL-terminated copy (<= 15 chars)
 I_CYC    equ 28                 ; dword: CPU cycles billed to this instance's
                                 ; window callbacks (SPEC.md 8.1), zeroed at
@@ -73,7 +80,7 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_bounce, app_bounce_task, app_ball_pool, 8,   app_bounce_kinit, app_ttl_bounce
     dw inst_ico_bounce
     db 10, 0                    ; Bounce: 10 x 8-byte ball state, one task each
-    dw fm_tpl,         0,               fm_pool,       18,  fm_kinit,         fm_ttl
+    dw fm_tpl,         0,               fm_pool,       20,  fm_kinit,         fm_ttl
     dw inst_ico_disk
     db VIEW_SLOTS, WF_SIZABLE   ; Disk: FOUR windows, each with its own
                                 ; 18-byte state block and its own claimed
@@ -602,6 +609,61 @@ inst_bind_win:
     pop si
     pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; inst_icon_ptr - one instance's 16x16 icon body, in the KERNEL segment
+; in:  DI = instance record
+; out: SI -> 64 bytes of icon body; CF = 1 = this instance has no icon of its
+;      own and the caller should use the generic one
+; clobbers: SI (the output), flags
+;
+; I_ICON is either 0 (none), a plain pointer into .text (a built-in kind's,
+; out of its KD_ICON) or I_ICO_PKG - "the icon is in this instance's own
+; region, at the fixed offset every package header puts it at".
+;
+; **That third case is why there is no icon table any more.** There used to be
+; 768 bytes of kernel .bss holding a per-slot COPY of each package's embedded
+; body, made at load time - and the original was in the package's region the
+; whole time, alive for exactly as long as the instance that owns it. The copy
+; was pure duplication: a dock tile is drawn when the dock changes, so staging
+; 64 bytes then costs nothing measurable, and the record's own I_SPTR is the
+; segment to stage them from. A dying instance draws no tile (I_STATE is 2
+; before wm_destroy repaints, SPEC.md 29.2), so the region is never freed
+; under a draw.
+; -----------------------------------------------------------------------------
+inst_icon_ptr:
+    push ax
+    push cx
+    push dx
+    push di
+    mov si, [di+I_ICON]
+    or si, si
+    jz .none
+    cmp si, I_ICO_PKG
+    jne .have                   ; a .text pointer: nothing to stage
+    cmp word [di+I_SIZE], 0
+    je .none                    ; not a package: I_SPTR is a state block
+    mov dx, [di+I_SPTR]         ; the REGION, and byte 32 of it is the body
+    mov si, LD_HDR_SIZE
+    mov di, inst_icobuf
+    mov cx, 64
+    mov ax, cs
+    call dsk_copy_seg
+    mov si, inst_icobuf
+.have:
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    clc
+    ret
+.none:
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1176,12 +1238,12 @@ section .bss
 
 inst_tab:    resb 384           ; INST_MAX x I_RECSZ (12 x 32; literal per
                                 ; the no-forward-ref-in-bss rule)
-inst_icons:  resb 768           ; INST_MAX x 64: a per-slot copy of each
-                                ; package's embedded icon body, staged out
-                                ; of its segment at load (SPEC.md 20.2/25)
 inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched
 inst_slot:   resw 1             ; app_launch scratch: state-pool slot
 inst_tplbuf: resb 16            ; app_launch scratch: cascaded template copy
+inst_icobuf: resb 64            ; ...and inst_icon_ptr's staging slot, the
+                                ; dsk_get_icon idiom (SPEC.md 25/30)
+
 
 section .text

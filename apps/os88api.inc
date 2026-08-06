@@ -557,6 +557,49 @@ CPU_8086            equ 0        ; tier 0: 8086/8088. No A20 line, no memory
 CPU_286             equ 1        ; tier 1: A20 + BIOS block move
 CPU_386             equ 2        ; tier 2: the above, plus unreal mode
 ;
+; --- volumes (SPEC.md 18.7/51.8) --------------------------------------------
+; A DRVC_DISK DRIVER's slots, not an application's: all four are fenced on the
+; caller being the driver whose disk services are published, so a package gets
+; CF=1 and nothing else. They are published here because drivers include this
+; file (drivers/os88drv.inc does), and because a slot number belongs in one
+; place (SPEC.md 20.8).
+%define OSAPI_VOL_ADD       KERNEL_SEG:0x0270   ; AL = the driver's own volume
+                                 ; handle, CX = the volume's sector count,
+                                 ; DX = a listing claim's segment (0 = the
+                                 ; kernel's 32-entry floor), SI = a NUL
+                                 ; desktop label in the CALLER's segment (0 =
+                                 ; derive 'Disk X'). out CF=0 and AL = the
+                                 ; VOLUME INDEX - 2 is C:, and the desktop
+                                 ; zone and the drive letter both fall out of
+                                 ; it
+%define OSAPI_VOL_DEL       KERNEL_SEG:0x0278   ; AL = a volume index this
+                                 ; driver registered. Cannot fail
+%define OSAPI_VOL_MOUNT     KERNEL_SEG:0x0280   ; AL = a volume index; mount
+                                 ; and list it. out CF=1 = not a readable
+                                 ; FAT12/16 volume. UI-TASK CONTEXT ONLY,
+                                 ; like every other file slot
+%define OSAPI_VOL_PAINT     KERNEL_SEG:0x0288   ; repaint the desktop's drive
+                                 ; zones. It takes the gfx lock ITSELF, so
+                                 ; never from a callback that holds one
+
+; --- a driver's settings, inside SYSTEM.CFG (SPEC.md 51.9) ------------------
+; A DRIVER's slot, fenced like the four above. The kernel carries DRV_BLOB_SZ
+; opaque bytes to disk and back with the rest of the Control Panel; it never
+; reads them, and it round-trips them untouched on a machine where the driver
+; never loads. Versioning them is the driver's job.
+%define DRV_BLOB_SZ         34
+%define OSAPI_DRV_CFG       KERNEL_SEG:0x0290   ; AL = 0 read / 1 write / 2
+                                 ; write and flush SYSTEM.CFG now, ES:SI = the
+                                 ; driver's buffer, CX = bytes (<= DRV_BLOB_SZ).
+                                 ; out CF=1 = not the published driver, or a
+                                 ; WRITE past DRV_BLOB_SZ; a never-written blob
+                                 ; reads back as zeroes, so put a version byte
+                                 ; in it and treat anything else as the
+                                 ; defaults (SPEC.md 51.5). Verb 1 rides the next
+                                 ; Control Panel flush, verb 2 costs a write
+                                 ; NOW - use it for state a power cut must not
+                                 ; lose, not for a preference
+
 %define OSAPI_CPU_INFO      KERNEL_SEG:0x0188   ; no inputs; out AL = CPU_8086 /
                                  ; CPU_286 / CPU_386, AH = feature bits: bit 0
                                  ; A20 verified open, bit 1 HMA claimed, bit 2
