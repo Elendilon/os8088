@@ -73,6 +73,8 @@ MEM_K_COPY equ 0xFF04           ; the file manager's copy buffer (22.3): held
                                 ; for exactly one Cut/Copy/Paste operation,
                                 ; including the part of it that is suspended
                                 ; on an overwrite question
+MEM_K_FATW equ 0xFF05           ; one volume's private FAT window (18.8.1),
+                                ; held for as long as that volume is mounted
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
 

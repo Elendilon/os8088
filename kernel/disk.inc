@@ -145,6 +145,22 @@ dsk_nmax:    dw DSK_NENT         ; how many entries fit
 ; disk_mount reads [dsk_keepcwd] to decide whether to reset [dsk_cwd].
 ; Left in .bss, one garbage byte at boot sends the mount walking a garbage
 ; cluster chain and the volume lists two lines of noise.
+dsk_fatw0:   dw 0xFFFF           ; the FAT WINDOW (SPEC.md 18.8): the first
+                                 ; resident FAT sector, 0xFFFF = none
+dsk_fatd0:   dw 0xFFFF           ; the dirty range's low end, 0xFFFF = clean
+                                 ; (high end: dsk_fatd1 in .bss). BOTH ARE IN
+                                 ; .text and not .bss, because dsk_fatw_park
+                                 ; runs at the top of the machine's very FIRST
+                                 ; mount and a zeroed word there reads as
+                                 ; "sector 0 resident and dirty" - which would
+                                 ; flush an unloaded window over a real FAT
+dsk_fatseg:  dw FAT_SEG          ; WHERE the FAT window lives (SPEC.md 18.8.1).
+                                 ; The shared one below the stacks by default;
+                                 ; a driver-backed volume that could claim its
+                                 ; own points this at that instead, so
+                                 ; alternating between two of them reloads
+                                 ; nothing. In .text with a real initialiser
+                                 ; because drv_boot's very first mount reads it
 dsk_cwd:     dw 0                ; current directory's first cluster
 dsk_keepcwd: db 0                ; 1 = this mount is a dsk_chdir: keep it
 dsk_quiet:   db 0                ; 1 = this mount is a VOLUME switch, not a
@@ -232,6 +248,7 @@ dsk_xfer:
     push si
     push di
     push bp
+
 
     inc byte [sch_lock]         ; pause task switching across all int 13h
 
@@ -449,6 +466,9 @@ dsk_vol_add:
     sub ax, dsk_vtab
     mov cl, 4                   ; / DV_SIZE
     shr ax, cl
+    call dsk_fatw_claim         ; and its own FAT window, if the heap will
+                                ; fund one (SPEC.md 18.8.1) - a refusal just
+                                ; leaves it sharing, as every volume did
     pop di
     pop si
     pop dx
@@ -483,6 +503,8 @@ dsk_vol_del:
     mov byte [cp_dirty], 1      ; ...and owes the zone's removal likewise
     mov word [bx+DV_SEG], 0
     mov byte [bx+DV_LBL], 0
+    call dsk_fatw_drop          ; AL is still the index; it also puts the
+                                ; live window back if this volume owned it
     cmp al, [disk_drive]
     jne .out
     mov byte [disk_drive], 0    ; the mounted volume just went away: fall back
@@ -763,7 +785,7 @@ dsk_fat_window:
 .have:
     mov word [dsk_fatw0], 0xFFFF
     push ax
-    mov bx, FAT_SEG
+    mov bx, [dsk_fatseg]
     mov es, bx
     mov cx, [dsk_fatwn]
     xor bx, bx
@@ -818,6 +840,8 @@ disk_mount:
     push bp
     push es
 
+    call dsk_fatw_park          ; the OUTGOING volume's window, banked while
+                                ; [disk_drive] still says which one it is
     mov [disk_drive], dl
     mov byte [dsk_vkind], DVK_BIOS  ; what the BPB rules are checked against
     mov word [dsk_vsecs], 0         ; (SPEC.md 18.2/18.7)
@@ -873,6 +897,8 @@ disk_mount:
     ; and a lazy first fault would move the moment an unreadable disk is
     ; diagnosed to some later cluster walk. Every window after this one faults
     ; in, with the same fallback.
+    call dsk_fatw_pick          ; this volume's own window, if it has one and
+    jnc .fat_ok                 ; this is a quiet switch back to it (18.8.1)
     xor dx, dx
     call dsk_fat_window
     cmp word [dsk_fatw0], 0xFFFF
@@ -1751,6 +1777,164 @@ dsk_clus2lba:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_fatw_park - bank the outgoing volume's window (SPEC.md 18.8.1)
+; in:  [disk_drive] still names the volume being left
+; out: nothing (all registers preserved)
+;
+; Called at the very top of disk_mount, before [disk_drive] moves. A volume
+; with no window of its own has nothing to bank - its sectors are about to be
+; overwritten by whatever mounts next, which is the old behaviour exactly.
+;
+; **A dirty window is flushed here.** Carrying dirt across a switch would mean
+; dskw_flush later writing to a volume that is no longer current, and the LBAs
+; are volume-relative (SPEC.md 18.7) - it would land on the wrong disk. In
+; practice this never costs an I/O: every commit point already flushes, so the
+; window is clean by the time a copy switches away.
+; -----------------------------------------------------------------------------
+dsk_fatw_park:
+    push ax
+    push bx
+    cmp word [dsk_fatw0], 0xFFFF
+    je .out                     ; nothing resident: nothing to flush or bank,
+                                ; which is also the state at the machine's
+                                ; very first mount
+    cmp word [dsk_fatd0], 0xFFFF
+    je .clean
+    call dskw_flush             ; CF is not propagated: a flush that fails has
+.clean:                         ; already lost those bytes, and refusing the
+                                ; mount would lose the volume as well
+    mov bl, [disk_drive]
+    call dsk_fatw_slot          ; BX = this volume's saved-sector word
+    jc .out
+    mov ax, [dsk_fatw0]
+    mov [bx], ax
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_fatw_pick - point the window at the incoming volume's (SPEC.md 18.8.1)
+; out: CF=0 the window is already loaded and holds a valid sector; CF=1 = the
+;      caller owes it a load
+; clobbers: flags
+;
+; Only a QUIET mount (SPEC.md 18.9) may reuse a banked window. A full mount is
+; a re-validation of the whole volume - the disk may have been swapped - so it
+; takes the load, and "a torn mount is a failed mount" survives untouched.
+; -----------------------------------------------------------------------------
+dsk_fatw_pick:
+    push ax
+    push bx
+    mov word [dsk_fatseg], FAT_SEG
+    mov bl, [disk_drive]
+    call dsk_fatw_slot
+    jc .load
+    mov ax, [bx+DVOL_MAX*2]     ; the claim; the saved sector is at [bx]
+    or ax, ax
+    jz .load                    ; no claim: the shared window, as before
+    mov [dsk_fatseg], ax
+    cmp byte [dsk_quiet], 0
+    je .load
+    mov ax, [bx]
+    cmp ax, 0xFFFF
+    je .load
+    mov [dsk_fatw0], ax         ; still resident, and nothing can have
+    pop bx                      ; overwritten it: this window is ours alone
+    pop ax
+    clc
+    ret
+.load:
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_fatw_slot - a volume's saved-sector word (module internal)
+; in:  BL = a volume index
+; out: CF=0 and BX -> dsk_fatww[BL]; the claim is BX + DVOL_MAX*2 away
+; clobbers: BX (the output), flags
+; -----------------------------------------------------------------------------
+dsk_fatw_slot:
+    cmp bl, DVOL_MAX
+    jae .bad
+    xor bh, bh
+    shl bx, 1
+    add bx, dsk_fatww
+    clc
+    ret
+.bad:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_fatw_claim / dsk_fatw_drop - a volume's own window (SPEC.md 18.8.1)
+; in:  AL = a volume index
+; out: nothing (all registers preserved)
+;
+; DSK_FAT_SECS sectors of heap, per DRIVER-BACKED volume. Not for a floppy:
+; its window is the whole FAT and never moves, so a private copy would buy
+; nothing and cost 4.5KB twice on every machine, hard disk or not.
+;
+; A refused claim is not an error. The volume shares the window below the
+; stacks and behaves exactly as it did before this existed, which is the
+; SPEC.md 50 rule and the reason this is safe to want.
+; -----------------------------------------------------------------------------
+dsk_fatw_claim:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bl, al
+    call dsk_fatw_slot
+    jc .out
+    mov word [bx], 0xFFFF       ; nothing resident in it yet
+    add bx, DVOL_MAX*2
+    push bx
+    mov ax, (DSK_FAT_SECS*512 + 1023) / 1024
+    mov bx, MEM_K_FATW
+    call mem_claim              ; out: DX = the segment; CF=1 = refused
+    pop bx
+    jc .none
+    mov [bx], dx
+    jmp short .out
+.none:
+    mov word [bx], 0
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+dsk_fatw_drop:
+    push ax
+    push bx
+    push dx
+    mov bl, al
+    call dsk_fatw_slot
+    jc .out
+    mov word [bx], 0xFFFF
+    add bx, DVOL_MAX*2
+    mov dx, [bx]
+    or dx, dx
+    jz .out
+    mov word [bx], 0
+    cmp dx, [dsk_fatseg]        ; if the window in use was THIS one, the next
+    jne .free                   ; mount must not read a freed segment
+    mov word [dsk_fatseg], FAT_SEG
+    mov word [dsk_fatw0], 0xFFFF
+.free:
+    mov bx, MEM_K_FATW
+    call mem_free               ; DX = the segment, BX = the owner word
+.out:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_next_clus - read one FAT entry from the snapshot
 ; in:  AX = cluster number
 ; out: CF=0, AX = raw FAT entry value (FAT12: 12-bit);
@@ -1778,7 +1962,7 @@ dsk_next_clus:
     ja .bad
     call dsk_fat_ofs            ; BX = the offset INSIDE THE WINDOW, and the
     jc .bad                     ; window now holds it and the sector after
-    mov cx, FAT_SEG
+    mov cx, [dsk_fatseg]
     mov es, cx
     cmp byte [dsk_fattype], 0
     jne .fat16
@@ -2376,8 +2560,13 @@ dsk_spc:      resb 1            ; BPB_SecPerClus (validated power of two)
 dsk_fatlba:   resw 1            ; = RsvdSecCnt (FAT1 start LBA)
 dsk_fatsz:    resw 1            ; = FATSz16 - capped at DSK_FAT_SECS only on
                                 ; a BIOS floppy (SPEC.md 18.2 rule 10)
-dsk_fatw0:    resw 1            ; the FAT WINDOW (SPEC.md 18.8): the first
-                                ; resident FAT sector, 0xFFFF = none
+dsk_fatww:    resw DVOL_MAX     ; per volume (SPEC.md 18.8.1): the FAT sector
+                                ; its private window holds, 0xFFFF = none...
+dsk_fatwc:    resw DVOL_MAX     ; ...and the claim that window lives in, 0 =
+                                ; it has none and shares the one below the
+                                ; stacks. ADJACENT AND IN THIS ORDER:
+                                ; dsk_fatw_slot answers the first and reaches
+                                ; the second at +DVOL_MAX*2
 dsk_fatwn:    resw 1            ; ...and how many are resident. On a floppy
                                 ; this is the whole FAT and the window never
                                 ; moves - the degenerate case, byte for byte
@@ -2410,8 +2599,8 @@ dsk_mntok:    resb 1            ; 1 only between a fully successful mount and
                                 ; the next mount attempt - the write gate
 dsk_wpad:     resb 1            ; keeps the words below even-aligned
 dsk_rover:    resw 1            ; next cluster the allocator examines
-dsk_fatd0:    resw 1            ; dirty FAT sector range [lo, hi] inclusive,
-dsk_fatd1:    resw 1            ; sector indices within ONE FAT; lo = FFFFh
-                                ; means clean
+dsk_fatd1:    resw 1            ; the dirty range's high end; the low end is
+                                ; dsk_fatd0 in .text (it must read CLEAN before
+                                ; the first mount, and .bss reads as 0)
 
 section .text

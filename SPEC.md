@@ -3546,17 +3546,34 @@ dskw_read   in   SI -> NUL 8.3 name, ES:BX -> the destination, DX:CX = its
                  untouched. DX does not survive the call.
 ```
 
-**The write issues RUNS, not sectors.** `dskw_wdata` used to call
-`disk_write` once per sector, on the reasoning that `dsk_xfer` looped int 13h
-itself so a count bought nothing. That stopped being true when a
-driver-backed volume began handing the whole count to `DSV_BLK` in one call
-(§18.7), where a run is one IDE command instead of N. `dskw_runmax` is
-`dskw_cross`'s question asked of a **run**: how many sectors may go in one
-transfer from the current `[dskw_wseg]:[dskw_src]`, bounded by the 64KB DMA
-page the 8237 cannot carry out of, and by 127 — the most that cannot overflow
-the BX `dsk_xfer` walks from an offset of 0..15. A cluster's whole sectors go
-in as few transfers as those two bounds allow; a sector that straddles a page
-still goes alone through `dsk_secbuf`, exactly as before.
+**The write issues RUNS, not sectors, and the runs CROSS CLUSTERS.**
+`dskw_wdata` used to call `disk_write` once per sector, on the reasoning that
+`dsk_xfer` looped int 13h itself so a count bought nothing. That stopped
+being true when a driver-backed volume began handing the whole count to
+`DSV_BLK` in one call (§18.7), where a run is one IDE command instead of N.
+
+The loop allocates, links and addresses one cluster at a time, but it does
+not *write* one at a time: each cluster's whole sectors are appended to a
+pending run, and the run is spent only when the next cluster is not
+contiguous with it, when it reaches its cap, or when the file ends.
+`dskw_alloc` rovers forward, so on a volume with room the clusters of a new
+file are contiguous and a whole chunk is one transfer — 383 sectors in 57
+calls on the reference copy, against 383 in 217 when the run stopped at each
+cluster.
+
+`dskw_runmax` is `dskw_cross`'s question asked of a **run**: how many sectors
+may go in one transfer from the current `[dskw_wseg]:[dskw_src]`, bounded by
+the 64KB DMA page the 8237 cannot carry out of, and by 127 — the most that
+cannot overflow the BX `dsk_xfer` walks from an offset of 0..15.
+
+Three things keep it honest. The run is flushed **before** the partial final
+sector, because those bytes come after it and because flushing is what
+advances `[dskw_wseg]` to where the tail's source is. A sector the 8237
+cannot carry still goes alone through `dsk_secbuf`, and `dskw_runmax` is only
+ever asked with no run pending, so that path can never orphan one. And every
+failure exit leaves the run unspent, which is right: a half-built chain is
+rolled back by `dskw_refat`, and nothing that was not written needs
+unwriting.
 
 **The mechanism is one routine, `dskw_norm`, called once at the top of each
 pipeline.** It folds the whole paragraph part of BX into ES, leaving an
@@ -3902,6 +3919,43 @@ volume, where one allocated cluster can cost a sweep of the whole FAT: 254
 sectors, 29 window loads. DOS has the same worst case and answers it the same
 way — the rover — and `dskw_dfree`, which used to be free against a resident
 FAT, becomes a full sweep on a windowed volume.
+
+### 18.8.1 A window per volume, out of the heap
+
+The window above is one window, and a **copy alternates between two volumes**
+— so every switch reloaded nine sectors, and after §18.9 removed the scan and
+the harvest that reload *was* the whole remaining cost of a switch: 405 of
+873 sectors on the reference copy.
+
+A driver-backed volume therefore claims its own, `DSK_FAT_SECS` sectors of
+heap tagged `MEM_K_FATW`, at `osapi_vol_add` and released at
+`osapi_vol_del`. `[dsk_fatseg]` says which window is live; every access — the
+loader, `dsk_next_clus`, `dskw_setfat`, `dskw_flush` — goes through it
+instead of the `FAT_SEG` constant. Switching back to a volume that still has
+its own window resident costs **nothing at all**: 45 mounts, 3 loads.
+
+**Not for a floppy.** Its window is the whole FAT and never moves, so a
+private copy buys nothing and would cost 4.5KB twice on every machine, hard
+disk or not. And **a refused claim is not an error** — the volume shares the
+window below the stacks and behaves exactly as it did before this existed,
+which is §50's rule and the reason this was safe to want.
+
+Four things hold it up:
+
+- **Only a QUIET mount may reuse a banked window** (§18.9). A full mount is a
+  re-validation of the whole volume — the disk may have been swapped — so it
+  takes the load, and "a torn mount is a failed mount" survives untouched.
+- **A dirty window is flushed at the switch, not carried.** `dskw_flush`
+  later would write to a volume that is no longer current, and the LBAs are
+  volume-relative (§18.7) — it would land on the wrong disk. In practice it
+  costs no I/O: every commit point already flushes, so the window is clean by
+  the time a copy switches away.
+- **`[dsk_fatw0]` and `[dsk_fatd0]` live in `.text` with real initialisers**,
+  not in `.bss`. `dsk_fatw_park` runs at the top of the machine's very first
+  mount, and a zeroed word there reads as "sector 0 resident and dirty" —
+  which would flush an unloaded window over a real FAT.
+- **Freeing a window that is live puts `[dsk_fatseg]` back** before the
+  segment goes, or the next mount reads a claim something else now owns.
 
 ### 18.9 A volume switch is not a mount
 

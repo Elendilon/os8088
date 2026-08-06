@@ -1003,14 +1003,27 @@ copied from the 31MB volume to the 6MB one arrived **64,512 bytes long, with
 no error reported**. `fcp_clspan` is the fix. It was latent before only
 because every partition the formatter made had 512-byte clusters.
 
-Two things are worth knowing for whoever picks this up next:
+Both of the levers that were left are now pulled, and this is where it ended:
 
-- **Writes are still coalesced only within a cluster** — 383 sectors in 217
-  calls, 1.8 each. Going across contiguous clusters would need the
-  allocate-and-link loop restructured to look ahead, which is the most
-  commit-order-sensitive code in the kernel; the estimate is another ~180
-  commands off the 394.
-- **The FAT window reload is now the whole of the remount cost** — 45 loads ×
-  9 sectors = 405 of the 873 reads. It is 1:1 with mounts, so it falls only by
-  switching less; making it cheaper would mean a window per volume, which is a
-  9KB heap claim each and the first thing here that would actually need one.
+| | original | after the first pass | now |
+|---|---:|---:|---:|
+| `disk_mount` calls | 62 | 45 | 45 |
+| sectors read | 1,525 | 873 | **495** |
+| sectors written | 393 | 383 | 383 |
+| transfer calls = IDE commands | 1,420 | 394 | **192** |
+| FAT window loads | 62 | 45 | **3** |
+| read amplification | 4.44x | 2.55x | **1.44x** |
+
+- **Writes coalesce across clusters** now (SPEC.md §18.4.1) — 383 sectors in
+  57 calls, 6.7 each, against 217 when the run stopped at every cluster
+  boundary. `dskw_wdata` still allocates and links one cluster at a time; it
+  just stopped *writing* one at a time.
+- **Each driver-backed volume owns its FAT window** (§18.8.1), out of the
+  heap. That was the one place in this whole exercise where the answer to
+  "are we missing a buffer" was yes: `DSK_FAT_SECS` sectors per volume, and
+  45 switches now cost 3 loads instead of 45.
+
+Total: **1,918 sectors and 1,918 IDE commands became 878 and 192** — 90% of
+the commands gone, on a workload where the files themselves are 343 sectors.
+What is left is close to the floor: 495 reads against 343 of payload, and the
+343 of that payload cannot go away.

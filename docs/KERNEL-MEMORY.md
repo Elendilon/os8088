@@ -1051,6 +1051,17 @@ chosen: the keys tile the settings struct exactly, so the file's length is
 Slack in a buffer whose exact size is an expression anyone can evaluate is
 `.bss` nothing can ever use.
 
+Then two performance changes spent a little more of the segment and, for the
+first time in this file, **claimed heap for speed rather than for capacity**:
+`DSK_FAT_SECS` sectors — 4.5KB, rounded to a 5KB claim tagged `MEM_K_FATW` —
+**per driver-backed volume**, so that a copy alternating between two hard-disk
+partitions stops reloading nine FAT sectors on every switch (SPEC.md §18.8.1).
+Two mounted partitions is 10KB of heap that a machine with no hard disk never
+pays, a floppy never asks for, and a refused claim degrades out of entirely.
+The kernel-side cost is 24 bytes of `.bss` for the two per-volume arrays, four
+words moved from `.bss` into `.text` so they can carry real initialisers, and
+the park/pick/claim/drop routines.
+
 Where that leaves the two guards, on this build:
 
 ```

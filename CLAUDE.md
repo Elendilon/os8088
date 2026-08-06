@@ -748,6 +748,18 @@ are the floppy's code, unchanged. A volume caps at 65,535 sectors (31.99MB),
 which is both BPB rule 8's existing refusal and the DOS 3.3 limit these
 machines ran; more capacity is more partitions.
 
+**Each volume can own its FAT window** (SPEC.md §18.8.1) — `DSK_FAT_SECS`
+sectors of heap per DRIVER-BACKED volume, claimed at `osapi_vol_add`, with
+`[dsk_fatseg]` naming the live one. That is what stops a copy reloading nine
+sectors on every switch: 45 mounts, 3 loads. A floppy gets none (its window
+is the whole FAT and never moves) and a refused claim just shares, as
+everything did before. Four traps: only a QUIET mount may reuse a banked
+window; a dirty one is flushed at the switch rather than carried, because
+`dskw_flush` later would write volume-relative LBAs to the wrong disk;
+`[dsk_fatw0]` and `[dsk_fatd0]` are in `.text` with real initialisers,
+because `dsk_fatw_park` runs at the first mount and a zeroed word reads as
+"resident and dirty"; and freeing a live window must put `[dsk_fatseg]` back.
+
 **The FAT is a WINDOW now** (SPEC.md §18.8). `FAT_SEG` stopped meaning "the
 FAT" and started meaning "these nine FAT sectors" — a 32MB FAT16 volume's FAT
 is 254 sectors and there was never going to be room. A floppy gets the
