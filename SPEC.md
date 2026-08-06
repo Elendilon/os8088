@@ -11578,8 +11578,11 @@ nothing moves at all: so pausing and resuming repaint the nine rows the banner
 sits on and nothing else. Both used to call `ark_draw_all` — the background,
 both rails, every brick in the wall, the paddle, the ball, every capsule and
 shot, and the status strip — to put six characters up and take them down
-again, which on a 4.77MHz machine is most of a second of drawing and reads as
-the whole board glitching rather than as a pause.
+again. Counted with PERFORMANCE.md Part 4's method, one `P` keystroke was
+**89 `gfx_fill`s and 10 `font_char`s** and is now **2 and 6**. On a 4.77MHz
+machine the old figure is a *visible redraw* in Part 1's sense — not a
+flicker, a wait you sit through while the wall paints itself back a brick at
+a time — where a banner should simply have appeared.
 
 **The band is play area, so the erase takes whatever is standing in it**, and
 that is the part which does not fall out of `ark_clear_msg` + `ark_draw_msg`
