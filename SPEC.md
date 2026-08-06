@@ -180,7 +180,10 @@ stacks) or **ES** (the disk buffers), never DS. It sits *above* the kernel
 image now, not below it — there is no low memory under the kernel any more,
 because the kernel starts as low as the BIOS lets it.
 
-- `sch_stacks` — 11 × `SCH_STACK` (512) = 5,632 bytes, task slots 1..11 (§8).
+- `sch_stacks` — 11 × `SCH_STACK` (**256**) = 2,816 bytes, task slots 1..11
+  (§8), kept **256-aligned** in `.lowbss` (a `resb` pad before it) so a
+  slice top can be derived from SP alone; a `SCH_MAGIC` canary word sits at
+  the bottom of every slice (§8).
 - Task 0 runs on the same segment at `STK0_TOP`, growing down onto the top
   of `.lowbss` — `STK0_SIZE` = 1,024 bytes. All tasks share one SS, so a
   switch is still an SP swap and SS is not part of the saved frame. **This
@@ -619,13 +622,15 @@ bytes are hard-coded.
 | `font_width` | SI=NUL str               | out AX = pixel width (8 × length)    |
 | `font_str_x` / `font_width_x` | ES:SI = NUL str | the same two, reading the string through **ES** — what the `X` stubs of §20.3 call so a package's string can live in its own segment |
 | `font_run` / `font_run_x` | CX=x, DX=y, SI (ES:SI) = NUL str, AL=ink, AH=background | one **opaque** run: the cells' background AND their glyphs, in a single pass (§6.1). API slot 0x0258 |
-| `osapi_font_glyphs` | — | out SI = the offset of `font_glyphs` in KERNEL_SEG, AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x0218 |
+| `osapi_font_glyphs` | — | out **DX:SI** = the `font_glyphs` table (DX = LOW_SEG — the table left the kernel's own segment when it moved to `.lowbss`), AL = FONT_FIRST (32), AH = FONT_LAST (126), CX = 8 bytes per glyph. API slot 0x0218, amended from SI-only as a recorded one-time exception to §20.8 rule 4 |
 
 **Handing out the bitmaps** (`osapi_font_glyphs`) is for an app that draws
 text into its OWN pixels rather than onto the screen — apps/paint's text tool
 stamps glyphs into the canvas, so `font_char` is no use to it. The table is
-95 glyphs of 8 rows, row 0 first, bit 7 leftmost, and it is read through ES
-(KERNEL_SEG on entry to every callback, §20.1). Before the slot existed the
+95 glyphs of 8 rows, row 0 first, bit 7 leftmost, and it is read through the
+**DX the cell answers** — the table lives in `.lowbss` (LOW_SEG), NOT in
+KERNEL_SEG, so the ES a callback arrives with is the wrong segment for it;
+load ES (or any segment register) from DX first. Before the slot existed the
 package re-ran `font_init`'s probe — int 10h AX=1130h BH=03h with the
 kernel's own F000:FA6E fallback behind it — to arrive at a table the kernel
 had already built, and got whatever typeface the BIOS happened to hold rather
@@ -919,10 +924,20 @@ not worth what it would do to dragging.
   for eleven slots: a refused `OSAPI_TASK_SPAWN` (CF=1) and a stream
   open's err 6 are ordinary outcomes, not edge cases, and a package must
   degrade rather than abort when it cannot have its worker. Each slot has
-  an `SCH_STACK`-byte stack — **512**, measured (§2.1), not guessed:
+  an `SCH_STACK`-byte stack — **256**, measured (§2.1 — 1.8× the deepest
+  0xCC-fill mark ever recorded), not guessed:
   `sch_stacks resb (MAX_TASKS-1) * SCH_STACK` **in `.lowbss`** (§2.1),
-  slot n's stack top at
-  `sch_stacks + n*SCH_STACK` (slot 1 owns bytes 0..511).
+  256-aligned, slot n's stack top at
+  `sch_stacks + n*SCH_STACK` (slot 1 owns bytes 0..255). **Thin is
+  CHECKED, not trusted**: `SCH_MAGIC` (0x5A57) is written at the bottom
+  word of every slice by `task_spawn`, `sch_switch` compares the outgoing
+  task's canary on every switch away — four instructions, no multiply,
+  because 256 makes the slice base the slot index in BH — and a dead
+  canary halts the machine in `sch_stkdie` rather than letting the next
+  push land in another task's slice, where the symptom would be arbitrary
+  and nowhere near the cause. `tests/stackprobe` re-measures the margin on
+  real hardware, where the BIOS lands interrupt frames QEMU's SeaBIOS
+  services on an internal stack of its own.
 - Task record (8 bytes): `T_STATE` (0 free, 1 ready, 2 sleeping), `T_SP`
   (saved SP), `T_WAKE` (tick count to wake at), `T_INST` at offset 6
   (byte: owning instance index, §29; 0xFF = none — the Task Manager
@@ -2131,8 +2146,9 @@ layout is **three zones, left to right**:
 
 **Everything right of the System menu belongs to whichever application is
 active**, so the bar is rebuilt whenever the active application changes —
-`menu_bar` (`MENU_BARMAX` × `MB_ENTSZ`, .bss) is a *runtime* table, not
-static data.
+`menu_bar` (`MENU_BARMAX` × `MB_ENTSZ`, **`.lowbss`** — reached through
+`ss:`, one of the four tables §2's optimization moved out of the kernel's
+own segment) is a *runtime* table, not static data.
 
 ```nasm
 MENU_APPMAX  equ 4              ; app menus the bar can host
@@ -2759,10 +2775,11 @@ the kind's template (cascaded +16px per pool slot so instances don't
 stack), runs the kind's init proc, and spawns the kind's task if it has
 one. Closing an instance frees all of it.
 
-Per-instance state pools (.bss; slot stride and cap pinned in the §29
-kind table): `app_clk_pool` 10 × 8 (CLK_H/M/S bytes at +0/+1/+2, pad,
-CLK_LAST word at +4, CLK_ACC word at +6), `app_ball_pool` 10 × 8
-(BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
+Per-instance state pools (**`.lowbss`**, reached through `ss:` — two of the
+four tables §2's optimization moved out of the kernel's own segment; slot
+stride and cap pinned in the §29 kind table): `app_clk_pool` 10 × 8
+(CLK_H/M/S bytes at +0/+1/+2, pad, CLK_LAST word at +4, CLK_ACC word at +6),
+`app_ball_pool` 10 × 8 (BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
 §29): `app_clock_kinit` (h/m/s = 0, last =
 [ticks], acc = 0), `app_bounce_kinit` (x=4, y=4, vx=3, vy=2).
 
@@ -3258,7 +3275,7 @@ held, and a read landing outside its destination buffer.
 | 1 | bytes 510..511 | == 0xAA55 | garbage/unformatted-disk gate |
 | 2 | BS_jmpBoot[0] | ∈ {0xEB, 0xE9} | MS-spec first validity test; rejects raw data ending in 55 AA |
 | 3 | BPB_BytsPerSec | == 512 exactly | `disk_read` moves exactly 512 B/sector; all stride and ×512 math |
-| 4 | BPB_SecPerClus | ∈ {1,2,4,8,16,32,64,128} | cluster→LBA mul bounds; 0 ⇒ CountOfClusters div-by-zero |
+| 4 | BPB_SecPerClus | ∈ {1,2,4,8,16,32,64} | cluster→LBA mul bounds; 0 ⇒ CountOfClusters div-by-zero. 128 (a 65,536-byte cluster) is refused: it overflows `dskw_clbytes`' word answer to 0 — a divide fault in `fcp_chunkset` — and under-spans `fcp_clspan`'s chunk granule on a mixed pair, so a copy would skip the tail of every source cluster. The MS spec's own note: values yielding >32KB clusters "do not work properly"; no DOS formats them |
 | 5 | BPB_RsvdSecCnt | ≥ 1 | FAT LBA math (FAT starts at RsvdSecCnt) |
 | 6 | BPB_NumFATs | ∈ {1,2} | FAT2-fallback logic; layout math |
 | 7 | BPB_RootEntCnt | ≥ 1, ≤ 512, (RootEntCnt×32) mod 512 == 0 | FAT12/16 must have a root dir (spec); ≤512 bounds the mount stall (≤32 root sectors); whole-sector count is a spec MUST |
@@ -4777,8 +4794,12 @@ Slot-specific contracts that are not simply their target routine's:
 0x01D0 wm_resize         in BX = win, CX = new outer width, DX = new outer
                          height; lock held. Clamps, re-fits the origin and
                          repaints (§11.1). Never from inside a W_PAINT.
-0x0218 osapi_font_glyphs out SI = the glyph table's offset in KERNEL_SEG,
-                         AL = 32, AH = 126, CX = 8 (§6). Read through ES.
+0x0218 osapi_font_glyphs out DX:SI = the glyph table (DX = LOW_SEG - it is
+                         NOT in KERNEL_SEG), AL = 32, AH = 126, CX = 8 (§6).
+                         Read it through a segment register loaded from DX.
+                         Amended from SI-only when the table left the
+                         kernel's segment: a recorded one-time exception to
+                         §20.8 rule 4, on the 0x0120/0x0128 terms.
 0x0220 wm_onsize         in BX = win, AX = a near proc in the window's own
                          segment (0 clears). The resize negotiator (§11.1).
 0x0228 osapi_file_here   out DX = the current directory's first cluster
@@ -5020,11 +5041,14 @@ Two teardown corollaries, both about not trading a crash for a leak:
    wrong trade. This is the §14 Bounce idiom, and `app_bounce_task` in
    `kernel/apps.inc` is the reference implementation for everything a
    worker does.
-6. **The worker's stack is `SCH_STACK` (512) bytes in `LOW_SEG`, and
+6. **The worker's stack is `SCH_STACK` (**256**) bytes in `LOW_SEG`, and
    SS ≠ DS** (§2.1).
-   No deep recursion, no large stack buffers, and remember that
-   `[bp+disp]` addresses SS — a kernel or package pointer held in BP needs
-   an explicit `ds:` override.
+   No deep recursion, no large stack buffers — the tick, mouse and any
+   sound IRQ land their frames on this slice while the worker runs, so
+   budget well under the 256 — and remember that `[bp+disp]` addresses
+   SS: a kernel or package pointer held in BP needs an explicit `ds:`
+   override. An overrun is caught by §8's canary and HALTS the machine,
+   loudly, at the next switch.
 7. **What a worker may call.** Only the background-task surface: `gfx_*`,
    `osapi_set_color`, `font_*`, `wm_content`, `wm_obscured`,
    `wm_clip_set`/`wm_clip_clear`, `osapi_video`,
@@ -5158,9 +5182,14 @@ per-interval *diff* of a running cycle counter (§8.1), so a torn pair bills
 a real slice to the wrong row and the error stays in the percentages until
 something else disturbs them. Silently, and only while something is closing.
 So the cell holds one `cli` window across both tables, names included; it is
-about 414 bytes of copy, under a millisecond on an 8088, and exactly as long
-as the window the in-kernel code held. **A caller must treat it as a
-twice-a-second call, not a per-frame one.**
+about 414 bytes of copy, and because the copy is field-at-a-time loops (the
+gather is strided, so `rep movsw` cannot carry most of it) that is roughly
+**3.5–4 ms with interrupts off on a 4.77 MHz 8088** — the longest IF=0
+window in the system, and safe by about 2×, not comfortably: the 8250 holds
+exactly one mouse byte and the next arrives ~8.3 ms behind it at 1200 baud,
+and the PIT (55 ms) is merely delayed. **A caller must treat it as a
+twice-a-second call, not a per-frame one** — at that cadence the window is
+noise, per frame it is a stall the mouse can feel.
 
 `SSI_KB` is the one field filled *outside* that window, and deliberately:
 it is a scan of the claim table per instance, which is not what the window
@@ -13265,13 +13294,20 @@ accesses would need hardware this machine does not have.
 
 ### 50.2 The map
 
-`mem_tab` — `MEM_MAX` (16) records × 6 bytes, kernel `.bss`:
+`mem_tab` — `MEM_MAX` (**32**) records × **8** bytes, in **`.lowbss`**
+(LOW_SEG, reached through `ss:` — the largest of the four tables §2's
+optimization moved out of the kernel's own segment; a reader in another
+segment uses `osapi_claim_snapshot`, §20.9, never a raw pointer):
 
 ```
 MC_SEG   0  word  base segment, 0 = free record
 MC_PARA  2  word  size in paragraphs (KB << 6)
 MC_OWN   4  word  owner: 0..INST_MAX-1 = instance slot;
-                  0xFF00 | tag = the kernel's own (MEM_K_SAVE, MEM_K_BB)
+                  0xFF00 | tag = the kernel's own (MEM_K_SAVE, MEM_K_BB, …);
+                  a package's claims carry the SEGMENT it runs in
+MC_DMA   6  word  the 64KB-page-safe HEAD in paragraphs, 0 = no constraint
+                  (mem_claim_dma, §50.3 — recorded so a claim that MOVES
+                  keeps the property it was granted for)
 ```
 
 The record **is** the allocator, the `inst_tab` idiom of §29.2 rule 7:
