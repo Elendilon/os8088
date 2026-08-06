@@ -17,8 +17,8 @@
 ;   1     31M    FAT16                 <- a volume; Mount will find it
 ;   2      -     Not Formatted         <- free, or a region with no volume in
 ;   3     50M    Unmountable              it: Format makes one
-;   4      -     Not Formatted         <- foreign, or over the ceiling: greyed,
-;   [Format]  [Close]                     and Format reclaims the first 32MB
+;   4      -     Not Formatted         <- foreign, or over the ceiling: Format
+;   [Format]  [Close]                     reclaims the first 32MB of it
 ;
 ; **Not Formatted covers unpartitioned AND partitioned-but-empty**, and that is
 ; deliberate: the difference is the tool's business and not the user's. Both
@@ -32,11 +32,14 @@
 ; button is the cheapest confirm that cannot be mistaken for the first one.
 ; Anything else (picking another row, closing) disarms it.
 ;
-; A greyed row is CDGRAY, so on the two 1bpp adapters it renders BLACK -
-; SPEC.md 39.4 rounds a glyph to black rather than dithering it, and [gfx_dis]
-; is not in the package ABI. That is why the state is a WORD and not only a
-; colour: 'Unmountable' is the whole signal on mono and the grey is a VGA
-; nicety on top of it (SPEC.md 47 rule 7).
+; **No row is greyed, and an Unmountable one least of all** (SPEC.md 52.2.2).
+; It was, and it was wrong twice. SPEC.md 47 rule 1: the disabled pen says
+; DISABLED, and this row is selectable and its Format button works on it - rule
+; 4's own failure, "looks unavailable and works". And it did not even show:
+; CDGRAY text on the two 1bpp adapters renders BLACK (39.4 rounds a glyph
+; rather than dithering it, and [gfx_dis] is not in the package ABI), so on CGA
+; the greyed row was pixel-identical to the live one under it. The State column
+; is the whole signal, and it reads the same on all three adapters.
 ;
 ; The window is the unowned species (SPEC.md 38.1) - no instance, so its close
 ; box reduces to wm_hide and there is no teardown path to write. What there IS
@@ -212,17 +215,8 @@ hd_tw_paint:
     call OSAPI_SET_COLOR
     jmp short .text
 .plain:
-    push cx                     ; an unmountable slot is greyed - and says so
-    xor ch, ch                  ; in words, because on 1bpp CDGRAY IS black
-    mov bx, cx                  ; (SPEC.md 39.4)
-    mov al, [bx+hd_tstate]
-    cmp al, HTS_ALIEN
-    mov al, CBLACK
-    jne .pen
-    mov al, CDGRAY
-.pen:
-    call OSAPI_SET_COLOR
-    pop cx
+    mov al, CBLACK              ; every row in the SAME pen: the State column
+    call OSAPI_SET_COLOR        ; is what says what a slot is (SPEC.md 52.2.2)
 .text:
     pop dx
     mov si, hd_line

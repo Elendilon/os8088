@@ -978,11 +978,18 @@ things about it are worth knowing. **A slot is not a 32MB region of the disk**
 one rather than at the next multiple of anything, a hole between two
 partitions is usable, and an entry can never be laid inside somebody else's —
 which is the failure that takes a whole 80MB partition with it. **A slot over
-the ceiling or of a foreign type is `Unmountable`, greyed, and its Format
-button stays LIVE**, because reclaiming the first 32MB of it is the only
-useful thing left to do there — and the greying is `CDGRAY`, which is BLACK on
-1bpp (§39.4 rounds a glyph rather than dithering it), so the *word* is the
-signal and the grey is a VGA nicety. **`Not Formatted` means unpartitioned OR
+the ceiling or of a foreign type is `Unmountable` and its Format button stays
+LIVE**, because reclaiming the first 32MB of it is the only useful thing left
+to do there. **Nothing in that window is greyed** (§52.2.2), and the row that
+briefly was is the §47 case worth reading: greying is a claim about a
+*control*, the row is selectable and Format acts on it (rule 4's "looks
+unavailable and works", arriving where rule 4 does not look because no
+predicate refuses anything) — **and it did not show anyway**, because `CDGRAY`
+text rounds to BLACK on 1bpp and `[gfx_dis]` is not in the package ABI, so on
+CGA it was pixel-identical to the live row beneath it. Rule 3's package clause
+is the general form: a package's disabled control must carry a **non-text
+mark**, which is why `hd_page_button` greys the button *frame* with the label
+and why a bare row of text cannot be made to work. **`Not Formatted` means unpartitioned OR
 partitioned-and-empty** on purpose: both mean Format makes a volume, and the
 second is what an interrupted format leaves. And **the table entry is written
 BEFORE the volume**, for the same reason the boot sector goes last inside the

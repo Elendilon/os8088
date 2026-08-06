@@ -15626,18 +15626,35 @@ costs a read, and only a slot that could carry a volume is asked whether it
 does.
 
 **`Unmountable` is a foreign type or over 65,535 sectors**, and either way
-this kernel will never mount it. The row is greyed and the Format button is
-**not**, because reclaiming that space is the only thing the user can usefully
-do with such a slot. The page agrees rather than contradicting: a Mount that
-skipped a partition for being over the ceiling now says `Partition is over
-32MB` instead of reporting "no FAT partition" about a partition that plainly
-is one.
+this kernel will never mount it. Format stays live on such a slot, because
+reclaiming that space is the only thing the user can usefully do with it. The
+page agrees rather than contradicting: a Mount that skipped a partition for
+being over the ceiling now says `Partition is over 32MB` instead of reporting
+"no FAT partition" about a partition that plainly is one.
 
-The greying is `CDGRAY`, which on the two 1bpp adapters renders **black** —
-§39.4 rounds a glyph to black rather than dithering it, and `[gfx_dis]` is not
-in the package ABI. So the state is a **word** and not only a colour:
-`Unmountable` is the whole signal on mono and the grey is a VGA nicety on top
-of it (§47 rule 7).
+**Nothing in this window is greyed, and the unmountable row least of all.** It
+was, briefly, and it was wrong twice — this is the §47 case worth keeping,
+because both halves look like details and neither is:
+
+- **Greying is a claim about a CONTROL, and this row is not one.** Rule 1: the
+  disabled pen says *disabled*; the row is selectable and the Format button
+  acts on it. That is rule 4's named failure — "looks unavailable and works" —
+  and it is the drift rule 4 exists to stop, arriving from the direction rule 4
+  does not cover, because there is no predicate here at all: nothing refuses.
+- **It did not even show.** Rule 3: `CDGRAY` *text* rounds to black on the two
+  1bpp adapters (§39.4 rounds a glyph rather than dithering it), and
+  `[gfx_dis]` — the carve-out that makes a disabled glyph a checkerboard — is
+  not in the package ABI (§20.3 publishes no slot). Looked at on CGA per §47.2,
+  the greyed row was pixel-identical to the live row beneath it. Rule 3's
+  package clause is the general form: a package's disabled control **must carry
+  a non-text mark**, which is why `hd_page_button` greys the button's *frame*
+  along with its label and reads correctly on all three adapters, and why a
+  bare row of text can never be made to.
+
+So the **State column is the whole signal**, and it says the same thing on VGA,
+CGA and Hercules. That is not a consolation prize for the missing colour: a
+value in a column is what the rest of the row already is, and §47 does not
+apply to it.
 
 #### 52.2.3 Confirm, and the order of the two commits
 
