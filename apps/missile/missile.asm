@@ -4605,6 +4605,7 @@ mc_blob:
     shr ax, cl
     inc ax
     mov [mc_bq], ax                 ; the quantum: R/8 + 1
+    mov word [mc_bprev], -1         ; no band closed yet (SPEC.md 48.10)
     mov di, 1                       ; DI = dy; row 0 is inside the first rect
 .row:
     cmp di, [mc_dr]
@@ -4637,23 +4638,66 @@ mc_blob:
     pop ax
     ret
 
-; mc_blob_rect - one nested rect: half-width [mc_bw], half-height BX, about
-;                ([mc_dcx],[mc_dcy]). Preserves all registers
+; mc_blob_rect - one BAND of the blob: half-width [mc_bw], out to half-height
+;                BX, starting just past [mc_bprev]. Preserves all registers.
+;
+; SPEC.md 48.10. These were NESTED rects - each one spanning the blob's full
+; height at its own width - which is the same pixels and a very different
+; price. A gfx_fill costs 756us of arriving plus 177us PER SCAN LINE (the
+; 5150 field set, PERFORMANCE.md Part 2), and nested rects overlap: at
+; fullscreen Hercules' peak radius of 19 they wrote 184 scan lines to cover a
+; 39-row disc. Six calls instead of thirty-nine looked like a win and was
+; not - 37.1 ms against mc_disc's 36.4. Bands write each row ONCE: eleven
+; calls, thirty-nine rows, 15.2 ms.
 mc_blob_rect:
     push ax
     push bx
     push cx
     push dx
+    cmp word [mc_bprev], 0          ; the first band is the centre one, and it
+    jge .ring                       ; is the only one that is a single rect
     mov ax, [mc_dcy]
     sub ax, bx
     mov dx, [mc_dcy]
     add dx, bx
-    mov bx, ax                      ; BX = y1, DX = y2
+    mov [mc_bprev], bx
+    mov bx, ax
     mov ax, [mc_dcx]
     sub ax, [mc_bw]
     mov cx, [mc_dcx]
     add cx, [mc_bw]
     call mc_fillc
+    jmp short .out
+.ring:
+    push bx
+    mov ax, [mc_bprev]              ; the band below the centre
+    inc ax
+    mov dx, [mc_dcy]
+    add dx, bx
+    mov bx, [mc_dcy]
+    add bx, ax
+    mov ax, [mc_dcx]
+    sub ax, [mc_bw]
+    mov cx, [mc_dcx]
+    add cx, [mc_bw]
+    call mc_fillc
+    pop bx
+    push bx
+    mov ax, [mc_bprev]              ; ...and its mirror above
+    inc ax
+    mov dx, [mc_dcy]
+    sub dx, ax
+    mov ax, [mc_dcy]
+    sub ax, bx
+    mov bx, ax
+    mov ax, [mc_dcx]
+    sub ax, [mc_bw]
+    mov cx, [mc_dcx]
+    add cx, [mc_bw]
+    call mc_fillc
+    pop bx
+    mov [mc_bprev], bx
+.out:
     pop dx
     pop cx
     pop bx
@@ -6194,6 +6238,8 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
                                     ; 1bpp adapter or tier-0 CPU, decided
                                     ; once in mc_entry
     MWORD mc_bw                     ; mc_blob: the open rect's half-width
+    MWORD mc_bprev                  ; mc_blob: the last band's half-height, -1
+                                    ; before the centre band is drawn
     MWORD mc_bq                     ; ...and how far outside the true circle
                                     ; the drawn edge may run before the next
     MWORD mc_rnew

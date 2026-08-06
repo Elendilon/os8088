@@ -14259,7 +14259,7 @@ covers and for how long *is* the game (§48.4), and this leaves it alone.
 monotonically as `dy` rises, so a filled circle is **exactly** the union of
 one rect per distinct half-width — nested, widest and shortest first — and
 letting the drawn edge run up to `R/8 + 1` pixels outside the true circle
-before opening a new rect collapses that to four to seven rects at every
+collapses that to four to seven levels at every
 radius this game can produce: **27 fills to 5** at Hercules' peak radius of
 13, 39 to 6 at VGA's 19, 13 to 5 at CGA's 6, and 69 to 7 at the `MC_RMAXP`
 ceiling of 34. It costs one `mc_shrink` walk, the same
@@ -14289,7 +14289,7 @@ frame's drawing, not the explosion's share of it:
 | explosion share of the frame's drawing | 40% / 65% | **6.6% / 10%** |
 | the frame's whole drawing, four-shot | 84 ms | **53 ms** |
 | the frame's whole drawing, eight-shot | 190 ms | **76 ms** |
-| fills over one burst's whole life | ~750 | **22** |
+| fills over one burst's whole life | ~750 | **22** (but see §48.10 — these were nested rects, and the *scan lines* they wrote were not counted) |
 
 The burst costs **10–16× less** and stops being what the frame is made of.
 Two things about that are worth keeping in mind. A **three-step burst at
@@ -14507,6 +14507,51 @@ Four repaints to one, measured with a counter across a real wave 1 → 2
 transition. The sweep is worth keeping: it is the one thing in this game that
 forgives a dropped pixel anywhere, and after §48.8's and §48.9's arithmetic
 it is also the only full repaint left in ordinary play.
+
+### 48.10 `mc_blob` cut the calls and multiplied the pixels
+
+A field log from the target machine — an 8088 with a Hercules card, played
+fullscreen and firing hard — said the game was still missing its tick:
+
+| fullscreen, 28 seconds of heavy play | |
+|---|---|
+| frames a second | **10–21, mean 16.1** against 18 |
+| frames that missed their deadline | **251 of 451 — 56%** |
+| worst single frame | **7 ticks, 384 ms** |
+| deadline re-anchors (§44.1) | 13 |
+| `gfx_xor_fill` a frame | **8.0, every second without exception** |
+
+The cause is §48.8's own `mc_blob`, and the 5150 field set is what exposes
+it. **A `gfx_fill` costs 756 µs of arriving plus 177 µs per scan line**
+(PERFORMANCE.md Part 2). `mc_blob` replaced `mc_disc`'s one fill per row with
+a handful of **nested** rects — and nested rects *overlap*, each one spanning
+the blob's whole height at its own width. At the fullscreen Hercules peak
+radius of 19 that is **184 scan lines written to cover a 39-row disc**:
+
+| R = 19 | calls | scan lines | cost |
+|---|---|---|---|
+| `mc_disc` | 39 | 39 | 36.4 ms |
+| `mc_blob`, nested | **6** | **184** | **37.1 ms** |
+| `mc_blob`, banded | 11 | 39 | **15.2 ms** |
+
+Six calls instead of thirty-nine looked like a 6.5× win and was **not a win
+at all** — 37.1 ms against 36.4. §48.8 priced it in *calls*, through a
+conversion measured for a **one-row** fill, at a time when nothing in this
+project knew a fill had a per-scan-line half. That is PERFORMANCE.md Part 3's
+fourth defect exactly — *an optimisation that kept its shape and lost its
+substance* — and it is the second time this repository has shipped one.
+
+The fix is not to go back to `mc_disc`. It is to emit the same shape as
+**non-overlapping bands**: the centre band as one rect, then two rects per
+level for the annulus above and below. Same pixels — verified identical and
+overlap-free for every radius 1..34 — with each row written **once**. 2.4×
+fullscreen, 1.9× windowed, on the single largest item in a busy frame.
+
+**The general rule this leaves behind:** a call count is the right currency
+only while the calls are *small*. `gfx_fill`'s fixed part dominates a row of
+64 pixels 10:1 and is dominated by a rect of 64 rows 15:1. Before trading
+calls for area, price both halves — and if the new shape overlaps itself,
+count the scan lines it actually writes, not the rectangles you drew.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 

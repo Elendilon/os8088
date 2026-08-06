@@ -229,7 +229,12 @@ Not "shows inaccurately" — **cannot show**.
 
 And one that is worse than invisible, because it looks like a *success*:
 
-4. **A lost optimisation that kept its shape.** `gfx_blit4`'s first version
+4. **A lost optimisation that kept its shape.** It has happened twice.
+   §48.10 is the second: `mc_blob` replaced 39 one-row fills with 6 nested
+   rects, which is 6.5× fewer *calls* and 4.7× more *scan lines*, because
+   nested rects overlap — 37.1 ms against the 36.4 it replaced. It measured
+   as a win in every counter anyone had, and only a field log from the target
+   machine said otherwise. And `gfx_blit4`'s first version
    emitted one call per run exactly as designed, and decoded every pixel
    individually inside the scan instead of comparing byte pairs. **Under QEMU
    it measured as exactly as fast**, because QEMU does not model 8086 timing —
