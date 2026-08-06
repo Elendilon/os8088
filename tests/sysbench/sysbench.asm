@@ -1702,23 +1702,18 @@ sb_hdd:
     jc .noclaim
     mov [sb_bseg], dx
 
-    mov word [bl_n], 8              ; the FAT walk on a 20MB FAT16 volume. On
+    mov word [bl_n], 16             ; the FAT walk on a 20MB FAT16 volume. On
     mov word [bl_body], sb_b_dfree  ; a floppy the whole FAT is resident and
     mov si, sb_r_hdf                ; this is 40 ms; here the 9-sector window
     xor al, al                      ; (SPEC.md 18.8) has to page, which is the
     call bl_run                     ; number 18.8.1 was written against
 
-    mov word [bl_n], 4              ; ...and a whole-file read, for the one
-    mov word [bl_body], sb_b_hddrd  ; figure that prices the drive itself.
-    mov si, sb_r_hdr                ; FOUR, where the floppy's 16KB read is
-    mov al, 1                       ; one: this should be a fraction of a
-    call bl_run                     ; second, and method T quantises to 54.92
-                                    ; ms, so one iteration would be +-25%
-    mov ax, [bl_last]
-    mov dx, [bl_last+2]
-    mov [sb_thd], ax
-    mov [sb_thd+2], dx
-    mov si, sb_l_hderr              ; say whether it worked, and on what
+    mov word [bl_n], 1              ; the FIRST read: cold, seek and all, and
+    mov word [bl_body], sb_b_hddrd  ; the floppy block's cold/warm shape
+    mov si, sb_r_hd1
+    mov al, 1
+    call bl_run
+    mov si, sb_l_hderr              ; ...and whether it worked at all, on what
     mov ax, [sb_herr]
     call sb_num
     mov si, sb_l_hdsz
@@ -1727,17 +1722,39 @@ sb_hdd:
     mov si, sb_l_hdfn
     mov di, sb_f_cmd
     call bl_kvs
+    cmp word [sb_hsz], 0            ; no file, no throughput to measure
+    je .nofile
 
+    mov ax, [bl_last]               ; THE COLD READ IS ALSO THE CALIBRATION:
+    mov dx, [bl_last+2]             ; pick an iteration count that makes the
+    call sb_hdn                     ; warm row about six seconds long
+    mov word [bl_body], sb_b_hddrd
+    mov si, sb_r_hd2
+    mov al, 1
+    call bl_run
+    mov ax, [bl_last]               ; ...so the rate needs counts per READ
+    mov dx, [bl_last+2]
+    mov cx, 1
+    call bl_mul48
+    mov cx, [bl_n]
+    call bl_div48
+    call bl_get32
+    mov [sb_thd], ax
+    mov [sb_thd+2], dx
+    mov si, sb_l_hdn                ; and SAY how many, because a count nobody
+    mov ax, [bl_n]                  ; can see is a row nobody can check
+    call sb_num
+.nofile:
     mov ax, [sb_bseg]               ; hand the claim back before the mount row
     mov dx, ax
     call OSAPI_MEM_FREE
     call sb_hdd_back
 
-    mov word [bl_n], 2              ; one mount of each volume per iteration:
-    mov word [bl_body], sb_b_hdmnt  ; what a copy pays per file (SPEC.md 22.5)
-    mov si, sb_r_hdm
-    mov al, 1
-    call bl_run
+    mov word [bl_n], 4              ; one mount of each volume per iteration:
+    mov word [bl_body], sb_b_hdmnt  ; what a copy pays per file (SPEC.md 22.5).
+    mov si, sb_r_hdm                ; Both halves are real, and the label says
+    mov al, 1                       ; so - the floppy's own mount is the larger
+    call bl_run                     ; of the two and the floppy block prices it
     call sb_hdd_back                ; the row ends where it started, but this
                                     ; block does not get to ASSUME that
     call sb_hddrate
@@ -1753,6 +1770,48 @@ sb_hdd:
     call bl_sline
 .out:
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; sb_hdn - [bl_n] = the number of reads that makes about six seconds, from
+;          ONE read's counts in DX:AX. Clamped to 4..240.
+;
+; The drive is a ten-fold unknown before the first run - an ST-225 through a
+; controller ROM could be 60 KB/s or 500 - and method T quantises to 54.92 ms,
+; so any FIXED iteration count is either a wasted trip (too coarse to quote)
+; or a wasted row (seconds spent past the point of diminishing return). Six
+; seconds is about a hundred ticks, so under 1%, and the benchmark is allowed
+; to take its time: it has to be accurate and useful, not fast.
+;
+; There is no two-size decomposition here, deliberately - OSAPI_FILE_READ
+; refuses a buffer smaller than the file (FERR_BIG) rather than reading a
+; prefix, so a per-call term and a per-byte term cannot be separated from one
+; file. What this row measures is one whole-file read, seek included.
+sb_hdn:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, ax                      ; CX:BX = one read's counts
+    mov cx, dx
+    mov ax, 0x3BB4                  ; DX:AX = 7,159,092 counts, six seconds
+    mov dx, 0x006D
+    call sb_divby
+    or dx, dx                       ; a quotient past a word is past the cap
+    jnz .cap
+    cmp ax, 240
+    jbe .lo
+.cap:
+    mov ax, 240
+.lo:
+    cmp ax, 4
+    jae .set
+    mov ax, 4
+.set:
+    mov [bl_n], ax
     pop dx
     pop cx
     pop bx
@@ -1981,6 +2040,7 @@ sb_l_dsz:     db '  bytes read', 0
 sb_l_hderr:   db '  hdd read error code', 0
 sb_l_hdsz:    db '  hdd bytes read', 0
 sb_l_hdfn:    db '  hdd file read', 0
+sb_l_hdn:     db '  hdd warm reads N', 0
 
 sb_s_pit1:  db 'One PIT count is 838 ns and EXACTLY four 4.77MHz CPU clocks: both', 0
 sb_s_pit2:  db 'divide the 14.31818MHz crystal, the PIT by 12 and the 8088 by 3.', 0
@@ -2027,7 +2087,8 @@ sb_r_d1:   db 'read 16K, cold motor', 0
 sb_r_d2:   db 'read 16K, warm', 0
 sb_r_ds:   db 'read 1 sector file', 0
 sb_r_hdf:  db 'HDD FILE_DFREE', 0
-sb_r_hdr:  db 'HDD read COMMAND.COM', 0
+sb_r_hd1:  db 'HDD read 1st, cold', 0
+sb_r_hd2:  db 'HDD read warm, xN', 0
 sb_r_hdm:  db 'HDD mount + back to A', 0
 
 sb_d_mhzmul: db 'est CPU MHz x100 MUL', 0
