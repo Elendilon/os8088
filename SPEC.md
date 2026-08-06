@@ -8921,6 +8921,39 @@ on the floor machine and the panel is frozen for it, so trying five settings
 out used to cost five seconds of frozen UI for a state only the last one
 describes.
 
+#### No page writes immediately. This is a rule, not a default.
+
+**Every page defers, without exception, and a new page must too.** This is
+the single most re-litigated decision in the panel: each setting added since
+has looked like the one that is different — a driver that loads on the spot,
+a volume that mounts on the spot, a clock the machine will lose — and the
+argument is the same every time and wrong every time. A `SYSTEM.CFG` write
+is **two or more seconds of completely frozen UI** on the floor machine: a
+mount of A:, a data write, a FAT flush, a directory write, a second FAT
+flush and a coherence remount, all with the gfx lock held and the mouse
+cursor stopped. Two seconds is not a hitch, it is the machine appearing to
+have crashed, and it lands *in the middle of a click* — while the user is
+still looking at the page, quite possibly on their way to the next row.
+
+Three things make deferral the right answer rather than a compromise:
+
+- **What the setting DOES still happens on the spot.** A ticked driver loads
+  before the box is redrawn; a picked sound route is live for the next beep.
+  Only the *record* of it waits. So the page is never showing a promise
+  about the next boot, and the deferral costs the user nothing they can see.
+- **The state only the last click describes is the only state worth
+  writing.** Five clicks is one file either way.
+- **The close is a decision the user makes.** They are done; a pause there
+  reads as putting the settings away, not as a freeze.
+
+The one thing a new page may NOT do is decide its setting is important
+enough to be the exception. If a setting genuinely cannot survive being lost
+to a power cut with the panel open, that is an argument about §51.5's file,
+not a licence to write from a click handler. The hard-disk driver's Mount
+and Unmount are the *only* immediate writes in the tree and they are not
+this mechanism at all — they are the driver's own `OSAPI_DRV_CFG` save verbs
+on its own page (§52.6), justified there and nowhere else.
+
 **Both ways the panel stops existing flush it**, which is what makes the
 deferral safe:
 

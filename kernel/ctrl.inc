@@ -110,9 +110,20 @@ cp_wdirty:  db 0                ; 1 = a setting changed and SYSTEM.CFG is owed
                                 ; a write. Deferred to the panel's teardown
                                 ; (cp_flush_close) rather than taken on the
                                 ; click, so a session of fiddling costs ONE
-                                ; floppy write instead of one per click - and
-                                ; a floppy write is ~a second on the floor
-                                ; machine, during which the panel is frozen.
+                                ; floppy write instead of one per click.
+                                ;
+                                ; **SETTING THIS IS ALL A PAGE MAY DO.** No
+                                ; page calls cp_flush_x from a click handler
+                                ; and a new one must not either - SPEC.md
+                                ; 31.8. A SYSTEM.CFG write is 2+ SECONDS of
+                                ; frozen UI on the floor machine (mount, data,
+                                ; FAT, directory, FAT, remount, all under the
+                                ; gfx lock with the cursor stopped), landing
+                                ; in the middle of a click. Every setting
+                                ; added since has looked like the exception
+                                ; and none has been one: what the setting DOES
+                                ; already happens on the spot, and only the
+                                ; RECORD of it waits.
                                 ; .text and not .bss, like everything else
                                 ; here: nothing zeroes .bss (-f bin)
 cp_dsave:   db 0                ; 1 = the last SYSTEM.CFG write failed, and
@@ -1848,11 +1859,13 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ;
-; EVERY page calls this after it changes anything, so the machine boots in the
-; state it was left in. It is one write of one 32-byte file, and the file
-; carries the whole panel - the driver list, the sound route, the clock
-; options, the scheduler mode and the back buffer - so there is no per-setting
-; bookkeeping to keep in step.
+; **NOT called by a page.** cp_flush_close_x calls it, from the two ways the
+; panel stops existing, and nothing else does - a page that changed something
+; sets [cp_wdirty] and returns (SPEC.md 31.8, and the flag's own comment for
+; why that is a rule rather than a default). It is one write of one 32-byte
+; file, and the file carries the whole panel - the driver list, the sound
+; route, the clock options, the scheduler mode and the back buffer - so there
+; is no per-setting bookkeeping to keep in step.
 ;
 ; It writes ONCE, when the panel closes, rather than on every click. A floppy
 ; write is ~a second on the floor machine and the panel is frozen for it, so
@@ -2436,13 +2449,18 @@ cp_drv_boxes:
 ; out: nothing
 ; clobbers: nothing (flags only)
 ;
-; The click LOADS OR UNLOADS ON THE SPOT and only then writes SYSTEM.CFG, so
-; the page never shows a promise about the next boot. Both halves can fail
-; and both failures are reported in place: a load that finds no disk or no
-; card leaves the box clear with the reason under it, and a settings write
-; that cannot reach the disk says so in the caption while the driver it just
-; loaded stays loaded - which is the honest split, because the two are
-; genuinely separate outcomes.
+; The click LOADS OR UNLOADS ON THE SPOT, so the page never shows a promise
+; about the next boot. It does NOT write SYSTEM.CFG - it marks [cp_wdirty]
+; like every other page and the close spends it (SPEC.md 31.8). This page is
+; the one that most looks like it should be the exception, and is not: the
+; driver is already up or already down by the time the box is redrawn, and
+; what waits is only the record of having asked for it.
+;
+; A load that finds no disk or no card leaves the box clear with the reason
+; under it. A settings write that cannot reach the disk says so in this
+; page's caption - the next time the panel is opened, because by then this
+; page is gone - while the driver it loaded stays loaded, which is the honest
+; split: the two are genuinely separate outcomes.
 ;
 ; A load does floppy I/O with the gfx lock held. That is the same bargain
 ; every other file operation in this OS makes (SPEC.md 18.4): the cursor
@@ -2498,7 +2516,8 @@ cp_drv_click:
     pop ax                      ; persists the intent: put the disk in and
     call KERNEL_SEG:cw_drv_load               ; the next boot picks it up
 .save:
-    mov byte [cp_wdirty], 1     ; ...and only now, the settings file
+    mov byte [cp_wdirty], 1     ; ...and the settings file is OWED, not
+                                ; written: the close pays it (SPEC.md 31.8)
     push di                     ; a driver that came up or went down may own
     push bp                     ; a PAGE, so the item list changed too and
     sub di, CP_RX               ; not just this pane (SPEC.md 31.9). cp_list
