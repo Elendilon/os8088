@@ -735,8 +735,9 @@ entries ignore it, correctly**: a horizontal or vertical line's segments lie
 on exactly the same lattice as the whole line, so there is nothing to
 dilate.
 
-It costs three walks rather than one, which is why a caller should pass 0
-for a draw and 1 only for an erase-what-was-drawn-in-pieces.
+It costs three walks rather than one on the shallow path, which is why a
+caller should pass 0 for a draw and 1 only for an erase-what-was-drawn-in-
+pieces. On 1bpp a STEEP dilation costs **one** — §5.6.6.
 
 Measured on Hercules, the paths this was written for: a trail **segment**
 (the per-frame draw, thin) and a **whole-trail erase** (fat), against the
@@ -745,6 +746,54 @@ Command keeps its own Bresenham for two cases the kernel cannot serve: the
 §53.4 Mode X surface, where the drawing slots are off-limits, and a line
 with an endpoint outside its content box, where the kernel would clip to the
 screen and paint over the desktop.
+
+#### 5.6.6 A steep dilation on 1bpp is one walk, not three
+
+§48.11's stage log made the dilated erase the largest single item in a busy
+Missile Command frame — **37.8 ms of a 73.5 ms frame**, and with only 5.2
+line calls in it, so not a per-call cost at all but a per-*pixel* one. Three
+passes over a 300-pixel trail is 900 mono read-modify-writes plus 900 rounds
+of Bresenham, and PERFORMANCE.md Part 2 prices a framebuffer byte RMW at
+16.7 µs.
+
+The three passes are the same walk. They share `dx`, `dy` and `err` and
+differ only by a constant offset on the minor axis (§5.6.5 — that is exactly
+why only the start point moves), so pass *k* visits `(x_i + k-1, y_i)` for
+every step *i* of one Bresenham. When the minor axis is **x** — a steep line —
+those three pixels are on the *same row* and usually in the *same byte*. So
+one walk that writes a three-bit mask is the identical pixel set:
+
+| dilated steep line, Hercules | |
+|---|---|
+| three passes | 353,211 |
+| one walk, three-bit mask | **180,644** |
+| | **1.96×** |
+
+(`tests/linetest`, 20 fans of 48 lines, PIT counts.) Verified the way this
+kind of change has to be: the same fan drawn by both kernels and the
+framebuffer compared byte for byte — **0 differing pixels** on Hercules and
+**0** on CGA, with the only difference anywhere being the menu-bar clock
+ticking between runs. It costs about 100 bytes, which fit inside the image's
+existing 512-byte padding, so the kernel binary did not change size at all.
+
+Four things about it are load-bearing:
+
+- **Solid ink only.** The dither class is lit where `(x+y)` is even, so the
+  centre column and its two neighbours are never lit together — a single
+  mask cannot carry them. `gfx_line` resolves the ink up front and falls back
+  to three passes for it.
+- **Steep only, and mono only.** The shallow case's three pixels are on three
+  different *rows*, which on a banked adapter is three `gfx_rowbase` walks
+  and no saving; VGA takes `gfx_line_runs` and never reaches this loop at
+  all. Both are tested in `gfx_line`, with the same two tests
+  `gfx_line_raw` makes, before the flag is set.
+- **Each column is clipped on its own**, exactly as its own pass would have
+  been — that is what keeps a clip edge cutting the line in the same place.
+- **At most one column can fall in a neighbouring byte**, because the centre
+  bit cannot be both `0x80` and `0x01`. That is what makes the straddling
+  case one extra RMW and not two, and it is why `BH` can carry that bit while
+  `BP` carries its direction — `gfx_line` pushes `BP` for it, as a plain
+  register and never as an address base (SS ≠ DS, §1).
 
 ### 5.7 The per-call floor — what a small drawing call spends
 
