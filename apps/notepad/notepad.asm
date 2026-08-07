@@ -15,9 +15,9 @@
 ; content bottom are dropped rather than scrolled, and a 1px caret follows
 ; the text when its own row fits.
 ;
-; What is new is SPEC.md 27.1: F2 saves the note to NOTES.TXT on the mounted
-; data disk and Ctrl-O loads it back (it was F3, which is Find Next now -
-; SPEC.md 27.10), over the file API of SPEC.md 18.4 - which
+; What is new is SPEC.md 27.1: Ctrl-S saves the note to NOTES.TXT on the
+; mounted data disk and Ctrl-O loads it back - they were F2 and F3, and F3 is
+; Find Next now (SPEC.md 27.10) - over the file API of SPEC.md 18.4 - which
 ; makes this package the first caller of those slots and the proof that they
 ; work from an ordinary window callback. Line endings are translated in both
 ; directions (13 here, CR LF on the disk), because the whole point of
@@ -29,8 +29,8 @@
 ; application the menu bar while its window is frontmost, so Note Pad ships
 ; a one-menu set - File: New, Open, Save - registered from the entry proc
 ; and dispatched to np_oncmd. The menu is strictly a second door onto the
-; existing routines: "Open" is np_load, "Save" is np_save, Ctrl-O and F2 still
-; call exactly the same two, and both doors end at np_redraw. "New" is the
+; existing routines: "Open" is np_load, "Save" is np_save, Ctrl-O and Ctrl-S
+; still call exactly the same two, and both doors end at np_redraw. "New" is the
 ; one thing here that is genuinely new rather than a second door - emptying
 ; the buffer had no key and no button before - and it is menu-only for the
 ; same reason it was missing: there was no spare key worth spending on it.
@@ -196,10 +196,14 @@ NP_MARGIN    equ 8              ; left/top text margin inside the content. It
                                 ; SECOND framebuffer byte whenever the shift
                                 ; carries ink into it, and this window redraws
                                 ; text on every keystroke
-NP_KEY_SAVE  equ 0x3C           ; F2 scan code (DOS Editor's keys). The other
-                                ; two F-keys are NP_KEY_NEXT and NP_KEY_PREV
-                                ; below; there is no NP_KEY_LOAD any more,
-                                ; because F3 became Find Next (SPEC.md 27.10)
+                                ; The two F-keys are NP_KEY_NEXT and
+                                ; NP_KEY_PREV below, and they are the only
+                                ; two: F2 was Save and F3 was Load, the DOS
+                                ; Editor's pair, and both are Ctrl-letters now
+                                ; (SPEC.md 27.1/27.10). What made the DOS keys
+                                ; worth keeping was that they were the ones a
+                                ; user of that machine already knew, and this
+                                ; window has a Macintosh menu bar over it
 NP_K_HOME    equ 0x47           ; the caret keys, int 16h scan codes
 NP_K_UP      equ 0x48
 NP_K_LEFT    equ 0x4B
@@ -3505,16 +3509,11 @@ np_onkey:
     ; They come first because the find panel must not swallow F3, and the
     ; document must not swallow Ctrl-F. Everything below this block is routed
     ; by [np_ffield] (SPEC.md 27.10).
-    cmp ah, NP_KEY_SAVE
-    jne .nosave
-    call np_uclose
-    call np_save
-    jmp .redraw                 ; near: the key ladder below outruns a short
-.nosave:                        ; jump
     cmp ah, NP_KEY_NEXT
     jne .nonext
     call np_donext              ; F3 - it WAS Load, which is Ctrl-O and the
-    jmp .redraw                 ; File menu now (SPEC.md 27.10)
+    jmp .redraw                 ; File menu now (SPEC.md 27.10). Near: the key
+                                ; ladder below outruns a short jump
 .nonext:
     cmp ah, NP_KEY_PREV
     jne .noprev
@@ -4126,7 +4125,7 @@ np_new:
     call np_resize              ; place, so this cannot fail (SPEC.md 50.3.1)
     pop ax
     jmp np_defname              ; a new note is a new document: leaving the
-                                ; old name would make the next F2 overwrite
+                                ; old name would make the next Ctrl-S overwrite
                                 ; the file the user just walked away from
 
 ; -----------------------------------------------------------------------------
@@ -4135,7 +4134,7 @@ np_new:
 ;      BX = our menu set ptr; gfx lock held by the caller, UI task
 ; out: nothing; clobbers AX/BX/CX/DX/DI/ES like any window callback
 ;
-; Open and Save are menu-driven twins of Ctrl-O and F2 - the same np_load /
+; Open and Save are menu-driven twins of Ctrl-O and Ctrl-S - the same np_load /
 ; np_save the keyboard path calls, so the two doors can never drift apart;
 ; New is menu-only, and empties the buffer. Every item changes
 ; what the window shows - the text, the toast, or both - and the kernel does
@@ -4410,7 +4409,7 @@ np_arg:
 ; in:  nothing
 ; out: np_name = 'NOTES.TXT'; preserves all registers
 ; The loader zeroes our bss (SPEC.md 21 step 5), and an empty name would
-; make F2 fail with FERR_NAME on a brand-new note - so a fresh Note Pad
+; make Ctrl-S fail with FERR_NAME on a brand-new note - so a fresh Note Pad
 ; still has the document the fixed-name version always had.
 ; -----------------------------------------------------------------------------
 np_defname:
@@ -7950,7 +7949,8 @@ np_ttl: db 'Note Pad', 0
 
 ; --- the app menu set (SPEC.md 12.2) -------------------------------------------
 ; One menu, three items, all of them existing behaviour: New empties the
-; buffer, Open is Ctrl-O, Save is F2. AM_NAME reuses np_ttl so the bar label and
+; buffer, Open is Ctrl-O, Save is Ctrl-S. AM_NAME reuses np_ttl so the bar
+; label and
 ; the window title are the same eight characters by construction. The bar
 ; runs 38 + 64 ('Note Pad') + 16 = 118 to the File cell's left edge, and
 ; 32 + 12 more to its right edge at 162 - nowhere near the clock at 434.
@@ -7962,9 +7962,13 @@ np_ttl: db 'Note Pad', 0
 np_m_file:     db 'File', 0
 np_items_file: dw np_i_new, np_i_open, np_i_save, np_i_saveas  ; = NP_MI_*
 np_i_new:      db 'New', 0
-np_i_open:     db 'Open...', 0      ; the ellipsis is the convention and it
-np_i_save:     db 'Save', 0         ; is honest: these two ask a question
-np_i_saveas:   db 'Save As...', 0   ; first (SPEC.md 38), Save never does
+np_i_open:     db 'Open...  ^O', 0  ; the ellipsis is the convention and it
+np_i_save:     db 'Save  ^S', 0     ; is honest: these two ask a question
+np_i_saveas:   db 'Save As...', 0   ; first (SPEC.md 38), Save never does.
+                                    ; The keys are on the items because they
+                                    ; are the fast path and a menu nobody can
+                                    ; learn from is one that has to be opened
+                                    ; forever - the Edit menu's own rule
 
 ; The Edit menu (SPEC.md 27.8): nine items, which is inside MENU_POPMAX's
 ; eleven. Every one carries its key, because the keys are the fast path and a

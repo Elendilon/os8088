@@ -3781,7 +3781,7 @@ Three things about it are deliberate:
     `SCH_WD_TICKS` ticks (`sch_wd_hits` advances, readable with QMP `xp` on
     segment 0x0800).
 12. **Writing works and the volume stays a legal FAT volume** (§18.4/§27.1):
-    type into Note Pad, F2 saves ("Saved NOTES.TXT"), `Ctrl-O` in a *second*
+    type into Note Pad, `Ctrl-S` saves ("Saved NOTES.TXT"), `Ctrl-O` in a *second*
     Note Pad instance loads the same text back; the Disk window's Refresh
     lists `NOTES.TXT` with its true size; and after QEMU exits,
     `python3 tools/os88disk.py --verify build/apps.img` passes — FAT1 ≡
@@ -7828,10 +7828,17 @@ instance table like any other package.
 
 NOTEPAD is where §18.4 becomes visible to a user, and the package-side
 proof that the file slots work from a plain window callback. Two keys, DOS
-Editor's: **F2 saves** (scan 3Ch), and **F3 loaded** (scan 3Dh); both arrive
-through the existing onkey with AL = 0. F3 is Find Next now and the load is
-`Ctrl-O` — §27.10 has the argument — so F2 is the only F-key this section
-still owns.
+Editor's: **F2 saved** (scan 3Ch) and **F3 loaded** (scan 3Dh), both arriving
+through the existing onkey with AL = 0.
+
+**Neither is an F-key any more: Save is `Ctrl-S` and Open is `Ctrl-O`.** The
+DOS pair was worth having while this was a text-mode habit being carried into
+a window — they were the keys a user of that machine already knew — and F3
+stopped being free when §27.10 needed a Find Next. Taking F2 with it is the
+consistent end of that: a window under a Macintosh menu bar spells its
+shortcuts with the modifier its menu items show, and Note Pad's Edit menu had
+already established `Ctrl-` letters for nine of them. The two F-keys left are
+Find Next and Find Previous, which have no letter to be spelled with.
 
 **The file used to be a fixed `NOTES.TXT`** — not because one note is
 enough, but because a package had no way to ask for a name. §38 removed
@@ -7842,9 +7849,8 @@ document name seeded to `NOTES.TXT` at launch, and four File commands:
 | command | behaviour |
 |---------|-----------|
 | **New** | empties the buffer and resets the name to `NOTES.TXT` |
-| **Open…** | slot 0x0150 in Open mode, default = the current name; the callback stores the chosen name and loads it |
-| **Open…** is also `Ctrl-O` | the key the dialog answers to since F3 became Find Next (§27.10) |
-| **Save** (F2, `Ctrl-S`) | writes `np_name` — no dialog, the second and later saves of a document are silent |
+| **Open…** (`Ctrl-O`) | slot 0x0150 in Open mode, default = the current name; the callback stores the chosen name and loads it |
+| **Save** (`Ctrl-S`) | writes `np_name` — no dialog, the second and later saves of a document are silent |
 | **Save As…** | slot 0x0150 in Save mode; the callback stores the chosen name and writes it |
 
 The load key is **Open…**, i.e. it raises the dialog rather than re-reading
@@ -11411,7 +11417,8 @@ a chosen 8.3 name back to whichever application asked for it, in an **Open**
 form and a **Save** form. Label prefix `fdlg_`.
 
 It exists because §18.4 gave packages five file slots and no way to name a
-file: Note Pad's F2/F3 wrote a hard-coded `NOTES.TXT` (§27.1) not because
+file: Note Pad's save and load keys wrote a hard-coded `NOTES.TXT` (§27.1)
+not because
 one note is enough but because there was nothing to ask a filename with,
 and the Disk window (§22) can launch a package but cannot return a name to
 a caller. This is the missing half of the file API, and the kernel owns it
