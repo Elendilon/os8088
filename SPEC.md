@@ -365,18 +365,63 @@ not go away**. It sits between the image rung and the FAT window, so it
 rides the same contiguous boot read, and it is live for the whole session.
 
 What it buys is `KERN_CODE_MAX` and nothing else: cold code is inside
-`KERN_BUDGET`'s span (§15.1) and outside the kernel's own 64KB segment,
-which since hard-disk support is the binding limit. The Control
-Panel's three code runs are what live there — a module that is large, cold
+`KERN_BUDGET`'s span (§15.1) and outside the kernel's own 64KB segment.
+**It does not buy a byte of footprint** — cold bytes are resident and are
+measured by `KERN_BUDGET` exactly like `.text`'s, so moving a module here to
+fix a footprint overrun is a no-op that looks like a fix. The two rungs it
+moves between round separately, so a large move usually costs one 512-byte
+step rather than nothing.
+
+Two things live there. The Control Panel's three code runs — large, cold
 enough that a far call per entry costs nothing measurable, and needed on
 exactly the machine where things are going wrong, so it must stay resident.
+And the five **file modules**: `loader.inc` (§21), `diskw.inc` (§18.4),
+`files.inc` (§22), `filecp.inc` (§22.3) and `fdlg.inc` (§38), ~15.3KB
+between them, moved together because they mostly call each other — a call
+inside the set stays near, and only the ones that leave it pay a shim.
+Growing the set makes the ones already in it *cheaper*: `fdlg.inc` joining
+turned its calls to `fm_ultoa`, `dskw_mkdir` and `dskw_char` from a double
+crossing into a near call, and retired those three thunks.
 
 Calls out use four-byte `cw_*` shims; calls *in* use six-byte resident
 thunks (`call SEG:x` / `ret`), because `wm_pkgcall` sets DS from `W_SEG` and
-that is the wrong contract for cold code. This is **not** the retired
-`.fartext` (§33): that mechanism copied cold modules to a segment of their
-own at boot and needed a 10,752-byte reservation to hold a 5,455-byte blob.
-Nothing is copied here and nothing is reserved.
+that is the wrong contract for cold code. The thunk keeps the **public**
+name and the body takes an `_x` suffix, so no caller outside changes.
+
+Four rules, and every one of them is something that assembles cleanly and
+runs wrong:
+
+- **Data stays in `.text`.** DS is still `KERNEL_SEG`, so a string or table
+  that moved with its code would be addressed at the wrong segment. A module
+  with data islands toggles sections around each of them; `files.inc` does
+  it four times.
+- **Nothing may assume `CS` is `KERNEL_SEG`.** `push cs`/`pop es` and
+  `[cs:x]` are the two spellings, and `loader.inc` had three of them —
+  including a documented one, the far pointer it calls a package's
+  dispatcher through. It reads that through ES now, which is the only
+  register still naming the kernel at that point.
+- **A table of cold pointers may live in `.text` only if cold code alone
+  dispatches through it.** There are four: `ctrl.inc`'s page table, and
+  `files.inc`'s `fm_jmp` and two `fm_ctx_*` sets. The mirror rule is the one
+  that broke first — a table `.text` *does* dispatch through must name the
+  **thunk**, not the `_x` body, which is what `fm_tpl`, `fm_menus` and
+  `fdlg_tpl` do.
+- **A macro argument is a call site.** `OSAPI_SLOT dskw_dfree` near-calls its
+  argument from inside the macro body, and six of those pointed into these
+  modules. `tools/os88ovlchk.py` reads the source, so it saw none of them
+  until it was taught the cell macros; it is worth more than any amount of
+  reading, and only for what it can see.
+
+This is **not** the retired `.fartext` (§33): that mechanism copied cold
+modules to a segment of their own at boot and needed a 10,752-byte
+reservation to hold a 5,455-byte blob. Nothing is copied here and nothing is
+reserved.
+
+The shims live **below every `%include`** in `kernel.asm`, which is not
+cosmetic: they used to sit with the API stubs, which is above `splash.inc`,
+and `splash.inc` has to end inside the image's first `SPL_RESIDENT` sectors
+(§15). At 140 bytes they fitted; at over 500 they push the splash out of its
+sectors, and the build then fails naming splash and nothing else.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
@@ -447,14 +492,15 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
 | `kernel/apps.inc`   | built-in app kinds: About, Timer, Bounce — state pools, kinit procs, per-instance tasks |
 | `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19) |
-| `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write` |
-| `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21) |
-| `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22) |
-| `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_` |
+| `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write`. **`.cold`** (§2.6) |
+| `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21). **`.cold`** (§2.6) |
+| `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22). **`.cold`** (§2.6), with its strings and dispatch tables toggled back to `.text` |
+| `kernel/filecp.inc` | the file manager's clipboard: Cut, Copy, Paste and the recursive paste engine (§22.3) — prefix `fcp_`. **`.cold`** (§2.6) |
+| `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_`. **`.cold`** (§2.6) |
 | `kernel/icons.inc`  | 1-bit icon format, draw routine, built-in library (§25) |
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
-| `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_` |
+| `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 | `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, the frame clock/present, and the cold XMS desktop stash (§53.6.1) — prefix `fsx_` |
 
@@ -1360,10 +1406,25 @@ Four things make the pair what it is.
   then `cur_pass_mono` again for black) read the same byte three times and
   wrote it twice, each through its own row walk and its own `gfx_nextrow`
   call. The masks compose: `(under | white) & ~black` is exactly what drawing
-  one pass on top of the other always produced. VGA keeps the old shape — the
-  save is four planes through Read Map Select and the draw is Set/Reset
-  through the Bit Mask, so there is no single byte to fuse — but it gets the
-  8x12 cell and the missing third byte.
+  one pass on top of the other always produced.
+- **And the PLANAR draw is one pass too, with no Set/Reset at all.** VGA used
+  to paint the whole dilated body solid white and then punch the black arrow
+  into it — two passes with a GC reprogram between them, and a window in which
+  the screen genuinely held a white blob with no arrow in it. It does not need
+  two colours in two writes: with Set/Reset **off** and write mode 0 the CPU
+  byte lands in all four planes, so a set bit is colour 15 and a clear bit is
+  colour 0. `cur_draw` sets the Bit Mask to the **white** row and writes
+  **white & ~black** — halo bits 1, body bits 0, everything else from the
+  latches — and both colours reach the glass in the same store. It is also
+  four fewer port writes per cell and half the read-modify-writes.
+
+  What it depends on is that **every black bit is also a white bit**: a black
+  pixel outside its white row would fall outside the Bit Mask and simply not
+  be drawn, where the two-pass version painted it in a pass of its own. That
+  is asserted at assembly time, and it is why the two bitmaps are now one
+  `CUR_ARROW` list expanded twice rather than two tables thirty lines apart —
+  the invariant is a statement about the *pair*, and a pair nobody can see
+  together is a pair nobody checks.
 - **The geometry is computed once and banked, not derived twice.**
   `cur_geom` answers the cell's framebuffer offset, the shift, the rows on
   screen and whether the `DI+1` byte is still inside the row; `cur_get_mono`
@@ -1375,7 +1436,7 @@ Four things make the pair what it is.
   erases at the OLD position first (§7's ISR rule).
 
 Measured under `-icount` (Part 9 Set 7), the pair went **17.82 → 5.41** PIT
-counts on Hercules, 17.98 → 5.46 on CGA and 23.00 → 11.85 on VGA, with the
+counts on Hercules, 17.98 → 5.47 on CGA and 23.00 → 14.95 on VGA, with the
 framebuffer **byte-identical** on all three adapters at every cursor position
 tested — over glyphs byte-aligned and skewed, against the right screen edge
 where the second byte is clipped away, and against the bottom edge where the
@@ -1856,7 +1917,9 @@ then, so this is invisible.
   (§7.1) — asserted against the tables at assembly time, because a redrawn
   arrow that outgrew either bound would fail only on the glass. Draw on
   VGA: white pass = Set/Reset white, Bit Mask = mask row bits; black pass
-  likewise, across the cell's `CUR_SPAN` = 2 bytes. On a 1bpp adapter
+  in the SAME store, Bit Mask = the white row and plane data =
+  white & ~black with Set/Reset off, across the cell's `CUR_SPAN` = 2 bytes.
+  On a 1bpp adapter
   (§39) the framebuffer is the renderer's own target, so the save and both
   passes are fused into **one** row loop (`cur_put_mono`) with plain CPU
   OR/AND — no Set/Reset, no Bit Mask, no ports; `cur_get_mono` puts the
@@ -8896,7 +8959,22 @@ panel and three keys, which is a menu rather than a tail. `Find…`,
 natural item beside a `Find Next` that does not take one either.
 
 The panel is two boxes (Find, and Replace in `Ctrl-R` mode), a **Regex** tick
-box, the match count, and `Next` / `Repl` / `All` / `X`. `F3` finds the next match and
+box, the counter, and `Next` / `Repl` / `All` / `X`.
+
+**The counter is `n/total`, not a count**, and the reason is the row it lives
+on: the tick box and its label are to its left and four buttons to its right,
+which on a 260px window leaves nine cells. `12 found` is eight of the nine and
+`3/12` is four — and it answers the question the count was really being asked,
+which is *where am I, of how many*. A current match nobody can name shows
+`-/12` rather than a `0` that reads like an answer.
+
+**The ordinal is STEPPED, never counted.** A forward search from the end of
+match *n* lands on *n+1* and a wrapped one lands on 1, so `np_findfrom` and
+`np_findprev` report the wrap in `[np_fwrap]` and F3 does arithmetic — counting
+it would walk the whole note per keypress, which is the cost this section
+exists to avoid. When nothing has stepped it (an edit, a click, a new pattern)
+it goes to 0 and the **worker** re-derives it: `np_fcount_do` is already
+passing every match, so recognising the one on screen costs a compare. `F3` finds the next match and
 `Shift-F3` the previous one, **from anywhere** — the panel does not swallow
 them and the document does not swallow `Ctrl-F`, which is why the shared keys
 are tested before `[np_ffield]` routes anything. The search **wraps**: the

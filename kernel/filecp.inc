@@ -43,6 +43,15 @@
 ;   and a file may still be bigger than it, so a copy stays a truncating
 ;   create followed by a run of dskw_append calls, each one a whole number
 ;   of clusters.
+;
+; **This module is `.cold` (SPEC.md 2.6).** It is the one of the four with no
+; resident thunks and no `_x` bodies at all: every caller of an fcp_ routine
+; is files.inc, which is cold too, so those calls stayed near. Only the calls
+; that leave the cold set go out, through `KERNEL_SEG:cw_*`. Two things
+; are on the author rather than the build: CS is NOT KERNEL_SEG here, so
+; nothing may take a kernel segment from it, and DATA stays in `.text` - the
+; section toggles below are that, and a `db`/`dw` added on the wrong side of
+; one is read at the wrong segment with no diagnostic at all.
 ; =============================================================================
 
 FCP_NONE    equ 0               ; [fcp_op]
@@ -72,6 +81,12 @@ FCPS_DONE   equ 0               ; the operation finished
 FCPS_ASK    equ 1               ; suspended: fcp_cname needs a verdict
 FCPS_ERR    equ 2               ; stopped, [fcp_err] = FERR_*
 
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
+                                ; segment of its own, so it costs KERN_CODE_MAX
+                                ; nothing. DS is still KERNEL_SEG, so every data
+                                ; reference below is unchanged - but the DATA is
+                                ; not, and stays in .text at every toggle here
+
 ; -----------------------------------------------------------------------------
 ; fcp_arm - put one of the acting window's entries on the clipboard
 ; in:  AL = FCP_COPY or FCP_CUT, BX = its directory index; [fm_vp] published
@@ -84,6 +99,7 @@ FCPS_ERR    equ 2               ; stopped, [fcp_err] = FERR_*
 ; package, a folder - is fair game.
 ; -----------------------------------------------------------------------------
 fcp_arm:
+
     push ax
     push bx
     push cx
@@ -191,7 +207,7 @@ fcp_goto:
 .full:
     mov dl, al
     mov ax, bx
-    call dsk_chdir_q
+    call KERNEL_SEG:cw_dsk_chdir_q
     jc .ferr
     pop dx
     clc
@@ -360,7 +376,7 @@ fcp_selfchk:
     je .bad                     ; the destination IS the source, or is under
     or ax, ax                   ; it: either way the copy would eat itself
     jz .ok                      ; reached the root without meeting it
-    call dsk_dotdot
+    call KERNEL_SEG:cw_dsk_dotdot
     jc .ok
     mov [dsk_cwd], ax
     loop .up
@@ -391,7 +407,7 @@ fcp_srcclus:
     call fcp_goto
     jc .bad
     mov si, fcp_name
-    call dskw_stat              ; CF=0 with BX = first cluster
+    call dskw_stat_x            ; CF=0 with BX = first cluster
     jc .bad
     pop si
     clc
@@ -503,7 +519,7 @@ fcp_bufget:
     push cx
     push dx
     call fcp_floor              ; CX = the smallest buffer that can work here
-    call mem_avail              ; AX = largest free run in KB
+    call KERNEL_SEG:cw_mem_avail              ; AX = largest free run in KB
     cmp ax, cx
     jb .no
     cmp ax, FCP_MAXKB
@@ -512,7 +528,7 @@ fcp_bufget:
 .size:
     mov [fcp_kb], ax
     mov bx, MEM_K_COPY
-    call mem_claim              ; CF=1 refused; the segment comes back in DX,
+    call KERNEL_SEG:cw_mem_claim              ; CF=1 refused; the segment comes back in DX,
     jc .no                      ; NOT in AX - AX still holds the KB asked for
     mov [fcp_raw], dx           ; what mem_free must be handed back...
     mov ax, dx
@@ -559,7 +575,7 @@ fcp_bufput:
     or dx, dx
     jz .out
     mov bx, MEM_K_COPY          ; mem_free takes the owner word too, and
-    call mem_free               ; refuses a base that is not this owner's
+    call KERNEL_SEG:cw_mem_free ; refuses a base that is not this owner's
     mov word [fcp_raw], 0
     mov word [fcp_seg], 0
 .out:
@@ -578,7 +594,7 @@ fcp_stop:
     call fcp_bufput
     mov byte [fcp_busy], 0
     mov byte [dskw_batch], 0    ; the deferred remount is spent by the caller
-    call dsk_relist             ; the volume switches were quiet (SPEC.md
+    call KERNEL_SEG:cw_dsk_relist ; the volume switches were quiet (SPEC.md
                                 ; 18.9), so the global snapshot may be this
                                 ; operation's debt - and the world is about to
                                 ; repaint. AFTER dskw_batch, which gates the
@@ -718,7 +734,7 @@ fcp_step:
                                 ; where anything else that writes must behave
                                 ; normally; fcp_step raises it again on the
                                 ; way back in
-    call dsk_relist             ; ...and where the listing must be this
+    call KERNEL_SEG:cw_dsk_relist ; ...and where the listing must be this
                                 ; volume's again (SPEC.md 18.9), for the same
                                 ; reason and at the same moment
     mov al, FCPS_ASK            ; the buffer and the frames stay claimed:
@@ -775,7 +791,7 @@ fcp_relink:
     call fcp_goto
     jc .no
     mov si, fcp_name
-    call dskw_stat              ; dskw_raw = its 32 bytes, BX = first cluster
+    call dskw_stat_x            ; dskw_raw = its 32 bytes, BX = first cluster
     jc .no
     mov [fcp_rlclus], bx
 
@@ -784,7 +800,7 @@ fcp_relink:
     call fcp_goto
     jc .no
     mov si, fcp_name
-    call dskw_stat
+    call dskw_stat_x
     jnc .no                     ; it does: the copy path knows how to ask
     cmp ax, FERR_NOENT
     jne .no
@@ -845,7 +861,7 @@ fcp_relink:
 ; now. dskw_delete would free them and take the moved file with it.
 ; -----------------------------------------------------------------------------
 fcp_rlzap:
-    call dskw_stat              ; locates it: dskw_dsec/doff, and dskw_raw
+    call dskw_stat_x            ; locates it: dskw_dsec/doff, and dskw_raw
     jc .out
     mov byte [dskw_raw], 0xE5   ; SPEC.md 19's deleted marker
     mov byte [dskw_zapnext], 0
@@ -871,12 +887,12 @@ fcp_rlup:
     mov ax, LOW_SEG
     mov es, ax
     mov ax, [fcp_rlclus]
-    call dsk_clus2lba           ; AX = the folder's first sector
+    call KERNEL_SEG:cw_dsk_clus2lba ; AX = the folder's first sector
     jc .out
     push ax
     mov cx, 1
     mov bx, dsk_secbuf
-    call disk_read
+    call KERNEL_SEG:cw_disk_read
     pop ax
     jc .out
     cmp byte [es:dsk_secbuf+32], '.'
@@ -888,7 +904,7 @@ fcp_rlup:
     push ax
     mov cx, 1
     mov bx, dsk_secbuf
-    call disk_write
+    call KERNEL_SEG:cw_disk_write
     pop ax
 .out:
     pop es
@@ -980,7 +996,7 @@ fcp_scan:
     call fcp_goto
     jc .ioerr
     mov ax, [di+FCP_FSRC]
-    call dsk_dirw_start
+    call KERNEL_SEG:cw_dsk_dirw_start
     mov ax, [di+FCP_FPOS]       ; the ordinal splits into a sector and a slot
     mov cl, 4
     shr ax, cl
@@ -991,16 +1007,16 @@ fcp_scan:
 .skipsec:
     cmp word [fcp_ssec], 0      ; dsk_dirw_next only computes LBAs - skipping
     je .readsec                 ; whole sectors reads nothing
-    call dsk_dirw_next
+    call KERNEL_SEG:cw_dsk_dirw_next
     jc .end
     dec word [fcp_ssec]
     jmp short .skipsec
 .readsec:
-    call dsk_dirw_next          ; AX = the sector holding the ordinal
+    call KERNEL_SEG:cw_dsk_dirw_next ; AX = the sector holding the ordinal
     jc .end
     mov cx, 1
     mov bx, dsk_secbuf
-    call disk_read
+    call KERNEL_SEG:cw_disk_read
     jc .ioerr
     mov si, dsk_secbuf
     mov ax, [fcp_sslot]
@@ -1029,7 +1045,7 @@ fcp_scan:
     jnz .next                   ; the volume label
     test ah, 0x06
     jnz .next                   ; hidden or system, exactly as the listing
-    call dsk_synth              ; ES:SI -> dsk_ent (SPEC.md 19): the display
+    call KERNEL_SEG:cw_dsk_synth              ; ES:SI -> dsk_ent (SPEC.md 19): the display
                                 ; name, the type word, the cluster, the size
     push si
     push di
@@ -1141,7 +1157,7 @@ fcp_mksub:
 ; clobbers: AX, BX, flags
 ; -----------------------------------------------------------------------------
 fcp_ensure:
-    call dskw_stat              ; CF=0: it is already there
+    call dskw_stat_x            ; CF=0: it is already there
     jc .make
     test al, DSKW_DIR
     jz .clash                   ; a FILE of that name: mkdir cannot fix this
@@ -1150,9 +1166,9 @@ fcp_ensure:
 .make:
     cmp ax, FERR_NOENT
     jne .fail                   ; a lookup that failed for another reason
-    call dskw_mkdir
+    call dskw_mkdir_x
     jc .fail
-    call dskw_stat              ; the mount's own answer for where it landed
+    call dskw_stat_x            ; the mount's own answer for where it landed
     jc .fail
     clc
     ret
@@ -1184,7 +1200,7 @@ fcp_file1:
     call fcp_goto
     jc .err
     mov si, fcp_fname
-    call dskw_stat
+    call dskw_stat_x
     jc .free                    ; FERR_NOENT is the ordinary case
     test al, DSKW_DIR
     jnz .clash                  ; a FOLDER of that name: not a replaceable
@@ -1312,7 +1328,7 @@ fcp_rdopen:
     push bx
     push cx
     push dx
-    call dskw_stat              ; BX = first cluster, DX:CX = size
+    call dskw_stat_x            ; BX = first cluster, DX:CX = size
     jc .out
     mov [fcp_rclus], bx
     mov [fcp_rsz], cx
@@ -1388,13 +1404,13 @@ fcp_rdnext:
     cmp ax, [dsk_maxclus]
     ja .io
     xor bx, bx
-    call dsk_read_chain         ; AX = first cluster, DX = sectors, ES:BX
+    call KERNEL_SEG:cw_dsk_read_chain ; AX = first cluster, DX = sectors, ES:BX
     jc .io
     mov cx, [fcp_rgot]
     sub [fcp_rsz], cx
     sbb word [fcp_rszh], 0
     mov ax, [dsk_chain_end]     ; resume past the last cluster it touched
-    call dsk_next_clus
+    call KERNEL_SEG:cw_dsk_next_clus
     jc .stop
     mov [fcp_rclus], ax
     jmp short .done
@@ -1506,7 +1522,7 @@ fcp_xfer:
     mov cx, [fcp_flen]
     xor dx, dx                  ; DX:CX = the chunk (SPEC.md 18.4.1)
     mov si, fcp_fname
-    call dskw_write
+    call dskw_write_x
     jc .err
 
 .chunk:
@@ -1567,7 +1583,7 @@ fcp_srcdel:
     mov si, fcp_name
     cmp word [fcp_type], 2
     jae .tree
-    call dskw_delete
+    call dskw_delete_x
     jc .err
     jmp short .ok
 .tree:

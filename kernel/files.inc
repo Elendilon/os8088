@@ -74,6 +74,15 @@
 ; already held by the caller (SPEC.md 11/12.2) and never lock, block or
 ; spawn; files_open / files_open_drive / files_refresh take the lock
 ; themselves.
+;
+; **This module is `.cold` (SPEC.md 2.6).** Its code has a CS of its own, so
+; a routine the kernel reaches from outside is a six-byte resident thunk in
+; kernel.asm under the PUBLIC name, and the body here carries an `_x` suffix;
+; calls that leave the cold set go out through `KERNEL_SEG:cw_*`. Two things
+; are on the author rather than the build: CS is NOT KERNEL_SEG here, so
+; nothing may take a kernel segment from it, and DATA stays in `.text` - the
+; section toggles below are that, and a `db`/`dw` added on the wrong side of
+; one is read at the wrong segment with no diagnostic at all.
 ; =============================================================================
 
 ; --- layout constants (content-relative, SPEC.md 22) -------------------------
@@ -136,6 +145,12 @@ FM_HDRMAX   equ 48              ; fm_hdrbuf's size: the header and the status
                                 ; afterwards, and the longest of them is the
                                 ; delete confirmation (SPEC.md 22)
 
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
+                                ; segment of its own, so it costs KERN_CODE_MAX
+                                ; nothing. DS is still KERNEL_SEG, so every data
+                                ; reference below is unchanged - but the DATA is
+                                ; not, and stays in .text at every toggle here
+
 ; -----------------------------------------------------------------------------
 ; files_init - reset module state (no window is created at boot, SPEC.md 22)
 ; in:  nothing
@@ -143,7 +158,7 @@ FM_HDRMAX   equ 48              ; fm_hdrbuf's size: the header and the status
 ; clobbers: nothing (flags only)
 ; .bss is not zeroed by the loader: every state variable is set here.
 ; -----------------------------------------------------------------------------
-files_init:
+files_init_x:
     push ax
     push cx
     push di
@@ -189,7 +204,7 @@ files_init:
 ; here. KD_INIT runs on the UI task with NO lock held, which is exactly the
 ; context a mount needs.
 ; -----------------------------------------------------------------------------
-fm_kinit:
+fm_kinit_x:
     push ax
     push cx
     push dx
@@ -205,7 +220,7 @@ fm_kinit:
     shr ax, cl
     mov bx, ax
     mov ax, VIEW_KB
-    call mem_claim
+    call KERNEL_SEG:cw_mem_claim
     jc .nocache                 ; no room: the window still works, it just
     mov [di+FS_VSEG], dx        ; re-reads the global snapshot to paint
     mov byte [di+FS_VKB], VIEW_KB
@@ -276,7 +291,7 @@ fm_kinit:
 fm_vp_set:
     push bx
     push di
-    call inst_win_owner         ; DI = record, or 0; BX preserved
+    call KERNEL_SEG:cw_inst_win_owner ; DI = record, or 0; BX preserved
     mov [fm_vinst], di
     or di, di
     jz .none
@@ -320,8 +335,9 @@ fmv_copy_in:
 .dir:
     add si, [dsk_doff]
 .have:
-    mov ax, cs                  ; this code is .text, so CS is the kernel
-    call dsk_copy_seg
+    mov ax, ds                  ; the kernel segment, out of DS: this module
+                                ; is .cold, so CS is COLD_SEG (SPEC.md 2.6)
+    call KERNEL_SEG:cw_dsk_copy_seg
     pop si
     pop dx
     pop bx
@@ -452,7 +468,7 @@ fmv_store:
 fmv_copy_out:
     push dx
     mov dx, [dsk_dseg]
-    call dsk_copy_seg
+    call KERNEL_SEG:cw_dsk_copy_seg
     pop dx
     ret
 
@@ -487,14 +503,14 @@ fmv_fit:
     or dx, dx                   ; new one while holding it can refuse on a
     jz .claim                   ; machine that had the room all along (50.3)
     call fmv_owner
-    call mem_free
+    call KERNEL_SEG:cw_mem_free
     mov word [di+FS_VSEG], 0
     mov byte [di+FS_VKB], 0
 .claim:
     call fmv_owner              ; BX = the owning instance slot
     mov al, cl
     xor ah, ah
-    call mem_claim
+    call KERNEL_SEG:cw_mem_claim
     jc .out                     ; refused: no cache, and that is a normal
     mov [di+FS_VSEG], dx        ; path (SPEC.md 50.3)
     mov [di+FS_VKB], cl
@@ -555,7 +571,7 @@ fmv_load:
     mov bl, al                  ; dsk_chdir wants the drive in DL and the
     mov ax, dx                  ; cluster in AX
     mov dl, bl
-    call dsk_chdir              ; a remount with [dsk_keepcwd] raised
+    call KERNEL_SEG:cw_dsk_chdir              ; a remount with [dsk_keepcwd] raised
 
     mov al, [disk_drive]        ; ...and now record what really happened
     mov [di+FS_DRV], al
@@ -611,7 +627,7 @@ fm_measure:
     cmp byte [di+FS_MOK], 0
     je .out                     ; no good mount: no figures, and say so
 
-    call dsk_free_clus          ; --- free: clusters -> KB, once per mount ---
+    call KERNEL_SEG:cw_dsk_free_clus ; --- free: clusters -> KB, once per mount ---
     jc .used
     mov dl, [dsk_spc]
     xor dh, dh
@@ -634,7 +650,7 @@ fm_measure:
     xor ax, ax                  ; AX = entry index
 .sum:
     push ax
-    call dsk_get_dir            ; SI -> the staged entry, in our own segment
+    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged entry, in our own segment
     mov ax, [si+20]             ; size lo...
     add cx, ax
     mov ax, [si+22]             ; ...and hi, with the carry out of the low
@@ -682,7 +698,7 @@ fm_measure:
 ; (FS_SEL against FS_N, FS_SCRL by fm_clamp_scroll), so restoring an index
 ; that a changed directory has invalidated is harmless.
 ; -----------------------------------------------------------------------------
-fmv_sync:
+fmv_sync_x:
     push ax
     push bx
     push dx
@@ -777,9 +793,16 @@ fmv_bcast:
     pop cx
     pop ax
     ret
+section .text                   ; DATA, so back to the kernel segment: cold code
+                                ; reads it through DS (SPEC.md 2.6)
+
 
 ; --- window template: {x, y, w, h, title, paint, onkey, onclick} words -------
 fm_tpl:     dw 110, 80, 320, 200, fm_ttl, fm_paint, fm_onkey, fm_onclick
+                                ; the three callbacks are the RESIDENT thunks,
+                                ; not the _x bodies: wm_draw_win and ui.inc
+                                ; dispatch through this record with a near
+                                ; call, from .text (SPEC.md 2.6)
 fm_ttl:     db 'Disk', 0
 
 fm_s_drive:  db 'Drive ', 0     ; header: "Drive " letter ":  " N " files"
@@ -903,12 +926,15 @@ fm_items_spec:
 
 fm_menus:
     dw menu_loc_name            ; AM_NAME: still 'Locator' (SPEC.md 12.3)
-    dw fm_oncmd                 ; AM_ONCMD: our own handler
+    dw fm_oncmd                 ; AM_ONCMD: our own handler - the resident
+                                ; thunk, like fm_tpl's three above
     dw 4                        ; AM_COUNT (= MENU_APPMAX, used exactly)
     dw fm_s_mfile, fm_items_file, 8
     dw fm_s_mfold, fm_items_fold, 7
     dw fm_s_mview, fm_items_view, 2
     dw fm_s_mspec, fm_items_spec, 3
+section .cold                   ; ...and back to cold code
+
 
 ; -----------------------------------------------------------------------------
 ; files_open - CMD_FILES dispatch entry (ui.inc); no lock held on entry
@@ -919,7 +945,7 @@ fm_menus:
 ; fm_choose decide whether that means fronting a window, creating one, or
 ; moving one (SPEC.md 22.1).
 ; -----------------------------------------------------------------------------
-files_open:
+files_open_x:
     push ax
     push dx
     mov al, [disk_drive]
@@ -938,7 +964,7 @@ files_open:
 ; instead, which is the "one window per place" rule the Finder has - and
 ; Refresh, one click away, is still the disk-swap answer it always was.
 ; -----------------------------------------------------------------------------
-files_open_drive:
+files_open_drive_x:
     push ax
     push dx
     xor dx, dx
@@ -972,11 +998,11 @@ fm_open_body:
 fm_choose:
     call fm_find_view           ; already showing (AL, DX)?
     jc .notopen
-    call gfx_lock               ; front + un-minimize, exactly as app_launch's
+    call KERNEL_SEG:cw_gfx_lock ; front + un-minimize, exactly as app_launch's
     and byte [di+I_FLAGS], 0xFE ; own at-cap path does (SPEC.md 29.4)
     mov bx, [di+I_WIN]
-    call wm_show
-    call gfx_unlock
+    call KERNEL_SEG:cw_wm_show
+    call KERNEL_SEG:cw_gfx_unlock
     ret
 .notopen:
     call fm_count               ; CX = live file-manager instances
@@ -984,9 +1010,10 @@ fm_choose:
     jae .inplace
     call fm_seed                ; park the target for fm_kinit
     mov al, KIND_FILES
-    jmp app_launch              ; tail call; it takes its own locks
+    call KERNEL_SEG:cw_app_launch ; was a tail jmp; it takes its own locks
+    ret                             ; (the far shim cannot be jumped through)
 .inplace:
-    call gfx_lock
+    call KERNEL_SEG:cw_gfx_lock
     call fm_front_win           ; BX = the frontmost visible one
     jc .unlock                  ; every window minimized: nothing to move
     call fm_vp_set
@@ -996,7 +1023,7 @@ fm_choose:
     mov si, bx
     call fm_repaint
 .unlock:
-    call gfx_unlock
+    call KERNEL_SEG:cw_gfx_unlock
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1083,7 +1110,7 @@ fm_front_win:
 .next:
     dec si                      ; front to back (SPEC.md 11)
     mov al, [si]
-    call wm_idx2ptr             ; BX = window ptr
+    call KERNEL_SEG:cw_wm_idx2ptr ; BX = window ptr
     test word [bx+W_FLAGS], 2   ; visible?
     jz .cont
     cmp word [bx+W_MENUS], fm_menus
@@ -1153,10 +1180,10 @@ fm_seed:
 ; raised the LOADED program's window, which may overlap any of them, so the
 ; repaint has to be the full back-to-front pass regardless.
 ; -----------------------------------------------------------------------------
-files_refresh:
-    call gfx_lock
-    call wm_paint_all
-    call gfx_unlock
+files_refresh_x:
+    call KERNEL_SEG:cw_gfx_lock
+    call KERNEL_SEG:cw_wm_paint_all
+    call KERNEL_SEG:cw_gfx_unlock
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1183,11 +1210,11 @@ fm_win_of:
 .scan:
     mov al, [si]
     inc si
-    call wm_idx2ptr             ; BX = window ptr; CX preserved
+    call KERNEL_SEG:cw_wm_idx2ptr ; BX = window ptr; CX preserved
     test word [bx+W_FLAGS], 2
     jz .next
     push cx
-    call inst_win_owner         ; DI = its instance record, or 0
+    call KERNEL_SEG:cw_inst_win_owner ; DI = its instance record, or 0
     pop cx
     or di, di
     jz .next
@@ -1233,7 +1260,7 @@ fm_win_of:
 ; the title strip, and would otherwise be clipped to the content rect that
 ; strip is not inside.
 ; -----------------------------------------------------------------------------
-files_poster:
+files_poster_x:
     push ax
     push bx
     push si
@@ -1241,19 +1268,19 @@ files_poster:
     je .full
     call fm_win_of              ; [ld_pwin] is a STATE BLOCK, not a window
     jc .full                    ; ptr - its window has gone since it posted
-    call gfx_lock
+    call KERNEL_SEG:cw_gfx_lock
     call fm_title_flush
-    call wm_clip_set            ; CF = 1: none of it is visible any more
+    call KERNEL_SEG:cw_wm_clip_set ; CF = 1: none of it is visible any more
     jc .unlock
     mov si, bx
     call fm_status_only         ; the load changed ONE line of this window;
     jnc .unlock                 ; only a clip edge across it forces the rest
     call fm_repaint
 .unlock:
-    call gfx_unlock             ; ...which also disarms the clip
+    call KERNEL_SEG:cw_gfx_unlock ; ...which also disarms the clip
     jmp short .out
 .full:
-    call files_refresh
+    call files_refresh_x
 .out:
     pop si
     pop bx
@@ -1308,7 +1335,7 @@ fm_layout:
     mov ax, [di+FS_SEL]
     mov [fm_lsel], ax
 
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
     mov [fm_cx], ax
     mov [fm_cy], dx
     mov ax, [bx+W_W]
@@ -1483,7 +1510,7 @@ fm_thumb:
 ; out: nothing
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
-fm_paint:
+fm_paint_x:
     push bx
     mov bx, si
     call fm_draw_core
@@ -1506,7 +1533,7 @@ fm_paint:
 ; cancels one armed in ANOTHER window too: the buffer is shared, so a name
 ; half-typed somewhere else has nowhere left to land.
 ; -----------------------------------------------------------------------------
-fm_onclick:
+fm_onclick_x:
     push ax
     push bx
     push cx
@@ -1529,7 +1556,7 @@ fm_onclick:
     mov bx, si
     push cx                     ; save click x
     mov cx, dx                  ; CX = click y
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
     sub cx, dx                  ; CX = content-relative y
     pop dx
     sub dx, ax                  ; DX = content-relative x
@@ -1765,7 +1792,7 @@ fm_hit:
 ; double-click. Only the front window is sent keys at all (SPEC.md 13), so
 ; there is no focus concept to get wrong.
 ; -----------------------------------------------------------------------------
-fm_onkey:
+fm_onkey_x:
     push ax
     push bx
     push dx
@@ -1949,7 +1976,7 @@ fm_open_sel:
     jae .folder                 ; both of them navigate, neither is loadable
     cmp word [si+16], 0         ; a DATA file with an association opens in
     jne .package                ; its program instead of reaching the loader
-    call assoc_post             ; (SPEC.md 54.4); without one it still goes
+    call KERNEL_SEG:cw_assoc_post ; (SPEC.md 54.4); without one it still goes
     jnc .out                    ; there and still says "Bad package", which
 .package:                       ; is the truthful verdict it always was
     inc ax                      ; index + 1: ui.inc runs the loader once the
@@ -2148,11 +2175,14 @@ fm_title_flush:
     jz .out
     mov word [fm_tdirty], 0
     xor ax, ax
-    call wm_title_set
+    call KERNEL_SEG:cw_wm_title_set
 .out:
     pop bx
     pop ax
     ret
+section .text                   ; DATA, so back to the kernel segment: cold code
+                                ; reads it through DS (SPEC.md 2.6)
+
 
 ; =============================================================================
 ; The menu bar: fm_menus' command handler (SPEC.md 12.2/22)
@@ -2227,6 +2257,8 @@ fm_jmp:
     dw fm_c_bounce              ; POSTED - app_launch takes the lock
     dw fm_c_restart             ; POSTED - ui_cmd takes the lock
     dw fm_c_pastein             ; inline (fm_c_paste with another target), forever
+section .cold                   ; ...and back to cold code
+
 
 ; -----------------------------------------------------------------------------
 ; fm_oncmd - AM_ONCMD for fm_menus (SPEC.md 12.2)
@@ -2245,7 +2277,7 @@ fm_jmp:
 ; register everywhere in this module. The closing repaint is NOT optional -
 ; the kernel does not repaint after an AM_ONCMD returns (SPEC.md 12.2).
 ; -----------------------------------------------------------------------------
-fm_oncmd:
+fm_oncmd_x:
     push ax
     push bx
     push cx
@@ -2430,29 +2462,34 @@ fm_newwin:
     jae fm_nw_full
     call fm_seed                ; park the target for the new window's
     mov al, KIND_FILES          ; fm_kinit, then let ui_task do the launch
-    jmp inst_launch_post        ; NOT app_launch: it takes the lock we hold
+    call KERNEL_SEG:cw_inst_launch_post ; NOT app_launch: it takes the lock
+    ret                             ; we hold
 fm_nw_full:
-    jmp snd_beep                ; at the cap app_launch would front an
-                                ; existing window and silently drop the seed,
+    call KERNEL_SEG:cw_snd_beep ; at the cap app_launch would front an
+    ret                         ; existing window and silently drop the seed,
                                 ; which reads as "the menu did nothing"
 fm_nw_none:
     ret
 
 fm_c_closew:                    ; File > Close Window
     mov ax, CMD_CLOSE
-    jmp ui_post_cmd             ; NOT ui_cmd: it takes the lock we hold
+    call KERNEL_SEG:cw_ui_post_cmd ; NOT ui_cmd: it takes the lock we hold
+    ret
 
 fm_c_restart:                   ; Special > Restart
     mov ax, CMD_REBOOT
-    jmp ui_post_cmd
+    call KERNEL_SEG:cw_ui_post_cmd
+    ret
 
 fm_c_timer:                     ; Special > Timer
     mov al, KIND_TIMER
-    jmp inst_launch_post        ; NOT app_launch: it takes the lock (29.4)
+    call KERNEL_SEG:cw_inst_launch_post ; NOT app_launch: it takes the lock
+    ret                             ; (29.4)
 
 fm_c_bounce:                    ; Special > Bounce
     mov al, KIND_BOUNCE
-    jmp inst_launch_post
+    call KERNEL_SEG:cw_inst_launch_post
+    ret
 
 fm_c_refresh:                   ; Folder > Refresh
     jmp fm_reload
@@ -2469,9 +2506,9 @@ fm_c_up:                        ; Folder > Up One Folder
     cmp word [di+FS_CWD], 0
     je .none                    ; already at the root: nothing is above it,
                                 ; and saying so is not worth an error line
-    call fmv_sync               ; dsk_dotdot walks [dsk_cwd], so that had
+    call fmv_sync_x             ; dsk_dotdot walks [dsk_cwd], so that had
                                 ; better be OUR folder (SPEC.md 22.1)
-    call dsk_dotdot             ; AX = the parent's first cluster (19.2)
+    call KERNEL_SEG:cw_dsk_dotdot ; AX = the parent's first cluster (19.2)
     jc .none                    ; a missing or corrupt '..': stay put
     xor si, si                  ; the parent cannot be named without the
     jmp fm_go                   ; grandparent's listing (SPEC.md 22)
@@ -2493,6 +2530,9 @@ fm_c_setview:
     mov [di+FS_VIEW], al
     mov word [di+FS_SCRL], 0    ; row heights changed: the old first row is
     ret                         ; not this view's first row
+section .text                   ; DATA, so back to the kernel segment: cold code
+                                ; reads it through DS (SPEC.md 2.6)
+
 
 ; =============================================================================
 ; The context menu (SPEC.md 12.4/22)
@@ -2562,6 +2602,8 @@ fm_cxi_dir:
 fm_cxc_dir:
     db FMC_MKDIR, FMC_PASTE, FMC_REFRESH, FMC_UP, FMC_ROOT
     db FMC_DRVA, FMC_DRVB, FMC_LIST, FMC_ICONS
+section .cold                   ; ...and back to cold code
+
 
 ; -----------------------------------------------------------------------------
 ; fm_rclick - select what the right-press is about, then run the popup
@@ -2580,7 +2622,7 @@ fm_cxc_dir:
 ; ticks by a left click on the same row read as a double-click and launch a
 ; package the user never opened (SPEC.md 13).
 ; -----------------------------------------------------------------------------
-fm_rclick:
+fm_rclick_x:
     push ax
     push bx
     push cx
@@ -2602,7 +2644,7 @@ fm_rclick:
     mov bx, si                  ; the same content-relative transform
     push cx                     ; fm_onclick makes: save press x...
     mov cx, dx                  ; CX = press y
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
     sub cx, dx                  ; CX = content-relative y
     pop dx
     sub dx, ax                  ; DX = content-relative x
@@ -2638,7 +2680,7 @@ fm_rclick:
 
     mov bx, [di+MC_ITEMS]
     mov ax, [di+MC_NITEM]
-    call menu_popup             ; CF = 1 nothing chosen; CF = 0 and AL = the
+    call KERNEL_SEG:cw_menu_popup ; CF = 1 nothing chosen; CF = 0 and AL = the
     jc .out                     ; item index (DI, the descriptor, survives)
 
     xor ah, ah                  ; AL is bounded by MC_NITEM (menu_hover), so
@@ -2667,7 +2709,7 @@ fm_rclick:
 ; body, same deferral through inst_launch_post / ui_post_cmd for the ones
 ; that need the lock this handler is standing on.
 ; -----------------------------------------------------------------------------
-fm_rcmd:
+fm_rcmd_x:
     push ax
     push bx
     push cx
@@ -2734,7 +2776,7 @@ fm_editkey:
     jc .out                     ; ...and may not carry a second one
     jmp short .store
 .ordinary:
-    call dskw_char              ; upper-cases, or CF=1 = not in the FAT set
+    call dskw_char_x            ; upper-cases, or CF=1 = not in the FAT set
     jc .out
 .store:
     mov [fm_ebuf+bx], al
@@ -2849,19 +2891,19 @@ fm_edit_commit:
     je .del
     cmp byte [fm_elen], 0
     je .done                    ; nothing typed: Enter simply cancels
-    call fmv_sync               ; act in OUR folder (SPEC.md 22.1)
+    call fmv_sync_x             ; act in OUR folder (SPEC.md 22.1)
     cmp al, 2
     je .ren
     mov si, fm_ebuf
-    call dskw_mkdir             ; CF=1 with AX = FERR_* (SPEC.md 18.5)
+    call dskw_mkdir_x           ; CF=1 with AX = FERR_* (SPEC.md 18.5)
     jmp short .verdict
 .ren:
     mov si, fm_onam             ; old name...
     mov di, fm_ebuf             ; ...new name; the eleven name bytes and
-    call dskw_rename            ; nothing else move (SPEC.md 18.4)
+    call dskw_rename_x          ; nothing else move (SPEC.md 18.4)
     jmp short .verdict
 .del:
-    call fmv_sync
+    call fmv_sync_x
     mov si, fm_onam
     cmp byte [fm_odir], 0
     je .delfile
@@ -2871,7 +2913,7 @@ fm_edit_commit:
                                 ; why it is a confirmation and not a click
     jmp short .verdict
 .delfile:
-    call dskw_delete
+    call dskw_delete_x
 .verdict:
     mov di, [fm_vp]             ; .ren left DI on the new name (mov: no flags)
     jc .bad
@@ -2927,7 +2969,7 @@ fm_drag:
 
 .wait:                          ; not a drag until the pointer leaves the row
     mov di, ui_ev
-    call evq_pop
+    call KERNEL_SEG:cw_evq_pop
     jc .noev
     cmp word [ui_ev + EV_TYPE], EVT_MUP
     jne .wait
@@ -2945,9 +2987,9 @@ fm_drag:
     call fm_dgabs
     cmp ax, FM_DRAGMIN
     jae .begin
-    call gfx_unlock             ; the lock may only drop with nothing drawn
-    call task_yield
-    call gfx_lock
+    call KERNEL_SEG:cw_gfx_unlock ; the lock may only drop with nothing drawn
+    call KERNEL_SEG:cw_task_yield
+    call KERNEL_SEG:cw_gfx_lock
     jmp short .wait
 
 .begin:
@@ -2960,7 +3002,7 @@ fm_drag:
     call fm_dgxor               ; the outline is up from here on
 .track:
     mov di, ui_ev
-    call evq_pop
+    call KERNEL_SEG:cw_evq_pop
     jc .nomup
     cmp word [ui_ev + EV_TYPE], EVT_MUP
     jne .track
@@ -2969,14 +3011,14 @@ fm_drag:
     test byte [mouse_btn], 1    ; the fallback ui_drag documents: a dropped
     jz .drop                    ; EVT_MUP still ends the drag by level
     call fm_dgxor               ; erase at the OLD position...
-    call gfx_unlock             ; ...only then may the lock drop
-    call task_yield
-    call gfx_lock
+    call KERNEL_SEG:cw_gfx_unlock ; ...only then may the lock drop
+    call KERNEL_SEG:cw_task_yield
+    call KERNEL_SEG:cw_gfx_lock
     call fm_dgmove              ; ...take the new one...
     call fm_dgxor               ; ...and draw there
     mov ax, [ticks]
 .linger:
-    call task_yield
+    call KERNEL_SEG:cw_task_yield
     cmp ax, [ticks]
     je .linger
     jmp short .track
@@ -3043,7 +3085,7 @@ fm_dgxor:
     add cx, 95                  ; a 96 x FM_ROW_H ghost: wide enough to read
     mov dx, bx                  ; as "a row", narrow enough not to swamp a
     add dx, FM_ROW_H - 1        ; 320px window
-    call vga_xor_rect_vram      ; clips, so the screen edges are free
+    call KERNEL_SEG:cw_vga_xor_rect_vram ; clips, so the screen edges are free
     pop dx
     pop cx
     pop bx
@@ -3062,12 +3104,12 @@ fm_dgxor:
 fm_dgdrop:
     mov cx, [mouse_x]
     mov dx, [mouse_y]
-    call wm_hit                 ; BX = the window under the point, 0 = none
+    call KERNEL_SEG:cw_wm_hit   ; BX = the window under the point, 0 = none
     or bx, bx
     jz .out
     push cx                     ; is it a DISK window? fm_win_of goes the
     push dx                     ; other way (block -> window), so the test is
-    call inst_win_owner         ; the instance that owns it
+    call KERNEL_SEG:cw_inst_win_owner ; the instance that owns it
     pop dx
     pop cx
     or di, di
@@ -3077,7 +3119,7 @@ fm_dgdrop:
 
     push cx                     ; content-relative, for fm_hit
     push dx
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
     pop cx                      ; CX = click y
     sub cx, dx
     pop dx                      ; DX = click x
@@ -3230,16 +3272,16 @@ fmv_repaint_all:
     inc si
     push cx
     push si
-    call wm_idx2ptr             ; BX = the window record
+    call KERNEL_SEG:cw_wm_idx2ptr ; BX = the window record
     test word [bx+W_FLAGS], 2   ; hidden windows have no pixels to correct
     jz .next
-    call inst_win_owner         ; DI = its instance, 0 = unowned
+    call KERNEL_SEG:cw_inst_win_owner ; DI = its instance, 0 = unowned
     or di, di
     jz .next
     cmp byte [di+I_KIND], KIND_FILES
     jne .next
     mov si, bx
-    call wm_win_rect            ; AX/BX/CX/DX = its frame, inclusive
+    call KERNEL_SEG:cw_wm_win_rect ; AX/BX/CX/DX = its frame, inclusive
     call fmv_uadd
 .next:
     pop si
@@ -3256,7 +3298,7 @@ fmv_repaint_all:
     mov [wm_dmg_x2], ax         ; is already on the screen (SPEC.md 11)
     mov ax, [fmv_uy2]
     mov [wm_dmg_y2], ax
-    call wm_dmg_wins
+    call KERNEL_SEG:cw_wm_dmg_wins
 .out:
     pop di
     pop si
@@ -3448,7 +3490,7 @@ fm_repaint:
     call fm_title_flush
 
     mov bx, si
-    call wm_content             ; AX = x1, DX = y1
+    call KERNEL_SEG:cw_wm_content ; AX = x1, DX = y1
     mov cx, [bx+W_X]
     add cx, [bx+W_W]
     sub cx, 2                   ; CX = x2
@@ -3458,11 +3500,11 @@ fm_repaint:
     sub dx, 2                   ; DX = y2
     pop bx                      ; BX = y1
     mov byte [gfx_color], CWHITE
-    call gfx_fill               ; white-fill content
+    call KERNEL_SEG:cw_gfx_fill ; white-fill content
 
     mov bx, si
     call fm_draw_core
-    call wm_grow_paint          ; the white fill above erased the grow box;
+    call KERNEL_SEG:cw_wm_grow_paint ; the white fill above erased the grow box;
                                 ; BX is still the window ptr (SPEC.md 11.1)
 .done:
     pop dx
@@ -3524,11 +3566,11 @@ fm_draw_icon16:
     pop cx
     test ax, ax
     jz .noicon
-    call icon_draw16            ; body-only table entry (SPEC.md 25)
+    call KERNEL_SEG:cw_icon_draw16 ; body-only table entry (SPEC.md 25)
     jmp .done
 .noicon:
     mov si, ico_app16           ; the built-in app icon (library record)
-    call icon_draw
+    call KERNEL_SEG:cw_icon_draw
 .done:
     pop si
     pop cx
@@ -3654,7 +3696,7 @@ fm_draw_core:
     mov dx, [fm_cy]
     add dx, 6
     mov si, fm_hdrbuf
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     ; --- Refresh button (iff cw >= 76): frame (cw-68,2)..(cw-6,15) ---
     cmp word [fm_cw], 76
@@ -3667,13 +3709,13 @@ fm_draw_core:
     sub cx, 5                   ; abs x2 = rgt - 5
     mov dx, [fm_cy]
     add dx, 15
-    call gfx_frame              ; color still CBLACK from the header
+    call KERNEL_SEG:cw_gfx_frame              ; color still CBLACK from the header
     mov cx, ax
     add cx, 3                   ; 56px label centered in the 63px rect
     mov dx, [fm_cy]
     add dx, 4
     mov si, fm_s_refresh
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     ; --- view toggle (iff cw >= 142): frame (cw-136,2)..(cw-74,15) ---
     cmp word [fm_cw], 142
@@ -3686,7 +3728,7 @@ fm_draw_core:
     sub cx, 73                  ; abs x2 = rgt - 73
     mov dx, [fm_cy]
     add dx, 15
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
     mov cx, ax
     add cx, 11                  ; "Icons" = 40px -> x1+11
     mov si, fm_s_icons
@@ -3697,7 +3739,7 @@ fm_draw_core:
 .vlabel:
     mov dx, [fm_cy]
     add dx, 4
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .nobtns:
 
     ; --- rows / grid + scroll bar (only when at least one row fits) ---
@@ -3750,7 +3792,7 @@ fm_draw_core:
     add cx, 24
     mov dx, bp
     mov si, fm_name
-    call font_str               ; name at x = 24
+    call KERNEL_SEG:cw_font_str ; name at x = 24
 
     cmp word [fm_ftype], 2      ; a folder and the parent link have no
     jae .lnosize                ; meaningful size (19), and a column of
@@ -3759,15 +3801,15 @@ fm_draw_core:
     mov dx, [fm_fsizeh]
     push di
     mov di, fm_numbuf
-    call fm_ultoa               ; the full dword: BEVERLY.MOD is 116,085
+    call fm_ultoa_x             ; the full dword: BEVERLY.MOD is 116,085
     pop di                      ; bytes, not 65,535
     mov si, fm_numbuf
-    call font_width             ; AX = string width, px
+    call KERNEL_SEG:cw_font_width ; AX = string width, px
     mov cx, [fm_rgt]            ; right-align ending at cw-22 (clear of
     sub cx, 20                  ; the scroll bar, SPEC.md 22)
     sub cx, ax
     mov dx, bp
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .lnosize:
 
     inc di
@@ -3815,7 +3857,7 @@ fm_draw_core:
     call fm_stage_name
     mov byte [fm_name+9], 0     ; grid names: 9 chars max (SPEC.md 22)
     mov si, fm_name
-    call font_width
+    call KERNEL_SEG:cw_font_width
     mov cx, FMI_CELL_W
     sub cx, ax
     shr cx, 1                   ; centered under the icon
@@ -3823,7 +3865,7 @@ fm_draw_core:
     mov dx, [fm_celly]
     add dx, 23
     mov byte [gfx_color], CBLACK
-    call font_str
+    call KERNEL_SEG:cw_font_str
 
     inc word [fm_vcol]
     mov ax, [fm_vcol]
@@ -3850,16 +3892,16 @@ fm_draw_core:
     dec dx
     mov [fm_sby2], dx           ; abs y2
     mov byte [gfx_color], CBLACK
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
 
     mov ax, [fm_sbx1]           ; arrow-cell rules, 11 rows in from each end
     mov bx, [fm_rgt]
     mov dx, [fm_sby1]
     add dx, 10
-    call gfx_hline
+    call KERNEL_SEG:cw_gfx_hline
     mov dx, [fm_sby2]
     sub dx, 10
-    call gfx_hline
+    call KERNEL_SEG:cw_gfx_hline
 
     mov bp, 0                   ; up glyph: rows y1+3..y1+7, widths 1..9
     mov dx, [fm_sby1]
@@ -3871,7 +3913,7 @@ fm_draw_core:
     mov bx, [fm_sbx1]
     add bx, 6
     add bx, bp
-    call gfx_hline
+    call KERNEL_SEG:cw_gfx_hline
     inc dx
     inc bp
     cmp bp, 5
@@ -3887,7 +3929,7 @@ fm_draw_core:
     mov bx, [fm_sbx1]
     add bx, 6
     add bx, bp
-    call gfx_hline
+    call KERNEL_SEG:cw_gfx_hline
     inc dx
     dec bp
     jns .dnarr
@@ -3902,7 +3944,7 @@ fm_draw_core:
     sub dx, 11
     cmp bx, dx
     jg .nothumb                 ; degenerate track
-    call gfx_fill_gray
+    call KERNEL_SEG:cw_gfx_fill_gray
 
     call fm_thumb               ; CF=1: everything fits, no thumb
     jc .nothumb
@@ -3914,9 +3956,9 @@ fm_draw_core:
     mov cx, [fm_rgt]
     sub cx, 2
     mov byte [gfx_color], CWHITE
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     mov byte [gfx_color], CBLACK
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
 .nothumb:
 .norows:
     call fm_draw_status         ; the status line is a proc of its own so a
@@ -3982,7 +4024,7 @@ fm_sel_bar:
     mov ax, [fm_cx]
     mov cx, [fm_rgt]
     sub cx, 15
-    call gfx_xor_fill
+    call KERNEL_SEG:cw_gfx_xor_fill
     jmp short .out
 
 .icon:
@@ -4009,7 +4051,7 @@ fm_sel_bar:
     mov ax, [fm_cellx]
     mov cx, ax
     add cx, FMI_CELL_W - 1
-    call gfx_xor_fill
+    call KERNEL_SEG:cw_gfx_xor_fill
 .out:
     pop dx
     pop cx
@@ -4057,11 +4099,11 @@ fm_status_only:
     jg .refuse                  ; degenerate content: nothing to draw into
     cmp bx, dx
     jg .refuse
-    call wm_clip_test           ; whole rect visible? (SPEC.md 11.3)
+    call KERNEL_SEG:cw_wm_clip_test ; whole rect visible? (SPEC.md 11.3)
     jc .refuse
 
     mov byte [gfx_color], CWHITE
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     call fm_draw_status
     clc
     jmp short .out
@@ -4238,7 +4280,7 @@ fm_stat_line:
     mov cx, [fm_cx]
     add cx, 6
     mov si, fm_hdrbuf
-    call font_str
+    call KERNEL_SEG:cw_font_str
 .out:
     pop si
     pop dx
@@ -4332,7 +4374,7 @@ fm_utoa:
 ; its remainder riding into the lo divide as the high half, so the pushed
 ; digit is the true dword remainder and the loop repeats on the quotient.
 ; -----------------------------------------------------------------------------
-fm_ultoa:
+fm_ultoa_x:
     push ax
     push bx
     push cx
@@ -4485,5 +4527,38 @@ fm_hdrbuf:  resb 48             ; = FM_HDRMAX (a literal per the no-forward-
                                 ; at 38, which is staged whole and truncated
                                 ; afterwards
 fm_numbuf:  resb 11             ; fm_ultoa scratch: 10 digits + NUL
+
+section .text
+
+section .cold                   ; far entries (SPEC.md 2.6): the resident
+                                ; thunks in kernel.asm far-call these, and
+                                ; these near-call the bodies above - so every
+                                ; routine here keeps its ordinary near `ret`
+fmf_files_init:         call files_init_x
+                    retf
+fmf_files_open:         call files_open_x
+                    retf
+fmf_files_open_drive:   call files_open_drive_x
+                    retf
+fmf_files_poster:       call files_poster_x
+                    retf
+fmf_files_refresh:      call files_refresh_x
+                    retf
+fmf_fm_kinit:           call fm_kinit_x
+                    retf
+fmf_fm_onclick:         call fm_onclick_x
+                    retf
+fmf_fm_oncmd:           call fm_oncmd_x
+                    retf
+fmf_fm_onkey:           call fm_onkey_x
+                    retf
+fmf_fm_paint:           call fm_paint_x
+                    retf
+fmf_fm_rclick:          call fm_rclick_x
+                    retf
+fmf_fm_rcmd:            call fm_rcmd_x
+                    retf
+fmf_fmv_sync:           call fmv_sync_x
+                    retf
 
 section .text

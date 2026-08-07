@@ -123,10 +123,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 80384           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 82432           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved eight times, every one asked
+                                ; It has moved nine times, every one asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -250,6 +250,31 @@ KERN_BUDGET equ 80384           ; the whole kernel's FOOTPRINT. Growing past
                                 ; None of those three cost the footprint a
                                 ; byte - they all landed inside the image's
                                 ; existing 512-byte rounding.
+                                ;
+                                ; The ninth move, 80,384 -> 82,432, is the
+                                ; first one bought for the OTHER guard. The
+                                ; file load, file save, file manager and
+                                ; file dialog modules went into .cold
+                                ; (SPEC.md 2.6), and the two rungs that swap
+                                ; do not round the same way: the image loses
+                                ; 15.3KB and the cold segment gains it,
+                                ; which lands two 512 steps wide. What it
+                                ; buys is KERN_CODE_MAX, which had 3,519
+                                ; bytes spare and now has 18,811 - both
+                                ; measured by bisecting the guards, not
+                                ; modelled - against the work that is
+                                ; coming. The footprint ends at 80,384 with
+                                ; 2,048 spare, which is twice the 1,024 it
+                                ; started with: the five modules cost two
+                                ; steps between them and the raise gave
+                                ; four. Asked for and granted
+                                ; on those terms. Note what it does NOT buy:
+                                ; a byte of RAM back for the machine, and not
+                                ; a byte of footprint either. Cold code is
+                                ; resident and counts here exactly like
+                                ; .text's - moving a module cold to fix an
+                                ; overrun of THIS constant is a no-op that
+                                ; looks like a fix (docs/KERNEL-MEMORY.md).
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
@@ -1035,90 +1060,6 @@ api_file_rename:
 ; out: nothing (all registers preserved); the copy is NUL-terminated even if
 ;      the source was not - a package cannot make this run on
 
-; --- resident shims the COLD segment far-calls (SPEC.md 2.6) ---------------
-; Same four bytes and the same reason as the overlay's ovw_* above: cold code
-; runs with CS elsewhere, so a near call to resident code would be computed
-; between two address spaces. tools/os88ovlchk.py refuses one.
-cw_bb_set:              call bb_set
-                    retf
-cw_clk_fld_adj:         call clk_fld_adj
-                    retf
-cw_clk_fld_str:         call clk_fld_str
-                    retf
-cw_clk_snapshot:            call clk_snapshot
-                    retf
-cw_drv_cfg_save:        call drv_cfg_save
-                    retf
-cw_drv_cls_svc:         call drv_cls_svc
-                    retf
-cw_drv_cp_call:         call drv_cp_call
-                    retf
-cw_drv_cp_class:        call drv_cp_class
-                    retf
-cw_drv_cp_count:        call drv_cp_count
-                    retf
-cw_drv_cp_name:         call drv_cp_name
-                    retf
-cw_drv_load:            call drv_load
-                    retf
-cw_drv_row:             call drv_row
-                    retf
-cw_drv_status:          call drv_status
-                    retf
-cw_drv_tier:            call drv_tier
-                    retf
-cw_drv_unload:          call drv_unload
-                    retf
-cw_font_str:            call font_str
-                    retf
-cw_gfx_fill:            call gfx_fill
-                    retf
-cw_gfx_frame:           call gfx_frame
-                    retf
-cw_gfx_pen_cf:          call gfx_pen_cf
-                    retf
-cw_gfx_pen_live:        call gfx_pen_live
-                    retf
-cw_gfx_pixel:           call gfx_pixel
-                    retf
-cw_gfx_vline:           call gfx_vline
-                    retf
-cw_inst_find_kind:      call inst_find_kind
-                    retf
-cw_mem_avail:           call mem_avail
-                    retf
-cw_osapi_snd_tone:      call osapi_snd_tone
-                    retf
-cw_sched_mode_get:      call sched_mode_get
-                    retf
-cw_sched_mode_set:      call sched_mode_set
-                    retf
-cw_wm_content:          call wm_content
-                    retf
-cw_wm_obscured:         call wm_obscured
-                    retf
-
-; ...and the other direction: what the kernel calls IN the Control Panel.
-; cp_tpl and the driver/UI call sites still name these, so nothing outside
-; ctrl.inc changed at all.
-cp_paint:             call COLD_SEG:cpf_cp_paint
-                    ret
-cp_onclick:           call COLD_SEG:cpf_cp_onclick
-                    ret
-                      ; ...but NOT cp_flush. It has no thunk on purpose: with
-                      ; no way into it from .text, "the panel's teardown is the
-                      ; only thing that writes SYSTEM.CFG" (SPEC.md 31.8) is
-                      ; something the build enforces rather than something
-                      ; every new page has to be told
-cp_flush_close:       call COLD_SEG:cpf_cp_flush_close
-                    ret
-cp_drv_gone:          call COLD_SEG:cpf_cp_drv_gone
-                    ret
-cp_tick_due:          call COLD_SEG:cpf_cp_tick_due
-                    ret
-cp_tick:              call COLD_SEG:cpf_cp_tick
-                    ret
-
 ; --- resident shims the overlay far-calls (see the contract above) ----------
 ; Four bytes each. A routine gets one only because an overlay entry needs it
 ; and it has to stay resident for its own reasons: xm_arm because xm_copy
@@ -1466,6 +1407,306 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
                                 ; sched.inc (the freeze bytes), instance.inc
                                 ; (the fence), snd.inc (the release walk)
                                 ; and viddet.inc (the mode leaves)
+
+; =============================================================================
+; The cold segment's shims (SPEC.md 2.6)
+;
+; This block is BELOW every %include on purpose, and it is the one thing about
+; it that is not obvious. It used to sit up with the API stubs, which is above
+; splash.inc - and splash.inc has to end inside the image's first SPL_RESIDENT
+; sectors (SPEC.md 15), because the boot sector ticks the bar while the rest of
+; the kernel is still arriving. The shims were 140 bytes then and fitted; the
+; file modules (below) took them past 500 and pushed the splash out of its
+; sectors, which fails the build with an error naming splash and nothing else.
+; Anywhere in .text is correct for a shim. Here is the only place that stays
+; correct as the list grows.
+;
+; Two directions, four and six bytes each:
+;
+;   cw_*  what COLD code calls OUT to. Cold code runs with CS = COLD_SEG, so a
+;         near call to resident code would be a displacement computed between
+;         two address spaces - it assembles clean and runs wrong, which is what
+;         tools/os88ovlchk.py exists to refuse.
+;
+;   the named thunks, what the kernel calls IN. A cold routine keeps its
+;         ordinary near `ret` and the thunk owns the far call, so the PUBLIC
+;         name is the thunk and the body is the same name with _x. Every
+;         caller outside is unchanged, including the OSAPI_SLOT/OSAPI_NSTUB
+;         cells - which matters, because a macro ARGUMENT is a call site that
+;         os88ovlchk.py cannot see (the `call` is in the macro body, as
+;         `call %1`), so nothing would have reported those.
+; =============================================================================
+cw_app_launch:          call app_launch
+                    retf
+cw_assoc_post:          call assoc_post
+                    retf
+cw_bb_set:              call bb_set
+                    retf
+cw_clk_fld_adj:         call clk_fld_adj
+                    retf
+cw_clk_fld_str:         call clk_fld_str
+                    retf
+cw_clk_snapshot:        call clk_snapshot
+                    retf
+cw_disk_mount:          call disk_mount
+                    retf
+cw_disk_read:           call disk_read
+                    retf
+cw_disk_write:          call disk_write
+                    retf
+cw_drv_cfg_save:        call drv_cfg_save
+                    retf
+cw_drv_cls_svc:         call drv_cls_svc
+                    retf
+cw_drv_cp_call:         call drv_cp_call
+                    retf
+cw_drv_cp_class:        call drv_cp_class
+                    retf
+cw_drv_cp_count:        call drv_cp_count
+                    retf
+cw_drv_cp_name:         call drv_cp_name
+                    retf
+cw_drv_load:            call drv_load
+                    retf
+cw_drv_row:             call drv_row
+                    retf
+cw_drv_status:          call drv_status
+                    retf
+cw_drv_tier:            call drv_tier
+                    retf
+cw_drv_unload:          call drv_unload
+                    retf
+cw_dsk_chdir:           call dsk_chdir
+                    retf
+cw_dsk_chdir_q:         call dsk_chdir_q
+                    retf
+cw_dsk_clus2lba:        call dsk_clus2lba
+                    retf
+cw_dsk_copy_in:         call dsk_copy_in
+                    retf
+cw_dsk_copy_seg:        call dsk_copy_seg
+                    retf
+cw_dsk_dirw_next:       call dsk_dirw_next
+                    retf
+cw_dsk_dirw_start:      call dsk_dirw_start
+                    retf
+cw_dsk_dotdot:          call dsk_dotdot
+                    retf
+cw_dsk_free_clus:       call dsk_free_clus
+                    retf
+cw_dsk_get_dir:         call dsk_get_dir
+                    retf
+cw_dsk_get_icon:        call dsk_get_icon
+                    retf
+cw_dsk_next_clus:       call dsk_next_clus
+                    retf
+cw_dsk_read_chain:      call dsk_read_chain
+                    retf
+cw_dsk_relist:          call dsk_relist
+                    retf
+cw_dsk_synth:           call dsk_synth
+                    retf
+cw_evq_pop:             call evq_pop
+                    retf
+cw_font_str:            call font_str
+                    retf
+cw_font_width:          call font_width
+                    retf
+cw_gfx_fill:            call gfx_fill
+                    retf
+cw_gfx_fill_gray:       call gfx_fill_gray
+                    retf
+cw_gfx_frame:           call gfx_frame
+                    retf
+cw_gfx_hline:           call gfx_hline
+                    retf
+cw_gfx_lock:            call gfx_lock
+                    retf
+cw_gfx_pen_cf:          call gfx_pen_cf
+                    retf
+cw_gfx_pen_dis:         call gfx_pen_dis
+                    retf
+cw_gfx_pen_live:        call gfx_pen_live
+                    retf
+cw_gfx_pixel:           call gfx_pixel
+                    retf
+cw_gfx_unlock:          call gfx_unlock
+                    retf
+cw_gfx_vline:           call gfx_vline
+                    retf
+cw_gfx_xor_fill:        call gfx_xor_fill
+                    retf
+cw_icon_draw:           call icon_draw
+                    retf
+cw_icon_draw16:         call icon_draw16
+                    retf
+cw_inst_alloc:          call inst_alloc
+                    retf
+cw_inst_bind_win:       call inst_bind_win
+                    retf
+cw_inst_find_kind:      call inst_find_kind
+                    retf
+cw_inst_launch_post:    call inst_launch_post
+                    retf
+cw_inst_set_name_x:     call inst_set_name_x
+                    retf
+cw_inst_win_owner:      call inst_win_owner
+                    retf
+cw_mem_avail:           call mem_avail
+                    retf
+cw_mem_claim:           call mem_claim
+                    retf
+cw_mem_claim_hi:        call mem_claim_hi
+                    retf
+cw_mem_free:            call mem_free
+                    retf
+cw_mem_free_owner:      call mem_free_owner
+                    retf
+cw_menu_activate:       call menu_activate
+                    retf
+cw_menu_draw_bar:       call menu_draw_bar
+                    retf
+cw_menu_popup:          call menu_popup
+                    retf
+cw_osapi_snd_tone:      call osapi_snd_tone
+                    retf
+cw_sched_mode_get:      call sched_mode_get
+                    retf
+cw_sched_mode_set:      call sched_mode_set
+                    retf
+cw_snd_beep:            call snd_beep
+                    retf
+cw_snd_disp_set:        call snd_disp_set
+                    retf
+cw_task_yield:          call task_yield
+                    retf
+cw_ui_post_cmd:         call ui_post_cmd
+                    retf
+cw_vga_xor_rect_vram:   call vga_xor_rect_vram
+                    retf
+cw_wm_clip_set:         call wm_clip_set
+                    retf
+cw_wm_clip_test:        call wm_clip_test
+                    retf
+cw_wm_content:          call wm_content
+                    retf
+cw_wm_create:           call wm_create
+                    retf
+cw_wm_destroy:          call wm_destroy
+                    retf
+cw_wm_destroy_seg:      call wm_destroy_seg
+                    retf
+cw_wm_dmg_wins:         call wm_dmg_wins
+                    retf
+cw_wm_grow_paint:       call wm_grow_paint
+                    retf
+cw_wm_hit:              call wm_hit
+                    retf
+cw_wm_idx2ptr:          call wm_idx2ptr
+                    retf
+cw_wm_obscured:         call wm_obscured
+                    retf
+cw_wm_paint_all:        call wm_paint_all
+                    retf
+cw_wm_pkgcall:          call wm_pkgcall
+                    retf
+cw_wm_show:             call wm_show
+                    retf
+cw_wm_title_set:        call wm_title_set
+                    retf
+cw_wm_win_rect:         call wm_win_rect
+                    retf
+
+; ...and the other direction: what the kernel calls IN the Control Panel.
+; cp_tpl and the driver/UI call sites still name these, so nothing outside
+; ctrl.inc changed at all.
+cp_paint:             call COLD_SEG:cpf_cp_paint
+                    ret
+cp_onclick:           call COLD_SEG:cpf_cp_onclick
+                    ret
+                      ; ...but NOT cp_flush. It has no thunk on purpose: with
+                      ; no way into it from .text, "the panel's teardown is the
+                      ; only thing that writes SYSTEM.CFG" (SPEC.md 31.8) is
+                      ; something the build enforces rather than something
+                      ; every new page has to be told
+cp_flush_close:       call COLD_SEG:cpf_cp_flush_close
+                    ret
+cp_drv_gone:          call COLD_SEG:cpf_cp_drv_gone
+                    ret
+cp_tick_due:          call COLD_SEG:cpf_cp_tick_due
+                    ret
+cp_tick:              call COLD_SEG:cpf_cp_tick
+                    ret
+
+; --- ...and the file modules': loader.inc, diskw.inc, files.inc (SPEC.md 2.6).
+; filecp.inc needs none - every caller of an fcp_ routine is files.inc, which
+; is cold too, so those calls stayed near.
+dskw_delete:          call COLD_SEG:dwf_dskw_delete
+                    ret
+dskw_dfree:           call COLD_SEG:dwf_dskw_dfree
+                    ret
+dskw_flush:           call COLD_SEG:dwf_dskw_flush
+                    ret
+dskw_gone:            call COLD_SEG:dwf_dskw_gone
+                    ret
+dskw_read:            call COLD_SEG:dwf_dskw_read
+                    ret
+dskw_rename:          call COLD_SEG:dwf_dskw_rename
+                    ret
+dskw_stat:            call COLD_SEG:dwf_dskw_stat
+                    ret
+dskw_sync:            call COLD_SEG:dwf_dskw_sync
+                    ret
+dskw_write:           call COLD_SEG:dwf_dskw_write
+                    ret
+dskw_write_sys:       call COLD_SEG:dwf_dskw_write_sys
+                    ret
+files_init:           call COLD_SEG:fmf_files_init
+                    ret
+files_open:           call COLD_SEG:fmf_files_open
+                    ret
+files_open_drive:     call COLD_SEG:fmf_files_open_drive
+                    ret
+files_poster:         call COLD_SEG:fmf_files_poster
+                    ret
+files_refresh:        call COLD_SEG:fmf_files_refresh
+                    ret
+fm_kinit:             call COLD_SEG:fmf_fm_kinit
+                    ret
+fm_onclick:           call COLD_SEG:fmf_fm_onclick
+                    ret
+fm_oncmd:             call COLD_SEG:fmf_fm_oncmd
+                    ret
+fm_onkey:             call COLD_SEG:fmf_fm_onkey
+                    ret
+fm_paint:             call COLD_SEG:fmf_fm_paint
+                    ret
+fm_rclick:            call COLD_SEG:fmf_fm_rclick
+                    ret
+fm_rcmd:              call COLD_SEG:fmf_fm_rcmd
+                    ret
+fmv_sync:             call COLD_SEG:fmf_fmv_sync
+                    ret
+ld_run_body:          call COLD_SEG:ldf_ld_run_body
+                    ret
+loader_init:          call COLD_SEG:ldf_loader_init
+                    ret
+loader_run:           call COLD_SEG:ldf_loader_run
+                    ret
+fdlg_grab:            call COLD_SEG:fdf_fdlg_grab
+                    ret
+fdlg_onclick:         call COLD_SEG:fdf_fdlg_onclick
+                    ret
+fdlg_onkey:           call COLD_SEG:fdf_fdlg_onkey
+                    ret
+fdlg_open:            call COLD_SEG:fdf_fdlg_open
+                    ret
+fdlg_paint:           call COLD_SEG:fdf_fdlg_paint
+                    ret
+fdlg_reap:            call COLD_SEG:fdf_fdlg_reap
+                    ret
+fdlg_top:             call COLD_SEG:fdf_fdlg_top
+                    ret
 
 ; =============================================================================
 ; Size guards (SPEC.md 15.1). Same-section label differences bound via equ -

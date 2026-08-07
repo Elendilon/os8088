@@ -3351,7 +3351,8 @@ np_onclick:
 .nosel:                             ; its inversion on screen
     call np_redraw
     call np_dragsel                 ; ...and then follow the pointer until the
-    jmp short .out                  ; button comes up
+    call np_pdrawn                  ; button comes up; the counter's ordinal
+    jmp short .out                  ; goes with the selection it named                  ; button comes up
 .move:
     call np_dragmove
 .out:
@@ -4856,6 +4857,7 @@ np_editinv:
     mov byte [np_rowsok], 0
     mov byte [np_fcok], 0       ; ...and the match count counted the old note
     mov byte [np_fcdirty], 1
+    mov word [np_fmno], 0
     mov ax, [np_len]
     cmp [np_cur], ax
     jbe .cur
@@ -6112,6 +6114,7 @@ np_findfrom:
     jne .no
     mov bx, ax
     mov cx, [np_len]
+    mov byte [np_fwrap], 0
 .p1:
     cmp ax, cx
     ja .wrap
@@ -6120,7 +6123,8 @@ np_findfrom:
     inc ax
     jmp short .p1
 .wrap:
-    xor ax, ax
+    mov byte [np_fwrap], 1      ; past the end and back to the top: whatever
+    xor ax, ax                  ; this finds is match 1 (SPEC.md 27.10)
 .p2:
     cmp ax, bx
     jae .no
@@ -6163,6 +6167,7 @@ np_findprev:
     cmp byte [np_fbad], 0
     jne .no
     mov bx, ax                  ; BX = the limit
+    mov byte [np_fwrap], 0
     mov cx, 0xFFFF              ; CX = the best answer before it...
     mov si, 0xFFFF              ; SI = ...and the last one anywhere
     xor ax, ax
@@ -6190,8 +6195,9 @@ np_findprev:
 .done:
     cmp cx, 0xFFFF
     jne .have
-    mov cx, si                  ; nothing before the limit: wrap to the last
-    cmp cx, 0xFFFF              ; match in the note
+    mov byte [np_fwrap], 1      ; nothing before the limit: wrap to the last
+    mov cx, si                  ; match in the note, which is match [np_fcount]
+    cmp cx, 0xFFFF
     je .no
 .have:
     mov ax, cx
@@ -6226,6 +6232,7 @@ np_fcount_do:
     push dx
     mov byte [np_fcdirty], 0
     mov byte [np_fcok], 1
+    mov word [np_fmno], 0       ; re-derived below, from the same walk
     xor cx, cx
     cmp word [np_fpatn], 0
     je .done
@@ -6238,6 +6245,12 @@ np_fcount_do:
     call np_rx_at
     jc .step1
     inc cx
+    cmp byte [np_selon], 0      ; ...and this is where the ordinal comes from
+    je .noord                   ; when nothing stepped it: the walk is already
+    cmp ax, [np_fmst]           ; passing every match, so recognising the one
+    jne .noord                  ; on screen costs a compare
+    mov [np_fmno], cx
+.noord:
     mov bx, [np_rxend]
     cmp bx, ax
     ja .setax
@@ -6288,9 +6301,26 @@ np_donext:
     call np_findfrom
     jc .no
     call np_showmatch
+    cmp byte [np_fwrap], 0      ; the ordinal is STEPPED, not counted: a
+    je .step                    ; forward search from the end of match n lands
+    mov word [np_fmno], 1       ; on n+1, and a wrap lands on 1. Counting it
+    jmp short .draw             ; would walk the whole note per keypress,
+.step:                          ; which is the cost 27.10 exists to avoid
+    cmp word [np_fmno], 0
+    je .draw                    ; not known: leave it for the worker to answer
+    mov ax, [np_fmno]
+    inc ax
+    cmp ax, [np_fcount]
+    jbe .set
+    mov ax, [np_fcount]
+.set:
+    mov [np_fmno], ax
+.draw:
+    call np_pdrawn
     ret
 .no:
     call np_fmiss
+    call np_pdrawn
     ret
 
 np_doprev:
@@ -6303,9 +6333,23 @@ np_doprev:
     call np_findprev
     jc .no
     call np_showmatch
+    cmp byte [np_fwrap], 0
+    je .step
+    mov ax, [np_fcount]         ; wrapped backwards: the LAST match
+    mov [np_fmno], ax
+    jmp short .draw
+.step:
+    cmp word [np_fmno], 0
+    je .draw
+    cmp word [np_fmno], 1
+    jbe .draw
+    dec word [np_fmno]
+.draw:
+    call np_pdrawn
     ret
 .no:
     call np_fmiss
+    call np_pdrawn
     ret
 
 ; np_fmiss - say why nothing happened. Preserves all registers.
@@ -6338,15 +6382,9 @@ np_dorepl:
     push cx
     push dx
     call np_uclose
-    cmp byte [np_selon], 0
-    je .find
-    mov ax, [np_sel0]
-    cmp ax, [np_fmst]
-    jne .find
-    mov ax, [np_sel1]
-    cmp ax, [np_fmen]
-    jne .find
-    mov ax, [np_fmst]
+    call np_fatmatch            ; only a selection that IS the current match
+    jnc .find                   ; is replaced; one the user made by hand sends
+    mov ax, [np_fmst]           ; us to find instead of overwriting it
     mov cx, [np_fmen]
     sub cx, ax
     call np_replat              ; CF = 1 = no room; DX = one past the new text
@@ -7269,6 +7307,31 @@ np_pdrawf:
 ; np_pcount - compose what the count line says into np_fnum
 ; out: nothing; preserves all registers
 ; -----------------------------------------------------------------------------
+; np_fatmatch - is the selection on screen the match [np_fmno] names?
+; out: CF = 1 = yes; preserves all registers.
+;
+; ONE predicate with two readers - the counter, which must not name a match
+; nobody can see, and Replace, which must not overwrite a selection the user
+; made by hand. Keeping them the same test is what stops the panel saying
+; "3/4" while Replace declines to act on it.
+np_fatmatch:
+    push ax
+    cmp byte [np_selon], 0
+    je .no
+    mov ax, [np_sel0]
+    cmp ax, [np_fmst]
+    jne .no
+    mov ax, [np_sel1]
+    cmp ax, [np_fmen]
+    jne .no
+    pop ax
+    stc
+    ret
+.no:
+    pop ax
+    clc
+    ret
+
 np_pcount:
     push ax
     push di
@@ -7280,10 +7343,29 @@ np_pcount:
     je .blank
     cmp byte [np_fcok], 0
     je .wait
+    ; --- n/total, which is both more use and SHORTER than 'n found' -------
+    ; The room on this row is the tightest thing in the panel: the tick box
+    ; and its label are on the left of it and four buttons on the right, and
+    ; on a 260px window there are nine cells between them. '12 found' is
+    ; eight of the nine; '3/12' is four, and it answers the question the
+    ; count was really being asked - where am I, of how many.
+    cmp word [np_fmno], 0
+    je .dash
+    call np_fatmatch            ; ...and the selection has to still BE it: a
+    jc .num                     ; click clears the selection without touching
+.dash:                          ; the ordinal, and 3/4 with nothing highlighted
+    mov byte [di], '-'          ; names a match nobody can see. Honest about
+    inc di                      ; which half is unknown, rather than showing a
+    jmp short .slash            ; 0 that looks like an answer
+.num:
+    mov ax, [np_fmno]
+    call np_utoa
+.slash:
+    mov byte [di], '/'
+    inc di
     mov ax, [np_fcount]
-    call np_utoa                ; DI advances past the digits
-    mov si, np_m_found
-    jmp short .tail
+    call np_utoa
+    jmp short .out
 .wait:
     mov si, np_m_wait
     jmp short .tail
@@ -7299,6 +7381,7 @@ np_pcount:
     inc di
     or al, al
     jnz .tail
+.out:
     pop si
     pop di
     pop ax
@@ -7871,6 +7954,7 @@ np_fpkey:
     call np_fchk                ; the pattern changed: it may not compile, and
     mov byte [np_fcok], 0       ; the count it had is about somebody else
     mov byte [np_fcdirty], 1
+    mov word [np_fmno], 0
 .yes:
     clc
     jmp short .out
@@ -8057,7 +8141,6 @@ np_b_next:    db 'Next', 0
 np_b_repl:    db 'Repl', 0
 np_b_all:     db 'All', 0
 np_b_x:       db 'X', 0
-np_m_found:   db ' found', 0
 np_m_wait:    db '...', 0            ; the worker owes a count (SPEC.md 27.10)
 np_m_blank:   db ' ', 0
 np_m_badpat:  db 'Bad pattern', 0
@@ -8164,7 +8247,16 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
     NPVAR np_fbad,  1       ; byte: the pattern will not compile (too many
                             ; repeats for NP_RXST, or an unclosed class)
     NPVAR np_fpad,  1       ; byte: keeps the words below even
-    NPVAR np_fcount, 2      ; word: matches in the note
+    NPVAR np_fcount, 2      ; word: matches in the note...
+    NPVAR np_fmno,  2       ; word: ...and WHICH of them the selection is
+                            ; showing, 1-based. 0 = not known, which is a real
+                            ; state and not a failure: an edit or a click can
+                            ; move the caret off every match, and the ordinal
+                            ; is then the worker's to re-derive
+    NPVAR np_fwrap, 1       ; byte: the last search ran off the end and came
+                            ; back to the top - which is what turns "the next
+                            ; match" into "match 1" without counting anything
+    NPVAR np_fpad2, 1       ; byte: keeps the words after it even
     NPVAR np_fpatn, 2       ; word: characters in the pattern...
     NPVAR np_frepn, 2       ; word: ...and in the replacement
     NPVAR np_fpcur, 2       ; word: the caret in the focused box
