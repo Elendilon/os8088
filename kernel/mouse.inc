@@ -909,32 +909,27 @@ kbm_last    dw 0                ; tick of the last movement key
 kbm_ev      times 8 db 0        ; the record kbm_post fills for evq_push
 
 ; -----------------------------------------------------------------------------
-; mou_isr / mou_isr3 - IRQ4 and IRQ3. One RX byte per interrupt. Microsoft
+; mou_isr / mou_isr3 - IRQ4 and IRQ3. Microsoft
 ;           protocol: byte 0 has bit 6 set: 1 LB RB Y7 Y6 X7 X6; bytes 1/2
 ;           have bit 6 clear: low 6 bits of X then Y. Any bit-6 byte restarts
 ;           the packet (resync). Runs with IF=0 throughout; never sti (SPEC 7).
 ;
-; The two stubs differ only in the port row they hand the body, and BX carries
-; it because it is the one register that can be spent before DS is loaded and
-; still index a table afterwards. Both vectors land on the MASTER 8259, so the
-; EOI at the bottom is the same non-specific one it always was.
+; The two vectors share one body, because WHICH LINE FIRED SAYS NOTHING ABOUT
+; WHICH PORT HAS THE BYTE (SPEC.md 9.5.2). Both land on the MASTER 8259, so
+; the EOI at the bottom is the same non-specific one it always was.
 ;
-; BX then STAYS the port row all the way to .pkt, because every port decodes
-; INDEPENDENTLY: phase, b0, b1 and the run are per-row arrays, not one shared
-; set. Sharing them was tried and is wrong in both directions - a modem's byte
-; resynced the MOUSE's half-built packet, and a modem's protocol violation
-; reset the MOUSE's run, so a chattering modem on the other port could starve
-; the real mouse out of ever being found (SPEC.md 9.5).
+; The body scans every live port for a waiting byte and hands each one to
+; mou_byte, where BX is the port row all the way through - because every port
+; decodes INDEPENDENTLY: phase, b0, b1 and the run are per-row arrays, not one
+; shared set. Sharing them was tried and is wrong in both directions - a
+; modem's byte resynced the MOUSE's half-built packet, and a modem's protocol
+; violation reset the MOUSE's run, so a chattering modem on the other port
+; could starve the real mouse out of ever being found (SPEC.md 9.5).
 ; -----------------------------------------------------------------------------
-mou_isr:                        ; IRQ4 -> COM1, port row 0
-    push bx
-    xor bx, bx
-    jmp short mou_isr_go
-mou_isr3:                       ; IRQ3 -> COM2, port row 2
-    push bx
-    mov bx, 2
-mou_isr_go:
-    push ax
+mou_isr:                        ; IRQ4, and...
+mou_isr3:                       ; ...IRQ3, on the SAME body: which LINE fired
+    push bx                     ; says nothing about which PORT has the byte
+    push ax                     ; (SPEC.md 9.5.2)
     push cx
     push dx
     push si
@@ -946,16 +941,49 @@ mou_isr_go:
     mov ds, ax
     cld
 
-    mov dx, [bx+mou_bases]      ; DS-relative: the UART that interrupted
-    in  al, dx                  ; ALWAYS read, whatever we mean to do with it:
-                                ; the read is what clears this UART's
-                                ; interrupt, and a byte left in the register
-                                ; is an interrupt that comes straight back
+    ; --- whoever is holding a byte, take it ---------------------------------
+    ; Not "the port this vector belongs to": there is no such thing. A card at
+    ; 2F8 jumpered to IRQ4 raises the COM1 vector, and reading COM1's receive
+    ; register there finds nothing, leaves the byte at 2F8 sitting in its own,
+    ; and leaves that UART asserting its line - after which the line never
+    ; makes another EDGE and the mouse is silent for the rest of the session.
+    ; Measured on a Compaq Portable III (docs/FIELD-MACHINES.md): a perfect
+    ; mouse, 81 packets and no protocol violations to a POLLED reader, and the
+    ; kernel never saw one byte of it.
+    ;
+    ; So every hooked line services every live port. It costs one LSR read per
+    ; live port per interrupt - two IN instructions on a two-port machine, at
+    ; ~120 interrupts a second - and it makes the base-to-IRQ mapping stop
+    ; being an assumption the hardware has to honour.
+    xor bx, bx
+.scan:
+    mov dx, [bx+mou_bases]
+    or  dx, dx
+    jz .next                    ; the probe rejected this row
+    add dx, 5
+    in  al, dx                  ; LSR: is anything waiting here?
+    test al, 0x01
+    jz .next
+    sub dx, 5
+    in  al, dx                  ; ...and THIS read is what drops the request
+    push bx                     ; ...which clobbers BX - the decode spends it
+    call mou_byte               ; on the packet's own bytes - and BX is this
+    pop bx                      ; loop's index
+.next:
+    add bx, 2
+    cmp bx, MOU_PEND
+    jb .scan
+    jmp mou_eoi
 
+; -----------------------------------------------------------------------------
+; mou_byte - one received byte, from port BX
+; in:  AL = the byte, BX = the port row; ISR context, IF = 0
+; -----------------------------------------------------------------------------
+mou_byte:
     cmp byte [mou_seen], 0      ; is the mouse's port settled?
     je .drain
     cmp bl, [mou_port]          ; then every other port belongs to somebody
-    jne .eoi                    ; else's device and is dropped unheard. This
+    jne .bout                    ; else's device and is dropped unheard. This
                                 ; also closes the window between the latch
                                 ; below and mou_lockon masking the loser
 .drain:
@@ -964,7 +992,7 @@ mou_isr_go:
     mov dx, [ticks]             ; bit-6 bytes would resync as headers. DX is
     sub dx, [mou_dstamp]        ; free - the base has been read - and BX is
     cmp dx, MOU_DRAINT          ; NOT: it is the port row, and every array
-    jb .eoi                     ; below is indexed on it
+    jb .bout                     ; below is indexed on it
     mov byte [mou_drain], 0     ; window over: this byte is live
 .live:
     test al, 0x40               ; bit 6 set -> first byte of a packet
@@ -975,27 +1003,27 @@ mou_isr_go:
 .b0:                            ; run of clean packets (SPEC.md 9.5)
     mov [bx+mou_b0], al
     mov byte [bx+mou_phase], 1
-    jmp .eoi
+    jmp .bout
 
 .cont:
     cmp byte [bx+mou_phase], 1
     jne .chk2
     mov [bx+mou_b1], al         ; second byte: X low 6 bits
     mov byte [bx+mou_phase], 2
-    jmp .eoi
+    jmp .bout
 
 .chk2:
     cmp byte [bx+mou_phase], 2  ; anything else is a stray byte - drop it, and
     je .pkt                     ; break the run for the same reason: a byte
     mov byte [bx+mou_run], 0    ; with bit 6 clear arriving between packets is
-    jmp .eoi                    ; a thing the protocol cannot produce
+    jmp .bout                    ; a thing the protocol cannot produce
 .pkt:
     mov byte [bx+mou_phase], 0  ; third byte: Y low 6 bits, packet complete
     call mou_claim              ; ...and a RUN of them is PROOF OF MOUSE: the
                                 ; port is settled and the hot-plug poller
                                 ; stands down for the session
     cmp byte [mou_seen], 0      ; still unsettled? then this packet COUNTS and
-    je .eoi                     ; does nothing else. A device on its way to
+    je .bout                     ; does nothing else. A device on its way to
                                 ; losing the contest must not move the cursor
                                 ; or queue a click while it loses - a modem's
                                 ; 'no carrier' is lowercase, and bit 5 of a
@@ -1108,16 +1136,18 @@ mou_isr_go:
     cmp ax, [cur_drawn_x]       ; button-only packet: nothing to redraw
     jne .redraw
     cmp bx, [cur_drawn_y]
-    je .eoi
+    je .bout
 .redraw:
     call cur_move               ; SPEC.md 7.1.2: erase-old and draw-new as one
     mov byte [cur_dirty], 0
-    jmp .eoi
+    jmp .bout
 
 .dirty:
     mov byte [cur_dirty], 1     ; cursor_show catches up later
+.bout:
+    ret
 
-.eoi:
+mou_eoi:
     mov al, 0x20                ; EOI - the BIOS handles neither IRQ4 nor
     out 0x20, al                ; IRQ3 for us, and both are on the master
     pop es
@@ -1128,7 +1158,7 @@ mou_isr_go:
     pop dx
     pop cx
     pop ax
-    pop bx                      ; the stub pushed it FIRST (the port row)
+    pop bx
     iret
 
 ; -----------------------------------------------------------------------------

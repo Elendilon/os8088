@@ -2304,10 +2304,11 @@ wrong after the card moves. Every present port is programmed, hooked and
 listened to at once, and **the first port to deliver a complete packet wins**.
 
 The port table is one row per candidate — base, IVT offset, 8259 mask bit,
-ISR stub — walked with BX as a word index. **The base decides the IRQ**
-(0x3F8 → IRQ4, 0x2F8 → IRQ3), because that is what the BIOS, DOS and every
-mouse driver ever written assume; a card whose jumper disagrees with its base
-is out of scope here as it was before.
+ISR stub — walked with BX as a word index. **The base decides which IRQ is
+hooked and unmasked** (0x3F8 → IRQ4, 0x2F8 → IRQ3), because that is what the
+BIOS, DOS and every mouse driver ever written assume. It does **not** decide
+which port a given interrupt is about — see §9.5.2, which is the field bug
+this whole section was written and still got wrong.
 
 `mou_pall` is `mou_pout` over every row, and it is what every phase of
 `mouse_init` and every step of §9.4's recovery cycle is written in: both
@@ -2407,7 +2408,51 @@ cycle stops at the first mouse, and `mou_lockon` then leaves that port alone
 for the rest of the session. A machine with a modem and **no** mouse at all
 is the case that pays, and it pays what it paid before.
 
-#### 9.5.2 What it costs
+#### 9.5.2 Which line fired says nothing about which port has the byte
+
+**The base-to-IRQ mapping is a convention, and a real machine does not have
+to honour it.** The Compaq Portable III (docs/FIELD-MACHINES.md) has its
+mouse at **0x2F8 driving IRQ4**, and that one fact was enough to make the
+mouse completely undetectable while being completely healthy.
+
+The failure is worth following through, because nothing about it looks like a
+mouse problem. The kernel probes both ports, finds both, hooks int 0Ch for
+IRQ4 and int 0Bh for IRQ3, and unmasks both — all correct. The mouse then
+sends a packet and raises **IRQ4**. The COM1 vector fires, reads **0x3F8's**
+receive register, finds nothing there, and returns. The byte is still sitting
+in 0x2F8's receive register, so that UART is still asserting its line — and
+because ISA interrupts are **edge**-triggered, a line that never goes low
+never makes another edge. One interrupt, then silence, for the rest of the
+session. `tests/comscan` reported the same mouse as 244 bytes, 81 packets and
+**zero protocol violations** to a polled reader, on `IRQ line: IRQ4`.
+
+So **every hooked line services every live port**: the ISR scans the port
+table for a UART with a byte waiting, takes it, and hands it to `mou_byte`
+with that port's row. Which vector ran is not consulted anywhere, and the two
+entry points are the same code.
+
+Three things follow, and the first is the one that makes this cheap:
+
+- **It costs one LSR read per live port per interrupt** — two `in` instructions
+  on a two-port machine, at the ~120 interrupts a second 1200 baud can
+  produce. Nothing else changes: the per-port decoders, the run counting and
+  the retirement are all as they were, because they were already indexed by
+  the port row rather than by the vector.
+- **The read of the receive register is what drops the request**, so scanning
+  also *fixes* the stuck line rather than merely working around it.
+- **`mou_byte` clobbers BX** — the decode spends it on the packet's own bytes —
+  and BX is the scan's index, so it is banked across the call. Getting that
+  wrong walks the port table off its end.
+
+What is **not** fixed, and is written down rather than hidden: a machine with
+exactly **one** live serial port whose card is jumpered to the *other* line is
+still not found, because that line is never hooked. Hooking both regardless
+would mean claiming an interrupt that may belong to someone else's card on a
+machine with no second UART, which is a worse trade than the case it buys.
+`tests/comscan` names the line, which is what makes that diagnosable rather
+than mysterious.
+
+#### 9.5.3 What it costs
 
 302 bytes of `.text`, and **nothing at all against `KERN_BUDGET`** (§15.1):
 the kernel image is padded to `OVL_START` and the growth lands in that

@@ -272,18 +272,34 @@ write: the field disks do (their whole point is that the benchmark reports
 land back on the disk they came from, and the Control Panel writes
 `SYSTEM.CFG` on close), and **`comscan` never writes to a disk at all**.
 
-**What it found:** with §9.5's two-port support in, the mouse was **not
-detected** on this machine. That is open, and it is the reason
-`tests/comscan` exists (docs/TESTING.md): a survey of all four COM bases that
-runs from a bootable floppy or from DOS, needs no mouse and no GUI, and
-reports the one thing no emulator here can produce — **which IRQ line the
-card actually drives**. os8088 derives that from the base address, so a card
-jumpered elsewhere is invisible to it forever, and on a machine whose COM1 is
-already taken by a modem that is a live hypothesis rather than a remote one.
+**What it found, and it is now diagnosed and fixed:** with §9.5's two-port
+support in, the mouse was **not detected** on this machine. `tests/comscan`
+(docs/TESTING.md) was written for it and answered it in one run:
 
-Nothing is diagnosed yet. `make comscan`, run it, and the report says which
-of the four scanned ports has a UART, which of them talks, whether the bytes
-decode as a Microsoft mouse, and which line each one raises.
+```
+BIOS POST found (40:00h): 03F8 02F8 0000 0000
+COM1 03F8  ok  ok  --  --  8250        COM1 03F8: 0 bytes  (silent)
+COM2 02F8  ok  ok  ok  ok  8250        COM2 02F8: 244 bytes  first=43 'C'
+                                            pkts 81  viol 0  best clean run 81
+                                       IRQ line: IRQ4
+```
+
+**The mouse is at 0x2F8 and its card drives IRQ4**, where os8088 derives IRQ3
+from the base. 81 packets with zero protocol violations to a polled reader —
+a perfect mouse the kernel could not hear, because the COM1 vector fired,
+read 0x3F8's receive register, found nothing, and left the byte at 0x2F8
+holding a line that never made another edge. SPEC.md §9.5.2 is the fix: every
+hooked line now services every live port. Reproduced in QEMU first
+(`-device isa-serial,iobase=0x2f8,irq=4`), which fails identically on the old
+kernel and passes on the new one.
+
+Two lessons from the same run, both about the instrument rather than the
+machine. **COM1's loopback failure was comscan's own bug**, not the modem's —
+the test inherited whatever divisor the previous one left, so it timed out on
+one port and not the other; it programs its own divisor now and prints the
+as-found one. And the modem on COM1 stayed **silent** throughout, so none of
+§9.5.1's Hayes-result-code defences were exercised on real hardware — they
+remain QEMU-verified only.
 
 ---
 

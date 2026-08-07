@@ -200,7 +200,33 @@ only the second works:
   arriving on it.
 
 Verified under QEMU both ways round: mouse on COM2 → `IRQ3`, COM1 silent;
-mouse on COM1 → `IRQ4`, COM2 silent.
+mouse on COM1 → `IRQ4`, COM2 silent. **And it earned its keep on the first
+real run**: the Compaq Portable III's mouse turned out to be at 0x2F8 driving
+**IRQ4**, which is SPEC.md §9.5.2 and was invisible to every other test in
+this tree.
+
+**QEMU can reproduce a cross-wired card**, which is worth knowing because it
+turns a field-only bug into a regression test. `-serial` gives no control over
+the IRQ; `-device isa-serial` does:
+
+```sh
+qemu-system-i386 -drive file=build/os8088.img,format=raw,if=floppy -boot a \
+  -serial none \
+  -chardev null,id=modem -device isa-serial,chardev=modem,iobase=0x3f8,irq=4 \
+  -chardev msmouse,id=m0 -device isa-serial,chardev=m0,iobase=0x2f8,irq=4 \
+  -display none -qmp unix:build/qmp.sock,server,nowait -daemonize
+```
+
+That is the Portable III exactly. On a kernel without §9.5.2 the mouse is
+never detected — `[mou_seen]` stays 0 through forty `mouse_move`s and the
+cursor never leaves its start — and on one with it, the port settles and the
+cursor tracks. All four base/IRQ combinations (3F8/IRQ4, 2F8/IRQ3, 2F8/IRQ4,
+3F8/IRQ3) are worth running: the two cross-wired ones both failed before.
+
+One trap in writing that test, and it produced two false failures: a movement
+pattern that **nets to zero** returns the cursor to where it started, so
+"the cursor changed" reports a perfectly working mouse as broken. Drift in one
+direction.
 
 One trap that cost a whole debugging round, and it is the kernel's own idiom
 misapplied: the per-port state is walked with a **word** index (0, 2, 4, 6), so
@@ -224,7 +250,19 @@ qemu-system-i386 -drive file=build/os8088.img,format=raw,if=floppy -boot a \
 # pacing each burst by len*10/1200 seconds - it is a 1200-baud line
 ```
 
-Two traps in building that harness, both of which produced a green run that
+A third trap is in the survey rather than the harness, and real hardware is
+what exposed it. **A test that leaves the baud rate wherever the last test
+left it is a test whose result depends on the machine.** `t_latch` scribbles
+0x55 into DLL and leaves DLM as the BIOS set it, so the loopback that ran
+next was clocked at a rate that differed *per port* by however much their
+as-found divisors differed — and its bounded wait then timed out on the
+slower one and reported a healthy UART as broken. On the Compaq Portable III
+that read as COM1 failing loopback while COM2 passed, on two ports that are
+both ordinary 8250s. `t_loop` programs divisor 1 (115200 baud, ~87us a byte)
+before it starts, and the survey prints the **as-found divisor** in a `DIV`
+column, which is what would have made it diagnosable from the first report.
+
+Two traps in building the harness, both of which produced a green run that
 proved nothing:
 
 - **`msmouse` speaks during boot.** With a real mouse attached to 2F8 the
