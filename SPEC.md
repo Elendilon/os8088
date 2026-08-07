@@ -13814,26 +13814,31 @@ On the target that is a Part 1 *visible redraw*, and it was reported exactly
 as one: the screen stopping for about a third of a second and then jumping,
 reliably, every eight seconds or so. So the periodic rebuild is **spread**:
 
-- `ttx_shstart` claims `[mp_pattern]`, sets `[ttx_shbusy]` and arms a cursor.
+- `ttx_shstart` claims `[mp_pattern]`, resolves the two neighbouring orders
+  (§45.13.4), sets `[ttx_shbusy]` and arms a cursor.
 - `ttx_shstep` formats `TTX_SHCHUNK` (4) rows and returns; `ttx_draw_dyn`
-  calls it once a frame, forcing a blit each time, until the 64th row clears
-  `[ttx_shbusy]` and sets `[ttx_shok]`. Worst frame ~25 ms instead of ~330.
+  calls it once a frame, forcing a blit each time, until the last of
+  `TTX_SHROWS` clears `[ttx_shbusy]` and sets `[ttx_shok]`. Worst frame ~25 ms
+  instead of ~330.
 - `ttx_shbuild` is that loop run to completion, and its **only** caller is
   `ttx_draw_all`: the mode has just been set, there are no pixels on screen
   to stop updating, and paying it there is what makes the first frame after
-  F complete. It is also the only place that blanks — every later build
-  rewrites all 64 content rows, and the pad rows are never written at all.
+  F complete. It is also the only place that blanks, and the blank is not
+  redundant with the build it precedes: a module-less grid formats no rows
+  at all.
 
-Three things about the spread are load-bearing. **The cursor starts at
-`view − TTX_HALF`** (clamped, then wrapping inside the pattern) rather than at
-row 0, so a `Dxx` break or a position jump that lands mid-pattern fills the
-*visible* window first instead of counting up to it. **It cannot be
-overtaken**: 4 rows a frame against a view that advances 7.14 rows a *second*.
-And **the pattern is claimed at the start, not at the end** — otherwise
-`ttx_draw_dyn`'s change test refires on every frame of the build — which also
-closes an old race, because the worker can move `[mp_pattern]` mid-build and
-recording it afterwards marked a mixed shadow as current. Recorded first, a
-mid-build move is caught by the same test on the next frame and restarts.
+Three things about the spread are load-bearing. **The cursor is a SHADOW row
+and starts at the one the view needs** — shadow row *view* is the top of the
+visible window — rather than at row 0, so a `Dxx` break or a position jump
+that lands mid-pattern fills the *visible* window first instead of counting up
+to it, and a pattern flip, where that window is mostly the pad, fills the pad
+first. **It cannot be overtaken**: 4 rows a frame against a view that advances
+7.14 rows a *second*. And **the pattern is claimed at the start, not at the
+end** — otherwise `ttx_draw_dyn`'s change test refires on every frame of the
+build — which also closes an old race, because the worker can move
+`[mp_pattern]` mid-build and recording it afterwards marked a mixed shadow as
+current. Recorded first, a mid-build move is caught by the same test on the
+next frame and restarts.
 
 A spread build is visible in §45.14's log as one `FL 07` (a rebuild started)
 followed by a run of `FL 06` (a step ran, and a blit put the new rows on
@@ -13841,21 +13846,13 @@ screen), which is how the chunking was checked rather than asserted.
 
 Three things about it are load-bearing:
 
-- **The shadow carries `TTX_HALF` blank rows above row 0 and below row 63**, so
-  the window into it is `shadow + viewrow * TTX_RW * 2` with **no clamp and no
+- **The shadow carries `TTX_HALF` rows above row 0 and below row 63**, so the
+  window into it is `shadow + viewrow * TTX_RW * 2` with **no clamp and no
   branch**: pattern row *r* lives at shadow row *r + TTX_HALF*, the visible
   area starts at *view − TTX_HALF*, and the two cancel. The ends of a pattern
-  are not a special case, they are blank rows being blitted like any other.
-  **Those pad rows are visible, and that is the intended appearance**: at row 0
-  the top nine rows of the area are blank and at row 63 the bottom nine are, so
-  a playing pattern opens with the blank shrinking away and closes with it
-  growing back — the second of which reads, watched rather than reasoned about,
-  as the lower half of the screen losing its text while the upper half keeps
-  scrolling. It has been mistaken for the shadow emptying, which is why
-  §45.14's `SHB` exists to say otherwise in one number. Showing the
-  neighbouring patterns' rows instead would mean a three-pattern shadow and a
-  rebuild whenever *any* of the three moved; the blanks are the price of the
-  no-clamp window.
+  are not a special case, they are rows being blitted like any other — and
+  since §45.13.4 they are the neighbouring orders' rows rather than blanks, so
+  what the blit lands at a pattern boundary is the music's own next line.
 - **The band is an attribute, not a redraw.** The shadow holds every row in
   `TTX_A_NORM`; the blit lands them all and 59 attribute bytes turn the middle
   row `TTX_A_INV` afterwards. Nothing has to remember which row *used* to be
@@ -13906,6 +13903,79 @@ are never both holding the setting.
 `fsx_wait` is a pure frame clock here: §53.5's present clause is dead by
 construction, because `fsx_mode` had already refused to run with a buffer
 armed.
+
+#### 45.13.4 The pads are the neighbouring ORDERS, so the scroll is contiguous
+
+The `TTX_HALF` pad rows at each end of the shadow used to be blank, and
+§45.13.2 said so and called it the intended appearance. It was not. The
+consequence, watched rather than reasoned about, is that **every pattern
+boundary is 18 rows of nothing crossing the screen** — nine growing in from
+the bottom as the pattern runs out and nine draining off the top as the next
+one starts, ~2.2 s of it at 8.3 rows a second — while the music carries
+straight on through the boundary without a pause. The grid empties and refills
+against audio that never stops, which reads as the display having lost the
+song rather than as the song having changed pattern. That is the report this
+section answers.
+
+So the pads hold the neighbouring orders' rows:
+
+- **Above row 0**: the pattern at the **previous** order position, rows
+  `64 − TTX_HALF .. 63` — its tail, which is exactly what was playing a moment
+  ago.
+- **Below row 63**: the pattern at the **next** order position, rows
+  `0 .. TTX_HALF − 1` — its head, which is exactly what plays next.
+
+Both are resolved once per rebuild, in `ttx_shstart`, into `[ttx_shprev]` and
+`[ttx_shnext]`; `ttx_shline` is the one place that turns a shadow row into a
+(pattern, row) pair, and `ttx_rowtext` takes its pattern from `[ttx_pat]`
+rather than `[mp_pattern]` for that reason. Nothing else in the module knows
+the pads are special, the blit least of all: the window arithmetic is
+unchanged, no clamp appeared, and a boundary costs the same 19 `rep movsw`s
+as any other row change. **The row numbers down both edges are the boundary
+marker** — they run `..3E 3F 00 01..` — so no rule, colour or attribute was
+needed to show where one pattern ends.
+
+Five things decide what a neighbour *is*, and each is a play-order question
+rather than an order-table one:
+
+- **Past the last order the song restarts**, so the order after `songlen − 1`
+  is `[mp_restart]`, which is what `mp_nextrow` actually does.
+- **Position 0 is reached from the last order only when the song restarts
+  there.** With a non-zero restart position nothing precedes position 0, and
+  `TTX_NOPAT` in the neighbour byte draws a blank row — the one case where a
+  blank pad is the truth rather than a gap.
+- **Pattern-loop mode (`P`) makes the pattern its own neighbour both ways**, so
+  a looped pattern closes on itself and the scroll never breaks at all.
+- **The claim is the order POSITION, not the pattern number.** `[ttx_shpos]`
+  is compared alongside `[ttx_shpat]` (and `[ttx_shloop]`), because two
+  consecutive orders naming the same pattern move both pads without moving
+  `[mp_pattern]` — the case the change test would otherwise miss. The old
+  objection to doing any of this, that a three-pattern shadow means "a rebuild
+  whenever *any* of the three moves", is answered by the same observation from
+  the other side: the three move **together**, when the position moves, and
+  that already forced a rebuild.
+- **A pending `Bxx` is not a position.** The effect parks `[mp_songpos]` at
+  `target − 1` for the rest of its row (`mp_start`'s note), so the position
+  test is skipped while `[mp_posjmp]` is set; the advance clears it and the
+  next frame sees the real position.
+
+The cost is 18 more rows per rebuild — `TTX_SHROWS` is 82, so 328
+`mp_cell2txt` calls and ~420 ms of the target's time, 21 `TTX_SHCHUNK` frames
+instead of 16. **The frame is unchanged**, which is the only figure §45.13.2's
+spread was defending: a rebuild simply occupies ~1.15 s of a ~7.7 s pattern
+instead of ~0.88 s, at 4 rows a frame either way, and the cursor still cannot
+be overtaken by a view moving 7.14 rows a second. A row is still formatted
+exactly once per rebuild and a row change is still a blit out of a shadow.
+
+Two things are deliberately not done. A `Dxx` break means the previous pattern
+ended somewhere other than row 63 and the next one may start somewhere other
+than row 0, so the pad is then a plausible tail rather than the rows that
+literally played; predicting an effect that has not run is not on offer, and
+the blank it replaces was no more accurate. And **the graphics FT2 screen
+(§45.6/§45.12) still blanks beyond a pattern's ends** — `tui_row1` erases rows
+outside 0..63 — which is FT2's own behaviour and, on the machine that reaches
+that surface, sits behind a grid that does not scroll per row in the first
+place (§45.9.1).
 
 ### 45.14 The instrumentation is a LOG, and it does not ship
 

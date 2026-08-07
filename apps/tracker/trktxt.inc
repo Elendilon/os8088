@@ -32,9 +32,20 @@
 ; pattern: they are formatted ONCE into ttx_shadow as char/attribute WORDS
 ; (SPEC.md 45.13.2) - 256 mp_cell2txt calls, ~33 ms, once every eight seconds
 ; or so - and every row change after that is 19 rep movsw's out of it. The
-; shadow carries TTX_HALF blank rows above row 0 and below row 63, so the
-; window into it is `shadow + viewrow * TTX_RW * 2` with no clamp, no branch
-; and no special case at the ends of a pattern.
+; shadow carries TTX_HALF rows above row 0 and below row 63, so the window
+; into it is `shadow + viewrow * TTX_RW * 2` with no clamp, no branch and no
+; special case at the ends of a pattern.
+;
+; THOSE PAD ROWS ARE THE NEIGHBOURING ORDERS (SPEC.md 45.13.4), which is what
+; makes the scroll CONTIGUOUS. They used to be blank, and the ends of a
+; pattern were 18 rows of nothing crossing the screen every ~2.2 s of music -
+; the grid emptying and refilling while the music carried straight on, which
+; is what it looked like and what it was reported as. Above row 0 is the
+; PREVIOUS order's pattern, rows 64-TTX_HALF..63; below row 63 is the NEXT
+; order's, rows 0..TTX_HALF-1. Both are resolved once per rebuild into
+; [ttx_shprev] / [ttx_shnext], and TTX_NOPAT there means "nothing plays either
+; side of this" - the end of a song that does not restart at 0 - which is the
+; one place a blank row is still the truth.
 ;
 ; THE BAND IS AN ATTRIBUTE, not a redraw. The shadow holds every row in the
 ; normal attribute; the blit lands them all, and 59 attribute bytes turn the
@@ -83,16 +94,21 @@ TTX_VIS    equ TTX_ROWS - TTX_PATY  ; 19 rows visible
 TTX_HALF   equ (TTX_VIS - 1) / 2    ; 9 above the band, 9 below
 TTX_BANDY  equ TTX_PATY + TTX_HALF  ; screen row 15
 
-; the shadow carries the blank rows the ends of a pattern show, so the window
-; into it needs no clamp: screen row 0 of the area is always shadow row
-; [view], because shadow row (r + TTX_HALF) is pattern row r
+; the shadow carries the rows the ends of a pattern show - the neighbouring
+; orders' (SPEC.md 45.13.4) - so the window into it needs no clamp: screen
+; row 0 of the area is always shadow row [view], because shadow row
+; (r + TTX_HALF) is pattern row r
 TTX_SHROWS equ 64 + 2 * TTX_HALF
 TTX_SHBYTES equ TTX_SHROWS * TTX_RW * 2
+TTX_SHPAD0 equ 64 - TTX_HALF        ; the previous pattern's first shown row
 TTX_SHCHUNK equ 4                   ; rows formatted per frame while a
                                     ; periodic rebuild runs: ~25 ms of the
-                                    ; ~330 ms the whole pattern costs, and
+                                    ; ~420 ms the whole shadow costs, and
                                     ; 4 rows a frame against a view that
                                     ; moves 7.14 rows a SECOND
+TTX_NOPAT  equ 0xFF                 ; [ttx_shprev]/[ttx_shnext]: nothing plays
+                                    ; that side, so the pad is blank. Never a
+                                    ; real pattern - mp_load caps P at 126
 
 ; --- attributes. These three are the whole palette, and they are the three an
 ; --- MDA can actually render, so they mean the same thing on Hercules, CGA and
@@ -221,18 +237,25 @@ ttx_begin:
 ; ~25 ms and nothing else changes - the blit still comes out of a shadow, and
 ; a row is still formatted exactly once per pattern.
 ;
-; Two things make that safe. The cursor starts at the row the VIEW needs
-; (view - TTX_HALF, clamped) and WRAPS, so a Dxx break or a position jump
-; that lands mid-pattern fills the visible window first rather than counting
-; up to it; and the cursor advances at TTX_SHCHUNK rows per frame against a
-; view that advances 7.14 rows a SECOND, so it can never be overtaken.
+; TTX_SHROWS is 82 rather than 64 since the pads became the neighbouring
+; orders, so the whole build is 328 mp_cell2txt calls and ~420 ms - which is
+; 21 frames of TTX_SHCHUNK instead of 16 and does not change the frame, only
+; how many of them a rebuild occupies (~1.15 s of a ~7.7 s pattern).
+;
+; Two things make that safe. The cursor is a SHADOW row and starts at the one
+; the view needs - shadow row [view] IS the top of the visible window - and
+; WRAPS, so a Dxx break or a position jump that lands mid-pattern fills the
+; visible window first rather than counting up to it, and a pattern flip,
+; where that window is mostly the previous order's tail, fills the pad first;
+; and the cursor advances at TTX_SHCHUNK rows per frame against a view that
+; advances 7.14 rows a SECOND, so it can never be overtaken.
 ;
 ; ttx_shbuild is the synchronous whole thing, and the only caller is
 ; ttx_draw_all: the bracket has just set the video mode, there are no pixels
 ; on screen to stop updating, and paying it there is what lets the first
-; frame after F be complete. It is also the only place that blanks - every
-; later build rewrites all 64 content rows, and the TTX_HALF pad rows are
-; never written at all.
+; frame after F be complete. It is also the only place that blanks, and the
+; blank is not redundant with the build: a module-less grid formats no rows
+; at all.
 ; =============================================================================
 ttx_shbuild:
     push ax
@@ -260,38 +283,77 @@ ttx_shbuild:
     ret
 
 ; -----------------------------------------------------------------------------
-; ttx_shstart - claim [mp_pattern] and arm the cursor. No formatting.
+; ttx_shstart - claim [mp_pattern], resolve the two neighbouring orders and
+;               arm the cursor. No formatting.
 ;
 ; The pattern is claimed at the START, not at the end: ttx_draw_dyn's change
 ; test would otherwise refire on every frame of the build. It also closes an
 ; old race - the worker can move [mp_pattern] mid-build, and recording it
 ; afterwards marked a mixed shadow as current. Recorded first, a mid-build
 ; move is caught by the same test on the next frame and simply restarts.
+;
+; The neighbours are ORDERS, not patterns, so [mp_songpos] is claimed too:
+; two orders naming the same pattern move the pads without moving
+; [mp_pattern], and [ttx_shpos] is what lets ttx_draw_dyn see it. [mp_ploop]
+; likewise - in pattern-loop mode the pattern's own ends meet.
 ; -----------------------------------------------------------------------------
 ttx_shstart:
     push ax
+    push bx                         ; mp_order decodes through it
     mov al, [mp_pattern]
     mov [ttx_shpat], al
+    mov al, [mp_songpos]
+    mov [ttx_shpos], al
+    mov al, [mp_ploop]
+    mov [ttx_shloop], al
+    mov byte [ttx_shprev], TTX_NOPAT
+    mov byte [ttx_shnext], TTX_NOPAT
     mov byte [ttx_shok], 0
     mov byte [ttx_shbusy], 1
-    mov byte [ttx_sleft], 64
-    mov al, [tui_cvr]               ; the top of the visible window, so a
-    sub al, TTX_HALF                ; jump into the middle of a pattern
-    jnc .set                        ; fills what is on screen first
-    xor al, al
-.set:
-    mov [ttx_srow], al
+    mov byte [ttx_sleft], TTX_SHROWS
+    mov al, [tui_cvr]               ; shadow row [view] IS the top of the
+    mov [ttx_srow], al              ; visible window, so the cursor starts on
+                                    ; what is on screen - which at a pattern
+                                    ; flip is mostly the pad it just gained
     cmp byte [mp_loaded], 0
-    jne .out
+    je .nomod
+    cmp byte [mp_ploop], 0
+    je .song
+    mov al, [ttx_shpat]             ; pattern loop: the pattern never leaves,
+    mov [ttx_shprev], al            ; so its own row 63 is followed by its own
+    mov [ttx_shnext], al            ; row 0 and the scroll closes on itself
+    jmp short .out
+.song:
+    mov al, [mp_songpos]
+    inc al
+    cmp al, [mp_songlen]            ; past the last order the song restarts,
+    jb .nx                          ; and mp_nextrow's restart position is
+    mov al, [mp_restart]            ; where it goes
+.nx:
+    call mp_order
+    mov [ttx_shnext], al
+    mov al, [mp_songpos]
+    or al, al
+    jnz .pv
+    cmp byte [mp_restart], 0        ; position 0 is reached from the last order
+    jne .out                        ; only when the song restarts THERE;
+    mov al, [mp_songlen]            ; otherwise nothing precedes it, and a
+.pv:                                ; blank pad is the truth rather than a gap
+    dec al
+    call mp_order
+    mov [ttx_shprev], al
+    jmp short .out
+.nomod:
     mov byte [ttx_shbusy], 0        ; no module: an empty grid IS the truth,
     mov byte [ttx_shok], 1          ; and the blank already wrote it
 .out:
+    pop bx
     pop ax
     ret
 
 ; -----------------------------------------------------------------------------
 ; ttx_shstep - format up to TTX_SHCHUNK rows at the cursor; clears
-;              [ttx_shbusy] and sets [ttx_shok] on the 64th
+;              [ttx_shbusy] and sets [ttx_shok] on the last of TTX_SHROWS
 ; -----------------------------------------------------------------------------
 ttx_shstep:
     push ax
@@ -309,13 +371,12 @@ ttx_shstep:
     cmp byte [ttx_shbusy], 0
     je .done
     mov bl, [ttx_srow]
-    call ttx_rowtext                ; -> ttx_line, TTX_RW ascii
+    call ttx_shline                 ; -> ttx_line, TTX_RW ascii
     mov al, [ttx_srow]
     xor ah, ah
-    add ax, TTX_HALF
     mov dx, TTX_RW * 2
-    mul dx                          ; (row + HALF) * rowbytes; 8,496 max, so
-    add ax, ttx_shadow              ; DX is 0 and the product fits AX
+    mul dx                          ; shadow row * rowbytes; 9,558 max, so DX
+    add ax, ttx_shadow              ; is 0 and the product fits AX
     mov di, ax
     mov si, ttx_line
     mov cx, TTX_RW
@@ -326,7 +387,10 @@ ttx_shstep:
     loop .w
     mov al, [ttx_srow]
     inc al
-    and al, 63                      ; the cursor wraps inside the pattern
+    cmp al, TTX_SHROWS              ; the cursor wraps over the whole SHADOW,
+    jb .wrapped                     ; pads included - they are rows like any
+    xor al, al                      ; other now, and 82 is not a power of two
+.wrapped:
     mov [ttx_srow], al
     dec byte [ttx_sleft]
     jnz .budget
@@ -347,9 +411,77 @@ ttx_shstep:
     ret
 
 ; -----------------------------------------------------------------------------
-; ttx_rowtext - pattern row BL (0..63) -> ttx_line as TTX_RW ascii characters.
-; The row number is on both edges the FT2 way, and a cell the decoder refuses
-; is left blank rather than guessed at.
+; ttx_shline - shadow row BL (0..TTX_SHROWS-1) -> ttx_line. The whole of
+;              SPEC.md 45.13.4: which of the three patterns a shadow row
+;              belongs to, and which of its rows.
+;
+; Shadow row s is pattern row s - TTX_HALF of the CURRENT pattern while that
+; lands in 0..63. A row before the first of those is the PREVIOUS order's
+; tail, one after the last is the NEXT order's head, and both carry their own
+; row numbers - so the numbers down the edges run ..3E 3F 00 01.. across a
+; boundary and say where it is with no rule, no colour and no branch in the
+; blit.
+; -----------------------------------------------------------------------------
+ttx_shline:
+    push ax
+    push bx
+    mov al, bl
+    mov ah, [ttx_shpat]
+    cmp al, TTX_HALF
+    jb .above
+    sub al, TTX_HALF
+    cmp al, 64
+    jb .row
+    sub al, 64                      ; below row 63: the next order's head,
+    mov ah, [ttx_shnext]            ; rows 0..TTX_HALF-1
+    jmp short .row
+.above:
+    add al, TTX_SHPAD0              ; above row 0: the previous order's tail,
+    mov ah, [ttx_shprev]            ; rows TTX_SHPAD0..63
+.row:
+    cmp ah, TTX_NOPAT
+    je .blank
+    mov [ttx_pat], ah
+    mov bl, al
+    call ttx_rowtext
+    jmp short .out
+.blank:
+    call ttx_rowblank
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ttx_rowblank - TTX_RW spaces in ttx_line: the end of a song that does not
+;                restart, where there genuinely is no row to show
+; -----------------------------------------------------------------------------
+ttx_rowblank:
+    push ax
+    push cx
+    push di
+    push es
+    push ds
+    pop es
+    cld
+    mov di, ttx_line
+    mov cx, TTX_RW
+    mov al, ' '
+    rep stosb
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; ttx_rowtext - row BL (0..63) of pattern [ttx_pat] -> ttx_line as TTX_RW
+; ascii characters. The row number is on both edges the FT2 way, and a cell
+; the decoder refuses is left blank rather than guessed at.
+;
+; The pattern is a bss byte rather than a register for the same reason the row
+; is, and it is [ttx_pat] rather than [mp_pattern] because 18 of a rebuild's
+; 82 rows belong to the pattern either side of it (SPEC.md 45.13.4).
 ;
 ; The row goes through a bss byte and not BL because mp_cell2txt spends every
 ; general register - it decodes through BX and CX and returns with ES = DS.
@@ -384,7 +516,7 @@ ttx_rowtext:
     call tui_hexb                   ; ...and the right one
     mov byte [ttx_chn], 0
 .cl:
-    mov al, [mp_pattern]
+    mov al, [ttx_pat]
     xor ah, ah
     mov di, ax
     mov al, [ttx_row]
@@ -883,15 +1015,26 @@ ttx_draw_dyn:
     je .rebuild                     ; and a pattern is a whole new shadow
     mov al, [mp_pattern]
     cmp al, [ttx_shpat]
-    je .nosh
+    jne .rebuild
+    mov al, [mp_ploop]              ; P makes the pattern its own neighbour
+    cmp al, [ttx_shloop]            ; both ways (SPEC.md 45.13.4)
+    jne .rebuild
+    cmp byte [mp_posjmp], 0         ; a Bxx row parks songpos at target-1 for
+    jne .nosh                       ; the rest of its ticks (mp_start's note) -
+                                    ; a pending jump, not a position, and not
+                                    ; a rebuild
+    mov al, [mp_songpos]            ; the pads are the ORDERS either side, so
+    cmp al, [ttx_shpos]             ; two orders naming the same pattern move
+    je .nosh                        ; them without moving [mp_pattern]
 .rebuild:
     call ttx_shstart                ; TTX_SHCHUNK rows a frame from here on,
 %ifdef TRKLOG
     mov al, TLOGF_REBUILD
     call tlog_flag
 %endif
-    cmp byte [ttx_shbusy], 0        ; never all 64 in one (PERFORMANCE.md
-    je .nosh                        ; Part 1: this was a visible redraw)
+    cmp byte [ttx_shbusy], 0        ; never all TTX_SHROWS in one frame
+    je .nosh                        ; (PERFORMANCE.md Part 1: this was a
+                                    ; visible redraw)
 .step:
     call ttx_shstep
 %ifdef TRKLOG
@@ -992,18 +1135,25 @@ ttx_s_mute:   db '   MUTE', 0
                                     ; CGA/VGA family. Read, never assumed
     TRKBUF ttx_fsi, FSI_SIZE        ; OSAPI_FSX_MODE's info block
     TRKBUF ttx_shadow, TTX_SHBYTES  ; the current pattern as char/attr words,
-                                    ; TTX_HALF blank rows at each end so the
-                                    ; window into it needs no clamp
+                                    ; TTX_HALF rows of the neighbouring orders
+                                    ; at each end so the window into it needs
+                                    ; no clamp (SPEC.md 45.13.4)
     TRKB ttx_shpat                  ; ...the pattern it holds
+    TRKB ttx_shpos                  ; ...the order position it was reached
+                                    ; from, which is what names the pads
+    TRKB ttx_shloop                 ; ...and the [mp_ploop] they assumed
+    TRKB ttx_shprev                 ; the pattern above row 0 (TTX_NOPAT none)
+    TRKB ttx_shnext                 ; ...and the one below row 63
     TRKB ttx_shok                   ; ...and whether it holds anything
     TRKB ttx_vdirty                 ; force the next blit (a fresh shadow)
     TRKBUF ttx_line, TTX_RW + 8     ; one composed line, ascii
     TRKB ttx_row                    ; ttx_rowtext's row (mp_cell2txt spends
                                     ; every general register, so it cannot
                                     ; live in one)
-    TRKB ttx_srow                   ; the build cursor: the next row to
-                                    ; format, wrapping inside the pattern
-    TRKB ttx_sleft                  ; ...rows still owed, 64 down to 0
+    TRKB ttx_pat                    ; ...and its pattern, for the same reason
+    TRKB ttx_srow                   ; the build cursor: the next SHADOW row to
+                                    ; format, wrapping over all TTX_SHROWS
+    TRKB ttx_sleft                  ; ...rows still owed, TTX_SHROWS down to 0
     TRKB ttx_sbudget                ; ...and this frame's share of them
     TRKB ttx_shbusy                 ; a spread rebuild is in progress
     TRKB ttx_chn                    ; shared small loop counter
