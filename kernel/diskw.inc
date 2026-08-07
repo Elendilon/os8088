@@ -301,26 +301,9 @@ dskw_dfree:
     push si
     push di
     push es
-    mov ax, FERR_NODISK
-    cmp byte [dsk_mntok], 1
-    jne .bad
-    xor di, di                  ; DI = free cluster count
-    mov si, 2                   ; SI = cluster under test
-.scan:
-    cmp si, [dsk_maxclus]
-    ja .counted
-    mov ax, si
-    call dsk_next_clus          ; AX = the raw FAT entry
-    jc .next                    ; (unreachable: SI is in range)
-    test ax, ax
-    jnz .next
-    inc di                      ; 0 = free
-.next:
-    inc si
-    jmp short .scan
-.counted:
-    mov ax, di
-    mov dl, [dsk_spc]
+    call dsk_free_clus          ; AX = free clusters - ONE counting body for
+    jc .bad                     ; this cell and for the status line's figure
+    mov dl, [dsk_spc]           ; (SPEC.md 22.7), so the two cannot disagree
     xor dh, dh
     mul dx                      ; DX:AX = free sectors (DX = 0: free
                                 ; clusters * spc <= TotSec16 <= 5,760)
@@ -334,6 +317,7 @@ dskw_dfree:
     clc
     jmp short .out
 .bad:
+    mov ax, FERR_NODISK
     stc
 .out:
     pop es

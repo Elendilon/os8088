@@ -1240,8 +1240,13 @@ hd_clx:      dw 0               ; the click being dispatched
 hd_cly:      dw 0
 hd_twin:     dw 0               ; the disk tool's window, 0 = never opened
 hd_tsel:     db 0               ; ...the slot it has selected,
-hd_tarm:     db 0               ; slot+1 when a destructive Format is one click
-                                ; from happening, 0 when it is not (52.2.3)
+hd_tarm:     db 0               ; the ARMED ACTION when a destructive button is
+                                ; one click from happening, 0 when none is:
+                                ; slot+1 in the low nibble and HTA_DEL for
+                                ; which button, so Format and Delete cannot arm
+                                ; each other (52.2.3)
+hd_tdrop:    db 0               ; a Delete unmounted a volume, so the caption
+                                ; says so and the mounted set is re-staged
 hd_tmsg:     dw 0               ; ...and its caption
 hd_tstate:   times 4 db 0       ; HTS_* per slot, worked out when the tool
                                 ; opens and after every format

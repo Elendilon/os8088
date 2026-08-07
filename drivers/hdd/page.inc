@@ -709,9 +709,10 @@ hd_page_click:
 .saved:                         ; the panel closes (SPEC.md 31.8/52.6)
     call hd_cfg_mark
     jmp .repaint
-                                ; The tool stages nothing of its own: the only
-                                ; thing it uses is the geometry, and the editor
-                                ; staged that on the click that changed it
+                                ; Opening the tool stages nothing: the geometry
+                                ; is all it reads, and the editor staged that on
+                                ; the click that changed it. A Delete INSIDE it
+                                ; can unmount, and stages there (SPEC.md 52.2.4)
 .dofmt:
     call hd_tw_open
     jmp .repaint
