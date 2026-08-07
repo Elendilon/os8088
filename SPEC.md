@@ -141,8 +141,9 @@ the floor is **128KB of RAM** rather than 256KB.
 `KERNEL_SEG` through the top of task 0's stack is one contiguous span — code,
 read-only data, `.bss`, the FAT snapshot, the disk caches, the sector buffer
 and every task stack — and the **`KERN_BUDGET`** guard (§15.1) holds the whole
-of it to 74,240 bytes (72.5KB) just above the BIOS data area. It measures
-72,704 bytes on the shipped build, so 1,536 are spare. **`docs/KERNEL-MEMORY.md`
+of it to 86,528 bytes (84.5KB) just above the BIOS data area. It measures
+81,920 bytes on the shipped build, so 4,608 are spare — nine 512-byte steps,
+because move 10 was granted 4KB in advance of the work it is for. **`docs/KERNEL-MEMORY.md`
 is the maintained account of what that is spent on**; raising `KERN_BUDGET` is
 a decision to be taken with whoever asked for the feature, not a build fix.
 
@@ -4162,9 +4163,10 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 
 **`KERN_BUDGET` is the one the project is steered by**: the kernel's whole
 footprint — image, scratch, FAT snapshot, disk buffers and every task stack
-— against 74,240 bytes (§2). Raising it is a decision to be taken with
+— against 86,528 bytes (§2). Raising it is a decision to be taken with
 whoever asked for the feature, which is why its message points at
-`docs/KERNEL-MEMORY.md` rather than telling you what to edit.
+`docs/KERNEL-MEMORY.md` rather than telling you what to edit; it has been
+taken ten times, and the doc records what each one bought.
 **`KERN_CODE_MAX`** is the guard immediately below it, and no conversation
 can move that one: 65,536 is what a 16-bit offset reaches.
 

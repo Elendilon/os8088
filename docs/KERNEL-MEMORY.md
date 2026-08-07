@@ -17,8 +17,8 @@ last time.
 ## The rule
 
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
-includes its buffers.** The span is `KERN_BUDGET` bytes — 80.5KB today. It
-currently runs 0x00600 through 0x13FFF, and the budget's ceiling is 0x14800.
+includes its buffers.** The span is `KERN_BUDGET` bytes — 84.5KB today. It
+currently runs 0x00600 through 0x145FF, and the budget's ceiling is 0x15800.
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
 data, `.bss`, the cold segment, the FAT window, the directory and icon
@@ -33,7 +33,7 @@ says which is which:
 
 | name | what it bounds | can it be raised? |
 |---|---|---|
-| **`KERN_BUDGET`** | the **footprint** — this whole span, RAM taken from the machine | not any more. See below |
+| **`KERN_BUDGET`** | the **footprint** — this whole span, RAM taken from the machine | yes, by asking. Ten times so far — see below |
 | **`KERN_CODE_MAX`** | the **segment** — `.text` + `.bss` in one 64KB window | **no.** It is what a 16-bit offset reaches |
 
 They are relieved by different things, and that is the distinction that
@@ -112,16 +112,28 @@ asked for, granted, and spent on something named. What is *not* available is
 a move that takes the slack — 44.5KB of headroom is the fifth move's mistake
 at five times the size, and this constant has only ever bought scrutiny.
 
+**Move 10 is that tenth move**, 82,432 → 86,528, granted in advance for
+"Incoming QOL improvements". Two things about it are on the record rather
+than in a commit message. It is the third raise granted *ahead* of the work
+(3 and 7 were the others), so move 7's term applies: the raise is spent by
+the commits that need it, and a plan document is not one of them. And it
+leaves **4,608 bytes spare — nine 512-byte steps**, where the fifth move
+settled that 2,048 is the right amount: enough that an ordinary bug fix does
+not trip the guard, small enough that a feature does. Until the QOL work
+lands, the guard is looser than the project's own standard. If that work
+comes in under the 4KB, the fifth move is the precedent for what to do with
+the rest — hand it back, rather than leave it for the next author to find.
+
 **And when the kernel does approach 126,976, the answer is not a raise
 either.** It is two kernels off one tree — a full one and a minimum one —
 because a 128KB machine and a 640KB machine stop wanting the same feature set
 long before they stop fitting the same image. Raising `MIN_RAM_KB` instead
 would be the project quietly dropping the machines it was written for.
 
-### The nine moves
+### The ten moves
 
 `KERN_BUDGET` was 65,536 — the first 64KB above the BIOS data area, which is
-where the "one region" rule came from. It has moved nine times; the raises
+where the "one region" rule came from. It has moved ten times; the raises
 were each asked for and granted, and move 5 is the only one downward.
 
 | | budget | bought |
@@ -135,6 +147,7 @@ were each asked for and granted, and move 5 is the only one downward.
 | 7 | 76,288 → **78,336** | SPEC.md §54's file type associations and the disk path, costed together before either was written |
 | 8 | 78,336 → **80,384** | the association work's own bug reports — §54.4.1's notice naming the missing program — plus the §18.92/§18.93/§18.4.2 disk work, which cost the footprint nothing and paid back in seconds of boot |
 | 9 | 80,384 → **82,432** | the file modules into `.cold` (SPEC.md §2.6). The first raise bought for the OTHER guard, and it landed exactly on guard 5's ceiling — the last one possible until that ceiling moved |
+| 10 | 82,432 → **86,528** | **"Incoming QOL improvements"** — 4KB granted in ADVANCE, and the first move taken against the room SPEC.md §2.7 opened up. Terms below |
 
 **`BOOT_RELOC` moved with the first five** — 0x0940 → 0x0AA0 → 0x0B80 →
 0x0C00 → **0x0D40** (linear 0x11000 → 0x12600 → 0x13400 → 0x13C00 →
@@ -160,7 +173,7 @@ Move 9 made that lopsided:
 | | headroom |
 |---|---:|
 | `KERN_CODE_MAX`, the segment | **18,592 B** for `.text` + `.bss` |
-| **`KERN_BUDGET`, the footprint** | **2,048 B** for the whole span |
+| **`KERN_BUDGET`, the footprint** | **4,608 B** for the whole span |
 | guard 5, the smallest supported machine | **46,592 B** for the whole span |
 
 The budget is still the tighter of the three and is meant to be. What changed
@@ -176,7 +189,7 @@ a feature out to a package (SPEC.md §28's precedent, below).
 met at the guard without either author knowing it was close:
 
 ```sh
-lo=70000; hi=82432
+lo=70000; hi=86528
 while [ $((hi-lo)) -gt 1 ]; do mid=$(((lo+hi)/2))
   sed -i "s/^KERN_BUDGET equ .*/KERN_BUDGET equ $mid           ; x/" kernel/kernel.asm
   nasm -f bin -w+error -I kernel/ -I build/ -o /dev/null kernel/kernel.asm 2>/dev/null \
@@ -191,7 +204,7 @@ The two are also coupled through the rounding, and that coupling is
 load-bearing in both directions. A byte moved from `.bss` to `.lowbss` helps
 `KERN_CODE_MAX` but *hurts* `KERN_BUDGET` until the image falls far enough to
 drop a 512-byte step: when the `.lowbss` rung is full, the very first byte
-moved costs a whole step. With one step left under the budget, **moving data
+moved costs a whole step. Even with nine steps left under the budget, **moving data
 out of the segment is not free**, and neither is moving code into `.cold`.
 
 ---
@@ -208,7 +221,7 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | `.lowbss` + task 0's stack | 8,704 B | 7,668 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
 | the boot overlay | 0 B | 2,504 bytes of code inside the FAT window, gone by the first mount |
-| **total** | **80,384 B** | of an 82,432-byte budget — **2,048 B spare** |
+| **total** | **81,920 B** | of an 86,528-byte budget — **4,608 B spare** after move 10 |
 
 Each rung is its contents rounded up to a whole 512 bytes, and the remainders
 are the only slack anywhere in the ladder: 160 bytes on the image, 397 on the
@@ -1053,20 +1066,21 @@ say so almost too neatly: raises 7 and 8 each landed on a kernel of 76,288
 and 78,336 bytes — *exactly* the budget then in force, to the byte. Raise 6
 landed 512 over it, which is the same thing one step later. Only raise 9 was
 granted with room to spare, because it was asked for ahead of the work rather
-than by a build that had already failed. The slack after a raise has been
-2,048 bytes every time, and until now it has been spent every time.
+than by a build that had already failed. The slack after a raise was 2,048
+bytes every time through move 9, and every time it was spent. **Move 10 is
+the exception on both counts**: 4,608 bytes, and unspent as this is written,
+because it was granted for work that has not landed yet.
 
-**The footprint has grown 7,168 bytes since the low point at move 5** —
-73,216 to 80,384 — and every one of those seven kilobytes was a feature that
-was asked for.
+**The footprint has grown 8,704 bytes since the low point at move 5** —
+73,216 to 81,920 — and every one of those kilobytes was a feature that was
+asked for.
 
 **The budget caught up with the boot sector at move 9**, and for one release
 the next row could not have been a raise at all. Moving the sector to the top
-of RAM (SPEC.md §2.7) ended that: a tenth row can be a raise again, on the
-same terms as the nine — asked for, granted, spent on something named — with
-a real ceiling 44.5KB above rather than one the budget is already touching.
-The row after the row that reaches **126,976** is not a raise either, and not
-a deletion: it is a second kernel.
+of RAM (SPEC.md §2.7) ended that, and move 10 is the first row taken against
+the room it opened — on the same terms as the nine: asked for, granted, and
+owed to something named. The row after the row that reaches **126,976** is
+not a raise either, and not a deletion: it is a second kernel.
 
 `docs/MEMORY-PLAN.md` is the narrative of how it got here, step by step, and
 what was rejected along the way. This document is what it looks like now.

@@ -131,7 +131,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 82432           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 86528           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
                                 ; It has moved nine times, every one asked
@@ -300,6 +300,26 @@ KERN_BUDGET equ 82432           ; the whole kernel's FOOTPRINT. Growing past
                                 ; and nothing else, and 44.5KB of it would be
                                 ; the fifth move's mistake at five times the
                                 ; size.
+                                ;
+                                ; The tenth move, 82,432 -> 86,528, is the
+                                ; first one taken against that room, and it
+                                ; is 4KB granted IN ADVANCE for incoming
+                                ; quality-of-life work - the same shape as
+                                ; moves 3 and 7, which is why the same terms
+                                ; come with it. The fifth move settled that
+                                ; 2,048 bytes is the right amount of slack:
+                                ; enough that an ordinary bug fix does not
+                                ; trip the guard, small enough that a FEATURE
+                                ; does. This lands at 4,608 - nine 512-byte
+                                ; steps - so until the work it was asked for
+                                ; arrives the guard is looser than the
+                                ; project's own standard, and what the fifth
+                                ; move is on record for is that slack of that
+                                ; size stops being scrutiny. So: spend it on
+                                ; what it was granted for, and if the work
+                                ; lands under it, hand the remainder back the
+                                ; way move 5 did rather than leaving it for
+                                ; the next author to find.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
@@ -343,7 +363,7 @@ MIN_RAM_KB  equ 128             ; the smallest machine os8088 claims to run.
                                 ; one the shipped system is claimed to work
                                 ; on. Guard 5 turns it into the footprint
                                 ; ceiling: 126,976 bytes, against KERN_BUDGET
-                                ; 82,432. When the kernel approaches THAT the
+                                ; 86,528. When the kernel approaches THAT the
                                 ; answer is not another raise - it is two
                                 ; kernels, a big one and a minimum one, off
                                 ; the same tree (docs/KERNEL-MEMORY.md)
