@@ -1440,3 +1440,26 @@ both kernels and both adapters, which is what makes it quotable.
 **One row moving on its own, in the direction you were hoping for, is the
 thing to re-run** — Part 6 rule 7, and the reason Set 3 carries a repeat
 column.
+
+#### How much is left: the pair is almost never needed
+
+The same run instrumented the *other* question — not what the pair costs but
+how often it is earned. `gfx_lock` snapshots the 8x12 cell after the erase
+and `gfx_unlock` compares it before the redraw, so "did anything write there
+during this hold" is answered by the pixels rather than by a hook, which
+catches paths no hook could. Over one session (boot, two folders, a window
+drag, two package loads, 26 keystrokes, idle): **5,020 pairs, 7 of them
+(0.14%) with anything written into the cursor cell**, 40 with the mouse
+moving, 0.7 drawing calls per hold. Note Pad's 26 keystrokes were 25 pairs,
+none dirty; an idle desktop is 0.
+
+The sharpest case is not a frame loop but a **press-and-hold**: `fm_drag`'s
+wait loop is `gfx_unlock` / `task_yield` / `gfx_lock` per iteration and draws
+nothing, so on the field machine holding the button over a file turns the
+pair over about 500 times a second — which is a *blink*, not just a bill.
+`ui_task` already says as much where it gates the clock's lock: "taking the
+gfx lock blinks the cursor, and that blink IS the flicker the
+seconds-in-menu-bar setting exists to remove."
+
+SPEC.md §7.1.1 has the economics, the nine ways a lazy hide could miss, and
+why it is written down rather than built.
