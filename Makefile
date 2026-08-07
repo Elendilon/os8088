@@ -11,8 +11,10 @@ NASM  := nasm
 QEMU  := qemu-system-i386
 BUILD := build
 IMG   := $(BUILD)/os8088.img
+IMG720 := $(BUILD)/os8088-720.img
 IMG360 := $(BUILD)/os8088-360.img
 APPSIMG := $(BUILD)/apps.img
+APPSIMG720 := $(BUILD)/apps720.img
 APPSIMG360 := $(BUILD)/apps360.img
 BOX   := /Applications/86Box.app/Contents/MacOS/86Box
 VM    := $(CURDIR)/vm/xt
@@ -104,13 +106,13 @@ FILESIZE = $$(stat -c%s $(1) 2>/dev/null || stat -f%z $(1))
 KERNEL_SRC := kernel/kernel.asm
 KERNEL_INC := $(wildcard kernel/*.inc)
 
-.PHONY: all run run-640 debug test test-snd xt xt-640 xt-cga xt-hercules \
-        286 386sx 386 xt-sound 286-sound 386-sound check-images bench \
-        field stackprobe trklog clean
+.PHONY: all run run-640 run-720 debug test test-snd xt xt-640 xt-cga \
+        xt-hercules 286 386sx 386 xt-sound 286-sound 386-sound check-images \
+        bench field stackprobe trklog clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
-all: $(IMG) $(IMG360) $(APPSIMG) $(APPSIMG360)
+all: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360)
 
 $(BUILD):
 	@mkdir -p $(BUILD)
@@ -154,6 +156,16 @@ $(BUILD)/boot.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 # The same kernel on a 360KB 5.25" disk: 40 cylinders, 2 heads, 9 sectors per
 # track. This is what an 8086-era machine can actually read - 1.44MB drives
 # postdate the 8086 by years, and an XT BIOS knows nothing about them.
+#
+# THIS SECTOR IS THE 720KB DISK'S TOO, and that is not a shortcut. A 720KB
+# 3.5" DD floppy is 80 cylinders of the SAME track shape - 9 sectors, 2 heads
+# - and boot/boot.asm's whole knowledge of a geometry is SPT and HEADS: it
+# derives the cylinder from the LBA and never has a count of them to be wrong
+# about. What genuinely differs between the two disks is the BPB (media byte,
+# total sectors, FAT size), and os88disk.py writes that over the first 62
+# bytes when it builds the image. A boot720.bin would therefore be a
+# byte-identical second artifact for `make check-images` to compare, which is
+# a tracked file that can only ever say what this one already says.
 $(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 	$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
@@ -211,6 +223,19 @@ $(BUILD)/hdd.drv: $(BUILD)/hdd.bin tools/os88drv.py
 $(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS)
+
+# The 720KB 3.5" DD disk (SPEC.md 19). It is the geometry the machines
+# BETWEEN the two shipped ones have: an XT or AT fitted with a 3.5" DD drive,
+# and - the reason it is worth a shipped image - every USB floppy drive and
+# every Gotek/flash emulator made, which read 720KB and 1.44MB and nothing
+# 5.25". So it is the image to write when the target machine cannot take a
+# 360KB disk and cannot read a 1.44MB one either.
+#
+# Same boot sector as the 360KB disk (see boot360.bin above): 9 spt, 2 heads,
+# 80 cylinders instead of 40, and the boot sector never counts cylinders.
+$(IMG720): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 \
+		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS)
 
 $(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
@@ -780,6 +805,9 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 $(APPSIMG): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(APPSARGS)
 
+$(APPSIMG720): $(APPS) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(APPSARGS)
+
 $(APPSIMG360): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(APPSARGS)
 
@@ -797,6 +825,14 @@ run: $(IMG) $(APPSIMG)
 run-640: $(IMG) $(APPSIMG)
 	$(QEMU) -m 1M -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
 		-drive file=$(APPSIMG),format=raw,if=floppy,index=1 $(DEVCARD)
+
+# The 720KB pair. QEMU picks a floppy's geometry from the image SIZE, and
+# 737,280 bytes is a standard one (2 heads x 80 cyl x 9 spt), so this needs
+# nothing beyond naming the two images - which is itself the check that
+# matters: a 720KB image the BIOS reads as some other shape fails here.
+run-720: $(IMG720) $(APPSIMG720)
+	$(QEMU) -drive file=$(IMG720),format=raw,if=floppy -boot a $(MOUSE) \
+		-drive file=$(APPSIMG720),format=raw,if=floppy,index=1 $(DEVCARD)
 
 debug: $(IMG) $(APPSIMG)
 	$(QEMU) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) -s -S \
