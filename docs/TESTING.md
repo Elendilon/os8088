@@ -197,6 +197,47 @@ nothing rather than something near it. Call `mouse.py` a second time — the
 whole session is exact from there. Costed the same way twice, on VGA and on a
 CGA field disk.
 
+### The identify burst (SPEC.md §9.4.1)
+
+**QEMU can test the half that must refuse, and cannot test the half that must
+accept.** `msmouse` is not a UART-level device — it ignores MCR/DTR entirely
+and emits packets during boot regardless — so out of a plain `make test` you
+get `[mou_seen]` = 1, `[mou_hpst]` = 2 and `[mou_ident]` = 0: the *old* code
+path, exactly, which is the right regression baseline and no test of the new
+one. "A real mouse answers `'M'`" needs 86Box or the 5150.
+
+The refusal half uses §9.5's socket-chardev harness, with the sender timed to
+land inside `mouse_init`'s drain window — which closes about **1.2 s after
+QEMU launch** (sweep a single `M` at 0.2/0.6/1.0/1.4 s to re-find it; the
+absolute position drifts a little per boot). Offsets move whenever an include
+before `mouse.inc` does, so re-derive them from a listing:
+
+```
+idn   idb0   ident  idany  need        verdict
+01    'M'    01     01     01 .. 08    a mouse: identified, need lowered
+02    'M'    01     01     01 .. 08    'M3' likewise
+05    'M'    01     01     08 .. 08    identified, but past MOU_IDSTRICT
+1f    'O'    00     00     08 .. 08    Hayes codes - rule 2
+2e    'M'    00     00     08 .. 08    'M' + a banner - rule 3
+08    'M'    00     00     08 .. 08    a trickle that never stops - rule 4
+```
+
+The last row is the one worth building deliberately, because it is the only
+way to isolate rule 4: send `'M'` every ~150 ms across the whole window, so
+whenever the window closes a byte arrived inside `MOU_IDQUIET` of it, while
+the count stays at `MOU_IDMAX` and rule 3 still passes.
+
+**Assert on `[mou_hpt]` as well as the identify state**, and that is the
+actual regression this exists to prevent: read it, wait four seconds, read it
+again. Unchanged means the recovery cycle stood down; advancing by **58**
+means the mouse is still being power-cycled every 3.19 s. Two traps, both of
+which produced a green run that proved nothing. A test whose sender never
+lands in the window reads exactly like a rule correctly refusing — check
+`[mou_idn]` is non-zero before believing a refusal. And `[mou_seen]` must stay
+**0** in every one of these: an identify moves the prior and must never settle
+the contest, so a run where it went to 1 is testing the packet path, not this
+one.
+
 ---
 
 ## Sound
