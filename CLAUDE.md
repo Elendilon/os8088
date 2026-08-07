@@ -179,8 +179,23 @@ A fourth takes the floppy transfer back to one sector per int 13h (SPEC.md
 §18.91/§18.92) — the A/B for a class of bug **only real hardware can judge**:
 
 ```
-make FLOPPY1=1         # AL=1 again, nothing else changed
+make FLOPPY1=1         # AL=1 again, in BOTH transfer loops
 ```
+
+**The boot sector batches too, and that is where the boot time is** (SPEC.md
+§18.93). It read `AL = 1` — 131 sectors, one int 13h each, at PERFORMANCE.md's
+measured **238 ms per sector**, so **over thirty seconds** of every boot, which
+is the largest single cost in it. `read_run` stops at the track, the sectors
+wanted, the ROM's EOT and the 64KB DMA page; simulated exactly, the 131-sector
+kernel is **10 calls on 1.44MB and 30 on 360KB** (the field machine's tracks
+cost two commands each — eight sectors, then the ninth alone, because the ROM
+says the FDC may not pass 8), so roughly 31 s becomes 6–9 s. It **honours** the
+ROM's EOT rather than installing its own table, because it cannot install one
+that outlives it without pointing int 1Eh into what becomes heap; the ~3 s that
+leaves on the table is a deliberate, separately testable follow-up recorded in
+§18.93 and not an oversight. The splash is ticked **once per run** — `spl_tick`
+takes an absolute position, so the bar's arithmetic is untouched and only the
+repaints drop, which is itself worth seconds on the target.
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4

@@ -80,6 +80,7 @@ endif
 # only place its failures have ever been visible (18.92).
 ifneq ($(FLOPPY1),)
 VIDDEF += -DFLOPPY_ONE
+BOOTDEF += -DFLOPPY_ONE
 endif
 # ...and a stamp so that CHANGING VIDEO rebuilds the kernel. Without it make
 # sees an up-to-date kernel.bin, skips it, and boots the PREVIOUS adapter -
@@ -145,7 +146,7 @@ endif
 # kernel at build time and assemble the count in. Reading exactly what exists
 # means a short kernel never waits on phantom sectors.
 $(BUILD)/boot.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
-	$(NASM) -f bin \
+	$(NASM) -f bin $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
 		-o $@ boot/boot.asm
 	@test $(call FILESIZE,$@) -eq 512 || { echo "boot sector is not 512 bytes"; exit 1; }
@@ -154,7 +155,7 @@ $(BUILD)/boot.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 # track. This is what an 8086-era machine can actually read - 1.44MB drives
 # postdate the 8086 by years, and an XT BIOS knows nothing about them.
 $(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
-	$(NASM) -f bin -DSPT=9 -DHEADS=2 \
+	$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) \
 		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/kernel.bin) + 511 ) / 512 )) \
 		-o $@ boot/boot.asm
 	@test $(call FILESIZE,$@) -eq 512 || { echo "boot sector is not 512 bytes"; exit 1; }

@@ -4648,6 +4648,63 @@ documented requirement of the platform regardless — an OS that issues
 multi-sector floppy transfers owns int 1Eh. The measurement that settles it is
 a real machine, which is what `FLOPPY1=1` is there to bracket.
 
+### 18.93 The boot sector batches too, and it is the largest single win
+
+`boot/boot.asm` read `AL = 1`. 131 sectors, one int 13h each, at
+PERFORMANCE.md's measured **238 ms per sector** — **over thirty seconds**, and
+the single largest cost in the boot of the machine this targets. PERFORMANCE.md
+already named the fix and priced it at "about 9x on every load in the system,
+which is the largest single number in this document"; §18.91 took it for the
+kernel's transfers and this takes it for the one that runs first.
+
+`read_run` replaces `read_sector` and stops at the first of four bounds — the
+track, the sectors still wanted, **the ROM's EOT** and the 64KB DMA page. The
+third is §18.92's, and the boot sector **honours** it rather than overriding
+it: it cannot install a table that outlives it without pointing int 1Eh into
+what becomes heap, and the kernel does that properly a few hundred
+instructions later.
+
+Simulating the splitter exactly, for a 131-sector kernel:
+
+| geometry | EOT | int 13h calls | runs |
+|---|---|---|---|
+| 1.44MB (QEMU/SeaBIOS) | 18 | **10** | 3, 18×6, 14, 4, 2 |
+| 360KB (IBM ROM) | 8 | **30** | 5, 1, then 8, 1 per track |
+| 360KB, hypothetical | 9 | 16 | 6, then 9 per track |
+
+**The field machine's 30 is the honest number and its shape is the point**: a
+9-sector track costs two commands, eight sectors and then the ninth alone,
+because the ROM says the FDC may not pass sector 8. ~31 s becomes roughly
+6–9 s. The third row is what an installed table would buy — about another
+3 s — and it is **deliberately not taken here**: 47 bytes remain in the
+sector, the install plus a restore does not comfortably fit, and stacking a
+second unverified change into the one piece of code whose failure mode is "the
+machine does not boot" is the wrong trade. It is a separately testable
+follow-up, not an oversight.
+
+Two smaller things fell out:
+
+- **The splash is ticked once per RUN, not once per sector.** `spl_tick` takes
+  an *absolute* position (`mov [spl_done], ax`), so the bar's arithmetic is
+  untouched and only the number of repaints drops — and a repaint is real
+  drawing on the target, so ~131 of them becoming ~30 is itself worth seconds.
+  Ticking per sector inside a run would be *worse* than either: the frames
+  would burst through with no time between them and then freeze for a whole
+  run.
+- **The destination still advances by SEGMENT**, 0x20 paragraphs a sector with
+  BX held at 0, so every run starts 512-aligned and the page bound is the only
+  buffer arithmetic needed.
+
+**`FLOPPY1=1` covers this too** — one knob, both transfer loops, since it is
+the same question in both places.
+
+Verified the only way a read path can be: the loaded kernel was dumped out of
+guest RAM and compared against `build/kernel.bin`. Across `.text`, **73
+differing bytes of 57,088 on 1.44MB and 71 on 360KB, longest contiguous run 8
+bytes** — the `.text`-resident variables the kernel writes at run time, one
+cluster of which is `dsk_vtab` and `dsk_dpt` themselves. A misplaced run would
+show as ~512 differing bytes in one block, and there is no such block.
+
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
 The data floppy (drive B:) is a standard **FAT12** volume — mountable and
