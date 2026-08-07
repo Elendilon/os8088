@@ -444,6 +444,8 @@ list to check yourself against.
 | Copy a file | 5 volume switches per file | 2, one `dsk_read_chain` per chunk | §22.5 |
 | FAT access across a copy | re-read on every switch | a window per volume: 45 mounts → 3 loads | §18.8.1 |
 | The per-call floor itself (1bpp) | one `gfx_pixel` = **196** guest instructions of generic rect machinery | **158**; `GFX_FILL 8x8` −19.3%, `64x64` −14.5%, `GFX_BLIT4` −13.8%, output byte-identical on all three adapters | §5.7, Part 9 Set 3 |
+| A press-and-hold on a file row | `fm_drag`'s `.wait` poll, unpaced: `gfx_unlock`/`task_yield`/`gfx_lock` as fast as the CPU allows, drawing **nothing**. **20,761 lock/unlock pairs a second** under `-icount`; on the field machine each costs ~1.9 ms, so it is the whole machine for as long as the button is down, and the pointer blinks continuously | one pair a tick, like the three sibling loops that already lingered: **21** | §7.1.3 |
+| Moving the cursor | erase-then-draw, two walks, so every byte where the old and new cells overlap is written **twice** — and the value in between is the background, `ffff` on all twelve rows inside a window. ~6.5% of a 20 ms Hercules frame, on every mouse packet | each byte written **once**: pass 1 skips what pass 2 will write, pass 2 sources its background from the save buffer. No gate, no union walk, and the pair unmoved at 544 counts against 541 | §7.1.2, docs/FIELD-NOTES.md 6 |
 | A renderer row step | `call gfx_nextrow`: a near call plus two CS-overridden memory reads, **three times per scan line** | three register instructions, parameters hoisted out of the loop | §39.3, §32 |
 | `gfx_lock` + `gfx_unlock` — the pair every drawing burst pays | the mouse cursor over a 16x16 cell it never fills: a save, a white pass and a black pass, three walks over the same bytes, plus a restore — **17.82** guest-instruction counts a pair on Hercules, ~6.4 ms of the field machine, 11.6% of a 55 ms frame | the arrow's real 8x12 cell, no third byte, and on 1bpp **one** fused read-bank-paint-write pass: **5.41**, ~1.94 ms, 3.5% — **3.29x**, output byte-identical on all three adapters | §7.1, Part 9 Set 7 |
 
@@ -1382,6 +1384,7 @@ and compose into one.
 | Hercules | 1,782 | — | **541** | 541 | 5.41 counts | **3.29x** |
 | CGA | 1,798 | — | **547** | — | 5.47 | **3.29x** |
 | VGA | 2,300 | 2,296 | **1,626** | 1,633 | 16.26 | **1.41x** |
+| VGA, draw fused too | 2,300 | 2,296 | **1,495** | — | 14.95 | **1.54x** |
 
 100 iterations a row. The two mono columns agreeing to 1.1% before and 1.1%
 after is the harness checking itself: they are the same renderer over four

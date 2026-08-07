@@ -46,6 +46,15 @@
 ; already held by the caller and never take it; fdlg_grab is the one entry
 ; point called with no lock, and it takes its own when it has cleaning up
 ; to do.
+;
+; **This module is `.cold` (SPEC.md 2.6).** Its code has a CS of its own, so
+; a routine the kernel reaches from outside is a six-byte resident thunk in
+; kernel.asm under the PUBLIC name, and the body here carries an `_x` suffix;
+; calls that leave the cold set go out through `KERNEL_SEG:cw_*`. All of this
+; module's data is above the single section toggle, which is the tidiest of
+; the five - but the rule is the same, and a `db`/`dw` added below it is read
+; at the wrong segment with no diagnostic. Nor may anything take a kernel
+; segment from CS, which is COLD_SEG here.
 ; =============================================================================
 
 ; --- geometry (SPEC.md 38.3) -------------------------------------------------
@@ -145,6 +154,13 @@ fdlg_s_drvb:   db 'B:', 0
 ; -----------------------------------------------------------------------------
 fdlg_win:   dw 0
 
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
+                                ; segment of its own, so it costs KERN_CODE_MAX
+                                ; nothing. DS is still KERNEL_SEG, so every data
+                                ; reference below is unchanged - and this module's
+                                ; data is all ABOVE, so there is one toggle
+
+
 ; -----------------------------------------------------------------------------
 ; fdlg_open - API slot 0x0150 (SPEC.md 38.6)
 ; in:  AL = 0 Open / 1 Save, BX = requester window ptr, DI = completion proc
@@ -161,7 +177,7 @@ fdlg_win:   dw 0
 ; has had its region freed, and its near callback pointer stops meaning
 ; anything. The window pointer alone would not do - window slots are reused.
 ; -----------------------------------------------------------------------------
-fdlg_open:
+fdlg_open_x:
     push ax
     push bx
     push cx
@@ -176,7 +192,7 @@ fdlg_open:
     mov [fdlg_rqwin], bx
     mov [fdlg_mode], al
 
-    call inst_win_owner         ; DI = the owning record, or 0; BX preserved
+    call KERNEL_SEG:cw_inst_win_owner ; DI = the owning record, or 0; BX preserved
     or di, di
     jz .refuse
     cmp byte [di+I_STATE], 1
@@ -199,14 +215,14 @@ fdlg_open:
 
     mov dl, [disk_drive]        ; re-list where the volume already is: the
     mov ax, [dsk_cwd]           ; snapshot may be another window's folder
-    call dsk_chdir              ; (SPEC.md 22.1), and from here until the
+    call KERNEL_SEG:cw_dsk_chdir ; (SPEC.md 22.1), and from here until the
                                 ; dialog closes nothing else can move it
 
     mov si, fdlg_tpl            ; wm_create reads the template at ES:SI, and
     push es                     ; ours is kernel data - which is also what
     push ds                     ; tells it this is a KERNEL window (W_SEG 0)
     pop es
-    call wm_create              ; BX = window ptr, CF = table full
+    call KERNEL_SEG:cw_wm_create ; BX = window ptr, CF = table full
     pop es
     jc .refuse
     mov ax, fdlg_s_topen
@@ -217,7 +233,7 @@ fdlg_open:
     mov [bx+W_TITLE], ax
     mov [fdlg_win], bx          ; take the gate LAST: until this store the
                                 ; window is an ordinary one
-    call wm_show                ; raise + repaint, under the caller's lock
+    call KERNEL_SEG:cw_wm_show  ; raise + repaint, under the caller's lock
     clc
     jmp short .out
 .refuse:
@@ -260,9 +276,9 @@ fdlg_gate:
 .dead:
     or al, al
     jnz .close
-    call gfx_lock
+    call KERNEL_SEG:cw_gfx_lock
     call fdlg_close
-    call gfx_unlock
+    call KERNEL_SEG:cw_gfx_unlock
     jmp short .none
 .close:
     call fdlg_close
@@ -285,7 +301,7 @@ fdlg_gate:
 ; it once per UI pass costs three instructions when no dialog is up and
 ; makes both effects immediate.
 ; -----------------------------------------------------------------------------
-fdlg_reap:
+fdlg_reap_x:
     cmp word [fdlg_win], 0
     je .out
     push ax
@@ -309,7 +325,7 @@ fdlg_reap:
 ; through to the ordinary ladder, which is where its title-bar drag and its
 ; content clicks come from for free.
 ; -----------------------------------------------------------------------------
-fdlg_grab:
+fdlg_grab_x:
     push ax
     push bx
     xor al, al                  ; no lock held
@@ -331,7 +347,7 @@ fdlg_grab:
     clc
     jmp short .out
 .swallow:
-    call snd_beep
+    call KERNEL_SEG:cw_snd_beep
     stc
 .out:
     pop bx
@@ -347,7 +363,7 @@ fdlg_grab:
 ; every click outside it is being swallowed - but ten bytes is a cheap price
 ; for a keystroke never reaching the window behind.
 ; -----------------------------------------------------------------------------
-fdlg_top:
+fdlg_top_x:
     push ax
     push cx
     mov cx, bx                  ; keep wm_top's answer: fdlg_gate zeroes BX
@@ -382,11 +398,11 @@ fdlg_close:
     or bx, bx
     jz .out
     mov word [fdlg_win], 0      ; drop the gate FIRST: wm_destroy repaints,
-    call wm_destroy             ; and nothing may observe a gate pointing at
+    call KERNEL_SEG:cw_wm_destroy ; and nothing may observe a gate pointing at
                                 ; a freed record
     mov bx, [fdlg_rqwin]
-    call menu_activate
-    call menu_draw_bar
+    call KERNEL_SEG:cw_menu_activate
+    call KERNEL_SEG:cw_menu_draw_bar
 .out:
     pop di
     pop si
@@ -435,7 +451,7 @@ fdlg_commit:
     or cx, cx
     jz .out
     push word [snd_inst]        ; STAMP THE DISPATCHED INSTANCE (SPEC.md
-    call snd_disp_set           ; 34.3), exactly as W_ONKEY, W_ONCLICK, the
+    call KERNEL_SEG:cw_snd_disp_set ; 34.3), exactly as W_ONKEY, W_ONCLICK, the
                                 ; menu handler and W_PAINT all do - and DI is
                                 ; still [fdlg_rqrec] here, validated three
                                 ; tests up, so the record is free.
@@ -468,7 +484,7 @@ fdlg_commit:
                                 ; and DX:CX = the SIZE, so an app can refuse
                                 ; what it cannot fund before touching the
                                 ; disk (SPEC.md 38.6)
-    call wm_pkgcall             ; SI = its window, BP = the completion proc
+    call KERNEL_SEG:cw_wm_pkgcall ; SI = its window, BP = the completion proc
     pop bp
     pop es
     pop word [snd_inst]         ; the outer dispatch's stamp, back
@@ -632,7 +648,7 @@ fdlg_stage:
     push bx
     push cx
     push si
-    call dsk_get_dir            ; SI -> the staged 32-byte entry (SPEC.md 19)
+    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged 32-byte entry (SPEC.md 19)
     mov bx, fdlg_row
     mov cx, 16
 .copy:
@@ -667,7 +683,7 @@ fdlg_stage:
 ; -----------------------------------------------------------------------------
 fdlg_go:
     push ax
-    call dsk_chdir
+    call KERNEL_SEG:cw_dsk_chdir
     mov word [fdlg_sel], 0xFFFF
     mov word [fdlg_scrl], 0
     call fdlg_unfold            ; a folder name half typed here would be made
@@ -835,7 +851,7 @@ fdlg_icon:
     push si
     add cx, [fdlg_cx]           ; content-relative -> absolute
     add dx, [fdlg_cy]
-    call dsk_get_icon           ; SI -> the staged 64-byte body
+    call KERNEL_SEG:cw_dsk_get_icon ; SI -> the staged 64-byte body
     mov bx, si
     push cx
     xor ax, ax
@@ -848,11 +864,11 @@ fdlg_icon:
     pop cx
     or ax, ax
     jz .generic
-    call icon_draw16            ; a harvested, folder or composed body
+    call KERNEL_SEG:cw_icon_draw16 ; a harvested, folder or composed body
     jmp short .out
 .generic:
     mov si, ico_app16           ; nothing earned one: the built-in
-    call icon_draw
+    call KERNEL_SEG:cw_icon_draw
 .out:
     pop si
     pop dx
@@ -871,7 +887,7 @@ fdlg_text:
     push dx
     add cx, [fdlg_cx]
     add dx, [fdlg_cy]
-    call font_str
+    call KERNEL_SEG:cw_font_str
     pop dx
     pop cx
     ret
@@ -921,10 +937,10 @@ fdlg_defbtn:
     mov [fdlg_actl], al         ; CF, so the carry the gate answered in is
     or al, al                   ; gone by here. Passing it to gfx_pen_cf drew
     jz .live                    ; the button live every time, which is exactly
-    call gfx_pen_dis            ; the "looks available and refuses" failure
+    call KERNEL_SEG:cw_gfx_pen_dis ; the "looks available and refuses" failure
     jmp short .pen              ; rule 4 exists to prevent
 .live:
-    call gfx_pen_live
+    call KERNEL_SEG:cw_gfx_pen_live
 .pen:
     mov bx, FD_BY0
     mov al, 1                   ; the default button carries the outer frame
@@ -962,7 +978,7 @@ fdlg_btn:
     mov dx, bp
     add dx, FD_BH
     call fdlg_off
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
     cmp byte [fdlg_bdef], 0
     je .label
     mov ax, FD_BX1-2
@@ -973,7 +989,7 @@ fdlg_btn:
     mov dx, bp
     add dx, FD_BH+2
     call fdlg_off
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
 .label:
     mov dx, bp
     add dx, 3
@@ -1013,7 +1029,7 @@ fdlg_btn2:
     mov dx, bp
     add dx, FD_BH2
     call fdlg_off
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
     mov dx, bp
     add dx, FD_BT1
     call fdlg_blabel            ; SI = the upper label
@@ -1039,7 +1055,7 @@ fdlg_blabel:
     push ax
     push cx
     push si
-    call font_width             ; AX = 8 * length
+    call KERNEL_SEG:cw_font_width ; AX = 8 * length
     mov cx, FD_BX2-FD_BX1+1
     sub cx, ax
     jns .pad                    ; a label wider than the button would make the
@@ -1058,7 +1074,7 @@ fdlg_blabel:
 ; in:  SI = window ptr; content already white-filled, gfx lock held
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
-fdlg_paint:
+fdlg_paint_x:
     push ax
     push bx
     push cx
@@ -1068,7 +1084,7 @@ fdlg_paint:
     push bp
 
     mov bx, si
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
     mov [fdlg_cx], ax
     mov [fdlg_cy], dx
 
@@ -1101,13 +1117,13 @@ fdlg_paint:
     mov cx, FD_LX2
     mov dx, FD_LY2
     call fdlg_off
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
 
     call fdlg_list_body
 
     ; --- the button column ---
     call fdlg_defbtn            ; Open / Save, greyed when it would refuse
-    call gfx_pen_live
+    call KERNEL_SEG:cw_gfx_pen_live
     mov si, fdlg_s_cancel
     mov bx, FD_BY1
     xor al, al
@@ -1143,7 +1159,7 @@ fdlg_paint:
     mov cx, FD_NBX2
     mov dx, FD_NBY2
     call fdlg_off
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
     call fdlg_name_body
 
     pop bp
@@ -1193,7 +1209,7 @@ fdlg_draw_name:
     mov cx, FD_NBX2-1
     mov dx, FD_NBY2-1
     call fdlg_off
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     call fdlg_name_body
     call fdlg_actok             ; typing the first character, or deleting the
     mov al, 0                   ; last one, makes the default button live or
@@ -1232,7 +1248,7 @@ fdlg_name_body:
     add bx, [fdlg_cy]
     mov dx, FD_NTY+7
     add dx, [fdlg_cy]
-    call gfx_vline              ; AX = x, BX = y1, DX = y2
+    call KERNEL_SEG:cw_gfx_vline ; AX = x, BX = y1, DX = y2
 .out:
     pop si
     pop dx
@@ -1257,7 +1273,7 @@ fdlg_draw_list:
     mov cx, FD_LX2-1
     mov dx, FD_LY2-1
     call fdlg_off
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     call fdlg_list_body
     pop dx
     pop cx
@@ -1341,11 +1357,11 @@ fdlg_draw_rows:
     mov dx, [fdlg_sizeh]
     push di
     mov di, fdlg_num
-    call fm_ultoa               ; the full dword (SPEC.md 19)
+    call fm_ultoa_x             ; the full dword (SPEC.md 19)
     pop di
     mov si, fdlg_num
 .right:
-    call font_width             ; AX = the string's width
+    call KERNEL_SEG:cw_font_width ; AX = the string's width
     mov cx, 196
     sub cx, ax                  ; right-aligned, clear of the scroll bar
     mov dx, bp
@@ -1407,7 +1423,7 @@ fdlg_sel_bar:
     mov ax, FD_LX1+1
     mov cx, FD_SBX-1
     call fdlg_off
-    call gfx_xor_fill
+    call KERNEL_SEG:cw_gfx_xor_fill
 .out:
     pop dx
     pop cx
@@ -1433,7 +1449,7 @@ fdlg_draw_sbar:
     mov cx, FD_LX2
     mov dx, FD_LY2
     call fdlg_off
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
 
     mov ax, FD_SBX              ; the two arrow-cell rules
     mov bx, FD_LX2
@@ -1472,7 +1488,7 @@ fdlg_draw_sbar:
     mov cx, FD_LX2-1
     mov dx, FD_TRKY2
     call fdlg_off
-    call gfx_fill_gray
+    call KERNEL_SEG:cw_gfx_fill_gray
 
     call fdlg_thumb             ; CF = 1: everything fits, no thumb
     jc .out
@@ -1483,9 +1499,9 @@ fdlg_draw_sbar:
     mov cx, FD_LX2-2
     call fdlg_off
     mov byte [gfx_color], CWHITE
-    call gfx_fill
+    call KERNEL_SEG:cw_gfx_fill
     mov byte [gfx_color], CBLACK
-    call gfx_frame
+    call KERNEL_SEG:cw_gfx_frame
 .out:
     pop bp
     pop dx
@@ -1506,7 +1522,7 @@ fdlg_hline:
     add ax, [fdlg_cx]
     add bx, [fdlg_cx]
     add dx, [fdlg_cy]
-    call gfx_hline
+    call KERNEL_SEG:cw_gfx_hline
     pop dx
     pop bx
     pop ax
@@ -1527,7 +1543,7 @@ fdlg_repaint:
     push cx
     push dx
     mov bx, si
-    call wm_content             ; AX = x1, DX = y1
+    call KERNEL_SEG:cw_wm_content ; AX = x1, DX = y1
     mov cx, [bx+W_X]
     add cx, [bx+W_W]
     sub cx, 2                   ; CX = x2
@@ -1537,8 +1553,8 @@ fdlg_repaint:
     sub dx, 2                   ; DX = y2
     pop bx                      ; BX = y1
     mov byte [gfx_color], CWHITE
-    call gfx_fill
-    call fdlg_paint             ; SI is still the window
+    call KERNEL_SEG:cw_gfx_fill
+    call fdlg_paint_x           ; SI is still the window
     pop dx
     pop cx
     pop bx
@@ -1589,7 +1605,7 @@ fdlg_act:
     call fdlg_newfolder         ; Enter finishes naming it, the same as
     jmp short .stay             ; clicking the button again does
 .refuse:
-    call snd_beep
+    call KERNEL_SEG:cw_snd_beep
 .stay:
     pop ax
     clc
@@ -1641,7 +1657,7 @@ fdlg_newfolder:
     cmp byte [fdlg_nlen], 0
     je .beep                    ; an empty name is not a folder name
     mov si, fdlg_name
-    call dskw_mkdir             ; CF=1 with AX = FERR_*; on success it has
+    call dskw_mkdir_x           ; CF=1 with AX = FERR_*; on success it has
     jc .beep                    ; already remounted (SPEC.md 18.5), so the
     mov si, fdlg_name           ; listing below is the fresh one
     call fdlg_findname          ; AX = its first cluster, CF=1 = not found
@@ -1652,7 +1668,7 @@ fdlg_newfolder:
     call fdlg_unfold
     jmp short .out
 .beep:
-    call snd_beep               ; refused (a bad name, a full disk, a
+    call KERNEL_SEG:cw_snd_beep ; refused (a bad name, a full disk, a
 .out:                           ; write-protected volume) - the same answer
     pop di                      ; every other refusal in this dialog gives.
     pop si                      ; SI first: the folder work above pointed it
@@ -1731,7 +1747,7 @@ fdlg_findname:
     push cx
     push bx
     mov ax, bx
-    call dsk_get_dir            ; SI -> the staged entry: name, then the type
+    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged entry: name, then the type
     cmp word [si+16], 2         ; word at +16 and the first cluster at +18
     jne .next                   ; (SPEC.md 19) - only a folder can match
     mov di, si
@@ -1741,7 +1757,7 @@ fdlg_findname:
     pop bx
     pop cx
     mov ax, bx
-    call dsk_get_dir
+    call KERNEL_SEG:cw_dsk_get_dir
     mov ax, [si+18]
     clc
     jmp short .out
@@ -1804,7 +1820,7 @@ fdlg_dive:
     push dx
     push si
     mov ax, [fdlg_sel]
-    call dsk_get_dir            ; SI -> the staged entry
+    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged entry
     mov ax, [si+18]             ; its first cluster (SPEC.md 19)
     pop si
     mov dl, [disk_drive]
@@ -1826,7 +1842,7 @@ fdlg_dive:
 ; goes through diskw.inc's own dskw_char, so the box shows exactly the bytes
 ; that will be stored - the SPEC.md 22 rule, for the same reason.
 ; -----------------------------------------------------------------------------
-fdlg_onkey:
+fdlg_onkey_x:
     push ax
     push bx
     push cx
@@ -1835,7 +1851,7 @@ fdlg_onkey:
 
     push ax                     ; the content origin the partial redraws
     mov bx, si                  ; below need. This proc used to get it for
-    call wm_content             ; free from fdlg_paint, which it no longer
+    call KERNEL_SEG:cw_wm_content ; free from fdlg_paint, which it no longer
     mov [fdlg_cx], ax           ; always reaches - and AX is the keystroke,
     mov [fdlg_cy], dx           ; which the ladder below still wants
     pop ax
@@ -1884,7 +1900,7 @@ fdlg_onkey:
     jc .out                     ; ...and may not carry a second one
     jmp short .store
 .plain:
-    call dskw_char              ; upper-cases, CF = 1 = not in the FAT set
+    call dskw_char_x            ; upper-cases, CF = 1 = not in the FAT set
     jc .out
 .store:
     call fdlg_nins              ; at the caret, which moves past it
@@ -2095,7 +2111,7 @@ fdlg_pick:
 ; order, and for the same reason: the bar overlaps the row band's right edge
 ; and has to win there.
 ; -----------------------------------------------------------------------------
-fdlg_onclick:
+fdlg_onclick_x:
     push ax
     push bx
     push cx
@@ -2105,7 +2121,7 @@ fdlg_onclick:
     mov bx, si
     push cx                     ; save the click x across wm_content
     mov cx, dx                  ; CX = click y
-    call wm_content             ; AX = content left, DX = content top
+    call KERNEL_SEG:cw_wm_content ; AX = content left, DX = content top
     mov [fdlg_cx], ax
     mov [fdlg_cy], dx
     sub cx, dx                  ; CX = content-relative y
@@ -2350,5 +2366,26 @@ fdlg_bdef:  resb 1              ; fdlg_btn: is this the default button?
 fdlg_actl:  resb 1              ; fdlg_actok's answer as last DRAWN, so a
                                 ; keystroke redraws the default button on the
                                 ; live/dead edge and not on every caret move
+
+section .text
+
+section .cold                   ; far entries (SPEC.md 2.6): the resident
+                                ; thunks in kernel.asm far-call these, and
+                                ; these near-call the bodies above - so every
+                                ; routine here keeps its ordinary near `ret`
+fdf_fdlg_grab:          call fdlg_grab_x
+                    retf
+fdf_fdlg_onclick:       call fdlg_onclick_x
+                    retf
+fdf_fdlg_onkey:         call fdlg_onkey_x
+                    retf
+fdf_fdlg_open:          call fdlg_open_x
+                    retf
+fdf_fdlg_paint:         call fdlg_paint_x
+                    retf
+fdf_fdlg_reap:          call fdlg_reap_x
+                    retf
+fdf_fdlg_top:           call fdlg_top_x
+                    retf
 
 section .text

@@ -669,3 +669,84 @@ a source edit.
 mechanism is worth reading before anyone touches a transfer loop again: the
 harness cannot see this class of bug at all, at any speed, because the
 difference is in the *BIOS* and not in the timing.
+
+---
+
+## 6. The cursor washes out to white while the mouse is moving (Hercules) (FIXED, awaiting field confirmation)
+
+**Observed.** On the 5150's Hercules card, moving the mouse around makes the
+arrow's white outline appear to come away from the black body — "the shadow
+desyncs from the pointer" — and, watched more closely, what it looks like is
+that the **whole cursor turns white** for an instant. Intermittent, only while
+moving, and it never persists: stop moving and the arrow is correct.
+
+**Long-standing, and newly visible.** It predates SPEC.md §7.1's cursor work.
+What changed is that the *other* cursor flicker went away: `gfx_lock` /
+`gfx_unlock` used to erase and redraw the arrow on every lock hold, including
+holds that drew nothing, and that blink masked this one. Fixing the loud
+problem exposed the quiet one — worth recording as a shape, because it is the
+second time in this file that a fix has revealed its neighbour.
+
+**Ruled out — it is NOT the white and black passes coming apart.** That was
+the first theory and it is measurably wrong on this adapter. On a 1bpp
+adapter `cur_put_mono` reads the byte under the arrow, ORs the outline in,
+ANDs the body out and writes it back **in one store** (§7.1), so the halo and
+the body reach the glass in the same bus cycle and cannot separate. It *was*
+two passes on VGA, and that has since been fused too — but the reporter is on
+Hercules, so that is not this.
+
+**Ruled out — the drawn cell is not wrong.** A checker reads the kernel's own
+`cur_save`, `cur_off`, `cur_rows`, `cur_b1ok` and the two bitmap tables out of
+guest RAM, reconstructs `(saved | white) & ~black`, and compares it against
+the framebuffer. Sixteen cursor positions — every shift 0..7, both screen
+edges, over glyphs, over the desktop dither and inside a window — all match
+exactly, and the row-0 address it derives independently agrees with
+`[cur_off]` every time.
+
+**Standing theory: it is the ERASE-then-DRAW gap, and what you are seeing is
+the background.** Moving the cursor is two separate framebuffer walks —
+`cur_get` puts the old cell's saved bytes back, then `cur_put` saves and draws
+at the new one — so between them the cell holds the *background*. Read back
+from the machine, that background is `ffff` on all twelve rows inside a window
+and `aaaa`/`5555` (the 50% dither) on the desktop. **A cell of `ffff` is a
+solid white blob exactly where the arrow was**, which is the symptom as
+reported.
+
+The timing fits. The pair is **5.41 icount PIT counts ≈ 568 guest
+instructions ≈ 1.3 ms** on a 4.77 MHz 8088 (PERFORMANCE.md Part 9 Set 7),
+against a **20 ms** Hercules frame — so the window is ~6.5% of a frame, on
+every mouse packet. At ~40 packets a second while moving, that is a couple of
+opportunities a second for the beam to scan that cell mid-update. "Sometimes",
+"only while moving", "never persists". A long-persistence monitor phosphor
+would smear it further toward white rather than showing a clean flash.
+
+**Fixed: a move writes every byte exactly once** (SPEC.md §7.1.2,
+`cur_move_mono`). The property that matters is not that the walk be a union —
+it is that no framebuffer byte be written twice. The two passes still walk the
+old cell and the new cell exactly as they did, and each byte is written once
+because **pass 1 skips the bytes pass 2 is going to write**, and **pass 2
+takes their background from the save buffer rather than from the screen**. So
+there is no union to bound and no gate: cells that do not overlap degenerate
+to the old behaviour on their own, because the skip never fires and the
+background always comes from the screen.
+
+It needs a second 24-byte save buffer, since pass 2 reads the old one while
+filling the new, and the two are swapped by pointer so nothing is copied. The
+`GFX_UNLOCK+LOCK pair` row is unmoved at 544 counts against 541 (0.6%, noise)
+— the move is a different path from the lock's, and the pair pays only the one
+extra indirection for the buffer pointer.
+
+**Verified the only way a save-under can be.** A dense walk — 37 moves with
+byte-column deltas of 0, ±1, ±2 and larger, in every shift phase, plus the
+right and bottom screen edges where the second byte and the lower rows are
+clipped away — then park the cursor back where it started and compare the
+whole screen: **0 differing pixels of 237,600**. A wrong background is
+permanent rather than transient, so a zero there means every one of those
+moves restored exactly. And the test has teeth: with pass 2's background
+source deliberately broken back to "always read the screen", the same walk
+leaves **98 permanent differing pixels**.
+
+What is NOT fixed is the planar path — VGA still moves erase-then-draw,
+because its save is four planes through Read Map Select and cannot take a
+background from a buffer. Its *draw* is one store now (§7.1), which was the
+larger of the two windows there.

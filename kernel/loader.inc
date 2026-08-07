@@ -23,6 +23,15 @@
 ;
 ; ld_run_body is structured as clusters with local error stubs (mov al /
 ; ret) because 8086 conditional jumps are short-range only.
+;
+; **This module is `.cold` (SPEC.md 2.6).** Its code has a CS of its own, so
+; a routine the kernel reaches from outside is a six-byte resident thunk in
+; kernel.asm under the PUBLIC name, and the body here carries an `_x` suffix;
+; calls that leave the cold set go out through `KERNEL_SEG:cw_*`. Two things
+; are on the author rather than the build: CS is NOT KERNEL_SEG here, so
+; nothing may take a kernel segment from it, and DATA stays in `.text` - the
+; section toggles below are that, and a `db`/`dw` added on the wrong side of
+; one is read at the wrong segment with no diagnostic at all.
 ; =============================================================================
 
 ; --- status codes stored in [ld_status] (SPEC.md 21) -------------------------
@@ -52,12 +61,19 @@ LD_H_DISP   equ PKG_DISP        ; 12: the three-byte dispatcher, IN the
                                 ; header - `call bp / retf`. Every kernel to
                                 ; package call goes through it (SPEC.md 20.1)
 LD_HDR_SIZE equ 0x20
+
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
+                                ; segment of its own, so it costs KERN_CODE_MAX
+                                ; nothing. DS is still KERNEL_SEG, so every data
+                                ; reference below is unchanged - but the DATA is
+                                ; not, and stays in .text at every toggle here
+
 ; -----------------------------------------------------------------------------
 ; loader_init - reset loader state
 ; in:  nothing
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
-loader_init:
+loader_init_x:
     mov word [ld_base], 0
     mov word [ld_pending], 0
     mov word [ld_pwin], 0
@@ -102,11 +118,11 @@ ld_slot:
 ld_unreserve:
     push bx
     call ld_slot
-    call mem_free_owner
+    call KERNEL_SEG:cw_mem_free_owner
     mov bx, [ld_base]
     or bx, bx
     jz .out
-    call mem_free_owner
+    call KERNEL_SEG:cw_mem_free_owner
     mov word [ld_base], 0
 .out:
     pop bx
@@ -214,7 +230,7 @@ ld_icon:
 ; the order safe - and [ld_pwin] is read before the sync too, so this stays
 ; true if the drain ever changes.
 ; -----------------------------------------------------------------------------
-loader_run:
+loader_run_x:
     push ax
     push bx
     push cx
@@ -229,18 +245,18 @@ loader_run:
     jz .body                    ; no poster (a package's own request): the
                                 ; globals are the only listing there is
     push ax
-    call fmv_sync               ; ...make the globals BE that listing
+    call fmv_sync_x             ; ...make the globals BE that listing
     pop ax
 .body:
     mov byte [ld_painted], 0
-    call ld_run_body            ; out: AL = LD_* status
+    call ld_run_body_x          ; out: AL = LD_* status
     mov [ld_status], al
     cmp byte [ld_painted], 0
     jne .painted                ; the success path published the status and
-    call files_refresh          ; drew the new window itself; all that is
+    call files_refresh_x        ; drew the new window itself; all that is
     jmp short .done             ; left is the poster's own status line, which
 .painted:                       ; still reads "Loading..."
-    call files_poster
+    call files_poster_x
 .done:
 
     pop es
@@ -268,11 +284,11 @@ loader_run:
 ; path leaves running instances untouched - the reserved record was never
 ; published, so it (and with it the region) is simply still free.
 ; -----------------------------------------------------------------------------
-ld_run_body:
+ld_run_body_x:
     ; --- 1. validate the directory entry --------------------------------------
     cmp ax, [disk_nfiles]
     jae .bad1                   ; index out of range
-    call dsk_get_dir            ; SI -> the entry, staged out of LOW_SEG into
+    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the entry, staged out of LOW_SEG into
                                 ; the kernel segment (SPEC.md 2.1)
     cmp word [si+LD_DE_TYPE], 1
     jne .bad1                   ; not an application package
@@ -302,7 +318,7 @@ ld_run_body:
     ; LOW_SEG, so the sector lands there and only the 32 header bytes are
     ; staged back into the kernel segment for ld_check_hdr to read.
 .peek:
-    call dsk_clus2lba           ; AX: cluster -> its first LBA; the first
+    call KERNEL_SEG:cw_dsk_clus2lba ; AX: cluster -> its first LBA; the first
     jc .bad1                    ; sector of the first cluster IS the file's
                                 ; first 512 bytes, so peek semantics are
                                 ; exact (SPEC.md 21 step 2)
@@ -310,14 +326,14 @@ ld_run_body:
     mov es, bx
     mov cx, 1
     mov bx, dsk_secbuf
-    call disk_read              ; in: AX=LBA, CX=1, ES:BX
+    call KERNEL_SEG:cw_disk_read              ; in: AX=LBA, CX=1, ES:BX
     jc .disk1
 
     ; --- 3. validate the peeked header -----------------------------------------
     mov si, dsk_secbuf
     mov di, ld_hdr
     mov cx, LD_HDR_SIZE
-    call dsk_copy_in            ; LOW_SEG:dsk_secbuf -> KERNEL_SEG:ld_hdr
+    call KERNEL_SEG:cw_dsk_copy_in ; LOW_SEG:dsk_secbuf -> KERNEL_SEG:ld_hdr
     mov si, ld_hdr
     call ld_check_hdr           ; fills ld_img/ld_bss/ld_ent;
     jc .ret1                    ; AL = LD_EBAD / LD_EBIG on failure
@@ -334,7 +350,7 @@ ld_run_body:
     mov [ld_need], ax
 
     ; --- 5. reserve an instance record + a pool region -------------------------
-    call inst_alloc             ; DI = record (unpublished: still free on
+    call KERNEL_SEG:cw_inst_alloc ; DI = record (unpublished: still free on
     jc .nomem                   ; any later failure)
     mov [ld_rec], di            ; banked in .bss, not in BP: BP carries the
                                 ; entry offset into the dispatcher below,
@@ -345,7 +361,7 @@ ld_run_body:
     shr ax, cl                  ; than to the 512 bytes int 13h needs - which
                                 ; mem_claim's own granularity then guarantees
     call ld_slot                ; BX = the owner word: this record's slot
-    call mem_claim_hi           ; from the TOP down, away from the data claims
+    call KERNEL_SEG:cw_mem_claim_hi ; from the TOP down, away from the data claims
     jc .nomem                   ; growing up from the bottom (SPEC.md 50.3)
     mov [ld_base], dx
     mov cl, 10                  ; I_SIZE is bytes, and it is what the region
@@ -373,7 +389,7 @@ ld_run_body:
     mov ax, [ld_clus]
     mov es, [ld_base]           ; the package's OWN segment, offset 0
     xor bx, bx
-    call dsk_read_chain         ; in: AX=cluster, DX=sectors, ES:BX -> dest.
+    call KERNEL_SEG:cw_dsk_read_chain ; in: AX=cluster, DX=sectors, ES:BX -> dest.
     jc .ret2                    ; on CF, AL is ALREADY the status: 1 =
                                 ; LD_EDISK (disk error), 2 = LD_EBAD (chain
                                 ; corrupt is bad data, not a disk error) -
@@ -382,13 +398,16 @@ ld_run_body:
     mov si, ld_hdr              ; re-check against the in-region header - the
     mov di, si                  ; disk could have been swapped between the
     push ds                     ; peek and the read. It lives in the package
-    push es                     ; segment now, so it is staged like any other
-    pop ds                      ; cross-segment read (SPEC.md 20.1)
+    push ds                     ; segment now, so it is staged like any other
+    push es                     ; cross-segment read (SPEC.md 20.1)
+    pop ds                      ; DS = the package's segment (the source)...
+    pop es                      ; ...and ES = KERNEL_SEG, off the stack. NOT
+                                ; out of CS: this module is .cold (SPEC.md
+                                ; 2.6), so CS is COLD_SEG and the staged copy
+                                ; would land in the middle of the cold code
     xor si, si
     push cx
     mov cx, LD_HDR_SIZE
-    push cs
-    pop es
     cld
     rep movsb
     pop cx
@@ -420,11 +439,14 @@ ld_run_body:
     mov word [ld_fp], PKG_DISP  ; UI-task-only and one load at a time
     mov bp, [ld_ent]
     push ds
-    push cs
-    pop es                      ; ES = KERNEL_SEG, per the callback contract
-    mov ds, ax                  ; DS = the package's own segment - and the
-    call far [cs:ld_fp]         ; far pointer is therefore read through CS,
-    pop ds                      ; the gfx_nextrow idiom of SPEC.md 39.3
+    push ds
+    pop es                      ; ES = KERNEL_SEG, per the callback contract -
+                                ; taken from DS while that still names the
+                                ; kernel, because this module is .cold and CS
+                                ; is COLD_SEG (SPEC.md 2.6)
+    mov ds, ax                  ; DS = the package's own segment - so the far
+    call far [es:ld_fp]         ; pointer is read through ES, the only
+    pop ds                      ; register still naming KERNEL_SEG here
     jc .abort
 
     ; --- 9. register + publish the instance, show the window ---------------------
@@ -450,10 +472,10 @@ ld_run_body:
     push es
     mov es, [ld_base]           ; the name field is in the package's image
     mov si, 16
-    call inst_set_name_x        ; ES:SI -> the 16-byte NUL-padded name
+    call KERNEL_SEG:cw_inst_set_name_x ; ES:SI -> the 16-byte NUL-padded name
     pop es
     call ld_icon                ; copy an embedded icon into kernel .bss
-    call inst_bind_win          ; DI = record, BX = window (from the entry)
+    call KERNEL_SEG:cw_inst_bind_win ; DI = record, BX = window (from the entry)
     mov byte [di+I_STATE], 1    ; publish - the LAST record write
     ; --- the status BEFORE the repaint, not after ---------------------------
     ; A Disk window's status line draws [ld_status] (SPEC.md 22), so the
@@ -462,9 +484,9 @@ ld_run_body:
     ; every successful launch, purely to correct one line of text.
     mov byte [ld_status], LD_OK
     mov byte [ld_painted], 1    ; ...and this pass IS the repaint
-    call gfx_lock
-    call wm_show                ; in: BX = window ptr; repaints all
-    call gfx_unlock
+    call KERNEL_SEG:cw_gfx_lock
+    call KERNEL_SEG:cw_wm_show  ; in: BX = window ptr; repaints all
+    call KERNEL_SEG:cw_gfx_unlock
     mov al, LD_OK
     ret
 
@@ -477,10 +499,10 @@ ld_run_body:
     ; stamped itself. BEFORE ld_unreserve, so no window outlives the region
     ; its procs live in - a survivor's repaint would far-call a freed claim.
     ; The reserved instance record was never published, so it needs nothing.
-    call gfx_lock
+    call KERNEL_SEG:cw_gfx_lock
     mov ax, [ld_base]
-    call wm_destroy_seg
-    call gfx_unlock
+    call KERNEL_SEG:cw_wm_destroy_seg
+    call KERNEL_SEG:cw_gfx_unlock
     mov di, [ld_rec]            ; the region, and anything the entry proc
     call ld_unreserve           ; claimed before it declared itself broken
     mov al, LD_EABORT
@@ -510,5 +532,18 @@ ld_hdr:     resb LD_HDR_SIZE    ; the peeked .o88 header, staged out of the
                                 ; LOW_SEG sector buffer for ld_check_hdr
 ld_rec:     resw 1              ; the reserved instance record
 ld_fp:      resw 2              ; far pointer to the package's dispatcher
+
+section .text
+
+section .cold                   ; far entries (SPEC.md 2.6): the resident
+                                ; thunks in kernel.asm far-call these, and
+                                ; these near-call the bodies above - so every
+                                ; routine here keeps its ordinary near `ret`
+ldf_ld_run_body:        call ld_run_body_x
+                    retf
+ldf_loader_init:        call loader_init_x
+                    retf
+ldf_loader_run:         call loader_run_x
+                    retf
 
 section .text
