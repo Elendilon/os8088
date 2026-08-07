@@ -52,6 +52,15 @@ SPL_RESIDENT equ 7              ; splash is fully aboard after this many
                                 ; sectors - must match kernel/splash.inc
 
 BPB_END      equ 62             ; where a DOS BPB stops and our code starts
+DPT_AT       equ 0x0580         ; 0000:0580 - where we put our copy of the
+                                ; diskette parameter table (SPEC.md 18.93).
+                                ; ABOVE the BIOS data area (which ends at
+                                ; 0x4FF) and clear of every documented use of
+                                ; the 0x500 page - print-screen status at
+                                ; 0x500, DOS's single-drive byte at 0x504,
+                                ; BASIC at 0x510 - and BELOW KERNEL_SEG, so
+                                ; nothing the kernel or its heap can ever
+                                ; claim reaches it and it needs no restoring
 
 ; -----------------------------------------------------------------------------
 ; The first 62 bytes are NOT ours. tools/os88disk.py writes a full FAT12 BPB
@@ -132,6 +141,40 @@ entry:
     mov dl, [boot_drive]
     int 0x13
 
+    ; --- take over the diskette parameter table (SPEC.md 18.92/18.93) -------
+    ; int 1Eh is a POINTER, not a handler: it names an 11-byte table the BIOS
+    ; re-reads on every floppy operation, and byte 4 of it is EOT - the last
+    ; sector number the FDC may touch on a track. The IBM PC and XT ROMs say
+    ; 8, from the 8-sector diskettes of DOS 1.x, and the BIOS issues READ with
+    ; the multi-track bit set, so a run reaching sector 9 does not stop - it
+    ; flips to the other head and returns ITS sectors, with CF=0 and the full
+    ; count. Every DOS since 1982 has replaced this table at boot.
+    ;
+    ; The machine's own table is COPIED and one byte patched: the step rate,
+    ; head load/unload, motor timings and gap lengths in it belong to these
+    ; drives and are not ours to guess. With EOT correct the track bound in
+    ; read_run IS the EOT bound, which is why that routine needs no test of
+    ; its own - and why a 9-sector track costs one command instead of two.
+    ;
+    ; No guard on the vector, deliberately: the BIOS read THIS SECTOR through
+    ; it, so a machine that could not use it is a machine that never got here.
+    push ds
+    push es
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov di, DPT_AT
+    lds si, [0x0078]            ; DS:SI = the BIOS's table
+    mov cx, 11
+    rep movsb                   ; ...ES:DI = ours
+    xor ax, ax
+    mov ds, ax
+    mov word [0x0078], DPT_AT   ; and the vector names it from here
+    mov [0x007A], ax
+    mov byte [es:DPT_AT + 4], SPT   ; EOT = this disk's sectors per track
+    pop es
+    pop ds
+
     ; --- copy KERNEL_SECTORS sectors, the kernel FILE, to KERNEL_SEG:0000 ---
     ; It starts at the first data cluster, so its LBA is where the data area
     ; begins and the BPB above says where that is:
@@ -144,10 +187,10 @@ entry:
     ; CONTIGUOUSLY (cluster 2 onward, never scrambled), which is what lets a
     ; flat run of reads stand in for walking its cluster chain in 512 bytes.
     ;
-    ; The destination segment advances one sector (0x20 paragraphs) per read
-    ; with BX held at zero, so the pointer can never wrap inside a segment,
-    ; and every transfer is 512 bytes at a 512-aligned linear address - which
-    ; is what keeps a single read from ever straddling a 64KB DMA boundary.
+    ; The destination segment advances 0x20 paragraphs per SECTOR with BX held
+    ; at zero, so the pointer can never wrap inside a segment and every
+    ; transfer starts at a 512-aligned linear address. A RUN can still cross a
+    ; 64KB DMA page, though, which is one of the four bounds read_run applies.
     mov al, [bpb_nfat]
     xor ah, ah
     mul word [bpb_fatsz]        ; AX = both FATs (DX is 0: 2 x 9 at the most)
@@ -159,44 +202,101 @@ entry:
     shr ax, cl
     add ax, bx
     mov [lba], ax
-    mov cx, KERNEL_SECTORS
+    mov word [left], KERNEL_SECTORS
 
 .load_next:
-    push cx
     mov es, [dest_seg]
     xor bx, bx
-    call read_sector
-    add word [dest_seg], 0x20
+    call read_run               ; AX = sectors this call actually moved
+    add [lba], ax
+    add [done], ax
+    sub [left], ax
+    mov cl, 5
+    shl ax, cl                  ; 0x20 paragraphs a sector...
+    add [dest_seg], ax          ; ...so the destination follows the run
 
-    inc word [done]             ; tick the splash once it is fully resident:
-    mov ax, [done]              ; AX = sectors done, DX = total (SPEC.md 15).
-    cmp ax, SPL_RESIDENT        ; Counted on its own, NOT from [lba] - that is
-    jb .no_tick                 ; an absolute LBA into the data area now, and
-    mov dx, KERNEL_SECTORS      ; it starts past SPL_RESIDENT on both
-    call KERNEL_SEG:SPLASH_OFF  ; geometries, so the splash would be called
-.no_tick:                       ; before a byte of it had landed.
-
-    inc word [lba]
-    pop cx
-    loop .load_next
+    mov ax, [done]              ; tick the splash once it is fully resident:
+    cmp ax, SPL_RESIDENT        ; AX = sectors done, DX = total (SPEC.md 15).
+    jb .no_tick                 ; Counted on its own, NOT from [lba] - that is
+    mov dx, KERNEL_SECTORS      ; an absolute LBA into the data area now, and
+    call KERNEL_SEG:SPLASH_OFF  ; it starts past SPL_RESIDENT on both
+.no_tick:                       ; geometries, so the splash would be called
+                                ; before a byte of it had landed. ONE call a
+                                ; run, not one a sector: the bar is an
+                                ; absolute position, so it needs no repeats
+    cmp word [left], 0
+    jne .load_next
 
     ; --- hand off ------------------------------------------------------------
     mov dl, [boot_drive]        ; kernel may want to know the boot drive
     jmp KERNEL_SEG:0x0000
 
 ; -----------------------------------------------------------------------------
-; read_sector - read the sector in [lba] to ES:BX. Retries three times,
-;               resetting the controller between attempts, because floppy
-;               reads fail spuriously often enough to matter.
-; clobbers: ax, cx, dx, di
+; read_run - read as many sectors from [lba] to ES:0000 as one int 13h may
+;            carry (SPEC.md 18.93). Retries three times, resetting the
+;            controller between attempts, because floppy reads fail
+;            spuriously often enough to matter.
+; in:  ES = destination segment, [left] = sectors still wanted
+; out: AX = sectors actually transferred, 1..run
+; clobbers: ax, bx, cx, dx, si, di
+;
+; This used to be read_sector, AL=1, and on a real drive that costs a whole
+; REVOLUTION per sector: by the time the next command reaches the controller
+; the sector after it has already passed the head. 131 sectors at 238ms
+; (PERFORMANCE.md) is over thirty seconds of the boot, and it is the single
+; largest cost in it.
+;
+; A run stops at the first of three bounds, and the third is the one that is
+; easy not to think of:
+;   1. the end of the track - a CHS call must not cross one, and since entry
+;      set the diskette parameter table's EOT to SPT (SPEC.md 18.92/18.93)
+;      this is the FDC's bound too, so there is no separate test for it
+;   2. the sectors still wanted
+;   3. the 64KB DMA page - a single 512-aligned sector cannot cross one, a
+;      run can, and the controller answers a straddle with error 09h
 ; -----------------------------------------------------------------------------
-read_sector:
-    mov di, 3
+read_run:
+    ; --- 1 and 2: the track, and what is left to read -----------------------
+    ; The track bound is ALSO the EOT bound: entry above set the table's EOT
+    ; to SPT, so the FDC stops exactly where a CHS call had to anyway.
+    mov ax, [lba]
+    xor dx, dx
+    mov bx, SPT
+    div bx                      ; DX = sector - 1, its index in the track
+    mov di, SPT
+    sub di, dx                  ; DI = sectors to the end of this track
+    cmp di, [left]
+    jbe .page
+    mov di, [left]
+
+    ; --- 3: the 64KB DMA page ----------------------------------------------
+.page:
+    mov ax, es
+    mov cl, 4
+    shl ax, cl                  ; the low 16 bits of the physical address
+    neg ax                      ; bytes to the page end (0 = a whole page)
+    jz .have
+    mov cl, 9
+    shr ax, cl
+    cmp ax, di
+    jae .have
+    or ax, ax
+    jz .one                     ; unreachable from a 512-aligned base, which
+    mov di, ax                  ; every destination here is
+    jmp short .have
+.one:
+    mov di, 1
+.have:
+%ifdef FLOPPY_ONE
+    mov di, 1                   ; FLOPPY1=1: one sector a call, the transfer
+%endif                          ; as it was before any of this
+    mov [run], di
+    mov si, 3                   ; attempts
 
 .attempt:
-    ; LBA -> CHS.  sector = lba % SPT + 1, head = (lba / SPT) % HEADS,
-    ;              cylinder = (lba / SPT) / HEADS
-    push bx
+    ; LBA -> CHS, rebuilt every attempt because a controller reset owes us
+    ; nothing.  sector = lba % SPT + 1, head = (lba / SPT) % HEADS,
+    ;                                cylinder = (lba / SPT) / HEADS
     mov ax, [lba]
     xor dx, dx
     mov bx, SPT
@@ -208,17 +308,17 @@ read_sector:
     div bx
     mov ch, al                  ; CH = cylinder (low 8 bits; we never exceed 255)
     mov dh, dl                  ; DH = head
-    pop bx
-
+    xor bx, bx                  ; ES:BX - the offset is always zero
     mov dl, [boot_drive]
-    mov ax, 0x0201              ; AH=02 read, AL=1 sector
+    mov ax, [run]               ; AL = the run...
+    mov ah, 0x02                ; ...AH = 02 read
     int 0x13
     jnc .done
 
     xor ah, ah                  ; reset and try again
     mov dl, [boot_drive]
     int 0x13
-    dec di
+    dec si
     jnz .attempt
 
     mov si, msg_err
@@ -229,6 +329,15 @@ read_sector:
     jmp .halt
 
 .done:
+    xor ah, ah                  ; AL = what the BIOS says it MOVED, which is
+    or al, al                   ; not always what was asked for; 0 with CF=0
+    jnz .clamp                  ; is trusted for one, so the loop progresses
+    inc ax
+.clamp:
+    cmp ax, [run]
+    jbe .out
+    mov ax, [run]               ; ...and never believe more than was asked
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -256,6 +365,8 @@ print:
 boot_drive  db 0
 lba         dw 0
 done        dw 0
+left        dw 0
+run         dw 0
 dest_seg    dw KERNEL_SEG
 
 msg_err     db 'os8088: disk error', 13, 10, 0

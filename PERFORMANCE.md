@@ -894,6 +894,15 @@ seconds**. And a per-track batch — nine sectors per revolution instead of one
 — is worth about **9x on every load in the system**, which is the largest
 single number in this document.
 
+**Both loops have since taken it** — `dsk_xfer` in SPEC.md §18.91 and the boot
+sector in §18.93 — and the prediction held, but only after a detour worth
+recording: the IBM ROM's diskette parameter table says the FDC may not pass
+**sector 8** (§18.92), so until both loops installed a table of their own, a
+9-sector track cost two commands rather than one. Simulated exactly on the
+131-sector kernel, the boot read is **131 int 13h calls → 16 (8.2x)**, so
+roughly 31 s → 4–5 s. Honouring the ROM's EOT instead gave 30 calls and
+6–9 s, which is what an 8-sector ceiling on a 9-sector track is worth.
+
 #### The kernel's own interrupts cost 1–3%
 
 The same 800-iteration workload, timed with the `cli` window excluding every

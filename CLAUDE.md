@@ -175,6 +175,49 @@ make test RTC=ns       # the MM58167 probe against a machine that has none -
 `RTC=` shares `VIDEO=`'s stamp file, so changing it rebuilds the kernel; the
 shipped images are always built without either.
 
+A fourth takes the floppy transfer back to one sector per int 13h (SPEC.md
+§18.91/§18.92) — the A/B for a class of bug **only real hardware can judge**:
+
+```
+make FLOPPY1=1         # AL=1 again, in BOTH transfer loops
+```
+
+**The boot sector batches too, and that is where the boot time is** (SPEC.md
+§18.93). It read `AL = 1` — 131 sectors, one int 13h each, at PERFORMANCE.md's
+measured **238 ms per sector**, so **over thirty seconds** of every boot, which
+is the largest single cost in it. It installs §18.92's table too, into
+**`0000:0580`** — above the BIOS data area and *below* `KERNEL_SEG`, so no heap
+claim can reach it and nothing needs restoring at handoff — and with EOT = SPT
+the **track bound IS the EOT bound**, so `read_run` needs no test of its own
+and came out smaller than the version that read the ROM's EOT every call. It
+stops at the track, the sectors wanted and the 64KB DMA page; simulated
+exactly, the 131-sector kernel is **10 calls on 1.44MB and 16 on 360KB (8.2x)**,
+so roughly 31 s becomes 4–5 s. Honouring the ROM's EOT instead gives 30 calls
+and 6–9 s, because a 9-sector track then costs eight sectors and then the ninth
+alone. The splash is ticked **once per run** — `spl_tick` takes an absolute
+position, so the bar's arithmetic is untouched and only the repaints drop,
+which is itself worth seconds on the target.
+
+**A multi-sector floppy read is judged by the BIOS, not by the emulator.**
+int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4
+is **EOT**, and the IBM PC/XT ROM ships **EOT = 8** — a DOS 1.x number every
+DOS overwrites at boot. A *single*-sector transfer never consults it, so it
+was inert here for years; the BIOS issues READ DATA with the **multi-track
+bit set**, so once §18.91 started batching, a run reaching sector 9 of a
+9-sector track flipped to the other head and returned **head 1's sector 1**
+— `CF = 0`, full count, wrong bytes. Every package loaded with correct
+opening sectors, validated its header, drew its window and hard-froze on the
+substituted code. SeaBIOS never reads the table, so QEMU cannot show any of
+it, and the boot sector reads `AL = 1`, so the batching was the only
+multi-sector int 13h in the system. `dsk_dpt_init` owns the table now
+(copied from the ROM's and patched, because the other ten bytes are *this*
+machine's drive timings) and `dsk_xfer` writes EOT = `[disk_spt]` before
+every call. **The wrong diagnosis is worth knowing too**: a real BIOS *can*
+return a short count where SeaBIOS never does, that fix is right and is
+kept, and it changed nothing — a short read is the BIOS telling you it moved
+less than you asked, and what was happening was the BIOS moving exactly what
+it promised out of the wrong place. docs/FIELD-NOTES.md note 5.
+
 `VIDEO=` is tracked by a stamp file, so changing it rebuilds the kernel — without that,
 make sees an up-to-date `kernel.bin`, boots the previous adapter, and it reads exactly
 like the probe being broken.

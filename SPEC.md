@@ -4574,12 +4574,16 @@ another for the remainder, which is self-healing and correct on any BIOS.
 
 This is the one part of §18.91 **QEMU structurally cannot test**: SeaBIOS
 always returns the full count, so an implementation that advances by the
-*request* passes every emulated run and fails on iron. It did: packages loaded
-with a hole and a shifted tail, their first sector intact — so the header
-validated, the load "succeeded", and the machine hard-froze when the package's
-code was reached, which reads as "launching apps freezes" and not as a disk
-fault at all. A count of 0 with CF=0 is trusted for one sector rather than
-refused, so the loop always makes progress.
+*request* passes every emulated run. A count of 0 with CF=0 is trusted for one
+sector rather than refused, so the loop always makes progress.
+
+It is kept because it is **correct**, and it is worth recording that it was
+also the **wrong diagnosis**. Batching hard-froze a real machine on every
+package launch; the short read was the first theory, it was written, and it
+changed nothing. §18.92 is what the machine was actually doing, and the
+difference between the two is a useful shape: a short read is the BIOS
+*telling* you it moved less than you asked, and what was really happening was
+the BIOS moving exactly the count it promised, out of the wrong place.
 
 **The retry unit is the run, and it degrades to the sector.** Three attempts
 with a controller reset between, exactly as before — but a run that still
@@ -4588,6 +4592,128 @@ single bad sector costs its own 512 bytes and not the eight good ones beside
 it. Losing that would trade speed for data recovery on ageing media, which is
 the wrong trade on the machines this targets. Write-protect (03h) still fails
 immediately at any run length: retrying cannot help.
+
+### 18.92 The diskette parameter table is OURS, and EOT is why
+
+**int 1Eh is not an interrupt.** It is a far pointer to an 11-byte table the
+BIOS re-reads on every floppy operation, and byte 4 of it is **EOT — the last
+sector number the FDC may touch on a track**. The IBM PC and XT ROMs ship
+**EOT = 8**, from the 8-sector diskettes of DOS 1.x, and every DOS since has
+replaced the table at boot for exactly this reason. os8088 did not, and for
+years nothing noticed, because **a single-sector transfer never consults it**:
+the DMA controller's terminal count arrives after 512 bytes and the command
+ends before the FDC has to decide whether to continue.
+
+§18.91 made that decision matter. The BIOS issues READ DATA with the
+**multi-track bit set** (the command byte is E6h), so when the FDC finishes
+the sector whose number equals EOT it does not stop — **it flips to the other
+head and carries on from sector 1**. On a 9-sector track with EOT = 8, a run
+covering sectors 8 and 9 therefore reads head 0's sector 8 and then **head 1's
+sector 1**, and reports `CF = 0` with the full count. No error, no short read,
+no way for the caller to know.
+
+That is the failure: a package image with correct opening sectors and the
+wrong bytes in the middle, so `ld_check_hdr` passes, the load "succeeds", the
+window draws, and the machine hard-freezes the moment execution reaches the
+substituted region. Every package did it — Note Pad, Paint, Tracker, the Task
+Manager. It is invisible under QEMU because **SeaBIOS never reads the table**,
+and it is invisible on the boot path because `boot/boot.asm` reads `AL = 1`,
+so the batching introduced the only multi-sector int 13h in the system.
+
+`dsk_dpt_init` runs once from `kmain`, before any transfer, and `dsk_xfer`
+writes `[dsk_dpt+4] = [disk_spt]` before **every** int 13h — the table is one
+and the mounted volume is not.
+
+Three things about it are load-bearing:
+
+- **The table is COPIED from the ROM's and patched, not replaced.** The other
+  ten bytes are the step rate, head load/unload, motor timings and gap lengths
+  of *this machine's* drives, and a Tandon TM100 is not a place to substitute
+  guesses. Only a machine with a null vector falls back to the values in
+  `dsk_dpt`.
+- **It lives in `.text`, not `.bss`.** `-f bin` zeroes nothing, the BIOS reads
+  it on every operation, and the fallback values have to be real ones — the
+  `dsk_fatw0` precedent (§18.8.1).
+- **The vector is written under `cli`.** It is two words, and an interrupt
+  between them hands the BIOS half an address.
+
+**`FLOPPY1=1`** is the A/B: it forces `AL = 1` and changes nothing else, so
+the batching can be taken out of the picture on real hardware without a source
+edit. Measured under QEMU, entering `APPS/` is **12 sectors in 4 int 13h
+calls** with the batching and 12 in 12 with the knob.
+
+**Field-confirmed.** Reported fixed on PCem — a real BIOS and period timing —
+with the batching on. `FLOPPY1=1` remains the bracket for the next time
+something in this area is in doubt.
+
+### 18.93 The boot sector batches too, and it is the largest single win
+
+`boot/boot.asm` read `AL = 1`. 131 sectors, one int 13h each, at
+PERFORMANCE.md's measured **238 ms per sector** — **over thirty seconds**, and
+the single largest cost in the boot of the machine this targets. PERFORMANCE.md
+already named the fix and priced it at "about 9x on every load in the system,
+which is the largest single number in this document"; §18.91 took it for the
+kernel's transfers and this takes it for the one that runs first.
+
+**The boot sector installs §18.92's table too**, before its first read, and
+that turned out to be the cheap way rather than the expensive one: with EOT =
+SPT the **track bound IS the EOT bound**, so `read_run` needs no test of its
+own and the routine came out *smaller* than the version that read the ROM's
+EOT every call. It stops at the first of three bounds — the track (which is
+now also the FDC's), the sectors still wanted, and the 64KB DMA page.
+
+The table's home is **`0000:0580`**, and that is what makes it free. Above the
+BIOS data area (which ends at 0x4FF) and clear of every documented use of the
+0x500 page — print-screen status at 0x500, DOS's single-drive byte at 0x504,
+BASIC at 0x510 — and **below `KERNEL_SEG`**, so no heap claim can ever reach
+it and nothing has to be restored at handoff. The first design put it in the
+boot sector's own relocated image at linear 0x15000, which is *above* the
+kernel and therefore inside the heap, and would have made "`dsk_dpt_init` runs
+before `mem_init`" load-bearing across two files. `dsk_dpt_init` still
+re-homes the vector into the kernel's own segment, but as belt and braces
+rather than as an invariant.
+
+There is **no guard on the vector**, deliberately: the BIOS read the boot
+sector through it, so a machine that could not use it never got here.
+
+Simulating the splitter exactly, for a 131-sector kernel:
+
+| geometry | EOT | int 13h calls | runs |
+|---|---|---|---|
+| 1.44MB | 18 | **10** | 3, 18×6, 14, 4, 2 |
+| 360KB (the field machine) | 9 | **16** | 6, then 9 a track, 2, 6 |
+| 360KB, honouring an IBM ROM's 8 | 8 | 30 | 5, 1, then 8, 1 a track |
+
+**8.2x on the machine this targets**, and roughly 31 s becomes 4–5 s. The
+third row is what the previous version did, and its shape is why the table was
+worth installing: a 9-sector track cost two commands, eight sectors and then
+the ninth alone, because the ROM says the FDC may not pass sector 8.
+
+Two smaller things fell out:
+
+- **The splash is ticked once per RUN, not once per sector.** `spl_tick` takes
+  an *absolute* position (`mov [spl_done], ax`), so the bar's arithmetic is
+  untouched and only the number of repaints drops — and a repaint is real
+  drawing on the target, so ~131 of them becoming ~30 is itself worth seconds.
+  Ticking per sector inside a run would be *worse* than either: the frames
+  would burst through with no time between them and then freeze for a whole
+  run.
+- **The destination still advances by SEGMENT**, 0x20 paragraphs a sector with
+  BX held at 0, so every run starts 512-aligned and the page bound is the only
+  buffer arithmetic needed.
+
+**`FLOPPY1=1` covers this too** — one knob, both transfer loops, since it is
+the same question in both places.
+
+Verified the only way a read path can be: the loaded kernel was dumped out of
+guest RAM and compared against `build/kernel.bin`. Across `.text`, **73
+differing bytes of 57,088 on 1.44MB and 71 on 360KB, longest contiguous run 8
+bytes** — the `.text`-resident variables the kernel writes at run time, one
+cluster of which is `dsk_vtab` and `dsk_dpt` themselves. A misplaced run would
+show as ~512 differing bytes in one block, and there is no such block. The
+same two figures came back byte for byte before and after the table install,
+which is the check that the wider runs changed the number of commands and
+nothing else.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
