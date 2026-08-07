@@ -37,6 +37,12 @@ Optional: **gitleaks** (the pre-commit hook wants it), **gdb** (for
 ### macOS
 
 ```
+tools/setup-macos.sh               # all of the below, plus the 86Box ROMs
+```
+
+...or by hand:
+
+```
 brew install nasm qemu python3
 brew install gitleaks              # optional but recommended
 brew install --cask 86box          # optional, only for `make xt`
@@ -44,16 +50,28 @@ brew install --cask 86box          # optional, only for `make xt`
 
 Xcode Command Line Tools supply `make` and `git` (`xcode-select --install`).
 
+Both spellings work on Apple Silicon and on Intel, and neither wants Rosetta:
+Homebrew's qemu is a native arm64 binary that *emulates* x86, and 86Box ships
+a universal build. What the script does that the three `brew` lines do not is
+**check the nasm version** (below) and **install the 86Box ROM set**, which is
+the step that is easiest to miss — 86Box ships with no ROMs at all, so without
+them it launches fine and then every machine in `vm/` fails at the BIOS.
+`tools/setup-macos.sh --dry-run` prints what it would do and changes nothing;
+`--roms-only` does just the ROM half, for a 86Box installed some other way.
+
 Apple's linker only speaks Mach-O, which is part of why this project uses
 `nasm -f bin` and no linker at all — so there is nothing else to install.
 
-**nasm must be 3.0 or newer.** `kernel/farcall.inc` and `kernel/taskmgr.inc`
-spell their far jumps `call far SEG:OFF` / `jmp far SEG:OFF`, and every nasm
-2.x — 2.11 through 2.16.03 — rejects that form with *mismatch in operand
-sizes*; 3.01 accepts it and encodes the 9A/EA you expect. Verified: a clean
-`make` under 3.01 reproduces the committed `build/kernel.bin` byte for byte.
-If your distribution only has 2.16, the deb from Ubuntu's universe pool
-(`pool/universe/n/nasm/nasm_3.01-1_amd64.deb`) installs standalone.
+**nasm 2.16 is enough here, and that is a difference from `main`.** The 3.0
+floor exists for one construct — `call far SEG:OFF` / `jmp far SEG:OFF` as an
+*immediate*, which every nasm 2.11 through 2.16.03 rejects with *mismatch in
+operand sizes* — and this branch has none of it: SPEC.md §33 retired far code
+along with `kernel/farcall.inc`, and SPEC.md §28 moved the Task Manager out to
+`apps/taskmgr`, and those two files were where the form lived. Every far call
+left is memory-indirect (`call far [bx+DRVR_DISP]`), which 2.x has always
+taken. Verified: a clean `make` under 2.16.01 assembles the whole tree with
+zero warnings and reproduces every artifact this branch used to ship, byte for
+byte. Homebrew's nasm is 3.x and is fine too; nothing here needs it.
 
 ### Linux
 
