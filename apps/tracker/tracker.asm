@@ -1398,6 +1398,15 @@ trk_play:
     mov word [mp_stampbase], 0      ; here, so the stamp history does too -
     call mp_stclear                 ; seeded with row 0, which mp_start has
                                     ; already read but nothing has mixed yet
+    mov word [tui_lcons], 0         ; ...and so does tui_playpos's estimate
+    mov word [tui_play], 0          ; (SPEC.md 45.15.1), which is anchored on
+    mov word [tui_cstep], TRK_HALF  ; those same counters. The step is the
+    call OSAPI_GET_TICKS            ; kernel's fill unit until the card has
+    mov [tui_ct0], ax               ; been seen to take one
+    mov ax, [mp_mixrate]            ; bytes per system tick: rate / 18.2065,
+    mov dx, 3600                    ; and 3600/65536 is that to 0.011% - so
+    mul dx                          ; the product's HIGH word is the answer
+    mov [tui_bpt], dx               ; and no division is needed at all
     mov cx, TRK_PREROLL             ; stage the cushion before the open, so
 .pre:                               ; the stream starts TRK_PREROLL halves
     call trk_mix_stage              ; ahead of the DSP instead of two

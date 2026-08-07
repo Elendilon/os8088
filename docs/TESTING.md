@@ -336,6 +336,9 @@ stamps between the two, i.e. the same lead counted in ROWS: it should sit near
 `1.19 x BPM / speed` (22 at the default tempo) and pinning at 63 means the
 stamp ring lapped. **FX DX** are the longest single drawing frame and feed
 pass in that tick, in ticks, where 00 is the healthy answer for both.
+**PLAY** is `CONS` interpolated between block IRQs (SPEC.md §45.15.1):
+`PLAY - CONS` should stay between roughly zero and one block, and `AR`
+advancing one row at a time rather than three is what it buys.
 
 That set earned itself on its first run: `SD` pinned at 63 with `AR` frozen
 for a hundred ticks and then jumping 44 rows, twice a capture, exactly when

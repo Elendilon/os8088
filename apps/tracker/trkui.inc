@@ -1543,6 +1543,7 @@ tui_hdr:
 tui_sync:
     push ax
     push bx
+    push dx
     push si
     cmp byte [trk_sopen], 0
     je .live
@@ -1552,7 +1553,7 @@ tui_sync:
     cmp byte [tlog_nosync], 0       ; Y: back on the mixer, to A/B this
     jne .live                       ; against the card (tests/trklog.inc)
 %endif
-    mov ax, [trk_consumed]
+    call tui_playpos                ; AX = where the card is, INTERPOLATED
     call mp_at_pos                  ; SI = the stamp being heard
     mov al, [si + MP_SP_SPOS]
     mov [tui_apos], al
@@ -1586,8 +1587,83 @@ tui_sync:
     mov [tui_avol + 2], ax
 .out:
     pop si
+    pop dx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tui_playpos - out AX = the stream byte the card is playing NOW (SPEC.md
+;               45.15.1), interpolated between block interrupts
+;
+; [trk_consumed] is the truth and it is COARSE: the driver advances it one
+; whole DMA half per block IRQ, which at XT mode's 5,500 Hz is 2,048 bytes -
+; 372 ms, ~6.8 system ticks, about three rows. Following it raw makes the grid
+; stand still for a third of a second and then jump three rows, measured
+; exactly so in a SPEC.md 45.14 capture: the longest run of ticks with the
+; screen row unchanged was 7 whatever the frame rate.
+;
+; So between blocks the position is ESTIMATED from elapsed ticks at the
+; stream's own byte rate, and two properties make that safe rather than
+; merely smoother:
+;
+;   CLAMPED. The estimate never runs past one whole block beyond the last
+;   reported position, so a late or missing block IRQ costs a pause, never a
+;   row the card has not reached. [tui_cstep] is the step the card was last
+;   OBSERVED to take rather than an assumed 2,048, because above 22 kHz the
+;   kernel plays 4KB halves (SPEC.md 34.5).
+;
+;   MONOTONE, and this is the load-bearing one. [tui_play] is the last answer
+;   given and the estimate can never go below it. Without that, any
+;   disagreement between the estimate and the next real block - a rate that
+;   is a hair fast, a block that arrives early - moves the answer BACKWARDS,
+;   and a scroll that jumps back a row reads far worse than one that steps.
+; -----------------------------------------------------------------------------
+tui_playpos:
+    push bx
+    push cx
+    push dx
+    call OSAPI_GET_TICKS
+    mov cx, ax                      ; CX = now, asked once
+    mov ax, [trk_consumed]
+    cmp ax, [tui_lcons]
+    je .est
+    mov bx, ax                      ; a new block: re-anchor on the truth and
+    sub bx, [tui_lcons]             ; learn the step it moved by (wrap-safe)
+    or bx, bx
+    jz .anchor
+    cmp bx, 8192                    ; ...ignoring an implausible one, which is
+    ja .anchor                      ; a restart rather than a block
+    mov [tui_cstep], bx
+.anchor:
+    mov [tui_lcons], ax
+    mov [tui_ct0], cx
+.est:
+    sub cx, [tui_ct0]               ; CX = ticks since that block landed
+    push ax
+    mov ax, cx
+    mul word [tui_bpt]              ; DX:AX = bytes the card has played since
+    or dx, dx                       ; ...capped at one whole block, so a late
+    jnz .cap                        ; IRQ pauses the display and never runs
+    cmp ax, [tui_cstep]             ; it past what has actually been played
+    jb .add
+.cap:
+    mov ax, [tui_cstep]
+.add:
+    mov bx, ax
+    pop ax
+    add ax, bx                      ; AX = the interpolated position
+    mov bx, ax                      ; ...and it may never go backwards
+    sub bx, [tui_play]              ; (wrap-safe: the sign decides)
+    jns .keep
+    mov ax, [tui_play]
+    jmp short .out
+.keep:
+    mov [tui_play], ax
+.out:
+    pop dx
+    pop cx
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2743,6 +2819,13 @@ tui_ab5:     db 'Any key closes', 0
     TRKB tui_abpm                   ; tempo...
     TRKB tui_aspd                   ; ...and ticks per row, as they were heard
     TRKBUF tui_avol, 4              ; the channel volumes the needles show
+
+; --- tui_playpos's interpolation between block IRQs (SPEC.md 45.15.1) ---------
+    TRKW tui_bpt                    ; stream bytes per system tick
+    TRKW tui_lcons                  ; the reported position it is anchored to
+    TRKW tui_ct0                    ; ...and the tick that anchor landed on
+    TRKW tui_cstep                  ; the step the card was last seen to take
+    TRKW tui_play                   ; the last answer given: never goes back
     TRKB tui_band                   ; tui_row1: drawing the band row
     TRKB tui_chn                    ; shared small loop counter
     TRKB tui_lplay                  ; last seen [mp_playing], for the 8088

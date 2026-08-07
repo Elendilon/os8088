@@ -91,7 +91,7 @@ TLOG_RECS   equ 512                 ; 28 s of RING at one record per tick -
                                     ; actually spare (SPEC.md 50.3)
 TLOG_RSZ    equ 32                  ; a power of two so the index is 5 shifts
 TLOG_KB     equ (TLOG_RECS * TLOG_RSZ + 1023) / 1024
-TLOG_LINE   equ 58                  ; 56 columns + CR LF
+TLOG_LINE   equ 64                  ; 61 columns + CR LF
 TLOG_TXTKB  equ (TLOG_RECS * TLOG_LINE + 1024 + 1023) / 1024
 
 TLOGF_REBUILD equ 1
@@ -120,6 +120,7 @@ TLR_APAT  equ 16                    ; ...and its pattern
 TLR_SDEP  equ 17                    ; stamps between the card and the mixer
 TLR_FRMX  equ 18                    ; longest single frame this tick, in ticks
 TLR_FDMX  equ 19                    ; ...and longest single feed pass
+TLR_PLAY  equ 20                    ; w: the INTERPOLATED play position
 
 ; -----------------------------------------------------------------------------
 ; tlog_key - D: arm or disarm. Arming claims the record buffer, disarming
@@ -402,6 +403,8 @@ tlog_tick:
     mov [es:di + TLR_FRMX], al
     mov al, [tlog_fdmx]
     mov [es:di + TLR_FDMX], al
+    mov ax, [tui_play]              ; what tui_playpos answered (45.15.1):
+    mov [es:di + TLR_PLAY], ax      ; PL - CONS is the interpolation itself
     mov byte [tlog_frames], 0
     mov byte [tlog_feeds], 0
     mov byte [tlog_flags], 0
@@ -523,6 +526,8 @@ tlog_save:
     mov si, tlog_s_h6
     call tlog_emit
     mov si, tlog_s_h7
+    call tlog_emit
+    mov si, tlog_s_h8
     call tlog_emit
     call tlog_hdr_clk               ; the frame clock the probe chose, which
     mov si, tlog_line               ; is constant for the bracket and so has
@@ -654,6 +659,8 @@ tlog_fmt:
     inc bx
     cmp bx, TLR_FDMX
     jbe .b
+    mov ax, [es:si + TLR_PLAY]      ; ...and the interpolated position last,
+    call tlog_hex4                  ; so the byte columns stay where they were
     dec di                          ; drop the trailing space
     mov byte [di], 0
     pop es
@@ -723,9 +730,10 @@ tlog_s_mark:    db 'MARK', 0
 tlog_s_h1:      db 'os8088 tracker log - one record per system tick (18.2065 Hz)', 0
 tlog_s_h2:      db 'CONS advances one 2048-byte half per block IRQ; TOTL-CONS is the ring lead', 0
 tlog_s_h3:      db 'FL bits: 1 rebuild  2 step  4 blit  8 stream opened  10 LISTENER MARK', 0
-tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP AR AP SD FX DX', 0
+tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP AR AP SD FX DX PLAY', 0
 tlog_s_h5:      db 'AR/AP is what the SCREEN showed; SD is the card-to-mixer lead in ROWS', 0
 tlog_s_h6:      db 'FX/DX: longest single frame / feed pass in that tick, IN TICKS (00 = ok)', 0
+tlog_s_h8:      db 'PLAY is CONS interpolated between block IRQs; PLAY-CONS <= one block', 0
 tlog_s_h7:      db 'FL 20 = Y pressed (display on the mixer), 40 = T pressed (tick clock)', 0
 tlog_s_clk:     db 'clock: ', 0
 tlog_s_tick:    db 'tick', 0

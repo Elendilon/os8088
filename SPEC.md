@@ -14248,6 +14248,43 @@ Seven things are load-bearing:
   capture, in the two columns added for the purpose: `SD` pinned at 63 and
   `AR` standing still while `CONS` advanced.
 
+#### 45.15.1 …and it is interpolated between block interrupts
+
+`[trk_consumed]` is the truth and it is **coarse**: the driver advances it one
+whole DMA half per block IRQ, which at the XT rate is 2,048 bytes — 372 ms,
+6.8 system ticks, about three rows. Followed raw, the grid stands still for a
+third of a second and then jumps three rows, whatever the frame rate. Measured
+exactly so in a §45.14 capture: **the longest run of ticks with the screen row
+unchanged was 7**, and the card's own report was unchanged for 6 of them.
+
+So `tui_playpos` estimates the position between blocks — elapsed ticks times
+the stream's byte rate, added to the last reported position. The rate is
+`mixrate / 18.2065`, computed once per play as the **high word of
+`mixrate × 3600`** (3600/65536 is that ratio to 0.011%), so no division is
+involved at all.
+
+Two properties make it safe rather than merely smoother, and both are the
+whole of why this is a section:
+
+- **Clamped.** The estimate never runs past one whole block beyond the last
+  reported position, so a late or missing block IRQ costs a pause and never a
+  row the card has not reached. `[tui_cstep]` is the step the card was last
+  *observed* to take rather than an assumed 2,048, because above 22 kHz the
+  kernel plays 4KB halves (§34.5).
+- **Monotone**, which is the load-bearing one. `[tui_play]` is the last answer
+  given and the estimate can never fall below it. Without that, any
+  disagreement between the estimate and the next real block — a byte rate a
+  hair fast, an IRQ that lands early — moves the answer *backwards*, and a
+  scroll that jumps back a row reads far worse than one that steps.
+
+Measured on the same capture that priced the defect: the longest run with the
+screen row unchanged goes **7 ticks → 2** (0.38 s → 0.11 s, against a row
+period of 0.14 s), every advance is **exactly one row** (198 of them, no
+three-row jumps left), the row never moves backwards inside a pattern, and
+`PLAY − CONS` stays inside `[−538, +1510]` bytes against a 2,048-byte clamp —
+the negatives being the sampling skew between the worker banking `CONS` and
+the next frame updating `PLAY`, not the estimate lagging.
+
 What is deliberately *not* done: a position jump while playing is still heard
 2–3 seconds later, and the display moves when it is heard rather than when the
 key was pressed. Flushing the ring to make it immediate is a stream close and
