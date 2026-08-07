@@ -470,6 +470,15 @@ ttx_shstep:
     lodsb
     stosw
     loop .w
+    mov al, [ttx_srow]              ; does the screen owe a blit for it? Only
+    sub al, [tui_cvr]               ; if the row just formatted is INSIDE the
+    jnc .vis                        ; window - the cursor walks all 82 shadow
+    add al, TTX_SHROWS              ; rows and 19 of them are visible, so
+.vis:                               ; forcing one per step redrew an unchanged
+    cmp al, TTX_VIS                 ; screen 77% of the time (SPEC.md 45.16.1)
+    jae .novis
+    mov byte [ttx_vdirty], 1
+.novis:
     mov al, [ttx_srow]
     inc al
     cmp al, TTX_SHROWS              ; the cursor wraps over the whole SHADOW,
@@ -633,11 +642,25 @@ ttx_rowtext:
     ret
 
 ; =============================================================================
-; ttx_blit - the whole 19-row window, out of the shadow, in 19 rep movsw's.
-; This is the frame's entire pattern cost: 1,121 word stores, ~8.9 ms.
-; ttx_band then turns the middle row inverse - 59 attribute bytes, and no
-; bookkeeping about which row used to be the band, because the blit rewrote
-; it on the way past.
+; ttx_blit - the whole 19-row window, out of the shadow, in 19 row copies.
+; This is the frame's entire pattern cost: 1,121 word stores, ~8.9 ms. Nothing
+; has to remember which row USED to be the band, because the blit rewrites it
+; on the way past.
+;
+; THE BAND IS LANDED INVERSE BY THE SAME PASS, and that is a flicker fix
+; rather than a tidy-up (SPEC.md 45.13.3). It used to be a second pass - 59
+; attribute bytes written after all 19 rows had gone down in TTX_A_NORM - so
+; for the ~9 ms of the copy the band row was on screen drawn NORMAL. On a
+; 1bpp text screen TTX_A_INV is black-on-white and TTX_A_NORM is
+; white-on-black, so that intermediate state is the white bar going BLACK, and
+; the field reported exactly that: "the highlighted line is flicking black,
+; sometimes". PERFORMANCE.md Part 1's double-draw defect, in text-mode
+; clothes, in the one place on this screen that still had two passes - and
+; SPEC.md 45.15.1's interpolation is what made it visible, by taking the row
+; changes from 2.4 a second to 7.
+;
+; It is also CHEAPER than what it replaced: one lodsw/stosw pair per cell
+; against a rep movsw plus a read-modify-write of every attribute byte.
 ; =============================================================================
 ttx_blit:
     push ax
@@ -662,20 +685,23 @@ ttx_blit:
     push si
     push di
     mov cx, TTX_RW
+    cmp bx, TTX_VIS - TTX_HALF      ; the BAND row is landed already inverse,
+    jne .plain                      ; in the same pass (SPEC.md 45.13.2)
+.band:
+    lodsw
+    mov ah, TTX_A_INV
+    stosw
+    loop .band
+    jmp short .rdone
+.plain:
     rep movsw
+.rdone:
     pop di
     pop si
     add si, TTX_RW * 2
     add di, TTX_STRIDE
     dec bx
     jnz .r
-    mov di, TTXAT(TTX_BANDY, TTX_X0) + 1
-    mov cx, TTX_RW
-    mov al, TTX_A_INV
-.b:
-    mov [es:di], al
-    add di, 2
-    loop .b
     pop es
     pop di
     pop si
@@ -1129,12 +1155,11 @@ ttx_draw_dyn:
     je .nosh                        ; (PERFORMANCE.md Part 1: this was a
                                     ; visible redraw)
 .step:
-    call ttx_shstep
-%ifdef TRKLOG
+    call ttx_shstep                 ; ...which sets [ttx_vdirty] itself, and
+%ifdef TRKLOG                       ; only for a row that is on screen
     mov al, TLOGF_STEP
     call tlog_flag
 %endif
-    mov byte [ttx_vdirty], 1
 .nosh:
     call tui_viewrow                ; [tui_cvr]: the playing row, or the
     cmp byte [ttx_vdirty], 0        ; Up/Down scroll row while stopped
@@ -1183,12 +1208,12 @@ ttx_draw_dyn:
     mov [tui_lmute + 2], ax
     call ttx_vuframe
 .nomu:
-    dec byte [ttx_fcnt]             ; the needles fall per CALL, so on the
-    jnz .novu                       ; retrace clock they are stepped every
-    mov al, [ttx_fdiv]              ; [ttx_fdiv]th frame - the same rate in
-    mov [ttx_fcnt], al              ; SECONDS as on the tick clock (45.16)
-    call ttx_vu
-.novu:
+    call OSAPI_GET_TICKS            ; the needles fall per CALL, so they are
+    cmp ax, [ttx_vutick]            ; stepped once per TICK rather than once
+    je .novu                        ; per frame: exactly 18.2 a second on any
+    mov [ttx_vutick], ax            ; clock, where a divider taken from the
+    call ttx_vu                     ; probe was 1 against a measured 29 fps
+.novu:                              ; in the field (SPEC.md 45.16.1)
 %ifdef TRKLOG
     call tlog_frame                 ; the log's status line is live, so it is
     call ttx_status                 ; redrawn every frame: the [ttx_lmsg]
@@ -1257,8 +1282,9 @@ ttx_s_mute:   db '   MUTE', 0
     TRKB ttx_chn                    ; shared small loop counter
     TRKB ttx_clk                    ; fsx_wait's argument: 0 tick, 1 retrace
     TRKB ttx_chunk                  ; ...and the rebuild rows a frame it buys
-    TRKB ttx_fdiv                   ; frames per tick, as measured (1 = the
-    TRKB ttx_fcnt                   ; tick clock); the VU needles' divider
+    TRKB ttx_fdiv                   ; frames per tick, as the probe measured
+    TRKB ttx_fcnt                   ; it - reported, no longer relied upon
+    TRKW ttx_vutick                 ; the tick the needles last decayed on
     TRKW ttx_lmsg                   ; the status string last drawn
     TRKBUF ttx_vuc, 4               ; last-drawn bar widths, CELLS (SPEC.md
                                     ; 45.12's delta baseline, in this mode's

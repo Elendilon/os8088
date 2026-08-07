@@ -13979,11 +13979,21 @@ Three things about it are load-bearing:
   are not a special case, they are rows being blitted like any other — and
   since §45.13.4 they are the neighbouring orders' rows rather than blanks, so
   what the blit lands at a pattern boundary is the music's own next line.
-- **The band is an attribute, not a redraw.** The shadow holds every row in
-  `TTX_A_NORM`; the blit lands them all and 59 attribute bytes turn the middle
-  row `TTX_A_INV` afterwards. Nothing has to remember which row *used* to be
-  the band, because the blit rewrote it on the way past — which is the whole of
-  what §45.12's three-strip bookkeeping was for.
+- **The band is an attribute, not a redraw**, and it is landed **by the same
+  pass**. Nothing has to remember which row *used* to be the band, because the
+  blit rewrites it on the way past — which is the whole of what §45.12's
+  three-strip bookkeeping was for. The relight used to be a *second* pass, 59
+  attribute bytes written after all 19 rows had gone down in `TTX_A_NORM`, and
+  that is Part 1's double-draw defect in text-mode clothes: for the ~9 ms of
+  the copy the band row was on screen drawn **normal**, and since `TTX_A_INV`
+  is black-on-white while `TTX_A_NORM` is white-on-black, the intermediate
+  state is *the white bar going black*. The field reported it in those words —
+  "the highlighted line is flicking black, sometimes" — and §45.15.1's
+  interpolation is what made it visible, by taking the row changes from 2.4 a
+  second to 7. Copying the band row with `lodsw` / `mov ah, TTX_A_INV` /
+  `stosw` puts every cell from its old contents to its final contents in one
+  store, and is *cheaper* than the `rep movsw` plus a read-modify-write of
+  every attribute byte that it replaces.
 - **The row goes through a bss byte, not a register.** `mp_cell2txt` decodes
   through BX and CX and returns with ES = the pattern segment; there is no
   general register that survives it.
@@ -14334,6 +14344,40 @@ as common:
 The graphics bracket keeps the tick clock and should: its frames are already
 over budget on the machine this is for (§45.13.1), and Missile Command's are
 15.5 ms quiet against 43.5–73.5 ms busy (§48.11).
+
+#### 45.16.1 What the field measured, and the two things it changed
+
+Two PCem captures through §45.14's log, 29 s and 37 s of XT-mode playback on
+period hardware at period speed. **The clock probe took the retrace path**, as
+QEMU structurally cannot, and the frame rate it bought is **29.1 fps** in the
+first capture and **25.4 fps** in the second — against 18.2 for the tick
+clock. Not the 50–70 the adapter runs at, because the frame's own work eats
+into it, but the grid is drawn 1.4–1.6× more often for it. The rest of the
+capture is clean: no underruns (`S` = 0 throughout), no feed pass ever
+spanning a tick (`DX` = 0), `SD` at a mean of 21.7 and 20.8 against a
+predicted 21.
+
+Two things in it were wrong, and both are fixed here:
+
+- **A rebuild step forced a blit whether or not the row it formatted was on
+  screen.** The cursor walks all 82 shadow rows and 19 of them are visible, so
+  77% of those blits redrew an unchanged screen — and at `TTX_SHCHUNKF` = 1
+  that is one per frame for the whole rebuild. The capture shows 5 rebuilds,
+  so ~410 forced blits at ~8.9 ms: **3.6 s of the 28.9 s capture, 12.6% of the
+  machine, drawing nothing**. `ttx_shstep` now sets `[ttx_vdirty]` itself and
+  only for a row inside the window. It is the §11.3 discipline arriving in a
+  text mode: draw what changed *on screen*, not what changed in the model.
+- **`[ttx_fdiv]` is not a frame rate.** The probe measured 1 in the first
+  capture and 2 in the second against actual rates of 29.1 and 25.4 fps, since
+  it runs at bracket entry where the machine is at its busiest. The VU needles
+  hung off it and fell 1.4–1.6× too fast. They are stepped **once per system
+  tick** now, which is exactly 18.2 a second on any clock and needs no
+  measurement at all; `fdiv` survives only as something the log header
+  reports.
+
+`FX` — the longest single frame in a tick — is 1 to 2 ticks on 16–18% of
+ticks in both captures, which is what "not keeping up" actually looks like
+from the inside and is the number to watch after these two changes.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
