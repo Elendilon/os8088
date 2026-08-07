@@ -103,6 +103,13 @@ fsx_run:
     jne .fail                   ; bracket would freeze the UI task mid-frame
     cmp byte [fsx_task], 0xFF   ; one bracket at a time
     jne .fail
+    call cur_unlazy             ; the bracket owns the machine and the held
+                                ; lock is what keeps the arrow off it - which
+                                ; a DEFERRED hide would not (SPEC.md 7.1.4).
+                                ; A same-mode bracket (SPEC.md 53.7) never
+                                ; reaches vid_setmode, so this is the only
+                                ; place that catches it, and the double cursor
+                                ; SPEC.md 48.13 watches for is the symptom
     cmp word [fdlg_win], 0      ; not under the modal file dialog (SPEC.md 38)
     jne .fail
     call inst_wchk              ; the ownership fence (SPEC.md 53.1): bound

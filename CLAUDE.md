@@ -728,6 +728,23 @@ The bar is **chip menu → active application's name → that application's menu
 
 Three one-line hooks move it, and nothing else in the kernel knows the bar exists: `wm_front` activates the window it raises (so launching, raising, un-minimizing and dock clicks all follow for free); the event ladder's window branch activates the clicked window too (a click on the *already* frontmost window never reaches `wm_front`, and the bar still has to follow); and `menu_check`, run at the top of every `menu_draw_bar`, hands the bar to `wm_top` the moment `[menu_win]` names a window that stopped being visible — one validation covering close, minimize and hide. It **promotes rather than reverting** because the title bar does: losing the front window promotes whatever was under it and `wm_paint_dmg` gives that window the pinstripes (§11.91), so a bar that fell back to Locator instead made the screen say two different things about which app is active. `wm_top` answers 0 when nothing visible is left, and 0 *is* Locator, so the old fallback is still the last rung. A deliberate switch to Locator (clicking the bare desktop) is sticky — `[menu_win]` = 0 leaves `menu_check` at its first test.
 
+**The gfx lock's cursor hide is DEFERRED, and `wm_clip_set` is what spends it**
+(SPEC.md 7.1.4). `gfx_lock` used to erase the arrow for the whole hold, so a
+window refresh blinked the pointer off and on - super visible with the mouse
+sitting still, and worst with the Task Manager, which refreshes twice a second
+and takes a visible span on a 4.77MHz machine. Now the lock only PROMISES the
+hide: `cur_unlazy` takes it unconditionally on every path that can draw
+anywhere (GFXCLIP's unclipped branch, the off-clip-list primitives, the VRAM
+XOR twins, `gfx_flush`, `gfx_save`/`restore`, `fsx_run`), and `cur_lazyck` -
+called by `wm_clip_set` - takes it only if the cursor is REACHABLE, because an
+armed region CONFINES the clipped primitives to it. **The default is hide; the
+win is the exception**, and it is free for all twelve `wm_clip_set` callers.
+Measured: 30 of 31 Task Manager refreshes kept the cursor up, **0** cell
+violations. **The trap that cost the boot: `vid_setmode` must NOT call
+`cur_unlazy`** - `viddet.inc` runs from the splash BEFORE the rest of the
+kernel is off the floppy (SPEC.md 15.3), so a call from there into `mouse.inc`
+executes whatever is not loaded yet: black screen, no clue.
+
 **A poll loop that drops the gfx lock must pace itself to the TICK** (SPEC.md
 7.1.3) - and this one is also why the LAZY HIDE was dropped (7.1.1): a
 measured 5,020 lock/unlock pairs across a session were ~4,900 THIS loop, so

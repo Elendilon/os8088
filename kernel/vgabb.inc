@@ -418,6 +418,7 @@ bb_dirty_rect:
 ;                  banked layouts by construction.
 ; -----------------------------------------------------------------------------
 gfx_scroll:
+    call cur_unlazy             ; off the clip list (SPEC.md 11.3): 7.1.4
     push ax
     push bx
     push cx
@@ -606,6 +607,9 @@ bbs_bankcopy:
 gfx_flush:
     cmp byte [bb_dbl], 0        ; NOT [bb_on]: on mono that is 1 and there is
     je .off                     ; no back buffer to copy from
+    call cur_unlazy             ; the flush writes an arbitrary dirty rect
+                                ; straight to VRAM, and menu_track/ui_drag/
+                                ; fsx_wait call it MID-hold (SPEC.md 7.1.4)
     push ax
     push bx
     push cx

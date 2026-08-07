@@ -2091,6 +2091,8 @@ wm_dmg_j    dw 0                ; the marking pass's inner index
 wm_hide_r   times 4 dw 0        ; wm_hide/wm_destroy: the vacated rect,
                                 ; banked across the record teardown
 
+wm_clipwin  dw 0                ; the window wm_clip_set was given, banked
+                                ; for cur_lazyck (SPEC.md 7.1.4)
 wm_clip_n   dw 0                ; rects in wm_clip_tab; 0 = disarmed.
                                 ; Initialized data, NOT .bss: every gfx_fill
                                 ; reads it, including the machine's first,
@@ -2109,7 +2111,8 @@ wm_clip_set:
     push cx
     push dx
     push si
-    mov word [wm_clip_n], 0
+    mov [wm_clipwin], bx        ; for cur_lazyck at .done (SPEC.md 7.1.4) -
+    mov word [wm_clip_n], 0     ; BX does not survive the fragment loop
 
     mov ax, [bx+W_X]            ; seed with the content rect - the same one
     mov dx, [bx+W_Y]            ; wm_draw_win white-fills before W_PAINT
@@ -2140,6 +2143,17 @@ wm_clip_set:
     stc
     jmp short .out
 .done:
+    ; The region is armed, and from here to gfx_unlock every clipped primitive
+    ; is CONFINED to it - so if the cursor is outside this window the deferred
+    ; hide (SPEC.md 7.1.4) is not owed and the pointer stays on screen through
+    ; the whole refresh. This is the one place that can prove that, and it is
+    ; already on the path of all twelve background painters.
+    ;
+    ; The FAILURE path above deliberately does not check: with no region armed
+    ; every primitive falls to its own unconditional cur_unlazy, which is the
+    ; safe default and exactly what happened before any of this.
+    mov si, [wm_clipwin]        ; the window, banked at entry: BX does not
+    call cur_lazyck             ; survive the fragment loop
     clc
 .out:
     pop si

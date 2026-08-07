@@ -746,6 +746,114 @@ cur_get_mono:
 .out:
     ret
 
+
+; -----------------------------------------------------------------------------
+; The DEFERRED hide (SPEC.md 7.1.4)
+;
+; gfx_lock used to erase the cursor unconditionally, so the pointer was absent
+; for the whole of every lock hold - and a hold that repaints a window takes a
+; visible amount of time on a 4.77MHz machine. With the mouse sitting still
+; that reads as the cursor blinking off and on, once per refresh, forever.
+;
+; So gfx_lock only PROMISES the hide, in [cur_lazy], and something has to spend
+; it before any pixel is written where the cursor is. Two things do:
+;
+;   cur_unlazy   take it now, unconditionally. Every path that can draw
+;                ANYWHERE calls this: the unclipped branch of GFXCLIP, the
+;                primitives SPEC.md 11.3 keeps off the clip list, the flush,
+;                the save-under, a mode change and the fsx bracket.
+;   cur_lazyck   take it only if the cursor could be reached. wm_clip_set
+;                calls this, because once a region is armed the clipped
+;                primitives are CONFINED to it - so a cursor outside the
+;                window's frame is provably safe and the hide is not owed.
+;
+; The default is therefore "hide", and the win is the exception: a background
+; painter that arms a region away from the pointer. That is the twelve
+; wm_clip_set callers - the Task Manager's refresh, the menu bar clock,
+; Fractal, Bounce, every package worker - and they get it without asking.
+;
+; [cur_lazy] is meaningful ONLY inside a lock hold: gfx_lock sets it, gfx_unlock
+; clears it, and cursor_show is owed exactly when it was spent.
+; -----------------------------------------------------------------------------
+cur_unlazy:
+    cmp byte [cur_lazy], 0      ; one-way within a hold, so the common case
+    je .out                     ; after the first call is three instructions
+    mov byte [cur_lazy], 0
+    call cursor_hide
+.out:
+    ret
+
+; cur_lazyck - spend the deferred hide unless SI's window provably cannot
+;              reach the cursor. The test is the window's FRAME rect, not the
+;              clip region: the region is the content minus what covers it, so
+;              outside the frame is outside every fragment, and one rect test
+;              is a great deal cheaper than sixteen.
+; in:  SI = window ptr - wm_win_rect's own register, deliberately, so this
+;      cannot be called with the window in the wrong one
+; out: nothing (all registers preserved)
+cur_lazyck:
+    cmp byte [cur_lazy], 0
+    je .out
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call wm_win_rect            ; AX/BX/CX/DX = the frame, drop shadow included
+    mov si, [cur_drawn_x]       ; separated on x?  cell is [x, x+CUR_GW-1]
+    cmp si, cx
+    jg .clear                   ; ...wholly right of the frame
+    add si, CUR_GW-1
+    cmp si, ax
+    jl .clear                   ; ...wholly left of it
+    mov si, [cur_drawn_y]       ; ...and the same on y
+    cmp si, dx
+    jg .clear
+    add si, CUR_GH-1
+    cmp si, bx
+    jl .clear
+    pop si                      ; they overlap: the hide is owed after all
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    jmp short cur_unlazy
+.clear:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+
+; cur_lazyend - gfx_unlock, when the hide was never spent. The cursor is still
+;               on screen and cursor_show must NOT run (it would bank the
+;               drawn arrow as background), but the ISR refused to move it all
+;               through the hold, so any motion is owed here.
+cur_lazyend:
+    push ax
+    push bx
+    pushf
+    cli
+    mov byte [cur_lazy], 0
+    cmp byte [cur_level], 0
+    jl .out                     ; hidden by refcount: nothing is on screen
+    mov ax, [mouse_x]
+    mov bx, [mouse_y]
+    cmp ax, [cur_drawn_x]
+    jne .move
+    cmp bx, [cur_drawn_y]
+    je .out
+.move:
+    call cur_move
+    mov byte [cur_dirty], 0
+.out:
+    popf
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; cur_move - move the cursor to (AX, BX), writing every byte EXACTLY ONCE
 ;
@@ -1202,6 +1310,8 @@ cur_save    resb CUR_SAVE_SZ    ; save-under: CUR_SPAN bytes x CUR_GH rows,
 cur_savex   resb CUR_SPAN * CUR_GH  ; ...and its twin. A MOVE reads one while
                                 ; it fills the other (SPEC.md 7.1.2); 24 bytes,
                                 ; and the pointer swap means nothing is copied
+cur_lazy    resb 1              ; gfx_lock deferred the hide (SPEC.md 7.1.4):
+                                ; the arrow is still on screen this hold
 cur_off     resw 1              ; cur_geom's answers, banked for cur_get_mono:
 cur_rows    resb 1              ; the cell's top-left framebuffer byte, the
 cur_b1ok    resb 1              ; rows of it on screen, and whether the DI+1

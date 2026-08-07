@@ -97,6 +97,7 @@ icon_draw16:
 ; clobbers: everything but DS (wrappers restore); caller holds the gfx lock
 ; -----------------------------------------------------------------------------
 ico_core:
+    call fnt_unlazy             ; whole-shape clipped like a glyph (7.1.4)
     mov [ico_x], cx
     mov [ico_y], dx
 

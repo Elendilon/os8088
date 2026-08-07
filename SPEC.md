@@ -1442,7 +1442,7 @@ tested — over glyphs byte-aligned and skewed, against the right screen edge
 where the second byte is clipped away, and against the bottom edge where the
 arrow is cut short.
 
-### 7.1.1 The lazy hide — measured twice, and NOT worth building
+### 7.1.1 The lazy hide — measured twice, and dropped ON COST (see §7.1.4)
 
 The pair above is still paid on **every** lock hold, whether or not anything
 drawn came near the cursor. A *lazy* hide — leave the arrow up at `gfx_lock`,
@@ -1487,6 +1487,14 @@ stride, which `tests/gfxbench` itself does. Plugging it would need a new API
 contract — a "cursor off while I do this" slot, or a rule that raw framebuffer
 writes are out of contract — which is a real change to the package ABI in
 exchange for 144 ms.
+
+**And then §7.1.4 built it anyway, for a reason this section never weighed:**
+the pair is not just a cost, it is a *visible absence*, and 144 ms of saving is
+irrelevant beside a pointer that blinks once per window refresh. What follows
+is still the right answer to "is it worth the CPU" - and that was the wrong
+question. The design that shipped is also not the one costed here: it gates on
+the clip region rather than on a per-primitive overlap test, which is why the
+nine miss paths below reduce to "hide unless a region proves otherwise".
 
 **The general lesson is the one to keep**: the 21.8% that started this whole
 line of work (Part 9 Set 4) was two different things wearing one number.
@@ -1594,6 +1602,66 @@ The latency cost is one tick, ~55 ms, before a press is recognised as a drag.
 `.track` already accepts exactly that for recognising a drop, and double-click
 detection is unaffected because it compares **birth ticks stamped by the ISR**,
 not processing time (§9).
+
+### 7.1.4 The hide is DEFERRED, and the clip region is what spends it
+
+The pair is cheap now, but it still made the pointer **absent for the whole of
+every lock hold** - and a hold that repaints a window takes a visible amount of
+time on a 4.77MHz machine. With the mouse sitting still that reads as the
+cursor blinking off and on, once per refresh, forever. A Task Manager
+refreshing twice a second is the reported case.
+
+That is a §1-of-PERFORMANCE.md defect, not a cost: §7.1.1 dropped the "lazy
+hide" on a *time* argument (144 ms across minutes) and the time argument was
+answering the wrong question.
+
+`gfx_lock` therefore only **promises** the hide, in `[cur_lazy]`; the arrow
+stays where it is, and the ISR will not move it because `gfx_lock_flag` is set.
+Something must spend that promise before any pixel lands where the cursor is,
+and two things do:
+
+- **`cur_unlazy`** - take it now, unconditionally. Every path that can draw
+  ANYWHERE calls this: `GFXCLIP`'s unclipped branch, the primitives §11.3
+  keeps off the clip list (`gfx_blit4`, `gfx_scroll`, `gfx_line`,
+  `gfx_lstepv`), the VRAM XOR twins, `gfx_flush`, `gfx_save`/`gfx_restore`
+  and `fsx_run`.
+- **`cur_lazyck`** - take it only if the cursor is reachable. `wm_clip_set`
+  calls it, and this is the whole trick: **once a region is armed the clipped
+  primitives are CONFINED to it**, so a cursor outside that window is provably
+  safe and the promise is not owed.
+
+**The default is therefore "hide", and the win is the exception.** A painter
+that arms a region away from the pointer keeps its cursor; everything else
+behaves exactly as it did. That is free for all twelve `wm_clip_set` callers -
+the Task Manager's refresh, the menu bar clock, Fractal, Bounce, every package
+worker - none of which had to change.
+
+`cur_lazyck` tests the window's **frame** rect, not the region: the region is
+the content minus what covers it, so outside the frame is outside every
+fragment, and one rect test is far cheaper than sixteen. It takes the window in
+**SI**, which is `wm_win_rect`'s own register, so it cannot be called with the
+window in the wrong one - and `wm_clip_set` banks it in `[wm_clipwin]` at entry
+because **BX does not survive the fragment loop**.
+
+Glyphs and icons are the third case: `font_char`, `font_run` and `ico_core`
+clip whole-shape through `wm_clip_test`, so under an armed region they too are
+confined - but unarmed they draw wherever they are told. `fnt_unlazy` is that
+one test.
+
+**The safety argument is a measurement, not an audit.** A debug build
+snapshots the drawn cell at `gfx_lock` and compares it at `gfx_unlock`
+whenever the promise survived: if any path wrote there while the arrow was up,
+the cell differs. Across a session of menus, window drags, a Control Panel, a
+Disk window and a Task Manager refreshing throughout - **0 violations**, with
+the cursor kept up on 30 of 31 refreshes while parked away from the window.
+
+**One trap, and it cost the boot.** `vid_setmode` looks like it wants
+`cur_unlazy` - a mode set clears the screen under the arrow. It must NOT have
+it. `viddet.inc` runs from the splash, *before the rest of the kernel has been
+read off the floppy* (§15.3), so a call from there into `mouse.inc` lands in
+whatever is not loaded yet: the machine hangs executing data, with a black
+screen and no clue. Mid-session mode changes all come through `fsx_run`, which
+takes the promise itself.
 
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
