@@ -70,6 +70,18 @@ machine a report came from), and **the 5150's C: is a real DOS 3.3 install**,
 so nothing may format, partition, write or delete on it. `make field`'s two
 images are built on demand and SENT, never committed.
 
+**"Merge to elendilon" means the BRANCH, not the repository.** `elendilon` is
+the integration branch this work lands on — feature branches merge into it and
+it is what gets tested on the iron; `main` is behind it and is not the target.
+The name collides with the fork's (`Elendilon/os8088`) and with the owner's
+GitHub handle, which is exactly why it needs writing down: a session reading
+"push to elendilon" can plausibly hear "push to that person's repository",
+which is where the branch already lives, and do nothing. `git ls-remote
+--heads origin` settles it in one call. A merge there rebuilds and re-runs
+`make check-images` before it is pushed, for the reason that target exists:
+two "Rebuild the shipped images" commits in this history are merges that
+shipped stale binaries.
+
 **docs/FIELD-NOTES.md is the fourth one, and it is the shortest: what real
 hardware found and the harness could not.** Open, reproduced, unfixed — with
 what has already been *ruled out* for each, so an investigation starts from
