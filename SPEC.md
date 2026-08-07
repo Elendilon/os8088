@@ -763,15 +763,34 @@ every step *i* of one Bresenham. When the minor axis is **x** — a steep line �
 those three pixels are on the *same row* and usually in the *same byte*. So
 one walk that writes a three-bit mask is the identical pixel set:
 
-**How much cheaper is not settled.** `tests/linetest` times 20 fans of 48
-dilated steep lines and says **1.3× to 1.9×** — that is the spread of the
-same two builds measured four times, not a confidence interval, and it is
-the spread because QEMU host time is not a measurement. PERFORMANCE.md Part 4
-is explicit that QEMU is exact about *work* and useless about time, and this
-figure was taken the wrong way round; an `-icount` run or a field number is
-what would settle it. What is not in doubt is the direction — every pairing
-put the one-walk build ahead — and the arithmetic, which is that two of three
-Bresenham walks stop happening.
+**It is 1.9×, and `gfxbench` settled it the right way round.** The first
+answer here was `tests/linetest`'s **1.3× to 1.9×**, which was the spread of
+the same two builds measured four times rather than a confidence interval —
+it was taken as QEMU *host* time, the one thing PERFORMANCE.md Part 4 says is
+not a measurement. `gfxbench` now carries four `GFX_LINE` rows measured in
+guest instructions under `-icount`, which is reproducible and
+machine-independent, and they are built to check themselves: the two
+geometries are **the same line transposed**, 32×127 against 127×32, so 128
+pixels each.
+
+| row, CGA, `-icount` | counts (24 iterations) | ratio to its thin row |
+|---|---|---|
+| steep thin | 1,232 | |
+| shallow thin | 1,200 | |
+| steep fat | 1,922 | **156** |
+| shallow fat | 3,583 | **298** |
+
+The two thin rows agree to 2.6%, which is the harness confirming the two
+geometries really are the same work. The shallow ratio is **298** — three
+walks, as predicted, and it is the control rather than the finding. The steep
+ratio is **156**, so the optimisation is worth **1.91×** on a steep dilated
+line: the top of `linetest`'s range, now as a number that repeats.
+
+Instructions are not microseconds, but they are closer here than they were
+for §5.7's per-call work: what this removes is per-*pixel* — Bresenham steps
+and framebuffer read-modify-writes — and a mono RMW is 79.6 clocks of which
+only about 7 are the bus (Part 9). A field set is still what would settle the
+duration.
 
 **That the pixels are identical IS settled**, and it is the half that
 matters: the same fan drawn by both kernels and the framebuffer compared byte
@@ -3511,6 +3530,52 @@ Four things are load-bearing:
 4. **Mono gets the bar alone**, here as during the load — `spl_paint` is the
    one frame routine both callers share, so the two cannot disagree about
    what a frame is.
+
+### 15.4 The boot timer
+
+**How long this machine took to boot, in system ticks**, from the boot
+sector's first instruction to the first desktop frame being on the glass.
+`OSAPI_BOOT_TICKS` (slot 0x02F8) answers it; `sysbench` prints it as ticks
+and as milliseconds.
+
+It exists because a boot is the one thing this project could never measure.
+It is over before a package can run, and on a floppy machine it is mostly
+**disk**: 125 sectors of kernel at 238 ms each (PERFORMANCE.md Part 2), then
+the mount, then every driver `SYSTEM.CFG` asked for. Any change to the read
+path — §18.91's batching, §18.93's parameter table — has to answer to a
+number, and this is the number.
+
+The mechanism is two words of arithmetic and one fixed offset:
+
+- **`0060:000C` is a fixed entry point**, alongside `jmp kmain` at 0x0000 and
+  the splash tick at 0x0008 and the API table at 0x0010. It has to be fixed
+  because the boot sector has no other way to name a kernel symbol.
+- **The boot sector reads the BIOS tick at `0040:006C` in its first
+  instructions**, before it has loaded anything, and carries it in **BP** —
+  which nothing in that sector uses — through the relocation and the whole
+  read. It writes it to `0060:000C` **after** the load and immediately before
+  the far jump, because the sectors landing there would otherwise overwrite
+  it.
+- **`kmain` replaces it in place** with the elapsed count, straight after the
+  first `gfx_unlock`. Nothing can read it in between.
+- **`0xFFFF` means never stamped** — an image whose boot sector predates the
+  timer. It must be reported as unknown and never printed as a duration.
+
+Three things about it are deliberate:
+
+- **The BIOS tick, not `[ticks]`.** The kernel's own counter starts when its
+  int 08h hook installs, which is *after* the expensive part; the BIOS
+  counter has been running since POST and the hook chains it, so it never
+  stops. One word is an hour at 18.2065 Hz.
+- **`gfx_unlock`, not `cursor_show`.** The question is when the first desktop
+  *frame* is finished, and `gfx_unlock` is what puts it on the glass — it
+  flushes the back buffer where there is one, so it is the same instant on
+  all three adapters. The cursor is not the desktop.
+- **Ticks, not a finer unit.** 54.925 ms of resolution on a boot measured in
+  seconds is quantisation, not noise, and it costs nothing: there is no
+  timebase available in the boot sector's first instruction that is finer and
+  still running when the desktop appears.
+
 
 ## 16. Build & test
 
