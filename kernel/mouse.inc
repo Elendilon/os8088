@@ -1859,6 +1859,21 @@ mou_old_seg dw 0, 0
 mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1
 mou_b0      db 0,0,0,0          ; packet byte 0: 1 LB RB Y7 Y6 X7 X6
 mou_b1      db 0,0,0,0          ; packet byte 1: X low 6 bits
+mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only).
+                                ; ABOVE the published block on purpose - it is
+                                ; scratch, not state, and it used to sit in
+                                ; the middle of what SPEC.md 9.4.2 publishes
+
+; --- the published diagnostic block (SPEC.md 9.4.2) --------------------------
+; Everything from mou_run to mou_dstamp is one contiguous span that a test
+; package reads through 0060:0006. The offsets are asserted at the bottom of
+; this file, because a reordering here would silently republish the block as
+; a different thing and the reader has no way to notice.
+mou_dbg_blk:
+    dw 0x4F4D                   ; 'MO' - the magic, dsk_dbg_blk's 0x4444 idiom
+    dw mou_bases                ; -> the probed bases, 2 words, 0 = no UART
+    dw mou_run                  ; -> the state span below
+
 mou_run     db 0,0,0,0          ; clean packets in a row on this port
 
 mou_port    db 0                ; the mouse's row, settled by [mou_need] clean
@@ -1888,7 +1903,6 @@ mou_ident   db 0,0,0,0          ; this port answered like a mouse. DIAGNOSTIC,
                                 ; field peek needs that the rest cannot say
 mou_idany   db 0                ; ...and at least one did, which is what the
                                 ; recovery cycle stands down on
-mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only)
 mou_seen    db 0                ; a complete packet has arrived this session;
                                 ; set by the ISR, read by mou_hotplug, and
                                 ; never cleared - proof the mouse exists
@@ -1898,6 +1912,31 @@ mou_hpst    db 0                ; hot-plug poller state: 0 waiting out the
 mou_hpt     dw 0                ; tick stamp for whichever wait state 0/1 is in
 mou_drain   db 0                ; ISR discards RX while set (armed by a
 mou_dstamp  dw 0                ; hot-plug raise; expires MOU_DRAINT later)
+
+; --- what SPEC.md 9.4.2 says the published block IS --------------------------
+; A test package reads these by offset, off a floppy, on a machine with no
+; debugger. Every one of them is a number some reader will print as a
+; different quantity if it moves, and NASM cannot see any of that - so the
+; layout is asserted here rather than trusted to declaration order.
+%define MOUDBG(x) ((x) - mou_run)
+%if MOUDBG(mou_port)   != 4  || MOUDBG(mou_need)   != 5
+  %error "mouse: SPEC.md 9.4.2 block - mou_port/mou_need moved"
+%endif
+%if MOUDBG(mou_idn)    != 9  || MOUDBG(mou_idb0)   != 13
+  %error "mouse: SPEC.md 9.4.2 block - mou_idn/mou_idb0 moved"
+%endif
+%if MOUDBG(mou_idlast) != 17 || MOUDBG(mou_ident)  != 21
+  %error "mouse: SPEC.md 9.4.2 block - mou_idlast/mou_ident moved"
+%endif
+%if MOUDBG(mou_idany)  != 25 || MOUDBG(mou_seen)   != 26
+  %error "mouse: SPEC.md 9.4.2 block - mou_idany/mou_seen moved"
+%endif
+%if MOUDBG(mou_hpst)   != 27 || MOUDBG(mou_hpt)    != 28
+  %error "mouse: SPEC.md 9.4.2 block - mou_hpst/mou_hpt moved"
+%endif
+%if MOUDBG(mou_drain)  != 30 || MOUDBG(mou_dstamp) != 31
+  %error "mouse: SPEC.md 9.4.2 block - mou_drain/mou_dstamp moved"
+%endif
 
 section .bss
 cur_save    resb CUR_SAVE_SZ    ; save-under: CUR_SPAN bytes x CUR_GH rows,

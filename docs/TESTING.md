@@ -237,6 +237,16 @@ way to isolate rule 4: send `'M'` every ~150 ms across the whole window, so
 whenever the window closes a byte arrived inside `MOU_IDQUIET` of it, while
 the count stays at `MOU_IDMAX` and rule 3 still passes.
 
+**On a machine with no debugger, `sysbench` prints all of it** — SPEC.md
+§9.4.2 publishes the block at `0060:0006` unconditionally, so a `make field`
+disk carries it and no knob is involved. Its section is a state dump, not a
+measurement: the bases and the first identify byte are hex, everything else
+decimal, and a mouse that identified reads `first byte 4D`, `identified 1`,
+`poller stamp 0`. Under `make test` it reads `44` ident bytes, first byte
+`004D` and `identified 0` — msmouse's packet stream happens to start with a
+header byte of 0x4D, and **rule 3 refuses it for being 44 bytes long**, which
+is the refusal working on live data rather than on a scripted payload.
+
 **Assert on `[mou_hpt]` as well as the identify state**, and that is the
 actual regression this exists to prevent: read it, wait four seconds, read it
 again. Unchanged means the recovery cycle stood down; advancing by **58**

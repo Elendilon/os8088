@@ -281,6 +281,46 @@ must time a fixed, known quantity of work at each end and print it; Set 4's
 every other number in the set. If the two brackets disagree, the machine
 moved *underneath* the measurement and the rows between them are suspect.
 
+### It takes MEMORY DUMPS, and an agent should ask for one
+
+MartyPC's debugger will dump **the full 1MB** and **the code segment**, and
+that is a capability nothing else in this register has — the 5150 has no
+debugger, and QEMU's QMP `xp` reaches memory but only from inside the
+container, so it can never answer a question about the machine on someone
+else's desk. **Ask for a dump whenever the question is "what does the kernel
+think", rather than "how long did it take" or "what did it look like".** It
+costs the owner one menu click and it is worth many rounds of guessing.
+
+A dump is a strong instrument because it is **self-validating**. The kernel
+image lands at `KERNEL_SEG`, so linear `0x600` onward is `build/kernel.bin`
+byte for byte apart from writable state, which does three things at once: it
+proves the machine was running *the build you sent* (diff it — a
+mouse-identify dump came back 1,353 differing bytes of 71,112, all of it
+`.text` data with real initialisers), it gives you every kernel variable at
+its listing offset with no instrumentation added, and the differing bytes are
+themselves the answer. `boot_ticks` at `0060:000C` is the cheapest check that
+you are reading the right image at the right base: `FFFF` in the file, the
+elapsed count in the dump.
+
+Three rules, all learned on the one dump this register has so far:
+
+- **Say what state you want it taken IN, because the interesting state is
+  usually the untouched one.** The mouse dump had to be taken at the desktop
+  with the mouse *deliberately not moved* — the whole question was what the
+  kernel believed before any packet arrived, and one nudge erases it.
+- **Re-derive every offset from a listing of the exact commit**, and never
+  from an earlier session's numbers. `nasm … -l` and then `0x600 + offset`;
+  anything before `font.inc` moves them all.
+- **Find a value that pins the reading before you trust any of it.**
+  `mouse_x`/`mouse_y` sitting on `[vid_w]/2, [vid_h]/2` said "Hercules, and
+  nothing has moved yet" in one word each, and without it a `mou_seen` of 0
+  beside a moved cursor looked like a contradiction in the kernel rather than
+  a correct reading of an untouched machine.
+
+What it still cannot do is the register's own first rule: it is an emulator,
+so its **timings go in Part 9 labelled MartyPC** and a dump is evidence about
+*logic*, never about time.
+
 ---
 
 ## How to take a set on the 5150
@@ -387,6 +427,13 @@ which build it was.
   and the whole-screen repaint.
 - **The rungs no emulator has**: §37.90's MM58167 and RP5C01 clock tiers, and
   §39.1's video detection probe on real cards.
+- **What a real PERIPHERAL does on a real card.** Not the same question as
+  "what does the emulator model" — SPEC.md §9.4.1 turns on whether a real
+  serial mouse answers a DTR/RTS raise with `'M'`, and QEMU's `msmouse`
+  ignores DTR outright while MartyPC's is a model of one. `sysbench`'s mouse
+  block is a **state dump rather than a measurement** for exactly this
+  reason, and it is the shape to copy: when the field question is about
+  logic and not time, publish the state and let the machine print it.
 
 **Not worth a field run** — the container already answers these, faster and
 reproducibly:

@@ -2430,6 +2430,47 @@ the deterministic cost above. And `[mou_seen]` = 0 beside a homed cursor is
 the check that the identify did **not** quietly settle anything: had it
 claimed the port, that word would be 1 before a packet ever arrived.
 
+#### 9.4.2 The block a test package reads (`0060:0006`)
+
+§9.4.1's whole question — does a **real** mouse on a **real** serial card
+answer a DTR/RTS raise with `'M'` — is one neither emulator in
+docs/FIELD-MACHINES.md can settle, so the state has to be readable on the
+field machine, which has no debugger. `0060:0006` is a word pointing at
+`mou_dbg_blk`: the magic `'MO'` (0x4F4D), then a pointer to `mou_bases` (two
+words, 0 = the probe rejected that port), then a pointer to a **33-byte
+contiguous span** — `mou_run` +0, `mou_port` +4, `mou_need` +5, `mou_idn` +9,
+`mou_idb0` +13, `mou_idlast` +17, `mou_ident` +21, `mou_idany` +25,
+`mou_seen` +26, `mou_hpst` +27, `mou_hpt` +28, `mou_drain` +30,
+`mou_dstamp` +31.
+
+It is `dsk_dbg_at`'s mechanism (§18.94) and **deliberately not its knob**.
+That one is `make DISKCNT=1` because it counts something a normal kernel has
+no reason to carry; this one names state that already exists, and the build
+the field machine is sent has **no knob set at all** by
+docs/FIELD-MACHINES.md's own handover rule — so behind a knob it would be
+absent from every disk that matters. It costs two bytes of header and six of
+descriptor.
+
+Three things hold it up:
+
+- **The layout is asserted, not trusted to declaration order.** A reader is
+  a separate program, on a floppy, on a machine with no debugger; a member
+  that moved would be silently republished as a different quantity. `mouse.inc`
+  ends in `%error` guards on all twelve offsets.
+- **`mou_evrec` was moved out of the middle of it.** ISR scratch is not state,
+  and it sat between `mou_idany` and `mou_seen` splitting the span in two.
+- **What survives the operator matters more than what does not.** By the time
+  anyone launches a test package the mouse has been used, so `mou_seen`,
+  `mou_port` and `mou_hpst` are long settled and say nothing about the boot.
+  The identify members do not move after `mouse_init`, and **`mou_hpt` is
+  never written unless the poller actually dropped DTR** — so `hpt = 0` is
+  the assertion that carries, and it survives ten minutes of driving.
+
+`tests/sysbench` is the reference reader (docs/TESTING.md), and its block is
+a **state dump rather than a measurement** — so it emits no `bl_head`, whose
+`N`/`counts`/`us per op` heading would label every row as a quantity it is
+not.
+
 ### 9.5 COM1 or COM2 — the port is not asked and not configured
 
 A serial card is jumpered to a base address, and the mouse goes on whichever
