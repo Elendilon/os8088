@@ -1629,10 +1629,24 @@ below treats a PCem or MartyPC figure as a measurement of os8088.
 | **11a** | IBM 5150, 4.77 MHz 8088, 640KB | Hercules GB101 | the calibration machine (docs/FIELD-MACHINES.md) |
 | **11b** | ...the same 5150 | IBM CGA, `VIDEO=cga` build | both cards are permanent; the build ignores the Hercules |
 | **11c** | Toshiba T1100 Plus | CGA (LCD) | tier 0, and the instruction table says **16-bit bus at ~7.1 MHz** |
-| **11d** | Packard Bell 286 | **CGA**, not VGA | ran the `VIDEO=cga` disk; the file is named `GFXVGA.TXT` but the report self-identifies as `CGA 640x200 mono`, tier 1 |
-| **11e/f** | PCem, MartyPC | both | claim a 4.77 MHz 8088; **delta only** |
+| **11d** | PCem, MartyPC | both adapters, both | claim a 4.77 MHz 8088; **delta only** |
 
-Build: `16844dd` field disks. PCem's CGA `SYSBENCH.TXT` is not in the set.
+Build: `16844dd` field disks. PCem's two columns are the same machine with the
+video config changed and agree everywhere outside the video block, as expected.
+
+**A fifth set was taken and is deliberately DISCARDED**, on the owner's
+instruction and for a reason worth writing down rather than deleting: a
+Packard Bell Victory 286 (16 MHz AMD, 4MB, onboard **Paradise PVGA1A**). It is
+a VGA machine, its files were hand-renamed `GFXVGA.TXT`, and the reports
+self-identify as `CGA 640x200 mono` — because the field disk is a `VIDEO=cga`
+build, so what was measured is **a Paradise VGA driven through the CGA
+framebuffer path on a 286**. That is a fourth thing, not a data point on any
+of the three the project supports, and two of its derived rows are actively
+misleading: `est CPU MHz x100` read **8866** and `shl clk/bit x100` read
+**29**, both because they are computed against 8088 instruction timings that a
+286 does not have. Keeping the numbers would cost a future reader more than it
+gives them. The machine itself is in docs/FIELD-MACHINES.md; what it needs
+before it is worth running again is a **VGA** field disk, which does not exist.
 
 #### MartyPC is the real thing on the CPU and not on the disk
 
@@ -1676,14 +1690,19 @@ sectors at the unbatched 238 ms is 32.8 s, and `boot ticks` says **708
 Two things rule out the obvious explanations. The file is **contiguous** —
 every file on the field image is `runs=1`, so the coalescer hands `dsk_xfer`
 one 32-sector run — and the T1100 Plus, a *different* real machine with a
-different drive, reads at **2,161 B/s**, the same wall. The two emulators
+different drive, reads at **2,161 B/s**, the same wall — and its maintenance
+manual gives that drive as **300 RPM, 250 kbit/s, 100 ms average latency**,
+the same revolution the 5150's 360KB Tandon turns at, which is exactly where
+two different machines would land if a sector still costs one. The two emulators
 disagree loudly and cannot arbitrate, because neither models the latency.
 What is left is either that the multi-sector `int 13h` is not being issued on
 that hardware, or that it is and the drive/media does not reward it; **the
 `FLOPPY1=1` A/B disk is what separates those**, and that knob exists for
 exactly this (SPEC.md §18.91).
 
-The 286 is the one real machine that does gain: **9,041 B/s**, 4.5x the 5150.
+A third real machine did read **4.5x faster**, and it is the discarded
+Packard Bell 286 — a different CPU, a different controller and an unknown
+drive/media pairing, so it says only that the wall is not universal.
 
 #### What the set was asked, and what it answered
 
@@ -1724,9 +1743,9 @@ transposed, which is `gfx_rowbase` per step against a pointer add.
 
 #### The one row nobody can explain: `GFX_UNLOCK+LOCK`
 
-| 5150 Herc | 5150 CGA | T1100 | PB286 | PCem | MartyPC |
-|---|---|---|---|---|---|
-| **2,241 µs** | **2,402 µs** | 119 µs | 36 µs | 223 µs | 246 µs |
+| 5150 Herc | 5150 CGA | T1100 Plus | PCem | MartyPC |
+|---|---|---|---|---|
+| **2,241 µs** | **2,402 µs** | 119 µs | 223 µs | 246 µs |
 
 As a fraction of that machine's own `GFX_PIXEL`, the 5150 is **3.49** and
 every other machine is **0.16–0.38** — a 9x outlier on the one machine that

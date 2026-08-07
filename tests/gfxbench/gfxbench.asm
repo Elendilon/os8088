@@ -391,8 +391,10 @@ gb_run:
     call bl_progress
     call gb_fs
     call gb_derived
+    call bl_operator                ; ...and what the OPERATOR was doing
 %endif
     call gb_trailer
+    call gb_save                    ; SAVE IT, without being asked (below)
 
     pop di
     pop si
@@ -613,6 +615,8 @@ gb_hint:
     call bl_blank
     mov si, gb_h_6
     call bl_sline
+    mov si, gb_h_6b
+    call bl_sline
     mov si, gb_h_7
     call bl_sline
     pop si
@@ -708,6 +712,26 @@ gb_header:
     mov si, gb_l_xms
     mov ax, [gb_syskb + SK_XMS]
     call gb_num
+    call OSAPI_BOOT_TICKS           ; the same machine facts sysbench prints,
+    cmp ax, 0xFFFF                  ; so a gfxbench report alone still says
+    je .noboot                      ; which machine and which boot it came off
+    mov si, gb_l_boott              ; (SPEC.md 15.4; PERFORMANCE.md Part 9's
+    call gb_num                     ; "what to record with the numbers")
+    jmp short .snd
+.noboot:
+    mov si, gb_l_boott
+    mov di, gb_n_nostamp
+    call bl_kvs
+.snd:
+    call OSAPI_SND_CAPS             ; a sound driver attached, or not
+    mov si, gb_l_snd
+    call gb_hex
+    call OSAPI_FILE_HERE            ; ...and which volume the report will
+    add bl, 'A'                     ; land on, which is the commonest way to
+    mov [gb_volch], bl              ; lose one. BL is the drive, not AL
+    mov si, gb_l_vol
+    mov di, gb_volch
+    call bl_kvs
 
     call bl_blank
     mov si, gb_s_pit1
@@ -2397,8 +2421,9 @@ gb_h_1:     db 'Every gfx_* and font_* slot the OS publishes, priced on the adap
 gb_h_2:     db 'this machine actually has, plus the RAM and framebuffer bandwidth under', 0
 gb_h_3:     db '   R  or the Bench menu   run it.  About 10 seconds on a 4.77MHz 8088,', 0
 gb_h_4:     db '                          and the machine is FROZEN while it runs - the', 0
-gb_h_5:     db '                          bottom line says which block it is on.', 0
-gb_h_6:     db '   S  or the Bench menu   save the report to the current volume.', 0
+gb_h_5:     db '                          bottom line says which block it is on, and', 0
+gb_h_6:     db '                          it SAVES ITSELF when it finishes.  S or the', 0
+gb_h_6b:    db '                          Bench menu writes it again, after a disk swap.', 0
 gb_h_7:     db '   Space PgDn PgUp Up Dn Home End   page through it afterwards.', 0
 
 gb_s_h_fs:  db '-- fullscreen (SPEC.md 11.2): the same rows, no window around them --', 0
@@ -2436,6 +2461,11 @@ gb_l_kern:    db 'kernel span KB', 0
 gb_l_heap:    db 'claim heap KB', 0
 gb_l_mlarge:  db 'largest free run KB', 0
 gb_l_mtotal:  db 'total free KB', 0
+gb_l_boott: db 'boot ticks', 0
+gb_l_snd:   db 'sound caps word', 0
+gb_l_vol:   db 'current volume', 0
+gb_n_nostamp: db '  not stamped', 0
+gb_volch:   db 'A', 0
 gb_l_xms:     db 'pool above 1MB KB', 0
 gb_l_ovh:     db 'loop overhead counts', 0
 gb_l_ovh1:    db 'loop overhead usx100', 0

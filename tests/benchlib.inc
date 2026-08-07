@@ -297,6 +297,7 @@ bl_run:
     push dx
     push si
     push di
+    call bl_mwatch                  ; where is the pointer BEFORE this row?
     mov [bl_meth], al
     or al, al
     jnz .tick
@@ -380,6 +381,8 @@ bl_run:
     mov byte [bl_lscr + BL_C_FLAG], '!'
 .done:
     call bl_lcommit
+    inc word [bl_mnrow]
+    call bl_mwatch                  ; ...and where is it now?
     pop di
     pop si
     pop dx
@@ -387,6 +390,162 @@ bl_run:
     pop bx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; bl_mwatch - sample the pointer, and count a row it moved across
+; clobbers: flags (every register preserved)
+;
+; Called at the top and bottom of every bl_run, which is OUTSIDE every timed
+; span and outside every cli window, so it perturbs nothing. Two rows exist
+; because of one field sighting each, and both are questions about the
+; OPERATOR rather than about the machine (PERFORMANCE.md Part 9 Set 11):
+;
+;   - GFX_UNLOCK+LOCK is the one row in either harness that cannot be timed
+;     with interrupts off, and the only variable work in it is cur_lazyend's
+;     cur_move - which runs when the pointer has moved since the cursor was
+;     drawn. On the 5150 that row came in 9x dearer than on any other
+;     machine, and nobody could say afterwards whether a hand had been on the
+;     mouse. Now the report says.
+;   - and a cursor seen visually corrupted over a title bar mid-run, once, on
+;     a machine nobody is sure of. A run where the pointer never moved cannot
+;     have been that, which is worth knowing before anyone re-derives it.
+;
+; Sampling per ROW rather than per iteration is deliberate: per iteration
+; would put an API far call inside the thing being measured.
+; -----------------------------------------------------------------------------
+bl_mwatch:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call OSAPI_MOUSE                ; CX = x, DX = y (AL = buttons)
+    cmp byte [bl_mhave], 0
+    jne .seen
+    mov byte [bl_mhave], 1
+    mov [bl_mx0], cx
+    mov [bl_my0], dx
+    mov [bl_mxlo], cx
+    mov [bl_mxhi], cx
+    mov [bl_mylo], dx
+    mov [bl_myhi], dx
+    jmp short .bank
+.seen:
+    cmp cx, [bl_mxlo]               ; the bounding box first: it is what catches
+    jae .xhi                        ; a jiggle that returns between samples,
+    mov [bl_mxlo], cx               ; which the sample counter cannot see
+.xhi:
+    cmp cx, [bl_mxhi]
+    jbe .ylo
+    mov [bl_mxhi], cx
+.ylo:
+    cmp dx, [bl_mylo]
+    jae .yhi
+    mov [bl_mylo], dx
+.yhi:
+    cmp dx, [bl_myhi]
+    jbe .cmp
+    mov [bl_myhi], dx
+.cmp:
+    cmp cx, [bl_mx]
+    jne .moved
+    cmp dx, [bl_my]
+    je .bank
+.moved:
+    inc word [bl_mrows]
+.bank:
+    mov [bl_mx], cx
+    mov [bl_my], dx
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; bl_operator - the block that describes the RUN rather than the machine
+;
+; Emitted at the end of a report, because these are totals. Every field here
+; exists because a field set could not be interpreted afterwards without it
+; (PERFORMANCE.md Part 9 Set 11) - a benchmark that cannot say what the person
+; running it was doing produces numbers nobody can attribute a year later.
+;
+; `pointer moved` is the load-bearing one. Two samples are taken per row,
+; outside every timed span, and this counts the ones that differ from the
+; previous. **0 means the mouse was untouched for the whole suite**, which is
+; the condition GFX_UNLOCK+LOCK has to be read under, and the condition that
+; rules a run out as the cause of a cursor seen corrupting mid-suite.
+;
+; The two SPAN rows are there because that counter alone is not enough, and
+; the first version shipped without them: a nudge that comes back between two
+; samples moves no sample at all. The bounding box over the whole suite is
+; widened by any excursion however brief, so the honest reading is "moved = 0
+; AND both spans = 0" for a genuinely untouched mouse. Both are cheap, and
+; neither can be got from the other.
+; -----------------------------------------------------------------------------
+bl_operator:
+    push ax
+    push cx
+    push dx
+    push si
+    call bl_blank
+    mov si, bl_l_ophdr
+    call bl_sline
+    mov si, bl_l_opmv
+    mov ax, [bl_mrows]
+    call bl_opnum
+    mov si, bl_l_opsm
+    mov ax, [bl_mnrow]
+    add ax, ax                      ; two samples a row, top and bottom
+    call bl_opnum
+    mov si, bl_l_opxs               ; ...and the box, which a jiggle widens
+    mov ax, [bl_mxhi]               ; even when it lands back on its start
+    sub ax, [bl_mxlo]
+    call bl_opnum
+    mov si, bl_l_opys
+    mov ax, [bl_myhi]
+    sub ax, [bl_mylo]
+    call bl_opnum
+    mov si, bl_l_opx0
+    mov ax, [bl_mx0]
+    call bl_opnum
+    mov si, bl_l_opy0
+    mov ax, [bl_my0]
+    call bl_opnum
+    mov si, bl_l_opx1
+    mov ax, [bl_mx]
+    call bl_opnum
+    mov si, bl_l_opy1
+    mov ax, [bl_my]
+    call bl_opnum
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+bl_opnum:
+    push cx
+    push dx
+    xor dx, dx
+    mov cx, 9
+    call bl_kv
+    pop dx
+    pop cx
+    ret
+
+bl_l_ophdr: db '-- the run: what the person driving it was doing --', 0
+bl_l_opmv:  db 'pointer moved (samples)', 0
+bl_l_opsm:  db 'pointer samples taken', 0
+bl_l_opxs:  db 'pointer x span', 0
+bl_l_opys:  db 'pointer y span', 0
+bl_l_opx0:  db 'pointer x at start', 0
+bl_l_opy0:  db 'pointer y at start', 0
+bl_l_opx1:  db 'pointer x at end', 0
+bl_l_opy1:  db 'pointer y at end', 0
 
 ; -----------------------------------------------------------------------------
 ; bl_mul48 - DX:AX * CX -> [bl_m], 48 bits
@@ -1311,8 +1470,19 @@ bl_t0      equ bl_bcnt + 4               ; word: the tick at the row's start
 bl_tick    equ bl_t0 + 2                 ; word: ...and ticks elapsed over it
 bl_lapped  equ bl_tick + 2               ; byte: the row lapped the PIT
 bl_m       equ bl_lapped + 1             ; 3 words: the 48-bit accumulator
+bl_mrows   equ bl_m + 6                  ; word: rows the pointer moved across
+bl_mnrow   equ bl_mrows + 2              ; word: rows watched (= rows measured)
+bl_mx0     equ bl_mnrow + 2              ; word: where the pointer started...
+bl_my0     equ bl_mx0 + 2
+bl_mx      equ bl_my0 + 2                ; ...and where it was last looked at
+bl_my      equ bl_mx + 2
+bl_mxlo    equ bl_my + 2                 ; word: the pointer's bounding box
+bl_mxhi    equ bl_mxlo + 2               ; over the whole suite - a jiggle
+bl_mylo    equ bl_mxhi + 2               ; that comes back to where it started
+bl_myhi    equ bl_mylo + 2               ; moves no SAMPLE but widens this
+bl_mhave   equ bl_myhi + 2               ; byte: the box has been seeded
 %endmacro
 
-; ...and its size, for the caller's OS88_BSS. The tail past bl_out is 57
-; bytes of scalars; 64 is that with the slack a new scalar would want.
-BL_BSS_SIZE equ BL_MAXLINE * 2 + 8 + BL_ARENA + BL_MAXROWS * 2 + BL_OUTSZ + 80
+; ...and its size, for the caller's OS88_BSS. The tail past bl_out is 70
+; bytes of scalars; 96 is that with the slack a new scalar would want.
+BL_BSS_SIZE equ BL_MAXLINE * 2 + 8 + BL_ARENA + BL_MAXROWS * 2 + BL_OUTSZ + 96

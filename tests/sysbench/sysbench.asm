@@ -325,7 +325,11 @@ sb_run:
     mov si, sb_p_hdd
     call bl_progress
     call sb_hdd
+    call bl_operator                ; ...and what the OPERATOR was doing
     call sb_trailer
+    mov si, sb_f_out                ; SAVE IT, without being asked: a report
+    call bl_save                    ; that is only in RAM is a report that
+                                    ; needs the run doing again (see sb_onkey)
 
     pop di
     pop si
@@ -416,6 +420,8 @@ sb_hint:
     call bl_sline
     call bl_blank
     mov si, sb_h_6
+    call bl_sline
+    mov si, sb_h_6b
     call bl_sline
     mov si, sb_h_7
     call bl_sline
@@ -2053,7 +2059,8 @@ sb_h_2:     db 'bandwidth, the clock, what the kernel own interrupts cost, and t
 sb_h_3:     db '   R  or the Bench menu   run it.  About 40 seconds on a 4.77MHz 8088 -', 0
 sb_h_4:     db '                          most of it the two 16KB floppy reads - and the', 0
 sb_h_5:     db '                          machine is FROZEN throughout. Watch this line.', 0
-sb_h_6:     db '   S  or the Bench menu   save the report to the current volume.', 0
+sb_h_6:     db '                          it SAVES ITSELF when it finishes.  S or the', 0
+sb_h_6b:    db '                          Bench menu writes it again, after a disk swap.', 0
 sb_h_7:     db '   Space PgDn PgUp Up Dn Home End   page through it afterwards.', 0
 
 sb_s_h_hdd:  db '-- the hard disk (SPEC.md 52), if this machine has one --', 0

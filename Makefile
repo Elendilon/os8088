@@ -730,8 +730,9 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 # 8.3 names and no tab completion, and these get typed by hand into dskimage.
 FIELDBENCH := $(BENCHPKGS) $(BENCHDATA)
 CGADIR     := $(BUILD)/cgak
+F1DIR      := $(BUILD)/f1k
 
-field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img
+field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img
 
 $(BUILD)/herc.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) \
                    $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
@@ -765,6 +766,28 @@ $(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/kernel.bin \
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
 	@echo "field: $@ - the CGA disk on 720KB 3.5\" DD media"
+
+# ...and the A/B disk. FLOPPY1=1 puts dsk_xfer back to one sector per int 13h
+# (SPEC.md 18.91) and the boot sector with it, which is the transfer this
+# project shipped before the batching. It exists because on the IBM 5150 the
+# batching measured ZERO improvement - 16KB in 7.63 s before it and 8.07 s
+# after, 2,100 bytes/second and then 2,001 (docs/FIELD-NOTES.md 7) - while
+# both emulators showed a large gain and neither of them models rotational
+# latency, so neither can arbitrate. This disk settles it in one sysbench run:
+#
+#   the same 8.07 s   the multi-sector command is not reaching the hardware
+#   much slower       the batching works, and Set 1's 9x model was wrong
+#
+# It is the PROBE kernel (so it boots either card) because the question has
+# nothing to do with video, and its `boot ticks` row is a second, independent
+# reading of the same thing.
+$(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+	@$(MAKE) BUILD=$(F1DIR) FLOPPY1=1 $(F1DIR)/boot360.bin
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(F1DIR)/boot360.bin --kernel $(F1DIR)/kernel.bin \
+		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+	@echo "field: $@ - FLOPPY1=1, one sector per int 13h. The A/B against"
+	@echo "       herc.img for docs/FIELD-NOTES.md 7 - run SYSBENCH on both"
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
 # inside: its worker 0xCC-fills its own slice, spins so every interrupt the

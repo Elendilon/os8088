@@ -884,3 +884,46 @@ registers. That does not invalidate the data: `bl_time` banks CX around
 `call word [bl_body]` and keeps every accumulator in memory, so the harness
 survives a body that clobbers everything — which is its documented contract.
 A re-run should still be on a fixed kernel.
+
+---
+
+## 9. A cursor seen visually corrupted over a title bar, once, mid-benchmark
+
+**Observed**, once, by the 5150's owner during the Part 9 Set 11 runs: the
+mouse was left resting **over a window's title bar, near the left side**, and
+the arrow was "visually corrupted as the bench ran". One sighting; the
+machine and the adapter are both unremembered — the same session covered a
+5150 with a Hercules and a CGA card, a T1100 Plus and a 286.
+
+**Not reproduced.** Both adapters, both kernels, cursor parked on the
+gfxbench window's title bar at the same place, the full suite run underneath
+it, and the arrow checked **exactly** rather than by eye — the composite
+`(background | white) & ~black` computed from `CUR_ARROW` and compared with
+the framebuffer cell:
+
+| | |
+|---|---|
+| CGA, current kernel | before / mid-run / after **pixel-identical**, whole screen |
+| Hercules, current kernel | **0 of 96** cell mismatches, before and mid-run |
+| Hercules, `16844dd` — the build the field disks were made from, *before* SPEC.md §7.1.4.1 | **0 of 96**, before, mid-run and after |
+
+So it is not the deferred hide failing to be spent by `wm_draw_title` (which
+draws through `gfx_fill` and `gfx_hline`, both of which spend it), and it is
+not the pre-§7.1.4.1 register bug on its own.
+
+**What is left is the mouse having moved**, which is the one thing those runs
+could not do and the field run could — §7.1.4.1 counted `cur_move` firing on
+279 of 972 unlocks under a flood of packets, and on the pre-fix kernel that
+call ate the caller's registers. It is also the same unknown that note 8
+turns on, which is why both got the same instrument rather than two.
+
+**What to do next time, and it is now automatic.** `tests/benchlib.inc`
+samples the pointer twice per row, outside every timed span, and every report
+ends with a block that says whether it moved: `pointer moved (samples)`,
+`pointer x span` / `y span` (a nudge that returns between samples moves no
+sample but still widens the box — the counter alone shipped first and would
+have missed exactly that), and where the pointer started and ended. A run
+with all three at **0** rules this note out; a run with the pointer parked on
+a title bar and a non-zero span, that then corrupts, confirms it in one
+sitting. The operator's side of it is to leave the mouse alone from before
+`R` is pressed.
