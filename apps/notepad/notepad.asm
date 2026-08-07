@@ -6632,6 +6632,20 @@ np_hitpt:
     mov [np_hitx], cx
     mov [np_hity], dx
     mov word [np_wanty], 0xFFFF
+    push ax                     ; the pointer names ONE row, and np_rows knows
+    push dx                     ; where it starts (SPEC.md 27.5) - so seed
+    mov ax, dx                  ; there and stop after it, which is what
+    sub ax, [np_ty]             ; np_onclick has always done for a click. This
+    jc .nseed                   ; was walking the WHOLE note per drag pass
+    push cx
+    mov cl, 3
+    shr ax, cl
+    pop cx
+    mov dx, ax
+    call np_seedrow
+.nseed:
+    pop dx
+    pop ax
     call np_measure
     mov byte [np_resume], 0
     mov ax, [np_hiti]
@@ -6657,12 +6671,40 @@ np_dragsel:
     push cx
     push dx
     mov bx, [np_anchor]         ; what the last pass resolved
+    mov word [np_lmx], 0xFFFF   ; ...and where the pointer was when it did
+    mov word [np_lmy], 0xFFFF
 .pass:
     call np_selpace
     call OSAPI_MOUSE            ; CX = x, DX = y, AL = buttons
     test al, 1
     jz .up
     call np_bounds
+    cmp cx, [np_lmx]            ; A POINTER THAT HAS NOT MOVED HAS NOTHING TO
+    jne .moved                  ; SAY. The loop runs at a tick whether the
+    cmp dx, [np_lmy]            ; mouse reports anything or not, and at 1200
+    jne .moved                  ; baud it usually does not
+    cmp dx, [np_ty]
+    jb .moved                   ; ...unless it is parked outside the view,
+    push ax                     ; where every tick owes another row of scroll
+    mov ax, [np_vrows]
+    or ax, ax
+    jz .still
+    dec ax
+    push cx
+    mov cl, 3
+    shl ax, cl
+    pop cx
+    add ax, [np_ty]             ; the last visible row's top - np_hitpt's own
+    cmp dx, ax                  ; threshold for scrolling, so the two cannot
+    ja .scrolling               ; disagree about which passes matter
+.still:
+    pop ax
+    jmp short .pass
+.scrolling:
+    pop ax
+.moved:
+    mov [np_lmx], cx
+    mov [np_lmy], dx
     call np_hitpt
     jc .draw                    ; the view scrolled: owed a redraw either way
     cmp ax, bx
@@ -8482,6 +8524,8 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                             ; state and not a failure: an edit or a click can
                             ; move the caret off every match, and the ordinal
                             ; is then the worker's to re-derive
+    NPVAR np_lmx, 2
+    NPVAR np_lmy, 2
     NPVAR np_fwrap, 1       ; byte: the last search ran off the end and came
                             ; back to the top - which is what turns "the next
                             ; match" into "match 1" without counting anything

@@ -1464,8 +1464,16 @@ pair over about 500 times a second — which is a *blink*, not just a bill.
 gfx lock blinks the cursor, and that blink IS the flicker the
 seconds-in-menu-bar setting exists to remove."
 
-SPEC.md §7.1.1 has the economics, the nine ways a lazy hide could miss, and
-why it is written down rather than built.
+SPEC.md §7.1.1 has the economics and the nine ways a lazy hide could miss —
+**and why it was measured a second time and then dropped.** About 4,900 of
+those 5,020 holds were `fm_drag`'s unpaced `.wait` loop spinning the lock
+while a button was held, not application drawing. Pacing that loop (§7.1.3)
+makes the identical session **120 holds**, of which 46 either drew into the
+cursor cell or moved the mouse — so a lazy hide would now save ~74 x 1.94 ms
+= **144 ms across several minutes**, for a check at every framebuffer-writing
+path, a permanent-smear failure mode, and a new package ABI contract to cover
+the one path that cannot be hooked. Re-measure before building an
+optimisation whose justification predates its neighbours' fixes.
 
 ### Set 9 — MartyPC, and the first log with a working MAX line
 
