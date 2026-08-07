@@ -744,7 +744,21 @@ Measured: 30 of 31 Task Manager refreshes kept the cursor up, **0** cell
 violations. **The trap that cost the boot: `vid_setmode` must NOT call
 `cur_unlazy`** - `viddet.inc` runs from the splash BEFORE the rest of the
 kernel is off the floppy (SPEC.md 15.3), so a call from there into `mouse.inc`
-executes whatever is not loaded yet: black screen, no clue.
+executes whatever is not loaded yet: black screen, no clue. **And the trap
+that cost the background tasks (SPEC.md 7.1.4.1): a promise that SURVIVES puts
+a `cur_move` inside `gfx_unlock`**, and `cur_move` clobbers `ax bx cx dx si di
+bp es` while `gfx_unlock`'s contract is *clobbers: flags*. `cur_lazyend` saved
+AX and BX, so one mouse packet landing inside such a hold wrecked the caller's
+BP and SI - which SPEC.md 14's background tasks hold *for the life of the
+task*. Bounce then read `[ds:bp+I_WIN]` out of a wrecked BP, got a window whose
+visible bit was clear and went blind for the session (ball stepping invisibly,
+last square frozen on screen); the Timer stopped counting the same way. Nothing
+faulted, nothing froze, and the task table showed both tasks waking on
+schedule, so it read as *a worker is broken* rather than as a register bug -
+279 corruptions in 279 `cur_move` calls, 0 after. **A routine reached from
+`gfx_lock`/`gfx_unlock` inherits THEIR register contract, not its own**: the
+pair sits under every drawing site in the machine and no call site can
+compensate.
 
 **A poll loop that drops the gfx lock must pace itself to the TICK** (SPEC.md
 7.1.3) - and this one is also why the LAZY HIDE was dropped (7.1.1): a

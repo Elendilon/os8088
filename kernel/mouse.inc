@@ -831,9 +831,31 @@ cur_lazyck:
 ;               on screen and cursor_show must NOT run (it would bank the
 ;               drawn arrow as background), but the ISR refused to move it all
 ;               through the hold, so any motion is owed here.
+;
+; It saves EVERYTHING, like cursor_show and cursor_hide either side of it, and
+; for the same reason (SPEC.md 7.1.4.1): it is reached from gfx_unlock, whose
+; contract is "clobbers: flags" and whose callers hold long-lived state in
+; registers across the call - a background task keeps its instance record in BP
+; and its state block in SI for the LIFE of the task (SPEC.md 14). cur_move
+; clobbers ax, bx, cx, dx, si, di, bp and es, and this pushed only the first
+; two, so one mouse packet landing inside a hold whose promise SURVIVED - the
+; pointer parked away from the window, which is the case the promise exists to
+; serve - silently destroyed the caller's world. Bounce read [ds:bp+I_WIN] out
+; of a wrecked BP, got a window record whose visible bit was clear, and took
+; the blind branch for the rest of the session: the ball stepped invisibly
+; while the last-drawn square sat on screen forever, and the Timer stopped
+; counting the same way. Nothing faulted, nothing froze, and the task table
+; showed both tasks sleeping and waking on schedule - which is what made it
+; read as "a worker is broken" rather than as a register bug.
 cur_lazyend:
     push ax
     push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
     pushf
     cli
     mov byte [cur_lazy], 0
@@ -850,6 +872,12 @@ cur_lazyend:
     mov byte [cur_dirty], 0
 .out:
     popf
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
     pop bx
     pop ax
     ret
