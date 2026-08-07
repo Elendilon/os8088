@@ -373,11 +373,21 @@ restore that disagree by a byte smear the cursor across the screen. Measured
 by `gfxbench`'s `GFX_UNLOCK+LOCK pair` row (which is measured *backwards* —
 `OSAPI_GFX_LOCK` from a callback is a deadlock, unlock-then-lock is not):
 **17.82 → 5.41** counts on Hercules and CGA alike, **1.54x** on VGA,
-framebuffer byte-identical on all three at every cursor position. **What is
-left is docs/FIELD-NOTES.md 6**: moving the cursor is still erase-then-draw,
-two walks, so every byte in the overlap is written twice and the glass can
-catch the background in between - which on a real Hercules reads as the whole
-arrow washing out to white while the mouse moves. What was deliberately
+framebuffer byte-identical on all three at every cursor position. **And a MOVE writes every byte exactly
+once** (SPEC.md 7.1.2): it used to be erase-then-draw, two walks, so every byte
+in the overlap was written twice and the glass could catch the background in
+between - which on a real Hercules reads as the whole arrow washing out to
+white while the mouse moves (docs/FIELD-NOTES.md 6). The fix is NOT a union
+walk and needs no gate on how far the cursor went: the two passes still walk
+the old cell and the new cell, and each byte is written once because **pass 1
+skips the bytes pass 2 will write** and **pass 2 takes their background from
+the save buffer rather than the screen** - so non-overlapping cells degenerate
+to the old behaviour by themselves. It costs a second 24-byte save buffer,
+swapped by pointer so nothing is copied, and `cur_sptr` is in `.text` with a
+real initialiser because `.bss` arrives zeroed and 0 there points at the API
+jump table. Verified by a 37-move walk over texture (every column delta, every
+shift phase, both clipped edges) returning to its start: **0 differing pixels**,
+against **98** with the background source deliberately broken. What was deliberately
 NOT done, and is written down in §7.1: a *lazy* hide, which would take the
 untouched case to nothing but needs the check at every path that writes the
 framebuffer — §11.3's "a primitive not on that list is a hole" with a worse

@@ -672,7 +672,7 @@ difference is in the *BIOS* and not in the timing.
 
 ---
 
-## 6. The cursor washes out to white while the mouse is moving (Hercules)
+## 6. The cursor washes out to white while the mouse is moving (Hercules) (FIXED, awaiting field confirmation)
 
 **Observed.** On the 5150's Hercules card, moving the mouse around makes the
 arrow's white outline appear to come away from the black body — "the shadow
@@ -720,19 +720,33 @@ opportunities a second for the beam to scan that cell mid-update. "Sometimes",
 "only while moving", "never persists". A long-persistence monitor phosphor
 would smear it further toward white rather than showing a clean flash.
 
-**The fix, not yet built: make a MOVE one pass.** The property that matters is
-that no framebuffer byte is written twice — today every byte in the overlap of
-the old and new cells is written once by the erase and again by the draw, and
-the glass can catch the value in between. Walking the union once, taking each
-byte's background from `cur_save` when it was in the old cell and from the
-framebuffer when it was not, writes every byte exactly once and the
-intermediate state stops existing.
+**Fixed: a move writes every byte exactly once** (SPEC.md §7.1.2,
+`cur_move_mono`). The property that matters is not that the walk be a union —
+it is that no framebuffer byte be written twice. The two passes still walk the
+old cell and the new cell exactly as they did, and each byte is written once
+because **pass 1 skips the bytes pass 2 is going to write**, and **pass 2
+takes their background from the save buffer rather than from the screen**. So
+there is no union to bound and no gate: cells that do not overlap degenerate
+to the old behaviour on their own, because the skip never fires and the
+background always comes from the screen.
 
-Two things bound it. It is only worth doing when the cells **overlap** — a
-large delta means two separate places, and the old one going background is
-correct rather than a glitch — so gate it on `|dy| < CUR_GH` and the byte
-columns being within one of each other. And it needs a **second save buffer**
-(24 bytes), because the walk reads the old save while writing the new one. For
-a small move the union is ~2 columns x 13 rows against today's 48 byte
-operations, so it is cheaper as well; for a large one it is not, which is what
-the gate is for.
+It needs a second 24-byte save buffer, since pass 2 reads the old one while
+filling the new, and the two are swapped by pointer so nothing is copied. The
+`GFX_UNLOCK+LOCK pair` row is unmoved at 544 counts against 541 (0.6%, noise)
+— the move is a different path from the lock's, and the pair pays only the one
+extra indirection for the buffer pointer.
+
+**Verified the only way a save-under can be.** A dense walk — 37 moves with
+byte-column deltas of 0, ±1, ±2 and larger, in every shift phase, plus the
+right and bottom screen edges where the second byte and the lower rows are
+clipped away — then park the cursor back where it started and compare the
+whole screen: **0 differing pixels of 237,600**. A wrong background is
+permanent rather than transient, so a zero there means every one of those
+moves restored exactly. And the test has teeth: with pass 2's background
+source deliberately broken back to "always read the screen", the same walk
+leaves **98 permanent differing pixels**.
+
+What is NOT fixed is the planar path — VGA still moves erase-then-draw,
+because its save is four planes through Read Map Select and cannot take a
+background from a buffer. Its *draw* is one store now (§7.1), which was the
+larger of the two windows there.
