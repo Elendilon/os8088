@@ -2301,18 +2301,36 @@ here" and throwing them away — and then, because the answer had been
 destroyed, treated a plugged-in mouse as absent and **power-cycled it every
 `MOU_REPOLL` ticks for the life of the session**.
 
-What that cost is measured, not argued. The recovery cycle is 58 ticks
-(`MOU_REPOLL` + `MOU_RSTLOW`, ~3.19 s), of which 3 ticks (~165 ms) the mouse
-is unpowered and 9 (`MOU_DRAINT`, ~0.5 s) the ISR discards every byte: **12
-of 58 ticks — 20.7% — the mouse is dead**, forever, with a physical mouse
-reset on every raise and a `mou_newround` cutting any run in progress. And
-the *first* cycle lands on the desktop: `[ticks]` is zeroed by `sched_init`
-and `[mou_hpt]` starts at 0, so the drop fires as soon as
-`[ticks] >= MOU_REPOLL` — and §15.3's own measured tail from `sched_init` to
-the first paint (`mouse_init` ~165 ms + the drain ~1.04 s + `drv_boot`
-~3.1 s + `wm_paint_all` ~250 ms) is **≥ 85 ticks** on the field machine, ~200
-with a driver enabled. So the machine power-cycles the mouse at the instant
-the desktop appears and then eats half a second of it. That is the hitch.
+**There are two costs, they are not the same size, and the smaller one is the
+one that looks like the culprit.** Both are paid before the first packet and
+neither is paid after, so they arrive together as a single symptom — the
+mouse does nothing, then the cursor leaps, then everything is exact for the
+session.
+
+- **The contest, on a machine with two live ports.** `[mou_need]` is
+  `MOU_LOCKN` = 8 on both, so the first eight clean packets are counted and
+  **discarded — no cursor motion at all** (§9.5). This is **deterministic:
+  every boot, every time**, and a packet is 3 bytes of 10 bits at 1200 baud,
+  so eight of them is ~200 ms of *continuous* motion and a third of a second
+  of a real nudge. docs/TESTING.md already recorded the harness end of it —
+  "wrong by the whole move, not by a few pixels… reads exactly like a mouse
+  that is not working at all" — and a human meets the same thing.
+- **The recovery cycle, on any machine that has heard no packet.** 58 ticks
+  (`MOU_REPOLL` + `MOU_RSTLOW`, ~3.19 s), of which 3 (~165 ms) the mouse is
+  unpowered and 9 (`MOU_DRAINT`, ~0.5 s) the ISR discards every byte: **12 of
+  58 — 20.7% of the time the mouse is dead**, forever, with a physical reset
+  on every raise and a `mou_newround` cutting any run in progress. This one is
+  *probabilistic* in where a given nudge lands, which is exactly why it should
+  not be read as the whole story on a two-port machine. And its first cycle
+  lands on the desktop: `[ticks]` is zeroed by `sched_init` and `[mou_hpt]`
+  starts at 0, so the drop fires as soon as `[ticks] >= MOU_REPOLL` — and
+  §15.3's own measured tail from `sched_init` to the first paint (`mouse_init`
+  ~165 ms + the drain ~1.04 s + `drv_boot` ~3.1 s + `wm_paint_all` ~250 ms) is
+  **≥ 85 ticks** on the field machine, ~200 with a driver enabled.
+
+The two fixes below answer one each, which is why both are wanted: the
+threshold drop is what a two-port machine feels, the stand-down is what a
+one-port machine feels.
 
 So the burst is recorded. Per port, the settle loop banks the **first** byte
 after the raise, a saturating byte count and the tick of the last byte;
@@ -2385,7 +2403,32 @@ stand-down, no threshold drop. Period MS and Logitech parts answer `'M'` and
 packets during boot regardless, so `[mou_seen]` is 1 and `[mou_hpst]` 2
 straight out of `make test`. The *negative* half is testable here and must be
 — docs/TESTING.md §9.5's socket-chardev modem harness must never set
-`[mou_ident]` — but "a real mouse answers `M`" needs 86Box or the 5150.
+`[mou_ident]` — but "a real mouse answers `M`" needs an emulator that models
+the UART, or the iron.
+
+**MartyPC does model it, and is where the accepting half was first
+confirmed** — a 1MB memory dump taken at the desktop with the mouse
+deliberately untouched, which is precisely the state that used to be broken:
+
+```
+mou_bases  03F8 02F8   BOTH ports live - this is the CONTEST case
+mou_idn    01 00       one byte on COM1, nothing on COM2
+mou_idb0   4D ..       ...and it was 'M'
+mou_idlast 0003        it arrived at tick 3, inside the window
+mou_ident  01 00       COM1 answered like a mouse, COM2 did not
+mou_idany  01
+mou_need   01 08       COM1 dropped to 1; COM2 still owes its eight
+mou_seen   00          nothing has been claimed - the contest is untouched
+mou_hpst   00  hpt 0000  the recovery cycle NEVER FIRED
+mouse_x/y  0168 00AE   = 360,174 = 720x348 / 2: still homed (39.6), unmoved
+```
+
+Two things in that dump are worth reading rather than skimming. It is a
+**two-port** machine, so it is the threshold drop that is doing the visible
+work there and not the stand-down — which is what identified the contest as
+the deterministic cost above. And `[mou_seen]` = 0 beside a homed cursor is
+the check that the identify did **not** quietly settle anything: had it
+claimed the port, that word would be 1 before a packet ever arrived.
 
 ### 9.5 COM1 or COM2 — the port is not asked and not configured
 

@@ -204,7 +204,17 @@ accept.** `msmouse` is not a UART-level device — it ignores MCR/DTR entirely
 and emits packets during boot regardless — so out of a plain `make test` you
 get `[mou_seen]` = 1, `[mou_hpst]` = 2 and `[mou_ident]` = 0: the *old* code
 path, exactly, which is the right regression baseline and no test of the new
-one. "A real mouse answers `'M'`" needs 86Box or the 5150.
+one.
+
+**MartyPC models the UART and the mouse's reply to a DTR/RTS raise**, which
+makes it the cheapest place to test the accepting half — the first
+confirmation of it came off a MartyPC memory dump (SPEC.md §9.4.1 carries the
+figures). It gives **two live ports**, `03F8` and `02F8`, so it is the
+*contest* case rather than the easy one, and `[mou_need]` going `01 08` is
+the assertion that matters there. Dump memory at the desktop **with the mouse
+deliberately untouched** — that is the state that used to be broken, and
+`mouse_x`/`mouse_y` still sitting on `[vid_w]/2, [vid_h]/2` is how you know
+nothing has moved yet. It boots the **360KB** pair.
 
 The refusal half uses §9.5's socket-chardev harness, with the sender timed to
 land inside `mouse_init`'s drain window — which closes about **1.2 s after
