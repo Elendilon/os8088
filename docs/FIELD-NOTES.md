@@ -776,7 +776,7 @@ larger of the two windows there.
 
 ---
 
-## 7. The floppy is 6.3x slower than the BIOS underneath it (OPEN, and it is ours)
+## 7. The floppy moves 4.6x the data it is asked for (OPEN, and located)
 
 **Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
 ladder was calibrated against. `sysbench`'s floppy block, same machine, same
@@ -913,10 +913,45 @@ just the batched path's extra arithmetic with none of its benefit — so the
 question "should the default flip" is **dead**: there is nothing to flip
 between, both paths are doing the same thing at the hardware.
 
-**The next step is a call counter.** `DISKCNT` counts sectors and would need
-to count *calls*, per transfer: if `dsk_xfer` reports 4 calls for a 32-sector
-run and the machine still takes 8 seconds, the decomposition is below us; if
-it reports 32, it is above.
+**The call counter was built and it answered** (PERFORMANCE.md Part 9
+Set 15, SPEC.md §18.94). One 16 KB `OSAPI_FILE_READ` on the 5150:
+
+| | |
+|---|---|
+| sectors moved | **148** |
+| int 13h calls | **34** |
+| longest run | **9** |
+| controller resets | **0** |
+| sectors per call | **4.35** |
+
+**The splitter works and was never the problem.** 4.35 sectors a call with a
+longest run of 9 is not one-per-call, nothing retried, and at 252 ms a call
+each transfer costs about what the BIOS charges (199 ms for one sector, 398
+for nine). §18.91 is doing exactly what it says.
+
+**The fault is that a 32-sector file cost 148 sectors of traffic.** 4.6x, and
+that one number is the whole gap: 32 sectors batched 9 to a call would be ~4
+calls and 1.59 s, against 34 calls and 8.57 s measured. So every mechanism
+this note has blamed in turn — the interleave, the drive, the controller, the
+BIOS, the batching — has now been measured and cleared, and what is left is
+**116 sectors nobody asked for**.
+
+**Where they come from is machine-dependent**, which is why reading the
+source never found them: the same binary on the same image under QEMU moves
+**34 sectors in 6 calls** — 32 of data and 2 of directory, very nearly
+optimal — with **zero `disk_mount` calls**. The instrument now measures each
+operation on its own and counts mounts inside it, and a one-sector read
+beside the 16 KB one isolates the fixed cost from the data (QEMU: 3 sectors,
+3 calls). The next field run says whether the 116 are a remount, the
+directory walk, or something in the chain walker that only fires on real
+geometry.
+
+**And the target is now a measured number rather than a model.** DOS copying
+the single 170 KB file off the same disk runs at **~13,390 B/s** (about 15
+seconds, 2 of them not spinning, stopping three times for a 64 KB buffer),
+the BIOS's own one-call track read is **11,570**, and 2:1 interleave by
+arithmetic is 11,520. Three independent figures within 16%. **11.5-13.4 KB/s
+is what this drive does.**
 
 ---
 

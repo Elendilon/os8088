@@ -1830,18 +1830,21 @@ sb_raw13:
     ret
 
 ; -----------------------------------------------------------------------------
-; sb_dbgctr - the kernel's own transfer counters (SPEC.md 18.94)
+; sb_dbgctr - what os8088's own path ISSUES, per operation (SPEC.md 18.94)
 ;
-; This is the row the whole floppy investigation came down to. The BIOS reads
-; a 9-sector track in 1.92 revolutions when it is asked for nine sectors at
-; once (Set 14), and dsk_xfer takes 1.34 revolutions PER SECTOR - so either
-; the run splitter is not forming runs, or something below it is taking them
-; apart. `sectors per int 13h` says which, and needs no timing at all: near 1
-; and the splitter never formed a run; near 9 and it did, and the loss is
-; below us.
+; The row the whole floppy investigation came down to, and it has already
+; answered once (PERFORMANCE.md Part 9 Set 15). On the 5150 one 16KB read -
+; 32 sectors of file - moved **148 sectors in 34 int 13h calls**, longest run
+; 9, no resets. So SPEC.md 18.91's splitter WORKS: 4.35 sectors a call is not
+; one-per-call, and every call costs about what the raw int 13h rows above say
+; the BIOS charges. **We are simply moving 4.6x the data the file contains.**
 ;
-; The counters are free-running and never reset by the kernel, so this banks
-; them, runs one 16KB read, and subtracts.
+; The same binary on the same image under QEMU moves 34 sectors in 6 calls,
+; which is very nearly optimal - so whatever the extra 116 sectors are, they
+; are machine-dependent, and that is what these rows are now shaped to find.
+; Each operation is measured on its own by banking the free-running counters,
+; doing the thing and subtracting, so the ONE-SECTOR read isolates the fixed
+; cost (open, directory walk, any remount) from the data.
 ; -----------------------------------------------------------------------------
 sb_dbgctr:
     push ax
@@ -1849,39 +1852,86 @@ sb_dbgctr:
     push cx
     push dx
     push si
+    call bl_blank
+    mov si, sb_s_h_ctr
+    call bl_sline
+    mov si, sb_s_h_ctr2
+    call bl_sline
+
+    call sb_ctr_bank                ; --- one 16KB read
+    call sb_b_rdbig
+    call sb_ctr_take
+    mov si, sb_l_c16
+    call bl_sline
+    call sb_ctr_show
+
+    call sb_ctr_bank                ; --- ...and one ONE-SECTOR read, which is
+    call sb_b_rdsml                 ; the same overhead with no data behind it
+    call sb_ctr_take
+    mov si, sb_l_c1
+    call bl_sline
+    call sb_ctr_show
+
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; sb_ctr_bank - snapshot the counters, and clear the two per-operation ones
+sb_ctr_bank:
+    push ax
+    push bx
     push es
     mov ax, KERNEL_SEG
     mov es, ax
     mov bx, [sb_dbgblk]
-    mov ax, [es:bx+4]               ; bank sectors and calls
+    mov ax, [es:bx+2]
+    mov [sb_c0mnt], ax
+    mov ax, [es:bx+4]
     mov [sb_c0sec], ax
     mov ax, [es:bx+6]
     mov [sb_c0i13], ax
-    mov word [es:bx+8], 0           ; the longest run and the resets are
-    mov word [es:bx+10], 0          ; per-read, so clear rather than bank
+    mov word [es:bx+8], 0           ; longest run and resets are per-operation
+    mov word [es:bx+10], 0
     pop es
+    pop bx
+    pop ax
+    ret
 
-    call sb_b_rdbig                 ; one 16KB read through the normal path
-
+; sb_ctr_take - ...and subtract, leaving the deltas in the sb_c0* words
+sb_ctr_take:
+    push ax
+    push bx
     push es
     mov ax, KERNEL_SEG
     mov es, ax
     mov bx, [sb_dbgblk]
+    mov ax, [es:bx+2]
+    sub ax, [sb_c0mnt]
+    mov [sb_c0mnt], ax
     mov ax, [es:bx+4]
     sub ax, [sb_c0sec]
-    mov [sb_c0sec], ax              ; sectors this read moved
+    mov [sb_c0sec], ax
     mov ax, [es:bx+6]
     sub ax, [sb_c0i13]
-    mov [sb_c0i13], ax              ; ...and calls it took
+    mov [sb_c0i13], ax
     mov ax, [es:bx+8]
     mov [sb_c0max], ax
     mov ax, [es:bx+10]
     mov [sb_c0rst], ax
     pop es
+    pop bx
+    pop ax
+    ret
 
-    call bl_blank
-    mov si, sb_s_h_ctr
-    call bl_sline
+sb_ctr_show:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
     mov si, sb_l_csec
     mov ax, [sb_c0sec]
     call sb_num
@@ -1891,10 +1941,13 @@ sb_dbgctr:
     mov si, sb_l_cmax
     mov ax, [sb_c0max]
     call sb_num
+    mov si, sb_l_cmnt
+    mov ax, [sb_c0mnt]
+    call sb_num
     mov si, sb_l_crst
     mov ax, [sb_c0rst]
     call sb_num
-    mov ax, [sb_c0sec]              ; sectors per call x100 - the answer
+    mov ax, [sb_c0sec]              ; sectors per call x100
     xor dx, dx
     mov si, 100
     call sb_mul16
@@ -1908,7 +1961,6 @@ sb_dbgctr:
     mov si, sb_d_cspc
     mov cx, 9
     call bl_kv
-
     pop si
     pop dx
     pop cx
@@ -2541,7 +2593,11 @@ sb_l_r13st:  db 'int 13h last status AH', 0
 sb_d_r13b:   db 'bios track 1 call B/s', 0
 sb_d_r13s:   db 'bios track 9 calls B/s', 0
 sb_s_nodbg:  db 'This kernel carries no disk instrument - build DISKCNT=1.', 0
-sb_s_h_ctr:  db '-- what os8088 own transfer path issued for ONE 16KB read --', 0
+sb_s_h_ctr:  db '-- what os8088 own transfer path ISSUES, per operation --', 0
+sb_s_h_ctr2: db '   the 1-sector read is the same overhead with no data in it', 0
+sb_l_c16:    db '  one 16KB FILE_READ:', 0
+sb_l_c1:     db '  one 1-sector FILE_READ:', 0
+sb_l_cmnt:   db 'disk_mount calls', 0
 sb_l_csec:   db 'sectors moved', 0
 sb_l_ci13:   db 'int 13h calls', 0
 sb_l_cmax:   db 'longest run, sectors', 0
@@ -2630,7 +2686,8 @@ sb_r13off   equ os88_image_end + 98    ; word: the raw read's buffer offset
 sb_c0sec    equ os88_image_end + 100   ; word: sectors one 16KB read moved
 sb_c0i13    equ os88_image_end + 102   ; word: ...and int 13h calls it took
 sb_c0max    equ os88_image_end + 104   ; word: the longest run in it
-sb_c0rst    equ os88_image_end + 106   ; word: ...and controller resets (107)
+sb_c0rst    equ os88_image_end + 106   ; word: ...and controller resets
+sb_c0mnt    equ os88_image_end + 108   ; word: disk_mount calls in it (109)
 sb_syskb    equ os88_image_end + SB_O_SYSKB    ; SYSKB_SIZE bytes
 sb_res      equ os88_image_end + SB_O_RES      ; SB_NCPU dwords
 sb_rrow     equ os88_image_end + SB_O_RROW     ; SB_BWROWS words

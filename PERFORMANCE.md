@@ -2057,3 +2057,87 @@ IRQ6 nesting on whichever 256-byte task stack is current and the kernel's own
 `dsk_xfer` holds `sch_lock` across every call so nothing switches underneath
 one. It is kept because it answered the question and the answer was worth
 6.3x; nothing shipped may copy it.
+
+### Set 15 — 148 sectors to read 32, and the splitter was never the problem
+
+One `sysbench` run on the 5150 from the `d5a1fc9` `dskdbg.img`, plus a DOS
+cross-check on the same machine. The instrumented kernel (SPEC.md §18.94)
+answers the question Set 14 left:
+
+| one 16 KB `OSAPI_FILE_READ` | |
+|---|---|
+| sectors moved | **148** |
+| int 13h calls | **34** |
+| longest run | **9** |
+| controller resets | **0** |
+| sectors per call | **4.35** |
+
+**The run splitter works.** 4.35 sectors a call with a longest run of 9 is
+not one-per-call, nothing is being retried, and at 252 ms a call every one of
+those transfers costs about what the raw `int 13h` rows in the same report
+say the BIOS charges (199 ms for one sector, 398 ms for nine). §18.91 is
+doing its job.
+
+**We are moving 4.6x the data the file contains.** A 16 KB file is 32
+sectors; the read issued 148. That single number is the whole gap:
+
+| | |
+|---|---|
+| 32 sectors batched 9 to a call | ~4 calls, **1.59 s**, 10,291 B/s |
+| measured | 34 calls, **8.57 s**, 1,912 B/s |
+| | **5.4x** |
+
+So the floppy problem was never the FDC, the interleave, the batching or the
+BIOS — every one of those was measured and cleared — and it is not even the
+*call* efficiency. **It is 116 sectors of traffic nobody asked for.**
+
+#### The same binary, the same image, on QEMU
+
+| | 5150 | QEMU |
+|---|---|---|
+| 16 KB read: sectors / calls | **148 / 34** | **34 / 6** |
+| 1-sector read: sectors / calls | — | 3 / 3 |
+| `disk_mount` calls in either | — | **0** |
+
+QEMU is very nearly optimal: 32 data sectors plus 2 of directory. So the
+extra 116 are **machine-dependent**, which is why no amount of reading the
+source found them. The block now measures each operation on its own and
+counts `disk_mount` calls inside it, so the next run says whether the
+overhead is a remount, the directory walk, or something in the chain walker
+that only fires on real geometry.
+
+#### DOS confirms the ceiling, on one file this time
+
+Set 13's DOS figure copied several small files, so it carried a directory
+write, a FAT write and a fresh seek each time. Repeated with the single
+170 KB contiguous file now on the field disks: **~15 seconds, about 2 of them
+with the disk not spinning, and it stopped three times** (a 64 KB buffer,
+copied out to the ST-225 between passes).
+
+| | bytes/second |
+|---|---|
+| DOS, one 170 KB file, spinning time only | **~13,390** |
+| `int 13h track, 1 call` from this report | **11,570** |
+| 2:1 interleave, by arithmetic | 11,520 |
+| os8088 | 1,912 |
+
+Three independent numbers within 16% of each other, and the media is 2:1
+interleaved. **11.5–13.4 KB/s is what this drive does**; that is the target.
+
+#### The raw rows repeat, which is what makes them a measurement
+
+Set 14 against Set 15, same machine, different boots:
+
+| | Set 14 | Set 15 | revolutions |
+|---|---|---|---|
+| `int 13h 1 sector` | 199.106 ms | 199.106 ms | **1.00** |
+| `int 13h track, 1 call` | 384.480 ms | 398.211 ms | **1.99** |
+| `int 13h track, 9 calls` | 2,004.789 ms | 1,991.057 ms | **9.99** |
+
+Tick quantisation is 54.9 ms and the rows land within one tick of each other
+across boots. The two derived `bios ... B/s` rows now read correctly —
+**11,570** and **2,314** — after Set 14's 4x correction.
+
+The parameter table repeats exactly too: EOT **9**, step/head unload
+**00CF**, head settle **25 ms**, motor start **8** (one second). Stable, the
+ROM's, and not the bug.
