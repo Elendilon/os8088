@@ -362,13 +362,22 @@ adapter the cursor is ONE pass, not three** — the framebuffer is the
 renderer's own target there, so `cur_put_mono` reads the byte under the arrow,
 banks it, ORs the white outline in, ANDs the black body out and writes it
 back in one row loop; the masks compose, `(under | white) & ~black` being
-exactly what two passes always produced. `cur_geom`'s answers are **banked
+exactly what two passes always produced. VGA's planar draw is fused the same
+way — Set/Reset **off**, Bit Mask = the white row, CPU byte = `white & ~black`,
+so a set bit is colour 15 and a clear bit colour 0 and both land in one store.
+That one depends on **every black bit also being a white bit**, which is why
+the two bitmaps are now one `CUR_ARROW` list expanded twice and asserted at
+assembly time rather than two tables thirty lines apart. `cur_geom`'s answers are **banked
 and replayed** by the erase rather than re-derived, because a save and a
 restore that disagree by a byte smear the cursor across the screen. Measured
 by `gfxbench`'s `GFX_UNLOCK+LOCK pair` row (which is measured *backwards* —
 `OSAPI_GFX_LOCK` from a callback is a deadlock, unlock-then-lock is not):
-**17.82 → 5.41** counts on Hercules and CGA alike, 1.41x on VGA, framebuffer
-byte-identical on all three at every cursor position. What was deliberately
+**17.82 → 5.41** counts on Hercules and CGA alike, **1.54x** on VGA,
+framebuffer byte-identical on all three at every cursor position. **What is
+left is docs/FIELD-NOTES.md 6**: moving the cursor is still erase-then-draw,
+two walks, so every byte in the overlap is written twice and the glass can
+catch the background in between - which on a real Hercules reads as the whole
+arrow washing out to white while the mouse moves. What was deliberately
 NOT done, and is written down in §7.1: a *lazy* hide, which would take the
 untouched case to nothing but needs the check at every path that writes the
 framebuffer — §11.3's "a primitive not on that list is a hole" with a worse

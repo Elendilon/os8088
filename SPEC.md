@@ -1360,10 +1360,25 @@ Four things make the pair what it is.
   then `cur_pass_mono` again for black) read the same byte three times and
   wrote it twice, each through its own row walk and its own `gfx_nextrow`
   call. The masks compose: `(under | white) & ~black` is exactly what drawing
-  one pass on top of the other always produced. VGA keeps the old shape — the
-  save is four planes through Read Map Select and the draw is Set/Reset
-  through the Bit Mask, so there is no single byte to fuse — but it gets the
-  8x12 cell and the missing third byte.
+  one pass on top of the other always produced.
+- **And the PLANAR draw is one pass too, with no Set/Reset at all.** VGA used
+  to paint the whole dilated body solid white and then punch the black arrow
+  into it — two passes with a GC reprogram between them, and a window in which
+  the screen genuinely held a white blob with no arrow in it. It does not need
+  two colours in two writes: with Set/Reset **off** and write mode 0 the CPU
+  byte lands in all four planes, so a set bit is colour 15 and a clear bit is
+  colour 0. `cur_draw` sets the Bit Mask to the **white** row and writes
+  **white & ~black** — halo bits 1, body bits 0, everything else from the
+  latches — and both colours reach the glass in the same store. It is also
+  four fewer port writes per cell and half the read-modify-writes.
+
+  What it depends on is that **every black bit is also a white bit**: a black
+  pixel outside its white row would fall outside the Bit Mask and simply not
+  be drawn, where the two-pass version painted it in a pass of its own. That
+  is asserted at assembly time, and it is why the two bitmaps are now one
+  `CUR_ARROW` list expanded twice rather than two tables thirty lines apart —
+  the invariant is a statement about the *pair*, and a pair nobody can see
+  together is a pair nobody checks.
 - **The geometry is computed once and banked, not derived twice.**
   `cur_geom` answers the cell's framebuffer offset, the shift, the rows on
   screen and whether the `DI+1` byte is still inside the row; `cur_get_mono`
@@ -1375,7 +1390,7 @@ Four things make the pair what it is.
   erases at the OLD position first (§7's ISR rule).
 
 Measured under `-icount` (Part 9 Set 7), the pair went **17.82 → 5.41** PIT
-counts on Hercules, 17.98 → 5.46 on CGA and 23.00 → 11.85 on VGA, with the
+counts on Hercules, 17.98 → 5.47 on CGA and 23.00 → 14.95 on VGA, with the
 framebuffer **byte-identical** on all three adapters at every cursor position
 tested — over glyphs byte-aligned and skewed, against the right screen edge
 where the second byte is clipped away, and against the bottom edge where the
@@ -1856,7 +1871,9 @@ then, so this is invisible.
   (§7.1) — asserted against the tables at assembly time, because a redrawn
   arrow that outgrew either bound would fail only on the glass. Draw on
   VGA: white pass = Set/Reset white, Bit Mask = mask row bits; black pass
-  likewise, across the cell's `CUR_SPAN` = 2 bytes. On a 1bpp adapter
+  in the SAME store, Bit Mask = the white row and plane data =
+  white & ~black with Set/Reset off, across the cell's `CUR_SPAN` = 2 bytes.
+  On a 1bpp adapter
   (§39) the framebuffer is the renderer's own target, so the save and both
   passes are fused into **one** row loop (`cur_put_mono`) with plain CPU
   OR/AND — no Set/Reset, no Bit Mask, no ports; `cur_get_mono` puts the

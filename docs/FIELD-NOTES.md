@@ -669,3 +669,70 @@ a source edit.
 mechanism is worth reading before anyone touches a transfer loop again: the
 harness cannot see this class of bug at all, at any speed, because the
 difference is in the *BIOS* and not in the timing.
+
+---
+
+## 6. The cursor washes out to white while the mouse is moving (Hercules)
+
+**Observed.** On the 5150's Hercules card, moving the mouse around makes the
+arrow's white outline appear to come away from the black body — "the shadow
+desyncs from the pointer" — and, watched more closely, what it looks like is
+that the **whole cursor turns white** for an instant. Intermittent, only while
+moving, and it never persists: stop moving and the arrow is correct.
+
+**Long-standing, and newly visible.** It predates SPEC.md §7.1's cursor work.
+What changed is that the *other* cursor flicker went away: `gfx_lock` /
+`gfx_unlock` used to erase and redraw the arrow on every lock hold, including
+holds that drew nothing, and that blink masked this one. Fixing the loud
+problem exposed the quiet one — worth recording as a shape, because it is the
+second time in this file that a fix has revealed its neighbour.
+
+**Ruled out — it is NOT the white and black passes coming apart.** That was
+the first theory and it is measurably wrong on this adapter. On a 1bpp
+adapter `cur_put_mono` reads the byte under the arrow, ORs the outline in,
+ANDs the body out and writes it back **in one store** (§7.1), so the halo and
+the body reach the glass in the same bus cycle and cannot separate. It *was*
+two passes on VGA, and that has since been fused too — but the reporter is on
+Hercules, so that is not this.
+
+**Ruled out — the drawn cell is not wrong.** A checker reads the kernel's own
+`cur_save`, `cur_off`, `cur_rows`, `cur_b1ok` and the two bitmap tables out of
+guest RAM, reconstructs `(saved | white) & ~black`, and compares it against
+the framebuffer. Sixteen cursor positions — every shift 0..7, both screen
+edges, over glyphs, over the desktop dither and inside a window — all match
+exactly, and the row-0 address it derives independently agrees with
+`[cur_off]` every time.
+
+**Standing theory: it is the ERASE-then-DRAW gap, and what you are seeing is
+the background.** Moving the cursor is two separate framebuffer walks —
+`cur_get` puts the old cell's saved bytes back, then `cur_put` saves and draws
+at the new one — so between them the cell holds the *background*. Read back
+from the machine, that background is `ffff` on all twelve rows inside a window
+and `aaaa`/`5555` (the 50% dither) on the desktop. **A cell of `ffff` is a
+solid white blob exactly where the arrow was**, which is the symptom as
+reported.
+
+The timing fits. The pair is **5.41 icount PIT counts ≈ 568 guest
+instructions ≈ 1.3 ms** on a 4.77 MHz 8088 (PERFORMANCE.md Part 9 Set 7),
+against a **20 ms** Hercules frame — so the window is ~6.5% of a frame, on
+every mouse packet. At ~40 packets a second while moving, that is a couple of
+opportunities a second for the beam to scan that cell mid-update. "Sometimes",
+"only while moving", "never persists". A long-persistence monitor phosphor
+would smear it further toward white rather than showing a clean flash.
+
+**The fix, not yet built: make a MOVE one pass.** The property that matters is
+that no framebuffer byte is written twice — today every byte in the overlap of
+the old and new cells is written once by the erase and again by the draw, and
+the glass can catch the value in between. Walking the union once, taking each
+byte's background from `cur_save` when it was in the old cell and from the
+framebuffer when it was not, writes every byte exactly once and the
+intermediate state stops existing.
+
+Two things bound it. It is only worth doing when the cells **overlap** — a
+large delta means two separate places, and the old one going background is
+correct rather than a glitch — so gate it on `|dy| < CUR_GH` and the byte
+columns being within one of each other. And it needs a **second save buffer**
+(24 bytes), because the walk reads the old save while writing the new one. For
+a small move the union is ~2 columns x 13 rows against today's 48 byte
+operations, so it is cheaper as well; for a large one it is not, which is what
+the gate is for.
