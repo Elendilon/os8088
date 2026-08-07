@@ -132,6 +132,32 @@ because a 128KB machine and a 640KB machine stop wanting the same feature set
 long before they stop fitting the same image. Raising `MIN_RAM_KB` instead
 would be the project quietly dropping the machines it was written for.
 
+### The first thing to take out again, if space becomes the priority
+
+**The keyboard mouse (SPEC.md §9.6, `kernel/mouse.inc`) — 406 bytes of
+`.text`, one 512-byte step: the spare went 4,096 → 3,584.** It is recorded here at the owner's request,
+because a size decision is one the next author should be able to *find*
+rather than rediscover, and this one was taken on grounds that are about
+priority rather than about a number.
+
+It went in because it is the difference between a usable machine and an
+unusable one at exactly the moment the mouse fails, which stopped being
+hypothetical on the Compaq Portable III (docs/FIELD-MACHINES.md). It was
+costed and approved against the budget as it stood *before* move 10, where
+the same 512-byte step was half the remaining slack rather than an eighth of
+it, so **the case for keeping it is stronger here than it was when it was
+granted**. The recommendation stands
+regardless.
+
+If footprint ever outranks it, this is the first candidate: dropped outright,
+or built only into the testing and benchmark kernels, where the harness drives
+the mouse over QMP and never needs it. Nothing else depends on it — one module
+plus four call sites (`ui_task`'s key poll, and the `kbm_poll` in
+`menu_track`, `ui_drag` and `ui_grow`).
+
+**Recommend it; do not remove it unasked.** On a machine with no working
+mouse, taking it out means the desktop cannot be clicked at all.
+
 ### The ten moves
 
 `KERN_BUDGET` was 65,536 — the first 64KB above the BIOS data area, which is

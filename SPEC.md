@@ -2415,6 +2415,86 @@ padding. The per-pass cost of `mou_hotplug` after the mouse is found is
 unchanged at two compares, and the ISR's per-packet cost grows by one compare
 and one branch.
 
+### 9.6 The keyboard mouse — the arrows, when there is no mouse
+
+With no mouse on the machine there is no pointer, and with no pointer there
+is nothing to click: the menu bar, the dock, the drive icons and every window
+control are unreachable, so the desktop is a picture of an operating system
+rather than one. The arrow keys become the mouse.
+
+Gated on **`[mou_seen]`** — the byte §9.4 and §9.5 already keep — so a machine
+whose mouse has spoken never enters any of it, and the cost there is one
+compare per keystroke. Verified: with a mouse present the arrows reach
+applications untouched.
+
+**What it takes from applications**, which is a decision rather than an
+accident. An 83/84-key keyboard has no separate cursor pad — the arrows *are*
+the numeric keypad, and which one you get is NumLock:
+
+| | |
+|---|---|
+| NumLock off | int 16h returns AL = 0 and a scancode. **These are the keys this takes**, and an application does not see them |
+| NumLock on | ASCII digits. Untouched, always |
+
+An application that wants arrow keys on a mouseless machine cannot have them
+while this is on, and that is the right default — without a pointer it could
+not have been launched. **ScrollLock is the escape hatch**: while it is on
+nothing here intercepts anything, so Arkanoid can be played and Note Pad's
+caret moved.
+
+**ScrollLock is READ, not watched for**, and that is worth stating because the
+first version got it wrong in a way that could never have worked. It is a
+shift *state*, not a keystroke: int 09h swallows it to toggle `KB_FLAG`, and
+int 16h never reports a key for it, so testing for scancode 46h waits for a
+byte that never arrives. `kbm_slock` tests bit 4 of **`0040:0017`** instead.
+The upside of being wrong there is that a level needs no state of its own, and
+on a keyboard with the lamp the machine says which mode it is in.
+
+The keys:
+
+| key | scan | does |
+|---|---|---|
+| the eight keypad directions | 47/48/49/4B/4D/4F/50/51 | move, clamped to `[vid_wm1]`/`[vid_hm1]` exactly as the ISR clamps |
+| **Ins** | 52 | a **click** — `EVT_MDOWN` and `EVT_MUP` together. `mouse_btn` is *not* touched: nothing tracks a click, and a level poll must never find a button held by a key that has already come up |
+| **keypad 5** | 4C | **hold** — press, then release on the next one |
+| **Del** | 53 | the right button, latching the same way; press edge only (§9) |
+
+**The latching key is what makes the machine reachable at all.** A keyboard
+cannot hold a key down in any way int 16h can see, and a menu, a window drag
+and the grow box all end on a *level* poll of `mouse_btn`. Press over the bar,
+arrow down to the item, press again to choose it — which is press-drag-release.
+
+That has one consequence, and it is the part that must not be forgotten:
+**`menu_track`, `ui_drag` and `ui_grow` spin on that poll and never return to
+`ui_task`**, so a latched button could never be released — the machine would
+sit inside a menu no key could close. Each of them calls **`kbm_poll`** beside
+the `task_yield` it already makes. `kbm_poll` *peeks* with int 16h AH=01h and
+takes the key only if `kbm_key` claims it, because int 16h has no way to put
+one back; anything else stays in the BIOS buffer and is dispatched normally
+once the loop ends. A package with a drag loop of its own (Solitaire's
+`sol_drag`) is not reachable this way and is not expected to be.
+
+**The step accelerates, and the ramp resets on a change of direction.** A
+fixed step cannot be right: small enough to aim with is too small to cross a
+640px screen with. Presses closer together than `KBM_GAP` (3 ticks) are a held
+key — typematic repeat is ~100ms and a deliberate tap is 200ms+, which is
+where the two separate on an 18.2Hz clock — and the step grows `KBM_ACC` per
+press to `KBM_MAX`. The direction reset is not a refinement: without it the
+*correction* travels at full speed too, and a menu item sits unreachable
+between two 24px strides. That is exactly how the first version failed to pick
+one.
+
+**Cost, and a standing recommendation.** 406 bytes of `.text`, which takes one
+512-byte step of `KERN_BUDGET` (§15.1) — spare 4,096 → 3,584, one step of the
+eight move 10 left. It was decided on when the budget was at its old ceiling
+and the same step was half the remaining slack, on the grounds that it is the
+difference between a usable machine and an unusable one at exactly the moment
+the mouse fails. **If footprint ever becomes the higher
+priority, this is a first candidate to remove** — either dropped entirely or
+built only into the testing and benchmark kernels, where the harness drives
+the mouse over QMP and never needs it. Nothing else in the kernel depends on
+it: four call sites and one module.
+
 ## 10. events.inc
 
 Event record, 8 bytes: `EV_TYPE` dw, `EV_A` dw, `EV_B` dw, `EV_C` dw.
