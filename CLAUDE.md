@@ -120,6 +120,17 @@ make bench    # build the testing apps in tests/ into build/bench.img and
               # bench360.img. ON DEMAND ONLY — `all` never builds tests/ and
               # nothing under it is tracked or ships. Run one with
               # `make test TESTAPPS=build/bench.img` (docs/TESTING.md)
+make comscan  # the SERIAL PORT SURVEY (tests/comscan) - the field diagnostic
+              # for "the mouse was not detected on real hardware" (SPEC.md
+              # 9.5). Builds build/comscan.img (360K, BOOTABLE - no DOS, no
+              # os8088, no mouse needed, because the thing being diagnosed is
+              # the mouse and anything you have to click is unreachable),
+              # comscan144.img, and build/comscan.com for DOS - whose output
+              # goes through int 21h, so `COMSCAN > COMSCAN.TXT` captures the
+              # report to a file. It scans 3F8/2F8/3E8/2E8, including the two
+              # the kernel never probes, and answers the one question no
+              # emulator can: WHICH IRQ LINE the card actually drives
+              # (docs/TESTING.md)
 make field    # ...and the FIELD disks: build/herc.img + build/cga.img, two
               # BOOTABLE 360KB system disks with the benchmarks in their root.
               # Shaped by the machine the project is calibrated against

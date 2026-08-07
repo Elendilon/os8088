@@ -168,6 +168,35 @@ here, and it is the one to repeat if anything in that block changes.
 
 ---
 
+## The Compaq Portable III — `Elendilon`'s, and mostly unrecorded
+
+**A second real machine, and the one that found SPEC.md §9.5's first field
+bug.** It is in here because it is not the 5150 and the difference matters:
+the 5150 is an 8088 at 4.77 MHz with a Hercules and a CGA, and this is a
+286-class portable with a plasma display. A result from one is not a result
+from the other, and PERFORMANCE.md Part 6 rule 8 applies between them exactly
+as it applies between iron and an emulator.
+
+| | |
+|---|---|
+| owner | `Elendilon` — owner of this fork |
+| machine | **Compaq Portable III** |
+| serial | a **1200 baud modem on COM1**. The mouse is on the other port, which is what §9.5 was built for |
+| everything else | **not recorded, because it has not been measured.** Do not fill this table in from what a Portable III generally has — ask, or read it off `comscan` |
+
+**What it found:** with §9.5's two-port support in, the mouse was **not
+detected** on this machine. That is open, and it is the reason
+`tests/comscan` exists (docs/TESTING.md): a survey of all four COM bases that
+runs from a bootable floppy or from DOS, needs no mouse and no GUI, and
+reports the one thing no emulator here can produce — **which IRQ line the
+card actually drives**. os8088 derives that from the base address, so a card
+jumpered elsewhere is invisible to it forever, and on a machine whose COM1 is
+already taken by a modem that is a live hypothesis rather than a remote one.
+
+Nothing is diagnosed yet. `make comscan`, run it, and the report says which
+of the four scanned ports has a UART, which of them talks, whether the bytes
+decode as a Microsoft mouse, and which line each one raises.
+
 ## PCem and MartyPC — the other places results come from
 
 Not machines in the register's sense, but they belong here because reports

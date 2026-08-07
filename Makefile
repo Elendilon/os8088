@@ -727,6 +727,59 @@ $(BUILD)/stkprobe.img: $(BUILD)/stkprobe.o88 tools/os88disk.py
 $(BUILD)/stkprobe360.img: $(BUILD)/stkprobe.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/stkprobe.o88
 
+# COMSCAN surveys the machine's serial ports (tests/comscan) - the field
+# diagnostic for "the mouse was not detected on real hardware" (SPEC.md 9.5).
+# It is NOT an os8088 package and deliberately so: the thing being diagnosed is
+# the mouse, so anything that has to be reached by clicking is unreachable on
+# exactly the machine that needs it. Two builds from one source:
+#
+#   build/comscan.com   a DOS program. `COMSCAN > COMSCAN.TXT` captures the
+#                       whole report to a file, because its output goes
+#                       through int 21h rather than the BIOS
+#   build/comscan.img   a BOOTABLE floppy carrying the same code as its
+#                       "kernel" - the shipped boot sector loads anything at
+#                       KERNEL_SEG:0 that honours its three-point handoff, so
+#                       this needs no DOS, no os8088 and no mouse. COMSCAN.COM
+#                       rides along on the same disk for the DOS route
+#
+# Both geometries are built because a period portable's drive is not knowable
+# from here: comscan.img is 360KB (readable in a 360K, 720K or 1.2M drive) and
+# comscan144.img is 1.44MB (and is what QEMU boots easily).
+comscan: $(BUILD)/comscan.img $(BUILD)/comscan144.img $(BUILD)/comscan.com
+	@echo "comscan: build/comscan.img (360K, bootable), comscan144.img (1.44M),"
+	@echo "         and build/comscan.com to run under DOS"
+
+$(BUILD)/comscan.com: tests/comscan/comscan.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DCOMFILE -o $@ tests/comscan/comscan.asm
+	@echo "comscan.com: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/comscan.bin: tests/comscan/comscan.asm | $(BUILD)
+	$(NASM) -f bin -w+error -o $@ tests/comscan/comscan.asm
+
+# Its own boot sectors, because the count of sectors to read is assembled in
+# and comscan is a great deal smaller than the kernel.
+$(BUILD)/csboot360.bin: boot/boot.asm $(BUILD)/comscan.bin | $(BUILD)
+	$(NASM) -f bin -DSPT=9 -DHEADS=2 $(BOOTDEF) \
+		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/comscan.bin) + 511 ) / 512 )) \
+		-o $@ boot/boot.asm
+
+$(BUILD)/csboot144.bin: boot/boot.asm $(BUILD)/comscan.bin | $(BUILD)
+	$(NASM) -f bin $(BOOTDEF) \
+		-DKERNEL_SECTORS=$$(( ( $(call FILESIZE,$(BUILD)/comscan.bin) + 511 ) / 512 )) \
+		-o $@ boot/boot.asm
+
+$(BUILD)/comscan.img: $(BUILD)/csboot360.bin $(BUILD)/comscan.bin \
+                      $(BUILD)/comscan.com tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(BUILD)/csboot360.bin --kernel $(BUILD)/comscan.bin \
+		$(BUILD)/comscan.com
+
+$(BUILD)/comscan144.img: $(BUILD)/csboot144.bin $(BUILD)/comscan.bin \
+                         $(BUILD)/comscan.com tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/csboot144.bin --kernel $(BUILD)/comscan.bin \
+		$(BUILD)/comscan.com
+
 # There WAS a third image here - the same package on a FAT16 volume, built on
 # the 2.88MB test geometry, which exercised the one part of the write path
 # FAT12 cannot. It went with DSK_FAT_SECS: at 10 sectors the mount's rule 10
