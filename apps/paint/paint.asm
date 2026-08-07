@@ -3851,7 +3851,7 @@ pt_dab:
 ; part of the arc, and past it the lag runs away: the longer the chord, the
 ; longer it takes to draw, the further the hand has gone. The visible result is
 ; a circle that comes out as a few long straight chords with whole arcs missing
-; (docs/FIELD-NOTES.md 10). One gfx_line is ~160us a pixel and one call, so the
+; (docs/FIELD-NOTES.md 11). One gfx_line is ~160us a pixel and one call, so the
 ; same chord is 48 ms and the ceiling moves to ~6,000 px/s.
 ;
 ; A WIDER brush keeps pt_seg, and that is not laziness: a swept square is not a

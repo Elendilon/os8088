@@ -153,13 +153,65 @@ DPT_LEN equ 11
 ; derive the offset from `nasm -l` after EVERY rebuild, because anything added
 ; to an include before this one moves it. They are never reset: take a reading,
 ; do the thing, take another, subtract.
-dsk_dbg_mnt: dw 0                ; disk_mount calls - mechanism A's meter
-dsk_dbg_sec: dw 0                ; sectors transferred - the work asked for
-dsk_dbg_i13: dw 0                ; int 13h DATA calls (02h/03h, retries
-                                 ; included; not the 00h resets) - mechanism
-                                 ; C's meter. Phase 1 must drive this DOWN
-                                 ; while dsk_dbg_sec stays put; if both move,
-                                 ; the run splitter is dropping work
+;
+; They are also PUBLISHED, at the fixed offset 0060:000E, so a test package can
+; read them without an API slot (SPEC.md 18.94). That is what makes them an
+; answer to PERFORMANCE.md Part 9 Set 14 rather than a debugging aid: the BIOS
+; reads a whole 9-sector track in 1.92 revolutions and dsk_xfer takes 1.34 a
+; SECTOR, so the question is whether the run splitter is issuing 4 calls for a
+; 32-sector run or 32, and dsk_dbg_i13 against dsk_dbg_sec says which.
+dsk_dbg_blk:
+dsk_dbg_mag: dw 0x4444           ; +0  'DD' - a package checks this before it
+                                 ;     trusts an offset it read out of a word
+dsk_dbg_mnt: dw 0                ; +2  disk_mount calls - mechanism A's meter
+dsk_dbg_sec: dw 0                ; +4  sectors transferred - the work asked for
+dsk_dbg_i13: dw 0                ; +6  int 13h DATA calls (02h/03h, retries
+                                 ;     included; not the 00h resets) -
+                                 ;     mechanism C's meter. Phase 1 must drive
+                                 ;     this DOWN while dsk_dbg_sec stays put;
+                                 ;     if both move, the splitter is dropping
+                                 ;     work. sec/i13 is SECTORS PER CALL, which
+                                 ;     is the whole question
+dsk_dbg_max: dw 0                ; +8  the largest AL ever passed to one call:
+                                 ;     a mean can hide a splitter that manages
+                                 ;     one long run and then gives up
+dsk_dbg_rst: dw 0                ; +10 controller resets (the 00h after a
+                                 ;     failure). A read that is quietly
+                                 ;     retrying is a read that looks slow for
+                                 ;     a reason no timing row can show
+dsk_dbg_ent: dw dsk_dbg_raw      ; +12 near offset of the FAR entry below
+
+; -----------------------------------------------------------------------------
+; dsk_dbg_raw - one raw int 13h, from the KERNEL, with sch_lock held
+; FAR entry: far-call KERNEL_SEG:[dsk_dbg_blk+12]
+; in:  AL = sectors, CH = cylinder, CL = sector, DH = head, DL = drive,
+;      ES:BX = the buffer. AH is supplied here.
+; out: AH = the BIOS status, AL = sectors moved, CF as int 13h left it
+; clobbers: AX, CF (DS, SI and everything else preserved)
+;
+; This exists because tests/sysbench called int 13h ITSELF and hard froze the
+; 5150 (docs/FIELD-NOTES.md 10). A package cannot make that call safe: a BIOS
+; runs its disk handler and its IRQ6 nesting on whichever 256-byte task stack
+; is current (SPEC.md 8), on top of the harness's own frames, and every other
+; int 13h in this system holds sch_lock across the call so nothing switches
+; underneath one. From here it is exactly as safe as dsk_xfer's own transfer,
+; because it is the same two lines around the same instruction.
+;
+; It deliberately does NOT count itself: the counters above measure os8088's
+; transfer path, and a row that prices the BIOS must not move them.
+; -----------------------------------------------------------------------------
+dsk_dbg_raw:
+    push ds
+    push si
+    mov si, KERNEL_SEG
+    mov ds, si
+    inc byte [sch_lock]         ; pause task switching, exactly as dsk_xfer
+    mov ah, 0x02                ; does - the tick still runs, the motor needs
+    int 0x13                    ; it
+    dec byte [sch_lock]
+    pop si
+    pop ds
+    retf
 %endif
 
 ; The listing's home. A floppy uses the .lowbss buffers below and a cap of
@@ -426,6 +478,12 @@ dsk_xfer:
 .attempt:
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_i13]
+    mov al, [dsk_run]           ; ...and the longest run anything managed
+    xor ah, ah
+    cmp ax, [dsk_dbg_max]
+    jbe .dbgnomax
+    mov [dsk_dbg_max], ax
+.dbgnomax:
 %endif
     mov al, [disk_spt]          ; the FDC stops a multi-sector transfer at EOT
     mov [dsk_dpt+4], al         ; and the ROM's is 8 (SPEC.md 18.92) - so this
@@ -442,6 +500,9 @@ dsk_xfer:
     mov ah, 0x00                ; failed: reset the controller and retry
     mov dl, [disk_drive]
     int 0x13
+%ifdef DISK_COUNTERS
+    inc word [dsk_dbg_rst]
+%endif
     dec bp
     jnz .attempt
     ; Three strikes at this run length. If it WAS a run, drop to a single

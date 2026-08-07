@@ -931,8 +931,16 @@ per sector while its own twin on the write side coalesced runs (SPEC.md
 — is worth about **9x on every load in the system**, which is the largest
 single number in this document.
 
+> **That 9x is REFUTED, and this paragraph is left standing as the thing that
+> was wrong** (Set 13, docs/FIELD-NOTES.md 7). A/B'd on this machine with the
+> `FLOPPY1=1` knob, the per-track batch is **13% slower on the boot and 15%
+> slower on a 16KB read**. It is a model — nine sectors a revolution instead
+> of one — and the model is a statement about revolutions that the drive, the
+> controller or the media does not honour. Do not cost anything against it.
+
 **Both loops have since taken it** — `dsk_xfer` in SPEC.md §18.91 and the boot
-sector in §18.93 — and the prediction held, but only after a detour worth
+sector in §18.93 — and the *call counts* held exactly as predicted, but the
+*time* did not, which is the whole of Set 13. The detour is still worth
 recording: the IBM ROM's diskette parameter table says the FDC may not pass
 **sector 8** (§18.92), so until both loops installed a table of their own, a
 9-sector track cost two commands rather than one. Simulated exactly on the
@@ -1839,3 +1847,213 @@ Attribution, and the reason the band change did not survive:
   median under the tick — but the burst lost its round edge for it. The
   measured middle, if it is ever wanted: **R/6 + 1 is also 7 fills** at the
   only radius two states ever draw, with a 3px step instead of 4.
+
+### Set 13 — the floppy A/B, and two open notes closed
+
+Three runs on the IBM 5150 in one sitting, from the `c5f404d` field disks:
+`herc.img` (the shipped transfer), `cga.img`, and **`flop1.img`** — the same
+kernel with `FLOPPY1=1`, one sector per `int 13h`. The operator left the mouse
+alone from before `R` on the first two and moved it continuously through the
+third, which is what the new `-- the run --` block was built for and what
+makes two of these rows interpretable at all.
+
+**The calibration is the tightest this project has had**, which is what
+licenses everything below: against Set 11 on the same machine, `GET_TICKS` and
+`GFX_BLIT4 solid` are **identical to the count**, `GFX_FILL 64x64` is 0.2%
+apart and `GFX_PIXEL` 2.9%. The two runs being compared for the floppy differ
+by **0.13%** on `GFX_PIXEL` and 1.5% on `read 1 sector file`.
+
+#### The per-track batching is SLOWER on the target machine
+
+| | batched (`herc.img`) | one sector a call (`flop1.img`) |
+|---|---|---|
+| 16 KB read, cold motor | 8.90 s | **7.69 s** |
+| 16 KB read, warm | 8.73 s | **7.58 s** |
+| a one-sector file | 961 ms | 947 ms |
+| throughput | 1,875 B/s | **2,161 B/s** |
+| **`boot ticks`** | **715** (39.3 s) | **621** (34.1 s) |
+
+**−13% on the boot and −15% on the file read**, measured two independent
+ways in one session. Set 1 predicted the batch at **9x faster**; SPEC.md
+§18.91/§18.93 and CLAUDE.md all still carry that number.
+
+The A/B also settles what FIELD-NOTES 7 could not: the multi-sector command
+**is** reaching the hardware. If it were being silently decomposed the two
+columns would be identical, and they are 94 ticks apart on the boot alone.
+Something about a multi-sector `int 13h` on that drive, that controller or
+that media costs more than the revolutions it saves, and the emulators cannot
+see it because neither models the revolutions in the first place (Set 11).
+
+#### What the floppy SHOULD do, and what DOS gets on the same machine
+
+The A/B says the batching is a loss. The next question is what the *floor*
+is, and the arithmetic is not close:
+
+| | bytes/second |
+|---|---|
+| raw MFM bit rate (250 kbit/s — the Tandon's "32 KB/s") | 31,250 |
+| **a whole 9-sector track per revolution (1:1)** | **23,040** |
+| ...with a 25 ms step every cylinder | 21,685 |
+| **a 2:1 interleave — two revolutions a track** | **11,520** |
+| a 3:1 interleave | 7,680 |
+| **one sector per revolution** | **2,560** |
+| | |
+| **DOS 3.3 on this machine, this drive, this media** | **~12,700** |
+| os8088, `FLOPPY1=1` | 2,161 |
+| os8088, batched | 1,877 |
+
+A 360KB disk turns at 300 RPM, so a revolution is 200 ms and a track holds
+4,608 data bytes. Against that, **os8088 catches 0.84 sectors per revolution
+unbatched and 0.73 batched** — it is not merely missing the next sector, it
+is missing whole turns — while **DOS 3.3 copying 62 KB off the same disk in
+about 5 seconds is catching five**, and that figure *includes* a per-file
+round trip because of how `COPY` works, so DOS's raw read rate is higher
+still.
+
+**That rules out the media and the drive.** Whatever the physical interleave
+is, DOS achieves 5 sectors a revolution on it and we achieve 0.84, so the
+6x is ours. Set 13's finding that batching makes it *worse* is a second
+symptom of the same thing rather than a separate puzzle: if a multi-sector
+command were streaming at all, nine sectors in one call could not cost more
+than nine calls.
+
+`sysbench` grew a block for exactly this — **raw `int 13h`, called by the
+benchmark with no kernel code in the way**, timing one sector, a whole track
+in one call, and the same track one call at a time, plus the four bytes of
+the diskette parameter table the BIOS is actually using. If `int 13h track,
+1 call` comes back near one revolution the hardware streams perfectly and
+the fault is entirely in `dsk_xfer`; if it comes back near nine, the BIOS or
+the media does not stream and nothing above it can help. Under QEMU it reads
+correctly and measures zero, which is the caution block working as intended.
+
+The parameter table is worth a look on its own. QEMU/SeaBIOS reports **EOT
+9** (so §18.92's patch is landing), head settle **15 ms**, and **motor start
+8** — eighths of a second, so **one full second** before a transfer the BIOS
+believes needs the motor started. DOS installs its own table with smaller
+values. What that byte reads on the 5150, and whether the BIOS thinks the
+motor has stopped between our calls, is now on the report.
+
+#### `GFX_UNLOCK+LOCK` was never the mouse, and is no longer 9x
+
+| | Set 11 (`16844dd`) | now, pointer untouched | now, pointer moved all run |
+|---|---|---|---|
+| `GFX_UNLOCK+LOCK pair` | **2,241 µs** | **290 µs** | **369 µs** |
+| `pointer moved (samples)` | not recorded | **0 of 120** | **64 of 120** |
+| `pointer x / y span` | not recorded | **0 / 0** | **706 / 332** |
+
+So the mouse is worth **+27%**, not 9x — and with it demonstrably untouched
+the row lands at 290 µs, in line with PCem's 223 and MartyPC's 246. Every
+other row moved 0–4.4% between the two builds and `GET_TICKS` did not move at
+all, so this is a change in the kernel and not in the machine or the
+operator. Two commits between those builds touch that path — SPEC.md
+§7.1.4.1 (`cur_lazyend` saving every register) and the COM1/COM2 probe
+(§9.5) — and which of them did it is not established. The anomaly is closed;
+if it returns, the pointer block now says whether a hand was on the mouse.
+
+#### The per-row fill term, at last, and it lands on the model
+
+The two rows void in Set 11 are repaired and the derived line is the one this
+set was sent for:
+
+| | measured | predicted |
+|---|---|---|
+| `fill ns per row`, Hercules | **176,850** | 177,000 — **0.08% out** |
+| `fill ns per row`, CGA | **194,831** | 182,000 — 7% out |
+| `fill ns/px 64-box`, Hercules / CGA | 526 / 589 | — |
+
+`GFX_FILL 256x128` is 23,351 µs against `256x1`'s 888, so 127 rows cost
+22,463 µs and the per-call floor is what is left. **Use 177,000 ns a scan
+line on Hercules**; Part 2's older 177 µs figure was right and is now
+measured against its own two-point fit rather than inferred from three sizes.
+
+#### Two things to know before reading any of it
+
+**The hard-disk block reported no volume**, on all three runs. That is
+§51.3 working as written and not a fault: a freshly built image carries no
+`SYSTEM.CFG`, so no driver is wanted, so the hard disk is never probed. Tick
+**Drivers → Hard Disk** in the Control Panel and **close the panel** (§31.8 —
+closing is what writes) before a set that wants those rows.
+
+**The reports saved themselves**, which is why there are six files rather
+than the three a forgotten `S` would have left.
+
+### Set 14 — the BIOS underneath us, and the floppy question is answered
+
+One `sysbench` run on the IBM 5150, from the `f8e40df` disks. The new block
+calls `int 13h` **itself**, with no os8088 code in the path, and three rows
+settle six weeks of argument:
+
+| row | measured | revolutions | bytes/second |
+|---|---|---|---|
+| `int 13h 1 sector` | **199.1 ms** | **1.00** | 2,571 |
+| `int 13h track, 1 call` (9 sectors) | **384.5 ms** | **1.92** | **11,985** |
+| `int 13h track, 9 calls` | **2,004.8 ms** | **10.02** | 2,298 |
+| | | | |
+| os8088's own 16 KB read, warm | 8.57 s | 1.34 **per sector** | **1,912** |
+
+A revolution is 200 ms, and every one of those numbers lands on a whole
+number of them. Read in order:
+
+- **One sector, repeated, costs exactly one revolution** — which is not a
+  fault, it is the definition: the same sector comes round once a turn. It
+  also confirms the instrument, because 1.00 is not a number you get by
+  accident.
+- **A whole track in ONE call costs 1.92 revolutions.** So the media is
+  **2:1 interleaved** (4,608 bytes in two turns is 11,520 B/s and we measured
+  11,985), and the drive, the controller and the BIOS **stream perfectly
+  well** when asked for nine sectors at once.
+- **The same nine sectors as nine calls costs 10.02 revolutions**, one per
+  sector, because control returns to the caller and the next sector has gone
+  past by the time the command is reissued.
+
+**So the ceiling on this machine is 11,985 bytes/second and os8088 achieves
+1,912 — a factor of 6.3, and every bit of it ours.** The drive is exonerated,
+the controller is exonerated, the media's interleave is exonerated, and so is
+the BIOS: `int 13h track, 1 call` *is* our batched read done right, and it is
+six times faster than what `dsk_xfer` actually achieves.
+
+The decisive comparison is the last two rows against each other. os8088 costs
+**1.34 revolutions per sector** — worse than the 1.00 that nine separate BIOS
+calls cost, and nowhere near the 0.21 that one batched call costs. Whatever
+`dsk_xfer` is issuing, **it is not reaching the hardware as multi-sector
+commands**; SPEC.md §18.91's batching is either not forming the runs it
+believes it is, or something between it and the BIOS is decomposing them.
+That is now a code question with a number attached, and the next step is to
+count what `dsk_xfer` actually issues (the `DISKCNT` knob counts sectors and
+would need to count *calls*).
+
+It also explains Set 13 without needing a second mechanism: if the batched
+path is issuing per-sector commands anyway, then `FLOPPY1=1` measuring 15%
+*faster* is just the batched path's extra arithmetic with none of its
+benefit.
+
+#### The parameter table, and the ROM's own values
+
+| | 5150 | QEMU/SeaBIOS |
+|---|---|---|
+| EOT (§18.92 patches this) | **9** | 9 |
+| step rate / head unload | **00CF** | 00AF |
+| head settle | **25 ms** | 15 ms |
+| motor start | **8** — eighths of a second, so **one full second** | 8 |
+
+The patch is landing. The other three are the IBM ROM's, which is what
+§18.92 intends — but `head settle 25 ms` is paid per seek and DOS installs
+15, and `motor start` is a **whole second** before any transfer the BIOS
+believes needs the motor started. Neither can explain a 6.3x on a read that
+never seeks, so they are not the bug; they are worth a look afterwards.
+
+#### Two harness corrections this set forced
+
+**`bios track 1 call B/s` and `bios track 9 calls B/s` read 4x low** in this
+set — 2,996 and 574 against the true 11,985 and 2,298. `bl_last` is the total
+count for the whole row and the derived rows divided it by *one iteration's*
+bytes. Both are recomputable exactly from the `us/op` column, which is
+per-iteration and correct: **4,608 / (us/op)**. Fixed.
+
+**And the block hard-froze the machine once**, on the first run after a cold
+boot, then ran normally after a reboot. docs/FIELD-NOTES.md 10: a package
+cannot make an `int 13h` safe, because the BIOS runs its disk handler and its
+IRQ6 nesting on whichever 256-byte task stack is current and the kernel's own
+`dsk_xfer` holds `sch_lock` across every call so nothing switches underneath
+one. It is kept because it answered the question and the answer was worth
+6.3x; nothing shipped may copy it.

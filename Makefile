@@ -695,6 +695,16 @@ $(BUILD)/bench.dat: | $(BUILD)
 $(BUILD)/benchsml.dat: | $(BUILD)
 	python3 -c "import sys; sys.stdout.buffer.write(b'os8088 sysbench small file\r\n' * 18)" > $@
 
+# ...and ONE BIG CONTIGUOUS FILE, for a DOS cross-check rather than for
+# sysbench, which never opens it. PERFORMANCE.md Part 9 Set 13's DOS figure
+# came from copying the disk's several small files, so it carried a directory
+# write, a FAT write and a fresh seek per file and undercounts the read rate
+# it was being used to bound. One 170KB file is a single chain and a single
+# open. It is ~80% of what is free on a 360KB field disk after everything
+# else, which leaves room for both reports to be written back.
+$(BUILD)/bigfile.dat: | $(BUILD)
+	python3 -c "import sys; sys.stdout.buffer.write(bytes((i>>9)&0xFF for i in range(170*1024)))" > $@
+
 $(BUILD)/bench.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BENCHPKGS) $(BENCHDATA)
 
@@ -728,11 +738,13 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 #
 # The names are short and unambiguous at a DOS prompt on purpose: DOS 3.3 has
 # 8.3 names and no tab completion, and these get typed by hand into dskimage.
-FIELDBENCH := $(BENCHPKGS) $(BENCHDATA)
+FIELDBENCH := $(BENCHPKGS) $(BENCHDATA) $(BUILD)/bigfile.dat
 CGADIR     := $(BUILD)/cgak
 F1DIR      := $(BUILD)/f1k
+DBGDIR     := $(BUILD)/dbgk
 
-field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img
+field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img \
+       $(BUILD)/dskdbg.img
 
 $(BUILD)/herc.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) \
                    $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
@@ -788,6 +800,25 @@ $(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
 	@echo "field: $@ - FLOPPY1=1, one sector per int 13h. The A/B against"
 	@echo "       herc.img for docs/FIELD-NOTES.md 7 - run SYSBENCH on both"
+
+# ...and the INSTRUMENTED disk. DISKCNT=1 compiles in the transfer counters
+# and publishes them at 0060:000E (SPEC.md 18.94), which is what lets sysbench
+# report what os8088's own path actually issued for one 16KB read - sectors,
+# int 13h calls, the longest run and any controller resets - and time a raw
+# int 13h through the kernel instead of making the call itself, which hard
+# froze the 5150 (docs/FIELD-NOTES.md 10).
+#
+# It is a SEPARATE disk rather than the default because the counters are two
+# instructions in the hot path of every transfer and the published word is an
+# ABI that depends on a knob. On a kernel without it sysbench says so and
+# skips the block, so one build of the package serves both.
+$(BUILD)/dskdbg.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+	@$(MAKE) BUILD=$(DBGDIR) DISKCNT=1 $(DBGDIR)/boot360.bin
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(DBGDIR)/boot360.bin --kernel $(DBGDIR)/kernel.bin \
+		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+	@echo "field: $@ - DISKCNT=1. SYSBENCH here reports what dsk_xfer really"
+	@echo "       issues, and prices a raw int 13h safely (SPEC.md 18.94)"
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
 # inside: its worker 0xCC-fills its own slice, spins so every interrupt the

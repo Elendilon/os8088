@@ -573,6 +573,17 @@ boot_ticks:                     ; 0060:000C - the boot timer (SPEC.md 15.4).
                                 ; sector has no other way to name it, exactly
                                 ; like the two jumps above and the table below.
 
+    times 0x0E - ($ - $$) db 0
+dsk_dbg_at:                     ; 0060:000E - the disk instrument, or 0
+%ifdef DISK_COUNTERS
+    dw dsk_dbg_blk              ; `make DISKCNT=1` only. A fixed offset for
+%else                           ; boot_ticks' reason: a TEST package has to
+    dw 0                        ; find it without an API slot, and a slot that
+%endif                          ; exists in one build and not another is an ABI
+                                ; that depends on a knob (SPEC.md 20.8). 0
+                                ; means "this kernel carries no instrument",
+                                ; which the package reports and skips.
+
     times 0x10 - ($ - $$) db 0  ; the table must land exactly at 0x0010
 
 ; =============================================================================
