@@ -776,7 +776,7 @@ larger of the two windows there.
 
 ---
 
-## 7. The per-track floppy batching bought nothing on real hardware
+## 7. The per-track floppy batching is SLOWER on real hardware (ANSWERED, unfixed)
 
 **Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
 ladder was calibrated against. `sysbench`'s floppy block, same machine, same
@@ -813,21 +813,41 @@ at the unbatched 238 ms is 32.8 s, and the boot measured **708 ticks
 - **The code not being built in.** `FLOPPY_ONE` is not defined; the batching
   block and `dsk_dpt_init`'s EOT patch are both in the shipped kernel.
 
-**What is left**, and they are separable: either the multi-sector `int 13h`
-is not actually being issued on that hardware, or it is and the drive, the
-controller or the media's physical interleave does not reward it. **The
-`FLOPPY1=1` A/B disk is the test** — that knob was added for precisely this
-class of question (SPEC.md §18.91) and has never been run on iron. If
-`FLOPPY1=1` measures the same 8.07 s, the batching is not reaching the
-hardware; if it is much slower, the batching works and 8.07 s is already the
-improved figure, which would put the fault in Set 1's model instead.
+**The A/B has been run, and the answer is worse than "nothing"**
+(PERFORMANCE.md Part 9 Set 13). Same machine, same session, same kernel but
+for the knob:
 
-Until then, **do not quote the 9x**, and do not cost a future disk change
-against it.
+| | batched | `FLOPPY1=1` |
+|---|---|---|
+| 16 KB read, cold motor | 8.90 s | **7.69 s** |
+| 16 KB read, warm | 8.73 s | **7.58 s** |
+| throughput | 1,875 B/s | **2,161 B/s** |
+| **`boot ticks`** | **715** (39.3 s) | **621** (34.1 s) |
+
+**The batching costs 13% on the boot and 15% on a file read.** Two
+independent measurements, one sitting, with the drawing rows of the same two
+reports 0.13% apart — so it is not the machine drifting.
+
+It also answers the question the note could not: the multi-sector command
+**is** reaching the hardware. Were it being silently decomposed into
+single-sector transfers the two columns would be identical, and they are 94
+ticks apart on the boot alone. Something about a multi-sector `int 13h` on
+that drive, that controller or that media costs more than the revolutions it
+saves. The mechanism is still unknown — candidates worth a look are the ten
+non-EOT bytes `dsk_dpt_init` copies out of the ROM's diskette parameter
+table (step rate, head settle, motor start), a run that crosses a track
+boundary mid-command, and the physical interleave of media written by
+`dskimage` — but the measurement does not depend on knowing which.
+
+**Do not quote the 9x**, do not cost a future disk change against it, and
+treat SPEC.md §18.91/§18.93's stated gain as refuted on the target machine.
+Whether the default should flip is a design decision, not a build fix: the
+knob already exists, one emulator-facing user would lose a large speedup, and
+nothing outside this one machine has been A/B'd yet.
 
 ---
 
-## 8. `GFX_UNLOCK+LOCK` is 9x dearer on the 5150 than on any other machine
+## 8. `GFX_UNLOCK+LOCK` was 9x dearer on the 5150 (CLOSED — it was not the mouse)
 
 **Observed.** PERFORMANCE.md Part 9 Set 11, `gfxbench`'s composite block:
 
@@ -860,8 +880,25 @@ which is about the right size to explain 2 ms on a 4.77 MHz machine.
 - **The adapter.** Both 5150 columns are expensive and the T1100's CGA column
   is not.
 
-**The open question is whether the mouse was moving**, and the mechanism has
-since been measured independently. SPEC.md §7.1.4.1 — a *different* bug,
+**CLOSED by PERFORMANCE.md Part 9 Set 13, and the answer was neither the
+mouse nor the machine.** With the pointer demonstrably untouched — the new
+`-- the run --` block reporting **0 of 120** samples moved and a **0 x 0**
+bounding box — the row measures **290 µs**, against PCem's 223 and MartyPC's
+246. A deliberate second run with the pointer moved continuously (64 of 120
+samples, a 706 x 332 box) measures **369 µs**, so the mouse is worth **+27%**
+and never 9x.
+
+What changed is the KERNEL. Every other row moved 0-4.4% between the two
+field builds and `GET_TICKS` and `GFX_BLIT4 solid` did not move at all, so
+the machine and the operator are both ruled out. Two commits in that range
+touch the path — SPEC.md §7.1.4.1 (`cur_lazyend` saving every register) and
+the COM1/COM2 probe (§9.5) — and which of them did it is not established;
+§7.1.4.1 only ADDS pushes, so on its face it should have made this row
+dearer rather than cheaper. If the anomaly returns, the pointer block now
+answers the operator half in the report itself.
+
+The rest of this note is kept because the reasoning is still the reasoning,
+and because the mechanism it names was measured independently. SPEC.md §7.1.4.1 — a *different* bug,
 `cur_lazyend` eating the caller's registers — was found by flooding the
 machine with mouse packets and counting, and the count is the interesting
 part here: **279 `cur_move` calls in 972 unlocks**, so under continuous
@@ -887,7 +924,7 @@ A re-run should still be on a fixed kernel.
 
 ---
 
-## 9. A cursor seen visually corrupted over a title bar, once, mid-benchmark
+## 9. A stale cursor save-under, restored mid-benchmark (EXPLAINED — harness only)
 
 **Observed**, once, by the 5150's owner during the Part 9 Set 11 runs: the
 mouse was left resting **over a window's title bar, near the left side**, and
@@ -962,11 +999,37 @@ a title bar and a non-zero span, that then corrupts, confirms it in one
 sitting. The operator's side of it is to leave the mouse alone from before
 `R` is pressed.
 
-**Three observations from the machine would finish this**, and each is one
-run: whether it still happens with the pointer parked on the **bare desktop**
-away from every window (which separates "the cell overlaps a window's
-content" from "the cursor is being restored wrongly anywhere"); whether it
-happens on **Hercules** as well as CGA; and whether the fragment is still
-there when the suite **finishes**, before the report repaints over it. It has
-never affected a number — the artifact is in the sandbox the benchmark is
-scribbling in — so this is a cursor question, not a measurement one.
+**Two of the three observations came back, and together with the reporter's
+own reading they explain it.** In their words: *"the 'corruption' is just the
+background that was there BEFORE the video tests started running,
+restored"*, and
+
+- **the cursor is hidden for almost the entire run**. On the bare desktop, or
+  low in the bench window, it disappears and the saved background still
+  matches what is underneath, so nothing looks wrong;
+- **the fragment is gone at the very next drawing row**, because that row
+  writes over that part of the screen.
+
+So it is a save-under captured before the suite started, restored once,
+somewhere the suite had since drawn — and it is **visible only where the
+saved pixels disagree with what is now underneath**, which is why the
+straddling position over the sandbox is the one that shows it and every
+other position does not.
+
+**It is a property of this harness and not of the window manager, and that
+is the reason to stop here.** `gfxbench` is the only program in the tree that
+writes the framebuffer **directly** — its raw-bandwidth block is `rep stosw`
+at `[vid_rseg]`, deliberately, because measuring the bus is the point — so it
+is the only program that can put pixels on screen without passing a routine
+that spends the deferred hide. An ordinary application cannot: every path it
+has runs through `GFXCLIP`, `fnt_unlazy` or an explicit `cur_unlazy`, and the
+four mechanisms ruled out above cover all of them. It has also never moved a
+number: the artifact lands in the sandbox the benchmark is already
+scribbling in, and the report is redrawn afterwards.
+
+Left open rather than fixed, deliberately. The fix would be for `gb_bw` to
+force the hide before its first raw store — there is no API for "hide the
+cursor", so it would have to draw something through a kernel primitive first,
+which is a wart in a bandwidth measurement — and it buys nothing but a
+tidier screen during a benchmark nobody watches. Worth doing only if the same
+shape ever shows up somewhere that is not this harness.

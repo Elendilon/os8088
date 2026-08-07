@@ -931,8 +931,16 @@ per sector while its own twin on the write side coalesced runs (SPEC.md
 — is worth about **9x on every load in the system**, which is the largest
 single number in this document.
 
+> **That 9x is REFUTED, and this paragraph is left standing as the thing that
+> was wrong** (Set 13, docs/FIELD-NOTES.md 7). A/B'd on this machine with the
+> `FLOPPY1=1` knob, the per-track batch is **13% slower on the boot and 15%
+> slower on a 16KB read**. It is a model — nine sectors a revolution instead
+> of one — and the model is a statement about revolutions that the drive, the
+> controller or the media does not honour. Do not cost anything against it.
+
 **Both loops have since taken it** — `dsk_xfer` in SPEC.md §18.91 and the boot
-sector in §18.93 — and the prediction held, but only after a detour worth
+sector in §18.93 — and the *call counts* held exactly as predicted, but the
+*time* did not, which is the whole of Set 13. The detour is still worth
 recording: the IBM ROM's diskette parameter table says the FDC may not pass
 **sector 8** (§18.92), so until both loops installed a table of their own, a
 9-sector track cost two commands rather than one. Simulated exactly on the
@@ -1839,3 +1847,83 @@ Attribution, and the reason the band change did not survive:
   median under the tick — but the burst lost its round edge for it. The
   measured middle, if it is ever wanted: **R/6 + 1 is also 7 fills** at the
   only radius two states ever draw, with a 3px step instead of 4.
+
+### Set 13 — the floppy A/B, and two open notes closed
+
+Three runs on the IBM 5150 in one sitting, from the `c5f404d` field disks:
+`herc.img` (the shipped transfer), `cga.img`, and **`flop1.img`** — the same
+kernel with `FLOPPY1=1`, one sector per `int 13h`. The operator left the mouse
+alone from before `R` on the first two and moved it continuously through the
+third, which is what the new `-- the run --` block was built for and what
+makes two of these rows interpretable at all.
+
+**The calibration is the tightest this project has had**, which is what
+licenses everything below: against Set 11 on the same machine, `GET_TICKS` and
+`GFX_BLIT4 solid` are **identical to the count**, `GFX_FILL 64x64` is 0.2%
+apart and `GFX_PIXEL` 2.9%. The two runs being compared for the floppy differ
+by **0.13%** on `GFX_PIXEL` and 1.5% on `read 1 sector file`.
+
+#### The per-track batching is SLOWER on the target machine
+
+| | batched (`herc.img`) | one sector a call (`flop1.img`) |
+|---|---|---|
+| 16 KB read, cold motor | 8.90 s | **7.69 s** |
+| 16 KB read, warm | 8.73 s | **7.58 s** |
+| a one-sector file | 961 ms | 947 ms |
+| throughput | 1,875 B/s | **2,161 B/s** |
+| **`boot ticks`** | **715** (39.3 s) | **621** (34.1 s) |
+
+**−13% on the boot and −15% on the file read**, measured two independent
+ways in one session. Set 1 predicted the batch at **9x faster**; SPEC.md
+§18.91/§18.93 and CLAUDE.md all still carry that number.
+
+The A/B also settles what FIELD-NOTES 7 could not: the multi-sector command
+**is** reaching the hardware. If it were being silently decomposed the two
+columns would be identical, and they are 94 ticks apart on the boot alone.
+Something about a multi-sector `int 13h` on that drive, that controller or
+that media costs more than the revolutions it saves, and the emulators cannot
+see it because neither models the revolutions in the first place (Set 11).
+
+#### `GFX_UNLOCK+LOCK` was never the mouse, and is no longer 9x
+
+| | Set 11 (`16844dd`) | now, pointer untouched | now, pointer moved all run |
+|---|---|---|---|
+| `GFX_UNLOCK+LOCK pair` | **2,241 µs** | **290 µs** | **369 µs** |
+| `pointer moved (samples)` | not recorded | **0 of 120** | **64 of 120** |
+| `pointer x / y span` | not recorded | **0 / 0** | **706 / 332** |
+
+So the mouse is worth **+27%**, not 9x — and with it demonstrably untouched
+the row lands at 290 µs, in line with PCem's 223 and MartyPC's 246. Every
+other row moved 0–4.4% between the two builds and `GET_TICKS` did not move at
+all, so this is a change in the kernel and not in the machine or the
+operator. Two commits between those builds touch that path — SPEC.md
+§7.1.4.1 (`cur_lazyend` saving every register) and the COM1/COM2 probe
+(§9.5) — and which of them did it is not established. The anomaly is closed;
+if it returns, the pointer block now says whether a hand was on the mouse.
+
+#### The per-row fill term, at last, and it lands on the model
+
+The two rows void in Set 11 are repaired and the derived line is the one this
+set was sent for:
+
+| | measured | predicted |
+|---|---|---|
+| `fill ns per row`, Hercules | **176,850** | 177,000 — **0.08% out** |
+| `fill ns per row`, CGA | **194,831** | 182,000 — 7% out |
+| `fill ns/px 64-box`, Hercules / CGA | 526 / 589 | — |
+
+`GFX_FILL 256x128` is 23,351 µs against `256x1`'s 888, so 127 rows cost
+22,463 µs and the per-call floor is what is left. **Use 177,000 ns a scan
+line on Hercules**; Part 2's older 177 µs figure was right and is now
+measured against its own two-point fit rather than inferred from three sizes.
+
+#### Two things to know before reading any of it
+
+**The hard-disk block reported no volume**, on all three runs. That is
+§51.3 working as written and not a fault: a freshly built image carries no
+`SYSTEM.CFG`, so no driver is wanted, so the hard disk is never probed. Tick
+**Drivers → Hard Disk** in the Control Panel and **close the panel** (§31.8 —
+closing is what writes) before a set that wants those rows.
+
+**The reports saved themselves**, which is why there are six files rather
+than the three a forgotten `S` would have left.

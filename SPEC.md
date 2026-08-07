@@ -5462,6 +5462,11 @@ would have reconciled it.
 
 ### 18.91 The transfer loop batches a run into one int 13h
 
+> **See §18.93's box: on the IBM 5150 this is a 15% LOSS on a 16KB read, and
+> `make FLOPPY1=1` measures it.** The batching is retained, its default
+> unchanged and its correctness (§18.92's parameter table) untouched, but no
+> speed claim in this section survives PERFORMANCE.md Part 9 Set 13.
+
 `dsk_xfer` used to issue **`AL = 1`** — one int 13h per 512 bytes, with the
 CHS conversion recomputed each time — so a nine-sector FAT window was nine
 BIOS calls. On real hardware the next call has missed the sector under the
@@ -5579,6 +5584,18 @@ with the batching on. `FLOPPY1=1` remains the bracket for the next time
 something in this area is in doubt.
 
 ### 18.93 The boot sector batches too, and it is the largest single win
+
+> **MEASURED ON THE TARGET MACHINE AND IT IS A LOSS** (PERFORMANCE.md Part 9
+> Set 13, docs/FIELD-NOTES.md 7). A/B'd with `make FLOPPY1=1` on the IBM 5150
+> this project is calibrated against, the batched boot is **715 ticks against
+> 621** — **13% SLOWER** — and a 16KB file read 15% slower. The call counts
+> below are exactly as predicted; the *time* is not, because "nine sectors a
+> revolution instead of one" is a claim about revolutions that this drive,
+> controller or media does not honour. Both emulators show the predicted gain
+> and neither models rotational latency, so neither can arbitrate. The
+> mechanism is unknown and the default has not been changed; the section is
+> otherwise accurate and is kept for the parameter-table work, which is
+> correctness rather than speed.
 
 `boot/boot.asm` read `AL = 1`. 131 sectors, one int 13h each, at
 PERFORMANCE.md's measured **238 ms per sector** — **over thirty seconds**, and

@@ -227,7 +227,16 @@ so roughly 31 s becomes 4–5 s. Honouring the ROM's EOT instead gives 30 calls
 and 6–9 s, because a 9-sector track then costs eight sectors and then the ninth
 alone. The splash is ticked **once per run** — `spl_tick` takes an absolute
 position, so the bar's arithmetic is untouched and only the repaints drop,
-which is itself worth seconds on the target.
+which is itself worth seconds on the target. **On the iron none of that
+speedup exists**: A/B'd with `make FLOPPY1=1` on the 5150 the batched boot is
+**715 ticks against 621 — 13% SLOWER** — and a 16KB file read 15% slower
+(PERFORMANCE.md Part 9 Set 13, docs/FIELD-NOTES.md 7). The call counts are
+exactly as predicted and the *time* is not, because "nine sectors a
+revolution instead of one" is a claim about revolutions that drive,
+controller or media does not honour. Both emulators show the predicted win
+and neither models rotational latency, so neither can arbitrate. **Do not
+cost a disk change against the 9x**; the mechanism is unknown and the default
+is unchanged pending it.
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4
