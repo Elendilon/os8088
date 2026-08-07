@@ -887,6 +887,45 @@ A re-run should still be on a fixed kernel.
 
 ---
 
+## 10. Freehand circles in Paint come out as long straight chords (FIXED, awaiting field confirmation)
+
+**Observed.** On the 5150's Hercules card, drawing two circles freehand in
+Paint's full screen: "it feels like the mouse is not being read, and it just
+keeps going in a straight line. The bigger circle, it missed one entire curve,
+and way overdrew my intended motion in every direction." The evidence is
+`TWOCIRC.GIF`, saved off the machine — a 674×258 canvas (the Hercules
+fullscreen size) holding long dead-straight chords, with smooth curve only
+where the hand was moving slowly.
+
+**It is not the mouse; it is the drawing.** `pt_seg` issued one `gfx_fill` per
+pixel at width 1 and a second whenever the minor axis moved. At the field
+machine's 933 µs for a 1×1 fill that is 373 ms for a 300-pixel chord, which
+gives the pencil a **maximum drawable speed of ~1,000 px/s** — and a hand
+drawing a circle passes that on the fast part of the arc. Past it the lag
+compounds: a longer chord takes longer to draw, so the hand is further away at
+the next sample. "Missed one entire curve" is one arc collapsed into one
+chord; "overdrew in every direction" is the user still moving because nothing
+had appeared yet, and the app eventually drawing straight to where the hand
+had got to.
+
+**Two fixes, SPEC.md §42.8.** A width-1 segment's screen half is now one
+`OSAPI_GFX_LINE` (576 drawing calls → 66 over one scripted stroke, and the
+ceiling moves to ~6,000 px/s), and the fullscreen bracket's 55 ms per-sample
+floor is gone on 1bpp adapters, where nothing is owed a present.
+
+**What it cost to get right, and the finding underneath it.** The canvas is
+what a repaint draws from, so Paint's own walk had to become `gfx_line`'s
+exactly — the DDA form it used put almost every pixel of a chord somewhere
+else (3,015 differing bytes over twelve strokes, against 0 with the fast path
+off). And the kernel's own `gfx_line` **does not rasterize the same on every
+adapter**: `gfx_line_raw` sends mono to `gfx_line_mono` and VGA to
+`gfx_line_runs`, and the same test returns 0 on Hercules and CGA but 663 bytes
+on VGA. Nothing depends on the two agreeing today — Missile Command draws and
+erases through the same path on the same machine — so it is recorded rather
+than fixed, and Paint's fast path is gated to 1bpp.
+
+---
+
 ## 9. A cursor seen visually corrupted over a title bar, once, mid-benchmark
 
 **Observed**, once, by the 5150's owner during the Part 9 Set 11 runs: the
