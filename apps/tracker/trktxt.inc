@@ -102,10 +102,17 @@ TTX_SHROWS equ 64 + 2 * TTX_HALF
 TTX_SHBYTES equ TTX_SHROWS * TTX_RW * 2
 TTX_SHPAD0 equ 64 - TTX_HALF        ; the previous pattern's first shown row
 TTX_SHCHUNK equ 4                   ; rows formatted per frame while a
-                                    ; periodic rebuild runs: ~25 ms of the
-                                    ; ~420 ms the whole shadow costs, and
-                                    ; 4 rows a frame against a view that
-                                    ; moves 7.14 rows a SECOND
+                                    ; periodic rebuild runs, on the TICK
+                                    ; clock: ~25 ms of the ~420 ms the whole
+                                    ; shadow costs, against a view that moves
+                                    ; 7.14 rows a SECOND
+TTX_SHCHUNKF equ 1                  ; ...and on the retrace clock, where a
+                                    ; frame is a third of the slot and 25 ms
+                                    ; would not fit in it (SPEC.md 45.16).
+                                    ; Same total work either way - the rebuild
+                                    ; takes 1.5 s of a ~7.7 s pattern instead
+                                    ; of 1.15, at a quarter of the peak
+TTX_PROBE  equ 8                    ; retrace waits the clock probe times
 TTX_NOPAT  equ 0xFF                 ; [ttx_shprev]/[ttx_shnext]: nothing plays
                                     ; that side, so the pad is blank. Never a
                                     ; real pattern - mp_load caps P at 126
@@ -198,6 +205,11 @@ ttx_begin:
     push si
     push di
     push es
+    mov byte [ttx_clk], 0           ; the tick clock until ttx_clkprobe says
+    mov al, TTX_SHCHUNK             ; otherwise (SPEC.md 45.16) - ttx_draw_all
+    mov [ttx_chunk], al             ; runs a whole shadow build before the
+    mov byte [ttx_fdiv], 1          ; probe does, and reads these
+    mov byte [ttx_fcnt], 1
     push ds
     pop es                          ; the FSI block is ours (the gfx_blit4
     mov di, ttx_fsi                 ; idiom: ES:DI is the caller's own)
@@ -257,6 +269,74 @@ ttx_begin:
 ; blank is not redundant with the build: a module-less grid formats no rows
 ; at all.
 ; =============================================================================
+
+; =============================================================================
+; ttx_clkprobe - pick the frame clock, once per bracket (SPEC.md 45.16).
+;
+; fsx_wait takes a tick (18.2065 Hz) or a vertical retrace, and retrace is
+; 50 Hz on Hercules/MDA, 60 on CGA and 70 on VGA text - three to four times
+; the frames for work that does not triple, because everything expensive here
+; is change-driven: the blit runs at the ROW rate whatever the frame rate is.
+; What it buys is that the row lands when it is played rather than up to 55 ms
+; later, which at a 120 ms row period was an audible-looking stutter - draws
+; 110 ms apart with a 165 ms hiccup every sixth row - and, on a module faster
+; than 18.2 rows a second, rows that were never shown at all.
+;
+; It is MEASURED rather than assumed, because fsx_wait's retrace path is a
+; poll with a 3-tick timeout: on a machine whose status port never toggles it
+; would be six frames a second, three times WORSE than the tick clock. So
+; TTX_PROBE waits are timed against the kernel's tick counter and the retrace
+; clock is taken only when it is genuinely faster - between one and seven
+; ticks for eight waits. Zero is refused too: eight real retraces cannot fit
+; inside one tick on any adapter, so it means the poll is not pacing at all.
+;
+; The ratio it measures is kept: [ttx_fdiv] is frames per tick, which is what
+; keeps the VU needles falling at the rate they fell at before (tui_vu_step
+; decays per CALL) and what sizes a rebuild's per-frame chunk.
+; =============================================================================
+ttx_clkprobe:
+    push ax
+    push bx
+    push cx
+    push dx
+    call OSAPI_GET_TICKS
+    mov bx, ax
+    mov cx, TTX_PROBE
+.w:
+    mov al, 1
+    call OSAPI_FSX_WAIT
+    loop .w
+    call OSAPI_GET_TICKS
+    sub ax, bx                      ; ticks the probe took, and AH is 0 for
+    or ax, ax                       ; every value the two tests below pass
+    jz .out                         ; not pacing: keep the tick clock
+    cmp ax, TTX_PROBE
+    jae .out                        ; no faster than a tick: keep it too
+    mov cl, al                      ; frames per tick, rounded:
+    shr al, 1                       ;   (TTX_PROBE + ticks/2) / ticks
+    add al, TTX_PROBE               ; ...max 11, so AL cannot carry
+    xor ah, ah
+    div cl                          ; AL = quotient (CL >= 1: no #DE)
+    or al, al
+    jnz .clamp
+    mov al, 1
+.clamp:
+    cmp al, 4
+    jbe .set
+    mov al, 4
+.set:
+    mov [ttx_fdiv], al
+    mov [ttx_fcnt], al
+    mov byte [ttx_clk], 1           ; retrace-paced from here on
+    mov al, TTX_SHCHUNKF
+    mov [ttx_chunk], al
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ttx_shbuild:
     push ax
     push cx
@@ -283,26 +363,30 @@ ttx_shbuild:
     ret
 
 ; -----------------------------------------------------------------------------
-; ttx_shstart - claim [mp_pattern], resolve the two neighbouring orders and
-;               arm the cursor. No formatting.
+; ttx_shstart - claim the AUDIBLE pattern, resolve the two neighbouring
+;               orders and arm the cursor. No formatting.
 ;
 ; The pattern is claimed at the START, not at the end: ttx_draw_dyn's change
 ; test would otherwise refire on every frame of the build. It also closes an
-; old race - the worker can move [mp_pattern] mid-build, and recording it
-; afterwards marked a mixed shadow as current. Recorded first, a mid-build
-; move is caught by the same test on the next frame and simply restarts.
+; old race - the position can move mid-build, and recording it afterwards
+; marked a mixed shadow as current. Recorded first, a mid-build move is caught
+; by the same test on the next frame and simply restarts.
 ;
-; The neighbours are ORDERS, not patterns, so [mp_songpos] is claimed too:
-; two orders naming the same pattern move the pads without moving
-; [mp_pattern], and [ttx_shpos] is what lets ttx_draw_dyn see it. [mp_ploop]
-; likewise - in pattern-loop mode the pattern's own ends meet.
+; It is [tui_apat] and not [mp_pattern] because the whole screen shows what is
+; being HEARD (SPEC.md 45.15), and the shadow has to hold the pattern the band
+; is inside or the grid would be built for one pattern and indexed for another.
+;
+; The neighbours are ORDERS, not patterns, so [tui_apos] is claimed too: two
+; orders naming the same pattern move the pads without moving the pattern, and
+; [ttx_shpos] is what lets ttx_draw_dyn see it. [mp_ploop] likewise - in
+; pattern-loop mode the pattern's own ends meet.
 ; -----------------------------------------------------------------------------
 ttx_shstart:
     push ax
     push bx                         ; mp_order decodes through it
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     mov [ttx_shpat], al
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     mov [ttx_shpos], al
     mov al, [mp_ploop]
     mov [ttx_shloop], al
@@ -324,7 +408,7 @@ ttx_shstart:
     mov [ttx_shnext], al            ; row 0 and the scroll closes on itself
     jmp short .out
 .song:
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     inc al
     cmp al, [mp_songlen]            ; past the last order the song restarts,
     jb .nx                          ; and mp_nextrow's restart position is
@@ -332,7 +416,7 @@ ttx_shstart:
 .nx:
     call mp_order
     mov [ttx_shnext], al
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     or al, al
     jnz .pv
     cmp byte [mp_restart], 0        ; position 0 is reached from the last order
@@ -366,7 +450,8 @@ ttx_shstep:
     push ds
     pop es
     cld
-    mov byte [ttx_sbudget], TTX_SHCHUNK
+    mov al, [ttx_chunk]             ; sized to the frame clock (45.16)
+    mov [ttx_sbudget], al
 .r:
     cmp byte [ttx_shbusy], 0
     je .done
@@ -659,7 +744,7 @@ ttx_readout:
     mov di, ttx_line
     mov si, ttx_s_pos
     call tui_scpy
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     call tui_hexb
     mov si, ttx_s_slash
     call tui_scpy
@@ -671,21 +756,21 @@ ttx_readout:
     call tui_hexb
     mov si, ttx_s_ptn
     call tui_scpy
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     call tui_hexb
     mov si, ttx_s_rowl
     call tui_scpy
-    mov al, [mp_row]
+    mov al, [tui_arow]
     call tui_hexb
     mov si, ttx_s_bpm
     call tui_scpy
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     call tui_dec3
     mov si, tui_nbuf
     call tui_scpy
     mov si, ttx_s_spd
     call tui_scpy
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     call tui_hexb
     mov byte [di], 0
     mov ax, [ttx_seg]
@@ -696,15 +781,15 @@ ttx_readout:
     mov cx, TTX_RW
     mov ah, TTX_A_HI
     call ttx_putn
-    mov al, [mp_songpos]            ; bank what this frame drew
+    mov al, [tui_apos]              ; bank what this frame drew
     mov [tui_lpos], al
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     mov [tui_lpat], al
-    mov al, [mp_row]
+    mov al, [tui_arow]
     mov [tui_lrow], al
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     mov [tui_lbpm], al
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     mov [tui_lspd], al
     pop es
     pop di
@@ -957,6 +1042,7 @@ ttx_draw_all:
     push si
     push di
     push es
+    call tui_sync                   ; the position being HEARD (SPEC.md 45.15)
     mov ax, [ttx_seg]
     mov es, ax
     cld
@@ -1003,6 +1089,11 @@ ttx_draw_dyn:
     push dx
     push si
     push di
+    call tui_sync                   ; the position being HEARD (SPEC.md 45.15):
+                                    ; everything below quotes tui_a*, so the
+                                    ; grid, the readout and the needles all
+                                    ; move with the music rather than with the
+                                    ; mixer that is seconds ahead of it
     mov al, [mp_playing]            ; the transport, from wherever it changed -
     cmp al, [tui_lplay]             ; a key, a song end, an F00, the SPEC.md
     je .noxn                        ; 45.2 watchdog. trk_transport writes the
@@ -1013,19 +1104,18 @@ ttx_draw_dyn:
     jne .step                       ; anything looks at the pattern again
     cmp byte [ttx_shok], 0          ; a position move can change the pattern,
     je .rebuild                     ; and a pattern is a whole new shadow
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     cmp al, [ttx_shpat]
     jne .rebuild
     mov al, [mp_ploop]              ; P makes the pattern its own neighbour
     cmp al, [ttx_shloop]            ; both ways (SPEC.md 45.13.4)
     jne .rebuild
-    cmp byte [mp_posjmp], 0         ; a Bxx row parks songpos at target-1 for
-    jne .nosh                       ; the rest of its ticks (mp_start's note) -
-                                    ; a pending jump, not a position, and not
-                                    ; a rebuild
-    mov al, [mp_songpos]            ; the pads are the ORDERS either side, so
+    mov al, [tui_apos]              ; the pads are the ORDERS either side, so
     cmp al, [ttx_shpos]             ; two orders naming the same pattern move
-    je .nosh                        ; them without moving [mp_pattern]
+    je .nosh                        ; them without moving the pattern. A Bxx
+                                    ; needs no guard here: a stamp carries the
+                                    ; position its row belonged to, never the
+                                    ; parked one (SPEC.md 45.15)
 .rebuild:
     call ttx_shstart                ; TTX_SHCHUNK rows a frame from here on,
 %ifdef TRKLOG
@@ -1059,19 +1149,19 @@ ttx_draw_dyn:
     mov al, [tui_cvr]
     mov [tui_lcvr], al
 .norows:
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     cmp al, [tui_lpos]
     jne .ro
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     cmp al, [tui_lpat]
     jne .ro
-    mov al, [mp_row]
+    mov al, [tui_arow]
     cmp al, [tui_lrow]
     jne .ro
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     cmp al, [tui_lbpm]
     jne .ro
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     cmp al, [tui_lspd]
     je .noro
 .ro:
@@ -1090,7 +1180,12 @@ ttx_draw_dyn:
     mov [tui_lmute + 2], ax
     call ttx_vuframe
 .nomu:
+    dec byte [ttx_fcnt]             ; the needles fall per CALL, so on the
+    jnz .novu                       ; retrace clock they are stepped every
+    mov al, [ttx_fdiv]              ; [ttx_fdiv]th frame - the same rate in
+    mov [ttx_fcnt], al              ; SECONDS as on the tick clock (45.16)
     call ttx_vu
+.novu:
 %ifdef TRKLOG
     call tlog_frame                 ; the log's status line is live, so it is
     call ttx_status                 ; redrawn every frame: the [ttx_lmsg]
@@ -1157,6 +1252,10 @@ ttx_s_mute:   db '   MUTE', 0
     TRKB ttx_sbudget                ; ...and this frame's share of them
     TRKB ttx_shbusy                 ; a spread rebuild is in progress
     TRKB ttx_chn                    ; shared small loop counter
+    TRKB ttx_clk                    ; fsx_wait's argument: 0 tick, 1 retrace
+    TRKB ttx_chunk                  ; ...and the rebuild rows a frame it buys
+    TRKB ttx_fdiv                   ; frames per tick, as measured (1 = the
+    TRKB ttx_fcnt                   ; tick clock); the VU needles' divider
     TRKW ttx_lmsg                   ; the status string last drawn
     TRKBUF ttx_vuc, 4               ; last-drawn bar widths, CELLS (SPEC.md
                                     ; 45.12's delta baseline, in this mode's

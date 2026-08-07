@@ -710,7 +710,7 @@ tui_posed_body:
     mov al, TC_FACET
 .col:
     call tui_setcol
-    mov al, [mp_songpos]            ; ord = songpos - 2 + k
+    mov al, [tui_apos]              ; ord = songpos - 2 + k
     xor ah, ah
     sub ax, 2
     mov bl, [tui_chn]
@@ -757,7 +757,7 @@ tui_posed_body:
     mov dx, 66
     call tui_textc
     TSETC TC_FACET
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     call tui_hex2
     mov si, tui_nbuf
     mov cx, 38
@@ -765,7 +765,7 @@ tui_posed_body:
     call tui_textc
     jmp short .out
 .pos:
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     call tui_hex2
     mov si, tui_nbuf
     mov cx, 38
@@ -807,7 +807,7 @@ tui_val_bpm:
     push cx
     push dx
     push si
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     call tui_dec3
     mov si, tui_nbuf
     mov cx, 168
@@ -816,7 +816,7 @@ tui_val_bpm:
     mov ah, TC_FACE
     mov al, TC_FACET
     call tui_rdout
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     call tui_dec3
     mov si, tui_nbuf
     mov cx, 168
@@ -825,9 +825,9 @@ tui_val_bpm:
     mov ah, TC_FACE
     mov al, TC_FACET
     call tui_rdout
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     mov [tui_lbpm], al
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     mov [tui_lspd], al
     pop si
     pop dx
@@ -843,7 +843,7 @@ tui_val_ptn:
     push cx
     push dx
     push si
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     call tui_hex2
     mov si, tui_nbuf
     mov cx, 258
@@ -923,7 +923,7 @@ tui_el_bpm:
     mov cx, 116
     mov dx, 36
     call tui_textc
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     call tui_dec3
     mov si, tui_nbuf
     mov cx, 168
@@ -932,14 +932,14 @@ tui_el_bpm:
     mov cx, 116
     mov dx, 50
     call tui_textc
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     call tui_dec3
     mov si, tui_nbuf
     mov cx, 168
     call tui_textc
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     mov [tui_lbpm], al
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     mov [tui_lspd], al
 .out:
     pop si
@@ -968,7 +968,7 @@ tui_el_ptn:
     mov cx, 210
     mov dx, 36
     call tui_textc
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     call tui_hex2
     mov si, tui_nbuf
     mov cx, 258
@@ -1403,7 +1403,7 @@ tui_val_cga_pos:
     push si
     push di
     mov di, tui_nbuf                ; 'pp/ll'
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     call tui_hexb
     mov byte [di], '/'
     inc di
@@ -1417,7 +1417,7 @@ tui_val_cga_pos:
     mov ah, TC_BG
     mov al, TC_TEXT
     call tui_rdout
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     call tui_hex2
     mov si, tui_nbuf
     mov cx, 320
@@ -1439,7 +1439,7 @@ tui_val_cga_bs:
     push cx
     push dx
     push si
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     call tui_dec3
     mov si, tui_nbuf
     mov cx, 96
@@ -1448,7 +1448,7 @@ tui_val_cga_bs:
     mov ah, TC_BG
     mov al, TC_TEXT
     call tui_rdout
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     call tui_dec3
     mov si, tui_nbuf
     mov cx, 168
@@ -1456,9 +1456,9 @@ tui_val_cga_bs:
     mov ah, TC_BG
     mov al, TC_TEXT
     call tui_rdout
-    mov al, [mp_bpm]
+    mov al, [tui_abpm]
     mov [tui_lbpm], al
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     mov [tui_lspd], al
     pop si
     pop dx
@@ -1522,13 +1522,78 @@ tui_hdr:
     ret
 
 ; -----------------------------------------------------------------------------
+; tui_sync - publish the position the LISTENER is at (SPEC.md 45.15). Every
+;            drawer calls this once, first thing, and then quotes tui_a*
+;            instead of mp_*.
+;
+; mp_row and its neighbours are the row being MIXED, and trk_feed keeps the
+; ring topped up to TRK_RING - TRK_HALF: at XT mode's 5,500 Hz that is 2.2-3.0
+; SECONDS of music the card has not played yet. Quoting them put the whole
+; screen that far ahead of the sound - measured, not modelled (press Enter,
+; screendump 0.4 s later, and the grid is on row 21).
+;
+; So the display asks the stamps (SPEC.md 45.15) which row the card is inside.
+; [trk_consumed] is the worker's own status poll, at most a tick old, which is
+; a fifth of a row at the default tempo and can never move backwards.
+;
+; With no stream the two positions ARE the same thing, and that is also what
+; keeps the stopped view live: Up/Down and the position keys move mp_*, and
+; the display has to follow them with no music to sync to.
+; -----------------------------------------------------------------------------
+tui_sync:
+    push ax
+    push bx
+    push si
+    cmp byte [trk_sopen], 0
+    je .live
+    cmp byte [mp_playing], 0
+    je .live
+    mov ax, [trk_consumed]
+    call mp_at_pos                  ; SI = the stamp being heard
+    mov al, [si + MP_SP_SPOS]
+    mov [tui_apos], al
+    mov al, [si + MP_SP_PAT]
+    mov [tui_apat], al
+    mov al, [si + MP_SP_ROW]
+    mov [tui_arow], al
+    mov al, [si + MP_SP_BPM]
+    mov [tui_abpm], al
+    mov al, [si + MP_SP_SPD]
+    mov [tui_aspd], al
+    mov ax, [si + MP_SP_VOL]
+    mov [tui_avol], ax
+    mov ax, [si + MP_SP_VOL + 2]
+    mov [tui_avol + 2], ax
+    jmp short .out
+.live:
+    mov al, [mp_songpos]
+    mov [tui_apos], al
+    mov al, [mp_pattern]
+    mov [tui_apat], al
+    mov al, [mp_row]
+    mov [tui_arow], al
+    mov al, [mp_bpm]
+    mov [tui_abpm], al
+    mov al, [mp_speed]
+    mov [tui_aspd], al
+    mov ax, [mp_chvol]
+    mov [tui_avol], ax
+    mov ax, [mp_chvol + 2]
+    mov [tui_avol + 2], ax
+.out:
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; tui_viewrow - the row the band shows: the playing row, or the scroll row
 ;               (tracker.asm's Up/Down) while stopped
 ; out: [tui_cvr]
 ; -----------------------------------------------------------------------------
 tui_viewrow:
     push ax
-    mov al, [mp_row]
+    mov al, [tui_arow]
     cmp byte [mp_playing], 0
     jne .set
     mov al, [tui_vrow]
@@ -1626,7 +1691,7 @@ tui_row1:
     add ax, [tui_lay + TL_PAD]
     mov [tui_t2], ax                ; cell text x
     push bx
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     xor ah, ah
     mov di, ax
     mov ax, bx
@@ -1659,11 +1724,11 @@ tui_row1:
 tui_marks:
     push ax
     call tui_viewrow
-    mov al, [mp_row]
+    mov al, [tui_arow]
     mov [tui_lrow], al
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     mov [tui_lpos], al
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     mov [tui_lpat], al
     mov al, [tui_vrow]
     mov [tui_lvrow], al
@@ -1844,10 +1909,10 @@ tui_scrl:
     push dx
     push si
     push di
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     cmp al, [tui_lpos]
     jne .no
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     cmp al, [tui_lpat]
     jne .no
     call tui_viewrow                ; [tui_cvr] = the row the band shows now
@@ -1949,7 +2014,7 @@ tui_row_lt:
     push bx
     push dx
     call tui_viewrow
-    mov al, [mp_row]
+    mov al, [tui_arow]
     mov [tui_lrow], al
     mov al, [tui_cvr]
     cbw
@@ -1974,7 +2039,7 @@ tui_row_lt:
 ; rule about how a level moves belongs in one place, or the two surfaces
 ; disagree about what the music is doing.
 tui_vu_step:
-    mov al, [mp_chvol + bx]         ; 0..64, 0 while muted/silent
+    mov al, [tui_avol + bx]         ; 0..64, 0 while muted/silent
     cmp al, [tui_vu + bx]
     jbe .decay
     mov [tui_vu + bx], al           ; jump up, fall slowly: a VU needle
@@ -2177,6 +2242,7 @@ tui_draw_all:
     push di
     cmp byte [tui_inited], 0
     je .out
+    call tui_sync                   ; the position being HEARD (SPEC.md 45.15)
     call tui_track
     cmp byte [trk_fs], 0
     je .win
@@ -2352,6 +2418,7 @@ tui_draw_dyn:
     push di
     cmp byte [tui_inited], 0
     je .out
+    call tui_sync                   ; the position being HEARD (SPEC.md 45.15)
     call tui_track
     mov al, [mp_playing]            ; did playback START or STOP? the test is
     cmp al, [tui_lplay]             ; above the fullscreen split because the
@@ -2368,13 +2435,13 @@ tui_draw_dyn:
     cmp byte [trk_fs], 0            ; that can start or stop a module
     je .win
 .played:
-    mov al, [mp_row]                ; did the view move?
+    mov al, [tui_arow]              ; did the view move?
     cmp al, [tui_lrow]
     jne .rows
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     cmp al, [tui_lpos]
     jne .rows
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     cmp al, [tui_lpat]
     jne .rows
     mov al, [tui_vrow]
@@ -2388,10 +2455,10 @@ tui_draw_dyn:
 .xtno:
     cmp byte [mp_xt], 0             ; XT (SPEC.md 45.9): a row-only change
     je .rfull                       ; relights the band alone; the full
-    mov al, [mp_songpos]            ; repaint waits for a position/pattern
+    mov al, [tui_apos]              ; repaint waits for a position/pattern
     cmp al, [tui_lpos]              ; (or stopped-scroll) move
     jne .rfull
-    mov al, [mp_pattern]
+    mov al, [tui_apat]
     cmp al, [tui_lpat]
     jne .rfull
     mov al, [tui_vrow]
@@ -2412,10 +2479,10 @@ tui_draw_dyn:
 .rowc:
     call tui_val_cga_pos
 .norows:
-    mov al, [mp_bpm]                ; did the tempo?
+    mov al, [tui_abpm]              ; did the tempo?
     cmp al, [tui_lbpm]
     jne .bs
-    mov al, [mp_speed]
+    mov al, [tui_aspd]
     cmp al, [tui_lspd]
     je .nobs
 .bs:
@@ -2453,25 +2520,25 @@ tui_draw_dyn:
 .win:
     cmp byte [mp_playing], 0        ; windowed: a live position line on the
     je .out                         ; splash while something plays
-    mov al, [mp_row]
+    mov al, [tui_arow]
     cmp al, [tui_lrow]
     jne .wupd
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     cmp al, [tui_lpos]
     je .out
 .wupd:
-    mov al, [mp_row]
+    mov al, [tui_arow]
     mov [tui_lrow], al
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     mov [tui_lpos], al
     mov di, tui_pbuf
     mov si, tui_s_posl
     call tui_scpy
-    mov al, [mp_songpos]
+    mov al, [tui_apos]
     call tui_hexb
     mov si, tui_s_rowl
     call tui_scpy
-    mov al, [mp_row]
+    mov al, [tui_arow]
     call tui_hexb
     mov byte [di], 0
     mov si, tui_pbuf
@@ -2663,6 +2730,15 @@ tui_ab5:     db 'Any key closes', 0
     TRKW tui_vuw                    ; volume bar full width
     TRKB tui_vrow                   ; the Up/Down scroll row while stopped
     TRKB tui_cvr                    ; the view row this frame
+
+; --- what the LISTENER is hearing (SPEC.md 45.15): tui_sync publishes these
+; --- once a frame and every drawer quotes them instead of mp_* -----------------
+    TRKB tui_apos                   ; order position
+    TRKB tui_apat                   ; pattern
+    TRKB tui_arow                   ; row
+    TRKB tui_abpm                   ; tempo...
+    TRKB tui_aspd                   ; ...and ticks per row, as they were heard
+    TRKBUF tui_avol, 4              ; the channel volumes the needles show
     TRKB tui_band                   ; tui_row1: drawing the band row
     TRKB tui_chn                    ; shared small loop counter
     TRKB tui_lplay                  ; last seen [mp_playing], for the 8088

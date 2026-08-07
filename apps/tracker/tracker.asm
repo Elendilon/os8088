@@ -1076,6 +1076,7 @@ trk_fsx_main:
 .txok:
     mov byte [trk_tx], 1
     call ttx_draw_all
+    call ttx_clkprobe               ; the frame clock, measured (SPEC.md 45.16)
 .txloop:
     call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
     mov ah, 1
@@ -1088,9 +1089,11 @@ trk_fsx_main:
     call trk_fsx_key
 .txdraw:
     call ttx_draw_dyn
-    xor al, al                      ; one frame per tick. The SPEC.md 53.5
-    call OSAPI_FSX_WAIT             ; present clause is dead here by
-    jmp .txloop                     ; construction: fsx_mode refused a buffer
+    mov al, [ttx_clk]               ; retrace-paced where the adapter can be
+    call OSAPI_FSX_WAIT             ; (SPEC.md 45.16), one frame per tick where
+    jmp .txloop                     ; it cannot. The SPEC.md 53.5 present
+                                    ; clause is dead either way by
+                                    ; construction: fsx_mode refused a buffer
 .txdone:
     mov byte [trk_tx], 0            ; before [trk_fs], so a message set on the
     mov byte [trk_fs], 0            ; way out reaches the windowed splash
@@ -1377,6 +1380,10 @@ trk_play:
     call tlog_stream                ; a new stream: the log's clocks restart
 %endif
     mov word [trk_total], 0
+    mov word [trk_consumed], 0      ; the stream's byte counters both restart
+    mov word [mp_stampbase], 0      ; here, so the stamp history does too -
+    call mp_stclear                 ; seeded with row 0, which mp_start has
+                                    ; already read but nothing has mixed yet
     mov cx, TRK_PREROLL             ; stage the cushion before the open, so
 .pre:                               ; the stream starts TRK_PREROLL halves
     call trk_mix_stage              ; ahead of the DSP instead of two
@@ -1442,7 +1449,9 @@ trk_mix_stage:
     push dx
     push si
     push di
-    mov cx, TRK_HALF
+    mov ax, [trk_total]             ; where mp_outbuf[0] lands in the stream:
+    mov [mp_stampbase], ax          ; the replayer stamps each row against it
+    mov cx, TRK_HALF                ; (SPEC.md 45.15)
     call mp_gen                     ; renders into mp_outbuf, advances the
                                     ; replayer; clobbers freely (mp_* rule)
     mov di, [trk_total]
@@ -1535,8 +1544,16 @@ trk_reap:
     ret
 
 trk_play_stop:
+    call tui_sync                   ; where the LISTENER is, asked while the
+                                    ; stream can still answer (SPEC.md 45.15)
     call trk_stream_close
     call mp_stop
+    mov al, [tui_apos]              ; ...and park the replayer there rather
+    mov [mp_songpos], al            ; than where the mixer got to, which is
+    mov al, [tui_apat]              ; up to three seconds of music further on.
+    mov [mp_pattern], al            ; trk_stream_close has drained the worker,
+    mov al, [tui_arow]              ; so nothing is inside mp_gen; trk_transport
+    mov [mp_row], al                ; then parks the view row on top of this
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1795,6 +1812,9 @@ trk_feed:
     mov al, 3                       ; verb 3: status - AX = state, DX =
     mov ah, [trk_hand]              ; consumed (free-running in ring mode)
     call OSAPI_SND_STREAM
+    mov [trk_consumed], dx          ; publish it for the display (SPEC.md
+                                    ; 45.15): the worker already asks once a
+                                    ; tick, so nothing else has to ask at all
     cmp ax, SND_ST_ENDED
     je .dead
     cmp ax, SND_ST_STALE
@@ -2010,6 +2030,9 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
     TRKB trk_ended                  ; watchdog/F00-ended: stop feeding, close
                                     ; on the next UI event (trk_reap)
     TRKW trk_total                  ; free-running total bytes mixed (mod 64K)
+    TRKW trk_consumed               ; ...and what the CARD has played of it,
+                                    ; polled by the worker once a tick and
+                                    ; read by every frame (SPEC.md 45.15)
     TRKB trk_halves                 ; halves fed this wake (bounds the burst)
     TRKB trk_rsel                   ; the Rate menu's pick (SPEC.md 45.10):
                                     ; 0/1/2 = 11/22/44 kHz; bss zeroes to

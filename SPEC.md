@@ -14036,6 +14036,115 @@ block-IRQ intervals with a median of **7 ticks** (6.8 predicted), and the
 which is the chunking doing what it says, read off the data rather than
 asserted.
 
+### 45.15 The screen shows what is being HEARD, not what is being mixed
+
+`mp_row` is the row the **mixer** is on, and `trk_feed` keeps the ring topped
+up to `TRK_RING - TRK_HALF` — so at XT mode's 5,500 Hz the mixer is **2.2–3.0
+seconds of music ahead of the card**, and every readout that quoted `mp_*`
+was that far ahead of the sound. That is measured, not modelled: press Enter
+and screendump 0.15 s later, and the grid was already on **row 21** — the
+6-half pre-roll (12,288 bytes = 2.23 s) is mixed on the UI task before the
+stream is even opened. The same screendump now reads **row 00**.
+
+The fix is a ring of **position stamps** in the replayer. When a row begins
+generating, `mp_stamp` records where its first sample lands in the stream
+together with the position, pattern, row, tempo, speed and the four channel
+volumes; `mp_at_pos` answers with the stamp the card is inside. `tui_sync`
+runs once per frame at the top of every drawer and publishes that stamp into
+`tui_apos` / `tui_apat` / `tui_arow` / `tui_abpm` / `tui_aspd` / `tui_avol`,
+and **every drawer quotes those instead of `mp_*`** — the graphics screen and
+the §45.13 text one alike, because the lag was never a property of one
+surface.
+
+Seven things are load-bearing:
+
+- **The card's position is the WORKER's poll, not a new one.** `trk_feed`
+  already asks verb 3 every wake for the lead calculation, so it publishes
+  `consumed` into `[trk_consumed]` and nothing else ever asks. At most one
+  tick old — a fifth of a row at the default tempo — and it can never move
+  backwards.
+- **The app supplies the byte base, the replayer supplies the row.**
+  `trk_mix_stage` sets `[mp_stampbase]` to `[trk_total]` before each `mp_gen`,
+  and a stamp is written at `base + (mp_outp - mp_outbuf)`. That is the whole
+  interface: the replayer still knows nothing about streams and the app still
+  knows nothing about rows.
+- **The position is caught BEFORE the row's effects run.** A `Bxx` parks
+  `[mp_songpos]` at `target - 1` for the rest of its row (`mp_start`'s note),
+  so a stamp taken after `mp_readrow` would carry a position that row never
+  belonged to. `mp_dotick` copies it into `[mp_pendpos]`/`[mp_pendpat]`
+  between `mp_nextrow` and `mp_readrow`. That also retires §45.13.4's
+  `[mp_posjmp]` guard, which existed only to hide the parked value.
+- **Both cursors are free-running bytes, masked at use.** The writer is
+  `trk_feed`'s deliberately lock-free worker and the reader is the UI task, so
+  each advance has to be one indivisible `inc`; a read-mask-store pair can
+  rewind the other task's. `MP_ST_N` is a power of two and 256 is a multiple
+  of it, so the byte wrap is invisible and the distance `stw - str` is exact.
+- **Overflow degrades towards the mixer, never past it.** The ring holds 64
+  rows and the lead is ~`1.19 × BPM / speed` rows at the XT rate — 25 rows at
+  BPM 125 speed 6, and everything down to speed 3 fits. Faster than that the
+  writer laps and pushes the reader forward, so the display is *less late*
+  than the music rather than ahead of it.
+- **Stopping parks the replayer where the LISTENER was.** `trk_play_stop`
+  calls `tui_sync` while the stream can still answer, then copies the audible
+  position back into `mp_songpos`/`mp_pattern`/`mp_row` after
+  `trk_stream_close` has drained the worker. Without it the display jumped
+  forward by three seconds at the moment of stopping — and `P` resumed from
+  a row nobody had heard.
+- **With no stream the two positions are the same thing**, and `tui_sync`
+  falls back to `mp_*` verbatim. That is also what keeps the stopped view
+  live: Up/Down and the position keys move the replayer, and with no music to
+  sync to the display has to follow them.
+
+What is deliberately *not* done: a position jump while playing is still heard
+2–3 seconds later, and the display moves when it is heard rather than when the
+key was pressed. Flushing the ring to make it immediate is a stream close and
+reopen — the underrun history in docs/FIELD-NOTES.md is what that would be
+trading against.
+
+### 45.16 The text screen's frame clock is measured, not assumed
+
+`fsx_wait` takes a **tick** (18.2065 Hz) or a **vertical retrace** (§53.5), and
+retrace is 50 Hz on Hercules/MDA, 60 on CGA and 70 on VGA text — three to four
+times the frames. The text screen (§45.13) can afford them because everything
+expensive on it is change-driven: the 1,121-word blit runs at the **row** rate
+whatever the frame rate is, so tripling the clock triples only the poll, six
+byte compares and the needles. Priced against the field constants, the whole
+surface goes from ~15% of the machine to ~18–20%, against XT mode's ~44%
+mixer.
+
+What it buys is not smoothness in the abstract. At a 120 ms row period against
+a 54.9 ms frame, a row is drawn 110, 110, 110, **165**, 110 ms after the last
+one — an uneven scroll with a hiccup every sixth row; and a module faster than
+18.2 rows a second (speed 3 at BPM 150 is 20) has rows the display **never
+shows at all**. The retrace clock takes the jitter to ±18 ms and the dropped
+rows to none.
+
+`ttx_clkprobe` decides once per bracket, and the measurement is the point:
+`fsx_wait`'s retrace path is a **poll with a 3-tick timeout**, so on a machine
+whose status port never toggles it is six frames a second — three times
+*worse* than the tick clock. `TTX_PROBE` (8) waits are timed against
+`OSAPI_GET_TICKS` and the retrace clock is taken only for a result between 1
+and 7 ticks. **Zero is refused too**: eight real retraces cannot fit inside one
+tick on any adapter, so zero means the poll is not pacing at all — which is
+exactly what QEMU's std VGA does, answering 3DAh with a dumb toggle. **So QEMU
+tests the refusal and the field machine tests the acceptance**; the accepted
+branch was exercised here by forcing it.
+
+The ratio the probe measures is kept as `[ttx_fdiv]`, frames per tick, because
+two things are per-FRAME and have to be re-tuned when frames get three times
+as common:
+
+- **`ttx_shstep`'s chunk.** 4 rows is ~25 ms, which does not fit an 18 ms
+  slot, so `TTX_SHCHUNKF` is 1 there. The total work is identical — a rebuild
+  takes 1.5 s of a ~7.7 s pattern instead of 1.15 s, at a quarter of the peak.
+- **The VU needles.** `tui_vu_step` decays per CALL, so at 3× the frames they
+  fell 3× faster; `ttx_vu` is stepped every `[ttx_fdiv]`th frame, which is the
+  same rate in seconds as before.
+
+The graphics bracket keeps the tick clock and should: its frames are already
+over budget on the machine this is for (§45.13.1), and Missile Command's are
+15.5 ms quiet against 43.5–73.5 ms busy (§48.11).
+
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
 A port of ActionRetro's **ArtfulType** — "a distraction-free Markdown

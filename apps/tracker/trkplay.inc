@@ -42,6 +42,28 @@ MP_MAXSMP  equ 60000            ; per-sample play-length cap, bytes: keeps
                                 ; even at a 4000 Hz mix rate (step int <= 7)
 MP_CHUNK   equ 512              ; mix chunk cap, samples (mp_mixbuf = 2x)
 
+; --- the position stamps (SPEC.md 45.15): what the LISTENER is hearing ---------
+; Every mp_* readout above is the position being MIXED, and the mixer runs a
+; whole ring buffer ahead of the DAC - up to 16KB, which at XT mode's 5,500 Hz
+; is nearly three seconds. So the row a stamp names is recorded against the
+; STREAM BYTE its first sample lands on, and the display asks which stamp the
+; card has reached rather than which row the mixer is on.
+MP_ST_N    equ 64               ; stamps: 64 rows of history, ~1.19*BPM/speed
+MP_ST_MASK equ MP_ST_N - 1      ; rows fit in a full ring at the XT rate, so
+                                ; this covers everything down to speed 3 at
+                                ; BPM 125. Faster than that the ring laps and
+                                ; the display degrades TOWARDS the mixer -
+                                ; never behind the music, only less late
+MP_ST_SIZE equ 16               ; ...and a power of two, so the index is shifts
+MP_SP_POS  equ 0                ; w: stream byte this row's first sample is at
+MP_SP_SPOS equ 2                ; b: order position
+MP_SP_PAT  equ 3                ; b: pattern
+MP_SP_ROW  equ 4                ; b: row
+MP_SP_BPM  equ 5                ; b: tempo, so a tempo change is heard and
+MP_SP_SPD  equ 6                ; b: ...ticks per row, shown at the same moment
+MP_SP_VOL  equ 8                ; 4b: the channel volumes, so the VU needles
+                                ; move with the note rather than ahead of it
+
 ; --- channel record (bss, MP_CHSZ bytes each, 4 of them) -----------------------
 MP_PER    equ 0                 ; w: real period (persistent)
 MP_OPER   equ 2                 ; w: output period (vibrato/arp write this)
@@ -528,6 +550,139 @@ mp_mutetog:
     ret
 
 ; =============================================================================
+; The position stamps (SPEC.md 45.15). Three routines, and the whole point of
+; them is that mp_row is the row being MIXED: trk_feed keeps the ring topped
+; up to TRK_RING - TRK_HALF, so on a 5,500 Hz XT mode stream the mixer is
+; 2.2-3.0 s ahead of the card. Every readout that quotes mp_* is that far
+; ahead of the music - measured, not modelled: press Enter and screendump
+; 0.4 s later and the grid is already on row 21.
+;
+; A stamp is written where a row's first sample lands in the stream, and
+; mp_at_pos answers with the stamp the DAC is inside. The app supplies
+; [mp_stampbase] - the stream position mp_outbuf's first byte occupies - and
+; that is the only thing the replayer needs to know about the stream.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; mp_stamp_at - record the current replayer state at stream position AX
+; -----------------------------------------------------------------------------
+mp_stamp_at:
+    push ax
+    push bx
+    mov byte [mp_rowadv], 0
+    mov bl, [mp_stw]
+    and bl, MP_ST_MASK          ; the cursors are FREE-RUNNING bytes and are
+    xor bh, bh                  ; masked here rather than stored masked: the
+    shl bx, 1                   ; writer is trk_feed's lock-free worker and
+    shl bx, 1                   ; the reader is the UI task, so both advances
+    shl bx, 1                   ; have to be one indivisible `inc` - a
+    shl bx, 1                   ; read-mask-store pair can rewind the other
+    add bx, mp_stamps           ; task's (8086: shift one bit at a time)
+    mov [bx + MP_SP_POS], ax
+    mov al, [mp_pendpos]        ; the position as it was BEFORE this row's
+    mov [bx + MP_SP_SPOS], al   ; effects ran - a Bxx parks the live one
+    mov al, [mp_pendpat]
+    mov [bx + MP_SP_PAT], al
+    mov al, [mp_row]
+    mov [bx + MP_SP_ROW], al
+    mov al, [mp_bpm]
+    mov [bx + MP_SP_BPM], al
+    mov al, [mp_speed]
+    mov [bx + MP_SP_SPD], al
+    mov ax, [mp_chvol]
+    mov [bx + MP_SP_VOL], ax
+    mov ax, [mp_chvol + 2]
+    mov [bx + MP_SP_VOL + 2], ax
+    inc byte [mp_stw]
+    mov al, [mp_stw]
+    sub al, [mp_str]            ; the ring is full: the next stamp overwrites
+    cmp al, MP_ST_N             ; the oldest, so the reader moves with it. The
+    jb .out                     ; display then runs LESS late than the music,
+    inc byte [mp_str]           ; never early against it (SPEC.md 45.15)
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mp_stamp - the same, at the position mp_gen's cursor has reached. Called
+;            from inside mp_gen, where a row has just begun.
+; -----------------------------------------------------------------------------
+mp_stamp:
+    push ax
+    mov ax, [mp_outp]
+    sub ax, mp_outbuf           ; bytes into this buffer...
+    add ax, [mp_stampbase]      ; ...and where the buffer starts in the stream
+    call mp_stamp_at
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mp_stclear - drop the history and seed it with the state at [mp_stampbase].
+;              Called by the app when a stream's byte counter restarts.
+; -----------------------------------------------------------------------------
+mp_stclear:
+    push ax
+    mov byte [mp_stw], 0
+    mov byte [mp_str], 0
+    mov al, [mp_songpos]        ; no row has begun since mp_start, so the
+    mov [mp_pendpos], al        ; live position IS the pending one
+    mov al, [mp_pattern]
+    mov [mp_pendpat], al
+    mov ax, [mp_stampbase]
+    call mp_stamp_at            ; ...which leaves stw = 1, str = 0: one stamp
+    pop ax                      ; held, and it is the one being played
+    ret
+
+; -----------------------------------------------------------------------------
+; mp_at_pos - in AX = the stream byte the card has reached (the driver's
+;             free-running consumed count)
+; out: SI = the stamp being heard. The read cursor only ever moves forward,
+;      so this is O(rows crossed since the last frame) - normally 0 or 1.
+;
+; The comparison is signed on purpose: both counters are free-running 16-bit
+; and the lead is bounded by the 16KB ring, so pos - consumed can never reach
+; 32768 and the sign always says which came first.
+; -----------------------------------------------------------------------------
+mp_at_pos:
+    push ax
+    push bx
+    push cx
+.adv:
+    mov bl, [mp_stw]
+    sub bl, [mp_str]            ; free-running distance, exact mod 256
+    cmp bl, 1
+    jbe .have                   ; str is the newest stamp there is
+    mov bl, [mp_str]
+    inc bl
+    and bl, MP_ST_MASK
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add bx, mp_stamps
+    mov cx, [bx + MP_SP_POS]
+    sub cx, ax
+    jg .have                    ; the next row has not been reached yet
+    inc byte [mp_str]
+    jmp short .adv
+.have:
+    mov bl, [mp_str]
+    and bl, MP_ST_MASK
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    add bx, mp_stamps
+    mov si, bx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; =============================================================================
 ; mp_order - AL = order index -> AL = pattern number there
 ; =============================================================================
 mp_order:
@@ -800,6 +955,10 @@ mp_gen:
     sub [mp_tickrem], ax
     jnz .big
     call mp_dotick              ; a tick boundary
+    cmp byte [mp_rowadv], 0     ; ...and if a ROW began on it, stamp the
+    je .norow                   ; stream byte its first sample lands on
+    call mp_stamp               ; (SPEC.md 45.15); mp_stamp clears the flag
+.norow:
     mov ax, [mp_spt]
     mov [mp_tickrem], ax
     jmp .big
@@ -1114,8 +1273,13 @@ mp_dotick:
     jmp .upd                    ; held row: no note re-read
 .advance:
     call mp_nextrow
-    call mp_readrow
-    jmp .upd
+    mov al, [mp_songpos]        ; BEFORE the effects: a Bxx parks songpos at
+    mov [mp_pendpos], al        ; target-1 for the rest of its row (mp_start's
+    mov al, [mp_pattern]        ; note), and a stamp taken after mp_readrow
+    mov [mp_pendpat], al        ; would carry that instead of the position
+    call mp_readrow             ; this row actually belongs to
+    mov byte [mp_rowadv], 1     ; mp_gen stamps it where it stands in the
+    jmp .upd                    ; output (SPEC.md 45.15)
 .pertick:
     call mp_tickfx
 .upd:
@@ -1998,6 +2162,18 @@ mpe_song:   db 'Bad song data', 0
     TRKBUF mp_chper, 8              ; current playing periods (0 = silent)
     TRKBUF mp_title, 21             ; module title, NUL-terminated
     TRKBUF mp_outbuf, 2048          ; mp_gen's rendered output
+
+; --- the position stamps (SPEC.md 45.15) ---------------------------------------
+    TRKBUF mp_stamps, MP_ST_N * MP_ST_SIZE
+    TRKB mp_stw                     ; next stamp to write
+    TRKB mp_str                     ; the one being heard (only moves forward)
+    TRKB mp_rowadv                  ; mp_dotick began a row; mp_gen owes a
+                                    ; stamp at its current output cursor
+    TRKB mp_pendpos                 ; that row's order position and pattern,
+    TRKB mp_pendpat                 ; caught before its effects could park them
+    TRKW mp_stampbase               ; the stream position mp_outbuf[0] holds -
+                                    ; the app's, because the replayer knows
+                                    ; nothing about the stream
     TRKBUF mp_celltxt, 11           ; mp_cell2txt's 'C-2 01 A0F' + NUL
     TRKW mp_blobseg                 ; the module blob (set by tracker.asm)
     TRKW mp_bloblen_lo              ; ...and its 32-bit byte length
