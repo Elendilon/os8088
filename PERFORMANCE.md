@@ -1524,3 +1524,58 @@ across a second boundary the snapshot went stale under a reset, the delta came
 out small and *negative*, and an unsigned comparison read −303 as four billion
 and latched it for the whole second. The tell is `3599181` repeated across a
 row, which is 2³² counts in milliseconds. It is banked at frame *end* now.
+
+### Set 10 — the first valid before/after, and both fixes missed
+
+| | |
+|---|---|
+| machine | MartyPC again — **per-call floor 1,247 counts against Set 9's 1,246, 0.15% apart** |
+| build | `1156e3c` plus the logger |
+| run | 71 seconds, mean 15.97 fps (Set 9: 15.63) |
+
+This is the first pair in the whole investigation that may be compared
+number for number, and it says §48.17's two changes did nothing at the frame
+level:
+
+| worst-frame stage | Set 9 median | Set 10 median | Set 9 p90 | Set 10 p90 |
+|---|---|---|---|---|
+| `exp` | 19.0 | 16.6 | 39.4 | 39.9 |
+| `rst` | 7.1 | 9.6 | 28.4 | 27.7 |
+| seconds with a frame over one tick | 55% | 55% | | |
+
+Both hypotheses were wrong. The salvo was never synchronised — an ICBM is
+intercepted as a blast radius *grows*, so a cluster's detonations already
+spread over several frames. And `rst`'s 20-49 ms was not the status strip:
+the inference rested on "only eleven fills in that frame, so it must be
+text", and **the fill counter cannot see a glyph**, so that was never
+evidence either way. The strip fix is kept because it is strictly less work
+for byte-identical output; the ramp jitter is dropped because it costs
+lethality and buys nothing (§48.10's rule).
+
+#### What the same numbers say when the arithmetic is done properly
+
+| | |
+|---|---|
+| a worst frame | **34.8 fills, 172.6 scan lines** |
+| priced at this run's own calibration | 34.8×1,247 + 137.8×151 = **53.8 ms** |
+| the median worst frame | **63.4 ms** |
+| the ARRIVING alone | 34.8×1,096 = **36.4 ms — 57% of the frame** |
+
+**~85% of a worst frame is `gfx_fill`.** One blob is 7-11 rects (simulated
+against `mc_blob`'s own band logic), so `exp` at 40-76 ms is three to six
+blobs and nothing else. §48.18 is the three changes that cut the count.
+
+#### The negative result: a vector gfx_fill recovers ~4%
+
+Costed before building, against this run's floor. A batch removes the API
+cell, the `GFXCLIP` test, the `bb_mono_chk` call and the `bb_on` dispatch —
+about **170 of ~4,381 clocks**. It cannot remove eight push/pop pairs,
+`vga_rect_setup`'s twenty-odd memory accesses, `gfx_rowbase`, the dirty-rect
+and mode round-trips, the plane loop or `bb_ink`, because those are per
+*rect* and not per *call*.
+
+That is the difference from §5.6.8, which did pay: a walk step's fixed cost
+was block staging and `gfx_ink` — genuinely per call — while a fill's is
+geometry. Shortening *that* is §5.7's problem: diffuse, no hot spot, already
+worth 20% once, and wanting a dedicated pass with `tests/gfxbench` as the
+gate rather than a new API slot.

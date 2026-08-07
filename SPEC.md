@@ -16461,6 +16461,68 @@ jittered bursts die and with the score having moved several times: **0
 differing pixels** against a forced full repaint — CGA (of 129,485) and
 Hercules (of 236,160).
 
+### 48.18 The frame is fills, and the fill count is the only lever left
+
+The first genuinely comparable pair of field logs — same emulator, per-call
+floor agreeing to **0.15%** — says §48.17's two fixes bought nothing at the
+frame level: worst-frame `exp` 19.0 → 16.6 ms at the median and 39.4 → 39.9
+at p90, `rst` 7.1 → 9.6 and 28.4 → 27.7, and 55% of seconds holding a frame
+over one tick either way. Both hypotheses were wrong, and the second one
+instructively so: the fill counter cannot see a glyph, so "only eleven fills,
+therefore it must be text" was never evidence.
+
+The status-strip fix is kept regardless — it is strictly less work for
+byte-identical output — and **the ramp-phase jitter is dropped**, because a
+salvo turns out not to be synchronised in the first place: an ICBM is
+intercepted as a blast radius *grows*, so a cluster's detonations were
+already spread over several frames.
+
+What the same logs say when the arithmetic is done against their own
+calibration is unambiguous:
+
+| | |
+|---|---|
+| a worst frame | 34.8 fills, 172.6 scan lines |
+| a `gfx_fill` on that machine | **1,247 counts** for one row, **151** per further row |
+| so fills cost | 34.8×1,247 + 137.8×151 = **53.8 ms** |
+| the median worst frame | **63.4 ms** |
+| ...of which the ARRIVING alone | 34.8×1,096 = **36.4 ms, 57%** |
+
+**~85% of a worst frame is `gfx_fill`, and most of that is arriving.** So the
+lever is the fill *count*, and three changes take it:
+
+- **`mc_blob`'s band quantum is R/4 + 1**, not R/8 + 1: a peak burst goes
+  from 9 fills to 7, a small one from 7 to 5. The disc's edge steps in fours.
+- **Two drawn burst states, not three** — dark, peak, gone. A burst is drawn
+  once and erased once where it was drawn twice and erased once, and
+  `MC_EXPFR3` falls 21 → 15 to hold Σr (13×13 = 169 against 5×9 + 13×10 =
+  175, −3.4%, inside §48.12's own tolerance). One table still names the state
+  and both radii still hang off it.
+- **The crosshair is two bars, not four arms.** XOR is its own inverse, so
+  where they cross the second undoes the first and the centre hole comes back
+  for free — one pixel of it rather than three. It is paid on every frame the
+  mouse moves and draws no content: 6.8 ms of a 63 ms frame at the median.
+
+Each is a separate commit, because each is a visible trade and any may be
+reverted alone.
+
+#### 48.18.1 Batching fills is NOT the answer, and the reason is the shape
+
+The obvious next move after §5.6.8 is a vector `gfx_fill` — same trick, one
+arrival for N rects. **Costed against the measured floor before building it,
+it recovers about 4%**, and that is a structural answer rather than a close
+call: what a batch removes is the API cell, the `GFXCLIP` test, the
+`bb_mono_chk` call and the `bb_on` dispatch — perhaps 170 of ~4,381 clocks.
+What it cannot remove is everything that makes a *rect* a rect: eight
+push/pop pairs, `vga_rect_setup`'s twenty-odd memory accesses, `gfx_rowbase`,
+the dirty-rect and mode round-trips, the plane loop and `bb_ink`.
+
+That is precisely why §5.6.8 *did* pay for the walk and this does not: a walk
+step's fixed cost was block staging and `gfx_ink`, which are per **call**; a
+fill's is geometry, which is per **rect**. Shortening it is §5.7's own
+problem — diffuse, no hot spot, already worth 20% once — and it wants a
+dedicated pass with `tests/gfxbench` as the gate, not a new slot.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
