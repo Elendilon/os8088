@@ -138,7 +138,7 @@ Move 9 made that lopsided:
 
 | | headroom |
 |---|---:|
-| `KERN_CODE_MAX`, the segment | **18,566 B** for `.text` + `.bss` |
+| `KERN_CODE_MAX`, the segment | **18,592 B** for `.text` + `.bss` |
 | **`KERN_BUDGET`, the footprint** | **2,048 B** for the whole span |
 
 The segment has nine times the room the footprint has, and the footprint can
@@ -179,7 +179,7 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 
 | region | size | what it is |
 |---|---:|---|
-| image (`.text` 43,456 + `.bss` 3,514) | 47,104 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
+| image (`.text` 43,430 + `.bss` 3,514) | 47,104 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
 | cold code | 19,968 B | 19,571 bytes with a CS of their own: the five file modules and the Control Panel |
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | `.lowbss` + task 0's stack | 8,704 B | 7,668 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
@@ -187,7 +187,7 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 | **total** | **80,384 B** | of an 82,432-byte budget — **2,048 B spare** |
 
 Each rung is its contents rounded up to a whole 512 bytes, and the remainders
-are the only slack anywhere in the ladder: 134 bytes on the image, 397 on the
+are the only slack anywhere in the ladder: 160 bytes on the image, 397 on the
 cold segment, 12 on `.lowbss`. They are rounding artefacts, not reservations.
 
 The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0BE0,
@@ -321,7 +321,7 @@ shoulder to shoulder, and the scale is coarse enough (4KB per pixel on a
 
 ## Each region in detail
 
-### The image — `.text` 43,456 B + `.bss` 3,514 B
+### The image — `.text` 43,430 B + `.bss` 3,514 B
 
 One flat binary at `KERNEL_SEG:0000`, assembled `-f bin` with no linker.
 `.bss` follows `.text` immediately and is uninitialised by definition, so it
@@ -542,7 +542,7 @@ package calls into empty memory.
 
 ## Where the code goes
 
-63,027 bytes of kernel code — `.text` 43,456 plus `.cold` 19,571 — module by
+63,001 bytes of kernel code — `.text` 43,430 plus `.cold` 19,571 — module by
 module. Measured by bracketing every `%include` with a bare label in each
 section and reading the differences back; bare labels emit nothing, so the
 measurement does not perturb what it measures. The module rows sum to the
@@ -568,9 +568,9 @@ Three results are worth knowing before you go looking:
 | the file system, end to end | 23,684 | 37.6% |
 | the window system and its furniture | 12,502 | 19.8% |
 | drawing: adapters, primitives, glyphs, icons | 9,363 | 14.9% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 7,591 | 12.0% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 7,565 | 12.0% |
 | the kernel proper: API table, heap, scheduler, events | 4,806 | 7.6% |
-| the Control Panel | 3,812 | 6.0% |
+| the Control Panel | 3,812 | 6.1% |
 | the three built-in kinds | 1,269 | 2.0% |
 
 <!-- BEGIN generated table -->
@@ -594,7 +594,7 @@ Three results are worth knowing before you go looking:
 | `memory.inc` — the claim heap (§50) | 1,573 | — | **1,573** | 10 | 256 |
 | `icons.inc` — the icon renderer (§10) | 1,309 | — | **1,309** | 34 | — |
 | `apps.inc` — the three built-in kinds (§14) | 1,269 | — | **1,269** | 9 | 160 |
-| `mouse.inc` — serial mouse and the cursor (§9) | 1,236 | — | **1,236** | 100 | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 1,210 | — | **1,210** | 100 | — |
 | `snd.inc` — the sound layer (§34) | 1,201 | — | **1,201** | 299 | — |
 | `font.inc` — the 8x8 text renderers (§6) | 1,138 | — | **1,138** | 17 | 768 |
 | `fsx.inc` — fullscreen exclusive (§53) | 899 | 190 | **1,089** | 14 | — |
@@ -609,7 +609,7 @@ Three results are worth knowing before you go looking:
 | `events.inc` — the event ring (§10) | 134 | — | **134** | 134 | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 10 | — | **10** | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 2,178 | — | **2,178** | — | — |
-| **total** | **43,456** | **19,571** | **63,027** | **3,514** | **7,668** |
+| **total** | **43,430** | **19,571** | **63,001** | **3,514** | **7,668** |
 <!-- END generated table -->
 
 ### Reading it
