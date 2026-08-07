@@ -706,6 +706,27 @@ Four things about it are easy to undo:
   `make` is what makes that survivable. The next contract change is a new
   number.
 
+**Both data walkers coalesce runs** (SPEC.md §18.4.2), and only one of them
+used to. `dskw_wdata` appended whole sectors to a pending run and spent it
+with `dskw_wflush`; `dskw_rdata` — the body behind `OSAPI_FILE_READ` — issued
+**one `disk_read` per sector**, and its own header comment claimed it was
+"stepped the same way" as the write side it had stopped mirroring. §18.91's
+batching could not help, because `dsk_xfer` only batches what one call hands
+it, so the largest file operation in the system still paid a revolution per
+sector: PERFORMANCE.md's "a 116KB Tracker module is 57 seconds" was this and
+nothing else. Measured after, on the same load: **295 sectors in 34 int 13h
+calls against 244**, with the sector count *identical* — which is the shape
+that says the splitter is not dropping work. The two now share one flush body
+picked by `[dskw_fop]`, for the reason `disk_read` and `disk_write` share
+`dsk_xfer`: the run arithmetic must not be able to differ between reading and
+writing, which is exactly how this drifted. What is deliberately still one
+sector at a time: **directory walks** (they read into the single 512-byte
+`dsk_secbuf`, and a walk stops early — at the match, or at the first `0x00`
+name — so reading ahead can cost work rather than save it, the opposite trade
+from a file read whose length is known up front) and **`dskw_mkdir`'s
+zero-fill**, which writes the same buffer per sector and is bounded at 3 extra
+writes because §18.7's 65,535-sector partition cap keeps cluster size at 4.
+
 What this did *not* remove: `dskw_append` and the file manager's chunked copy
 (SPEC.md §22.5) stay, because the copy **buffer** is a heap claim of whatever
 the machine could spare and a file can still be bigger than it. And Note Pad's

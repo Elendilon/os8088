@@ -888,7 +888,11 @@ than cold, which confirms it: this is rotational latency, not motor spin-up
 and not bandwidth.
 
 That prices two things that were guesses. A 116KB Tracker module is **57
-seconds**. And a per-track batch — nine sectors per revolution instead of one
+seconds** — which turned out to name a specific bug rather than a general
+cost: `dskw_rdata`, the body behind `OSAPI_FILE_READ`, was issuing one int 13h
+per sector while its own twin on the write side coalesced runs (SPEC.md
+§18.4.2). Measured after: the same load is **295 sectors in 34 calls, against
+244**. And a per-track batch — nine sectors per revolution instead of one
 — is worth about **9x on every load in the system**, which is the largest
 single number in this document.
 

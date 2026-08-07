@@ -4169,6 +4169,65 @@ writes those 96KB straight back out from the same `ES:BX`; check 4 reads the
 copy back at offset 0; check 5 deletes it, so §18.4's free-space equality
 check still closes over the whole run.
 
+### 18.4.2 The read walker coalesces runs too, and the audit that found it
+
+`dskw_wdata` appends whole sectors to a **pending run** and spends it with
+`dskw_wflush` when the LBA stops being contiguous, when the run's DMA page is
+full, or at the end. `dskw_rdata` — its twin, and the body behind
+`OSAPI_FILE_READ` — did not: it issued **one `disk_read` per sector**, and its
+own header comment said so ("stepped the same way: one disk_read per sector"),
+which had stopped being true of the write side it was claiming to mirror.
+
+§18.91 could not help, because `dsk_xfer` can only batch what one call hands
+it. So the largest file operation in the system was still paying a revolution
+per sector — PERFORMANCE.md's "a 116KB Tracker module is **57 seconds**" was
+this, and nothing else.
+
+It now mirrors `dskw_wdata` exactly, and **the two share one flush body**
+(`dskw_flushrun`, picked by `[dskw_fop]`) for the reason `disk_read` and
+`disk_write` share `dsk_xfer`: the run arithmetic must not be able to differ
+between reading and writing, which is precisely how this drifted in the first
+place.
+
+**Measured** on the same 116KB module load, counters over QMP, 1.44MB:
+
+| | sectors | int 13h calls |
+|---|---|---|
+| before | 295 | **244** |
+| after | 295 | **34** |
+
+**The sector count is identical**, which is the shape `docs/DISK-PERF-PLAN.md`
+§2.1 demands: if both numbers moved, the run splitter would be dropping or
+duplicating work. 7.2x, and a run crosses *cluster* boundaries, so a
+contiguously written file is one run per track.
+
+#### What the rest of the audit found, and why it stays
+
+Everything else that touches `disk_read`/`disk_write` was checked at the same
+time. `dsk_read_chain` (the loader, `ASSOC.DAT`, the copy engine) already
+coalesces; the FAT window loads and flushes in one call per FAT; the boot
+sector's LBA 0, the package header peek and `dsk_dotdot` are genuinely one
+sector. Two things are left one-sector-at-a-time **deliberately**:
+
+- **Directory-sector walks** — the mount scan, `dskw_find`, `dskw_stat`,
+  `dskw_rmtree`, the rename scan, `asc_root_find`, `fcp_scan`. They read into
+  `dsk_secbuf`, one 512-byte scratch, so batching costs `KERN_BUDGET`; and
+  more to the point **a directory walk stops early** — at the matching entry,
+  or at the first `0x00` name — so reading ahead can *cost* work rather than
+  save it. That is the opposite trade from a file read, where the length is
+  known before the first sector. On the shipped volumes a directory change is
+  1–3 directory sectors.
+- **`dskw_mkdir`'s zero-fill of the new cluster's remaining sectors.** Every
+  sector writes the *same* buffer, so a run would need a multi-sector zeroed
+  one. It is bounded at **3 extra writes** by construction: §18.7 caps a
+  partition at 65,535 sectors, so `hd_fmt_spc0`'s table never picks more than
+  4 sectors per cluster, and a floppy's is 1 or 2.
+
+Verified with `tests/filetest` — all 25 on the ordinary image **and on
+`--scramble`'s legally fragmented one**, which is the case that proves runs
+break where the chain does — plus `os88disk.py --verify` on both afterwards,
+and Tracker still reports its module's title.
+
 ### 18.5 `dskw_mkdir` — creating a subdirectory
 
 ```
