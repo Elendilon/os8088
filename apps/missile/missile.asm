@@ -166,6 +166,10 @@ MC_DRNRATE  equ 24                  ; ...and its floor: eight times the rate a
 MC_DRNBUD   equ 64                  ; pixels a frame across the whole queue -
                                     ; the cap that stops one explosion's worth
                                     ; of dead missiles landing in one frame
+MC_DSCMAX   equ 8                   ; walks handed to OSAPI_GFX_LSTEPV at once
+%if MC_MAXICBM > MC_DSCMAX || MC_MAXABM > MC_DSCMAX || MC_MAXDRN > MC_DSCMAX
+  %error "mc_dsc holds fewer walks than one batch can produce"
+%endif
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
 MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
                                     ; is SHORTER on purpose: with no collapse
@@ -4184,6 +4188,50 @@ mc_tr_step:
     pop es
     ret
 
+; -----------------------------------------------------------------------------
+; mc_dsc_add / mc_dsc_run - step every live trail in ONE call (SPEC.md 48.16)
+;
+; A walk step draws two or three pixels, and PERFORMANCE.md Part 2 prices the
+; ARRIVING at a drawing call - not the drawing - at ~756us. One call a missile
+; a frame was therefore seven or eight floors to move about twenty pixels: a
+; field log put it at 10.2 ms of a 46 ms frame, which is 570us a pixel against
+; the drain's 160 for the identical operation. Same pixels, one arrival.
+;
+; mc_dsc_add: DI = the block, CX = pixels; mc_dsc_run: spend the batch.
+; Both preserve every register, and the batch flushes itself if it fills.
+; -----------------------------------------------------------------------------
+mc_dsc_add:
+    push bx
+    cmp word [mc_dscn], MC_DSCMAX
+    jb .room
+    call mc_dsc_run                 ; full: spend it and start again
+.room:
+    mov bx, [mc_dscn]
+    add bx, bx
+    add bx, bx
+    mov [mc_dsc + bx], di
+    mov [mc_dsc + bx + 2], cx
+    inc word [mc_dscn]
+    pop bx
+    ret
+
+mc_dsc_run:
+    push cx
+    push di
+    push es
+    mov cx, [mc_dscn]
+    jcxz .out
+    mov word [mc_dscn], 0
+    mov di, mc_dsc
+    push ds
+    pop es
+    call OSAPI_GFX_LSTEPV
+.out:
+    pop es
+    pop di
+    pop cx
+    ret
+
 ; mc_tr_need - how much of a walk the head has reached
 ; in:  AX = the trail start's MAJOR coordinate, CX = the head's, DI = the
 ;      walk's length in pixels
@@ -4350,7 +4398,9 @@ mc_drn_run:
     mov di, si
     add di, mc_drn
     mov cx, [mc_drncnt]
-    call mc_tr_step
+    call mc_dsc_add                 ; every crosshair erase in this loop still
+                                    ; runs before any pixel is drawn, because
+                                    ; the batch is spent after it
     cmp word [mc_drn + si + MC_DRN_LEFT], 0
     jne .next
     dec word [mc_drnq]              ; finished: the far end is uncovered now
@@ -4370,6 +4420,7 @@ mc_drn_run:
     dec word [mc_drnn]
     jnz .each
 .fin:
+    call mc_dsc_run
     mov si, [mc_drnrr]              ; a different entry gets first call on the
     add si, MC_DRN                  ; budget next frame
     cmp si, MC_MAXDRN * MC_DRN
@@ -4686,7 +4737,7 @@ mc_move_trails:
     sub cx, [mc_idrw + bx]
     mov [mc_idrw + bx], ax
     call mc_iblk                    ; DI = the walk
-    call mc_tr_step
+    call mc_dsc_add                 ; ...into this frame's ONE call
     jmp short .inext
 .iold:
     cmp byte [mc_iarm + si], 0      ; not laid yet: lay it and pick a path
@@ -4724,6 +4775,7 @@ mc_move_trails:
     inc si
     cmp si, MC_MAXICBM
     jb .icbm
+    call mc_dsc_run                 ; spent before the pen changes
 
     mov al, [mc_cabm]
     call mc_setcol
@@ -4761,7 +4813,7 @@ mc_move_trails:
     sub cx, [mc_adrw + bx]
     mov [mc_adrw + bx], ax
     call mc_ablk
-    call mc_tr_step
+    call mc_dsc_add
     jmp short .anext
 .aold:
     cmp byte [mc_aarm + si], 0
@@ -4799,6 +4851,7 @@ mc_move_trails:
     inc si
     cmp si, MC_MAXABM
     jb .abm
+    call mc_dsc_run
     pop di
     pop si
     pop dx
@@ -6934,6 +6987,8 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_drncnt
     MWORD mc_drngx                  ; mc_drn_push's two damage arguments,
     MWORD mc_drnbx                  ; which no register was left for
+    MBUF  mc_dsc,    MC_DSCMAX * 4  ; the batch: `dw block, pixels` pairs
+    MWORD mc_dscn
 
 ; --- the explosions -------------------------------------------------------------
     MBUF  mc_ea,     MC_MAXEXP      ; 0 free / 1 burning / FF needs erasing

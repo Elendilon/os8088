@@ -1272,3 +1272,65 @@ fires on a **minority** of these erases (a QEMU count said 53% — the real
 machine's play says 38%), and the 500 µs does not fully decompose into three
 Bresenham passes at the instruction floor, so something in `mc_wipe_trails`
 beyond the walk is unaccounted for and has not been found yet.
+
+### Set 5/6 — the trail work, after §48.14 and §48.15
+
+| | |
+|---|---|
+| machine | a 5150-class emulator, Hercules, CPU tier 0, coarse explosion on |
+| adapter | Hercules 720x348, content 628x247, **surface 5** — the §53.7 same-mode exclusive bracket |
+| build | `444e87d` plus the debug frame logger (never committed) |
+| date | 2026-08-07 |
+| run | 71 seconds of Missile Command, heavy play — 62 usable rows |
+
+**`lok` and `unl` are 0 on every row**, which is §48.13's bracket confirmed
+in the field: entering and leaving the drawing critical section, which Set 4
+priced at 21.8% of the machine, now costs nothing at all. `all` is 0 too — no
+stray full repaints.
+
+The run splits cleanly in two, and the split is the finding:
+
+| stage | stuttering (13 s, 14.2 fps) | keeping up (49 s, 17.8 fps) |
+|---|---|---|
+| frame (`upd`+`ren`) | **46.24 ms** | 21.26 ms |
+| `exp` explosions | 10.50 | 2.36 |
+| `mov` trail draw | 10.20 | 6.52 |
+| `drn` drain | 9.11 | 1.92 |
+| `upd` update | 6.14 | 2.43 |
+| `rst` terrain/status | 3.99 | 2.21 |
+| `crs` crosshair | 3.60 | 3.26 |
+| `wip` teardown | 1.03 | 0.67 |
+| drained pixels a frame | 46.6 (cap 64) | 8.4 |
+
+**A stuttering second's MEAN frame is under the tick.** 46.2 ms against
+54.9 — it is the tail that crosses, and that is why this reads as a stutter
+rather than the freezes Set 4 carried.
+
+#### The pixel is honest; the arrival is not
+
+| | |
+|---|---|
+| `drn`: 46.6 px a frame for 9.11 ms | **~160 µs a walked pixel** |
+| `mov`: ~19 px a frame for 10.20 ms | **~570 µs a walked pixel** |
+
+The same operation, three and a half times apart. `gfx_lstep_mono` and
+`gfx_line_mono` are the *same loop*, so §48.14 did not make a pixel dearer —
+it stopped drawing each one three times, and 160 µs is Set 4's 500 µs divided
+by the three passes it removed, to within the noise. What separates the two
+rows is **how many times the caller arrived**: `mov` was one far call per
+live missile per frame (seven or eight of them, §5.7's ~756 µs floor each, to
+move two or three pixels), while the drain already handed several trails over
+per call.
+
+That is §5.6.8 and §48.16: ten calls a frame become three. The remainder —
+`exp` at 10.5 ms with 8.8 fills and 34.6 scan lines a frame — is at the
+structural floor §48.12 left it at and is priced entirely by §5.7.
+
+#### The calibration disagreed with itself, and the reason is known
+
+`CAL start 48299 51523 140563` against `CAL end 49682 44255 135015`: cpu 2.9%
+apart, **call 14%**, rows 3.9%. That is not the machine moving. `start` runs
+with a clip region armed and `end` does not, and the gap is the clip's
+per-call cost — the same 16% Set 4 saw. Use the **end** figures for a
+per-call floor (44255/40 = 1,106 counts = **927 µs**) and treat the start ones
+as the clipped price of the same call.

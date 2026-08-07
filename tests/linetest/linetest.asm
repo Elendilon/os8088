@@ -37,6 +37,11 @@ LT_FOOTD  equ 11                    ; the gap between feet: coprime with 8, so
                                     ; one could be covered by its neighbour
 LT_APEXD  equ 3                     ; the apex walks too: a sweep of slopes
 LT_NFAN   equ 24
+LT_NVEC   equ 4                     ; walks handed to LSTEPV at once
+LT_VSTR   equ 16                    ; ...at this stride: GLS_SZ up to a shift
+%if GLS_SZ > LT_VSTR
+  %error "GLS_SZ no longer fits LT_VSTR"
+%endif
 LT_REPS   equ 20                    ; fans per timed run
 
 ; -----------------------------------------------------------------------------
@@ -267,6 +272,194 @@ lt_seg:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; lt_vecfan - the whole fan again, LT_NVEC walks at a time through
+;             OSAPI_GFX_LSTEPV (SPEC.md 5.6.8)
+;
+; The gate for the vector step, and it is the same gate as everything else
+; here: identical pixels. It has to run several walks CONCURRENTLY, because a
+; vector call with one descriptor only proves the scalar case - what the
+; contract actually claims is that N walks handed over together are the N
+; separate calls, unaffected by each other's staging.
+; -----------------------------------------------------------------------------
+lt_vecfan:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cmp byte [lt_erase], 0
+    jne .noclr
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    mov ax, [lt_ox]
+    mov bx, [lt_oy]
+    mov cx, ax
+    add cx, [lt_cw]
+    dec cx
+    mov dx, bx
+    add dx, [lt_ch]
+    dec dx
+    call OSAPI_GFX_FILL
+.noclr:
+    mov al, CWHITE
+    cmp byte [lt_erase], 0
+    je .pen
+    mov al, CBLACK
+.pen:
+    call OSAPI_SET_COLOR
+    mov word [lt_vidx], 0
+.group:
+    call lt_vlay                    ; lay up to LT_NVEC walks; CX = how many
+    jcxz .out
+    mov [lt_vn], cx
+.round:
+    call lt_vbuild                  ; CX = descriptors with work left
+    jcxz .group
+    push ds
+    pop es
+    mov di, lt_vdsc
+    call OSAPI_GFX_LSTEPV
+    jmp short .round
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; lt_vlay - lay the next LT_NVEC fan lines into the walk blocks
+; out: CX = how many were laid (0 = the fan is finished)
+lt_vlay:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    push es
+    xor si, si                      ; SI = the block index
+.each:
+    cmp si, LT_NVEC
+    jae .done
+    mov di, [lt_vidx]
+    cmp di, LT_NFAN * 2
+    jae .done
+    inc word [lt_vidx]
+    cmp di, LT_NFAN                 ; the second half is the mirror, so the
+    jb .ends                        ; walk takes sx = -1 as well
+    sub di, LT_NFAN
+    call lt_ends
+    xchg ax, cx
+    jmp short .have
+.ends:
+    call lt_ends
+.have:
+    add ax, [lt_ox]
+    add cx, [lt_ox]
+    add bx, [lt_oy]
+    add dx, [lt_oy]
+    push cx
+    push dx
+    mov di, cx                      ; the walk length is max(|dx|,|dy|) + 1
+    sub di, ax
+    jns .dxa
+    neg di
+.dxa:
+    push di
+    mov di, dx
+    sub di, bx
+    jns .dya
+    neg di
+.dya:
+    pop cx
+    cmp cx, di
+    jb .n
+    mov di, cx
+.n:
+    inc di
+    mov cx, si
+    add cx, cx
+    push bx
+    mov bx, cx
+    mov [lt_vlen + bx], di
+    pop bx
+    pop dx
+    pop cx
+    push cx
+    mov di, si                      ; DI = this walk's block
+    mov cl, 4
+    shl di, cl
+    add di, lt_vgls
+    pop cx
+    push ds
+    pop es
+    call OSAPI_GFX_LINIT
+    inc si
+    jmp short .each
+.done:
+    mov cx, si
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; lt_vbuild - one round of descriptors for the walks that still owe pixels
+; out: CX = descriptors written to lt_vdsc
+lt_vbuild:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    xor si, si                      ; SI = walk index
+    xor di, di                      ; DI = descriptor byte offset
+.each:
+    cmp si, [lt_vn]
+    jae .done
+    mov bx, si
+    add bx, bx
+    mov ax, [lt_vlen + bx]
+    or ax, ax
+    jz .next
+    mov dx, [lt_chunk]              ; 0 = the whole remaining walk
+    or dx, dx
+    jz .all
+    cmp dx, ax
+    jb .take
+.all:
+    mov dx, ax
+.take:
+    sub ax, dx
+    mov [lt_vlen + bx], ax
+    mov bx, si
+    mov cl, 4
+    shl bx, cl
+    add bx, lt_vgls
+    mov [lt_vdsc + di], bx
+    mov [lt_vdsc + di + 2], dx
+    add di, 4
+.next:
+    inc si
+    jmp short .each
+.done:
+    mov cl, 2                       ; DI bytes / 4 = descriptors
+    shr di, cl
+    mov cx, di
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
 ; lt_line - one DILATED line in content coordinates
 ; in:  AX,BX = x1,y1  CX,DX = x2,y2; preserves every register
 lt_line:
@@ -296,12 +489,15 @@ lt_line:
 lt_onkey:
     cmp al, '0'                 ; 0..4: redraw the fan through the RESUMABLE
     jb .bench                   ; walk, in chunks of 0/1/2/3/7 pixels. Every
-    cmp al, '5'                 ; one must produce the identical framebuffer;
+    cmp al, '7'                 ; one must produce the identical framebuffer;
     ja .bench                   ; 5 draws the fan and then ERASES it by
                                 ; replaying the same walks in the background
                                 ; colour, and the content must come back
                                 ; completely blank - the property a trail
-                                ; erase actually depends on
+                                ; erase actually depends on. 6 and 7 are 3 and
+                                ; 1 again through OSAPI_GFX_LSTEPV, LT_NVEC
+                                ; walks to a call (SPEC.md 5.6.8) - so 6 must
+                                ; match 3 and 7 must match 1, byte for byte
     push ax
     push bx
     push si
@@ -310,9 +506,18 @@ lt_onkey:
     xor bh, bh
     cmp bl, 5
     je .erase
+    ja .vec
     mov ax, [lt_chunks + bx]
     mov [lt_chunk], ax
     call lt_segfan
+    jmp short .kdone
+.vec:
+    mov word [lt_chunk], 3
+    cmp bl, 7
+    jne .vgo
+    mov word [lt_chunk], 1
+.vgo:
+    call lt_vecfan
     jmp short .kdone
 .erase:
     mov word [lt_chunk], 3      ; drawn in chunks, erased in different ones:
@@ -530,6 +735,11 @@ lt_tpl:
 lt_erase:   db 0                ; the fan pass is a replay in the background
 lt_chunk:   dw 0                ; pixels per LSTEP call; 0 = the whole walk
 lt_gls:     times GLS_SZ db 0
+lt_vgls:    times LT_VSTR * LT_NVEC db 0    ; the concurrent walks, and the
+lt_vdsc:    times 4 * LT_NVEC db 0          ; array handed to LSTEPV
+lt_vlen:    times 2 * LT_NVEC db 0          ; pixels each still owes
+lt_vidx:    dw 0                            ; the fan line laid next
+lt_vn:      dw 0
 lt_ttl:     db 'Line Test', 0
 lt_ox:      dw 0
 lt_oy:      dw 0

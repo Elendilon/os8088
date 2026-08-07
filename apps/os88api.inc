@@ -1508,6 +1508,21 @@ OS88_BSS_SIZE equ 0
                                  ; block advances by exactly that many. CX = 0
                                  ; is legal and does nothing. Lock held.
                                  ; Preserves all. N then M == one call of N+M.
+; STEP EVERY LINE IN ONE CALL. A walk step draws two or three pixels, and
+; PERFORMANCE.md prices the ARRIVING at a drawing call - not the drawing - at
+; ~756us on the target machine. So a caller with eight live lines that steps
+; them one call each is paying eight floors a frame to move twenty pixels,
+; and that, not the walk, is what a moving trail costs. Hand them over
+; together: same pixels, one arrival.
+;
+;   dw block1, count1            ; an array of pairs in YOUR segment,
+;   dw block2, count2            ; `block` an offset in it. A zero count is
+;   ...                          ; legal and skipped, so build it once and
+;                                ; vary what you ask for.
+%define OSAPI_GFX_LSTEPV    KERNEL_SEG:0x0310   ; ES:DI = the array, CX = how
+                                 ; many pairs. Identical to CX separate
+                                 ; OSAPI_GFX_LSTEP calls in one pen. Lock
+                                 ; held. Preserves all.
 GLS_SZ    equ 14                 ; the walk state, in YOUR bss
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x02F8   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,

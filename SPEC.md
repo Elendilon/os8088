@@ -885,6 +885,48 @@ one does not make it cheaper (the walk is the cost).
 Verified on all three adapters: drawn in chunks of 3 and erased in chunks of
 5, the content comes back with **0 lit pixels** on Hercules, CGA and VGA.
 
+#### 5.6.8 Many walks, one arrival — `gfx_lstepv` (0x0310)
+
+§5.6.7 gives a moving line a cheap *pixel*. It does nothing about the
+*arrival*, and for the caller this was written for that is the whole cost: a
+walk step draws two or three pixels, and §5.7 prices getting into a drawing
+call at ~756us on the target machine whatever it then draws. Missile Command
+stepping one call per live missile was measured on a 5150-class machine at
+**10.2 ms of a 46 ms frame to draw about nineteen pixels** — 570us a pixel,
+against the 160us the same pixels cost in the drain, which happens to hand
+several trails over per call.
+
+So hand them all over at once:
+
+```
+    dw block1, count1        ; ES:DI = an array of CX pairs, all offsets in
+    dw block2, count2        ; the caller's own segment (an X slot)
+```
+
+It **is** those CX separate `gfx_lstep` calls — same walks, same order, same
+pixels — with the pushes, the far call, the dispatch and `gfx_ink` paid once
+instead of CX times. A descriptor with a zero count is legal and skipped, so
+a caller may build the array once and vary what it asks for.
+
+Two things are load-bearing:
+
+- **`gfx_ls_one` restores ES to the caller's segment on the way out**, which
+  is the only reason the loop can read the next descriptor. It falls out of
+  the write-back needing `[gfx_ls_cseg]` anyway — but it is load-bearing now
+  rather than incidental, because the mono walk points ES at the framebuffer
+  and the slow path leaves it wherever `gfx_pixel` did.
+- **The ink is resolved once, above the loop** (`gfx_ls_ink`), so
+  `gfx_lstep_mono` no longer computes it. One pen for the batch is not a
+  restriction worth removing: a caller with two pens has two batches, and two
+  arrivals is still not eight.
+
+`tests/linetest` is the gate, and it has to run several walks *concurrently*
+to be one: a vector call with a single descriptor only proves the scalar
+case, while what the contract claims is that N walks handed over together are
+unaffected by each other's staging. Keys 6 and 7 redraw the fan LT_NVEC walks
+to a call in chunks of 3 and 1, and must match keys 3 and 1 byte for byte —
+**0 differing pixels of 236,160** on Hercules.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
@@ -5660,6 +5702,7 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02E0 gfx_line
                                                 0x0300 gfx_linit   X
                                                 0x0308 gfx_lstep   X
+                                                0x0310 gfx_lstepv  X
 ```
 
 **Every RELEASED slot keeps its number and contract** (§20.8 rule 4), on the
@@ -5818,6 +5861,11 @@ Slot-specific contracts that are not simply their target routine's:
                          many. Lock held; CX=0 legal. N then M is exactly
                          the N+M one call would have drawn, which is what
                          lets an erase replay a draw. Preserves all.
+0x0310 gfx_lstepv        in ES:DI = an array of CX `dw block, pixels` pairs,
+                         the blocks in ES too (X); CX = 0 legal. Identical to
+                         CX separate gfx_lstep calls in one pen, with the
+                         arriving done once (§5.6.8). Lock held. Preserves
+                         all.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -15580,6 +15628,52 @@ bursts and the terrain, both of which draw over it.
 Verified the §48.14 way, after letting the queue empty: **0 differing pixels**
 in the game window against a forced full repaint, mid-game with live trails,
 on VGA (of 224,961) and CGA (of 129,485).
+
+### 48.16 Every trail in one call, because the arriving was the cost
+
+The field log after §48.14 and §48.15 (PERFORMANCE.md Part 9, Set 6) says the
+trail work is now honest and the trail *calls* are not. Thirteen stuttering
+seconds average **46.2 ms a frame** against a 54.9 ms tick — the mean is
+under it and the tail is not, which is exactly why this reads as a stutter
+rather than a freeze — and they split:
+
+| stage | ms | stage | ms |
+|---|---|---|---|
+| `exp` explosions | 10.50 | `rst` terrain/status | 3.99 |
+| `mov` **trail draw** | 10.20 | `crs` crosshair | 3.60 |
+| `drn` drain | 9.11 | `wip` teardown | 1.03 |
+| `upd` update | 6.14 | `lok`/`unl`/`all` | **0** |
+
+`drn` moves 46.6 pixels a frame for 9.11 ms — **~160us a pixel**, which is
+simply what a 1bpp line pixel costs (`gfx_lstep_mono` and `gfx_line_mono` are
+the same loop, so §48.14 did not make a pixel dearer; it stopped drawing each
+one three times). `mov` is the anomaly: **10.20 ms to draw about nineteen
+pixels**, ~570us each for the identical operation. The difference is that it
+was one far call per live missile per frame — seven or eight arrivals paying
+§5.7's floor to move two or three pixels each — while the drain already
+happened to serve several trails per call.
+
+`mc_dsc_add`/`mc_dsc_run` collect the frame's steps and spend them through
+§5.6.8's `OSAPI_GFX_LSTEPV`. **Three calls a frame instead of ten**: one for
+the ICBM pen, one for the ABM pen, one for the drain.
+
+Two things about it are easy to get wrong:
+
+- **A batch is spent before the pen changes.** `mc_move_trails` flushes at
+  the end of the ICBM loop, *before* `mc_setcol` hands it the ABM colour —
+  the descriptors carry no pen, and a batch that outlived one would draw
+  ICBM trails in the ABM's ink.
+- **The drain's crosshair erases still all happen before any of its
+  pixels.** `mc_cross_need` runs inside the serve loop and the batch is spent
+  after it, so the XOR still comes off while the crosshair is whole — §48.11's
+  ordering argument, preserved by accident of where the flush sits, which is
+  why it is written down here.
+
+Verified the §48.14 way, and this time the A/B is the point rather than a
+formality: what is on screen was drawn by the **vector** call and the forced
+full repaint replays it with the **scalar** one (`mc_redraw_trails` was left
+alone), so a disagreement between the two would show directly. **0 differing
+pixels** on VGA (of 224,961), CGA (of 129,485) and Hercules (of 236,160).
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 

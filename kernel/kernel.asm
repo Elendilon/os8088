@@ -881,7 +881,12 @@ osapi_table:
                                   ;          N then M is exactly the N+M one
                                   ;          call would have drawn, which is
                                   ;          what lets an erase replay a draw
-osapi_table_end:                  ; 0x0310
+    OSAPI_JSLOT api_gfx_lstepv    ; 0x0310  X: the same, for CX walks at once
+                                  ;          (SPEC.md 5.6.8). ES:DI = an array
+                                  ;          of `dw block, pixels` pairs. Same
+                                  ;          pixels as CX separate calls, one
+                                  ;          arriving instead of CX of them
+osapi_table_end:                  ; 0x0318
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -889,8 +894,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 96 * 8
-%error "os8088 API jump table must be exactly 96 8-byte slots"
+%if OSAPI_TABLE_LEN != 97 * 8
+%error "os8088 API jump table must be exactly 97 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
@@ -936,6 +941,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_snd_stream, osapi_snd_stream
     OSAPI_XSTUB api_gfx_linit,  gfx_linit
     OSAPI_XSTUB api_gfx_lstep,  gfx_lstep
+    OSAPI_XSTUB api_gfx_lstepv, gfx_lstepv
     OSAPI_XSTUB api_vol_add,    osapi_vol_add
     OSAPI_XSTUB api_vol_del,    osapi_vol_del
     OSAPI_XSTUB api_vol_mount,  osapi_vol_mount
