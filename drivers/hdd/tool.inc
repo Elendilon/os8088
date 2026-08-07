@@ -11,14 +11,14 @@
 ; to know about their disk. What they want is four slots and, for each one,
 ; either what is in it or a button that puts a usable volume there.
 ;
-; So there is one window, one row per slot, and one button:
+; So there is one window, one row per slot, and two buttons that act on it:
 ;
 ;   Slot  Size   State
 ;   1     31M    FAT16                 <- a volume; Mount will find it
 ;   2      -     Not Formatted         <- free, or a region with no volume in
 ;   3     50M    Unmountable              it: Format makes one
 ;   4      -     Not Formatted         <- foreign, or over the ceiling: Format
-;   [Format]  [Close]                     reclaims the first 32MB of it
+;   [Format] [Delete] [Close]             reclaims the first 32MB of it
 ;
 ; **Not Formatted covers unpartitioned AND partitioned-but-empty**, and that is
 ; deliberate: the difference is the tool's business and not the user's. Both
@@ -26,20 +26,31 @@
 ; with nothing behind it is exactly what a format interrupted half way leaves
 ; (SPEC.md 52.3 writes the boot sector last).
 ;
-; **Format on a slot that already has something confirms first**, in the
-; caption, by asking for the click again. There is no dialog to put it in - a
-; driver has no notice window and no modal - and a second click on the same
-; button is the cheapest confirm that cannot be mistaken for the first one.
-; Anything else (picking another row, closing) disarms it.
+; **Delete gives a slot back** (SPEC.md 52.2.4), which Format cannot: Format
+; reuses a slot in place, so a table filled to four primaries had no way back
+; except another machine's FDISK. It clears the entry and nothing else - the
+; volume's data is still on the disk - unmounts anything mounted on it first,
+; and is the one control here that greys, on a slot with nothing in it.
 ;
-; **No row is greyed, and an Unmountable one least of all** (SPEC.md 52.2.2).
+; **A destructive button confirms first**, in the caption, by asking for the
+; click again. There is no dialog to put it in - a driver has no notice window
+; and no modal - and a second click on the same button is the cheapest confirm
+; that cannot be mistaken for the first one. Anything else (picking another
+; row, the other button, closing) disarms it.
+;
+; **No ROW is greyed, and an Unmountable one least of all** (SPEC.md 52.2.2) -
+; which is not in tension with Delete greying, it is the distinction: a row is
+; not a control and a button is.
 ; It was, and it was wrong twice. SPEC.md 47 rule 1: the disabled pen says
 ; DISABLED, and this row is selectable and its Format button works on it - rule
-; 4's own failure, "looks unavailable and works". And it did not even show:
-; CDGRAY text on the two 1bpp adapters renders BLACK (39.4 rounds a glyph
-; rather than dithering it, and [gfx_dis] is not in the package ABI), so on CGA
-; the greyed row was pixel-identical to the live one under it. The State column
-; is the whole signal, and it reads the same on all three adapters.
+; 4's own failure, "looks unavailable and works". And it did not even show,
+; because the row was greyed with a bare CDGRAY: a glyph takes the 50% dither
+; only when [gfx_dis] is set, and a colour on its own rounds to black, so on
+; CGA the greyed row was pixel-identical to the live one under it. The State
+; column is the whole signal, and it reads the same on all three adapters.
+;
+; The BUTTONS do take the flag, through OSAPI_GFX_PEN - a button is a control
+; and a row is not, which is the whole of the distinction.
 ;
 ; The window is the unowned species (SPEC.md 38.1) - no instance, so its close
 ; box reduces to wm_hide and there is no teardown path to write. What there IS
@@ -57,9 +68,20 @@ HTW_BY       equ 96             ; the button row
 HTW_BH       equ 16
 HTW_CAPY     equ 120
 HTW_B0X      equ 4              ; 'Format'
-HTW_B1X      equ 76             ; 'Close'
+HTW_B1X      equ 76             ; 'Delete'
+HTW_B2X      equ 148            ; 'Close'
 HTW_BW0      equ 64
-HTW_BW1      equ 56
+HTW_BW1      equ 64
+HTW_BW2      equ 56
+
+HTA_DEL      equ 0x10           ; [hd_tarm]: the armed slot is the low nibble,
+                                ; 1-based so that 0 is "nothing armed", and
+                                ; this bit says WHICH button armed it. One byte
+                                ; for both, so they cannot arm each other and
+                                ; there is no pair of words that has to agree
+                                ; (SPEC.md 52.2.3)
+HTA_FMT      equ 0              ; hd_tw_confirm/hd_tw_arm's action in AL
+HTA_DELETE   equ 1
 
 HTS_FREE     equ 0              ; nothing in this slot
 HTS_RAW      equ 1              ; a FAT-typed extent with no volume in it
@@ -228,15 +250,29 @@ hd_tw_paint:
     cmp cl, 4
     jb .row
 
-    mov al, CBLACK              ; the pen for both buttons and the caption:
+    mov al, CBLACK              ; the pen for the buttons and the caption:
     call OSAPI_SET_COLOR        ; hd_tw_button cannot set it (AX is the x)
     mov si, hd_s_tfmt
     mov ax, HTW_B0X
     mov bx, HTW_BW0
     call hd_tw_button
-    mov si, hd_s_close
+    call hd_tw_delok            ; the ONE predicate (SPEC.md 47 rule 2): it
+    call OSAPI_GFX_PEN          ; greys the button here and refuses the click
+                                ; in hd_tw_delete, so a greyed Delete can never
+                                ; be one that would have worked. CF is what
+                                ; both of them answer in, so the pen takes it
+                                ; with no test in between - and it carries
+                                ; [gfx_dis], so the label dithers on mono
+                                ; along with the frame (SPEC.md 47 rule 3)
+    mov si, hd_s_tdel
     mov ax, HTW_B1X
     mov bx, HTW_BW1
+    call hd_tw_button
+    clc                         ; ...and back to the live pen for the rest:
+    call OSAPI_GFX_PEN          ; the flag would dither Close and the caption
+    mov si, hd_s_close
+    mov ax, HTW_B2X
+    mov bx, HTW_BW2
     call hd_tw_button
 
     mov si, [hd_tmsg]
@@ -261,14 +297,18 @@ hd_tw_paint:
 ;      DI/BP = the content origin
 ; out: nothing (all registers preserved)
 ;
-; Never greyed. Format is live on every row there is - including an
-; unmountable one, which is the only way to get that space back - and the
-; caption is what explains a refusal (SPEC.md 47 rule 3: the only honest test
-; for "is there room" is working out the extent, which is what the click does).
+; Format is live on every row there is - including an unmountable one, which is
+; the only way to get that space back - and the caption is what explains a
+; refusal (SPEC.md 47 rule 3: the only honest test for "is there room" is
+; working out the extent, which is what the click does). Delete is the one
+; button here with a predicate, and it is a fact rather than a guess: an empty
+; slot has nothing to give back (SPEC.md 52.2.4).
 ;
 ; **The pen is the CALLER's**, because AX is the x here and OSAPI_SET_COLOR
-; takes its colour in AL: setting it inside drew both buttons at the same
-; place, one on top of the other.
+; took its colour in AL: setting it inside drew both buttons at the same place,
+; one on top of the other. It is also what lets the caller grey one button and
+; not the others without this routine knowing any predicate - and what makes
+; the frame and the label share one pen, so on mono they dither together.
 ; -----------------------------------------------------------------------------
 hd_tw_button:
     push ax
@@ -459,12 +499,19 @@ hd_tw_click:
     cmp ax, HTW_B1X
     jl .done
     cmp ax, HTW_B1X + HTW_BW1
+    jl .delete
+    cmp ax, HTW_B2X
+    jl .done
+    cmp ax, HTW_B2X + HTW_BW2
     jge .done
     mov byte [hd_tarm], 0
     mov bx, [hd_twin]
     call OSAPI_WM_HIDE
     jmp short .done
 
+.delete:
+    call hd_tw_delete
+    jmp short .repaint
 .format:
     call hd_tw_format
 .repaint:
@@ -506,14 +553,12 @@ hd_tw_format:
     cmp byte [bx+hd_tstate], HTS_FREE
     je .go                      ; nothing here to lose
 
-    mov al, [hd_tsel]
-    inc al
-    cmp al, [hd_tarm]
-    je .go                      ; asked and answered
-    mov [hd_tarm], al           ; ...otherwise ask, and it is the CAPTION that
-    call hd_tw_arm              ; asks: a driver has no dialog to put it in
-    jmp .out
-
+    mov al, HTA_FMT
+    call hd_tw_confirm
+    jnc .go                     ; asked and answered
+    jmp .out                    ; ...otherwise the caption is asking, and .out
+                                ; is NEAR: the format below is well past 127
+                                ; bytes and a `jc` cannot reach it
 .go:
     mov byte [hd_tarm], 0
     mov al, [hd_sel]
@@ -582,31 +627,245 @@ hd_tw_format:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_tw_arm - the confirm question, into hd_line (module internal)
-; in:  [hd_tsel]
+; hd_tw_delete - clear the selected slot's table entry (SPEC.md 52.2.4)
+; in:  [hd_tsel]; the gfx lock is HELD
+; out: [hd_tmsg] says what happened; the states are re-scanned
+; clobbers: flags
+;
+; Sixteen zeroed bytes and the one sector write Format commits with - the
+; volume's data is not touched, and an entry re-created with the same base and
+; length brings it back. What the space becomes is free space, which
+; hd_slot_extent's scan will hand to ANY slot and not only this one.
+;
+; **The volume goes before the table.** A driver-backed volume's base LBA lives
+; in hd_vols and the kernel never reads the table again (SPEC.md 18.7), so one
+; left mounted here goes on reading and writing a region the table has just
+; called free - and the very next Format lays a new volume straight through it.
+; -----------------------------------------------------------------------------
+hd_tw_delete:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    call hd_tw_delok            ; the same predicate that greyed the button:
+    jc .empty                   ; the refusal only puts the reason back on
+                                ; screen (SPEC.md 47 rule 5)
+    mov al, HTA_DELETE
+    call hd_tw_confirm
+    jc .out                     ; the caption is asking
+
+    mov al, [hd_tsel]
+    call hd_tw_unmount_slot     ; -> [hd_tdrop]
+    cmp byte [hd_tdrop], 0
+    je .table
+    call hd_cfg_mark            ; the set of mounted drives is what the next
+                                ; boot reads, and it just changed: STAGED, like
+                                ; every other setting in the machine, and
+                                ; written when the panel closes (SPEC.md 31.8)
+    mov word [hd_msg], hd_s_pick    ; ...and the PAGE's caption records what the
+                                    ; last PAGE click did, so it is sitting
+                                    ; there saying 'Mounted 1 volume' about a
+                                    ; volume this click has just taken away. The
+                                    ; neutral line claims nothing and so cannot
+                                    ; be wrong; closing the tool repaints the
+                                    ; panel, which is where it shows
+.table:
+    mov al, [hd_tsel]
+    call hd_part_ent            ; SI = the entry
+    push es
+    push ds
+    pop es
+    cld
+    mov di, si
+    mov cx, HP_ESZ
+    xor al, al
+    rep stosb                   ; a zero type and a zero length is exactly what
+    pop es                      ; hd_part_used calls free
+
+    mov al, [hd_sel]
+    call hd_dev_row
+    call hd_part_write          ; one sector, and it is the commit
+    jc .werr
+    mov word [hd_tmsg], hd_s_tdeleted
+    cmp byte [hd_tdrop], 0
+    je .rescan
+    mov word [hd_tmsg], hd_s_tdelunm    ; a drive icon leaving the desktop with
+    jmp short .rescan                   ; no explanation is worse than the pause
+.werr:
+    mov al, [hd_sel]            ; **the table goes back**, which Format's own
+    call hd_dev_row             ; failure path deliberately does not do: RAM
+    call hd_part_load           ; claiming a region the disk does not is
+    mov word [hd_tmsg], hd_s_twerr  ; conservative, and RAM calling a LIVE
+                                    ; partition free is the one state the next
+                                    ; Format destroys something from
+.rescan:
+    mov al, [hd_sel]            ; the states again, off the disk rather than
+    call hd_dev_row             ; off what we hoped we wrote
+    call hd_tw_scan
+    jmp short .out
+.empty:
+    mov word [hd_tmsg], hd_s_tdempty
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_tw_delok - may Delete be clicked? (module internal)
+; in:  [hd_tsel], hd_tstate
+; out: CF = 0 yes; CF = 1 = the slot is empty and there is nothing to give back
+; clobbers: flags
+;
+; A FACT and never a guess (SPEC.md 47 rule 4): the state it reads is the one
+; already printed in the row's State column. ONE predicate, shared by the
+; greying in hd_tw_paint and the refusal in hd_tw_delete, so a greyed Delete
+; can never be one that would have worked.
+; -----------------------------------------------------------------------------
+hd_tw_delok:
+    push ax
+    push bx
+    mov bl, [hd_tsel]
+    xor bh, bh
+    mov al, [bx+hd_tstate]
+    cmp al, HTS_FREE
+    je .no
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_tw_unmount_slot - drop every volume mounted on one partition (internal)
+; in:  AL = the slot, [hd_sel] = the device; the gfx lock is HELD
+; out: [hd_tdrop] = 1 if anything was unmounted, 0 if not
+; clobbers: flags
+;
+; EVERY row and not the first, for hd_unmount's own reason: one partition is
+; one volume today, and a scan that stops early is the kind of thing that
+; stops being true quietly.
+; -----------------------------------------------------------------------------
+hd_tw_unmount_slot:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dl, al                  ; DL = the slot: AL is the comparison's
+    mov byte [hd_tdrop], 0
+    mov cx, HD_MAXVOL
+    mov bx, hd_vols
+.scan:
+    cmp byte [bx+HDV_USED], 0
+    je .next
+    mov al, [bx+HDV_DEV]
+    cmp al, [hd_sel]
+    jne .next
+    mov al, [bx+HDV_PART]
+    cmp al, dl
+    jne .next
+    call hd_unmount_row
+    mov byte [hd_tdrop], 1
+.next:
+    add bx, HDV_SIZE
+    loop .scan
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_tw_confirm - the ask-again gate both destructive buttons share (internal)
+; in:  AL = HTA_FMT / HTA_DELETE
+; out: CF = 0 = asked and answered, go ahead; CF = 1 = the question is now in
+;      the caption
+; clobbers: flags
+;
+; ONE BYTE holds the armed action - the slot in the low nibble, 1-based so that
+; 0 is "nothing armed", and HTA_DEL for which button (SPEC.md 52.2.3). So the
+; two buttons cannot arm each other: arming Format and then clicking Delete
+; builds a different byte, which asks Delete's question rather than acting on
+; Format's answer. A pair of words that had to agree was the obvious shape and
+; the wrong one.
+; -----------------------------------------------------------------------------
+hd_tw_confirm:
+    push ax
+    push bx
+    mov bl, al                  ; BL = the action
+    mov al, [hd_tsel]
+    inc al
+    cmp bl, HTA_FMT
+    je .want
+    or al, HTA_DEL
+.want:
+    cmp al, [hd_tarm]
+    je .go                      ; asked and answered
+    mov [hd_tarm], al           ; ...otherwise ask, and it is the CAPTION that
+    mov al, bl                  ; asks: a driver has no dialog to put it in
+    call hd_tw_arm
+    pop bx
+    pop ax
+    stc
+    ret
+.go:
+    mov byte [hd_tarm], 0
+    pop bx
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_tw_arm - the confirm question, into hd_ask (module internal)
+; in:  AL = HTA_FMT / HTA_DELETE, [hd_tsel]
 ; out: [hd_tmsg] points at the built line
 ; clobbers: flags
 ;
 ; hd_line is the row painter's buffer too, so this has to be its own: the
 ; caption survives a repaint and a row does not.
+;
+; The button names ITSELF in the question, both halves of it: 'Click Format
+; again' under a Delete that is armed would be an instruction that erases the
+; partition it is standing next to.
 ; -----------------------------------------------------------------------------
 hd_tw_arm:
     push ax
+    push bx
     push si
     push di
+    mov bl, al
     mov di, hd_ask
     mov si, hd_s_task0
+    cmp bl, HTA_FMT
+    je .verb
+    mov si, hd_s_tdsk0
+.verb:
     call hd_scat
     mov al, [hd_tsel]
     inc al
     xor ah, ah
     call hd_utoa
     mov si, hd_s_task1
+    cmp bl, HTA_FMT
+    je .again
+    mov si, hd_s_tdsk1
+.again:
     call hd_scat
     mov byte [di], 0
     mov word [hd_tmsg], hd_ask
     pop di
     pop si
+    pop bx
     pop ax
     ret
 
@@ -644,7 +903,8 @@ hd_s_nosize:  db '     ', 0     ; ...and the size column when nothing claims it
 hd_s_traw:    db 'Not Formatted', 0
 hd_s_talien:  db 'Unmountable', 0
 hd_s_tfmt:    db 'Format', 0
-hd_s_tready:  db 'Pick a slot, then Format', 0
+hd_s_tdel:    db 'Delete', 0
+hd_s_tready:  db 'Pick a slot, then a button', 0
 hd_s_tdoing:  db 'Writing...', 0
 hd_s_tdone:   db 'Formatted - now Mount it', 0
 hd_s_twerr:   db 'Could not write the table', 0
@@ -653,3 +913,8 @@ hd_s_tnoroom: db 'No room left on this drive', 0
 hd_s_tnofit:  db 'No FAT layout fits that space', 0
 hd_s_task0:   db 'Erase slot ', 0
 hd_s_task1:   db '? Click Format again', 0
+hd_s_tdsk0:   db 'Delete slot ', 0
+hd_s_tdsk1:   db '? Click Delete again', 0
+hd_s_tdeleted: db 'Slot deleted', 0
+hd_s_tdelunm: db 'Deleted - volume unmounted', 0
+hd_s_tdempty: db 'Nothing in that slot', 0

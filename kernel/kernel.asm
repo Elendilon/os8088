@@ -881,21 +881,37 @@ osapi_table:
                                   ;          N then M is exactly the N+M one
                                   ;          call would have drawn, which is
                                   ;          what lets an erase replay a draw
-    OSAPI_SLOT clip_put           ; 0x0310 - the system clipboard (SPEC.md
+    OSAPI_SLOT gfx_pen_cf         ; 0x0310 - CF = 0 live / 1 disabled, and it
+                                  ;          sets [gfx_color] AND [gfx_dis]
+                                  ;          together (SPEC.md 47 rule 3), so
+                                  ;          a package's disabled TEXT
+                                  ;          dithers on mono like the
+                                  ;          kernel's. The cell is
+                                  ;          push/pop/call/retf and touches
+                                  ;          no flag, so CF crosses it
+                                  ;          unchanged - which is why this
+                                  ;          needs no stub and no AL
+                                  ;          argument
+    OSAPI_JSLOT api_gfx_lstepv    ; 0x0318  X: gfx_lstep for CX walks at once
+                                  ;          (SPEC.md 5.6.8). ES:DI = an array
+                                  ;          of `dw block, pixels` pairs. Same
+                                  ;          pixels as CX separate calls, one
+                                  ;          arriving instead of CX of them
+    OSAPI_SLOT clip_put           ; 0x0320 - the system clipboard (SPEC.md
                                   ;          55): ES:SI = text, CX = bytes
                                   ;          (0 = empty it); out CF=1 refused.
                                   ;          ES:SI and not the caller's DS
                                   ;          because a document is usually a
                                   ;          heap claim of its own, not the
                                   ;          package's image
-    OSAPI_SLOT clip_get           ; 0x0318 - ES:DI = the caller's buffer, CX =
+    OSAPI_SLOT clip_get           ; 0x0328 - ES:DI = the caller's buffer, CX =
                                   ;          its capacity; out CF=1 empty,
                                   ;          else AX = the whole length and
                                   ;          CX = the bytes copied
-    OSAPI_SLOT clip_size          ; 0x0320 - out CF=1 and AX=0 when empty,
+    OSAPI_SLOT clip_size          ; 0x0330 - out CF=1 and AX=0 when empty,
                                   ;          else AX = the length. What a
                                   ;          paste asks BEFORE it makes room
-osapi_table_end:                  ; 0x0328
+osapi_table_end:                  ; 0x0338
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -903,8 +919,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 99 * 8
-%error "os8088 API jump table must be exactly 99 8-byte slots"
+%if OSAPI_TABLE_LEN != 101 * 8
+%error "os8088 API jump table must be exactly 101 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
@@ -950,6 +966,7 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_snd_stream, osapi_snd_stream
     OSAPI_XSTUB api_gfx_linit,  gfx_linit
     OSAPI_XSTUB api_gfx_lstep,  gfx_lstep
+    OSAPI_XSTUB api_gfx_lstepv, gfx_lstepv
     OSAPI_XSTUB api_vol_add,    osapi_vol_add
     OSAPI_XSTUB api_vol_del,    osapi_vol_del
     OSAPI_XSTUB api_vol_mount,  osapi_vol_mount

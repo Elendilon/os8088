@@ -885,6 +885,48 @@ one does not make it cheaper (the walk is the cost).
 Verified on all three adapters: drawn in chunks of 3 and erased in chunks of
 5, the content comes back with **0 lit pixels** on Hercules, CGA and VGA.
 
+#### 5.6.8 Many walks, one arrival — `gfx_lstepv` (0x0318)
+
+§5.6.7 gives a moving line a cheap *pixel*. It does nothing about the
+*arrival*, and for the caller this was written for that is the whole cost: a
+walk step draws two or three pixels, and §5.7 prices getting into a drawing
+call at ~756us on the target machine whatever it then draws. Missile Command
+stepping one call per live missile was measured on a 5150-class machine at
+**10.2 ms of a 46 ms frame to draw about nineteen pixels** — 570us a pixel,
+against the 160us the same pixels cost in the drain, which happens to hand
+several trails over per call.
+
+So hand them all over at once:
+
+```
+    dw block1, count1        ; ES:DI = an array of CX pairs, all offsets in
+    dw block2, count2        ; the caller's own segment (an X slot)
+```
+
+It **is** those CX separate `gfx_lstep` calls — same walks, same order, same
+pixels — with the pushes, the far call, the dispatch and `gfx_ink` paid once
+instead of CX times. A descriptor with a zero count is legal and skipped, so
+a caller may build the array once and vary what it asks for.
+
+Two things are load-bearing:
+
+- **`gfx_ls_one` restores ES to the caller's segment on the way out**, which
+  is the only reason the loop can read the next descriptor. It falls out of
+  the write-back needing `[gfx_ls_cseg]` anyway — but it is load-bearing now
+  rather than incidental, because the mono walk points ES at the framebuffer
+  and the slow path leaves it wherever `gfx_pixel` did.
+- **The ink is resolved once, above the loop** (`gfx_ls_ink`), so
+  `gfx_lstep_mono` no longer computes it. One pen for the batch is not a
+  restriction worth removing: a caller with two pens has two batches, and two
+  arrivals is still not eight.
+
+`tests/linetest` is the gate, and it has to run several walks *concurrently*
+to be one: a vector call with a single descriptor only proves the scalar
+case, while what the contract claims is that N walks handed over together are
+unaffected by each other's staging. Keys 6 and 7 redraw the fan LT_NVEC walks
+to a call in chunks of 3 and 1, and must match keys 3 and 1 byte for byte —
+**0 differing pixels of 236,160** on Hercules.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
@@ -934,7 +976,10 @@ a harmless tidy-up in the other direction:
    already was in font.inc's (§6.1). Its body is three instructions and the
    call and ret around them cost as much again — and **a fill walks its rows
    three times**, once per edge column and once for the interior, so a fill
-   pays it three times per scan line.
+   pays it three times per scan line. `bb_xfer`'s two loops were the last
+   holdouts and followed later (§7.1's work): the save side walks the
+   framebuffer in **SI**, so through the call it paid two `xchg si, di` as
+   well, around a body that is a `rep movsb` of two or three bytes.
 7. **`[bb_pat]` is staged by whoever needs it**, not by `bb_rect` for all
    three modes: `BBM_GRAY` starts from the dither byte, `BBM_SOLID`'s own
    dither branch stages it in `bb_ink`, and `BBM_XOR` never reads it.
@@ -987,7 +1032,9 @@ window. Under `[bb_on]` (§32/§39.5) `font_char` branches after clipping to
 the software renderer, which applies the same shifted row masks to every
 plane the adapter has (or/and-not per the `[gfx_color]` plane bit — at 1bpp
 there is one plane and one bit, and `font_ink` rounds everything but pure
-white to black, because a dithered 8x8 glyph is unreadable, §39.4).
+white to black, because a *decorative* colour should not become texture —
+Piano's letters want contrast. `[gfx_dis]` is the exception and dithers the
+glyph deliberately, §39.4/§47 rule 3).
 
 ### 6.1 `font_run` — the erase-and-letter pair, as one operation
 
@@ -1271,6 +1318,167 @@ not worth what it would do to dragging.
   Every rule in this section holds unchanged in both modes: the locks, the
   cursor/ISR protocol and the BIOS restriction are about who may touch
   what, not about when the CPU is taken away.
+
+### 7.1 What the lock actually costs — it is the cursor, not the mutex
+
+The mutex is one byte and six instructions. Everything else in `gfx_lock`
+and `gfx_unlock` is the **mouse cursor**: the lock erases it so nothing may
+draw over it, and the unlock saves what it will cover and draws it again. A
+field log of Missile Command put the pair at **21.8% of a 77-second session**
+with not one pixel of the game in it (PERFORMANCE.md Part 9 Set 4) — and
+because it is entirely kernel-side, every application on every machine was
+paying it.
+
+`tests/gfxbench` measures it as one row, `GFX_UNLOCK+LOCK pair`. It is
+measured **backwards** — `OSAPI_GFX_LOCK` from inside a callback that already
+holds the lock is a deadlock, but unlock-then-lock is the same two routines
+in the other order, and `fm_drag` (§22.4) already uses that idiom. The two
+halves cannot be separated from a package because they must alternate.
+
+Four things make the pair what it is.
+
+- **The arrow is 8x12, and the tables are 16x16.** `cur_and`'s widest row is
+  `0xFF00` and its last non-zero row is 11, so `CUR_GW`/`CUR_GH` bound every
+  walk instead of `CUR_W`/`CUR_H` — a quarter of the rows and a third of the
+  bytes per row that used to be saved, restored, drawn and erased on empty
+  bits. Both are **asserted against the tables at assembly time**, because
+  both fail silently: a wider arrow loses its right-hand column on the two
+  mono adapters, a taller one leaves its bottom rows on the screen for the
+  rest of the session, and neither shows up anywhere but on the glass. The
+  rows go in through a `CUR_ROW` macro that emits the same word and
+  accumulates the two facts.
+- **The width is what retires the cell's third byte.** A 16-bit row whose low
+  byte is zero cannot reach a third framebuffer byte however far it is
+  shifted, so `row << (8-shift)` was a byte that was always 0, guarding a
+  branch that was never taken, once per row per pass. `CUR_SPAN` is 2, and
+  `cur_b2ok` is gone.
+- **On a 1bpp adapter the cursor is ONE pass, not three.** The framebuffer is
+  the renderer's own target there (§39.5), so `cur_put_mono` reads the byte
+  under the arrow, banks it, ORs the white outline in, ANDs the black body
+  out and writes it back — in one row loop. The three it replaces (a save
+  through `vga_rect_setup` and `bb_xfer`, then `cur_pass_mono` for white,
+  then `cur_pass_mono` again for black) read the same byte three times and
+  wrote it twice, each through its own row walk and its own `gfx_nextrow`
+  call. The masks compose: `(under | white) & ~black` is exactly what drawing
+  one pass on top of the other always produced. VGA keeps the old shape — the
+  save is four planes through Read Map Select and the draw is Set/Reset
+  through the Bit Mask, so there is no single byte to fuse — but it gets the
+  8x12 cell and the missing third byte.
+- **The geometry is computed once and banked, not derived twice.**
+  `cur_geom` answers the cell's framebuffer offset, the shift, the rows on
+  screen and whether the `DI+1` byte is still inside the row; `cur_get_mono`
+  replays them out of `[cur_off]`/`[cur_rows]`/`[cur_b1ok]` rather than
+  recomputing. That is a correctness rule before it is a speed one: **a save
+  and its restore that disagree by one byte smear the cursor across the
+  screen**, and two derivations are two chances to disagree. It is sound
+  because the cursor cannot move between them — every caller that moves it
+  erases at the OLD position first (§7's ISR rule).
+
+Measured under `-icount` (Part 9 Set 7), the pair went **17.82 → 5.41** PIT
+counts on Hercules, 17.98 → 5.46 on CGA and 23.00 → 11.85 on VGA, with the
+framebuffer **byte-identical** on all three adapters at every cursor position
+tested — over glyphs byte-aligned and skewed, against the right screen edge
+where the second byte is clipped away, and against the bottom edge where the
+arrow is cut short.
+
+### 7.1.1 The lazy hide — measured, not yet built
+
+The pair above is still paid on **every** lock hold, whether or not anything
+drawn came near the cursor. A *lazy* hide — leave the arrow up at `gfx_lock`,
+and erase it only when a primitive is about to write into its cell — would
+take the untouched case to nothing. Before deciding whether that is worth its
+risk, it was measured rather than argued about.
+
+**The instrument is the pixels, not a hook.** `gfx_lock` snapshots the 8x12
+cell right after the erase; `gfx_unlock` compares it before the redraw. Same
+bytes means nothing wrote there during the hold and a lazy hide would have
+skipped the pair entirely. That is exact, and it catches paths no
+per-primitive hook could — a package writing the framebuffer by hand
+included — because it looks at the result rather than at the call. (Scratch
+instrumentation, never committed; Hercules under QEMU.)
+
+One session: boot, browse two folders, drag a window, launch two packages,
+type 26 characters, idle.
+
+| | |
+|---|---|
+| lock/unlock pairs | **5,020** |
+| ...where anything wrote into the cursor cell | **7 (0.14%)** |
+| ...where the mouse moved during the hold | 40 (0.8%), all in the drag |
+| drawing calls across all of them | 2,021 rects + 1,536 glyph cells — **0.7 per hold** |
+| 26 Note Pad keystrokes | 25 pairs, **0** dirty, **0** moved |
+| idle desktop, 10 s | **0** pairs — the clock's lock is gated on the minute changing |
+
+**The pair is almost never needed.** A mouse-moved hold is a wash rather than
+a loss (the move has to happen either way; only its timing changes), so what
+is left is 7 holds in 5,020 where the erase earned its keep.
+
+**The economics work because the flag is one-way.** A pair is ~568 guest
+instructions; the check is ~12 while the arrow is still up and **~2** after
+it has been taken down, which is `bb_mono_chk`'s shape (§5.7) and for the
+same reason. So a small redraw that misses the cursor saves ~568 for ~12 a
+call, and a `wm_paint_all` that hits it early pays ~2 a call on top of a
+repaint already costing hundreds of thousands — under 1%.
+
+**The sharpest case is not a frame loop, it is a press-and-hold.**
+`fm_drag`'s wait loop (§22.4) is `gfx_unlock` / `task_yield` / `gfx_lock` per
+iteration while the button is down and has not moved far enough to be a drag,
+and it draws **nothing**. One double-click on a Disk window row measured
+**1,523 pairs** — a QEMU count, so read it as a rate rather than a total: on
+the field machine each iteration costs the pair's ~1.94 ms, so the loop turns
+over ~500 times a second and a fifth-of-a-second button-hold is ~100 pairs.
+`ui_drag` and `menu_track` have the same shape; unlike `fm_drag` they draw an
+XOR overlay, so theirs are honestly dirty.
+
+**And the cost is visible, not just billable.** `ui_task`'s clock branch
+already says so in as many words — *"Taking the gfx lock blinks the cursor,
+and that blink IS the flicker the seconds-in-menu-bar setting exists to
+remove"* — which is why that lock is gated on the bar's text really having
+changed. A lazy hide would remove the reason for that gate, and would stop
+the pointer blinking under a held button.
+
+**What would cause a miss, which is why this is not built yet.** A miss is
+not a clipped shape: the cursor's save-under was taken *before* the write, so
+erasing afterwards puts the pre-write bytes back and the drawn content is
+lost in an 8x12 rectangle that nothing repairs. Every one of these has to be
+hooked, and the list is the point:
+
+1. The seven §11.3 clipped primitives — but a **superset**, because
+   `gfx_blit4`, `gfx_scroll`, `ico_core`, `gfx_fill_pat`, `gfx_line`,
+   `gfx_lstepv`, `font_char` and `font_run` all write pixels and are not all
+   on that list.
+2. **`vga_xor_rect_vram` / `vga_xor_fill_vram`** — the drag outline and the
+   menu highlights, which bypass the back buffer by design (§32) and are
+   therefore *not* reached through the public entries that would carry a hook.
+3. **`gfx_flush`**, which writes an arbitrary dirty rect straight to VRAM and
+   is called mid-hold by `menu_track`, `ui_drag` and `fsx_wait` — not only
+   from `gfx_unlock`, where the cursor is already down.
+4. **`gfx_restore`/`bb_restore`**, the menu save-under going back.
+5. **`vid_setmode`, `fsx_mode`, `fsx_restore`** — a mode change clears the
+   screen under the arrow.
+6. **The cursor's own path, which must be EXCLUDED or the check recurses** —
+   and on VGA that is subtle, because `cur_saveu`/`cur_restoreu` share bodies
+   with `gfx_save`/`gfx_restore`. The hook belongs at the public entries only.
+7. **A package writing the framebuffer directly.** `OSAPI_VIDEO` hands out
+   the segment, the stride and the bank shift, and `tests/gfxbench` uses them
+   to write raw rows. **This one cannot be hooked at all** and would need a
+   contract: a slot to say "cursor off while I do this", or a rule that raw
+   framebuffer writes are out of contract.
+8. **Ordering.** The erase must run *before* the overdraw, while the arrow is
+   still whole — §48.11's crosshair rule exactly. A hook that hides after
+   drawing is worse than no hook.
+9. **The mouse moving mid-hold.** With the arrow left up, the ISR still
+   refuses to move it while the lock is held, so `gfx_unlock` has to notice
+   `mouse_x/y != cur_drawn_x/y` and do the move itself. Forget it and the
+   pointer sits at a stale position until the next packet.
+
+A bbox that overlaps the cursor while the *clipped* output does not is a
+false positive, and safe — it costs the pair, which is what is paid today.
+
+That is §11.3's "a primitive not on that list is a hole" with a worse failure
+mode, and it wants its own change with its own verification — including the
+`tests/linetest`-style byte-for-byte framebuffer comparison this one used —
+rather than a rider on the work above.
 
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
@@ -1643,11 +1851,18 @@ then, so this is invisible.
 - `mouse_unhook` — restore int 0x0C vector, mask IRQ4 again, IER=0.
 - Cursor: classic Mac arrow, 11 px tall, hot spot (0,0) — black body,
   1px white outline. Two 16-row × 16-bit tables: `cur_and` (white outline
-  mask) and `cur_data` (black body). Draw on VGA: white pass = Set/Reset
-  white, Bit Mask = mask row bits; black pass likewise. On a 1bpp adapter
-  (§39) the same two passes go in with plain CPU OR/AND — no Set/Reset, no
-  Bit Mask, no ports. Save-under buffer in .bss:
-  3 bytes wide × 16 rows × 4 planes = 192 bytes. The cursor is **always
+  mask) and `cur_data` (black body). **The tables are 16×16; the arrow is
+  `CUR_GW`×`CUR_GH` = 8×12, and that is what every walk is bounded by**
+  (§7.1) — asserted against the tables at assembly time, because a redrawn
+  arrow that outgrew either bound would fail only on the glass. Draw on
+  VGA: white pass = Set/Reset white, Bit Mask = mask row bits; black pass
+  likewise, across the cell's `CUR_SPAN` = 2 bytes. On a 1bpp adapter
+  (§39) the framebuffer is the renderer's own target, so the save and both
+  passes are fused into **one** row loop (`cur_put_mono`) with plain CPU
+  OR/AND — no Set/Reset, no Bit Mask, no ports; `cur_get_mono` puts the
+  banked bytes back, replaying `cur_geom`'s geometry rather than
+  re-deriving it. Save-under buffer in .bss: `CUR_SPAN` × `CUR_GH` × 4
+  planes = 96 bytes. The cursor is **always
   VRAM-direct**, double buffering or not: save/restore go through
   `vga_save_vram`/`vga_restore_vram` (§5, §32), never the dispatching
   `gfx_save`/`gfx_restore` — the back buffer must never contain cursor
@@ -5660,6 +5875,8 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02E0 gfx_line
                                                 0x0300 gfx_linit   X
                                                 0x0308 gfx_lstep   X
+                                                0x0310 gfx_pen_cf
+                                                0x0318 gfx_lstepv  X
 ```
 
 **Every RELEASED slot keeps its number and contract** (§20.8 rule 4), on the
@@ -5818,6 +6035,21 @@ Slot-specific contracts that are not simply their target routine's:
                          many. Lock held; CX=0 legal. N then M is exactly
                          the N+M one call would have drawn, which is what
                          lets an erase replay a draw. Preserves all.
+0x0318 gfx_lstepv        in ES:DI = an array of CX `dw block, pixels` pairs,
+                         the blocks in ES too (X); CX = 0 legal. Identical to
+                         CX separate gfx_lstep calls in one pen, with the
+                         arriving done once (§5.6.8). Lock held. Preserves
+                         all.
+0x0310 gfx_pen_cf        in CF = 0 live / CF = 1 disabled. Sets [gfx_color]
+                         and [gfx_dis] together, which is what makes a
+                         disabled glyph a checkerboard on mono (§47 rule 3).
+                         The cell is push/pop/call/retf and touches no flag,
+                         so the CF-in contract crosses it unchanged - and CF
+                         is what every greying predicate already answers in,
+                         so a call site is `call <ok-test>` then this.
+                         `clc`/`stc` first for the unconditional cases.
+                         gfx_unlock clears the flag, so it lives for exactly
+                         one lock hold. Preserves all.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -10018,12 +10250,13 @@ driver enabled on a machine with no card is unchecked, with `'No hardware
 found'` under it. That is the `bb_avail` idiom (§31.3) again: the box, the
 caption and the click all read one word, so they cannot disagree.
 
-**A click loads or unloads on the spot**, mounting A: on demand, and only
-then writes `SYSTEM.CFG`. So the page never shows a promise about the next
-boot — what it shows is what is running. The two outcomes are reported
-separately: a load that fails leaves the box clear with its reason, and a
-*save* that fails puts a reason in the caption (§51.5.1) while the driver it
-just loaded stays loaded.
+**A click loads or unloads on the spot**, mounting A: on demand, and marks
+`SYSTEM.CFG` owed rather than writing it — the close spends it, like every
+other page (§31.8). So the page never shows a promise about the next boot —
+what it shows is what is running. The two outcomes are reported separately: a
+load that fails leaves the box clear with its reason, and a *save* that fails
+puts a reason in the caption (§51.5.1) while the driver it just loaded stays
+loaded.
 
 **A click on a row that is unloaded but WANTED clears the want instead of
 retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
@@ -10041,6 +10274,65 @@ file operation in this OS makes (§18.4) — the cursor freezes for the length
 of the read — and the alternative, dropping the lock inside a click handler,
 is not one the window manager offers.
 
+### 31.6.1 Row geometry, and the erase that ate the checkbox
+
+Pane-relative, on the Scheduler page's `CP_PGX`/`CP_GW`/`CP_PLX`/`CP_PLDY`
+grid (§31.1) with a pitch of its own, because a driver row is **two** text
+lines rather than one:
+
+```nasm
+CP_DR0Y  equ 24            ; first driver row: checkbox top
+CP_DROWH equ 26            ; row pitch: row i's checkbox top = CP_DR0Y + i*26
+CP_DSTDY equ CP_PLDY + 9   ; 11: the reason line, one text row under the label
+```
+
+Row *i* draws the checkbox at (`CP_PGX`, `CP_DR0Y + i*CP_DROWH`) through
+`cp_glyph`, the driver's name at (`CP_PLX`, row top + `CP_PLDY`), and
+`drv_status`'s sentence at (`CP_PLX`, row top + `CP_DSTDY`). Hit bands are the
+Scheduler page's shape: contiguous, whole-pane-wide, `CP_DB0Y1`..`CP_DB0Y2`
+and `CP_DB0Y2+1`..`CP_DB1Y2`.
+
+**The reason line's erase starts at `CP_PLX`, and that is binding.** The
+checkbox owns rows `0..CP_GW-1` of its row and `CP_DSTDY` is `CP_GW - 1`, so
+the box's last scan line **is** the reason line's first. The two status
+strings differ in length, so the line is erased before it is lettered —
+`cp_drv_wipe`, which therefore takes the left inset **in AX** rather than
+assuming `CP_PMX` — and an erase spanning the pane's full width runs straight
+through the checkbox and takes its bottom edge off. Nothing left of `CP_PLX`
+on that scan line belongs to the reason line, so the narrower span is both the
+correct one and the cheaper one. A caption, which has nothing to its left,
+still passes `CP_PMX`.
+
+`cp_drv_paint` hid this for as long as it was the only painter: it letters
+every reason **first** and draws the boxes last, so the box was always written
+after the erase that would have cut it. The click path drew them in the other
+order, so every click ended with the boxes bottom-shaved — and because both
+painters walked all of `drv_tab`, that included rows the click had not touched.
+The general form is worth stating: **when two controls share a scan line, the
+order they are drawn in is not a detail, and a bug in it hides completely
+behind whichever painter happens to get the order right.**
+
+**A click redraws ONE row.** `drv_load` and `drv_unload` touch their own
+`drv_tab` row and no other, so `cp_drv_click` calls `cp_drv_box1` and
+`cp_drv_line1` for the row it hit; `cp_drv_boxes` is the loop over
+`cp_drv_box1` that `cp_drv_paint` still owes. Redrawing every row is a
+double-draw flash on controls that did not move, and it is not cheap:
+`cp_glyph` is a 12×12 fill and then one `gfx_pixel` per set bit — 44 of them
+for the empty box, 64 for the crossed one — which at PERFORMANCE.md Part 2's
+~756 µs of fixed cost per drawing call is 35–50 ms of the field machine's time
+**per box**. **The save caption is not redrawn on a click either**: only
+`cp_flush_x` writes `[cp_dsave]` and that runs at the close (§31.8), so it
+cannot change while the page is on screen.
+
+Counted on the shipped two-row table, a click was **5 `gfx_fill`s, ~108
+`gfx_pixel`s and 3 `font_str`s** and is **2, 44–64 and 1** — which is the point
+worth taking from this rather than the ratio: the redraw was priced by how
+many rows the table has, and only one of them can change.
+
+Verified the §48.12 way, on all three adapters: tick a row, capture the
+framebuffer, force a full `cp_drv_paint` by selecting another page and coming
+back, diff — **0 differing pixels**, for a load that succeeds, an unload, and
+a load that fails into a longer string than the one it replaces.
 
 ### 31.7 Sound page — which sound hardware the machine uses
 
@@ -10088,17 +10380,20 @@ A driver that publishes `DSV_TIERS` = 0 said nothing and is taken at its word:
 every row stays live and the click finds out the slow way, which is exactly the
 behaviour before the cell existed.
 
-**A greyed row greys its GLYPH as well as its label**, and on this page that is
-what carries the whole signal on two adapters out of three. `font_ink` rounds
-`CDGRAY` to *black* for text — a dithered 8x8 glyph is unreadable, so mono has
-no grey to draw a letter in (§39.4) — which means a disabled label is
-pixel-identical to a live one on Hercules and CGA. The Display page gets away
-with that because its caption says why in words; this page has no caption, so
-the row has to say it some other way. A glyph can, because it is drawn with
-`gfx_pixel` rather than as a font cell: `gfx_ink` maps `CDGRAY` to the 50%
-dither, so the ring comes out **dotted**. Dark grey on VGA, dotted on mono, and
-on all three the whole row reads as disabled instead of a black control with
-faint writing beside it.
+**A greyed row greys its GLYPH as well as its label**, which is rule 2 and
+nothing more exotic. Both halves take `cp_snd_rowok`'s pen through
+`gfx_pen_cf`, so on mono the ring comes out **dotted** (`gfx_ink` maps `CDGRAY`
+to the 50% dither for a shape) and the label comes out a **checkerboard**
+(`font_ink` masks a flagged glyph, §39.4). Dark grey on VGA, dithered on the
+other two, and on all three the whole row reads as disabled.
+
+This paragraph used to claim the label could not say so — that a dithered 8x8
+glyph was unreadable, that mono had no grey to draw a letter in, and that the
+Display page "got away with" a pixel-identical label because its caption
+explained in words. All three were false, and the last was false about a page
+whose `Double Buffered` label has been rendering as a legible checkerboard on
+CGA since `font_ink` learned the flag. The glyph is greyed here because rule 2
+says grey the whole control, not because the text was thought incapable.
 
 A refused tier change leaves the setting where it was and writes the reason
 into a **notice line** below the Test button, using the loader's own
@@ -10197,10 +10492,14 @@ dropping it silently. It is reported in the Drivers page's caption, the
 one page with room to say it, which means the *next* time the panel is opened:
 by the time the write happens the page it would be reported on is already
 gone. **`cp_drv_cap` is why that is now true rather than merely intended** —
-the caption used to be drawn only by `cp_drv_lines`, which runs when a row is
-TICKED, so the report appeared only if the user happened to tick something
-after a failed save in the same session, and `cp_drv_paint` drew everything on
-the page except this. Both painters call it now. Its two strings are §51.5.1's.
+the caption used to be drawn only by the click path's status-line redraw,
+which runs when a row is TICKED, so the report appeared only if the user
+happened to tick something after a failed save in the same session, and
+`cp_drv_paint` drew everything on the page except this. `cp_drv_paint` calls
+it now, and the click path deliberately does **not**: `[cp_dsave]` is written
+only by `cp_flush_x`, at the close, so the caption cannot change while the
+page is on screen and re-lettering it per click erases and redraws text that
+did not move (§31.6.1). Its two strings are §51.5.1's.
 
 ### 31.9 Pages a driver owns
 
@@ -11795,8 +12094,9 @@ and a frame plus a label per keypress is real money on the machines this runs
 on.
 
 `fdlg_btn` takes the **caller's** pen rather than forcing `CBLACK`, so the
-disabled frame greys with the label — which is what shows on a mono adapter,
-where a package's grey text alone would round to black (§46 rule 2/3).
+disabled frame greys with the label — and because that pen comes from
+`gfx_pen_cf`, it carries `[gfx_dis]` too, so on a mono adapter the frame goes
+dotted and the label goes to a checkerboard together (§47 rule 2/3).
 
 `fdlg_paint` calls the **bodies**, because `wm_paint_all` already handed it a
 white content; everything else calls the wrappers. Neither erase touches its
@@ -14853,26 +15153,38 @@ means.
    reads as a live control that someone mislabelled — which is exactly what the
    Sound page shipped as until it was reported.
 
-3. **Grey does not survive 1bpp; the flag does.** Every middle grey rounds to
-   black in text (§39.4) — a dithered 8x8 glyph costs half its strokes, which
-   is the wrong trade for Piano's coloured letters and right for nothing —
-   so a `CDGRAY` label used to be *pixel-identical* to a live one on Hercules
-   and CGA. `[gfx_dis]` is the carve-out: `font_ink` masks a disabled glyph to
-   a checkerboard, exactly as the 1bpp Macintosh drew a greyed-out menu item,
-   and just as readable.
+3. **Grey does not survive 1bpp; the flag does — including on text.** Every
+   middle grey rounds to black in text (§39.4), because a *decorative* colour
+   should not become texture — Piano's coloured letters want contrast — so a
+   bare `CDGRAY` label is pixel-identical to a live one on Hercules and CGA.
+   `[gfx_dis]` is the carve-out and it applies to glyphs exactly as it does to
+   shapes: `font_ink` masks a disabled glyph to a checkerboard, which is what
+   the 1bpp Macintosh did to a greyed-out menu item and is **legible and
+   plainly distinct from a live label**. The Display page's `Double Buffered`
+   row on CGA is the reference to go and look at (§31.3): the ring is dotted,
+   the label is a checkerboard, and nothing else on the page is needed to say
+   the row is off.
 
-   Shapes never needed it — `gfx_ink` maps `CDGRAY` to the 50% dither, so a
-   ring or a frame comes out dotted on mono — which is why rule 2's "grey the
-   whole control" was load-bearing before this existed and remains the rule for
-   **packages**, which have no way to reach the flag (§20.3 publishes no slot
-   for it, deliberately: nothing has needed one). A package's disabled *label*
-   still rounds to black on mono, so a package's disabled control must include
-   a non-text mark — a frame, a box, an icon — and `rc_btn` (Recorder) is the
-   reference.
+   **Dithered text is a first-class answer, not a compromise.** Half a stroke
+   is a real cost and it is the right one to pay, for the same reason it was
+   right on a 512x342 Macintosh. Nothing in this tree should avoid greying
+   text on the theory that mono cannot show it; that claim was documented in
+   six places and was false in all of them.
+
+   Shapes never needed the flag — `gfx_ink` maps `CDGRAY` to the 50% dither,
+   so a ring or a frame comes out dotted on mono — which is why rule 2's "grey
+   the whole control" was load-bearing before the flag existed. It is still
+   rule 2, but it is no longer a *substitute* for greying the label: a control
+   whose frame dithers and whose label does not is rule 2's own failure, two
+   halves disagreeing, and that is precisely what a package shipped for as long
+   as the flag was kernel-only. **`gfx_pen_cf` is published at slot 0x0310**
+   (§20.3), so a package reaches the flag the same way the kernel does and its
+   disabled text dithers on mono like everything else.
 
    Words are still worth adding — `'Save Gif (NoRam)'` (§12.2), or a caption
    that says why (§31.3) — but they say *why not*, not *whether*. They stopped
-   being load-bearing for kernel-drawn text when the renderer took the state.
+   being load-bearing for kernel-drawn text when the renderer took the state,
+   and for a package's when the slot was published.
 
 4. **One predicate, three consumers.** The test that greys the control, the
    test that refuses the click and the text that explains it are the *same
@@ -14928,8 +15240,10 @@ Conformant, and worth reading as the reference:
 
 - **`cp_snd_rowok` / `cp_snd_radios` / `cp_snd_paint`** (§31.7) — one
   predicate, glyph and label both, dotted ring on mono.
-- **`rc_btn`** (Recorder) — greys the button frame with the label, so the
-  frame dithers and the button reads as disabled on every adapter.
+- **`rc_btn`** (Recorder) — takes the pen through slot 0x0310, so the frame
+  dithers *and* the label does, and the button reads as disabled on every
+  adapter. It greyed the frame with a bare `CDGRAY` until the slot existed,
+  which left a dotted frame around a solid-black caption on mono.
 - **Paint's menu items** (§12.2) — text-only controls that also carry the state
   in words, `'Save Gif (NoRam)'` and five more. Since `font_ink` learned the
   dither those words say *why not* rather than *whether*, which is still worth
@@ -14972,11 +15286,16 @@ refusals *ought* to grey and do not, and three answer no:
 **Owed:** nothing else identified. §47.2 is the standing obligation — a greying
 change is not finished until it has been looked at on a mono adapter.
 
-**Packages have no `[gfx_dis]`, on purpose.** §20.3 publishes no slot for it
-because nothing has needed one: a package's disabled control is covered by rule
-2, whose non-text mark dithers through `gfx_ink` without help. If an app ever
-needs disabled *text* with no shape beside it, that is when the slot gets
-added — and adding one is an append, which §20.8 allows.
+**Packages reach `[gfx_dis]` through slot 0x0310**, and the reasoning that
+withheld it was wrong twice over. It said a package's disabled control was
+covered by rule 2's non-text mark, which dithers through `gfx_ink` without
+help — true, but rule 2 asks for the *whole* control, and a package could only
+ever grey the part of it that was not text. Every package button in the tree
+therefore shipped a dotted frame around a solid-black caption on Hercules and
+CGA: rule 2's named failure, arriving by construction rather than by
+oversight. And it rested on the belief that a dithered 8x8 glyph was unreadable
+anyway, which the Display page had been disproving on screen the whole time.
+The slot is an append, which §20.8 allows; no number moved.
 
 ## 48. Missile Command — the twelfth package (apps/missile/missile.asm)
 
@@ -15696,6 +16015,172 @@ Four things about it are load-bearing:
   game has always shown the arrow *and* its crosshair. A held lock keeps the
   cursor off, so the bracket has one crosshair and no arrow — which is the
   cheapest confirmation that the bracket is actually running.
+
+### 48.14 A trail is ONE Bresenham, laid at launch and walked
+
+A field log put `wip` — the whole-trail erase — at **37.8 ms of a 73.5 ms
+frame with only 5.2 line calls in it**, which is what said the cost was per
+*pixel* and not per *call*. §5.6.6 answered half of it inside the kernel (the
+steep three-column walk, 1.91×, and only 38% of this game's erases are
+steep). §5.6.7 answers the other half by removing the reason the dilation
+existed at all.
+
+The trail **was** drawn as a chain of per-frame segments — each its own
+Bresenham between two rounded positions — and erased as one long line between
+the extremes. Those two rasterizations are not the same pixels; they differ
+by up to one in the minor axis, which left **104 of a measured 217-pixel
+trail** on the screen. §5.6.5's dilation covered exactly that error, at three
+read-modify-writes a pixel forever.
+
+It is one line now. `mc_tr_lay` lays the walk from the launch point to the
+point the missile is **aimed at**, once, at launch; `mc_move_trails` advances
+it to wherever the missile has got to; `mc_wipe_trails` re-lays the identical
+line and replays exactly the pixels the draw emitted. One walk each way, one
+read-modify-write a pixel, and nothing left behind — the two walks are the
+same walk, so "close enough" stops being a question that can be asked.
+
+Two things that read as trades are corrections:
+
+- **A dodging smart bomb's trail is a straight line now.** It used to be a
+  polyline following the actual path — which the straight erase could never
+  have removed, so a dodged bomb left its whole trail on the screen until the
+  next wave. The erase always assumed a straight line; this is the draw being
+  brought into line with it, not the other way round.
+- **The progress measure is the MAJOR AXIS, clamped.** The walk steps its
+  major axis once a pixel, so the distance the missile has travelled along
+  that axis *is* the pixel index. `[mc_ilen]` carries it signed — `+n` = n
+  pixels with x as the major axis, `-n` = y — because the SDK does not publish
+  the block's layout (§20.8) and the length is needed every frame anyway: it
+  is what stops a bomb that dodged off its own line asking for pixels past the
+  end of it.
+
+Four things hold it up, and the first two are the ones that break silently:
+
+- **The block holds SCREEN coordinates, so a window that moves invalidates
+  every one of them at once.** `mc_track` raises `[mc_full]` when the origin
+  changes, and `mc_redraw_trails` re-lays every walk and replays `[mc_idrw]`
+  pixels of it — a moved window owes a repaint anyway, so this costs nothing
+  it was not already paying.
+- **`[mc_iarm]`/`[mc_aarm]` is 0 not laid / 1 walking / 2 no walk**, and the
+  third value is not a failure state. A walk is refused on the Mode X surface
+  (§53.1 puts every kernel drawing slot off-limits there) and for a trail with
+  an endpoint outside the content box (the kernel clips to the SCREEN, and
+  only `mc_fillc` clamps to the window) — both keep the old segment-and-
+  dilated-line path, and `mc_redraw_trails` moves a slot between the two when
+  the surface changes. §5.6.5 is therefore still live, and still right, for
+  exactly those cases.
+- **The walk is laid on the first frame that DRAWS, not at launch.**
+  `mc_update` is lock-free, and although `gfx_linit` draws nothing, a walk laid
+  before `mc_track` has settled the origin would hold the wrong screen
+  coordinates. `mc_itrail` records the endpoints; `mc_move_trails` lays the
+  line.
+- **`[mc_ipx]`/`[mc_ipy]` are still written every frame in both modes.** The
+  segment path draws to them, and the walk path owes them to the ground bite
+  (§48.9) — which is aimed at the trail's END, not across the band.
+
+Verified the only way this can be: fire a cluster, pause, capture the
+framebuffer, force a full repaint, diff — **0 differing pixels** with trails in
+flight and again after they had died and been erased, on VGA (0 of 307,200),
+CGA (0 of 129,485 inside the content) and Hercules (0 of 236,160 below the
+menu bar).
+
+### 48.15 A spent trail DRAINS rather than popping
+
+§48.14 makes the erase three times cheaper and leaves the *shape* of the cost
+alone: a trail arrives over sixty frames and still leaves in one. That is
+where the stutter is. One burst can kill five missiles at once, and five
+whole-line erases in a single frame is exactly the batch the field log caught.
+
+Nothing needed it to be one frame — §5.6.7's whole point is that a walk can
+stop and resume anywhere — so a dead trail is queued and spent a few pixels a
+frame instead, at about **eight times the rate it was drawn at**, so a spent
+one is gone in well under a second. It clears from the launch point forward,
+which is the direction the walk can replay exactly and also the way smoke
+actually goes: the oldest end disperses first.
+
+**Two caps, answering different questions.** `MC_DRNRATE` is per trail and
+jittered by `rand mod 8`, so two missiles killed by the same burst do not
+finish on the same frame. `MC_DRNBUD` is per **frame across the whole queue**,
+and it is the one that actually bounds the cost — a jitter alone still lets
+eight entries ask for eight rates at once, which is the batch again with extra
+steps. `[mc_drnrr]` rotates which entry the budget reaches first, so a long
+trail cannot starve the ones behind it.
+
+**Overflow is graceful and is not a special case**: a full queue erases
+inline, which is what every erase did before this existed. So is a trail with
+no walk (§48.14's `[mc_iarm]` = 2) and a trail with nothing drawn.
+
+Two things are load-bearing:
+
+- **`mc_drn_clear` runs at every full repaint.** The repaint has already put
+  the background back, so a queue that survived it would spend the next few
+  frames erasing pixels the repaint drew. `mc_draw_all` is the single site,
+  which covers the wave sweep, a moved window, a surface change and
+  `W_PAINT`.
+- **The damage marks moved from the push to the DRAIN, and they moved to
+  different frames.** The erase reaches the two ends of the line frames apart:
+  an ABM's launcher is under the *first* pixels and an ICBM's ground bite
+  (§48.9) under the *last*, so one is owed on the entry's first serve and the
+  other when it finishes. Marking both at the push repairs terrain the erase
+  has not reached yet and then holes it with nothing left to repair it — which
+  is §48.9.1 in its exact form, an optimisation inheriting what used to rely
+  on a redraw. `[mc_drngx]`/`[mc_drnbx]` carry them in because no register was
+  left, and the ground bite is taken at the point the missile actually
+  **died** rather than the point it was aimed at, because a trail shot down in
+  flight never reached the ground at all.
+
+The drain runs immediately after `mc_wipe_trails` and therefore *before* the
+bursts and the terrain, both of which draw over it.
+
+Verified the §48.14 way, after letting the queue empty: **0 differing pixels**
+in the game window against a forced full repaint, mid-game with live trails,
+on VGA (of 224,961) and CGA (of 129,485).
+
+### 48.16 Every trail in one call, because the arriving was the cost
+
+The field log after §48.14 and §48.15 (PERFORMANCE.md Part 9, Set 6) says the
+trail work is now honest and the trail *calls* are not. Thirteen stuttering
+seconds average **46.2 ms a frame** against a 54.9 ms tick — the mean is
+under it and the tail is not, which is exactly why this reads as a stutter
+rather than a freeze — and they split:
+
+| stage | ms | stage | ms |
+|---|---|---|---|
+| `exp` explosions | 10.50 | `rst` terrain/status | 3.99 |
+| `mov` **trail draw** | 10.20 | `crs` crosshair | 3.60 |
+| `drn` drain | 9.11 | `wip` teardown | 1.03 |
+| `upd` update | 6.14 | `lok`/`unl`/`all` | **0** |
+
+`drn` moves 46.6 pixels a frame for 9.11 ms — **~160us a pixel**, which is
+simply what a 1bpp line pixel costs (`gfx_lstep_mono` and `gfx_line_mono` are
+the same loop, so §48.14 did not make a pixel dearer; it stopped drawing each
+one three times). `mov` is the anomaly: **10.20 ms to draw about nineteen
+pixels**, ~570us each for the identical operation. The difference is that it
+was one far call per live missile per frame — seven or eight arrivals paying
+§5.7's floor to move two or three pixels each — while the drain already
+happened to serve several trails per call.
+
+`mc_dsc_add`/`mc_dsc_run` collect the frame's steps and spend them through
+§5.6.8's `OSAPI_GFX_LSTEPV`. **Three calls a frame instead of ten**: one for
+the ICBM pen, one for the ABM pen, one for the drain.
+
+Two things about it are easy to get wrong:
+
+- **A batch is spent before the pen changes.** `mc_move_trails` flushes at
+  the end of the ICBM loop, *before* `mc_setcol` hands it the ABM colour —
+  the descriptors carry no pen, and a batch that outlived one would draw
+  ICBM trails in the ABM's ink.
+- **The drain's crosshair erases still all happen before any of its
+  pixels.** `mc_cross_need` runs inside the serve loop and the batch is spent
+  after it, so the XOR still comes off while the crosshair is whole — §48.11's
+  ordering argument, preserved by accident of where the flush sits, which is
+  why it is written down here.
+
+Verified the §48.14 way, and this time the A/B is the point rather than a
+formality: what is on screen was drawn by the **vector** call and the forced
+full repaint replays it with the **scalar** one (`mc_redraw_trails` was left
+alone), so a disagreement between the two would show directly. **0 differing
+pixels** on VGA (of 224,961), CGA (of 129,485) and Hercules (of 236,160).
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
@@ -16754,10 +17239,16 @@ one, either what is in it or a button that puts a usable volume there.
 Slot  Size   State
 1     31M    FAT16              a volume; Mount will find it
 2      -     Not Formatted      free
-3     50M    Unmountable        foreign, or over the ceiling - greyed
+3     50M    Unmountable        foreign, or over the ceiling
 4     14M    Not Formatted      a claimed region with no volume in it
-[Format]  [Close]
+[Format]  [Delete]  [Close]
 ```
+
+Two buttons act on the selected slot: **Format**, which puts a usable volume
+there, and **Delete** (§52.2.4), which gives the slot back to free space. Both
+are destructive and both confirm the same way (§52.2.3). Delete is the only
+control in this window that is ever greyed, and it greys on a fact — an empty
+slot has nothing to give back.
 
 **`Not Formatted` covers unpartitioned AND partitioned-but-empty**, and that
 is deliberate rather than lazy: the difference is the tool's business, both
@@ -16886,15 +17377,13 @@ because both halves look like details and neither is:
   acts on it. That is rule 4's named failure — "looks unavailable and works" —
   and it is the drift rule 4 exists to stop, arriving from the direction rule 4
   does not cover, because there is no predicate here at all: nothing refuses.
-- **It did not even show.** Rule 3: `CDGRAY` *text* rounds to black on the two
-  1bpp adapters (§39.4 rounds a glyph rather than dithering it), and
-  `[gfx_dis]` — the carve-out that makes a disabled glyph a checkerboard — is
-  not in the package ABI (§20.3 publishes no slot). Looked at on CGA per §47.2,
-  the greyed row was pixel-identical to the live row beneath it. Rule 3's
-  package clause is the general form: a package's disabled control **must carry
-  a non-text mark**, which is why `hd_page_button` greys the button's *frame*
-  along with its label and reads correctly on all three adapters, and why a
-  bare row of text can never be made to.
+- **It did not show.** A bare `CDGRAY` glyph rounds to black on the two 1bpp
+  adapters, so looked at on CGA per §47.2 the greyed row was pixel-identical to
+  the live row beneath it. The fix for a *control* is the pen — `gfx_pen_cf`,
+  slot 0x0310, which sets `[gfx_dis]` and makes the glyph a checkerboard — and
+  `hd_page_button` takes it, so its frame and its label both read as disabled
+  on every adapter. A **row is not a control** and so takes no pen at all;
+  its State column is the signal.
 
 So the **State column is the whole signal**, and it says the same thing on VGA,
 CGA and Hercules. That is not a consolation prize for the missing colour: a
@@ -16903,12 +17392,20 @@ apply to it.
 
 #### 52.2.3 Confirm, and the order of the two commits
 
-**Format on a slot that already holds something asks first**, in the caption,
-by wanting the click again: `Erase slot 2? Click Format again`. A driver has
-no notice window and no modal, and a second click on the same button is the
-cheapest confirm that cannot be mistaken for the first one. Picking another
-row or closing the window disarms it. A free slot is not confirmed — there is
-nothing to lose.
+**A destructive button asks first**, in the caption, by wanting the click
+again: `Erase slot 2? Click Format again`, or `Delete slot 2? Click Delete
+again`. A driver has no notice window and no modal, and a second click on the
+same button is the cheapest confirm that cannot be mistaken for the first one.
+Picking another row or closing the window disarms it. A free slot is not
+confirmed by Format — there is nothing to lose — and cannot be reached by
+Delete at all.
+
+`[hd_tarm]` carries the armed **action** and not just the slot: the slot in its
+low nibble, 1-based so that zero means nothing is armed, and the button in its
+high one. One byte and one compare then cover both buttons, and they cannot arm
+each other — arming Format and then clicking Delete asks Delete's question, it
+does not delete. Two words that had to agree would have been the obvious shape
+and the wrong one.
 
 **The table entry goes down before the volume**, which is the same argument as
 the boot sector going last inside the format: every way this can be
@@ -16920,6 +17417,58 @@ has just been overwritten.
 
 Afterwards the states are **re-scanned rather than assumed**, so the row
 reports what came back off the disk and not what the driver hoped it wrote.
+
+#### 52.2.4 Delete — giving a slot back
+
+Format reuses a slot **in place** (§52.2.1) and so can never free one: a table
+filled to four primaries had no way back except another machine's FDISK, and a
+partition made too small, or made by mistake, was permanent. **Delete clears
+the selected entry** — sixteen zeroed bytes and the same one-sector commit
+Format makes — and the space rejoins the pool `hd_slot_extent` scans, where any
+slot can have it and not only the one it came from.
+
+It is a **table** operation and not a wipe: the volume's data is still on the
+disk, untouched, and re-creating an entry with the same base and length brings
+it back. That is the era's own behaviour and it is the honest one — a 32MB
+zero-fill is 65,535 sector writes for a guarantee nobody asked for — but it is
+also why the confirm matters, since nothing on screen afterwards says the data
+is still there.
+
+Four things about it are load-bearing:
+
+- **It unmounts first, and that is not a courtesy.** A driver-backed volume's
+  base LBA lives in `hd_vols` and the kernel never reads the table again
+  (§18.7), so a volume on a deleted partition goes on working — reading and
+  writing a region the table now calls free, which the very next
+  `hd_slot_extent` scan hands to somebody else. `hd_tw_unmount_slot` drops
+  every `hd_vols` row on that device and slot before a byte of the table
+  changes, and the caption says it happened, because a drive icon leaving the
+  desktop with no explanation is worse than the pause.
+- **The mounted set is staged afterwards** (`hd_cfg_mark`, §31.8/§52.6): what
+  was unmounted here is what the next boot must not mount. This is the first
+  thing in the tool that changes a setting at all — the window used to touch
+  only the geometry, which the page's editor had already staged on the click
+  that changed it — and it stages rather than writes, like everything else in
+  the machine.
+- **A failed write puts the table back** (`hd_part_load`), which Format's
+  failure path deliberately does not do, and the asymmetry is the *direction*
+  of the error. A Format that fails to write leaves RAM claiming a region the
+  disk does not: conservative, and the next open re-reads it. A Delete that
+  fails to write leaves RAM calling a live partition free, which is the one
+  state from which the next Format destroys something nobody asked it to.
+- **The states are re-scanned afterwards**, exactly as after a format, so the
+  row reports the disk and not the intention.
+
+**Delete is greyed on an empty slot, and that is §47 arriving where §52.2.2
+said it would not.** The distinction §52.2.2 turns on is that a *row* is not a
+control and a button is. Every rule that refused the greying there permits it
+here: the predicate is a fact already printed in the row and not a guess (rule
+4), one `hd_tw_delok` serves the greying and the click refusal (rule 2), and
+the pen comes from `gfx_pen_cf` (slot 0x0310) so it carries `[gfx_dis]` as well
+as `CDGRAY` — the button's frame goes dotted and its label goes to a
+checkerboard, and the two halves of the control cannot disagree on mono. The
+refused click still sets the caption, as the page's does: the reason is already
+on screen and this only makes sure of it.
 
 ### 52.3 The formatter
 
@@ -17908,9 +18457,15 @@ elsewhere:
 
 | slot | routine | in | out |
 | --- | --- | --- | --- |
-| 0x0310 | `clip_put` | `ES:SI` = text, `CX` = bytes (0 = empty) | `CF=1` refused; every register preserved |
-| 0x0318 | `clip_get` | `ES:DI` = buffer, `CX` = its capacity | `CF=1` empty; else `AX` = whole length, `CX` = bytes copied |
-| 0x0320 | `clip_size` | — | `CF=1` and `AX=0` empty; else `AX` = the length |
+| 0x0320 | `clip_put` | `ES:SI` = text, `CX` = bytes (0 = empty) | `CF=1` refused; every register preserved |
+| 0x0328 | `clip_get` | `ES:DI` = buffer, `CX` = its capacity | `CF=1` empty; else `AX` = whole length, `CX` = bytes copied |
+| 0x0330 | `clip_size` | — | `CF=1` and `AX=0` empty; else `AX` = the length |
+
+These are **not** the numbers this section was written with. The clipboard was
+drafted at 0x0310..0x0320 and moved up when it met `gfx_pen_cf` and
+`gfx_lstepv`, which had taken the first two while it was being written — the
+§20.8 rule 4 case exactly: neither had shipped, so neither was frozen, and the
+one that had not yet reached the integration branch is the one that moved.
 
 **`ES:SI` and not the caller's `DS`, deliberately.** The obvious shape for
 `clip_put` is an X stub (§20.3) handing the kernel the package's own segment —

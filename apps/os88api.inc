@@ -98,17 +98,22 @@ CLGRAY    equ 7             ; DECORATION grey - Minesweeper's covered cells,
                             ; Arkanoid's rails, Recorder's centre line
 CDGRAY    equ 8             ; the disabled pen (SPEC.md 47). GREY THE WHOLE
                             ; CONTROL - frame, ring, box, icon AND label -
-                            ; never just the caption, and that is not a style
-                            ; note: on a mono adapter your greyed LABEL comes
-                            ; out solid black, pixel-identical to a live one,
-                            ; because a dithered 8x8 glyph loses half its
-                            ; strokes and font_ink will not do that to a
-                            ; package's text. A frame or a ring DOES dither
-                            ; (gfx_ink), so the shape is what carries the
-                            ; state at 1bpp. rc_btn in apps/recorder is the
-                            ; reference: it greys the button frame with the
-                            ; label, so the button reads as disabled on every
-                            ; adapter
+                            ; never just the caption.
+                            ;
+                            ; **Set it with OSAPI_GFX_PEN and not with
+                            ; OSAPI_SET_COLOR**, because a disabled control is
+                            ; two pieces of state: this colour AND the
+                            ; [gfx_dis] flag. The flag is what makes your
+                            ; LABEL a checkerboard on Hercules and CGA -
+                            ; legible, and plainly different from a live one.
+                            ; The colour alone rounds to solid black there, so
+                            ; a button set with OSAPI_SET_COLOR comes out with
+                            ; a dotted frame around a black caption: the two
+                            ; halves of one control disagreeing, which is
+                            ; exactly what rule 2 forbids. Every package in
+                            ; this tree shipped that until slot 0x0310 was
+                            ; published. rc_btn in apps/recorder is the
+                            ; reference
 CLBLUE    equ 9
 CLGREEN   equ 10
 CLCYAN    equ 11
@@ -902,7 +907,7 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
 ;  6. Your stack is SCH_STACK (512) bytes in LOW_SEG and SS != DS (see the header of
 ;     this file). No deep recursion, no big stack buffers, and BP-relative
 ;     operands address SS.
-;  7. You may call: the gfx_* and font_* slots, OSAPI_SET_COLOR,
+;  7. You may call: the gfx_* and font_* slots, OSAPI_SET_COLOR, OSAPI_GFX_PEN,
 ;     OSAPI_WM_CONTENT, OSAPI_WM_OBSCURED, OSAPI_WM_CLIP_SET,
 ;     OSAPI_WM_CLIP_CLEAR, OSAPI_WM_CLIP_TEST, OSAPI_VIDEO, OSAPI_GET_TICKS,
 ;     OSAPI_MOUSE, OSAPI_SRAND/RAND, OSAPI_SND_CAPS, OSAPI_SND_TONE,
@@ -1508,7 +1513,41 @@ OS88_BSS_SIZE equ 0
                                  ; block advances by exactly that many. CX = 0
                                  ; is legal and does nothing. Lock held.
                                  ; Preserves all. N then M == one call of N+M.
+; STEP EVERY LINE IN ONE CALL. A walk step draws two or three pixels, and
+; PERFORMANCE.md prices the ARRIVING at a drawing call - not the drawing - at
+; ~756us on the target machine. So a caller with eight live lines that steps
+; them one call each is paying eight floors a frame to move twenty pixels,
+; and that, not the walk, is what a moving trail costs. Hand them over
+; together: same pixels, one arrival.
+;
+;   dw block1, count1            ; an array of pairs in YOUR segment,
+;   dw block2, count2            ; `block` an offset in it. A zero count is
+;   ...                          ; legal and skipped, so build it once and
+;                                ; vary what you ask for.
+%define OSAPI_GFX_LSTEPV    KERNEL_SEG:0x0318   ; ES:DI = the array, CX = how
+                                 ; many pairs. Identical to CX separate
+                                 ; OSAPI_GFX_LSTEP calls in one pen. Lock
+                                 ; held. Preserves all.
 GLS_SZ    equ 14                 ; the walk state, in YOUR bss
+; The DISABLED pen (SPEC.md 47 rule 3). A disabled control is CDGRAY *and* the
+; [gfx_dis] flag, and this is the only way to set both - which matters most on
+; the two 1bpp adapters, where the flag is the entire difference between a
+; greyed label and a live one: font_ink masks a flagged glyph to a
+; checkerboard, while the colour on its own rounds to solid black.
+;
+; CF IS THE ARGUMENT, and that is not an oddity - it is the shape every
+; greying predicate already answers in, so a call site is `call <your ok-test>`
+; then `call OSAPI_GFX_PEN` and nothing between them. The cell is
+; push/pop/call/retf and touches no flag, so your CF crosses it unchanged. Use
+; `clc` or `stc` first for the unconditional cases.
+;
+; It is one lock hold long: OSAPI_GFX_UNLOCK clears the flag the way it clears
+; the clip region, so you cannot leak dithered text into the next painter. Put
+; the pen back with a `clc` call when the control is drawn, all the same - the
+; next thing YOU draw in this hold would otherwise come out disabled.
+%define OSAPI_GFX_PEN       KERNEL_SEG:0x0310   ; CF = 0 live (CBLACK, flag
+                                 ; clear) / CF = 1 disabled (CDGRAY, flag
+                                 ; set). Preserves every register.
 
 ; --- the system clipboard (SPEC.md 55) ---------------------------------------
 ; One TEXT buffer for the whole machine, living in the claim heap and sized to
@@ -1516,7 +1555,7 @@ GLS_SZ    equ 14                 ; the walk state, in YOUR bss
 ; tag, not your instance - so copy in one program, close it, paste in another.
 ; All three take no lock, touch no VRAM and do no I/O: legal from a window
 ; callback AND from a worker (SPEC.md 20.6 rule 7).
-%define OSAPI_CLIP_PUT      KERNEL_SEG:0x0310   ; ES:SI = the text, CX = its
+%define OSAPI_CLIP_PUT      KERNEL_SEG:0x0320   ; ES:SI = the text, CX = its
                                  ; length. CX = 0 EMPTIES the clipboard and
                                  ; is not an error. Out CF=1 = refused (over
                                  ; CLIP_MAXKB, or the heap could not fund it),
@@ -1524,13 +1563,13 @@ GLS_SZ    equ 14                 ; the walk state, in YOUR bss
                                  ; stale. Preserves every register.
                                  ; ES:SI, not your DS: a document is usually a
                                  ; claim of its own, so set ES yourself.
-%define OSAPI_CLIP_GET      KERNEL_SEG:0x0318   ; ES:DI = your buffer, CX = its
+%define OSAPI_CLIP_GET      KERNEL_SEG:0x0328   ; ES:DI = your buffer, CX = its
                                  ; capacity. Out CF=1 = empty (AX = CX = 0);
                                  ; CF=0 with AX = the clipboard's WHOLE length
                                  ; and CX = the bytes actually copied. AX > CX
                                  ; means your buffer was too small and you got
                                  ; a prefix. Preserves all but AX and CX.
-%define OSAPI_CLIP_SIZE     KERNEL_SEG:0x0320   ; out CF=1 and AX=0 when empty,
+%define OSAPI_CLIP_SIZE     KERNEL_SEG:0x0330   ; out CF=1 and AX=0 when empty,
                                  ; else CF=0 and AX = the length. Ask this
                                  ; FIRST and grow your own buffer before
                                  ; OSAPI_CLIP_GET - on a machine with a claim
