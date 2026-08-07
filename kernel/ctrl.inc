@@ -2221,6 +2221,7 @@ cp_snd_note:
     push si
     mov dx, bp
     add dx, CPS_NOTEY
+    mov ax, CP_PMX              ; nothing to this line's left on this page
     call cp_drv_wipe            ; the strings differ in length, and the line
     mov bl, [cp_snd_err]        ; is usually empty
     or bl, bl
@@ -2367,10 +2368,11 @@ cp_drv_paint:
     pop ax
     push ax
     call cp_drv_rowy
-    add dx, CP_PLDY + 9
+    add dx, CP_DSTDY
     mov cx, di
     add cx, CP_PLX
-    call KERNEL_SEG:cw_font_str
+    call KERNEL_SEG:cw_font_str                   ; no erase needed: cp_page has
+                                                  ; just white-filled the pane
 .next:
     pop bx
     inc bx
@@ -2400,6 +2402,13 @@ cp_drv_paint:
 ; -----------------------------------------------------------------------------
 CP_DR0Y   equ 24                ; first driver row: glyph top
 CP_DROWH  equ 26                ; row pitch
+CP_DSTDY  equ CP_PLDY + 9       ; 11: the reason line, one text row under the
+                                ; label - and EXACTLY the checkbox's last row,
+                                ; because the box is CP_GW (12) tall from the
+                                ; same origin. Its erase therefore starts at
+                                ; CP_PLX and not at the pane margin: the two
+                                ; share a scan line and only the x separation
+                                ; keeps them apart (cp_drv_line1)
 CP_DB0Y1  equ CP_DR0Y - 4                       ; row 0's hit band, top...
 CP_DB0Y2  equ CP_DR0Y + CP_DROWH - 5            ; ...and bottom = row 1 top-1
 CP_DB1Y2  equ CP_DR0Y + CP_DROWH + CP_GW + 5    ; row 1's bottom
@@ -2418,47 +2427,64 @@ cp_drv_rowy:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_drv_boxes - redraw every driver row's checkbox from the live table
-; in:  DI = pane left, BP = pane top; gfx lock held
+; cp_drv_box1 - one driver row's checkbox, drawn from the live table
+; in:  AL = row index, DI = pane left, BP = pane top; gfx lock held
 ; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
 ;
 ; The box tracks DRVR_SEG - what is LOADED - and not DRVR_WANT, which is only
 ; what the settings file asks for. A driver the user enabled on a machine with
 ; no card is unchecked, and its caption says why.
+;
+; Per ROW because a click changes one, and cp_glyph is not cheap: a white
+; 12x12 fill and then one gfx_pixel per set bit - 44 of them for the empty
+; box, 64 for the crossed one - which at PERFORMANCE.md Part 2's ~756us of
+; fixed cost per drawing call is ~35-50ms of the field machine's time. Redrawn
+; unconditionally it is also a double-draw flash on a control that did not
+; change.
 ; -----------------------------------------------------------------------------
-cp_drv_boxes:
+cp_drv_box1:
     push ax
     push bx
     push cx
     push dx
     push si
-    mov byte [gfx_color], CBLACK
-    xor bx, bx
-.row:
-    push bx
-    mov al, bl
-    call KERNEL_SEG:cw_drv_row
+    mov byte [gfx_color], CBLACK    ; unconditionally, so the documented pen
+                                    ; holds for an empty row as well
+    call KERNEL_SEG:cw_drv_row      ; AL survives (drv_row preserves AX)
     cmp word [bx+DRVR_FILE], 0
-    je .next
+    je .out                         ; an empty table row is not a control
     mov si, cp_chk_off
     cmp word [bx+DRVR_SEG], 0
     je .off
     mov si, cp_chk_on
 .off:
-    pop ax
-    push ax
-    call cp_drv_rowy
+    call cp_drv_rowy                ; DX = this row's glyph top
     mov cx, di
     add cx, CP_PGX
     call cp_glyph
-.next:
-    pop bx
-    inc bx
-    cmp bx, DRV_MAX
-    jb .row
+.out:
     pop si
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_drv_boxes - every driver row's checkbox (the page's own paint)
+; in:  DI = pane left, BP = pane top; gfx lock held
+; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
+; -----------------------------------------------------------------------------
+cp_drv_boxes:
+    push ax
+    push bx
+    xor bx, bx
+.row:
+    mov al, bl
+    call cp_drv_box1
+    inc bx
+    cmp bx, DRV_MAX
+    jb .row
     pop bx
     pop ax
     ret
@@ -2546,9 +2572,18 @@ cp_drv_click:
     call cp_list                ; wants the CONTENT origin, one pane back
     pop bp
     pop di
-.redraw:
-    call cp_drv_boxes
-    call cp_drv_lines
+.redraw:                        ; AL is still the clicked row - drv_load,
+                                ; drv_unload, drv_row and cp_list all preserve
+                                ; AX - and one row is all that changed: a load
+                                ; or an unload touches its own drv_tab row and
+                                ; no other, so redrawing the rest is a
+                                ; double-draw flash on controls that did not
+                                ; move. The save caption is not redrawn either:
+                                ; only cp_flush_x writes [cp_dsave] and that
+                                ; runs at the CLOSE, so it cannot change while
+                                ; this page is on screen
+    call cp_drv_box1
+    call cp_drv_line1
 .done:
     pop dx
     pop bx
@@ -2556,43 +2591,41 @@ cp_drv_click:
     ret
 
 ; -----------------------------------------------------------------------------
-; cp_drv_lines - redraw the reason under each row, and the save caption
-; in:  DI = pane left, BP = pane top; gfx lock held
-; out: nothing (all registers preserved)
+; cp_drv_line1 - redraw the reason under one driver row
+; in:  AL = row index, DI = pane left, BP = pane top; gfx lock held
+; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
 ;
-; The strings differ in length, so each line is erased before it is drawn -
-; the cpf_disp_cap idiom.
+; The strings differ in length, so the line is erased before it is drawn - the
+; cpf_disp_cap idiom - and the erase is where this page's one drawing bug
+; lived. The line's first row IS the checkbox's last (CP_DSTDY = CP_GW - 1),
+; so a wipe starting at the pane margin runs straight through the box and
+; takes its bottom edge off. It starts at CP_PLX, the column the text itself
+; starts at, which is both the correct span and a narrower fill: nothing left
+; of CP_PLX on this row belongs to the reason line.
+;
+; cp_drv_paint got away with it because it letters the reasons FIRST and draws
+; the boxes last; the click path did the opposite, so every click ended with
+; every box on the page missing its bottom line - the clicked row's and, since
+; both painters walked all of drv_tab, the untouched row's too.
 ; -----------------------------------------------------------------------------
-cp_drv_lines:
+cp_drv_line1:
     push ax
     push bx
     push cx
     push dx
     push si
-    xor bx, bx
-.row:
-    push bx
-    mov al, bl
-    call KERNEL_SEG:cw_drv_row
+    call KERNEL_SEG:cw_drv_row      ; AL survives both of these
     cmp word [bx+DRVR_FILE], 0
-    je .next
-    call KERNEL_SEG:cw_drv_status
-    pop ax
-    push ax
-    call cp_drv_rowy
-    add dx, CP_PLDY + 9
+    je .out
+    call KERNEL_SEG:cw_drv_status   ; SI = what it is doing right now
+    call cp_drv_rowy                ; DX = this row's glyph top
+    add dx, CP_DSTDY
+    mov ax, CP_PLX                  ; ...and NOT CP_PMX: see above
     call cp_drv_wipe
     mov cx, di
     add cx, CP_PLX
     call KERNEL_SEG:cw_font_str
-.next:
-    pop bx
-    inc bx
-    cmp bx, DRV_MAX
-    jb .row
-
-    call cp_drv_cap
-    mov byte [gfx_color], CBLACK
+.out:
     pop si
     pop dx
     pop cx
@@ -2605,17 +2638,17 @@ cp_drv_lines:
 ; in:  DI = pane left, BP = pane top; gfx lock held
 ; out: nothing (all registers preserved)
 ;
-; **Its own proc because BOTH painters owe it.** It used to be inline in
-; cp_drv_lines, which runs when a driver row is TICKED - so the report only
-; ever appeared if the user happened to tick something after a failed save, in
-; the same session. The page's own paint drew everything else and not this,
-; and SPEC.md 31.8 has always said the opposite: by the time the write happens
-; the page is gone, so the failure is reported the NEXT time the panel is
-; opened. That is now true.
+; **cp_drv_paint's, and ONLY cp_drv_paint's.** It used to be inline in the
+; click path's status-line redraw, so the report only ever appeared if the user
+; happened to tick something after a failed save, in the same session. The
+; page's own paint drew everything else and not this, and SPEC.md 31.8 has
+; always said the opposite: by the time the write happens the page is gone, so
+; the failure is reported the NEXT time the panel is opened. That is now true.
 ;
-; Calling cp_drv_lines from cp_drv_paint would have done it too, and would
-; have wiped and re-lettered every row's status line that cp_drv_paint has
-; just drawn - the erase-and-letter pair PERFORMANCE.md Part 1 is about.
+; The click path does not call it at all, and must not: only cp_flush_x writes
+; [cp_dsave] and that runs at the close, so the caption cannot change while the
+; page is on screen and a wipe-and-letter of it per click is the erase-and-
+; letter pair PERFORMANCE.md Part 1 is about, spent on unchanged text.
 ; -----------------------------------------------------------------------------
 cp_drv_cap:
     push ax
@@ -2624,6 +2657,7 @@ cp_drv_cap:
     push si
     mov dx, bp
     add dx, CP_PCAPY
+    mov ax, CP_PMX              ; the caption owns the pane's full width
     call cp_drv_wipe            ; ...which leaves the pen CBLACK
     cmp byte [cp_dsave], 0
     je .out
@@ -2644,8 +2678,14 @@ cp_drv_cap:
 
 ; -----------------------------------------------------------------------------
 ; cp_drv_wipe - white out one text line of the pane (module internal)
-; in:  DI = pane left, DX = the line's baseline y; gfx lock held
+; in:  DI = pane left, AX = the line's LEFT inset from the pane, DX = the
+;      line's baseline y; gfx lock held
 ; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
+;
+; The inset is an argument rather than CP_PMX because a line does not always
+; own the pane's full width: a driver row's reason line shares a scan line
+; with that row's checkbox and must not erase into it (cp_drv_line1). A
+; caption, which has nothing to its left, passes CP_PMX.
 ; -----------------------------------------------------------------------------
 cp_drv_wipe:
     push ax
@@ -2653,8 +2693,7 @@ cp_drv_wipe:
     push cx
     push dx
     mov byte [gfx_color], CWHITE
-    mov ax, di
-    add ax, CP_PMX
+    add ax, di
     mov bx, dx
     mov cx, di
     add cx, CP_PRGT             ; the PANE's last column, not the content's
