@@ -3160,8 +3160,6 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
                                 ; thunks in kernel.asm far-call these, and
                                 ; these near-call the bodies above - so every
                                 ; routine here keeps its ordinary near `ret`
-dwf_dskw_char:          call dskw_char_x
-                    retf
 dwf_dskw_delete:        call dskw_delete_x
                     retf
 dwf_dskw_dfree:         call dskw_dfree_x
@@ -3169,8 +3167,6 @@ dwf_dskw_dfree:         call dskw_dfree_x
 dwf_dskw_flush:         call dskw_flush_x
                     retf
 dwf_dskw_gone:          call dskw_gone_x
-                    retf
-dwf_dskw_mkdir:         call dskw_mkdir_x
                     retf
 dwf_dskw_read:          call dskw_read_x
                     retf

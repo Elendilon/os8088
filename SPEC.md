@@ -375,10 +375,13 @@ step rather than nothing.
 Two things live there. The Control Panel's three code runs — large, cold
 enough that a far call per entry costs nothing measurable, and needed on
 exactly the machine where things are going wrong, so it must stay resident.
-And the four **file modules**: `loader.inc` (§21), `diskw.inc` (§18.4),
-`files.inc` (§22) and `filecp.inc` (§22.3), ~12.5KB between them, moved
-together because they mostly call each other — a call inside the set stays
-near, and only the 156 that leave it pay a shim.
+And the five **file modules**: `loader.inc` (§21), `diskw.inc` (§18.4),
+`files.inc` (§22), `filecp.inc` (§22.3) and `fdlg.inc` (§38), ~15.3KB
+between them, moved together because they mostly call each other — a call
+inside the set stays near, and only the ones that leave it pay a shim.
+Growing the set makes the ones already in it *cheaper*: `fdlg.inc` joining
+turned its calls to `fm_ultoa`, `dskw_mkdir` and `dskw_char` from a double
+crossing into a near call, and retired those three thunks.
 
 Calls out use four-byte `cw_*` shims; calls *in* use six-byte resident
 thunks (`call SEG:x` / `ret`), because `wm_pkgcall` sets DS from `W_SEG` and
@@ -401,7 +404,8 @@ runs wrong:
   dispatches through it.** There are four: `ctrl.inc`'s page table, and
   `files.inc`'s `fm_jmp` and two `fm_ctx_*` sets. The mirror rule is the one
   that broke first — a table `.text` *does* dispatch through must name the
-  **thunk**, not the `_x` body, which is what `fm_tpl` and `fm_menus` do.
+  **thunk**, not the `_x` body, which is what `fm_tpl`, `fm_menus` and
+  `fdlg_tpl` do.
 - **A macro argument is a call site.** `OSAPI_SLOT dskw_dfree` near-calls its
   argument from inside the macro body, and six of those pointed into these
   modules. `tools/os88ovlchk.py` reads the source, so it saw none of them
@@ -492,7 +496,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21). **`.cold`** (§2.6) |
 | `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22). **`.cold`** (§2.6), with its strings and dispatch tables toggled back to `.text` |
 | `kernel/filecp.inc` | the file manager's clipboard: Cut, Copy, Paste and the recursive paste engine (§22.3) — prefix `fcp_`. **`.cold`** (§2.6) |
-| `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_` |
+| `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_`. **`.cold`** (§2.6) |
 | `kernel/icons.inc`  | 1-bit icon format, draw routine, built-in library (§25) |
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |

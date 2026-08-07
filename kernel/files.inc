@@ -4558,8 +4558,6 @@ fmf_fm_rclick:          call fm_rclick_x
                     retf
 fmf_fm_rcmd:            call fm_rcmd_x
                     retf
-fmf_fm_ultoa:           call fm_ultoa_x
-                    retf
 fmf_fmv_sync:           call fmv_sync_x
                     retf
 

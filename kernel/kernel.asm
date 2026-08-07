@@ -253,20 +253,21 @@ KERN_BUDGET equ 82432           ; the whole kernel's FOOTPRINT. Growing past
                                 ;
                                 ; The ninth move, 80,384 -> 82,432, is the
                                 ; first one bought for the OTHER guard. The
-                                ; file load, file save and file manager
-                                ; modules went into .cold (SPEC.md 2.6), and
-                                ; the two rungs that swap do not round the
-                                ; same way: the image loses 12.5KB and the
-                                ; cold segment gains it, which lands one 512
-                                ; step wide and left 512 spare of the fifth
-                                ; move's stated 2,048. What it buys is
-                                ; KERN_CODE_MAX, which had 3,519 bytes spare
-                                ; and now has 15,671 - both measured by
-                                ; bisecting the guards, not modelled -
-                                ; against the work that is coming. The
-                                ; footprint ends at 79,872 with 2,560 spare,
-                                ; which is more than the 1,024 it started
-                                ; with. Asked for and granted
+                                ; file load, file save, file manager and
+                                ; file dialog modules went into .cold
+                                ; (SPEC.md 2.6), and the two rungs that swap
+                                ; do not round the same way: the image loses
+                                ; 15.3KB and the cold segment gains it,
+                                ; which lands two 512 steps wide. What it
+                                ; buys is KERN_CODE_MAX, which had 3,519
+                                ; bytes spare and now has 18,811 - both
+                                ; measured by bisecting the guards, not
+                                ; modelled - against the work that is
+                                ; coming. The footprint ends at 80,384 with
+                                ; 2,048 spare, which is twice the 1,024 it
+                                ; started with: the five modules cost two
+                                ; steps between them and the raise gave
+                                ; four. Asked for and granted
                                 ; on those terms. Note what it does NOT buy:
                                 ; a byte of RAM back for the machine, and not
                                 ; a byte of footprint either. Cold code is
@@ -1462,6 +1463,8 @@ cw_dsk_free_clus:       call dsk_free_clus
                     retf
 cw_dsk_get_dir:         call dsk_get_dir
                     retf
+cw_dsk_get_icon:        call dsk_get_icon
+                    retf
 cw_dsk_next_clus:       call dsk_next_clus
                     retf
 cw_dsk_read_chain:      call dsk_read_chain
@@ -1487,6 +1490,8 @@ cw_gfx_hline:           call gfx_hline
 cw_gfx_lock:            call gfx_lock
                     retf
 cw_gfx_pen_cf:          call gfx_pen_cf
+                    retf
+cw_gfx_pen_dis:         call gfx_pen_dis
                     retf
 cw_gfx_pen_live:        call gfx_pen_live
                     retf
@@ -1524,6 +1529,10 @@ cw_mem_free:            call mem_free
                     retf
 cw_mem_free_owner:      call mem_free_owner
                     retf
+cw_menu_activate:       call menu_activate
+                    retf
+cw_menu_draw_bar:       call menu_draw_bar
+                    retf
 cw_menu_popup:          call menu_popup
                     retf
 cw_osapi_snd_tone:      call osapi_snd_tone
@@ -1533,6 +1542,8 @@ cw_sched_mode_get:      call sched_mode_get
 cw_sched_mode_set:      call sched_mode_set
                     retf
 cw_snd_beep:            call snd_beep
+                    retf
+cw_snd_disp_set:        call snd_disp_set
                     retf
 cw_task_yield:          call task_yield
                     retf
@@ -1545,6 +1556,10 @@ cw_wm_clip_set:         call wm_clip_set
 cw_wm_clip_test:        call wm_clip_test
                     retf
 cw_wm_content:          call wm_content
+                    retf
+cw_wm_create:           call wm_create
+                    retf
+cw_wm_destroy:          call wm_destroy
                     retf
 cw_wm_destroy_seg:      call wm_destroy_seg
                     retf
@@ -1559,6 +1574,8 @@ cw_wm_idx2ptr:          call wm_idx2ptr
 cw_wm_obscured:         call wm_obscured
                     retf
 cw_wm_paint_all:        call wm_paint_all
+                    retf
+cw_wm_pkgcall:          call wm_pkgcall
                     retf
 cw_wm_show:             call wm_show
                     retf
@@ -1591,8 +1608,6 @@ cp_tick:              call COLD_SEG:cpf_cp_tick
 ; --- ...and the file modules': loader.inc, diskw.inc, files.inc (SPEC.md 2.6).
 ; filecp.inc needs none - every caller of an fcp_ routine is files.inc, which
 ; is cold too, so those calls stayed near.
-dskw_char:            call COLD_SEG:dwf_dskw_char
-                    ret
 dskw_delete:          call COLD_SEG:dwf_dskw_delete
                     ret
 dskw_dfree:           call COLD_SEG:dwf_dskw_dfree
@@ -1600,8 +1615,6 @@ dskw_dfree:           call COLD_SEG:dwf_dskw_dfree
 dskw_flush:           call COLD_SEG:dwf_dskw_flush
                     ret
 dskw_gone:            call COLD_SEG:dwf_dskw_gone
-                    ret
-dskw_mkdir:           call COLD_SEG:dwf_dskw_mkdir
                     ret
 dskw_read:            call COLD_SEG:dwf_dskw_read
                     ret
@@ -1639,8 +1652,6 @@ fm_rclick:            call COLD_SEG:fmf_fm_rclick
                     ret
 fm_rcmd:              call COLD_SEG:fmf_fm_rcmd
                     ret
-fm_ultoa:             call COLD_SEG:fmf_fm_ultoa
-                    ret
 fmv_sync:             call COLD_SEG:fmf_fmv_sync
                     ret
 ld_run_body:          call COLD_SEG:ldf_ld_run_body
@@ -1648,6 +1659,20 @@ ld_run_body:          call COLD_SEG:ldf_ld_run_body
 loader_init:          call COLD_SEG:ldf_loader_init
                     ret
 loader_run:           call COLD_SEG:ldf_loader_run
+                    ret
+fdlg_grab:            call COLD_SEG:fdf_fdlg_grab
+                    ret
+fdlg_onclick:         call COLD_SEG:fdf_fdlg_onclick
+                    ret
+fdlg_onkey:           call COLD_SEG:fdf_fdlg_onkey
+                    ret
+fdlg_open:            call COLD_SEG:fdf_fdlg_open
+                    ret
+fdlg_paint:           call COLD_SEG:fdf_fdlg_paint
+                    ret
+fdlg_reap:            call COLD_SEG:fdf_fdlg_reap
+                    ret
+fdlg_top:             call COLD_SEG:fdf_fdlg_top
                     ret
 
 ; =============================================================================
