@@ -18462,11 +18462,30 @@ Three things about it are load-bearing:
   sectors (§19.2), and `drv_boot` calls `drv_load` once per wanted driver —
   so an unconditional restore would put a mount on the boot path for every
   one of them, to arrive where it already was. Banked equal to current means
-  nothing moved and there is nothing to undo. Measured with §18.94's counters
-  rather than argued: ticking a driver **from A:** costs `disk_mount` 1 → 2
-  (the load's own mount, restore skipped) and **from B:** 2 → 4 (the load's,
-  plus the restore); and a boot with a driver wanted is **2 mounts**,
-  `drv_boot`'s and `drv_load`'s, where an unconditional restore would be 3.
+  nothing moved and there is nothing to undo.
+
+  **What it costs, measured with §18.94's counters rather than argued** —
+  ticking a driver, the counters read before and after:
+
+  | | `disk_mount` | sectors | int 13h |
+  |---|---|---|---|
+  | before this fix, volume on B: | 1 | 28 | 12 |
+  | after, volume on B: | 2 | 43 | 17 |
+  | after, volume already A: | 1 | 26 | 10 |
+  | **the restore itself** | **1** | **15** | **5** |
+
+  So the fix **adds one floppy remount, and only when the volume actually
+  moved**. That is not a side effect to be optimised away later — putting the
+  volume back *is* a remount, because navigation in this OS is a remount by
+  design (§19.2), which is the same choice that keeps `disk_dir` always
+  exactly a mount snapshot. It is affordable because of what it is attached
+  to: both callers are already writing or reading the floppy, and a
+  `SYSTEM.CFG` write alone is 2+ seconds of frozen UI on the floor machine
+  (§31.8). It is paid once per panel close or driver tick, never per click.
+
+  A boot with a driver wanted is **2 mounts**, `drv_boot`'s and `drv_load`'s,
+  where an unconditional restore would be 3 — the compare earning its keep on
+  the one path where the cost would be pure waste.
 - **`drv_boot` needs no exception**, and that falls out of the compare rather
   than being arranged. It mounts A: itself before the loop, so every
   `drv_load` inside it banks A: and finds A: — the restore is skipped without

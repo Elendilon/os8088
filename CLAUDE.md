@@ -1602,10 +1602,17 @@ answer); **the compare is what makes it free**, since a remount is a floppy's
 worth of sectors and `drv_boot` calls `drv_load` per wanted driver, so banked
 == current means nothing to undo; and **`drv_boot` needs no exception**, which
 falls out of that compare rather than being arranged — it mounts A: itself
-before the loop, so every load inside it banks A: and finds A:. Measured with
-§18.94's counters rather than argued: a tick from A: is 1 → 2 mounts (restore
-skipped), from B: 2 → 4 (restore fires), and a boot with a driver wanted is 2
-where an unconditional restore would be 3.
+before the loop, so every load inside it banks A: and finds A:. **What it costs
+is one floppy remount, and only when the volume actually moved** — measured
+with §18.94's counters rather than argued: ticking a driver on B: was 1 mount
+/ 28 sectors / 12 `int 13h` calls before the fix and is 2 / 43 / 17 after, so
+the restore itself is 1 / 15 / 5; on A: it stays 1 / 26 / 10; and a boot with
+a driver wanted is 2 mounts where an unconditional restore would be 3. **That
+cost is the fix rather than an overhead on it** — putting the volume back *is*
+a remount, because navigation here is a remount by design (§19.2) — and it is
+affordable because of what it is attached to: both callers already touch the
+floppy, and a `SYSTEM.CFG` write alone is 2+ seconds of frozen UI on the floor
+machine (§31.8).
 
 Two traps. **`build/os8088.img` is now writable and the OS writes to it** —
 any test that touches a Control Panel setting is remembered by that image and
