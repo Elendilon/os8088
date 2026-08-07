@@ -1382,6 +1382,7 @@ and compose into one.
 | Hercules | 1,782 | — | **541** | 541 | 5.41 counts | **3.29x** |
 | CGA | 1,798 | — | **547** | — | 5.47 | **3.29x** |
 | VGA | 2,300 | 2,296 | **1,626** | 1,633 | 16.26 | **1.41x** |
+| VGA, draw fused too | 2,300 | 2,296 | **1,495** | — | 14.95 | **1.54x** |
 
 100 iterations a row. The two mono columns agreeing to 1.1% before and 1.1%
 after is the harness checking itself: they are the same renderer over four

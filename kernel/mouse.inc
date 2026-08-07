@@ -765,148 +765,128 @@ cur_get_mono:
 ; -----------------------------------------------------------------------------
 cur_draw:
     call cur_geom               ; DI = the top-left byte, CL = shift, and
-    mov ax, [vid_seg]           ; [cur_rows]/[cur_b1ok] = how much is on screen
+    mov ch, [cur_rows]          ; [cur_rows]/[cur_b1ok] = how much is on screen
+    or ch, ch
+    jz .done                    ; wholly off the bottom
+    mov ax, [vid_seg]
     mov es, ax
-    mov dx, 0x3CE               ; GC1: enable Set/Reset on all planes
-    mov ax, 0x0F01
-    out dx, ax
-    mov ah, CWHITE              ; GC0: Set/Reset color = white
-    mov al, 0
-    out dx, ax
-    mov al, 8                   ; leave the index at GC8 (Bit Mask)
-    out dx, al
     mov si, cur_and
-    call cur_pass               ; white outline + fill
-
-    mov dx, 0x3CE
-    mov ah, CBLACK              ; GC0: Set/Reset color = black
-    mov al, 0
-    out dx, ax
-    mov al, 8
-    out dx, al
-    mov si, cur_data
-    call cur_pass               ; black body on top
-
-    mov dx, 0x3CE               ; back to defaults: Set/Reset off, mask FF
-    mov ax, 0x0001
-    out dx, ax
-    mov ax, 0xFF08
-    out dx, ax
-    ret
-
-; -----------------------------------------------------------------------------
-; cur_pass - one masked pass over the cell. Each 16-bit row lands at bit offset
-;            CL inside a 16-bit window: B0:B1 = row >> CL. Zero mask bytes are
-;            skipped.
-;
-; There is no third byte. Every row of both tables has a zero low byte - an
-; 8px arrow (CUR_GW, asserted at the tables) - so `row << (8-CL)` could only
-; ever be 0, and what it bought was a shift pair, a branch and a cur_b2ok test
-; on every row of every pass.
-; ins:  SI -> CUR_H-word row table, DI = VRAM offset of the top-left byte,
-;       CL = shift, ES = VGA_SEG,
-;       GC: Set/Reset enabled + color set, index register = 8
-; outs: none; preserves CX, DI; clobbers ax, bx, dx, si, bp
-; -----------------------------------------------------------------------------
-cur_pass:
-    push di
-    xor ax, ax
-    mov al, [cur_rows]          ; clipped row count from cur_geom
-    mov bp, ax
-    or  bp, bp
-    jz .out
-    mov dx, 0x3CF               ; GC data port; index already 8 (Bit Mask)
+    mov dx, VGA_GC              ; the INDEX port: index and data go as one word
 .row:
-    lodsw                       ; AX = row bits, MSB = leftmost pixel
-    shr ax, cl                  ; AH:AL = B0:B1
-    mov bx, ax
+    mov ax, [si]                ; AX = white: every pixel the arrow touches...
+    mov bx, [si+CUR_TABSZ]      ; ...and BX = the black body inside it
+    add si, 2
+    not bx
+    and bx, ax                  ; BX = white & ~black = the pixels that go WHITE
+    shr ax, cl                  ; AX = the Bit Mask, shifted into place
+    shr bx, cl                  ; BX = the plane data, likewise
+    mov bp, ax                  ; bank it: AX is the port register
 
-    mov al, bh                  ; --- byte 0 ---
-    or  al, al
+    or ah, ah                   ; --- byte 0 ---
     jz .b1
-    out dx, al
-    mov al, [es:di]             ; load latches
-    mov [es:di], al
+    mov al, 8                   ; GC8 = Bit Mask = this byte's arrow bits
+    out dx, ax
+    mov al, [es:di]             ; the READ is the latch load; its value is
+    mov al, bh                  ; discarded, and the byte written in its place
+    mov [es:di], al             ; carries BOTH colours at once
 .b1:
-    mov al, bl                  ; --- byte 1 ---
-    or  al, al
+    mov ax, bp
+    or al, al                   ; --- byte 1 ---
     jz .next
     cmp byte [cur_b1ok], 0      ; clipped off the right screen edge?
     je .next
-    out dx, al
-    mov al, [es:di+1]
+    mov ah, al
+    mov al, 8
+    out dx, ax
+    mov al, [es:di+1]           ; latch load, as above
+    mov al, bl
     mov [es:di+1], al
 .next:
     add di, ROW_BYTES
-    dec bp
+    dec ch
     jnz .row
-.out:
-    pop di
+    mov ax, 0xFF08              ; GC8 back to all bits (SPEC.md 1 rule 7)
+    out dx, ax
+.done:
     ret
 
 ; -----------------------------------------------------------------------------
 ; cursor bitmap - classic Mac arrow, hot spot (0,0), black body 11 rows tall
-; with a 1px white outline. cur_and is the white pass (outline + fill),
-; cur_data the black body drawn on top. MSB = leftmost pixel.
+; with a 1px white outline. cur_and is the white mask (outline + fill),
+; cur_data the black body inside it. MSB = leftmost pixel.
 ;
-; The rows go in through CUR_ROW rather than `dw`, which emits the same word
-; and ALSO accumulates the two facts the drawing code is built on: the widest
-; bit set anywhere (CUR_GW) and the last row that has one (CUR_GH). Both are
-; checked below. Neither can be trusted as a comment, because both fail
-; silently - a wider arrow loses its right-hand column on the two mono
-; adapters, a taller one leaves its bottom rows on the screen for the rest of
-; the session, and neither shows up anywhere but on the glass.
+; ONE list, expanded TWICE. Both tables come out of CUR_ARROW, which carries
+; each row's white and black words side by side and emits whichever the pass
+; wants - because the invariant the drawing code now depends on is a statement
+; about the PAIR, and a pair split across two tables thirty lines apart is a
+; pair nobody checks. Three facts are accumulated and asserted below: the
+; widest bit set anywhere (CUR_GW), the last row that sets one (CUR_GH), and
+; that every black bit is also a white one. All three fail silently otherwise
+; - a wider arrow loses its right-hand column on the two mono adapters, a
+; taller one leaves its bottom rows on screen for the rest of the session, and
+; an escaped black bit simply does not get drawn on VGA - and none of them
+; shows up anywhere but on the glass.
+;
+; cur_bits and cur_hi are accumulated from the WHITE rows alone, which the
+; subset assertion is what licenses: a black bit can neither be wider nor
+; lower than the white bit that must accompany it.
 ; -----------------------------------------------------------------------------
-%assign cur_bits 0              ; every bit any row sets, ORed together
-%assign cur_hi   0              ; ...and one past the last row that sets any
-%macro CUR_ROW 1
+%assign cur_bits 0              ; every bit any WHITE row sets, ORed together
+%assign cur_hi   0              ; ...and one past the last one that sets any
+%macro CUR_ROW 2                ; white row, black row
+  %if cur_tab == 0
     dw %1
-  %if (%1) != 0
-   %if cur_row_i + 1 > cur_hi
-    %assign cur_hi cur_row_i + 1
-   %endif
+    %assign cur_bits cur_bits | (%1)
+    %if (%1) != 0
+      %if cur_row_i + 1 > cur_hi
+        %assign cur_hi cur_row_i + 1
+      %endif
+    %endif
+    ; ...and the third fact, which only the PLANAR draw needs: every black bit
+    ; must also be a white one. cur_draw writes both colours in ONE masked
+    ; store now - Bit Mask = the white row, plane data = white & ~black - so a
+    ; black pixel outside its white row would be masked off and simply not
+    ; drawn, where the old two-pass draw painted it in a pass of its own.
+    ; It is checked HERE because here is the only place both rows are in view.
+    %if ((%2) & ~(%1)) & 0xFFFF
+      %error "mouse: a black cursor row escapes its white row - cur_draw's fused write would drop those pixels"
+    %endif
+  %else
+    dw %2
   %endif
-  %assign cur_bits  cur_bits | (%1)
   %assign cur_row_i cur_row_i + 1
 %endmacro
 
-%assign cur_row_i 0
-cur_and:                        ; white: body dilated by 1px in all directions
-    CUR_ROW 0xE000              ; ***.............
-    CUR_ROW 0xF000              ; ****............
-    CUR_ROW 0xF800              ; *****...........
-    CUR_ROW 0xFC00              ; ******..........
-    CUR_ROW 0xFE00              ; *******.........
-    CUR_ROW 0xFF00              ; ********........
-    CUR_ROW 0xFF00              ; ********........
-    CUR_ROW 0xFF00              ; ********........
-    CUR_ROW 0xFE00              ; *******.........
-    CUR_ROW 0xFE00              ; *******.........
-    CUR_ROW 0xDE00              ; **.****.........
-    CUR_ROW 0x1E00              ; ...****.........
-    CUR_ROW 0x0000
-    CUR_ROW 0x0000
-    CUR_ROW 0x0000
-    CUR_ROW 0x0000
+; white (outline + fill)        black (the body)
+%macro CUR_ARROW 0
+    CUR_ROW 0xE000,             0x8000      ; ***.....  #.......
+    CUR_ROW 0xF000,             0xC000      ; ****....  ##......
+    CUR_ROW 0xF800,             0xE000      ; *****...  ###.....
+    CUR_ROW 0xFC00,             0xF000      ; ******..  ####....
+    CUR_ROW 0xFE00,             0xF800      ; *******.  #####...
+    CUR_ROW 0xFF00,             0xFC00      ; ********  ######..
+    CUR_ROW 0xFF00,             0xFE00      ; ********  #######.
+    CUR_ROW 0xFF00,             0xF800      ; ********  #####...
+    CUR_ROW 0xFE00,             0xD800      ; *******.  ##.##...
+    CUR_ROW 0xFE00,             0x8C00      ; *******.  #...##..
+    CUR_ROW 0xDE00,             0x0C00      ; **.****.  ....##..
+    CUR_ROW 0x1E00,             0x0000      ; ...****.  ........
+    CUR_ROW 0x0000,             0x0000
+    CUR_ROW 0x0000,             0x0000
+    CUR_ROW 0x0000,             0x0000
+    CUR_ROW 0x0000,             0x0000
+%endmacro
 
+%assign cur_tab   0
+%assign cur_row_i 0
+cur_and:                        ; white: the body dilated by 1px, right and down
+    CUR_ARROW
+
+%assign cur_tab   1
 %assign cur_row_i 0
 cur_data:                       ; black: the arrow body itself
-    CUR_ROW 0x8000              ; #...............
-    CUR_ROW 0xC000              ; ##..............
-    CUR_ROW 0xE000              ; ###.............
-    CUR_ROW 0xF000              ; ####............
-    CUR_ROW 0xF800              ; #####...........
-    CUR_ROW 0xFC00              ; ######..........
-    CUR_ROW 0xFE00              ; #######.........
-    CUR_ROW 0xF800              ; #####...........
-    CUR_ROW 0xD800              ; ##.##...........
-    CUR_ROW 0x8C00              ; #...##..........
-    CUR_ROW 0x0C00              ; ....##..........
-    CUR_ROW 0x0000
-    CUR_ROW 0x0000
-    CUR_ROW 0x0000
-    CUR_ROW 0x0000
-    CUR_ROW 0x0000
+    CUR_ARROW
+
 cur_tabend:
 
 ; --- what the drawing code above claims about those two tables ---------------
