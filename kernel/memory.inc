@@ -80,6 +80,11 @@ MEM_K_ASC  equ 0xFF06           ; one volume's ASSOC.DAT cache (SPEC.md
                                 ; 54.7) - shared, reloaded on a volume switch
 MEM_K_FATW equ 0xFF05           ; one volume's private FAT window (18.8.1),
                                 ; held for as long as that volume is mounted
+MEM_K_CLIP equ 0xFF07           ; the system clipboard's text (SPEC.md 55) -
+                                ; sized to what is in it, freed when it is
+                                ; emptied, and deliberately NOT an instance's,
+                                ; so closing the app that copied does not take
+                                ; the clipboard down with it
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
 

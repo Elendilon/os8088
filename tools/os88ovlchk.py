@@ -14,10 +14,22 @@ conditional branches and loops.  Local labels (.foo) bind to their parent
 and cannot cross, so they fall out of the label map untested, which is
 correct.
 
+It also knows the `OSAPI_*` cell macros, whose argument IS a call site: the
+`call` lives in the macro body as `call %1`, so a plain scan of the source
+sees `OSAPI_SLOT dskw_dfree` as no call at all.  Six of those pointed into
+the file modules the day they went cold and not one would have been
+reported.  A new cell macro that near-calls its argument belongs in CELL
+below.
+
 What it CANNOT see, by construction: an indirect transfer (`call bx`,
 `jmp [table]`) and a code pointer stored in data.  Those stay a review rule:
 a table of `.cold` pointers may live in `.text` only if cold code alone
-dispatches through it (ctrl.inc's page table is the one instance).
+dispatches through it.  There are four - ctrl.inc's page table, and
+files.inc's `fm_jmp` plus the two `fm_ctx_*` descriptor sets, all three
+reached only from `fm_docmd` / `fm_rclick`, which are themselves cold.  The
+mirror of that rule is what a build cannot catch either: a table in `.text`
+that `.text` DOES dispatch through must name the resident thunk and not the
+`_x` body, which is how `fm_tpl` and `fm_menus` are written.
 
 Run it from `make`; it is worth more than any amount of reading.
 """
@@ -25,6 +37,9 @@ import re, sys, glob
 
 CALL = re.compile(r'\b(?:call|jmp|j[a-z]{1,3}|loop[a-z]{0,2})\s+'
                   r'(?:(?:near|short)\s+)?(?:(\w+):)?([A-Za-z_]\w*)\b')
+# an API cell macro whose body near-calls its LAST argument
+CELL = re.compile(r'^\s*OSAPI_(?:SLOT|NSTUB|XSTUB)\s+(?:\w+\s*,\s*)?'
+                  r'([A-Za-z_]\w*)\s*$')
 FAR = ('.ovl', '.cold')     # sections with a vstart of their own
 
 
@@ -51,8 +66,11 @@ def main():
     bad = []
     for f in files:
         for sect, n, line in sections(f):
-            for m in CALL.finditer(line):
-                seg, tgt = m.group(1), m.group(2)
+            hits = [(m.group(1), m.group(2)) for m in CALL.finditer(line)]
+            m = CELL.match(line)
+            if m:
+                hits.append((None, m.group(1)))
+            for seg, tgt in hits:
                 tsect = where.get(tgt)
                 if tsect is None:
                     continue

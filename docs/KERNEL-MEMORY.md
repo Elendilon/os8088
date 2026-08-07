@@ -123,13 +123,20 @@ and it is true again, by a wide margin, now that the budget has come down to
 
 | | headroom |
 |---|---:|
-| `KERN_CODE_MAX`, the segment | ~9,400 B for `.text` + `.bss` |
-| **`KERN_BUDGET`, the footprint** | **1,536 B** for the whole span |
+| `KERN_CODE_MAX`, the segment | ~3,300 B for `.text` + `.bss` |
+| **`KERN_BUDGET`, the footprint** | **1,024 B** for the whole span |
 
 **Do not trust that second figure — measure it.** It said 1,536 B once
 before and was stale by 1,024, which is how two features met at the guard
-without either author knowing it was close. `KERN_SIZE` is 74,752 against a
-`KERN_BUDGET` of 76,288 as this is written, and the sixth raise
+without either author knowing it was close. `KERN_SIZE` is 79,360 against a
+`KERN_BUDGET` of 80,384 as this is written (`.text` 58,630 + `.bss` 3,610 =
+62,240 of `KERN_CODE_MAX`'s 65,536), and SPEC.md §55's clipboard is the most
+recent thing to land in that span — ~330 bytes of `.text` and six of `.bss`,
+which cost the footprint **nothing at all** because `KIMG_PARA` rounds the
+image to 512 and there was slack inside the current step. That is the shape
+to expect and the reason to measure rather than add up: a change costs the
+footprint either zero or 512, and which one it is depends on what landed
+before it, and the sixth raise
 (74,240 → 76,288, the history in `kernel/kernel.asm`) is what made room:
 SPEC.md §5.6's `gfx_line` cost 512 bytes — one whole step, because
 `KIMG_PARA` rounds the image to 512 and its ~430 bytes of code plus ~40 of

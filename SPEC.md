@@ -365,18 +365,63 @@ not go away**. It sits between the image rung and the FAT window, so it
 rides the same contiguous boot read, and it is live for the whole session.
 
 What it buys is `KERN_CODE_MAX` and nothing else: cold code is inside
-`KERN_BUDGET`'s span (§15.1) and outside the kernel's own 64KB segment,
-which since hard-disk support is the binding limit. The Control
-Panel's three code runs are what live there — a module that is large, cold
+`KERN_BUDGET`'s span (§15.1) and outside the kernel's own 64KB segment.
+**It does not buy a byte of footprint** — cold bytes are resident and are
+measured by `KERN_BUDGET` exactly like `.text`'s, so moving a module here to
+fix a footprint overrun is a no-op that looks like a fix. The two rungs it
+moves between round separately, so a large move usually costs one 512-byte
+step rather than nothing.
+
+Two things live there. The Control Panel's three code runs — large, cold
 enough that a far call per entry costs nothing measurable, and needed on
 exactly the machine where things are going wrong, so it must stay resident.
+And the five **file modules**: `loader.inc` (§21), `diskw.inc` (§18.4),
+`files.inc` (§22), `filecp.inc` (§22.3) and `fdlg.inc` (§38), ~15.3KB
+between them, moved together because they mostly call each other — a call
+inside the set stays near, and only the ones that leave it pay a shim.
+Growing the set makes the ones already in it *cheaper*: `fdlg.inc` joining
+turned its calls to `fm_ultoa`, `dskw_mkdir` and `dskw_char` from a double
+crossing into a near call, and retired those three thunks.
 
 Calls out use four-byte `cw_*` shims; calls *in* use six-byte resident
 thunks (`call SEG:x` / `ret`), because `wm_pkgcall` sets DS from `W_SEG` and
-that is the wrong contract for cold code. This is **not** the retired
-`.fartext` (§33): that mechanism copied cold modules to a segment of their
-own at boot and needed a 10,752-byte reservation to hold a 5,455-byte blob.
-Nothing is copied here and nothing is reserved.
+that is the wrong contract for cold code. The thunk keeps the **public**
+name and the body takes an `_x` suffix, so no caller outside changes.
+
+Four rules, and every one of them is something that assembles cleanly and
+runs wrong:
+
+- **Data stays in `.text`.** DS is still `KERNEL_SEG`, so a string or table
+  that moved with its code would be addressed at the wrong segment. A module
+  with data islands toggles sections around each of them; `files.inc` does
+  it four times.
+- **Nothing may assume `CS` is `KERNEL_SEG`.** `push cs`/`pop es` and
+  `[cs:x]` are the two spellings, and `loader.inc` had three of them —
+  including a documented one, the far pointer it calls a package's
+  dispatcher through. It reads that through ES now, which is the only
+  register still naming the kernel at that point.
+- **A table of cold pointers may live in `.text` only if cold code alone
+  dispatches through it.** There are four: `ctrl.inc`'s page table, and
+  `files.inc`'s `fm_jmp` and two `fm_ctx_*` sets. The mirror rule is the one
+  that broke first — a table `.text` *does* dispatch through must name the
+  **thunk**, not the `_x` body, which is what `fm_tpl`, `fm_menus` and
+  `fdlg_tpl` do.
+- **A macro argument is a call site.** `OSAPI_SLOT dskw_dfree` near-calls its
+  argument from inside the macro body, and six of those pointed into these
+  modules. `tools/os88ovlchk.py` reads the source, so it saw none of them
+  until it was taught the cell macros; it is worth more than any amount of
+  reading, and only for what it can see.
+
+This is **not** the retired `.fartext` (§33): that mechanism copied cold
+modules to a segment of their own at boot and needed a 10,752-byte
+reservation to hold a 5,455-byte blob. Nothing is copied here and nothing is
+reserved.
+
+The shims live **below every `%include`** in `kernel.asm`, which is not
+cosmetic: they used to sit with the API stubs, which is above `splash.inc`,
+and `splash.inc` has to end inside the image's first `SPL_RESIDENT` sectors
+(§15). At 140 bytes they fitted; at over 500 they push the splash out of its
+sectors, and the build then fails naming splash and nothing else.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
@@ -447,14 +492,15 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
 | `kernel/apps.inc`   | built-in app kinds: About, Timer, Bounce — state pools, kinit procs, per-instance tasks |
 | `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19) |
-| `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write` |
-| `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21) |
-| `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22) |
-| `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_` |
+| `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write`. **`.cold`** (§2.6) |
+| `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21). **`.cold`** (§2.6) |
+| `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22). **`.cold`** (§2.6), with its strings and dispatch tables toggled back to `.text` |
+| `kernel/filecp.inc` | the file manager's clipboard: Cut, Copy, Paste and the recursive paste engine (§22.3) — prefix `fcp_`. **`.cold`** (§2.6) |
+| `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_`. **`.cold`** (§2.6) |
 | `kernel/icons.inc`  | 1-bit icon format, draw routine, built-in library (§25) |
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
-| `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_` |
+| `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 | `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, the frame clock/present, and the cold XMS desktop stash (§53.6.1) — prefix `fsx_` |
 
@@ -4013,7 +4059,7 @@ Three things about it are deliberate:
     `SCH_WD_TICKS` ticks (`sch_wd_hits` advances, readable with QMP `xp` on
     segment 0x0800).
 12. **Writing works and the volume stays a legal FAT volume** (§18.4/§27.1):
-    type into Note Pad, F2 saves ("Saved NOTES.TXT"), F3 in a *second*
+    type into Note Pad, `Ctrl-S` saves ("Saved NOTES.TXT"), `Ctrl-O` in a *second*
     Note Pad instance loads the same text back; the Disk window's Refresh
     lists `NOTES.TXT` with its true size; and after QEMU exits,
     `python3 tools/os88disk.py --verify build/apps.img` passes — FAT1 ≡
@@ -8077,8 +8123,17 @@ instance table like any other package.
 
 NOTEPAD is where §18.4 becomes visible to a user, and the package-side
 proof that the file slots work from a plain window callback. Two keys, DOS
-Editor's: **F2 saves** (scan 3Ch), **F3 loads** (scan 3Dh); both arrive
+Editor's: **F2 saved** (scan 3Ch) and **F3 loaded** (scan 3Dh), both arriving
 through the existing onkey with AL = 0.
+
+**Neither is an F-key any more: Save is `Ctrl-S` and Open is `Ctrl-O`.** The
+DOS pair was worth having while this was a text-mode habit being carried into
+a window — they were the keys a user of that machine already knew — and F3
+stopped being free when §27.10 needed a Find Next. Taking F2 with it is the
+consistent end of that: a window under a Macintosh menu bar spells its
+shortcuts with the modifier its menu items show, and Note Pad's Edit menu had
+already established `Ctrl-` letters for nine of them. The two F-keys left are
+Find Next and Find Previous, which have no letter to be spelled with.
 
 **The file used to be a fixed `NOTES.TXT`** — not because one note is
 enough, but because a package had no way to ask for a name. §38 removed
@@ -8089,13 +8144,15 @@ document name seeded to `NOTES.TXT` at launch, and four File commands:
 | command | behaviour |
 |---------|-----------|
 | **New** | empties the buffer and resets the name to `NOTES.TXT` |
-| **Open…** | slot 0x0150 in Open mode, default = the current name; the callback stores the chosen name and loads it |
-| **Save** (F2) | writes `np_name` — no dialog, the second and later saves of a document are silent |
+| **Open…** (`Ctrl-O`) | slot 0x0150 in Open mode, default = the current name; the callback stores the chosen name and loads it |
+| **Save** (`Ctrl-S`) | writes `np_name` — no dialog, the second and later saves of a document are silent |
 | **Save As…** | slot 0x0150 in Save mode; the callback stores the chosen name and writes it |
 
-F3 is **Open…**, i.e. it now raises the dialog rather than re-reading a
-fixed file — the one behaviour change to an existing key, and the reason
+The load key is **Open…**, i.e. it raises the dialog rather than re-reading
+a fixed file — the one behaviour change to an existing key, and the reason
 for it is that a load with no way to say *what* was never the useful half.
+It was F3 when that was written and is `Ctrl-O` since §27.10 took F3 for
+Find Next.
 Both dialog commands go through one completion proc, `np_ondlg` (AL = mode,
 SI = our window, DI = the name): it copies the name into `np_name`, runs
 `np_load` or `np_save`, and repaints its own content, which §38.5 requires
@@ -8738,6 +8795,230 @@ Six things the band arithmetic has to get right:
 Verified by differential: the same scripted run against a build whose
 `np_scrollpaint` always refuses is **pixel-identical inside the window**, on
 VGA over nine states and on Hercules over six.
+
+### 27.8 A selection, and the two things a drag can mean
+
+The selection is a **pair of character indices**, `[np_sel0]`..`[np_sel1)`,
+and an **XOR fill** over the cells that fall inside it, applied by `np_rflush`
+immediately after the run that drew the row. That costs one primitive call per
+selected row, needs no second colour, no second font pass and no change to how
+a row is measured — and on the two 1bpp adapters an inversion is what a
+Macintosh selection *is*.
+
+It rides §27.2's row signatures rather than sitting beside them: a cell inside
+the selection folds with bit 15 of its character set, so moving the selection
+dirties exactly the rows it left and the rows it arrived at, and a redraw that
+changed nothing still draws nothing.
+
+**Three things hold it up, and all three are edges the first version fell off.**
+
+- **XOR is its own inverse**, so a cell the run did *not* redraw is still
+  carrying the inversion the last pass gave it and a second XOR would take it
+  back off. `np_selxor` therefore intersects the row's selected span with
+  `[np_flo]`..`[np_fhi]` — the cells actually written — and never the row.
+- **Signatures cannot carry which cells of a redrawn row are inverted**,
+  because a row is redrawn for reasons that have nothing to do with the
+  selection. `np_rflush` keeps `[np_prs0]`/`[np_prs1]` the way it keeps
+  `[np_prcc]`, and folds the **union** of the old span and the new one into
+  the cells it redraws — but only when the two differ, or every selected row
+  on screen would redraw on every pass.
+- **A selected trailing space must survive `np_clean`'s trim.** The trim stops
+  the run at the row's last real character, which is worth a great deal on a
+  90-cell window (§27.2) and would have left a hole in the highlight wherever
+  a selection ended on a space. The trim floor is `max(flo, rs1)`.
+
+The **caret is not drawn while a selection is up** — the Macintosh rule, and
+the only honest one here: a 1px black bar inside an inverted band is invisible,
+so drawing it would cost a line and show nothing.
+
+**A caret key that clears a selection must drop `[np_ckok]`.** The checkpoint
+(§27.4) lets the next redraw resume its walk at the caret's own row, and a
+selection reaches rows *above* that — a resumed walk never re-signs them, so
+the inversion stays drawn on a row nothing intends to redraw again. That is
+`np_caretpre`, and it is the same argument `np_editinv` makes for a bulk edit.
+
+#### 27.8.1 Selecting with the pointer, and dropping what was selected
+
+`ui_drag`'s shape (§13) written against the API, the way `sol_drag` is (§43):
+the gfx lock is held for the whole of a pass and released only between them.
+What a pass does depends on **where the press landed**:
+
+- **outside the selection** it extends one from `[np_anchor]`, and `np_hitpt`
+  scrolls the view by a row when the pointer leaves it — which is what makes a
+  selection longer than the window possible at all;
+- **inside it** the press is a *move*, and the text goes where it is dropped.
+
+The second needs a **dead zone** (`NP_SELDRAG`, 3px), because a plain click
+inside a selection is still a click and what a click does is put the caret
+there. The drop point wears an XOR insertion bar whose pixels are **banked**
+rather than recomputed — a scroll between the draw and the erase would move
+where the bar belongs and leave the old one on screen for good, which is
+§48.11's rule in miniature.
+
+**The move is three in-place reversals and no buffer at all.** Reversing
+`[s,e)`, then the run beside it, then the two together, rotates the block to
+the far end of the span — which is exactly what a move is. The alternative was
+a staging claim the size of the selection, and a drag that fails because the
+heap is busy is a drag the user has no way to understand.
+
+#### 27.8.2 Cut, Copy and Paste
+
+Over §55's system clipboard, so what is copied here can be pasted in another
+program and outlives the instance that copied it.
+
+**Copy is one call and no staging**: `OSAPI_CLIP_PUT` takes `ES:SI`, and the
+note is a heap claim of its own (§27.6), so `ES = [np_dseg]` and `SI` is the
+selection's start. **Paste is the same trick backwards** — the gap is opened
+in the document *first* and `OSAPI_CLIP_GET` writes straight into it, so a 4KB
+paste needs 4KB of document and not 8KB of anything.
+
+What arrives is then **filtered in place**, because the clipboard is shared and
+another program put the bytes there: CR LF folds to one 13, a lone LF likewise,
+and anything else outside 32..126 is dropped. Exactly `np_load`'s rule, for
+exactly `np_load`'s reason.
+
+A paste **replaces the selection**, and the delete and the insert land in **one
+undo group**, because the insert starts exactly where the delete left off
+(§27.9's first coalescing rule). Typing over a selection is the same shape.
+
+**Cut copies first and its refusal is final.** A cut that lost the text because
+the clipboard would not hold it is the one outcome nobody can undo from the
+keyboard.
+
+### 27.9 Undo, five edits deep
+
+**An edit is a burst of keystrokes with no half-second gap in it** — which is
+what the user means by one — and the clock that measures it is the worker that
+was already there for the visual break (§27.3). A group also closes on anything
+that is not an edit (a click, a caret key, a save, a menu command) and on an
+edit that does not touch the group's own span, because the record can only
+describe a contiguous change.
+
+A record is three numbers and a blob: at `[np_upos]`, this group **inserted**
+`[np_uins]` bytes and **removed** the `[np_udel]` bytes now sitting at
+`[np_uoff]` in the arena. Undoing it is "delete `uins` at `upos`, put the blob
+back at `upos`", and that is the whole of it — which is also why there is no
+redo, and why there is no "caret before the group" word: the caret lands at
+`upos + udel`, the end of what was just put back, and that is right for all
+four shapes a group can have.
+
+**Coalescing is four cases and their order matters.** An insertion of *m* at
+*q* extends the group when `q == upos + uins`. A deletion of *m* at *q* is:
+
+1. bytes **this group inserted** (`q + m == upos + uins` and `m <= uins`) —
+   they were never in the note before it, so nothing reaches the blob and
+   `uins` shrinks. A backspace walking back over what was just typed;
+2. bytes immediately **after** the group's span (`q == upos + uins`) — original
+   text, so they go at the **end** of the blob. Forward Delete while typing;
+3. immediately **before** it (`q + m == upos`) — so they go at the **front**
+   and the span starts lower. A backspace walking left out of the group;
+4. anywhere else: a new group.
+
+Case 1 must be tested first, because when `uins` is 0 cases 2 and 3 can both
+look true and taking 1 when it does not apply would forget a deletion.
+
+**The blobs live in a heap claim sized on demand** — nothing at all until the
+first edit worth remembering, a kilobyte at a time after that, up to
+`NP_UMAXKB` (16). They are packed in stack order, so the open record's blob is
+always **last** and prepending to it disturbs nothing else. When the arena will
+not grow the **oldest record is evicted** — a stack four deep is still an undo,
+and a refusal is not — and only when there is nothing left to evict is the
+**whole stack dropped**. It has to be the whole stack: an edit that went
+unrecorded makes every record under it describe a note that no longer exists.
+`np_clamp` drops it too, because a load and a File > New replace the buffer
+those indices point into.
+
+**Two operations move text at two places at once** — a drag-and-drop and a
+Replace All — and the three-number record cannot say that. Both use the
+**bulk form**: one replacement of the whole span between the two places, whose
+blob is the original bytes of that span. That is why `NP_UMAXKB` is 16 rather
+than 8: a Replace All records the whole tail of the note it rewrote, and the
+operation nobody wants to retype by hand is exactly the one worth being able to
+take back.
+
+**The worker is hired by `np_ubegin`**, and that is a fix rather than a detail.
+It used to be hired only by the visual break and by a note that outgrew its
+window, so on a machine with neither — a fast one, with a short note — nothing
+ever closed a group and the whole session was one undo.
+
+### 27.10 Find and Replace
+
+`Ctrl-F` and `Ctrl-R` put up a panel **docked at the top of the content**, and
+that is worth stating because a second window was the obvious shape. A window
+would have needed its own record, its own dispatcher entry and its own answer
+to "what happens when the user clicks the note behind it"; a strip of the
+content needs **one number** — the height `np_bounds` adds to `[np_ty]` — and
+every other thing in the module follows for nothing. The signatures notice the
+geometry changed and repaint once (§27.2), the scroll bar re-derives its track,
+the note re-wraps at the same width.
+
+Two boxes (Find, and Replace in `Ctrl-R` mode), a **Regex** tick box, the match
+count, and `Next` / `Repl` / `All` / `X`. `F3` finds the next match and
+`Shift-F3` the previous one, **from anywhere** — the panel does not swallow
+them and the document does not swallow `Ctrl-F`, which is why the shared keys
+are tested before `[np_ffield]` routes anything. The search **wraps**: the
+second pass stops where the first began, so a pattern occurring once is found
+from anywhere and one occurring nowhere is refused after exactly one traversal.
+A match is **selected**, and `[np_follow]` scrolls it into view through
+§27.7.2's blit like any other caret move.
+
+**The count is not recomputed on a keystroke.** Counting walks the whole note
+with the matcher, so it is owed by `[np_fcdirty]` and paid by the worker half a
+second later — the same trade `np_height` makes (§27.7), for the same reason,
+and it is what keeps typing in the box as cheap as typing in the note. It runs
+**under the gfx lock**, because the matcher's backtrack stack is one block of
+bss the UI task's own finds use too.
+
+**`F3` was Load.** Load is `Ctrl-O` and the File menu now; a find with no key
+for the next match is not a find.
+
+Three traps this sprang, all of which shipped broken for one build:
+
+- **`[np_ffield]` = 0 is a real focus.** The bss arrives zeroed and 0 is the
+  Find box, so a fresh Note Pad sent every keystroke to a panel that was not on
+  screen and typing did nothing. `np_entry` sets `NP_FF_DOC` explicitly, and
+  the router tests `[np_fpan]` as well.
+- **One caret word serves both boxes.** Tabbing from a long pattern into a
+  short replacement left `[np_fpcur]` past the end of the target buffer, and
+  the insert loop's count went negative — 64KB written across the package's own
+  bss. `np_fpkey` clamps it before anything else, and `np_ffocus` puts it at the
+  end of the box being entered.
+- **An opaque `font_run` erases what it covers.** The box interior is one run
+  (§6.1, so a keystroke in the box does not flicker), and drawn at the frame's
+  own row it rubbed the frame's bottom line out. The interior is inset by one.
+  The match count has the same shape and a worse failure: padded to a fixed
+  span it painted over the `Next` button, so it is padded to the room it *has*.
+
+#### 27.10.1 The matcher
+
+A backtracking matcher over the note supporting the subset a text editor
+actually uses: any character is itself, `.` is any character but a line break,
+`[abc]` / `[^abc]` / `[a-z]` are classes, `*` `+` `?` repeat the element before
+them, `^` and `$` anchor to the start and end of a **line** (this is a
+multi-line document, so anchoring to the note would be useless), and `\` makes
+the next character literal. With the Regex box unticked the pattern is compared
+byte for byte instead.
+
+**It is iterative, with an explicit stack, and that is not a style choice.**
+The textbook matcher recurses once per repeat element and once per repetition;
+the second is fatal on its own (`.*` over a 16KB note is 16,000 frames) and the
+first is fatal here too, because the match count is recomputed by the **worker**
+and a worker's stack is 256 bytes (§8). So a repetition is a greedy count plus
+a frame that gives ground one at a time, the frames live in bss, and there are
+`NP_RXST` (12) of them — a pattern needing more is refused **whole**, by
+`np_fchk`, before anything runs. That is what lets `np_rx_at` treat a full stack
+as impossible and lets the panel say "Bad pattern" once instead of finding
+nothing forever.
+
+Matching is **case sensitive**, deliberately. Folding would have to fold class
+ranges too, and `[a-z]` quietly matching `Q` is a worse surprise than retyping a
+capital.
+
+`np_findprev` is **one forward walk** remembering the last match before the
+limit and the last one anywhere, because a backtracking matcher cannot be run
+backwards and running it forwards twice would cost twice as much. It steps
+match-to-match rather than character-to-character, so the pass is bounded by the
+number of matches rather than by the length of the note.
 
 ## 28. apps/taskmgr — the Task Manager
 
@@ -11498,7 +11779,8 @@ a chosen 8.3 name back to whichever application asked for it, in an **Open**
 form and a **Save** form. Label prefix `fdlg_`.
 
 It exists because §18.4 gave packages five file slots and no way to name a
-file: Note Pad's F2/F3 wrote a hard-coded `NOTES.TXT` (§27.1) not because
+file: Note Pad's save and load keys wrote a hard-coded `NOTES.TXT` (§27.1)
+not because
 one note is enough but because there was nothing to ask a filename with,
 and the Disk window (§22) can launch a package but cannot return a name to
 a caller. This is the missing half of the file API, and the kernel owns it
@@ -15891,6 +16173,14 @@ trail cannot starve the ones behind it.
 inline, which is what every erase did before this existed. So is a trail with
 no walk (§48.14's `[mc_iarm]` = 2) and a trail with nothing drawn.
 
+**`MC_MAXDRN` is `MC_MAXICBM + MC_MAXABM`, so it cannot overflow at all.** It
+was 8, which held for ordinary play — and a salvo dying together spilled the
+rest into inline erases, which is precisely the spike this exists to spread.
+A field log caught the worst second of a run at **8.2 ms a frame in `wip`
+against a typical 0.7**, and that second also contained the run's worst
+frame. Graceful overflow is still the right shape for the code; it just has
+nothing left to catch.
+
 Two things are load-bearing:
 
 - **`mc_drn_clear` runs at every full repaint.** The repaint has already put
@@ -18167,3 +18457,104 @@ Entering fullscreen from inside a `W_PAINT` is safe for the reason
 box *after* the paint proc returns (§11.1), and by then the window is
 fullscreen, so the box that would have landed in the middle of the page is
 never drawn.
+
+---
+
+## 55. clip.inc — the system clipboard
+
+**One text buffer for the whole machine.** `kernel/clip.inc` is three
+routines and three words, and it is the first thing in this system that two
+different applications can both reach and both change. Copy a paragraph in
+Note Pad, close Note Pad, paste it into ArtfulType: that is the feature, and
+every decision below falls out of it.
+
+### 55.1 Text only, and why that is a decision
+
+The clipboard carries **bytes, and calls them characters**. There is no type
+tag, no format registry and no negotiation between the program that puts and
+the program that gets.
+
+A typed clipboard is not hard to write and is hard to *finish*: it needs a
+registry every app has to agree on, a preference order for the getter, and a
+rule for what happens when the two sides share no format — and the answer to
+that last one is almost always "nothing is pasted", which is worse than the
+truncation this design can produce. What every app in this tree actually
+wants to hand another app is a run of characters.
+
+Paint's picture clipboard stays Paint's own (§42) and is deliberately not
+folded in here. A bitmap pasted into Note Pad has no meaning to negotiate
+about, and the day something else in this tree can *use* a picture is the day
+the second buffer becomes worth specifying.
+
+### 55.2 The buffer is a claim, sized to what is in it
+
+The text lives in the claim heap (§50.3), not in `.bss`, and the size of the
+claim is the size of the text rounded up to a kilobyte. Three consequences,
+and the first is the reason:
+
+- **A machine that has never copied anything pays nothing.** A fixed buffer
+  would have cost `KERN_BUDGET` its whole size on every machine forever, for
+  a feature most sessions never use — and would still have had a ceiling.
+- **Emptying gives every byte back.** `clip_put` with `CX = 0` is a real
+  operation, not an error: it frees the block and clears the three words.
+- **The ceiling is `CLIP_MAXKB` = 32.** A put longer than that is refused
+  **whole**, never truncated, and the clipboard it already held survives —
+  a refusal must not destroy a good clipboard.
+
+A put whose rounded size **matches the block already held allocates nothing**.
+A put whose size differs **frees the old block and then claims**, which is the
+opposite of what `mem_regrow` is for and is right here: a regrow preserves
+bytes, and every byte of the old clipboard is about to be overwritten.
+Preserving them would need the old block and the new one free *at once*, which
+is precisely the refusal `mem_regrow` (§50.3.1) exists to avoid. The price is
+stated in the contract: a claim the heap cannot fund leaves the clipboard
+**empty rather than stale**, because the old block is already back in the heap
+by then.
+
+### 55.3 The owner word is a kernel tag, and that is the whole feature
+
+`MEM_K_CLIP` (0xFF07). Two things follow, and neither needed any code
+elsewhere:
+
+- **Teardown does not take it.** `mem_free_rec` and `mem_free_owner` (§50.4)
+  walk an *instance slot*, and this is not one — so closing the application
+  that copied leaves the clipboard exactly where it was. Anything less and
+  "copy here, paste there" would work only while both programs were open.
+- **The Task Manager already counts it.** `mem_sum_kb` tests the owner's high
+  byte for 0xFF, so the clipboard lands under System with the back buffer and
+  the FAT windows, with no change in `apps/taskmgr`.
+
+### 55.4 The three slots
+
+| slot | routine | in | out |
+| --- | --- | --- | --- |
+| 0x0320 | `clip_put` | `ES:SI` = text, `CX` = bytes (0 = empty) | `CF=1` refused; every register preserved |
+| 0x0328 | `clip_get` | `ES:DI` = buffer, `CX` = its capacity | `CF=1` empty; else `AX` = whole length, `CX` = bytes copied |
+| 0x0330 | `clip_size` | — | `CF=1` and `AX=0` empty; else `AX` = the length |
+
+These are **not** the numbers this section was written with. The clipboard was
+drafted at 0x0310..0x0320 and moved up when it met `gfx_pen_cf` and
+`gfx_lstepv`, which had taken the first two while it was being written — the
+§20.8 rule 4 case exactly: neither had shipped, so neither was frozen, and the
+one that had not yet reached the integration branch is the one that moved.
+
+**`ES:SI` and not the caller's `DS`, deliberately.** The obvious shape for
+`clip_put` is an X stub (§20.3) handing the kernel the package's own segment —
+and it would have been wrong for the two apps most likely to call it, because
+a document of user-chosen size is a heap claim of its own (§27.6, §46.9) and
+is not in the package's image at all. A far pointer the caller builds costs
+one `mov es` at the call site and reaches anything; the plain cell preserves
+`ES` on the way through, so no stub is needed either.
+
+**`clip_get` answers two numbers**, because a caller that asked with too small
+a buffer has to be able to tell: `AX > CX` means it got a prefix. The honest
+order is `clip_size`, grow, `clip_get` — which is why the third slot exists at
+all rather than being folded into `clip_get` with `CX = 0`. On a machine with
+a claim heap, asking the length before making room is the difference between
+a paste that works and one that half-arrives.
+
+**Any context.** None of the three takes the gfx lock, touches VRAM or does
+I/O, so a worker task may call them (§20.6 rule 7). What they do touch is the
+claim table, and `mem_claim`/`mem_free` run their own critical sections — so
+two tasks racing to copy cannot corrupt it. The loser simply overwrites the
+winner's text, which is what having *one* clipboard means.
