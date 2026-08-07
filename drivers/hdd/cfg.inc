@@ -402,7 +402,9 @@ hd_cfg_automount:
 ; There were three - stage, stage-and-write-if-owed, stage-and-write-always -
 ; and the two that wrote are gone with the kernel verb they used. Everything
 ; that changes the blob now calls hd_cfg_mark and nothing in this driver can
-; reach the disk: the geometry editor on every +, Mount and Unmount, opening
-; the partitioner or the formatter (both of which only ever re-staged what the
-; editor had already staged), and detach. SPEC.md 31.8 is the whole argument.
+; reach the disk: the geometry editor on every +, the page's Mount and Unmount,
+; the disk tool's Delete when it unmounts the volume it is about to strand
+; (SPEC.md 52.2.4), and detach. Opening the tool stages nothing of its own -
+; the geometry is all it reads, and the editor staged that already.
+; SPEC.md 31.8 is the whole argument.
 ; -----------------------------------------------------------------------------

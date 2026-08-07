@@ -16518,10 +16518,16 @@ one, either what is in it or a button that puts a usable volume there.
 Slot  Size   State
 1     31M    FAT16              a volume; Mount will find it
 2      -     Not Formatted      free
-3     50M    Unmountable        foreign, or over the ceiling - greyed
+3     50M    Unmountable        foreign, or over the ceiling
 4     14M    Not Formatted      a claimed region with no volume in it
-[Format]  [Close]
+[Format]  [Delete]  [Close]
 ```
+
+Two buttons act on the selected slot: **Format**, which puts a usable volume
+there, and **Delete** (§52.2.4), which gives the slot back to free space. Both
+are destructive and both confirm the same way (§52.2.3). Delete is the only
+control in this window that is ever greyed, and it greys on a fact — an empty
+slot has nothing to give back.
 
 **`Not Formatted` covers unpartitioned AND partitioned-but-empty**, and that
 is deliberate rather than lazy: the difference is the tool's business, both
@@ -16667,12 +16673,20 @@ apply to it.
 
 #### 52.2.3 Confirm, and the order of the two commits
 
-**Format on a slot that already holds something asks first**, in the caption,
-by wanting the click again: `Erase slot 2? Click Format again`. A driver has
-no notice window and no modal, and a second click on the same button is the
-cheapest confirm that cannot be mistaken for the first one. Picking another
-row or closing the window disarms it. A free slot is not confirmed — there is
-nothing to lose.
+**A destructive button asks first**, in the caption, by wanting the click
+again: `Erase slot 2? Click Format again`, or `Delete slot 2? Click Delete
+again`. A driver has no notice window and no modal, and a second click on the
+same button is the cheapest confirm that cannot be mistaken for the first one.
+Picking another row or closing the window disarms it. A free slot is not
+confirmed by Format — there is nothing to lose — and cannot be reached by
+Delete at all.
+
+`[hd_tarm]` carries the armed **action** and not just the slot: the slot in its
+low nibble, 1-based so that zero means nothing is armed, and the button in its
+high one. One byte and one compare then cover both buttons, and they cannot arm
+each other — arming Format and then clicking Delete asks Delete's question, it
+does not delete. Two words that had to agree would have been the obvious shape
+and the wrong one.
 
 **The table entry goes down before the volume**, which is the same argument as
 the boot sector going last inside the format: every way this can be
@@ -16684,6 +16698,58 @@ has just been overwritten.
 
 Afterwards the states are **re-scanned rather than assumed**, so the row
 reports what came back off the disk and not what the driver hoped it wrote.
+
+#### 52.2.4 Delete — giving a slot back
+
+Format reuses a slot **in place** (§52.2.1) and so can never free one: a table
+filled to four primaries had no way back except another machine's FDISK, and a
+partition made too small, or made by mistake, was permanent. **Delete clears
+the selected entry** — sixteen zeroed bytes and the same one-sector commit
+Format makes — and the space rejoins the pool `hd_slot_extent` scans, where any
+slot can have it and not only the one it came from.
+
+It is a **table** operation and not a wipe: the volume's data is still on the
+disk, untouched, and re-creating an entry with the same base and length brings
+it back. That is the era's own behaviour and it is the honest one — a 32MB
+zero-fill is 65,535 sector writes for a guarantee nobody asked for — but it is
+also why the confirm matters, since nothing on screen afterwards says the data
+is still there.
+
+Four things about it are load-bearing:
+
+- **It unmounts first, and that is not a courtesy.** A driver-backed volume's
+  base LBA lives in `hd_vols` and the kernel never reads the table again
+  (§18.7), so a volume on a deleted partition goes on working — reading and
+  writing a region the table now calls free, which the very next
+  `hd_slot_extent` scan hands to somebody else. `hd_tw_unmount_slot` drops
+  every `hd_vols` row on that device and slot before a byte of the table
+  changes, and the caption says it happened, because a drive icon leaving the
+  desktop with no explanation is worse than the pause.
+- **The mounted set is staged afterwards** (`hd_cfg_mark`, §31.8/§52.6): what
+  was unmounted here is what the next boot must not mount. This is the first
+  thing in the tool that changes a setting at all — the window used to touch
+  only the geometry, which the page's editor had already staged on the click
+  that changed it — and it stages rather than writes, like everything else in
+  the machine.
+- **A failed write puts the table back** (`hd_part_load`), which Format's
+  failure path deliberately does not do, and the asymmetry is the *direction*
+  of the error. A Format that fails to write leaves RAM claiming a region the
+  disk does not: conservative, and the next open re-reads it. A Delete that
+  fails to write leaves RAM calling a live partition free, which is the one
+  state from which the next Format destroys something nobody asked it to.
+- **The states are re-scanned afterwards**, exactly as after a format, so the
+  row reports the disk and not the intention.
+
+**Delete is greyed on an empty slot, and that is §47 arriving where §52.2.2
+said it would not.** The distinction §52.2.2 turns on is that a *row* is not a
+control and a button is. Every rule that refused the greying there permits it
+here: the predicate is a fact already printed in the row and not a guess (rule
+4), one `hd_tw_delok` serves the greying and the click refusal (rule 2), and
+the pen colours the button's **frame** as well as its label — the non-text mark
+rule 3's package clause requires, since `CDGRAY` text rounds to black on the
+two 1bpp adapters (§39.4) and `[gfx_dis]` is not in the package ABI. The
+refused click still sets the caption, as the page's does: the reason is already
+on screen and this only makes sure of it.
 
 ### 52.3 The formatter
 
