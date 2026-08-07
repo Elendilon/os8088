@@ -117,7 +117,15 @@ FS_VKB      equ 18              ; byte: how many KB that claim actually is.
                                 ; moves to one - and a refusal just clears
                                 ; FS_VSEG, which is the documented fallback
 FS_PAD      equ 19
-FS_SIZE     equ 20              ; = the Disk kind's KD_SSIZE
+FS_FREE     equ 20              ; word: KB free on the volume this window is
+                                ; showing, 0xFFFF = not known. Read ONCE per
+                                ; mount, in fmv_load, because counting it
+                                ; walks the whole FAT (SPEC.md 22.7)
+FS_USED     equ 22              ; word: KB summed over this folder's listed
+                                ; entries, 0xFFFF = not known. Derived from
+                                ; the window's own cache, so it costs no I/O
+                                ; and follows the cache the paint reads
+FS_SIZE     equ 24              ; = the Disk kind's KD_SSIZE
 
 FM_MAXWIN   equ VIEW_SLOTS      ; = KD_CAP: one cache slot per window
 FV_ICONS    equ DSK_NENT*DSK_DE_SIZE    ; icon images start here inside a
@@ -566,8 +574,89 @@ fmv_load:
     mov word [di+FS_SCRL], 0        ; meaningless now
     mov byte [di+FS_FERR], 0
     call fmv_store
+    call fm_measure             ; the free/size line is about the listing we
+                                ; just took, so it is read here and nowhere
+                                ; else (SPEC.md 22.7)
 
     pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_measure - fill one window's FS_FREE / FS_USED (SPEC.md 22.7)
+; in:  DI = state block; the GLOBAL snapshot is this window's directory (the
+;      caller has just mounted, so disk_dir / disk_nfiles / dsk_* are ours)
+; out: nothing (all registers preserved)
+;
+; Called from fmv_load and fmv_bcast - the two places a window's listing is
+; replaced - and NOT from the painter, because the free figure walks the whole
+; FAT (dsk_free_clus) and the status line is drawn on every repaint. That is
+; the whole design: the expensive half is read once per mount, exactly as
+; often as the listing it describes.
+;
+; Both figures are KB and both use 0xFFFF for "not known", which the status
+; line draws as '?' - a failed mount has no honest number to give and must
+; not print a stale one from the volume this window used to be showing.
+; -----------------------------------------------------------------------------
+fm_measure:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov word [di+FS_FREE], 0xFFFF
+    mov word [di+FS_USED], 0xFFFF
+    cmp byte [di+FS_MOK], 0
+    je .out                     ; no good mount: no figures, and say so
+
+    call dsk_free_clus          ; --- free: clusters -> KB, once per mount ---
+    jc .used
+    mov dl, [dsk_spc]
+    xor dh, dh
+    mul dx                      ; DX:AX = free sectors (a volume caps at
+                                ; 65,535 sectors, SPEC.md 18.7, so DX = 0)
+    shr ax, 1                   ; ...and a sector is half a KB
+    mov [di+FS_FREE], ax
+
+.used:                          ; --- used: sum this folder's listed sizes ---
+    ; The entry size is a DWORD (SPEC.md 19.1) and a folder's total can pass
+    ; 64KB long before the volume does, so the running sum is 32-bit and only
+    ; the KB it converts to is a word. Subdirectories carry size 0 by
+    ; contract, so this is the bytes of the FILES at this level - it does not
+    ; recurse, and nothing here reads a sector to find out what is under one.
+    xor bx, bx                  ; BX:CX = running byte total (hi:lo)
+    xor cx, cx
+    mov dx, [di+FS_N]           ; the listing this window was just given
+    or dx, dx
+    jz .kb
+    xor ax, ax                  ; AX = entry index
+.sum:
+    push ax
+    call dsk_get_dir            ; SI -> the staged entry, in our own segment
+    mov ax, [si+20]             ; size lo...
+    add cx, ax
+    mov ax, [si+22]             ; ...and hi, with the carry out of the low
+    adc bx, ax                  ; half folded in
+    pop ax
+    inc ax
+    cmp ax, dx
+    jb .sum
+.kb:
+    mov ax, cx                  ; bytes -> KB: (hi:lo) >> 10, and the result
+    mov dx, bx                  ; is a word because a volume caps at 32MB
+    mov cx, 10
+.shift:
+    shr dx, 1
+    rcr ax, 1
+    loop .shift
+    cmp ax, 0xFFFF              ; a hostile listing could sum past the
+    je .out                     ; sentinel: leave it saying "not known"
+    mov [di+FS_USED], ax
+.out:
     pop si
     pop dx
     pop cx
@@ -678,6 +767,9 @@ fmv_bcast:
     mov word [di+FS_SEL], 0xFFFF    ; the listing was rebuilt: indices into
     mov word [di+FS_SCRL], 0        ; the old one mean nothing
     call fmv_store
+    call fm_measure             ; a write moved both figures: the file that
+                                ; arrived is in the folder AND off the free
+                                ; list, so neither survives the broadcast
 .next:
     add si, I_RECSZ
     loop .scan
@@ -764,6 +856,8 @@ fm_s_delpr:   db 'Delete ', 0
 fm_s_delq:    db '? Enter=yes Esc=no', 0
 fm_s_delq2:   db ' +contents? Enter=yes Esc=no', 0   ; ...for a folder
 fm_s_kbfree:  db ' KB free', 0      ; Folder > Free Space
+fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which
+fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
 fm_s_root:    db 'Disk', 0      ; window title at the root...
 fm_s_folder:  db 'Folder', 0    ; ...and in a folder we arrived at from
                                 ; below, whose name would cost a second
@@ -4072,7 +4166,7 @@ fm_draw_status:
 .fs_st_prompt:
     call fm_scat
     mov si, fm_ebuf
-    jmp short .fs_stat
+    jmp .fs_stat
 .fs_st_rep:
     mov si, fm_s_reppr          ; line one: 'Replace NAME?', in the row area
     call fm_scat                ; (a repaint redraws both, and the question
@@ -4111,7 +4205,9 @@ fm_draw_status:
     jmp short .fs_stat
 .fs_st_load:
     mov al, [ld_status]         ; 5. and finally the loader's
-    mov bx, fm_stattab
+    or al, al
+    jz .fs_st_space             ; ...and when even that has nothing to say,
+    mov bx, fm_stattab          ; the line belongs to the free/size figures
     cmp al, 5
     ja .fs_done                ; out-of-range status: draw nothing
 .fs_st_tab:
@@ -4121,8 +4217,31 @@ fm_draw_status:
     shl ax, 1
     add bx, ax
     mov si, [bx]
+    jmp short .fs_st_tab
+
+    ; --- 6. the resting state: this folder's size and the volume's free
+    ;     space (SPEC.md 22.7). Every rung above is a NOTIFICATION and takes
+    ;     the line for as long as it has something to say; this one is what
+    ;     the line says the rest of the time, so it needs no clearing rule of
+    ;     its own - the notification going away restores it.
+.fs_st_space:
+    push bx
+    mov bx, [fm_vp]
+    mov si, fm_s_size
+    call fm_scat
+    mov ax, [bx+FS_USED]
+    call fm_kbfig
+    mov si, fm_s_free
+    call fm_scat
+    mov ax, [bx+FS_FREE]
+    call fm_kbfig
+    pop bx
+    mov byte [di], 0
+    jmp short .fs_stat_drawn
+
 .fs_stat:
     call fm_scat                ; stage it, then draw it on the status line
+.fs_stat_drawn:
     mov dx, [fm_cy]
     add dx, [fm_staty]
     call fm_stat_line
@@ -4192,6 +4311,30 @@ fm_scat:
     inc di
     jmp fm_scat
 .done:
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_kbfig - stage one KB figure, or '?' for the not-known sentinel
+; in:  AX = KB (0xFFFF = not known), DI = destination
+; out: DI -> the stored NUL
+; clobbers: DI (the output), flags
+;
+; The sentinel is drawn rather than skipped: a Disk window whose mount failed
+; still has a status line, and a blank one there reads as "no free space" -
+; the one thing it must not be mistaken for (SPEC.md 22.7).
+; -----------------------------------------------------------------------------
+fm_kbfig:
+    cmp ax, 0xFFFF
+    je .unknown
+    call fm_utoa
+    mov byte [di], 'K'
+    inc di
+    mov byte [di], 0
+    ret
+.unknown:
+    mov byte [di], '?'
+    inc di
+    mov byte [di], 0
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4285,7 +4428,7 @@ fmv_uy1:    resw 1              ; every Disk window's frame is folded into,
 fmv_ux2:    resw 1              ; spent as ONE wm_paint_dmg so that no window
 fmv_uy2:    resw 1              ; is painted twice
 fmv_uany:   resb 1              ; 0 = nothing folded in yet
-fm_pool:    resb 80             ; FM_MAXWIN x FS_SIZE (4 x 20; a literal per
+fm_pool:    resb 96             ; FM_MAXWIN x FS_SIZE (4 x 24; a literal per
                                 ; the no-forward-ref-in-bss rule)
 
 ; --- the acting window, published by fm_vp_set and read everywhere ----------

@@ -6419,7 +6419,7 @@ remounts **only** if the acting window's `(drive, cwd)` differs from
 `([disk_drive], [dsk_cwd])` — in the common case, where you act in the
 window you last navigated, a compare and a `ret`.
 
-**Per-window state** is a 16-byte `KD_POOL` block (`fm_pool`, 4 × 16, §29.3),
+**Per-window state** is a 24-byte `KD_POOL` block (`fm_pool`, 4 × 24, §29.3),
 allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 
 | off | field | meaning |
@@ -6427,14 +6427,17 @@ allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 | 0 | `FS_SEL` w | selected **directory index** — not a row; 0xFFFF = none |
 | 2 | `FS_SCRL` w | first visible row (entry row in list view, grid row in icon view) |
 | 4 | `FS_CLKT` w | birth tick (§10) of this window's last entry click |
-| 6 | `FS_N` w | entries in this window's cache, 0..32 |
+| 6 | `FS_N` w | entries in this window's cache |
 | 8 | `FS_CWD` w | the folder it is showing: first cluster, 0 = root |
 | 10 | `FS_DRV` b | the drive it is showing, 0 = A:, 1 = B: |
 | 11 | `FS_MOK` b | 1 = that listing came from a fully successful mount |
 | 12 | `FS_VIEW` b | 0 = list view, 1 = icon view |
-| 13 | `FS_IDX` b | its `VIEW_SEG` slot, 0..3 — derived once by `fm_kinit` |
-| 14 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm |
-| 15 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none; 255 = "show the free-space line" (below) |
+| 13 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm |
+| 14 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none; 255 = "show the free-space line" (below) |
+| 16 | `FS_VSEG` w | this window's listing-cache claim (§50.2), 0 = none |
+| 18 | `FS_VKB` b | how many KB that claim actually is (§22.6) |
+| 20 | `FS_FREE` w | KB free on its volume, 0xFFFF = not known (§22.7) |
+| 22 | `FS_USED` w | KB summed over its listed entries, 0xFFFF = not known (§22.7) |
 
 `FS_CLKT` moves with `FS_SEL` or not at all: shared, a click on row 3 in
 window A followed within 9 ticks by a click on row 3 in window B would
@@ -7340,6 +7343,78 @@ documented fallback and not an error: the window then paints from the global
 snapshot at the cost of the floppy I/O it would otherwise have avoided. A
 machine with only floppies never pays for the bigger cache, because nothing
 ever asks for it.
+
+### 22.7 The status line's resting state — this folder's size, this volume's free space
+
+The status line had five rungs and all five were **notifications**: a pending
+load, the name editor, this window's last `FERR_*`, the free-space figure the
+Folder menu put there, the loader's verdict. When none of them had anything
+to say the line was blank — a whole line of every Disk window, reserved and
+usually empty.
+
+Rung **6** is what it says the rest of the time: `Size <n>K   Free <n>K`, the
+bytes of what this folder LISTS and the KB free on the volume it is on. It is
+the lowest rung on purpose, so it needs no clearing rule of its own — a
+notification takes the line while it has something to say and the resting
+state comes back when it stops, out of the same precedence ladder that
+already ordered the other five. Nothing about drawing it is new: it is staged
+into `fm_hdrbuf` and drawn by `fm_stat_line` like every rung above it, so it
+truncates at a narrow window exactly as they do.
+
+**The two figures are found in completely different ways, and that is the
+whole design.**
+
+- **Size** is a 32-bit sum over the window's own listing — the entry size
+  dword at offset 20 (§19.1) — so it costs **no I/O at all** and follows the
+  cache the paint already reads. Two consequences are contract, not
+  limitation: subdirectories carry size 0 by §19.1, so this is the files at
+  **this level** and it does not recurse; and the sum is over what the
+  listing **shows**, so §19.6's hidden system files are not in it. On the
+  system disk that means `Size` is much smaller than the volume's used
+  space, which is the honest answer to "how big is what I am looking at".
+- **Free** walks the whole FAT, so it is read **once per mount** —
+  `fm_measure`, called from `fmv_load` and `fmv_bcast`, the two places a
+  window's listing is replaced — and never from the painter. A repaint, a
+  raise, a resize, a scroll and a selection all cost nothing, which is the
+  same rule §22.1 already applies to the listing itself.
+
+Both live in the window's `KD_POOL` block (`FS_FREE`, `FS_USED`), both are KB
+in a word, and both use **0xFFFF for "not known"**, drawn as `?`. A failed
+mount must not leave the previous volume's number on screen, and a blank
+would read as *no free space* — the one thing it must not be mistaken for.
+
+**`dsk_free_clus` is the counting body, and it is the reason this is
+affordable.** `dskw_dfree` (slot 0x0140) is rewired onto it, so the API cell
+and the status line cannot disagree. What it replaced was a `dsk_next_clus`
+call per cluster — ~850 clocks of push/pop, window revalidation and two
+variable shifts around ~15 clocks of actual FAT read, which is **over half a
+second on a 1.44MB floppy** and was tolerable only because a menu item asked
+for it. Here the window is validated once and the entries are read where they
+lie: **~93 clocks a cluster, about 9x**. Two shapes, because the two FAT
+formats differ in kind:
+
+- **FAT12** reads a **pair** of entries from one word load (`b0 | b1<<8` is
+  the even entry's twelve bits and the odd entry's low nibble), and an entry
+  is zero exactly when both of its halves are — no shifting and no decode,
+  because the question is "is it zero", not "what is it". It needs the
+  **whole FAT resident**, since a pair straddles wherever it likes; that is
+  the degenerate window every floppy has (§18.8), and a FAT12 volume whose
+  FAT outruns `DSK_FAT_SECS` falls back to `dsk_free_slow`, the per-cluster
+  walk, which is correct there and no slower than it was.
+- **FAT16** is **not** gated on residency, and must not be: a 32MB partition
+  formats to 2KB clusters (§52.3), which is 16,380 clusters and a **64-sector
+  FAT against a 9-sector window**, so the windowed case *is* the normal one.
+  A FAT16 entry never straddles, so the window is validated once per **FAT
+  sector** and the 256 entries inside it are read as a word array. Same I/O
+  as the per-cluster walk — the window slides forward once either way — and
+  ~9x less CPU, which on that partition is the difference between a pause and
+  a multi-second stall.
+
+The trap in the FAT16 shape is that the run must be clamped **twice**: to the
+end of the current FAT sector (or the next window validation is skipped for
+entries that are not in it) and to `[dsk_maxclus]` (or it counts past the end
+of the volume). Clamping to one and not the other is the bug that reads as a
+free-space figure which is merely plausible.
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
