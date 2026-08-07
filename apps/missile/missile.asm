@@ -5317,10 +5317,18 @@ mc_blob:
     mov [mc_bw], bx                 ; ...and the half-width of the rect that
                                     ; is currently open, which lags it
     mov ax, bx
-    mov cl, 3
+    mov cl, 2
     shr ax, cl
     inc ax
-    mov [mc_bq], ax                 ; the quantum: R/8 + 1
+    mov [mc_bq], ax                 ; the quantum: R/4 + 1 (SPEC.md 48.18).
+                                    ; It was R/8 + 1, and the difference is
+                                    ; two fills out of nine on a peak burst -
+                                    ; which is 2.5 ms of a 63 ms frame on the
+                                    ; machine this game is written for, paid
+                                    ; several times a frame. The cost is that
+                                    ; the disc's edge steps in fours instead
+                                    ; of twos: a chunkier blob, which is what
+                                    ; an explosion looks like anyway
     mov word [mc_bprev], -1         ; no band closed yet (SPEC.md 48.10)
     mov di, 1                       ; DI = dy; row 0 is inside the first rect
 .row:
