@@ -114,10 +114,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 78336           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 80384           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved six times, every one asked
+                                ; It has moved eight times, every one asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -215,6 +215,32 @@ KERN_BUDGET equ 78336           ; the whole kernel's FOOTPRINT. Growing past
                                 ; int 13h calls to 5, and mechanism D
                                 ; (docs/DISK-PERF-PLAN.md 5.5) removes 8 of
                                 ; the 13 an APPS/ open still costs.
+                                ;
+                                ; The eighth move, 78,336 -> 80,384, is the
+                                ; seventh's tail: the association work's own
+                                ; bug reports. SPEC.md 54.4.1's notice - a
+                                ; document whose program is not on the disk
+                                ; now says WHICH program, instead of
+                                ; reporting a Task Manager the user never
+                                ; asked for - needs a name built at run time,
+                                ; and the branding half of that fix costs
+                                ; nothing at all: measured, it lands at
+                                ; 67,016, byte for byte the size before it.
+                                ; The naming half is ~115 bytes and crosses a
+                                ; KIMG_PARA step, which is the whole 512, and
+                                ; the seventh move's 2,048 had 16 bytes left.
+                                ; Asked for and granted with the buffer work
+                                ; that came with it and pays part of it back
+                                ; in TIME rather than bytes: SPEC.md 18.92's
+                                ; diskette parameter table (the batching was
+                                ; returning the wrong head's sectors on real
+                                ; hardware), 18.93's batched boot read (131
+                                ; int 13h calls to 16, ~31 s to 4-5 s on the
+                                ; target) and 18.4.2's read-side run
+                                ; coalescer (a 116KB load, 244 calls to 34).
+                                ; None of those three cost the footprint a
+                                ; byte - they all landed inside the image's
+                                ; existing 512-byte rounding.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET

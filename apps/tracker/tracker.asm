@@ -30,7 +30,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TRACKER', trk_entry, 1
+    OS88_HEADER 'TRACKER', trk_entry, 3
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; Two beamed eighth notes over a square wave - the app in two glyphs. The mask
@@ -87,6 +87,20 @@
     dw 0xF0F0
     dw 0x0F0F
     OS88_ICON16_END
+
+; --- the extensions this program opens (SPEC.md 54.6, flags bit 1) ------------
+; The kernel already ships MOD -> TRACKER as a build-time default, so on the
+; apps disk this declares what was true anyway. It earns its 16 bytes on
+; EVERY OTHER disk: a declaration carries extensions only and the stem comes
+; from the file it was harvested out of, so the TRKLOG build (SPEC.md 45.14),
+; which ships as TRKLOG.O88 beside the module it is there to log, claims .MOD
+; for ITSELF the moment its folder is browsed. Without it that disk hits the
+; default, goes looking for a TRACKER.O88 that is not on it, and the module
+; cannot be opened at all - which is exactly how this was found.
+    OS88_ASSOC16
+    db 1
+    OS88_ASSOC_EXT 'MOD'
+    OS88_ASSOC16_END
 
 ; --- the package-wide bss macros (the Arkanoid %assign pattern) ----------------
 ; Pinned interface: defined HERE, at the top, before any %include of

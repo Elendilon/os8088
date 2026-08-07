@@ -876,9 +876,14 @@ assoc_run:
 
 .nofile:
     call assoc_back
-    mov si, assoc_s_nofile
-    call ui_note                ; "<PROGRAM> is not on either disk - insert
-    call files_refresh          ; the disk it is on and try again"
+    pop ax                      ; the app index, back off the stack and into
+    push ax                     ; 'TRACKER.O88 - not on this disk', because
+    call assoc_progname         ; "Program not found" alone leaves the user
+    mov si, assoc_pnbuf         ; with no way to know WHICH program a document
+    mov bx, assoc_s_lead        ; wanted - which is exactly the report that
+    mov di, assoc_s_ttl         ; found this (SPEC.md 54.4.1)
+    call ui_note
+    call files_refresh
 .out:
     pop ax
     pop es
@@ -906,7 +911,56 @@ assoc_back:
 
 assoc_s_apps:   db 'APPS', 0
 assoc_s_games:  db 'GAMES', 0
-assoc_s_nofile: db 'Program not found - insert the disk it is on', 0
+assoc_s_ttl:    db 'Open', 0
+assoc_s_lead:   db 'This document opens with', 0
+assoc_s_ptail:  db '.O88 - not on this disk', 0
+ASSOC_PTAIL     equ 24          ; ...NUL included, so one rep movsb ends it
+
+; -----------------------------------------------------------------------------
+; assoc_progname - the file name of an app slot, for the notice
+; in:  AL = the app index
+; out: assoc_pnbuf = 'STEM.O88 - not on this disk', NUL
+; clobbers: nothing (all registers preserved)
+;
+; The stem is space-padded to 8 (SPEC.md 54.2), so the copy stops at the
+; first space rather than counting - a stem cannot contain one.
+; -----------------------------------------------------------------------------
+assoc_progname:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es                      ; the tail lands through ES:DI
+    xor ah, ah
+    mov cl, 3
+    shl ax, cl                  ; the slot's 8-byte stride
+    mov si, assoc_stem
+    add si, ax
+    mov di, assoc_pnbuf
+    mov cx, 8
+.stem:
+    mov al, [si]
+    cmp al, ' '
+    je .tail
+    mov [di], al
+    inc si
+    inc di
+    loop .stem
+.tail:
+    mov si, assoc_s_ptail
+    mov cx, ASSOC_PTAIL
+    cld
+    rep movsb
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+assoc_pnbuf:    times 8 + ASSOC_PTAIL db 0
 
 section .bss
 assoc_doc:   resb 13            ; the pending document's 8.3 name

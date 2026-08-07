@@ -17050,6 +17050,51 @@ Because the glyph is cached in the app slot rather than resolved on demand,
 **the icons survive the disk leaving the drive**: browse `APPS/` once, swap to
 a documents floppy, and every `.MOD` there still carries Tracker's mark.
 
+### 54.4.1 A notice names the thing that failed
+
+`ui_note` is the kernel's one-line notice window and it takes **three**
+strings from the caller: the message, the line above it, and the window's
+title. It used to take one. The other two were baked in as `'Task Manager'`
+and `'Cannot open the Task Manager:'`, because `ui_tm_open` was the only
+thing that raised a notice — so when §54.4's open path became the second
+caller, a document whose program was not on the disk reported a failure to
+open **a component the user had not mentioned**, over a window titled after
+it. Reported from the field as *"I double-clicked the .mod and it said
+Unable to open Task Manager"*.
+
+The window is created once and reused, so `W_TITLE` is restamped per call,
+before `wm_show` — which draws the frame whole, so nothing else is owed.
+
+**And the message names the program**, which is the half that turns a correct
+error into a useful one. The reporting disk was a `make trklog` build
+(§45.14): `TRKLOG.O88` and `BEVERLY.MOD` and no `TRACKER.O88`, so the
+built-in `MOD → TRACKER` default resolved to a program that was genuinely not
+there. "Program not found" is true and tells the user nothing they can act
+on; `assoc_progname` builds the stem into `'TRACKER.O88 - not on this disk'`
+out of the slot the lookup already returned.
+
+**Costed exactly, because it crosses a `KIMG_PARA` step and those are 512
+bytes each:** the branding fix is **0 bytes** — measured, the kernel lands at
+67,016, byte for byte its size before — and the naming is **78**. The image
+was already sitting **17 bytes** below a rounding step, so the 512 is not
+what naming cost; it is what the *next* 18 bytes of anything would have cost.
+Granted as the eighth `KERN_BUDGET` move, which leaves 2,048 spare.
+
+#### The other half: Tracker declares `.MOD` (§54.6)
+
+A better message still leaves that disk unable to open its module. The fix is
+the declaration mechanism doing what it was built for: a block carries
+**extensions only** and the stem comes from the file it was harvested out of,
+so one 16-byte block in Tracker's header claims `.MOD` for `TRACKER.O88` on
+the apps disk and for `TRKLOG.O88` on the log disk, with no build-time
+conditional and nothing in the kernel that knows either name. Verified both
+ways: the log disk now opens `BEVERLY.MOD` into the logging build with the
+module loaded, and the shipped disk is unchanged.
+
+That is also the general answer for **any** program shipping under a stem the
+kernel's defaults do not name — which is every third-party package there will
+ever be.
+
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 
 Two cells, **appended past the last one**, so no `.o88` is invalidated
