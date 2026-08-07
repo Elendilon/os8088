@@ -8068,8 +8068,8 @@ DOS pair was worth having while this was a text-mode habit being carried into
 a window — they were the keys a user of that machine already knew — and F3
 stopped being free when §27.10 needed a Find Next. Taking F2 with it is the
 consistent end of that: a window under a Macintosh menu bar spells its
-shortcuts with the modifier its menu items show, and Note Pad's Edit menu had
-already established `Ctrl-` letters for nine of them. The two F-keys left are
+shortcuts with the modifier its menu items show, and Note Pad's Edit and Find
+menus had already established `Ctrl-` letters for eight of them. The two F-keys left are
 Find Next and Find Previous, which have no letter to be spelled with.
 
 **The file used to be a fixed `NOTES.TXT`** — not because one note is
@@ -8889,8 +8889,14 @@ every other thing in the module follows for nothing. The signatures notice the
 geometry changed and repaint once (§27.2), the scroll bar re-derives its track,
 the note re-wraps at the same width.
 
-Two boxes (Find, and Replace in `Ctrl-R` mode), a **Regex** tick box, the match
-count, and `Next` / `Repl` / `All` / `X`. `F3` finds the next match and
+Searching has a **menu of its own**, beside Edit rather than inside it: it is
+the one thing here that reads the note without changing it, and it owns a
+panel and three keys, which is a menu rather than a tail. `Find…`,
+`Find Next` and `Replace…`; `Find Previous` is Shift-F3 only, having no
+natural item beside a `Find Next` that does not take one either.
+
+The panel is two boxes (Find, and Replace in `Ctrl-R` mode), a **Regex** tick
+box, the match count, and `Next` / `Repl` / `All` / `X`. `F3` finds the next match and
 `Shift-F3` the previous one, **from anywhere** — the panel does not swallow
 them and the document does not swallow `Ctrl-F`, which is why the shared keys
 are tested before `[np_ffield]` routes anything. The search **wraps**: the

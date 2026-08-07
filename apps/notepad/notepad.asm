@@ -218,15 +218,15 @@ NP_MI_SAVEAS equ 3
 NP_NAMEMAX   equ 12             ; 8 + '.' + 3, as SPEC.md 38.6 hands it over
 
 ; --- the Edit menu (SPEC.md 27.8) --------------------------------------------
-NP_MI_UNDO   equ 0              ; menu 1's items, in np_items_edit's order
-NP_MI_CUT    equ 1
-NP_MI_COPY   equ 2
-NP_MI_PASTE  equ 3
-NP_MI_CLEAR  equ 4
-NP_MI_SELALL equ 5
-NP_MI_FIND   equ 6
-NP_MI_NEXT   equ 7
-NP_MI_REPL   equ 8
+NP_MI_UNDO   equ 0              ; menu 1's items, in np_items_edit's order.
+NP_MI_CUT    equ 1              ; There is no Clear: Backspace and Delete
+NP_MI_COPY   equ 2              ; already delete a selection (SPEC.md 27.8),
+NP_MI_PASTE  equ 3              ; so it was a third door onto np_selkill
+NP_MI_SELALL equ 4
+
+NP_FI_FIND   equ 0              ; ...and menu 2's, in np_items_find's
+NP_FI_NEXT   equ 1
+NP_FI_REPL   equ 2
 
 ; --- keys (SPEC.md 27.8) -----------------------------------------------------
 ; The control characters int 16h already hands over in AL. Backspace (8),
@@ -4150,7 +4150,9 @@ np_oncmd:
     jz .file
     cmp ah, 1
     je .edit
-    ret                             ; neither of ours: do nothing rather than
+    cmp ah, 2
+    je .find
+    ret                             ; none of ours: do nothing rather than
                                     ; fall into the first case
 .edit:
     cmp al, NP_MI_UNDO
@@ -4161,15 +4163,15 @@ np_oncmd:
     je .e_copy
     cmp al, NP_MI_PASTE
     je .e_paste
-    cmp al, NP_MI_CLEAR
-    je .e_clear
     cmp al, NP_MI_SELALL
     je .e_all
-    cmp al, NP_MI_FIND
+    ret
+.find:
+    cmp al, NP_FI_FIND
     je .e_find
-    cmp al, NP_MI_NEXT
+    cmp al, NP_FI_NEXT
     je .e_next
-    cmp al, NP_MI_REPL
+    cmp al, NP_FI_REPL
     je .e_repl
     ret
 .e_undo:
@@ -4187,9 +4189,6 @@ np_oncmd:
 .e_paste:
     call np_paste
     jmp short .draw
-.e_clear:
-    call np_selkill                 ; Clear is Cut without the clipboard, the
-    jmp short .draw                 ; Macintosh Edit menu's own fifth item
 .e_all:
     xor ax, ax
     mov dx, [np_len]
@@ -4634,9 +4633,20 @@ np_selget:
     cmp byte [np_selon], 0
     je .no
     mov ax, [np_sel0]
+    cmp ax, [np_len]
+    jae .no                     ; the note is SHORTER than the selection now
     mov cx, [np_sel1]
+    cmp cx, [np_len]            ; ...and the far end is clamped rather than
+    jbe .end                    ; refused, so a shrink leaves the part of the
+    mov cx, [np_len]            ; selection that still exists selected
+.end:
+    cmp cx, ax
+    jbe .no                     ; BELOW, not just equal: an inverted pair here
+                                ; would make `sub` answer ~65,000 and hand
+                                ; that to whoever asked - clip_put refuses it,
+                                ; but np_rev would swap bytes clean off the
+                                ; end of the document claim
     sub cx, ax
-    jz .no
     clc
     ret
 .no:
@@ -4848,8 +4858,18 @@ np_editinv:
     mov byte [np_fcdirty], 1
     mov ax, [np_len]
     cmp [np_cur], ax
-    jbe .out
+    jbe .cur
     mov [np_cur], ax
+.cur:
+    cmp byte [np_selon], 0      ; the SELECTION is a pair of indices into the
+    je .out                     ; same buffer and it was clamped nowhere: a
+    cmp [np_sel1], ax           ; Replace All that shortens the note, or an
+    jbe .out                    ; undo of a paste, leaves it pointing past the
+    mov [np_sel1], ax           ; end. np_selget clamps too - this is the
+    mov ax, [np_sel0]           ; other half, so the stored pair is never a
+    cmp ax, [np_sel1]           ; lie in the first place
+    jb .out
+    mov byte [np_selon], 0      ; nothing of it survives
 .out:
     pop ax
     ret
@@ -7956,7 +7976,8 @@ np_ttl: db 'Note Pad', 0
 ; 32 + 12 more to its right edge at 162 - nowhere near the clock at 434.
     OS88_MENUSET np_menus, np_ttl, np_oncmd
         OS88_MENU np_m_file, np_items_file, 4
-        OS88_MENU np_m_edit, np_items_edit, 9
+        OS88_MENU np_m_edit, np_items_edit, 5
+        OS88_MENU np_m_find, np_items_find, 3
     OS88_MENUSET_END np_menus
 
 np_m_file:     db 'File', 0
@@ -7970,18 +7991,30 @@ np_i_saveas:   db 'Save As...', 0   ; first (SPEC.md 38), Save never does.
                                     ; learn from is one that has to be opened
                                     ; forever - the Edit menu's own rule
 
-; The Edit menu (SPEC.md 27.8): nine items, which is inside MENU_POPMAX's
-; eleven. Every one carries its key, because the keys are the fast path and a
-; menu nobody can learn from is a menu that has to be opened forever.
+; The Edit menu (SPEC.md 27.8), and the Find menu beside it. Every item
+; carries its key, because the keys are the fast path and a menu nobody can
+; learn from is a menu that has to be opened forever.
+;
+; There is no Clear, and searching is not in Edit. Clear was a third door onto
+; np_selkill, which Backspace and Delete already open - a menu item whose only
+; distinction is that it is slower than the key everybody presses anyway. And
+; finding is not editing: it is the one thing here that reads the note without
+; changing it, it owns a panel and three keys of its own (SPEC.md 27.10), and
+; three items is a menu rather than a tail.
+;
+; The bar is 38 + 64 ('Note Pad') + 16 = 118 to File's left edge, and each
+; cell is its name plus 12: File 118..162, Edit 162..206, Find 206..250 -
+; still nowhere near the clock at 434.
 np_m_edit:     db 'Edit', 0
-np_items_edit: dw np_i_undo, np_i_cut, np_i_copy, np_i_paste, np_i_clear
-               dw np_i_all, np_i_find, np_i_next, np_i_rep    ; = NP_MI_*
+np_items_edit: dw np_i_undo, np_i_cut, np_i_copy, np_i_paste, np_i_all ; NP_MI_*
 np_i_undo:     db 'Undo  ^Z', 0
 np_i_cut:      db 'Cut  ^X', 0
 np_i_copy:     db 'Copy  ^C', 0
 np_i_paste:    db 'Paste  ^V', 0
-np_i_clear:    db 'Clear', 0
 np_i_all:      db 'Select All  ^A', 0
+
+np_m_find:     db 'Find', 0
+np_items_find: dw np_i_find, np_i_next, np_i_rep               ; = NP_FI_*
 np_i_find:     db 'Find...  ^F', 0
 np_i_next:     db 'Find Next  F3', 0
 np_i_rep:      db 'Replace...  ^R', 0
