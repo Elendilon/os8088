@@ -154,6 +154,62 @@ mou_port   2   seen 1        the mouse is on COM2
 mou_hpst   2                 mou_lockon has retired COM1
 ```
 
+### `comscan` — when the mouse is not found on real hardware
+
+`make comscan` builds the field diagnostic for exactly that (`tests/comscan`).
+It is **not** an os8088 package, deliberately: the thing being diagnosed is the
+mouse, so anything you have to click is unreachable on the one machine that
+needs it. Two builds from one source —
+
+- **`build/comscan.img`** (360KB) / **`build/comscan144.img`** (1.44MB), a
+  *bootable* floppy. The shipped boot sector will load anything at
+  `KERNEL_SEG:0000` that honours its three-point handoff (a `retf` at 0x0008,
+  a spare word at 0x000C, entry at 0x0000), so this needs no DOS, no os8088
+  and no mouse.
+- **`build/comscan.com`**, a DOS program on the same disk. Its output goes
+  through int 21h rather than the BIOS, so `COMSCAN > COMSCAN.TXT` captures
+  the whole report to a file that can be carried off the machine.
+
+It surveys 3F8/2F8/3E8/2E8 — including the two os8088 never probes, because a
+live UART at 3E8 is the entire bug on its own and it says so in as many words.
+Per port: the BIOS POST's own list, os8088's divisor-latch probe *and the same
+probe with a long settle* (they disagree only if the kernel's is too quick for
+that machine's bus), the scratch register, an internal loopback, the part type,
+a raw register dump, then a 1200 7N1 DTR/RTS pulse and a polled capture with
+the Microsoft packet machine run over it — bytes, the identify byte, packets,
+violations, and the longest clean run against `MOU_LOCKN`.
+
+**The measurement that matters, and the one nothing here could have made, is
+which IRQ line the card actually drives.** os8088 derives it from the base
+(3F8 → IRQ4, 2F8 → IRQ3); a card jumpered elsewhere gets probed, programmed
+and hooked and then simply never interrupts. Two ways to ask it were built and
+only the second works:
+
+- **Reading the 8259's IRR with the lines masked** needs no handler and cannot
+  storm, and it is wrong. A masked request is never acknowledged and an 8259
+  clears IRR on acknowledgement, so a line asserted once before you arrived
+  reads as 1 forever. Measured on QEMU, the base/hot/cold readings around a
+  byte were `18h`, `18h`, `18h` — both serial lines stuck up, the card's own
+  contribution invisible, every port reporting no interrupt at all.
+- **Hooking int 0Bh/0Ch/0Dh/0Fh and arming RX on one port at a time**, which is
+  what the kernel itself does. A runaway guard masks any line that will not go
+  quiet after `IRQGUARD` interrupts, so a shared line cannot hang the machine.
+  One flush pass runs first against *no* port, because unmasking delivers
+  everything latched at boot in one go and otherwise whichever port is probed
+  first collects it — COM1 reported IRQ3 *and* IRQ4 without a byte ever
+  arriving on it.
+
+Verified under QEMU both ways round: mouse on COM2 → `IRQ3`, COM1 silent;
+mouse on COM1 → `IRQ4`, COM2 silent.
+
+One trap that cost a whole debugging round, and it is the kernel's own idiom
+misapplied: the per-port state is walked with a **word** index (0, 2, 4, 6), so
+a *byte* array needs `NPORT*2` entries and not `NPORT`. Declared four bytes for
+four ports, every array silently overflowed into the next — `p_live[2]` was
+`p_phase[0]`, a dead COM3 read as live, and the survey was nonsense.
+`kernel/mouse.inc`'s two-port arrays are four bytes and correct, which is
+exactly how the wrong shape got copied across.
+
 **The case that actually matters is a talkative device on the other port**,
 because a Hayes result code is a well-formed Microsoft packet (§9.5.1). QEMU
 can be that device: put a socket chardev at 3F8 and type at it.

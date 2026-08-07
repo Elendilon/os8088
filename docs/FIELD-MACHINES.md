@@ -28,8 +28,15 @@ no way to know whether there *is* one, which one, or who to ask.
 What is durable is the **fork**. `Elendilon/os8088` is visible to every
 session that works in it — it is the remote, the branch name and the owner —
 and it is visible to every human reading the repo. So the register is keyed on
-the GitHub handle of whoever owns the iron, and it lives here rather than in a
-conversation.
+the **full fork name** of whoever owns the iron — `Elendilon/os8088`, not
+`Elendilon` — and it lives here rather than in a conversation.
+
+The full name and not the bare handle, because **this file is written to be
+merged upstream**. In the fork, "owner: `Elendilon`" is unambiguous and a
+reader can work out the rest; in the parent repository, with contributors from
+several forks, a bare handle names a person with no way to tell which tree
+they hold the hardware for. The fork name survives the merge with its meaning
+intact, and it is still exactly what an agent can see from its remote.
 
 Handles, not email addresses: this repo is public (it ships releases and feeds
 os8088.com), and a personal address in a tracked file is published, not
@@ -65,7 +72,7 @@ heading, and the next reader has no way to catch it.
 
 ---
 
-## The IBM 5150 — `Elendilon`'s
+## The IBM 5150 — `Elendilon/os8088`'s
 
 **The machine this project is calibrated against.** Every measured number in
 PERFORMANCE.md Part 2 came off it (Part 9 Sets 1 and 2), and SPEC.md quotes it
@@ -73,7 +80,7 @@ by name in a dozen places.
 
 | | |
 |---|---|
-| owner | `Elendilon` — owner of this fork, `Elendilon/os8088` |
+| owner | **`Elendilon/os8088`** |
 | machine | **IBM PC 5150**, Intel 8088 at 4.77 MHz |
 | motherboard | the 64–256K board, **256 KB populated** |
 | expansion | **AST SixPakPlus Rev 1** — carries the other **384 KB** (256 + 384 = the 640 KB every set reports) **and the clock**. That 640 is what `int 12h` answers, and since SPEC.md §2.7 the boot sector relocates itself to the top of it — so if this machine ever stops booting after a memory change, the first thing to check is the motherboard DIP switches, which are where an XT's RAM count comes from. A board the switches do not mention is a machine with plenty of RAM and a small answer, and the sector prints `RAM` and stops rather than loading a kernel over itself |
@@ -179,7 +186,7 @@ here, and it is the one to repeat if anything in that block changes.
 
 ---
 
-## The Toshiba T1100 Plus — `Elendilon`'s, and the only 8086 in the register
+## The Toshiba T1100 Plus — `Elendilon/os8088`'s, and the only 8086 in the register
 
 The second real machine, and it earns its place by being *nearly* the target
 and not quite: an 8086 rather than an 8088, so the same instruction set over
@@ -189,6 +196,7 @@ byte is fetched one at a time".
 
 | | |
 |---|---|
+| owner | **`Elendilon/os8088`** |
 | CPU | **i80C86-2**, 7.16 MHz fast / 4.77 MHz slow, switchable from the keyboard; it powers on in fast mode |
 | RAM | 256KB on the board + the **384KB expansion** = 640KB |
 | video | CGA-compatible, LCD |
@@ -214,6 +222,7 @@ It walls at the same **2,161 bytes/second** on the floppy as the 5150 does
 
 | | |
 |---|---|
+| owner | **`Elendilon/os8088`** |
 | board | Packard Bell Victory (theretroweb.com/motherboards/s/packard-bell-victory) |
 | CPU | **16 MHz AMD 286** |
 | RAM | 4MB, 100ns |
@@ -235,6 +244,46 @@ which `make field` does not build. And whoever adds one should fix the two
 8088-only derived rows to say so on a tier-1 machine rather than printing a
 number. It also has a known quirk: **it sometimes decides to boot in mono**,
 which may be what put it into the CGA path in the first place.
+
+---
+
+## The Compaq Portable III — `Elendilon/os8088`'s, and mostly unrecorded
+
+**A second real machine, and the one that found SPEC.md §9.5's first field
+bug.** It is in here because it is not the 5150 and the difference matters:
+the 5150 is an 8088 at 4.77 MHz with a Hercules and a CGA, and this is a
+286-class portable with a plasma display. A result from one is not a result
+from the other, and PERFORMANCE.md Part 6 rule 8 applies between them exactly
+as it applies between iron and an emulator.
+
+| | |
+|---|---|
+| owner | **`Elendilon/os8088`** |
+| machine | **Compaq Portable III** |
+| serial | a **1200 baud modem on COM1**. The mouse is on the other port, which is what §9.5 was built for |
+| floppy | **one 1.2MB 5.25"**, and it boots the **360KB** images — so `make field`'s disks and `make comscan`'s `comscan.img` are the ones to send, not the 1.44MB pair |
+| everything else | **not recorded, because it has not been measured.** Do not fill this table in from what a Portable III generally has — ask, or read it off `comscan` |
+
+**A 1.2MB drive writing a 360KB disk is a known hazard and the owner is
+handling it by keeping those disks separate** — a 1.2M drive's head is
+narrower than a 360K drive's track, so a disk it has *written* may be
+unreadable in a real 360K drive afterwards. It is worth knowing which images
+write: the field disks do (their whole point is that the benchmark reports
+land back on the disk they came from, and the Control Panel writes
+`SYSTEM.CFG` on close), and **`comscan` never writes to a disk at all**.
+
+**What it found:** with §9.5's two-port support in, the mouse was **not
+detected** on this machine. That is open, and it is the reason
+`tests/comscan` exists (docs/TESTING.md): a survey of all four COM bases that
+runs from a bootable floppy or from DOS, needs no mouse and no GUI, and
+reports the one thing no emulator here can produce — **which IRQ line the
+card actually drives**. os8088 derives that from the base address, so a card
+jumpered elsewhere is invisible to it forever, and on a machine whose COM1 is
+already taken by a modem that is a live hypothesis rather than a remote one.
+
+Nothing is diagnosed yet. `make comscan`, run it, and the report says which
+of the four scanned ports has a UART, which of them talks, whether the bytes
+decode as a Microsoft mouse, and which line each one raises.
 
 ---
 

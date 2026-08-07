@@ -56,7 +56,9 @@ written for - and every measured number in PERFORMANCE.md Part 2 came off it.
 It is kept **entirely period on purpose**, which is what makes its floppy and
 disk timings mean what they say, so "put a Gotek in it" is not a way to
 shorten the seven-step path an image takes to reach it - `make field` is. It is a register keyed on the
-GitHub handle of whoever owns the iron, and it is in the repo for a reason
+full FORK NAME of whoever owns the iron (`Elendilon/os8088`, not a bare
+handle - the file is written to be merged upstream, where a handle alone does
+not say which tree the hardware belongs to), and it is in the repo for a reason
 worth stating: a session is told which account it is running as and forgets it
 at the end, nothing in a commit says which contributor owns a 5150, but a
 fork's name (`Elendilon/os8088`) is visible to every session and every reader.
@@ -181,6 +183,17 @@ make bench    # build the testing apps in tests/ into build/bench.img and
               # bench360.img. ON DEMAND ONLY — `all` never builds tests/ and
               # nothing under it ships. Run one with
               # `make test TESTAPPS=build/bench.img` (docs/TESTING.md)
+make comscan  # the SERIAL PORT SURVEY (tests/comscan) - the field diagnostic
+              # for "the mouse was not detected on real hardware" (SPEC.md
+              # 9.5). Builds build/comscan.img (360K, BOOTABLE - no DOS, no
+              # os8088, no mouse needed, because the thing being diagnosed is
+              # the mouse and anything you have to click is unreachable),
+              # comscan144.img, and build/comscan.com for DOS - whose output
+              # goes through int 21h, so `COMSCAN > COMSCAN.TXT` captures the
+              # report to a file. It scans 3F8/2F8/3E8/2E8, including the two
+              # the kernel never probes, and answers the one question no
+              # emulator can: WHICH IRQ LINE the card actually drives
+              # (docs/TESTING.md)
 make field    # ...and the FIELD disks: build/herc.img + build/cga.img, two
               # BOOTABLE 360KB system disks with the benchmarks in their root.
               # Shaped by the machine the project is calibrated against
@@ -1250,6 +1263,42 @@ after. Test it with `make test MOUSEPORT=com2` (a live but silent UART at
 3F8 and the mouse at 2F8 — the hard case; `-serial none` would test only the
 easy half). Cost: 302 bytes of `.text` and **nothing** against `KERN_BUDGET`,
 the growth landing in the image's existing padding to `OVL_START`.
+
+### With no mouse, the arrows ARE the mouse (SPEC.md §9.6)
+
+Gated on `[mou_seen]` - the byte §9.4/§9.5 already keep - so a machine whose
+mouse has spoken never enters any of it and pays one compare per keystroke
+(verified: arrows still reach apps untouched). **An 83/84-key keyboard has no
+separate cursor pad**, so the arrows ARE the keypad and NumLock decides which
+you get: NumLock OFF gives `AL = 0` + a scancode, and those are the keys this
+takes; NumLock ON gives ASCII digits, always untouched. An app cannot have
+arrow keys on a mouseless machine while this is on, which is the right default
+- without a pointer it could not have been launched - and **ScrollLock is the
+escape hatch**, READ as a level out of `KB_FLAG` bit 4 (`0040:0017`) rather
+than watched for as a key: it is a shift STATE, int 09h swallows it and int
+16h never reports one, so the first version's `cmp ah, 0x46` waited for a byte
+that never arrives. **Ins is a click** (MDOWN+MUP
+together, and `mouse_btn` deliberately untouched, because nothing tracks a
+click and a level poll must never find a button held by a key that has already
+come up); **keypad 5 LATCHES**, and that is what makes the machine reachable
+at all - a keyboard cannot hold a key down in any way int 16h can see, and a
+menu, a window drag and the grow box all end on a *level* poll of `mouse_btn`.
+The trap that falls straight out of it: **`menu_track`, `ui_drag` and
+`ui_grow` never return to `ui_task`**, so a latched button could never be
+released and the machine would sit inside a menu no key could close - each
+calls `kbm_poll` beside its existing `task_yield`, and `kbm_poll` PEEKS
+(int 16h AH=01h) and takes the key only if `kbm_key` claims it, because int
+16h has no way to put one back. A package with its own drag loop (Solitaire)
+is not reachable this way and is not expected to be. **The step accelerates
+and the ramp RESETS on a change of direction** - not a refinement: without it
+the correction travels at full speed too and a menu item sits unreachable
+between two 24px strides, which is exactly how the first version failed to
+pick one. **It costs 406 bytes and one 512-byte step of `KERN_BUDGET` (spare
+4,096 → 3,584), decided on when that step was half the slack rather than an
+eighth of it** - and it is
+written down in docs/KERNEL-MEMORY.md and in the module as the FIRST candidate
+to remove (or move to test/bench-only kernels) if footprint ever outranks it.
+Recommend that; do not do it unasked.
 
 ### The clock is a ladder, not a BIOS call (SPEC.md §37.90)
 
