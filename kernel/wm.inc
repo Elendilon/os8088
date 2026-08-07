@@ -1550,9 +1550,10 @@ wm_paint_dmg:
     push bp
 
     mov byte [wm_dmg_fs], 0     ; a visible fullscreen window covers the
-    call wm_fs_vis              ; desktop, its drive zones, the dock and the
-    jnc .clamp                  ; bar - so none of those is drawn, and the
-    mov byte [wm_dmg_fs], 1     ; window pass is the whole of the work
+    mov byte [wm_dmg_dk], 0     ; desktop, its drive zones, the dock and the
+    call wm_fs_vis              ; bar - so none of those is drawn, and the
+    jnc .clamp                  ; window pass is the whole of the work
+    mov byte [wm_dmg_fs], 1
 
 .clamp:
     or ax, ax                   ; onto the live screen (SPEC.md 39.2)
@@ -1605,7 +1606,10 @@ wm_paint_dmg:
     jl .dock                    ; it has moved - the one case that owes the
     call dock_force             ; dock a whole redraw rather than a tile
 .dock:
-    call dock_paint
+    call dock_paint             ; CF = 1 if it actually put pixels on the strip
+    jnc .bar                    ; - and only then does a window sitting on the
+    mov byte [wm_dmg_dk], 1     ; strip owe a redraw (SPEC.md 11.91)
+.bar:
     call menu_draw_bar
 .wins:
     call wm_dmg_wins            ; mark and draw; leaves wm_dmg_mask for below
@@ -1653,8 +1657,26 @@ wm_paint_dmg:
 ; over a strip it has just redrawn.
 ; -----------------------------------------------------------------------------
 ; wm_dmg_wins - redraw every window that a damage rect touched, back to front
-; in:  wm_dmg_x1/y1/x2/y2 set; caller holds the gfx lock
-; out: wm_dmg_mask = which windows were drawn. All registers preserved.
+; in:  wm_dmg_x1/y1/x2/y2 set; [wm_dmg_dk] = 1 if the DOCK STRIP was just
+;      drawn, which damages every window sitting on it however far that is
+;      from the rect; caller holds the gfx lock
+; out: wm_dmg_mask = which windows were drawn. [wm_dmg_dk] consumed (a
+;      one-shot argument, so it can never be left set for the next caller).
+;      All registers preserved.
+;
+; The dock flag is an ARGUMENT and not something read from the strip, because
+; dock_paint is incremental (SPEC.md 30): it keys each tile on its icon and
+; its live/minimized/active state, so a quiet desktop costs no pixels at all.
+; This test used to be unconditional - the comment said "the dock is repainted
+; unconditionally above", which stopped being true when the tiles got their
+; keys - and the cost was one whole window repaint, W_PAINT included, on every
+; damage pass, for a strip that had not changed. A window dragged low enough
+; to sit on the strip therefore redrew itself every time a volume was mounted,
+; and the marking is transitive, so everything overlapping it went too.
+;
+; A wrong 1 costs a needless repaint; a wrong 0 leaves a window with the dock
+; drawn through it. So the flag is cleared HERE rather than by the caller: a
+; path that forgets to set it can only be one that did not draw the strip.
 ; -----------------------------------------------------------------------------
 wm_dmg_wins:
     push ax
@@ -1685,11 +1707,12 @@ wm_dmg_wins:
     call wm_win_rect            ; AX,BX,CX,DX = our rect, shadow included
     call wm_dmg_hit
     jc .mset
-    cmp dx, [vid_dock_y0]       ; the dock is repainted unconditionally above
-    jge .mset                   ; and it is drawn UNDER windows, so a window
-                                ; reaching into the strip is damaged by it -
-                                ; per window, rather than by widening the
-                                ; rect, which would erase the whole width
+    cmp byte [wm_dmg_dk], 0     ; the strip was drawn, and it is drawn UNDER
+    je .mnodock                 ; windows, so a window reaching into it is
+    cmp dx, [vid_dock_y0]       ; damaged by it - per window, rather than by
+    jge .mset                   ; widening the rect, which would erase the
+.mnodock:                       ; whole width. Gated, because dock_paint draws
+                                ; nothing at all on a quiet desktop
     mov word [wm_dmg_j], 0      ; not damaged directly - but a marked window
 .mbelow:                        ; below is redrawn WHOLE and would paint on us
     mov ax, [wm_dmg_j]
@@ -1756,7 +1779,8 @@ wm_dmg_wins:
     inc si
     jmp .dwin
 .wdone:
-    pop bp
+    mov byte [wm_dmg_dk], 0     ; consumed: a one-shot argument must not be
+    pop bp                      ; left set for a caller that draws no strip
     pop di
     pop si
     pop dx
@@ -1796,8 +1820,9 @@ wm_dock_under:
     mov [wm_dmg_x2], ax
     mov ax, [vid_hm1]
     mov [wm_dmg_y2], ax
-    call wm_dmg_wins
-.out:
+    mov byte [wm_dmg_dk], 1     ; dock_paint said CF = 1 above, so the strip
+    call wm_dmg_wins            ; really was drawn (the rect covers it anyway,
+.out:                           ; but the flag is an argument and says so)
     pop ax
     ret
 
@@ -2094,6 +2119,10 @@ wm_dmg_mask dw 0                ; bit n = window n must be redrawn
 wm_dmg_zn   db 0                ; bit n = drive zone n must be redrawn
 wm_dmg_fs   db 0                ; 1 = a fullscreen window is over the chrome,
                                 ; so this pass draws windows and nothing else
+wm_dmg_dk   db 0                ; 1 = the dock strip really was drawn, so a
+                                ; window sitting on it owes a redraw. A
+                                ; one-shot argument to wm_dmg_wins, which
+                                ; clears it on the way out
 wm_dmg_j    dw 0                ; the marking pass's inner index
 wm_hide_r   times 4 dw 0        ; wm_hide/wm_destroy: the vacated rect,
                                 ; banked across the record teardown

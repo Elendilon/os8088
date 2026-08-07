@@ -3001,9 +3001,28 @@ grown to full width *for the damage's entire height* — which erased the
 drive icons out from under a window that merely reached the bottom of the
 screen, and left them erased, because `desk_dmg_zones` had already run
 against the smaller rect. The dock is a **per-window test** in the marking
-pass instead: the strip is repainted unconditionally and is drawn under
-windows, so a window whose rect reaches `[vid_dock_y0]` is marked, and no
-other pixel is disturbed.
+pass instead: the strip is drawn under windows, so a window whose rect
+reaches `[vid_dock_y0]` is marked, and no other pixel is disturbed.
+
+**That test is gated on the strip actually having been drawn**, and forgetting
+the gate cost a whole window repaint per damage pass. `dock_paint` is
+incremental (§30): it keys each tile on its icon and its
+live/minimized/active state, so a quiet desktop costs no pixels at all — and
+this test was written when the strip *was* repainted unconditionally, with a
+comment saying so that outlived the code it described. A window dragged low
+enough to sit on the strip was therefore erased and re-`W_PAINT`ed every time
+a volume was mounted, for a strip that had not changed a pixel; and the
+marking is transitive, so everything overlapping that window went with it.
+Measured on VGA with the Control Panel dragged onto the strip, one mount:
+313 glyphs and 103 fills, against 148 and 58 with the gate — the same cost as
+a mount with no window near the dock at all. `[wm_dmg_dk]` is the gate,
+a **one-shot argument** to `wm_dmg_wins` set by whichever caller just called
+`dock_paint` and got CF = 1, and cleared by `wm_dmg_wins` on the way out. It
+is cleared by the callee rather than the caller because the two errors are not
+symmetric: a wrong 1 costs a needless repaint, a wrong 0 leaves a window with
+the dock drawn through it, so the value that survives a forgotten call site
+must be the safe one — and a path that never set it is a path that drew no
+strip.
 
 **A wholly covered window is not drawn at all.** `wm_covered` seeds §11.3's
 region arithmetic with the **frame** rect instead of the content rect — a
@@ -8562,21 +8581,52 @@ up, two partitions mounted — 371 glyphs became 182, and the 182 is almost
 entirely the Control Panel redrawing its own page after the click. No
 `wm_paint_all` runs at all.
 
-**The rect is the GRID, not the zones currently shown**, and that is the one
-subtle part. Adding or removing a volume can move the zones *after* it: a
+**The rect covers ordinals 0..n-1, and n is a HIGH-WATER MARK.** The subtle
+part is that adding or removing a volume moves the zones *after* it — a
 volume added into a hole an earlier unmount left takes an ordinal that used
-to be somebody else's. Sizing to the grid makes the answer independent of
-what is mounted. `desk_zones_dmg` asks `desk_ord_xy` for two corners rather
-than writing the layout arithmetic a second time — ordinal 0 is the top of
-the rightmost column, and the bottom-left corner is
-`(cols-1) * desk_rows + (rows_used-1)`.
+to be somebody else's — so the rect cannot simply be "the zones that are
+there now". The first answer to that was the whole GRID, `DVOL_MAX` zones,
+independent of what is mounted. **That was too big, and on a short-column
+geometry it was too big in the worst possible direction**: zones fill a
+column downwards and then wrap LEFT, so the unused ones are not slack at the
+edge of the rect but whole *columns* of empty desktop reaching back across
+the screen. On CGA `[desk_rows]` is 2, so a machine showing three volumes
+occupied x 526..633 while the grid claimed x 470..633 — and those 56 phantom
+pixels reached into the Control Panel window that the Mount button lives in,
+so §11.91's marking pass redrew that window WHOLE, `W_PAINT` and all, every
+time a disk was mounted. Measured on CGA: 295 glyphs and 102 fills for one
+mount, against 148 and 58 once the phantom column went — **2.0x**, with the
+framebuffer byte-identical.
 
-That last expression is **not** the last volume's ordinal, and the difference
-is a real bug on one adapter. `[desk_rows]` is 4 on Hercules, so six volumes
-are two columns of four and two — the last ordinal sits in row 1, two whole
-zones above the bottom of the first column, and a rect sized to it would cut
-them off. Taking the deepest row any column reaches costs at most one unused
-row of slack, in the safe direction.
+`[desk_zhw]` is that mark: the largest number of zones the screen may be
+showing while the repaint debt stands. `desk_zmark` raises it and sets
+`[desk_zdirty]` together, and the asymmetry in *when* the two callers mark is
+what makes it exact — **the changing zone is counted either way**. An add
+marks after the row goes live, because an add renumbers only ordinals below
+the new count. A delete marks *before* the flag is cleared, because what it
+leaves behind is stale pixels at what was the last ordinal. Taking the max
+also survives coalescing, which "the live count plus one" does not:
+unmounting a three-partition disk drops three volumes before `ui_task` looks
+at the flag. `desk_zones_paint` spends the mark and clears it — once those
+pixels are back the screen shows exactly the zones that exist, so the next
+change starts counting from what it can see. A mark of 0 means no pending
+change at all, and `desk_zones_dmg` then falls back to the live count, which
+is what `osapi_vol_paint` needs; it also floors n at 1, so ordinal 0 is
+always a legal argument.
+
+`desk_zones_dmg` asks `desk_ord_xy` for two corners rather than writing the
+layout arithmetic a second time — ordinal 0 is the top of the rightmost
+column, and the bottom-left corner is `(cols-1) * desk_rows + (rows_used-1)`.
+`desk_zones_shown` is likewise `desk_ord` asked about an index no row can
+have: the walk then never stops early and reports every shown zone in AH, so
+there is one definition of which zones are shown and in what order.
+
+That corner expression is **not** the last volume's ordinal, and the
+difference is a real bug on one adapter. `[desk_rows]` is 4 on Hercules, so
+six volumes are two columns of four and two — the last ordinal sits in row 1,
+two whole zones above the bottom of the first column, and a rect sized to it
+would cut them off. Taking the deepest row any column reaches costs at most
+one unused row of slack, in the safe direction.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
