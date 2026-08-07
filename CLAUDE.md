@@ -729,7 +729,14 @@ The bar is **chip menu → active application's name → that application's menu
 Three one-line hooks move it, and nothing else in the kernel knows the bar exists: `wm_front` activates the window it raises (so launching, raising, un-minimizing and dock clicks all follow for free); the event ladder's window branch activates the clicked window too (a click on the *already* frontmost window never reaches `wm_front`, and the bar still has to follow); and `menu_check`, run at the top of every `menu_draw_bar`, hands the bar to `wm_top` the moment `[menu_win]` names a window that stopped being visible — one validation covering close, minimize and hide. It **promotes rather than reverting** because the title bar does: losing the front window promotes whatever was under it and `wm_paint_dmg` gives that window the pinstripes (§11.91), so a bar that fell back to Locator instead made the screen say two different things about which app is active. `wm_top` answers 0 when nothing visible is left, and 0 *is* Locator, so the old fallback is still the last rung. A deliberate switch to Locator (clicking the bare desktop) is sticky — `[menu_win]` = 0 leaves `menu_check` at its first test.
 
 **A poll loop that drops the gfx lock must pace itself to the TICK** (SPEC.md
-7.1.3). `gfx_unlock`/`task_yield`/`gfx_lock` is the idiom for polling without
+7.1.3) - and this one is also why the LAZY HIDE was dropped (7.1.1): a
+measured 5,020 lock/unlock pairs across a session were ~4,900 THIS loop, so
+pacing it left 120, of which 46 genuinely draw or move the mouse. The lazy
+hide's own justification came from a measurement taken before its neighbour
+was fixed; re-measured, it buys ~144 ms across several minutes for a check at
+every framebuffer-writing path, a permanent-smear failure mode and a new
+package ABI contract. **Re-measure before building an optimisation whose case
+predates its neighbours' fixes.** `gfx_unlock`/`task_yield`/`gfx_lock` is the idiom for polling without
 holding the mutex, and there are four loops of that shape - `ui_drag`'s
 tracking pass, `ui_grow`'s and both of `fm_drag`'s. Three waited out the tick;
 `fm_drag`'s `.wait`, which runs while the button is down and the pointer has
