@@ -1618,6 +1618,16 @@ tui_sync:
 ;   exactly those words. The card was playing normally throughout; only our
 ;   view of it had stalled.
 ;
+;   AN ACCUMULATOR, NOT A STOPWATCH. [tui_lcons] is the model's own running
+;   position and [tui_ct0] the tick it was last advanced on, so the elapsed
+;   term is only ever 0, 1 or 2 ticks. Holding an anchor and multiplying a
+;   growing elapsed against it overflows a word at 217 ticks - twelve seconds
+;   - and the overflow branch then slammed the estimate to [trk_total], which
+;   is the MIXER's position, nearly three seconds ahead of the music. The
+;   field caught it and QEMU could not: the model only free-runs that long
+;   when the report does not overtake it for twelve seconds, which needs a
+;   machine whose byte rate matches the model as closely as the real one does.
+;
 ;   ANCHORED ONLY FORWARD. A report is the driver's block counter, so it is
 ;   quantized DOWN: it names the last 2,048-byte boundary the card crossed and
 ;   is therefore up to a whole block BEHIND where the card actually is. The
@@ -1642,35 +1652,29 @@ tui_playpos:
     push dx
     call OSAPI_GET_TICKS
     mov cx, ax                      ; CX = now, asked once
-    sub cx, [tui_ct0]               ; CX = ticks since the anchor
-    mov ax, cx
-    mul word [tui_bpt]              ; DX:AX = bytes played since it
-    or dx, dx
-    jnz .cap                        ; past 64KB: past anything ever staged
-    add ax, [tui_lcons]             ; AX = what the model says
+    sub cx, [tui_ct0]               ; CX = ticks since the model last moved -
+    jz .have                        ; ALWAYS 0 or 1 or 2, because the model is
+    add [tui_ct0], cx               ; an accumulator: the anchor advances with
+    mov ax, cx                      ; it every call, so the multiply below can
+    mul word [tui_bpt]              ; never overflow and the clock never has a
+    add [tui_lcons], ax             ; long elapsed to multiply (see the header)
+.have:
+    mov ax, [tui_lcons]             ; AX = what the model says
     mov bx, [trk_consumed]          ; has the REPORT overtaken the model?
     sub bx, ax                      ; (wrap-safe: the sign decides)
-    js .have                        ; no - and that is the normal case, see
-                                    ; the header: re-anchoring on a report
-                                    ; that is quantized BEHIND us throws the
+    js .bound                       ; no - and that is the normal case: a
+                                    ; report is quantized BEHIND us, and
+                                    ; re-anchoring there throws the
                                     ; interpolation away
     mov ax, [trk_consumed]          ; yes: the model ran slow, so take the
-    mov [tui_lcons], ax             ; truth and restart the clock on it
-    push ax
-    call OSAPI_GET_TICKS
-    mov [tui_ct0], ax
-    pop ax
-.have:
+    mov [tui_lcons], ax             ; truth
+.bound:
     mov bx, [trk_total]             ; ...bounded by what the mixer has WRITTEN,
     sub bx, ax                      ; because the card cannot play what is not
     jns .mono                       ; there yet (wrap-safe: the sign decides)
-.cap:
     mov ax, [trk_total]
-    mov [tui_lcons], ax             ; a capped estimate re-anchors there too,
-    push ax                         ; or the model keeps sprinting into a
-    call OSAPI_GET_TICKS            ; ceiling it cannot pass
-    mov [tui_ct0], ax
-    pop ax
+    mov [tui_lcons], ax             ; a capped model stays capped rather than
+                                    ; sprinting into a ceiling it cannot pass
 .mono:
     mov bx, ax                      ; ...and it may never go backwards
     sub bx, [tui_play]

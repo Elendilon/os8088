@@ -14413,6 +14413,18 @@ whole of why this is a section:
   stalled. The reading that the guest was losing ticks, which the apparent
   byte rate swinging between 186 and 683 bytes/tick seems at first to show,
   is that same observation lag and not a lost interrupt.
+- **An accumulator, not a stopwatch.** `[tui_lcons]` is the model's own
+  running position and `[tui_ct0]` the tick it was last advanced on, so the
+  elapsed term is only ever 0, 1 or 2 ticks. Holding an anchor and multiplying
+  a *growing* elapsed against it overflows a word at **217 ticks — twelve
+  seconds** — and the overflow branch then slammed the estimate to
+  `[trk_total]`, which is the **mixer's** position, nearly three seconds ahead
+  of the music. The field measured it as `PLAY − CONS` reaching **+15,242
+  bytes** against a ring of 16,384, and `SD` collapsing from 21 rows to 7.9.
+  QEMU could not: the model only free-runs that long when the report fails to
+  overtake it for twelve seconds, which needs a machine whose byte rate
+  matches the model as closely as the real one does. It is the third time in
+  this section that a bound which looked like a safety net was the defect.
 - **Anchored only forward.** A report is the driver's *block* counter, so it
   is quantized **down**: it names the last 2,048-byte boundary the card
   crossed and is therefore up to a whole block behind where the card actually
