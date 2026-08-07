@@ -179,9 +179,6 @@ MC_DSCMAX   equ 16                  ; walks handed to OSAPI_GFX_LSTEPV at once
   %error "mc_dsc holds fewer walks than one batch can produce"
 %endif
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
-MC_EXPJIT   equ 4                   ; frames of ramp PHASE a burst is jittered
-                                    ; by (SPEC.md 48.17), coarse ramp only:
-                                    ; the fine one redraws every frame anyway
 MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
                                     ; is SHORTER on purpose: with no collapse
                                     ; the peak is held instead, so the life is
@@ -2460,16 +2457,8 @@ mc_add_exp:
     mov [mc_ex + di], ax
     mov ax, [mc_expy]
     mov [mc_ey + di], ax
-    xor ax, ax                      ; SPEC.md 48.17: the coarse ramp redraws a
-    cmp byte [mc_ecoarse], 0        ; burst only when its drawn STATE changes,
-    je .phase                       ; so a salvo detonating together redraws
-    push cx                         ; together - a field log caught 76 ms of
-    mov cx, MC_EXPJIT               ; explosion in ONE frame. Starting each
-    call mc_rand_mod                ; burst a frame or two INTO the ramp
-    pop cx                          ; spreads the transitions, and costs no
-.phase:                             ; lethality worth the name: the frames it
-    mov [mc_et + si], al            ; skips are the small ones at the start,
-    mov byte [mc_er + si], 0        ; about 1% of the radius sum on average
+    mov byte [mc_et + si], 0
+    mov byte [mc_er + si], 0
     mov byte [mc_ea + si], 1
 .out:
     pop si
