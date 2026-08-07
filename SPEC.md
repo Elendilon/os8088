@@ -931,6 +931,48 @@ one does not make it cheaper (the walk is the cost).
 Verified on all three adapters: drawn in chunks of 3 and erased in chunks of
 5, the content comes back with **0 lit pixels** on Hercules, CGA and VGA.
 
+#### 5.6.8 Many walks, one arrival — `gfx_lstepv` (0x0318)
+
+§5.6.7 gives a moving line a cheap *pixel*. It does nothing about the
+*arrival*, and for the caller this was written for that is the whole cost: a
+walk step draws two or three pixels, and §5.7 prices getting into a drawing
+call at ~756us on the target machine whatever it then draws. Missile Command
+stepping one call per live missile was measured on a 5150-class machine at
+**10.2 ms of a 46 ms frame to draw about nineteen pixels** — 570us a pixel,
+against the 160us the same pixels cost in the drain, which happens to hand
+several trails over per call.
+
+So hand them all over at once:
+
+```
+    dw block1, count1        ; ES:DI = an array of CX pairs, all offsets in
+    dw block2, count2        ; the caller's own segment (an X slot)
+```
+
+It **is** those CX separate `gfx_lstep` calls — same walks, same order, same
+pixels — with the pushes, the far call, the dispatch and `gfx_ink` paid once
+instead of CX times. A descriptor with a zero count is legal and skipped, so
+a caller may build the array once and vary what it asks for.
+
+Two things are load-bearing:
+
+- **`gfx_ls_one` restores ES to the caller's segment on the way out**, which
+  is the only reason the loop can read the next descriptor. It falls out of
+  the write-back needing `[gfx_ls_cseg]` anyway — but it is load-bearing now
+  rather than incidental, because the mono walk points ES at the framebuffer
+  and the slow path leaves it wherever `gfx_pixel` did.
+- **The ink is resolved once, above the loop** (`gfx_ls_ink`), so
+  `gfx_lstep_mono` no longer computes it. One pen for the batch is not a
+  restriction worth removing: a caller with two pens has two batches, and two
+  arrivals is still not eight.
+
+`tests/linetest` is the gate, and it has to run several walks *concurrently*
+to be one: a vector call with a single descriptor only proves the scalar
+case, while what the contract claims is that N walks handed over together are
+unaffected by each other's staging. Keys 6 and 7 redraw the fan LT_NVEC walks
+to a call in chunks of 3 and 1, and must match keys 3 and 1 byte for byte —
+**0 differing pixels of 236,160** on Hercules.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
@@ -980,7 +1022,10 @@ a harmless tidy-up in the other direction:
    already was in font.inc's (§6.1). Its body is three instructions and the
    call and ret around them cost as much again — and **a fill walks its rows
    three times**, once per edge column and once for the interior, so a fill
-   pays it three times per scan line.
+   pays it three times per scan line. `bb_xfer`'s two loops were the last
+   holdouts and followed later (§7.1's work): the save side walks the
+   framebuffer in **SI**, so through the call it paid two `xchg si, di` as
+   well, around a body that is a `rep movsb` of two or three bytes.
 7. **`[bb_pat]` is staged by whoever needs it**, not by `bb_rect` for all
    three modes: `BBM_GRAY` starts from the dither byte, `BBM_SOLID`'s own
    dither branch stages it in `bb_ink`, and `BBM_XOR` never reads it.
@@ -1033,7 +1078,9 @@ window. Under `[bb_on]` (§32/§39.5) `font_char` branches after clipping to
 the software renderer, which applies the same shifted row masks to every
 plane the adapter has (or/and-not per the `[gfx_color]` plane bit — at 1bpp
 there is one plane and one bit, and `font_ink` rounds everything but pure
-white to black, because a dithered 8x8 glyph is unreadable, §39.4).
+white to black, because a *decorative* colour should not become texture —
+Piano's letters want contrast. `[gfx_dis]` is the exception and dithers the
+glyph deliberately, §39.4/§47 rule 3).
 
 ### 6.1 `font_run` — the erase-and-letter pair, as one operation
 
@@ -1317,6 +1364,167 @@ not worth what it would do to dragging.
   Every rule in this section holds unchanged in both modes: the locks, the
   cursor/ISR protocol and the BIOS restriction are about who may touch
   what, not about when the CPU is taken away.
+
+### 7.1 What the lock actually costs — it is the cursor, not the mutex
+
+The mutex is one byte and six instructions. Everything else in `gfx_lock`
+and `gfx_unlock` is the **mouse cursor**: the lock erases it so nothing may
+draw over it, and the unlock saves what it will cover and draws it again. A
+field log of Missile Command put the pair at **21.8% of a 77-second session**
+with not one pixel of the game in it (PERFORMANCE.md Part 9 Set 4) — and
+because it is entirely kernel-side, every application on every machine was
+paying it.
+
+`tests/gfxbench` measures it as one row, `GFX_UNLOCK+LOCK pair`. It is
+measured **backwards** — `OSAPI_GFX_LOCK` from inside a callback that already
+holds the lock is a deadlock, but unlock-then-lock is the same two routines
+in the other order, and `fm_drag` (§22.4) already uses that idiom. The two
+halves cannot be separated from a package because they must alternate.
+
+Four things make the pair what it is.
+
+- **The arrow is 8x12, and the tables are 16x16.** `cur_and`'s widest row is
+  `0xFF00` and its last non-zero row is 11, so `CUR_GW`/`CUR_GH` bound every
+  walk instead of `CUR_W`/`CUR_H` — a quarter of the rows and a third of the
+  bytes per row that used to be saved, restored, drawn and erased on empty
+  bits. Both are **asserted against the tables at assembly time**, because
+  both fail silently: a wider arrow loses its right-hand column on the two
+  mono adapters, a taller one leaves its bottom rows on the screen for the
+  rest of the session, and neither shows up anywhere but on the glass. The
+  rows go in through a `CUR_ROW` macro that emits the same word and
+  accumulates the two facts.
+- **The width is what retires the cell's third byte.** A 16-bit row whose low
+  byte is zero cannot reach a third framebuffer byte however far it is
+  shifted, so `row << (8-shift)` was a byte that was always 0, guarding a
+  branch that was never taken, once per row per pass. `CUR_SPAN` is 2, and
+  `cur_b2ok` is gone.
+- **On a 1bpp adapter the cursor is ONE pass, not three.** The framebuffer is
+  the renderer's own target there (§39.5), so `cur_put_mono` reads the byte
+  under the arrow, banks it, ORs the white outline in, ANDs the black body
+  out and writes it back — in one row loop. The three it replaces (a save
+  through `vga_rect_setup` and `bb_xfer`, then `cur_pass_mono` for white,
+  then `cur_pass_mono` again for black) read the same byte three times and
+  wrote it twice, each through its own row walk and its own `gfx_nextrow`
+  call. The masks compose: `(under | white) & ~black` is exactly what drawing
+  one pass on top of the other always produced. VGA keeps the old shape — the
+  save is four planes through Read Map Select and the draw is Set/Reset
+  through the Bit Mask, so there is no single byte to fuse — but it gets the
+  8x12 cell and the missing third byte.
+- **The geometry is computed once and banked, not derived twice.**
+  `cur_geom` answers the cell's framebuffer offset, the shift, the rows on
+  screen and whether the `DI+1` byte is still inside the row; `cur_get_mono`
+  replays them out of `[cur_off]`/`[cur_rows]`/`[cur_b1ok]` rather than
+  recomputing. That is a correctness rule before it is a speed one: **a save
+  and its restore that disagree by one byte smear the cursor across the
+  screen**, and two derivations are two chances to disagree. It is sound
+  because the cursor cannot move between them — every caller that moves it
+  erases at the OLD position first (§7's ISR rule).
+
+Measured under `-icount` (Part 9 Set 7), the pair went **17.82 → 5.41** PIT
+counts on Hercules, 17.98 → 5.46 on CGA and 23.00 → 11.85 on VGA, with the
+framebuffer **byte-identical** on all three adapters at every cursor position
+tested — over glyphs byte-aligned and skewed, against the right screen edge
+where the second byte is clipped away, and against the bottom edge where the
+arrow is cut short.
+
+### 7.1.1 The lazy hide — measured, not yet built
+
+The pair above is still paid on **every** lock hold, whether or not anything
+drawn came near the cursor. A *lazy* hide — leave the arrow up at `gfx_lock`,
+and erase it only when a primitive is about to write into its cell — would
+take the untouched case to nothing. Before deciding whether that is worth its
+risk, it was measured rather than argued about.
+
+**The instrument is the pixels, not a hook.** `gfx_lock` snapshots the 8x12
+cell right after the erase; `gfx_unlock` compares it before the redraw. Same
+bytes means nothing wrote there during the hold and a lazy hide would have
+skipped the pair entirely. That is exact, and it catches paths no
+per-primitive hook could — a package writing the framebuffer by hand
+included — because it looks at the result rather than at the call. (Scratch
+instrumentation, never committed; Hercules under QEMU.)
+
+One session: boot, browse two folders, drag a window, launch two packages,
+type 26 characters, idle.
+
+| | |
+|---|---|
+| lock/unlock pairs | **5,020** |
+| ...where anything wrote into the cursor cell | **7 (0.14%)** |
+| ...where the mouse moved during the hold | 40 (0.8%), all in the drag |
+| drawing calls across all of them | 2,021 rects + 1,536 glyph cells — **0.7 per hold** |
+| 26 Note Pad keystrokes | 25 pairs, **0** dirty, **0** moved |
+| idle desktop, 10 s | **0** pairs — the clock's lock is gated on the minute changing |
+
+**The pair is almost never needed.** A mouse-moved hold is a wash rather than
+a loss (the move has to happen either way; only its timing changes), so what
+is left is 7 holds in 5,020 where the erase earned its keep.
+
+**The economics work because the flag is one-way.** A pair is ~568 guest
+instructions; the check is ~12 while the arrow is still up and **~2** after
+it has been taken down, which is `bb_mono_chk`'s shape (§5.7) and for the
+same reason. So a small redraw that misses the cursor saves ~568 for ~12 a
+call, and a `wm_paint_all` that hits it early pays ~2 a call on top of a
+repaint already costing hundreds of thousands — under 1%.
+
+**The sharpest case is not a frame loop, it is a press-and-hold.**
+`fm_drag`'s wait loop (§22.4) is `gfx_unlock` / `task_yield` / `gfx_lock` per
+iteration while the button is down and has not moved far enough to be a drag,
+and it draws **nothing**. One double-click on a Disk window row measured
+**1,523 pairs** — a QEMU count, so read it as a rate rather than a total: on
+the field machine each iteration costs the pair's ~1.94 ms, so the loop turns
+over ~500 times a second and a fifth-of-a-second button-hold is ~100 pairs.
+`ui_drag` and `menu_track` have the same shape; unlike `fm_drag` they draw an
+XOR overlay, so theirs are honestly dirty.
+
+**And the cost is visible, not just billable.** `ui_task`'s clock branch
+already says so in as many words — *"Taking the gfx lock blinks the cursor,
+and that blink IS the flicker the seconds-in-menu-bar setting exists to
+remove"* — which is why that lock is gated on the bar's text really having
+changed. A lazy hide would remove the reason for that gate, and would stop
+the pointer blinking under a held button.
+
+**What would cause a miss, which is why this is not built yet.** A miss is
+not a clipped shape: the cursor's save-under was taken *before* the write, so
+erasing afterwards puts the pre-write bytes back and the drawn content is
+lost in an 8x12 rectangle that nothing repairs. Every one of these has to be
+hooked, and the list is the point:
+
+1. The seven §11.3 clipped primitives — but a **superset**, because
+   `gfx_blit4`, `gfx_scroll`, `ico_core`, `gfx_fill_pat`, `gfx_line`,
+   `gfx_lstepv`, `font_char` and `font_run` all write pixels and are not all
+   on that list.
+2. **`vga_xor_rect_vram` / `vga_xor_fill_vram`** — the drag outline and the
+   menu highlights, which bypass the back buffer by design (§32) and are
+   therefore *not* reached through the public entries that would carry a hook.
+3. **`gfx_flush`**, which writes an arbitrary dirty rect straight to VRAM and
+   is called mid-hold by `menu_track`, `ui_drag` and `fsx_wait` — not only
+   from `gfx_unlock`, where the cursor is already down.
+4. **`gfx_restore`/`bb_restore`**, the menu save-under going back.
+5. **`vid_setmode`, `fsx_mode`, `fsx_restore`** — a mode change clears the
+   screen under the arrow.
+6. **The cursor's own path, which must be EXCLUDED or the check recurses** —
+   and on VGA that is subtle, because `cur_saveu`/`cur_restoreu` share bodies
+   with `gfx_save`/`gfx_restore`. The hook belongs at the public entries only.
+7. **A package writing the framebuffer directly.** `OSAPI_VIDEO` hands out
+   the segment, the stride and the bank shift, and `tests/gfxbench` uses them
+   to write raw rows. **This one cannot be hooked at all** and would need a
+   contract: a slot to say "cursor off while I do this", or a rule that raw
+   framebuffer writes are out of contract.
+8. **Ordering.** The erase must run *before* the overdraw, while the arrow is
+   still whole — §48.11's crosshair rule exactly. A hook that hides after
+   drawing is worse than no hook.
+9. **The mouse moving mid-hold.** With the arrow left up, the ISR still
+   refuses to move it while the lock is held, so `gfx_unlock` has to notice
+   `mouse_x/y != cur_drawn_x/y` and do the move itself. Forget it and the
+   pointer sits at a stale position until the next packet.
+
+A bbox that overlaps the cursor while the *clipped* output does not is a
+false positive, and safe — it costs the pair, which is what is paid today.
+
+That is §11.3's "a primitive not on that list is a hole" with a worse failure
+mode, and it wants its own change with its own verification — including the
+`tests/linetest`-style byte-for-byte framebuffer comparison this one used —
+rather than a rider on the work above.
 
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
@@ -1689,11 +1897,18 @@ then, so this is invisible.
 - `mouse_unhook` — restore int 0x0C vector, mask IRQ4 again, IER=0.
 - Cursor: classic Mac arrow, 11 px tall, hot spot (0,0) — black body,
   1px white outline. Two 16-row × 16-bit tables: `cur_and` (white outline
-  mask) and `cur_data` (black body). Draw on VGA: white pass = Set/Reset
-  white, Bit Mask = mask row bits; black pass likewise. On a 1bpp adapter
-  (§39) the same two passes go in with plain CPU OR/AND — no Set/Reset, no
-  Bit Mask, no ports. Save-under buffer in .bss:
-  3 bytes wide × 16 rows × 4 planes = 192 bytes. The cursor is **always
+  mask) and `cur_data` (black body). **The tables are 16×16; the arrow is
+  `CUR_GW`×`CUR_GH` = 8×12, and that is what every walk is bounded by**
+  (§7.1) — asserted against the tables at assembly time, because a redrawn
+  arrow that outgrew either bound would fail only on the glass. Draw on
+  VGA: white pass = Set/Reset white, Bit Mask = mask row bits; black pass
+  likewise, across the cell's `CUR_SPAN` = 2 bytes. On a 1bpp adapter
+  (§39) the framebuffer is the renderer's own target, so the save and both
+  passes are fused into **one** row loop (`cur_put_mono`) with plain CPU
+  OR/AND — no Set/Reset, no Bit Mask, no ports; `cur_get_mono` puts the
+  banked bytes back, replaying `cur_geom`'s geometry rather than
+  re-deriving it. Save-under buffer in .bss: `CUR_SPAN` × `CUR_GH` × 4
+  planes = 96 bytes. The cursor is **always
   VRAM-direct**, double buffering or not: save/restore go through
   `vga_save_vram`/`vga_restore_vram` (§5, §32), never the dispatching
   `gfx_save`/`gfx_restore` — the back buffer must never contain cursor
@@ -3827,7 +4042,7 @@ Three things about it are deliberate:
     `SCH_WD_TICKS` ticks (`sch_wd_hits` advances, readable with QMP `xp` on
     segment 0x0800).
 12. **Writing works and the volume stays a legal FAT volume** (§18.4/§27.1):
-    type into Note Pad, F2 saves ("Saved NOTES.TXT"), F3 in a *second*
+    type into Note Pad, `Ctrl-S` saves ("Saved NOTES.TXT"), `Ctrl-O` in a *second*
     Note Pad instance loads the same text back; the Disk window's Refresh
     lists `NOTES.TXT` with its true size; and after QEMU exits,
     `python3 tools/os88disk.py --verify build/apps.img` passes — FAT1 ≡
@@ -5706,6 +5921,8 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02E0 gfx_line
                                                 0x0300 gfx_linit   X
                                                 0x0308 gfx_lstep   X
+                                                0x0310 gfx_pen_cf
+                                                0x0318 gfx_lstepv  X
 ```
 
 **Every RELEASED slot keeps its number and contract** (§20.8 rule 4), on the
@@ -5864,6 +6081,21 @@ Slot-specific contracts that are not simply their target routine's:
                          many. Lock held; CX=0 legal. N then M is exactly
                          the N+M one call would have drawn, which is what
                          lets an erase replay a draw. Preserves all.
+0x0318 gfx_lstepv        in ES:DI = an array of CX `dw block, pixels` pairs,
+                         the blocks in ES too (X); CX = 0 legal. Identical to
+                         CX separate gfx_lstep calls in one pen, with the
+                         arriving done once (§5.6.8). Lock held. Preserves
+                         all.
+0x0310 gfx_pen_cf        in CF = 0 live / CF = 1 disabled. Sets [gfx_color]
+                         and [gfx_dis] together, which is what makes a
+                         disabled glyph a checkerboard on mono (§47 rule 3).
+                         The cell is push/pop/call/retf and touches no flag,
+                         so the CF-in contract crosses it unchanged - and CF
+                         is what every greying predicate already answers in,
+                         so a call site is `call <ok-test>` then this.
+                         `clc`/`stc` first for the unconditional cases.
+                         gfx_unlock clears the flag, so it lives for exactly
+                         one lock hold. Preserves all.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -7874,8 +8106,17 @@ instance table like any other package.
 
 NOTEPAD is where §18.4 becomes visible to a user, and the package-side
 proof that the file slots work from a plain window callback. Two keys, DOS
-Editor's: **F2 saves** (scan 3Ch), **F3 loads** (scan 3Dh); both arrive
+Editor's: **F2 saved** (scan 3Ch) and **F3 loaded** (scan 3Dh), both arriving
 through the existing onkey with AL = 0.
+
+**Neither is an F-key any more: Save is `Ctrl-S` and Open is `Ctrl-O`.** The
+DOS pair was worth having while this was a text-mode habit being carried into
+a window — they were the keys a user of that machine already knew — and F3
+stopped being free when §27.10 needed a Find Next. Taking F2 with it is the
+consistent end of that: a window under a Macintosh menu bar spells its
+shortcuts with the modifier its menu items show, and Note Pad's Edit menu had
+already established `Ctrl-` letters for nine of them. The two F-keys left are
+Find Next and Find Previous, which have no letter to be spelled with.
 
 **The file used to be a fixed `NOTES.TXT`** — not because one note is
 enough, but because a package had no way to ask for a name. §38 removed
@@ -7886,13 +8127,15 @@ document name seeded to `NOTES.TXT` at launch, and four File commands:
 | command | behaviour |
 |---------|-----------|
 | **New** | empties the buffer and resets the name to `NOTES.TXT` |
-| **Open…** | slot 0x0150 in Open mode, default = the current name; the callback stores the chosen name and loads it |
-| **Save** (F2) | writes `np_name` — no dialog, the second and later saves of a document are silent |
+| **Open…** (`Ctrl-O`) | slot 0x0150 in Open mode, default = the current name; the callback stores the chosen name and loads it |
+| **Save** (`Ctrl-S`) | writes `np_name` — no dialog, the second and later saves of a document are silent |
 | **Save As…** | slot 0x0150 in Save mode; the callback stores the chosen name and writes it |
 
-F3 is **Open…**, i.e. it now raises the dialog rather than re-reading a
-fixed file — the one behaviour change to an existing key, and the reason
+The load key is **Open…**, i.e. it raises the dialog rather than re-reading
+a fixed file — the one behaviour change to an existing key, and the reason
 for it is that a load with no way to say *what* was never the useful half.
+It was F3 when that was written and is `Ctrl-O` since §27.10 took F3 for
+Find Next.
 Both dialog commands go through one completion proc, `np_ondlg` (AL = mode,
 SI = our window, DI = the name): it copies the name into `np_name`, runs
 `np_load` or `np_save`, and repaints its own content, which §38.5 requires
@@ -8535,6 +8778,230 @@ Six things the band arithmetic has to get right:
 Verified by differential: the same scripted run against a build whose
 `np_scrollpaint` always refuses is **pixel-identical inside the window**, on
 VGA over nine states and on Hercules over six.
+
+### 27.8 A selection, and the two things a drag can mean
+
+The selection is a **pair of character indices**, `[np_sel0]`..`[np_sel1)`,
+and an **XOR fill** over the cells that fall inside it, applied by `np_rflush`
+immediately after the run that drew the row. That costs one primitive call per
+selected row, needs no second colour, no second font pass and no change to how
+a row is measured — and on the two 1bpp adapters an inversion is what a
+Macintosh selection *is*.
+
+It rides §27.2's row signatures rather than sitting beside them: a cell inside
+the selection folds with bit 15 of its character set, so moving the selection
+dirties exactly the rows it left and the rows it arrived at, and a redraw that
+changed nothing still draws nothing.
+
+**Three things hold it up, and all three are edges the first version fell off.**
+
+- **XOR is its own inverse**, so a cell the run did *not* redraw is still
+  carrying the inversion the last pass gave it and a second XOR would take it
+  back off. `np_selxor` therefore intersects the row's selected span with
+  `[np_flo]`..`[np_fhi]` — the cells actually written — and never the row.
+- **Signatures cannot carry which cells of a redrawn row are inverted**,
+  because a row is redrawn for reasons that have nothing to do with the
+  selection. `np_rflush` keeps `[np_prs0]`/`[np_prs1]` the way it keeps
+  `[np_prcc]`, and folds the **union** of the old span and the new one into
+  the cells it redraws — but only when the two differ, or every selected row
+  on screen would redraw on every pass.
+- **A selected trailing space must survive `np_clean`'s trim.** The trim stops
+  the run at the row's last real character, which is worth a great deal on a
+  90-cell window (§27.2) and would have left a hole in the highlight wherever
+  a selection ended on a space. The trim floor is `max(flo, rs1)`.
+
+The **caret is not drawn while a selection is up** — the Macintosh rule, and
+the only honest one here: a 1px black bar inside an inverted band is invisible,
+so drawing it would cost a line and show nothing.
+
+**A caret key that clears a selection must drop `[np_ckok]`.** The checkpoint
+(§27.4) lets the next redraw resume its walk at the caret's own row, and a
+selection reaches rows *above* that — a resumed walk never re-signs them, so
+the inversion stays drawn on a row nothing intends to redraw again. That is
+`np_caretpre`, and it is the same argument `np_editinv` makes for a bulk edit.
+
+#### 27.8.1 Selecting with the pointer, and dropping what was selected
+
+`ui_drag`'s shape (§13) written against the API, the way `sol_drag` is (§43):
+the gfx lock is held for the whole of a pass and released only between them.
+What a pass does depends on **where the press landed**:
+
+- **outside the selection** it extends one from `[np_anchor]`, and `np_hitpt`
+  scrolls the view by a row when the pointer leaves it — which is what makes a
+  selection longer than the window possible at all;
+- **inside it** the press is a *move*, and the text goes where it is dropped.
+
+The second needs a **dead zone** (`NP_SELDRAG`, 3px), because a plain click
+inside a selection is still a click and what a click does is put the caret
+there. The drop point wears an XOR insertion bar whose pixels are **banked**
+rather than recomputed — a scroll between the draw and the erase would move
+where the bar belongs and leave the old one on screen for good, which is
+§48.11's rule in miniature.
+
+**The move is three in-place reversals and no buffer at all.** Reversing
+`[s,e)`, then the run beside it, then the two together, rotates the block to
+the far end of the span — which is exactly what a move is. The alternative was
+a staging claim the size of the selection, and a drag that fails because the
+heap is busy is a drag the user has no way to understand.
+
+#### 27.8.2 Cut, Copy and Paste
+
+Over §55's system clipboard, so what is copied here can be pasted in another
+program and outlives the instance that copied it.
+
+**Copy is one call and no staging**: `OSAPI_CLIP_PUT` takes `ES:SI`, and the
+note is a heap claim of its own (§27.6), so `ES = [np_dseg]` and `SI` is the
+selection's start. **Paste is the same trick backwards** — the gap is opened
+in the document *first* and `OSAPI_CLIP_GET` writes straight into it, so a 4KB
+paste needs 4KB of document and not 8KB of anything.
+
+What arrives is then **filtered in place**, because the clipboard is shared and
+another program put the bytes there: CR LF folds to one 13, a lone LF likewise,
+and anything else outside 32..126 is dropped. Exactly `np_load`'s rule, for
+exactly `np_load`'s reason.
+
+A paste **replaces the selection**, and the delete and the insert land in **one
+undo group**, because the insert starts exactly where the delete left off
+(§27.9's first coalescing rule). Typing over a selection is the same shape.
+
+**Cut copies first and its refusal is final.** A cut that lost the text because
+the clipboard would not hold it is the one outcome nobody can undo from the
+keyboard.
+
+### 27.9 Undo, five edits deep
+
+**An edit is a burst of keystrokes with no half-second gap in it** — which is
+what the user means by one — and the clock that measures it is the worker that
+was already there for the visual break (§27.3). A group also closes on anything
+that is not an edit (a click, a caret key, a save, a menu command) and on an
+edit that does not touch the group's own span, because the record can only
+describe a contiguous change.
+
+A record is three numbers and a blob: at `[np_upos]`, this group **inserted**
+`[np_uins]` bytes and **removed** the `[np_udel]` bytes now sitting at
+`[np_uoff]` in the arena. Undoing it is "delete `uins` at `upos`, put the blob
+back at `upos`", and that is the whole of it — which is also why there is no
+redo, and why there is no "caret before the group" word: the caret lands at
+`upos + udel`, the end of what was just put back, and that is right for all
+four shapes a group can have.
+
+**Coalescing is four cases and their order matters.** An insertion of *m* at
+*q* extends the group when `q == upos + uins`. A deletion of *m* at *q* is:
+
+1. bytes **this group inserted** (`q + m == upos + uins` and `m <= uins`) —
+   they were never in the note before it, so nothing reaches the blob and
+   `uins` shrinks. A backspace walking back over what was just typed;
+2. bytes immediately **after** the group's span (`q == upos + uins`) — original
+   text, so they go at the **end** of the blob. Forward Delete while typing;
+3. immediately **before** it (`q + m == upos`) — so they go at the **front**
+   and the span starts lower. A backspace walking left out of the group;
+4. anywhere else: a new group.
+
+Case 1 must be tested first, because when `uins` is 0 cases 2 and 3 can both
+look true and taking 1 when it does not apply would forget a deletion.
+
+**The blobs live in a heap claim sized on demand** — nothing at all until the
+first edit worth remembering, a kilobyte at a time after that, up to
+`NP_UMAXKB` (16). They are packed in stack order, so the open record's blob is
+always **last** and prepending to it disturbs nothing else. When the arena will
+not grow the **oldest record is evicted** — a stack four deep is still an undo,
+and a refusal is not — and only when there is nothing left to evict is the
+**whole stack dropped**. It has to be the whole stack: an edit that went
+unrecorded makes every record under it describe a note that no longer exists.
+`np_clamp` drops it too, because a load and a File > New replace the buffer
+those indices point into.
+
+**Two operations move text at two places at once** — a drag-and-drop and a
+Replace All — and the three-number record cannot say that. Both use the
+**bulk form**: one replacement of the whole span between the two places, whose
+blob is the original bytes of that span. That is why `NP_UMAXKB` is 16 rather
+than 8: a Replace All records the whole tail of the note it rewrote, and the
+operation nobody wants to retype by hand is exactly the one worth being able to
+take back.
+
+**The worker is hired by `np_ubegin`**, and that is a fix rather than a detail.
+It used to be hired only by the visual break and by a note that outgrew its
+window, so on a machine with neither — a fast one, with a short note — nothing
+ever closed a group and the whole session was one undo.
+
+### 27.10 Find and Replace
+
+`Ctrl-F` and `Ctrl-R` put up a panel **docked at the top of the content**, and
+that is worth stating because a second window was the obvious shape. A window
+would have needed its own record, its own dispatcher entry and its own answer
+to "what happens when the user clicks the note behind it"; a strip of the
+content needs **one number** — the height `np_bounds` adds to `[np_ty]` — and
+every other thing in the module follows for nothing. The signatures notice the
+geometry changed and repaint once (§27.2), the scroll bar re-derives its track,
+the note re-wraps at the same width.
+
+Two boxes (Find, and Replace in `Ctrl-R` mode), a **Regex** tick box, the match
+count, and `Next` / `Repl` / `All` / `X`. `F3` finds the next match and
+`Shift-F3` the previous one, **from anywhere** — the panel does not swallow
+them and the document does not swallow `Ctrl-F`, which is why the shared keys
+are tested before `[np_ffield]` routes anything. The search **wraps**: the
+second pass stops where the first began, so a pattern occurring once is found
+from anywhere and one occurring nowhere is refused after exactly one traversal.
+A match is **selected**, and `[np_follow]` scrolls it into view through
+§27.7.2's blit like any other caret move.
+
+**The count is not recomputed on a keystroke.** Counting walks the whole note
+with the matcher, so it is owed by `[np_fcdirty]` and paid by the worker half a
+second later — the same trade `np_height` makes (§27.7), for the same reason,
+and it is what keeps typing in the box as cheap as typing in the note. It runs
+**under the gfx lock**, because the matcher's backtrack stack is one block of
+bss the UI task's own finds use too.
+
+**`F3` was Load.** Load is `Ctrl-O` and the File menu now; a find with no key
+for the next match is not a find.
+
+Three traps this sprang, all of which shipped broken for one build:
+
+- **`[np_ffield]` = 0 is a real focus.** The bss arrives zeroed and 0 is the
+  Find box, so a fresh Note Pad sent every keystroke to a panel that was not on
+  screen and typing did nothing. `np_entry` sets `NP_FF_DOC` explicitly, and
+  the router tests `[np_fpan]` as well.
+- **One caret word serves both boxes.** Tabbing from a long pattern into a
+  short replacement left `[np_fpcur]` past the end of the target buffer, and
+  the insert loop's count went negative — 64KB written across the package's own
+  bss. `np_fpkey` clamps it before anything else, and `np_ffocus` puts it at the
+  end of the box being entered.
+- **An opaque `font_run` erases what it covers.** The box interior is one run
+  (§6.1, so a keystroke in the box does not flicker), and drawn at the frame's
+  own row it rubbed the frame's bottom line out. The interior is inset by one.
+  The match count has the same shape and a worse failure: padded to a fixed
+  span it painted over the `Next` button, so it is padded to the room it *has*.
+
+#### 27.10.1 The matcher
+
+A backtracking matcher over the note supporting the subset a text editor
+actually uses: any character is itself, `.` is any character but a line break,
+`[abc]` / `[^abc]` / `[a-z]` are classes, `*` `+` `?` repeat the element before
+them, `^` and `$` anchor to the start and end of a **line** (this is a
+multi-line document, so anchoring to the note would be useless), and `\` makes
+the next character literal. With the Regex box unticked the pattern is compared
+byte for byte instead.
+
+**It is iterative, with an explicit stack, and that is not a style choice.**
+The textbook matcher recurses once per repeat element and once per repetition;
+the second is fatal on its own (`.*` over a 16KB note is 16,000 frames) and the
+first is fatal here too, because the match count is recomputed by the **worker**
+and a worker's stack is 256 bytes (§8). So a repetition is a greedy count plus
+a frame that gives ground one at a time, the frames live in bss, and there are
+`NP_RXST` (12) of them — a pattern needing more is refused **whole**, by
+`np_fchk`, before anything runs. That is what lets `np_rx_at` treat a full stack
+as impossible and lets the panel say "Bad pattern" once instead of finding
+nothing forever.
+
+Matching is **case sensitive**, deliberately. Folding would have to fold class
+ranges too, and `[a-z]` quietly matching `Q` is a worse surprise than retyping a
+capital.
+
+`np_findprev` is **one forward walk** remembering the last match before the
+limit and the last one anywhere, because a backtracking matcher cannot be run
+backwards and running it forwards twice would cost twice as much. It steps
+match-to-match rather than character-to-character, so the pass is bounded by the
+number of matches rather than by the length of the note.
 
 ## 28. apps/taskmgr — the Task Manager
 
@@ -9829,12 +10296,13 @@ driver enabled on a machine with no card is unchecked, with `'No hardware
 found'` under it. That is the `bb_avail` idiom (§31.3) again: the box, the
 caption and the click all read one word, so they cannot disagree.
 
-**A click loads or unloads on the spot**, mounting A: on demand, and only
-then writes `SYSTEM.CFG`. So the page never shows a promise about the next
-boot — what it shows is what is running. The two outcomes are reported
-separately: a load that fails leaves the box clear with its reason, and a
-*save* that fails puts a reason in the caption (§51.5.1) while the driver it
-just loaded stays loaded.
+**A click loads or unloads on the spot**, mounting A: on demand, and marks
+`SYSTEM.CFG` owed rather than writing it — the close spends it, like every
+other page (§31.8). So the page never shows a promise about the next boot —
+what it shows is what is running. The two outcomes are reported separately: a
+load that fails leaves the box clear with its reason, and a *save* that fails
+puts a reason in the caption (§51.5.1) while the driver it just loaded stays
+loaded.
 
 **A click on a row that is unloaded but WANTED clears the want instead of
 retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
@@ -9852,6 +10320,65 @@ file operation in this OS makes (§18.4) — the cursor freezes for the length
 of the read — and the alternative, dropping the lock inside a click handler,
 is not one the window manager offers.
 
+### 31.6.1 Row geometry, and the erase that ate the checkbox
+
+Pane-relative, on the Scheduler page's `CP_PGX`/`CP_GW`/`CP_PLX`/`CP_PLDY`
+grid (§31.1) with a pitch of its own, because a driver row is **two** text
+lines rather than one:
+
+```nasm
+CP_DR0Y  equ 24            ; first driver row: checkbox top
+CP_DROWH equ 26            ; row pitch: row i's checkbox top = CP_DR0Y + i*26
+CP_DSTDY equ CP_PLDY + 9   ; 11: the reason line, one text row under the label
+```
+
+Row *i* draws the checkbox at (`CP_PGX`, `CP_DR0Y + i*CP_DROWH`) through
+`cp_glyph`, the driver's name at (`CP_PLX`, row top + `CP_PLDY`), and
+`drv_status`'s sentence at (`CP_PLX`, row top + `CP_DSTDY`). Hit bands are the
+Scheduler page's shape: contiguous, whole-pane-wide, `CP_DB0Y1`..`CP_DB0Y2`
+and `CP_DB0Y2+1`..`CP_DB1Y2`.
+
+**The reason line's erase starts at `CP_PLX`, and that is binding.** The
+checkbox owns rows `0..CP_GW-1` of its row and `CP_DSTDY` is `CP_GW - 1`, so
+the box's last scan line **is** the reason line's first. The two status
+strings differ in length, so the line is erased before it is lettered —
+`cp_drv_wipe`, which therefore takes the left inset **in AX** rather than
+assuming `CP_PMX` — and an erase spanning the pane's full width runs straight
+through the checkbox and takes its bottom edge off. Nothing left of `CP_PLX`
+on that scan line belongs to the reason line, so the narrower span is both the
+correct one and the cheaper one. A caption, which has nothing to its left,
+still passes `CP_PMX`.
+
+`cp_drv_paint` hid this for as long as it was the only painter: it letters
+every reason **first** and draws the boxes last, so the box was always written
+after the erase that would have cut it. The click path drew them in the other
+order, so every click ended with the boxes bottom-shaved — and because both
+painters walked all of `drv_tab`, that included rows the click had not touched.
+The general form is worth stating: **when two controls share a scan line, the
+order they are drawn in is not a detail, and a bug in it hides completely
+behind whichever painter happens to get the order right.**
+
+**A click redraws ONE row.** `drv_load` and `drv_unload` touch their own
+`drv_tab` row and no other, so `cp_drv_click` calls `cp_drv_box1` and
+`cp_drv_line1` for the row it hit; `cp_drv_boxes` is the loop over
+`cp_drv_box1` that `cp_drv_paint` still owes. Redrawing every row is a
+double-draw flash on controls that did not move, and it is not cheap:
+`cp_glyph` is a 12×12 fill and then one `gfx_pixel` per set bit — 44 of them
+for the empty box, 64 for the crossed one — which at PERFORMANCE.md Part 2's
+~756 µs of fixed cost per drawing call is 35–50 ms of the field machine's time
+**per box**. **The save caption is not redrawn on a click either**: only
+`cp_flush_x` writes `[cp_dsave]` and that runs at the close (§31.8), so it
+cannot change while the page is on screen.
+
+Counted on the shipped two-row table, a click was **5 `gfx_fill`s, ~108
+`gfx_pixel`s and 3 `font_str`s** and is **2, 44–64 and 1** — which is the point
+worth taking from this rather than the ratio: the redraw was priced by how
+many rows the table has, and only one of them can change.
+
+Verified the §48.12 way, on all three adapters: tick a row, capture the
+framebuffer, force a full `cp_drv_paint` by selecting another page and coming
+back, diff — **0 differing pixels**, for a load that succeeds, an unload, and
+a load that fails into a longer string than the one it replaces.
 
 ### 31.7 Sound page — which sound hardware the machine uses
 
@@ -9899,17 +10426,20 @@ A driver that publishes `DSV_TIERS` = 0 said nothing and is taken at its word:
 every row stays live and the click finds out the slow way, which is exactly the
 behaviour before the cell existed.
 
-**A greyed row greys its GLYPH as well as its label**, and on this page that is
-what carries the whole signal on two adapters out of three. `font_ink` rounds
-`CDGRAY` to *black* for text — a dithered 8x8 glyph is unreadable, so mono has
-no grey to draw a letter in (§39.4) — which means a disabled label is
-pixel-identical to a live one on Hercules and CGA. The Display page gets away
-with that because its caption says why in words; this page has no caption, so
-the row has to say it some other way. A glyph can, because it is drawn with
-`gfx_pixel` rather than as a font cell: `gfx_ink` maps `CDGRAY` to the 50%
-dither, so the ring comes out **dotted**. Dark grey on VGA, dotted on mono, and
-on all three the whole row reads as disabled instead of a black control with
-faint writing beside it.
+**A greyed row greys its GLYPH as well as its label**, which is rule 2 and
+nothing more exotic. Both halves take `cp_snd_rowok`'s pen through
+`gfx_pen_cf`, so on mono the ring comes out **dotted** (`gfx_ink` maps `CDGRAY`
+to the 50% dither for a shape) and the label comes out a **checkerboard**
+(`font_ink` masks a flagged glyph, §39.4). Dark grey on VGA, dithered on the
+other two, and on all three the whole row reads as disabled.
+
+This paragraph used to claim the label could not say so — that a dithered 8x8
+glyph was unreadable, that mono had no grey to draw a letter in, and that the
+Display page "got away with" a pixel-identical label because its caption
+explained in words. All three were false, and the last was false about a page
+whose `Double Buffered` label has been rendering as a legible checkerboard on
+CGA since `font_ink` learned the flag. The glyph is greyed here because rule 2
+says grey the whole control, not because the text was thought incapable.
 
 A refused tier change leaves the setting where it was and writes the reason
 into a **notice line** below the Test button, using the loader's own
@@ -10008,10 +10538,14 @@ dropping it silently. It is reported in the Drivers page's caption, the
 one page with room to say it, which means the *next* time the panel is opened:
 by the time the write happens the page it would be reported on is already
 gone. **`cp_drv_cap` is why that is now true rather than merely intended** —
-the caption used to be drawn only by `cp_drv_lines`, which runs when a row is
-TICKED, so the report appeared only if the user happened to tick something
-after a failed save in the same session, and `cp_drv_paint` drew everything on
-the page except this. Both painters call it now. Its two strings are §51.5.1's.
+the caption used to be drawn only by the click path's status-line redraw,
+which runs when a row is TICKED, so the report appeared only if the user
+happened to tick something after a failed save in the same session, and
+`cp_drv_paint` drew everything on the page except this. `cp_drv_paint` calls
+it now, and the click path deliberately does **not**: `[cp_dsave]` is written
+only by `cp_flush_x`, at the close, so the caption cannot change while the
+page is on screen and re-lettering it per click erases and redraws text that
+did not move (§31.6.1). Its two strings are §51.5.1's.
 
 ### 31.9 Pages a driver owns
 
@@ -11228,7 +11762,8 @@ a chosen 8.3 name back to whichever application asked for it, in an **Open**
 form and a **Save** form. Label prefix `fdlg_`.
 
 It exists because §18.4 gave packages five file slots and no way to name a
-file: Note Pad's F2/F3 wrote a hard-coded `NOTES.TXT` (§27.1) not because
+file: Note Pad's save and load keys wrote a hard-coded `NOTES.TXT` (§27.1)
+not because
 one note is enough but because there was nothing to ask a filename with,
 and the Disk window (§22) can launch a package but cannot return a name to
 a caller. This is the missing half of the file API, and the kernel owns it
@@ -11605,8 +12140,9 @@ and a frame plus a label per keypress is real money on the machines this runs
 on.
 
 `fdlg_btn` takes the **caller's** pen rather than forcing `CBLACK`, so the
-disabled frame greys with the label — which is what shows on a mono adapter,
-where a package's grey text alone would round to black (§46 rule 2/3).
+disabled frame greys with the label — and because that pen comes from
+`gfx_pen_cf`, it carries `[gfx_dis]` too, so on a mono adapter the frame goes
+dotted and the label goes to a checkerboard together (§47 rule 2/3).
 
 `fdlg_paint` calls the **bodies**, because `wm_paint_all` already handed it a
 white content; everything else calls the wrappers. Neither erase touches its
@@ -14663,26 +15199,38 @@ means.
    reads as a live control that someone mislabelled — which is exactly what the
    Sound page shipped as until it was reported.
 
-3. **Grey does not survive 1bpp; the flag does.** Every middle grey rounds to
-   black in text (§39.4) — a dithered 8x8 glyph costs half its strokes, which
-   is the wrong trade for Piano's coloured letters and right for nothing —
-   so a `CDGRAY` label used to be *pixel-identical* to a live one on Hercules
-   and CGA. `[gfx_dis]` is the carve-out: `font_ink` masks a disabled glyph to
-   a checkerboard, exactly as the 1bpp Macintosh drew a greyed-out menu item,
-   and just as readable.
+3. **Grey does not survive 1bpp; the flag does — including on text.** Every
+   middle grey rounds to black in text (§39.4), because a *decorative* colour
+   should not become texture — Piano's coloured letters want contrast — so a
+   bare `CDGRAY` label is pixel-identical to a live one on Hercules and CGA.
+   `[gfx_dis]` is the carve-out and it applies to glyphs exactly as it does to
+   shapes: `font_ink` masks a disabled glyph to a checkerboard, which is what
+   the 1bpp Macintosh did to a greyed-out menu item and is **legible and
+   plainly distinct from a live label**. The Display page's `Double Buffered`
+   row on CGA is the reference to go and look at (§31.3): the ring is dotted,
+   the label is a checkerboard, and nothing else on the page is needed to say
+   the row is off.
 
-   Shapes never needed it — `gfx_ink` maps `CDGRAY` to the 50% dither, so a
-   ring or a frame comes out dotted on mono — which is why rule 2's "grey the
-   whole control" was load-bearing before this existed and remains the rule for
-   **packages**, which have no way to reach the flag (§20.3 publishes no slot
-   for it, deliberately: nothing has needed one). A package's disabled *label*
-   still rounds to black on mono, so a package's disabled control must include
-   a non-text mark — a frame, a box, an icon — and `rc_btn` (Recorder) is the
-   reference.
+   **Dithered text is a first-class answer, not a compromise.** Half a stroke
+   is a real cost and it is the right one to pay, for the same reason it was
+   right on a 512x342 Macintosh. Nothing in this tree should avoid greying
+   text on the theory that mono cannot show it; that claim was documented in
+   six places and was false in all of them.
+
+   Shapes never needed the flag — `gfx_ink` maps `CDGRAY` to the 50% dither,
+   so a ring or a frame comes out dotted on mono — which is why rule 2's "grey
+   the whole control" was load-bearing before the flag existed. It is still
+   rule 2, but it is no longer a *substitute* for greying the label: a control
+   whose frame dithers and whose label does not is rule 2's own failure, two
+   halves disagreeing, and that is precisely what a package shipped for as long
+   as the flag was kernel-only. **`gfx_pen_cf` is published at slot 0x0310**
+   (§20.3), so a package reaches the flag the same way the kernel does and its
+   disabled text dithers on mono like everything else.
 
    Words are still worth adding — `'Save Gif (NoRam)'` (§12.2), or a caption
    that says why (§31.3) — but they say *why not*, not *whether*. They stopped
-   being load-bearing for kernel-drawn text when the renderer took the state.
+   being load-bearing for kernel-drawn text when the renderer took the state,
+   and for a package's when the slot was published.
 
 4. **One predicate, three consumers.** The test that greys the control, the
    test that refuses the click and the text that explains it are the *same
@@ -14738,8 +15286,10 @@ Conformant, and worth reading as the reference:
 
 - **`cp_snd_rowok` / `cp_snd_radios` / `cp_snd_paint`** (§31.7) — one
   predicate, glyph and label both, dotted ring on mono.
-- **`rc_btn`** (Recorder) — greys the button frame with the label, so the
-  frame dithers and the button reads as disabled on every adapter.
+- **`rc_btn`** (Recorder) — takes the pen through slot 0x0310, so the frame
+  dithers *and* the label does, and the button reads as disabled on every
+  adapter. It greyed the frame with a bare `CDGRAY` until the slot existed,
+  which left a dotted frame around a solid-black caption on mono.
 - **Paint's menu items** (§12.2) — text-only controls that also carry the state
   in words, `'Save Gif (NoRam)'` and five more. Since `font_ink` learned the
   dither those words say *why not* rather than *whether*, which is still worth
@@ -14782,11 +15332,16 @@ refusals *ought* to grey and do not, and three answer no:
 **Owed:** nothing else identified. §47.2 is the standing obligation — a greying
 change is not finished until it has been looked at on a mono adapter.
 
-**Packages have no `[gfx_dis]`, on purpose.** §20.3 publishes no slot for it
-because nothing has needed one: a package's disabled control is covered by rule
-2, whose non-text mark dithers through `gfx_ink` without help. If an app ever
-needs disabled *text* with no shape beside it, that is when the slot gets
-added — and adding one is an append, which §20.8 allows.
+**Packages reach `[gfx_dis]` through slot 0x0310**, and the reasoning that
+withheld it was wrong twice over. It said a package's disabled control was
+covered by rule 2's non-text mark, which dithers through `gfx_ink` without
+help — true, but rule 2 asks for the *whole* control, and a package could only
+ever grey the part of it that was not text. Every package button in the tree
+therefore shipped a dotted frame around a solid-black caption on Hercules and
+CGA: rule 2's named failure, arriving by construction rather than by
+oversight. And it rested on the belief that a dithered 8x8 glyph was unreadable
+anyway, which the Display page had been disproving on screen the whole time.
+The slot is an append, which §20.8 allows; no number moved.
 
 ## 48. Missile Command — the twelfth package (apps/missile/missile.asm)
 
@@ -15601,6 +16156,14 @@ trail cannot starve the ones behind it.
 inline, which is what every erase did before this existed. So is a trail with
 no walk (§48.14's `[mc_iarm]` = 2) and a trail with nothing drawn.
 
+**`MC_MAXDRN` is `MC_MAXICBM + MC_MAXABM`, so it cannot overflow at all.** It
+was 8, which held for ordinary play — and a salvo dying together spilled the
+rest into inline erases, which is precisely the spike this exists to spread.
+A field log caught the worst second of a run at **8.2 ms a frame in `wip`
+against a typical 0.7**, and that second also contained the run's worst
+frame. Graceful overflow is still the right shape for the code; it just has
+nothing left to catch.
+
 Two things are load-bearing:
 
 - **`mc_drn_clear` runs at every full repaint.** The repaint has already put
@@ -15626,6 +16189,52 @@ bursts and the terrain, both of which draw over it.
 Verified the §48.14 way, after letting the queue empty: **0 differing pixels**
 in the game window against a forced full repaint, mid-game with live trails,
 on VGA (of 224,961) and CGA (of 129,485).
+
+### 48.16 Every trail in one call, because the arriving was the cost
+
+The field log after §48.14 and §48.15 (PERFORMANCE.md Part 9, Set 6) says the
+trail work is now honest and the trail *calls* are not. Thirteen stuttering
+seconds average **46.2 ms a frame** against a 54.9 ms tick — the mean is
+under it and the tail is not, which is exactly why this reads as a stutter
+rather than a freeze — and they split:
+
+| stage | ms | stage | ms |
+|---|---|---|---|
+| `exp` explosions | 10.50 | `rst` terrain/status | 3.99 |
+| `mov` **trail draw** | 10.20 | `crs` crosshair | 3.60 |
+| `drn` drain | 9.11 | `wip` teardown | 1.03 |
+| `upd` update | 6.14 | `lok`/`unl`/`all` | **0** |
+
+`drn` moves 46.6 pixels a frame for 9.11 ms — **~160us a pixel**, which is
+simply what a 1bpp line pixel costs (`gfx_lstep_mono` and `gfx_line_mono` are
+the same loop, so §48.14 did not make a pixel dearer; it stopped drawing each
+one three times). `mov` is the anomaly: **10.20 ms to draw about nineteen
+pixels**, ~570us each for the identical operation. The difference is that it
+was one far call per live missile per frame — seven or eight arrivals paying
+§5.7's floor to move two or three pixels each — while the drain already
+happened to serve several trails per call.
+
+`mc_dsc_add`/`mc_dsc_run` collect the frame's steps and spend them through
+§5.6.8's `OSAPI_GFX_LSTEPV`. **Three calls a frame instead of ten**: one for
+the ICBM pen, one for the ABM pen, one for the drain.
+
+Two things about it are easy to get wrong:
+
+- **A batch is spent before the pen changes.** `mc_move_trails` flushes at
+  the end of the ICBM loop, *before* `mc_setcol` hands it the ABM colour —
+  the descriptors carry no pen, and a batch that outlived one would draw
+  ICBM trails in the ABM's ink.
+- **The drain's crosshair erases still all happen before any of its
+  pixels.** `mc_cross_need` runs inside the serve loop and the batch is spent
+  after it, so the XOR still comes off while the crosshair is whole — §48.11's
+  ordering argument, preserved by accident of where the flush sits, which is
+  why it is written down here.
+
+Verified the §48.14 way, and this time the A/B is the point rather than a
+formality: what is on screen was drawn by the **vector** call and the forced
+full repaint replays it with the **scalar** one (`mc_redraw_trails` was left
+alone), so a disagreement between the two would show directly. **0 differing
+pixels** on VGA (of 224,961), CGA (of 129,485) and Hercules (of 236,160).
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
@@ -16822,15 +17431,13 @@ because both halves look like details and neither is:
   acts on it. That is rule 4's named failure — "looks unavailable and works" —
   and it is the drift rule 4 exists to stop, arriving from the direction rule 4
   does not cover, because there is no predicate here at all: nothing refuses.
-- **It did not even show.** Rule 3: `CDGRAY` *text* rounds to black on the two
-  1bpp adapters (§39.4 rounds a glyph rather than dithering it), and
-  `[gfx_dis]` — the carve-out that makes a disabled glyph a checkerboard — is
-  not in the package ABI (§20.3 publishes no slot). Looked at on CGA per §47.2,
-  the greyed row was pixel-identical to the live row beneath it. Rule 3's
-  package clause is the general form: a package's disabled control **must carry
-  a non-text mark**, which is why `hd_page_button` greys the button's *frame*
-  along with its label and reads correctly on all three adapters, and why a
-  bare row of text can never be made to.
+- **It did not show.** A bare `CDGRAY` glyph rounds to black on the two 1bpp
+  adapters, so looked at on CGA per §47.2 the greyed row was pixel-identical to
+  the live row beneath it. The fix for a *control* is the pen — `gfx_pen_cf`,
+  slot 0x0310, which sets `[gfx_dis]` and makes the glyph a checkerboard — and
+  `hd_page_button` takes it, so its frame and its label both read as disabled
+  on every adapter. A **row is not a control** and so takes no pen at all;
+  its State column is the signal.
 
 So the **State column is the whole signal**, and it says the same thing on VGA,
 CGA and Hercules. That is not a consolation prize for the missing colour: a
@@ -16911,9 +17518,9 @@ said it would not.** The distinction §52.2.2 turns on is that a *row* is not a
 control and a button is. Every rule that refused the greying there permits it
 here: the predicate is a fact already printed in the row and not a guess (rule
 4), one `hd_tw_delok` serves the greying and the click refusal (rule 2), and
-the pen colours the button's **frame** as well as its label — the non-text mark
-rule 3's package clause requires, since `CDGRAY` text rounds to black on the
-two 1bpp adapters (§39.4) and `[gfx_dis]` is not in the package ABI. The
+the pen comes from `gfx_pen_cf` (slot 0x0310) so it carries `[gfx_dis]` as well
+as `CDGRAY` — the button's frame goes dotted and its label goes to a
+checkerboard, and the two halves of the control cannot disagree on mono. The
 refused click still sets the caption, as the page's does: the reason is already
 on screen and this only makes sure of it.
 
@@ -17833,3 +18440,104 @@ Entering fullscreen from inside a `W_PAINT` is safe for the reason
 box *after* the paint proc returns (§11.1), and by then the window is
 fullscreen, so the box that would have landed in the middle of the page is
 never drawn.
+
+---
+
+## 55. clip.inc — the system clipboard
+
+**One text buffer for the whole machine.** `kernel/clip.inc` is three
+routines and three words, and it is the first thing in this system that two
+different applications can both reach and both change. Copy a paragraph in
+Note Pad, close Note Pad, paste it into ArtfulType: that is the feature, and
+every decision below falls out of it.
+
+### 55.1 Text only, and why that is a decision
+
+The clipboard carries **bytes, and calls them characters**. There is no type
+tag, no format registry and no negotiation between the program that puts and
+the program that gets.
+
+A typed clipboard is not hard to write and is hard to *finish*: it needs a
+registry every app has to agree on, a preference order for the getter, and a
+rule for what happens when the two sides share no format — and the answer to
+that last one is almost always "nothing is pasted", which is worse than the
+truncation this design can produce. What every app in this tree actually
+wants to hand another app is a run of characters.
+
+Paint's picture clipboard stays Paint's own (§42) and is deliberately not
+folded in here. A bitmap pasted into Note Pad has no meaning to negotiate
+about, and the day something else in this tree can *use* a picture is the day
+the second buffer becomes worth specifying.
+
+### 55.2 The buffer is a claim, sized to what is in it
+
+The text lives in the claim heap (§50.3), not in `.bss`, and the size of the
+claim is the size of the text rounded up to a kilobyte. Three consequences,
+and the first is the reason:
+
+- **A machine that has never copied anything pays nothing.** A fixed buffer
+  would have cost `KERN_BUDGET` its whole size on every machine forever, for
+  a feature most sessions never use — and would still have had a ceiling.
+- **Emptying gives every byte back.** `clip_put` with `CX = 0` is a real
+  operation, not an error: it frees the block and clears the three words.
+- **The ceiling is `CLIP_MAXKB` = 32.** A put longer than that is refused
+  **whole**, never truncated, and the clipboard it already held survives —
+  a refusal must not destroy a good clipboard.
+
+A put whose rounded size **matches the block already held allocates nothing**.
+A put whose size differs **frees the old block and then claims**, which is the
+opposite of what `mem_regrow` is for and is right here: a regrow preserves
+bytes, and every byte of the old clipboard is about to be overwritten.
+Preserving them would need the old block and the new one free *at once*, which
+is precisely the refusal `mem_regrow` (§50.3.1) exists to avoid. The price is
+stated in the contract: a claim the heap cannot fund leaves the clipboard
+**empty rather than stale**, because the old block is already back in the heap
+by then.
+
+### 55.3 The owner word is a kernel tag, and that is the whole feature
+
+`MEM_K_CLIP` (0xFF07). Two things follow, and neither needed any code
+elsewhere:
+
+- **Teardown does not take it.** `mem_free_rec` and `mem_free_owner` (§50.4)
+  walk an *instance slot*, and this is not one — so closing the application
+  that copied leaves the clipboard exactly where it was. Anything less and
+  "copy here, paste there" would work only while both programs were open.
+- **The Task Manager already counts it.** `mem_sum_kb` tests the owner's high
+  byte for 0xFF, so the clipboard lands under System with the back buffer and
+  the FAT windows, with no change in `apps/taskmgr`.
+
+### 55.4 The three slots
+
+| slot | routine | in | out |
+| --- | --- | --- | --- |
+| 0x0320 | `clip_put` | `ES:SI` = text, `CX` = bytes (0 = empty) | `CF=1` refused; every register preserved |
+| 0x0328 | `clip_get` | `ES:DI` = buffer, `CX` = its capacity | `CF=1` empty; else `AX` = whole length, `CX` = bytes copied |
+| 0x0330 | `clip_size` | — | `CF=1` and `AX=0` empty; else `AX` = the length |
+
+These are **not** the numbers this section was written with. The clipboard was
+drafted at 0x0310..0x0320 and moved up when it met `gfx_pen_cf` and
+`gfx_lstepv`, which had taken the first two while it was being written — the
+§20.8 rule 4 case exactly: neither had shipped, so neither was frozen, and the
+one that had not yet reached the integration branch is the one that moved.
+
+**`ES:SI` and not the caller's `DS`, deliberately.** The obvious shape for
+`clip_put` is an X stub (§20.3) handing the kernel the package's own segment —
+and it would have been wrong for the two apps most likely to call it, because
+a document of user-chosen size is a heap claim of its own (§27.6, §46.9) and
+is not in the package's image at all. A far pointer the caller builds costs
+one `mov es` at the call site and reaches anything; the plain cell preserves
+`ES` on the way through, so no stub is needed either.
+
+**`clip_get` answers two numbers**, because a caller that asked with too small
+a buffer has to be able to tell: `AX > CX` means it got a prefix. The honest
+order is `clip_size`, grow, `clip_get` — which is why the third slot exists at
+all rather than being folded into `clip_get` with `CX = 0`. On a machine with
+a claim heap, asking the length before making room is the difference between
+a paste that works and one that half-arrives.
+
+**Any context.** None of the three takes the gfx lock, touches VRAM or does
+I/O, so a worker task may call them (§20.6 rule 7). What they do touch is the
+claim table, and `mem_claim`/`mem_free` run their own critical sections — so
+two tasks racing to copy cannot corrupt it. The loser simply overwrites the
+winner's text, which is what having *one* clipboard means.

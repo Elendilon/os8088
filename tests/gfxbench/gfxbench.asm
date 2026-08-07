@@ -48,11 +48,28 @@
 ;
 ; --- what it will NOT do -----------------------------------------------------
 ;
-; It never calls OSAPI_WM_SHOW/HIDE/FRONT or OSAPI_GFX_LOCK. Everything here
-; runs inside a window callback, which already holds the gfx lock (SPEC.md
-; 12.3), and the lock is not reentrant - so those are a deadlock, not a slow
-; row. The composite costs they would have measured (SPEC.md 11.90/11.91) are
-; the kernel's own and belong to a counter in the kernel, not to a package.
+; It never calls OSAPI_WM_SHOW/HIDE/FRONT. Everything here runs inside a window
+; callback, which already holds the gfx lock (SPEC.md 12.3) and those three
+; take it themselves - so from here they are a deadlock, not a slow row. The
+; composite costs they would have measured (SPEC.md 11.90/11.91) are the
+; kernel's own and belong to a counter in the kernel, not to a package.
+;
+; THE LOCK ITSELF IS MEASURED, and it is measured BACKWARDS. OSAPI_GFX_LOCK
+; from here would deadlock, but UNLOCK-then-LOCK is the same two routines in
+; the other order, and it is an idiom the kernel already uses inside a callback
+; (fm_drag, SPEC.md 22.4). What is in them is not the mutex - that is one flag
+; and six instructions - it is the MOUSE CURSOR: the lock erases it, and the
+; unlock saves under it and draws it again, three passes over a cell that no
+; drawing may be allowed to smear. A field log of Missile Command put the pair
+; at 21.8% of a session with not one pixel of the game in it (PERFORMANCE.md
+; Part 9 Set 4), which is why it is here.
+;
+; The two halves cannot be separated from a package - they must alternate - so
+; the row is the PAIR. It is also the one row in this harness whose measured
+; span is not interrupt-free: gfx_lock ends with `sti` by contract, so an IRQ
+; raised during the unlock half is delivered inside the span rather than
+; between iterations. The 8259 latches one, so the error is bounded and
+; upward, and [bl_max] and the '!' flag are what to read it against.
 ;
 ; It draws only inside its own content rect and repaints it afterwards. The raw
 ; framebuffer rows write to the byte columns their own content occupies,
@@ -1204,6 +1221,15 @@ gb_composite:
     mov si, gb_s_h_comp
     call bl_sline
     call bl_head
+    mov word [bl_n], 100            ; the gfx lock, in the only order a
+    mov word [bl_body], gb_b_lockpair   ; callback can reach it (see the
+    mov si, gb_r_lock               ; header). About 11 ms a pair on the target
+    xor al, al                      ; machine, so 100 of them is a second and
+    call bl_run                     ; no single one comes near the 55 ms wrap
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [gb_tlock], ax
+    mov [gb_tlock+2], dx
     mov word [bl_n], 4              ; one TITLE_H strip (SPEC.md 11.92)
     mov word [bl_body], gb_b_title
     xor al, al
@@ -1509,6 +1535,28 @@ gb_derived:
     mov cx, [gb_tbs+2]              ; all, which is the Part 3 item 4 failure
     call gb_ratio
     mov si, gb_d_blit
+    call gb_num32
+
+    mov ax, [gb_tlock]              ; the gfx lock pair, in the field log's own
+    mov dx, [gb_tlock+2]            ; currency (PERFORMANCE.md Part 9 Set 4):
+    mov cx, 100                     ; microseconds, against the 55,000 that a
+    call bl_us100                   ; frame at the tick rate has to spend
+    mov si, gb_d_lockus
+    call gb_num32
+
+    mov ax, [gb_tf8]                ; ...and in this harness's own: per-call
+    mov dx, [gb_tf8+2]              ; floors. The pair draws nothing the caller
+    mov cx, 100                     ; asked for, so what it is WORTH in
+    call gb_mul                     ; GFX_FILL 8x8 calls is what every frame
+    call gb_stash                   ; pays to enter and leave the critical
+    mov ax, [gb_tlock]              ; section rather than to draw.
+    mov dx, [gb_tlock+2]
+    mov cx, 200                     ; CROSS-MULTIPLIED, not two gb_percalls: a
+    call gb_mul                     ; per-call figure here is a single-digit
+    mov bx, [gb_ta]                 ; integer, so dividing first threw most of
+    mov cx, [gb_ta+2]               ; the ratio away before it was taken - 1.58
+    call gb_ratio                   ; counts a fill read as 1, and the answer
+    mov si, gb_d_lockfill           ; came out 16.00 where it is 10.29
     call gb_num32
 
     mov ax, [gb_trow]               ; the whole page predicted from one row.
@@ -1967,6 +2015,21 @@ gb_b_clip:
     call OSAPI_WM_CLIP_CLEAR
     ret
 
+; gb_b_lockpair - the drawing mutex, entered and left. UNLOCK first because
+; this runs in a callback that already holds it, and the pair therefore leaves
+; the lock exactly as it found it (see the header).
+;
+; The lock is free for the handful of instructions between the two calls, and
+; bl_time's cli window covers them - so no other task can take it, and the
+; mouse ISR, which draws the cursor itself whenever the lock is free (SPEC.md
+; 7), cannot run either. The trailing `cli` is not decoration: gfx_lock returns
+; with IF = 1 by contract and bl_pit's two-byte latch read requires IF = 0.
+gb_b_lockpair:
+    call OSAPI_GFX_UNLOCK
+    call OSAPI_GFX_LOCK
+    cli
+    ret
+
 gb_b_title:
     mov bx, [gb_win]
     xor ax, ax                      ; 0 = "the bytes W_TITLE names changed"
@@ -2269,6 +2332,7 @@ gb_r_ct:   db 'WM_CLIP_TEST', 0
 gb_r_cs:   db 'WM_CLIP_SET+CLEAR', 0
 gb_r_mo:   db 'MOUSE', 0
 
+gb_r_lock:    db 'GFX_UNLOCK+LOCK pair', 0
 gb_r_ti:      db 'WM_TITLE strip', 0
 gb_r_rowdraw: db 'one full-width row', 0
 gb_r_page:    db 'whole page of rows', 0
@@ -2287,6 +2351,8 @@ gb_d_busw:     db 'VRAM/RAM word x100', 0
 gb_d_busm:     db 'VRAM/RAM rmw x100', 0
 gb_d_rmwclk:   db 'VRAM rmw clocks x100', 0
 gb_d_blit:     db 'blit runs/solid x100', 0
+gb_d_lockus:   db 'lock pair us x100', 0
+gb_d_lockfill: db 'lock pair/FILL8 x100', 0
 gb_d_pagepred: db 'page predicted usx100', 0
 gb_d_pagereal: db 'page measured usx100', 0
 gb_d_scrfill:  db 'screen fill us x100', 0
@@ -2312,7 +2378,7 @@ gb_it_top:  db 'Top of Report', 0
 ; A hand-totalled figure that is too small is a package writing over
 ; benchlib's arena, which assembles cleanly and produces a report full of
 ; plausible nonsense.
-GB_O_SYSKB  equ 160
+GB_O_SYSKB  equ 164             ; the scalars above end at gb_tlock's 158..161
 GB_O_VROW   equ GB_O_SYSKB + SYSKB_SIZE
 GB_O_RROW   equ GB_O_VROW + GB_BWROWS * 2
 GB_O_RAM    equ GB_O_RROW + GB_BWROWS * 2
@@ -2383,6 +2449,7 @@ gb_tlsh     equ os88_image_end + 150   ; than any one of them (SPEC.md 5.6.6)
 gb_tlshf    equ os88_image_end + 154
 gb_tapi     equ os88_image_end + 122   ; dword: 122..125
 gb_ran      equ os88_image_end + 126   ; byte: has the suite been run yet?
+gb_tlock    equ os88_image_end + 158   ; dword: the gfx lock pair (SPEC.md 7)
 gb_syskb    equ os88_image_end + GB_O_SYSKB    ; SYSKB_SIZE bytes
 gb_vrow     equ os88_image_end + GB_O_VROW     ; GB_BWROWS words: fb offsets
 gb_rrow     equ os88_image_end + GB_O_RROW     ; ...and the RAM ones

@@ -445,6 +445,7 @@ list to check yourself against.
 | FAT access across a copy | re-read on every switch | a window per volume: 45 mounts → 3 loads | §18.8.1 |
 | The per-call floor itself (1bpp) | one `gfx_pixel` = **196** guest instructions of generic rect machinery | **158**; `GFX_FILL 8x8` −19.3%, `64x64` −14.5%, `GFX_BLIT4` −13.8%, output byte-identical on all three adapters | §5.7, Part 9 Set 3 |
 | A renderer row step | `call gfx_nextrow`: a near call plus two CS-overridden memory reads, **three times per scan line** | three register instructions, parameters hoisted out of the loop | §39.3, §32 |
+| `gfx_lock` + `gfx_unlock` — the pair every drawing burst pays | the mouse cursor over a 16x16 cell it never fills: a save, a white pass and a black pass, three walks over the same bytes, plus a restore — **17.82** guest-instruction counts a pair on Hercules, ~6.4 ms of the field machine, 11.6% of a 55 ms frame | the arrow's real 8x12 cell, no third byte, and on 1bpp **one** fused read-bank-paint-write pass: **5.41**, ~1.94 ms, 3.5% — **3.29x**, output byte-identical on all three adapters | §7.1, Part 9 Set 7 |
 
 Two entries in that table are load-bearing beyond their own numbers.
 **`OSAPI_WM_GROW` was called on every Note Pad keystroke** — free in the
@@ -1272,3 +1273,193 @@ fires on a **minority** of these erases (a QEMU count said 53% — the real
 machine's play says 38%), and the 500 µs does not fully decompose into three
 Bresenham passes at the instruction floor, so something in `mc_wipe_trails`
 beyond the walk is unaccounted for and has not been found yet.
+
+### Set 5/6 — the trail work, after §48.14 and §48.15
+
+| | |
+|---|---|
+| machine | a 5150-class emulator, Hercules, CPU tier 0, coarse explosion on |
+| adapter | Hercules 720x348, content 628x247, **surface 5** — the §53.7 same-mode exclusive bracket |
+| build | `444e87d` plus the debug frame logger (never committed) |
+| date | 2026-08-07 |
+| run | 71 seconds of Missile Command, heavy play — 62 usable rows |
+
+**`lok` and `unl` are 0 on every row**, which is §48.13's bracket confirmed
+in the field: entering and leaving the drawing critical section, which Set 4
+priced at 21.8% of the machine, now costs nothing at all. `all` is 0 too — no
+stray full repaints.
+
+The run splits cleanly in two, and the split is the finding:
+
+| stage | stuttering (13 s, 14.2 fps) | keeping up (49 s, 17.8 fps) |
+|---|---|---|
+| frame (`upd`+`ren`) | **46.24 ms** | 21.26 ms |
+| `exp` explosions | 10.50 | 2.36 |
+| `mov` trail draw | 10.20 | 6.52 |
+| `drn` drain | 9.11 | 1.92 |
+| `upd` update | 6.14 | 2.43 |
+| `rst` terrain/status | 3.99 | 2.21 |
+| `crs` crosshair | 3.60 | 3.26 |
+| `wip` teardown | 1.03 | 0.67 |
+| drained pixels a frame | 46.6 (cap 64) | 8.4 |
+
+**A stuttering second's MEAN frame is under the tick.** 46.2 ms against
+54.9 — it is the tail that crosses, and that is why this reads as a stutter
+rather than the freezes Set 4 carried.
+
+#### The pixel is honest; the arrival is not
+
+| | |
+|---|---|
+| `drn`: 46.6 px a frame for 9.11 ms | **~160 µs a walked pixel** |
+| `mov`: ~19 px a frame for 10.20 ms | **~570 µs a walked pixel** |
+
+The same operation, three and a half times apart. `gfx_lstep_mono` and
+`gfx_line_mono` are the *same loop*, so §48.14 did not make a pixel dearer —
+it stopped drawing each one three times, and 160 µs is Set 4's 500 µs divided
+by the three passes it removed, to within the noise. What separates the two
+rows is **how many times the caller arrived**: `mov` was one far call per
+live missile per frame (seven or eight of them, §5.7's ~756 µs floor each, to
+move two or three pixels), while the drain already handed several trails over
+per call.
+
+That is §5.6.8 and §48.16: ten calls a frame become three. The remainder —
+`exp` at 10.5 ms with 8.8 fills and 34.6 scan lines a frame — is at the
+structural floor §48.12 left it at and is priced entirely by §5.7.
+
+#### The calibration disagreed with itself, and the reason is known
+
+`CAL start 48299 51523 140563` against `CAL end 49682 44255 135015`: cpu 2.9%
+apart, **call 14%**, rows 3.9%. That is not the machine moving. `start` runs
+with a clip region armed and `end` does not, and the gap is the clip's
+per-call cost — the same 16% Set 4 saw. Use the **end** figures for a
+per-call floor (44255/40 = 1,106 counts = **927 µs**) and treat the start ones
+as the clipped price of the same call.
+### Set 7 — the lock and unlock, which turned out to be the cursor
+
+| | |
+|---|---|
+| machine | **not a machine** — QEMU with `-icount shift=3,sleep=off`, so the PIT counts guest INSTRUCTIONS (Part 4). Reproducible, machine-independent, **not time** |
+| adapter | all three: Hercules 720x348 (`VIDEO=herc`), CGA 640x200 (`VIDEO=cga`), VGA 640x480 |
+| build | `079d9a8` against the same tree plus the §7.1 changes |
+| date | 2026-08-07 |
+
+Set 4 said `lok` + `unl` was **21.8% of a 77-second session** with no pixel
+of the game in it, and that it was the one item in that table entirely inside
+the kernel — so every application on every machine was paying it. It did not
+say what was in it, because a stage-level frame log cannot: `lok` there is
+`gfx_lock` *plus* `mc_track` *plus* `wm_clip_set`.
+
+**Set 5/6 above and this one answer different questions, and both answers
+stand.** §48.13 took Missile Command *out* of the pair — a same-mode
+exclusive bracket never unlocks, so `lok` and `unl` are 0 on every row of
+that log, and for that one app on that one surface there is nothing left to
+optimise. But a bracket is what a full-screen arcade game can do, not what
+the Disk window, Note Pad, the Task Manager, Paint, the Control Panel or any
+ordinary windowed app can: they take and drop the lock on every redraw, by
+design, and Set 4's 21.8% is what that costs them. Set 5/6 is the escape
+hatch measured; this is the toll booth made cheaper for everyone still
+driving through it.
+
+So the first thing done here was to give the pair a row of its own.
+`gfxbench`'s `GFX_UNLOCK+LOCK pair` is that row, and it is measured
+**backwards** — `OSAPI_GFX_LOCK` from a callback that already holds the lock
+is a deadlock, but unlock-then-lock is the same two routines in the other
+order, and `fm_drag` already uses that idiom inside a callback. The two
+halves cannot be separated from a package because they must alternate.
+
+**The mutex is not what it costs.** `gfx_lock_flag` is one byte and six
+instructions; everything else in those two routines is the **mouse cursor** —
+the lock erases it, the unlock saves what it will cover and draws it again.
+SPEC.md §7.1 is what was done about it; the short version is that the arrow
+is 8x12 inside 16x16 tables nobody had ever measured against, that its width
+makes the cell's third framebuffer byte unreachable, and that on a 1bpp
+adapter the save and the two draw passes are the same bytes in the same order
+and compose into one.
+
+| adapter | before | repeat | after | repeat | per pair, after | ratio |
+|---|---|---|---|---|---|---|
+| Hercules | 1,782 | — | **541** | 541 | 5.41 counts | **3.29x** |
+| CGA | 1,798 | — | **547** | — | 5.47 | **3.29x** |
+| VGA | 2,300 | 2,296 | **1,626** | 1,633 | 16.26 | **1.41x** |
+
+100 iterations a row. The two mono columns agreeing to 1.1% before and 1.1%
+after is the harness checking itself: they are the same renderer over four
+different numbers, so a gap between them would be a finding about `gfxbench`
+rather than about the cursor. VGA gains least and should — its save is four
+planes through Read Map Select and its draw is Set/Reset through the Bit
+Mask, so there is no single byte to fuse and all it gets is the 8x12 cell and
+the retired third byte.
+
+Through Part 4's conversion (one icount count ≈ 0.359 ms of real XT), the
+pair on the field machine goes from **~6.4 ms to ~1.94 ms**, and a 55 ms
+frame that spent 11.6% of itself entering and leaving the critical section
+now spends 3.5%.
+
+**The output is byte-identical**, which for a save-under is the only thing
+worth asserting: the framebuffer was captured with the cursor parked at five
+places — over the Disk window's glyphs byte-aligned and at shift 3, against
+the right screen edge where the second byte is clipped away, against the
+bottom edge where the arrow is cut short, and on the bare desktop — on all
+three adapters, before and after. **0 differing pixels** every time. The
+same capture, taken again after moving the cursor away and back, is also 0,
+which is the erase checking itself within one run.
+
+#### The control rows, and the one that needed a second look
+
+Every other row in the three reports tracks the **loop-overhead baseline**,
+which is re-measured per run and is not perfectly stable: it moved 55 → 66
+counts over `BL_BASE_N` = 400 on VGA between the two runs, and every method-P
+row is reported net of `ovhx x N / 256`. So a row at N = 300 comes in about 8
+counts lower for that reason alone and nothing else. Read the small-N rows
+against that number before reading anything into them:
+
+| VGA row | N | before | after | baseline explains | left over |
+|---|---|---|---|---|---|
+| `GFX_PIXEL` | 300 | 407 | 396 | 8.3 | −2.7 |
+| `GFX_HLINE 8px` | 200 | 273 | 267 | 5.5 | −0.5 |
+| `GFX_VLINE 8px` | 200 | 332 | 330 | 5.5 | +3.5 |
+| `GFX_FILL 64x64` | 24 | 370 | 370 | 0.7 | +0.7 |
+| `GFX_FILL 256x1` | 100 | 22,085 | 22,083 | 2.8 | +0.8 |
+
+`GFX_FILL 8x8` looked like the exception on the first pass — 340 → 316, where
+the baseline explains only 5.5 — and it is worth the paragraph because the
+**wrong** conclusion was available and attractive: a 7% win on a primitive
+this change never touched. Two things said not to take it. A row that reads
+*below* `GFX_VLINE 8px` is not a small win but an impossible one, since a
+vline is a single-byte rect and an 8x8 fill is the same rect eight pixels
+wide. And `GFX_PIXEL` reaches `gfx_fill` through the identical path, so any
+per-call saving there would have shown up in it, and did not (−2.7 against a
+predicted −14 if `bb_mono_chk` had been the mechanism).
+
+So both kernels were re-run. **They agree: 317 after, 317 before.** The 340
+was a one-off excursion in a single baseline run and the change did nothing
+to VGA's fill at all. `GFX_UNLOCK+LOCK pair` itself repeats to within 0.4% on
+both kernels and both adapters, which is what makes it quotable.
+
+**One row moving on its own, in the direction you were hoping for, is the
+thing to re-run** — Part 6 rule 7, and the reason Set 3 carries a repeat
+column.
+
+#### How much is left: the pair is almost never needed
+
+The same run instrumented the *other* question — not what the pair costs but
+how often it is earned. `gfx_lock` snapshots the 8x12 cell after the erase
+and `gfx_unlock` compares it before the redraw, so "did anything write there
+during this hold" is answered by the pixels rather than by a hook, which
+catches paths no hook could. Over one session (boot, two folders, a window
+drag, two package loads, 26 keystrokes, idle): **5,020 pairs, 7 of them
+(0.14%) with anything written into the cursor cell**, 40 with the mouse
+moving, 0.7 drawing calls per hold. Note Pad's 26 keystrokes were 25 pairs,
+none dirty; an idle desktop is 0.
+
+The sharpest case is not a frame loop but a **press-and-hold**: `fm_drag`'s
+wait loop is `gfx_unlock` / `task_yield` / `gfx_lock` per iteration and draws
+nothing, so on the field machine holding the button over a file turns the
+pair over about 500 times a second — which is a *blink*, not just a bill.
+`ui_task` already says as much where it gates the clock's lock: "taking the
+gfx lock blinks the cursor, and that blink IS the flicker the
+seconds-in-menu-bar setting exists to remove."
+
+SPEC.md §7.1.1 has the economics, the nine ways a lazy hide could miss, and
+why it is written down rather than built.

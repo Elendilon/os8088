@@ -43,11 +43,14 @@
 ; not a control and a button is.
 ; It was, and it was wrong twice. SPEC.md 47 rule 1: the disabled pen says
 ; DISABLED, and this row is selectable and its Format button works on it - rule
-; 4's own failure, "looks unavailable and works". And it did not even show:
-; CDGRAY text on the two 1bpp adapters renders BLACK (39.4 rounds a glyph
-; rather than dithering it, and [gfx_dis] is not in the package ABI), so on CGA
-; the greyed row was pixel-identical to the live one under it. The State column
-; is the whole signal, and it reads the same on all three adapters.
+; 4's own failure, "looks unavailable and works". And it did not even show,
+; because the row was greyed with a bare CDGRAY: a glyph takes the 50% dither
+; only when [gfx_dis] is set, and a colour on its own rounds to black, so on
+; CGA the greyed row was pixel-identical to the live one under it. The State
+; column is the whole signal, and it reads the same on all three adapters.
+;
+; The BUTTONS do take the flag, through OSAPI_GFX_PEN - a button is a control
+; and a row is not, which is the whole of the distinction.
 ;
 ; The window is the unowned species (SPEC.md 38.1) - no instance, so its close
 ; box reduces to wm_hide and there is no teardown path to write. What there IS
@@ -254,17 +257,19 @@ hd_tw_paint:
     mov bx, HTW_BW0
     call hd_tw_button
     call hd_tw_delok            ; the ONE predicate (SPEC.md 47 rule 2): it
-    mov al, CBLACK              ; greys the button here and refuses the click
-    jnc .delpen                 ; in hd_tw_delete, so a greyed Delete can never
-    mov al, CDGRAY              ; be one that would have worked. The pen reaches
-.delpen:                        ; the FRAME as well as the label, which is the
-    call OSAPI_SET_COLOR        ; non-text mark rule 3 wants: CDGRAY text is
-    mov si, hd_s_tdel           ; pixel-identical to black on the two 1bpp
-    mov ax, HTW_B1X             ; adapters (SPEC.md 39.4)
+    call OSAPI_GFX_PEN          ; greys the button here and refuses the click
+                                ; in hd_tw_delete, so a greyed Delete can never
+                                ; be one that would have worked. CF is what
+                                ; both of them answer in, so the pen takes it
+                                ; with no test in between - and it carries
+                                ; [gfx_dis], so the label dithers on mono
+                                ; along with the frame (SPEC.md 47 rule 3)
+    mov si, hd_s_tdel
+    mov ax, HTW_B1X
     mov bx, HTW_BW1
     call hd_tw_button
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
+    clc                         ; ...and back to the live pen for the rest:
+    call OSAPI_GFX_PEN          ; the flag would dither Close and the caption
     mov si, hd_s_close
     mov ax, HTW_B2X
     mov bx, HTW_BW2
@@ -300,9 +305,10 @@ hd_tw_paint:
 ; slot has nothing to give back (SPEC.md 52.2.4).
 ;
 ; **The pen is the CALLER's**, because AX is the x here and OSAPI_SET_COLOR
-; takes its colour in AL: setting it inside drew both buttons at the same
-; place, one on top of the other. It is also what lets the caller grey one
-; button and not the others without this routine knowing any predicate.
+; took its colour in AL: setting it inside drew both buttons at the same place,
+; one on top of the other. It is also what lets the caller grey one button and
+; not the others without this routine knowing any predicate - and what makes
+; the frame and the label share one pen, so on mono they dither together.
 ; -----------------------------------------------------------------------------
 hd_tw_button:
     push ax

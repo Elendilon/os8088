@@ -396,6 +396,81 @@ gfx_lstep:
     push es
     or cx, cx
     jz .out
+    call gfx_ls_ink
+    call gfx_ls_one
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; gfx_lstepv - step MANY walks in one call (SPEC.md 5.6.8)
+; in:  ES:DI = an array of CX descriptors, each `dw block_offset, pixels`,
+;      the blocks in ES too; CX = 0 legal, does nothing
+; out: every block advanced; preserves every register; caller holds the lock
+;
+; Identical pixels to CX separate gfx_lstep calls - it IS those calls, with
+; the arriving done once. That is the whole point: a walk step draws two or
+; three pixels and PERFORMANCE.md Part 2 prices the arriving at ~756us, so a
+; caller with eight live lines was paying eight floors a frame to move about
+; twenty pixels. A descriptor with a zero count is legal and is skipped, so a
+; caller may build the array once and vary what it asks for.
+; -----------------------------------------------------------------------------
+gfx_lstepv:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    jcxz .out
+    call gfx_ls_ink             ; the pen is the caller's, and one for all
+    mov si, di                  ; SI = the descriptor being read
+.each:
+    mov di, [es:si]             ; the block...
+    mov ax, [es:si+2]           ; ...and how far to take it
+    or ax, ax
+    jz .next
+    push cx
+    push si
+    mov cx, ax
+    call gfx_ls_one
+    pop si
+    pop cx
+.next:
+    add si, 4
+    loop .each
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; gfx_ls_ink - resolve [gfx_color] to the 1bpp class once (00 / FF / 01)
+; clobbers AX
+gfx_ls_ink:
+    mov al, [gfx_color]
+    call gfx_ink
+    mov [gfx_ln_ink], al
+    ret
+
+; gfx_ls_one - stage the block at ES:DI in, walk CX pixels, stage it back
+; in:  ES:DI = the caller's block, CX = pixels (non-zero), [gfx_ln_ink] set
+; clobbers AX/BX/DX/SI/DI/BP/ES; CX is spent
+gfx_ls_one:
     mov [gfx_ls_cseg], es       ; --- stage the caller's block in. Its SEGMENT
     mov [gfx_ls_coff], di       ; has to be remembered: the walk needs ES for
     push cx                     ; the framebuffer, so it cannot stay there
@@ -429,15 +504,6 @@ gfx_lstep:
     mov cx, GLS_SZ / 2
     cld
     rep movsw
-.out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
     ret
 
 ; gfx_lstep_slow - one gfx_pixel a step. VGA's planar path, and any adapter
@@ -505,10 +571,7 @@ gfx_lstep_mono:
     push si
     push di
     push es
-    mov al, [gfx_color]
-    call gfx_ink
-    mov [gfx_ln_ink], al
-    mov es, [vid_rseg]
+    mov es, [vid_rseg]          ; [gfx_ln_ink] is the caller's - gfx_ls_ink
     mov si, [gfx_ls_x]
     mov dx, [gfx_ls_y]
     mov bp, [gfx_ls_err]

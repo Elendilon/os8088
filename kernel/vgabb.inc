@@ -1151,10 +1151,12 @@ bb_xfer:
     mov cx, bp
     rep movsb                   ; buffer DI advances contiguously
     sub si, bp
-    xchg si, di                 ; gfx_nextrow walks DI by contract, and here
-    call gfx_nextrow            ; the framebuffer pointer is SI
-    xchg si, di
-    dec dx
+    add si, [cs:vid_rowadd]     ; gfx_nextrow INLINED, on SI: the framebuffer
+    test si, [cs:vid_wrapbit]   ; pointer is SI here, so through the call it
+    jz .snw                     ; cost two xchg's as well as the call and the
+    add si, [cs:vid_wrapfix]    ; ret - on a loop whose body is a rep movsb of
+.snw:                           ; two or three bytes (PERFORMANCE.md Part 9
+    dec dx                      ; Set 3: inline it in every row loop)
     jnz .srow
     pop si
     jmp .pnext
@@ -1168,7 +1170,11 @@ bb_xfer:
     mov cx, bp
     rep movsb
     sub di, bp
-    call gfx_nextrow
+    add di, [cs:vid_rowadd]     ; ...and here on DI, which is what gfx_nextrow
+    test di, [cs:vid_wrapbit]   ; takes, so this one saves only the call and
+    jz .rnw                     ; the ret
+    add di, [cs:vid_wrapfix]
+.rnw:
     dec dx
     jnz .rrow
     pop di
