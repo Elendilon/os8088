@@ -14128,6 +14128,40 @@ text alike — §39.4's discipline in its text-mode clothes. The box-drawing and
 block characters are CP437, which is the ROM font on every adapter that can set
 this mode.
 
+#### 45.13.5 A sequential boundary MOVES the window rather than reformatting it
+
+The spread rebuild (§45.13.2) formats 82 rows at one to four a frame, and the
+cursor starts on the visible window — so at a pattern boundary the user
+watches nineteen rows being *rewritten under them*, one per frame, for the
+best part of a second. The field reported it in the right words: **"a whole
+line of replacements going down the first column"**, and the suggestion that
+came with it — make the buffer twice the screen so replacements land
+off-screen — is the correct diagnosis. It needs no second buffer, because the
+shadow already holds the rows:
+
+- this pattern's tail (shadow rows 64..72) is what the next shadow needs as
+  its pad **above** (rows 0..8);
+- the pad **below** (rows 73..81), which already holds the next pattern's
+  first nine rows, is what it needs as its first nine content rows (9..17).
+
+That is exactly the window the view sits on when a boundary passes. So
+`ttx_shstart` moves shadow rows 64..81 down to 0..17 in one `rep movsw` and
+starts the format cursor at row 18 — **below the screen** — with
+`TTX_SHROWS - 18` rows still owed. The rebuild costs 64 formatted rows instead
+of 82, and nothing on screen is rewritten at all.
+
+The carry is taken **only when this build follows the one in the shadow**: the
+shadow was complete (`[ttx_ocok]`), the pattern now playing is the one it
+named as next, and the pattern before this one is the one it held. A position
+jump, a `Bxx` or a fresh bracket fails those tests and formats from scratch as
+before — which is why the three old values are banked before the claim
+overwrites them.
+
+Verified by reading the text page out of guest memory across a boundary and
+comparing every row that appears on both sides by the row number it carries:
+**13 rows in common, 0 differences**. The rows the carry moved are
+byte-identical to the rows the formatter would have written.
+
 #### 45.13.3 What the bracket may not do, and the two keys that say why not
 
 After the `fsx_mode` call **every kernel drawing slot is off-limits until the

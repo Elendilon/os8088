@@ -380,10 +380,36 @@ ttx_shbuild:
 ; orders naming the same pattern move the pads without moving the pattern, and
 ; [ttx_shpos] is what lets ttx_draw_dyn see it. [mp_ploop] likewise - in
 ; pattern-loop mode the pattern's own ends meet.
+;
+; AND AT A SEQUENTIAL BOUNDARY IT MOVES 18 ROWS RATHER THAN FORMATTING THEM
+; (SPEC.md 45.13.5). The rows the new screen needs are already in the shadow,
+; at different indices: this pattern's tail becomes the next shadow's pad
+; ABOVE, and the pad BELOW - which already holds the next pattern's first nine
+; rows - becomes its first nine content rows. That is exactly the window the
+; view is sitting on when a boundary passes, so carrying it costs one rep
+; movsw and the rebuild then formats only rows BELOW the screen.
+;
+; It was reported from the field before it was noticed here, and in the right
+; words: "a whole line of replacements going down the first column". That is
+; the format cursor walking the visible window, one row per frame, rewriting
+; rows the user is reading. The carry is what puts those replacements
+; off-screen where they belong - the same conclusion as "make the buffer twice
+; the screen", reached without a second buffer, because the shadow already
+; holds the rows.
 ; -----------------------------------------------------------------------------
 ttx_shstart:
     push ax
     push bx                         ; mp_order decodes through it
+    push cx
+    push si
+    push di
+    push es
+    mov al, [ttx_shpat]             ; bank what the shadow HOLDS before the
+    mov [ttx_ocpat], al             ; claim below overwrites it - the carry
+    mov al, [ttx_shnext]            ; test needs both
+    mov [ttx_ocnext], al
+    mov al, [ttx_shok]
+    mov [ttx_ocok], al
     mov al, [tui_apat]
     mov [ttx_shpat], al
     mov al, [tui_apos]
@@ -427,10 +453,39 @@ ttx_shstart:
     call mp_order
     mov [ttx_shprev], al
     jmp short .out
+    jmp short .carry
 .nomod:
     mov byte [ttx_shbusy], 0        ; no module: an empty grid IS the truth,
     mov byte [ttx_shok], 1          ; and the blank already wrote it
+    jmp short .out
+; --- the sequential carry (SPEC.md 45.13.5) ----------------------------------
+; Valid only when this build FOLLOWS the one in the shadow: the shadow was
+; complete, the pattern now playing is the one it named as next, and the
+; pattern before this one is the one it held. Anything else - a position jump,
+; a Bxx, a fresh bracket - formats from scratch as before.
+.carry:
+    cmp byte [ttx_ocok], 0
+    je .out
+    mov al, [ttx_shpat]
+    cmp al, [ttx_ocnext]            ; ...we are the pattern it called next
+    jne .out
+    mov al, [ttx_shprev]
+    cmp al, [ttx_ocpat]             ; ...and it is the pattern we call prev
+    jne .out
+    push ds
+    pop es
+    cld
+    mov si, ttx_shadow + (64 * TTX_RW * 2)  ; rows 64..81: this pattern's tail
+    mov di, ttx_shadow                      ; and the next one's head, which
+    mov cx, 2 * TTX_HALF * TTX_RW           ; become rows 0..17 - the window
+    rep movsw                               ; the view is sitting on
+    mov byte [ttx_srow], 2 * TTX_HALF       ; so the cursor starts BELOW them
+    mov byte [ttx_sleft], TTX_SHROWS - 2 * TTX_HALF
 .out:
+    pop es
+    pop di
+    pop si
+    pop cx
     pop bx
     pop ax
     ret
@@ -1265,6 +1320,9 @@ ttx_s_mute:   db '   MUTE', 0
     TRKB ttx_shpos                  ; ...the order position it was reached
                                     ; from, which is what names the pads
     TRKB ttx_shloop                 ; ...and the [mp_ploop] they assumed
+    TRKB ttx_ocpat                  ; what the shadow HELD, banked across the
+    TRKB ttx_ocnext                 ; claim so the carry test can see it
+    TRKB ttx_ocok
     TRKB ttx_shprev                 ; the pattern above row 0 (TTX_NOPAT none)
     TRKB ttx_shnext                 ; ...and the one below row 63
     TRKB ttx_shok                   ; ...and whether it holds anything
