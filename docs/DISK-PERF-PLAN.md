@@ -62,8 +62,8 @@ No phase below is judged on anything but that pair of numbers. Only C's
 
 `make DISKCNT=1` compiles in three counters (`dsk_dbg_mnt` / `_sec` / `_i13`,
 `disk.inc`, never shipped — the knob shares the `VIDEO=`/`RTC=` stamp, so
-changing it rebuilds the kernel and a counted kernel that reached `build/`
-reads as STALE to `make check-images`). Read over QMP with `xp /3xh`; they are
+changing it rebuilds the kernel, which is the only thing that stops a counted
+kernel from lingering in `build/`). Read over QMP with `xp /3xh`; they are
 never reset, so a measurement is two readings subtracted.
 
 Measured on the 1.44MB apps floppy under QEMU, at `f43e3dc`:
@@ -469,25 +469,26 @@ validating the baked glyphs whether or not any of this lands.
 **The standing trap gets WORSE once mechanism D lands, and this is the one to
 internalise.** Today those images go dirty when a test *saves* something. Once
 `ASSOC.DAT` heals on a miss, **merely opening a folder can write to the disk**
-— so a test that only navigates can dirty a tracked, shipped artifact, and
-`make check-images` reports STALE with nothing in `apps/` changed to explain
-it. A shipped disk arrives warm (`tools/os88disk.py` writes the cache), so a
-hit costs nothing and this bites only on a disk something missed on — but that
-includes every scratch image and every disk built before the feature.
+— so a test that only navigates changes the image under you, and the run after
+it starts from a state nothing in `apps/` explains. A shipped disk arrives warm
+(`tools/os88disk.py` writes the cache), so a hit costs nothing and this bites
+only on a disk something missed on — but that includes every scratch image and
+every disk built before the feature.
 
-**Two new `make check-images` couplings**, both of which read as STALE if a
-dependency is wrong rather than as an error: the shipped floppies gain
+**Two new build couplings**, both of which produce a wrong image if a
+dependency is wrong rather than an error: the shipped floppies gain
 `ASSOC.DAT` (deterministic — `os88disk.py` already pins the volume serial and
 every timestamp), and `kernel.bin` gains generated glyph data depending on four
 package builds (ASSOC-PLAN §2.5). The generated `.inc` is what makes the second
 self-correcting.
 
 **The rule itself is unchanged and now needs running more often:** QEMU mounts
-`build/apps.img` and `build/os8088.img`
-writable and the OS writes to them, so any test that saves or deletes dirties a
-tracked, shipped artifact. `rm -f build/apps.img build/apps360.img
-build/os8088.img build/os8088-360.img && make` before committing, and
-`make check-images`.
+`build/apps.img` and `build/os8088.img` writable and the OS writes to them, so
+any test that saves or deletes is remembered across boots. Nothing there is
+committed, so this costs a wrong starting state rather than a wrong commit —
+`rm -f build/apps.img build/apps360.img build/apps720.img build/os8088.img
+build/os8088-360.img build/os8088-720.img && make` whenever a run's starting
+state matters.
 
 ## 8. Budget
 

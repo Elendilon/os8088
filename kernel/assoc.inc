@@ -64,8 +64,7 @@ assoc_stem:
 ; of each package's own .o88, so the kernel ships knowing what its own
 ; applications look like and a document icon costs no disk read on the first
 ; boot of any machine. Generated and never hand-pasted: pasted bytes go stale
-; in silence when an app's icon changes, and make check-images cannot see
-; that - the make dependency can.
+; in silence when an app's icon changes, where the make dependency cannot.
 assoc_glyph:
 %include "associco.inc"
     times (ASSOC_NAPP - 4) * 8 db 0

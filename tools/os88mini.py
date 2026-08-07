@@ -5,8 +5,8 @@ association table caches (SPEC.md 54, docs/ASSOC-PLAN.md 2.1/2.5).
 Emits one NASM line per package, for %include into kernel/assoc.inc, so the
 kernel ships knowing what its own default applications look like and needs no
 disk read to draw a document icon for them. GENERATED, never hand-pasted:
-pasted bytes go stale in silence when an app's icon changes, and
-`make check-images` cannot see that - the make dependency can.
+pasted bytes go stale in silence when an app's icon changes, where the make
+dependency cannot.
 
 Usage:  os88mini.py -o build/associco.inc STEM=build/paint.o88 ...
 

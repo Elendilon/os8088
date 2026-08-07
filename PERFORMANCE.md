@@ -644,8 +644,9 @@ make BUILD=build/cga VIDEO=cga all      # ...into its OWN build directory,
 
 Do that in a separate `BUILD=` directory and nowhere else. A `VIDEO=`-forced
 kernel that reaches `build/` is a machine that boots the wrong adapter for
-everyone, which `make check-images` now reports as STALE precisely because it
-has happened.
+everyone, and that has happened. Nothing under `build/` is committed, so it
+cannot reach the repo — but it will sit on your images until a knob-free
+`make` rebuilds them, and it is a release cut from one that does the damage.
 
 ### What the next set is being asked
 

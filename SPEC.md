@@ -4442,23 +4442,24 @@ Three things about it are deliberate:
   measured down to, and the vocabulary for the three visible defects the
   emulator cannot show — a *visible redraw* (seconds on a heavy window, and
   not a flicker), a *double-draw flash*, and *input overrun*.
-- **`check-images`**: `build/` is gitignored but a curated set inside it is
-  force-added and shipped — the kernel, both boot sectors, both bootable
-  floppies, both software floppies, and every package's `.bin`/`.o88`.
-  Nothing makes those follow a source change, so this target builds every
-  one of them a second time into `build/.check` and compares byte for byte.
-  It is only meaningful because the toolchain is deterministic by design
-  (§24: `os88disk.py` pins the volume serial and every FAT timestamp), so a
-  difference is staleness and never noise. The set is read from
-  `git ls-files build` rather than listed, so it cannot drift from what is
-  tracked. Three failures: **STALE** (rebuild and commit), **ORPHAN**
-  (tracked, but nothing builds it) and **SCRATCH** (a tracked `VIDEO=`/`RTC=`
-  stamp — named specially because the scratch build makes one too and two
-  empty files compare equal). The comparison build is always knob-free, so
-  a kernel carrying a forced probe reads as stale, which is what the rule
-  above ("every shipped image is built with neither knob set") needs to stop
-  being a comment nobody executes. Not part of `all`: it costs a second full
-  build and is a pre-commit gate.
+- **No build artifact is tracked.** `build/` is gitignored outright: the
+  kernel, both boot sectors, all three bootable floppies, all three software
+  floppies, both drivers' `.drv` and every package's `.bin`/`.o88` are
+  products of this tree and live in a *release* — a GitHub release and
+  os8088.com — never in a commit. A curated set of them used to be
+  force-added, with a `check-images` target rebuilding each one into
+  `build/.check` and comparing byte for byte to catch the staleness that
+  follows from committing a derived file. Both are retired.
+  What made the check possible is what made the tracking pointless: the
+  toolchain is deterministic by design (§24: `os88disk.py` pins the volume
+  serial and every FAT timestamp), so a rebuild reproduces a released image
+  exactly and a committed copy adds nothing. **That determinism is still
+  binding on the toolchain** — it is the only thing that lets a third party
+  verify a downloaded image against these sources. The rule above ("every
+  shipped image is built with neither knob set") is back to being a rule the
+  kernel recipe warns about rather than one a target executes; a release is
+  built by `.claude/skills/release-os8088` from a clean checkout with no knobs
+  set, which is where it now holds.
 - 86Box config (`vm/xt/86box.cfg`): set the mouse to a serial Microsoft
   mouse on COM1 (best-effort; cannot be verified headless).
 - The kernel may exceed 8 sectors; the two images are already built
@@ -8506,8 +8507,8 @@ and non-zero exit + stderr message on any validation failure.
   then `build/apps.img` (1440) + `build/apps720.img` (720) +
   `build/apps360.img` (360) via os88disk.py; all built by `all`, alongside
   the three bootable system disks `build/os8088.img`,
-  `build/os8088-720.img` and `build/os8088-360.img`. Every one of the six is
-  git-tracked and therefore checked by `make check-images`.
+  `build/os8088-720.img` and `build/os8088-360.img`. None of the six is
+  git-tracked — `build/` is gitignored outright (§16).
   The apps disks are **foldered**: the root holds `APPS`, `GAMES` and the
   one root-level file `TASKMGR.O88` (§28.3 — the chip menu's copy, for a
   single-floppy machine). `APPS` holds the tools plus the data file
@@ -13731,7 +13732,7 @@ changes no code: COPY never reads `gfx_lock_flag`.)
   and clips at `[tm_ylim]` — and on a narrow screen it is the **second
   column** that has to hold it (§28.1).
 - `make clean && make`: both geometries, zero warnings, every §15.1 guard
-  still passing, and `make check-images` clean.
+  still passing.
 
 ## 42. Paint — the seventh package (apps/paint/paint.asm)
 
@@ -19364,8 +19365,8 @@ reduces each package's own embedded icon (`.o88` bytes 32..95) into
 bytes inside `kernel.bin`, riding the boot sector's existing contiguous kernel
 read, and **a document icon costs no disk read on the first boot of any
 machine**. It is generated and never hand-pasted: pasted bytes go stale in
-silence when an app's icon changes and `make check-images` cannot see that,
-where the make dependency can. The DAG stays acyclic — a package depends on
+silence when an app's icon changes, where the make dependency cannot. The DAG
+stays acyclic — a package depends on
 `apps/os88api.inc`, never on `kernel.bin`.
 
 Defaults: `BMP`/`GIF` → PAINT, `TXT` → NOTEPAD, `MOD` → TRACKER, `MD` →

@@ -303,9 +303,9 @@ A false match needs a different program with the same name *and* byte-identical
 length; the consequence is a cosmetically wrong icon and never a wrong load,
 because §2.7's name re-check governs the open path independently. The FAT write
 timestamp would be a stronger key, but `tools/os88disk.py` **pins every
-timestamp for determinism** (`make check-images` depends on it), so it is a
-clean "was this written by our tool" signal rather than a unique one — worth
-knowing, not worth the bytes.
+timestamp for determinism** (a released image has to rebuild byte for byte),
+so it is a clean "was this written by our tool" signal rather than a unique
+one — worth knowing, not worth the bytes.
 
 This same fingerprint is the enabling half of a larger optimisation that
 belongs to the disk work rather than to this plan — see
@@ -325,9 +325,8 @@ It must be **generated, not hand-pasted**. `tools/os88mini.py` emits a `db`
 line per shipped app from its `.o88`, and `kernel.bin` gains a dependency on
 those four packages. Two notes: the DAG stays acyclic (packages depend on
 `apps/os88api.inc`, never on `kernel.bin`), and pasted bytes would go stale
-silently when an app's icon changed — a class of staleness `make check-images`
-cannot catch, which is exactly why the dependency is the point rather than the
-cost.
+silently when an app's icon changed — a class of staleness nothing else can
+catch, which is exactly why the dependency is the point rather than the cost.
 
 For everything else — third-party packages, and any row taken over at runtime —
 the glyph fills three ways, none of them extra I/O:
