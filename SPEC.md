@@ -16110,6 +16110,14 @@ trail cannot starve the ones behind it.
 inline, which is what every erase did before this existed. So is a trail with
 no walk (§48.14's `[mc_iarm]` = 2) and a trail with nothing drawn.
 
+**`MC_MAXDRN` is `MC_MAXICBM + MC_MAXABM`, so it cannot overflow at all.** It
+was 8, which held for ordinary play — and a salvo dying together spilled the
+rest into inline erases, which is precisely the spike this exists to spread.
+A field log caught the worst second of a run at **8.2 ms a frame in `wip`
+against a typical 0.7**, and that second also contained the run's worst
+frame. Graceful overflow is still the right shape for the code; it just has
+nothing left to catch.
+
 Two things are load-bearing:
 
 - **`mc_drn_clear` runs at every full repaint.** The repaint has already put

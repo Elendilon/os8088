@@ -148,7 +148,15 @@ MC_WLK      equ 16                  ; the stride of one resumable-walk block
   %error "GLS_SZ no longer fits MC_WLK"   ; shift, so a slot's block is SI<<4
 %endif                              ; rather than a multiply by fourteen
 
-MC_MAXDRN   equ 8                   ; trails DRAINING at once (SPEC.md 48.15)
+MC_MAXDRN   equ 16                  ; trails DRAINING at once (SPEC.md 48.15).
+                                    ; MC_MAXICBM + MC_MAXABM, so the queue can
+                                    ; never overflow: 8 held it for ordinary
+                                    ; play and a salvo dying together spilled
+                                    ; the rest into INLINE erases, which is
+                                    ; the spike this exists to spread - a
+                                    ; field log caught the worst second at
+                                    ; 8.2 ms a frame in `wip` against a
+                                    ; typical 0.7
 MC_DRN_LEFT equ MC_WLK              ; pixels of it still on the screen
 MC_DRN_X1   equ MC_WLK + 2          ; ...and the line, for the crosshair and
 MC_DRN_Y1   equ MC_WLK + 4          ; for what the erase uncovers at each end
@@ -166,7 +174,7 @@ MC_DRNRATE  equ 24                  ; ...and its floor: eight times the rate a
 MC_DRNBUD   equ 64                  ; pixels a frame across the whole queue -
                                     ; the cap that stops one explosion's worth
                                     ; of dead missiles landing in one frame
-MC_DSCMAX   equ 8                   ; walks handed to OSAPI_GFX_LSTEPV at once
+MC_DSCMAX   equ 16                  ; walks handed to OSAPI_GFX_LSTEPV at once
 %if MC_MAXICBM > MC_DSCMAX || MC_MAXABM > MC_DSCMAX || MC_MAXDRN > MC_DSCMAX
   %error "mc_dsc holds fewer walks than one batch can produce"
 %endif
