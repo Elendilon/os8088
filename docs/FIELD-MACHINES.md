@@ -185,6 +185,28 @@ good model** and never as the machine —
 - and its figures go into Part 9 **labelled PCem**, or not at all. Part 9's
   four provenance lines exist for exactly this.
 
+## MartyPC — the same caveat, one class better
+
+Also not a machine in the register's sense, and it goes in Part 9 **labelled
+MartyPC** for the same reason PCem does. The difference worth knowing is that
+MartyPC is **cycle accurate** rather than approximately period-correct, so it
+models the 8088's prefetch queue and bus contention rather than a clock rate
+— which is precisely where this project's costs live (Part 2's instruction
+floor is a prefetch-starvation number). Set 4 came off it.
+
+It has already produced something the 5150 has not: a **77-second log of a
+running application**, one row a second, rather than a benchmark that runs
+once. That is a different instrument and it needs the discipline below.
+
+**A long log is only comparable to another long log if it says how fast the
+machine was.** Two earlier runs could not be compared at all — kernel code
+neither of them touched moved 16–19% between them, and nothing in either log
+said so, which made every conclusion drawn from the pair worthless. A run
+must time a fixed, known quantity of work at each end and print it; Set 4's
+`CAL` lines are that, and their CPU figure agreeing to 0.01% is what licenses
+every other number in the set. If the two brackets disagree, the machine
+moved *underneath* the measurement and the rows between them are suspect.
+
 ---
 
 ## How to take a set on the 5150
