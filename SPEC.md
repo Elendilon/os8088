@@ -973,6 +973,29 @@ unaffected by each other's staging. Keys 6 and 7 redraw the fan LT_NVEC walks
 to a call in chunks of 3 and 1, and must match keys 3 and 1 byte for byte —
 **0 differing pixels of 236,160** on Hercules.
 
+**And the saving is now priced, which the argument above never was.**
+`gfxbench` carries two rows that draw the identical eight pixels and differ
+only in how many times they arrive — `GFX_LSTEP x8` against `GFX_LSTEPV x8`.
+They were added expecting a ratio near 800, because that is what §5.7's floor
+would give. They measure **118** in guest instructions, and about **36
+instructions removed per arrival** rather than §5.7's 196.
+
+The reason is structural, and it corrects the argument this section opens
+with: **`gfx_lstep` is not a rect primitive.** It never goes near
+`vga_rect_setup` or `bb_rect`, so its arrival is the far-call cell and a
+prologue, not the rect machinery §5.7 measured. Borrowing §5.7's ~756 µs for
+it was wrong.
+
+Instructions understate the clocks — Part 9 measured the far-call cell at
+46.7 µs for about seven instructions — so the field ratio will be higher than
+118. But charging *every* removed instruction at far-call rates still only
+reaches about 160, against the **356** this section's own field figures imply
+(570 µs a pixel stepping one call per missile against 160 µs in the drain).
+**That gap is unexplained.** The batching is still a win and the drain still
+needs it; what is not established is that the *arrival count* is where a
+moving line's cost lives, and the two rows are what a field set should use to
+settle it.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
