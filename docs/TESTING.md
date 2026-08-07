@@ -126,11 +126,13 @@ zero is the commonest mistake. Full recipe and the four ways to get it
 silently wrong: `docs/HERCULES-TESTING.md`.
 
 **`VIDEO=`/`RTC=` are tracked by a stamp file**, so a knob-built kernel is a
-*different* kernel. Rebuild knob-free before committing or `make
-check-images` reports STALE:
+*different* kernel and changing the knob rebuilds it. Nothing in `build/` is
+committed, so a forced kernel can no longer reach the repo — but it does stay
+on your disk images until something rebuilds them, and a release must be built
+knob-free:
 
 ```sh
-rm -f build/os8088.img build/os8088-360.img && make && make check-images
+rm -f build/os8088.img build/os8088-720.img build/os8088-360.img && make
 ```
 
 ---
@@ -355,9 +357,11 @@ untick the driver, close the panel, reboot (no driver, no icons), then tick it
 again - the volumes come straight back, having round-tripped through a boot
 where nothing could read them.
 
-Both dirty a **tracked, shipped artifact** - `build/os8088.img` gains
-`SYSTEM.CFG` - so `rm -f build/os8088.img build/os8088-360.img && make` before
-committing, exactly as for a floppy write test.
+Both **change the image and the change persists** - `build/os8088.img` gains
+`SYSTEM.CFG` - so `rm -f build/os8088.img build/os8088-720.img
+build/os8088-360.img && make` when the next run's starting state matters,
+exactly as for a floppy write test. Nothing under `build/` is committed, so
+this costs a stale starting state and never a stale commit.
 
 What QEMU cannot show: the **MFM** rung — rung 0 against a real XT controller's
 ROM rather than SeaBIOS — and the 8-bit-bus behaviour that gates rung 1 off an
@@ -591,11 +595,10 @@ wall clock and the microsecond column means microseconds. That is where these
 numbers are worth taking. A VGA run measures the *fallback* path by design —
 `font_run`'s fast path is mono-only.
 
-One trap if you ever track a bench artifact: `make check-images` reads its
-list from `git ls-files build`, so a tracked image `all` does not build reads
-as **ORPHAN** and one it builds differently reads as **STALE**. Leaving them
-untracked is what lets `all` stay free of them. Tracking one would force it
-back into `all` — which is exactly the arrangement this folder replaced.
+Nothing under `build/` is committed — bench artifacts included, along with the
+shipped images themselves — so there is no way for one of these disks to reach
+the repo or a release. What keeps them off a normal build is `all`, which
+builds nothing from `tests/`: that is the arrangement this folder exists for.
 
 ---
 
@@ -828,5 +831,5 @@ settings do not survive a reboot. No shipped profile carries it on either
 floppy now, and every `make` target that launches 86Box strips it from both
 keys first, because 86Box rewrites its own config on exit and has twice put
 it back. The price is the one QEMU already charges: a session that changes a
-Control Panel setting dirties `build/os8088.img`, a tracked shipped artifact,
-so rebuild it before committing.
+Control Panel setting changes `build/os8088.img` and the change persists, so
+rebuild it before a run whose starting state matters.
