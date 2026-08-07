@@ -445,6 +445,7 @@ list to check yourself against.
 | FAT access across a copy | re-read on every switch | a window per volume: 45 mounts → 3 loads | §18.8.1 |
 | The per-call floor itself (1bpp) | one `gfx_pixel` = **196** guest instructions of generic rect machinery | **158**; `GFX_FILL 8x8` −19.3%, `64x64` −14.5%, `GFX_BLIT4` −13.8%, output byte-identical on all three adapters | §5.7, Part 9 Set 3 |
 | A renderer row step | `call gfx_nextrow`: a near call plus two CS-overridden memory reads, **three times per scan line** | three register instructions, parameters hoisted out of the loop | §39.3, §32 |
+| `gfx_lock` + `gfx_unlock` — the pair every drawing burst pays | the mouse cursor over a 16x16 cell it never fills: a save, a white pass and a black pass, three walks over the same bytes, plus a restore — **17.82** guest-instruction counts a pair on Hercules, ~6.4 ms of the field machine, 11.6% of a 55 ms frame | the arrow's real 8x12 cell, no third byte, and on 1bpp **one** fused read-bank-paint-write pass: **5.41**, ~1.94 ms, 3.5% — **3.29x**, output byte-identical on all three adapters | §7.1, Part 9 Set 5 |
 
 Two entries in that table are load-bearing beyond their own numbers.
 **`OSAPI_WM_GROW` was called on every Note Pad keystroke** — free in the
@@ -1272,3 +1273,98 @@ fires on a **minority** of these erases (a QEMU count said 53% — the real
 machine's play says 38%), and the 500 µs does not fully decompose into three
 Bresenham passes at the instruction floor, so something in `mc_wipe_trails`
 beyond the walk is unaccounted for and has not been found yet.
+
+### Set 5 — the lock and unlock, which turned out to be the cursor
+
+| | |
+|---|---|
+| machine | **not a machine** — QEMU with `-icount shift=3,sleep=off`, so the PIT counts guest INSTRUCTIONS (Part 4). Reproducible, machine-independent, **not time** |
+| adapter | all three: Hercules 720x348 (`VIDEO=herc`), CGA 640x200 (`VIDEO=cga`), VGA 640x480 |
+| build | `079d9a8` against the same tree plus the §7.1 changes |
+| date | 2026-08-07 |
+
+Set 4 said `lok` + `unl` was **21.8% of a 77-second session** with no pixel
+of the game in it, and that it was the one item in that table entirely inside
+the kernel — so every application on every machine was paying it. It did not
+say what was in it, because a stage-level frame log cannot: `lok` there is
+`gfx_lock` *plus* `mc_track` *plus* `wm_clip_set`.
+
+So the first thing done here was to give the pair a row of its own.
+`gfxbench`'s `GFX_UNLOCK+LOCK pair` is that row, and it is measured
+**backwards** — `OSAPI_GFX_LOCK` from a callback that already holds the lock
+is a deadlock, but unlock-then-lock is the same two routines in the other
+order, and `fm_drag` already uses that idiom inside a callback. The two
+halves cannot be separated from a package because they must alternate.
+
+**The mutex is not what it costs.** `gfx_lock_flag` is one byte and six
+instructions; everything else in those two routines is the **mouse cursor** —
+the lock erases it, the unlock saves what it will cover and draws it again.
+SPEC.md §7.1 is what was done about it; the short version is that the arrow
+is 8x12 inside 16x16 tables nobody had ever measured against, that its width
+makes the cell's third framebuffer byte unreachable, and that on a 1bpp
+adapter the save and the two draw passes are the same bytes in the same order
+and compose into one.
+
+| adapter | before | repeat | after | repeat | per pair, after | ratio |
+|---|---|---|---|---|---|---|
+| Hercules | 1,782 | — | **541** | 541 | 5.41 counts | **3.29x** |
+| CGA | 1,798 | — | **547** | — | 5.47 | **3.29x** |
+| VGA | 2,300 | 2,296 | **1,626** | 1,633 | 16.26 | **1.41x** |
+
+100 iterations a row. The two mono columns agreeing to 1.1% before and 1.1%
+after is the harness checking itself: they are the same renderer over four
+different numbers, so a gap between them would be a finding about `gfxbench`
+rather than about the cursor. VGA gains least and should — its save is four
+planes through Read Map Select and its draw is Set/Reset through the Bit
+Mask, so there is no single byte to fuse and all it gets is the 8x12 cell and
+the retired third byte.
+
+Through Part 4's conversion (one icount count ≈ 0.359 ms of real XT), the
+pair on the field machine goes from **~6.4 ms to ~1.94 ms**, and a 55 ms
+frame that spent 11.6% of itself entering and leaving the critical section
+now spends 3.5%.
+
+**The output is byte-identical**, which for a save-under is the only thing
+worth asserting: the framebuffer was captured with the cursor parked at five
+places — over the Disk window's glyphs byte-aligned and at shift 3, against
+the right screen edge where the second byte is clipped away, against the
+bottom edge where the arrow is cut short, and on the bare desktop — on all
+three adapters, before and after. **0 differing pixels** every time. The
+same capture, taken again after moving the cursor away and back, is also 0,
+which is the erase checking itself within one run.
+
+#### The control rows, and the one that needed a second look
+
+Every other row in the three reports tracks the **loop-overhead baseline**,
+which is re-measured per run and is not perfectly stable: it moved 55 → 66
+counts over `BL_BASE_N` = 400 on VGA between the two runs, and every method-P
+row is reported net of `ovhx x N / 256`. So a row at N = 300 comes in about 8
+counts lower for that reason alone and nothing else. Read the small-N rows
+against that number before reading anything into them:
+
+| VGA row | N | before | after | baseline explains | left over |
+|---|---|---|---|---|---|
+| `GFX_PIXEL` | 300 | 407 | 396 | 8.3 | −2.7 |
+| `GFX_HLINE 8px` | 200 | 273 | 267 | 5.5 | −0.5 |
+| `GFX_VLINE 8px` | 200 | 332 | 330 | 5.5 | +3.5 |
+| `GFX_FILL 64x64` | 24 | 370 | 370 | 0.7 | +0.7 |
+| `GFX_FILL 256x1` | 100 | 22,085 | 22,083 | 2.8 | +0.8 |
+
+`GFX_FILL 8x8` looked like the exception on the first pass — 340 → 316, where
+the baseline explains only 5.5 — and it is worth the paragraph because the
+**wrong** conclusion was available and attractive: a 7% win on a primitive
+this change never touched. Two things said not to take it. A row that reads
+*below* `GFX_VLINE 8px` is not a small win but an impossible one, since a
+vline is a single-byte rect and an 8x8 fill is the same rect eight pixels
+wide. And `GFX_PIXEL` reaches `gfx_fill` through the identical path, so any
+per-call saving there would have shown up in it, and did not (−2.7 against a
+predicted −14 if `bb_mono_chk` had been the mechanism).
+
+So both kernels were re-run. **They agree: 317 after, 317 before.** The 340
+was a one-off excursion in a single baseline run and the change did nothing
+to VGA's fill at all. `GFX_UNLOCK+LOCK pair` itself repeats to within 0.4% on
+both kernels and both adapters, which is what makes it quotable.
+
+**One row moving on its own, in the direction you were hoping for, is the
+thing to re-run** — Part 6 rule 7, and the reason Set 3 carries a repeat
+column.
