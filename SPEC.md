@@ -8948,7 +8948,50 @@ the far end of the span — which is exactly what a move is. The alternative was
 a staging claim the size of the selection, and a drag that fails because the
 heap is busy is a drag the user has no way to understand.
 
-#### 27.8.2 Cut, Copy and Paste
+#### 27.8.2 Moving the inversion draws no glyphs
+
+`np_rflush` folds the **union** of a row's old and new selected spans into the
+span it draws, so changing which cells are inverted dragged the *glyphs* along
+with it: a drag re-lettered every dirty row in full, at ~30 cells a row. That
+is ~1ms a cell on the target machine (PERFORMANCE.md Part 2), and it is what
+made dragging feel slow long after §27.8.1 had cut the layout.
+
+But a drag **changes no character anywhere**. What it changes is which cells
+are inverted, and XOR is exactly that operation — so a row whose only change
+is its inversion flips the cells whose selected-ness differs and letters
+nothing at all. The walk already visits every character, so it records two
+spans per row instead of one: `[np_rs0]`/`[np_rs1]`, the cells that are
+selected, and `[np_xs0]`/`[np_xs1]`, the cells whose selected-ness differs
+from **what the screen is showing** — the symmetric difference, which is
+precisely what one XOR must flip.
+
+`[np_osel0]`/`[np_osel1]`/`[np_oselon]` are that "what the screen is showing",
+in character indices, and `np_selmark` is the single place they are set: every
+path that finishes a redraw calls it, *including the ones that drew nothing*,
+because a row whose selection did not change is not in the dirty band and the
+live selection describes it either way. Three words, no per-row array, and
+nothing for a scroll to keep in step — which is what `np_shiftrows` would
+otherwise have had to do for a fourth and fifth array.
+
+**The gate is a selection at both ends**, and that is what keeps the caret out
+of it: `np_carets` draws no bar while a selection is up, so with one before
+and one after there is no caret to erase — and erasing a caret means lettering
+the cell underneath it, which this path cannot do. A drag that collapses its
+selection to nothing falls back to the ordinary row draw and costs one row.
+
+Measured over an identical scripted drag: **4,049 glyph cells in 141
+`font_run` calls → 929 in 33**, a 4.4x cut, on top of §27.8.1's 4.2x on
+layout. Verified the §48.12 way on VGA and CGA — grow, shrink, and drag back
+past the anchor so the selection flips direction — **0 differing pixels**
+against a forced full repaint every time.
+
+**No new kernel primitive was needed, and the obvious one would not have
+helped.** `gfx_xor_fill` (slot 0x0058) is already an inversion, and `font_run`
+already takes an ink *and* a background (§6.1), so "draw this run inverted" is
+`AL = CWHITE, AH = CBLACK` and has always been expressible. The cost was never
+the inversion — it was re-lettering cells whose characters had not moved.
+
+#### 27.8.3 Cut, Copy and Paste
 
 Over §55's system clipboard, so what is copied here can be pasted in another
 program and outlives the instance that copied it.
