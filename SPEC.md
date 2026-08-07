@@ -15375,6 +15375,74 @@ Four things about it are load-bearing:
   cursor off, so the bracket has one crosshair and no arrow — which is the
   cheapest confirmation that the bracket is actually running.
 
+### 48.14 A trail is ONE Bresenham, laid at launch and walked
+
+A field log put `wip` — the whole-trail erase — at **37.8 ms of a 73.5 ms
+frame with only 5.2 line calls in it**, which is what said the cost was per
+*pixel* and not per *call*. §5.6.6 answered half of it inside the kernel (the
+steep three-column walk, 1.91×, and only 38% of this game's erases are
+steep). §5.6.7 answers the other half by removing the reason the dilation
+existed at all.
+
+The trail **was** drawn as a chain of per-frame segments — each its own
+Bresenham between two rounded positions — and erased as one long line between
+the extremes. Those two rasterizations are not the same pixels; they differ
+by up to one in the minor axis, which left **104 of a measured 217-pixel
+trail** on the screen. §5.6.5's dilation covered exactly that error, at three
+read-modify-writes a pixel forever.
+
+It is one line now. `mc_tr_lay` lays the walk from the launch point to the
+point the missile is **aimed at**, once, at launch; `mc_move_trails` advances
+it to wherever the missile has got to; `mc_wipe_trails` re-lays the identical
+line and replays exactly the pixels the draw emitted. One walk each way, one
+read-modify-write a pixel, and nothing left behind — the two walks are the
+same walk, so "close enough" stops being a question that can be asked.
+
+Two things that read as trades are corrections:
+
+- **A dodging smart bomb's trail is a straight line now.** It used to be a
+  polyline following the actual path — which the straight erase could never
+  have removed, so a dodged bomb left its whole trail on the screen until the
+  next wave. The erase always assumed a straight line; this is the draw being
+  brought into line with it, not the other way round.
+- **The progress measure is the MAJOR AXIS, clamped.** The walk steps its
+  major axis once a pixel, so the distance the missile has travelled along
+  that axis *is* the pixel index. `[mc_ilen]` carries it signed — `+n` = n
+  pixels with x as the major axis, `-n` = y — because the SDK does not publish
+  the block's layout (§20.8) and the length is needed every frame anyway: it
+  is what stops a bomb that dodged off its own line asking for pixels past the
+  end of it.
+
+Four things hold it up, and the first two are the ones that break silently:
+
+- **The block holds SCREEN coordinates, so a window that moves invalidates
+  every one of them at once.** `mc_track` raises `[mc_full]` when the origin
+  changes, and `mc_redraw_trails` re-lays every walk and replays `[mc_idrw]`
+  pixels of it — a moved window owes a repaint anyway, so this costs nothing
+  it was not already paying.
+- **`[mc_iarm]`/`[mc_aarm]` is 0 not laid / 1 walking / 2 no walk**, and the
+  third value is not a failure state. A walk is refused on the Mode X surface
+  (§53.1 puts every kernel drawing slot off-limits there) and for a trail with
+  an endpoint outside the content box (the kernel clips to the SCREEN, and
+  only `mc_fillc` clamps to the window) — both keep the old segment-and-
+  dilated-line path, and `mc_redraw_trails` moves a slot between the two when
+  the surface changes. §5.6.5 is therefore still live, and still right, for
+  exactly those cases.
+- **The walk is laid on the first frame that DRAWS, not at launch.**
+  `mc_update` is lock-free, and although `gfx_linit` draws nothing, a walk laid
+  before `mc_track` has settled the origin would hold the wrong screen
+  coordinates. `mc_itrail` records the endpoints; `mc_move_trails` lays the
+  line.
+- **`[mc_ipx]`/`[mc_ipy]` are still written every frame in both modes.** The
+  segment path draws to them, and the walk path owes them to the ground bite
+  (§48.9) — which is aimed at the trail's END, not across the band.
+
+Verified the only way this can be: fire a cluster, pause, capture the
+framebuffer, force a full repaint, diff — **0 differing pixels** with trails in
+flight and again after they had died and been erased, on VGA (0 of 307,200),
+CGA (0 of 129,485 inside the content) and Hercules (0 of 236,160 below the
+menu bar).
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason

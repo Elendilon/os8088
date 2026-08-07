@@ -143,6 +143,10 @@ MC_MAXABM   equ 8                   ; NABMS
 MC_MAXEXP   equ 16                  ; NEXPLO is 20; 16 is what MC_MAXICBM +
                                     ; MC_MAXABM can actually produce at once
 MC_MAXON    equ 7                   ; MXICON: ICBMs on screen at one time
+MC_WLK      equ 16                  ; the stride of one resumable-walk block
+%if GLS_SZ > MC_WLK                 ; (SPEC.md 5.6.7). GLS_SZ rounded UP to a
+  %error "GLS_SZ no longer fits MC_WLK"   ; shift, so a slot's block is SI<<4
+%endif                              ; rather than a multiply by fourteen
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
 MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
                                     ; is SHORTER on purpose: with no collapse
@@ -329,6 +333,13 @@ mc_track:
 .win:
     mov bx, si
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    cmp ax, [mc_ox]                 ; a trail's walk block (SPEC.md 48.14)
+    jne .moved                      ; holds SCREEN coordinates, so a window
+    cmp dx, [mc_oy]                 ; that moved invalidates every one of them
+    je .keep                        ; at once - and owes a repaint anyway,
+.moved:                             ; which is where they are re-laid
+    mov byte [mc_full], 1
+.keep:
     mov [mc_ox], ax
     mov [mc_oy], dx
     mov bx, si
@@ -1514,8 +1525,10 @@ mc_launch_abm:
     mov [mc_avy + di], ax
     mov ax, [mc_aimn]
     mov [mc_astep + di], ax
-    mov [mc_atx + di], cx
+    mov [mc_atx + di], cx           ; ...and the trail's far end, fixed here
     mov [mc_aty + di], dx
+    mov word [mc_adrw + di], 0
+    mov byte [mc_aarm + si], 0
     mov byte [mc_aa + si], 1
 
     dec byte [mc_bmis + bx]         ; the base is one missile lighter, and its
@@ -1734,6 +1747,8 @@ mc_launch_icbm:
     mov cl, MC_FP
     shl ax, cl
     mov [mc_iy16 + di], ax
+    call mc_itrail                  ; the trail's line is fixed HERE, and only
+                                    ; here: a dodge re-aims the bomb, not it
     mov ax, [mc_aimvx]
     mov [mc_ivx + di], ax
     mov ax, [mc_aimvy]
@@ -2112,6 +2127,7 @@ mc_spawn_child:
     mov cl, MC_FP
     shl ax, cl
     mov [mc_iy16 + di], ax
+    call mc_itrail
     mov ax, [mc_aimvx]
     mov [mc_ivx + di], ax
     mov ax, [mc_aimvy]
@@ -2122,6 +2138,25 @@ mc_spawn_child:
     mov byte [mc_ia + si], 1
     pop di
     pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_itrail - arm ICBM slot SI's trail from the mc_aim* block
+; in:  SI = slot, DI = slot*2; preserves all registers
+;
+; The walk itself is laid on the next frame that DRAWS, not here: mc_update is
+; lock-free, and although OSAPI_GFX_LINIT draws nothing, a walk laid before
+; mc_track has settled the origin would hold the wrong screen coordinates.
+; -----------------------------------------------------------------------------
+mc_itrail:
+    push ax
+    mov ax, [mc_aimtx]
+    mov [mc_iex + di], ax
+    mov ax, [mc_aimty]
+    mov [mc_iey + di], ax
+    mov word [mc_idrw + di], 0
+    mov byte [mc_iarm + si], 0
     pop ax
     ret
 
@@ -3993,9 +4028,166 @@ mc_base_shape:
     ret
 
 ; -----------------------------------------------------------------------------
+; A trail is ONE Bresenham, laid at launch and walked (SPEC.md 48.14)
+;
+; It used to be drawn as a chain of per-frame segments and erased as one long
+; line, and those two rasterizations are not the same pixels - which is what
+; SPEC.md 5.6.5's dilation existed to cover, at three read-modify-writes a
+; pixel. The resumable walk (5.6.7) removes the mismatch instead of paying for
+; it: the line from the launch point to the point the missile is AIMED at is
+; laid down once, the draw advances it a few pixels a frame, and the erase
+; re-lays the identical line and replays exactly the pixels the draw emitted.
+;
+; Two things follow, and both are corrections rather than trades. A dodging
+; smart bomb's trail is a straight line now instead of a polyline the straight
+; erase could never have removed - the erase always assumed a straight line,
+; so this is the draw being brought into line with it rather than the other
+; way round. And nothing is left behind: the 104-of-217 stranded pixels that
+; the dilation was sized for cannot occur, because the two walks are the same
+; walk.
+;
+; [mc_iarm]/[mc_aarm] carries which mode a slot is in: 0 not laid yet, 1
+; walking, 2 no walk. The last is the Mode X surface (SPEC.md 53.1 puts every
+; kernel drawing slot off-limits there) and a trail with an endpoint outside
+; the content box (the kernel clips to the SCREEN, and only mc_fillc clamps to
+; our window) - both keep the old segment-and-dilated-line path below, and a
+; slot may move between the two, because mc_track raises [mc_full] whenever
+; the origin moves and mc_redraw_trails re-lays every walk.
+; -----------------------------------------------------------------------------
+
+; mc_iblk / mc_ablk - DI = slot SI's walk block; preserve every other register
+mc_iblk:
+    push cx
+    mov di, si
+    mov cl, 4
+    shl di, cl
+    add di, mc_iwlk
+    pop cx
+    ret
+
+mc_ablk:
+    push cx
+    mov di, si
+    mov cl, 4
+    shl di, cl
+    add di, mc_awlk
+    pop cx
+    ret
+
+; mc_tr_lay - lay the walk at DI along (AX,BX)-(CX,DX), content coords
+; out: CF=1 and nothing laid: this trail has no walk
+;      CF=0 and [mc_trlen] = the walk's LENGTH, signed: +n = n pixels with x
+;      as the major axis, -n = n pixels with y as it
+; preserves all registers
+;
+; The block holds SCREEN coordinates, which is why a moved window invalidates
+; every one of them at once - see mc_track. The length is the app's business
+; rather than the block's because the SDK does not publish the block's layout
+; (SPEC.md 20.8) - and it is needed on every frame, to stop a bomb that dodged
+; off its own line asking for pixels past the end of it.
+mc_tr_lay:
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    cmp byte [mc_fsx], 0            ; the Mode X surface has no kernel slots
+    jne .no
+    or ax, ax                       ; ...and neither end may leave the content
+    js .no
+    or bx, bx
+    js .no
+    or cx, cx
+    js .no
+    or dx, dx
+    js .no
+    cmp ax, [mc_cw]
+    jge .no
+    cmp cx, [mc_cw]
+    jge .no
+    cmp bx, [mc_ch]
+    jge .no
+    cmp dx, [mc_ch]
+    jge .no
+    push cx                         ; the span, before the origin goes on
+    push dx
+    sub cx, ax
+    jns .adx
+    neg cx
+.adx:
+    sub dx, bx
+    jns .ady
+    neg dx
+.ady:
+    cmp cx, dx
+    jb .ymaj
+    inc cx
+    mov [mc_trlen], cx
+    jmp short .span
+.ymaj:
+    inc dx
+    neg dx
+    mov [mc_trlen], dx
+.span:
+    pop dx
+    pop cx
+    add ax, [mc_ox]
+    add cx, [mc_ox]
+    add bx, [mc_oy]
+    add dx, [mc_oy]
+    push ds
+    pop es
+    call OSAPI_GFX_LINIT
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mc_tr_step - draw the next CX pixels of the walk at DI in the current pen
+; in:  gfx lock held; preserves all registers
+mc_tr_step:
+    push es
+    push ds
+    pop es
+    call OSAPI_GFX_LSTEP
+    pop es
+    ret
+
+; mc_tr_need - how much of a walk the head has reached
+; in:  AX = the trail start's MAJOR coordinate, CX = the head's, DI = the
+;      walk's length in pixels
+; out: AX = 1..DI; clobbers CX
+;
+; The walk steps its MAJOR axis once a pixel, so the distance travelled along
+; that axis IS the pixel index - and clamping it to the length is what keeps a
+; bomb that dodged off its own line from asking for pixels past the end of it.
+mc_tr_need:
+    sub cx, ax
+    jns .ok
+    neg cx
+.ok:
+    mov ax, cx
+    inc ax
+    cmp ax, di
+    jbe .fit
+    mov ax, di
+.fit:
+    ret
+
+; -----------------------------------------------------------------------------
 ; mc_redraw_trails - every live trail, from its launch point to where it has
 ;                    been drawn to
 ; in:  gfx lock held; preserves all registers
+;
+; This is also where a walk is re-laid, so it is what heals a window that
+; moved, a surface that changed and a slot that has to swap paths.
 ; -----------------------------------------------------------------------------
 mc_redraw_trails:
     push ax
@@ -4017,8 +4209,27 @@ mc_redraw_trails:
     add di, di
     mov ax, [mc_isx + di]
     mov bx, [mc_isy + di]
-    mov cx, [mc_ipx + di]
-    mov dx, [mc_ipy + di]
+    mov cx, [mc_iex + di]
+    mov dx, [mc_iey + di]
+    push di
+    call mc_iblk
+    call mc_tr_lay
+    pop bx                          ; BX = slot*2 again; a pop leaves CF alone
+    jc .iold
+    mov byte [mc_iarm + si], 1
+    mov ax, [mc_trlen]
+    mov [mc_ilen + bx], ax
+    mov cx, [mc_idrw + bx]
+    jcxz .inext
+    call mc_tr_step
+    jmp short .inext
+.iold:
+    mov byte [mc_iarm + si], 2      ; no walk: the segment path owns this one,
+    mov word [mc_idrw + bx], 0      ; and [mc_ipx] is what it draws to
+    mov ax, [mc_isx + bx]
+    mov cx, [mc_ipx + bx]
+    mov dx, [mc_ipy + bx]
+    mov bx, [mc_isy + bx]
     call mc_line
 .inext:
     inc si
@@ -4035,8 +4246,27 @@ mc_redraw_trails:
     add di, di
     mov ax, [mc_asx + di]
     mov bx, [mc_asy + di]
-    mov cx, [mc_apx + di]
-    mov dx, [mc_apy + di]
+    mov cx, [mc_atx + di]
+    mov dx, [mc_aty + di]
+    push di
+    call mc_ablk
+    call mc_tr_lay
+    pop bx
+    jc .aold
+    mov byte [mc_aarm + si], 1
+    mov ax, [mc_trlen]
+    mov [mc_alen + bx], ax
+    mov cx, [mc_adrw + bx]
+    jcxz .anext
+    call mc_tr_step
+    jmp short .anext
+.aold:
+    mov byte [mc_aarm + si], 2
+    mov word [mc_adrw + bx], 0
+    mov ax, [mc_asx + bx]
+    mov cx, [mc_apx + bx]
+    mov dx, [mc_apy + bx]
+    mov bx, [mc_asy + bx]
     call mc_line
 .anext:
     inc si
@@ -4067,9 +4297,6 @@ mc_wipe_trails:
     push di
     mov al, MC_BG
     call mc_setcol
-    mov byte [mc_lfat], 1           ; see mc_lflush: an erase has to be one
-                                    ; pixel wider than the draw, or half of it
-                                    ; stays on the screen
     xor si, si
 .icbm:
     cmp byte [mc_ia + si], 0FFh
@@ -4077,15 +4304,41 @@ mc_wipe_trails:
     mov byte [mc_ia + si], 0
     mov di, si
     add di, di
+    cmp byte [mc_iarm + si], 1
+    jne .iold
+    mov ax, [mc_isx + di]
+    mov bx, [mc_isy + di]
+    mov cx, [mc_iex + di]
+    mov dx, [mc_iey + di]
+    call mc_cross_need              ; the two ends bound every pixel of it
+    push di
+    call mc_iblk
+    call mc_tr_lay                  ; the SAME line, replayed exactly
+    pop bx
+    jc .ignd
+    mov cx, [mc_idrw + bx]
+    jcxz .ignd
+    call mc_tr_step
+    jmp short .ignd
+.iold:
     mov ax, [mc_isx + di]
     mov bx, [mc_isy + di]
     mov cx, [mc_ipx + di]
     mov dx, [mc_ipy + di]
-    call mc_line
+    mov byte [mc_lfat], 1           ; see mc_lflush: the segment path's erase
+    call mc_line                    ; has to be one pixel wider than its draw
+    mov byte [mc_lfat], 0
+.ignd:
+    mov di, si
+    add di, di
+    mov word [mc_idrw + di], 0
+    mov byte [mc_iarm + si], 0
+    mov dx, [mc_ipy + di]
     cmp dx, [mc_groundy]            ; a trail that reached the ground took a
     jl .inext                       ; bite out of it on the way out - and the
-    mov ax, cx                      ; bite is at the trail's END, not across
-    sub ax, 2                       ; the whole band (SPEC.md 48.9)
+    mov cx, [mc_ipx + di]           ; bite is at the trail's END, not across
+    mov ax, cx                      ; the whole band (SPEC.md 48.9)
+    sub ax, 2
     add cx, 2
     call mc_gdmg
 .inext:
@@ -4100,18 +4353,41 @@ mc_wipe_trails:
     mov byte [mc_aa + si], 0
     mov di, si
     add di, di
+    cmp byte [mc_aarm + si], 1
+    jne .aold
+    mov ax, [mc_asx + di]
+    mov bx, [mc_asy + di]
+    mov cx, [mc_atx + di]
+    mov dx, [mc_aty + di]
+    call mc_cross_need
+    push di
+    call mc_ablk
+    call mc_tr_lay
+    pop bx
+    jc .abd
+    mov cx, [mc_adrw + bx]
+    jcxz .abd
+    call mc_tr_step
+    jmp short .abd
+.aold:
     mov ax, [mc_asx + di]
     mov bx, [mc_asy + di]
     mov cx, [mc_apx + di]
     mov dx, [mc_apy + di]
+    mov byte [mc_lfat], 1
     call mc_line
-    call mc_bdirty_at               ; the trail starts ON the launcher - and
-                                    ; AX is still its launch x
+    mov byte [mc_lfat], 0
+.abd:
+    mov di, si
+    add di, di
+    mov word [mc_adrw + di], 0
+    mov byte [mc_aarm + si], 0
+    mov ax, [mc_asx + di]           ; the trail starts ON the launcher
+    call mc_bdirty_at
 .anext:
     inc si
     cmp si, MC_MAXABM
     jb .abm
-    mov byte [mc_lfat], 0
     pop di
     pop si
     pop dx
@@ -4121,14 +4397,15 @@ mc_wipe_trails:
     ret
 
 ; -----------------------------------------------------------------------------
-; mc_move_trails - draw the segment every live missile added this frame
+; mc_move_trails - advance every live trail to where its missile has got to
 ; in:  gfx lock held; preserves all registers
 ;
 ; Two or three pixels a missile a frame, which is what makes fifteen of them
 ; affordable. [mc_ipx]/[mc_ipy] mean "where the trail has been DRAWN to", and
 ; only this routine may write them - the same rule SPEC.md 44.4 gives for
 ; [ark_puold], and for the same reason: derive an erase from the update and it
-; drifts the first time a frame is skipped.
+; drifts the first time a frame is skipped. They are kept in both modes: the
+; segment path draws to them, and the walk path owes them to the ground bite.
 ; -----------------------------------------------------------------------------
 mc_move_trails:
     push ax
@@ -4151,6 +4428,55 @@ mc_move_trails:
     push si
     call mc_ipix                    ; CX/DX = where it is now
     pop si
+    cmp byte [mc_iarm + si], 1
+    jne .iold
+    mov ax, [mc_ipx + di]           ; the pixels this frame can add are bounded
+    mov bx, [mc_ipy + di]           ; by the old head and the new one
+    call mc_cross_need
+    mov [mc_ipx + di], cx
+    mov [mc_ipy + di], dx
+    mov bx, di                      ; BX = slot*2 from here down
+    mov di, [mc_ilen + bx]          ; +n = x is the major axis, -n = y is
+    or di, di
+    jns .ixmaj
+    neg di
+    mov cx, dx
+    mov ax, [mc_isy + bx]
+    jmp short .ineed
+.ixmaj:
+    mov ax, [mc_isx + bx]
+.ineed:
+    call mc_tr_need                 ; AX = pixels the head has reached
+    cmp ax, [mc_idrw + bx]
+    jbe .inext
+    mov cx, ax
+    sub cx, [mc_idrw + bx]
+    mov [mc_idrw + bx], ax
+    call mc_iblk                    ; DI = the walk
+    call mc_tr_step
+    jmp short .inext
+.iold:
+    cmp byte [mc_iarm + si], 0      ; not laid yet: lay it and pick a path
+    jne .iseg
+    mov ax, [mc_isx + di]
+    mov bx, [mc_isy + di]
+    push cx
+    push dx
+    mov cx, [mc_iex + di]
+    mov dx, [mc_iey + di]
+    push di
+    call mc_iblk
+    call mc_tr_lay
+    pop di
+    pop dx
+    pop cx
+    mov byte [mc_iarm + si], 2
+    jc .iseg
+    mov byte [mc_iarm + si], 1      ; laid: take it from the top, walking
+    mov ax, [mc_trlen]
+    mov [mc_ilen + di], ax
+    jmp .icbm
+.iseg:
     mov ax, [mc_ipx + di]
     mov bx, [mc_ipy + di]
     cmp ax, cx
@@ -4177,6 +4503,55 @@ mc_move_trails:
     push si
     call mc_apix
     pop si
+    cmp byte [mc_aarm + si], 1
+    jne .aold
+    mov ax, [mc_apx + di]
+    mov bx, [mc_apy + di]
+    call mc_cross_need
+    mov [mc_apx + di], cx
+    mov [mc_apy + di], dx
+    mov bx, di
+    mov di, [mc_alen + bx]
+    or di, di
+    jns .axmaj
+    neg di
+    mov cx, dx
+    mov ax, [mc_asy + bx]
+    jmp short .aneed
+.axmaj:
+    mov ax, [mc_asx + bx]
+.aneed:
+    call mc_tr_need
+    cmp ax, [mc_adrw + bx]
+    jbe .anext
+    mov cx, ax
+    sub cx, [mc_adrw + bx]
+    mov [mc_adrw + bx], ax
+    call mc_ablk
+    call mc_tr_step
+    jmp short .anext
+.aold:
+    cmp byte [mc_aarm + si], 0
+    jne .aseg
+    mov ax, [mc_asx + di]
+    mov bx, [mc_asy + di]
+    push cx
+    push dx
+    mov cx, [mc_atx + di]
+    mov dx, [mc_aty + di]
+    push di
+    call mc_ablk
+    call mc_tr_lay
+    pop di
+    pop dx
+    pop cx
+    mov byte [mc_aarm + si], 2
+    jc .aseg
+    mov byte [mc_aarm + si], 1
+    mov ax, [mc_trlen]
+    mov [mc_alen + di], ax
+    jmp .abm
+.aseg:
     mov ax, [mc_apx + di]
     mov bx, [mc_apy + di]
     cmp ax, cx
@@ -6283,6 +6658,16 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBUF  mc_ipy,    MC_MAXICBM * 2
     MBUF  mc_isx,    MC_MAXICBM * 2 ; ...and where it started
     MBUF  mc_isy,    MC_MAXICBM * 2
+    MBUF  mc_iex,    MC_MAXICBM * 2 ; ...and the point the trail is LAID at
+    MBUF  mc_iey,    MC_MAXICBM * 2 ; (SPEC.md 48.14): fixed at launch, so a
+                                    ; dodging bomb's trail stays a straight
+                                    ; line - which is what the erase always
+                                    ; assumed
+    MBUF  mc_iwlk,   MC_MAXICBM * MC_WLK
+    MBUF  mc_idrw,   MC_MAXICBM * 2 ; pixels of that walk on the screen
+    MBUF  mc_ilen,   MC_MAXICBM * 2 ; ...and how many it has, signed: +n = x
+                                    ; is the major axis, -n = y is
+    MBUF  mc_iarm,   MC_MAXICBM     ; 0 not laid / 1 walking / 2 no walk
     MBUF  mc_itgt,   MC_MAXICBM
     MBUF  mc_imirv,  MC_MAXICBM
     MBUF  mc_imirv2, MC_MAXICBM * 2 ; frames until it splits
@@ -6299,8 +6684,13 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBUF  mc_apy,    MC_MAXABM * 2
     MBUF  mc_asx,    MC_MAXABM * 2
     MBUF  mc_asy,    MC_MAXABM * 2
-    MBUF  mc_atx,    MC_MAXABM * 2  ; where it is to detonate
-    MBUF  mc_aty,    MC_MAXABM * 2
+    MBUF  mc_atx,    MC_MAXABM * 2  ; where it is to detonate - and, being
+    MBUF  mc_aty,    MC_MAXABM * 2  ; fixed at launch, where the trail is laid
+    MBUF  mc_awlk,   MC_MAXABM * MC_WLK
+    MBUF  mc_adrw,   MC_MAXABM * 2
+    MBUF  mc_alen,   MC_MAXABM * 2
+    MBUF  mc_aarm,   MC_MAXABM
+    MWORD mc_trlen                  ; mc_tr_lay's answer, out of the registers
 
 ; --- the explosions -------------------------------------------------------------
     MBUF  mc_ea,     MC_MAXEXP      ; 0 free / 1 burning / FF needs erasing
