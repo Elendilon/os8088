@@ -1430,6 +1430,10 @@ trk_play:
     mov dx, 3600                    ; and 3600/65536 is that to 0.011% - so
     mul dx                          ; the product's HIGH word is the answer
     mov [tui_bpt], dx               ; and no division is needed at all
+    mov [tui_bpf], dx               ; the sub-tick divider starts at one frame
+    mov word [tui_sub], 0           ; a tick (SPEC.md 45.15.2), which IS the
+    mov byte [tui_fpt], 1           ; old per-tick staircase - the first tick
+    mov byte [tui_fcnt], 0          ; measured replaces it
     mov cx, TRK_PREROLL             ; stage the cushion before the open, so
 .pre:                               ; the stream starts TRK_PREROLL halves
     call trk_mix_stage              ; ahead of the DSP instead of two

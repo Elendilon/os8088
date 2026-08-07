@@ -1645,6 +1645,28 @@ tui_sync:
 ;   disagreement between the estimate and the next real block - a rate that
 ;   is a hair fast, a block that arrives early - moves the answer BACKWARDS,
 ;   and a scroll that jumps back a row reads far worse than one that steps.
+;
+;   SUB-TICK, and it is the same argument one level down (SPEC.md 45.15.2).
+;   Everything above interpolates between the card's BLOCK reports, 2,048
+;   bytes apart; what it leaves is a staircase whose step is the SYSTEM TICK,
+;   because [tui_lcons] only moves when [ticks] does. At the XT rate a row is
+;   2.55 ticks, so row changes land on tick edges in a 3,2,3,3,2 pattern -
+;   165 ms, 110, 165, 165, 110 - and a 1.5x swing in the spacing of a scroll
+;   is exactly the "microstutter" the field reported after the music itself
+;   was smooth. The field capture is the proof rather than the theory: every
+;   single-tick PLAY step in it is 0, 302 or 604 and nothing between.
+;
+;   The screen redraws far more often than the tick - the same capture says
+;   1.81 frames a tick, 33 fps - so the frames THEMSELVES are the finer
+;   clock, and no other one is available: SPEC.md 34.1 reserves the ch0 latch
+;   and a package has no slot for it. So the frames of the PREVIOUS tick are
+;   counted and this tick is divided into that many equal steps. It cannot
+;   drift, because the sub-term is an offset ON TOP of the exact accumulator
+;   and is thrown away at every tick edge rather than added into it; it
+;   cannot go backwards, because the offset is capped one byte below a whole
+;   tick, so the edge that zeroes it also adds [tui_bpt]; and a machine that
+;   manages only one frame a tick divides by one and gets exactly the old
+;   behaviour back.
 ; -----------------------------------------------------------------------------
 tui_playpos:
     push bx
@@ -1653,13 +1675,48 @@ tui_playpos:
     call OSAPI_GET_TICKS
     mov cx, ax                      ; CX = now, asked once
     sub cx, [tui_ct0]               ; CX = ticks since the model last moved -
-    jz .have                        ; ALWAYS 0 or 1 or 2, because the model is
+    jz .subtick                     ; ALWAYS 0 or 1 or 2, because the model is
     add [tui_ct0], cx               ; an accumulator: the anchor advances with
     mov ax, cx                      ; it every call, so the multiply below can
     mul word [tui_bpt]              ; never overflow and the clock never has a
     add [tui_lcons], ax             ; long elapsed to multiply (see the header)
+
+    mov al, [tui_fcnt]              ; a new tick: last tick's frame count is
+    or al, al                       ; this tick's divisor, and 0 frames means
+    jnz .div                        ; the model IS the tick - divide by one
+    inc al
+.div:
+    mov [tui_fpt], al
+    mov byte [tui_fcnt], 0          ; the edge itself carries no offset: the
+    mov word [tui_sub], 0           ; whole tick just landed in [tui_lcons]
+    xor ah, ah
+    mov cx, ax
+    xor dx, dx
+    mov ax, [tui_bpt]
+    div cx                          ; bpt / frames, so fcnt*bpf <= bpt always
+    mov [tui_bpf], ax
+    jmp short .have
+.subtick:
+    mov al, [tui_fcnt]              ; the k'th frame inside this tick. COUNTING
+    inc al                          ; and CAPPING are separate on purpose: cap
+    jnz .fok                        ; the counter and it can never exceed its
+    dec al                          ; own previous value, so the divider
+.fok:                               ; ratchets down to 1 and stays there
+    mov [tui_fcnt], al
+    cmp al, [tui_fpt]               ; past what the last tick held: leave the
+    jae .have                       ; offset where it is rather than let it
+    xor ah, ah                      ; reach a whole tick
+    mul word [tui_bpf]              ; DX = 0 by the cap above
+    mov cx, [tui_bpt]
+    dec cx                          ; one byte short of the next tick edge:
+    cmp ax, cx                      ; monotone across it by construction
+    jbe .subok
+    mov ax, cx
+.subok:
+    mov [tui_sub], ax
 .have:
-    mov ax, [tui_lcons]             ; AX = what the model says
+    mov ax, [tui_lcons]             ; AX = what the model says, plus however
+    add ax, [tui_sub]               ; far into this tick the frames say we are
     mov bx, [trk_consumed]          ; has the REPORT overtaken the model?
     sub bx, ax                      ; (wrap-safe: the sign decides)
     js .bound                       ; no - and that is the normal case: a
@@ -1667,14 +1724,16 @@ tui_playpos:
                                     ; re-anchoring there throws the
                                     ; interpolation away
     mov ax, [trk_consumed]          ; yes: the model ran slow, so take the
-    mov [tui_lcons], ax             ; truth
+    mov [tui_lcons], ax             ; truth - and the anchor is now HERE, so
+    mov word [tui_sub], 0           ; the sub-tick offset that got us here is
+                                    ; spent, not owed again
 .bound:
     mov bx, [trk_total]             ; ...bounded by what the mixer has WRITTEN,
     sub bx, ax                      ; because the card cannot play what is not
     jns .mono                       ; there yet (wrap-safe: the sign decides)
     mov ax, [trk_total]
     mov [tui_lcons], ax             ; a capped model stays capped rather than
-                                    ; sprinting into a ceiling it cannot pass
+    mov word [tui_sub], 0           ; sprinting into a ceiling it cannot pass
 .mono:
     mov bx, ax                      ; ...and it may never go backwards
     sub bx, [tui_play]
@@ -2848,6 +2907,13 @@ tui_ab5:     db 'Any key closes', 0
     TRKW tui_lcons                  ; the reported position it is anchored to
     TRKW tui_ct0                    ; ...and the tick that anchor landed on
     TRKW tui_play                   ; the last answer given: never goes back
+    TRKW tui_sub                    ; the SUB-TICK offset (SPEC.md 45.15.2):
+                                    ; how far the frames say we are into the
+                                    ; current tick. An offset on top of the
+                                    ; accumulator, never added into it
+    TRKW tui_bpf                    ; ...[tui_bpt] / the frames a tick holds
+    TRKB tui_fpt                    ; frames the LAST tick held: this one's
+    TRKB tui_fcnt                   ; divisor, and the count so far in this
     TRKB tui_band                   ; tui_row1: drawing the band row
     TRKB tui_chn                    ; shared small loop counter
     TRKB tui_lplay                  ; last seen [mp_playing], for the 8088

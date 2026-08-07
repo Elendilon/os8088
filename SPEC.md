@@ -14697,6 +14697,56 @@ key was pressed. Flushing the ring to make it immediate is a stream close and
 reopen — the underrun history in docs/FIELD-NOTES.md is what that would be
 trading against.
 
+#### 45.15.2 …and between system ticks, because the frames are the finer clock
+
+§45.15.1 interpolates between the card's **block** reports, 2,048 bytes apart.
+What that leaves is a staircase whose step is the **system tick**, because
+`[tui_lcons]` only moves when `[ticks]` does. A field capture is the proof
+rather than the theory: every single-tick `PLAY` step in it is **0, 302 or
+604 and nothing between** — one whole 302-byte lump per tick, the 0s and 604s
+being the log's own sampling phase.
+
+At the XT rate a row is 2.549 ticks, so a row change can only be *noticed* on
+a tick edge, and the crossings quantize to a repeating **3, 2, 3, 3, 2** — 165
+ms, 110, 165, 165, 110. A 1.5x swing in the spacing of a scroll is visible as
+a limp, and it is exactly what the field reported **after** the music itself
+was smooth and the boundary rewrite (§45.13.5) was fixed: *"the music is
+mostly smooth… the text is what is microstuttering."*
+
+The screen redraws far more often than the tick — the same capture says
+**1.81 frames a tick**, 33 fps, against a row every 2.5 — so the frames
+themselves are the finer clock, and **no other one is available**: §34.1
+reserves the ch0 latch to `sch_account` and its atomicity rule, and a package
+has no slot for it. So the frames of the **previous** tick are counted and the
+current one is divided into that many equal steps.
+
+Four properties make that safe rather than merely smoother:
+
+- **The sub-term is an offset, never an addition.** `[tui_sub]` is added to
+  `[tui_lcons]` on the way out and zeroed at every tick edge; the accumulator
+  itself still moves only in exact whole-tick lumps, so nothing about
+  §45.15.1's overtake, cap and monotone reasoning changes and the model
+  cannot drift.
+- **It is capped one byte below a whole tick**, so the edge that zeroes it is
+  also the edge that adds `[tui_bpt]` — monotone across the boundary by
+  construction rather than by the `.mono` guard catching it.
+- **A re-anchor spends it.** Both places that move the anchor — the report
+  overtaking, and the `[trk_total]` cap — zero `[tui_sub]`, because the anchor
+  is now *here* and the offset that got us here is not owed again.
+- **Counting and capping are separate, and getting that wrong is a ratchet.**
+  The frame counter must not be clamped at the divisor: clamp it and the
+  measured count can never exceed its own previous value, so the divider
+  falls to 1 and stays there — the feature silently reverts to the staircase
+  it was written to remove. The counter saturates at 255 and the *offset* is
+  what stops at a whole tick.
+
+A machine that manages one frame a tick divides by one and gets the old
+behaviour back exactly, which is what **QEMU** does: it refuses the retrace
+clock (§45.16), runs tick-paced at 0.86 frames a tick, and so tests the
+degenerate case and the arithmetic — `PLAY` never backwards, steps of 302 with
+occasional 312/340/378/406 where a tick did hold extra frames — while the
+field machine tests the case the feature exists for.
+
 ### 45.16 The text screen's frame clock is measured, not assumed
 
 `fsx_wait` takes a **tick** (18.2065 Hz) or a **vertical retrace** (§53.5), and

@@ -67,6 +67,13 @@
 ;   SD    stamps between the card and the mixer (mp_stw - mp_str), which is
 ;         the ring lead in ROWS. Pinned at MP_ST_N means the history lapped
 ;         and the display is being dragged forward by the writer (45.15).
+;   SR    which producer opened the record: 0 the drawing side, 1 the worker.
+;         It matters because AR and PLAY are set by tui_sync, which runs on
+;         the DRAWING side - so a worker-opened record carries the previous
+;         frame's row, and a run of them manufactures a row gap that reads
+;         one tick short and then one tick long. The field capture that
+;         found this had 26% of its 1-and-4 row gaps on worker records
+;         against a 22% baseline, and 7% of its healthy 2-and-3 gaps.
 ;   WX WK the other half of the loop, added after a capture whose 18-tick
 ;         gap had FX = 00 and DX = 07: the frame was fine and the feed pass
 ;         accounts for a third of it, so the rest went somewhere neither span
@@ -103,7 +110,7 @@ TLOG_RECS   equ 512                 ; 28 s of RING at one record per tick -
                                     ; actually spare (SPEC.md 50.3)
 TLOG_RSZ    equ 32                  ; a power of two so the index is 5 shifts
 TLOG_KB     equ (TLOG_RECS * TLOG_RSZ + 1023) / 1024
-TLOG_LINE   equ 72                  ; 67 columns + CR LF
+TLOG_LINE   equ 76                  ; 70 columns + CR LF
 TLOG_TXTKB  equ (TLOG_RECS * TLOG_LINE + 1024 + 1023) / 1024
 
 TLOGF_REBUILD equ 1
@@ -139,6 +146,8 @@ TLR_FDMX  equ 19                    ; ...and longest single feed pass
 TLR_PLAY  equ 20                    ; w: the INTERPOLATED play position
 TLR_WTMX  equ 22                    ; longest single OSAPI_FSX_WAIT, in ticks
 TLR_WLOOP equ 23                    ; trk_worker loop passes since the record
+TLR_SRC   equ 24                    ; who WROTE the record: 0 the drawing
+                                    ; side, 1 the worker (AR/PLAY stale)
 
 ; -----------------------------------------------------------------------------
 ; tlog_key - D: arm or disarm. Arming claims the record buffer, disarming
@@ -223,6 +232,10 @@ tlog_flag:
 ; -----------------------------------------------------------------------------
 tlog_feed:
     push ax
+    mov byte [tlog_src], 1          ; if this call is the one that opens the
+                                    ; record, AR and PLAY in it are the LAST
+                                    ; FRAME's - tui_sync runs on the drawing
+                                    ; side and the worker cannot refresh it
     mov [tlog_state], al
     mov [tlog_cons], dx
     mov ax, [trk_total]
@@ -241,6 +254,8 @@ tlog_feed:
 ;              the record count is the only sign the log is running.
 ; -----------------------------------------------------------------------------
 tlog_frame:
+    mov byte [tlog_src], 0          ; this record's AR and PLAY are fresh: the
+                                    ; frame that just ran set them
     inc byte [tlog_frames]
     jnz .ok
     dec byte [tlog_frames]
@@ -465,6 +480,8 @@ tlog_tick:
     mov [es:di + TLR_WTMX], al
     mov al, [tlog_wloop]
     mov [es:di + TLR_WLOOP], al
+    mov al, [tlog_src]
+    mov [es:di + TLR_SRC], al
     mov byte [tlog_frames], 0
     mov byte [tlog_feeds], 0
     mov byte [tlog_flags], 0
@@ -595,6 +612,8 @@ tlog_save:
     mov si, tlog_s_h8
     call tlog_emit
     mov si, tlog_s_h9
+    call tlog_emit
+    mov si, tlog_s_h10
     call tlog_emit
     call tlog_hdr_clk               ; the frame clock the probe chose, which
     mov si, tlog_line               ; is constant for the bracket and so has
@@ -734,6 +753,10 @@ tlog_fmt:
     inc di
     mov al, [es:si + TLR_WLOOP]
     call tui_hexb
+    mov byte [di], ' '
+    inc di
+    mov al, [es:si + TLR_SRC]
+    call tui_hexb
     mov byte [di], 0
     pop es
     pop di
@@ -807,10 +830,11 @@ tlog_s_mark:    db 'MARK', 0
 tlog_s_h1:      db 'os8088 tracker log - one record per system tick (18.2065 Hz)', 0
 tlog_s_h2:      db 'CONS advances one 2048-byte half per block IRQ; TOTL-CONS is the ring lead', 0
 tlog_s_h3:      db 'FL: 1 rebuild 2 step 4 blit 8 stream 10 MARK 80 rebuild CARRIED', 0
-tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP AR AP SD FX DX PLAY WX WK', 0
+tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP AR AP SD FX DX PLAY WX WK SR', 0
 tlog_s_h5:      db 'AR/AP is what the SCREEN showed; SD is the card-to-mixer lead in ROWS', 0
 tlog_s_h6:      db 'FX/DX/WX: longest frame / feed pass / FSX_WAIT that tick, TICKS (00 ok)', 0
 tlog_s_h9:      db 'WK counts trk_worker loop passes: low WK in a TICK GAP is a STARVED worker', 0
+tlog_s_h10:     db 'SR 1 = the WORKER opened this record, so its AR and PLAY are a frame stale', 0
 tlog_s_h8:      db 'PLAY is CONS interpolated between block IRQs; PLAY-CONS <= one block', 0
 tlog_s_h7:      db 'FL 20 = Y pressed (display on the mixer), 40 = T pressed (tick clock)', 0
                 ; 80 = the rebuild CARRIED (SPEC.md 45.13.5) - named in h3
@@ -839,6 +863,7 @@ tlog_s_clkr:    db 'Clock: one frame per retrace', 0
     TRKB tlog_fdmx                  ; tick
     TRKB tlog_wtmx
     TRKB tlog_wloop                 ; worker loop passes since the record
+    TRKB tlog_src                   ; which producer is opening this one
     TRKB tlog_nosync                ; Y: the display is back on the mixer
     TRKW tlog_cons                  ; what the worker last saw...
     TRKW tlog_totl
