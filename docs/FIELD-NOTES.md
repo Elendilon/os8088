@@ -776,7 +776,7 @@ larger of the two windows there.
 
 ---
 
-## 7. The floppy moves 4.6x the data it is asked for (OPEN, and located)
+## 7. The floppy is 6x slow because int 13h answers AL = 1 (FOUND, fix awaiting the field)
 
 **Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
 ladder was calibrated against. `sysbench`'s floppy block, same machine, same
@@ -945,6 +945,40 @@ beside the 16 KB one isolates the fixed cost from the data (QEMU: 3 sectors,
 3 calls). The next field run says whether the 116 are a remount, the
 directory walk, or something in the chain walker that only fires on real
 geometry.
+
+**FOUND, by the (LBA, run) trace** (PERFORMANCE.md Part 9 Set 16). The LBA
+advances by one while the run counts down — 7,6,5,4,3,2,1 then 9,8,…,1 —
+thirty-four calls, thirty-three distinct LBAs, nothing read twice and nothing
+skipped. **`dsk_xfer` asked for nine sectors, the BIOS moved nine, and
+answered `AL = 1`.** §18.91's short-count handling believed it, advanced one
+sector and re-asked for the rest, so every sector cost its own revolution.
+The data stayed correct because the sectors it re-read were sectors it had
+already read; `CF` stayed 0 so nothing retried; and QEMU cannot show any of
+it because SeaBIOS returns the full count.
+
+That single fact retires every earlier entry in this note. It is why 148
+sectors were requested for 32; why we cost 1.34 revolutions a sector against
+the BIOS's 0.21; why DOS is 6x faster on the same drive and media (it trusts
+`CF`); and — the one that looked like a fact about hardware — **why batching
+measured 15% SLOWER than one-sector-per-call**: the same call count plus the
+run arithmetic, for nothing. The splitter did all its work and then threw the
+result away one sector at a time.
+
+**The fix is to read the contract.** `CF = 0` is the BIOS saying the whole
+request completed; `AL` is not. `dsk_xfer` advances by `[dsk_run]` now, which
+is what DOS does. `make DISKAL=1` restores the old behaviour for an A/B.
+
+The old reasoning was sound and is kept in view: a BIOS *may* terminate a
+multi-sector read early, and advancing by the request would then step past a
+hole and produce a file with a gap and a shifted tail — first sector intact,
+so the load succeeds and the package dies when its code is reached. Note 5
+already recorded that the short-count fix "changed nothing" when it landed;
+it changed something now. Because that risk is real if the reading is wrong,
+**`sysbench` verifies the file**: `BENCH.DAT` holds `(i >> 9) & 0xFF`, so
+every byte of sector *n* is *n*, and a gap or a repeat names itself.
+
+**Expected: ~1.6 s against 8.4 s for a 16KB read — about 5x on every load in
+the system.** Unconfirmed on iron at the time of writing.
 
 **And the target is now a measured number rather than a model.** DOS copying
 the single 170 KB file off the same disk runs at **~13,390 B/s** (about 15

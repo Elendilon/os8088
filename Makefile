@@ -80,6 +80,14 @@ endif
 # pre-SPEC.md-18.91 loop, with nothing else changed. It exists so that the
 # batching can be A/B'd on real hardware without a source edit, which is the
 # only place its failures have ever been visible (18.92).
+# DISKAL=1 goes back to believing int 13h's AL - the sectors the BIOS says it
+# transferred - instead of trusting CF=0 for the whole request (SPEC.md 18.91).
+# The A/B for the 5150's 6x floppy loss: that machine moves all nine sectors
+# and answers AL = 1, so the old code re-read the other eight one at a time.
+ifneq ($(DISKAL),)
+VIDDEF += -DDISK_TRUST_AL
+endif
+
 ifneq ($(FLOPPY1),)
 VIDDEF += -DFLOPPY_ONE
 BOOTDEF += -DFLOPPY_ONE
@@ -111,7 +119,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(RAMKB),-ram$(RAMKB))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin; \

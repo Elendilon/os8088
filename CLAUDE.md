@@ -328,6 +328,17 @@ machine-dependent, which is why reading the source never found it. The target
 is measured now too: DOS copying one 170KB file off that disk is **~13,390
 B/s**, the BIOS's own one-call track read **11,570**, 2:1 interleave by
 arithmetic 11,520 — three figures within 16%, against os8088's 1,912.
+**And the (LBA, run) trace found it** (Set 16): the LBA advances by one while
+the run counts down, 34 calls over 33 distinct LBAs with nothing read twice —
+**`dsk_xfer` asked for nine sectors, the BIOS moved nine, and answered
+`AL = 1`.** §18.91 believed it and re-asked for the rest one at a time, which
+is why the data stayed correct, why nothing ever errored, and why **batching
+measured SLOWER than no batching**: the same call count plus the run
+arithmetic, for nothing. `CF = 0` is the contract and `AL` is not, so
+`dsk_xfer` advances by the request now (`make DISKAL=1` restores the old
+behaviour), and `sysbench` verifies `BENCH.DAT`'s contents — every byte of
+sector *n* is *n* — because a floppy that got 5x faster and quietly wrong is
+the worst available outcome.
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4
