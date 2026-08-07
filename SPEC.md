@@ -996,6 +996,15 @@ needs it; what is not established is that the *arrival count* is where a
 moving line's cost lives, and the two rows are what a field set should use to
 settle it.
 
+**§48.18.1 reached the same structural distinction from the other end**, by
+costing a vector `gfx_fill` against the floor instead of measuring one: a
+walk step's fixed cost is block staging and `gfx_ink`, which are per *call*,
+while a fill's is geometry, which is per *rect* — so the same trick recovers
+about 4% there and was rightly not built. Two routes to one conclusion, which
+is the agreement PERFORMANCE.md Part 6 rule 7 asks for. What this section
+adds is the *size* of the per-call part, and it is smaller than the pixel it
+guards.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
