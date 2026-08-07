@@ -179,12 +179,18 @@ MC_DSCMAX   equ 16                  ; walks handed to OSAPI_GFX_LSTEPV at once
   %error "mc_dsc holds fewer walks than one batch can produce"
 %endif
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
-MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
+MC_EXPFR3   equ 15                  ; ...and what the coarse ramp lasts, which
                                     ; is SHORTER on purpose: with no collapse
                                     ; the peak is held instead, so the life is
                                     ; cut to keep the sum of the radii - the
                                     ; whole of how lethal a burst is - where
-                                    ; the arcade put it (SPEC.md 48.12)
+                                    ; the arcade put it (SPEC.md 48.12). It was
+                                    ; 21 with three drawn states; SPEC.md 48.18
+                                    ; makes it TWO, so a burst is drawn once
+                                    ; and erased once instead of twice and
+                                    ; once. 13 x 13 = 169 against the old
+                                    ; 5x9 + 13x10 = 175: -3.4%, inside 48.12's
+                                    ; own tolerance and on the safe side
 MC_RMAX     equ 13                  ; ...and the radius it peaks at, on the
                                     ; arcade's 256x231 field
 MC_RMAXP    equ 34                  ; ...and the most mc_escale may scale that
@@ -6937,10 +6943,9 @@ mc_expcol:   db CWHITE, CYELLOW, CLRED, CLMAGENTA
 ; sum(r^2) to 0.2% (1633 against 1637). How much sky one ABM covers and for
 ; how long IS the game (SPEC.md 48.4), and this leaves it alone.
 mc_step3:    db 0, 0                            ; 0..1:  not yet lit, as OLDRAD
-             db 1, 1, 1, 1, 1, 1, 1, 1, 1       ; 2..10
-             db 2, 2, 2, 2, 2, 2, 2, 2, 2, 2    ; 11..20: the peak, HELD
-             db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 21..31: padding, as mc_rad
-mc_rad3v:    db 0, 5, 13
+             db 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1  ; 2..14: the peak, HELD
+             db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0  ; padding
+mc_rad3v:    db 0, 13, 13
 ; ...and one colour per DRAWN state, both from SPEC.md 39.4's WHITE class.
 ; There is no dithered frame on this path: on the two adapters that reach it a
 ; dithered burst is just a grey one, and the flash it was buying is what made
@@ -6950,7 +6955,7 @@ mc_rad3v:    db 0, 5, 13
 ; SPEC.md 48.12 dropped the collapse, and a state that changes only the COLOUR
 ; would never be drawn: the coarse path's whole economy is that it compares
 ; RADIUS, so a same-radius state is a state nobody sees.
-mc_col3:     db MC_BG, CWHITE, CYELLOW
+mc_col3:     db MC_BG, CYELLOW, CYELLOW
 
 ; The coastline: how many rows the ground rises above its base every 16px.
 ; Fixed rather than random, so a repaint puts back exactly what was there.
