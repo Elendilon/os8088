@@ -14151,10 +14151,25 @@ old `WAKE` extreme could only report as one number after the fact.
 | `CONS` | the driver's free-running consumed count — one 2,048-byte half per block IRQ, and only from `sbl_isr`, so the tick spacing between two different values *is* the block-IRQ interval (6.8 ticks at 5,500 Hz) |
 | `TOTL` | the app's staged total; `TOTL − CONS` is the ring lead in bytes |
 | `S` | stream state: 0 playing, 1 underrun-paused, 2 watchdog-ended |
-| `PS PT RW` | song position, pattern, row — so any line can be placed in the music |
+| `PS PT RW` | song position, pattern, row **of the MIXER** — so any line can be placed in the music |
 | `FR FD` | drawing frames and feed passes in that tick |
-| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened, **10h listener mark (`M`)** |
+| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened, **10h listener mark (`M`)**, 20h `Y` (display on the mixer), 40h `T` (tick clock) |
 | `BP SP` | tempo and speed, so rows-per-second is derivable per record |
+| `AR AP` | the row and pattern the **SCREEN** showed (§45.15). Disagreeing with `RW`/`PT` by the ring lead is the healthy case; either one frozen is not |
+| `SD` | that lead counted in ROWS — stamps between the card and the mixer. ~`1.19 × BPM / speed`, and pinning at `MP_ST_N` means the stamp ring lapped |
+| `FX DX` | the longest single drawing frame / feed pass in that tick, **in ticks**. 00 is the healthy answer for both; anything else is the stall, named |
+
+The buffer is a **ring of the last `TLOG_RECS` ticks**, not the first: the
+listener arms the log, plays, hears the thing and only then reaches for `W`.
+`tlog_save` emits oldest-first either way.
+
+**Two keys exist only to split a question in half.** `Y` puts the display back
+on the mixer's position (§45.15 off) and `T` puts the frame clock back on the
+tick (§45.16 off); both are recorded in `FL` on every record, so a file can
+never be read against the wrong mode. A field report of the form "it is smooth
+with `Y`, jerky without" is worth a day of arithmetic, and it costs one
+sitting on the machine that has the problem instead of one rebuild per
+hypothesis.
 
 Verified under QEMU with an SB16 in XT mode: 706 records, **zero tick gaps**,
 block-IRQ intervals with a median of **7 ticks** (6.8 predicted), and the
@@ -14220,6 +14235,18 @@ Seven things are load-bearing:
   falls back to `mp_*` verbatim. That is also what keeps the stopped view
   live: Up/Down and the position keys move the replayer, and with no music to
   sync to the display has to follow them.
+- **The stamp comparison is `js`, not `jg`**, and the difference is not
+  stylistic. Both counters are free-running 16-bit, so `pos − consumed` is
+  modular arithmetic and **the sign of the RESULT decides** — the kernel's own
+  idiom, in `sch_isr`'s wake scan. `jg` is a signed comparison of the two
+  *operands*, so it honours the overflow flag, which is exactly what modular
+  arithmetic must ignore: with it the reader stopped dead whenever `consumed`
+  sat in the upper half of the range and the stamp in the lower — six seconds
+  out of every twelve at the XT rate. The display froze there, the stamp ring
+  filled, the writer dragged it forward 62 rows behind the mixer, and it then
+  jumped 44 rows at once. **§45.14's log is what caught it**, on its first
+  capture, in the two columns added for the purpose: `SD` pinned at 63 and
+  `AR` standing still while `CONS` advanced.
 
 What is deliberately *not* done: a position jump while playing is still heard
 2–3 seconds later, and the display moves when it is heard rather than when the

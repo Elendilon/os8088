@@ -456,6 +456,14 @@ trk_onkey:
     je .mark
     cmp bl, 'M'
     je .mark
+    cmp bl, 'y'
+    je .synct
+    cmp bl, 'Y'
+    je .synct
+    cmp bl, 't'
+    je .clkt
+    cmp bl, 'T'
+    je .clkt
 %endif
     cmp bl, '1'
     jb .out
@@ -494,6 +502,12 @@ trk_onkey:
     jmp .out
 .mark:
     call tlog_mark                  ; M: the listener heard something
+    jmp .out
+.synct:
+    call tlog_sync_key              ; Y: SPEC.md 45.15 off, to A/B it
+    jmp .out
+.clkt:
+    call tlog_clk_key               ; T: SPEC.md 45.16 off, likewise
     jmp .out
 %endif
 .play:
@@ -1802,6 +1816,9 @@ trk_feed:
     push dx
     push si
     push di
+%ifdef TRKLOG
+    call tlog_wstart                ; this pass's span starts here
+%endif
     mov byte [trk_mixing], 1        ; FIRST, before the guards: a pass past
                                     ; its guards must never be invisible to
                                     ; trk_stream_close's drain

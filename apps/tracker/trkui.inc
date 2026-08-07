@@ -1548,6 +1548,10 @@ tui_sync:
     je .live
     cmp byte [mp_playing], 0
     je .live
+%ifdef TRKLOG
+    cmp byte [tlog_nosync], 0       ; Y: back on the mixer, to A/B this
+    jne .live                       ; against the card (tests/trklog.inc)
+%endif
     mov ax, [trk_consumed]
     call mp_at_pos                  ; SI = the stamp being heard
     mov al, [si + MP_SP_SPOS]

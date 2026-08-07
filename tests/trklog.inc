@@ -55,12 +55,43 @@
 ;         whether anything was audible.
 ;   BPM SP  the replayer's tempo, so rows-per-second is derivable per record
 ;         rather than assumed to be the 125/6 default.
+;   AR AP the row and pattern the SCREEN showed. Since SPEC.md 45.15 the
+;         display quotes what the CARD is playing, not what the mixer is on,
+;         so PS/PT/RW above are no longer what the user was looking at - and
+;         "the scroll updates every two seconds" is a statement about THIS
+;         column. AR frozen while RW advances is the stamp lookup; both
+;         crawling together is the music itself running slow.
+;   SD    stamps between the card and the mixer (mp_stw - mp_str), which is
+;         the ring lead in ROWS. Pinned at MP_ST_N means the history lapped
+;         and the display is being dragged forward by the writer (45.15).
+;   FX DX the longest SINGLE drawing frame and feed pass in that tick, in
+;         ticks. 00 is the healthy answer - one frame is 9 ms and one pass is
+;         a status poll - and anything else is the stall, named. Tick
+;         resolution on purpose: a package cannot read the PIT without
+;         fighting sch_account for the latch (SPEC.md 8.1), and the question
+;         here is seconds, not microseconds. Pricing a HEALTHY frame is
+;         tests/gfxbench's job, not this one.
+;
+; THE BUFFER IS A RING. It used to stop at the first 1,024 records, which is
+; the wrong half of the session to keep: the listener arms the log, plays,
+; hears the thing, and only then reaches for W. So the last TLOG_RECS ticks
+; are what survives, and tlog_save emits oldest-first.
+;
+; TWO KEYS EXIST ONLY TO SPLIT THIS QUESTION IN HALF, and both are bench-only
+; like the rest of this file. Y puts the display back on the MIXER's position
+; (SPEC.md 45.15 off) and T puts the frame clock back on the tick (45.16 off).
+; A field report of the form "it is smooth with Y, jerky without" is worth a
+; day of arithmetic, and the FL column records which way each was set for
+; every record, so a file can never be read against the wrong mode.
 ; =============================================================================
 
-TLOG_RECS   equ 1024                ; 56 s at one record per tick
-TLOG_RSZ    equ 16                  ; a power of two so the index is 4 shifts
+TLOG_RECS   equ 512                 ; 28 s of RING at one record per tick -
+                                    ; the claim stays 16KB, which is what a
+                                    ; machine small enough to be slow can
+                                    ; actually spare (SPEC.md 50.3)
+TLOG_RSZ    equ 32                  ; a power of two so the index is 5 shifts
 TLOG_KB     equ (TLOG_RECS * TLOG_RSZ + 1023) / 1024
-TLOG_LINE   equ 42                  ; 40 columns + CR LF
+TLOG_LINE   equ 58                  ; 56 columns + CR LF
 TLOG_TXTKB  equ (TLOG_RECS * TLOG_LINE + 1024 + 1023) / 1024
 
 TLOGF_REBUILD equ 1
@@ -68,6 +99,8 @@ TLOGF_STEP    equ 2
 TLOGF_BLIT    equ 4
 TLOGF_STREAM  equ 8
 TLOGF_MARK    equ 16               ; M: the LISTENER heard something here
+TLOGF_NOSYNC  equ 32               ; Y: the display is back on the MIXER
+TLOGF_TICKCLK equ 64               ; T: the frame clock is back on the tick
 
 ; record field offsets
 TLR_TICK  equ 0
@@ -82,6 +115,11 @@ TLR_FD    equ 11
 TLR_FL    equ 12
 TLR_BPM   equ 13
 TLR_SPD   equ 14
+TLR_AROW  equ 15                    ; the row the SCREEN showed (SPEC.md 45.15)
+TLR_APAT  equ 16                    ; ...and its pattern
+TLR_SDEP  equ 17                    ; stamps between the card and the mixer
+TLR_FRMX  equ 18                    ; longest single frame this tick, in ticks
+TLR_FDMX  equ 19                    ; ...and longest single feed pass
 
 ; -----------------------------------------------------------------------------
 ; tlog_key - D: arm or disarm. Arming claims the record buffer, disarming
@@ -174,6 +212,11 @@ tlog_feed:
     jnz .ok
     dec byte [tlog_feeds]           ; saturate rather than wrap: 255 already
 .ok:                                ; means "far more than one"
+    push bx
+    mov ax, [tlog_wt0]              ; how long the PREVIOUS pass took: this
+    mov bx, tlog_fdmx               ; hook is at the top of the next one
+    call tlog_span
+    pop bx
     call tlog_tick
     pop ax
     ret
@@ -188,8 +231,102 @@ tlog_frame:
     jnz .ok
     dec byte [tlog_frames]
 .ok:
+    push ax
+    push bx
+    mov ax, [tlog_ft0]
+    mov bx, tlog_frmx
+    call tlog_span
+    pop bx
+    pop ax
     call tlog_tick
     call tlog_status
+    ret
+
+; -----------------------------------------------------------------------------
+; tlog_fstart / tlog_wstart - a drawing frame / a feed pass began HERE
+;
+; The span each one ends up reporting is in TICKS, and 00 is the healthy
+; answer for both. That is deliberately coarse: the question a field report
+; of "it updates every two seconds" asks is which of the two took the two
+; seconds, and tick resolution answers it without a package fighting
+; sch_account for the PIT latch (SPEC.md 8.1).
+; -----------------------------------------------------------------------------
+tlog_fstart:
+    push ax
+    call OSAPI_GET_TICKS
+    mov [tlog_ft0], ax
+    pop ax
+    ret
+
+tlog_wstart:
+    push ax
+    call OSAPI_GET_TICKS
+    mov [tlog_wt0], ax
+    pop ax
+    ret
+
+; tlog_span - AX = the tick the thing started at, BX = the max byte's address;
+;             keep the larger of what is there and how long it took
+tlog_span:
+    push ax
+    push cx
+    push dx
+    mov dx, ax
+    call OSAPI_GET_TICKS
+    sub ax, dx
+    cmp ax, 255
+    jbe .fit
+    mov ax, 255                     ; saturate: 14 seconds is already "hung"
+.fit:
+    cmp al, [bx]
+    jbe .out
+    mov [bx], al
+.out:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tlog_sync_key (Y) / tlog_clk_key (T) - the two A/B toggles (SPEC.md 45.15,
+; 45.16). Both are bench-only and both are recorded on every record, so a log
+; carries the mode it was taken in rather than relying on the reader's memory.
+; -----------------------------------------------------------------------------
+tlog_sync_key:
+    push si
+    xor byte [tlog_nosync], 1
+    mov si, tlog_s_synco
+    cmp byte [tlog_nosync], 0
+    je .say
+    mov si, tlog_s_syncx
+.say:
+    call tui_msg
+    pop si
+    ret
+
+tlog_clk_key:
+    push ax
+    push si
+    mov si, tlog_s_clkt
+    cmp byte [ttx_clk], 0
+    je .fast
+    mov byte [ttx_clk], 0           ; back to one frame per tick, and the
+    mov al, TTX_SHCHUNK             ; rebuild chunk that goes with it
+    mov [ttx_chunk], al
+    mov byte [ttx_fdiv], 1
+    mov byte [ttx_fcnt], 1
+    jmp short .say
+.fast:
+    mov byte [ttx_clk], 1
+    mov al, TTX_SHCHUNKF
+    mov [ttx_chunk], al
+    mov byte [ttx_fdiv], 3
+    mov byte [ttx_fcnt], 3
+    mov si, tlog_s_clkr
+.say:
+    call tui_msg
+    pop si
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -207,9 +344,6 @@ tlog_tick:
     mov ax, [tlog_seg]
     or ax, ax
     jz .out
-    mov bx, [tlog_n]
-    cmp bx, TLOG_RECS
-    jae .full
     push ax
     call OSAPI_GET_TICKS
     mov di, ax
@@ -217,8 +351,10 @@ tlog_tick:
     cmp di, [tlog_lastt]
     je .out                         ; same tick: fold into the counters
     mov [tlog_lastt], di
+    mov bx, [tlog_w]                ; the RING's write slot, not a count
     mov es, ax
-    mov ax, bx                      ; AX = n * TLOG_RSZ (16)
+    mov ax, bx                      ; AX = w * TLOG_RSZ (32)
+    shl ax, 1
     shl ax, 1
     shl ax, 1
     shl ax, 1
@@ -241,20 +377,45 @@ tlog_tick:
     mov [es:di + TLR_FR], al
     mov al, [tlog_feeds]
     mov [es:di + TLR_FD], al
-    mov al, [tlog_flags]
+    mov al, [tlog_flags]            ; ...plus which way the two bench toggles
+    cmp byte [tlog_nosync], 0       ; were set, on EVERY record, so a file can
+    je .sy                          ; never be read against the wrong mode
+    or al, TLOGF_NOSYNC
+.sy:
+    cmp byte [ttx_clk], 0
+    jne .ck
+    or al, TLOGF_TICKCLK
+.ck:
     mov [es:di + TLR_FL], al
     mov al, [mp_bpm]
     mov [es:di + TLR_BPM], al
     mov al, [mp_speed]
     mov [es:di + TLR_SPD], al
-    mov byte [es:di + 15], 0
+    mov al, [tui_arow]              ; what the SCREEN showed (SPEC.md 45.15)
+    mov [es:di + TLR_AROW], al
+    mov al, [tui_apat]
+    mov [es:di + TLR_APAT], al
+    mov al, [mp_stw]                ; the ring lead in ROWS: pinned at
+    sub al, [mp_str]                ; MP_ST_N means the history lapped
+    mov [es:di + TLR_SDEP], al
+    mov al, [tlog_frmx]
+    mov [es:di + TLR_FRMX], al
+    mov al, [tlog_fdmx]
+    mov [es:di + TLR_FDMX], al
     mov byte [tlog_frames], 0
     mov byte [tlog_feeds], 0
     mov byte [tlog_flags], 0
-    inc word [tlog_n]
-    jmp short .out
-.full:
+    mov byte [tlog_frmx], 0
+    mov byte [tlog_fdmx], 0
+    inc word [tlog_w]               ; the RING wraps rather than stopping:
+    cmp word [tlog_w], TLOG_RECS    ; the listener reaches for W AFTER hearing
+    jb .count                       ; the thing, so the LAST 28 s is the half
+    mov word [tlog_w], 0            ; worth keeping
     mov byte [tlog_full], 1
+.count:
+    cmp word [tlog_n], TLOG_RECS    ; the count saturates; [tlog_full] is what
+    jae .out                        ; says the window has started sliding
+    inc word [tlog_n]
 .out:
     pop es
     pop di
@@ -357,17 +518,37 @@ tlog_save:
     call tlog_emit
     mov si, tlog_s_h3
     call tlog_emit
+    mov si, tlog_s_h5
+    call tlog_emit
+    mov si, tlog_s_h6
+    call tlog_emit
+    mov si, tlog_s_h7
+    call tlog_emit
+    call tlog_hdr_clk               ; the frame clock the probe chose, which
+    mov si, tlog_line               ; is constant for the bracket and so has
+    call tlog_emit                  ; no business in a per-tick column
     mov si, tlog_s_h4
     call tlog_emit
-    mov word [tlog_i], 0
+    mov word [tlog_i], 0            ; OLDEST first: once the ring has wrapped
+    cmp byte [tlog_full], 0         ; the oldest record is the write slot
+    je .from0
+    mov ax, [tlog_w]
+    mov [tlog_i], ax
+.from0:
+    mov word [tlog_left], 0
+    mov ax, [tlog_n]
+    mov [tlog_left], ax
 .row:
-    mov ax, [tlog_i]
-    cmp ax, [tlog_n]
-    jae .done
+    cmp word [tlog_left], 0
+    je .done
     call tlog_fmt                   ; record [tlog_i] -> tlog_line
     mov si, tlog_line
     call tlog_emit
+    dec word [tlog_left]
     inc word [tlog_i]
+    cmp word [tlog_i], TLOG_RECS
+    jb .row
+    mov word [tlog_i], 0
     jmp short .row
 .done:
     mov cx, di                      ; DX:CX = the byte count
@@ -446,6 +627,7 @@ tlog_fmt:
     shl si, 1
     shl si, 1
     shl si, 1
+    shl si, 1                       ; * TLOG_RSZ (32)
     mov di, tlog_line
     mov ax, [es:si + TLR_TICK]
     call tlog_hex4
@@ -470,7 +652,7 @@ tlog_fmt:
     mov byte [di], ' '
     inc di
     inc bx
-    cmp bx, TLR_SPD
+    cmp bx, TLR_FDMX
     jbe .b
     dec di                          ; drop the trailing space
     mov byte [di], 0
@@ -480,6 +662,38 @@ tlog_fmt:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tlog_hdr_clk - 'clock: retrace  fdiv 03  chunk 01' into tlog_line. What
+; ttx_clkprobe decided is constant for the bracket and explains the whole FR
+; column, so it belongs in the header rather than in 512 records.
+; -----------------------------------------------------------------------------
+tlog_hdr_clk:
+    push ax
+    push si
+    push di
+    mov di, tlog_line
+    mov si, tlog_s_clk
+    call tui_scpy
+    mov si, tlog_s_tick
+    cmp byte [ttx_clk], 0
+    je .name
+    mov si, tlog_s_retr
+.name:
+    call tui_scpy
+    mov si, tlog_s_fdiv
+    call tui_scpy
+    mov al, [ttx_fdiv]
+    call tui_hexb
+    mov si, tlog_s_chunk
+    call tui_scpy
+    mov al, [ttx_chunk]
+    call tui_hexb
+    mov byte [di], 0
+    pop di
+    pop si
     pop ax
     ret
 
@@ -509,14 +723,33 @@ tlog_s_mark:    db 'MARK', 0
 tlog_s_h1:      db 'os8088 tracker log - one record per system tick (18.2065 Hz)', 0
 tlog_s_h2:      db 'CONS advances one 2048-byte half per block IRQ; TOTL-CONS is the ring lead', 0
 tlog_s_h3:      db 'FL bits: 1 rebuild  2 step  4 blit  8 stream opened  10 LISTENER MARK', 0
-tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP', 0
+tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP AR AP SD FX DX', 0
+tlog_s_h5:      db 'AR/AP is what the SCREEN showed; SD is the card-to-mixer lead in ROWS', 0
+tlog_s_h6:      db 'FX/DX: longest single frame / feed pass in that tick, IN TICKS (00 = ok)', 0
+tlog_s_h7:      db 'FL 20 = Y pressed (display on the mixer), 40 = T pressed (tick clock)', 0
+tlog_s_clk:     db 'clock: ', 0
+tlog_s_tick:    db 'tick', 0
+tlog_s_retr:    db 'retrace', 0
+tlog_s_fdiv:    db '  fdiv ', 0
+tlog_s_chunk:   db '  chunk ', 0
+tlog_s_synco:   db 'Sync ON: the screen follows the card', 0
+tlog_s_syncx:   db 'Sync OFF: the screen follows the mixer', 0
+tlog_s_clkt:    db 'Clock: one frame per tick', 0
+tlog_s_clkr:    db 'Clock: one frame per retrace', 0
 
 ; --- bss ---------------------------------------------------------------------
     TRKW tlog_seg                   ; the record claim, 0 = not armed
     TRKW tlog_txt                   ; the staging claim, live inside tlog_save
     TRKW tlog_n                     ; records written
     TRKW tlog_i                     ; tlog_save's cursor
+    TRKW tlog_w                     ; the ring's write slot
+    TRKW tlog_left                  ; tlog_save's records still to emit
     TRKW tlog_lastt                 ; the tick the last record carries
+    TRKW tlog_ft0                   ; the tick the current frame began at
+    TRKW tlog_wt0                   ; ...and the current feed pass
+    TRKB tlog_frmx                  ; longest frame / feed pass this tick
+    TRKB tlog_fdmx
+    TRKB tlog_nosync                ; Y: the display is back on the mixer
     TRKW tlog_cons                  ; what the worker last saw...
     TRKW tlog_totl
     TRKB tlog_state

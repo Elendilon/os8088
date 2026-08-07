@@ -640,9 +640,16 @@ mp_stclear:
 ; out: SI = the stamp being heard. The read cursor only ever moves forward,
 ;      so this is O(rows crossed since the last frame) - normally 0 or 1.
 ;
-; The comparison is signed on purpose: both counters are free-running 16-bit
-; and the lead is bounded by the 16KB ring, so pos - consumed can never reach
-; 32768 and the sign always says which came first.
+; The comparison is the kernel's own wrap-safe idiom (sch_isr's wake scan):
+; both counters are free-running 16-bit, the lead is bounded by the 16KB ring
+; so the true difference can never reach 32768, and THE SIGN OF THE RESULT
+; decides. It has to be `js` and not `jg`: jg is a signed compare of the two
+; OPERANDS and so honours the overflow flag, which is precisely what modular
+; arithmetic must ignore. With jg the reader stopped dead whenever consumed
+; sat in the upper half of the range and the stamp in the lower - six seconds
+; out of every twelve at the XT rate - and the display froze there and then
+; jumped, which is what a field report of "the scroll updates every couple of
+; seconds" looks like from the inside.
 ; -----------------------------------------------------------------------------
 mp_at_pos:
     push ax
@@ -663,8 +670,10 @@ mp_at_pos:
     shl bx, 1
     add bx, mp_stamps
     mov cx, [bx + MP_SP_POS]
-    sub cx, ax
-    jg .have                    ; the next row has not been reached yet
+    sub cx, ax                  ; wrap-safe: the SIGN of the result decides,
+    jz .step                    ; and the card is exactly on this row
+    jns .have                   ; ...positive: the row is still in the future
+.step:
     inc byte [mp_str]
     jmp short .adv
 .have:

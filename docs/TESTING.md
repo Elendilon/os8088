@@ -303,7 +303,7 @@ make test SB16=1 TESTAPPS=build/trklog.img   # builds the disk on demand
 # double-click Disk B, launch TRKLOG.O88
 # X    XT mode (5,500 Hz - what the 4.77MHz floor machine boots with)
 # L    load BEVERLY.MOD (it is on the same disk), which starts playback
-# D    arm the log       -> the status line counts 'LOG nnnn /1024'
+# D    arm the log       -> the status line counts 'LOG nnnn /0512'
 # F    fullscreen; let it run through a few pattern boundaries (~9 s each)
 # Esc  back to windowed  (W is refused in a bracket - the file API is
 #                         UI-callback-only, SPEC.md 53.7)
@@ -314,7 +314,36 @@ make test SB16=1 TESTAPPS=build/trklog.img   # builds the disk on demand
 #      the file that is not a measurement, and the first field capture is
 #      why it exists - 62 seconds in which every counter was healthy and
 #      nothing in the file knew whether any of it was audible.
+#
+# Y    the display back on the MIXER (SPEC.md 45.15 off) - and again to undo
+# T    the frame clock back on the tick (SPEC.md 45.16 off) - likewise
+#      Both are recorded in FL (20h, 40h) on EVERY record, so a file always
+#      says which mode it was taken in. They exist so that "it is smooth
+#      with Y, jerky without" can be answered in one sitting on the machine
+#      that has the problem, instead of one rebuild per hypothesis.
 ```
+
+**The buffer is a RING of the LAST 512 ticks (28 s).** It used to stop at the
+first 1,024, which is the wrong half of a session to keep - the listener arms
+it, plays, hears the thing, and only then reaches for W. `tlog_save` emits
+oldest-first, so the file reads forwards in time either way.
+
+The columns beyond §45.14's original set: **AR AP** are what the SCREEN
+showed, which since SPEC.md §45.15 is the row the CARD is playing and not the
+row the mixer is on - so `PS PT RW` and `AR AP` disagreeing by the ring lead
+is the healthy case, and either of them frozen is not. **SD** is the number of
+stamps between the two, i.e. the same lead counted in ROWS: it should sit near
+`1.19 x BPM / speed` (22 at the default tempo) and pinning at 63 means the
+stamp ring lapped. **FX DX** are the longest single drawing frame and feed
+pass in that tick, in ticks, where 00 is the healthy answer for both.
+
+That set earned itself on its first run: `SD` pinned at 63 with `AR` frozen
+for a hundred ticks and then jumping 44 rows, twice a capture, exactly when
+`CONS` was in the upper half of its 16-bit range - which is how `mp_at_pos`'s
+`jg` (a signed compare of the operands, so it honours the overflow flag) was
+caught standing in for the kernel's wrap-safe `js` idiom. After the fix the
+same capture holds `SD` at 22-25 and the screen row never stands still for
+more than 7 ticks, which is the block-IRQ interval and not a stall.
 
 Read it back off the image from the host with a FAT12 extractor, or mount
 `build/trklog.img` — it is an ordinary floppy. **The disk must not be

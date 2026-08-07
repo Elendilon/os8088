@@ -1089,6 +1089,9 @@ ttx_draw_dyn:
     push dx
     push si
     push di
+%ifdef TRKLOG
+    call tlog_fstart                ; this frame's span starts here
+%endif
     call tui_sync                   ; the position being HEARD (SPEC.md 45.15):
                                     ; everything below quotes tui_a*, so the
                                     ; grid, the readout and the needles all
