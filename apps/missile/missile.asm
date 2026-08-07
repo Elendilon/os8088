@@ -147,6 +147,25 @@ MC_WLK      equ 16                  ; the stride of one resumable-walk block
 %if GLS_SZ > MC_WLK                 ; (SPEC.md 5.6.7). GLS_SZ rounded UP to a
   %error "GLS_SZ no longer fits MC_WLK"   ; shift, so a slot's block is SI<<4
 %endif                              ; rather than a multiply by fourteen
+
+MC_MAXDRN   equ 8                   ; trails DRAINING at once (SPEC.md 48.15)
+MC_DRN_LEFT equ MC_WLK              ; pixels of it still on the screen
+MC_DRN_X1   equ MC_WLK + 2          ; ...and the line, for the crosshair and
+MC_DRN_Y1   equ MC_WLK + 4          ; for what the erase uncovers at each end
+MC_DRN_X2   equ MC_WLK + 6
+MC_DRN_Y2   equ MC_WLK + 8
+MC_DRN_RATE equ MC_WLK + 10         ; pixels a frame, jittered per trail
+MC_DRN_GX   equ MC_WLK + 12         ; the terrain the LAST pixels uncover
+MC_DRN_BX   equ MC_WLK + 14         ; the launcher the FIRST ones do; both
+                                    ; MC_NODMG for none, and BX doubles as
+                                    ; "this entry has not been served yet"
+MC_DRN      equ 32                  ; the stride, rounded up to a shift again
+MC_DRNRATE  equ 24                  ; ...and its floor: eight times the rate a
+                                    ; trail is DRAWN at, so a spent one is
+                                    ; gone in well under a second
+MC_DRNBUD   equ 64                  ; pixels a frame across the whole queue -
+                                    ; the cap that stops one explosion's worth
+                                    ; of dead missiles landing in one frame
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
 MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
                                     ; is SHORTER on purpose: with no collapse
@@ -3361,6 +3380,9 @@ mc_rbody:
                                     ; mouse moved; anything that draws through
                                     ; it takes it off itself (SPEC.md 48.11)
     call mc_wipe_trails
+    call mc_drn_run                 ; a spent trail leaves over several frames
+                                    ; (SPEC.md 48.15), and BEFORE the bursts
+                                    ; and the terrain, which draw over it
     call mc_draw_exp
     call mc_move_trails
     call mc_draw_sat
@@ -3420,6 +3442,8 @@ mc_draw_all:
     push di
     mov byte [mc_full], 0
     mov word [mc_msgp], 0           ; the content fill took the banner with it
+    call mc_drn_clear               ; ...and every pending erase, which would
+                                    ; otherwise erase what this repaint drew
     call mc_gdclear
     mov byte [mc_bdirty], 0
     mov byte [mc_sdirty], 0
@@ -4182,6 +4206,187 @@ mc_tr_need:
     ret
 
 ; -----------------------------------------------------------------------------
+; A spent trail DRAINS rather than popping (SPEC.md 48.15)
+;
+; A trail arrives over sixty frames and used to leave in one, and the one is
+; where the stutter was: a burst can kill five missiles at once, and five
+; whole-line erases in a single frame is exactly the batch a field log caught
+; at 37.8 ms. Nothing needs it to be one frame - the resumable walk (5.6.7)
+; can stop and resume anywhere - so a dead trail is queued and spent a few
+; pixels a frame instead, at about eight times the rate it was drawn at.
+;
+; Two caps, and they answer different questions. MC_DRN_RATE is per trail and
+; jittered, so two missiles killed by one burst do not finish on the same
+; frame; MC_DRNBUD is per FRAME across the whole queue, which is the one that
+; actually bounds the cost - a jitter alone still lets eight entries ask for
+; eight rates at once. [mc_drnrr] rotates which entry the budget reaches
+; first, so a long trail cannot starve the ones behind it.
+;
+; The queue is small and overflow is graceful: a full queue erases inline,
+; which is exactly what every erase did before this existed.
+; -----------------------------------------------------------------------------
+
+; mc_drn_push - hand a dead trail to the drain instead of erasing it now
+; in:  AX/BX = start, CX/DX = end (content coords), SI = pixels drawn,
+;      [mc_drngx]/[mc_drnbx] = the damage the two ends owe, MC_NODMG for none
+; out: CF=1 refused - the caller still owes the erase AND the damage marks
+; preserves all registers
+mc_drn_push:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    or si, si                       ; nothing drawn is nothing to erase, and
+    jz .full                        ; a zero LEFT is how a free entry reads
+    xor di, di
+.slot:
+    cmp word [mc_drn + di + MC_DRN_LEFT], 0
+    je .got
+    add di, MC_DRN
+    cmp di, MC_MAXDRN * MC_DRN
+    jb .slot
+    jmp short .full
+.got:
+    mov [mc_drn + di + MC_DRN_X1], ax
+    mov [mc_drn + di + MC_DRN_Y1], bx
+    mov [mc_drn + di + MC_DRN_X2], cx
+    mov [mc_drn + di + MC_DRN_Y2], dx
+    add di, mc_drn
+    call mc_tr_lay                  ; the SAME line the draw walked
+    jc .full
+    sub di, mc_drn
+    mov cx, 8                       ; the jitter, so a cluster does not all
+    call mc_rand_mod                ; finish together
+    add ax, MC_DRNRATE
+    mov [mc_drn + di + MC_DRN_RATE], ax
+    mov ax, [mc_drngx]
+    mov [mc_drn + di + MC_DRN_GX], ax
+    mov ax, [mc_drnbx]
+    mov [mc_drn + di + MC_DRN_BX], ax
+    mov [mc_drn + di + MC_DRN_LEFT], si
+    inc word [mc_drnq]
+    clc
+    jmp short .out
+.full:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mc_drn_clear - forget every pending erase
+; preserves all registers
+;
+; A full repaint has already put the background back, so a queue that
+; survived it would erase pixels the repaint drew.
+mc_drn_clear:
+    push di
+    xor di, di
+.each:
+    mov word [mc_drn + di + MC_DRN_LEFT], 0
+    add di, MC_DRN
+    cmp di, MC_MAXDRN * MC_DRN
+    jb .each
+    mov word [mc_drnq], 0
+    mov word [mc_drnrr], 0
+    pop di
+    ret
+
+; mc_drn_run - spend this frame's budget on the queue
+; in:  gfx lock held; preserves all registers
+;
+; The damage marks belong HERE and not at the push, because the erase reaches
+; the two ends of the line frames apart: the launcher is under the FIRST
+; pixels and the ground bite under the LAST, so one is owed on the first
+; serve and the other when the entry finishes.
+mc_drn_run:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp word [mc_drnq], 0
+    je .out
+    mov al, MC_BG
+    call mc_setcol
+    mov word [mc_drnbud], MC_DRNBUD
+    mov word [mc_drnn], MC_MAXDRN
+    mov si, [mc_drnrr]
+.each:
+    cmp word [mc_drn + si + MC_DRN_LEFT], 0
+    je .next
+    cmp word [mc_drnbud], 0
+    jle .fin
+    mov ax, [mc_drn + si + MC_DRN_RATE]
+    cmp ax, [mc_drn + si + MC_DRN_LEFT]
+    jbe .r1
+    mov ax, [mc_drn + si + MC_DRN_LEFT]
+.r1:
+    cmp ax, [mc_drnbud]
+    jbe .r2
+    mov ax, [mc_drnbud]
+.r2:
+    sub [mc_drnbud], ax
+    sub [mc_drn + si + MC_DRN_LEFT], ax
+    mov [mc_drncnt], ax
+    mov ax, [mc_drn + si + MC_DRN_X1]
+    mov bx, [mc_drn + si + MC_DRN_Y1]
+    mov cx, [mc_drn + si + MC_DRN_X2]
+    mov dx, [mc_drn + si + MC_DRN_Y2]
+    call mc_cross_need              ; the two ends still bound every pixel
+    mov ax, [mc_drn + si + MC_DRN_BX]
+    cmp ax, MC_NODMG
+    je .step
+    mov word [mc_drn + si + MC_DRN_BX], MC_NODMG
+    call mc_bdirty_at               ; an ABM's trail begins ON its launcher,
+.step:                              ; and these are the pixels uncovering it
+    mov di, si
+    add di, mc_drn
+    mov cx, [mc_drncnt]
+    call mc_tr_step
+    cmp word [mc_drn + si + MC_DRN_LEFT], 0
+    jne .next
+    dec word [mc_drnq]              ; finished: the far end is uncovered now
+    mov cx, [mc_drn + si + MC_DRN_GX]
+    cmp cx, MC_NODMG
+    je .next
+    mov ax, cx
+    sub ax, 2
+    add cx, 2
+    call mc_gdmg
+.next:
+    add si, MC_DRN
+    cmp si, MC_MAXDRN * MC_DRN
+    jb .go
+    xor si, si
+.go:
+    dec word [mc_drnn]
+    jnz .each
+.fin:
+    mov si, [mc_drnrr]              ; a different entry gets first call on the
+    add si, MC_DRN                  ; budget next frame
+    cmp si, MC_MAXDRN * MC_DRN
+    jb .rr
+    xor si, si
+.rr:
+    mov [mc_drnrr], si
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; mc_redraw_trails - every live trail, from its launch point to where it has
 ;                    been drawn to
 ; in:  gfx lock held; preserves all registers
@@ -4310,6 +4515,21 @@ mc_wipe_trails:
     mov bx, [mc_isy + di]
     mov cx, [mc_iex + di]
     mov dx, [mc_iey + di]
+    mov word [mc_drngx], MC_NODMG   ; a trail that reached the ground takes a
+    mov word [mc_drnbx], MC_NODMG   ; bite out of it as it leaves - but at
+    push ax                         ; the point it actually DIED, which is
+    mov ax, [mc_ipy + di]           ; not the point it was aimed at when it
+    cmp ax, [mc_groundy]            ; was shot down on the way (SPEC.md 48.9)
+    jl .ing
+    mov ax, [mc_ipx + di]
+    mov [mc_drngx], ax
+.ing:
+    pop ax
+    push si
+    mov si, [mc_idrw + di]
+    call mc_drn_push                ; queued? then the drain owes the erase
+    pop si                          ; AND the damage marks (SPEC.md 48.15)
+    jnc .iclr
     call mc_cross_need              ; the two ends bound every pixel of it
     push di
     call mc_iblk
@@ -4331,16 +4551,19 @@ mc_wipe_trails:
 .ignd:
     mov di, si
     add di, di
-    mov word [mc_idrw + di], 0
-    mov byte [mc_iarm + si], 0
     mov dx, [mc_ipy + di]
     cmp dx, [mc_groundy]            ; a trail that reached the ground took a
-    jl .inext                       ; bite out of it on the way out - and the
+    jl .iclr                        ; bite out of it on the way out - and the
     mov cx, [mc_ipx + di]           ; bite is at the trail's END, not across
     mov ax, cx                      ; the whole band (SPEC.md 48.9)
     sub ax, 2
     add cx, 2
     call mc_gdmg
+.iclr:
+    mov di, si
+    add di, di
+    mov word [mc_idrw + di], 0
+    mov byte [mc_iarm + si], 0
 .inext:
     inc si
     cmp si, MC_MAXICBM
@@ -4359,6 +4582,13 @@ mc_wipe_trails:
     mov bx, [mc_asy + di]
     mov cx, [mc_atx + di]
     mov dx, [mc_aty + di]
+    mov word [mc_drngx], MC_NODMG   ; an ABM detonates in the air; what its
+    mov [mc_drnbx], ax              ; trail uncovers is its own launcher
+    push si
+    mov si, [mc_adrw + di]
+    call mc_drn_push
+    pop si
+    jnc .aclr
     call mc_cross_need
     push di
     call mc_ablk
@@ -4380,10 +4610,13 @@ mc_wipe_trails:
 .abd:
     mov di, si
     add di, di
-    mov word [mc_adrw + di], 0
-    mov byte [mc_aarm + si], 0
     mov ax, [mc_asx + di]           ; the trail starts ON the launcher
     call mc_bdirty_at
+.aclr:
+    mov di, si
+    add di, di
+    mov word [mc_adrw + di], 0
+    mov byte [mc_aarm + si], 0
 .anext:
     inc si
     cmp si, MC_MAXABM
@@ -6691,6 +6924,16 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBUF  mc_alen,   MC_MAXABM * 2
     MBUF  mc_aarm,   MC_MAXABM
     MWORD mc_trlen                  ; mc_tr_lay's answer, out of the registers
+
+; --- the drain (SPEC.md 48.15) --------------------------------------------------
+    MBUF  mc_drn,    MC_MAXDRN * MC_DRN
+    MWORD mc_drnq                   ; entries in use
+    MWORD mc_drnrr                  ; which one this frame serves first
+    MWORD mc_drnbud                 ; the frame's budget, being spent
+    MWORD mc_drnn                   ; ...and the walk's counter, out of a reg
+    MWORD mc_drncnt
+    MWORD mc_drngx                  ; mc_drn_push's two damage arguments,
+    MWORD mc_drnbx                  ; which no register was left for
 
 ; --- the explosions -------------------------------------------------------------
     MBUF  mc_ea,     MC_MAXEXP      ; 0 free / 1 burning / FF needs erasing

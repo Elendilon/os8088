@@ -15443,6 +15443,58 @@ flight and again after they had died and been erased, on VGA (0 of 307,200),
 CGA (0 of 129,485 inside the content) and Hercules (0 of 236,160 below the
 menu bar).
 
+### 48.15 A spent trail DRAINS rather than popping
+
+§48.14 makes the erase three times cheaper and leaves the *shape* of the cost
+alone: a trail arrives over sixty frames and still leaves in one. That is
+where the stutter is. One burst can kill five missiles at once, and five
+whole-line erases in a single frame is exactly the batch the field log caught.
+
+Nothing needed it to be one frame — §5.6.7's whole point is that a walk can
+stop and resume anywhere — so a dead trail is queued and spent a few pixels a
+frame instead, at about **eight times the rate it was drawn at**, so a spent
+one is gone in well under a second. It clears from the launch point forward,
+which is the direction the walk can replay exactly and also the way smoke
+actually goes: the oldest end disperses first.
+
+**Two caps, answering different questions.** `MC_DRNRATE` is per trail and
+jittered by `rand mod 8`, so two missiles killed by the same burst do not
+finish on the same frame. `MC_DRNBUD` is per **frame across the whole queue**,
+and it is the one that actually bounds the cost — a jitter alone still lets
+eight entries ask for eight rates at once, which is the batch again with extra
+steps. `[mc_drnrr]` rotates which entry the budget reaches first, so a long
+trail cannot starve the ones behind it.
+
+**Overflow is graceful and is not a special case**: a full queue erases
+inline, which is what every erase did before this existed. So is a trail with
+no walk (§48.14's `[mc_iarm]` = 2) and a trail with nothing drawn.
+
+Two things are load-bearing:
+
+- **`mc_drn_clear` runs at every full repaint.** The repaint has already put
+  the background back, so a queue that survived it would spend the next few
+  frames erasing pixels the repaint drew. `mc_draw_all` is the single site,
+  which covers the wave sweep, a moved window, a surface change and
+  `W_PAINT`.
+- **The damage marks moved from the push to the DRAIN, and they moved to
+  different frames.** The erase reaches the two ends of the line frames apart:
+  an ABM's launcher is under the *first* pixels and an ICBM's ground bite
+  (§48.9) under the *last*, so one is owed on the entry's first serve and the
+  other when it finishes. Marking both at the push repairs terrain the erase
+  has not reached yet and then holes it with nothing left to repair it — which
+  is §48.9.1 in its exact form, an optimisation inheriting what used to rely
+  on a redraw. `[mc_drngx]`/`[mc_drnbx]` carry them in because no register was
+  left, and the ground bite is taken at the point the missile actually
+  **died** rather than the point it was aimed at, because a trail shot down in
+  flight never reached the ground at all.
+
+The drain runs immediately after `mc_wipe_trails` and therefore *before* the
+bursts and the terrain, both of which draw over it.
+
+Verified the §48.14 way, after letting the queue empty: **0 differing pixels**
+in the game window against a forced full repaint, mid-game with live trails,
+on VGA (of 224,961) and CGA (of 129,485).
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
