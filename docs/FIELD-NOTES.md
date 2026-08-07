@@ -11,9 +11,10 @@ Notes 1 and 2 are things QEMU cannot show, because QEMU is ~1000x the target
 machine. **Note 3 is the other half of that rule** and the happier case: the
 symptom is only visible on hardware, but the suspected causes are all *work*
 rather than timing, so QEMU can count them and the investigation should start
-there. **Note 4 is a third shape again** — reproduced on hardware, but its
-mechanism is *identified* rather than theorised, so it needs a fix and not an
-investigation. **Note 5 is a fourth, and the most valuable one to read**: a
+there. **Note 4 is a third shape again** — reproduced on hardware, its
+mechanism *identified* rather than theorised, and now **fixed** (SPEC.md
+§22.8) and reproduced under QEMU both ways: it never needed the iron at all,
+it needed somebody to open a Disk window and save a file from a package. **Note 5 is a fourth, and the most valuable one to read**: a
 correctness bug the harness cannot see at all, at any speed, because the
 difference is in the *BIOS*, not in the timing.
 
@@ -551,7 +552,28 @@ separate them.
 
 ---
 
-## 4. "Bad package" on a file that is perfectly good, until the Disk window is refreshed
+## 4. "Bad package" on a file that is perfectly good, until the Disk window is refreshed (FIXED, verified under QEMU)
+
+> **FIXED — SPEC.md §22.8.** Very nearly the "Directions" below, with the
+> counter turned inside out: rather than a mount generation every cache
+> compares itself against, `dskw_sync` — the one routine a successful file
+> operation passes through — marks `FS_DIRTY` on every Disk window showing
+> the folder that changed, and `fm_focus` spends the mark when that window
+> next comes to the front, re-listing and repainting **together**. A
+> generation counter would have re-listed on a *paint*, which is the half of
+> §22.1 that must not cost I/O; a mark spent at the focus is the same
+> invalidation charged where the user is already waiting for a window.
+>
+> Reproduced under QEMU exactly as reported, using Note Pad in place of Gfx
+> Bench: Disk window open on `B:APPS`, launch `NOTEPAD.O88`, Ctrl-S (which
+> writes `NOTES.TXT` into that folder), close Note Pad. Before: the promoted
+> window still says `9 files`, still lists no `NOTES.TXT`, still says
+> `Free 1201K`, and double-clicking the row labelled `PAINT.O88` — index 6,
+> which the rebuilt globals now call `NOTES.TXT` — opens nothing at all.
+> After: the window comes forward saying `10 files` with `NOTES.TXT` in its
+> sorted place, and the same double-click launches Paint. **What the harness
+> could always have shown, and did not, is the whole lesson of this note**:
+> the mechanism was pure bookkeeping, and nothing about it needed a 5150.
 
 **Observed.** On a real 5150, on the boot floppy (drive A:): run `GFXBENCH.O88`
 from an open Disk window, press `S` to save its report — which creates
@@ -603,7 +625,8 @@ name that sorts *before* something you then launch. A report saved as
 And the error names the file the user thinks they clicked, so it reads as that
 file being damaged.
 
-**Directions when this is picked up.** The invariant to restore is SPEC.md
+**Directions when this was picked up** (kept for the reasoning; the fix taken
+is at the top of this note). The invariant to restore is SPEC.md
 §22.1's own sentence — "paints read the cache, actions re-sync". Step 4 is
 where it is false: `fmv_sync` re-lists on a *location* change and not on a
 *content* change. The cheapest honest fix is a **mount generation counter**:

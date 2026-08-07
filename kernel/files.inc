@@ -125,7 +125,12 @@ FS_VKB      equ 18              ; byte: how many KB that claim actually is.
                                 ; so the cache is RE-claimed when the window
                                 ; moves to one - and a refusal just clears
                                 ; FS_VSEG, which is the documented fallback
-FS_PAD      equ 19
+FS_DIRTY    equ 19              ; byte: 1 = a file operation has changed the
+                                ; folder this window is showing since its
+                                ; cache was built, so neither the cache nor
+                                ; the pixels are a picture of it any more
+                                ; (SPEC.md 22.8). Spent by fm_focus when the
+                                ; window next comes to the front
 FS_FREE     equ 20              ; word: KB free on the volume this window is
                                 ; showing, 0xFFFF = not known. Read ONCE per
                                 ; mount, in fmv_load, because counting it
@@ -235,6 +240,11 @@ fm_kinit_x:
     mov byte [di+FS_VIEW], 0
     mov byte [di+FS_EDIT], 0
     mov byte [di+FS_FERR], 0
+    mov byte [di+FS_DIRTY], 0   ; a KD_POOL block is REUSED (SPEC.md 29.3):
+                                ; a window closed while it still owed a
+                                ; refresh must not hand that debt to the next
+                                ; window in its slot, which is about to list
+                                ; its own folder from scratch anyway
 
     mov ax, si
     add ax, I_NAME              ; the record's 16-byte name field, which
@@ -744,6 +754,164 @@ fmv_sync_x:
     ret
 
 ; -----------------------------------------------------------------------------
+; fmv_mark - a file operation changed the CURRENT folder (SPEC.md 22.8)
+; in:  nothing - [disk_drive] and [dsk_cwd] ARE the folder that changed,
+;      because that is where every file API resolves a name (SPEC.md 19.2)
+; out: nothing (all registers preserved)
+;
+; The other end of "paints read the cache, actions re-sync" (SPEC.md 22.1),
+; and the half that was missing. A window's cache is rebuilt by the file
+; manager's OWN operations and by nothing else, so a package writing through
+; the file API changed a folder that four windows might be showing and none
+; of them was told. What that cost was not a stale display but a wrong file:
+; a double-click resolves a row against the cache and hands the loader a
+; DIRECTORY INDEX, which is then resolved against the rebuilt globals - so a
+; new name sorting ahead of the clicked one (SPEC.md 19.4) shifts every entry
+; after it and the loader reads the wrong entry entirely
+; (docs/FIELD-NOTES.md 4).
+;
+; This is called from dskw_sync (SPEC.md 18.4), the one place a successful
+; file operation passes through, so no operation can be added that forgets
+; it. It only ever sets a byte - the caller may hold the gfx lock, may be
+; deep inside a batch, and must not be made to draw or to mount.
+; -----------------------------------------------------------------------------
+fmv_mark:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    mov si, inst_tab
+    mov cx, INST_MAX
+.scan:
+    cmp byte [si+I_STATE], 1
+    jne .next
+    cmp byte [si+I_KIND], KIND_FILES
+    jne .next
+    mov di, [si+I_SPTR]
+    mov al, [di+FS_DRV]
+    cmp al, [disk_drive]
+    jne .next
+    mov dx, [di+FS_CWD]
+    cmp dx, [dsk_cwd]
+    jne .next
+    mov byte [di+FS_DIRTY], 1
+    cmp byte [dskw_batch], 0    ; a multi-file operation owes its own
+                                ; coherence pass and pays it at the END
+    jne .next                   ; (fmv_reload_all + fmv_repaint_all, 22.3),
+                                ; which clears every mark it just made - so
+                                ; waking the UI check here would only fire
+                                ; during the replace question's PAUSE, the
+                                ; one moment the operation is stopped and
+                                ; waiting for the user to read the line it
+                                ; is asking about
+    mov byte [fm_fchk], 1       ; and otherwise the UI task owes the FRONT
+                                ; window a look: the window a package just
+                                ; wrote into may be the one under the
+                                ; pointer, where waiting for a focus change
+                                ; would mean waiting for a click that never
+                                ; comes
+.next:
+    add si, I_RECSZ
+    loop .scan
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_focus - spend a Disk window's refresh debt as it comes to the front
+; in:  BX = the window gaining the focus (0 = none), AL = 0 the caller draws
+;      this window whole when we answer CF=1 / AL = 1 draw it here;
+;      gfx lock HELD, UI task
+; out: CF = 1 = it was a Disk window whose folder had changed under it and
+;      its cache has been rebuilt - with AL = 0 the caller MUST now draw it
+;      whole; CF = 0 = nothing was owed. All registers preserved.
+;
+; The second half of SPEC.md 22.8. A window that is not being looked at is
+; not re-listed, because a re-list is a MOUNT and there may be four windows
+; owing one; the debt is paid where it becomes visible, which is the moment
+; the window comes to the front.
+;
+; The cache and the pixels are made current TOGETHER, and they have to be:
+; a cache re-read without a repaint is the very failure this exists to stop,
+; only with the stale half moved from the cache to the glass - the rows on
+; screen would name one file and the hit-tester resolve another. So the
+; caller says which of us is going to draw. wm_raise (SPEC.md 11.90) draws
+; the window whole anyway when anything was covering it, and takes CF as
+; permission to draw it whole when nothing was; the UI task's own pass has
+; nobody to defer to and asks for AL = 1, where an unclipped fm_repaint is
+; safe because wm_top just said nothing is on top of this window.
+;
+; The mount is skipped when the globals are already this folder and are a
+; real listing - the common case by far, since the write that dirtied the
+; window ended in a remount of the folder it wrote to (SPEC.md 18.4).
+; -----------------------------------------------------------------------------
+fm_focus_x:
+    or bx, bx
+    jz .none                    ; no front window (wm_top answers 0)
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    mov ch, al                  ; bank the mode: AL is about to carry drives
+    call KERNEL_SEG:cw_inst_win_owner ; DI = its instance record, 0 = unowned
+    or di, di
+    jz .clean
+    cmp byte [di+I_KIND], KIND_FILES
+    jne .clean                  ; not a Disk window: this is every other
+                                ; window in the system, and it is two
+                                ; compares
+    mov di, [di+I_SPTR]
+    cmp byte [di+FS_DIRTY], 0
+    je .clean
+    mov byte [di+FS_DIRTY], 0
+    call fm_vp_set              ; BX = the window: everything below reads the
+    mov di, [fm_vp]             ; acting window through the published block
+    mov al, [di+FS_DRV]
+    cmp al, [disk_drive]
+    jne .load
+    mov dx, [di+FS_CWD]
+    cmp dx, [dsk_cwd]
+    jne .load
+    cmp byte [dsk_lstale], 0    ; a quiet mount leaves the globals empty and
+    jne .load                   ; owed (SPEC.md 18.9) - not a listing to take
+    cmp byte [dsk_mntok], 0     ; and they have to have come from a mount
+    je .load                    ; that actually worked
+    call fmv_take               ; the globals ARE this folder: pure memory
+    jmp short .drawn
+.load:
+    mov al, [di+FS_DRV]         ; they are not, so re-list where we stand -
+    mov dx, [di+FS_CWD]         ; exactly what Refresh costs (SPEC.md 22)
+    call fmv_load
+.drawn:
+    cmp ch, 0
+    je .owed                    ; the caller is drawing this window
+    mov si, bx
+    call fm_repaint             ; frontmost, so nothing is on top of it and
+                                ; no clip region is needed (SPEC.md 11.3)
+.owed:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    stc
+    ret
+.clean:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+.none:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; fmv_bcast - push the current snapshot into every window showing it (22.1)
 ; in:  nothing; the globals must ALREADY be the new truth - every dskw_*
 ;      remounts on success (SPEC.md 18.4)
@@ -774,16 +942,13 @@ fmv_bcast:
     mov dx, [di+FS_CWD]
     cmp dx, [dsk_cwd]
     jne .next
-    mov ax, [disk_nfiles]
-    mov [di+FS_N], ax
-    mov byte [di+FS_MOK], 1     ; we only get here after a successful write,
-                                ; which ended in a successful remount (18.4)
-    mov word [di+FS_SEL], 0xFFFF    ; the listing was rebuilt: indices into
-    mov word [di+FS_SCRL], 0        ; the old one mean nothing
-    call fmv_store
-    call fm_measure             ; a write moved both figures: the file that
-                                ; arrived is in the folder AND off the free
-                                ; list, so neither survives the broadcast
+    call fmv_take               ; adopt the snapshot: pure memory
+    cmp di, [fm_vp]             ; the ACTING window - and only it - is about
+    jne .next                   ; to be repainted by the caller that reached
+    mov byte [di+FS_DIRTY], 0   ; fm_edit_commit, so its refresh debt (22.8)
+                                ; is settled here. A sibling gets its cache
+                                ; and keeps the debt: nothing redraws it, so
+                                ; its pixels are still the folder as it was
 .next:
     add si, I_RECSZ
     loop .scan
@@ -793,8 +958,44 @@ fmv_bcast:
     pop cx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; fmv_take - make one window's cache BE the current global snapshot (22.1)
+; in:  DI = state block; the globals are already the new truth and are this
+;      window's own (drive, folder) - the caller has compared them
+; out: nothing (all registers preserved)
+;
+; The memory half of a re-list, with no mount in it: fmv_load does the same
+; four stores around a dsk_chdir. Factored out because fmv_bcast and
+; fm_focus (SPEC.md 22.8) both need exactly this and a second copy of it is
+; a second place that can disagree about what a fresh cache means.
+; -----------------------------------------------------------------------------
+fmv_take:
+    push ax
+    mov ax, [disk_nfiles]
+    mov [di+FS_N], ax
+    mov byte [di+FS_MOK], 0     ; the mount's own verdict, which is what
+    cmp byte [dsk_mntok], 0     ; fmv_load records too - after a successful
+    je .listed                  ; write it is always 1 (SPEC.md 18.4)
+    mov byte [di+FS_MOK], 1
+.listed:
+    mov word [di+FS_SEL], 0xFFFF    ; the listing was rebuilt: indices into
+    mov word [di+FS_SCRL], 0        ; the old one mean nothing
+    call fmv_store
+    call fm_measure             ; a write moved both figures: the file that
+                                ; arrived is in the folder AND off the free
+                                ; list, so neither survives the copy
+    pop ax
+    ret
 section .text                   ; DATA, so back to the kernel segment: cold code
                                 ; reads it through DS (SPEC.md 2.6)
+
+; --- has the file manager a refresh to spend? (SPEC.md 22.8) ----------------
+; Set when a file operation marks a window (fmv_mark) and when the active
+; window changes (menu_activate), read once per UI pass. It lives in .text
+; with a real initialiser rather than in .bss, because menu_activate runs
+; from the first wm_show of the boot and -f bin zeroes nothing.
+fm_fchk:    db 0
 
 
 ; --- window template: {x, y, w, h, title, paint, onkey, onclick} words -------
@@ -3388,8 +3589,11 @@ fmv_reload_all:
     mov al, [di+FS_DRV]
     mov dx, [di+FS_CWD]
     call fmv_load               ; resets FS_SEL/FS_SCRL, which is honest:
-    pop si                      ; every index into the old listing is
-    pop cx                      ; meaningless now
+    mov byte [di+FS_DIRTY], 0   ; every index into the old listing is
+    pop si                      ; meaningless now. The refresh debt (22.8)
+    pop cx                      ; goes with it: fmv_repaint_all is the other
+                                ; half of this pass and puts every visible
+                                ; window's pixels where its cache now is
 .next:
     add si, I_RECSZ
     loop .scan
@@ -4561,6 +4765,9 @@ fmf_files_poster:       call files_poster_x
                     retf
 fmf_files_refresh:      call files_refresh_x
                     retf
+fmf_fm_focus:           call fm_focus_x
+                    retf                ; CF is the answer, and neither
+                                        ; `call` nor `retf` touches it
 fmf_fm_kinit:           call fm_kinit_x
                     retf
 fmf_fm_onclick:         call fm_onclick_x

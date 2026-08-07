@@ -6907,6 +6907,7 @@ allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 | 14 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none |
 | 16 | `FS_VSEG` w | this window's listing-cache claim (§50.2), 0 = none |
 | 18 | `FS_VKB` b | how many KB that claim actually is (§22.6) |
+| 19 | `FS_DIRTY` b | 1 = a file operation changed this folder under it, and neither its cache nor its pixels shows that yet (§22.8) |
 | 20 | `FS_FREE` w | KB free on its volume, 0xFFFF = not known (§22.7) |
 | 22 | `FS_USED` w | KB summed over its listed entries, 0xFFFF = not known (§22.7) |
 
@@ -7394,7 +7395,10 @@ performance input, not a precondition.
 | `fmv_get_icon` | in AX = entry index; out SI → `dsk_ico`. Same. |
 | `fmv_load` | in AL = drive, DX = cwd cluster, DI = state block; **no gfx lock requirement, but real floppy I/O**. `dsk_chdir` (DL = AL, AX = DX), then copy the fresh global snapshot into the block's slot and write back `FS_DRV`/`FS_CWD`/`FS_MOK`/`FS_N` from what the mount actually produced (a failed mount lands at the root with `FS_MOK` = 0 — §19.2). Clears `FS_SEL`/`FS_SCRL`/`FS_FERR`: every index into the old listing is meaningless. Preserves all registers. |
 | `fmv_sync` | in DI = state block. Returns immediately when `(FS_DRV, FS_CWD)` already equals `([disk_drive], [dsk_cwd])`; otherwise `fmv_load` on the block's own drive and cwd, **banking `FS_SEL` and `FS_SCRL` across it** — a sync is not navigation, the window is re-listed where it already was, and clearing them would scroll a background window back to the top on a double-click. **Every action calls this first.** Preserves all registers. |
-| `fmv_bcast` | after a successful metadata write, re-copies the (already correct, §18.4) global snapshot into **every** live file-manager window on the same `(drive, cwd)` — the acting one included, since its own cache is stale too — and clears their `FS_SEL`/`FS_SCRL`. Pure memory, no extra I/O. |
+| `fmv_bcast` | after a successful metadata write, re-copies the (already correct, §18.4) global snapshot into **every** live file-manager window on the same `(drive, cwd)` — the acting one included, since its own cache is stale too — and clears their `FS_SEL`/`FS_SCRL`. Pure memory, no extra I/O. Clears `FS_DIRTY` for the acting window alone (§22.8): it is the one its caller repaints. |
+| `fmv_take` | in DI = state block, whose `(FS_DRV, FS_CWD)` the caller has already compared against the globals. The memory half of a re-list — the four stores `fmv_load` makes around its `dsk_chdir`, with no mount in it. Shared by `fmv_bcast` and `fm_focus`. Preserves all registers. |
+| `fmv_mark` | in nothing: `([disk_drive], [dsk_cwd])` are the folder that just changed. Sets `FS_DIRTY` on every live file-manager window showing it and raises `[fm_fchk]` (§22.8). Writes bytes only — the caller may hold the gfx lock. Called by `dskw_sync`. |
+| `fm_focus` | in BX = the window gaining the focus (0 = none), AL = 0 the caller draws it / 1 draw it here; **gfx lock held, UI task**. On a file-manager window owing a refresh: re-list (`fmv_take` where the globals allow, else `fmv_load`), clear `FS_DIRTY`, and either repaint or answer **CF = 1** so the caller draws it whole (§22.8). CF = 0 = nothing owed. Preserves all registers. |
 
 **`fm_layout` is the sole authority on `[fm_vseg]`** (and `[fm_vp]`): it
 calls `fm_vp_set` at its head, then mirrors **eight** fields — `FS_VIEW`,
@@ -7897,6 +7901,88 @@ end of the current FAT sector (or the next window validation is skipped for
 entries that are not in it) and to `[dsk_maxclus]` (or it counts past the end
 of the volume). Clamping to one and not the other is the bug that reads as a
 free-space figure which is merely plausible.
+
+### 22.8 A write marks the folder; the focus spends the mark
+
+§22.1's rule has two halves — "paints read the cache, actions re-sync" — and
+only one of them was ever implemented on the **write** side. A window's cache
+is rebuilt by the file manager's own operations (`fmv_bcast`,
+`fmv_reload_all`) and by nothing else, so a *package* writing through the
+file API changed a folder that up to four windows might be showing and none
+of them was told. What that cost was not a stale display but **the wrong
+file**: a double-click resolves the clicked row against the window's cache
+and hands `loader_run` a directory INDEX, `fmv_sync` finds the window's
+`(drive, cwd)` already mounted and does not re-list, and the index is then
+resolved against globals in which a newly written name has sorted itself into
+place (§19.4) and shifted every entry after it. The loader reads the entry
+next door and reports **Bad package** — correctly, about a file the user
+never clicked (docs/FIELD-NOTES.md 4).
+
+The fix is a byte per window and two hooks.
+
+**`FS_DIRTY` (block offset 19)** means *neither this window's cache nor its
+pixels is a picture of its folder any more*. It is not a cache flag: a cache
+rebuilt without a repaint is the same failure with the stale half moved onto
+the glass — the rows on screen naming one file while the hit-tester resolves
+another — so the two are made current together or not at all.
+
+**`fmv_mark` sets it, from `dskw_sync`.** That is the one routine a
+successful file operation passes through (§18.4's coherence remount), so no
+operation can be added that forgets to mark, and `[disk_drive]` / `[dsk_cwd]`
+at that moment ARE the folder that changed, because that is where every file
+API resolves a name (§19.2). It only ever writes bytes: the caller may hold
+the gfx lock and must not be made to draw or to mount. It is called **ahead
+of** the `[dskw_batch]` test, because a tree copy changes folders that the
+single remount at the end of the batch has long left — but inside a batch it
+marks *without* raising `[fm_fchk]`, because a multi-file operation pays its
+own coherence at the end (§22.3) and `fcp_step` reaches the event loop at
+exactly one point before then: the replace question's pause, the one moment
+the operation is stopped and the user is reading the line it is asking about.
+
+**`fm_focus` spends it, when the window comes to the front.** A window
+nobody is looking at is not re-listed, because a re-list is a mount and four
+windows may owe one; the debt is paid where it becomes visible. It answers
+CF = 1 when it re-listed, and takes AL to say who is going to draw:
+
+- **`wm_raise` (§11.90) calls it first, with AL = 0**, before a pixel of the
+  raise is drawn — so the raise itself puts the new listing up, rather than
+  drawing the old one and then the new. CF = 1 upgrades a title-bar-only
+  raise to a whole-window one, which is exactly right: §11.90's cheap path
+  reasons that coming to the front reveals nothing, and this is the one case
+  where the window's own CONTENT changed as well.
+- **The UI task's deferred pass calls it with AL = 1**, where there is no
+  caller to defer to and `fm_repaint` runs unclipped — safe because `wm_top`
+  has just said nothing is on top of this window. That pass is the catch-all
+  and it is gated on one byte, `[fm_fchk]`, set by `fmv_mark` and by
+  `menu_activate` when the active application changes. It covers the two
+  focus gains no raise reaches: **the front window being dirtied under the
+  pointer** (a package writing from a callback while a Disk window is
+  frontmost, where waiting for a focus change means waiting for a click that
+  never comes), and **promotion** — losing the front window hands the bar and
+  the pinstripes to the window underneath (§11.91, `menu_check`) without ever
+  calling `wm_front`.
+
+The mount is usually skipped. `fmv_take` — the memory half of a re-list,
+factored out of `fmv_bcast` so the two cannot disagree about what a fresh
+cache means — is taken when the globals already are this window's folder,
+are not `[dsk_lstale]` (§18.9) and came from a mount that worked; and they
+usually are, because the write that dirtied the window ended in a remount of
+the folder it wrote to. Otherwise it is `fmv_load`, which is what Refresh has
+always cost.
+
+**Clearing is the sharp end, and the rule is: only something that makes the
+cache AND the pixels current may clear it.** `fm_focus` does both.
+`fmv_reload_all` does, because `fmv_repaint_all` is the other half of that
+pass (§22.3) — and a window it re-listed while hidden is drawn whole from the
+new cache when it is next shown, so no debt survives. `fmv_bcast` clears it
+for the **acting** window only, the one its caller is about to repaint; a
+sibling gets the cache and keeps the mark, which also repairs a staleness
+that predates this section — `fmv_bcast` never did repaint the siblings it
+refreshed. `fmv_load` and `fmv_sync` clear **nothing**: `fmv_sync` re-lists a
+background window in order to act in its folder and draws no pixels at all.
+`fm_kinit` clears it because a `KD_POOL` block is reused (§29.3) and a window
+closed still owing a refresh must not hand that debt to the next window in
+its slot.
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
