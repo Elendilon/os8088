@@ -142,8 +142,9 @@ the floor is **128KB of RAM** rather than 256KB.
 read-only data, `.bss`, the FAT snapshot, the disk caches, the sector buffer
 and every task stack — and the **`KERN_BUDGET`** guard (§15.1) holds the whole
 of it to 86,528 bytes (84.5KB) just above the BIOS data area. It measures
-81,920 bytes on the shipped build, so 4,608 are spare — nine 512-byte steps,
-because move 10 was granted 4KB in advance of the work it is for. **`docs/KERNEL-MEMORY.md`
+82,432 bytes on the shipped build, so 4,096 are spare — eight 512-byte steps,
+because move 10 was granted 4KB in advance of the work it is for and §14.1's
+Timer redraw has spent the first of it. **`docs/KERNEL-MEMORY.md`
 is the maintained account of what that is spent on**; raising `KERN_BUDGET` is
 a decision to be taken with whoever asked for the feature, not a build fix.
 
@@ -1420,15 +1421,20 @@ is `CHX + n*CHW + PAD`, so that turned `56 + 145n` — where only channel 0
 was aligned, 145 not being a multiple of 8 — into `56 + 144n`, where all four
 are. The compact CGA layout was already aligned.
 
-Alignment is why the tracker is the only consumer so far and not simply the
+Alignment is why the tracker was the only consumer at first and not simply the
 first of many. It is **fullscreen** (§11.2), so its content origin is (0,0)
-and cannot move. An ordinary window's is `W_X + 1` and `ui_drag` writes `W_X`
+and cannot move. An ordinary window's is `W_X + 1` and `ui_drag` wrote `W_X`
 straight from the mouse with no snapping, so for anything in a draggable
-window `x & 7` is arbitrary and re-rolls on every drag: the fast path would
-fire one time in eight. Adopting `font_run` there buys the code deletion and
+window `x & 7` was arbitrary and re-rolled on every drag: the fast path would
+fire one time in eight. Adopting `font_run` there bought the code deletion and
 §6.1.2's guarantee one press in eight, and the 2.5% fallback cost the rest of
-the time. Snapping window x to a multiple of 8 would make it general and is
-not worth what it would do to dragging.
+the time.
+
+**That paragraph used to end "snapping window x to a multiple of 8 would make
+it general and is not worth what it would do to dragging", and §11.94 is the
+decision to do it anyway** — opt in, mono only, at the price of 8-pixel drag
+steps on the windows that ask. Three windows have: the Task Manager, Note Pad
+and the Timer (§14.1).
 
 ## 7. Concurrency model (read carefully — this is the crux)
 
@@ -3240,10 +3246,16 @@ been converted** (§27.2) — on the flicker, not on the 10.7%.
 **The app's half of the contract is not enforced.** `WF_SNAP` puts the content
 origin on a boundary; whether the app's own text sits at content-relative x
 values that are multiples of 8 is the app's business, and getting it wrong
-costs the 2.5% fallback silently rather than drawing anything wrong. Both converted consumers had to move something, and both moved the same two
-pixels: the Task Manager's process list and captions from a 6-pixel inset to
-8 (`TM_PEN`), and Note Pad's text margin likewise (`NP_MARGIN`). Two pixels
-of margin bought a whole window the single-store path.
+costs the 2.5% fallback silently rather than drawing anything wrong. Every
+converted consumer has had to move something, and the first two moved the same
+two pixels: the Task Manager's process list and captions from a 6-pixel inset
+to 8 (`TM_PEN`), and Note Pad's text margin likewise (`NP_MARGIN`). Two pixels
+of margin bought a whole window the single-store path. The **Timer** (§14.1)
+is the third and the cheapest — its digit run is centred, so `APP_TMR_DX`
+rounds 47 to 48 and costs one pixel of asymmetry — and it is the first
+consumer whose reason is entirely the flash rather than the speed: a
+stopwatch redraws twice a second forever, and it was eight erase-and-letter
+pairs each time.
 
 **The Disk window was considered and left alone.** Its dominant cost is
 `fm_repaint`, which fills the whole content once with `rep stosw` and then
@@ -3951,16 +3963,24 @@ one. Closing an instance frees all of it.
 
 Per-instance state pools (**`.lowbss`**, reached through `ss:` — two of the
 four tables §2's optimization moved out of the kernel's own segment; slot
-stride and cap pinned in the §29 kind table): `app_tmr_pool` 10 × 8
+stride and cap pinned in the §29 kind table): `app_tmr_pool` 10 × 16
 (TMR_HRS/MIN/SEC bytes at +0/+1/+2, **TMR_RUN byte at +3**, TMR_LAST word at
-+4, TMR_ACC word at +6),
++4, TMR_ACC word at +6, **TMR_SHOWN 8 bytes at +8**),
 `app_ball_pool` 10 × 8 (BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
 §29): `app_tmr_kinit` (h/m/s = 0, **run = 1**, last =
-[ticks], acc = 0), `app_bounce_kinit` (x=4, y=4, vx=3, vy=2).
+[ticks], acc = 0, TMR_SHOWN forgotten, `wm_snap`), `app_bounce_kinit`
+(x=4, y=4, vx=3, vy=2).
 
 `TMR_RUN` is the byte that used to be the stride's padding, which is the
-whole reason the Timer's buttons cost no memory: the pool, the cap and the
-8-byte stride are all exactly what the Clock's were.
+whole reason the Timer's buttons cost no memory: the pool and the cap were
+exactly the Clock's. **The stride is not** — it went 8 → 16 when TMR_SHOWN
+arrived, and that is the one thing here with a price on it: 80 bytes of
+`.lowbss` crossed the 512-byte step its rung rounds to, so the kernel's
+footprint moved 81,920 → 82,432, one of the nine steps move 10 granted
+(docs/KERNEL-MEMORY.md). It buys the redraw below, and the alternative —
+a parallel array in `.bss`, where the rounding happened to have room —
+indexes per-instance state by a slot derived from a stride, which is the
+kind of thing that breaks silently the next time the stride moves.
 
 Paint/onkey/onclick procs receive SI = window ptr (§11) and find their state via
 `inst_of_win` (§29) + `I_SPTR`; module-level draw scratch (used only under
@@ -3993,12 +4013,9 @@ the gfx lock) may stay shared. Kind behavior:
   (§11.3) — if either fails, gfx_unlock and skip; else draw HH:MM:SS from
   the instance's TMR_HRS/MIN/SEC; gfx_unlock }. A half-covered
   Timer therefore redraws the half that shows, whole glyphs only, instead of
-  stopping. **The white background is erased one 8x8 cell at a time**, inside
-  `app_tmr_render`, each cell gated on the `wm_clip_test` answer `font_char`
-  is about to give: that is §11.3's granularity rule, and a single 64x8 fill
-  followed by `font_str` would blank the visible band of a horizontally cut
-  Timer twice a second. Paint proc renders the same string from the state
-  block and then the three buttons. The accumulator design is binding.
+  stopping. Paint proc forgets TMR_SHOWN (§14.1 — `wm_draw_win` has just
+  white-filled the content) and renders the same string from the state block,
+  then the three buttons. The accumulator design is binding.
 
   **Sampling the tick while stopped is what Stop means.** The delta is taken
   and banked into TMR_LAST on every wake whether the timer runs or not, so a
@@ -4042,10 +4059,16 @@ the gfx lock) may stay shared. Kind behavior:
   `W_PAINT`, and `W_ONCLICK`, which fires on the frontmost window alone —
   so the test always answers "free" today; it is there so the routine stays
   safe to call from anywhere. A Start/Stop click redraws **those two buttons
-  and nothing else**; a Reset click redraws **the digits and nothing else**.
-  `app_tmr_cell` sets its pen with `gfx_pen_live` rather than a bare
-  `[gfx_color]` store, because a button drawn just before may have left
-  `[gfx_dis]` set and a flagged glyph is a checkerboard.
+  and nothing else**; a Reset click redraws **the digits that changed and
+  nothing else** (§14.1). `app_tmr_render` sets its pen with `gfx_pen_live`
+  rather than a bare `[gfx_color]` store, because a button drawn just before
+  may have left `[gfx_dis]` set — and there that flag costs twice, since a
+  flagged glyph is a checkerboard *and* `font_run` refuses its fast path
+  while it is set. The buttons themselves are deliberately **not** converted
+  to `font_run`: a button is one `gfx_fill` erasing a frame plus one centred
+  label, so a run would repaint a background the fill already covered — the
+  Disk window's reasoning in §11.94 — and they are drawn on a click, not
+  twice a second.
 - **Bounce** — 150×130 at (300,150), title "Bounce". Cap 10 (on VGA the
   template position keeps the whole +16·9 cascade on-screen and above the
   dock; on a shorter screen `wm_fit` clamps its tail back onto it, §39.7).
@@ -4070,6 +4093,70 @@ reaches exactly this path through `OSAPI_TASK_ALIVE`, whose whole job is to
 be the worker's "next wake" check; there the latency bound is whatever the
 worker's own sleep is, which is why rule 2 makes the call mandatory once
 per outer-loop iteration.
+
+### 14.1 The digits are one opaque run, and only of what changed
+
+**This was PERFORMANCE.md Part 1's double-draw flash**, and it is the
+clearest instance of it the kernel had left. `app_tmr_render` drew each of
+the eight cells as a white `gfx_fill` followed by a `font_char` — sixteen
+primitive calls, each paying the ~756 us per-call floor, and every cell
+*blank* between its two calls. Twice a second, for as long as the Timer is
+open. It was written that way for a real reason (§11.3's granularity rule:
+a 64x8 fill clips per pixel and glyphs per cell, so a horizontally cut
+Timer would have blanked the band it could show and kept blanking it) and
+the per-cell erase did solve that — at the cost of turning one flash into
+eight.
+
+`font_run` (§6.1) is both answers at once. It takes an ink and a background
+and writes each cell from its old content straight to its final content in
+one store, so there is no interval to see; and it decides per cell on
+**both** its paths (§6.1.2), so the granularity rule is handled inside the
+primitive and `app_tmr_render` needs no gate of its own. Two things earn
+the byte-aligned single-store path: the window sets **`WF_SNAP`** in
+`app_tmr_kinit` (§11.94 — the KD_INIT contract hands it BX = the window,
+before it is shown, which is exactly the caller that section is written
+for), and **`APP_TMR_DX`** is the centred position rounded to the nearest
+multiple of 8 — 47 becomes 48, one pixel of asymmetry. That is also why
+`app_tmr_pos` stopped deriving x from `[bx+W_W]`: the number has to be a
+multiple of 8 and a constant is where an assembler can check it.
+
+**TMR_SHOWN is the eight characters the window is displaying**, and what
+gets drawn is the span from the first cell that differs to the last: one
+cell for a second going 30 → 31, two when it carries, and **nothing at all**
+on the wakes that land inside the same second — the task sleeps 9 ticks,
+just under half of one, so that is roughly every other wake.
+
+The clip question is asked **once**, over the whole 64x8 line, and settles
+both halves. Inside one fragment, the incremental span is drawn and
+TMR_SHOWN adopts the new line. Cut by an edge, `font_run` will refuse some
+of its cells, so the line is drawn whole and TMR_SHOWN is **forgotten** —
+§28.2's rule, that a run which took that path was by definition not drawn
+whole. Forgetting means all eight bytes, not the first: the span is
+first-to-last, so a single zeroed byte would report a span of one cell
+while the other seven still matched.
+
+Three callers forget: `app_tmr_kinit` (a pool slot is reused, §29.4, so the
+previous instance's cells are sitting there describing a destroyed window),
+`app_tmr_paint` (the content has just been white-filled), and the cut path
+above. Reset does **not** — it changes the digits with the screen otherwise
+untouched, which is precisely the case the span exists for.
+
+Measured over 20 s of a running Timer (~40 wakes), counters on `gfx_fill`,
+`font_char` and `font_run_cell` together, which PERFORMANCE.md Part 7 rule 1
+requires because the fast path never reaches `font_char`:
+
+| | `gfx_fill` | `font_char` | `font_run` | `font_run_cell` |
+|---|---|---|---|---|
+| before, any adapter | 320 | 320 | — | — |
+| after, Hercules / CGA | **0** | **0** | 20 | 22 |
+| after, VGA (slow path) | 20 | 22 | 20 | 0 |
+
+`font_char` = 0 and `font_run_scell` = 0 on mono are the self-check
+(PERFORMANCE.md rule 7): either would be non-zero if the alignment had not
+landed. They stay 0 after dragging the window 13 pixels, which is
+`ui_drag`'s `wm_snap_ax` doing its half. Priced with PERFORMANCE.md Part 2,
+a redraw was 8 × (756 + 8×177 + 901) us ≈ **24.7 ms twice a second** and is
+~1.7 ms once a second.
 
 ## 15. kernel.asm — boot sequence
 
@@ -4442,23 +4529,24 @@ Three things about it are deliberate:
   measured down to, and the vocabulary for the three visible defects the
   emulator cannot show — a *visible redraw* (seconds on a heavy window, and
   not a flicker), a *double-draw flash*, and *input overrun*.
-- **`check-images`**: `build/` is gitignored but a curated set inside it is
-  force-added and shipped — the kernel, both boot sectors, both bootable
-  floppies, both software floppies, and every package's `.bin`/`.o88`.
-  Nothing makes those follow a source change, so this target builds every
-  one of them a second time into `build/.check` and compares byte for byte.
-  It is only meaningful because the toolchain is deterministic by design
-  (§24: `os88disk.py` pins the volume serial and every FAT timestamp), so a
-  difference is staleness and never noise. The set is read from
-  `git ls-files build` rather than listed, so it cannot drift from what is
-  tracked. Three failures: **STALE** (rebuild and commit), **ORPHAN**
-  (tracked, but nothing builds it) and **SCRATCH** (a tracked `VIDEO=`/`RTC=`
-  stamp — named specially because the scratch build makes one too and two
-  empty files compare equal). The comparison build is always knob-free, so
-  a kernel carrying a forced probe reads as stale, which is what the rule
-  above ("every shipped image is built with neither knob set") needs to stop
-  being a comment nobody executes. Not part of `all`: it costs a second full
-  build and is a pre-commit gate.
+- **No build artifact is tracked.** `build/` is gitignored outright: the
+  kernel, both boot sectors, all three bootable floppies, all three software
+  floppies, both drivers' `.drv` and every package's `.bin`/`.o88` are
+  products of this tree and live in a *release* — a GitHub release and
+  os8088.com — never in a commit. A curated set of them used to be
+  force-added, with a `check-images` target rebuilding each one into
+  `build/.check` and comparing byte for byte to catch the staleness that
+  follows from committing a derived file. Both are retired.
+  What made the check possible is what made the tracking pointless: the
+  toolchain is deterministic by design (§24: `os88disk.py` pins the volume
+  serial and every FAT timestamp), so a rebuild reproduces a released image
+  exactly and a committed copy adds nothing. **That determinism is still
+  binding on the toolchain** — it is the only thing that lets a third party
+  verify a downloaded image against these sources. The rule above ("every
+  shipped image is built with neither knob set") is back to being a rule the
+  kernel recipe warns about rather than one a target executes; a release is
+  built by `.claude/skills/release-os8088` from a clean checkout with no knobs
+  set, which is where it now holds.
 - 86Box config (`vm/xt/86box.cfg`): set the mouse to a serial Microsoft
   mouse on COM1 (best-effort; cannot be verified headless).
 - The kernel may exceed 8 sectors; the two images are already built
@@ -5710,7 +5798,7 @@ they are per-read questions, so a reader zeroes them first.
 
 **`dsk_dbg_raw` is a far entry, and it is the reason this is in the kernel
 rather than in the package.** `tests/sysbench` called `int 13h` itself and
-**hard froze the 5150** (docs/FIELD-NOTES.md 10): a BIOS runs its disk
+**hard froze the 5150** (docs/FIELD-NOTES.md 11): a BIOS runs its disk
 handler and its IRQ6 nesting on whichever 256-byte task stack is current
 (§8), on top of the harness's own frames, and every other `int 13h` in this
 system holds `sch_lock` across the call so nothing switches underneath one. A
@@ -8506,8 +8594,8 @@ and non-zero exit + stderr message on any validation failure.
   then `build/apps.img` (1440) + `build/apps720.img` (720) +
   `build/apps360.img` (360) via os88disk.py; all built by `all`, alongside
   the three bootable system disks `build/os8088.img`,
-  `build/os8088-720.img` and `build/os8088-360.img`. Every one of the six is
-  git-tracked and therefore checked by `make check-images`.
+  `build/os8088-720.img` and `build/os8088-360.img`. None of the six is
+  git-tracked — `build/` is gitignored outright (§16).
   The apps disks are **foldered**: the root holds `APPS`, `GAMES` and the
   one root-level file `TASKMGR.O88` (§28.3 — the chip menu's copy, for a
   single-floppy machine). `APPS` holds the tools plus the data file
@@ -10621,7 +10709,8 @@ sense at create time). The Disk kind sets WF_SIZABLE (§22); every other
 row keeps 0.
 
 Pinned caps: About 1 (stateless), Timer 10
-(stride 8), Bounce 10 (stride 8), **Files 4 (stride 16, pool `fm_pool`)**,
+(stride 16 — 8 of state and 8 of §14.1's TMR_SHOWN), Bounce 10 (stride 8),
+**Files 4 (stride 16, pool `fm_pool`)**,
 TaskMgr 1 (one sampler), Control Panel 1 (no per-instance state, §31). The
 Files cap is 4 because each window claims its own `VIEW_KB` cache (§2.3); `KD_CAP`, `VIEW_SLOTS` and the `fm_pool` size are one
 number wearing three hats and must move together. The
@@ -13731,7 +13820,7 @@ changes no code: COPY never reads `gfx_lock_flag`.)
   and clips at `[tm_ylim]` — and on a narrow screen it is the **second
   column** that has to hold it (§28.1).
 - `make clean && make`: both geometries, zero warnings, every §15.1 guard
-  still passing, and `make check-images` clean.
+  still passing.
 
 ## 42. Paint — the seventh package (apps/paint/paint.asm)
 
@@ -14287,6 +14376,57 @@ exactly because the strip ends where the content does. The columns to the
 right of a canvas narrower than its content need no fill of their own — a
 width shrink is refused unless the doomed columns are white, so they already
 are.
+
+### 42.8 A one-pixel stroke is a LINE, and the pencil had a top speed
+
+`pt_seg` draws the brush's leading edge per step, which is why the 32px eraser
+is usable: a square swept one pixel uncovers one edge of itself, so each new
+pixel is written exactly once. At **width 1** that edge is a single pixel, so
+the same loop issues one `gfx_fill` per step — and a second whenever the minor
+axis moves. Priced on the field machine (PERFORMANCE.md Part 2: 756 µs of
+*arriving* + 177 µs a scan line, so a 1×1 fill is **933 µs**), a 300-pixel
+chord is ~400 calls and **373 ms**.
+
+That gives the pencil a **maximum drawable speed of about 1,000 px/s**, and
+past it the lag runs away: the longer the chord, the longer it takes to draw,
+the further the hand has gone by the next sample. It was reported from the
+field as freehand circles coming out as a few long straight chords with whole
+arcs missing, and as the mouse "not being read" — docs/FIELD-NOTES.md 11.
+
+`pt_segdo` routes a width-1 segment to `pt_lineseg` + **one**
+`OSAPI_GFX_LINE`: the walk keeps only the half that cannot be batched — the
+canvas nibbles and the undo marking, which `[pt_noscr]` has always been the
+switch for — and the screen becomes a single call. Measured on Hercules over
+one scripted stroke: **576 drawing calls → 66** (61 fills + 5 lines), 8.7x.
+A line pixel costs ~160 µs (§48.16), so the ceiling moves to ~6,000 px/s.
+
+**The walk had to become the kernel's own, and that is the whole difficulty.**
+The canvas is what a repaint draws from, so a canvas walked one way and a
+screen drawn another disagree — and not subtly: `gfx_line` uses the two-error
+form (`err = dx - dy`, one `e2` read by both axis tests, so both axes can step
+in one iteration) and normalises its ends so it always walks *downward*, while
+`pt_seg` used the DDA form (`err = steps/2`) in the drag's own direction.
+Almost every pixel of a chord lands somewhere different. Measured before
+`pt_lineseg` existed: **3,015 differing bytes** over twelve strokes, against
+**0** with the fast path switched off. `pt_lineseg` is `gfx_line_mono`'s
+arithmetic verbatim, and it plots the start pixel because `gfx_line` draws
+both endpoints — re-inking a pixel the previous segment already laid is free.
+
+**It is gated on a 1bpp adapter, and that is a fact about the kernel rather
+than a preference.** `gfx_line_raw` sends a mono adapter to `gfx_line_mono`
+and VGA to `gfx_line_runs`, and **the two do not agree pixel for pixel**: the
+same test that returns 0 on Hercules and CGA returns **663 bytes** on VGA. So
+VGA keeps the per-dab path, which costs it nothing that matters — the machine
+this exists for is the 4.77MHz one and it is mono. Nothing in the kernel was
+changed to make this work, so `gfx_line`'s other consumer (Missile Command's
+trails, §48.14) is untouched.
+
+**And the bracket had a 55 ms floor under every sample**, which is the other
+half of the same complaint. `pt_wait` is `fsx_wait` inside the bracket, and a
+tick is the fastest that can return — so full screen sampled the mouse *more
+slowly than the window*, which yields. On a 1bpp adapter no back buffer is
+possible (§32), so nothing is owed a present and nothing is being unlocked:
+there is nothing to wait for, and `pt_wait` returns at once.
 
 ## 43. Solitaire — the eighth package (apps/solitaire/solitaire.asm)
 
@@ -18287,6 +18427,77 @@ system disk back and closing the panel again saves it — verified end to end:
 the apps disk stays byte-identical, the caption names the remedy, and the
 retry writes the setting where it belongs and survives a reboot.
 
+#### 51.5.2 …and it puts the user's volume back
+
+§51.5.1 fixed *which disk gets written*. It left the other half: going to A:
+is a **navigation**, and nothing undid it. `drv_mounted` mounts drive A:
+because that is where the system files are, and both of its user-facing
+callers — `drv_cfg_save` when the panel closes, and `drv_load` when a Drivers
+row is ticked — returned with A: current. A user working on B: was silently
+moved to A: by a Control Panel click.
+
+**Nothing said so, which is what makes it expensive.** The file API resolves
+every name in the volume's current directory (§19.2), so the next Standard
+File dialog simply opened on the wrong disk and a package resolving a file
+name resolved it there. It was found by accident: a scripted test enabled the
+sound driver, closed the panel, and then drove a package's Open dialog by row
+position — the dialog was on A:, the row hit nothing, and the app reported
+`Disk error`. Nothing in that chain points at the Control Panel.
+
+It is the same shape as the hard disk's Mount (§52.6), which made C: current
+and then silently made A: current again, and the answer is the one
+`ui_tm_open` already used for the Task Manager (§28.3): bank the volume, do
+the work, put it back. `drv_vol_bank` / `drv_vol_back` are that pair, so this
+is a routine rather than a third open-coded dance.
+
+Three things about it are load-bearing:
+
+- **Both preserve the flags**, and that is not politeness. Both callers
+  return a result in `CF` *and* in `AX`, and the restore runs at their common
+  exit — so a remount that failed must not read as a driver that failed to
+  load or a setting that failed to save. A failed restore is therefore
+  **swallowed**: the volume is left at its root with the write gate shut,
+  exactly as after any failed mount, which is `ui_tm_back`'s answer too.
+- **The compare is what makes it free.** A remount is a floppy's worth of
+  sectors (§19.2), and `drv_boot` calls `drv_load` once per wanted driver —
+  so an unconditional restore would put a mount on the boot path for every
+  one of them, to arrive where it already was. Banked equal to current means
+  nothing moved and there is nothing to undo.
+
+  **What it costs, measured with §18.94's counters rather than argued** —
+  ticking a driver, the counters read before and after:
+
+  | | `disk_mount` | sectors | int 13h |
+  |---|---|---|---|
+  | before this fix, volume on B: | 1 | 28 | 12 |
+  | after, volume on B: | 2 | 43 | 17 |
+  | after, volume already A: | 1 | 26 | 10 |
+  | **the restore itself** | **1** | **15** | **5** |
+
+  So the fix **adds one floppy remount, and only when the volume actually
+  moved**. That is not a side effect to be optimised away later — putting the
+  volume back *is* a remount, because navigation in this OS is a remount by
+  design (§19.2), which is the same choice that keeps `disk_dir` always
+  exactly a mount snapshot. It is affordable because of what it is attached
+  to: both callers are already writing or reading the floppy, and a
+  `SYSTEM.CFG` write alone is 2+ seconds of frozen UI on the floor machine
+  (§31.8). It is paid once per panel close or driver tick, never per click.
+
+  A boot with a driver wanted is **2 mounts**, `drv_boot`'s and `drv_load`'s,
+  where an unconditional restore would be 3 — the compare earning its keep on
+  the one path where the cost would be pure waste.
+- **`drv_boot` needs no exception**, and that falls out of the compare rather
+  than being arranged. It mounts A: itself before the loop, so every
+  `drv_load` inside it banks A: and finds A: — the restore is skipped without
+  anything having to know it is boot.
+
+One static pair holds the banked volume, like `ui_tm_cwd` and for the same
+reason: this is UI-task context and the two brackets never nest — `cp_flush_x`
+is the only caller of `drv_cfg_save`, and `drv_load` reaches no path that
+writes the settings file. It lives in `.text` with real initialisers, because
+`-f bin` zeroes no `.bss` and A:'s root is the right answer before anything
+has been banked.
+
 ### 51.6 Author rules
 
 1. **Attach all-or-nothing, detach cannot fail.** Restated because it is the
@@ -19166,6 +19377,30 @@ still on screen and before the app's proc draws, and `fsx_restore` **writes
 them straight back** at exit instead of repainting. `kernel/fsx.inc`,
 `fsxc_save`/`fsxc_load`.
 
+**It is taken at the first `fsx_mode` call, not at bracket entry, and that is
+a correctness rule rather than a tuning.** The stash exists to recover a
+desktop the app is about to *replace*; a **same-mode** bracket (§53.7) draws on
+the desktop's own surface with the kernel's own primitives, so a snapshot taken
+at entry goes stale the moment the app draws — and restoring it silently undoes
+that drawing. Paint (§42.7) is where this surfaced and it is the first consumer
+it could surface on: its window content is **persistent**, so a picture drawn
+in full screen came back to a window that still showed the pre-bracket image.
+The picture was never lost — the canvas held it, and any later repaint drew it
+— which is exactly what makes the failure worth naming: it reads as data loss
+and is a stale snapshot. Missile Command and Tracker could not show it, their
+window content being redrawn from scratch every frame anyway. **The 8086 target
+never saw it at all**, tier 0 having no store, so it took a 286 with XMS to
+find. Taking the stash inside `fsx_mode` fixes it by construction: a bracket
+that never switches modes never holds a snapshot, and one that does still takes
+it at the last moment VRAM holds the desktop.
+
+**`fsx_stash_save` preserves every register**, which its `fsx_run` caller did
+not need and its `fsx_mode` caller cannot do without: `ES:DI` there is the
+*app's* FSI block, and `fsxc_xfer` leaves ES on 0A000h and uses DI as its own
+direction word — so an unbanked call wrote the info block into VRAM and handed
+the app garbage geometry. Missile Command's Mode X restoring to a black screen
+is what caught it.
+
 It engages only when it is free of risk and pays off: `[cpu_tier]` ≠ tier 0,
 a VGA adapter (four planes to read; a mono framebuffer is one plane and
 already cheap), and the desktop straight in VRAM (`[bb_dbl]` clear — a back
@@ -19364,8 +19599,8 @@ reduces each package's own embedded icon (`.o88` bytes 32..95) into
 bytes inside `kernel.bin`, riding the boot sector's existing contiguous kernel
 read, and **a document icon costs no disk read on the first boot of any
 machine**. It is generated and never hand-pasted: pasted bytes go stale in
-silence when an app's icon changes and `make check-images` cannot see that,
-where the make dependency can. The DAG stays acyclic — a package depends on
+silence when an app's icon changes, where the make dependency cannot. The DAG
+stays acyclic — a package depends on
 `apps/os88api.inc`, never on `kernel.bin`.
 
 Defaults: `BMP`/`GIF` → PAINT, `TXT` → NOTEPAD, `MOD` → TRACKER, `MD` →
@@ -19764,3 +19999,514 @@ I/O, so a worker task may call them (§20.6 rule 7). What they do touch is the
 claim table, and `mem_claim`/`mem_free` run their own critical sections — so
 two tasks racing to copy cannot corrupt it. The loser simply overwrites the
 winner's text, which is what having *one* clipboard means.
+
+## 56. ModPlug Player — the fourteenth package (apps/modplug/modplug.asm)
+
+A port of **ModPlug Player V2**'s look and feel onto the window manager:
+`modplug.asm` (shell, transport, playlist store, worker), `mppmix.inc` (the
+replayer and mixer), `mppui.inc` (the skinned player window), `mppset.inc`
+(the Setup window) and `mpplist.inc` (the PlayList editor). Prefixes `mpp_`,
+`mpm_`, `mppu_`, `mpps_`, `mppl_`.
+
+It is the second MOD player in this tree and that is deliberate — see §56.1.
+Tracker (§45) is a FastTracker II *pattern editor's* view of a module, drawn
+fullscreen; this is a **player**, windowed, with an LCD, a transport row and a
+visualiser. They share a lineage and no code.
+
+### 56.1 What was ported, what was not, and why there are two of them
+
+ModPlug Player (github.com/ModPlugPlayer, GPLv3, © Volkan Orhan) is a Qt6
+application. Its interface is nine `.ui` files; its **playback is
+libopenmpt**, with PortAudio underneath and KissFFT/FFTW driving the spectrum
+analyser. Not one of those four libraries is a thing a 4.77 MHz 8086 runs, and
+nothing is gained by pretending otherwise. So the split is drawn explicitly:
+
+- **The interface is ported**, closely: the bevelled body, the green LCD
+  panel, the LED transport row, the time scrubber, the volume slider, the
+  option-button grid, the three visualisers, the Setup window's left-hand page
+  list, and the PlayList editor with its seven buttons. Where a control exists
+  in ModPlug Player and cannot work here it is **drawn and greyed with its
+  reason in the caption** rather than dropped (§47 rule 4) — the shape of the
+  app is the thing being ported, and `16 Bit (8-Bit DAC)` tells a user
+  something that an absent control does not.
+- **The replayer is this tree's own.** `mppmix.inc` starts as
+  `apps/tracker/trkplay.inc` (§45.5) with its `mp_`/`MP_`/`MS_` prefixes
+  renamed, and adds the four DSP stages ModPlug Player's Setup pages actually
+  expose (§56.5) plus an absolute seek and a master volume. It is an
+  **independent copy**: the two players are allowed to diverge, and a replayer
+  bug fixed in one is *not* fixed in the other. That is the cost of the
+  decision and it is recorded here so nobody discovers it as a surprise.
+- **The spectrum analyser is not an FFT** and §56.6 says so rather than
+  leaving it to be found.
+
+### 56.2 Three windows, one instance, and the transport
+
+The player window is the **bound** one — the entry proc returns it — so its
+close box tears the instance down. Setup and PlayList are created later and
+**never bound**, which means `wm_owner` never names them, and three things
+follow at once (the §38 file-dialog model applied to an application):
+
+- their close **and** minimize boxes both reduce to a plain `wm_hide`, so
+  reopening is one `wm_show` and this package contains no close-path code;
+- teardown sweeps them by the `W_SEG` creator stamp (§20.2);
+- and **a file dialog cannot be opened against them.** `fdlg_open` asks
+  `inst_win_owner` and refuses outright when the answer is "nobody", so
+  PlayList ▸ `Add...` passes the *player's* window. That is a hard
+  requirement, not a tidiness; the completion proc reads `[mpp_addpl]` to know
+  which of its two callers it is answering.
+
+The audio half is §45.2's architecture, because it is the architecture §34
+was built for: the UI task opens, closes and pre-mixes; the worker mixes and
+feeds a 16KB ring stream (§34.5 ring mode) at 2,048-byte halves; and every
+close **drains** the worker's in-flight pass (`[mpp_mixing]`) before the
+module blob can move. `mpm_gen` is not reentrant, and that drain is the only
+thing between a mid-fetch mixer and a freed heap claim.
+
+**Pause is not Stop, and the difference is the stream.** Pause leaves the
+stream open and the ring where it is and only stops the replayer advancing,
+so the worker feeds silence and resuming is one flag; Stop closes. The two
+lamps say so: the Stop button lights on the absence of a *stream*, not on the
+absence of playback, so a paused player is not a stopped one.
+
+### 56.3 The face
+
+Content 416 wide, and every rectangle on it is a **word in bss** filled by
+`mppu_layout` from one of two tables (§56.4) — no drawing routine below that
+point contains a screen-derived constant, and `mppu_hit` reads the same words,
+so a control cannot be drawn somewhere it cannot be clicked (the `fm_hit`
+rule).
+
+- **The LCD**: four lines on the full layout — the module's title, the elapsed
+  time and file, the granted format with the DSP flags that are on, and the
+  transport readout (or, with **Info**, what each channel is playing, from
+  `mpm_insname`; those are raw bytes a stranger wrote, so they are filtered to
+  printable ASCII and truncated before any glyph renderer sees them).
+- **Nine LED transport buttons** in ModPlug Player's order: eject, `|<<`,
+  `<<`, `>`, `||`, `[]`, `>>`, `>>|`, and a three-slider Setup mark. Its
+  buttons *are* LEDs — the play triangle lights when it plays — and the strip
+  under each glyph is how that survives to one bit, where "lit green" and
+  "unlit grey" are the same pixel.
+- **The scrubber** seeks by absolute order position, which is why the mixer
+  grew `mpm_setposn`: expressing it as a delta would mean computing
+  `target - current` from a `[mpm_songpos]` the worker is moving underneath
+  it.
+- **The volume slider** folds into `mpm_volslice`, which scales the *volume
+  table selection* — one multiply per channel per chunk, where scaling samples
+  would be one per output sample, and no table rebuild (that is 16,640
+  `imul`s, and this control moves continuously).
+- **Twelve option buttons**, each with an LED, and `mppu_opt_state` is the one
+  predicate the LED, the caption's pen and `mpp_option`'s refusal all read —
+  §47's rule 2, so the greying and the behaviour cannot disagree.
+
+**Every text element on this face is an `OSAPI_FONT_RUN`** (§6.1) and every
+other element is a solid fill. That is what lets the worker — and
+`mppu_refresh`, below — redraw the face under an armed clip region with no
+per-cell gate: fills clip per pixel, and a run decides erase-and-letter
+together per cell, so §11.3's granularity trap has no pair left to break.
+
+**`mppu_refresh` is the difference between "repaint me" and "repaint me over
+whatever is in front of me."** The kernel orders a `W_PAINT`; a menu command,
+an option toggle or a click in the Setup window does not. Every player repaint
+that is not `mpp_paint` itself arms the clip on the player's own window,
+draws, and clears it explicitly — the lock is already held, and `gfx_unlock`,
+which is what normally clears a region, belongs to somebody else. Without it,
+opening Setup drew the player straight over the window it had just opened.
+
+### 56.4 Two layouts, because CGA's desktop band is 156 rows
+
+ModPlug Player's own window is 417x226. CGA gives the whole desktop 156 rows
+(§39), so the full layout cannot exist there. `mppu_layout` copies one of two
+24-word tables into the live layout block, and the **compact** layout keeps
+the LCD (three lines), the transport, the scrubber, the visualiser and six of
+the twelve option buttons: what it gives up is rows, not features. The Setup
+window and the PlayList editor each pick a height the same way, and the Setup
+pane's controls are laid out so that **no control sits below y 96** — which is
+what lets the compact dialog show every control the full one does, rather than
+silently clipping the bottom of a page.
+
+**Two colours are adapter questions, and both were learned by looking at the
+result on CGA:**
+
+- `[mppu_ink]`, the LCD's: `CLGREEN` at 4bpp, `CWHITE` at 1bpp. Green is in
+  the dither class and a glyph rounds to *black* (§39.4), so the ported panel
+  came out black text on a black panel — Missile Command's trap exactly
+  (§48).
+- `[mppu_body]`, the chassis: `CLGRAY` at 4bpp, `CWHITE` at 1bpp. A grey
+  chassis reduces to a 50% checkerboard, and every black button glyph, option
+  caption and status line on it was competing with a screen. White body, black
+  outlines is the 1bpp Macintosh look this OS is modelled on, and a raised
+  bevel survives it as a black L on two sides — which is how a Mac drew a
+  raised edge anyway.
+
+And **a selection inverts rather than taking a colour**, in both list windows.
+`CBLUE` was the obvious choice and is wrong on two adapters out of three:
+colours 0..6 all reduce to black, so a blue band on a black well is a
+selection you cannot see. Inversion is what the Standard File dialog does
+(§38.3) and it survives every reduction.
+
+### 56.5 The Setup window, and the four DSP stages that are real
+
+`SetupWindow.ui` is a 5,034-line Qt form with a page tree down the left. The
+shape is ported — a page list, a pane, and ModPlug Player's own control names
+— and the controls are a **table**, not code: each row is 10 bytes (page,
+kind, x, y, label, value, flags, target) and one drawing loop plus one hit
+loop walk it. That is the only way a dialog with sixty controls stays readable
+in assembly, and the only way its drawing and its hit test cannot drift.
+
+Four settings out of Setup ▸ Audio, ▸ Player and ▸ DSP are **live**, each
+placed where it is honest on this hardware and each costing nothing while it
+is off:
+
+| Setting | Where it lands | Cost |
+|---|---|---|
+| Interpolation Mode | a **second** inner loop in `mpm_mixch` | `imul r/m8` is ~80-98 cycles on an 8088; four channels at 11 kHz would be 4.4M cycles/s on interpolation alone, which is why Linear greys on a tier-0 machine and Cubic and 8-tap Sinc grey everywhere |
+| Dither | its own conversion loop | the default path truncates 2 bits away, so 2 bits of LFSR noise added *before* the shift is textbook rounding dither — real here and nowhere else in the tree |
+| Amiga Filter Type | `mpm_post`, one pole, `y += (x - y) >> k` | k = 1 for the 500's LED filter, k = 2 for the 1200's. A lowpass in the Amiga's spirit; **not Paula**, and the page says so rather than implying it |
+| Bit Crush | `mpm_post`, one `AND` per byte | which is why this one survived the port at all |
+
+Two details of the tail are load-bearing. The one-pole works on **centred**
+samples (`(x - 128) << 8`): the output byte is unsigned around a 0x80 bias, so
+`x << 8` for `x >= 128` reads negative as a signed word and the filter would
+run backwards on the top half of the waveform. And the tail runs **once per
+`mpm_gen`**, over the whole finished output, so a setting changed between
+calls can never split a buffer.
+
+Everything else on those pages is drawn and greyed with its reason:
+`16 Bit (8-Bit DAC)`, `Stereo (Mono Mixer)`, `Cubic (Too Slow)`,
+`Equalizer (No CPU)`, `Auto (No Paula)`, `None (No FFT)`. Nothing is greyed on
+a guess — every reason is a property of the hardware, of the mixer, or of the
+mode that is on right now — and a click on one is refused in silence, because
+the greying already explained itself (§47 rule 6).
+
+**A greyed box changes SHAPE, not just ink.** A live box is a black well with
+a white mark; a greyed one is a *dithered outline* on the body colour, with no
+well and no mark. At 1bpp a greyed caption is pixel-identical to a live one (a
+glyph rounds to black), so without that the user would have no way to tell an
+unavailable control from an available unchecked one — and a frame *does*
+dither, which is precisely what §47 means by greying the whole control.
+
+**Frequency and XT do not take the plain store**, because neither can change
+under a running stream: they route to `mpp_rate_set` / `mpp_xt_toggle`, which
+stop playback through §56.2's drain first.
+
+### 56.6 The spectrum analyser is a projection, not a transform
+
+ModPlug Player runs KissFFT over its output. This machine has no cycles for
+that, and a four-voice source makes it unnecessary: each channel's **period**
+is matched against the replayer's own ProTracker period table — 36 entries,
+three octaves, one semitone apart — and the note index that comes back is
+projected onto the bands, with half the level going to each neighbour so a
+four-voice source has the shape of a spectrum rather than four isolated
+spikes. A semitone index *is* a logarithmic frequency axis, which is the axis
+a spectrum analyser is drawn on, so the bars land where the notes are.
+
+**What it cannot show is harmonic content**: a square-wave lead puts up one
+bar, not the odd-harmonic comb a real transform would draw. It is called an
+analyser because that is ModPlug Player's word for the control; this section
+is the correction, and Setup ▸ Visualization repeats it on screen.
+
+The oscilloscope is honest by construction — it plots the bytes `mpm_gen` just
+produced, banked in `mppu_viz_feed` at the one moment that buffer is fresh,
+read by the drawing side with no handshake (a torn trace is one frame drawn
+from two chunks, invisible at 18 fps and not worth a lock). The VU meter is
+the four channels' own volumes, and a click in a VU row mutes that channel —
+the same gesture the number keys are.
+
+**The elapsed clock is counted on the worker's wake, not on the frame.** It
+cannot come from `[mpp_total]` (16 bits, free-running, wraps every six seconds
+at 11 kHz) and it cannot come from the redraw, because a covered or hidden
+window skips frames and the clock would stop with the picture.
+
+### 56.7 XT mode
+
+§45.9's mode, in this player's clothes: **off by default on a 286-or-better
+and pre-armed on a tier-0 machine**, where the entry proc's `OSAPI_CPU_INFO`
+answer both sets it and relabels its menu item, because the machine this mode
+exists for should not have to go and find the toggle. Reachable four ways —
+the **T** key, the Playback menu's relabeling `XT Mode: Off/On` item (the §12.2
+copy rule: repoint the string and re-call `OSAPI_MENU_SET`), the **XT** option
+button, and Setup ▸ XT — all of which land in `mpp_xt_toggle`.
+
+What it changes: the rate drops 11,000 → 5,500 Hz; the volume tables
+pre-scale the output stage away so the 16-bit accumulator, its zero pass and
+its conversion pass all disappear; and the bounds check leaves the mixer's
+inner loop (§45.9 has the cycle counts). **And it forces the whole DSP tail
+off**, in `mpm_setxt` rather than in the Setup window — so no path into XT
+mode, key or menu or button or the tier-0 pre-arm, can leave a
+per-output-sample cost switched on in the mode whose entire purpose is buying
+those cycles back. The Amiga and Dither controls grey while it is on, for the
+same reason and by the same predicate.
+
+On a **tier-0 machine, and only while something is playing**, the visualiser
+is not animated (§45.9.1's argument, and it keys on `[mpp_cpu0]` — the
+machine — rather than on `[mpm_xt]`, which is a playback setting a 386 user
+may switch on and which says nothing about what that 386 can draw). The LCD,
+the transport lamps and the scrubber keep following the music either way.
+
+The LCD's rate readout carries **one decimal**, and `mpp_rate_arm` keeps
+`[mpm_mixrate]` following the *mode* rather than only the last Play: a
+whole-number readout turns 5,500 Hz into `05 kHz`, and a rate that only became
+true at the next Play left the panel claiming `11.0 kHz` for as long as XT
+mode was on and stopped.
+
+### 56.8 The PlayList editor
+
+ModPlug Player's `PlayListEditorWindow.ui`, with its Add... / Remove /
+Clear List / Shuffle List / Sort List / Save List row. **The store is not in
+that file**: `[mpp_plist]` and its count live with the rest of the player's
+state, because the *transport* reads them — a song ending walks the list
+whether or not this window was ever opened — and an editor that owned the list
+would make the playlist a property of a window a user may never open.
+
+Two departures from ModPlug Player, both deliberate:
+
+- **There is no double-click.** The kernel delivers one `W_ONCLICK` per press
+  (§13) and a package detecting a double-click would have to compare tick
+  counts itself, which on a 4.77 MHz machine under a 1200-baud serial mouse is
+  a timing guess. Clicking a row selects it; clicking the row that is *already*
+  selected plays it. No timing, and no gesture that works on a fast machine
+  and not on a slow one.
+- **Save List and Load List are greyed `(No File)`** rather than dropped: a
+  playlist file would be a format this OS has nowhere else.
+
+**The end of a shuffled list is what `[mpp_plplayed]` answers.** Sequentially,
+"the walk is over" is just the cursor reaching the end; shuffled, a random
+draw goes on forever, so Repeat: Off would never stop — which is not what
+either ModPlug Player or a user means by it. The counter counts songs since
+the last *deliberate* start (an Open, the Prev/Next buttons, a click on the
+selected row) and one list's worth ends the walk in both modes. It is a count
+and not a played-set because 16 entries of set would cost more state than the
+list itself, and the only visible difference is that a shuffle may repeat a
+song before the pass is out.
+
+### 56.9 Keys
+
+The transport row is Winamp's and ModPlug Player's own, which is what a user
+of either already has in their fingers; everything else is the initial of the
+thing it does. §44.2's keypad gate applies verbatim — the numeric keypad sends
+digits with arrow scan codes, so ascii is tested before any scan code is
+trusted.
+
+| Key | Action |
+|---|---|
+| Z X C V B | previous / play / pause / stop / next |
+| L | Open… (the Standard File dialog) |
+| P | PlayList Editor |
+| E | Setup… |
+| R | Repeat: Off → Song → List |
+| H | Shuffle |
+| T | XT mode (§56.7) |
+| G | cycle the visualiser |
+| 1..4 | channel mute (a click in a VU row does the same) |
+| Left / Right | seek by song position |
+| Up / Down | master volume |
+| Esc | close the Setup window or the PlayList editor |
+
+The two secondary windows pass every key they do not use to `mpp_onkey`, so
+there is one keyboard for the application rather than one per window.
+
+### 56.10 Memory
+
+The same four stores as §45.4, and none of them guessed: the package segment
+(image + bss, including the mixer's 65×256 volume table and the 2,048-byte
+output buffer), the module blob as a heap claim, one 16KB ring grant out of
+the sound driver's staging pool, and nothing else. All three are stamped with
+the instance and force-freed at teardown (§50.2/§34.3), which is why the close
+box needs no code in this package at all.
+
+The blob is sized **two different ways**, and §56.13 is why. A load that came
+through the Standard File dialog claims the file's **exact** size, because the
+dialog said what that is; a playlist advance had no dialog, so it falls back
+to `OSAPI_MEM_AVAIL` capped at 128KB and then **trims** to the file's real
+size with `OSAPI_MEM_REGROW` (§50.3.1 — the shrink that always succeeds in
+place). `mpp_trim` runs on both paths rather than being made conditional: the
+two must not be able to disagree about who owns the tail of a claim, and on
+the exact path it finds nothing to give back and costs one compare.
+
+### 56.11 The honest degradations
+
+- **No Sound Blaster: the interface, without the audio.** `osapi_snd_caps`
+  without `PCM_BG` refuses Play with a status-line message; loading, the LCD,
+  the Setup window, the playlist and every control still work.
+- **Mono adapters**: §56.4's two palette words are what carry the look across;
+  what is genuinely lost is the LCD's green and the spectrum's
+  green/yellow/red ramp, where the bar's **height** becomes the whole reading.
+- **Real-8088 throughput is not promised in the default mode**, and §56.7 is
+  the mode that aims at it — opt-in, and honest about its trade.
+- **A second copy of the replayer** is a maintenance cost this package chose
+  (§56.1) and it is the one thing here that will age.
+
+### 56.12 The invalidation mask — the face is drawn from dirty bits
+
+The worker wakes ~18 times a second (§56.2) and every wake used to redraw the
+LCD's four lines, the fifty-character status line, all nine transport lamps,
+all twelve option lamps and the whole 405-pixel scrubber groove. Measured on
+the shipped build with a counter in `font_char` and `gfx_fill`, that was
+**158 glyph cells and ~71 fills per frame**, essentially none of which
+differed from the pixels already on the screen. At §6.1.1's figure — a cell is
+about a millisecond on a 4.77 MHz XT with Hercules — the text alone was 158 ms
+of work inside a 55 ms frame. The player could not keep its own clock.
+
+Drawing is therefore gated on `[mppu_dirty]`, a word of `MPPI_*` bits, one per
+independently drawable element. This is the period's update-region idea
+applied at the widget rather than the pixel: `InvalRect` + `BeginUpdate` on
+the Macintosh, `InvalidateRect` + the region `BeginPaint` hands back on
+Windows, the layer damage list behind Intuition's `BeginRefresh` on the Amiga.
+Three things fill the mask, and the split is the design:
+
+- **`mppu_poll` asks the cheap pure predicates.** Nine `mppu_btn_lit` calls,
+  twelve `mppu_opt_state` calls, one multiply-and-divide per slider handle and
+  one pointer compare for the status line — arithmetic on bytes this package
+  already owns, folded to one signature word each and compared through
+  `mppu_chk`. **This is what lets the ~14 event handlers keep their single
+  unconditional `call mppu_refresh`**: a click that toggles Shuffle moves
+  `mppu_sig_opts`' answer, `MPPI_OPTLED` goes up, one lamp is drawn, and the
+  handler never had to know which lamp it touched.
+- **`mppu_inval` is for what polling cannot see** — the static face. Body,
+  bevels, LCD well, button glyphs and option labels change only when the
+  kernel repaints us or the About panel comes and goes, and `MPPI_BODY` says
+  so. There are exactly three such sites: `mpp_paint`, `mpp_about`,
+  `mpp_abdismiss`. `MPPI_BODY` **is** all of them — the body fill wipes
+  everything above it — so it short-circuits `mppu_paint` to `mppu_draw_all`.
+- **The LCD is neither.** Its four lines are *composed* every frame (~0.4 ms
+  of arithmetic) and each line's **hash** decides whether it becomes pixels,
+  in `mppu_lcd_emit`, which all four builders already emit through. That is
+  the Task Manager's `tm_chunksum`/`tm_rowck` discipline and its reason: the
+  content check comes first, so a covered readout costs a hash and not a
+  redraw.
+
+Four rules hold it up.
+
+1. **A frame that is not drawn must not clear the bits it did not spend.**
+   `mppu_refresh` returns with the mask intact when the window is hidden,
+   wholly covered or behind its own About panel. That is `tm_rowok`'s rule —
+   ask before you record — and getting it backwards loses the change forever
+   rather than merely delaying it.
+2. **`mppu_draw_all` calls `mppu_ckclr` first.** Every element's recorded
+   state describes pixels that fill is about to destroy, the LCD's line hashes
+   above all. It is the single "pixels died" site, which is why the clear
+   lives there and not at each painter.
+3. **`mppu_chk` never stores a zero key**, `tm_elchk`'s rule verbatim: 0 is
+   what `mppu_ckclr` writes, and a blank LCD line hashes to zero, so an
+   element that legitimately hashes to zero would read as unchanged on the
+   first paint and never be drawn at all.
+4. **`mppu_layout` invalidates `MPPI_BODY` when the content origin moved**,
+   because every recorded state then describes pixels at the old origin.
+
+`mppu_refresh` draws **synchronously** rather than leaving the mask for the
+worker, which is the one place this departs from the deferred-`WM_PAINT` model
+it is otherwise copying. The worker is *hired*, `mpp_hire`'s refusal is
+transient and retried, and a handler that only marked would draw nothing at
+all on a machine where the hire has not yet succeeded — there is no second
+timer here to notice. A line the clip region *cuts* is recorded anyway and
+that is safe rather than sloppy: `font_run` draws per cell under an armed
+region (§6.1.2), so the refused cells are exactly the covered ones, and
+uncovering is a `wm_paint_dmg` repaint, which arrives as a `W_PAINT`, which is
+`MPPI_BODY`, which is `mppu_ckclr`.
+
+**Measured, not asserted** — same counters, same module, same ten seconds of
+playback under QEMU:
+
+| | before | after | |
+|---|---|---|---|
+| glyph cells drawn | 28,365 | 2,468 | **11.5x fewer** |
+| `gfx_fill` calls | 12,856 | 4,130 | **3.1x fewer** |
+| glyph cells per frame | 158 | 13.7 | |
+
+The fills fall by less because what remains is mostly the visualiser's sixteen
+bands and their peak caps, which are animation and were never redundant. The
+cost is 432 bytes of image and 20 bytes of bss.
+
+What this does **not** do, and is the obvious next step: a slider whose handle
+moved still redraws its whole groove, because the groove fill is what erases
+the old handle. The §22.2/§38.3 answer — erase the band it left, draw the band
+it arrived at — applies unchanged, and would also remove the last erase-then-
+draw pair on this face.
+
+### 56.13 What the port to this branch had to change
+
+This package was written against `main`, which carries a squashed copy of this
+branch's history and not all of its kernel. Four differences mattered; two of
+them are corrections, two are decisions to leave something alone, and the
+distinction is the point — the SDK is a superset here, so nothing failed to
+assemble and every difference was silent.
+
+**The greying was wrong, and it was invisible on the adapter it was wrong
+on.** §47 rule 1 is that disabled is a **flag** and not a colour, and
+`OSAPI_GFX_PEN` (slot 0x0310) is the only way to set `[gfx_color]` = `CDGRAY`
+and `[gfx_dis]` together. That slot does not exist on `main`, so this package
+did what every package here did before it was published: put `CDGRAY` in `AL`
+and nothing else. On VGA that is a real grey and looks right, which is exactly
+why it survived. On Hercules and CGA `gfx_ink` rounds `CDGRAY` to **solid
+black**, so every greyed caption in the three windows — the Setup pane's
+`16 Bit (8-Bit DAC)`, `Cubic (Too Slow)` and `Stereo (Mono Mixer)`, the
+PlayList's five dead buttons, the option grid's unavailable labels — was
+pixel-identical to a live one, while the *frames* around them dithered
+(`gfx_ink` screens a shape with no help). That is rule 2's own failure on top
+of rule 1's: the two halves of one control disagreeing.
+
+`mppu_dpen` / `mppu_dink` / `mppu_dpen_off` in `mppui.inc` are the fix, and
+they are **two entry points because AX is sometimes live**. That is not a
+style choice — it is the bug the first version of the fix had. `mpps_draw_box`
+holds the control's x in `AX` across the branch that greys it, so a pen
+routine that returns an ink in `AL` corrupts the rect it is about to draw. The
+shape callers take `mppu_dpen` and keep every register; only the three opaque-
+run callers, which are all *building* `AX` rather than holding it, take
+`mppu_dink`. `mppu_dpen_off` is spent before the routine returns rather than
+at the branch, so no path can leak the flag into the next thing drawn in the
+same lock hold.
+
+Verified the way §47 requires — on a 1bpp adapter, not reasoned about: on
+`VIDEO=cga` the greyed rows come back as checkerboards, box and caption
+screened together, against solid-black live text one line above them.
+
+**The Standard File dialog now says how big the file is**, and `mpp_trim`'s
+own comment named the limitation that removes: *"the claim is sized BEFORE the
+file's size is known — the dialog hands over a name, not a directory entry"*.
+On this branch the completion proc gets `DX:CX` = the size (§38.6), free,
+straight out of the mount snapshot already in RAM. So `mpp_fdone` banks it and
+`mpp_load_name` **refuses before the read** rather than after it: over 128KB,
+or larger than `OSAPI_MEM_AVAIL`'s largest run, is a `File too big` with the
+drive still stopped. On the field machine a 116KB module is seconds of motor
+(PERFORMANCE.md), and a player that reads all of it to then say no looks
+exactly like one that is working.
+
+The banked size is **read-and-clear**, and that is load-bearing rather than
+tidy: `mpp_load_name` is also reached from `mpp_pl_play`, a playlist advance
+with no dialog behind it, which must not inherit some other file's figure and
+claim a buffer too small for what it is about to read. The `Add...` branch,
+which banks a size and never loads, clears it explicitly for the same reason.
+
+**`MOD` is left pointing at Tracker**, deliberately. §54's association tables
+bake `MOD` → `TRACKER` into the kernel, and `OSAPI_ASSOC_SET` *repoints* an
+extension somebody else claimed — that is the feature, not an oversight. Two
+MOD players both claiming it would make what a double-clicked module opens
+depend on which loaded last, which is worse than either answer. ModPlug is
+launched from its icon and opens through its own dialog; nothing is lost, and
+changing which player owns the extension is a decision for whoever wants it
+changed, not a side effect of a port.
+
+**`WF_SNAP` was considered and not taken.** §11.94's 8-pixel content snap is
+what earns `font_run`'s single-store fast path on mono, and this is the app it
+sounds written for — §56.12 exists because text was 158 glyph cells a frame.
+But snapping the *window* only aligns the content origin: every run inside it
+also has to start on a multiple of 8, and this face's element positions come
+from ModPlug Player's own layout (`+11` for a label beside an LED, `+5` inside
+a button). Tracker had to move its pattern columns onto 8-pixel boundaries to
+earn it; here that means moving the skin, which is the thing being ported. It
+is also a question about *time* on a 4.77MHz machine, which the container
+cannot answer (PERFORMANCE.md Part 4) — so it is left for a field measurement
+rather than guessed at, exactly as the Disk window's was (§22).
+
+One thing that is **not** a difference: the worker's stack. It is 256 bytes
+here and 512 on `main` (§8, §20.6 rule 6), which is the one contract that got
+*tighter*. Measured statically over the worker's whole call tree, with every
+push on every path counted live: **98 bytes**, against Tracker's 92 — the app
+this one is architecturally a copy of, and the one that has run on the 5150.
+The deepest chain is `mpp_render` → `mppu_frame` → `mppu_paint` →
+`mppu_draw_all` → `mppu_draw_buttons` → `mppu_btn_glyph` → `mppu_ltri` →
+`mppu_tri` → `mppu_vlr`, and the three indirect calls in this package are all
+click dispatchers on task 0's 1,024-byte stack, not in the worker's tree. That
+is a bound plus a peer comparison and not a field number; `tests/stackprobe`
+on real iron is still the only thing that settles the margin, because SeaBIOS
+hides a real BIOS's interrupt stack use (docs/TESTING.md).

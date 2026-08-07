@@ -307,8 +307,7 @@ Both are shaped by the machine, and neither decision in them is cosmetic:
   on the way past — and `cga.img` is a `VIDEO=cga` kernel that ignores the
   Hercules. That kernel is built in `build/cgak/`, never in `build/`: a
   forced kernel that reaches `build/` is a machine that boots the wrong card
-  for **everyone**, which is a mistake that has been made and is why
-  `make check-images` reports it as STALE.
+  for **everyone**, and that is a mistake that has been made.
 
 **Neither disk may be write-protected.** The reports are the point, and a
 protected disk answers int 13h status 03h, which the OS faithfully reports as
@@ -317,13 +316,13 @@ protected disk answers int 13h status 03h, which the OS faithfully reports as
 They are 8.3-short and unambiguous at a DOS prompt on purpose: DOS 3.3 has no
 tab completion and these names get typed by hand into `dskimage`.
 
-**They are never committed.** `build/` is gitignored and these two are not
-among the artifacts force-added into it, so `make check-images` cannot see
-them and `all` never builds them. They are somebody's test disks, built on
-demand and **sent** — attach them to the person who is going to write them to
-a floppy. Adding them to the repo would put a pair of large binaries under
-version control that no source change updates, which is the exact failure
-`check-images` exists to catch for the ones that *are* shipped.
+**They are never committed**, and neither is anything else under `build/` —
+it is gitignored outright (SPEC.md §16), and `all` never builds these two in
+any case. They are somebody's test disks, built on demand and **sent** —
+attach them to the person who is going to write them to a floppy. Adding them
+to the repo would put a pair of large binaries under version control that no
+source change updates, which is exactly why the shipped images stopped being
+tracked.
 
 ### Then, on the machine
 
@@ -366,8 +365,8 @@ Two consequences worth acting on. **Batch the questions**: everything a set
 can answer should be in the image before it is written, because the marginal
 cost of one more benchmark row is nothing and the marginal cost of one more
 *trip* is the seven steps above. And **make the build deterministic before
-you hand it over** — quote a commit, and have `make check-images` clean at
-it, so a disk that behaves oddly is a finding rather than a question about
+you hand it over** — quote a commit and build the image from a clean checkout
+of it, so a disk that behaves oddly is a finding rather than a question about
 which build it was.
 
 ---
@@ -406,5 +405,6 @@ sees; keep every question about work.**
 ### Handing over a build
 
 State the **commit**, and hand over the images rather than a branch name — a
-branch moves. `make check-images` should be clean at the commit you quote, or
-the floppy holds something the source no longer says.
+branch moves. Build them from a clean checkout of the commit you quote, with
+no `VIDEO=`/`RTC=`/`DISKCNT=` knob set, or the floppy holds something the
+source no longer says.

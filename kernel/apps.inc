@@ -37,6 +37,18 @@ APP_TMR_H    equ 60
 APP_TMR_CW   equ APP_TMR_W - 2              ; content width = 158
 APP_TMR_DY   equ 5                          ; digits: top, content-relative
 APP_TMR_DW   equ 8 * 8                      ; ...and their 8-cell width
+; ...and their left edge: centred across the content, then rounded to the
+; NEAREST multiple of 8. The window carries WF_SNAP (SPEC.md 11.94), so its
+; content origin is a multiple of 8 on the two mono adapters; this constant is
+; the other half of that bargain, and together they put every digit cell on a
+; byte boundary where font_run's single-store path lives (SPEC.md 6.1/6.1.4).
+; Centring alone gives 47, which is not, and the fast path would never fire.
+; The rounding is worth 1px of asymmetry (48 left of the run, 46 right) and it
+; is the whole reason app_tmr_pos stopped computing this from [bx+W_W].
+APP_TMR_DX   equ ((APP_TMR_CW - APP_TMR_DW) / 2 + 4) & ~7
+%if APP_TMR_DX + APP_TMR_DW > APP_TMR_CW
+%error "the Timer's digits do not fit its content once rounded onto a cell"
+%endif
 APP_TMR_NB   equ 3                          ; buttons: count, size and pitch
 APP_TMR_BW   equ 46
 APP_TMR_BH   equ 15
@@ -55,10 +67,17 @@ APP_TMR_RESET equ 2
 TMR_HRS   equ 0                 ; byte
 TMR_MIN   equ 1                 ; byte
 TMR_SEC   equ 2                 ; byte
-TMR_RUN   equ 3                 ; byte: 0 stopped, 1 running (the old padding
-                                ; byte, so the stride is still 8)
+TMR_RUN   equ 3                 ; byte: 0 stopped, 1 running (the Clock's old
+                                ; padding byte, which is why the buttons cost
+                                ; no memory - unlike TMR_SHOWN below)
 TMR_LAST  equ 4                 ; word: last [ticks] sample
-TMR_ACC   equ 6                 ; word: tenth-of-tick accumulator; stride 8
+TMR_ACC   equ 6                 ; word: tenth-of-tick accumulator
+TMR_SHOWN equ 8                 ; 8 bytes: the characters this window is
+                                ; DISPLAYING, so a redraw can be the cells
+                                ; that changed and nothing else (SPEC.md 14).
+                                ; All-zero = "nothing here describes the
+                                ; screen" - see app_tmr_forget
+TMR_SIZE  equ 16                ; stride, and every byte of it is used
 
 BAL_X     equ 0                 ; words: content-relative pos + velocity
 BAL_Y     equ 2
@@ -114,6 +133,17 @@ app_tmr_kinit:
     mov ax, [ticks]
     mov [ss:di+TMR_LAST], ax
     mov word [ss:di+TMR_ACC], 0
+    call app_tmr_forget         ; a pool slot is REUSED (SPEC.md 29.4), so the
+                                ; previous instance's cells are sitting there
+                                ; describing a window that has been destroyed
+    mov al, 1                   ; the content origin onto a multiple of 8, so
+    call wm_snap                ; every digit run takes font_run's single-store
+                                ; path (SPEC.md 6.1/11.94). BX = window ptr by
+                                ; the KD_INIT contract, and this is the caller
+                                ; that section is written for: before the
+                                ; window is shown, where moving it costs
+                                ; nothing. Mono only - a no-op on VGA, which is
+                                ; what lets it be asked for unconditionally
     pop ax
     ret
 
@@ -219,6 +249,11 @@ app_about_center:
 ; The task draws the DIGITS and nothing else. The three buttons change only
 ; when they are clicked, so they are drawn by W_PAINT and by the click path,
 ; both of which run unclipped - see app_tmr_btn.
+;
+; And it usually draws nothing at all: it wakes every 9 ticks, which is just
+; under half a second, so on roughly every other wake the displayed second has
+; not moved and app_tmr_render returns having touched no pixel. When it has
+; moved it is normally ONE cell. See that routine's banner.
 ; -----------------------------------------------------------------------------
 app_tmr_task:
     mov al, dl
@@ -310,9 +345,14 @@ app_tmr_paint:
     call inst_of_win
     jc .done
     mov di, [di+I_SPTR]         ; DI = time state
+    call app_tmr_forget         ; wm_draw_win has just white-filled the whole
+                                ; content, so every cell this window was
+                                ; showing is gone and the incremental redraw
+                                ; below must letter all eight of them
     call app_tmr_digits         ; digits FIRST: a button may leave the pen
-    call app_tmr_btns           ; disabled, and app_tmr_cell's own gfx_pen_live
-                                ; is what makes the order not matter
+    call app_tmr_btns           ; disabled, and app_tmr_render's own
+                                ; gfx_pen_live is what makes the order not
+                                ; matter
 
 .done:
     pop di
@@ -601,40 +641,72 @@ app_tmr_digits:
     ret
 
 ; -----------------------------------------------------------------------------
-; app_tmr_pos - top-left of the 64x8 "HH:MM:SS" rect: centred across the
+; app_tmr_pos - top-left of the 64x8 "HH:MM:SS" rect: APP_TMR_DX across the
 ;               content, above the button row
 ; in:  BX = window ptr
 ; out: CX = x, DX = y
 ; clobbers: AX (internal helper)
+;
+; The x used to be centred here arithmetically, from [bx+W_W]. It is a
+; constant now because it has to be a multiple of 8 and an expression
+; evaluated at run time cannot be checked: APP_TMR_DX is rounded onto a cell
+; where the assembler can see it, and the window is fixed-size and unresizable
+; so there was never a second answer for it to produce (SPEC.md 14).
 ; -----------------------------------------------------------------------------
 app_tmr_pos:
     call wm_content             ; AX = content left, DX = content top
     mov cx, ax
-    mov ax, [bx+W_W]
-    sub ax, 2 + APP_TMR_DW      ; content width - string width
-    shr ax, 1
-    add cx, ax
+    add cx, APP_TMR_DX
     add dx, APP_TMR_DY
     ret
 
 ; -----------------------------------------------------------------------------
-; app_tmr_render - format an instance's time as "HH:MM:SS" and draw it black
-;                  on white, one 8x8 cell at a time
+; app_tmr_render - format an instance's time as "HH:MM:SS" and put the cells
+;                  that CHANGED on screen, as one opaque run
 ; in:  CX = x, DX = y, DI = time state ptr (gfx lock held by caller)
 ; out: nothing
-; clobbers: AX (internal helper; SI is preserved - see app_tmr_digits)
+; clobbers: flags (SI is preserved - see app_tmr_digits)
 ;
-; The white background is erased PER CELL rather than as one 64x8 rect, and
-; that is a clipping requirement, not a style choice (SPEC.md 11.3): gfx_fill
-; clips per pixel and font_char per whole cell, so a wide erase followed by
-; glyphs can white out a band the glyphs then refuse to repaint - a Timer cut
-; horizontally by another window's edge would blank the half you can see and
-; keep blanking it twice a second. Per cell the two cannot disagree: a cell is
-; either wholly drawable, and then erased and redrawn, or not, and then left
-; entirely alone.
+; Two things here are the whole of SPEC.md 14's redraw story, and both are
+; about the glass rather than about work.
+;
+; ONE OPAQUE RUN, NOT AN ERASE AND A LETTERING. This drew each cell as a white
+; gfx_fill followed by a font_char, which is PERFORMANCE.md Part 1's
+; double-draw flash in its textbook form: between the two calls the cell is
+; BLANK, on a 4.77MHz machine for the better part of a millisecond, twice a
+; second for as long as the Timer is open. font_run (SPEC.md 6.1) takes both
+; colours and writes each cell from its old content straight to its final
+; content in one store, so there is no interval to see - and on a 1bpp adapter
+; at a byte-aligned x that store IS the whole operation. The window carries
+; WF_SNAP (SPEC.md 11.94, asked for in app_tmr_kinit) and APP_TMR_DX is a
+; multiple of 8: that is what earns the byte-aligned path, and missing either
+; costs speed and the flash, never correctness.
+;
+; ONLY THE CELLS THAT CHANGED. TMR_SHOWN is the eight characters this window
+; is displaying, and what gets drawn is the span from the first cell that
+; differs to the last: ONE cell for a second going 30 -> 31, two when it
+; carries, and nothing whatever on the wakes that land inside the same second.
+; The eight-cell redraw twice a second was 8 gfx_fills and 8 font_chars, each
+; of the sixteen paying PERFORMANCE.md Part 2's ~756us per-call floor whatever
+; it drew.
+;
+; THE CLIP QUESTION IS ASKED ONCE, over the whole line, and it settles both
+; halves at once. font_run needs no gate of its own - it decides per cell on
+; both its paths, which is exactly SPEC.md 6.1.2's guarantee and the reason
+; the old per-cell wm_clip_test dance is gone - but a run an edge cuts has
+; cells it REFUSED, and TMR_SHOWN would then be claiming pixels nobody drew.
+; So a cut line is drawn whole and then forgotten, and the next pass letters
+; everything again: SPEC.md 28.2's rule, that a run which took that path was
+; by definition not drawn whole.
 ; -----------------------------------------------------------------------------
 app_tmr_render:
+    push ax
+    push bx
+    push cx
+    push dx
     push si
+    push di
+
     mov al, [ss:di+TMR_HRS]
     aam                         ; AH = tens, AL = ones
     add ax, 0x3030              ; both to ASCII, leading zero for free
@@ -653,56 +725,112 @@ app_tmr_render:
     mov [app_tmr_str+6], ah
     mov [app_tmr_str+7], al
     mov byte [app_tmr_str+8], 0
-    mov si, app_tmr_str
-    push cx
-.cell:
-    mov al, [si]
-    or al, al
-    jz .done
-    call app_tmr_cell
-    add cx, 8
-    inc si
-    jmp short .cell
-.done:
-    pop cx
+
+    mov ax, cx                  ; the whole line's inclusive rect: AX = x1,
+    mov bx, dx                  ; BX = y1, CX = x2, DX = y2
+    add cx, APP_TMR_DW - 1
+    add dx, 7
+    call wm_clip_test           ; preserves all four (and answers "free" when
+    mov cx, ax                  ; nothing is armed, which is every W_PAINT and
+    mov dx, bx                  ; every click)
+    jc .whole
+
+    call app_tmr_span           ; the differing cells, and TMR_SHOWN adopts
+    jc .out                     ; the new line; CF = 1 = it already showed it
+    mov bl, [app_tmr_c1]
+    xor bh, bh
+    mov byte [app_tmr_str+1+bx], 0  ; terminate after the last changed cell.
+                                    ; The scratch is rebuilt on every call, so
+                                    ; nothing has to put the byte back
+    mov bl, [app_tmr_c0]
+    mov si, bx
+    add si, app_tmr_str         ; SI = the run...
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1                   ; ...and its x, cell * 8 (8086: no shl by an
+    add cx, bx                  ; immediate other than 1 - SPEC.md 1 rule 2)
+    jmp short .draw
+.whole:
+    call app_tmr_forget         ; some of these cells are about to be refused,
+    mov si, app_tmr_str         ; so nothing may be remembered about any of them
+.draw:
+    call gfx_pen_live           ; a button drawn just before may have left
+                                ; [gfx_dis] set, which is both a checkerboard
+                                ; glyph and font_run's slow path (SPEC.md 47
+                                ; rule 1) - and font_run takes its colours in
+                                ; AL/AH, so this is here for the FLAG
+    mov al, CBLACK
+    mov ah, CWHITE
+    call font_run
+.out:
+    pop di
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
-; app_tmr_cell - one character: white 8x8 background, then the black glyph
-; in:  AL = character, CX = x, DX = y (gfx lock held)
-; out: nothing
+; app_tmr_span - which cells differ from what this window is showing, and
+;                adopt the new line as what it is about to be showing
+; in:  DI = time state ptr, app_tmr_str freshly formatted
+; out: [app_tmr_c0] = first differing cell, [app_tmr_c1] = the last;
+;      CF = 1 = none differ, and the two bytes are meaningless
 ; clobbers: flags (internal helper)
 ;
-; wm_clip_test asks font_char's own question ahead of the erase - see
-; app_tmr_render's banner. gfx_pen_live rather than a bare [gfx_color] store
-; because a button drawn just before may have left [gfx_dis] set, and a
-; flagged glyph is a checkerboard (SPEC.md 47 rule 1).
+; The compare and the adoption are one pass because they are one decision:
+; every cell this reports is about to be drawn, and its only caller reaches
+; here having established that the whole line is drawable. A cut line does not
+; come through here at all - it goes to app_tmr_forget instead.
 ; -----------------------------------------------------------------------------
-app_tmr_cell:
+app_tmr_span:
     push ax
     push bx
-    push cx
-    push dx
-    mov ax, cx                  ; the cell rect, inclusive
-    mov bx, dx
-    add cx, 7
-    add dx, 7
-    call wm_clip_test
-    jc .out                     ; not wholly drawable: erase nothing
-    mov byte [gfx_color], CWHITE
-    call gfx_fill               ; font backgrounds are transparent (SPEC.md 6)
-    call gfx_pen_live
-    pop dx
-    pop cx
+    mov byte [app_tmr_c0], 0xFF ; no cell has differed yet
+    xor bx, bx
+.cell:
+    mov al, [app_tmr_str+bx]
+    cmp al, [ss:bx+di+TMR_SHOWN]
+    je .next
+    mov [ss:bx+di+TMR_SHOWN], al
+    cmp byte [app_tmr_c0], 0xFF
+    jne .last
+    mov [app_tmr_c0], bl
+.last:
+    mov [app_tmr_c1], bl        ; kept overwritten: the last one to get here
+.next:                          ; is the far end of the span
+    inc bx
+    cmp bx, 8
+    jb .cell
+    cmp byte [app_tmr_c0], 0xFF
+    je .none
     pop bx
     pop ax
-    jmp font_char               ; CX = x, DX = y, AL = char
-.out:
-    pop dx
-    pop cx
+    clc
+    ret
+.none:
     pop bx
     pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; app_tmr_forget - this window is no longer showing anything we know about
+; in:  DI = time state ptr
+; out: nothing (all registers preserved)
+;
+; Zero is not a character any cell can hold, so eight of them make every cell
+; differ and the next app_tmr_span reports the whole line. Zeroing only the
+; first byte would report a span of ONE cell - the span is first-to-last and
+; the other seven would still match - which is the failure this routine exists
+; to make unavailable to its three callers.
+; -----------------------------------------------------------------------------
+app_tmr_forget:
+    mov word [ss:di+TMR_SHOWN+0], 0
+    mov word [ss:di+TMR_SHOWN+2], 0
+    mov word [ss:di+TMR_SHOWN+4], 0
+    mov word [ss:di+TMR_SHOWN+6], 0
     ret
 
 ; =============================================================================
@@ -855,11 +983,16 @@ section .lowbss                 ; LOW_SEG (SPEC.md 2.1): both state pools are
                                 ; the kernel's own 64KB segment. SS is LOW_SEG
                                 ; from kmain onwards and never changes, so the
                                 ; prefix needs no setup and cannot be clobbered
-app_tmr_pool:   resb 80         ; 10 x 8: TMR_HRS/MIN/SEC/RUN + LAST + ACC
+app_tmr_pool:   resb 10 * TMR_SIZE  ; TMR_HRS/MIN/SEC/RUN + LAST + ACC, and
+                                    ; the 8 cells the window is SHOWING
 app_ball_pool:  resb 80         ; 10 x 8: BAL_X/Y/VX/VY
 
 section .bss
 
 app_tmr_str:    resb 9          ; "HH:MM:SS",0 scratch (drawn under the lock)
+app_tmr_c0:     resb 1          ; app_tmr_span's answer: the first and last
+app_tmr_c1:     resb 1          ; cell of it that changed. Module scratch for
+                                ; the same reason app_tmr_str is - every path
+                                ; that reads them holds the gfx lock
 
 section .text

@@ -2910,7 +2910,16 @@ pt_msg_hide:
 ; -----------------------------------------------------------------------------
 pt_wait:
     cmp byte [pt_fsx], 0
-    jne pt_fswait
+    je .win
+    cmp byte [pt_mono], 0           ; in the bracket on a 1bpp adapter there is
+    jne .nowait                     ; nothing to wait FOR: no back buffer is
+    jmp pt_fswait                   ; possible (SPEC.md 32), so nothing is owed
+.nowait:                            ; a present, and the lock is the caller's
+    ret                             ; and is not being released either way.
+                                    ; fsx_wait's tick would put a 55 ms floor
+                                    ; under every mouse sample of a stroke -
+                                    ; slower than the WINDOW, which yields
+.win:
     call OSAPI_GFX_UNLOCK
     call OSAPI_TASK_YIELD
     call OSAPI_GFX_LOCK
@@ -3791,7 +3800,7 @@ pt_stroke:
 .move:
     mov [pt_tox], cx
     mov [pt_toy], dx
-    call pt_seg                     ; walks [pt_wx],[pt_wy] to the new point
+    call pt_segdo                   ; walks [pt_wx],[pt_wy] to the new point
     call pt_wait
     jmp short .loop
 .idle:
@@ -3821,6 +3830,233 @@ pt_dab:
     mov [pt_ry1], ax
     mov ax, [pt_wy]
     add ax, [pt_bhi]
+    mov [pt_ry2], ax
+    call pt_rect
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; pt_segdo - draw one stroke segment, by whichever route this brush allows
+; in:  [pt_wx],[pt_wy] = the start, [pt_tox],[pt_toy] = the end; lock held
+; out: [pt_wx],[pt_wy] = the end; preserves all registers
+;
+; A ONE-PIXEL brush swept along a line IS a line, so its screen half can be a
+; single OSAPI_GFX_LINE (SPEC.md 5.6) instead of a gfx_fill per pixel. That is
+; the whole of SPEC.md 42.8, and on the field machine it is the difference
+; between a pencil that follows the mouse and one that cannot: pt_seg draws the
+; brush's leading edge per step, which at width 1 is one 1x1 fill - 756us of
+; ARRIVING plus 177us - and a second whenever the minor axis moves. A 300-pixel
+; chord is ~400 calls and 373 ms, which gives the pencil a MAXIMUM DRAWABLE
+; SPEED of about 1,000 px/s. A hand drawing a circle passes that on the fast
+; part of the arc, and past it the lag runs away: the longer the chord, the
+; longer it takes to draw, the further the hand has gone. The visible result is
+; a circle that comes out as a few long straight chords with whole arcs missing
+; (docs/FIELD-NOTES.md 11). One gfx_line is ~160us a pixel and one call, so the
+; same chord is 48 ms and the ceiling moves to ~6,000 px/s.
+;
+; A WIDER brush keeps pt_seg, and that is not laziness: a swept square is not a
+; line, and pt_seg's leading-edge sweep already writes each new pixel exactly
+; once, which is why the 32px eraser is usable at all.
+; -----------------------------------------------------------------------------
+pt_segdo:
+    cmp byte [pt_mono], 0           ; 1bpp ONLY, and that is a fact about the
+    je pt_seg                       ; KERNEL, not a preference: gfx_line_raw
+                                    ; sends a mono adapter to gfx_line_mono and
+                                    ; VGA to gfx_line_runs, and the two do not
+                                    ; agree pixel for pixel. The walk below
+                                    ; mirrors the mono one exactly (verified,
+                                    ; SPEC.md 42.8); against the VGA one the
+                                    ; same test says 663 bytes. The machine
+                                    ; that needs this is the 4.77MHz one and it
+                                    ; is mono, so the gate costs nothing real -
+                                    ; but it is a gate, not a coincidence
+    cmp word [pt_blo], 0            ; width 1 - blo and bhi are both 0 only
+    jne pt_seg                      ; for a one-pixel dab
+    cmp word [pt_bhi], 0
+    jne pt_seg
+    push ax
+    mov ax, [pt_wx]                 ; the walk is about to move these
+    mov [pt_lsx0], ax
+    mov ax, [pt_wy]
+    mov [pt_lsy0], ax
+    mov ax, [pt_wx]                 ; can the SCREEN half be one call? gfx_line
+    call pt_lcanx                   ; clips to the SCREEN, not to the canvas,
+    jc .perpix                      ; so a stroke dragged off the picture would
+    mov ax, [pt_tox]                ; be drawn straight through the tool
+    call pt_lcanx                   ; palette. Testing the two ENDS is enough:
+    jc .perpix                      ; the canvas is a box and a box is convex
+    mov ax, [pt_wy]
+    call pt_lcany
+    jc .perpix
+    mov ax, [pt_toy]
+    call pt_lcany
+    jc .perpix
+    mov byte [pt_noscr], 1          ; the walk writes the canvas and the undo
+    call pt_lineseg                 ; image; the screen is the one call below
+    mov byte [pt_noscr], 0
+    call pt_lndraw
+    pop ax
+    ret
+.perpix:
+    call pt_lineseg                 ; same rasterization, screen per pixel -
+    pop ax                          ; slow, but it is the same shape, and only
+    ret                             ; a stroke leaving the canvas takes it
+
+; pt_lcanx / pt_lcany - CF=1 if AX is off the canvas on that axis
+; out: CF; preserves all registers
+pt_lcanx:
+    or ax, ax
+    js .bad
+    cmp ax, [pt_cw]
+    jge .bad
+    clc
+    ret
+.bad:
+    stc
+    ret
+
+pt_lcany:
+    or ax, ax
+    js .bad
+    cmp ax, [pt_ch]
+    jge .bad
+    clc
+    ret
+.bad:
+    stc
+    ret
+
+; pt_lndraw - the segment's screen half, in one call
+; in:  [pt_lsx0],[pt_lsy0] = the start, [pt_wx],[pt_wy] = the end; lock held
+; out: nothing; preserves all registers
+pt_lndraw:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov al, [pt_ink]
+    call OSAPI_SET_COLOR
+    mov ax, [pt_lsx0]
+    add ax, [pt_cx0]
+    mov bx, [pt_lsy0]
+    add bx, [pt_cy0]
+    mov cx, [pt_wx]
+    add cx, [pt_cx0]
+    mov dx, [pt_wy]
+    add dx, [pt_cy0]
+    xor si, si                      ; thin: nothing here erases a line drawn in
+    call OSAPI_GFX_LINE             ; segments, so 5.6.5's dilation is not owed
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; pt_lineseg - walk a one-pixel segment into the canvas, THE KERNEL'S WAY
+; in:  [pt_wx],[pt_wy] = the start, [pt_tox],[pt_toy] = the end
+; out: [pt_wx],[pt_wy] = the end; preserves all registers
+;
+; **This is gfx_line's own rasterization, and it has to be.** The canvas is
+; what a repaint draws from, so a canvas walked one way and a screen drawn
+; another disagree - and they are not close: the two forms put almost every
+; pixel of a chord in a different place, so the stroke on the glass would snap
+; to a different shape at the next repaint. Measured before this existed: 3,015
+; differing bytes over twelve strokes, against 0 with the fast path off.
+;
+; So the arithmetic below is vga12.inc's, verbatim: normalise so y1 <= y2
+; (swapping BOTH ends), dy >= 0, sx the sign of dx, err = dx - dy, and one e2
+; per iteration read by both axis tests - which is what makes it ONE Bresenham
+; rather than two independent ones, and is exactly where the DDA form this
+; replaces differed. The walk therefore runs DOWNWARD whichever way the drag
+; went, which costs nothing: what is being painted is a SET of pixels, and the
+; brush's own position is restored from [pt_tox],[pt_toy] at the end.
+;
+; The start pixel is plotted, where pt_seg's sweep skips it (the previous
+; segment ended there). Re-plotting it in the same ink is free and it is what
+; keeps the walk identical to gfx_line's, which draws both endpoints.
+; -----------------------------------------------------------------------------
+pt_lineseg:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [pt_wx]
+    mov bx, [pt_wy]
+    mov cx, [pt_tox]
+    mov dx, [pt_toy]
+    cmp bx, dx                      ; SIGNED: y1 <= y2, or swap both ends
+    jle .ord
+    xchg ax, cx
+    xchg bx, dx
+.ord:
+    mov [pt_lx], ax
+    mov [pt_ly], bx
+    mov [pt_lx2], cx
+    mov [pt_ly2], dx
+    sub dx, bx                      ; dy, and it cannot be negative now
+    mov [pt_ldy], dx
+    mov word [pt_lsgx], 1
+    sub cx, ax                      ; dx = |x2 - x1|, sx = its sign
+    jns .dxok
+    neg cx
+    mov word [pt_lsgx], -1
+.dxok:
+    mov [pt_ldx], cx
+    sub cx, dx                      ; err = dx - dy
+    mov [pt_lerr], cx
+.pixel:
+    call pt_lpix
+    mov ax, [pt_lx]
+    cmp ax, [pt_lx2]
+    jne .step
+    mov ax, [pt_ly]
+    cmp ax, [pt_ly2]
+    je .done
+.step:
+    mov cx, [pt_lerr]               ; e2 = 2 * err; BOTH tests read the same
+    add cx, cx                      ; e2, which is what makes it one Bresenham
+    mov ax, [pt_ldy]
+    neg ax
+    cmp cx, ax                      ; e2 > -dy: step x
+    jle .noxs
+    mov ax, [pt_lerr]
+    sub ax, [pt_ldy]
+    mov [pt_lerr], ax
+    mov ax, [pt_lx]
+    add ax, [pt_lsgx]
+    mov [pt_lx], ax
+.noxs:
+    cmp cx, [pt_ldx]                ; e2 < dx: step y
+    jge .pixel
+    mov ax, [pt_lerr]
+    add ax, [pt_ldx]
+    mov [pt_lerr], ax
+    inc word [pt_ly]
+    jmp .pixel
+.done:
+    mov ax, [pt_tox]                ; the walk may have run against the drag;
+    mov [pt_wx], ax                 ; the BRUSH ends where the drag ended
+    mov ax, [pt_toy]
+    mov [pt_wy], ax
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; pt_lpix - one canvas pixel at [pt_lx],[pt_ly], through the rect path so the
+; clip to the canvas and the undo marking are the ones every other tool uses
+; out: nothing; preserves all registers
+pt_lpix:
+    push ax
+    mov ax, [pt_lx]
+    mov [pt_rx1], ax
+    mov [pt_rx2], ax
+    mov ax, [pt_ly]
+    mov [pt_ry1], ax
     mov [pt_ry2], ax
     call pt_rect
     pop ax
@@ -9594,6 +9830,16 @@ pt_ic_text:
     PTBYTE pt_undo_ok               ; the undo image holds something
     PTBYTE pt_undo_off              ; we ARE the undo: do not re-snapshot
     PTBYTE pt_noscr                 ; pt_rect: pixels only, no gfx call
+    PTWORD pt_lsx0                  ; pt_segdo: the segment's start, banked
+    PTWORD pt_lsy0                  ; before the walk moves the brush
+    PTWORD pt_lx                    ; pt_lineseg's walk: the live point...
+    PTWORD pt_ly
+    PTWORD pt_lx2                   ; ...its far end...
+    PTWORD pt_ly2
+    PTWORD pt_ldx                   ; ...and the Bresenham state
+    PTWORD pt_ldy
+    PTWORD pt_lsgx
+    PTWORD pt_lerr
     PTBYTE pt_pen                   ; chrome colour
     PTBYTE pt_fbyte                 ; pt_rect: the fill colour in both nibbles
                                     ; (in memory because the row loop needs BX)
