@@ -44,12 +44,12 @@ want published.
 > assume any figure came off the 5150 unless the run on it was actually
 > discussed. **Ask.**
 
-The owner of the 5150 also tests on **PCem**, routinely — and PCem is not
-QEMU, so this is not the usual "emulators lie" caution. It models period
-hardware at period speed, which makes its numbers *plausible in the same
-units* as the iron's, and that is exactly what makes an unlabelled one
-dangerous: a QEMU figure announces itself by being absurd, and a PCem figure
-does not.
+The owner of the 5150 also tests on **PCem** routinely, and Part 9's Set 4
+came off **MartyPC** — and neither is QEMU, so this is not the usual
+"emulators lie" caution. Both model period hardware at period speed, which
+makes their numbers *plausible in the same units* as the iron's, and that is
+exactly what makes an unlabelled one dangerous: a QEMU figure announces
+itself by being absurd, and a PCem or MartyPC figure does not.
 
 This is PERFORMANCE.md Part 6 rule 8 — every figure carries its machine —
 applied to the conversation rather than to the document. A number whose
@@ -59,7 +59,7 @@ heading, and the next reader has no way to catch it.
 | you were given | what it is worth |
 |---|---|
 | a `.TXT` report the owner says came off the 5150 | a **field set**. Part 9, with its four provenance lines |
-| a report from **PCem** | a good cross-check of *work* and a reasonable sanity check on *time* — but it is a model of the machine, not the machine. Label it PCem in Part 9 or leave it out |
+| a report from **PCem** or **MartyPC** | a good cross-check of *work* and a reasonable sanity check on *time* — but a model of the machine, not the machine. **Name the emulator in Part 9**, as Set 4 does, or leave it out |
 | a report from **QEMU** | instruction counts only, and only under `-icount`. Never microseconds |
 | a screenshot, a description, "it looked fine" | evidence about behaviour, not about time |
 
@@ -168,22 +168,48 @@ here, and it is the one to repeat if anything in that block changes.
 
 ---
 
-## PCem — the other place results come from
+## PCem and MartyPC — the other places results come from
 
-Not a machine in the register's sense, but it belongs here because reports
-come off it and they are easy to mistake for field sets.
+Not machines in the register's sense, but they belong here because reports
+come off them and are easy to mistake for field sets. PCem is where the
+5150's owner tests routinely; MartyPC is a cycle-accurate 5150 emulator and
+produced Part 9's Set 4.
 
-PCem emulates period hardware at period speed, which puts it in a different
-class from QEMU entirely: its numbers are in the right units and the right
-order of magnitude, so nothing about them looks wrong. Treat it as a **very
-good model** and never as the machine —
+Both emulate period hardware at period speed, which puts them in a different
+class from QEMU entirely: their numbers are in the right units and the right
+order of magnitude, so nothing about them looks wrong. Treat either as a
+**very good model** and never as the machine —
 
 - it is the right tool for *reproducing* something the 5150 showed, without
   spending the seven-step trip below;
 - it is the right tool for anything the 5150 must not be pointed at — a
   format, a partition, a disk tool run, anything that writes;
-- and its figures go into Part 9 **labelled PCem**, or not at all. Part 9's
-  four provenance lines exist for exactly this.
+- and their figures go into Part 9 **named**, or not at all. Part 9's four
+  provenance lines exist for exactly this, and Set 4 is the worked example:
+  it says MartyPC on its machine line and carries its own calibration, which
+  is what makes it comparable to the next run rather than to nothing.
+
+## MartyPC — the same caveat, one class better
+
+Also not a machine in the register's sense, and it goes in Part 9 **labelled
+MartyPC** for the same reason PCem does. The difference worth knowing is that
+MartyPC is **cycle accurate** rather than approximately period-correct, so it
+models the 8088's prefetch queue and bus contention rather than a clock rate
+— which is precisely where this project's costs live (Part 2's instruction
+floor is a prefetch-starvation number). Set 4 came off it.
+
+It has already produced something the 5150 has not: a **77-second log of a
+running application**, one row a second, rather than a benchmark that runs
+once. That is a different instrument and it needs the discipline below.
+
+**A long log is only comparable to another long log if it says how fast the
+machine was.** Two earlier runs could not be compared at all — kernel code
+neither of them touched moved 16–19% between them, and nothing in either log
+said so, which made every conclusion drawn from the pair worthless. A run
+must time a fixed, known quantity of work at each end and print it; Set 4's
+`CAL` lines are that, and their CPU figure agreeing to 0.01% is what licenses
+every other number in the set. If the two brackets disagree, the machine
+moved *underneath* the measurement and the rows between them are suspect.
 
 ---
 

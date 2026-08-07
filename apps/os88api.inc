@@ -1471,6 +1471,21 @@ OS88_BSS_SIZE equ 0
                                  ; erased whole still is not, and that is
                                  ; still the caller's to dilate
 
+; --- the boot timer (SPEC.md 15.4) --------------------------------------------
+%define OSAPI_BOOT_TICKS    KERNEL_SEG:0x02F8   ; out AX = how long this machine
+                                 ; took to boot, in SYSTEM TICKS (18.2065 Hz,
+                                 ; 54.925 ms each): the boot sector's first
+                                 ; instruction to the first desktop frame
+                                 ; being on the glass. It spans the kernel
+                                 ; read, the video probe, the mount and every
+                                 ; driver SYSTEM.CFG asked for, which is most
+                                 ; of what a boot IS on a floppy machine -
+                                 ; 238 ms a sector (PERFORMANCE.md Part 2).
+                                 ; AX = 0xFFFF means the boot sector never
+                                 ; stamped it: an image built before the timer
+                                 ; existed. Report unknown, do not print it as
+                                 ; a duration. Takes no lock, touches no disk.
+
 FSXF_KEEPWORKER equ 1           ; OSAPI_FSX_RUN CX bit 0: your worker stays
                                 ; scheduled through the bracket. For workers
                                 ; that FEED - an audio ring, a state word.

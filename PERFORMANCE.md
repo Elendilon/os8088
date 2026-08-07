@@ -425,6 +425,7 @@ list to check yourself against.
 | Missile Command terrain repair | `[mc_gdirty]`, one byte: the whole ground band, six cities and three bases — **143 ms**, five times in 86 frames | a damage **span**: 16.5 ms, byte-identical to a full repaint | §48.9 |
 | Missile Command score strip | the whole strip blanked and re-lettered on every kill | three `font_run` fields, space-padded — no blank interval | §48.9, §6.1 |
 | Missile Command missile trails | an app-side Bresenham emitting one `gfx_hline` per **row** — a whole-trail erase was 267 fills, ~310 ms, a five-tick stall | one `gfx_line`: 59 ms worst frame, and the busy frame whole went 190 ms → **43.5 ms** | §5.6, §48.8.3 |
+| A dilated STEEP line | three Bresenham walks over the same pixels — 37.8 ms of a 73.5 ms Missile Command frame | one walk writing a three-bit mask: **1.91×**, measured in guest instructions by `gfxbench`'s transposed pair after `linetest`'s host-time 1.3–1.9× settled nothing | §5.6.6 |
 | Missile Command crosshair | 8 `gfx_xor_fill` **every frame** whether the mouse moved or not — **8.6 ms of a 55 ms tick**, idle frames included | 0 unless it moved or something drew through it; 4 signed compares per primitive otherwise, and the screen is byte-identical | §48.11 |
 | Dilated line, 1bpp steep (`gfx_line` SI=1) | three full Bresenham walks — a 300px trail erase is 900 mono RMWs, **37.8 ms of a 73.5 ms frame** in Missile Command and only 5.2 calls in it | one walk with a three-bit mask: the three columns share a row and usually a byte. 0 differing pixels on Hercules and CGA; the SPEEDUP is unsettled (1.3–1.9× across four QEMU runs, which is host time and so not a measurement — Part 4) | §5.6.6 |
 | Missile Command burst life | grow, peak, **collapse**, gone — 39 fills a burst, and the collapse alone is 42% of it for one visible state | grow and hold, with the life cut 27→21 frames so Σr (all a burst's lethality) is preserved to 3.3%: 25 fills, **18.3 → 12.4 ms a frame** | §48.12 |
@@ -658,6 +659,8 @@ worth taking:
 | `gfxbench: FULLSCREEN in+out` | **the whole-screen repaint.** Part 1 calls it a "visible redraw", Part 5's entire budget table is organised around avoiding it, and no field set has ever put a number on it — because a package cannot reach one. `wm_fullscreen`'s exit is a `wm_paint_all`, and it is the ONE composition call legal from a window callback (below) | **seconds**, and it is method T for that reason. What is in it: the desktop dither, the drive zones, the dock, the menu bar and every visible window — one of which is this report, priced separately by `whole page of rows` |
 | `gfxbench: GFX_FILL 64x64 clipped` | **what §11.3's clip region costs a covered background window.** `WM_CLIP_SET+CLEAR` was measured; drawing *under* one never was. It sits next to its own unclipped row, so the gap is the answer | a little over the unclipped row plus the `SET+CLEAR` cell. Much more and `gfx_clip_run`'s re-entry is dearer than the region arithmetic it saves |
 | `gfxbench:` the whole **fullscreen block** | **whether a primitive costs what it costs wherever it is drawn.** Same code, same sandbox, different place on the glass, no chrome around it. The rows carry the same labels as their windowed twins so they diff by name | the primitives to be **boring** — landing on their twins. One that does not has found something position-dependent nobody believed was |
+| `sysbench: boot ticks` / `boot ms` | **how long the machine takes to boot** (§15.4) — the one thing this project could never measure, because it is over before a package can run. On a floppy machine it is mostly the 125-sector kernel read at 238 ms a sector, so it is what §18.91's batching and §18.93's parameter table have to answer to | a number at last. Resolution is one tick, 54.925 ms, which on a boot measured in seconds is quantisation rather than noise |
+| `gfxbench:` the four **`GFX_LINE`** rows | **§5.6.6's dilated-line optimisation, in microseconds.** The instruction answer is already in (below); this is the duration. The two geometries are the same line transposed, 128 pixels each, so the pair checks itself | the two **thin** rows to match; `line shal fat/thin` near **300** (three walks, the control); `line steep fat/thin` near **156**, which is the claim |
 | `sysbench:` the **hard-disk block** | **§52's driver on real spinning MFM, which has never been measured** — and the first hard-disk twin of the floppy rows. Read-only by construction: it mounts, walks the FAT, reads one file and puts the volume back, because the disk it will run against is somebody's DOS 3.3 install (docs/FIELD-MACHINES.md) | anything at all. The floppy is 2,100 bytes/second and 238 ms a sector; whatever `hdd bytes/sec` says is the first number on the other side of that. `HDD FILE_DFREE` is the one to watch — the 9-sector FAT window (§18.8) has to page across a 41-sector FAT, which is what §18.8.1 was written against |
 
 None of them says anything on an emulator, and two say so loudly: under
@@ -1179,3 +1182,93 @@ Priced from the same teardown, for whoever comes next:
 | the API far-call cell | ~223 clocks, 6% | the package ABI (§20.1) |
 | a dedicated 1-row body for `gfx_hline`/`gfx_pixel` | maybe 25% of what remains | a second implementation of the same pixels, ~100 bytes, and Part 3 item 4's exact failure mode |
 | a one-entry memo on `gfx_rowbase` | ~4% of a text row (78 cells share a y) | it is a *loss* on the single-call case this section is about — the wrong trade for the headline number, the right one for text |
+
+### Set 4 — MartyPC, and the first log that could be trusted against another
+
+| | |
+|---|---|
+| machine | **MartyPC**, a cycle-accurate IBM 5150 emulator, 4.77 MHz 8088, Hercules |
+| adapter | Hercules 720x348, content 628x247 (fullscreen window), CPU tier 0, coarse explosion on |
+| build | `523cff1` plus the debug frame logger (never committed — `tools`-side script) |
+| date | 2026-08-07 |
+| run | 77 seconds of Missile Command, fullscreen, heavy play — 1,233 frames, **mean 16.0 fps against the 18 the tick allows** |
+
+Sets 1–3 were taken by a harness that runs once and reports. This one is
+different in kind: it is a **77-second log of a real application**, one row a
+second, with the frame split into stages — and it is the first that carries
+its own **calibration**, which is what makes it comparable to the next one.
+
+Two earlier logs from a different machine could not be compared at all, and
+nothing in either said so: between them `lok` went 5.24 → 6.09 ms and `unl`
+4.79 → 5.81 ms, which is kernel code neither run touched. So a run now times
+a fixed, known quantity of work at each end and prints it.
+
+| CAL | cpu | call | rows |
+|---|---|---|---|
+| start | 48,227 | 61,303 | 175,991 |
+| end | 48,223 | 51,461 | 164,983 |
+| drift | **0.01%** | −16.1% | −6.3% |
+
+**The CPU number agreeing to one part in ten thousand is the whole point**:
+the machine did not move under the measurement, so every row between the two
+is comparable to every other. And the two fill references disagreeing is not
+noise — it is a measurement nobody set out to take. The `start` sample runs
+inside `mc_render` with a **clip region armed** (§11.3) and the `end` one from
+a menu callback with none, so the 16% is **what arming the clip costs a
+`gfx_fill` call**. The per-scan-line figure, which the clip does not touch,
+agrees to 1% across the pair.
+
+| this machine | | Part 2's 5150 |
+|---|---|---|
+| per-call floor | **1,078 µs** unclipped, **1,284 µs** clipped | 756 µs |
+| per scan line | **126 µs** (150.9 and 149.4 counts) | 177 µs |
+
+The per-call figures are **not** `gfxbench`'s number: they are a fill as an
+*application* issues one, so they carry the API far call, `mc_fillc`'s clamp
+and its overlay hook. The per-scan-line figure is inside the kernel loop and
+is comparable — and it is **lower** than Part 2's.
+
+#### Where 77 seconds went
+
+| stage | seconds | of wall |
+|---|---|---|
+| `lok` — gfx lock + `mc_track` + `wm_clip_set` | 9.68 | **12.6%** |
+| `mov` — drawing this frame's trail segments | 9.07 | 11.8% |
+| `wip` — erasing dead missiles' trails | 7.90 | 10.3% |
+| `crs` — the crosshair overlay | 7.29 | 9.5% |
+| `unl` — gfx unlock | 7.08 | **9.2%** |
+| `exp` — the explosions | 5.85 | 7.6% |
+| `upd` — all game logic | 5.25 | 6.8% |
+| `rst` — terrain, status, banner | 3.84 | 5.0% |
+
+**`lok` + `unl` is 21.8% of the session — the largest item in the game, and
+neither draws a single pixel of it.** 6.2 ms and 5.7 ms are paid on *every*
+frame, including ones whose content is unchanged; on a 55 ms tick that is a
+fifth of the machine spent entering and leaving the drawing critical section.
+It is also the one item here that is entirely kernel-side, so whatever is in
+it is being paid by every application on every machine.
+
+#### A line pixel costs more than a fill ROW
+
+The sharpest number in the set, and it is a kernel one rather than a game one:
+
+| | |
+|---|---|
+| dilated trail erases in the run | 82, of which **31 steep (38%)** |
+| trail pixels walked | 15,807 |
+| per erase | **96 ms** over 193 pixels — nearly two whole ticks for one dead missile |
+| **per trail pixel** | **500 µs** |
+| a `gfx_fill` scan line, same machine | **126 µs** |
+
+A dilated line pixel costs **4× what a whole 64-pixel fill row costs**, and
+even undilated it would be ~167 µs — still more than a fill row. §5.6.1 puts
+the `gfx_line`/`gfx_fill` crossover at "~27px" and that was an estimate; the
+measured ratio says the walk is far dearer per pixel than it assumed, and the
+crossover wants re-deriving from these two numbers rather than from the old
+one.
+
+Two caveats, both worth carrying: 38% steep means §5.6.6's one-walk path
+fires on a **minority** of these erases (a QEMU count said 53% — the real
+machine's play says 38%), and the 500 µs does not fully decompose into three
+Bresenham passes at the instruction floor, so something in `mc_wipe_trails`
+beyond the walk is unaccounted for and has not been found yet.

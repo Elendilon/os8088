@@ -456,6 +456,20 @@ cold_entry:
     times 0x08 - ($ - $$) db 0
     jmp near spl_tick           ; 0800:0008 - boot splash tick (SPEC.md 15)
 
+    times 0x0C - ($ - $$) db 0
+boot_ticks:                     ; 0060:000C - the boot timer (SPEC.md 15.4).
+    dw 0xFFFF                   ; The BOOT SECTOR writes the BIOS tick it read
+                                ; before it loaded anything; kmain replaces it
+                                ; IN PLACE with the elapsed count once the
+                                ; first desktop frame is on the glass, and
+                                ; nothing can read it in between. 0xFFFF is
+                                ; "never stamped" - an image whose boot sector
+                                ; predates the timer, which must report
+                                ; unknown rather than a plausible wrong
+                                ; number. The offset is fixed because the boot
+                                ; sector has no other way to name it, exactly
+                                ; like the two jumps above and the table below.
+
     times 0x10 - ($ - $$) db 0  ; the table must land exactly at 0x0010
 
 ; =============================================================================
@@ -842,7 +856,12 @@ osapi_table:
                                   ;          not an oversight - and marks it
                                   ;          sticky so a header declaration
                                   ;          cannot take it back
-osapi_table_end:                  ; 0x02F8
+    OSAPI_SLOT osapi_boot_ticks   ; 0x02F8 - how long this machine took to
+                                  ;          boot, in system ticks (SPEC.md
+                                  ;          15.4): the boot sector's first
+                                  ;          instruction to the first desktop
+                                  ;          frame. 0xFFFF = unknown
+osapi_table_end:                  ; 0x0300
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -850,8 +869,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 93 * 8
-%error "os8088 API jump table must be exactly 91 8-byte slots"
+%if OSAPI_TABLE_LEN != 94 * 8
+%error "os8088 API jump table must be exactly 94 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
@@ -1193,6 +1212,23 @@ kmain:
     call gfx_lock
     call wm_paint_all
     call gfx_unlock
+
+    ; --- stop the boot timer (SPEC.md 15.4) ----------------------------------
+    ; HERE, not after cursor_show: the question is when the first desktop
+    ; FRAME is finished, and gfx_unlock is what puts it on the glass - it
+    ; flushes the back buffer where there is one, so this is the same instant
+    ; on all three adapters. The cursor is not the desktop.
+    cmp word [boot_ticks], 0xFFFF   ; unstamped: leave it saying unknown
+    je .nobt
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov ax, [0x046C]            ; the same BIOS tick the boot sector read. Our
+    pop ds                      ; own int 08h hook chains it, so it never
+    sub ax, [boot_ticks]        ; stopped ticking. One word: 65,536 ticks is
+    mov [boot_ticks], ax        ; an hour, and a boot is not
+.nobt:
+
     call cursor_show
 
     call drv_notice             ; ...and only NOW say what did not load: a
@@ -1205,6 +1241,14 @@ kmain:
 ; only through the jump table. Each preserves all registers except its
 ; documented outputs.
 ; =============================================================================
+
+; ---- osapi_boot_ticks - out: AX = the boot timer (SPEC.md 15.4) --------------
+; System-tick units, 18.2065 Hz, from the boot sector's first instruction to
+; the first desktop frame being on the glass. 0xFFFF = the boot sector never
+; stamped it, which is an image built before the timer existed.
+osapi_boot_ticks:
+    mov ax, [boot_ticks]
+    ret
 
 ; ---- osapi_get_ticks - out: AX = [ticks] -------------------------------------
 osapi_get_ticks:
