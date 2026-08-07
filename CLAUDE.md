@@ -104,17 +104,29 @@ root, and the shallow clone showed six. **A repository does not usually have
 six root commits.** If you find yourself explaining an implausible history
 shape, check the clone depth before you build anything on it.
 
-**And `main` squash-merges this branch, which is why the two keep drifting.**
-A squash makes a new commit carrying elendilon's *content* with no ancestry
-link to elendilon's *commits*, so `main` never records that it contains this
-work and the merge base stays pinned at the last real sync — until the
-divergence gets bad enough that somebody re-cuts the branch, which is what
-`52d31a2` was. The cure is one command **after every squash-merge into main**:
-`git checkout elendilon && git merge main && git push`. The content is already
-identical, so it is a near-trivial merge whose whole purpose is to record the
-ancestry; the base advances, "N commits behind" returns to 0, and the next
-cycle starts clean. Skip it and the next merge conflicts against a copy of
-itself in every file both sides touched.
+**Upstream squash-merges the integration branch, and a fresh branch is then cut
+from `main`. That is the CYCLE, it is deliberate, and it is not to be
+"fixed".** `jggonz/os8088` keeps a linear, one-commit-per-feature history on
+purpose: the last merge commit on `main` is PR #14 and every commit since is a
+squash. A squash carries the branch's *content* into a brand-new commit with no
+ancestry link to the branch's *commits*, so the integration branch is
+**disposable** — cut from `main` at a squash, lived in for one round of work,
+replaced by a fresh cut. The gap therefore self-heals at the cycle boundary and
+needs no maintenance merge in between; what is lost at a re-cut is anything
+that never made it into the PR.
+
+What does *not* self-heal is `main` moving **mid-cycle** with work of its own —
+which is what PRs #56/#57/#58 were, and what `elendilon` had to go and fetch.
+**`docs/UPSTREAM.md` is the playbook** for that and for everything else about
+this boundary: how to tell the branch's own work coming home from upstream work
+that has to be fetched, how to adapt an incoming package to a kernel the branch
+has moved on from (the branch's SDK is normally a SUPERSET of the one the code
+was written against, so nothing fails to assemble and *every difference is
+silent* — greying, glyph tables and worker stacks have all arrived broken this
+way), how to resolve the merge without `--ours` quietly eating something only
+`main` has, and what the PR back has to carry given that the squash turns its
+title into `main`'s whole history entry — with the shallow-clone rule above as
+its Rule 0, because every question at this boundary is an ancestry question.
 
 **docs/FIELD-NOTES.md is the fourth one, and it is the shortest: what real
 hardware found and the harness could not.** Open, reproduced, unfixed — with
