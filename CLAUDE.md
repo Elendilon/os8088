@@ -1260,9 +1260,19 @@ contest**, so a single-UART machine uses a threshold of 1 and behaves exactly
 as it did before COM2 existed; only two live ports pay `MOU_LOCKN` = 8, which
 costs a fifth of a second of the first movement of the session and nothing
 after. Test it with `make test MOUSEPORT=com2` (a live but silent UART at
-3F8 and the mouse at 2F8 — the hard case; `-serial none` would test only the
-easy half). Cost: 302 bytes of `.text` and **nothing** against `KERN_BUDGET`,
-the growth landing in the image's existing padding to `OVL_START`.
+3F8 and the mouse at 2F8 — the hard case; an unpopulated 3F8 tests only the
+easy half), and **`MOUSEPORT=com2irq4`** for §9.5.2's cross-wired card. Cost:
+302 bytes of `.text` and **nothing** against `KERN_BUDGET`, the growth landing
+in the image's existing padding to `OVL_START`.
+
+**A real 5150 BIOS under QEMU's `-bios` was asked about and does not work** —
+QEMU has no XT-class machine, and the 5150 POST reads its DIP switches through
+an **8255 PPI at 60h–63h** where every QEMU machine has an **8042 at 60h/64h**,
+so it fails before video. `-bios` maps a file; it does not change the hardware
+under it. 86Box with the real ROM sets is what that question wants and
+`make xt` and friends already are it. SeaBIOS *does* misrepresent a period
+machine — int 1Eh, short int 13h reads, interrupt stack use — but none of that
+is reachable this way (docs/TESTING.md).
 
 ### With no mouse, the arrows ARE the mouse (SPEC.md §9.6)
 
