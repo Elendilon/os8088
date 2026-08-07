@@ -992,13 +992,19 @@ Verified on all three adapters: drawn in chunks of 3 and erased in chunks of
 #### 5.6.8 Many walks, one arrival — `gfx_lstepv` (0x0318)
 
 §5.6.7 gives a moving line a cheap *pixel*. It does nothing about the
-*arrival*, and for the caller this was written for that is the whole cost: a
-walk step draws two or three pixels, and §5.7 prices getting into a drawing
-call at ~756us on the target machine whatever it then draws. Missile Command
-stepping one call per live missile was measured on a 5150-class machine at
-**10.2 ms of a 46 ms frame to draw about nineteen pixels** — 570us a pixel,
-against the 160us the same pixels cost in the drain, which happens to hand
-several trails over per call.
+*arrival*, and this was built on the belief that the arrival is where the
+cost of a moving line lives: a walk step draws two or three pixels, and §5.7
+prices getting into a drawing call at ~756us whatever it then draws. Missile
+Command stepping one call per live missile measured **10.2 ms of a 46 ms
+frame to draw about nineteen pixels** — 570us a pixel, against the 160us the
+same pixels cost in the drain, which happens to hand several trails over per
+call.
+
+**That reading was wrong, and the correction is at the end of this
+subsection**: the field has since priced the arrival at 128.7 µs rather than
+756, so what separated those two figures was mostly the per-block setup and
+not the number of arrivals. The batch is still worth having and everything
+below is still true of it — but read the last part before quoting the first.
 
 So hand them all over at once:
 
@@ -1045,14 +1051,41 @@ prologue, not the rect machinery §5.7 measured. Borrowing §5.7's ~756 µs for
 it was wrong.
 
 Instructions understate the clocks — Part 9 measured the far-call cell at
-46.7 µs for about seven instructions — so the field ratio will be higher than
-118. But charging *every* removed instruction at far-call rates still only
-reaches about 160, against the **356** this section's own field figures imply
-(570 µs a pixel stepping one call per missile against 160 µs in the drain).
-**That gap is unexplained.** The batching is still a win and the drain still
-needs it; what is not established is that the *arrival count* is where a
-moving line's cost lives, and the two rows are what a field set should use to
-settle it.
+46.7 µs for about seven instructions — so the field ratio was expected to be
+higher than 118. **The field says 116** (Part 9 Set 11, the 5150 itself), so
+the instruction count was right and the ratio is if anything a shade *lower*.
+The two rows decompose to a **128.7 µs arrival** and a **655.0 µs "pixel"**.
+
+**That closes the 356 gap, and the way it closes is the useful part: the
+three numbers are all correct and all measure different things.**
+`gb_b_lstepv8` steps eight *separate blocks* of one pixel each, so its
+per-pixel term is a whole one-pixel **block** — staged in, `gfx_ls_box`,
+`gfx_ls_addr` through `gfx_rowbase`, the pixel, staged back out — and not the
+marginal pixel inside a multi-pixel step. The tell is that 655.0 µs lands
+within 2% of the same machine's `GFX_PIXEL` (640.87): a one-pixel walk costs
+what a pixel costs, because it is one. Missile Command's drain, which steps
+tens of pixels on ONE block, measured the marginal pixel at **160-195 µs**.
+
+So, for a caller of this shape — N blocks, two or three pixels each, once a
+frame:
+
+| | |
+|---|---|
+| arrival, removed by the batch | **128.7 µs** × (N−1) |
+| block setup, which the batch does NOT remove | **~480 µs** × N |
+| marginal pixel | **~175 µs** × pixels |
+
+At Missile Command's eight live missiles the batch is worth about **0.9 ms a
+frame**, not the ~6 ms §48.16 claimed from a fill-derived floor. The change
+stands and the drain still wants it; the *size* was wrong, and it was wrong
+for the reason this subsection opens with — §5.7's number was borrowed for a
+routine §5.7 never measured.
+
+**And it names the thing that does dominate**, which neither of the two
+candidates was: the **per-block setup**, ~3.8 ms a frame at eight missiles.
+Cutting that means fewer blocks (stepping a trail every other frame, which
+makes a missile move in 5px hops — visible) or a cheaper setup, which is
+§5.7's own diffuse problem again.
 
 **§48.18.1 reached the same structural distinction from the other end**, by
 costing a vector `gfx_fill` against the floor instead of measuring one: a
@@ -1744,6 +1777,17 @@ whenever the promise survived: if any path wrote there while the arrow was up,
 the cell differs. Across a session of menus, window drags, a Control Panel, a
 Disk window and a Task Manager refreshing throughout - **0 violations**, with
 the cursor kept up on 30 of 31 refreshes while parked away from the window.
+
+**Missile Command is not exposed to §7.1.4.1's register bug**, and it is worth
+saying which property saved it rather than leaving it to inspection:
+`mc_worker` keeps its whole state in memory (`[mc_due]`, `[mc_win]`) and
+reloads every register at the top of each iteration, so there is nothing live
+in BP or SI across its `OSAPI_GFX_UNLOCK`. Bounce and the Timer hold theirs in
+registers for the life of the task, which is why they were the ones that
+stopped. It also arms a region (`mc_render` calls `OSAPI_WM_CLIP_SET`), so it
+takes §7.1.4's deferred hide correctly — though a player's pointer is inside
+the window by definition, so the promise is spent every frame and the win is
+not one this game can collect.
 
 **One trap, and it cost the boot.** `vid_setmode` looks like it wants
 `cur_unlazy` - a mode set clears the screen under the arrow. It must NOT have
@@ -16961,6 +17005,18 @@ Four things about it are load-bearing:
   cursor off, so the bracket has one crosshair and no arrow — which is the
   cheapest confirmation that the bracket is actually running.
 
+**On the iron this is worth nine times what the emulators said.** Set 4
+priced the pair at 246 µs on MartyPC and 21.8% of a session; the 5150 itself
+measures `GFX_UNLOCK+LOCK` at **2,241 µs on Hercules and 2,402 on CGA**,
+against 119-246 on every other machine in Set 11 — the one gfxbench row where
+the 5150 and MartyPC disagree at all. The suspected mechanism is
+`cur_lazyend` → `cur_move`, which fires when the mouse has moved since the
+cursor was drawn, and **a Missile Command player never stops moving the
+mouse** (docs/FIELD-NOTES.md 8). The bracket holds the lock for the whole
+session and pays it **once**, so whatever that row turns out to be, this is
+the change that makes the game immune to it — and a *windowed* Missile
+Command on real hardware is paying it every frame.
+
 ### 48.14 A trail is ONE Bresenham, laid at launch and walked
 
 A field log put `wip` — the whole-trail erase — at **37.8 ms of a 73.5 ms
@@ -17089,7 +17145,7 @@ Verified the §48.14 way, after letting the queue empty: **0 differing pixels**
 in the game window against a forced full repaint, mid-game with live trails,
 on VGA (of 224,961) and CGA (of 129,485).
 
-### 48.16 Every trail in one call, because the arriving was the cost
+### 48.16 Every trail in one call — but the arriving was NOT the cost
 
 The field log after §48.14 and §48.15 (PERFORMANCE.md Part 9, Set 6) says the
 trail work is now honest and the trail *calls* are not. Thirteen stuttering
@@ -17116,6 +17172,21 @@ happened to serve several trails per call.
 `mc_dsc_add`/`mc_dsc_run` collect the frame's steps and spend them through
 §5.6.8's `OSAPI_GFX_LSTEPV`. **Three calls a frame instead of ten**: one for
 the ICBM pen, one for the ABM pen, one for the drain.
+
+**The diagnosis above is wrong, and the change is kept anyway.** The 570 µs
+figure is a measurement and stands; attributing it to the *arrival* does not.
+PERFORMANCE.md Part 9 Set 11 measured a walk step's arrival on the 5150 at
+**128.7 µs**, not the ~756 borrowed from §5.7's rect floor — §5.6.8 carries
+the full decomposition and why the benchmark's own "655 µs pixel" is a third
+quantity again. So this is worth about **0.9 ms a frame at eight missiles**,
+not the ~6 ms the inference gave. What separated `mov` from `drn` was mostly
+the **per-block setup**, which a batch cannot remove and a longer step
+amortises — the drain steps tens of pixels on one block and the draw steps
+two or three.
+
+Kept because 0.9 ms is still 0.9 ms and the shape is right: fewer arrivals
+for identical pixels, verified byte-exact. Recorded because a number in a
+commit message outlives the reasoning that produced it.
 
 Two things about it are easy to get wrong:
 
