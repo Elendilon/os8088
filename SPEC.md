@@ -9796,12 +9796,13 @@ driver enabled on a machine with no card is unchecked, with `'No hardware
 found'` under it. That is the `bb_avail` idiom (§31.3) again: the box, the
 caption and the click all read one word, so they cannot disagree.
 
-**A click loads or unloads on the spot**, mounting A: on demand, and only
-then writes `SYSTEM.CFG`. So the page never shows a promise about the next
-boot — what it shows is what is running. The two outcomes are reported
-separately: a load that fails leaves the box clear with its reason, and a
-*save* that fails puts a reason in the caption (§51.5.1) while the driver it
-just loaded stays loaded.
+**A click loads or unloads on the spot**, mounting A: on demand, and marks
+`SYSTEM.CFG` owed rather than writing it — the close spends it, like every
+other page (§31.8). So the page never shows a promise about the next boot —
+what it shows is what is running. The two outcomes are reported separately: a
+load that fails leaves the box clear with its reason, and a *save* that fails
+puts a reason in the caption (§51.5.1) while the driver it just loaded stays
+loaded.
 
 **A click on a row that is unloaded but WANTED clears the want instead of
 retrying.** Unloaded-but-wanted means the boot tried and failed — no card,
@@ -9819,6 +9820,65 @@ file operation in this OS makes (§18.4) — the cursor freezes for the length
 of the read — and the alternative, dropping the lock inside a click handler,
 is not one the window manager offers.
 
+### 31.6.1 Row geometry, and the erase that ate the checkbox
+
+Pane-relative, on the Scheduler page's `CP_PGX`/`CP_GW`/`CP_PLX`/`CP_PLDY`
+grid (§31.1) with a pitch of its own, because a driver row is **two** text
+lines rather than one:
+
+```nasm
+CP_DR0Y  equ 24            ; first driver row: checkbox top
+CP_DROWH equ 26            ; row pitch: row i's checkbox top = CP_DR0Y + i*26
+CP_DSTDY equ CP_PLDY + 9   ; 11: the reason line, one text row under the label
+```
+
+Row *i* draws the checkbox at (`CP_PGX`, `CP_DR0Y + i*CP_DROWH`) through
+`cp_glyph`, the driver's name at (`CP_PLX`, row top + `CP_PLDY`), and
+`drv_status`'s sentence at (`CP_PLX`, row top + `CP_DSTDY`). Hit bands are the
+Scheduler page's shape: contiguous, whole-pane-wide, `CP_DB0Y1`..`CP_DB0Y2`
+and `CP_DB0Y2+1`..`CP_DB1Y2`.
+
+**The reason line's erase starts at `CP_PLX`, and that is binding.** The
+checkbox owns rows `0..CP_GW-1` of its row and `CP_DSTDY` is `CP_GW - 1`, so
+the box's last scan line **is** the reason line's first. The two status
+strings differ in length, so the line is erased before it is lettered —
+`cp_drv_wipe`, which therefore takes the left inset **in AX** rather than
+assuming `CP_PMX` — and an erase spanning the pane's full width runs straight
+through the checkbox and takes its bottom edge off. Nothing left of `CP_PLX`
+on that scan line belongs to the reason line, so the narrower span is both the
+correct one and the cheaper one. A caption, which has nothing to its left,
+still passes `CP_PMX`.
+
+`cp_drv_paint` hid this for as long as it was the only painter: it letters
+every reason **first** and draws the boxes last, so the box was always written
+after the erase that would have cut it. The click path drew them in the other
+order, so every click ended with the boxes bottom-shaved — and because both
+painters walked all of `drv_tab`, that included rows the click had not touched.
+The general form is worth stating: **when two controls share a scan line, the
+order they are drawn in is not a detail, and a bug in it hides completely
+behind whichever painter happens to get the order right.**
+
+**A click redraws ONE row.** `drv_load` and `drv_unload` touch their own
+`drv_tab` row and no other, so `cp_drv_click` calls `cp_drv_box1` and
+`cp_drv_line1` for the row it hit; `cp_drv_boxes` is the loop over
+`cp_drv_box1` that `cp_drv_paint` still owes. Redrawing every row is a
+double-draw flash on controls that did not move, and it is not cheap:
+`cp_glyph` is a 12×12 fill and then one `gfx_pixel` per set bit — 44 of them
+for the empty box, 64 for the crossed one — which at PERFORMANCE.md Part 2's
+~756 µs of fixed cost per drawing call is 35–50 ms of the field machine's time
+**per box**. **The save caption is not redrawn on a click either**: only
+`cp_flush_x` writes `[cp_dsave]` and that runs at the close (§31.8), so it
+cannot change while the page is on screen.
+
+Counted on the shipped two-row table, a click was **5 `gfx_fill`s, ~108
+`gfx_pixel`s and 3 `font_str`s** and is **2, 44–64 and 1** — which is the point
+worth taking from this rather than the ratio: the redraw was priced by how
+many rows the table has, and only one of them can change.
+
+Verified the §48.12 way, on all three adapters: tick a row, capture the
+framebuffer, force a full `cp_drv_paint` by selecting another page and coming
+back, diff — **0 differing pixels**, for a load that succeeds, an unload, and
+a load that fails into a longer string than the one it replaces.
 
 ### 31.7 Sound page — which sound hardware the machine uses
 
@@ -9978,10 +10038,14 @@ dropping it silently. It is reported in the Drivers page's caption, the
 one page with room to say it, which means the *next* time the panel is opened:
 by the time the write happens the page it would be reported on is already
 gone. **`cp_drv_cap` is why that is now true rather than merely intended** —
-the caption used to be drawn only by `cp_drv_lines`, which runs when a row is
-TICKED, so the report appeared only if the user happened to tick something
-after a failed save in the same session, and `cp_drv_paint` drew everything on
-the page except this. Both painters call it now. Its two strings are §51.5.1's.
+the caption used to be drawn only by the click path's status-line redraw,
+which runs when a row is TICKED, so the report appeared only if the user
+happened to tick something after a failed save in the same session, and
+`cp_drv_paint` drew everything on the page except this. `cp_drv_paint` calls
+it now, and the click path deliberately does **not**: `[cp_dsave]` is written
+only by `cp_flush_x`, at the close, so the caption cannot change while the
+page is on screen and re-lettering it per click erases and redraws text that
+did not move (§31.6.1). Its two strings are §51.5.1's.
 
 ### 31.9 Pages a driver owns
 
