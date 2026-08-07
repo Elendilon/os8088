@@ -8178,8 +8178,8 @@ DOS pair was worth having while this was a text-mode habit being carried into
 a window — they were the keys a user of that machine already knew — and F3
 stopped being free when §27.10 needed a Find Next. Taking F2 with it is the
 consistent end of that: a window under a Macintosh menu bar spells its
-shortcuts with the modifier its menu items show, and Note Pad's Edit menu had
-already established `Ctrl-` letters for nine of them. The two F-keys left are
+shortcuts with the modifier its menu items show, and Note Pad's Edit and Find
+menus had already established `Ctrl-` letters for eight of them. The two F-keys left are
 Find Next and Find Previous, which have no letter to be spelled with.
 
 **The file used to be a fixed `NOTES.TXT`** — not because one note is
@@ -8999,8 +8999,29 @@ every other thing in the module follows for nothing. The signatures notice the
 geometry changed and repaint once (§27.2), the scroll bar re-derives its track,
 the note re-wraps at the same width.
 
-Two boxes (Find, and Replace in `Ctrl-R` mode), a **Regex** tick box, the match
-count, and `Next` / `Repl` / `All` / `X`. `F3` finds the next match and
+Searching has a **menu of its own**, beside Edit rather than inside it: it is
+the one thing here that reads the note without changing it, and it owns a
+panel and three keys, which is a menu rather than a tail. `Find…`,
+`Find Next` and `Replace…`; `Find Previous` is Shift-F3 only, having no
+natural item beside a `Find Next` that does not take one either.
+
+The panel is two boxes (Find, and Replace in `Ctrl-R` mode), a **Regex** tick
+box, the counter, and `Next` / `Repl` / `All` / `X`.
+
+**The counter is `n/total`, not a count**, and the reason is the row it lives
+on: the tick box and its label are to its left and four buttons to its right,
+which on a 260px window leaves nine cells. `12 found` is eight of the nine and
+`3/12` is four — and it answers the question the count was really being asked,
+which is *where am I, of how many*. A current match nobody can name shows
+`-/12` rather than a `0` that reads like an answer.
+
+**The ordinal is STEPPED, never counted.** A forward search from the end of
+match *n* lands on *n+1* and a wrapped one lands on 1, so `np_findfrom` and
+`np_findprev` report the wrap in `[np_fwrap]` and F3 does arithmetic — counting
+it would walk the whole note per keypress, which is the cost this section
+exists to avoid. When nothing has stepped it (an edit, a click, a new pattern)
+it goes to 0 and the **worker** re-derives it: `np_fcount_do` is already
+passing every match, so recognising the one on screen costs a compare. `F3` finds the next match and
 `Shift-F3` the previous one, **from anywhere** — the panel does not swallow
 them and the document does not swallow `Ctrl-F`, which is why the shared keys
 are tested before `[np_ffield]` routes anything. The search **wraps**: the
