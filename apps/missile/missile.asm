@@ -818,6 +818,7 @@ mc_cmd_modex:
     push cx
     test word [mc_caps], 1 << FSXM_MODEX
     jz .out
+    mov byte [mc_fsxm], FSXM_MODEX
     mov ax, mc_fsx_main
     mov bx, [mc_win]
     xor cx, cx                      ; no flags: our worker freezes with the
@@ -854,10 +855,13 @@ mc_fsx_main:
     push ds
     pop es
     mov di, mc_fsi
-    mov al, FSXM_MODEX
-    call OSAPI_FSX_MODE
-    jc .home                        ; refused: straight home, nothing changed
-    mov byte [mc_fsx], 1
+    mov al, [mc_fsxm]               ; SPEC.md 53.7: a bracket that never
+    cmp al, 0FFh                    ; switches modes may keep drawing with the
+    je .same                        ; kernel's own slots - "exclusive but same
+    call OSAPI_FSX_MODE             ; mode: a game loop that wants zero
+    jc .home                        ; jitter". [mc_fsx] stays 0 for it, which
+    mov byte [mc_fsx], 1            ; is what leaves mc_track, mc_fillc and
+.same:                              ; mc_line on their ordinary paths
     mov si, [mc_win]
     call mc_track                   ; 0,0,320,240 and the layout from it
     mov byte [mc_full], 1           ; everything draws from scratch
@@ -872,6 +876,10 @@ mc_fsx_main:
     xor ah, ah
     int 0x16
     cmp al, 27                      ; Esc leaves, exactly as it leaves 11.2
+    je .done
+    cmp al, 'f'                     ; ...and so does the key that got us here,
+    je .done                        ; because on the same-mode bracket this IS
+    cmp al, 'F'                     ; the Full Screen the user asked for
     je .done
     call mc_fsx_key
     jmp short .keys
@@ -975,15 +983,40 @@ mc_fs_toggle:
 mc_fs_enter:
     push ax
     push bx
+    push cx
     cmp byte [mc_fs], 0
     jne .out
-    mov byte [mc_fs], 1
     mov al, 1
     mov bx, [mc_win]
     call OSAPI_FULLSCREEN           ; fronts + repaints under the held lock,
-    jnc .out                        ; and that repaint is our own W_PAINT, so
-    mov byte [mc_fs], 0             ; the layout re-derives itself
+    jc .out                         ; and that repaint is our own W_PAINT, so
+    mov byte [mc_fs], 1             ; the layout re-derives itself
+
+    ; ...and then take the machine. SPEC.md 53.7's "exclusive but same mode":
+    ; no fsx_mode call, so the drawing slots stay legal and the geometry is
+    ; still the desktop's - what the bracket buys is EXCLUSIVITY, and on this
+    ; game that is the largest item there is. PERFORMANCE.md Set 4 measured a
+    ; windowed-fullscreen frame paying 6.2 ms of gfx_lock + mc_track +
+    ; wm_clip_set and 5.7 ms of gfx_unlock EVERY frame, drawn content or not:
+    ; 21.8% of a 77-second session spent entering and leaving the drawing
+    ; critical section. The bracket holds the lock for its whole life, so all
+    ; of that goes - and the system arrow goes with it, which is the double
+    ; cursor this surface has had since it was written.
+    mov byte [mc_fsxm], 0FFh
+    mov ax, mc_fsx_main
+    mov bx, [mc_win]
+    xor cx, cx                      ; no KEEPWORKER: our worker freezes with
+    call OSAPI_FSX_RUN              ; the rest and this loop replaces it
+    jc .out                         ; REFUSED: stay on the 11.2 surface, which
+                                    ; is exactly what this did before - the
+                                    ; bracket is an optimisation, not the
+                                    ; feature
+    mov byte [mc_fs], 0             ; ...and when it returns, so does the
+    mov al, 0                       ; window: Esc or F left the bracket
+    mov bx, [mc_win]
+    call OSAPI_FULLSCREEN
 .out:
+    pop cx
     pop bx
     pop ax
     ret
@@ -6165,7 +6198,13 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_oy
     MWORD mc_cw
     MWORD mc_ch
-    MBYTE mc_fsx                    ; inside an fsx bracket on Mode X
+    MBYTE mc_fsx                    ; inside an fsx bracket in a FOREIGN mode
+                                    ; (Mode X). NOT "inside a bracket" - a
+                                    ; same-mode bracket (SPEC.md 53.7) leaves
+                                    ; this 0, because what it changes is who
+                                    ; owns the machine and not how to draw
+    MBYTE mc_fsxm                   ; ...and the FSXM_* to set, or 0FFh for
+                                    ; the same-mode bracket
                                     ; (SPEC.md 53) - the four primitives,
                                     ; mc_track and the mouse read dispatch
                                     ; on it

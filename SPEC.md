@@ -15171,6 +15171,57 @@ game paused, the framebuffer captured, a full repaint forced, the two
 compared — **0 differing pixels of 262,144**, which is what says the `.gone`
 erase still matches what the new ramp drew.
 
+### 48.13 Fullscreen was a WINDOW, and that cost a fifth of the machine
+
+Missile Command is §53's reference consumer and was never running a bracket
+on the machines this work is about. The exclusive path was reached only
+through `mc_cmd_modex`, gated on `FSXM_MODEX`, and `fsx_caps` answers
+**0x011 on Hercules** — `FSXM_TEXT80 | FSXM_HERC`, no Mode X. So on both 1bpp
+adapters the menu item correctly read `Mode X (Vga)` and refused, `F` gave
+the **§11.2 fullscreen window** instead, and that window is an ordinary
+window that happens to cover the screen: still in the z-order, still
+pre-empted, still taking the gfx lock once a frame.
+
+**The exclusive path had been tied to a mode CHANGE rather than to
+exclusivity**, and §53.7 has always said those are separable — *"a bracket
+that never switches modes may keep drawing with them ('exclusive but same
+mode': a game loop that wants zero jitter), and that costs nothing to
+allow."* Nothing needed inventing; it needed wiring up.
+
+PERFORMANCE.md Set 4 priced the difference on a cycle-accurate 5150:
+
+| per frame, every frame, drawn content or not | |
+|---|---|
+| `lok` — `gfx_lock` + `mc_track` + `wm_clip_set` | 6.2 ms |
+| `unl` — `gfx_unlock` | 5.7 ms |
+| | **21.8% of a 77-second session** |
+
+`mc_fs_enter` now makes the window fullscreen *and then takes the machine*:
+`[mc_fsxm]` carries the `FSXM_*` to set or **0FFh for "do not switch"**, and
+`mc_fsx_main` skips `fsx_mode` for that value. Measured on the same-mode
+bracket, `lok` and `unl` are **0** — not smaller, absent, because the bracket
+holds the lock for its whole life and there is nothing to take.
+
+Four things about it are load-bearing:
+
+- **`[mc_fsx]` still means "the mode is FOREIGN", not "we are in a
+  bracket".** All ten of its readers switch the drawing to the Mode X twins
+  or answer 320x240 geometry, and a same-mode bracket wants none of that —
+  so it leaves the flag at 0 and `mc_track`, `mc_fillc` and `mc_line` stay on
+  their ordinary paths. Conflating the two would draw the game through Mode X
+  primitives on a Hercules card.
+- **A refused `fsx_run` stays on the §11.2 surface.** The bracket is an
+  optimisation, not the feature; `jc .out` leaves the fullscreen window up,
+  which is exactly what this did before.
+- **`F` leaves the bracket as well as `Esc`**, because on this surface `F` is
+  the Full Screen the user asked for and pressing it again is how they expect
+  to leave.
+- **The double cursor goes with it.** The kernel keeps the system arrow live
+  over a §11.2 fullscreen window (`MC_CHARM`'s own comment says so), so the
+  game has always shown the arrow *and* its crosshair. A held lock keeps the
+  cursor off, so the bracket has one crosshair and no arrow — which is the
+  cheapest confirmation that the bracket is actually running.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
