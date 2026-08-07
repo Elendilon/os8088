@@ -828,8 +828,27 @@ $(APPSIMG720): $(APPS) tools/os88disk.py
 $(APPSIMG360): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(APPSARGS)
 
-# The GUI reads a Microsoft serial mouse on COM1; QEMU emulates one natively.
+# The GUI reads a Microsoft serial mouse on COM1 or COM2 (SPEC.md 9.5); QEMU
+# emulates one natively. MOUSEPORT= puts it on the other one:
+#
+#   make run                  the mouse on COM1, and NOTHING at 2F8 - so the
+#                             probe finds one port and the kernel runs the
+#                             single-port path it always did
+#   make test MOUSEPORT=com2  a live but SILENT UART at 3F8 (-serial null) and
+#                             the mouse at 2F8. This is the hard case, and the
+#                             only one that tests anything: a probe that found
+#                             both ports, a contest the second one wins, and a
+#                             first port that must be retired rather than
+#                             preferred. `-serial none` instead would leave 3F8
+#                             unpopulated and test only the easy half.
+#
+# QEMU assigns -serial options to 3F8, 2F8, 3E8, 2E8 in the order they appear.
+MOUSEPORT ?= com1
+ifeq ($(MOUSEPORT),com2)
+MOUSE := -serial null -chardev msmouse,id=m0 -serial chardev:m0
+else
 MOUSE := -chardev msmouse,id=m0 -serial chardev:m0
+endif
 
 run: $(IMG) $(APPSIMG)
 	$(QEMU) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \

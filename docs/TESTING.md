@@ -36,6 +36,8 @@ below, is the short version of it.**
 | AdLib / OPL2 | ✅ | `make test-snd ADLIB=1` | dominant 880.0 Hz from a keyed 440 |
 | Sound Blaster 16 | ✅ | `make test-snd SB16=1` | 2.00 s at 1000.0 Hz |
 | Scripted mouse / keys | ✅ | `tools/mouse.py`, `tools/qmp.py` | all adapters, incl. Hercules |
+| Mouse on COM2 (SPEC.md §9.5) | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |
+| A **modem** on the other port | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
 | Performance benchmarks | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
 | Fullscreen exclusive (SPEC.md §53) | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
 | Video **detection probe** | ❌ | `make xt-cga` / `xt-hercules` | 86Box only |
@@ -86,6 +88,60 @@ check-images` reports STALE:
 ```sh
 rm -f build/os8088.img build/os8088-360.img && make && make check-images
 ```
+
+---
+
+## The mouse's port, and the modem on the other one (SPEC.md §9.5)
+
+`make test MOUSEPORT=com2` gives QEMU a **live but silent** UART at 3F8
+(`-serial null`) and the mouse at 2F8. That shape is the point: `-serial none`
+would leave 3F8 unpopulated, the probe would find one port, and the kernel
+would take the single-port path — testing the easy half and none of the
+contest. Read the answer out of the kernel rather than off the glass; the
+offsets move whenever an include before `mouse.inc` does, so re-derive them
+from a listing (`nasm … -l`) and peek at `KERNEL_SEG*16 + offset`:
+
+```
+mou_bases  0x03f8 0x02f8     both probed present
+mou_need   8                 two live ports, so a contest
+mou_port   2   seen 1        the mouse is on COM2
+mou_hpst   2                 mou_lockon has retired COM1
+```
+
+**The case that actually matters is a talkative device on the other port**,
+because a Hayes result code is a well-formed Microsoft packet (§9.5.1). QEMU
+can be that device: put a socket chardev at 3F8 and type at it.
+
+```sh
+qemu-system-i386 -drive file=build/os8088.img,format=raw,if=floppy -boot a \
+  -chardev socket,id=modem,host=127.0.0.1,port=45881,server=on,wait=off \
+  -serial chardev:modem \        # 0x3F8 - the "modem"
+  -serial null \                 # 0x2F8 - a live UART, saying nothing
+  -display none -qmp unix:build/qmp.sock,server,nowait -daemonize
+# then: connect to 45881 and send OK/RING/NO CARRIER/CONNECT, CRLF-wrapped,
+# pacing each burst by len*10/1200 seconds - it is a 1200-baud line
+```
+
+Two traps in building that harness, both of which produced a green run that
+proved nothing:
+
+- **`msmouse` speaks during boot.** With a real mouse attached to 2F8 the
+  contest is over before the first byte of chatter is sent, so the modem is
+  being tested against a port that has already lost. To test the *open*
+  contest there must be no mouse anywhere — 3F8 the socket, 2F8 `-serial
+  null` — and then `[mou_seen]` must simply stay 0 forever.
+- **Assert on more than the port.** The first fix stopped the modem
+  *claiming* a port while it was still moving the cursor and latching a right
+  button (`mouse_btn` = 2) — a modem opening context menus is the same bug
+  wearing a different hat. Check `mouse_x`/`mouse_y` and `mouse_btn` too;
+  they must be exactly where the machine booted.
+
+Then run it the other way round — the socket at 3F8 *and* `msmouse` at 2F8 —
+and check the mouse still reaches its run, `mou_lockon` still retires COM1,
+and chatter afterwards is ignored. The one thing to expect and not to file as
+a bug: on a two-port machine the first ~8 packets of the session are counted
+and discarded, so `tools/mouse.py`'s first absolute position can be tens of
+pixels out. Every position after it is exact.
 
 ---
 

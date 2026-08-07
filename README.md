@@ -161,7 +161,7 @@ the menus. All of classic Mac's core interactions work:
 |---------------|--------------------------------------------------------------|
 | graphics      | VGA mode 12h, 640x480x16 planar, drawn directly by default (the real Mac drew directly too). A 150KB back buffer is available as a runtime option on machines with the heap for it — it is a claim, not a reservation, so a small machine never pays for it. Set/Reset + Bit Mask fills, XOR for drag outlines and menu highlights. |
 | multitasking  | round-robin off int 08h (PIT, 18.2Hz): chain to the BIOS tick, then save the register frame on the task stack, swap SP, and iret into the next ready task. 12 task slots, 512-byte stacks (sized against a measured 150-byte high-water mark). Pre-emptive by default; in cooperative mode the tick declines to switch and a task runs until it yields, sleeps or exits — with a ~1s watchdog so a runaway one can't take the machine with it. |
-| mouse         | Microsoft serial mouse on COM1, IRQ4, 1200 baud 7N1, 3-byte packets — the period-correct XT mouse. QEMU emulates one natively (`-chardev msmouse`). |
+| mouse         | Microsoft serial mouse on **COM1 or COM2** (IRQ4 / IRQ3), 1200 baud 7N1, 3-byte packets — the period-correct XT mouse. The port is neither asked nor configured: both are probed for a UART, every one that answers is listened to at once, and the first to deliver a run of clean packets wins — so the other port stays free for the modem that is usually on it. QEMU emulates a mouse natively (`-chardev msmouse`); `make run MOUSEPORT=com2` puts it on the second port. |
 | cursor        | arrow with save-under, drawn by the mouse ISR itself when it's safe, deferred to the next unlock when a task holds the drawing lock. |
 | keyboard      | BIOS int 16h, polled by the UI task. |
 | font          | the VGA ROM's own 8x8 font, copied out via int 10h AX=1130h at boot. |
@@ -220,7 +220,7 @@ boot/boot.asm        512-byte boot sector: LBA->CHS, retrying reads
 kernel/kernel.asm    constants, boot sequence, includes, size assertion
 kernel/vga12.inc     mode 12h planar primitives, save/restore, gfx lock
 kernel/font.inc      ROM font grab + transparent text drawing
-kernel/mouse.inc     COM1 UART, IRQ4 ISR, packet decode, cursor
+kernel/mouse.inc     COM1/COM2 UARTs, IRQ4+IRQ3 ISRs, packet decode, cursor
 kernel/sched.inc     PIT hook, context switch, spawn/yield/sleep,
                      pre-emptive/cooperative mode + watchdog
 kernel/events.inc    ISR-safe event ring queue
