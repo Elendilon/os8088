@@ -1040,7 +1040,11 @@ trk_fs_enter:
     mov byte [trk_fs], 1            ; BEFORE the call - see the header
     mov ax, trk_fsx_main
     mov bx, [trk_win]
-    mov cx, FSXF_KEEPWORKER         ; the worker feeds through the freeze
+    mov cx, FSXF_KEEPWORKER | FSXF_FASTTICK
+                                    ; the worker feeds through the freeze, and
+                                    ; the quantum goes to 18 ms so its slot
+                                    ; costs the scroll a third of a frame
+                                    ; rather than a whole one (SPEC.md 53.8)
     call OSAPI_FSX_RUN              ; blocks until trk_fsx_main returns; the
                                     ; kernel then repaints the desktop whole
     mov byte [trk_fs], 0            ; back to the windowed splash

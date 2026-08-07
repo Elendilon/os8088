@@ -643,6 +643,47 @@ Two rules that fall out of it:
   and say that you did — ~500 8086 cycles per walk iteration is a reading of
   the instruction stream, not a measurement.
 
+### Reading a kernel word whose offset you cannot grep for
+
+`ticks` is in `.bss`, and a `.bss` label's address in the listing is
+**section-relative** — `mov ax, [ticks]` prints as `A1 [2A02]`, and 0x022A is
+an offset into `.bss`, not into the segment. Grepping the listing for it and
+adding `KERNEL_SEG*16` reads the wrong address, and the wrong address is
+usually a plausible-looking number rather than an error. Take the operand out
+of the **built binary** instead, which is by definition the linked one:
+
+```sh
+python3 - <<'EOF'
+import struct
+d = open('build/kernel.bin','rb').read()
+off = struct.unpack('<H', d[0x606:0x608])[0]     # the imm16 of osapi_get_ticks
+print("ticks at linear 0x%X" % (0x600 + off))    # KERNEL_SEG*16 + off
+EOF
+```
+
+`0x605` is `osapi_get_ticks`'s `A1` opcode; the two bytes after it are the
+address. Every other `.bss` word is that one plus the difference of their
+listing offsets. It moves on every rebuild — re-derive, and note that the
+answer can be **odd**, so a word dump on even addresses straddles it and shows
+two neighbours changing instead of one.
+
+That is how `FSXF_FASTTICK` (SPEC.md §53.2.1) is verified, and the check is
+worth copying for anything that claims to leave a clock alone:
+
+```sh
+# at the desktop, inside an armed bracket, and after leaving it - all three
+# must read 18.2/s, because the ISR divides and [ticks] does not change rate
+python3 tools/qmp.py build/qmp.sock 'xp /1xh 0x<ticks>'   # ...twice, 10s apart
+python3 tools/qmp.py build/qmp.sock 'xp /2xb 0x<sch_fast>' # N inside, 0 after
+```
+
+Both of that feature's bugs assembled cleanly, booted, and drew a correct
+first frame: one halved the tick rate (the flag was stored from the register
+the divisor's table index had been shifted into), and the other corrupted the
+low byte of the app's entry offset. The rate reading caught the first and
+nothing else would have — a display that scrolls smoothly at half speed looks
+like a display that scrolls smoothly.
+
 ### Prefer a self-checking harness to a careful one
 
 Three of the four bugs above were caught by **one number on screen

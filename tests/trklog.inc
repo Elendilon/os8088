@@ -436,7 +436,7 @@ tlog_tick:
     ret
 
 ; -----------------------------------------------------------------------------
-; tlog_status - 'LOG 0123/1024' / 'LOG FULL 1024' / 'LOG off' into [tui_msgp]
+; tlog_status - 'LOG 0123/0512' / '...FULL' / 'LOG off' into [tui_msgp]
 ; -----------------------------------------------------------------------------
 tlog_status:
     push ax
@@ -454,6 +454,9 @@ tlog_status:
     mov ax, [tlog_n]                ; the count, four decimal digits
     mov di, tlog_s_stat + 4
     call tlog_dec4
+    mov ax, TLOG_RECS               ; ...and the denominator, so the string
+    mov di, tlog_s_stat + 9         ; cannot drift from the ring's real size
+    call tlog_dec4                  ; the way a baked '/1024' already had
     mov si, tlog_s_stat
     jmp short .say
 .off:
@@ -726,8 +729,13 @@ tlog_hex4:
 
 ; --- strings -----------------------------------------------------------------
 tlog_s_name:    db 'TRKLOG.TXT', 0
-tlog_s_run:     db 'LOG      /1024  W saves', 0
-tlog_s_full:    db 'LOG FULL     /1024  W saves', 0
+tlog_s_run:     db 'LOG     /      W saves', 0
+tlog_s_full:    db 'LOG     /     FULL  W saves', 0
+                                ; both templates put the count at +4 and the
+                                ; ring size at +9 - tlog_status stamps both,
+                                ; and 'FULL' sits clear of the second field
+                                ; (it used to be at +4, so the count erased
+                                ; the very word that says the ring stopped)
 tlog_s_off:     db 'LOG off - D arms it', 0
 tlog_s_none:    db 'No log - D arms one first', 0
 tlog_s_nomem:   db 'Log: out of memory', 0

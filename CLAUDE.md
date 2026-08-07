@@ -618,7 +618,24 @@ keeps the cursor off; and **entry walks `inst_tab` calling
 `snd_release_inst` on every live instance but the caller's** — a frozen
 owner's duration-0 tone would otherwise ring all session AND hold the tone
 channel's priority against the app (§48's permanent-refusal shape), and the
-`[snd_gen]` bump is what makes the thaw safe. `fsx_mode` sets any of nine
+`[snd_gen]` bump is what makes the thaw safe. **`FSXF_FASTTICK` (SPEC.md
+§53.2.1) is the second flag**, and it exists because a kept worker's turn
+costs the drawing half a whole 55 ms quantum — the periodic no-row frame in
+Tracker's field logs. It reprograms **PIT channel 0** so IRQ0 arrives three
+times a tick; `sch_isr` divides, so only every third entry chains the BIOS,
+bumps `[ticks]`, runs the wake scan and `snd_tick`, and **`[ticks]` does not
+change rate** — `task_sleep`, every timeout, `fsx_wait`'s pacing and the BIOS
+clock are untouched by construction (measured: 18.19/s at the desktop, in the
+bracket and after it). It is scoped to the bracket because the eligible task
+set there is small and known, and must not become a general fast scheduler.
+Two things pay for it: `sch_account` no-ops itself while armed (its timestamp
+is `[ticks]*65536 + phase` against a period the sub-tick divides — the gate is
+*inside* `sch_account`, because `task_yield` and `task_cycles` reach it too),
+and §34.4's speaker PWM pacer parks it across a clip for the same radix
+reason. Two bugs it sprang, both of which assembled and booted: the arm left
+the divisor's table index in the register the flag was stored from (N became
+6, and the tick ran at half rate), and `mov al, <N>` clobbered the app's entry
+offset, which `fsx_run` still owed `wm_pkgcall`. `fsx_mode` sets any of nine
 `FSXM_*` modes the adapter's caps bit allows (`fsx_caps`: VGA 0x1EF, HERC
 0x011, CGA 0x00F — Mode X included, 13h plus the canonical unchain/retime)
 and fills the caller's 16-byte FSI block; **the kernel's `[vid_*]` live
@@ -647,9 +664,11 @@ on 1bpp adapters — §47's say-why-not). Two traps already sprung:
 reading it through KERNEL_SEG renders deterministic mush), and a crosshair
 XOR-shown on the exclusive surface must be forgotten (`[mc_chshown]`) before
 the thawed worker "erases" it onto the desktop. **Tracker (§45) is the
-`FSXF_KEEPWORKER` consumer** — its audio worker keeps feeding the ring
-through the freeze while the bracket draws the FT2 screen (verified: a Sound
-Blaster wav has real signal produced entirely inside the bracket) — **and,
+`FSXF_KEEPWORKER | FSXF_FASTTICK` consumer** — its audio worker keeps feeding
+the ring through the freeze while the bracket draws the FT2 screen (verified:
+a Sound Blaster wav has real signal produced entirely inside the bracket),
+and the sub-tick is that same worker seen from the drawing side: its turn
+costs 18 ms instead of 55 — **and,
 in XT mode, the reference consumer of a TEXT mode** (§53.4's bare contract,
 §45.13): `FSXM_TEXT80`, `FSI_SEG` out of the block because it is B000 on
 Hercules and B800 on the CGA/VGA family, cursor hidden with int 10h, and the

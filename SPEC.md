@@ -5728,7 +5728,8 @@ Slot-specific contracts that are not simply their target routine's:
 0x02C0 fsx_caps          out AX = the FSXM_* bitmask the live adapter can
                          set, DL = vid_kind (§53.4). Any context.
 0x02C8 fsx_run           in AX = near entry, BX = own window ptr, CX =
-                         flags (bit 0 FSXF_KEEPWORKER). X — the ownership
+                         flags (bit 0 FSXF_KEEPWORKER, bit 1
+                         FSXF_FASTTICK). X — the ownership
                          fence reads the caller's DS, inst_pkg_spawn's
                          test. UI-task window callback, lock held; does
                          NOT return until the app's proc does (§53.1).
@@ -13430,6 +13431,13 @@ what the exclusive surface gives, with the audio-feeding worker kept alive
 across the freeze so a Sound Blaster stream never underruns while the app
 owns the screen.
 
+It passes **`FSXF_FASTTICK`** alongside it (§53.2.1), and that is the same
+worker seen from the other side: kept alive, the worker's turn costs the
+drawing half a whole 55 ms quantum, which the field logs show as a periodic
+frame that advances no row (§45.16.1). With the sub-tick the turn costs 18
+ms. `[ticks]` keeps its rate, so `[tui_bpt]`, `fsx_wait`'s tick pacing and
+the §45.15 stamp arithmetic are all untouched.
+
 **Which surface depends on XT mode.** With it off, Tracker does NOT switch
 video mode: the FT2 screen wants the desktop's resolution, so this is
 "exclusive but same mode" (§53.7) and the drawing slots stay legal
@@ -17001,7 +17009,8 @@ second is Tracker (§45), whose worker-fed audio ring is what
 gfx lock held, the `wm_fullscreen` contract — and **does not return until
 the app is done being fullscreen**. In: AX = a near entry inside the
 caller's own image, BX = the caller's own window ptr, CX = flags (bit 0 =
-`FSXF_KEEPWORKER`, §53.2; all other bits must be 0). The kernel arms the
+`FSXF_KEEPWORKER`, §53.2; bit 1 = `FSXF_FASTTICK`, §53.2.1; all other bits
+must be 0). The kernel arms the
 freeze, silences what the freeze strands (§53.3), and calls the entry
 through `wm_pkgcall` — SI = the window ptr, DS = CS = the package's own
 segment, ES = KERNEL_SEG, an ordinary near proc with a near `ret`, exactly
@@ -17080,6 +17089,60 @@ the outgoing task at once); pacing is `fsx_wait` or polling `[ticks]`, and
 the SDK says so. And the §8.2 cooperative watchdog needs no special case:
 when it forces a switch the whitelist means it picks a service task or
 resumes the exclusive one — harmless either way.
+
+### 53.2.1 `FSXF_FASTTICK` — a finer quantum for a task set that is known
+
+The bracket's round-robin quantum is one system tick, 55 ms, and the app
+does not get it back until the worker gives it up. A `FSXF_KEEPWORKER`
+feeder is ready for a small slice of each turn and asleep for the rest, so
+the cost shows on the *drawing* side as an occasional whole frame that
+advances nothing — the Tracker field logs' periodic `+0` row (§45.16.1),
+and the microstutter it reads as.
+
+`FSXF_FASTTICK` (CX bit 1) reprograms **PIT channel 0** for the bracket so
+IRQ0 arrives `FSX_SUBTICK` = 3 times a tick, and the quantum with it: 18 ms
+instead of 55. `sch_fast_on` / `sch_fast_off` in sched.inc own it,
+`fsx_run` arms it after the freeze and `fsx_restore` disarms it first.
+
+**`[ticks]` does not change rate, and that is the whole safety argument.**
+`sch_isr` divides: `[sch_fcnt]` counts down from `[sch_fast]`, and only the
+Nth entry is a *tick* — it chains the BIOS, bumps `[ticks]`, runs the wake
+scan and `snd_tick`, exactly as before. The other two entries send the EOI
+themselves (the BIOS handler that normally sends it is only chained on the
+tick), honour `[sch_lock]` and `[sch_coop]` unchanged, and otherwise do
+nothing but switch. So `task_sleep`, every timeout, the double-click
+window, the §45.15 `tui_bpt` byte rate, `fsx_wait`'s tick pacing and the
+BIOS clock at 40:6C are untouched **by construction rather than by
+adjustment**, and nothing outside sched.inc can tell. Measured under QEMU:
+18.19 ticks/s at the desktop, 18.19 inside an armed bracket, 18.19 after it.
+
+The divisor is a table (65536/N for N = 2..4) so arming costs no division.
+The N = 3 divisor 21845 gives 54.6205 Hz, three of which is 18.2068 Hz
+against the BIOS's 18.2065 — 0.002%, about one tick per fourteen hours, and
+only for the length of a bracket.
+
+Three things are binding:
+
+- **It is scoped to the bracket, and would not be safe outside one.** The
+  eligible task set is small and known (§53.2) — the exclusive task, its
+  kept worker, `TF_SERVICE` drivers — and the machine is otherwise frozen,
+  so nothing can be mid-anything when the quantum changes underneath it.
+  There is no general "fast scheduler" here and this must not become one.
+- **`sch_account` pauses while it is armed** — the one thing that genuinely
+  cannot survive, because its 32-bit timestamp is `[ticks]*65536 + phase`
+  against a 65536-count period and the sub-tick divides exactly that. The
+  gate is inside `sch_account` and not at its call sites: `task_yield` and
+  `task_cycles` reach it too, and a half-gated stamp is worse than none.
+  `sch_fast_off` re-seeds `[sch_pit_last]` from a fresh latch before it
+  clears the flag, or the first full tick afterwards charges a whole
+  bracket's worth of garbage to whoever is running.
+- **Disarming is unconditional and idempotent** — `fsx_restore` calls
+  `sch_fast_off` first, ahead of the mode restore and the repaint, and it
+  returns at once when nothing was armed. Everything below that line runs
+  on the ordinary quantum.
+
+A bracket that does not ask for it is bit-for-bit unaffected: `sch_fast` is
+0, the ISR's first test falls straight through to the path it always took.
 
 ### 53.3 Entry silences what it strands (binding)
 
@@ -17309,7 +17372,9 @@ jitter), and that costs nothing to allow. Author rule, same enforcement
 class as "workers never call the file API".
 
 Forbidden always, binding: reprogramming PIT channel 0 (the tick feeds
-the floppy motor, `[ticks]` and `snd_tick`); touching channel 2 or any
+the floppy motor, `[ticks]` and `snd_tick` — `FSXF_FASTTICK` is how an app
+asks for a finer quantum, and the kernel divides in the ISR so none of
+those three notices, §53.2.1); touching channel 2 or any
 §34.1-owned sound port directly; `int 10h` mode sets outside `fsx_mode`
 (the kernel must know what it is restoring *from* — Hercules needs the
 non-BIOS path); `task_exit` and the worker-only slots from the bracket.
@@ -17324,9 +17389,10 @@ everything they touch.
 0x02C0 fsx_caps   out AX = FSXM bitmask for the live adapter, DL =
                   vid_kind. Any context. Everything else preserved.
 0x02C8 fsx_run    in AX = near entry, BX = own window ptr, CX = flags
-                  (bit 0 FSXF_KEEPWORKER). X — the fence reads the
-                  caller's DS. UI-task window callback, lock held. Does
-                  not return until the app's proc does. CF=1 refused.
+                  (bit 0 FSXF_KEEPWORKER, bit 1 FSXF_FASTTICK). X — the
+                  fence reads the caller's DS. UI-task window callback,
+                  lock held. Does not return until the app's proc does.
+                  CF=1 refused.
 0x02D0 fsx_mode   in AL = FSXM_* id, ES:DI = FSI_SIZE buffer (caller's
                   ES). Bracket-only. CF=0 mode set + block filled;
                   CF=1 refused (id, adapter, back buffer armed, context).
@@ -17336,7 +17402,7 @@ everything they touch.
 ```
 
 `apps/os88api.inc` publishes `OSAPI_FSX_CAPS`/`RUN`/`MODE`/`WAIT`, the
-`FSXM_*` ids, `FSXF_KEEPWORKER` and the `FSI_*` offsets.
+`FSXM_*` ids, `FSXF_KEEPWORKER`, `FSXF_FASTTICK` and the `FSI_*` offsets.
 
 ### 53.9 Acceptance
 
@@ -17353,8 +17419,17 @@ everything they touch.
   included); ids 0–3 gating under `VIDEO=cga`; id 4 rendering under
   `VIDEO=herc` + hercshot. 86Box: `xt-cga`, `xt-hercules` (the real 6845
   text↔graphics flip — the one thing QEMU cannot exercise), `286`/`386`.
+- `FSXF_FASTTICK` (§53.2.1): read `[ticks]` over a fixed wall interval at
+  the desktop, inside an armed bracket and after it — all three must give
+  18.2/s, because the ISR divides. `[sch_fast]` must read N inside and 0
+  after. A second entry/exit must arm and disarm again. The two bugs this
+  caught both passed a build: the arm's table index was left in the
+  register the flag was then stored from (N became 6, and `[ticks]` ran at
+  half rate), and `mov al, <N>` clobbered the app's entry offset, which
+  `fsx_run` still owed `wm_pkgcall` — a bracket that far-called into the
+  middle of the package.
 - Missile Command (§48) is the shipped reference consumer; Tracker
-  (§45) follows with `FSXF_KEEPWORKER`.
+  (§45) follows with `FSXF_KEEPWORKER | FSXF_FASTTICK`.
 
 ---
 
