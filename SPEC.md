@@ -14048,7 +14048,41 @@ new code:
   anywhere, and an XOR overlay that has been drawn over can never be erased,
   only smeared. It stays off for the whole of a tracking loop, which is not a
   compromise: the ink or the rubber band is the feedback while the button is
-  down, and it is where the pointer is.
+  down, and it is where the pointer is. **Moving it is §42.7.1.**
+
+#### 42.7.1 Moving the crosshair writes every pixel at most once
+
+§7.1.2's rule, found again in an app's own overlay and reported off the field
+machine as a pointer that "draws fine, but is flickery" on Hercules. The move
+was `pt_ptr_xor` at the old position and then at the new one, so **every pixel
+the two crosshairs share was written twice** — dark, and then lit again. The
+glass catches the value in between, which is the kernel cursor's own defect
+before `cur_move` and the same symptom (docs/FIELD-NOTES.md 6).
+
+XOR makes the fix simpler than the cursor's, which needed two save buffers: a
+pixel lit in both crosshairs must not be **touched**, two XORs being the
+identity anyway. So each bar emits the **symmetric difference** of its old and
+new spans — the whole bar when the two do not share a row (or a column), two
+short stubs when they do — and `pt_ptr_sym` is that arithmetic, once per bar
+rather than once per pixel.
+
+**The runs belonging to the new crosshair go first**, which is the other half
+and costs nothing. Any move with both a dx and a dy leaves the two crosshairs
+disjoint, so the difference *is* "all of the new, then all of the old", and in
+that order the pointer is never **absent** — only briefly doubled. An absence
+reads as a blink; a double reads as movement. On the overlapping path the order
+does not matter, the two runs touching disjoint pixels.
+
+Verified the way §7.1.2 verified `cur_move`, and the apparatus took two
+corrections that are worth keeping because both made a broken build pass:
+`tools/mouse.py`'s `to` **re-pins against the edge clamp**, so no two samples
+ever land on one row and the overlapping path is never reached — the walk has
+to use relative `move`; and an **out-and-back pair cancels its own error
+exactly**, the same two spans in the other order, so the return leg must use
+different step sizes than the outward one. With both fixed: a closed loop of
+33 moves over a textured canvas — every overlap phase in x and in y, plus
+diagonals — returns **0 differing pixels** on VGA and on Hercules, against
+**54 bytes** with one shared pixel deliberately left in a stub.
 - **The input model.** No events are dispatched, so `pt_fsx_main` polls int
   16h and `OSAPI_MOUSE` and calls **this app's own callbacks with the
   arguments the kernel would have handed them** — a press becomes `pt_click`
@@ -14092,23 +14126,30 @@ destroying their artwork or trapping them in full screen. The white band is
 the honest price of an exit that always works. It is worst on CGA (67 of 200
 rows) and there the canvas was already the awkward one.
 
-Leaving is therefore the ordinary resize path, unchanged. `pt_fsx_main` clears
-`[pt_fsx]` and returns; `fsx_restore`'s one `wm_paint_all` runs `W_PAINT`;
-`pt_org` answers for the window again and `pt_track` shrinks the canvas back
-to the smaller content — or refuses, because that would crop artwork. **The
-canvas is resized before that repaint draws it**, `pt_track` running at the top
-of `pt_paint`, so the single repaint is also the correct one. `[pt_fs]` is
-still set across the whole bracket, `pt_cmd_fs` clearing it only after
-`OSAPI_FSX_RUN` returns, and that is what stops `pt_track` from calling
-`pt_wfix` inside a paint the kernel is in the middle of: a refusal owes the
-toast and nothing else (`[pt_apend]` = 2). `pt_cmd_fs` then squares the frame
-with `OSAPI_WM_RESIZE`, from outside a paint proc where that call is legal,
-**and only when the canvas and the record actually disagree** — the second
-repaint an exit can cost, owed only when the user's own artwork asked for it,
-and never on the ordinary trip where the canvas fits the window it left.
-`pt_szapply` takes the same fork the other way: inside the bracket the content
-box did not move, so a canvas resized from the size boxes owes the repaint
-`wm_resize` would have brought and not the resize.
+**Leaving settles the window BEFORE anything paints it**, and getting that
+order wrong is the second thing the field machine caught. `fsx_restore`'s
+`wm_paint_all` draws Paint from the window record, so the record has to be
+right *before* it runs. It used to be put right after: `pt_track` shrank the
+canvas during that repaint and, when the shrink was refused because it would
+crop artwork, the repaint drew a canvas **bigger than the window at the
+window's own origin** — over its frame and out onto the desktop — and only
+then did `pt_cmd_fs` square the frame with `OSAPI_WM_RESIZE` and repaint it
+properly. Two repaints, the first of them visibly wrong.
+
+So `pt_fsx_main` does it last, inside the bracket, where no paint is in
+flight: clear `[pt_fsx]` (so `pt_org` answers for the window again), clear
+`[pt_fs]` (so `pt_track` may write the frame, which is the whole reason §42
+keeps `pt_wfix`), then `pt_org` + `pt_track`. The canvas shrinks back to the
+window's content, or keeps its size and `pt_wfix` grows the frame to hold it.
+`[pt_apend]` = 1 is rewritten to 2 on the way out — `pt_track` asks for a
+repaint it cannot know is already coming, and 2 is "say it, redraw nothing".
+`OSAPI_WM_RESIZE` is gone from the exit path entirely. Measured at
+`gfx_blit4`, artwork painted in the borrowed rows so the shrink is refused:
+**4 canvas blits on the way home, now 2** — one repaint instead of two, and
+the one that went was the wrong one. `pt_szapply` takes the same fork the
+other way: inside the bracket the content box did not move, so a canvas
+resized from the size boxes owes the repaint `wm_resize` would have brought
+and not the resize.
 
 **The strip is flush with the bottom of the content, not one row under the
 canvas** (`pt_stripset`). In a window those are the same row by construction —

@@ -3056,13 +3056,37 @@ pt_ptr_off:
 .out:
     ret
 
-; pt_ptr_move - follow the mouse
+; -----------------------------------------------------------------------------
+; pt_ptr_move - follow the mouse, writing every pixel at most once
 ; in:  CX/DX = the new screen position; gfx lock held
 ; out: nothing; preserves all registers except FLAGS
+;
+; SPEC.md 7.1.2's rule, in an app's own overlay. This was erase-then-draw -
+; pt_ptr_xor at the old position, then at the new - so every pixel the two
+; crosshairs SHARE was written twice: dark, and then lit again. The glass
+; catches the value in between, and on a real Hercules that is the pointer
+; flickering as the mouse moves, which is the same defect and the same symptom
+; the kernel cursor had before cur_move (docs/FIELD-NOTES.md 6).
+;
+; XOR makes the fix simpler than the cursor's, which needed two save buffers: a
+; pixel lit in BOTH crosshairs must not be touched at all, two XORs being the
+; identity anyway. So each bar emits the SYMMETRIC DIFFERENCE of its old and
+; new spans - the whole bar when the two do not share a row (or a column), two
+; short stubs when they do. Nothing is written twice, and nothing is written
+; that did not change.
+;
+; **The runs belonging to the NEW crosshair go first**, which is the other half
+; and costs nothing. Any move with both a dx and a dy leaves the two crosshairs
+; disjoint, so the difference is "all of the new, then all of the old" - and in
+; that order the pointer is never ABSENT from the screen, only briefly doubled.
+; An absence is what reads as a blink; a double reads as movement. The order is
+; free either way, because on the overlapping path the two runs touch disjoint
+; pixels and every shared pixel stays lit throughout.
 ;
 ; A pointer that is HIDDEN still tracks: the position is banked without
 ; drawing, so the show that follows a dispatch puts the crosshair where the
 ; mouse actually is rather than where it was when it went away.
+; -----------------------------------------------------------------------------
 pt_ptr_move:
     cmp cx, [pt_ptrx]
     jne .move
@@ -3071,14 +3095,201 @@ pt_ptr_move:
 .move:
     cmp byte [pt_ptron], 0
     je .bank
-    call pt_ptr_xor                 ; off where it is...
-    mov [pt_ptrx], cx
-    mov [pt_ptry], dx
-    call pt_ptr_xor                 ; ...and on where it is going
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [pt_pnx], cx
+    mov [pt_pny], dx
+    ; --- the horizontal bars ------------------------------------------------
+    mov ax, [pt_ptry]
+    cmp ax, [pt_pny]
+    jne .hfull
+    mov ax, [pt_pnx]                ; same row: span0 = NEW so the disjoint
+    call pt_ptr_hspan               ; path below emits it first
+    push ax
+    push bx
+    mov ax, [pt_ptrx]
+    call pt_ptr_hspan               ; span1 = OLD
+    mov cx, ax
+    mov dx, bx
+    pop bx
+    pop ax
+    call pt_ptr_sym
+    mov dx, [pt_pny]                ; the row they share
+    mov ax, [pt_ps0l]
+    mov cx, [pt_ps0h]
+    call pt_ptr_hrun
+    mov ax, [pt_ps1l]
+    mov cx, [pt_ps1h]
+    call pt_ptr_hrun
+    jmp short .vert
+.hfull:
+    mov ax, [pt_pnx]                ; different rows: no shared pixel, so the
+    call pt_ptr_hspan               ; new bar whole...
+    mov cx, bx
+    mov dx, [pt_pny]
+    call pt_ptr_hrun
+    mov ax, [pt_ptrx]               ; ...and then the old one
+    call pt_ptr_hspan
+    mov cx, bx
+    mov dx, [pt_ptry]
+    call pt_ptr_hrun
+.vert:
+    ; --- and the vertical bars, by the same argument in the other axis ------
+    mov ax, [pt_ptrx]
+    cmp ax, [pt_pnx]
+    jne .vfull
+    mov ax, [pt_pny]
+    call pt_ptr_vspan
+    push ax
+    push bx
+    mov ax, [pt_ptry]
+    call pt_ptr_vspan
+    mov cx, ax
+    mov dx, bx
+    pop bx
+    pop ax
+    call pt_ptr_sym
+    mov ax, [pt_pnx]                ; the column they share
+    mov bx, [pt_ps0l]
+    mov dx, [pt_ps0h]
+    call pt_ptr_vrun
+    mov bx, [pt_ps1l]
+    mov dx, [pt_ps1h]
+    call pt_ptr_vrun
+    jmp short .done
+.vfull:
+    mov ax, [pt_pny]
+    call pt_ptr_vspan
+    mov dx, bx
+    mov bx, ax
+    mov ax, [pt_pnx]
+    call pt_ptr_vrun
+    mov ax, [pt_ptry]
+    call pt_ptr_vspan
+    mov dx, bx
+    mov bx, ax
+    mov ax, [pt_ptrx]
+    call pt_ptr_vrun
+.done:
+    mov ax, [pt_pnx]
+    mov [pt_ptrx], ax
+    mov ax, [pt_pny]
+    mov [pt_ptry], ax
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 .bank:
     mov [pt_ptrx], cx
     mov [pt_ptry], dx
+.out:
+    ret
+
+; pt_ptr_hspan / pt_ptr_vspan - the arm's span about a centre, clipped
+; in:  AX = centre; out: AX = lo, BX = hi; clobbers flags
+pt_ptr_hspan:
+    mov bx, ax
+    add bx, PT_PTR_R
+    sub ax, PT_PTR_R
+    jns .lo
+    xor ax, ax
+.lo:
+    cmp bx, [pt_scrw]
+    jl .out
+    mov bx, [pt_scrw]
+    dec bx
+.out:
+    ret
+
+pt_ptr_vspan:
+    mov bx, ax
+    add bx, PT_PTR_R
+    sub ax, PT_PTR_R
+    jns .lo
+    xor ax, ax
+.lo:
+    cmp bx, [pt_scrh]
+    jl .out
+    mov bx, [pt_scrh]
+    dec bx
+.out:
+    ret
+
+; pt_ptr_sym - the symmetric difference of two ordered spans, as up to two runs
+; in:  AX/BX = span 0 lo/hi, CX/DX = span 1 lo/hi
+; out: [pt_ps0l]/[pt_ps0h] and [pt_ps1l]/[pt_ps1h]; lo > hi means "nothing"
+; clobbers SI, DI, flags
+;
+; Disjoint spans come back as themselves - span 0 first, which is what lets the
+; caller pass the NEW bar as span 0 and have it drawn before the old one is
+; erased. Overlapping spans come back as the two end stubs, and the pixels they
+; share are in neither.
+pt_ptr_sym:
+    cmp bx, cx
+    jl .disjoint                    ; hi0 < lo1
+    cmp dx, ax
+    jl .disjoint                    ; hi1 < lo0
+    mov si, ax                      ; stub A = [min lo, max lo - 1]
+    cmp si, cx
+    jle .la
+    mov si, cx
+.la:
+    mov di, ax
+    cmp di, cx
+    jge .lb
+    mov di, cx
+.lb:
+    dec di
+    mov [pt_ps0l], si
+    mov [pt_ps0h], di
+    mov si, bx                      ; stub B = [min hi + 1, max hi]
+    cmp si, dx
+    jle .ha
+    mov si, dx
+.ha:
+    inc si
+    mov di, bx
+    cmp di, dx
+    jge .hb
+    mov di, dx
+.hb:
+    mov [pt_ps1l], si
+    mov [pt_ps1h], di
+    ret
+.disjoint:
+    mov [pt_ps0l], ax
+    mov [pt_ps0h], bx
+    mov [pt_ps1l], cx
+    mov [pt_ps1h], dx
+    ret
+
+; pt_ptr_hrun - XOR row DX from AX to CX inclusive, if the run is non-empty
+; pt_ptr_vrun - XOR column AX from BX to DX inclusive, likewise
+; both: gfx lock held; preserve all registers except flags
+pt_ptr_hrun:
+    cmp ax, cx
+    jg .out
+    push bx
+    mov bx, dx
+    call OSAPI_GFX_XOR_FILL
+    pop bx
+.out:
+    ret
+
+pt_ptr_vrun:
+    cmp bx, dx
+    jg .out
+    push cx
+    mov cx, ax
+    call OSAPI_GFX_XOR_FILL
+    pop cx
 .out:
     ret
 
@@ -3107,35 +3318,11 @@ pt_cmd_fs:
     xor cx, cx                      ; no KEEPWORKER: Paint claims no worker
     call OSAPI_FSX_RUN              ; task, so there is nothing to keep alive
     pushf
-    mov byte [pt_fs], 0
-    popf
-    jnc .fitwin
+    mov byte [pt_fs], 0             ; pt_fsx_main clears it too; this is for
+    popf                            ; the path where the bracket never ran
+    jnc .out
     mov si, pt_s_nofsx              ; refused, and nothing has changed: no
-    call pt_msg_show                ; surface was taken and nothing was drawn
-    jmp short .out
-.fitwin:
-    ; The canvas may have outgrown the window while we had the screen, and
-    ; pt_track's shrink on the way back is refused when it would crop artwork
-    ; (SPEC.md 42). Saying so is OSAPI_WM_RESIZE's job and it repaints - the
-    ; ONLY second repaint an exit can cost, and only when the user's own
-    ; artwork asked for it. The compare is what keeps the ordinary exit to the
-    ; one repaint fsx_restore owes the desktop anyway.
-    push es
-    mov ax, KERNEL_SEG              ; the record is the kernel's (SPEC.md 20.1)
-    mov es, ax
-    mov bx, [pt_win]
-    mov cx, [pt_cw]
-    add cx, PT_CHROME_W
-    mov dx, [pt_ch]
-    add dx, PT_CHROME_H
-    cmp cx, [es:bx + W_W]
-    jne .refit
-    cmp dx, [es:bx + W_H]
-    je .fitdone
-.refit:
-    call OSAPI_WM_RESIZE            ; clamp, re-fit and repaint the lot
-.fitdone:
-    pop es
+    call pt_msg_show                ; screen was taken and nothing was drawn
 .out:
     pop si
     pop dx
@@ -3222,8 +3409,29 @@ pt_fsx_main:
 .done:
     call pt_ptr_off                 ; the crosshair dies on THIS screen. The
     mov byte [pt_fsx], 0            ; desktop the kernel is about to repaint
-    pop es                          ; never had one, and an XOR erase against
-    pop di                          ; it would put one there for good
+                                    ; never had one, and an XOR erase against
+                                    ; it would put one there for good
+    ; --- settle the WINDOW before anything paints it ------------------------
+    ; fsx_restore's wm_paint_all is the next thing to run and it draws us from
+    ; the record, so the record has to be right BEFORE it, not after. It used
+    ; to be after: pt_track shrank the canvas during that repaint and, when the
+    ; shrink was refused because it would crop artwork, drew a canvas bigger
+    ; than the window at the window's own origin - over the frame and out onto
+    ; the desktop - and only then did pt_cmd_fs square the frame with
+    ; OSAPI_WM_RESIZE and repaint it properly. Two repaints, the first of them
+    ; visibly wrong. Here there is no paint in flight, so pt_wfix may write the
+    ; frame (which is the whole reason SPEC.md 42 keeps it), and the one
+    ; repaint that follows is the correct one.
+    mov byte [pt_fs], 0             ; ...which also means pt_track is allowed
+    mov bx, [pt_win]                ; to call pt_wfix again
+    call pt_org                     ; the window's content box, not the screen
+    call pt_track
+    cmp byte [pt_apend], 1          ; pt_track asks for the repaint it cannot
+    jne .home                       ; know is already coming; 2 is "say it,
+    mov byte [pt_apend], 2          ; redraw nothing"
+.home:
+    pop es
+    pop di
     pop si
     pop dx
     pop cx
@@ -9392,6 +9600,12 @@ pt_ic_text:
     PTWORD pt_scrh                  ; screen height, for the bracket's pointer
     PTWORD pt_ptrx                  ; ...and where its crosshair is DRAWN, which
     PTWORD pt_ptry                  ; is what the XOR erase has to replay
+    PTWORD pt_pnx                   ; pt_ptr_move: where it is going...
+    PTWORD pt_pny
+    PTWORD pt_ps0l                  ; ...and the two runs that differ
+    PTWORD pt_ps0h
+    PTWORD pt_ps1l
+    PTWORD pt_ps1h
 
     PTBYTE pt_mode                  ; PT_M_*
     PTBYTE pt_tool                  ; PT_T_*
