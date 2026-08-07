@@ -711,7 +711,7 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 FIELDBENCH := $(BENCHPKGS) $(BENCHDATA)
 CGADIR     := $(BUILD)/cgak
 
-field: $(BUILD)/herc.img $(BUILD)/cga.img
+field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img
 
 $(BUILD)/herc.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) \
                    $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
@@ -728,6 +728,23 @@ $(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
 	@echo "field: $@ - VIDEO=cga, so the Hercules is ignored and the CGA"
 	@echo "       column can be taken without opening the machine"
+
+# ...and the same disk on 720KB 3.5" DD, for a machine that cannot take a
+# 360KB disk. Same kernel, same benchmarks, same everything: what changes is
+# 80 cylinders instead of 40 and the FAT12 layout that follows from it (2
+# sectors a cluster, 112 root entries), which os88disk.py owns. The boot
+# sector is boot360.bin for both, because it is 9 spt and 2 heads on either
+# and it never counts cylinders - the note above $(IMG720) is the long version.
+#
+# CGA only, because that is what was asked for. The Hercules twin is this
+# rule with $(BUILD)/boot360.bin and $(BUILD)/kernel.bin - the probe build -
+# in place of $(CGADIR)'s, and nothing else.
+$(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(CGADIR)/boot360.bin
+	python3 tools/os88disk.py -o $@ --size 720 \
+		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/kernel.bin \
+		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+	@echo "field: $@ - the CGA disk on 720KB 3.5\" DD media"
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
 # inside: its worker 0xCC-fills its own slice, spins so every interrupt the

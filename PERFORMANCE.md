@@ -672,6 +672,33 @@ None of them says anything on an emulator, and two say so loudly: under
 `-icount` both shift rows measure identically and the derived per-bit line
 reads **0**, which is correct and is the caution block in miniature.
 
+**The two decomposed `lstep` rows are WRONG in the first field set that
+carries them, and they are recoverable by hand.** `lstep arrival us x100` and
+`lstep pixel us x100` were computed with a raw `sub`/`sbb`, which **underflows
+whenever the vector row measures larger than the scalar one** — which is what
+noise does the moment the two are close, and the whole point of the pair is
+that they might be. What comes out is a nine-digit number (a sighting run
+printed `514229986` and `385674937`), so it does not hide, but it is exactly
+Part 6 rule 3's failure: arithmetic that looks like a measurement. Both
+subtractions go through the floored `gb_sub` now, and an inverted pair reports
+an arrival of **0** and gives the whole cost to the pixel, which is what "the
+batching saved nothing measurable" honestly means.
+
+Nothing is lost, because **both inputs are printed as their own rows in the
+same report**. Take `R_A` = `GFX_LSTEP x8 (8 calls)` and `R_B` =
+`GFX_LSTEPV x8 (1 call)`, both µs × 100 per iteration, and redo the two lines:
+
+| | |
+|---|---|
+| arrival, µs × 100 | `(R_A − R_B) / 7` |
+| pixel, µs × 100 | `(R_B − arrival) / 8` |
+
+That is the same pair of equations the harness solves — `R_A = 100(8a + 8p)`,
+`R_B = 100(a + 8p)` — so a set taken with the broken build is a complete set
+with two rows to recompute, not a set to retake. If `R_B > R_A` the equations
+have no positive solution and the answer is the floored one: arrival 0, pixel
+`R_B / 8`.
+
 **Reading the fullscreen pairs has one trap, and it is a VGA one.**
 `[bb_mono]` (§32) is one-way, and `bb_mono_chk` is five instructions cheaper
 once it has retired — so if anything drawn between the two passes used a

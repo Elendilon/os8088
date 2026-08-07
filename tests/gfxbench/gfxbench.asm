@@ -1531,20 +1531,31 @@ gb_derived:
     ; pixel dominates an arrival then batching cannot be where the cost is,
     ; whatever the ratio above says, and the field's 570 us a pixel becomes a
     ; number this report can be held against directly.
-    mov ax, [gb_tls8]
+    ; BOTH SUBTRACTIONS GO THROUGH gb_sub, which floors at zero, and that is
+    ; not defensive tidiness - it is a bug this row shipped with for one run.
+    ; A raw `sub`/`sbb` of two measured totals UNDERFLOWS the moment the
+    ; vector row measures larger than the scalar one, which is exactly what
+    ; noise does when the two are close, and 4 billion divided by 700 is a
+    ; large plausible-looking number in a report meant to be carried off a
+    ; machine (PERFORMANCE.md Part 6 rule 3: the failure mode is a number that
+    ; looks fine). Floored, an inverted pair reports an arrival of 0 and gives
+    ; the whole cost to the pixel, which is what "the batching saved nothing
+    ; measurable" honestly means.
+    mov ax, [gb_tls8]               ; A - B = 700a
     mov dx, [gb_tls8+2]
-    mov bx, [gb_tlsv8]
-    mov cx, [gb_tlsv8+2]
-    sub ax, bx
-    sbb dx, cx                      ; DX:AX = A - B = 700a
     call gb_stash
+    mov ax, [gb_tlsv8]
+    mov dx, [gb_tlsv8+2]
+    call gb_sub
+    mov [gb_tlsa], ax               ; park it: bl_us100 consumes DX:AX
+    mov [gb_tlsa+2], dx
     mov cx, 700
     call bl_us100
     mov si, gb_d_lsarr
     call gb_num32
 
-    mov ax, [gb_ta]                 ; 100a = (A - B) / 7
-    mov dx, [gb_ta+2]
+    mov ax, [gb_tlsa]               ; 100a = (A - B) / 7
+    mov dx, [gb_tlsa+2]
     mov cx, 1
     call bl_mul48
     mov cx, 7
@@ -1554,8 +1565,10 @@ gb_derived:
     mov cx, dx
     mov ax, [gb_tlsv8]              ; B - 100a = 800p
     mov dx, [gb_tlsv8+2]
-    sub ax, bx
-    sbb dx, cx
+    call gb_stash
+    mov ax, bx
+    mov dx, cx
+    call gb_sub
     mov cx, 800
     call bl_us100
     mov si, gb_d_lspx
@@ -2542,7 +2555,7 @@ gb_it_top:  db 'Top of Report', 0
 ; benchlib's arena, which assembles cleanly and produces a report full of
 ; plausible nonsense.
 GB_NWALK    equ 8               ; walks stepped together (SPEC.md 5.6.8)
-GB_O_SYSKB  equ 172 + GB_NWALK * (4 + GLS_SZ)   ; the scalars above end at
+GB_O_SYSKB  equ 178 + GB_NWALK * (4 + GLS_SZ)   ; the scalars above end at
                                 ; gb_lsblk, which is DERIVED - a hand-totalled
                                 ; figure that is too small is a package writing
                                 ; over benchlib's arena, and it assembles
@@ -2619,9 +2632,10 @@ gb_ran      equ os88_image_end + 126   ; byte: has the suite been run yet?
 gb_tlock    equ os88_image_end + 158   ; dword: the gfx lock pair (SPEC.md 7)
 gb_tls8     equ os88_image_end + 162   ; dword: eight arrivals (SPEC.md 5.6.8)
 gb_tlsv8    equ os88_image_end + 166   ; dword: ...and one, for the same pixels
+gb_tlsa     equ os88_image_end + 174   ; dword: A - B, parked across bl_us100
 gb_lsi      equ os88_image_end + 170   ; word:  gb_lsinit's walk index
-gb_lsdsc    equ os88_image_end + 172   ; GB_NWALK (block, count) pairs
-gb_lsblk    equ os88_image_end + 172 + GB_NWALK * 4      ; GB_NWALK walk states
+gb_lsdsc    equ os88_image_end + 178   ; GB_NWALK (block, count) pairs
+gb_lsblk    equ os88_image_end + 178 + GB_NWALK * 4      ; GB_NWALK walk states
 gb_syskb    equ os88_image_end + GB_O_SYSKB    ; SYSKB_SIZE bytes
 gb_vrow     equ os88_image_end + GB_O_VROW     ; GB_BWROWS words: fb offsets
 gb_rrow     equ os88_image_end + GB_O_RROW     ; ...and the RAM ones
