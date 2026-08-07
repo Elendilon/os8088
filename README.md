@@ -303,7 +303,7 @@ A 1.44MB drive postdates the 8086 by years, so period hardware gets the
 outright — the six images, the kernel, the boot sectors, the drivers and
 every package are products of `make`, which needs only `nasm` and `python3`.
 For a floppy you can boot without a toolchain, take a
-[release](https://github.com/Elendilon/os8088/releases) or
+[release](https://github.com/jggonz/os8088/releases) or
 [os8088.com](https://os8088.com); the build is deterministic
 (`tools/os88disk.py` pins the volume serial and every FAT timestamp), so a
 released image rebuilds from its own sources byte for byte.
