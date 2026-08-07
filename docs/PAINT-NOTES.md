@@ -18,6 +18,7 @@ for them are marked **RESOLVED** where that is so. In short:
 | a `gfx_blit4` slot | SPEC.md §5.4 — packed 4bpp, adapter- and back-buffer- and clip-aware |
 | the kernel's glyph table | `OSAPI_FONT_GLYPHS`, SPEC.md §6 |
 | `wm_resize(BX, w, h)`, and a resize callback whose refusal `ui_grow` honours | `OSAPI_WM_RESIZE` and `W_ONSIZE`/`OSAPI_WM_ONSIZE`, SPEC.md §11.1 |
+| a way to stop paying the drawing lock on every mouse sample of a stroke | **fullscreen exclusive**, SPEC.md §53 — and Paint is its same-mode consumer (SPEC.md §42.7): `OSAPI_FULLSCREEN` puts the geometry in the window record and `OSAPI_FSX_RUN` holds the lock for the whole session, so `pt_wait` stops being an unlock/yield/lock round trip and becomes `OSAPI_FSX_WAIT` |
 
 The rest — positioned file I/O, a teardown callback, mouse-motion events,
 menu item state, a package-visible modal gate — is still outstanding, and the
@@ -45,6 +46,16 @@ Shrinking the window never silently eats the picture: the rows or columns
 about to go are checked for ink first, per axis, and a dirty axis keeps its
 size while the other one still moves. When that happens the frame is written
 back to fit the canvas and the status toast says why.
+
+View ▸ Full Screen (Ctrl+F) hands the whole screen and the whole machine to
+the editor — SPEC.md §42.7 and §53 — on all three adapters, with the app
+drawing its own crosshair and polling its own input because the desktop is
+frozen underneath it. Ctrl+F comes back, and so does Escape when it has
+nothing else to cancel. **That same rule about eating the picture is what
+bounds the feature**: the canvas grows to fill the screen only as far as a
+*window* could show it afterwards, because a picture that outgrew every window
+could never come back to one, and the 67 rows of white it leaves are the price
+of an exit that always works.
 
 ## The two liberties it takes
 
