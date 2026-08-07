@@ -167,13 +167,18 @@ fsx_run:
     loop .rel
     pop ax
 
-    push ax                     ; stash the desktop to extended memory while
-    push bx                     ; it is still on screen (SPEC.md 53.6): a
-    call fsx_stash_save         ; 286+/VGA machine with a store gets an
-    pop bx                      ; instant restore instead of a full repaint.
-    pop ax                      ; No-op and harmless on tier 0. AX/BX are the
-                                ; entry+window the wm_pkgcall setup below
-                                ; needs, so they are banked across it.
+    mov byte [fsx_stashed], 0   ; NOT stashed here: the desktop is only worth
+                                ; saving if the app is about to REPLACE it,
+                                ; and that is what fsx_mode means. A same-mode
+                                ; bracket (SPEC.md 53.7) draws on the desktop's
+                                ; own surface with the kernel's own primitives,
+                                ; so a snapshot taken here goes stale the
+                                ; moment the app draws - and Paint (SPEC.md
+                                ; 42.7) is the consumer whose window content is
+                                ; PERSISTENT, so the stale planes read as the
+                                ; picture having been thrown away. fsx_mode
+                                ; takes it instead, on the first switch, while
+                                ; VRAM still holds the desktop (SPEC.md 53.6.1)
 
     push bp                     ; the app owns the machine from here to its
     mov si, bx                  ; ret: wm_pkgcall's contract, record in SI,
@@ -286,6 +291,11 @@ fsx_mode:
     test dx, bx
     jz .fail
 
+    cmp byte [fsx_cur], 0xFF    ; the FIRST switch of this bracket, and the
+    jne .stashed                ; last moment the desktop is still in VRAM:
+    call fsx_stash_save         ; stash it now rather than at fsx_run, so a
+.stashed:                       ; bracket that never switches never holds a
+                                ; snapshot its own drawing invalidated
     mov ch, al                  ; CH = the id, live across the mode set
     cmp al, FSXM_TEXT80
     je .text
@@ -697,7 +707,29 @@ section .text
 ; --- the stash's .text glue (SPEC.md 2.6) ------------------------------------
 ; Six-byte entry thunks fsx_run / fsx_restore near-call, and four-byte cw_
 ; shims the cold engine far-calls out through. This is the whole guard-2 cost.
-fsx_stash_save:   call COLD_SEG:fsxc_save
+; The save preserves EVERY register, which fsx_run did not need and fsx_mode
+; cannot do without: ES:DI there is the APP's FSI block, and fsxc_xfer leaves
+; ES on 0A000h and uses DI as its own direction word - so an unbanked call
+; wrote the info block into VRAM and handed the app a garbage one. Caught by
+; Missile Command's Mode X restoring to a black screen; the cost is 16 bytes
+; of guard 2, once per bracket.
+fsx_stash_save:   push ax
+                  push bx
+                  push cx
+                  push dx
+                  push si
+                  push di
+                  push bp
+                  push es
+                  call COLD_SEG:fsxc_save
+                  pop es
+                  pop bp
+                  pop di
+                  pop si
+                  pop dx
+                  pop cx
+                  pop bx
+                  pop ax
                   ret
 fsx_stash_load:   call COLD_SEG:fsxc_load
                   ret

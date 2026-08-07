@@ -19305,6 +19305,30 @@ still on screen and before the app's proc draws, and `fsx_restore` **writes
 them straight back** at exit instead of repainting. `kernel/fsx.inc`,
 `fsxc_save`/`fsxc_load`.
 
+**It is taken at the first `fsx_mode` call, not at bracket entry, and that is
+a correctness rule rather than a tuning.** The stash exists to recover a
+desktop the app is about to *replace*; a **same-mode** bracket (§53.7) draws on
+the desktop's own surface with the kernel's own primitives, so a snapshot taken
+at entry goes stale the moment the app draws — and restoring it silently undoes
+that drawing. Paint (§42.7) is where this surfaced and it is the first consumer
+it could surface on: its window content is **persistent**, so a picture drawn
+in full screen came back to a window that still showed the pre-bracket image.
+The picture was never lost — the canvas held it, and any later repaint drew it
+— which is exactly what makes the failure worth naming: it reads as data loss
+and is a stale snapshot. Missile Command and Tracker could not show it, their
+window content being redrawn from scratch every frame anyway. **The 8086 target
+never saw it at all**, tier 0 having no store, so it took a 286 with XMS to
+find. Taking the stash inside `fsx_mode` fixes it by construction: a bracket
+that never switches modes never holds a snapshot, and one that does still takes
+it at the last moment VRAM holds the desktop.
+
+**`fsx_stash_save` preserves every register**, which its `fsx_run` caller did
+not need and its `fsx_mode` caller cannot do without: `ES:DI` there is the
+*app's* FSI block, and `fsxc_xfer` leaves ES on 0A000h and uses DI as its own
+direction word — so an unbanked call wrote the info block into VRAM and handed
+the app garbage geometry. Missile Command's Mode X restoring to a black screen
+is what caught it.
+
 It engages only when it is free of risk and pays off: `[cpu_tier]` ≠ tier 0,
 a VGA adapter (four planes to read; a mono framebuffer is one plane and
 already cheap), and the desktop straight in VRAM (`[bb_dbl]` clear — a back
