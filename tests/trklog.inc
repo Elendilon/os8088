@@ -213,11 +213,6 @@ tlog_feed:
     jnz .ok
     dec byte [tlog_feeds]           ; saturate rather than wrap: 255 already
 .ok:                                ; means "far more than one"
-    push bx
-    mov ax, [tlog_wt0]              ; how long the PREVIOUS pass took: this
-    mov bx, tlog_fdmx               ; hook is at the top of the next one
-    call tlog_span
-    pop bx
     call tlog_tick
     pop ax
     ret
@@ -263,6 +258,20 @@ tlog_wstart:
     push ax
     call OSAPI_GET_TICKS
     mov [tlog_wt0], ax
+    pop ax
+    ret
+
+; tlog_wend - close the feed pass's span. It has to be the pass's OWN end and
+;             not the next pass's start: measured from the top of trk_feed to
+;             four instructions later, DX read 00 through a capture in which
+;             the machine plainly stalled for a second.
+tlog_wend:
+    push ax
+    push bx
+    mov ax, [tlog_wt0]
+    mov bx, tlog_fdmx
+    call tlog_span
+    pop bx
     pop ax
     ret
 

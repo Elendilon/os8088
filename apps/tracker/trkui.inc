@@ -1607,11 +1607,16 @@ tui_sync:
 ; stream's own byte rate, and two properties make that safe rather than
 ; merely smoother:
 ;
-;   CLAMPED. The estimate never runs past one whole block beyond the last
-;   reported position, so a late or missing block IRQ costs a pause, never a
-;   row the card has not reached. [tui_cstep] is the step the card was last
-;   OBSERVED to take rather than an assumed 2,048, because above 22 kHz the
-;   kernel plays 4KB halves (SPEC.md 34.5).
+;   BOUNDED BY WHAT WAS STAGED. The card cannot have played bytes the mixer
+;   has not written, so [trk_total] is the cap - a physical bound rather than
+;   an arbitrary one. It used to be "one block past the last REPORT", and the
+;   field showed why that is not the same thing: [trk_consumed] is not sampled
+;   per tick, it is whatever the WORKER last saw, and a capture has feed
+;   passes 10 to 20 ticks apart. Through a gap like that the estimate hit the
+;   clamp after one block and stopped, so the scroll ran three or four rows
+;   and then froze for about a fifth of a second - reported from the field in
+;   exactly those words. The card was playing normally throughout; only our
+;   view of it had stalled.
 ;
 ;   MONOTONE, and this is the load-bearing one. [tui_play] is the last answer
 ;   given and the estimate can never go below it. Without that, any
@@ -1628,33 +1633,25 @@ tui_playpos:
     mov ax, [trk_consumed]
     cmp ax, [tui_lcons]
     je .est
-    mov bx, ax                      ; a new block: re-anchor on the truth and
-    sub bx, [tui_lcons]             ; learn the step it moved by (wrap-safe)
-    or bx, bx
-    jz .anchor
-    cmp bx, 8192                    ; ...ignoring an implausible one, which is
-    ja .anchor                      ; a restart rather than a block
-    mov [tui_cstep], bx
-.anchor:
-    mov [tui_lcons], ax
+    mov [tui_lcons], ax             ; a fresh report: re-anchor on the truth
     mov [tui_ct0], cx
 .est:
-    sub cx, [tui_ct0]               ; CX = ticks since that block landed
+    sub cx, [tui_ct0]               ; CX = ticks since that report landed
     push ax
     mov ax, cx
-    mul word [tui_bpt]              ; DX:AX = bytes the card has played since
-    or dx, dx                       ; ...capped at one whole block, so a late
-    jnz .cap                        ; IRQ pauses the display and never runs
-    cmp ax, [tui_cstep]             ; it past what has actually been played
-    jb .add
-.cap:
-    mov ax, [tui_cstep]
-.add:
-    mov bx, ax
-    pop ax
+    mul word [tui_bpt]              ; DX:AX = bytes played since the anchor
+    pop bx                          ; BX = the anchor (POP touches no flags)
+    or dx, dx
+    jnz .cap                        ; past 64KB: past anything ever staged
     add ax, bx                      ; AX = the interpolated position
+    mov bx, [trk_total]             ; ...bounded by what the mixer has WRITTEN,
+    sub bx, ax                      ; because the card cannot play what is not
+    jns .mono                       ; there yet (wrap-safe: the sign decides)
+.cap:
+    mov ax, [trk_total]
+.mono:
     mov bx, ax                      ; ...and it may never go backwards
-    sub bx, [tui_play]              ; (wrap-safe: the sign decides)
+    sub bx, [tui_play]
     jns .keep
     mov ax, [tui_play]
     jmp short .out
@@ -2824,7 +2821,6 @@ tui_ab5:     db 'Any key closes', 0
     TRKW tui_bpt                    ; stream bytes per system tick
     TRKW tui_lcons                  ; the reported position it is anchored to
     TRKW tui_ct0                    ; ...and the tick that anchor landed on
-    TRKW tui_cstep                  ; the step the card was last seen to take
     TRKW tui_play                   ; the last answer given: never goes back
     TRKB tui_band                   ; tui_row1: drawing the band row
     TRKB tui_chn                    ; shared small loop counter

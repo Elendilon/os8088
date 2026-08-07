@@ -1400,9 +1400,8 @@ trk_play:
                                     ; already read but nothing has mixed yet
     mov word [tui_lcons], 0         ; ...and so does tui_playpos's estimate
     mov word [tui_play], 0          ; (SPEC.md 45.15.1), which is anchored on
-    mov word [tui_cstep], TRK_HALF  ; those same counters. The step is the
-    call OSAPI_GET_TICKS            ; kernel's fill unit until the card has
-    mov [tui_ct0], ax               ; been seen to take one
+    call OSAPI_GET_TICKS            ; those same counters
+    mov [tui_ct0], ax
     mov ax, [mp_mixrate]            ; bytes per system tick: rate / 18.2065,
     mov dx, 3600                    ; and 3600/65536 is that to 0.011% - so
     mul dx                          ; the product's HIGH word is the answer
@@ -1826,8 +1825,9 @@ trk_feed:
     push si
     push di
 %ifdef TRKLOG
-    call tlog_wstart                ; this pass's span starts here
-%endif
+    call tlog_wstart                ; this pass's span starts here, and ENDS
+%endif                              ; at .out - a pass that mixes TRK_MAXFEED
+                                    ; halves is the thing DX exists to price
     mov byte [trk_mixing], 1        ; FIRST, before the guards: a pass past
                                     ; its guards must never be invisible to
                                     ; trk_stream_close's drain
@@ -1883,6 +1883,9 @@ trk_feed:
     mov byte [trk_ended], 1         ; (SPEC.md 34.5); trk_reap or the next
                                     ; Play closes it on the UI task
 .out:
+%ifdef TRKLOG
+    call tlog_wend                  ; ...and the span closes here
+%endif
     mov byte [trk_mixing], 0        ; the drain gate reopens LAST
     pop di
     pop si

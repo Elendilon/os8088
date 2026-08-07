@@ -14276,11 +14276,19 @@ involved at all.
 Two properties make it safe rather than merely smoother, and both are the
 whole of why this is a section:
 
-- **Clamped.** The estimate never runs past one whole block beyond the last
-  reported position, so a late or missing block IRQ costs a pause and never a
-  row the card has not reached. `[tui_cstep]` is the step the card was last
-  *observed* to take rather than an assumed 2,048, because above 22 kHz the
-  kernel plays 4KB halves (§34.5).
+- **Bounded by what was staged.** The card cannot have played bytes the mixer
+  has not written, so `[trk_total]` is the cap — a *physical* bound rather
+  than an arbitrary one. It was "one block past the last report" first, and
+  the field showed why those are not the same thing: `[trk_consumed]` is not
+  sampled per tick, it is **whatever the worker last saw**, and a capture has
+  feed passes 10 to 20 ticks apart. Through a gap like that the estimate hit
+  the clamp after one block and stopped, so the scroll ran three or four rows
+  and then froze for about a fifth of a second — reported from the field in
+  exactly those words, with 20% of its row-to-row gaps at 4 ticks or more.
+  The card was playing normally throughout; only our *view* of it had
+  stalled. The reading that the guest was losing ticks, which the apparent
+  byte rate swinging between 186 and 683 bytes/tick seems at first to show,
+  is that same observation lag and not a lost interrupt.
 - **Monotone**, which is the load-bearing one. `[tui_play]` is the last answer
   given and the estimate can never fall below it. Without that, any
   disagreement between the estimate and the next real block — a byte rate a
@@ -14378,6 +14386,14 @@ Two things in it were wrong, and both are fixed here:
 `FX` — the longest single frame in a tick — is 1 to 2 ticks on 16–18% of
 ticks in both captures, which is what "not keeping up" actually looks like
 from the inside and is the number to watch after these two changes.
+
+`DX` is the one instrument that has so far measured nothing, and it was
+mis-placed rather than uninformative: `tlog_wstart` sat at the top of
+`trk_feed` and the span closed at `tlog_feed` four instructions later, so it
+priced the status poll and not the pass. It closes at `trk_feed`'s own exit
+now. That matters because a capture holds **18-tick windows with no record at
+all** — neither producer ran for a full second — and a pass that mixes
+`TRK_MAXFEED` halves is the standing suspect for them.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
