@@ -1472,6 +1472,43 @@ OS88_BSS_SIZE equ 0
                                  ; still the caller's to dilate
 
 ; --- the boot timer (SPEC.md 15.4) --------------------------------------------
+
+; --- SPEC.md 5.6.7: the RESUMABLE walk ---------------------------------------
+; gfx_line draws a whole line. These draw the NEXT N PIXELS of one, and that
+; difference is what lets you ERASE EXACTLY WHAT YOU DREW.
+;
+; If you draw a line incrementally - a few pixels a frame, as a moving object's
+; trail - and then erase it with one whole-line call, the two Bresenhams do
+; NOT visit the same pixels, and the erase leaves a dashed remnant. The old
+; answer was to dilate the erase by a pixel either side, which is an
+; approximation in both directions: it can still miss, and it erases pixels
+; your trail never drew out of whatever was underneath. It also costs three
+; walks - 500us a trail pixel on a 4.77MHz machine.
+;
+; Carry the state instead. Init once; advance it to draw; keep a COPY of the
+; freshly-initialised block, and replay that copy in the background colour to
+; erase. Same recurrence, same pixels, one walk each way.
+;
+;   GLS_SZ bytes of your own bss per line. The layout is not yours to read:
+;   pass the block, copy it whole (rep movsw) if you want a replay cursor.
+;
+; Because you may stop and resume anywhere, an erase does NOT have to land in
+; one frame: advance the replay cursor a few pixels a frame and a spent trail
+; DRAINS instead of popping, with no frame paying for the whole thing.
+;
+; THE WALK RUNS IN YOUR DIRECTION. gfx_line normalises its endpoints so its
+; pixel set is a property of the pair; this cannot, because step 1 has to be
+; next to the point you started from. Init draw and erase from the SAME
+; endpoints in the SAME order and they agree by construction.
+%define OSAPI_GFX_LINIT     KERNEL_SEG:0x0300   ; AX/BX = x1/y1, CX/DX = x2/y2,
+                                 ; ES:DI = a GLS_SZ block (X - it is yours).
+                                 ; Sets the walk up at (x1,y1). Preserves all.
+%define OSAPI_GFX_LSTEP     KERNEL_SEG:0x0308   ; ES:DI = the block, CX = how
+                                 ; many pixels to draw in [gfx_color]; the
+                                 ; block advances by exactly that many. CX = 0
+                                 ; is legal and does nothing. Lock held.
+                                 ; Preserves all. N then M == one call of N+M.
+GLS_SZ    equ 14                 ; the walk state, in YOUR bss
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x02F8   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,
                                  ; 54.925 ms each): the boot sector's first

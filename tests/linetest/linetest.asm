@@ -151,6 +151,122 @@ lt_ends:
     sub dx, 5
     ret
 
+lt_chunks:  dw 0, 1, 2, 3, 7
+
+; lt_segfan - the whole fan again, through the resumable walk
+lt_segfan:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    cmp byte [lt_erase], 0      ; an erase pass must NOT clear first - the
+    jne .noclr                  ; whole point is that the replay does it
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    mov ax, [lt_ox]
+    mov bx, [lt_oy]
+    mov cx, ax
+    add cx, [lt_cw]
+    dec cx
+    mov dx, bx
+    add dx, [lt_ch]
+    dec dx
+    call OSAPI_GFX_FILL
+.noclr:
+    mov al, CWHITE
+    cmp byte [lt_erase], 0
+    je .pen
+    mov al, CBLACK              ; the replay puts the sky back
+.pen:
+    call OSAPI_SET_COLOR
+    xor di, di
+.f:
+    call lt_ends
+    call lt_seg
+    inc di
+    cmp di, LT_NFAN
+    jb .f
+    xor di, di
+.f2:
+    call lt_ends
+    xchg ax, cx
+    call lt_seg
+    inc di
+    cmp di, LT_NFAN
+    jb .f2
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; lt_seg - the same line through SPEC.md 5.6.7's resumable walk, drawn in
+; chunks of CH pixels. CH = 0 means one call for the whole thing - so the
+; gate is "every chunk size draws the identical pixel set", which is the
+; contract's whole content.
+; in:  AX,BX = x1,y1  CX,DX = x2,y2; [lt_chunk] = the chunk; preserves all
+lt_seg:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    add ax, [lt_ox]
+    add cx, [lt_ox]
+    add bx, [lt_oy]
+    add dx, [lt_oy]
+    mov si, cx                  ; the walk length is max(|dx|,|dy|) + 1
+    sub si, ax
+    jns .dxa
+    neg si
+.dxa:
+    mov di, dx
+    sub di, bx
+    jns .dya
+    neg di
+.dya:
+    cmp si, di
+    jae .n
+    mov si, di
+.n:
+    inc si                      ; SI = pixels in the whole walk
+    push ds
+    pop es
+    mov di, lt_gls
+    call OSAPI_GFX_LINIT
+.chunks:
+    or si, si
+    jz .done
+    mov cx, [lt_chunk]
+    or cx, cx
+    jz .all
+    cmp cx, si
+    jbe .go
+.all:
+    mov cx, si
+.go:
+    sub si, cx
+    push si
+    push ds
+    pop es
+    mov di, lt_gls
+    call OSAPI_GFX_LSTEP
+    pop si
+    jmp short .chunks
+.done:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; lt_line - one DILATED line in content coordinates
 ; in:  AX,BX = x1,y1  CX,DX = x2,y2; preserves every register
 lt_line:
@@ -178,6 +294,39 @@ lt_line:
 ; the two have to be asked of the same drawing or neither means anything.
 ; -----------------------------------------------------------------------------
 lt_onkey:
+    cmp al, '0'                 ; 0..4: redraw the fan through the RESUMABLE
+    jb .bench                   ; walk, in chunks of 0/1/2/3/7 pixels. Every
+    cmp al, '5'                 ; one must produce the identical framebuffer;
+    ja .bench                   ; 5 draws the fan and then ERASES it by
+                                ; replaying the same walks in the background
+                                ; colour, and the content must come back
+                                ; completely blank - the property a trail
+                                ; erase actually depends on
+    push ax
+    push bx
+    push si
+    sub al, '0'
+    mov bl, al
+    xor bh, bh
+    cmp bl, 5
+    je .erase
+    mov ax, [lt_chunks + bx]
+    mov [lt_chunk], ax
+    call lt_segfan
+    jmp short .kdone
+.erase:
+    mov word [lt_chunk], 3      ; drawn in chunks, erased in different ones:
+    call lt_segfan              ; if the two disagreed anywhere, a pixel
+    mov word [lt_chunk], 5      ; would survive
+    mov byte [lt_erase], 1
+    call lt_segfan
+    mov byte [lt_erase], 0
+.kdone:
+    pop si
+    pop bx
+    pop ax
+    ret
+.bench:
     push ax
     push bx
     push cx
@@ -378,6 +527,9 @@ lt_tpl:
     dw 40, 40, 320, 200
     dw lt_ttl, lt_paint, lt_onkey, lt_onclick
 
+lt_erase:   db 0                ; the fan pass is a replay in the background
+lt_chunk:   dw 0                ; pixels per LSTEP call; 0 = the whole walk
+lt_gls:     times GLS_SZ db 0
 lt_ttl:     db 'Line Test', 0
 lt_ox:      dw 0
 lt_oy:      dw 0

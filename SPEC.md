@@ -826,6 +826,65 @@ Four things about it are load-bearing:
   `BP` carries its direction — `gfx_line` pushes `BP` for it, as a plain
   register and never as an address base (SS ≠ DS, §1).
 
+#### 5.6.7 The resumable walk — `gfx_linit` / `gfx_lstep` (0x0300 / 0x0308)
+
+`gfx_line` answers *draw this whole line*. These two answer *draw the next N
+pixels of this line*, and that difference is what lets a caller **erase
+exactly what it drew**.
+
+**The problem.** A missile trail is drawn a couple of pixels a frame and
+erased as one long line, and Bresenham over the whole line does not visit the
+union of the per-frame segments — §48's very first note is the dashed remnant
+that leaves. §5.6.5's answer was to dilate the erase by a pixel either side,
+which is an approximation in *both* directions: it can still miss, and it
+erases pixels the trail never drew out of whatever was underneath, which is
+the stale-pixel class the same section records. It also costs three walks —
+**500 µs a trail pixel** on the field machine, the largest remaining item in
+that game (PERFORMANCE.md Set 4).
+
+**The fix is to stop guessing what was drawn and remember it.** The caller
+owns a `GLS_SZ`-byte block: `gfx_linit` sets it up from the two endpoints,
+`gfx_lstep` draws the next CX pixels in `[gfx_color]` and advances it. Keep a
+copy of the freshly-initialised block and replay that copy in the background
+colour, and the erase is the same recurrence over the same pixels — one thin
+walk each way instead of three fat ones.
+
+Four things are load-bearing:
+
+- **N then M is exactly the N+M one call would have drawn.** Each step plots
+  the *current* point and advances after, so a walk may be stopped and
+  resumed anywhere. That is the whole contract, and `tests/linetest` gates it
+  directly: the same fan drawn in chunks of 1, 2, 3 and 7 produces a
+  **byte-identical framebuffer** to one call per line.
+- **The walk runs in the CALLER's direction.** §5.6.2 normalises `gfx_line`
+  downward so its pixel set is a property of the endpoint *pair*; this cannot,
+  because the caller is drawing outward from a fixed point and step 1 has to
+  be next to it. Order matters here, and `gfx_prevrow` exists for it — an ABM
+  launches upward. Two inits from the same endpoints in the same order agree
+  by construction, which is all a draw/erase pair needs.
+- **The block is STAGED into kernel scratch and written back**, not addressed
+  through ES throughout (§20.8 rule 3, and here it is forced as well as
+  preferred: the mono walk needs ES for the framebuffer). The caller's
+  *segment* therefore has to be remembered in `[gfx_ls_cseg]` — losing it
+  writes the advanced state into the kernel's own copy, and the caller's walk
+  silently never moves.
+- **Clipping is per pixel against a cached rect**, not §5.6.3's one-pass-per-
+  fragment: a resumable walk cannot be run once per clip rect without
+  advancing the state once per rect. `gfx_ls_box` resolves the rect
+  containing the current point and the walk re-resolves only when a pixel
+  leaves it — one list walk per call in every case that matters, since a step
+  is a handful of pixels.
+
+**Because a walk may be stopped anywhere, an erase need not land in one
+frame.** Advancing a replay cursor a few pixels a frame makes a spent trail
+*drain* rather than pop, with no single frame paying for the whole thing —
+which is what §48.8.3's rejected "erase cursor" was reaching for and could
+not have, because a whole-line call cannot be partially issued and clipping
+one does not make it cheaper (the walk is the cost).
+
+Verified on all three adapters: drawn in chunks of 3 and erased in chunks of
+5, the content comes back with **0 lit pixels** on Hercules, CGA and VGA.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
@@ -5599,11 +5658,13 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02D0 fsx_mode
                                                 0x02D8 fsx_wait
                                                 0x02E0 gfx_line
+                                                0x0300 gfx_linit   X
+                                                0x0308 gfx_lstep   X
 ```
 
-**Every published slot keeps its number and contract**, on the rule that **a
-slot number must never mean two contracts**: a shipped number keeps its
-meaning, and the answer to "we no longer implement this" is a wrapper or a
+**Every RELEASED slot keeps its number and contract** (§20.8 rule 4), on the
+rule that **a slot number must never mean two contracts**: a released number
+keeps its meaning, and the answer to "we no longer implement this" is a wrapper or a
 refusing stub, never a reuse. Reusing 0x01C8 for a KB-counting `mem_avail`
 where it once held a paragraph-counting one would fail silently and by a
 factor of 64, which is the whole class of bug the rule exists to prevent. So
@@ -5749,6 +5810,14 @@ Slot-specific contracts that are not simply their target routine's:
                          an axis-aligned pair defers to gfx_hline /
                          gfx_vline, which stay the right answer for a long
                          run. Clobbers flags only.
+0x0300 gfx_linit         in AX/BX = x1/y1, CX/DX = x2/y2, ES:DI = a GLS_SZ
+                         block of the CALLER'S memory (X). Sets a resumable
+                         walk up at (x1,y1) (§5.6.7). Preserves all.
+0x0308 gfx_lstep         in ES:DI = that block, CX = pixels to draw in
+                         [gfx_color]; the block advances by exactly that
+                         many. Lock held; CX=0 legal. N then M is exactly
+                         the N+M one call would have drawn, which is what
+                         lets an erase replay a draw. Preserves all.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
