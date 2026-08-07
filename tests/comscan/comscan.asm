@@ -272,7 +272,11 @@ port_survey:
     call putsp
     inc dx
     loop .reg
-    call crlf
+    mov al, [bx+p_sdlm]         ; ...and the divisor the machine was found
+    call puthex8                ; with, banked before anything scribbled on
+    mov al, [bx+p_sdll]         ; it. It says what baud the BIOS or DOS left
+    call puthex8                ; the port at, and two ports disagreeing here
+    call crlf                   ; is what broke the loopback test above
 .out:
     pop si
     pop dx
@@ -370,8 +374,25 @@ t_loop:
     push ax
     push cx
     push dx
+    ; A KNOWN divisor first, and this is not tidiness. t_latch leaves DLL
+    ; holding 0x55 and DLM holding whatever the machine had, so the loopback
+    ; used to run at a baud rate that differed PER PORT by however much their
+    ; as-found DLMs differed - and the bounded wait below then timed out on
+    ; the slower one and reported a working UART as broken. That is exactly
+    ; what it did on the Compaq Portable III: COM1 failed this test and COM2
+    ; passed it, on two ports that are both ordinary 8250s. Divisor 1 is
+    ; 115200 baud, so the byte is ~87us whatever the machine.
     mov dx, [bx+p_base]
     add dx, 3
+    mov al, 0x80                ; DLAB on
+    out dx, al
+    mov dx, [bx+p_base]
+    mov al, 1
+    out dx, al                  ; DLL = 1
+    inc dx
+    xor al, al
+    out dx, al                  ; DLM = 0
+    add dx, 2
     mov al, 0x03                ; DLAB off, 8N1 - we only need the shift regs
     out dx, al
     inc dx                      ; MCR: LOOP | RTS | DTR
@@ -1491,8 +1512,8 @@ s_title     db 13,10,'os8088 comscan - serial port survey (SPEC.md 9.5)',13,10
             db '=================================================',13,10,13,10,0
 s_bios      db 'BIOS POST found (40:00h): ',0
 s_imr       db '8259 mask (IMR) master/slave: ',0
-s_hdr1      db 'port base  latch lat2  scr   loop  part   IER IIR LCR MCR LSR MSR SCR',13,10,0
-s_hdr2      db '---- ----  ----- ----  ----  ----  -----  --- --- --- --- --- --- ---',13,10,0
+s_hdr1      db 'port base  latch lat2  scr   loop  part   IER IIR LCR MCR LSR MSR SCR DIV',13,10,0
+s_hdr2      db '---- ----  ----- ----  ----  ----  -----  --- --- --- --- --- --- --- ----',13,10,0
 s_com1      db 'COM1 ',0
 s_com2      db 'COM2 ',0
 s_com3      db 'COM3 ',0

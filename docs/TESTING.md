@@ -224,7 +224,19 @@ qemu-system-i386 -drive file=build/os8088.img,format=raw,if=floppy -boot a \
 # pacing each burst by len*10/1200 seconds - it is a 1200-baud line
 ```
 
-Two traps in building that harness, both of which produced a green run that
+A third trap is in the survey rather than the harness, and real hardware is
+what exposed it. **A test that leaves the baud rate wherever the last test
+left it is a test whose result depends on the machine.** `t_latch` scribbles
+0x55 into DLL and leaves DLM as the BIOS set it, so the loopback that ran
+next was clocked at a rate that differed *per port* by however much their
+as-found divisors differed — and its bounded wait then timed out on the
+slower one and reported a healthy UART as broken. On the Compaq Portable III
+that read as COM1 failing loopback while COM2 passed, on two ports that are
+both ordinary 8250s. `t_loop` programs divisor 1 (115200 baud, ~87us a byte)
+before it starts, and the survey prints the **as-found divisor** in a `DIV`
+column, which is what would have made it diagnosable from the first report.
+
+Two traps in building the harness, both of which produced a green run that
 proved nothing:
 
 - **`msmouse` speaks during boot.** With a real mouse attached to 2F8 the
