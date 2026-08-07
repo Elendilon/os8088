@@ -7974,12 +7974,241 @@ np_fpkey:
 ; have worked out for itself, but saying so costs nothing and cannot be got
 ; wrong by a later edit.
 ; -----------------------------------------------------------------------------
+; =============================================================================
+; Opening and closing the panel MOVES the text (SPEC.md 27.10.2)
+;
+; The panel changes exactly one number - the height np_bounds adds to
+; [np_ty] - and changes NOTHING about the wrap: [np_tx] and [np_rgt] are the
+; content's own edges and the panel is docked above the text, not beside it.
+; So every row holds exactly the same characters before and after; they are
+; simply H pixels lower or higher, and the view keeps the same [np_top].
+;
+; That makes the whole repaint a BLIT. Opening was ~19 rows of ~30 cells
+; through np_redraw's full path - about 570 glyph cells, over half a second on
+; a 4.77MHz machine (PERFORMANCE.md Part 2's ~1ms a cell) - and is now one
+; OSAPI_GFX_SCROLL plus the panel. Closing is the blit plus the four rows the
+; text moving up EXPOSES at the bottom, which is the only part of it that was
+; never on screen.
+;
+; Three things make it safe, and all three are refusals rather than
+; corrections, because a wrong blit shows text that was never in the note:
+;
+;  - **Only [np_ty] may have moved.** [np_tx], [np_rgt] and [np_bot] are
+;    compared against what np_sigmark recorded; a resize that happens to
+;    coincide falls back.
+;  - **[np_top] must not be clamped.** Closing GROWS [np_vrows], which shrinks
+;    np_scrollmax, and a view that has to move renames every row. Opening
+;    shrinks vrows and so can never need it.
+;  - **A toast, the visual break and stale signatures all refuse.** The toast
+;    is drawn over the text at a y the panel moves, so the blit would carry it
+;    to the wrong place and nothing would put it back - np_scrollpaint refuses
+;    for the same reason (SPEC.md 27.7.2).
+;
+; The panel's OWN pixels are inside the band that moves, which is what makes
+; closing leave nothing behind: they blit off the top of the content and are
+; clipped. What the band cannot reach is the <8px left margin the x-rounding
+; gives up and the scroll bar's columns; both are repainted afterwards, which
+; np_sbar was going to do anyway because the thumb has moved.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; np_panmove - move the text to where the panel now leaves room for it
+; in:  SI = window ptr, np_bounds ALREADY run for the NEW geometry, gfx lock
+;      held
+; out: CF = 0 the screen is correct and the signatures describe it; CF = 1
+;      nothing was drawn and the caller must repaint in full.
+;      Clobbers what a window callback may.
+; -----------------------------------------------------------------------------
+np_panmove:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    cmp byte [np_sigok], 0
+    je .no                      ; the arrays do not describe the screen
+    cmp byte [np_bmode], 0
+    jne .no
+    cmp word [np_msg], 0
+    jne .no
+    mov ax, [np_tx]             ; only [np_ty] may have moved
+    cmp ax, [np_stx]
+    jne .no
+    mov ax, [np_rgt]
+    cmp ax, [np_srgt]
+    jne .no
+    mov ax, [np_bot]
+    cmp ax, [np_sbot]
+    jne .no
+    cmp word [np_vrows], 0
+    je .no
+    mov di, [np_ty]
+    sub di, [np_sty]            ; DI = how far the text is moving, + = down
+    jz .no
+    jns .open
+    call np_scrollmax           ; closing: the view has more rows to show, so
+    cmp [np_top], ax            ; [np_top] may be past the new maximum - and a
+    ja .no                      ; view that moves renames every row
+.open:
+
+    mov bx, si                  ; the band is the whole content height, so the
+    call OSAPI_WM_CONTENT       ; panel's own pixels move with the text
+    push ax                     ; AX = content left, DX = content top
+    push dx
+    mov ax, [np_tx]
+    and ax, 0xFFF8              ; x1 down to a byte column - [np_tx] and not
+                                ; the content's own left edge, because
+                                ; rounding THAT down would leave the content
+    mov cx, [np_rgt]
+    add cx, 8
+    and cx, 0xFFF8
+    dec cx                      ; x2, with x2+1 up to a byte column
+    pop bx                      ; y1 = content top
+    push bx
+    mov dx, [np_bot]            ; y2 = content bottom
+    push si
+    mov si, di
+    neg si                      ; OSAPI_GFX_SCROLL's positive is text UP
+    call OSAPI_GFX_SCROLL
+    pop si
+    pop dx                      ; content top
+    pop ax                      ; content left
+    jc .no                      ; refused, and having drawn nothing
+
+    push ax                     ; --- the left margin the rounding gave up ---
+    push dx
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    pop dx
+    pop ax
+    mov bx, dx                  ; y1 = content top
+    mov cx, [np_tx]
+    and cx, 0xFFF8
+    dec cx                      ; x2 = just left of the band
+    mov dx, [np_bot]
+    cmp ax, cx
+    jg .noleft
+    call OSAPI_GFX_FILL
+.noleft:
+
+    or di, di
+    js .close
+
+    ; --- OPENING: the panel goes in the strip the text left behind --------
+    ; and the rows pushed past the bottom are simply gone, which is what a
+    ; smaller view means. All that is owed below is the sliver under the last
+    ; whole row, where the blit left a slice of the row that used to be there.
+    call np_fpaint
+    jmp .tail
+
+.close:
+    ; --- CLOSING: the text moved UP, so the bottom of the view is stale ----
+    ; The first row that needs lettering is the one whose pixels reach the
+    ; band the blit could not fill: (bot - |d| + 1 - ty) >> 3.
+    mov ax, di
+    neg ax
+    mov bx, [np_bot]
+    sub bx, ax
+    inc bx
+    sub bx, [np_ty]
+    jns .r0
+    xor bx, bx
+.r0:
+    mov cl, 3
+    shr bx, cl                  ; BX = the first exposed row
+    cmp bx, [np_vrows]
+    jae .tail                   ; nothing was exposed
+    mov [np_dr0], bx
+    mov ax, [np_vrows]
+    dec ax
+    mov [np_dr1], ax
+
+    push cx                     ; erase the band: OSAPI_GFX_SCROLL leaves what
+    mov ax, bx                  ; it vacates holding a copy of its neighbour
+    mov cl, 3
+    shl ax, cl
+    pop cx
+    add ax, [np_ty]
+    mov bx, ax                  ; y1
+    mov dx, [np_bot]            ; y2 - to the very bottom, so the sliver under
+                                ; the last whole row goes too
+    mov ax, [np_tx]
+    sub ax, NP_MARGIN           ; x1 = the content's own left edge
+    mov cx, [np_rgt]
+    push ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    pop ax
+    call OSAPI_GFX_FILL
+    mov word [np_prowi], 0xFFFF ; the fill erased what the delta cache knew
+
+    mov word [np_hity], 0xFFFF  ; one pass, drawing AND re-signing: the band
+    mov word [np_wanty], 0xFFFF ; was just filled, so np_clean
+    mov byte [np_draw], 1
+    mov byte [np_sigup], 1
+    mov byte [np_clip], 1
+    mov byte [np_clean], 1
+    mov byte [np_resume], 0
+    mov ax, [np_vrows]
+    mov [np_lastrow], ax
+    call np_walk
+    mov byte [np_clip], 0
+    mov byte [np_clean], 0
+    jmp short .done
+
+.tail:
+    ; the sliver under the last whole row, which after a move DOWN holds a
+    ; slice of the row that used to be there
+    push cx
+    mov ax, [np_vrows]
+    mov cl, 3
+    shl ax, cl
+    pop cx
+    add ax, [np_ty]
+    cmp ax, [np_bot]
+    ja .done
+    mov bx, ax                  ; y1
+    mov dx, [np_bot]            ; y2
+    mov ax, [np_tx]
+    sub ax, NP_MARGIN
+    mov cx, [np_rgt]
+    push ax
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    pop ax
+    call OSAPI_GFX_FILL
+
+.done:
+    call np_sbar                ; unconditional: the track changed height, and
+                                ; the blit reached into the bar's columns
+    mov bx, si
+    call OSAPI_WM_GROW          ; ...and the corner it sits in
+    call np_sigmark             ; the signatures describe THIS geometry now,
+    mov ax, [np_top]            ; and [np_gchg] is spent with them
+    mov [np_ptop], ax
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 np_redrawall:
+    call np_bounds              ; the NEW geometry, so np_panmove can compare
+    call np_panmove             ; it against what the signatures were taken at
+    jnc .out                    ; (SPEC.md 27.10.2): the panel only moves the
+                                ; text, so MOVE it rather than draw it again
     mov byte [np_sigok], 0
     mov word [np_prowi], 0xFFFF
     mov byte [np_ckok], 0
     mov byte [np_rowsok], 0
     call np_redraw
+.out:
     ret
 
 ; =============================================================================

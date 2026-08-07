@@ -9096,6 +9096,56 @@ Three traps this sprang, all of which shipped broken for one build:
   The match count has the same shape and a worse failure: padded to a fixed
   span it painted over the `Next` button, so it is padded to the room it *has*.
 
+#### 27.10.2 Opening and closing the panel MOVES the text
+
+The panel changes exactly one number — the height `np_bounds` adds to
+`[np_ty]` — and changes **nothing** about the wrap: `[np_tx]` and `[np_rgt]`
+are the content's own edges and the panel is docked *above* the text, not
+beside it. So every row holds exactly the same characters before and after;
+they are simply H pixels lower or higher, and the view keeps the same
+`[np_top]`.
+
+That makes the whole repaint a **blit**. Opening was ~19 rows of ~30 cells
+through `np_redraw`'s full path — about 570 glyph cells, over half a second at
+PERFORMANCE.md Part 2's ~1ms a cell — and is now one `OSAPI_GFX_SCROLL` plus
+the panel. Closing is the blit plus the four or five rows the text moving up
+**exposes** at the bottom, which is the only part of it that was never on
+screen. That is §27.7.2's argument again, with one simplification: a scroll
+renumbers the rows and has to shift `np_sig` and `np_rows` alongside the
+pixels, and this does not — the row *indices* are untouched, only their y.
+
+Three things make it safe, and all three are **refusals** rather than
+corrections, because a wrong blit shows text that was never in the note:
+
+- **Only `[np_ty]` may have moved.** `[np_tx]`, `[np_rgt]` and `[np_bot]` are
+  compared against what `np_sigmark` recorded, so a resize that happens to
+  coincide falls back to the full repaint.
+- **`[np_top]` must not be clamped.** Closing *grows* `[np_vrows]`, which
+  shrinks `np_scrollmax`, and a view that has to move renames every row.
+  Opening shrinks `vrows` and so can never need it — the test is only on the
+  closing side, and it uses `[np_drows]`, which is a lower bound (§27.7) and
+  therefore errs toward the full repaint.
+- **A toast, the visual break and stale signatures all refuse.** The toast is
+  drawn over the text at a y the panel moves, so the blit would carry it to
+  the wrong place and nothing would put it back — `np_scrollpaint` refuses for
+  exactly the same reason.
+
+**The panel's own pixels are inside the band that moves**, which is what makes
+closing leave nothing behind: they blit off the top of the content and are
+clipped. What the band cannot reach is the <8px left margin the x-rounding
+gives up (the same rounding rule as `np_vshift`: round `[np_tx]` down, never
+the content's own left edge, which would leave the content) and the scroll
+bar's columns — both repainted afterwards, which `np_sbar` was going to do
+anyway because the track changed height.
+
+**The shift is not a multiple of 8**, which is the one thing this does that no
+other blit here does: 29 pixels for the Find panel and 41 for Replace, against
+`np_scrollpaint`'s whole rows. On the banked 1bpp adapters that crosses the
+0x2000 window at a different offset every row, so it was verified there and
+not only on VGA — capture, force a full repaint, diff: **0 differing pixels**
+on VGA and CGA, opening and closing, with the Find panel and the taller
+Replace one.
+
 #### 27.10.1 The matcher
 
 A backtracking matcher over the note supporting the subset a text editor
