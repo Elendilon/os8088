@@ -2023,16 +2023,27 @@ then, so this is invisible.
 
 ## 9. mouse.inc — serial Microsoft mouse + cursor
 
-- COM1 base 0x3F8, IRQ4 → int 0x0C. `mouse_init`: save old vector, install
-  ISR, program UART: 1200 baud (DLAB, divisor 96), LCR = 0x02 (7N1),
-  MCR = 0x0B (DTR|RTS|OUT2), IER = 0x01 (RX interrupt), read RX/LSR/IIR once
-  to flush, unmask IRQ4 in the 8259 (clear bit 4 of port 0x21).
+- **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both
+  at once (§9.5). `mouse_init`: probe each base for a UART, and for every one
+  that answers save the old vector, install the ISR, program the UART:
+  1200 baud (DLAB, divisor 96), LCR = 0x02 (7N1), MCR = 0x0B (DTR|RTS|OUT2),
+  IER = 0x01 (RX interrupt), read RX/LSR/IIR once to flush, unmask that
+  port's IRQ in the 8259 (clear bit 4 for IRQ4, bit 3 for IRQ3, at port
+  0x21). A port no UART answered at is never hooked and its IRQ is never
+  unmasked.
 - Microsoft protocol, 3-byte packets, 7 data bits. Byte 0 has bit 6 set:
   `1 LB RB Y7 Y6 X7 X6`; bytes 1/2 have bit 6 clear: low 6 bits of X, Y.
   dx = sign-extended {X7X6,X5..X0}, dy likewise (positive = down).
-- ISR: save all registers used + DS/ES, load DS=KERNEL_SEG, then: read port
-  0x3F8, assemble packet (resync: any byte with bit 6 set restarts the
-  packet), update `mouse_x` (clamp 0..`[vid_wm1]`), `mouse_y`
+- ISR: `mou_isr` (IRQ4) and `mou_isr3` (IRQ3) differ only in the port row
+  each hands the shared body in BX — the one register that can be spent
+  before DS is loaded and still index a table afterwards, so it is pushed
+  *first* and popped *last*, and it stays the port row all the way to the
+  completed packet because **every port decodes independently** (§9.5). Then:
+  save the remaining registers + DS/ES, load DS=KERNEL_SEG, read that port's
+  RX register — **always**, whatever is to be done with the byte, because the
+  read is what clears the UART's interrupt — assemble packet (resync: any
+  byte with bit 6 set restarts the packet), update
+  `mouse_x` (clamp 0..`[vid_wm1]`), `mouse_y`
   (0..`[vid_hm1]`; the live screen, §39.2), `mouse_btn`
   (bit 0 = left, bit 1 = right). On button *change*, push an event (§10):
   EVT_MDOWN / EVT_MUP with a=x, b=y, c=[ticks] — the click's birth time;
@@ -2062,8 +2073,13 @@ then, so this is invisible.
   Move the cursor per §7 (draw only when
   `gfx_lock_flag` is clear AND `cur_level` >= 0; otherwise just update
   position and set `cur_dirty`). Send EOI (AL=0x20 → port 0x20) — the BIOS
-  does not handle IRQ4 for us. `cld` before any string op; never `sti`.
-- `mouse_unhook` — restore int 0x0C vector, mask IRQ4 again, IER=0.
+  handles neither IRQ4 nor IRQ3 for us, and both are on the master 8259, so
+  it is the same non-specific EOI either way. `cld` before any string op;
+  never `sti`.
+- `mouse_unhook` — for **every port the probe found**, IER=0, mask its IRQ
+  again, restore its old vector. It walks what was probed, not what the mouse
+  turned out to be on: a retired port (§9.5) still owes its vector back, or
+  the handoff leaves an IVT entry pointing into `KERNEL_SEG` that nobody owns.
 - Cursor: classic Mac arrow, 11 px tall, hot spot (0,0) — black body,
   1px white outline. Two 16-row × 16-bit tables: `cur_and` (white outline
   mask) and `cur_data` (black body). **The tables are 16×16; the arrow is
@@ -2128,6 +2144,133 @@ complete a packet while DTR is low), so the stand-down path must check the
 poller's state and restore DTR/RTS first. Standing down with DTR low would
 leave the mouse unpowered for the session — deader than the bug the poller
 exists to fix.
+
+### 9.5 COM1 or COM2 — the port is not asked and not configured
+
+A serial card is jumpered to a base address, and the mouse goes on whichever
+one is free. COM1 is the common answer and was for years the only one this
+kernel could read; COM2 is the other half of the standard pair, and a machine
+with a card already at 0x3F8 — a modem, a printer, a terminal — has nowhere
+else to put a mouse.
+
+So both are supported, and **neither is selected**. There is no Control Panel
+row, no `SYSTEM.CFG` key and no build knob, for the same reason §9.4 has no
+probe for the mouse itself: the machine can answer the question faster than
+the user can, and an answer stored in a settings file is one more thing to be
+wrong after the card moves. Every present port is programmed, hooked and
+listened to at once, and **the first port to deliver a complete packet wins**.
+
+The port table is one row per candidate — base, IVT offset, 8259 mask bit,
+ISR stub — walked with BX as a word index. **The base decides the IRQ**
+(0x3F8 → IRQ4, 0x2F8 → IRQ3), because that is what the BIOS, DOS and every
+mouse driver ever written assume; a card whose jumper disagrees with its base
+is out of scope here as it was before.
+
+`mou_pall` is `mou_pout` over every row, and it is what every phase of
+`mouse_init` and every step of §9.4's recovery cycle is written in: both
+ports are reset, powered, drained and re-offered *together*, because until a
+packet arrives there is nothing to say which one the mouse is on and no
+reason to prefer either.
+
+Two things frame the whole design:
+
+- **A port is probed before its IRQ is unmasked**, and that is the whole
+  reason `mou_uart` exists. Unmasking IRQ3 on a machine with no COM2 card
+  arms a line nothing drives. The test is the **divisor latch**: with LCR's
+  DLAB set, base+0 is an ordinary read/write register, so writing two
+  distinct values and reading each back proves a latch is there to hold them,
+  and an unpopulated ISA address answers 0FFh to both. Two values, not one,
+  because a bus that happens to float to the first would otherwise pass.
+  Every 8250 variant has that latch — unlike the scratch register at +7,
+  which the original 8250 on a period serial card does not. A row the probe
+  rejects has its base **zeroed**, and `mou_pout` reads that as "this port
+  does not exist", so every UART write below is a presence test it does not
+  have to write: a one-card machine runs the identical sequence it always did
+  with one dead call per step.
+- **The loser is retired, on the UI task, exactly once.** `mou_lockon` sets
+  IER = 0 and masks the IRQ on every port but `[mou_port]`, from
+  `mou_hotplug`'s stand-down path — which already existed, already ran once,
+  and already had to put DTR/RTS back up first for §9.4's reason.
+  `[mou_hpst] = 2` is that path's terminal state. Retirement deliberately
+  leaves the row's **base in place**, because `mouse_unhook` still owes that
+  port its vector. After it, the second port cannot be heard again at all,
+  which is what bounds everything below to the seconds before the mouse is
+  first moved.
+
+#### 9.5.1 The other port is a modem, and that is the hard part
+
+The second serial port on a real machine has something on it, and the thing
+it usually has is a modem. That turns out to be the whole difficulty here,
+because **a Hayes result code is a well-formed Microsoft mouse packet**. The
+protocol asks only for a byte with bit 6 set followed by two with bit 6
+clear; `'O'`, `'K'`, CR, LF is exactly that, and so are `RING`+CRLF and
+`NO CARRIER`+CRLF. Worse, bit 5 of the header byte is the **left button** and
+bit 4 the right — and bit 5 is set in every lowercase letter, so a modem
+saying `no carrier` is a modem clicking the mouse.
+
+Three rules answer it, and each was put there by a case that got through the
+one before it:
+
+- **A run, not the first packet.** `[mou_need]` clean packets in a row on one
+  port settle it. First-past-the-post handed the mouse's slot to the modem on
+  its first `OK` and masked the real mouse off for the session.
+- **The run must be of CLEAN packets, where clean means the port's bytes were
+  ALL of them.** A count alone still lost, because nothing decayed: four
+  result codes *seconds apart* accumulated a run of four exactly as four
+  mouse packets would. What actually separates a mouse from ASCII is not how
+  many packets complete but that a mouse's bytes arrive in threes with
+  nothing between, so the ISR breaks the run on either protocol violation — a
+  bit-6 byte arriving mid-packet (a resync) and a bit-6-clear byte arriving
+  between packets (a stray). Every modem string above dies on its second
+  byte: `RING` is `R` then `I`, both bit-6, and that is a resync.
+  `mou_newround` clears every part-built packet and part-built run at each
+  reset edge, so nothing can be carried across one either.
+- **Each port decodes INDEPENDENTLY.** `mou_phase`, `mou_b0`, `mou_b1` and
+  `mou_run` are per-row arrays, which is why BX stays the port row from the
+  stub all the way to `.pkt`. They were shared once and that is wrong in both
+  directions: a modem's byte resynced the *mouse's* half-built packet, and a
+  modem's violation reset the *mouse's* run — so a chattering modem on COM1
+  starved a mouse moving on COM2 out of ever being found, while its own
+  violations kept it from winning either. **A device that cannot win must not
+  be able to stop the one that should.**
+
+And one rule about what a port may *do* before it has won: **nothing**. A
+packet on an unsettled port is counted and discarded — no cursor motion, no
+event — because a modem must not be clicking and jumping the pointer on its
+way to losing. The packet that *settles* the port is acted on, so this costs
+a one-port machine nothing whatever.
+
+That is what `[mou_need]` is for: **one port is not a contest.** Where the
+probe found a single UART there is nothing that could steal the slot and
+nothing to weigh against, so the threshold is 1, the first packet settles it
+and is acted on, and the behaviour is this kernel's before COM2 existed, byte
+for byte. Only a machine with two live ports pays `MOU_LOCKN` = 8, and what
+it pays is about a fifth of a second of the *first* mouse movement of the
+session — swallowed, once, and exact from then on.
+
+The honest residual is a second port carrying **binary** traffic in those
+same seconds: random bytes do satisfy the protocol from time to time, and no
+packet count makes that impossible. `MOU_LOCKN` is what prices it — eight
+clean packets is 24 bytes that all had to fall right, against a mouse that
+emits them in a fifth of a second of motion.
+
+The other thing to state plainly is what §9.4's recovery cycle now does to
+that modem: it is **reprogrammed to 1200 baud 7N1, and its DTR is dropped and
+raised** at boot and then every `MOU_REPOLL` ticks for as long as no mouse
+has been found. On a modem set `&D2` that hangs up a call. This is not new —
+§9.4 has always done it to whatever was on COM1 — but it now reaches COM2 as
+well, and the mitigation is the same one that ends everything else here: the
+cycle stops at the first mouse, and `mou_lockon` then leaves that port alone
+for the rest of the session. A machine with a modem and **no** mouse at all
+is the case that pays, and it pays what it paid before.
+
+#### 9.5.2 What it costs
+
+302 bytes of `.text`, and **nothing at all against `KERN_BUDGET`** (§15.1):
+the kernel image is padded to `OVL_START` and the growth lands in that
+padding. The per-pass cost of `mou_hotplug` after the mouse is found is
+unchanged at two compares, and the ISR's per-packet cost grows by one compare
+and one branch.
 
 ## 10. events.inc
 

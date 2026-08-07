@@ -982,6 +982,52 @@ Three things carry the boundary, and each is solved once rather than per call si
 
 Each instance may own one worker task, spawned from a callback and torn down through `OSAPI_TASK_ALIVE`. **Multiple packages — or multiple instances of one — run at once**; closing one frees its region *and every heap claim it held*. **The apps disk is **foldered** (SPEC.md §19.2): the root holds `APPS`, `GAMES` and `TASKMGR.O88` (SPEC.md §28.3 — the chip menu's, for a single-floppy machine), so a package is two double-clicks away. **The listing is sorted by name in `disk_mount` (SPEC.md §19.4)**, so the Makefile's order does not reach the screen and nothing may be built on it — it used to, which is why packages had to be appended at the end of their folder and the scripted tests clicked by that index. Sort where the snapshot is built and the Disk window, the file dialog and every view cache get it for free; the sort runs **before the icon harvest**, which is the only reason `disk_icons` never has to be permuted alongside `disk_dir`. **The `..` row is synthesized in the same place** (SPEC.md §19.5): slot 0 of a subdirectory's listing, ahead of the sort, carrying the parent's first cluster — so it is first in both views, dives like any folder, and the file dialog stopped synthesizing its own (a display row IS a directory index there now). It is **type 3**, not 2: everything that navigates tests `type >= 2`, and `fm_arm_sel` refuses 3 so Rename and Delete cannot be armed on it. A name comparison against `'..'` would have been the wrong test — the species filter drops the on-disk dot entries, so a volume may legitimately hold something else that displays as `..`.** A package's file name is an 8.3 stem, so it is not always the app's name: Solitaire ships as `SOLITAIR.O88` and carries `SOLITAIRE` in its 16-byte header field, which is what the dock and the Task Manager show.
 
+### The mouse is on COM1 or COM2, and nobody is asked which (SPEC.md §9.5)
+
+Both ports are probed for a UART, every one that answers is programmed,
+hooked and listened to at once, and **the first to deliver a run of clean
+packets wins**; `mou_lockon` then retires the others (IER 0 + the IRQ masked)
+on the UI task's next pass. No Control Panel row, no `SYSTEM.CFG` key, no
+build knob — §9.4's reasoning, that the machine answers faster than the user
+and a stored answer is one more thing to be wrong after the card moves.
+`mou_pall` is the idiom the whole module is written in: a row the probe
+rejected has its base **zeroed**, so every UART write is a presence test
+nobody had to write, and a one-card machine runs the sequence it always did.
+The **base decides the IRQ** (3F8→IRQ4, 2F8→IRQ3) — a jumper that disagrees
+is out of scope, as before — and a port is probed *before* its IRQ is
+unmasked, because arming IRQ3 on a machine with no COM2 card arms a line
+nothing drives. The probe is the **divisor latch** (two values written and
+read back with DLAB set), not the +7 scratch register, which an original 8250
+does not have.
+
+**The hard part is that the other port usually has a modem on it, and a Hayes
+result code is a well-formed mouse packet.** The protocol asks only for a
+bit-6 byte then two without, and `'O','K',CR,LF` is exactly that — while bit
+5 of the header is the LEFT BUTTON and bit 5 is set in every lowercase
+letter, so a modem saying `no carrier` is a modem clicking. Three rules, each
+put there by a case that beat the one before it, and the middle one is the
+lesson: **a count that never decays cannot tell a mouse from a modem**, since
+four result codes *seconds apart* accumulate a run of four exactly as four
+mouse packets do. So the run must be of CLEAN packets — the ISR breaks it on
+either protocol violation (a bit-6 byte mid-packet, a bit-6-clear byte
+between packets), which kills `RING` on its second byte — `mou_newround`
+clears every part-built run at each reset edge, and **each port decodes
+independently** (`mou_phase`/`mou_b0`/`mou_b1`/`mou_run` are per-row arrays,
+which is why BX stays the port row into `.pkt`). That last one is the trap
+worth stating twice: shared, a modem's byte resynced the MOUSE's packet and a
+modem's violation reset the MOUSE's run, so a chattering modem starved a
+mouse on the other port out of ever being found while winning nothing itself.
+**A device that cannot win must not be able to stop the one that should.** A
+packet on an unsettled port is counted and *discarded* — no cursor motion, no
+event — and `[mou_need]` is what keeps that free: **one port is not a
+contest**, so a single-UART machine uses a threshold of 1 and behaves exactly
+as it did before COM2 existed; only two live ports pay `MOU_LOCKN` = 8, which
+costs a fifth of a second of the first movement of the session and nothing
+after. Test it with `make test MOUSEPORT=com2` (a live but silent UART at
+3F8 and the mouse at 2F8 — the hard case; `-serial none` would test only the
+easy half). Cost: 302 bytes of `.text` and **nothing** against `KERN_BUDGET`,
+the growth landing in the image's existing padding to `OVL_START`.
+
 ### The clock is a ladder, not a BIOS call (SPEC.md §37.90)
 
 `int 1Ah` AH=02h..05h is the **last** rung. An XT BIOS implements AH=00h/01h and
