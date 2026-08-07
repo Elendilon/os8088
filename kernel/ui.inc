@@ -1032,7 +1032,9 @@ ui_tm_open:
     push si                     ; the volume FIRST, then the notice: putting
     call ui_tm_back             ; it back touches the floppy and the notice
     pop si                      ; takes the gfx lock, and neither wants the
-    call ui_note                ; other held while it runs
+    mov di, ui_s_tmttl          ; other held while it runs
+    mov bx, ui_s_tmlead
+    call ui_note
     jmp short .out
 .back:
     call ui_tm_back
@@ -1076,6 +1078,8 @@ ui_tm_errs:                     ; indexed by LD_* (loader.inc)
                                 ; "not a valid package" would be a lie
     dw ui_s_nomem               ; LD_ENOMEM
 
+ui_s_tmttl:  db 'Task Manager', 0
+ui_s_tmlead: db 'Cannot open the Task Manager:', 0
 ui_s_nodisk: db 'No system disk in drive A:', 0
 ui_s_nofile: db 'TASKMGR.O88 is not on the disk', 0
 ui_s_dskerr: db 'Disk error reading it', 0
@@ -1134,26 +1138,36 @@ ui_tm_find:
 
 ; -----------------------------------------------------------------------------
 ; ui_note - the kernel's one-line notice window
-; in:  SI = a NUL reason; UI task, no lock held
+; in:  SI = a NUL reason, BX = the line above it, DI = the window's title;
+;      UI task, no lock held
 ; out: nothing (all registers preserved)
+;
+; All three strings come from the CALLER. They used to be one caller's: the
+; title was 'Task Manager' and the lead 'Cannot open the Task Manager:',
+; baked in because ui_tm_open was the only thing that raised a notice. When
+; assoc_run (SPEC.md 54.4) became the second, a document whose program was
+; not on the disk reported "Cannot open the Task Manager" over a window
+; titled Task Manager - a message about a component the user had not
+; mentioned, in place of the one that had actually failed.
 ;
 ; The species is the file dialog's (SPEC.md 38): a bare wm_create'd window
 ; this module owns, with no instance behind it - so no dock tile, no Task
 ; Manager row, and a close box that reduces to wm_hide, which is exactly what
 ; dismissing a notice means. ONE window, created on first use and shown
-; again after that; [ui_note_win] lives in .text because -f bin zeroes no
-; .bss and this is read before anything writes it (the fdlg_win precedent).
+; again after that, so W_TITLE is restamped per call; [ui_note_win] lives in
+; .text because -f bin zeroes no .bss and this is read before anything writes
+; it (the fdlg_win precedent).
 ; -----------------------------------------------------------------------------
-ui_note_tpl: dw 150, 150, 288, 78, ui_note_ttl, ui_note_paint, 0, 0
-ui_note_ttl: db 'Task Manager', 0
-ui_note_s1:  db 'Cannot open the Task Manager:', 0
+ui_note_tpl: dw 150, 150, 288, 78, ui_s_tmttl, ui_note_paint, 0, 0
 ui_note_win: dw 0
 ui_note_msg: dw 0
+ui_note_lead: dw 0
 
 ui_note:
     push ax
     push bx
     push si
+    push di
     push es
     push ds
     pop es                      ; wm_create reads the template through ES:SI
@@ -1162,6 +1176,7 @@ ui_note:
                                 ; register a garbage PACKAGE window whose
                                 ; callbacks far-call into that segment
     mov [ui_note_msg], si
+    mov [ui_note_lead], bx
     call gfx_lock
     mov bx, [ui_note_win]
     or bx, bx
@@ -1171,10 +1186,14 @@ ui_note:
     jc .out                     ; the notice is simply not shown - there is
     mov [ui_note_win], bx       ; nothing further to fall back to
 .have:
+    mov [bx+W_TITLE], di        ; the window is reused, so the caption belongs
+                                ; to whichever caller last asked for it. Set
+                                ; before wm_show, which draws the frame whole
     call wm_show                ; ...or bring an already-dismissed one back
 .out:
     call gfx_unlock
     pop es
+    pop di
     pop si
     pop bx
     pop ax
@@ -1190,7 +1209,7 @@ ui_note_paint:
     mov bx, si
     mov dx, [bx+W_Y]
     add dx, TITLE_H + 16
-    mov si, ui_note_s1
+    mov si, [ui_note_lead]
     call app_about_center
     add dx, 16
     mov si, [ui_note_msg]

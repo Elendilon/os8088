@@ -460,6 +460,7 @@ sb_header:
     mov si, sb_l_scrh
     mov ax, [sb_vh]
     call sb_num
+    call sb_boot                    ; how long this machine took to get here
     mov si, sb_l_kern
     mov ax, [sb_syskb + SK_KERN]
     call sb_num
@@ -1776,6 +1777,58 @@ sb_hdd:
     pop ax
     ret
 
+; sb_boot - the boot timer (SPEC.md 15.4), as ticks and as milliseconds
+;
+; The one number in this suite that CANNOT be measured by this suite: it is
+; over before a package can run. The kernel carries it from the boot sector's
+; first instruction to the first desktop frame, which on a floppy machine is
+; mostly the kernel read - 125 sectors at 238 ms each (PERFORMANCE.md Part 2)
+; - so it is the row that any change to the boot path has to answer to.
+;
+; Both units, deliberately: the tick is what was actually counted and the
+; millisecond is what a human compares, and printing the raw count beside the
+; derived one is the redundancy Part 6 rule 7 asks for. The resolution is one
+; tick, 54.925 ms, and it is quantisation rather than noise - a boot that
+; measures 84 ticks took between 84 and 85 of them.
+sb_boot:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call OSAPI_BOOT_TICKS
+    cmp ax, 0xFFFF                  ; the boot sector never stamped it
+    je .none
+    push ax
+    mov si, sb_l_boott
+    call sb_num
+    pop ax
+    xor dx, dx                      ; ms = ticks * 54925 / 1000, in 48 bits
+    mov si, 54925                   ; because ticks * 54925 leaves the word
+    call sb_mul16                   ; behind immediately
+    mov cx, 1
+    call bl_mul48
+    mov cx, 1000
+    call bl_div48
+    call bl_get32
+    mov si, sb_l_bootms
+    mov cx, 9
+    call bl_kv
+    jmp short .out
+.none:
+    mov si, sb_l_boott
+    mov di, sb_n_nostamp
+    call bl_kvs
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; sb_hdn - [bl_n] = the number of reads that makes about six seconds, from
 ;          ONE read's counts in DX:AX. Clamped to 4..240.
 ;
@@ -1990,6 +2043,7 @@ sb_f_sml:   db 'BENCHSML.DAT', 0
 sb_n_8086:  db '8086/8088 (tier 0)', 0
 sb_n_286:   db '80286 (tier 1)', 0
 sb_n_386:   db '80386+ (tier 2)', 0
+sb_n_nostamp: db 'unknown (boot sector predates the timer)', 0
 sb_n_yes:   db 'yes', 0
 sb_n_no:    db 'no (CF set)', 0
 
@@ -2022,6 +2076,8 @@ sb_l_feat:    db 'cpu feature bits', 0
 sb_l_adapter: db 'video kind 0/1/2', 0
 sb_l_scrw:    db 'screen width px', 0
 sb_l_scrh:    db 'screen height px', 0
+sb_l_boott:   db 'boot ticks', 0
+sb_l_bootms:  db 'boot ms', 0
 sb_l_kern:    db 'kernel span KB', 0
 sb_l_img:     db 'kernel image KB', 0
 sb_l_buf:     db 'fat+stacks+bufs KB', 0
