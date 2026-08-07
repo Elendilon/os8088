@@ -664,6 +664,7 @@ worth taking:
 | `gfxbench: GFX_FILL 64x64 clipped` | **what §11.3's clip region costs a covered background window.** `WM_CLIP_SET+CLEAR` was measured; drawing *under* one never was. It sits next to its own unclipped row, so the gap is the answer | a little over the unclipped row plus the `SET+CLEAR` cell. Much more and `gfx_clip_run`'s re-entry is dearer than the region arithmetic it saves |
 | `gfxbench:` the whole **fullscreen block** | **whether a primitive costs what it costs wherever it is drawn.** Same code, same sandbox, different place on the glass, no chrome around it. The rows carry the same labels as their windowed twins so they diff by name | the primitives to be **boring** — landing on their twins. One that does not has found something position-dependent nobody believed was |
 | `sysbench: boot ticks` / `boot ms` | **how long the machine takes to boot** (§15.4) — the one thing this project could never measure, because it is over before a package can run. On a floppy machine it is mostly the 125-sector kernel read at 238 ms a sector, so it is what §18.91's batching and §18.93's parameter table have to answer to | a number at last. Resolution is one tick, 54.925 ms, which on a boot measured in seconds is quantisation rather than noise |
+| `gfxbench: GFX_LSTEP x8` vs **`GFX_LSTEPV x8`** | **§5.6.8's batching, which was argued from §5.7's floor and never measured.** The two rows draw the identical eight pixels and differ only in arriving eight times or once | it already contradicted its own prediction: **118** in instructions, not the ~800 the floor implies, because `gfx_lstep` is not a rect primitive and its arrival is a far-call cell rather than `vga_rect_setup`. Expect higher than 118 on iron — far-call cells are 46.7 µs for ~7 instructions — but §5.6.8's own field figures imply **356**, and nothing reconciles that yet. **This is the row most likely to find something** |
 | `gfxbench:` the four **`GFX_LINE`** rows | **§5.6.6's dilated-line optimisation, in microseconds.** The instruction answer is already in (below); this is the duration. The two geometries are the same line transposed, 128 pixels each, so the pair checks itself | the two **thin** rows to match; `line shal fat/thin` near **300** (three walks, the control); `line steep fat/thin` near **156**, which is the claim |
 | `sysbench:` the **hard-disk block** | **§52's driver on real spinning MFM, which has never been measured** — and the first hard-disk twin of the floppy rows. Read-only by construction: it mounts, walks the FAT, reads one file and puts the volume back, because the disk it will run against is somebody's DOS 3.3 install (docs/FIELD-MACHINES.md) | anything at all. The floppy is 2,100 bytes/second and 238 ms a sector; whatever `hdd bytes/sec` says is the first number on the other side of that. `HDD FILE_DFREE` is the one to watch — the 9-sector FAT window (§18.8) has to page across a 41-sector FAT, which is what §18.8.1 was written against |
 
@@ -1533,3 +1534,58 @@ across a second boundary the snapshot went stale under a reset, the delta came
 out small and *negative*, and an unsigned comparison read −303 as four billion
 and latched it for the whole second. The tell is `3599181` repeated across a
 row, which is 2³² counts in milliseconds. It is banked at frame *end* now.
+
+### Set 10 — the first valid before/after, and both fixes missed
+
+| | |
+|---|---|
+| machine | MartyPC again — **per-call floor 1,247 counts against Set 9's 1,246, 0.15% apart** |
+| build | `1156e3c` plus the logger |
+| run | 71 seconds, mean 15.97 fps (Set 9: 15.63) |
+
+This is the first pair in the whole investigation that may be compared
+number for number, and it says §48.17's two changes did nothing at the frame
+level:
+
+| worst-frame stage | Set 9 median | Set 10 median | Set 9 p90 | Set 10 p90 |
+|---|---|---|---|---|
+| `exp` | 19.0 | 16.6 | 39.4 | 39.9 |
+| `rst` | 7.1 | 9.6 | 28.4 | 27.7 |
+| seconds with a frame over one tick | 55% | 55% | | |
+
+Both hypotheses were wrong. The salvo was never synchronised — an ICBM is
+intercepted as a blast radius *grows*, so a cluster's detonations already
+spread over several frames. And `rst`'s 20-49 ms was not the status strip:
+the inference rested on "only eleven fills in that frame, so it must be
+text", and **the fill counter cannot see a glyph**, so that was never
+evidence either way. The strip fix is kept because it is strictly less work
+for byte-identical output; the ramp jitter is dropped because it costs
+lethality and buys nothing (§48.10's rule).
+
+#### What the same numbers say when the arithmetic is done properly
+
+| | |
+|---|---|
+| a worst frame | **34.8 fills, 172.6 scan lines** |
+| priced at this run's own calibration | 34.8×1,247 + 137.8×151 = **53.8 ms** |
+| the median worst frame | **63.4 ms** |
+| the ARRIVING alone | 34.8×1,096 = **36.4 ms — 57% of the frame** |
+
+**~85% of a worst frame is `gfx_fill`.** One blob is 7-11 rects (simulated
+against `mc_blob`'s own band logic), so `exp` at 40-76 ms is three to six
+blobs and nothing else. §48.18 is the three changes that cut the count.
+
+#### The negative result: a vector gfx_fill recovers ~4%
+
+Costed before building, against this run's floor. A batch removes the API
+cell, the `GFXCLIP` test, the `bb_mono_chk` call and the `bb_on` dispatch —
+about **170 of ~4,381 clocks**. It cannot remove eight push/pop pairs,
+`vga_rect_setup`'s twenty-odd memory accesses, `gfx_rowbase`, the dirty-rect
+and mode round-trips, the plane loop or `bb_ink`, because those are per
+*rect* and not per *call*.
+
+That is the difference from §5.6.8, which did pay: a walk step's fixed cost
+was block staging and `gfx_ink` — genuinely per call — while a fill's is
+geometry. Shortening *that* is §5.7's problem: diffuse, no hot spot, already
+worth 20% once, and wanting a dedicated pass with `tests/gfxbench` as the
+gate rather than a new API slot.

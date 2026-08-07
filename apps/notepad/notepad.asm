@@ -1343,13 +1343,30 @@ np_walk:
     jae .nocell                     ; past the band: the wrap rule above means
     mov [np_rbuf+bx], al            ; this cannot normally happen, and a
     push ax                         ; clamped np_rcols is the case where it can
+    push dx
     mov ax, [np_i]
     dec ax
-    call np_selq
-    jnc .nosel
-    mov ax, bx                      ; this cell is inside the selection: widen
-    call np_selfold                 ; the span np_rflush inverts (SPEC.md 27.8)
+    call np_selq                    ; selected NOW...
+    mov dl, 0
+    jnc .n1
+    mov dl, 1
+.n1:
+    call np_selqo                   ; ...and selected ON SCREEN (SPEC.md 27.8.2)
+    mov dh, 0
+    jnc .n2
+    mov dh, 1
+.n2:
+    or dl, dl
+    jz .nosel
+    mov ax, bx                      ; inside the selection: widen the span
+    call np_selfold                 ; np_rflush inverts (SPEC.md 27.8)
 .nosel:
+    cmp dl, dh
+    je .noxf
+    mov ax, bx                      ; ...and its inversion has to CHANGE, which
+    call np_xfold                   ; is the only thing a drag actually owes
+.noxf:
+    pop dx
     pop ax
 .nocell:
     pop bx
@@ -1669,6 +1686,8 @@ np_rstart:
     mov word [np_rcx], 0xFFFF
     mov word [np_rs0], 0xFFFF       ; ...and no inverted cells yet either
     mov word [np_rs1], 0xFFFF
+    mov word [np_xs0], 0xFFFF       ; ...nor any whose inversion must change
+    mov word [np_xs1], 0xFFFF
     mov ax, [np_i]                  ; where this row STARTS, banked as the
     mov [np_ckpc], ax               ; checkpoint candidate: np_ask promotes it
     mov ax, [np_row]                ; the moment the walk stands on the caret
@@ -1735,6 +1754,52 @@ np_rflush:
                                     ; advanced, so every position below is true
     cmp word [np_rcols], 0
     je .caret
+
+    ; --- ONLY THE INVERSION MOVED (SPEC.md 27.8.2) -------------------------
+    ; A drag changes no character anywhere. What it changes is which cells are
+    ; inverted, and XOR is exactly the operation for that - so flip the cells
+    ; whose selected-ness differs from the screen's and letter NOTHING. The
+    ; row's glyphs are already correct and re-drawing them to invert them was
+    ; costing a full row of font_run per dirty row per pass.
+    ;
+    ; Gated on a selection existing at BOTH ends, which is what guarantees no
+    ; caret is drawn either before or after (np_carets returns early while one
+    ; is up): a caret bar sits on top of a glyph, so erasing one needs that
+    ; cell lettered again and this path draws no cells.
+    cmp byte [np_selonly], 0
+    je .normal
+    cmp byte [np_selon], 0
+    je .normal
+    cmp byte [np_oselon], 0
+    je .normal
+    mov ax, [np_xs0]
+    cmp ax, 0xFFFF
+    je .cache                       ; this row's inversion is already right
+    mov cx, [np_xs1]
+    push cx
+    mov cl, 3
+    shl ax, cl
+    pop cx
+    add ax, [np_tx]                 ; x1
+    push ax
+    mov ax, cx
+    inc ax
+    push cx
+    mov cl, 3
+    shl ax, cl
+    pop cx
+    add ax, [np_tx]
+    dec ax
+    mov cx, ax                      ; x2
+    pop ax
+    mov bx, [np_rby]
+    mov dx, bx
+    add dx, 7
+    call OSAPI_GFX_XOR_FILL
+    jmp .cache                      ; np_prow still describes the screen -
+                                    ; not one character moved - but .cache
+                                    ; owes np_prs0/np_prs1 the new span
+.normal:
 
     mov word [np_fcc], 0xFFFF       ; this row's caret column, if it has one
     mov ax, [np_rcx]
@@ -2441,6 +2506,7 @@ np_rowdirty:
 ; -----------------------------------------------------------------------------
 np_sigmark:
     push ax
+    call np_selmark
     mov ax, [np_tx]
     mov [np_stx], ax
     mov ax, [np_ty]
@@ -2457,6 +2523,26 @@ np_sigmark:
     mov byte [np_gchg], 0           ; this paint laid the note out under the
     pop ax                          ; geometry just recorded, so the view has
     ret                             ; been re-clamped against it
+
+; -----------------------------------------------------------------------------
+; np_selmark - the screen now shows THIS selection (SPEC.md 27.8.2)
+; out: nothing; preserves all registers
+;
+; The one fact np_selqo reads. Every path that finishes a redraw sets it,
+; including the ones that drew nothing: a row whose selection did not change
+; is not in the dirty band, so "what the screen shows" is the live selection
+; either way.
+; -----------------------------------------------------------------------------
+np_selmark:
+    push ax
+    mov ax, [np_sel0]
+    mov [np_osel0], ax
+    mov ax, [np_sel1]
+    mov [np_osel1], ax
+    mov al, [np_selon]
+    mov [np_oselon], al
+    pop ax
+    ret
 
 ; -----------------------------------------------------------------------------
 ; np_sigsame - do the stored signatures still describe this window?
@@ -4093,6 +4179,10 @@ np_redraw:
     mov bx, si                      ; the white fill erased the grow box;
     call OSAPI_WM_GROW              ; restore it (SPEC.md 11.1/27)
 .out:
+    call np_selmark                 ; the screen shows this selection now
+    mov byte [np_selonly], 0        ; ONE-SHOT: whoever set it meant THIS
+                                    ; redraw, and the next one may well be a
+                                    ; keystroke that moves characters
     mov byte [np_follow], 0         ; ONE-SHOT, like [np_fast]: whoever set it
                                     ; meant this redraw and no other, and the
                                     ; next one may well be a scroll bar click
@@ -4508,6 +4598,44 @@ np_selq:
     ret
 .no:
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; np_selqo - was character index AX selected in the selection ON SCREEN?
+; in:  AX; out: CF = 1 if it was; preserves all registers
+; -----------------------------------------------------------------------------
+np_selqo:
+    cmp byte [np_oselon], 0
+    je .no
+    cmp ax, [np_osel0]
+    jb .no
+    cmp ax, [np_osel1]
+    jae .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; np_xfold - widen the row's CHANGED-inversion span to include column AX
+; in:  AX; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+np_xfold:
+    cmp word [np_xs0], 0xFFFF
+    jne .lo
+    mov [np_xs0], ax
+    mov [np_xs1], ax
+    ret
+.lo:
+    cmp ax, [np_xs0]
+    jae .hi
+    mov [np_xs0], ax
+.hi:
+    cmp ax, [np_xs1]
+    jbe .out
+    mov [np_xs1], ax
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6632,6 +6760,20 @@ np_hitpt:
     mov [np_hitx], cx
     mov [np_hity], dx
     mov word [np_wanty], 0xFFFF
+    push ax                     ; the pointer names ONE row, and np_rows knows
+    push dx                     ; where it starts (SPEC.md 27.5) - so seed
+    mov ax, dx                  ; there and stop after it, which is what
+    sub ax, [np_ty]             ; np_onclick has always done for a click. This
+    jc .nseed                   ; was walking the WHOLE note per drag pass
+    push cx
+    mov cl, 3
+    shr ax, cl
+    pop cx
+    mov dx, ax
+    call np_seedrow
+.nseed:
+    pop dx
+    pop ax
     call np_measure
     mov byte [np_resume], 0
     mov ax, [np_hiti]
@@ -6657,12 +6799,40 @@ np_dragsel:
     push cx
     push dx
     mov bx, [np_anchor]         ; what the last pass resolved
+    mov word [np_lmx], 0xFFFF   ; ...and where the pointer was when it did
+    mov word [np_lmy], 0xFFFF
 .pass:
     call np_selpace
     call OSAPI_MOUSE            ; CX = x, DX = y, AL = buttons
     test al, 1
     jz .up
     call np_bounds
+    cmp cx, [np_lmx]            ; A POINTER THAT HAS NOT MOVED HAS NOTHING TO
+    jne .moved                  ; SAY. The loop runs at a tick whether the
+    cmp dx, [np_lmy]            ; mouse reports anything or not, and at 1200
+    jne .moved                  ; baud it usually does not
+    cmp dx, [np_ty]
+    jb .moved                   ; ...unless it is parked outside the view,
+    push ax                     ; where every tick owes another row of scroll
+    mov ax, [np_vrows]
+    or ax, ax
+    jz .still
+    dec ax
+    push cx
+    mov cl, 3
+    shl ax, cl
+    pop cx
+    add ax, [np_ty]             ; the last visible row's top - np_hitpt's own
+    cmp dx, ax                  ; threshold for scrolling, so the two cannot
+    ja .scrolling               ; disagree about which passes matter
+.still:
+    pop ax
+    jmp short .pass
+.scrolling:
+    pop ax
+.moved:
+    mov [np_lmx], cx
+    mov [np_lmy], dx
     call np_hitpt
     jc .draw                    ; the view scrolled: owed a redraw either way
     cmp ax, bx
@@ -6673,7 +6843,10 @@ np_dragsel:
     mov dx, [np_anchor]
     call np_selset
     mov byte [np_ckok], 0       ; the checkpoint is the CARET's row start and
-    call np_redraw              ; the caret has just jumped
+    mov byte [np_selonly], 1    ; the caret has just jumped - and a drag moves
+                                ; no character, so every dirty row owes an
+                                ; inversion and no glyphs (SPEC.md 27.8.2)
+    call np_redraw
     jmp short .pass
 .up:
     pop dx
@@ -8411,6 +8584,16 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
     NPVAR np_rs1,   2       ; word } that fall inside it, 0xFFFF = none. The
                             ; inversion is per row, like the caret's column,
                             ; because that is the unit np_rflush draws in
+    NPVAR np_osel0, 2       ; word } the selection the SCREEN is showing, as
+    NPVAR np_osel1, 2       ; word } character indices, and whether it has one
+    NPVAR np_oselon, 1      ; byte }
+    NPVAR np_selonly, 1     ; byte: this redraw cannot have changed a
+                            ; character - only the selection moved - so a row
+                            ; owes an INVERSION and no glyphs at all. One-shot
+    NPVAR np_xs0,   2       ; word } the cells of the row being accumulated
+    NPVAR np_xs1,   2       ; word } whose selected-ness DIFFERS from what the
+                            ; screen shows: the symmetric difference, which is
+                            ; exactly what one XOR has to flip
     NPVAR np_prs0,  2       ; word } and what the delta cache's row was last
     NPVAR np_prs1,  2       ; word } DRAWN with, so a selection that moved
                             ; over unchanged text still redraws (SPEC.md 27.8)
@@ -8482,6 +8665,8 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                             ; state and not a failure: an edit or a click can
                             ; move the caret off every match, and the ordinal
                             ; is then the worker's to re-derive
+    NPVAR np_lmx, 2
+    NPVAR np_lmy, 2
     NPVAR np_fwrap, 1       ; byte: the last search ran off the end and came
                             ; back to the top - which is what turns "the next
                             ; match" into "match 1" without counting anything
