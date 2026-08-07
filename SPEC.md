@@ -142,8 +142,9 @@ the floor is **128KB of RAM** rather than 256KB.
 read-only data, `.bss`, the FAT snapshot, the disk caches, the sector buffer
 and every task stack — and the **`KERN_BUDGET`** guard (§15.1) holds the whole
 of it to 86,528 bytes (84.5KB) just above the BIOS data area. It measures
-81,920 bytes on the shipped build, so 4,608 are spare — nine 512-byte steps,
-because move 10 was granted 4KB in advance of the work it is for. **`docs/KERNEL-MEMORY.md`
+82,432 bytes on the shipped build, so 4,096 are spare — eight 512-byte steps,
+because move 10 was granted 4KB in advance of the work it is for and §14.1's
+Timer redraw has spent the first of it. **`docs/KERNEL-MEMORY.md`
 is the maintained account of what that is spent on**; raising `KERN_BUDGET` is
 a decision to be taken with whoever asked for the feature, not a build fix.
 
@@ -1420,15 +1421,20 @@ is `CHX + n*CHW + PAD`, so that turned `56 + 145n` — where only channel 0
 was aligned, 145 not being a multiple of 8 — into `56 + 144n`, where all four
 are. The compact CGA layout was already aligned.
 
-Alignment is why the tracker is the only consumer so far and not simply the
+Alignment is why the tracker was the only consumer at first and not simply the
 first of many. It is **fullscreen** (§11.2), so its content origin is (0,0)
-and cannot move. An ordinary window's is `W_X + 1` and `ui_drag` writes `W_X`
+and cannot move. An ordinary window's is `W_X + 1` and `ui_drag` wrote `W_X`
 straight from the mouse with no snapping, so for anything in a draggable
-window `x & 7` is arbitrary and re-rolls on every drag: the fast path would
-fire one time in eight. Adopting `font_run` there buys the code deletion and
+window `x & 7` was arbitrary and re-rolled on every drag: the fast path would
+fire one time in eight. Adopting `font_run` there bought the code deletion and
 §6.1.2's guarantee one press in eight, and the 2.5% fallback cost the rest of
-the time. Snapping window x to a multiple of 8 would make it general and is
-not worth what it would do to dragging.
+the time.
+
+**That paragraph used to end "snapping window x to a multiple of 8 would make
+it general and is not worth what it would do to dragging", and §11.94 is the
+decision to do it anyway** — opt in, mono only, at the price of 8-pixel drag
+steps on the windows that ask. Three windows have: the Task Manager, Note Pad
+and the Timer (§14.1).
 
 ## 7. Concurrency model (read carefully — this is the crux)
 
@@ -3240,10 +3246,16 @@ been converted** (§27.2) — on the flicker, not on the 10.7%.
 **The app's half of the contract is not enforced.** `WF_SNAP` puts the content
 origin on a boundary; whether the app's own text sits at content-relative x
 values that are multiples of 8 is the app's business, and getting it wrong
-costs the 2.5% fallback silently rather than drawing anything wrong. Both converted consumers had to move something, and both moved the same two
-pixels: the Task Manager's process list and captions from a 6-pixel inset to
-8 (`TM_PEN`), and Note Pad's text margin likewise (`NP_MARGIN`). Two pixels
-of margin bought a whole window the single-store path.
+costs the 2.5% fallback silently rather than drawing anything wrong. Every
+converted consumer has had to move something, and the first two moved the same
+two pixels: the Task Manager's process list and captions from a 6-pixel inset
+to 8 (`TM_PEN`), and Note Pad's text margin likewise (`NP_MARGIN`). Two pixels
+of margin bought a whole window the single-store path. The **Timer** (§14.1)
+is the third and the cheapest — its digit run is centred, so `APP_TMR_DX`
+rounds 47 to 48 and costs one pixel of asymmetry — and it is the first
+consumer whose reason is entirely the flash rather than the speed: a
+stopwatch redraws twice a second forever, and it was eight erase-and-letter
+pairs each time.
 
 **The Disk window was considered and left alone.** Its dominant cost is
 `fm_repaint`, which fills the whole content once with `rep stosw` and then
@@ -3951,16 +3963,24 @@ one. Closing an instance frees all of it.
 
 Per-instance state pools (**`.lowbss`**, reached through `ss:` — two of the
 four tables §2's optimization moved out of the kernel's own segment; slot
-stride and cap pinned in the §29 kind table): `app_tmr_pool` 10 × 8
+stride and cap pinned in the §29 kind table): `app_tmr_pool` 10 × 16
 (TMR_HRS/MIN/SEC bytes at +0/+1/+2, **TMR_RUN byte at +3**, TMR_LAST word at
-+4, TMR_ACC word at +6),
++4, TMR_ACC word at +6, **TMR_SHOWN 8 bytes at +8**),
 `app_ball_pool` 10 × 8 (BAL_X/Y/VX/VY words). About is stateless. Init procs (KD_INIT contract,
 §29): `app_tmr_kinit` (h/m/s = 0, **run = 1**, last =
-[ticks], acc = 0), `app_bounce_kinit` (x=4, y=4, vx=3, vy=2).
+[ticks], acc = 0, TMR_SHOWN forgotten, `wm_snap`), `app_bounce_kinit`
+(x=4, y=4, vx=3, vy=2).
 
 `TMR_RUN` is the byte that used to be the stride's padding, which is the
-whole reason the Timer's buttons cost no memory: the pool, the cap and the
-8-byte stride are all exactly what the Clock's were.
+whole reason the Timer's buttons cost no memory: the pool and the cap were
+exactly the Clock's. **The stride is not** — it went 8 → 16 when TMR_SHOWN
+arrived, and that is the one thing here with a price on it: 80 bytes of
+`.lowbss` crossed the 512-byte step its rung rounds to, so the kernel's
+footprint moved 81,920 → 82,432, one of the nine steps move 10 granted
+(docs/KERNEL-MEMORY.md). It buys the redraw below, and the alternative —
+a parallel array in `.bss`, where the rounding happened to have room —
+indexes per-instance state by a slot derived from a stride, which is the
+kind of thing that breaks silently the next time the stride moves.
 
 Paint/onkey/onclick procs receive SI = window ptr (§11) and find their state via
 `inst_of_win` (§29) + `I_SPTR`; module-level draw scratch (used only under
@@ -3993,12 +4013,9 @@ the gfx lock) may stay shared. Kind behavior:
   (§11.3) — if either fails, gfx_unlock and skip; else draw HH:MM:SS from
   the instance's TMR_HRS/MIN/SEC; gfx_unlock }. A half-covered
   Timer therefore redraws the half that shows, whole glyphs only, instead of
-  stopping. **The white background is erased one 8x8 cell at a time**, inside
-  `app_tmr_render`, each cell gated on the `wm_clip_test` answer `font_char`
-  is about to give: that is §11.3's granularity rule, and a single 64x8 fill
-  followed by `font_str` would blank the visible band of a horizontally cut
-  Timer twice a second. Paint proc renders the same string from the state
-  block and then the three buttons. The accumulator design is binding.
+  stopping. Paint proc forgets TMR_SHOWN (§14.1 — `wm_draw_win` has just
+  white-filled the content) and renders the same string from the state block,
+  then the three buttons. The accumulator design is binding.
 
   **Sampling the tick while stopped is what Stop means.** The delta is taken
   and banked into TMR_LAST on every wake whether the timer runs or not, so a
@@ -4042,10 +4059,16 @@ the gfx lock) may stay shared. Kind behavior:
   `W_PAINT`, and `W_ONCLICK`, which fires on the frontmost window alone —
   so the test always answers "free" today; it is there so the routine stays
   safe to call from anywhere. A Start/Stop click redraws **those two buttons
-  and nothing else**; a Reset click redraws **the digits and nothing else**.
-  `app_tmr_cell` sets its pen with `gfx_pen_live` rather than a bare
-  `[gfx_color]` store, because a button drawn just before may have left
-  `[gfx_dis]` set and a flagged glyph is a checkerboard.
+  and nothing else**; a Reset click redraws **the digits that changed and
+  nothing else** (§14.1). `app_tmr_render` sets its pen with `gfx_pen_live`
+  rather than a bare `[gfx_color]` store, because a button drawn just before
+  may have left `[gfx_dis]` set — and there that flag costs twice, since a
+  flagged glyph is a checkerboard *and* `font_run` refuses its fast path
+  while it is set. The buttons themselves are deliberately **not** converted
+  to `font_run`: a button is one `gfx_fill` erasing a frame plus one centred
+  label, so a run would repaint a background the fill already covered — the
+  Disk window's reasoning in §11.94 — and they are drawn on a click, not
+  twice a second.
 - **Bounce** — 150×130 at (300,150), title "Bounce". Cap 10 (on VGA the
   template position keeps the whole +16·9 cascade on-screen and above the
   dock; on a shorter screen `wm_fit` clamps its tail back onto it, §39.7).
@@ -4070,6 +4093,70 @@ reaches exactly this path through `OSAPI_TASK_ALIVE`, whose whole job is to
 be the worker's "next wake" check; there the latency bound is whatever the
 worker's own sleep is, which is why rule 2 makes the call mandatory once
 per outer-loop iteration.
+
+### 14.1 The digits are one opaque run, and only of what changed
+
+**This was PERFORMANCE.md Part 1's double-draw flash**, and it is the
+clearest instance of it the kernel had left. `app_tmr_render` drew each of
+the eight cells as a white `gfx_fill` followed by a `font_char` — sixteen
+primitive calls, each paying the ~756 us per-call floor, and every cell
+*blank* between its two calls. Twice a second, for as long as the Timer is
+open. It was written that way for a real reason (§11.3's granularity rule:
+a 64x8 fill clips per pixel and glyphs per cell, so a horizontally cut
+Timer would have blanked the band it could show and kept blanking it) and
+the per-cell erase did solve that — at the cost of turning one flash into
+eight.
+
+`font_run` (§6.1) is both answers at once. It takes an ink and a background
+and writes each cell from its old content straight to its final content in
+one store, so there is no interval to see; and it decides per cell on
+**both** its paths (§6.1.2), so the granularity rule is handled inside the
+primitive and `app_tmr_render` needs no gate of its own. Two things earn
+the byte-aligned single-store path: the window sets **`WF_SNAP`** in
+`app_tmr_kinit` (§11.94 — the KD_INIT contract hands it BX = the window,
+before it is shown, which is exactly the caller that section is written
+for), and **`APP_TMR_DX`** is the centred position rounded to the nearest
+multiple of 8 — 47 becomes 48, one pixel of asymmetry. That is also why
+`app_tmr_pos` stopped deriving x from `[bx+W_W]`: the number has to be a
+multiple of 8 and a constant is where an assembler can check it.
+
+**TMR_SHOWN is the eight characters the window is displaying**, and what
+gets drawn is the span from the first cell that differs to the last: one
+cell for a second going 30 → 31, two when it carries, and **nothing at all**
+on the wakes that land inside the same second — the task sleeps 9 ticks,
+just under half of one, so that is roughly every other wake.
+
+The clip question is asked **once**, over the whole 64x8 line, and settles
+both halves. Inside one fragment, the incremental span is drawn and
+TMR_SHOWN adopts the new line. Cut by an edge, `font_run` will refuse some
+of its cells, so the line is drawn whole and TMR_SHOWN is **forgotten** —
+§28.2's rule, that a run which took that path was by definition not drawn
+whole. Forgetting means all eight bytes, not the first: the span is
+first-to-last, so a single zeroed byte would report a span of one cell
+while the other seven still matched.
+
+Three callers forget: `app_tmr_kinit` (a pool slot is reused, §29.4, so the
+previous instance's cells are sitting there describing a destroyed window),
+`app_tmr_paint` (the content has just been white-filled), and the cut path
+above. Reset does **not** — it changes the digits with the screen otherwise
+untouched, which is precisely the case the span exists for.
+
+Measured over 20 s of a running Timer (~40 wakes), counters on `gfx_fill`,
+`font_char` and `font_run_cell` together, which PERFORMANCE.md Part 7 rule 1
+requires because the fast path never reaches `font_char`:
+
+| | `gfx_fill` | `font_char` | `font_run` | `font_run_cell` |
+|---|---|---|---|---|
+| before, any adapter | 320 | 320 | — | — |
+| after, Hercules / CGA | **0** | **0** | 20 | 22 |
+| after, VGA (slow path) | 20 | 22 | 20 | 0 |
+
+`font_char` = 0 and `font_run_scell` = 0 on mono are the self-check
+(PERFORMANCE.md rule 7): either would be non-zero if the alignment had not
+landed. They stay 0 after dragging the window 13 pixels, which is
+`ui_drag`'s `wm_snap_ax` doing its half. Priced with PERFORMANCE.md Part 2,
+a redraw was 8 × (756 + 8×177 + 901) us ≈ **24.7 ms twice a second** and is
+~1.7 ms once a second.
 
 ## 15. kernel.asm — boot sequence
 
@@ -10621,7 +10708,8 @@ sense at create time). The Disk kind sets WF_SIZABLE (§22); every other
 row keeps 0.
 
 Pinned caps: About 1 (stateless), Timer 10
-(stride 8), Bounce 10 (stride 8), **Files 4 (stride 16, pool `fm_pool`)**,
+(stride 16 — 8 of state and 8 of §14.1's TMR_SHOWN), Bounce 10 (stride 8),
+**Files 4 (stride 16, pool `fm_pool`)**,
 TaskMgr 1 (one sampler), Control Panel 1 (no per-instance state, §31). The
 Files cap is 4 because each window claims its own `VIEW_KB` cache (§2.3); `KD_CAP`, `VIEW_SLOTS` and the `fm_pool` size are one
 number wearing three hats and must move together. The

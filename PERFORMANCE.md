@@ -418,6 +418,7 @@ list to check yourself against.
 | Note Pad insert at the front | 1,600 cells ≈ most of a second | a scroll, settled later | §27.3 |
 | An opaque text run | 228–336 framebuffer accesses, alignment-dependent | flat **80**; 1.30× on hardware (`fontbench`), 1.24× on a second harness and a second adapter (Part 9), and no flash | §6.1, §6.1.1 |
 | Task Manager row update | 20 glyphs to change 3, twice a second | the changed chunks only | §28.2 |
+| Timer digits | eight erase-and-letter pairs — 8 `gfx_fill` + 8 `font_char`, each cell blank between its two calls, **twice a second for as long as the window is open**: 320 + 320 calls in 20 s, ~24.7 ms a redraw | one `font_run` over the cells that CHANGED, byte-aligned by `WF_SNAP`: **0 fills, 0 `font_char`**, 20 runs of 22 cells in the same 20 s, and no blank interval | §14.1, §6.1 |
 | Menu bar redraw | every window operation | gated on `[menu_bdirty]` | §12.05 |
 | Dock redraw | every window operation | per-tile keys: a focus change is 2 tiles, a quiet desktop is 0 | §30.1 |
 | Arkanoid pause / resume | the whole content — background, both rails, every brick, paddle, ball, capsules, shots, status strip | the banner's 9-row band: `gfx_fill` **89 → 2**, `font_char` **10 → 6** | §44.1 |
