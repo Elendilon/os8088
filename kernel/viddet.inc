@@ -96,6 +96,7 @@ vid_tab:
 ; --- derived from the live block by vid_apply (SPEC.md 39.2) -----------------
 ; Precomputed because the sites that want them are inner loops or single
 ; instructions that have no register to spare for the arithmetic.
+vid_bankmask dw 0              ; gfx_prevrow: DI's bank bits, (nbanks-1)<<13
 vid_wm1     dw SCREEN_W-1       ; last legal x
 vid_hm1     dw SCREEN_H-1       ; last legal y
 vid_wm8     dw SCREEN_W-8       ; font_char's whole-cell clip, and the menu
@@ -278,6 +279,11 @@ vid_apply:
     mov ax, [vid_stride]
     dec ax
     mov [vid_strm1], ax
+
+    mov ax, [vid_bmask]         ; gfx_prevrow's test: the bank number lives in
+    mov cl, 13                  ; DI's bits 13..14, so the address mask is the
+    shl ax, cl                  ; y mask shifted up to meet it. 0 on VGA,
+    mov [vid_bankmask], ax      ; which is what makes prevrow a bare subtract
 
     mov ax, [vid_w]             ; --- the desktop's drive column, right-hung
     sub ax, 56
@@ -599,6 +605,31 @@ gfx_nextrow:
     jz .r
     add di, [cs:vid_wrapfix]
 .r:
+    ret
+
+; -----------------------------------------------------------------------------
+; gfx_prevrow - the mirror: DI on row y becomes DI on row y-1
+;
+; in/out/clobbers: exactly gfx_nextrow's, DI and flags and nothing else.
+;
+; It exists for SPEC.md 5.6.7's resumable walk, which runs in the CALLER's
+; direction rather than gfx_line's normalised downward one - a missile trail
+; is drawn from the launcher outward and an ABM launches upward, so half of
+; them step y the other way. Everything else in this kernel walks down.
+;
+; The test is on the bank field BEFORE the subtract, which is where this
+; differs from its mirror: nextrow can see its own overflow in the result,
+; and a borrow out of bank 0 is only visible in the operand. bankmask is
+; (nbanks-1) << 13, so it is 0 on VGA and `test di,0` sets ZF - the wrapfix
+; there is 0 too, so the whole thing is `sub di,stride` with no adapter test,
+; exactly as nextrow is an unconditional add.
+; -----------------------------------------------------------------------------
+gfx_prevrow:
+    test di, [cs:vid_bankmask]  ; already in bank 0? then this step borrows
+    jnz .p
+    sub di, [cs:vid_wrapfix]    ; ...so undo the wrap nextrow would have added
+.p:
+    sub di, [cs:vid_rowadd]
     ret
 
 ; The banked addressing above only works while a bank's rows cannot reach

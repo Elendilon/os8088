@@ -308,6 +308,371 @@ gfx_hline:
     pop bx
     ret
 
+
+; =============================================================================
+; SPEC.md 5.6.7 - the RESUMABLE walk
+;
+; gfx_line answers "draw this whole line". These two answer "draw the next N
+; pixels of this line", and the difference is what lets a caller ERASE
+; exactly what it drew.
+;
+; The problem they solve: a missile trail is DRAWN a couple of pixels a frame
+; and ERASED as one long line, and Bresenham over the whole line does not
+; visit the union of the per-frame segments - so 5.6.5 dilated the erase by a
+; pixel either side and hoped. That is an approximation in BOTH directions:
+; it can still miss (leaving the dashes 48's first note is about) and it
+; erases pixels the trail never drew, out of whatever was underneath. It also
+; costs three walks, measured at 500us a trail pixel on a 4.77MHz machine
+; (PERFORMANCE.md Set 4) - the largest remaining item in that game.
+;
+; A caller that carries the walk's own state has neither problem. The draw
+; advances it; the erase replays it from a saved copy. Same recurrence, same
+; pixels, one walk, and the caller may stop and resume anywhere - which is
+; also what lets an erase be SPREAD over frames instead of landing whole.
+;
+; THE WALK RUNS IN THE CALLER'S DIRECTION. gfx_line normalises downward so
+; its pixel set is a property of the endpoint PAIR (5.6.2); this cannot,
+; because the caller is drawing outward from a fixed point and needs step 1
+; to be next to it. Order therefore matters here and gfx_prevrow exists for
+; it. Two calls with the same endpoints agree by construction, which is all
+; a draw/erase pair needs.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; gfx_linit - set a walk state up for the line (x1,y1)-(x2,y2)
+; in:  AX = x1, BX = y1, CX = x2, DX = y2; ES:DI = a GLS_SZ-byte block
+; out: the block; preserves every register
+; -----------------------------------------------------------------------------
+gfx_linit:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov [es:di + GLS_X], ax
+    mov [es:di + GLS_Y], bx
+    mov word [es:di + GLS_SX], 1
+    sub cx, ax
+    jns .dxok
+    neg cx
+    mov word [es:di + GLS_SX], -1
+.dxok:
+    mov [es:di + GLS_DX], cx
+    mov word [es:di + GLS_SY], 1
+    sub dx, bx
+    jns .dyok
+    neg dx
+    mov word [es:di + GLS_SY], -1
+.dyok:
+    mov [es:di + GLS_DY], dx
+    sub cx, dx                  ; err = dx - dy, exactly gfx_line's
+    mov [es:di + GLS_ERR], cx
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; gfx_lstep - draw the next CX pixels of the walk in [gfx_color]
+; in:  ES:DI = the block, CX = pixels (0 legal, does nothing)
+; out: the block advanced; preserves every register; caller holds the gfx lock
+;
+; The block is STAGED into kernel scratch and written back, rather than being
+; addressed through ES throughout - 20.8 rule 3, and here it is forced as
+; well as preferred: the mono walk needs ES for the framebuffer.
+;
+; Each call plots the CURRENT point first and advances after, so N then M
+; pixels are exactly the N+M one call would have drawn. That property is the
+; whole contract.
+; -----------------------------------------------------------------------------
+gfx_lstep:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    or cx, cx
+    jz .out
+    mov [gfx_ls_cseg], es       ; --- stage the caller's block in. Its SEGMENT
+    mov [gfx_ls_coff], di       ; has to be remembered: the walk needs ES for
+    push cx                     ; the framebuffer, so it cannot stay there
+    push si
+    push ds
+    pop ax                      ; AX = KERNEL_SEG
+    mov si, di
+    push es
+    pop ds                      ; DS:SI = the caller's block
+    mov es, ax
+    mov di, gfx_ls_x            ; ES:DI = ours
+    mov cx, GLS_SZ / 2
+    cld
+    rep movsw
+    mov ds, ax                  ; DS = KERNEL_SEG again
+    pop si
+    pop cx
+
+    cmp byte [bb_on], 0         ; 5.6.4's split: mono gets the per-pixel walk,
+    je .slow                    ; VGA is the fast machine and gets gfx_pixel
+    cmp byte [vid_planes], 1
+    jne .slow
+    call gfx_lstep_mono
+    jmp short .back
+.slow:
+    call gfx_lstep_slow
+.back:
+    mov si, gfx_ls_x            ; --- and back out, to where it came from
+    mov es, [gfx_ls_cseg]
+    mov di, [gfx_ls_coff]
+    mov cx, GLS_SZ / 2
+    cld
+    rep movsw
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; gfx_lstep_slow - one gfx_pixel a step. VGA's planar path, and any adapter
+; whose renderer is not the 1bpp one; CX = steps.
+gfx_lstep_slow:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, cx                  ; the count moves out of CX: gfx_pixel takes
+.px:                            ; its x THERE
+    mov cx, [gfx_ls_x]
+    mov dx, [gfx_ls_y]
+    call gfx_pixel              ; clips to the region and the screen itself
+    call gfx_ls_adv
+    dec si
+    jnz .px
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; gfx_ls_adv - one Bresenham step of the staged state. Clobbers AX only.
+gfx_ls_adv:
+    push ax
+    mov ax, [gfx_ls_err]
+    add ax, ax                  ; e2 = 2*err
+    mov [gfx_ls_e2], ax
+    mov ax, [gfx_ls_dy]
+    neg ax
+    cmp [gfx_ls_e2], ax         ; e2 > -dy: step x
+    jle .noxs
+    mov ax, [gfx_ls_err]
+    sub ax, [gfx_ls_dy]
+    mov [gfx_ls_err], ax
+    mov ax, [gfx_ls_x]
+    add ax, [gfx_ls_sx]
+    mov [gfx_ls_x], ax
+.noxs:
+    mov ax, [gfx_ls_e2]
+    cmp ax, [gfx_ls_dx]         ; e2 < dx: step y
+    jge .noys
+    mov ax, [gfx_ls_err]
+    add ax, [gfx_ls_dx]
+    mov [gfx_ls_err], ax
+    mov ax, [gfx_ls_y]
+    add ax, [gfx_ls_sy]
+    mov [gfx_ls_y], ax
+.noys:
+    pop ax
+    ret
+
+
+; gfx_lstep_mono - the 1bpp per-pixel walk, CX steps. Registers: SI = x,
+; DX = y, BP = err, DI = framebuffer offset, BL = the bit mask, ES = the
+; framebuffer. dx/dy/sx/sy stay in memory, as they do in gfx_line_mono.
+gfx_lstep_mono:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov al, [gfx_color]
+    call gfx_ink
+    mov [gfx_ln_ink], al
+    mov es, [vid_rseg]
+    mov si, [gfx_ls_x]
+    mov dx, [gfx_ls_y]
+    mov bp, [gfx_ls_err]
+    call gfx_ls_box             ; the rect this walk starts inside - AFTER
+    call gfx_ls_addr            ; SI/DX are loaded, because it reads them
+.px:
+    cmp si, [gfx_ls_bx1]        ; still in the resolved rect?
+    jl .miss
+    cmp si, [gfx_ls_bx2]
+    jg .miss
+    cmp dx, [gfx_ls_by1]
+    jl .miss
+    cmp dx, [gfx_ls_by2]
+    jle .draw
+.miss:
+    call gfx_ls_box             ; ...no: find the one that holds it, if any
+    cmp si, [gfx_ls_bx1]
+    jl .step
+    cmp si, [gfx_ls_bx2]
+    jg .step
+    cmp dx, [gfx_ls_by1]
+    jl .step
+    cmp dx, [gfx_ls_by2]
+    jg .step
+.draw:
+    mov al, [gfx_ln_ink]
+    cmp al, 1                   ; the dither class: lit where (x+y) is even
+    jne .solid
+    mov ax, si
+    xor ax, dx
+    and al, 1
+    dec al
+.solid:
+    and al, bl
+    mov ah, bl
+    not ah
+    and ah, [es:di]
+    or  ah, al
+    mov [es:di], ah
+.step:
+    mov ax, bp
+    add ax, ax
+    mov [gfx_ls_e2], ax
+    mov ax, [gfx_ls_dy]
+    neg ax
+    cmp [gfx_ls_e2], ax         ; e2 > -dy: step x
+    jle .noxs
+    sub bp, [gfx_ls_dy]
+    cmp word [gfx_ls_sx], 0
+    jl .xleft
+    inc si
+    shr bl, 1
+    jnz .noxs
+    mov bl, 0x80
+    inc di
+    jmp short .noxs
+.xleft:
+    dec si
+    shl bl, 1
+    jnz .noxs
+    mov bl, 0x01
+    dec di
+.noxs:
+    mov ax, [gfx_ls_e2]
+    cmp ax, [gfx_ls_dx]         ; e2 < dx: step y, EITHER WAY (5.6.7)
+    jge .noys
+    add bp, [gfx_ls_dx]
+    cmp word [gfx_ls_sy], 0
+    jl .yup
+    inc dx
+    call gfx_nextrow
+    jmp short .noys
+.yup:
+    dec dx
+    call gfx_prevrow
+.noys:
+    dec cx
+    jnz .px
+    mov [gfx_ls_x], si          ; hand the advanced state back
+    mov [gfx_ls_y], dx
+    mov [gfx_ls_err], bp
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; gfx_ls_addr - DI = the framebuffer byte for (SI,DX), BL = its bit
+; clobbers AX/CX, and DI/BL are outputs
+gfx_ls_addr:
+    push cx                     ; CX is the caller's STEP COUNT
+    push dx
+    mov ax, dx
+    call gfx_rowbase            ; clobbers AX/CX/DX, preserves BX
+    mov di, ax
+    mov ax, si
+    mov cl, 3
+    shr ax, cl
+    add di, ax
+    mov cx, si
+    and cl, 7
+    mov bl, 0x80
+    shr bl, cl
+    pop dx
+    pop cx
+    ret
+
+; gfx_ls_box - the clip rect containing (SI,DX), into gfx_ls_bx1..by2. With
+; the region disarmed that is the screen; with no rect containing the point
+; it is an EMPTY box, so the caller skips the pixel and re-resolves at the
+; next one. Preserves every register.
+gfx_ls_box:
+    push ax
+    push bx
+    push cx
+    push di
+    cmp word [wm_clip_n], 0
+    jne .armed
+    xor ax, ax
+    mov [gfx_ls_bx1], ax
+    mov [gfx_ls_by1], ax
+    mov ax, [vid_wm1]
+    mov [gfx_ls_bx2], ax
+    mov ax, [vid_hm1]
+    mov [gfx_ls_by2], ax
+    jmp short .out
+.armed:
+    mov bx, wm_clip_tab
+    mov cx, [wm_clip_n]
+.scan:
+    mov ax, [bx + WCR_X1]
+    cmp si, ax
+    jl .next
+    cmp si, [bx + WCR_X2]
+    jg .next
+    cmp dx, [bx + WCR_Y1]
+    jl .next
+    cmp dx, [bx + WCR_Y2]
+    jg .next
+    mov [gfx_ls_bx1], ax
+    mov ax, [bx + WCR_Y1]
+    mov [gfx_ls_by1], ax
+    mov ax, [bx + WCR_X2]
+    mov [gfx_ls_bx2], ax
+    mov ax, [bx + WCR_Y2]
+    mov [gfx_ls_by2], ax
+    jmp short .out
+.next:
+    add bx, WCR_SZ
+    loop .scan
+    mov word [gfx_ls_bx1], 1    ; nothing holds it: an empty box, so every
+    mov word [gfx_ls_bx2], 0    ; later pixel re-resolves rather than
+    mov word [gfx_ls_by1], 1    ; inheriting a stale rect
+    mov word [gfx_ls_by2], 0
+.out:
+    pop di
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; gfx_line - an arbitrary-angle line in [gfx_color] (SPEC.md 5.6)
 ;
@@ -1945,5 +2310,19 @@ gfx_ln_fdy      resw 1          ; pixel across the MINOR axis
 gfx_ln_ink      resb 1          ; mono path: gfx_ink's 00 / FF / 01
 gfx_ln_wide     resb 1          ; 1 = the 1bpp three-column walk (5.6.6)
 gfx_ln_majx     resb 1          ; runs path: 1 = the major axis is x
+gfx_ls_x        resw 1          ; 5.6.7's staged walk state - the caller's
+gfx_ls_y        resw 1          ; block, copied in and back out (20.8 rule 3,
+gfx_ls_err      resw 1          ; and forced here as well as preferred: the
+gfx_ls_dx       resw 1          ; mono walk needs ES for the framebuffer)
+gfx_ls_dy       resw 1
+gfx_ls_sx       resw 1
+gfx_ls_sy       resw 1
+gfx_ls_e2       resw 1
+gfx_ls_bx1      resw 1          ; the clip rect the walk is inside, re-resolved
+gfx_ls_by1      resw 1          ; only when a pixel steps out of it - a step is
+gfx_ls_bx2      resw 1          ; a handful of pixels, so this is one list walk
+gfx_ls_by2      resw 1          ; per CALL in every case that matters
+gfx_ls_cseg     resw 1          ; ...and where the caller's block came from,
+gfx_ls_coff     resw 1          ; because ES cannot hold it across the walk
 
 section .text

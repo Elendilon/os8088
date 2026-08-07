@@ -2225,6 +2225,169 @@ dsk_fatw_drop:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_free_clus - count the volume's free clusters (SPEC.md 18.4)
+; in:  nothing (a successful mount)
+; out: CF=0, AX = free clusters; CF=1 = no mounted volume
+; clobbers: AX (the output), CF
+;
+; The same answer dskw_dfree's loop gives and about 9x cheaper, which is what
+; makes a free-space figure affordable on EVERY mount, which is what let the
+; Folder menu's on-demand item go away entirely (SPEC.md 22.7). The loop it replaces called
+; dsk_next_clus per cluster, and that call is ~850 clocks of push/pop, window
+; revalidation and variable shifts around ~15 clocks of actual FAT read - on
+; a 4.77MHz 8088 a 1.44MB floppy's 2,846 clusters is over half a second, all
+; of it overhead. Here the window is validated once per SECTOR and the entries
+; are read where they lie - a FAT12 pair shares one word load, a FAT16 entry
+; is a word out of an array - which is ~93 clocks a cluster (modelled on
+; PERFORMANCE.md Part 2's instruction floor; not yet a field number).
+;
+; Only the FAT12 half is gated on the WHOLE FAT being resident, which is the
+; degenerate window every floppy has (SPEC.md 18.8) and is what both shipped
+; geometries are; a FAT12 volume whose FAT outruns DSK_FAT_SECS falls back to
+; the per-cluster walk, which is correct there and no slower than it was. The
+; FAT16 half is NOT gated, because on a hard-disk partition the windowed case
+; is the normal one (SPEC.md 22.7).
+; -----------------------------------------------------------------------------
+dsk_free_clus:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    cmp byte [dsk_mntok], 1
+    jne .bad
+    xor di, di                  ; DI = free clusters
+    mov si, 2                   ; SI = cluster under test
+    cmp si, [dsk_maxclus]
+    ja .counted                 ; a volume with no data clusters
+    mov ax, si                  ; make the window cover cluster 2, so the
+    call dsk_fat_ofs            ; residency test below reads a loaded window
+    jc .bad                     ; rather than the 0xFFFF of a fresh mount
+    cmp byte [dsk_fattype], 0
+    jne .f16
+
+    ; --- FAT12: two entries per three bytes, one word load for both. Needs
+    ;     the WHOLE FAT resident, because a pair straddles wherever it likes;
+    ;     that is the degenerate window every floppy has (SPEC.md 18.8) ------
+    mov ax, [dsk_fatwn]
+    cmp ax, [dsk_fatsz]
+    jb .slow
+    cmp word [dsk_fatw0], 0     ; ...and the window actually sitting at 0
+    jne .slow
+    mov cx, [dsk_fatseg]
+    mov es, cx
+    mov bx, 3                   ; cluster 2 lives at byte 2 + 2/2
+.pair:
+    mov ax, [es:bx]             ; b0 | b1<<8 - the even entry's 12 bits are
+    mov dx, ax                  ; the bottom of it, the odd entry's low
+    and dx, 0x0FFF              ; nibble the top
+    jnz .odd
+    inc di
+.odd:
+    inc si
+    cmp si, [dsk_maxclus]
+    ja .counted                 ; an odd cluster count ends on the even half
+    mov dl, [es:bx+2]           ; odd entry = (ax >> 12) | b2 << 4, and it is
+    or dl, dl                   ; zero exactly when both halves are
+    jnz .pnext
+    test ah, 0xF0
+    jnz .pnext
+    inc di
+.pnext:
+    inc si
+    add bx, 3
+    cmp si, [dsk_maxclus]
+    jbe .pair
+    jmp short .counted
+
+    ; --- FAT16: a plain word array, and NOT gated on residency - a hard-disk
+    ;     partition's FAT is 64 sectors against a 9-sector window (SPEC.md
+    ;     18.8/52.3), so the windowed case IS the normal one here. An entry
+    ;     never straddles, so the window is validated once per FAT SECTOR and
+    ;     the 256 entries inside it are read where they lie. Same I/O as the
+    ;     per-cluster walk, ~9x less CPU: 16,380 clusters on a 32MB partition
+    ;     is the difference between a pause and a stall (SPEC.md 22.7).
+.f16:
+    mov ax, si
+    call dsk_fat_ofs            ; BX = offset in the window, and the sector
+    jc .counted                 ; holding cluster SI is now resident
+    mov cx, [dsk_fatseg]
+    mov es, cx
+    mov cx, si                  ; entries from here to the end of the sector
+    and cx, 255
+    sub cx, 256
+    neg cx
+    mov ax, [dsk_maxclus]       ; ...but never past the last cluster
+    sub ax, si
+    inc ax
+    cmp cx, ax
+    jbe .f16run
+    mov cx, ax
+.f16run:
+    add si, cx                  ; bank the advance: the loop spends CX
+.word:
+    cmp word [es:bx], 0
+    jne .wnext
+    inc di
+.wnext:
+    inc bx
+    inc bx
+    loop .word
+    cmp si, [dsk_maxclus]
+    jbe .f16
+.counted:
+    mov ax, di
+    clc
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+.slow:
+    call dsk_free_slow
+    jmp short .out
+.bad:
+    stc
+    jmp short .out
+
+; -----------------------------------------------------------------------------
+; dsk_free_slow - the per-cluster fallback (module internal)
+; in:  a successful mount
+; out: CF=0, AX = free clusters
+; clobbers: AX (the output), CF
+;
+; A windowed FAT bigger than DSK_FAT_SECS: dsk_next_clus reloads the window as
+; the scan crosses it, which is the I/O this walk exists to keep honest.
+; -----------------------------------------------------------------------------
+dsk_free_slow:
+    push si
+    push di
+    xor di, di
+    mov si, 2
+.scan:
+    cmp si, [dsk_maxclus]
+    ja .done
+    mov ax, si
+    call dsk_next_clus
+    jc .next
+    test ax, ax
+    jnz .next
+    inc di
+.next:
+    inc si
+    jmp short .scan
+.done:
+    mov ax, di
+    clc
+    pop di
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_next_clus - read one FAT entry from the snapshot
 ; in:  AX = cluster number
 ; out: CF=0, AX = raw FAT entry value (FAT12: 12-bit);

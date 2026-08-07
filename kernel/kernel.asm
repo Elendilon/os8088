@@ -56,6 +56,15 @@ WCR_X2  equ 4
 WCR_Y2  equ 6
 WCR_SZ  equ 8
 
+GLS_X   equ 0                   ; SPEC.md 5.6.7's resumable walk state, owned
+GLS_Y   equ 2                   ; by the CALLER: current point, the Bresenham
+GLS_ERR equ 4                   ; error, and the four constants of the line
+GLS_DX  equ 6
+GLS_DY  equ 8
+GLS_SX  equ 10                  ; +1 / -1
+GLS_SY  equ 12
+GLS_SZ  equ 14
+
 ; loadable programs (SPEC.md 20) - a package's region is a HEAP CLAIM
 APP_MAX_SIZE equ 0xF000         ; the biggest single package: 60KB, and the
                                 ; ceiling is now the SEGMENT rather than a
@@ -861,7 +870,18 @@ osapi_table:
                                   ;          15.4): the boot sector's first
                                   ;          instruction to the first desktop
                                   ;          frame. 0xFFFF = unknown
-osapi_table_end:                  ; 0x0300
+    OSAPI_JSLOT api_gfx_linit     ; 0x0300  X: the walk state is package data
+                                  ;          (SPEC.md 5.6.7). AX/BX = x1/y1,
+                                  ;          CX/DX = x2/y2, ES:DI = a GLS_SZ
+                                  ;          block. The walk runs in the
+                                  ;          CALLER'S direction - order
+                                  ;          matters here, unlike gfx_line
+    OSAPI_JSLOT api_gfx_lstep     ; 0x0308  X: draw the walk's next CX pixels
+                                  ;          in [gfx_color] and advance it.
+                                  ;          N then M is exactly the N+M one
+                                  ;          call would have drawn, which is
+                                  ;          what lets an erase replay a draw
+osapi_table_end:                  ; 0x0310
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -869,8 +889,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 94 * 8
-%error "os8088 API jump table must be exactly 94 8-byte slots"
+%if OSAPI_TABLE_LEN != 96 * 8
+%error "os8088 API jump table must be exactly 96 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
@@ -914,6 +934,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
     OSAPI_XSTUB api_snd_fm,     osapi_snd_fm_x
     OSAPI_XSTUB api_drv_task,   drv_task
     OSAPI_XSTUB api_snd_stream, osapi_snd_stream
+    OSAPI_XSTUB api_gfx_linit,  gfx_linit
+    OSAPI_XSTUB api_gfx_lstep,  gfx_lstep
     OSAPI_XSTUB api_vol_add,    osapi_vol_add
     OSAPI_XSTUB api_vol_del,    osapi_vol_del
     OSAPI_XSTUB api_vol_mount,  osapi_vol_mount

@@ -19,9 +19,11 @@ as much as in prose, and `tools/checkdocs.py` would only catch the ones that
 stopped resolving — not the ones that resolved to something else. That is the
 whole reason to leave them.
 
-The same rule governs the API table (§20.3): **a shipped slot keeps its
+The same rule governs the API table (§20.3): **a RELEASED slot keeps its
 contract**, and "we no longer implement this" is a refusing stub, not a reuse
-(§20.8 rule 4).
+(§20.8 rule 4). A slot introduced since the last release is not shipped and
+may still be changed freely — the obligation is to get a contract right
+before it goes out, not to freeze it the moment it is typed.
 
 ## 0. Goal
 
@@ -823,6 +825,65 @@ Four things about it are load-bearing:
   case one extra RMW and not two, and it is why `BH` can carry that bit while
   `BP` carries its direction — `gfx_line` pushes `BP` for it, as a plain
   register and never as an address base (SS ≠ DS, §1).
+
+#### 5.6.7 The resumable walk — `gfx_linit` / `gfx_lstep` (0x0300 / 0x0308)
+
+`gfx_line` answers *draw this whole line*. These two answer *draw the next N
+pixels of this line*, and that difference is what lets a caller **erase
+exactly what it drew**.
+
+**The problem.** A missile trail is drawn a couple of pixels a frame and
+erased as one long line, and Bresenham over the whole line does not visit the
+union of the per-frame segments — §48's very first note is the dashed remnant
+that leaves. §5.6.5's answer was to dilate the erase by a pixel either side,
+which is an approximation in *both* directions: it can still miss, and it
+erases pixels the trail never drew out of whatever was underneath, which is
+the stale-pixel class the same section records. It also costs three walks —
+**500 µs a trail pixel** on the field machine, the largest remaining item in
+that game (PERFORMANCE.md Set 4).
+
+**The fix is to stop guessing what was drawn and remember it.** The caller
+owns a `GLS_SZ`-byte block: `gfx_linit` sets it up from the two endpoints,
+`gfx_lstep` draws the next CX pixels in `[gfx_color]` and advances it. Keep a
+copy of the freshly-initialised block and replay that copy in the background
+colour, and the erase is the same recurrence over the same pixels — one thin
+walk each way instead of three fat ones.
+
+Four things are load-bearing:
+
+- **N then M is exactly the N+M one call would have drawn.** Each step plots
+  the *current* point and advances after, so a walk may be stopped and
+  resumed anywhere. That is the whole contract, and `tests/linetest` gates it
+  directly: the same fan drawn in chunks of 1, 2, 3 and 7 produces a
+  **byte-identical framebuffer** to one call per line.
+- **The walk runs in the CALLER's direction.** §5.6.2 normalises `gfx_line`
+  downward so its pixel set is a property of the endpoint *pair*; this cannot,
+  because the caller is drawing outward from a fixed point and step 1 has to
+  be next to it. Order matters here, and `gfx_prevrow` exists for it — an ABM
+  launches upward. Two inits from the same endpoints in the same order agree
+  by construction, which is all a draw/erase pair needs.
+- **The block is STAGED into kernel scratch and written back**, not addressed
+  through ES throughout (§20.8 rule 3, and here it is forced as well as
+  preferred: the mono walk needs ES for the framebuffer). The caller's
+  *segment* therefore has to be remembered in `[gfx_ls_cseg]` — losing it
+  writes the advanced state into the kernel's own copy, and the caller's walk
+  silently never moves.
+- **Clipping is per pixel against a cached rect**, not §5.6.3's one-pass-per-
+  fragment: a resumable walk cannot be run once per clip rect without
+  advancing the state once per rect. `gfx_ls_box` resolves the rect
+  containing the current point and the walk re-resolves only when a pixel
+  leaves it — one list walk per call in every case that matters, since a step
+  is a handful of pixels.
+
+**Because a walk may be stopped anywhere, an erase need not land in one
+frame.** Advancing a replay cursor a few pixels a frame makes a spent trail
+*drain* rather than pop, with no single frame paying for the whole thing —
+which is what §48.8.3's rejected "erase cursor" was reaching for and could
+not have, because a whole-line call cannot be partially issued and clipping
+one does not make it cheaper (the walk is the cost).
+
+Verified on all three adapters: drawn in chunks of 3 and erased in chunks of
+5, the content comes back with **0 lit pixels** on Hercules, CGA and VGA.
 
 ### 5.7 The per-call floor — what a small drawing call spends
 
@@ -5597,11 +5658,13 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02D0 fsx_mode
                                                 0x02D8 fsx_wait
                                                 0x02E0 gfx_line
+                                                0x0300 gfx_linit   X
+                                                0x0308 gfx_lstep   X
 ```
 
-**Every published slot keeps its number and contract**, on the rule that **a
-slot number must never mean two contracts**: a shipped number keeps its
-meaning, and the answer to "we no longer implement this" is a wrapper or a
+**Every RELEASED slot keeps its number and contract** (§20.8 rule 4), on the
+rule that **a slot number must never mean two contracts**: a released number
+keeps its meaning, and the answer to "we no longer implement this" is a wrapper or a
 refusing stub, never a reuse. Reusing 0x01C8 for a KB-counting `mem_avail`
 where it once held a paragraph-counting one would fail silently and by a
 factor of 64, which is the whole class of bug the rule exists to prevent. So
@@ -5748,6 +5811,14 @@ Slot-specific contracts that are not simply their target routine's:
                          an axis-aligned pair defers to gfx_hline /
                          gfx_vline, which stay the right answer for a long
                          run. Clobbers flags only.
+0x0300 gfx_linit         in AX/BX = x1/y1, CX/DX = x2/y2, ES:DI = a GLS_SZ
+                         block of the CALLER'S memory (X). Sets a resumable
+                         walk up at (x1,y1) (§5.6.7). Preserves all.
+0x0308 gfx_lstep         in ES:DI = that block, CX = pixels to draw in
+                         [gfx_color]; the block advances by exactly that
+                         many. Lock held; CX=0 legal. N then M is exactly
+                         the N+M one call would have drawn, which is what
+                         lets an erase replay a draw. Preserves all.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -6077,15 +6148,32 @@ without anyone noticing it was a rule.
    contended register in this kernel and those bodies serve kernel-internal
    callers whose pointers are plain DS. The override version of this feature is
    where the bugs would have lived.
-4. **A shipped slot keeps its contract.** The table is 8 bytes per cell from
-   0x0010, and a number, once it means something, never means something else —
-   retired functionality gets a **refusing stub**, not a reuse. What this rule
-   is *not* is a promise that the numbers match another tree's: they did while
-   two branches were live and stopped when they merged (§20.3), and closing
-   that gap moved every cell above 0x01B0 down 88 bytes. Renumbering is
-   therefore possible but expensive and deliberate: it invalidates every `.o88`
-   at once, and it is only survivable because every package is in this tree and
-   `make` rebuilds all of them. It has happened three times.
+4. **A RELEASED slot keeps its contract.** The table is 8 bytes per cell from
+   0x0010, and a number that has gone out in a release never means something
+   else afterwards — retired functionality gets a **refusing stub**, not a
+   reuse. What this rule is *not* is a promise that the numbers match another
+   tree's: they did while two branches were live and stopped when they merged
+   (§20.3), and closing that gap moved every cell above 0x01B0 down 88 bytes.
+   Renumbering is therefore possible but expensive and deliberate: it
+   invalidates every `.o88` at once, and it is only survivable because every
+   package is in this tree and `make` rebuilds all of them. It has happened
+   three times.
+
+   **A slot introduced since the last release is not shipped and may still be
+   changed freely** — renumbered, re-contracted or withdrawn — because nothing
+   outside this tree can have been built against it yet. That is the whole
+   reason the rule says *released* rather than *written*: a development cycle
+   that cannot edit its own API spends its slots defensively and ends up
+   carrying every first draft forever. The obligation is to get the contract
+   right **before** it goes out, not to freeze it the moment it is typed. Once
+   a release carries it, the first paragraph binds and nothing relaxes it
+   again.
+
+   `gfx_line` (0x02E0) is the worked example: introduced after the last
+   release, so its `SI = 0/1` thin-or-dilated contract may be replaced
+   outright by a resumable walk rather than kept alongside one. Under the old
+   wording that would have meant a second slot and a permanent dilation path
+   with no consumer left to use it.
 
    **The unification of §18.4.1 is the one recorded exception, and it is an
    exception to the first sentence, not to the rest of the rule.** Slots
@@ -6332,7 +6420,7 @@ remounts **only** if the acting window's `(drive, cwd)` differs from
 `([disk_drive], [dsk_cwd])` — in the common case, where you act in the
 window you last navigated, a compare and a `ret`.
 
-**Per-window state** is a 16-byte `KD_POOL` block (`fm_pool`, 4 × 16, §29.3),
+**Per-window state** is a 24-byte `KD_POOL` block (`fm_pool`, 4 × 24, §29.3),
 allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 
 | off | field | meaning |
@@ -6340,14 +6428,17 @@ allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 | 0 | `FS_SEL` w | selected **directory index** — not a row; 0xFFFF = none |
 | 2 | `FS_SCRL` w | first visible row (entry row in list view, grid row in icon view) |
 | 4 | `FS_CLKT` w | birth tick (§10) of this window's last entry click |
-| 6 | `FS_N` w | entries in this window's cache, 0..32 |
+| 6 | `FS_N` w | entries in this window's cache |
 | 8 | `FS_CWD` w | the folder it is showing: first cluster, 0 = root |
 | 10 | `FS_DRV` b | the drive it is showing, 0 = A:, 1 = B: |
 | 11 | `FS_MOK` b | 1 = that listing came from a fully successful mount |
 | 12 | `FS_VIEW` b | 0 = list view, 1 = icon view |
-| 13 | `FS_IDX` b | its `VIEW_SEG` slot, 0..3 — derived once by `fm_kinit` |
-| 14 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm |
-| 15 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none; 255 = "show the free-space line" (below) |
+| 13 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm |
+| 14 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none |
+| 16 | `FS_VSEG` w | this window's listing-cache claim (§50.2), 0 = none |
+| 18 | `FS_VKB` b | how many KB that claim actually is (§22.6) |
+| 20 | `FS_FREE` w | KB free on its volume, 0xFFFF = not known (§22.7) |
+| 22 | `FS_USED` w | KB summed over its listed entries, 0xFFFF = not known (§22.7) |
 
 `FS_CLKT` moves with `FS_SEL` or not at all: shared, a click on row 3 in
 window A followed within 9 ticks by a click on row 3 in window B would
@@ -6650,7 +6741,7 @@ cells are `font_width + MENU_TITLE_PAD`:
 | menu | width | x range | items |
 |------|-------|---------|-------|
 | **File** | 44 | 110..153 | Open · New Folder… · Rename… · Delete · Close Window |
-| **Folder** | 60 | 154..213 | New Window · Open in New Window · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: · Free Space |
+| **Folder** | 60 | 154..213 | New Window · Open in New Window · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: |
 | **View** | 44 | 214..257 | as List · as Icons |
 | **Special** | 68 | 258..325 | Timer · Bounce · Restart |
 
@@ -6676,7 +6767,6 @@ only by the UI task (§7) and `fm_oncmd` runs *inside* it:
 |---------|-------------|
 | Open | `fm_open_sel` — inline (loader is deferred, `dsk_chdir` is I/O under the lock like Refresh) |
 | New Folder… / Rename… / Delete | inline: enters edit mode, draws nothing but the status line. The disk is touched at **Enter**, not here |
-| Free Space | `fmv_sync` first (§22.1 — the answer must be about OUR volume, and that sync is a full mount when another window navigated last), then `dskw_dfree`, which reads the resident FAT snapshot with no I/O of its own |
 | Refresh / Drive A: / Drive B: | inline `disk_mount`, exactly as the button and the a/b/r keys already do |
 | Up One Folder / Root Folder | inline: `fmv_sync`, then `dsk_dotdot` + `fmv_load` / `fmv_load` AX=0 |
 | New Window / Open in New Window | **deferred** — seed + `inst_launch_post` (§29.4); at cap, `snd_beep` and nothing else, because `app_launch` would front an existing window and silently drop the seed |
@@ -7253,6 +7343,90 @@ documented fallback and not an error: the window then paints from the global
 snapshot at the cost of the floppy I/O it would otherwise have avoided. A
 machine with only floppies never pays for the bigger cache, because nothing
 ever asks for it.
+
+### 22.7 The status line's resting state — this folder's size, this volume's free space
+
+The status line had five rungs and all five were **notifications**: a pending
+load, the name editor, this window's last `FERR_*`, the free-space figure the
+Folder menu put there, the loader's verdict. When none of them had anything
+to say the line was blank — a whole line of every Disk window, reserved and
+usually empty.
+
+The resting rung is what it says the rest of the time: `Size <n>K   Free <n>K`,
+the bytes of what this folder LISTS and the KB free on the volume it is on. It
+is the lowest rung on purpose, so it needs no clearing rule of its own — a
+notification takes the line while it has something to say and the resting
+state comes back when it stops, out of the same precedence ladder that already
+ordered the others. Nothing about drawing it is new: it is staged into
+`fm_hdrbuf` and drawn by `fm_stat_line` like every rung above it, so it
+truncates at a narrow window exactly as they do.
+
+**`Folder > Free Space` is gone, and that is the point rather than a side
+effect.** A figure that is always on screen cannot also be a thing you ask
+for; leaving both would have meant a menu item whose only effect was to
+replace the number under it with the same number, formatted differently. Its
+removal takes the whole one-buffer apparatus with it — `FM_FREE` (the one
+`FS_FERR` value that was not a `FERR_*`), `fm_msgbuf`, and `fm_msgwin`, the
+word that said which window owned the single shared figure so that a second
+window's status line could not show the first one's disk. Per-window fields
+make that question unaskable. The `FMC_*` ids after it renumber, which is
+allowed: they are internal constants and the context menu (§12.4) reaches
+them by name.
+
+**The two figures are found in completely different ways, and that is the
+whole design.**
+
+- **Size** is a 32-bit sum over the window's own listing — the entry size
+  dword at offset 20 (§19.1) — so it costs **no I/O at all** and follows the
+  cache the paint already reads. Two consequences are contract, not
+  limitation: subdirectories carry size 0 by §19.1, so this is the files at
+  **this level** and it does not recurse; and the sum is over what the
+  listing **shows**, so §19.6's hidden system files are not in it. On the
+  system disk that means `Size` is much smaller than the volume's used
+  space, which is the honest answer to "how big is what I am looking at".
+- **Free** walks the whole FAT, so it is read **once per mount** —
+  `fm_measure`, called from `fmv_load` and `fmv_bcast`, the two places a
+  window's listing is replaced — and never from the painter. A repaint, a
+  raise, a resize, a scroll and a selection all cost nothing, which is the
+  same rule §22.1 already applies to the listing itself.
+
+Both live in the window's `KD_POOL` block (`FS_FREE`, `FS_USED`), both are KB
+in a word, and both use **0xFFFF for "not known"**, drawn as `?`. A failed
+mount must not leave the previous volume's number on screen, and a blank
+would read as *no free space* — the one thing it must not be mistaken for.
+
+**`dsk_free_clus` is the counting body, and it is the reason this is
+affordable.** `dskw_dfree` (slot 0x0140) is rewired onto it, so the API cell
+and the status line cannot disagree. What it replaced was a `dsk_next_clus`
+call per cluster — ~850 clocks of push/pop, window revalidation and two
+variable shifts around ~15 clocks of actual FAT read, which is **over half a
+second on a 1.44MB floppy** and was tolerable only because a menu item asked
+for it. Here the window is validated once and the entries are read where they
+lie: **~93 clocks a cluster, about 9x**. Two shapes, because the two FAT
+formats differ in kind:
+
+- **FAT12** reads a **pair** of entries from one word load (`b0 | b1<<8` is
+  the even entry's twelve bits and the odd entry's low nibble), and an entry
+  is zero exactly when both of its halves are — no shifting and no decode,
+  because the question is "is it zero", not "what is it". It needs the
+  **whole FAT resident**, since a pair straddles wherever it likes; that is
+  the degenerate window every floppy has (§18.8), and a FAT12 volume whose
+  FAT outruns `DSK_FAT_SECS` falls back to `dsk_free_slow`, the per-cluster
+  walk, which is correct there and no slower than it was.
+- **FAT16** is **not** gated on residency, and must not be: a 32MB partition
+  formats to 2KB clusters (§52.3), which is 16,380 clusters and a **64-sector
+  FAT against a 9-sector window**, so the windowed case *is* the normal one.
+  A FAT16 entry never straddles, so the window is validated once per **FAT
+  sector** and the 256 entries inside it are read as a word array. Same I/O
+  as the per-cluster walk — the window slides forward once either way — and
+  ~9x less CPU, which on that partition is the difference between a pause and
+  a multi-second stall.
+
+The trap in the FAT16 shape is that the run must be clamped **twice**: to the
+end of the current FAT sector (or the next window validation is skipped for
+entries that are not in it) and to `[dsk_maxclus]` (or it counts past the end
+of the volume). Clamping to one and not the other is the bug that reads as a
+free-space figure which is merely plausible.
 
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
@@ -15638,6 +15812,177 @@ game paused, the framebuffer captured, a full repaint forced, the two
 compared — **0 differing pixels of 262,144**, which is what says the `.gone`
 erase still matches what the new ramp drew.
 
+### 48.13 Fullscreen was a WINDOW, and that cost a fifth of the machine
+
+Missile Command is §53's reference consumer and was never running a bracket
+on the machines this work is about. The exclusive path was reached only
+through `mc_cmd_modex`, gated on `FSXM_MODEX`, and `fsx_caps` answers
+**0x011 on Hercules** — `FSXM_TEXT80 | FSXM_HERC`, no Mode X. So on both 1bpp
+adapters the menu item correctly read `Mode X (Vga)` and refused, `F` gave
+the **§11.2 fullscreen window** instead, and that window is an ordinary
+window that happens to cover the screen: still in the z-order, still
+pre-empted, still taking the gfx lock once a frame.
+
+**The exclusive path had been tied to a mode CHANGE rather than to
+exclusivity**, and §53.7 has always said those are separable — *"a bracket
+that never switches modes may keep drawing with them ('exclusive but same
+mode': a game loop that wants zero jitter), and that costs nothing to
+allow."* Nothing needed inventing; it needed wiring up.
+
+PERFORMANCE.md Set 4 priced the difference on a cycle-accurate 5150:
+
+| per frame, every frame, drawn content or not | |
+|---|---|
+| `lok` — `gfx_lock` + `mc_track` + `wm_clip_set` | 6.2 ms |
+| `unl` — `gfx_unlock` | 5.7 ms |
+| | **21.8% of a 77-second session** |
+
+`mc_fs_enter` now makes the window fullscreen *and then takes the machine*:
+`[mc_fsxm]` carries the `FSXM_*` to set or **0FFh for "do not switch"**, and
+`mc_fsx_main` skips `fsx_mode` for that value. Measured on the same-mode
+bracket, `lok` and `unl` are **0** — not smaller, absent, because the bracket
+holds the lock for its whole life and there is nothing to take.
+
+Four things about it are load-bearing:
+
+- **`[mc_fsx]` still means "the mode is FOREIGN", not "we are in a
+  bracket".** All ten of its readers switch the drawing to the Mode X twins
+  or answer 320x240 geometry, and a same-mode bracket wants none of that —
+  so it leaves the flag at 0 and `mc_track`, `mc_fillc` and `mc_line` stay on
+  their ordinary paths. Conflating the two would draw the game through Mode X
+  primitives on a Hercules card.
+- **A refused `fsx_run` stays on the §11.2 surface.** The bracket is an
+  optimisation, not the feature; `jc .out` leaves the fullscreen window up,
+  which is exactly what this did before.
+- **`F` leaves the bracket as well as `Esc`**, because on this surface `F` is
+  the Full Screen the user asked for and pressing it again is how they expect
+  to leave.
+- **The double cursor goes with it.** The kernel keeps the system arrow live
+  over a §11.2 fullscreen window (`MC_CHARM`'s own comment says so), so the
+  game has always shown the arrow *and* its crosshair. A held lock keeps the
+  cursor off, so the bracket has one crosshair and no arrow — which is the
+  cheapest confirmation that the bracket is actually running.
+
+### 48.14 A trail is ONE Bresenham, laid at launch and walked
+
+A field log put `wip` — the whole-trail erase — at **37.8 ms of a 73.5 ms
+frame with only 5.2 line calls in it**, which is what said the cost was per
+*pixel* and not per *call*. §5.6.6 answered half of it inside the kernel (the
+steep three-column walk, 1.91×, and only 38% of this game's erases are
+steep). §5.6.7 answers the other half by removing the reason the dilation
+existed at all.
+
+The trail **was** drawn as a chain of per-frame segments — each its own
+Bresenham between two rounded positions — and erased as one long line between
+the extremes. Those two rasterizations are not the same pixels; they differ
+by up to one in the minor axis, which left **104 of a measured 217-pixel
+trail** on the screen. §5.6.5's dilation covered exactly that error, at three
+read-modify-writes a pixel forever.
+
+It is one line now. `mc_tr_lay` lays the walk from the launch point to the
+point the missile is **aimed at**, once, at launch; `mc_move_trails` advances
+it to wherever the missile has got to; `mc_wipe_trails` re-lays the identical
+line and replays exactly the pixels the draw emitted. One walk each way, one
+read-modify-write a pixel, and nothing left behind — the two walks are the
+same walk, so "close enough" stops being a question that can be asked.
+
+Two things that read as trades are corrections:
+
+- **A dodging smart bomb's trail is a straight line now.** It used to be a
+  polyline following the actual path — which the straight erase could never
+  have removed, so a dodged bomb left its whole trail on the screen until the
+  next wave. The erase always assumed a straight line; this is the draw being
+  brought into line with it, not the other way round.
+- **The progress measure is the MAJOR AXIS, clamped.** The walk steps its
+  major axis once a pixel, so the distance the missile has travelled along
+  that axis *is* the pixel index. `[mc_ilen]` carries it signed — `+n` = n
+  pixels with x as the major axis, `-n` = y — because the SDK does not publish
+  the block's layout (§20.8) and the length is needed every frame anyway: it
+  is what stops a bomb that dodged off its own line asking for pixels past the
+  end of it.
+
+Four things hold it up, and the first two are the ones that break silently:
+
+- **The block holds SCREEN coordinates, so a window that moves invalidates
+  every one of them at once.** `mc_track` raises `[mc_full]` when the origin
+  changes, and `mc_redraw_trails` re-lays every walk and replays `[mc_idrw]`
+  pixels of it — a moved window owes a repaint anyway, so this costs nothing
+  it was not already paying.
+- **`[mc_iarm]`/`[mc_aarm]` is 0 not laid / 1 walking / 2 no walk**, and the
+  third value is not a failure state. A walk is refused on the Mode X surface
+  (§53.1 puts every kernel drawing slot off-limits there) and for a trail with
+  an endpoint outside the content box (the kernel clips to the SCREEN, and
+  only `mc_fillc` clamps to the window) — both keep the old segment-and-
+  dilated-line path, and `mc_redraw_trails` moves a slot between the two when
+  the surface changes. §5.6.5 is therefore still live, and still right, for
+  exactly those cases.
+- **The walk is laid on the first frame that DRAWS, not at launch.**
+  `mc_update` is lock-free, and although `gfx_linit` draws nothing, a walk laid
+  before `mc_track` has settled the origin would hold the wrong screen
+  coordinates. `mc_itrail` records the endpoints; `mc_move_trails` lays the
+  line.
+- **`[mc_ipx]`/`[mc_ipy]` are still written every frame in both modes.** The
+  segment path draws to them, and the walk path owes them to the ground bite
+  (§48.9) — which is aimed at the trail's END, not across the band.
+
+Verified the only way this can be: fire a cluster, pause, capture the
+framebuffer, force a full repaint, diff — **0 differing pixels** with trails in
+flight and again after they had died and been erased, on VGA (0 of 307,200),
+CGA (0 of 129,485 inside the content) and Hercules (0 of 236,160 below the
+menu bar).
+
+### 48.15 A spent trail DRAINS rather than popping
+
+§48.14 makes the erase three times cheaper and leaves the *shape* of the cost
+alone: a trail arrives over sixty frames and still leaves in one. That is
+where the stutter is. One burst can kill five missiles at once, and five
+whole-line erases in a single frame is exactly the batch the field log caught.
+
+Nothing needed it to be one frame — §5.6.7's whole point is that a walk can
+stop and resume anywhere — so a dead trail is queued and spent a few pixels a
+frame instead, at about **eight times the rate it was drawn at**, so a spent
+one is gone in well under a second. It clears from the launch point forward,
+which is the direction the walk can replay exactly and also the way smoke
+actually goes: the oldest end disperses first.
+
+**Two caps, answering different questions.** `MC_DRNRATE` is per trail and
+jittered by `rand mod 8`, so two missiles killed by the same burst do not
+finish on the same frame. `MC_DRNBUD` is per **frame across the whole queue**,
+and it is the one that actually bounds the cost — a jitter alone still lets
+eight entries ask for eight rates at once, which is the batch again with extra
+steps. `[mc_drnrr]` rotates which entry the budget reaches first, so a long
+trail cannot starve the ones behind it.
+
+**Overflow is graceful and is not a special case**: a full queue erases
+inline, which is what every erase did before this existed. So is a trail with
+no walk (§48.14's `[mc_iarm]` = 2) and a trail with nothing drawn.
+
+Two things are load-bearing:
+
+- **`mc_drn_clear` runs at every full repaint.** The repaint has already put
+  the background back, so a queue that survived it would spend the next few
+  frames erasing pixels the repaint drew. `mc_draw_all` is the single site,
+  which covers the wave sweep, a moved window, a surface change and
+  `W_PAINT`.
+- **The damage marks moved from the push to the DRAIN, and they moved to
+  different frames.** The erase reaches the two ends of the line frames apart:
+  an ABM's launcher is under the *first* pixels and an ICBM's ground bite
+  (§48.9) under the *last*, so one is owed on the entry's first serve and the
+  other when it finishes. Marking both at the push repairs terrain the erase
+  has not reached yet and then holes it with nothing left to repair it — which
+  is §48.9.1 in its exact form, an optimisation inheriting what used to rely
+  on a redraw. `[mc_drngx]`/`[mc_drnbx]` carry them in because no register was
+  left, and the ground bite is taken at the point the missile actually
+  **died** rather than the point it was aimed at, because a trail shot down in
+  flight never reached the ground at all.
+
+The drain runs immediately after `mc_wipe_trails` and therefore *before* the
+bursts and the terrain, both of which draw over it.
+
+Verified the §48.14 way, after letting the queue empty: **0 differing pixels**
+in the game window against a forced full repaint, mid-game with live trails,
+on VGA (of 224,961) and CGA (of 129,485).
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
@@ -16695,10 +17040,16 @@ one, either what is in it or a button that puts a usable volume there.
 Slot  Size   State
 1     31M    FAT16              a volume; Mount will find it
 2      -     Not Formatted      free
-3     50M    Unmountable        foreign, or over the ceiling - greyed
+3     50M    Unmountable        foreign, or over the ceiling
 4     14M    Not Formatted      a claimed region with no volume in it
-[Format]  [Close]
+[Format]  [Delete]  [Close]
 ```
+
+Two buttons act on the selected slot: **Format**, which puts a usable volume
+there, and **Delete** (§52.2.4), which gives the slot back to free space. Both
+are destructive and both confirm the same way (§52.2.3). Delete is the only
+control in this window that is ever greyed, and it greys on a fact — an empty
+slot has nothing to give back.
 
 **`Not Formatted` covers unpartitioned AND partitioned-but-empty**, and that
 is deliberate rather than lazy: the difference is the tool's business, both
@@ -16844,12 +17195,20 @@ apply to it.
 
 #### 52.2.3 Confirm, and the order of the two commits
 
-**Format on a slot that already holds something asks first**, in the caption,
-by wanting the click again: `Erase slot 2? Click Format again`. A driver has
-no notice window and no modal, and a second click on the same button is the
-cheapest confirm that cannot be mistaken for the first one. Picking another
-row or closing the window disarms it. A free slot is not confirmed — there is
-nothing to lose.
+**A destructive button asks first**, in the caption, by wanting the click
+again: `Erase slot 2? Click Format again`, or `Delete slot 2? Click Delete
+again`. A driver has no notice window and no modal, and a second click on the
+same button is the cheapest confirm that cannot be mistaken for the first one.
+Picking another row or closing the window disarms it. A free slot is not
+confirmed by Format — there is nothing to lose — and cannot be reached by
+Delete at all.
+
+`[hd_tarm]` carries the armed **action** and not just the slot: the slot in its
+low nibble, 1-based so that zero means nothing is armed, and the button in its
+high one. One byte and one compare then cover both buttons, and they cannot arm
+each other — arming Format and then clicking Delete asks Delete's question, it
+does not delete. Two words that had to agree would have been the obvious shape
+and the wrong one.
 
 **The table entry goes down before the volume**, which is the same argument as
 the boot sector going last inside the format: every way this can be
@@ -16861,6 +17220,58 @@ has just been overwritten.
 
 Afterwards the states are **re-scanned rather than assumed**, so the row
 reports what came back off the disk and not what the driver hoped it wrote.
+
+#### 52.2.4 Delete — giving a slot back
+
+Format reuses a slot **in place** (§52.2.1) and so can never free one: a table
+filled to four primaries had no way back except another machine's FDISK, and a
+partition made too small, or made by mistake, was permanent. **Delete clears
+the selected entry** — sixteen zeroed bytes and the same one-sector commit
+Format makes — and the space rejoins the pool `hd_slot_extent` scans, where any
+slot can have it and not only the one it came from.
+
+It is a **table** operation and not a wipe: the volume's data is still on the
+disk, untouched, and re-creating an entry with the same base and length brings
+it back. That is the era's own behaviour and it is the honest one — a 32MB
+zero-fill is 65,535 sector writes for a guarantee nobody asked for — but it is
+also why the confirm matters, since nothing on screen afterwards says the data
+is still there.
+
+Four things about it are load-bearing:
+
+- **It unmounts first, and that is not a courtesy.** A driver-backed volume's
+  base LBA lives in `hd_vols` and the kernel never reads the table again
+  (§18.7), so a volume on a deleted partition goes on working — reading and
+  writing a region the table now calls free, which the very next
+  `hd_slot_extent` scan hands to somebody else. `hd_tw_unmount_slot` drops
+  every `hd_vols` row on that device and slot before a byte of the table
+  changes, and the caption says it happened, because a drive icon leaving the
+  desktop with no explanation is worse than the pause.
+- **The mounted set is staged afterwards** (`hd_cfg_mark`, §31.8/§52.6): what
+  was unmounted here is what the next boot must not mount. This is the first
+  thing in the tool that changes a setting at all — the window used to touch
+  only the geometry, which the page's editor had already staged on the click
+  that changed it — and it stages rather than writes, like everything else in
+  the machine.
+- **A failed write puts the table back** (`hd_part_load`), which Format's
+  failure path deliberately does not do, and the asymmetry is the *direction*
+  of the error. A Format that fails to write leaves RAM claiming a region the
+  disk does not: conservative, and the next open re-reads it. A Delete that
+  fails to write leaves RAM calling a live partition free, which is the one
+  state from which the next Format destroys something nobody asked it to.
+- **The states are re-scanned afterwards**, exactly as after a format, so the
+  row reports the disk and not the intention.
+
+**Delete is greyed on an empty slot, and that is §47 arriving where §52.2.2
+said it would not.** The distinction §52.2.2 turns on is that a *row* is not a
+control and a button is. Every rule that refused the greying there permits it
+here: the predicate is a fact already printed in the row and not a guess (rule
+4), one `hd_tw_delok` serves the greying and the click refusal (rule 2), and
+the pen colours the button's **frame** as well as its label — the non-text mark
+rule 3's package clause requires, since `CDGRAY` text rounds to black on the
+two 1bpp adapters (§39.4) and `[gfx_dis]` is not in the package ABI. The
+refused click still sets the caption, as the page's does: the reason is already
+on screen and this only makes sure of it.
 
 ### 52.3 The formatter
 
