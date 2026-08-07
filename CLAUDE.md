@@ -246,6 +246,15 @@ it is **6.3x faster than `dsk_xfer` achieves**. Whatever §18.91 is issuing is
 not reaching the hardware as multi-sector commands, and the next step is a
 CALL counter (`DISKCNT` counts sectors). That also kills the "should the
 default flip" question: both paths are doing the same thing at the hardware.
+**SPEC.md §18.94 is the instrument that settles the last step**: `make
+DISKCNT=1` publishes `dsk_xfer`'s counters at the fixed offset `0060:000E`,
+so `sysbench` reports what one 16KB read actually issued — sectors, int 13h
+calls, the longest run, controller resets — and times a raw `int 13h`
+**through the kernel**, holding `sch_lock`, because calling it from a package
+hard froze the 5150 (docs/FIELD-NOTES.md 10). Under QEMU a 16KB read is **34
+sectors in 6 calls, longest run 9**; if the 5150 says the same and still
+takes 8 seconds the loss is below us, and if it says 32 calls the splitter is
+not forming runs there.
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4

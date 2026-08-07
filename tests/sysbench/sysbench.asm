@@ -1686,6 +1686,31 @@ sb_raw13:
     push si
     push di
 
+    ; --- find the kernel's instrument, or say there is none ----------------
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov bx, [es:0x000E]             ; SPEC.md 18.94's fixed word
+    or bx, bx
+    jz .nodbg
+    cmp word [es:bx], 0x4444        ; ...and the magic behind it
+    jne .nodbg
+    mov [sb_dbgblk], bx
+    mov ax, [es:bx+12]
+    mov [sb_r13ent], ax             ; the FAR entry: offset then segment
+    mov [sb_r13ent+2], es
+    pop es
+    mov word [sb_r13off], 0
+    jmp short .haveblk
+.nodbg:
+    pop es
+    mov word [sb_dbgblk], 0
+    call bl_blank
+    mov si, sb_s_nodbg
+    call bl_sline
+    jmp .out
+.haveblk:
+
     ; --- place the buffer so 9 sectors cannot cross a 64KB page -------------
     mov ax, [sb_bseg]
     mov bx, ax
@@ -1793,7 +1818,97 @@ sb_raw13:
     mov cx, 9
     call bl_kv
 
+    call sb_dbgctr                  ; ...and what os8088's own path issued
+
+.out:
     pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sb_dbgctr - the kernel's own transfer counters (SPEC.md 18.94)
+;
+; This is the row the whole floppy investigation came down to. The BIOS reads
+; a 9-sector track in 1.92 revolutions when it is asked for nine sectors at
+; once (Set 14), and dsk_xfer takes 1.34 revolutions PER SECTOR - so either
+; the run splitter is not forming runs, or something below it is taking them
+; apart. `sectors per int 13h` says which, and needs no timing at all: near 1
+; and the splitter never formed a run; near 9 and it did, and the loss is
+; below us.
+;
+; The counters are free-running and never reset by the kernel, so this banks
+; them, runs one 16KB read, and subtracts.
+; -----------------------------------------------------------------------------
+sb_dbgctr:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov bx, [sb_dbgblk]
+    mov ax, [es:bx+4]               ; bank sectors and calls
+    mov [sb_c0sec], ax
+    mov ax, [es:bx+6]
+    mov [sb_c0i13], ax
+    mov word [es:bx+8], 0           ; the longest run and the resets are
+    mov word [es:bx+10], 0          ; per-read, so clear rather than bank
+    pop es
+
+    call sb_b_rdbig                 ; one 16KB read through the normal path
+
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov bx, [sb_dbgblk]
+    mov ax, [es:bx+4]
+    sub ax, [sb_c0sec]
+    mov [sb_c0sec], ax              ; sectors this read moved
+    mov ax, [es:bx+6]
+    sub ax, [sb_c0i13]
+    mov [sb_c0i13], ax              ; ...and calls it took
+    mov ax, [es:bx+8]
+    mov [sb_c0max], ax
+    mov ax, [es:bx+10]
+    mov [sb_c0rst], ax
+    pop es
+
+    call bl_blank
+    mov si, sb_s_h_ctr
+    call bl_sline
+    mov si, sb_l_csec
+    mov ax, [sb_c0sec]
+    call sb_num
+    mov si, sb_l_ci13
+    mov ax, [sb_c0i13]
+    call sb_num
+    mov si, sb_l_cmax
+    mov ax, [sb_c0max]
+    call sb_num
+    mov si, sb_l_crst
+    mov ax, [sb_c0rst]
+    call sb_num
+    mov ax, [sb_c0sec]              ; sectors per call x100 - the answer
+    xor dx, dx
+    mov si, 100
+    call sb_mul16
+    mov bx, [sb_c0i13]
+    or bx, bx
+    jnz .div
+    mov bx, 1
+.div:
+    mov cx, 0
+    call sb_divby
+    mov si, sb_d_cspc
+    mov cx, 9
+    call bl_kv
+
     pop si
     pop dx
     pop cx
@@ -1830,56 +1945,54 @@ sb_r13rate:
 ; The three bodies. AH=02h read, AL=count, CH=cylinder, CL=sector (1-based),
 ; DH=head, DL=drive 0 (A:), ES:BX = the buffer. The status is banked every
 ; time, so a row that failed cannot read as a fast row.
-sb_b_r13one:
+; sb_r13go - one raw read through the KERNEL's entry, never int 13h from here
+; in:  AL = sectors, CL = first sector (1-based); CH/DX/ES:BX are set here
+sb_r13go:
     push es
+    push bx
+    push cx
+    push dx
     mov es, [sb_bseg2]
-    xor bx, bx
-    mov ax, 0x0201
-    mov cx, (SB_R13_CYL << 8) | 1
-    xor dx, dx
-    int 0x13
+    mov bx, [sb_r13off]
+    mov ch, SB_R13_CYL
+    xor dx, dx                      ; head 0, drive 0 (A:)
+    call far [sb_r13ent]            ; KERNEL_SEG:dsk_dbg_raw - holds sch_lock
     mov al, ah
     xor ah, ah
     mov [sb_st13], ax
+    pop dx
+    pop cx
+    pop bx
     pop es
+    ret
+
+sb_b_r13one:
+    mov ax, 1
+    mov cl, 1
+    call sb_r13go
     ret
 
 sb_b_r13trk:
-    push es
-    mov es, [sb_bseg2]
-    xor bx, bx
-    mov ax, 0x0200 | SB_R13_N
-    mov cx, (SB_R13_CYL << 8) | 1
-    xor dx, dx
-    int 0x13
-    mov al, ah
-    xor ah, ah
-    mov [sb_st13], ax
-    pop es
+    mov ax, SB_R13_N
+    mov cl, 1
+    call sb_r13go
     ret
 
 sb_b_r13nine:
-    push es
-    mov es, [sb_bseg2]
-    xor bx, bx
-    mov cl, 1                       ; sector, 1-based; CH is set per call so
-.next:                              ; CL survives as the counter
-    push bx
     push cx
-    mov ax, 0x0201
-    mov ch, SB_R13_CYL
-    xor dx, dx                      ; head 0, drive 0 (A:)
-    int 0x13
-    mov al, ah
-    xor ah, ah
-    mov [sb_st13], ax
+    mov word [sb_r13off], 0
+    mov cl, 1
+.next:
+    push cx
+    mov ax, 1
+    call sb_r13go
+    add word [sb_r13off], 512
     pop cx
-    pop bx
-    add bx, 512
     inc cl
     cmp cl, SB_R13_N
     jbe .next
-    pop es
+    mov word [sb_r13off], 0
+    pop cx
     ret
 
 sb_b_rdsml:
@@ -2427,6 +2540,13 @@ sb_r_13n:    db 'int 13h track, 9 calls', 0
 sb_l_r13st:  db 'int 13h last status AH', 0
 sb_d_r13b:   db 'bios track 1 call B/s', 0
 sb_d_r13s:   db 'bios track 9 calls B/s', 0
+sb_s_nodbg:  db 'This kernel carries no disk instrument - build DISKCNT=1.', 0
+sb_s_h_ctr:  db '-- what os8088 own transfer path issued for ONE 16KB read --', 0
+sb_l_csec:   db 'sectors moved', 0
+sb_l_ci13:   db 'int 13h calls', 0
+sb_l_cmax:   db 'longest run, sectors', 0
+sb_l_crst:   db 'controller resets', 0
+sb_d_cspc:   db 'sectors per call x100', 0
 sb_d_hdrate: db 'hdd bytes/sec', 0
 sb_d_shlbit: db 'shl clk/bit x100 ~400', 0
 
@@ -2450,7 +2570,7 @@ sb_it_top:  db 'Top of Report', 0
 ; The bss offsets past the scalars are derived, never hand-totalled: a figure
 ; that is too small is a package writing over benchlib's arena, which assembles
 ; cleanly and produces a report full of plausible nonsense.
-SB_O_SYSKB equ 96
+SB_O_SYSKB equ 112
 SB_O_RES   equ SB_O_SYSKB + SYSKB_SIZE
 SB_O_RROW  equ SB_O_RES + SB_NCPU * 4
 SB_O_RAM   equ SB_O_RROW + SB_BWROWS * 2
@@ -2504,6 +2624,13 @@ sb_st13     equ os88_image_end + 78    ; word: ...and the AH it answered with
 sb_t131     equ os88_image_end + 80    ; dword: one sector, one call
 sb_t139     equ os88_image_end + 84    ; dword: nine sectors, one call
 sb_t13n     equ os88_image_end + 88    ; dword: nine sectors, nine calls (92)
+sb_dbgblk   equ os88_image_end + 92    ; word: SPEC.md 18.94's block, or 0
+sb_r13ent   equ os88_image_end + 94    ; dword: ...and its FAR entry (94..97)
+sb_r13off   equ os88_image_end + 98    ; word: the raw read's buffer offset
+sb_c0sec    equ os88_image_end + 100   ; word: sectors one 16KB read moved
+sb_c0i13    equ os88_image_end + 102   ; word: ...and int 13h calls it took
+sb_c0max    equ os88_image_end + 104   ; word: the longest run in it
+sb_c0rst    equ os88_image_end + 106   ; word: ...and controller resets (107)
 sb_syskb    equ os88_image_end + SB_O_SYSKB    ; SYSKB_SIZE bytes
 sb_res      equ os88_image_end + SB_O_RES      ; SB_NCPU dwords
 sb_rrow     equ os88_image_end + SB_O_RROW     ; SB_BWROWS words

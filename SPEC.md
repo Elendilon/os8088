@@ -5670,6 +5670,64 @@ same two figures came back byte for byte before and after the table install,
 which is the check that the wider runs changed the number of commands and
 nothing else.
 
+### 18.94 The transfer instrument, published at a fixed offset
+
+**`make DISKCNT=1` only, and never shipped.** The counters of
+docs/DISK-PERF-PLAN.md §2 have existed for a while and were read over QMP;
+this publishes them so a **test package** can read them, because the question
+they answer turned out to need a field machine rather than an emulator.
+
+PERFORMANCE.md Part 9 Set 14 measured, on the calibration machine, that a raw
+`int 13h` reads a whole 9-sector track in **1.92 revolutions** when it is
+asked for nine sectors at once, and that `dsk_xfer` takes **1.34 revolutions
+per sector** for the same media — 6.3x apart, with the drive, the controller,
+the interleave and the BIOS all exonerated. So either §18.91's splitter is
+not forming the runs it believes it is, or something below it is taking them
+apart, and **sectors ÷ int 13h calls** distinguishes the two with no timing
+at all.
+
+**`0060:000E` is a word**: 0 on a kernel built without the knob, else the
+`KERNEL_SEG` offset of the block. A fixed offset for `boot_ticks`' reason
+(§15.4) — a package has to find it without an API slot, and a slot that
+exists in one build and not another is an ABI that depends on a knob (§20.8).
+A reader checks the magic before trusting anything else, and a package that
+finds 0 must **say so and skip**, which is what makes one build of the
+harness run on both kernels.
+
+| offset | | |
+|---|---|---|
+| +0 | `dsk_dbg_mag` | `0x4444` |
+| +2 | `dsk_dbg_mnt` | `disk_mount` calls |
+| +4 | `dsk_dbg_sec` | sectors transferred |
+| +6 | `dsk_dbg_i13` | **int 13h data calls** (02h/03h, retries included) |
+| +8 | `dsk_dbg_max` | the longest run any one call carried |
+| +10 | `dsk_dbg_rst` | controller resets (the 00h after a failure) |
+| +12 | `dsk_dbg_ent` | offset of the far entry below |
+
+The counters are **free-running and never reset by the kernel**: a reader
+banks them, does the thing, and subtracts. `+8` and `+10` are the exception —
+they are per-read questions, so a reader zeroes them first.
+
+**`dsk_dbg_raw` is a far entry, and it is the reason this is in the kernel
+rather than in the package.** `tests/sysbench` called `int 13h` itself and
+**hard froze the 5150** (docs/FIELD-NOTES.md 10): a BIOS runs its disk
+handler and its IRQ6 nesting on whichever 256-byte task stack is current
+(§8), on top of the harness's own frames, and every other `int 13h` in this
+system holds `sch_lock` across the call so nothing switches underneath one. A
+package can do neither. From here it is exactly as safe as `dsk_xfer`'s own
+transfer, because it is the same two lines around the same instruction.
+
+    far-call KERNEL_SEG:[dsk_dbg_blk+12]
+    in:  AL = sectors, CH = cylinder, CL = sector (1-based), DH = head,
+         DL = drive, ES:BX = buffer. AH is supplied by the entry.
+    out: AH = BIOS status, AL = sectors moved, CF as int 13h left it
+    clobbers: AX, CF. DS and SI are preserved.
+
+It deliberately **does not count itself** — the counters measure os8088's
+transfer path, and a row that prices the BIOS must not move them.
+
+
+
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
 The data floppy (drive B:) is a standard **FAT12** volume — mountable and
