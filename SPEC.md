@@ -365,18 +365,59 @@ not go away**. It sits between the image rung and the FAT window, so it
 rides the same contiguous boot read, and it is live for the whole session.
 
 What it buys is `KERN_CODE_MAX` and nothing else: cold code is inside
-`KERN_BUDGET`'s span (§15.1) and outside the kernel's own 64KB segment,
-which since hard-disk support is the binding limit. The Control
-Panel's three code runs are what live there — a module that is large, cold
+`KERN_BUDGET`'s span (§15.1) and outside the kernel's own 64KB segment.
+**It does not buy a byte of footprint** — cold bytes are resident and are
+measured by `KERN_BUDGET` exactly like `.text`'s, so moving a module here to
+fix a footprint overrun is a no-op that looks like a fix. The two rungs it
+moves between round separately, so a large move usually costs one 512-byte
+step rather than nothing.
+
+Two things live there. The Control Panel's three code runs — large, cold
 enough that a far call per entry costs nothing measurable, and needed on
 exactly the machine where things are going wrong, so it must stay resident.
+And the four **file modules**: `loader.inc` (§21), `diskw.inc` (§18.4),
+`files.inc` (§22) and `filecp.inc` (§22.3), ~12.5KB between them, moved
+together because they mostly call each other — a call inside the set stays
+near, and only the 156 that leave it pay a shim.
 
 Calls out use four-byte `cw_*` shims; calls *in* use six-byte resident
 thunks (`call SEG:x` / `ret`), because `wm_pkgcall` sets DS from `W_SEG` and
-that is the wrong contract for cold code. This is **not** the retired
-`.fartext` (§33): that mechanism copied cold modules to a segment of their
-own at boot and needed a 10,752-byte reservation to hold a 5,455-byte blob.
-Nothing is copied here and nothing is reserved.
+that is the wrong contract for cold code. The thunk keeps the **public**
+name and the body takes an `_x` suffix, so no caller outside changes.
+
+Four rules, and every one of them is something that assembles cleanly and
+runs wrong:
+
+- **Data stays in `.text`.** DS is still `KERNEL_SEG`, so a string or table
+  that moved with its code would be addressed at the wrong segment. A module
+  with data islands toggles sections around each of them; `files.inc` does
+  it four times.
+- **Nothing may assume `CS` is `KERNEL_SEG`.** `push cs`/`pop es` and
+  `[cs:x]` are the two spellings, and `loader.inc` had three of them —
+  including a documented one, the far pointer it calls a package's
+  dispatcher through. It reads that through ES now, which is the only
+  register still naming the kernel at that point.
+- **A table of cold pointers may live in `.text` only if cold code alone
+  dispatches through it.** There are four: `ctrl.inc`'s page table, and
+  `files.inc`'s `fm_jmp` and two `fm_ctx_*` sets. The mirror rule is the one
+  that broke first — a table `.text` *does* dispatch through must name the
+  **thunk**, not the `_x` body, which is what `fm_tpl` and `fm_menus` do.
+- **A macro argument is a call site.** `OSAPI_SLOT dskw_dfree` near-calls its
+  argument from inside the macro body, and six of those pointed into these
+  modules. `tools/os88ovlchk.py` reads the source, so it saw none of them
+  until it was taught the cell macros; it is worth more than any amount of
+  reading, and only for what it can see.
+
+This is **not** the retired `.fartext` (§33): that mechanism copied cold
+modules to a segment of their own at boot and needed a 10,752-byte
+reservation to hold a 5,455-byte blob. Nothing is copied here and nothing is
+reserved.
+
+The shims live **below every `%include`** in `kernel.asm`, which is not
+cosmetic: they used to sit with the API stubs, which is above `splash.inc`,
+and `splash.inc` has to end inside the image's first `SPL_RESIDENT` sectors
+(§15). At 140 bytes they fitted; at over 500 they push the splash out of its
+sectors, and the build then fails naming splash and nothing else.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
@@ -447,14 +488,15 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
 | `kernel/apps.inc`   | built-in app kinds: About, Timer, Bounce — state pools, kinit procs, per-instance tasks |
 | `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19) |
-| `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write` |
-| `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21) |
-| `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22) |
+| `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write`. **`.cold`** (§2.6) |
+| `kernel/loader.inc` | package validation, pool allocation, per-instance load + relocate, launch (§21). **`.cold`** (§2.6) |
+| `kernel/files.inc`  | Disk window: file list UI, selection, open, refresh (§22). **`.cold`** (§2.6), with its strings and dispatch tables toggled back to `.text` |
+| `kernel/filecp.inc` | the file manager's clipboard: Cut, Copy, Paste and the recursive paste engine (§22.3) — prefix `fcp_`. **`.cold`** (§2.6) |
 | `kernel/fdlg.inc`   | the Standard File dialog (§38): the kernel's Open/Save chooser, its modality gate and the completion callback — prefix `fdlg_` |
 | `kernel/icons.inc`  | 1-bit icon format, draw routine, built-in library (§25) |
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
-| `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_` |
+| `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
 | `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, the frame clock/present, and the cold XMS desktop stash (§53.6.1) — prefix `fsx_` |
 
