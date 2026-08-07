@@ -1442,13 +1442,13 @@ tested — over glyphs byte-aligned and skewed, against the right screen edge
 where the second byte is clipped away, and against the bottom edge where the
 arrow is cut short.
 
-### 7.1.1 The lazy hide — measured, not yet built
+### 7.1.1 The lazy hide — measured twice, and NOT worth building
 
 The pair above is still paid on **every** lock hold, whether or not anything
 drawn came near the cursor. A *lazy* hide — leave the arrow up at `gfx_lock`,
 and erase it only when a primitive is about to write into its cell — would
-take the untouched case to nothing. Before deciding whether that is worth its
-risk, it was measured rather than argued about.
+take the untouched case to nothing. It was measured rather than argued about,
+twice, and the second measurement is why it is not here.
 
 **The instrument is the pixels, not a hook.** `gfx_lock` snapshots the 8x12
 cell right after the erase; `gfx_unlock` compares it before the redraw. Same
@@ -1458,88 +1458,56 @@ per-primitive hook could — a package writing the framebuffer by hand
 included — because it looks at the result rather than at the call. (Scratch
 instrumentation, never committed; Hercules under QEMU.)
 
-One session: boot, browse two folders, drag a window, launch two packages,
-type 26 characters, idle.
+One session, run identically before and after §7.1.2 and §7.1.3 landed: boot,
+browse two folders, drag a window, launch a package, type, idle.
 
-| | |
-|---|---|
-| lock/unlock pairs | **5,020** |
-| ...where anything wrote into the cursor cell | **7 (0.14%)** |
-| ...where the mouse moved during the hold | 40 (0.8%), all in the drag |
-| drawing calls across all of them | 2,021 rects + 1,536 glyph cells — **0.7 per hold** |
-| 26 Note Pad keystrokes | 25 pairs, **0** dirty, **0** moved |
-| idle desktop, 10 s | **0** pairs — the clock's lock is gated on the minute changing |
+| | first pass | after §7.1.3 |
+|---|---|---|
+| lock/unlock pairs, whole session | **5,020** | **120** |
+| ...the package load alone | 3,385 | **16** |
+| ...one double-click on a file row | 1,523 | folded into the above |
+| anything wrote into the cursor cell | 7 | 6 |
+| the mouse moved during the hold | 40 | 40 |
+| **skippable by a lazy hide** | 4,973 | **74** |
+| share of holds that were dirty or moved | 0.9% | **38%** |
 
-**The pair is almost never needed.** A mouse-moved hold is a wash rather than
-a loss (the move has to happen either way; only its timing changes), so what
-is left is 7 holds in 5,020 where the erase earned its keep.
+**The first pass made the case and the second withdrew it, and the reason is
+that the first pass was measuring a different bug.** Of those 5,020 holds,
+about 4,900 were `fm_drag`'s unpaced `.wait` loop (§7.1.3) spinning the lock
+while a button was held — not application drawing at all. Pace that loop and
+the same session is 120 holds, of which 46 either drew into the cursor cell or
+moved the mouse. What a lazy hide would save is **74 holds x 1.94 ms = about
+144 ms, across several minutes of interaction**.
 
-**The economics work because the flag is one-way.** A pair is ~568 guest
-instructions; the check is ~12 while the arrow is still up and **~2** after
-it has been taken down, which is `bb_mono_chk`'s shape (§5.7) and for the
-same reason. So a small redraw that misses the cursor saves ~568 for ~12 a
-call, and a `wm_paint_all` that hits it early pays ~2 a call on top of a
-repaint already costing hundreds of thousands — under 1%.
+That is not worth what it costs. The check would have to sit at every path
+that writes the framebuffer, a miss does not draw wrong but **smears the
+cursor permanently**, and one of those paths cannot be hooked at all: a
+package writing the framebuffer directly out of `OSAPI_VIDEO`'s segment and
+stride, which `tests/gfxbench` itself does. Plugging it would need a new API
+contract — a "cursor off while I do this" slot, or a rule that raw framebuffer
+writes are out of contract — which is a real change to the package ABI in
+exchange for 144 ms.
 
-**The sharpest case is not a frame loop, it is a press-and-hold.**
-`fm_drag`'s wait loop (§22.4) is `gfx_unlock` / `task_yield` / `gfx_lock` per
-iteration while the button is down and has not moved far enough to be a drag,
-and it draws **nothing**. One double-click on a Disk window row measured
-**1,523 pairs** — a QEMU count, so read it as a rate rather than a total: on
-the field machine each iteration costs the pair's ~1.94 ms, so the loop turns
-over ~500 times a second and a fifth-of-a-second button-hold is ~100 pairs.
-`ui_drag` and `menu_track` have the same shape; unlike `fm_drag` they draw an
-XOR overlay, so theirs are honestly dirty.
+**The general lesson is the one to keep**: the 21.8% that started this whole
+line of work (Part 9 Set 4) was two different things wearing one number.
+§48.13's bracket took Missile Command out of the pair; §7.1.3 paced the spin
+loop; §7.1 made the pair itself 3.3x cheaper. What is left is holds that
+genuinely draw something — which is what the pair is *for*. **Re-measure
+before building an optimisation whose justification came from a measurement
+taken before its neighbours were fixed.**
 
-**And the cost is visible, not just billable.** `ui_task`'s clock branch
-already says so in as many words — *"Taking the gfx lock blinks the cursor,
-and that blink IS the flicker the seconds-in-menu-bar setting exists to
-remove"* — which is why that lock is gated on the bar's text really having
-changed. A lazy hide would remove the reason for that gate, and would stop
-the pointer blinking under a held button.
-
-**What would cause a miss, which is why this is not built yet.** A miss is
-not a clipped shape: the cursor's save-under was taken *before* the write, so
-erasing afterwards puts the pre-write bytes back and the drawn content is
-lost in an 8x12 rectangle that nothing repairs. Every one of these has to be
-hooked, and the list is the point:
-
-1. The seven §11.3 clipped primitives — but a **superset**, because
-   `gfx_blit4`, `gfx_scroll`, `ico_core`, `gfx_fill_pat`, `gfx_line`,
-   `gfx_lstepv`, `font_char` and `font_run` all write pixels and are not all
-   on that list.
-2. **`vga_xor_rect_vram` / `vga_xor_fill_vram`** — the drag outline and the
-   menu highlights, which bypass the back buffer by design (§32) and are
-   therefore *not* reached through the public entries that would carry a hook.
-3. **`gfx_flush`**, which writes an arbitrary dirty rect straight to VRAM and
-   is called mid-hold by `menu_track`, `ui_drag` and `fsx_wait` — not only
-   from `gfx_unlock`, where the cursor is already down.
-4. **`gfx_restore`/`bb_restore`**, the menu save-under going back.
-5. **`vid_setmode`, `fsx_mode`, `fsx_restore`** — a mode change clears the
-   screen under the arrow.
-6. **The cursor's own path, which must be EXCLUDED or the check recurses** —
-   and on VGA that is subtle, because `cur_saveu`/`cur_restoreu` share bodies
-   with `gfx_save`/`gfx_restore`. The hook belongs at the public entries only.
-7. **A package writing the framebuffer directly.** `OSAPI_VIDEO` hands out
-   the segment, the stride and the bank shift, and `tests/gfxbench` uses them
-   to write raw rows. **This one cannot be hooked at all** and would need a
-   contract: a slot to say "cursor off while I do this", or a rule that raw
-   framebuffer writes are out of contract.
-8. **Ordering.** The erase must run *before* the overdraw, while the arrow is
-   still whole — §48.11's crosshair rule exactly. A hook that hides after
-   drawing is worse than no hook.
-9. **The mouse moving mid-hold.** With the arrow left up, the ISR still
-   refuses to move it while the lock is held, so `gfx_unlock` has to notice
-   `mouse_x/y != cur_drawn_x/y` and do the move itself. Forget it and the
-   pointer sits at a stale position until the next packet.
-
-A bbox that overlaps the cursor while the *clipped* output does not is a
-false positive, and safe — it costs the pair, which is what is paid today.
-
-That is §11.3's "a primitive not on that list is a hole" with a worse failure
-mode, and it wants its own change with its own verification — including the
-`tests/linetest`-style byte-for-byte framebuffer comparison this one used —
-rather than a rider on the work above.
+For the record, had it been built: the check is ~12 instructions while the
+arrow is up and **~2** after it comes down (`bb_mono_chk`'s one-way shape,
+§5.7), against ~568 for the pair, so the economics were never the problem.
+The nine ways to miss were: the seven §11.3 clipped primitives plus
+`gfx_blit4`/`gfx_scroll`/`ico_core`/`gfx_fill_pat`/`gfx_line`/`gfx_lstepv`/
+`font_char`/`font_run`; `vga_xor_rect_vram`/`vga_xor_fill_vram` (the drag
+outline and menu highlights, which bypass the public entries by design);
+`gfx_flush` mid-hold from `menu_track`/`ui_drag`/`fsx_wait`; `gfx_restore`;
+`vid_setmode`/`fsx_mode`/`fsx_restore`; the cursor's own path, which must be
+excluded or the check recurses; a package's raw writes; the erase having to
+run *before* the overdraw (§48.11's crosshair rule); and `gfx_unlock` having
+to notice the mouse moved mid-hold.
 
 ### 7.1.2 Moving the cursor writes every byte exactly once
 
@@ -1587,6 +1555,45 @@ rather than transient, so a zero there means every move restored exactly; and
 with pass 2's background source deliberately broken back to "always read the
 screen", the same walk leaves **98**. `GFX_UNLOCK+LOCK pair` is unmoved at 544
 counts against 541.
+
+### 7.1.3 A press-and-hold must not spin the lock
+
+`gfx_unlock` / `task_yield` / `gfx_lock` is the idiom for dropping the drawing
+mutex around a poll, and there are four loops of that shape: `ui_drag`'s
+tracking pass, `ui_grow`'s, and both of `fm_drag`'s. **Three of them wait out
+the tick before going round again, and one did not.**
+
+The one that did not is `fm_drag`'s `.wait` — the pass that runs while the
+button is down and the pointer has not yet moved `FM_DRAGMIN` pixels, i.e.
+while the user is holding the mouse still on a file. It draws **nothing**, so
+every round trip it makes is a cursor erase and redraw for no reason at all.
+Unpaced, it goes round as fast as the CPU allows: measured under `-icount`,
+**one second of holding the button was 20,761 lock/unlock pairs against 21**
+with the linger — 989x. On the field machine the loop cannot actually turn
+over twenty thousand times, because each pair costs it ~1.9 ms; what it does
+instead is spend **the whole machine** on the cursor for as long as the button
+is down, and the visible form of that is the pointer blinking continuously
+under a held button.
+
+`ui_drag`'s own comment had already named the failure, in the loop next door:
+*"without this linger the cursor blits inside `gfx_unlock`/`gfx_lock` dominate
+the loop and the outline is dark more often than lit."* The fix is that same
+linger, and the rule it stands for is worth stating on its own: **a poll loop
+that drops the gfx lock must pace itself to the tick.** Not because the poll
+is expensive — it is a few compares — but because *taking the lock back is*.
+
+One difference from its three siblings, and it is deliberate. Their linger
+runs with the lock **held**, because each of them has an XOR outline on screen
+that must stay lit while it waits. `.wait` has drawn nothing, so its linger
+sits **between** the unlock and the lock: the lock is free for the whole tick,
+which lets the mouse ISR move the cursor itself and lets background tasks
+paint. That is also `np_selpace`'s shape, which Note Pad's drag-select already
+uses (§27.8.1).
+
+The latency cost is one tick, ~55 ms, before a press is recognised as a drag.
+`.track` already accepts exactly that for recognising a drop, and double-click
+detection is unaffected because it compares **birth ticks stamped by the ISR**,
+not processing time (§9).
 
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
@@ -16403,6 +16410,57 @@ formality: what is on screen was drawn by the **vector** call and the forced
 full repaint replays it with the **scalar** one (`mc_redraw_trails` was left
 alone), so a disagreement between the two would show directly. **0 differing
 pixels** on VGA (of 224,961), CGA (of 129,485) and Hercules (of 236,160).
+
+### 48.17 The strip drew 29 cells to change one digit; a salvo redrew together
+
+The MartyPC log (PERFORMANCE.md Part 9, Set 9) is the first with a working
+**MAX line** — the worst single frame of each second, in raw counts — and a
+per-second mean could never have said what it says. **33 of 60 seconds
+contain a frame over one tick**, and in those frames the biggest stage is
+`exp` in **20** and `rst` in **8**. The worst three are 126.5, 111.3 and
+107.8 ms, with `exp` at 76.1, 65.8 and 74.0 ms of them.
+
+Two spikes, unrelated to each other, and both are "everything at once".
+
+**`rst` is the status strip.** `mc_draw_status` drew three space-padded
+fields — 10 cells of score, 10 of high score, 9 of `W12 x6` — every time
+`[mc_sdirty]` was set, which is **on every kill**. Twenty-nine glyph cells at
+PERFORMANCE.md's ~1 ms each is ~29 ms in one frame, several times a second,
+and the log shows it exactly: `rst` at 28-37 ms in the worst frame of eight
+different seconds, with only *eleven* fills in them. §48.9.3 fixed this
+routine's *flicker* and left its *size* alone.
+
+Only the score changes on a kill, and usually only its last digit. `mc_srun`
+is `mc_runc` with a memory: each field carries the text it was last **drawn**
+with, and what goes out is the span from the first differing cell to the
+last. A score bump is one or two cells; the two fields that did not move draw
+nothing at all. **It subsumes a per-field dirty bit rather than needing one** —
+a field whose text is unchanged draws nothing whatever the flag says — and
+`mc_sshad_clr` runs in `mc_draw_all`, because the content fill took the strip
+with it and a shadow that survived that is a lie.
+
+**`exp` is a salvo.** §48.8's coarse ramp redraws a burst only when its drawn
+*state* changes, and §48.12 left it three states in 21 frames — so bursts that
+detonate together transition together, and the whole cluster's discs land on
+the same two frames. `mc_add_exp` seeds `[mc_et]` with `rand mod MC_EXPJIT`
+instead of 0, so each burst starts a frame or two **into** the ramp.
+
+That construction is chosen because it costs almost nothing:
+
+- **The life test is unchanged**, so a burst seeded at *j* lives `MC_EXPFR3 −
+  j` frames. What it skips is the *front* of the ramp — the frames at radius
+  0 and the first at radius 5 — never the peak. Σr falls by about 1% on
+  average against §48.12's 3.3% tolerance, and in the safe direction.
+- **One table still drives the drawn and the lethal radius**, because the
+  jitter is in the *index*, not in either consumer. §48.12's invariant is
+  untouched.
+- **Coarse ramp only.** The fine ramp redraws every frame anyway, so there is
+  no simultaneity to spread and a jitter there would only shorten bursts.
+
+Verified the §48.14 way on both mono adapters, after letting a cluster of
+jittered bursts die and with the score having moved several times: **0
+differing pixels** against a forced full repaint — CGA (of 129,485) and
+Hercules (of 236,160).
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 

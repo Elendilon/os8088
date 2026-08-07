@@ -444,6 +444,7 @@ list to check yourself against.
 | Copy a file | 5 volume switches per file | 2, one `dsk_read_chain` per chunk | §22.5 |
 | FAT access across a copy | re-read on every switch | a window per volume: 45 mounts → 3 loads | §18.8.1 |
 | The per-call floor itself (1bpp) | one `gfx_pixel` = **196** guest instructions of generic rect machinery | **158**; `GFX_FILL 8x8` −19.3%, `64x64` −14.5%, `GFX_BLIT4` −13.8%, output byte-identical on all three adapters | §5.7, Part 9 Set 3 |
+| A press-and-hold on a file row | `fm_drag`'s `.wait` poll, unpaced: `gfx_unlock`/`task_yield`/`gfx_lock` as fast as the CPU allows, drawing **nothing**. **20,761 lock/unlock pairs a second** under `-icount`; on the field machine each costs ~1.9 ms, so it is the whole machine for as long as the button is down, and the pointer blinks continuously | one pair a tick, like the three sibling loops that already lingered: **21** | §7.1.3 |
 | Moving the cursor | erase-then-draw, two walks, so every byte where the old and new cells overlap is written **twice** — and the value in between is the background, `ffff` on all twelve rows inside a window. ~6.5% of a 20 ms Hercules frame, on every mouse packet | each byte written **once**: pass 1 skips what pass 2 will write, pass 2 sources its background from the save buffer. No gate, no union walk, and the pair unmoved at 544 counts against 541 | §7.1.2, docs/FIELD-NOTES.md 6 |
 | A renderer row step | `call gfx_nextrow`: a near call plus two CS-overridden memory reads, **three times per scan line** | three register instructions, parameters hoisted out of the loop | §39.3, §32 |
 | `gfx_lock` + `gfx_unlock` — the pair every drawing burst pays | the mouse cursor over a 16x16 cell it never fills: a save, a white pass and a black pass, three walks over the same bytes, plus a restore — **17.82** guest-instruction counts a pair on Hercules, ~6.4 ms of the field machine, 11.6% of a 55 ms frame | the arrow's real 8x12 cell, no third byte, and on 1bpp **one** fused read-bank-paint-write pass: **5.41**, ~1.94 ms, 3.5% — **3.29x**, output byte-identical on all three adapters | §7.1, Part 9 Set 7 |
@@ -1463,5 +1464,71 @@ pair over about 500 times a second — which is a *blink*, not just a bill.
 gfx lock blinks the cursor, and that blink IS the flicker the
 seconds-in-menu-bar setting exists to remove."
 
-SPEC.md §7.1.1 has the economics, the nine ways a lazy hide could miss, and
-why it is written down rather than built.
+SPEC.md §7.1.1 has the economics and the nine ways a lazy hide could miss —
+**and why it was measured a second time and then dropped.** About 4,900 of
+those 5,020 holds were `fm_drag`'s unpaced `.wait` loop spinning the lock
+while a button was held, not application drawing. Pacing that loop (§7.1.3)
+makes the identical session **120 holds**, of which 46 either drew into the
+cursor cell or moved the mouse — so a lazy hide would now save ~74 x 1.94 ms
+= **144 ms across several minutes**, for a check at every framebuffer-writing
+path, a permanent-smear failure mode, and a new package ABI contract to cover
+the one path that cannot be hooked. Re-measure before building an
+optimisation whose justification predates its neighbours' fixes.
+
+### Set 9 — MartyPC, and the first log with a working MAX line
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150, 4.77 MHz 8088, Hercules |
+| adapter | Hercules 720x348, content 628x247, surface 5 (§53.7 same-mode bracket) |
+| build | `c39eb93` plus the debug frame logger (never committed) |
+| date | 2026-08-07 |
+| run | 60 usable seconds, mean **15.63 fps** |
+
+**Sets 6-8 were PCem and this one is MartyPC**, which the reporter did not
+know at the time and the **calibration caught anyway** — which is the whole
+reason it is in the log (§docs/FIELD-MACHINES.md: *a number is not a field
+number because a human handed it to you*):
+
+| | cpu | per-call | per-scan-line |
+|---|---|---|---|
+| PCem, Sets 7-8 | 48,300-48,544 | 1,072 counts (899 µs) | 121 counts (102 µs) |
+| MartyPC, Set 9 | 49,788 | **1,246 counts (1,044 µs)** | **149 counts (125 µs)** |
+| the real 5150 (Part 2) | — | ~900 counts (756 µs) | ~211 counts (177 µs) |
+
+The **CPU agrees to 0.7%** and the *drawing* does not: MartyPC prices a call
+16% dearer and a scan line 21% dearer. That is the shape you would expect
+from cycle-accurate bus modelling — framebuffer writes on an 8088 are
+bus-bound and PCem is optimistic about them — and it means **no absolute
+figure from Sets 6-8 may be compared with one from Set 9**, only ratios
+within a set.
+
+#### The MAX line: a per-second mean cannot describe a per-frame spike
+
+One row a second gives the worst *single* frame's stage split in raw counts.
+It is the only instrument in this investigation that answered the question
+asked, and the previous three logs could not have:
+
+| | |
+|---|---|
+| seconds whose worst frame exceeded one tick (54.9 ms) | **33 of 60** |
+| of those, biggest stage `exp` | **20** |
+| ...`rst` | 8 |
+| ...`mov` / `all` / `upd` | 3 / 1 / 1 |
+| worst three frames | 126.5, 111.3, 107.8 ms |
+| `exp` in those three | **76.1, 65.8, 74.0 ms** |
+| fills on a worst frame (mean) | **34.8**, against those seconds' mean of 19.1 |
+
+So the stutter is a **spike, not a load** — a second whose stages average
+60 ms containing one frame of 126 — and the two things that spike are a
+salvo's explosions redrawing on the same frame and the status strip
+re-lettering 29 cells to change one digit. §48.17 is both.
+
+The instrument itself had to be fixed first, and the bug is worth recording:
+the frame-start snapshot was taken in the worker's `.frame:` hook, and the
+**catch-up path runs a frame without passing it** — the same catch-up the
+reporter had noticed as trails "playing in fast motion" after a file save. So
+across a second boundary the snapshot went stale under a reset, the delta came
+out small and *negative*, and an unsigned comparison read −303 as four billion
+and latched it for the whole second. The tell is `3599181` repeated across a
+row, which is 2³² counts in milliseconds. It is banked at frame *end* now.
