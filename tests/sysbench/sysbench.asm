@@ -325,6 +325,9 @@ sb_run:
     mov si, sb_p_hdd
     call bl_progress
     call sb_hdd
+    mov si, sb_p_mou
+    call bl_progress
+    call sb_mouse
     call bl_operator                ; ...and what the OPERATOR was doing
     call sb_trailer
     mov si, sb_f_out                ; SAVE IT, without being asked: a report
@@ -1179,6 +1182,149 @@ sb_disk:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sb_mouse - the port contest and the identify burst (SPEC.md 9.4.1/9.4.2)
+;
+; The one thing in this report that is not a measurement: it is a STATE dump,
+; because the question it answers cannot be asked any other way. What a real
+; Microsoft mouse on a real serial card does when its DTR/RTS is raised is not
+; something either emulator in docs/FIELD-MACHINES.md can be trusted about -
+; QEMU's msmouse ignores DTR outright - and the answer decides whether the
+; kernel spends the session power-cycling a working mouse.
+;
+; It reads the block through 0060:0006, which is UNCONDITIONAL (SPEC.md 9.4.2)
+; precisely so that a field disk - built with no knob, by
+; docs/FIELD-MACHINES.md's rule - carries it.
+;
+; Two things about WHEN this runs, and both are why the columns are split the
+; way they are. By the time anyone has launched sysbench the mouse has been
+; used, so `seen`, `port` and `poller state` are already settled and say
+; nothing about the boot. The identify columns do not move after mouse_init
+; and the poller's tick stamp is never written unless it actually dropped
+; DTR - so `hpt = 0` is the assertion that matters here, and it survives the
+; user having driven the machine for ten minutes first.
+; -----------------------------------------------------------------------------
+sb_mouse:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    call bl_blank
+    mov si, sb_s_h_mou
+    call bl_sline
+    mov si, sb_s_h_mou2
+    call bl_sline
+    mov si, sb_s_h_mou3
+    call bl_sline                   ; ...and NO bl_head: that heading names
+                                    ; N/counts/us-per-op, and not one row here
+                                    ; is a measurement
+
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov bx, [es:0x0006]             ; SPEC.md 9.4.2's fixed word
+    or bx, bx
+    jz .nodbg
+    cmp word [es:bx], 0x4F4D        ; ...and the 'MO' magic behind it
+    jne .nodbg
+    mov ax, [es:bx+2]
+    mov [sb_mbase], ax              ; -> mou_bases, 2 words, 0 = no UART there
+    mov ax, [es:bx+4]
+    mov [sb_mstate], ax             ; -> the 33-byte state span
+
+    mov bx, [sb_mbase]              ; --- which ports exist at all ------------
+    mov ax, [es:bx]
+    mov si, sb_l_mb0
+    call sb_hex
+    mov bx, [sb_mbase]
+    mov ax, [es:bx+2]
+    mov si, sb_l_mb1
+    call sb_hex
+
+    mov si, sb_l_mid0               ; --- the identify burst, the whole point -
+    mov al, 9                       ; mou_idn[0]
+    call sb_mb
+    mov si, sb_l_mid1
+    mov al, 11
+    call sb_mb
+    mov si, sb_l_mfb0               ; mou_idb0[0] - 4D is 'M' and is the answer
+    mov al, 13                      ; nothing in the container can give
+    call sb_mbx
+    mov si, sb_l_mfb1
+    mov al, 15
+    call sb_mbx
+    mov si, sb_l_mok0               ; mou_ident[0]
+    mov al, 21
+    call sb_mb
+    mov si, sb_l_mok1
+    mov al, 23
+    call sb_mb
+
+    mov si, sb_l_mnd0               ; --- what the contest then cost ----------
+    mov al, 5                       ; mou_need[0]: 1 = first packet wins,
+    call sb_mb                      ; 8 = MOU_LOCKN, the third of a second
+    mov si, sb_l_mnd1
+    mov al, 7
+    call sb_mb
+
+    mov si, sb_l_mhpt               ; --- did the poller ever touch it? -------
+    mov bx, [sb_mstate]             ; mou_hpt is a WORD and is the assertion
+    mov ax, [es:bx+28]              ; that matters: 0 = it never dropped DTR
+    call sb_num
+    mov si, sb_l_mhps
+    mov al, 27                      ; mou_hpst
+    call sb_mb
+
+    mov si, sb_l_msn                ; --- settled state; the operator's own
+    mov al, 26                      ; clicks decided these long before now
+    call sb_mb
+    mov si, sb_l_mpt
+    mov al, 4                       ; mou_port: a ROW (0 or 2), not a COM number
+    call sb_mb
+    mov si, sb_l_mrn0
+    mov al, 0                       ; mou_run[0]: how far a LOSING port got
+    call sb_mb
+    mov si, sb_l_mrn1
+    mov al, 2
+    call sb_mb
+    jmp .out
+.nodbg:
+    mov si, sb_s_mnone
+    call bl_sline
+.out:
+    pop es
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; sb_mb / sb_mbx - SI = label, AL = byte offset into the state block -> one row
+; as decimal / as hex. ES is KERNEL_SEG on entry (sb_mouse holds it).
+sb_mb:
+    push bx
+    mov bl, al
+    xor bh, bh
+    add bx, [sb_mstate]
+    mov al, [es:bx]
+    xor ah, ah
+    call sb_num
+    pop bx
+    ret
+
+sb_mbx:
+    push bx
+    mov bl, al
+    xor bh, bh
+    add bx, [sb_mstate]
+    mov al, [es:bx]
+    xor ah, ah
+    call sb_hex
+    pop bx
     ret
 
 sb_trailer:
@@ -2626,13 +2772,14 @@ sb_s_h_hdd2: db '   READ ONLY: nothing here formats, partitions, writes or delet
 sb_s_hddno:  db 'No volume at index 2 - no hard disk mounted. Rows skipped.', 0
 
 sb_p_head:  db 'running: reading the machine...', 0
-sb_p_cpu:   db 'running: instruction timings (1 of 6)', 0
-sb_p_mem:   db 'running: RAM bandwidth (2 of 6)', 0
-sb_p_clk:   db 'running: the clock and the timers (3 of 6)', 0
-sb_p_isr:   db 'running: what the kernel interrupts cost - 4 seconds (4 of 6)', 0
-sb_p_os:    db 'running: the API far-call floor (5 of 6)', 0
-sb_p_dsk:   db 'running: the floppy - two 16KB reads, the slow one (6 of 7)', 0
-sb_p_hdd:   db 'running: the hard disk, if there is one (7 of 7)', 0
+sb_p_cpu:   db 'running: instruction timings (1 of 8)', 0
+sb_p_mem:   db 'running: RAM bandwidth (2 of 8)', 0
+sb_p_clk:   db 'running: the clock and the timers (3 of 8)', 0
+sb_p_isr:   db 'running: what the kernel interrupts cost - 4 seconds (4 of 8)', 0
+sb_p_os:    db 'running: the API far-call floor (5 of 8)', 0
+sb_p_dsk:   db 'running: the floppy - two 16KB reads, the slow one (6 of 8)', 0
+sb_p_hdd:   db 'running: the hard disk, if there is one (7 of 8)', 0
+sb_p_mou:   db 'running: the mouse port and its identify burst (8 of 8)', 0
 
 sb_s_ttl1:  db 'os8088 SYSBENCH - cpu, bus, memory, clock, scheduler, floppy', 0
 sb_s_ttl2:  db '============================================================', 0
@@ -2661,6 +2808,28 @@ sb_l_derr:    db '  read error code', 0
 sb_l_dsz:     db '  bytes read', 0
 sb_l_hderr:   db '  hdd read error code', 0
 sb_l_hdsz:    db '  hdd bytes read', 0
+
+; --- the mouse (SPEC.md 9.4.1/9.4.2) -----------------------------------------
+sb_s_h_mou:  db '-- the mouse: the port contest and the identify burst (SPEC.md 9.4.1) --', 0
+sb_s_h_mou2: db '   STATE, not a measurement: base and first byte are HEX, rest decimal.', 0
+sb_s_h_mou3: db '   A mouse that identified reads: first byte 4D, identified 1, stamp 0.', 0
+sb_s_mnone:  db '   this kernel publishes no mouse block (built before SPEC.md 9.4.2).', 0
+sb_l_mb0:    db '  COM1 base (0=absent)', 0
+sb_l_mb1:    db '  COM2 base (0=absent)', 0
+sb_l_mid0:   db '  ident bytes COM1', 0
+sb_l_mid1:   db '  ident bytes COM2', 0
+sb_l_mfb0:   db '  first byte COM1 hex', 0
+sb_l_mfb1:   db '  first byte COM2 hex', 0
+sb_l_mok0:   db '  identified COM1', 0
+sb_l_mok1:   db '  identified COM2', 0
+sb_l_mnd0:   db '  packets needed COM1', 0
+sb_l_mnd1:   db '  packets needed COM2', 0
+sb_l_mhpt:   db '  poller stamp (0=nvr)', 0
+sb_l_mhps:   db '  poller state', 0
+sb_l_msn:    db '  mouse found', 0
+sb_l_mpt:    db '  winning row (0/2)', 0
+sb_l_mrn0:   db '  run reached COM1', 0
+sb_l_mrn1:   db '  run reached COM2', 0
 sb_l_hdfn:    db '  hdd file read', 0
 sb_l_hdn:     db '  hdd warm reads N', 0
 
@@ -2771,7 +2940,7 @@ sb_it_top:  db 'Top of Report', 0
 ; The bss offsets past the scalars are derived, never hand-totalled: a figure
 ; that is too small is a package writing over benchlib's arena, which assembles
 ; cleanly and produces a report full of plausible nonsense.
-SB_O_SYSKB equ 120
+SB_O_SYSKB equ 122
 SB_O_RES   equ SB_O_SYSKB + SYSKB_SIZE
 SB_O_RROW  equ SB_O_RES + SB_NCPU * 4
 SB_O_RAM   equ SB_O_RROW + SB_BWROWS * 2
@@ -2831,12 +3000,14 @@ sb_r13off   equ os88_image_end + 98    ; word: the raw read's buffer offset
 sb_c0sec    equ os88_image_end + 100   ; word: sectors one 16KB read moved
 sb_c0i13    equ os88_image_end + 102   ; word: ...and int 13h calls it took
 sb_c0max    equ os88_image_end + 104   ; word: the longest run in it
-sb_c0rst    equ os88_image_end + 106   ; word: ...and controller resets
+sb_c0rst    equ os88_image_end + 106   ; word: ...and controller resets (107)
 sb_c0mnt    equ os88_image_end + 108   ; word: disk_mount calls in it
 sb_tcol     equ os88_image_end + 110   ; word: the trace line's next column
 sb_tslot    equ os88_image_end + 112   ; word: ...and the slot it is printing
 sb_tn       equ os88_image_end + 114   ; word: how many slots there are
 sb_tbase    equ os88_image_end + 116   ; word: where the trace array is (117)
+sb_mbase    equ os88_image_end + 118   ; word: -> mou_bases (SPEC.md 9.4.2)
+sb_mstate   equ os88_image_end + 120   ; word: -> the mouse state span (121)
 sb_syskb    equ os88_image_end + SB_O_SYSKB    ; SYSKB_SIZE bytes
 sb_res      equ os88_image_end + SB_O_RES      ; SB_NCPU dwords
 sb_rrow     equ os88_image_end + SB_O_RROW     ; SB_BWROWS words

@@ -52,6 +52,43 @@ MOU_DRAINT  equ 9               ; ticks the ISR discards RX after a hot-plug
                                 ; bit-6-set bytes the resync rule would read
                                 ; as packet headers - phantom clicks
 
+; --- the identify burst (SPEC.md 9.4.1) --------------------------------------
+; mouse_init's reset edge makes a serial mouse announce itself, and the window
+; that drains that burst is the ONE moment this kernel owns a port outright:
+; IER = 0, both IRQs still masked, and the edge provoking it was ours. So the
+; burst is READ as well as discarded, and a port that answers like a mouse is
+; not power-cycled for the rest of the session.
+MOU_IDWIN   equ 19              ; ticks the burst is drained for (~1s at
+                                ; 18.2Hz - ample for 'M3' at 1200 7N1, where
+                                ; a byte is 10 bits and so ~8.3ms)
+MOU_IDBYTE  equ 'M'             ; the Microsoft mouse ID byte (0x4D), which
+                                ; every MS-compatible serial mouse answers a
+                                ; DTR/RTS raise with. NO standard Hayes result
+                                ; code contains it - not OK, RING, NO CARRIER,
+                                ; CONNECT, ERROR, BUSY, NO DIALTONE or NO
+                                ; ANSWER - and every one of those IS a
+                                ; well-formed Microsoft packet (SPEC.md 9.5.1)
+MOU_IDMAX   equ 8               ; ...and at most this many bytes in all. A
+                                ; mouse says 'M', maybe '3' or 'Z', and stops;
+                                ; a modem banner is a STREAM. A verbose PnP ID
+                                ; overruns this and gets exactly the behaviour
+                                ; it had before - no stand-down, no threshold
+                                ; drop - which is the accepted degradation
+MOU_IDSTRICT equ 3              ; ...and THIS many to lower [mou_need], which
+                                ; is a tighter bar on purpose (SPEC.md 9.4.1).
+                                ; The two consequences are not symmetrical: a
+                                ; wrong stand-down costs a later hot-plug its
+                                ; reset edges, a wrong threshold lets one
+                                ; 'OK' CR LF claim the port and mask the real
+                                ; mouse off for the session - 9.5.1's original
+                                ; bug. 3 is 'M', 'M3' and 'MZ@' and nothing
+                                ; with room for a banner in it
+MOU_IDQUIET equ 4               ; ...and nothing for the last ~220ms of the
+                                ; window. This is the test that separates a
+                                ; burst from a stream, and MOU_IDMAX alone
+                                ; cannot: a banner that happens to be short is
+                                ; still arriving when the window closes
+
 CUR_W       equ 16              ; cursor cell size, px - the size of the two
 CUR_H       equ 16              ; bitmap TABLES, and nothing else
 
@@ -230,7 +267,8 @@ mouse_init:
     jb .one
     mov al, MOU_LOCKN
 .one:
-    mov [mou_need], al
+    mov [mou_need], al          ; per port (SPEC.md 9.4.1): the identify burst
+    mov [mou_need+2], al        ; below may lower ONE of them again
 
     ; --- save each present port's old vector, install ours -------------------
     xor ax, ax
@@ -292,8 +330,15 @@ mouse_init:
     ; The DTR/RTS edge makes a real Microsoft mouse announce itself: 'M',
     ; maybe '3', maybe a whole PnP string - bytes with bit 6 set that the
     ; ISR's resync rule would misread as packet headers (phantom clicks,
-    ; cursor jumps). Poll-and-discard for ~1 second before enabling RX
-    ; interrupts; sched_init already runs, so [ticks] is live.
+    ; cursor jumps). So they are discarded here, before RX interrupts are
+    ; enabled; sched_init already runs, so [ticks] is live.
+    ;
+    ; They are also RECORDED (SPEC.md 9.4.1). This window is the one moment
+    ; the kernel owns a port outright - IER 0, both IRQs masked, and the edge
+    ; that provoked the burst was ours at a moment we chose - so what arrives
+    ; in it is far better evidence than the packet contest can ever get, and
+    ; throwing it away is what left a plugged-in mouse being power-cycled
+    ; every MOU_REPOLL ticks for the whole session.
     mov cx, [ticks]
 .settle:
     xor bx, bx
@@ -306,15 +351,18 @@ mouse_init:
     test al, 0x01
     jz .snext
     sub dx, 5
-    in  al, dx                  ; discard identify/PnP byte
+    in  al, dx                  ; the identify byte: banked, then discarded
+    call mou_idbyte
 .snext:
     add bx, 2
     cmp bx, MOU_PEND
     jb .sport
     mov ax, [ticks]
     sub ax, cx
-    cmp ax, 19                  ; ~1s at 18.2Hz covers 'M3'+PnP at 1200 7N1
+    cmp ax, MOU_IDWIN
     jb .settle
+
+    call mou_idjudge            ; ...and who sounded like a mouse?
 
     mov ax, 0x0101              ; IER: RX data available only
     call mou_pall
@@ -344,6 +392,110 @@ mouse_init:
 
     pop es
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mou_idbyte - bank one byte of port BX's identify burst (SPEC.md 9.4.1)
+;
+; Three facts per port, and they are the three the judgement below needs: the
+; FIRST byte after our rising edge, how many arrived in all, and when the last
+; one did. Nothing here decides anything - mouse_init is still mid-window and
+; a burst that has only got as far as 'M' is indistinguishable from a stream
+; that begins with one.
+;
+; ins:  BX = port row, AL = the byte just read
+; outs: none (all registers preserved)
+; -----------------------------------------------------------------------------
+mou_idbyte:
+    push ax
+    push dx
+    mov dl, [bx+mou_idn]
+    or  dl, dl
+    jne .notfirst
+    mov [bx+mou_idb0], al       ; the first byte is the whole of rule 2
+.notfirst:
+    cmp dl, 0xFF                ; saturate: a stream must not wrap the count
+    je  .stamp                  ; back down through MOU_IDMAX and pass rule 3
+    inc byte [bx+mou_idn]
+.stamp:
+    mov ax, [ticks]
+    mov [bx+mou_idlast], ax
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mou_idjudge - which ports answered like a mouse? (SPEC.md 9.4.1)
+;
+; Four rules, all four required: something arrived, the first byte was 'M',
+; no more than MOU_IDMAX arrived in all, and the port was quiet for the last
+; MOU_IDQUIET ticks of the window. The last two are the ones that separate a
+; mouse's burst from a modem's banner, and MOU_IDMAX alone cannot - a banner
+; that happens to be short is still ARRIVING when the window closes.
+;
+; Then two consequences, deliberately unequal (SPEC.md 9.4.1):
+;
+;   [mou_idany]  the recovery cycle stands down. The safe half: a false
+;                positive costs only the reset edges a LATER hot-plug would
+;                have got, and no identify can claim a port, move the cursor
+;                or queue a click.
+;   [mou_need]   drops to 1, and only where EXACTLY ONE port identified -
+;                which is SPEC.md 9.5's "one port is not a contest" with the
+;                burst answering which port that is. Both identifying is
+;                ambiguous and leaves both thresholds alone.
+;
+; Called once, from mouse_init, with the window just closed.
+; ins:  none
+; outs: none (all registers preserved)
+; -----------------------------------------------------------------------------
+mou_idjudge:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, [ticks]             ; the window's closing tick, for rule 4
+    xor cx, cx                  ; CL = how many identified, CH = the last one's
+    xor bx, bx                  ; row (meaningful only where CL ends up 1)
+.port:
+    cmp word [bx+mou_bases], 0
+    je  .next                   ; a port the probe rejected cannot answer
+    mov al, [bx+mou_idn]
+    or  al, al
+    jz  .next                   ; rule 1: nothing arrived
+    cmp al, MOU_IDMAX
+    ja  .next                   ; rule 3: too many - this is a stream
+    cmp byte [bx+mou_idb0], MOU_IDBYTE
+    jne .next                   ; rule 2: it did not start with 'M'
+    mov ax, dx
+    sub ax, [bx+mou_idlast]     ; wrap-safe, like every other elapsed here
+    cmp ax, MOU_IDQUIET
+    jb  .next                   ; rule 4: still talking as the window closed
+    mov byte [bx+mou_ident], 1
+    mov byte [mou_idany], 1
+    cmp byte [bx+mou_idn], MOU_IDSTRICT  ; ...and the tighter bar the THRESHOLD
+    ja  .next                   ; wants (it is still counted as an identify
+                                ; above: the stand-down is the cheap
+                                ; consequence). Re-read rather than kept in AL,
+                                ; which rule 4's `mov ax, dx` above spends -
+                                ; held there it compared the low byte of the
+                                ; ELAPSED TICKS and no port ever qualified
+    inc cl
+    mov ch, bl
+.next:
+    add bx, 2
+    cmp bx, MOU_PEND
+    jb  .port
+
+    cmp cl, 1                   ; exactly one, or the burst has not told us
+    jne .out                    ; which port is not a contest
+    mov bl, ch
+    xor bh, bh
+    mov byte [bx+mou_need], 1
+.out:
     pop dx
     pop cx
     pop bx
@@ -398,8 +550,10 @@ mou_claim:
     cmp byte [mou_seen], 0
     jne .out                    ; settled, and never revisited
     inc byte [bx+mou_run]
-    mov al, [mou_need]          ; 1 where the probe found one port, MOU_LOCKN
-    cmp byte [bx+mou_run], al   ; where it found two
+    mov al, [bx+mou_need]       ; 1 where the probe found one port, MOU_LOCKN
+    cmp byte [bx+mou_run], al   ; where it found two - and 1 again on a port
+                                ; whose identify burst already named it the
+                                ; only mouse-shaped one (SPEC.md 9.4.1)
     jb .out
     mov [mou_port], bl          ; settled. mou_hotplug's next pass retires
     mov byte [mou_seen], 1      ; every other port
@@ -501,6 +655,15 @@ mou_hotplug:
     sub ax, [mou_hpt]           ; wrap-safe: elapsed since the state's stamp
     cmp byte [mou_hpst], 1
     je .low
+    cmp byte [mou_idany], 0     ; a port answered our reset edge like a mouse
+    jne .done                   ; (SPEC.md 9.4.1), so there IS one and it must
+                                ; not be power-cycled under the user's hand.
+                                ; Tested in state 0 ONLY - from state 1 this
+                                ; would strand DTR low and leave the mouse
+                                ; unpowered for the session, which is 9.4's
+                                ; own trap in the shape a new caller meets it.
+                                ; Nothing is retired here: an identify moves
+                                ; the prior, it does not settle the contest
     cmp ax, MOU_REPOLL          ; state 0: waiting out the poll interval
     jb .done
     mov ax, 0x0408              ; drop DTR/RTS - power the mouse down. OUT2
@@ -2041,15 +2204,50 @@ mou_old_seg dw 0, 0
 mou_phase   db 0,0,0,0          ; packet state: 0 idle, 1 got b0, 2 got b1
 mou_b0      db 0,0,0,0          ; packet byte 0: 1 LB RB Y7 Y6 X7 X6
 mou_b1      db 0,0,0,0          ; packet byte 1: X low 6 bits
+mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only).
+                                ; ABOVE the published block on purpose - it is
+                                ; scratch, not state, and it used to sit in
+                                ; the middle of what SPEC.md 9.4.2 publishes
+
+; --- the published diagnostic block (SPEC.md 9.4.2) --------------------------
+; Everything from mou_run to mou_dstamp is one contiguous span that a test
+; package reads through 0060:0006. The offsets are asserted at the bottom of
+; this file, because a reordering here would silently republish the block as
+; a different thing and the reader has no way to notice.
+mou_dbg_blk:
+    dw 0x4F4D                   ; 'MO' - the magic, dsk_dbg_blk's 0x4444 idiom
+    dw mou_bases                ; -> the probed bases, 2 words, 0 = no UART
+    dw mou_run                  ; -> the state span below
+
 mou_run     db 0,0,0,0          ; clean packets in a row on this port
 
 mou_port    db 0                ; the mouse's row, settled by [mou_need] clean
                                 ; packets and never moved again (SPEC.md 9.5).
                                 ; A row index (0, 2), not a COM number
-mou_need    db 1                ; the run a port must manage to be believed:
+mou_need    db 1,0,1,0          ; the run a port must manage to be believed:
                                 ; 1 where the probe found one port, MOU_LOCKN
-                                ; where it found two
-mou_evrec   times 8 db 0        ; scratch event record for evq_push (ISR only)
+                                ; where it found two - and 1 again on the one
+                                ; port whose identify burst named it the only
+                                ; mouse-shaped one (SPEC.md 9.4.1). PER PORT,
+                                ; stride 2 like the decoder state above
+
+; --- the identify burst, per port (SPEC.md 9.4.1) ----------------------------
+; Banked by mou_idbyte inside mouse_init's drain window and spent once by
+; mou_idjudge. All of it is dead for the life of the machine afterwards.
+mou_idn     db 0,0,0,0          ; bytes seen in the window (saturating at 0FFh:
+                                ; a wrap would let a stream pass MOU_IDMAX)
+mou_idb0    db 0,0,0,0          ; the FIRST of them - rule 2 is this byte
+mou_idlast  dw 0, 0             ; [ticks] at the last one, for the quiet test
+mou_ident   db 0,0,0,0          ; this port answered like a mouse. DIAGNOSTIC,
+                                ; and deliberately kept: nothing reads it, the
+                                ; two consequences hanging off [mou_idany] and
+                                ; mou_idjudge's own CL/CH instead - but this
+                                ; feature can only be confirmed on real iron
+                                ; (QEMU's msmouse ignores DTR entirely), and
+                                ; per-port "who answered" is the one thing a
+                                ; field peek needs that the rest cannot say
+mou_idany   db 0                ; ...and at least one did, which is what the
+                                ; recovery cycle stands down on
 mou_seen    db 0                ; a complete packet has arrived this session;
                                 ; set by the ISR, read by mou_hotplug, and
                                 ; never cleared - proof the mouse exists
@@ -2059,6 +2257,31 @@ mou_hpst    db 0                ; hot-plug poller state: 0 waiting out the
 mou_hpt     dw 0                ; tick stamp for whichever wait state 0/1 is in
 mou_drain   db 0                ; ISR discards RX while set (armed by a
 mou_dstamp  dw 0                ; hot-plug raise; expires MOU_DRAINT later)
+
+; --- what SPEC.md 9.4.2 says the published block IS --------------------------
+; A test package reads these by offset, off a floppy, on a machine with no
+; debugger. Every one of them is a number some reader will print as a
+; different quantity if it moves, and NASM cannot see any of that - so the
+; layout is asserted here rather than trusted to declaration order.
+%define MOUDBG(x) ((x) - mou_run)
+%if MOUDBG(mou_port)   != 4  || MOUDBG(mou_need)   != 5
+  %error "mouse: SPEC.md 9.4.2 block - mou_port/mou_need moved"
+%endif
+%if MOUDBG(mou_idn)    != 9  || MOUDBG(mou_idb0)   != 13
+  %error "mouse: SPEC.md 9.4.2 block - mou_idn/mou_idb0 moved"
+%endif
+%if MOUDBG(mou_idlast) != 17 || MOUDBG(mou_ident)  != 21
+  %error "mouse: SPEC.md 9.4.2 block - mou_idlast/mou_ident moved"
+%endif
+%if MOUDBG(mou_idany)  != 25 || MOUDBG(mou_seen)   != 26
+  %error "mouse: SPEC.md 9.4.2 block - mou_idany/mou_seen moved"
+%endif
+%if MOUDBG(mou_hpst)   != 27 || MOUDBG(mou_hpt)    != 28
+  %error "mouse: SPEC.md 9.4.2 block - mou_hpst/mou_hpt moved"
+%endif
+%if MOUDBG(mou_drain)  != 30 || MOUDBG(mou_dstamp) != 31
+  %error "mouse: SPEC.md 9.4.2 block - mou_drain/mou_dstamp moved"
+%endif
 
 section .bss
 cur_save    resb CUR_SAVE_SZ    ; save-under: CUR_SPAN bytes x CUR_GH rows,

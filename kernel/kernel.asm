@@ -556,6 +556,20 @@ section .text
 cold_entry:
     jmp kmain
 
+    times 0x06 - ($ - $$) db 0
+mou_dbg_at:                     ; 0060:0006 - the mouse instrument (SPEC.md
+    dw mou_dbg_blk              ; 9.4.2). dsk_dbg_at's mechanism below, and
+                                ; UNCONDITIONAL rather than behind a knob:
+                                ; what it publishes is the port contest and
+                                ; the identify burst, whose whole question is
+                                ; what a REAL mouse on a REAL serial card
+                                ; does - so it has to be in the build the
+                                ; field machine is actually sent (a field disk
+                                ; is built with no knob set at all, by
+                                ; docs/FIELD-MACHINES.md's own rule). It costs
+                                ; two bytes here and six of descriptor; the
+                                ; state it names already existed
+
     times 0x08 - ($ - $$) db 0
     jmp near spl_tick           ; 0800:0008 - boot splash tick (SPEC.md 15)
 

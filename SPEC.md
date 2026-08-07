@@ -2173,7 +2173,10 @@ then, so this is invisible.
   IER = 0x01 (RX interrupt), read RX/LSR/IIR once to flush, unmask that
   port's IRQ in the 8259 (clear bit 4 for IRQ4, bit 3 for IRQ3, at port
   0x21). A port no UART answered at is never hooked and its IRQ is never
-  unmasked.
+  unmasked. The identify burst the reset edge provokes is drained with the
+  IRQs still masked — and **recorded while it is drained** (§9.4.1): a port
+  that answers `'M'` and then goes quiet is not power-cycled afterwards, and
+  where it is the only one that answered, its `[mou_need]` drops to 1.
 - Microsoft protocol, 3-byte packets, 7 data bits. Byte 0 has bit 6 set:
   `1 LB RB Y7 Y6 X7 X6`; bytes 1/2 have bit 6 clear: low 6 bits of X, Y.
   dx = sign-extended {X7X6,X5..X0}, dy likewise (positive = down).
@@ -2288,6 +2291,186 @@ poller's state and restore DTR/RTS first. Standing down with DTR low would
 leave the mouse unpowered for the session — deader than the bug the poller
 exists to fix.
 
+#### 9.4.1 The identify burst is READ, not only discarded
+
+§9.4's "there is no probe" was true of the *packet* stream and false of the
+wire: `mouse_init` provokes an identify burst with its own DTR/RTS rising
+edge and then poll-and-discards it for `MOU_IDWIN` ticks. The kernel spent a
+second of every boot reading exactly the bytes that answer "is there a mouse
+here" and throwing them away — and then, because the answer had been
+destroyed, treated a plugged-in mouse as absent and **power-cycled it every
+`MOU_REPOLL` ticks for the life of the session**.
+
+**There are two costs, they are not the same size, and the smaller one is the
+one that looks like the culprit.** Both are paid before the first packet and
+neither is paid after, so they arrive together as a single symptom — the
+mouse does nothing, then the cursor leaps, then everything is exact for the
+session.
+
+- **The contest, on a machine with two live ports.** `[mou_need]` is
+  `MOU_LOCKN` = 8 on both, so the first eight clean packets are counted and
+  **discarded — no cursor motion at all** (§9.5). This is **deterministic:
+  every boot, every time**, and a packet is 3 bytes of 10 bits at 1200 baud,
+  so eight of them is ~200 ms of *continuous* motion and a third of a second
+  of a real nudge. docs/TESTING.md already recorded the harness end of it —
+  "wrong by the whole move, not by a few pixels… reads exactly like a mouse
+  that is not working at all" — and a human meets the same thing.
+- **The recovery cycle, on any machine that has heard no packet.** 58 ticks
+  (`MOU_REPOLL` + `MOU_RSTLOW`, ~3.19 s), of which 3 (~165 ms) the mouse is
+  unpowered and 9 (`MOU_DRAINT`, ~0.5 s) the ISR discards every byte: **12 of
+  58 — 20.7% of the time the mouse is dead**, forever, with a physical reset
+  on every raise and a `mou_newround` cutting any run in progress. This one is
+  *probabilistic* in where a given nudge lands, which is exactly why it should
+  not be read as the whole story on a two-port machine. And its first cycle
+  lands on the desktop: `[ticks]` is zeroed by `sched_init` and `[mou_hpt]`
+  starts at 0, so the drop fires as soon as `[ticks] >= MOU_REPOLL` — and
+  §15.3's own measured tail from `sched_init` to the first paint (`mouse_init`
+  ~165 ms + the drain ~1.04 s + `drv_boot` ~3.1 s + `wm_paint_all` ~250 ms) is
+  **≥ 85 ticks** on the field machine, ~200 with a driver enabled.
+
+The two fixes below answer one each, which is why both are wanted: the
+threshold drop is what a two-port machine feels, the stand-down is what a
+one-port machine feels.
+
+So the burst is recorded. Per port, the settle loop banks the **first** byte
+after the raise, a saturating byte count and the tick of the last byte;
+`mou_idjudge` then sets `[mou_ident]` for a port where all four hold:
+
+1. at least one byte arrived,
+2. the first was `'M'` (0x4D) — the Microsoft mouse ID byte, which every
+   MS-compatible serial mouse answers a DTR/RTS raise with,
+3. no more than `MOU_IDMAX` bytes arrived in all, and
+4. the port was **quiet** for the last `MOU_IDQUIET` ticks of the window.
+
+**This is a stronger discriminator than the packet contest, not a weaker
+one**, and that is the whole justification — §9.5.1 exists because a Hayes
+result code *is* a well-formed Microsoft packet. Three reasons:
+
+- **The edge is ours.** The burst is a reply to a rising edge this kernel
+  made, at a moment it chose, in a window where IER = 0 and both IRQs are
+  masked — `mouse_init` owns the port exclusively. The contest has none of
+  that; it listens to whatever the world says whenever it says it.
+- **A modem is silent after a DTR *raise*.** Falling DTR is what a modem acts
+  on (`&D2` hang up, `&D3` reset); raising it provokes nothing. And the whole
+  standard Hayes vocabulary — `OK`, `RING`, `NO CARRIER`, `CONNECT`, `ERROR`,
+  `BUSY`, `NO DIALTONE`, `NO ANSWER` — **contains no letter `M` at all**.
+  Every one of those passes §9.5.1's "well-formed packet" test; none passes
+  this one.
+- **Rules 3 and 4 test the SHAPE.** The residual is a modem set `&D3` that
+  resets on the drop and emits a firmware banner, misframed because the line
+  has been reprogrammed to 1200 7N1. A banner is a *stream* and keeps coming
+  for the window; a mouse says its piece in ~100 ms and goes silent until it
+  is moved.
+
+Two things are then done with it, and they are deliberately graded, because
+the two carry very different consequences if the test is ever fooled:
+
+- **The recovery cycle stands down** (`[mou_idany]`). This is the hitch, and
+  it is the safe half: a false positive costs only the reset edges a mouse
+  hot-plugged *later* would have got, and **nothing can claim the mouse's
+  slot, move the cursor or queue a click on the strength of an identify.**
+  It is also consistent rather than new — `[mou_seen]` already stands the
+  poller down permanently, so the kernel already accepts "once we know a
+  mouse exists, stop offering edges". The stand-down is tested **inside
+  poller state 0 only**, so it can never strand DTR low, which is §9.4's own
+  trap in the shape a new caller would meet it.
+- **`[mou_need]` drops to 1 on an identified port** where **exactly one**
+  port identified — it is per port now, an array beside `mou_phase` and
+  friends. This is §9.5's "one port is not a contest" applied with better
+  information: the identify says which port is not a contest, so the first
+  packet there is acted on while the other port still owes its full
+  `MOU_LOCKN` clean packets. Both ports identifying is ambiguous and leaves
+  both thresholds alone. **This half takes a tighter bar** —
+  `MOU_IDSTRICT` = 3 bytes rather than `MOU_IDMAX` = 8 — because a wrong
+  stand-down costs a later hot-plug its reset edges, while a wrong threshold
+  lets one `OK` CR LF claim the port and mask the real mouse off for the
+  session, which is §9.5.1's original bug arriving by a new road. 3 is `'M'`,
+  `'M3'` and `'MZ@'` and nothing with room for a banner in it.
+
+What is deliberately **not** done: `[mou_port]`/`[mou_seen]` are not settled
+by an identify, and `mou_lockon` is not called on one. Retiring a port is the
+one step that can permanently mask the real mouse off — §9.5.1's original
+failure — and the two changes above already remove the hitch without it. The
+contest is unchanged; the identify only moves the prior.
+
+The accepted degradation: a mouse whose burst is longer than `MOU_IDMAX` (a
+verbose PnP ID) fails rule 3 and gets **exactly today's behaviour** — no
+stand-down, no threshold drop. Period MS and Logitech parts answer `'M'` and
+`'M3'`, which is what the constant is sized for.
+
+**QEMU can neither reproduce the bug nor test the positive half.** Its
+`msmouse` is not a UART-level device: it ignores MCR/DTR entirely and emits
+packets during boot regardless, so `[mou_seen]` is 1 and `[mou_hpst]` 2
+straight out of `make test`. The *negative* half is testable here and must be
+— docs/TESTING.md §9.5's socket-chardev modem harness must never set
+`[mou_ident]` — but "a real mouse answers `M`" needs an emulator that models
+the UART, or the iron.
+
+**MartyPC does model it, and is where the accepting half was first
+confirmed** — a 1MB memory dump taken at the desktop with the mouse
+deliberately untouched, which is precisely the state that used to be broken:
+
+```
+mou_bases  03F8 02F8   BOTH ports live - this is the CONTEST case
+mou_idn    01 00       one byte on COM1, nothing on COM2
+mou_idb0   4D ..       ...and it was 'M'
+mou_idlast 0003        it arrived at tick 3, inside the window
+mou_ident  01 00       COM1 answered like a mouse, COM2 did not
+mou_idany  01
+mou_need   01 08       COM1 dropped to 1; COM2 still owes its eight
+mou_seen   00          nothing has been claimed - the contest is untouched
+mou_hpst   00  hpt 0000  the recovery cycle NEVER FIRED
+mouse_x/y  0168 00AE   = 360,174 = 720x348 / 2: still homed (39.6), unmoved
+```
+
+Two things in that dump are worth reading rather than skimming. It is a
+**two-port** machine, so it is the threshold drop that is doing the visible
+work there and not the stand-down — which is what identified the contest as
+the deterministic cost above. And `[mou_seen]` = 0 beside a homed cursor is
+the check that the identify did **not** quietly settle anything: had it
+claimed the port, that word would be 1 before a packet ever arrived.
+
+#### 9.4.2 The block a test package reads (`0060:0006`)
+
+§9.4.1's whole question — does a **real** mouse on a **real** serial card
+answer a DTR/RTS raise with `'M'` — is one neither emulator in
+docs/FIELD-MACHINES.md can settle, so the state has to be readable on the
+field machine, which has no debugger. `0060:0006` is a word pointing at
+`mou_dbg_blk`: the magic `'MO'` (0x4F4D), then a pointer to `mou_bases` (two
+words, 0 = the probe rejected that port), then a pointer to a **33-byte
+contiguous span** — `mou_run` +0, `mou_port` +4, `mou_need` +5, `mou_idn` +9,
+`mou_idb0` +13, `mou_idlast` +17, `mou_ident` +21, `mou_idany` +25,
+`mou_seen` +26, `mou_hpst` +27, `mou_hpt` +28, `mou_drain` +30,
+`mou_dstamp` +31.
+
+It is `dsk_dbg_at`'s mechanism (§18.94) and **deliberately not its knob**.
+That one is `make DISKCNT=1` because it counts something a normal kernel has
+no reason to carry; this one names state that already exists, and the build
+the field machine is sent has **no knob set at all** by
+docs/FIELD-MACHINES.md's own handover rule — so behind a knob it would be
+absent from every disk that matters. It costs two bytes of header and six of
+descriptor.
+
+Three things hold it up:
+
+- **The layout is asserted, not trusted to declaration order.** A reader is
+  a separate program, on a floppy, on a machine with no debugger; a member
+  that moved would be silently republished as a different quantity. `mouse.inc`
+  ends in `%error` guards on all twelve offsets.
+- **`mou_evrec` was moved out of the middle of it.** ISR scratch is not state,
+  and it sat between `mou_idany` and `mou_seen` splitting the span in two.
+- **What survives the operator matters more than what does not.** By the time
+  anyone launches a test package the mouse has been used, so `mou_seen`,
+  `mou_port` and `mou_hpst` are long settled and say nothing about the boot.
+  The identify members do not move after `mouse_init`, and **`mou_hpt` is
+  never written unless the poller actually dropped DTR** — so `hpt = 0` is
+  the assertion that carries, and it survives ten minutes of driving.
+
+`tests/sysbench` is the reference reader (docs/TESTING.md), and its block is
+a **state dump rather than a measurement** — so it emits no `bl_head`, whose
+`N`/`counts`/`us per op` heading would label every row as a quantity it is
+not.
+
 ### 9.5 COM1 or COM2 — the port is not asked and not configured
 
 A serial card is jumpered to a base address, and the mouse goes on whichever
@@ -2391,6 +2574,13 @@ and is acted on, and the behaviour is this kernel's before COM2 existed, byte
 for byte. Only a machine with two live ports pays `MOU_LOCKN` = 8, and what
 it pays is about a fifth of a second of the *first* mouse movement of the
 session — swallowed, once, and exact from then on.
+
+`[mou_need]` is **per port** (§9.4.1), an array beside `mou_phase` and the
+rest of the decoder state, because the identify burst can answer "which port
+is not a contest" before a single packet has arrived: where exactly one port
+answered the DTR/RTS raise with `'M'` and then went quiet, that port's
+threshold is 1 and the other keeps `MOU_LOCKN`. A modem is still owed its
+full eight.
 
 The honest residual is a second port carrying **binary** traffic in those
 same seconds: random bytes do satisfy the protocol from time to time, and no
