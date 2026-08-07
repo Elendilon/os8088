@@ -279,10 +279,21 @@ ui_task:
 .chk_pcmd:
     mov ax, [ui_pcmd]           ; a kernel menu command posted from under
     or ax, ax                   ; the lock (ui_post_cmd, SPEC.md 13)
-    jz .chk_cp
+    jz .chk_fmf                 ; every step's "nothing to do" names the NEXT
+                                ; step, so a step inserted below is a step
+                                ; this jump has to be pointed at
     mov word [ui_pcmd], 0       ; consume before running, not after
     call ui_cmd                 ; in: AX = CMD_*; takes its own locks, and
                                 ; CMD_REBOOT never comes back
+.chk_fmf:
+    cmp byte [fm_fchk], 0       ; a file operation changed a folder, or the
+    je .chk_cp                  ; active window changed (SPEC.md 22.8): the
+    mov byte [fm_fchk], 0       ; FRONT window may be a Disk window owing a
+    call gfx_lock               ; refresh. One compare per pass when it is
+    call wm_top                 ; not - which is nearly always, because
+    mov al, 1                   ; wm_raise has usually spent the debt on the
+    call fm_focus               ; way in. AL = 1: there is nobody here to
+    call gfx_unlock             ; defer the repaint to, so fm_focus draws
 .chk_cp:
     cmp byte [cp_dirty], 0      ; scheduler mode changed in the Control
     je .chk_zones               ; Panel (SPEC.md 31.2): windows that quote

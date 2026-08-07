@@ -725,6 +725,13 @@ wm_fs_zpos:
 ; one thing that can.
 ; -----------------------------------------------------------------------------
 wm_raise:
+    push ax                     ; a Disk window whose folder changed under it
+    xor al, al                  ; is re-listed BEFORE a pixel is drawn, so
+    call fm_focus               ; this raise puts the new listing up rather
+    pop ax                      ; than the old one and then the new. AL = 0:
+    jnc .listed                 ; the drawing below is ours, not its (22.8)
+    mov al, 1                   ; and CF = 1 upgrades a title-bar raise to a
+.listed:                        ; whole-window one - the CONTENT changed too
     push ax
     call menu_activate          ; BX owns the menu bar from here (SPEC.md 12)
     call wm_lift                ; ...and the top of the z-order

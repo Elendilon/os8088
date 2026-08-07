@@ -1671,6 +1671,10 @@ files_poster:         call COLD_SEG:fmf_files_poster
                     ret
 files_refresh:        call COLD_SEG:fmf_files_refresh
                     ret
+fm_focus:             call COLD_SEG:fmf_fm_focus
+                    ret                 ; CF out (SPEC.md 22.8): a near ret
+                                        ; over a far one, neither of which
+                                        ; touches the flags
 fm_kinit:             call COLD_SEG:fmf_fm_kinit
                     ret
 fm_onclick:           call COLD_SEG:fmf_fm_onclick
