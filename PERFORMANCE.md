@@ -1815,7 +1815,7 @@ ones out of about sixty.
 | build | `7f010ec` plus the logger |
 | run | 54 usable seconds, mean 15.98 fps |
 
-|  | Set 9 | Set 10 | **Set 11** |
+|  | Set 9 | Set 10 | **Set 12** |
 |---|---|---|---|
 | median worst frame | 57.9 | 63.0 | **52.4 ms** |
 | worst frames over a tick | 54% | 54% | **49%** |
