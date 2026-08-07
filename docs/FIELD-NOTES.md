@@ -776,7 +776,7 @@ larger of the two windows there.
 
 ---
 
-## 7. The floppy is 6x slower than DOS on the same machine (OPEN, and it is ours)
+## 7. The floppy is 6.3x slower than the BIOS underneath it (OPEN, and it is ours)
 
 **Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
 ladder was calibrated against. `sysbench`'s floppy block, same machine, same
@@ -884,10 +884,66 @@ own table with smaller values; if the BIOS thinks the motor has stopped
 between our calls, that alone is the whole gap. And **`DPT head settle`**,
 for the same reason.
 
-Whether the batching default should flip is a design decision and not a build
-fix — the knob exists, nothing outside this one machine has been A/B'd, and
-it is very likely the wrong lever anyway now that the gap is known to be 6x
-rather than 15%.
+**The instrument answered it** (PERFORMANCE.md Part 9 Set 14). Three rows,
+every one landing on a whole number of the 200 ms revolution:
+
+| | measured | revolutions | bytes/second |
+|---|---|---|---|
+| `int 13h 1 sector` | 199.1 ms | **1.00** | 2,571 |
+| `int 13h track, 1 call` | 384.5 ms | **1.92** | **11,985** |
+| `int 13h track, 9 calls` | 2,004.8 ms | **10.02** | 2,298 |
+| os8088's own 16 KB read | 8.57 s | **1.34 per sector** | 1,912 |
+
+So the media is **2:1 interleaved** — a whole track in one command takes two
+turns, 11,520 B/s by arithmetic against 11,985 measured — and **the drive,
+the controller and the BIOS all stream perfectly when asked for nine sectors
+at once**. `int 13h track, 1 call` *is* our batched read done right, and it
+is **6.3x faster than what `dsk_xfer` achieves**.
+
+The decisive comparison is the last two rows against each other. os8088 costs
+**1.34 revolutions a sector** — worse than the 1.00 that nine separate BIOS
+calls cost, and nowhere near the 0.21 of one batched call. **Whatever
+`dsk_xfer` is issuing is not reaching the hardware as multi-sector
+commands**: §18.91's batching is either not forming the runs it believes it
+is, or something between it and the BIOS is decomposing them.
+
+That also explains note 7's own A/B with no second mechanism. If the batched
+path issues per-sector commands anyway, `FLOPPY1=1` measuring 15% faster is
+just the batched path's extra arithmetic with none of its benefit — so the
+question "should the default flip" is **dead**: there is nothing to flip
+between, both paths are doing the same thing at the hardware.
+
+**The next step is a call counter.** `DISKCNT` counts sectors and would need
+to count *calls*, per transfer: if `dsk_xfer` reports 4 calls for a 32-sector
+run and the machine still takes 8 seconds, the decomposition is below us; if
+it reports 32, it is above.
+
+---
+
+## 10. A package cannot safely call int 13h (FOUND, not fixable from a package)
+
+**Observed.** `sysbench`'s raw `int 13h` block **hard froze the IBM 5150** on
+the first run after a cold boot, then ran normally after a reboot and
+produced note 7's answer.
+
+**The mechanism is structural.** A BIOS runs its disk handler, and the IRQ6
+nesting inside it, on whichever **256-byte task stack** is current
+(SPEC.md §8) — here on top of the benchmark's own frame, `bl_run`'s and
+benchlib's. And the kernel's `dsk_xfer` holds **`sch_lock`** across every
+`int 13h` so nothing can switch underneath one; a package has no way to ask
+for that, because there is no slot for it. Whether it dies depends on where
+the PIT tick lands relative to the BIOS's wait loop, which differs every
+boot — hence intermittent, which is the worst kind.
+
+`tests/stackprobe` exists precisely because SeaBIOS hides a real BIOS's
+interrupt stack use, so QEMU can never show this; the block ran clean there
+every time.
+
+**Kept, not fixed.** It is the only instrument that could answer note 7 and
+the answer was worth a 6.3x correction, so it stays in the harness with the
+hazard written at the top of it. **Nothing shipped may copy it**, and if the
+BIOS-direct number is ever wanted routinely it belongs in the kernel behind a
+build knob, where it can hold `sch_lock` like every other transfer does.
 
 ---
 

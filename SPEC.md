@@ -5593,9 +5593,15 @@ something in this area is in doubt.
 > revolution instead of one" is a claim about revolutions that this drive,
 > controller or media does not honour. Both emulators show the predicted gain
 > and neither models rotational latency, so neither can arbitrate. The
-> mechanism is unknown and the default has not been changed; the section is
-> otherwise accurate and is kept for the parameter-table work, which is
-> correctness rather than speed.
+> mechanism is now known and it is OURS (Set 14): a raw `int 13h` on that
+> machine reads a whole 9-sector track in **one call in 1.92 revolutions**
+> and the same nine sectors in **nine calls in 10.02**, so the hardware
+> streams and this section's premise is right — but `dsk_xfer` measures
+> **1.34 revolutions per sector**, which is what nine separate calls cost and
+> not what one batched call costs. Whatever is being issued is not reaching
+> the FDC as a multi-sector command. The default has not been changed because
+> there is nothing to change it to; the section is otherwise accurate and the
+> parameter-table work is correctness rather than speed.
 
 `boot/boot.asm` read `AL = 1`. 131 sectors, one int 13h each, at
 PERFORMANCE.md's measured **238 ms per sector** — **over thirty seconds**, and

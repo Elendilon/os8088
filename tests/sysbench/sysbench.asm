@@ -1662,6 +1662,18 @@ sb_b_rdbig:
 ; than at its base. And every row is method T - tick-timed with interrupts ON
 ; - because int 13h waits on IRQ6 and a cli window around it is a hang, not a
 ; measurement.
+;
+; **IT HARD FROZE THE 5150 ONCE, on the first run of a cold boot, and ran
+; normally after a reboot** (docs/FIELD-NOTES.md 10). The hazard is real and
+; unfixable from inside a package: the BIOS runs its disk handler and its
+; IRQ6 nesting on whichever 256-byte task stack is current (SPEC.md 8), on
+; top of this routine's frame and bl_run's and benchlib's, and the kernel's
+; own dsk_xfer additionally holds sch_lock across every int 13h so nothing
+; can switch underneath one. A package can do neither, and whether it dies
+; depends on where the tick lands - which is why it is intermittent. It is
+; kept because it answered the question nothing else could and the answer was
+; worth a 6.3x correction; it is not a pattern to copy, and no shipped
+; package may issue int 13h.
 ; -----------------------------------------------------------------------------
 SB_R13_CYL  equ 5                   ; a cylinder every geometry here has
 SB_R13_N    equ 9                   ; ...and one 9-sector track off it
@@ -1766,16 +1778,16 @@ sb_raw13:
     mov ax, [sb_st13]
     call sb_hex
 
-    mov ax, [sb_t139]               ; bytes/sec for the batched track
-    mov dx, [sb_t139+2]
-    mov cx, SB_R13_N * 512
-    call sb_r13rate
-    mov si, sb_d_r13b
-    mov cx, 9
-    call bl_kv
+    mov ax, [sb_t139]               ; bytes/sec for the batched track. CX is
+    mov dx, [sb_t139+2]             ; the bytes the WHOLE ROW moved, not one
+    mov cx, 4 * SB_R13_N * 512      ; iteration's: bl_last is a total and the
+    call sb_r13rate                 ; first version divided a 4-iteration
+    mov si, sb_d_r13b               ; count by one iteration's bytes, so both
+    mov cx, 9                       ; rates read 4x low in the field set that
+    call bl_kv                      ; found them (PERFORMANCE.md Part 9 Set 14)
     mov ax, [sb_t13n]               ; ...and for the same nine one at a time
     mov dx, [sb_t13n+2]
-    mov cx, SB_R13_N * 512
+    mov cx, 4 * SB_R13_N * 512
     call sb_r13rate
     mov si, sb_d_r13s
     mov cx, 9

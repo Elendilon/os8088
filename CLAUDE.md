@@ -235,8 +235,17 @@ exactly as predicted and the *time* is not, because "nine sectors a
 revolution instead of one" is a claim about revolutions that drive,
 controller or media does not honour. Both emulators show the predicted win
 and neither models rotational latency, so neither can arbitrate. **Do not
-cost a disk change against the 9x**; the mechanism is unknown and the default
-is unchanged pending it.
+cost a disk change against the 9x**. **The mechanism is now known and it is
+ours** (Set 14): `sysbench` calls `int 13h` itself, and on that machine a
+whole 9-sector track in ONE call is **384 ms — 1.92 revolutions, 11,985
+bytes/second** (the media is 2:1 interleaved), the same nine sectors as nine
+calls is **10.02 revolutions**, and os8088's own read is **1.34 revolutions
+per sector**. So the drive, the controller, the interleave and the BIOS are
+all exonerated — `int 13h track, 1 call` *is* the batched read done right and
+it is **6.3x faster than `dsk_xfer` achieves**. Whatever §18.91 is issuing is
+not reaching the hardware as multi-sector commands, and the next step is a
+CALL counter (`DISKCNT` counts sectors). That also kills the "should the
+default flip" question: both paths are doing the same thing at the hardware.
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4

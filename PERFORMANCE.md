@@ -1976,3 +1976,84 @@ closing is what writes) before a set that wants those rows.
 
 **The reports saved themselves**, which is why there are six files rather
 than the three a forgotten `S` would have left.
+
+### Set 14 — the BIOS underneath us, and the floppy question is answered
+
+One `sysbench` run on the IBM 5150, from the `f8e40df` disks. The new block
+calls `int 13h` **itself**, with no os8088 code in the path, and three rows
+settle six weeks of argument:
+
+| row | measured | revolutions | bytes/second |
+|---|---|---|---|
+| `int 13h 1 sector` | **199.1 ms** | **1.00** | 2,571 |
+| `int 13h track, 1 call` (9 sectors) | **384.5 ms** | **1.92** | **11,985** |
+| `int 13h track, 9 calls` | **2,004.8 ms** | **10.02** | 2,298 |
+| | | | |
+| os8088's own 16 KB read, warm | 8.57 s | 1.34 **per sector** | **1,912** |
+
+A revolution is 200 ms, and every one of those numbers lands on a whole
+number of them. Read in order:
+
+- **One sector, repeated, costs exactly one revolution** — which is not a
+  fault, it is the definition: the same sector comes round once a turn. It
+  also confirms the instrument, because 1.00 is not a number you get by
+  accident.
+- **A whole track in ONE call costs 1.92 revolutions.** So the media is
+  **2:1 interleaved** (4,608 bytes in two turns is 11,520 B/s and we measured
+  11,985), and the drive, the controller and the BIOS **stream perfectly
+  well** when asked for nine sectors at once.
+- **The same nine sectors as nine calls costs 10.02 revolutions**, one per
+  sector, because control returns to the caller and the next sector has gone
+  past by the time the command is reissued.
+
+**So the ceiling on this machine is 11,985 bytes/second and os8088 achieves
+1,912 — a factor of 6.3, and every bit of it ours.** The drive is exonerated,
+the controller is exonerated, the media's interleave is exonerated, and so is
+the BIOS: `int 13h track, 1 call` *is* our batched read done right, and it is
+six times faster than what `dsk_xfer` actually achieves.
+
+The decisive comparison is the last two rows against each other. os8088 costs
+**1.34 revolutions per sector** — worse than the 1.00 that nine separate BIOS
+calls cost, and nowhere near the 0.21 that one batched call costs. Whatever
+`dsk_xfer` is issuing, **it is not reaching the hardware as multi-sector
+commands**; SPEC.md §18.91's batching is either not forming the runs it
+believes it is, or something between it and the BIOS is decomposing them.
+That is now a code question with a number attached, and the next step is to
+count what `dsk_xfer` actually issues (the `DISKCNT` knob counts sectors and
+would need to count *calls*).
+
+It also explains Set 13 without needing a second mechanism: if the batched
+path is issuing per-sector commands anyway, then `FLOPPY1=1` measuring 15%
+*faster* is just the batched path's extra arithmetic with none of its
+benefit.
+
+#### The parameter table, and the ROM's own values
+
+| | 5150 | QEMU/SeaBIOS |
+|---|---|---|
+| EOT (§18.92 patches this) | **9** | 9 |
+| step rate / head unload | **00CF** | 00AF |
+| head settle | **25 ms** | 15 ms |
+| motor start | **8** — eighths of a second, so **one full second** | 8 |
+
+The patch is landing. The other three are the IBM ROM's, which is what
+§18.92 intends — but `head settle 25 ms` is paid per seek and DOS installs
+15, and `motor start` is a **whole second** before any transfer the BIOS
+believes needs the motor started. Neither can explain a 6.3x on a read that
+never seeks, so they are not the bug; they are worth a look afterwards.
+
+#### Two harness corrections this set forced
+
+**`bios track 1 call B/s` and `bios track 9 calls B/s` read 4x low** in this
+set — 2,996 and 574 against the true 11,985 and 2,298. `bl_last` is the total
+count for the whole row and the derived rows divided it by *one iteration's*
+bytes. Both are recomputable exactly from the `us/op` column, which is
+per-iteration and correct: **4,608 / (us/op)**. Fixed.
+
+**And the block hard-froze the machine once**, on the first run after a cold
+boot, then ran normally after a reboot. docs/FIELD-NOTES.md 10: a package
+cannot make an `int 13h` safe, because the BIOS runs its disk handler and its
+IRQ6 nesting on whichever 256-byte task stack is current and the kernel's own
+`dsk_xfer` holds `sch_lock` across every call so nothing switches underneath
+one. It is kept because it answered the question and the answer was worth
+6.3x; nothing shipped may copy it.
