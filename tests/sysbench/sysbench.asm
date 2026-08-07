@@ -1861,6 +1861,7 @@ sb_dbgctr:
     call sb_ctr_bank                ; --- one 16KB read
     call sb_b_rdbig
     call sb_ctr_take
+    call sb_verify                  ; ...and CHECK IT (below)
     mov si, sb_l_c16
     call bl_sline
     call sb_ctr_show
@@ -2039,6 +2040,67 @@ sb_ctr_trace:
 .out:
     pop es
     pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sb_verify - is BENCH.DAT actually what BENCH.DAT is?
+;
+; The Makefile fills it with (i>>9) & 0xFF, so **every byte of sector n is n**
+; - which makes a whole-file check three instructions per byte and, more to
+; the point, makes the two failures this exists to catch unmistakable. A
+; transfer that skips sectors leaves a GAP (sector n holding m > n); one that
+; re-reads leaves a REPEAT (m < n). Either way the row names the first sector
+; that disagrees and what it found there instead.
+;
+; It is here because SPEC.md 18.91 stopped believing int 13h's AL and started
+; trusting CF=0 for the whole request (PERFORMANCE.md Part 9 Set 16). That is
+; the right reading of the contract and it is what DOS does, but it is also
+; exactly the change that would corrupt a file silently if some BIOS really
+; did terminate a multi-sector read early - the old code's whole reason for
+; existing. A benchmark that got 6x faster and quietly wrong would be the
+; worst possible outcome, so the disk says.
+; -----------------------------------------------------------------------------
+sb_verify:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push es
+    mov es, [sb_bseg]
+    xor bx, bx                      ; ES:BX walks the buffer
+    xor cx, cx                      ; CX = sector number, 0..31
+.sec:
+    mov al, [es:bx]                 ; first byte of the sector...
+    cmp al, cl
+    jne .bad
+    mov al, [es:bx+511]             ; ...and its last, which catches a
+    cmp al, cl                      ; transfer that started right and drifted
+    jne .bad
+    add bx, 512
+    inc cx
+    cmp cx, 32
+    jb .sec
+    mov si, sb_l_vok
+    mov di, sb_n_ok
+    call bl_kvs
+    jmp short .out
+.bad:
+    push ax
+    mov si, sb_l_vbad               ; the first sector that disagreed...
+    mov ax, cx
+    call sb_num
+    pop ax
+    xor ah, ah
+    mov si, sb_l_vgot               ; ...and the sector number it holds
+    call sb_num
+.out:
+    pop es
     pop si
     pop dx
     pop cx
@@ -2677,6 +2739,10 @@ sb_l_c16:    db '  one 16KB FILE_READ:', 0
 sb_l_c1:     db '  one 1-sector FILE_READ:', 0
 sb_l_cmnt:   db 'disk_mount calls', 0
 sb_l_ctrc:   db '  every int 13h it issued, as lba+run:', 0
+sb_l_vok:    db 'data check, 32 sectors', 0
+sb_n_ok:     db '           OK', 0
+sb_l_vbad:   db 'DATA WRONG at sector', 0
+sb_l_vgot:   db '  ...it holds sector', 0
 sb_l_csec:   db 'sectors moved', 0
 sb_l_ci13:   db 'int 13h calls', 0
 sb_l_cmax:   db 'longest run, sectors', 0

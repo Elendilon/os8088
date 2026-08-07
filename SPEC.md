@@ -5675,10 +5675,13 @@ would have reconciled it.
 
 ### 18.91 The transfer loop batches a run into one int 13h
 
-> **See §18.93's box: on the IBM 5150 this is a 15% LOSS on a 16KB read, and
-> `make FLOPPY1=1` measures it.** The batching is retained, its default
-> unchanged and its correctness (§18.92's parameter table) untouched, but no
-> speed claim in this section survives PERFORMANCE.md Part 9 Set 13.
+> **The 5150 measured this as a 15% LOSS, and Set 16 found why: `.ok` used to
+> advance by `int 13h`'s AL, and that BIOS moves nine sectors and answers
+> AL = 1.** So the splitter formed its runs and then re-read them one sector
+> at a time - the same call count as no batching, plus the arithmetic. `.ok`
+> trusts CF now, which is the contract and what DOS does; `make DISKAL=1`
+> restores the old reading for an A/B, and `sysbench` verifies the file it
+> reads because getting this wrong corrupts silently.
 
 `dsk_xfer` used to issue **`AL = 1`** — one int 13h per 512 bytes, with the
 CHS conversion recomputed each time — so a nine-sector FAT window was nine
@@ -5806,15 +5809,14 @@ something in this area is in doubt.
 > revolution instead of one" is a claim about revolutions that this drive,
 > controller or media does not honour. Both emulators show the predicted gain
 > and neither models rotational latency, so neither can arbitrate. The
-> mechanism is now known and it is OURS (Set 14): a raw `int 13h` on that
-> machine reads a whole 9-sector track in **one call in 1.92 revolutions**
-> and the same nine sectors in **nine calls in 10.02**, so the hardware
-> streams and this section's premise is right — but `dsk_xfer` measures
-> **1.34 revolutions per sector**, which is what nine separate calls cost and
-> not what one batched call costs. Whatever is being issued is not reaching
-> the FDC as a multi-sector command. The default has not been changed because
-> there is nothing to change it to; the section is otherwise accurate and the
-> parameter-table work is correctness rather than speed.
+> cause is now FOUND (Set 16) and it was never the transfer: the BIOS moved
+> all nine sectors and answered **`AL = 1`**, the short-count handling
+> believed it, and `dsk_xfer` re-asked for the other eight one at a time.
+> That is why this A/B inverted — batching did the run arithmetic and then
+> threw the result away, so it cost the same calls plus the work. `.ok`
+> trusts `CF` now (`make DISKAL=1` restores the old reading), and the
+> expectation is ~1.6 s against 8.4 for a 16KB read. The parameter-table work
+> below is correctness rather than speed and is unaffected.
 
 `boot/boot.asm` read `AL = 1`. 131 sectors, one int 13h each, at
 PERFORMANCE.md's measured **238 ms per sector** — **over thirty seconds**, and

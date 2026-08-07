@@ -537,14 +537,27 @@ dsk_xfer:
     jmp short .attempt
 
 .ok:
-    ; AL = the sectors the BIOS says it ACTUALLY transferred, and that is
-    ; NOT always the number asked for (SPEC.md 18.91). SeaBIOS always returns
-    ; the full count, so QEMU cannot show this; a real BIOS reports what the
-    ; FDC really moved, and a multi-sector read it terminated early comes back
-    ; CF=0 and SHORT. Advancing by the REQUEST then steps the LBA and the
-    ; buffer past the hole - the file comes back with a gap and a shifted
-    ; tail, its first sector intact, so the load succeeds and the package
-    ; dies when its code is reached.
+    ; CF=0 IS the BIOS saying the whole request completed, and AL is not.
+    ;
+    ; This used to advance by AL, on the reasoning that a real BIOS reports
+    ; what the FDC really moved and a multi-sector read terminated early comes
+    ; back CF=0 and SHORT. That reasoning is sound and the case never
+    ; occurred; what happens instead on the IBM 5150 is that a nine-sector
+    ; read MOVES ALL NINE and answers AL = 1. Believing it, dsk_xfer advanced
+    ; one sector and re-asked for the other eight, then seven, then six - the
+    ; DATA stayed correct, because the sectors it re-read were the sectors it
+    ; had already read, and CF stayed 0 and nothing retried - so the only
+    ; symptom was that every sector cost its own revolution. Measured: a 16KB
+    ; file is 32 sectors and cost 34 int 13h calls with a run sum of 148
+    ; (PERFORMANCE.md Part 9 Set 16, docs/FIELD-NOTES.md 7). It is also why
+    ; 18.91's batching measured SLOWER than one-sector-per-call on that
+    ; machine: the same call count plus the run arithmetic, for nothing.
+    ;
+    ; SeaBIOS returns the full count, so QEMU can show none of it, and the
+    ; trace of (LBA, run) pairs that 18.94 publishes is what made it visible.
+    ;
+    ; `make DISKAL=1` restores the old behaviour, for A/B-ing this on iron.
+%ifdef DISK_TRUST_AL
     xor ah, ah
     or al, al
     jnz .moved
@@ -553,7 +566,8 @@ dsk_xfer:
 .moved:
     cmp ax, [dsk_run]
     jbe .count
-    mov ax, [dsk_run]           ; ...and never believe MORE than was asked
+%endif
+    mov ax, [dsk_run]           ; the whole run: CF=0 is the contract
 .count:
     mov cx, ax                  ; the boot bar counts SECTORS, and a call now
 .notch:                         ; carries a run of them (SPEC.md 18.91) - so

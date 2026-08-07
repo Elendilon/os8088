@@ -2143,3 +2143,73 @@ across boots. The two derived `bios ... B/s` rows now read correctly —
 The parameter table repeats exactly too: EOT **9**, step/head unload
 **00CF**, head settle **25 ms**, motor start **8** (one second). Stable, the
 ROM's, and not the bug.
+
+### Set 16 — the BIOS moves nine sectors and says it moved one
+
+The trace settled it in one run. `sysbench` on the 5150, one 16 KB
+`OSAPI_FILE_READ`, every `int 13h` `dsk_xfer` issued, as `lba+run`:
+
+```
+    5  1      5  1    254  7    255  6    256  5    257  4    258  3
+  259  2    260  1    261  9    262  8    263  7    264  6    265  5
+  266  4    267  3    268  2    269  1    270  9    271  8    272  7
+  273  6    274  5    275  4    276  3    277  2    278  1    279  7
+  280  6    281  5    282  4    283  3    284  2    285  1
+```
+
+Two directory reads, then **the LBA advances by one while the run counts
+down** — 7,6,5,4,3,2,1 then 9,8,…,1 then 9,8,…,1 then 7,…,1. Thirty-four
+calls, a run sum of 148, and **thirty-three distinct LBAs**: nothing is read
+twice and nothing is skipped. That shape has exactly one cause.
+
+**`dsk_xfer` asked for nine sectors, the BIOS moved nine, and answered
+`AL = 1`.** The code believed it (§18.91's short-count handling), advanced one
+sector and re-asked for the other eight — then seven, then six. The data
+stayed correct, because the sectors it re-read were sectors it had already
+read correctly; `CF` stayed 0 so nothing retried; and the only symptom was
+that **every sector cost its own revolution**.
+
+That one fact retires the whole investigation:
+
+| symptom | why |
+|---|---|
+| 148 sectors requested for a 32-sector file (Set 15) | 32 calls at descending run lengths sum to 148 |
+| 1.34 revolutions a sector against the BIOS's 0.21 (Set 14) | 32 calls, each catching one sector |
+| **batching measured 15% SLOWER than `FLOPPY1=1` (Set 13)** | **the same call count plus the run arithmetic, for nothing** |
+| DOS 6x faster on the same drive and media (Set 13) | DOS trusts `CF` |
+| QEMU perfect on the same binary and image (Set 15) | SeaBIOS returns the full count |
+
+Set 13's inversion is the one worth dwelling on. "The batching is slower than
+no batching" looked like a fact about floppy hardware and was in fact the
+signature of batching that never happened — the run splitter did all its work
+and then threw the result away, one sector at a time.
+
+#### The fix is to read the contract
+
+**`CF = 0` is the BIOS saying the whole request completed. `AL` is not.**
+`dsk_xfer` now advances by `[dsk_run]`, which is what DOS does and what the
+int 13h contract says. `make DISKAL=1` restores the old behaviour for an A/B
+on iron.
+
+The old reasoning was sound and is worth keeping in view: a BIOS *may*
+terminate a multi-sector read early and report it, and advancing by the
+request would then step past a hole and produce a file with a gap and a
+shifted tail — intact first sector, so the load succeeds and the package dies
+when its code is reached. That case has never been observed here, and
+docs/FIELD-NOTES.md 5 already recorded that the short-count fix "changed
+nothing" when it landed. It changed something now.
+
+Because that risk is real if the reading is wrong, **`sysbench` verifies the
+file it reads**. `BENCH.DAT` is filled with `(i >> 9) & 0xFF`, so every byte
+of sector *n* is *n*: a skipped sector shows as a gap (sector *n* holding
+*m > n*), a re-read as a repeat, and the row names the first sector that
+disagrees and what it found there. A benchmark that got 6x faster and quietly
+wrong is the worst available outcome, so the disk says.
+
+#### What to expect
+
+32 sectors in ~4 calls at ~400 ms each: **~1.6 s against 8.4 s**, so roughly
+**5x on every load in the system** — the number Set 1 predicted for a
+different reason and Set 13 measured as a loss. Under QEMU the change is a
+no-op, which is the point: 34 sectors in 6 calls before and after, data check
+OK.
