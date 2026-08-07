@@ -26,9 +26,10 @@ never had (switchable to cooperative from the Control Panel, if you want to
 feel what they were up against).
 
 ```
-make          # build all four floppy images
+make          # build all six floppy images
 make run      # boot it in QEMU (with an emulated serial mouse)
 make run-640  # the same, on a 640KB machine
+make run-720  # the same, off the 720KB pair
 make xt       # boot the 360KB image on an emulated IBM PC/XT in 86Box
 make xt-640   # the same XT with a full 640KB of RAM
 make 286      # 86Box: 286 @ 12.5MHz, 1MB, VGA
@@ -282,19 +283,29 @@ from then on the program is event-driven — its paint/key/click procs are
 called like any built-in window's — and from one of those it can claim a
 single pre-empted worker task of its own. Closing a package frees its region.
 
-## Two geometries of everything
+## Three geometries of everything
 
-| image                | geometry                | for                             |
-|----------------------|-------------------------|---------------------------------|
-| `build/os8088.img`      | 1.44MB, 18 spt, 2 heads | QEMU boot floppy (A:)           |
-| `build/os8088-360.img`   | 360KB, 9 spt, 2 heads   | 86Box / real XT boot floppy     |
-| `build/apps.img`     | 1.44MB FAT12             | QEMU software floppy (B:)       |
-| `build/apps360.img`  | 360KB FAT12              | 86Box / real XT software floppy |
+| image                  | geometry                 | for                             |
+|------------------------|--------------------------|---------------------------------|
+| `build/os8088.img`     | 1.44MB, 18 spt, 2 heads  | QEMU boot floppy (A:)           |
+| `build/os8088-720.img` | 720KB, 9 spt, 2 heads    | 3.5" DD / USB floppy / Gotek    |
+| `build/os8088-360.img` | 360KB, 9 spt, 2 heads    | 86Box / real XT boot floppy     |
+| `build/apps.img`       | 1.44MB FAT12             | QEMU software floppy (B:)       |
+| `build/apps720.img`    | 720KB FAT12              | 3.5" DD software floppy         |
+| `build/apps360.img`    | 360KB FAT12              | 86Box / real XT software floppy |
 
 The boot sector takes its geometry from `-DSPT` / `-DHEADS` at assembly
 time and reads exactly as many sectors as the measured kernel occupies.
 A 1.44MB drive postdates the 8086 by years, so period hardware gets the
 360KB build.
+
+720KB is the one in between, and it is the same sector at both ends: 9
+sectors and 2 heads like the 360KB disk, on 80 cylinders instead of 40,
+and the boot sector derives its cylinder from the LBA rather than counting
+them — so the two share `build/boot360.bin` and only the BPB differs. It is
+there for the machines that can take neither of the others: an XT or AT
+fitted with a 3.5" DD drive, and every USB floppy drive and Gotek made,
+which read 720KB and 1.44MB and nothing 5.25" at all.
 
 ## Emulators
 

@@ -5351,42 +5351,58 @@ words little-endian. Sector size 512.
 **Shipped geometries** (what §24's os88disk.py emits — canonical DOS
 formats):
 
-| BPB field (off, size)      | 1.44MB            | 360KB             |
-|----------------------------|-------------------|-------------------|
-| BS_jmpBoot (0, 3)          | `EB 3C 90`        | `EB 3C 90`        |
-| BS_OEMName (3, 8)          | `"MSDOS5.0"`      | `"MSDOS5.0"`      |
-| BPB_BytsPerSec (11, 2)     | 512               | 512               |
-| BPB_SecPerClus (13, 1)     | 1                 | 2                 |
-| BPB_RsvdSecCnt (14, 2)     | 1                 | 1                 |
-| BPB_NumFATs (16, 1)        | 2                 | 2                 |
-| BPB_RootEntCnt (17, 2)     | 224               | 112               |
-| BPB_TotSec16 (19, 2)       | 2880              | 720               |
-| BPB_Media (21, 1)          | 0xF0              | 0xFD              |
-| BPB_FATSz16 (22, 2)        | 9                 | 2                 |
-| BPB_SecPerTrk (24, 2)      | 18                | 9                 |
-| BPB_NumHeads (26, 2)       | 2                 | 2                 |
-| BPB_HiddSec (28, 4)        | 0                 | 0                 |
-| BPB_TotSec32 (32, 4)       | 0                 | 0                 |
-| BS_DrvNum (36, 1)          | 0                 | 0                 |
-| BS_Reserved1 (37, 1)       | 0                 | 0                 |
-| BS_BootSig (38, 1)         | 0x29              | 0x29              |
-| BS_VolID (39, 4)           | 0x88000888 fixed  | 0x88000888 fixed  |
-| BS_VolLab (43, 11)         | `"OS8088APPS "`   | `"OS8088APPS "`   |
-| BS_FilSysType (54, 8)      | `"FAT12   "`      | `"FAT12   "`      |
-| boot code (62..509)        | message stub      | message stub      |
-| signature (510, 2)         | 0x55 0xAA         | 0x55 0xAA         |
+| BPB field (off, size)      | 1.44MB            | 720KB             | 360KB             |
+|----------------------------|-------------------|-------------------|-------------------|
+| BS_jmpBoot (0, 3)          | `EB 3C 90`        | `EB 3C 90`        | `EB 3C 90`        |
+| BS_OEMName (3, 8)          | `"MSDOS5.0"`      | `"MSDOS5.0"`      | `"MSDOS5.0"`      |
+| BPB_BytsPerSec (11, 2)     | 512               | 512               | 512               |
+| BPB_SecPerClus (13, 1)     | 1                 | 2                 | 2                 |
+| BPB_RsvdSecCnt (14, 2)     | 1                 | 1                 | 1                 |
+| BPB_NumFATs (16, 1)        | 2                 | 2                 | 2                 |
+| BPB_RootEntCnt (17, 2)     | 224               | 112               | 112               |
+| BPB_TotSec16 (19, 2)       | 2880              | 1440              | 720               |
+| BPB_Media (21, 1)          | 0xF0              | 0xF9              | 0xFD              |
+| BPB_FATSz16 (22, 2)        | 9                 | 3                 | 2                 |
+| BPB_SecPerTrk (24, 2)      | 18                | 9                 | 9                 |
+| BPB_NumHeads (26, 2)       | 2                 | 2                 | 2                 |
+| BPB_HiddSec (28, 4)        | 0                 | 0                 | 0                 |
+| BPB_TotSec32 (32, 4)       | 0                 | 0                 | 0                 |
+| BS_DrvNum (36, 1)          | 0                 | 0                 | 0                 |
+| BS_Reserved1 (37, 1)       | 0                 | 0                 | 0                 |
+| BS_BootSig (38, 1)         | 0x29              | 0x29              | 0x29              |
+| BS_VolID (39, 4)           | 0x88000888 fixed  | 0x88000888 fixed  | 0x88000888 fixed  |
+| BS_VolLab (43, 11)         | `"OS8088APPS "`   | `"OS8088APPS "`   | `"OS8088APPS "`   |
+| BS_FilSysType (54, 8)      | `"FAT12   "`      | `"FAT12   "`      | `"FAT12   "`      |
+| boot code (62..509)        | message stub      | message stub      | message stub      |
+| signature (510, 2)         | 0x55 0xAA         | 0x55 0xAA         | 0x55 0xAA         |
 
 Derived layout (all LBAs volume-relative = disk-absolute; unpartitioned):
 
-|                     | 1.44MB                  | 360KB                 |
-|---------------------|-------------------------|-----------------------|
-| FAT1 / FAT2         | LBA 1–9 / 10–18         | LBA 1–2 / 3–4         |
-| Root dir            | LBA 19–32 (14 sec)      | LBA 5–11 (7 sec)      |
-| First data sector   | LBA 33                  | LBA 12                |
-| CountOfClusters     | 2847 (clusters 2..2848) | 354 (clusters 2..355) |
-| FAT type            | FAT12 (2847 < 4085)     | FAT12 (354 < 4085)    |
-| FAT bytes needed    | 2849×1.5 = 4274 ≤ 4608  | 356×1.5 = 534 ≤ 1024  |
-| FAT[0..1] reserved  | `F0 FF FF`              | `FD FF FF`            |
+|                     | 1.44MB                  | 720KB                  | 360KB                 |
+|---------------------|-------------------------|------------------------|-----------------------|
+| FAT1 / FAT2         | LBA 1–9 / 10–18         | LBA 1–3 / 4–6          | LBA 1–2 / 3–4         |
+| Root dir            | LBA 19–32 (14 sec)      | LBA 7–13 (7 sec)       | LBA 5–11 (7 sec)      |
+| First data sector   | LBA 33                  | LBA 14                 | LBA 12                |
+| CountOfClusters     | 2847 (clusters 2..2848) | 713 (clusters 2..714)  | 354 (clusters 2..355) |
+| FAT type            | FAT12 (2847 < 4085)     | FAT12 (713 < 4085)     | FAT12 (354 < 4085)    |
+| FAT bytes needed    | 2849×1.5 = 4274 ≤ 4608  | 715×1.5 = 1073 ≤ 1536  | 356×1.5 = 534 ≤ 1024  |
+| FAT[0..1] reserved  | `F0 FF FF`              | `F9 FF FF`             | `FD FF FF`            |
+
+**720KB is 360KB's track shape on twice the cylinders**, and everything that
+follows from that is why it costs so little to carry. 9 sectors, 2 heads, 80
+cylinders instead of 40 — so `boot/boot.asm` is assembled once for both
+(`-DSPT=9 -DHEADS=2`), because the sector it produces derives the cylinder
+from the LBA and never holds a count of them to be wrong about. `BPB_FATSz16`
+rises to 3 for the same reason `BPB_TotSec16` doubles, and `DSK_FAT_SECS` (9)
+covers it, so the FAT window (§18.8) is still the degenerate whole-FAT case a
+floppy has always got. The cluster is 1KB on both, so §22.5's `fcp_clspan`
+and §18.4.2's run coalescing meet nothing new.
+
+**Why ship it**: it is the geometry of the machines *between* the two the
+project already targets — an XT or AT fitted with a 3.5" DD drive — and it is
+what a USB floppy drive or a Gotek reads. Those handle 720KB and 1.44MB and
+nothing 5.25", so on a machine whose BIOS cannot read a 1.44MB disk this is
+the only image that reaches it.
 
 **There was a test-only third geometry** — 2.88M ED, 23 FAT sectors,
 CountOfClusters 5698 ≥ 4085 ⇒ FAT16 — built by neither the Makefile nor the
@@ -5405,8 +5421,9 @@ reboot. Zero-padded to 510, then 55 AA. Byte-fixed ⇒ deterministic images
 (§24).
 
 **Why these choices**: canonical cluster/root/FAT counts — every era of
-DOS recognizes the textbook 1.44M/360K layouts (pre-BPB DOS keys on the
-media byte). NumFATs=2 — DOS and macOS expect it; single-FAT floppies
+DOS recognizes the textbook 1.44M/720K/360K layouts (pre-BPB DOS keys on
+the media byte, which is why the three differ there and it is not a serial
+number: F0h, F9h and FDh are what those DOSes look up). NumFATs=2 — DOS and macOS expect it; single-FAT floppies
 confuse CHKDSK. BS_BootSig 0x29 + serial + label — Windows/macOS mount
 heuristics. OEM "MSDOS5.0" — legacy DOS/Windows mount heuristics key on
 it; identity is carried by label+serial, and the kernel never reads OEM.
@@ -5659,10 +5676,10 @@ none can straddle a 64KB DMA boundary.
 armed once `SPL_RESIDENT` sectors are aboard, and the loop used to test
 `[lba]` for that — true while the kernel started at LBA 1 and *sectors done*
 and *sector number* were the same quantity. They are not any more: `[lba]`
-starts at 33 on the 1.44MB geometry and 12 on the 360KB one, both already
-past `SPL_RESIDENT`, so the splash was far-called before a byte of it had
-landed and the machine hung with a black screen inside `KERNEL_SEG`. Sectors
-done is now counted on its own.
+starts at 33 on the 1.44MB geometry, 14 on the 720KB one and 12 on the 360KB
+one, all three already past `SPL_RESIDENT`, so the splash was far-called
+before a byte of it had landed and the machine hung with a black screen
+inside `KERNEL_SEG`. Sectors done is now counted on its own.
 
 #### Why: DOS does not read `BPB_RsvdSecCnt` on a floppy
 
@@ -5682,20 +5699,25 @@ against the old image reproduced the figure to the byte.
 one vintage that a later one fixes. A boot-sector BPB is what DOS reads for a
 hard-disk *partition*; for a standard floppy format it is not consulted at
 all — which is why the fix is not "write a better BPB" but "put nothing where
-DOS is going to look". The image is now a byte-exact standard format on both
-geometries:
+DOS is going to look". The image is a byte-exact standard format on every
+geometry it is built for:
 
-| | 1.44MB | 360KB |
-|---|---:|---:|
-| `BytsPerSec` | 512 | 512 |
-| `SecPerClus` | 1 | 2 |
-| `RsvdSecCnt` | 1 | 1 |
-| `NumFATs` | 2 | 2 |
-| `RootEntCnt` | 224 | 112 |
-| `TotSec16` | 2880 | 720 |
-| `Media` | F0h | FDh |
-| `FATSz16` | 9 | 2 |
-| data area at LBA | 33 | 12 |
+| | 1.44MB | 720KB | 360KB |
+|---|---:|---:|---:|
+| `BytsPerSec` | 512 | 512 | 512 |
+| `SecPerClus` | 1 | 2 | 2 |
+| `RsvdSecCnt` | 1 | 1 | 1 |
+| `NumFATs` | 2 | 2 | 2 |
+| `RootEntCnt` | 224 | 112 | 112 |
+| `TotSec16` | 2880 | 1440 | 720 |
+| `Media` | F0h | F9h | FDh |
+| `FATSz16` | 9 | 3 | 2 |
+| data area at LBA | 33 | 14 | 12 |
+
+That is also what made the 720KB disk cheap to add rather than a port: its
+column is the DOS format nobody had to invent, so DOS and os8088 read it for
+the same reasons they read the other two, and the boot sector derives the
+data area from the BPB instead of being told where it is.
 
 Three consequences fall out, all wanted:
 
@@ -7945,12 +7967,13 @@ and non-zero exit + stderr message on any validation failure.
   [0x20, image) (≥ 0x60 with the icon flag); image + bss ≤ `APP_MAX_SIZE`
   (0xF000); with the icon flag, image ≥ 96; name printable, ≤ 15, NUL-padded
   with nothing after the terminator.
-- `tools/os88disk.py -o OUT.img --size {1440,360} [PKG.o88 ...]` — builds
-  a FAT12 data floppy per §19. CLI shape unchanged from the os88fs era —
-  the Makefile call sites need zero edits; pure Python 3 stdlib (no
-  mtools). These two are the only geometries: a `--size 2880` (2.88M ED,
+- `tools/os88disk.py -o OUT.img --size {1440,720,360} [PKG.o88 ...]` —
+  builds a FAT12 data floppy per §19. CLI shape unchanged from the os88fs
+  era — the Makefile call sites need zero edits; pure Python 3 stdlib (no
+  mtools). These three are the only geometries: a `--size 2880` (2.88M ED,
   FAT16) existed so the kernel's FAT16 path had a positive test and went
-  with it (§2.1). The tool still derives the FAT type from the cluster
+  with it (§2.1). 720 and 360 share a boot sector — same 9 spt / 2 heads,
+  and `boot/boot.asm` knows nothing else about a disk's shape. The tool still derives the FAT type from the cluster
   count exactly like the kernel does, and its `--verify` fsck carries the
   same `1 ≤ FATSz16 ≤ 10` bound as mount rule 10, so a volume the kernel
   would refuse fails on the host too.
@@ -7998,8 +8021,11 @@ and non-zero exit + stderr message on any validation failure.
     doubles as the test-plan oracle.
 - Makefile: one `nasm -f bin -w+error -I apps/` per package (dep on
   apps/os88api.inc) — a single assembly each since v3 — fed to os88pkg.py,
-  then `build/apps.img` (1440) + `build/apps360.img` (360) via os88disk.py;
-  all built by `all`.
+  then `build/apps.img` (1440) + `build/apps720.img` (720) +
+  `build/apps360.img` (360) via os88disk.py; all built by `all`, alongside
+  the three bootable system disks `build/os8088.img`,
+  `build/os8088-720.img` and `build/os8088-360.img`. Every one of the six is
+  git-tracked and therefore checked by `make check-images`.
   The apps disks are **foldered**: the root holds `APPS`, `GAMES` and the
   one root-level file `TASKMGR.O88` (§28.3 — the chip menu's copy, for a
   single-floppy machine). `APPS` holds the tools plus the data file

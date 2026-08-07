@@ -86,9 +86,10 @@ re-deriving any of them.
 ## Commands
 
 ```
-make          # build all four floppy images into build/
+make          # build all six floppy images into build/
 make run      # boot in QEMU with emulated serial mouse (1.44MB images)
 make run-640  # same, as a maxed-out 640KB machine (-m 1M; QEMU/SeaBIOS can't boot below 1MB, int 12h caps at 640K anyway; SeaBIOS's EBDA makes it 639K)
+make run-720  # same, off the 720KB pair (os8088-720.img + apps720.img)
 make test     # boot headless with QMP socket at build/qmp.sock for scripted testing
 make test ADLIB=1 # ...with an emulated AdLib at 388h, so the sound DRIVER
               # (SPEC.md 51.4) has something to attach to. SB16=1 likewise.
@@ -1416,6 +1417,6 @@ Everything above the kernel is handed out on demand. `mem_claim` takes KB and an
 - **The kernel is a client too**, with its own owner tags: the menu save-under (`MEM_K_SAVE`, claimed by `menu_drop` for exactly as long as a menu is on screen and released *before* the chosen item runs) and the back buffer (`MEM_K_BB`). `bb_set` claims 150KB when double buffering is armed and frees it when it is switched off, and the Control Panel's Display row **greys out with "Not Enough Ram"** when `bb_canfit` says the heap cannot fund it right now. That is live state — open Paint and the row greys, close it and it comes back.
 - **Refusal is a normal path, not a panic.** Every claim in the tree has a fallback: the menu save-under repaints the menu's own rect instead of restoring it, a Disk window with no listing cache reads the global mount snapshot, Paint gives up features tier by tier and finally puts up a notice window.
 
-### Two geometries of everything
+### Three geometries of everything
 
-Every image is built twice: 1.44MB (18 spt, for QEMU) and 360KB (9 spt, for 86Box / a real XT). If you change the boot path or the FAT driver / disk layout, check both.
+Every image is built three times: 1.44MB (18 spt, for QEMU), **720KB** (9 spt, 80 cylinders — a 3.5" DD drive, and what every USB floppy drive and Gotek reads) and 360KB (9 spt, 40 cylinders, for 86Box / a real XT). If you change the boot path or the FAT driver / disk layout, check all three. **720KB and 360KB share `boot360.bin`, and that is not a shortcut**: the boot sector's whole knowledge of a geometry is `-DSPT`/`-DHEADS`, both 9/2 here, and it derives the cylinder from the LBA rather than holding a count of them — what actually differs is the BPB (media byte F9h vs FDh, `TotSec16` 1440 vs 720, `FATSz16` 3 vs 2), which `tools/os88disk.py` writes over the first 62 bytes. A `boot720.bin` would be a byte-identical second tracked artifact for `make check-images` to compare against itself. `make run-720` boots the pair in QEMU, which picks a floppy's geometry from the image SIZE — 737,280 bytes is a standard one, so nothing else was needed.

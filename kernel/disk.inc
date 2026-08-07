@@ -385,8 +385,10 @@ dsk_xfer:
     div cx                      ; AX = cylinder, DX = rem
     cmp ax, 80                  ; a corrupt LBA (bad directory entry) must
     jae .fail                   ; fail, not truncate into CH and read the
-                                ; wrong sector; both real geometries top
-                                ; out below 80 cylinders
+                                ; wrong sector. All three real geometries
+                                ; end at cylinder 79 or below: 1.44MB and
+                                ; 720KB both fill 0..79 (2880/36 and
+                                ; 1440/18), the 360KB disk stops at 39
     mov ch, al                  ; CH = cyl low 8 bits (cyl < 80)
     mov ax, dx
     xor dx, dx
