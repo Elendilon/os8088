@@ -91,6 +91,14 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ;            FAT_SEG     mount-time FAT snapshot     FAT_PARA
 ;            LOW_SEG     .lowbss + task 0's stack    LOW_PARA
 ;            HEAP_SEG    the claim heap              up to int 12h's top
+;            (the top)   the boot sector + its stack 2,560 B, until handoff
+;
+; That last rung is not the kernel's and is not reserved: boot/boot.asm
+; relocates itself to the last 512 bytes the machine has and runs there while
+; the kernel lands (SPEC.md 2.7), so those bytes are live during the boot and
+; ordinary heap the instant kmain sets its own stack. The heap hands regions
+; out from the top down, so the first package loaded sits exactly where the
+; sector was.
 ;
 ; **There is no package pool.** It was a fixed 60KB reservation between the
 ; kernel and the heap - unavailable to anything else whether or not a package
@@ -123,7 +131,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 82432           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 86528           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
                                 ; It has moved nine times, every one asked
@@ -275,6 +283,43 @@ KERN_BUDGET equ 82432           ; the whole kernel's FOOTPRINT. Growing past
                                 ; .text's - moving a module cold to fix an
                                 ; overrun of THIS constant is a no-op that
                                 ; looks like a fix (docs/KERNEL-MEMORY.md).
+                                ;
+                                ; The ninth move landed exactly on guard 5's
+                                ; ceiling, and for a while that made this
+                                ; constant unraisable: the kernel had to end
+                                ; below a boot sector nailed to linear
+                                ; 0x15000, which capped the footprint at
+                                ; 82,432 whatever this line said. The sector
+                                ; is at the top of RAM now (SPEC.md 2.7) and
+                                ; guard 5 is a statement about the smallest
+                                ; supported machine instead, 126,976 - so a
+                                ; tenth move is possible again, and is the
+                                ; same decision the nine above were. What is
+                                ; NOT available is a tenth move that quietly
+                                ; takes the slack: this figure buys scrutiny
+                                ; and nothing else, and 44.5KB of it would be
+                                ; the fifth move's mistake at five times the
+                                ; size.
+                                ;
+                                ; The tenth move, 82,432 -> 86,528, is the
+                                ; first one taken against that room, and it
+                                ; is 4KB granted IN ADVANCE for incoming
+                                ; quality-of-life work - the same shape as
+                                ; moves 3 and 7, which is why the same terms
+                                ; come with it. The fifth move settled that
+                                ; 2,048 bytes is the right amount of slack:
+                                ; enough that an ordinary bug fix does not
+                                ; trip the guard, small enough that a FEATURE
+                                ; does. This lands at 4,608 - nine 512-byte
+                                ; steps - so until the work it was asked for
+                                ; arrives the guard is looser than the
+                                ; project's own standard, and what the fifth
+                                ; move is on record for is that slack of that
+                                ; size stops being scrutiny. So: spend it on
+                                ; what it was granted for, and if the work
+                                ; lands under it, hand the remainder back the
+                                ; way move 5 did rather than leaving it for
+                                ; the next author to find.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
@@ -289,15 +334,39 @@ KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; code is still resident. Confusing the two is
                                 ; why they are named rather than numbered
 
-; The relocated boot sector (boot/boot.asm). The kernel now lands at 0x00600
-; and runs up through 0x7C00, where the BIOS put the sector that is reading
-; it - so the sector copies ITSELF out of the way first, keeping its own
-; offset so every label in it still resolves at org 0x7C00. BOOT_RELOC:7C00
-; is linear 0x15000; its stack grows down from there, and guard 5 keeps the
-; kernel clear of both. Both constants are mirrored in boot/boot.asm.
-BOOT_RELOC  equ 0x0D40          ; 0x0D40*16 + 0x7C00 = linear 0x15000
-BOOT_LIN    equ BOOT_RELOC*16 + 0x7C00
-BOOT_STACK  equ 2048            ; stack room below it
+; The relocated boot sector (boot/boot.asm). The kernel lands at 0x00600 and
+; runs up through 0x7C00, where the BIOS put the sector that is reading it -
+; so the sector copies ITSELF out of the way first, keeping its own offset so
+; every label in it still resolves at org 0x7C00, and its stack grows down
+; from its new base.
+;
+; **Where it goes is computed, not fixed** (SPEC.md 2.7): int 12h, the top of
+; conventional RAM, the last 512 bytes the machine has. There is no
+; BOOT_RELOC here any more and nothing to keep in step - KERNEL_SEG is the
+; only constant the two files still share. What that changes is guard 5. A
+; fixed low address made the kernel's footprint a hostage to where the sector
+; happened to sit, and moves 6 through 9 of KERN_BUDGET below ate the whole
+; of the gap it left; at the ceiling the two can only meet on a machine too
+; small to run the OS, so what the guard asserts now is which machines those
+; are. The sector refuses to relocate at all when the kernel's read would
+; reach it, which is the same question asked of the machine actually in front
+; of it rather than of the smallest one we support.
+BOOT_SECT   equ 512             ; the sector itself, sitting at the very top
+BOOT_STACK  equ 2048            ; ...and its stack, growing down from there
+MIN_RAM_KB  equ 128             ; the smallest machine os8088 claims to run.
+                                ; A POLICY figure exactly like KERN_BUDGET,
+                                ; and the same kind of decision: it is not
+                                ; the smallest machine that CAN boot (that is
+                                ; roughly the kernel's own size plus this
+                                ; sector, and it lands you a desktop with a
+                                ; heap too small to open anything), it is the
+                                ; one the shipped system is claimed to work
+                                ; on. Guard 5 turns it into the footprint
+                                ; ceiling: 126,976 bytes, against KERN_BUDGET
+                                ; 86,528. When the kernel approaches THAT the
+                                ; answer is not another raise - it is two
+                                ; kernels, a big one and a minimum one, off
+                                ; the same tree (docs/KERNEL-MEMORY.md)
 
 DSK_FAT_SECS equ 9              ; resident FAT cap, sectors (4,608 bytes).
                                 ; Exactly what the largest geometry this OS
@@ -1671,6 +1740,10 @@ files_poster:         call COLD_SEG:fmf_files_poster
                     ret
 files_refresh:        call COLD_SEG:fmf_files_refresh
                     ret
+fm_focus:             call COLD_SEG:fmf_fm_focus
+                    ret                 ; CF out (SPEC.md 22.8): a near ret
+                                        ; over a far one, neither of which
+                                        ; touches the flags
 fm_kinit:             call COLD_SEG:fmf_fm_kinit
                     ret
 fm_onclick:           call COLD_SEG:fmf_fm_onclick
@@ -1827,11 +1900,21 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 %if OVL_SIZE < 16
 %error "the boot overlay is empty - the FAT_SEG far calls have nothing to reach"
 %endif
-; 5. the boot sector relocates itself to BOOT_RELOC before it reads a sector,
-;    and its stack grows down from there. The kernel's landing zone must end
-;    below that stack, or the sectors would overwrite the code that is
-;    reading them. boot/boot.asm carries its own copy of both constants (it
-;    is assembled separately); change one and change the other.
-%if KERNEL_SEG*16 + KERN_SIZE > BOOT_LIN - BOOT_STACK
-%error "the kernel would land on the relocated boot sector's stack"
+; 5. the boot sector relocates itself to the TOP OF CONVENTIONAL RAM before
+;    it reads a sector, and its stack grows down from there (SPEC.md 2.7), so
+;    on any given machine the kernel has to end below both. That address is
+;    computed from int 12h and is therefore not a constant this file can
+;    check - what it CAN check is the machine we claim to support: at
+;    MIN_RAM_KB the sector and its stack occupy the top 2,560 bytes, and
+;    everything below that is the kernel's to spend.
+;
+;    This is a POLICY guard now, like guard 1 and unlike guard 2 - which is
+;    the whole reason the constant it reads is named for the machine rather
+;    than for an address. It used to be the binding one: KERN_BUDGET was
+;    exactly equal to its ceiling, so raising the budget bought nothing and
+;    the only way up was to move the sector. Now it is 44.5KB above the
+;    budget, and the budget is free to move again the way it always did -
+;    once, asked for, and granted.
+%if KERNEL_SEG*16 + KERN_SIZE > MIN_RAM_KB*1024 - BOOT_SECT - BOOT_STACK
+%error "the kernel does not fit MIN_RAM_KB - see docs/KERNEL-MEMORY.md"
 %endif

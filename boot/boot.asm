@@ -10,12 +10,27 @@
 ; 8088. Strictly event-driven - a completed read is the only thing that ever
 ; advances it, so the animation costs no load time.
 ;
-; **We move out of the way first.** The kernel lands at linear 0x00600 and is
-; up to 64KB (SPEC.md 2), so it covers 0x7C00 - this sector, and the stack
-; below it - long before the last sector arrives. `start` therefore copies
-; these 512 bytes to BOOT_RELOC:7C00 and jumps there. The copy keeps the SAME
-; OFFSET, so every label in this file still resolves at org 0x7C00 and the
-; only thing that changes is which segment the segment registers name.
+; **We move out of the way first, to the TOP OF CONVENTIONAL RAM.** The kernel
+; lands at linear 0x00600 and runs up past 80KB (SPEC.md 2), so it covers
+; 0x7C00 - this sector, and the stack below it - long before the last sector
+; arrives. `entry` therefore copies these 512 bytes out of its way and jumps
+; there. The copy keeps the SAME OFFSET, so every label in this file still
+; resolves at org 0x7C00 and the only thing that changes is which segment the
+; segment registers name.
+;
+; The destination is COMPUTED, from int 12h, and lands the sector in the last
+; 512 bytes the machine has (SPEC.md 2.7). It used to be a fixed BOOT_RELOC,
+; which meant the kernel's footprint was capped by where this sector happened
+; to sit - a constant mirrored in kernel/kernel.asm and asserted there, and
+; the guard that eventually bound the whole kernel. Placed at the ceiling
+; instead, the two can only meet on a machine too small to run the OS at all,
+; so what caps the kernel is now a stated minimum machine and not an address.
+;
+; Trusting int 12h is not a new dependency on the machine: DOS loads itself
+; and everything above it from the same number, so a BIOS that lies about it
+; (an XT counts RAM from its DIP switches) is a machine that cannot run DOS
+; correctly either. mem_init reads the same call for the top of the heap, so
+; both ends of the system agree by construction.
 ;
 ; Assembled with -DKERNEL_SECTORS=<n> by the Makefile, which measures the
 ; built kernel so we never read more sectors than exist.
@@ -42,11 +57,23 @@ KERNEL_SEG   equ 0x0060         ; kernel lands at linear 0x00600, the first
                                 ; paragraph above the BIOS data area. Mirrored
                                 ; in kernel/kernel.asm, which asserts that the
                                 ; kernel ends clear of our relocated stack
-BOOT_RELOC   equ 0x0D40         ; 0x0D40*16 + 0x7C00 = linear 0x15000: where
-                                ; we copy ourselves, above anything the kernel
-                                ; can reach. Mirrored in kernel/kernel.asm
 STACK_TOP    equ 0x7C00         ; stack grows down from our own base, so it
                                 ; relocates with us and stays out of the way
+BOOT_STACK   equ 2048           ; stack room below us, and the one figure
+                                ; still shared with kernel/kernel.asm - which
+                                ; reserves the same 2,048 in guard 5. The two
+                                ; are asked about different machines (this
+                                ; one; the smallest supported one) but it is
+                                ; the same stack, so they are the same number
+RELOC_ADJ    equ 0x07E0         ; int 12h answers KB; KB*64 is the paragraph
+                                ; ONE PAST the last byte of conventional RAM,
+                                ; so the segment we want is that minus our own
+                                ; offset (0x7C00 = 0x7C0 paragraphs) and minus
+                                ; our own 512 bytes (0x20 more), which is what
+                                ; puts our LAST byte on the machine's last
+                                ; byte. Getting only the first term right
+                                ; boots on any machine with a spare page above
+                                ; int 12h's answer and dies on one without
 SPLASH_OFF   equ 0x0008         ; the kernel's boot splash far entry (SPEC.md 15)
 SPL_RESIDENT equ 7              ; splash is fully aboard after this many
                                 ; sectors - must match kernel/splash.inc
@@ -112,20 +139,60 @@ entry:
     ; --- relocate: same offset, new segment ---------------------------------
     ; Nothing above this point touches memory through a label, so it runs
     ; correctly at 0000:7C00 where the BIOS put it. After the far jump CS is
-    ; BOOT_RELOC and every org-0x7C00 label below is correct again.
+    ; the top of memory and every org-0x7C00 label below is correct again.
+    ;
+    ; The three instructions that turn int 12h's KB into a paragraph count are
+    ; mem_init's own (kernel/memory.inc), deliberately: the sector and the
+    ; heap must agree about where memory ends, and the cheapest way to
+    ; guarantee that is for both to ask the same question the same way.
     mov si, STACK_TOP
     mov di, STACK_TOP
-    mov ax, BOOT_RELOC
+%ifdef RAM_KB
+    mov ax, RAM_KB              ; make RAMKB=<n>: pretend, because QEMU always
+%else                           ; answers 639 and the interesting cases are
+    int 0x12                    ; the small ones (docs/TESTING.md)
+%endif
+                                ; AX = conventional memory, KB
+    mov cl, 6
+    shl ax, cl                  ; AX = KB*64 = one paragraph past the top
+    sub ax, RELOC_ADJ           ; ...and back off our offset and our own size
+
+    ; Would the kernel's own sectors land on us? Then this machine cannot run
+    ; the OS (SPEC.md 2.7). Refuse here rather than be overwritten mid-load,
+    ; which is a hang with a half-drawn splash and nothing to read. The same
+    ; compare catches a BIOS that under-reports (an XT counts RAM from its
+    ; DIP switches, so a memory board the switches do not mention is a
+    ; machine with plenty of RAM and a small answer) and a shift that
+    ; overflowed a claim of 1MB or more: both land below the kernel, which is
+    ; exactly what this asks about.
+    ;
+    ; The bound is our STACK's bottom, not our own base: it is live for the
+    ; whole load - every push, every int 13h, every splash call - so the read
+    ; has to clear that too, and BOOT_STACK folds into the immediate for
+    ; nothing. What it does NOT cover is the kernel's whole span: .lowbss and
+    ; the task stacks above the image are only in use after handoff, when we
+    ; are dead memory, so they are guard 5's business against the smallest
+    ; SUPPORTED machine and not this compare's against the actual one.
+    cmp ax, KERNEL_SEG + KERNEL_SECTORS*32 + BOOT_STACK/16
+    jb .nomem
     mov es, ax
     mov cx, 256
     cld
     rep movsw
-    jmp BOOT_RELOC:.moved
+    push es                     ; a computed far jump: the 8086 has no `push
+    mov ax, .moved              ; imm` and `jmp seg:off` takes a constant, so
+    push ax                     ; the target goes on the stack and comes back
+    retf                        ; off it as CS:IP
+.nomem:
+    mov si, msg_mem             ; DS is 0 and we are still where the BIOS put
+    call print                  ; us, so every label here resolves
+    jmp read_run.halt
 .moved:
     mov ax, cs
     mov ds, ax
     mov ss, ax                  ; the stack comes with us: same offset, so it
-    mov sp, STACK_TOP           ; grows down from linear 0x15000
+    mov sp, STACK_TOP           ; grows down from our own base, which is now
+                                ; 512 bytes below the top of the machine
     sti
     cld
 
@@ -381,6 +448,10 @@ run         dw 0
 dest_seg    dw KERNEL_SEG
 
 msg_err     db 'os8088: disk error', 13, 10, 0
+msg_mem     db 'RAM', 13, 10, 0  ; three characters because three is what is
+                                 ; left in 512 bytes, and a machine that says
+                                 ; RAM and stops is diagnosable where a black
+                                 ; screen is not
 
 ; -----------------------------------------------------------------------------
     times 510 - ($ - $$) db 0

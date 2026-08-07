@@ -2062,6 +2062,12 @@ dskw_nbody:
 ; wrong-directory write, not just a display glitch.
 ; -----------------------------------------------------------------------------
 dskw_sync_x:
+    call fmv_mark               ; every Disk window showing THIS folder now
+                                ; owes a refresh (SPEC.md 22.8) - marked
+                                ; ahead of the batch test, because the folder
+                                ; changed whether or not the remount is
+                                ; deferred, and a tree copy walks folders
+                                ; the single remount at its end has left
     cmp byte [dskw_batch], 0    ; a tree copy remounts ONCE, when it ends -
     jne .defer                  ; not after every one of its files (22.3)
     push ax
