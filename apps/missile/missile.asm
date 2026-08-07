@@ -5605,10 +5605,20 @@ mc_sat_shape:
 ; of eight far calls, and mc_cross_on at the end is a compare.
 ; -----------------------------------------------------------------------------
 MC_CHARM  equ 8                     ; arm length. Big enough to read AROUND the
-MC_CHGAP  equ 3                     ; system arrow, which the kernel keeps
+                                    ; system arrow, which the kernel keeps
                                     ; drawing at the same point (SPEC.md 11.2:
                                     ; even fullscreen, the cursor stays live)
                                     ; - a short crosshair simply hides under it
+                                    ;
+                                    ; TWO bars, not four arms (SPEC.md 48.18).
+                                    ; XOR is its own inverse, so where the two
+                                    ; cross the second undoes the first and the
+                                    ; centre hole comes back for free - one
+                                    ; pixel of it rather than the three-pixel
+                                    ; gap the four arms left. Two calls instead
+                                    ; of four, on EVERY frame the mouse moves:
+                                    ; a field log put this at 6.8 ms of a 63 ms
+                                    ; frame with no content in it at all
 
 mc_cross_on:
     push ax
@@ -5704,30 +5714,16 @@ mc_cross_xor:
     push bx
     push cx
     push dx
-    mov ax, [mc_chpx]               ; the left arm
+    mov ax, [mc_chpx]               ; ONE horizontal bar, straight through
     sub ax, MC_CHARM
-    mov bx, [mc_chpy]
-    mov cx, [mc_chpx]
-    sub cx, MC_CHGAP
-    mov dx, bx
-    call mc_xorc
-    mov ax, [mc_chpx]               ; the right arm
-    add ax, MC_CHGAP
     mov bx, [mc_chpy]
     mov cx, [mc_chpx]
     add cx, MC_CHARM
     mov dx, bx
     call mc_xorc
-    mov ax, [mc_chpx]               ; up
+    mov ax, [mc_chpx]               ; ...and one vertical, likewise
     mov bx, [mc_chpy]
     sub bx, MC_CHARM
-    mov cx, ax
-    mov dx, [mc_chpy]
-    sub dx, MC_CHGAP
-    call mc_xorc
-    mov ax, [mc_chpx]               ; ...and down
-    mov bx, [mc_chpy]
-    add bx, MC_CHGAP
     mov cx, ax
     mov dx, [mc_chpy]
     add dx, MC_CHARM
