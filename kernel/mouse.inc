@@ -32,9 +32,28 @@ MOU_DRAINT  equ 9               ; ticks the ISR discards RX after a hot-plug
                                 ; bit-6-set bytes the resync rule would read
                                 ; as packet headers - phantom clicks
 
-CUR_W       equ 16              ; cursor cell size, px
-CUR_H       equ 16
-CUR_SAVE_SZ equ 192             ; 3 bytes wide x 16 rows x 4 planes
+CUR_W       equ 16              ; cursor cell size, px - the size of the two
+CUR_H       equ 16              ; bitmap TABLES, and nothing else
+
+; The arrow inside that cell (SPEC.md 7.1). The tables are 16 rows of 16 bits
+; because that is the classic shape; the ARROW is 8 pixels wide and 12 rows
+; tall, and for years every save, every restore and both draw passes walked
+; the whole 16x16 - a quarter of the rows and a third of the bytes per row of
+; work on empty bits, on every gfx_lock and every gfx_unlock in the machine.
+;
+; Both are ASSERTED against the tables at the bottom of this file rather than
+; trusted, so a redrawn arrow that outgrows either one fails the build instead
+; of quietly losing its right-hand column. The width is what retires the cell's
+; THIRD byte: a 16-bit row whose low byte is zero cannot reach one however far
+; it is shifted, so `row << (8-shift)` was a byte that was always 0 and a
+; branch that was never taken, once per row per pass.
+CUR_GW      equ 8               ; the arrow's own width, px...
+CUR_GH      equ 12              ; ...and height, rows
+CUR_SPAN    equ 2               ; ...and the framebuffer bytes it spans once
+                                ; shifted by x & 7, which CUR_GW <= 8 bounds
+CUR_TABSZ   equ CUR_H * 2       ; cur_data is exactly one table past cur_and,
+                                ; so one SI walks both (asserted below)
+CUR_SAVE_SZ equ CUR_SPAN * CUR_GH * 4       ; ...x four planes, for VGA
 
 ; -----------------------------------------------------------------------------
 ; mouse_init - hook int 0x0C, program the UART (1200 baud 7N1, RX interrupt,
@@ -408,13 +427,12 @@ mou_isr:
 .redraw:
     push ax
     push bx
-    call cur_restoreu           ; erase at the old position
+    call cur_get                ; erase at the old position
     pop bx
     pop ax
     mov [cur_drawn_x], ax
     mov [cur_drawn_y], bx
-    call cur_saveu              ; save under + draw at the new one
-    call cur_draw
+    call cur_put                ; save under + draw at the new one
     mov byte [cur_dirty], 0
     jmp .eoi
 
@@ -462,8 +480,7 @@ cursor_show:
     mov [cur_drawn_x], ax
     mov [cur_drawn_y], bx
     mov byte [cur_dirty], 0
-    call cur_saveu
-    call cur_draw
+    call cur_put
 .done:
     popf
     pop es
@@ -497,7 +514,7 @@ cursor_hide:
     dec byte [cur_level]
     cmp byte [cur_level], -1
     jne .done                   ; only the 0 -> -1 edge erases
-    call cur_restoreu
+    call cur_get
 .done:
     popf
     pop es
@@ -511,43 +528,48 @@ cursor_hide:
     ret
 
 ; -----------------------------------------------------------------------------
-; cur_saveu - copy the 16x16 cell under (cur_drawn_x, cur_drawn_y) into
-;             cur_save via vga_save_vram - always VRAM, never the back
-;             buffer (SPEC.md 32): the cursor lives on the screen only, and
-;             this runs from the ISR where the bb dispatch must not apply.
-;             Internal; caller guarantees IF=0 or the gfx lock.
-;             vga_save_vram clips the rect at the screen edges the same way
-;             vga_restore_vram does, so partial cells stay coherent.
-; clobbers: ax, bx, cx, dx, di
+; cur_put / cur_get - draw the cursor over what it covers, and put that back
+;
+; The pair is the whole of what gfx_lock and gfx_unlock cost (SPEC.md 7.1):
+; the mutex itself is one flag and six instructions, and everything else in
+; those two routines is here. A field log of Missile Command put the pair at
+; 21.8% of a session with no pixel of the game in it (PERFORMANCE.md Part 9
+; Set 4), which is what this shape is for.
+;
+; Both dispatch on the adapter, and the two sides are NOT symmetrical:
+;
+;   1bpp   cur_put_mono / cur_get_mono, below. The framebuffer IS the
+;          renderer's target (SPEC.md 39.5), so the byte under the cursor can
+;          be read, banked, painted and written back in ONE pass - where the
+;          old path made three, through the generic rect machinery, twice.
+;   VGA    cur_saveu + cur_draw / cur_restoreu, unchanged in shape: the save
+;          is four planes through Read Map Select and the draw is Set/Reset
+;          through the Bit Mask, so there is no single byte to fuse.
+;
+; Internal; the caller guarantees IF = 0 or the gfx lock.
+; clobbers: ax, bx, cx, dx, si, di, bp, es
 ; -----------------------------------------------------------------------------
-cur_saveu:
-    push es
-    mov ax, [cur_drawn_x]
-    mov bx, [cur_drawn_y]
-    mov cx, ax
-    add cx, CUR_W-1
-    mov dx, bx
-    add dx, CUR_H-1
-    push ds
-    pop es                      ; buffer lives in kernel .bss
-    mov di, cur_save
-    call vga_save_vram
-    pop es
-    ret
+cur_put:
+    cmp byte [vid_mono], 0
+    jne cur_put_mono
+    call cur_saveu
+    jmp cur_draw
+
+cur_get:
+    cmp byte [vid_mono], 0
+    jne cur_get_mono
+    ; fall through to cur_restoreu
 
 ; -----------------------------------------------------------------------------
 ; cur_restoreu - write cur_save back under (cur_drawn_x, cur_drawn_y).
-;                VRAM-direct like cur_saveu (SPEC.md 32).
+;                VRAM-direct (SPEC.md 32) - the cursor lives on the screen
+;                only, never in the back buffer, and this runs from the ISR
+;                where the bb dispatch must not apply.
 ; clobbers: ax, bx, cx, dx, si
 ; -----------------------------------------------------------------------------
 cur_restoreu:
     push es
-    mov ax, [cur_drawn_x]
-    mov bx, [cur_drawn_y]
-    mov cx, ax
-    add cx, CUR_W-1
-    mov dx, bx
-    add dx, CUR_H-1
+    call cur_rect
     push ds
     pop es
     mov si, cur_save
@@ -556,65 +578,195 @@ cur_restoreu:
     ret
 
 ; -----------------------------------------------------------------------------
-; cur_draw - paint the arrow at (cur_drawn_x, cur_drawn_y): white pass with
-;            the cur_and outline mask, black pass with the cur_data body.
-;            Set/Reset supplies the color; the Bit Mask register carries the
-;            row bits, shifted across up to 3 VRAM bytes; a read of each
-;            target byte loads the latches before the masked write. Leaves
-;            the GC in the default state (SPEC 1 rule 7). Internal; caller
-;            guarantees IF=0 and default GC state on entry.
-; clobbers: ax, bx, cx, dx, si, di, bp, es
+; cur_saveu - copy the cell under (cur_drawn_x, cur_drawn_y) into cur_save via
+;             vga_save_vram. vga_save_vram clips the rect at the screen edges
+;             the same way vga_restore_vram does, so partial cells stay
+;             coherent - which is the whole reason these two share cur_rect.
+; clobbers: ax, bx, cx, dx, di
 ; -----------------------------------------------------------------------------
-cur_draw:
-    mov ax, [cur_drawn_y]       ; DI = rowbase(y) + x/8. CL and DX are both
-    call gfx_rowbase            ; loaded below, and BX after that
+cur_saveu:
+    push es
+    call cur_rect
+    push ds
+    pop es                      ; buffer lives in kernel .bss
+    mov di, cur_save
+    call vga_save_vram
+    pop es
+    ret
+
+; cur_rect - the cell the two above save and restore, as a rect. ONE place,
+; because a save and a restore that disagree about it by a byte smear the
+; cursor across the screen. CUR_GW/CUR_GH, not CUR_W/CUR_H: the tables are
+; 16x16 and the arrow is not.
+; out: AX/BX/CX/DX = x1/y1/x2/y2
+cur_rect:
+    mov ax, [cur_drawn_x]
+    mov bx, [cur_drawn_y]
+    mov cx, ax
+    add cx, CUR_GW-1
+    mov dx, bx
+    add dx, CUR_GH-1
+    ret
+
+; -----------------------------------------------------------------------------
+; cur_geom - where the cursor cell is, and how much of it is on the screen
+;
+; out:      DI = framebuffer offset of the cell's top-left byte, CL = x & 7,
+;           [cur_rows] = rows on screen (0..CUR_GH), [cur_b1ok] = may the byte
+;           at DI+1 be written. The offset is BANKED in [cur_off] as well,
+;           because cur_get_mono has to put back exactly the bytes
+;           cur_put_mono took and re-deriving them is a second place that can
+;           disagree - which, for a save-under, means the cursor smeared
+;           across the screen rather than a pixel out of place.
+; clobbers: AX, BX, DX, DI, CL
+; -----------------------------------------------------------------------------
+cur_geom:
+    mov ax, [cur_drawn_y]       ; DI = rowbase(y) + x/8
+    call gfx_rowbase
     mov di, ax
     mov bx, [cur_drawn_x]
     mov ax, bx
     mov cl, 3
     shr ax, cl
-    add di, ax
+    add di, ax                  ; AX = the byte column, for the clip below
     mov cl, bl
     and cl, 7                   ; CL = shift (x & 7)
-    mov ch, 8
-    sub ch, cl                  ; CH = 8 - shift
 
     ; --- clip the cell at the right and bottom screen edges ------------------
-    ; AX still holds the byte column (x/8). bytes-in-row = stride - column;
-    ; skip the DI+1 / DI+2 writes that would wrap onto the next scanline.
+    ; bytes-in-row = stride - column; skip the DI+1 write that would otherwise
+    ; wrap onto the next scan line. There is no DI+2: an 8px arrow spans two
+    ; bytes however far it is shifted (CUR_SPAN).
     mov dx, [vid_stride]
     sub dx, ax                  ; DX = bytes available in this row (>= 1)
     mov byte [cur_b1ok], 0
-    mov byte [cur_b2ok], 0
     cmp dx, 2
     jb .cols_done
     mov byte [cur_b1ok], 1
-    cmp dx, 3
-    jb .cols_done
-    mov byte [cur_b2ok], 1
 .cols_done:
     mov ax, [vid_h]             ; UNSIGNED - vid_apply homes the cursor into
     sub ax, [cur_drawn_y]       ; the new screen precisely so this cannot
                                 ; borrow. rows on screen at this y (>= 1)
-    cmp ax, CUR_H
+    cmp ax, CUR_GH
     jbe .rows_set
-    mov ax, CUR_H
+    mov ax, CUR_GH
 .rows_set:
     mov [cur_rows], al
+    mov [cur_off], di
+    ret
 
+; -----------------------------------------------------------------------------
+; cur_put_mono - save the cell under the cursor and draw the arrow into it, in
+;                ONE pass (SPEC.md 7.1)
+;
+; The three passes this replaces - vga_save_vram's row loop, then cur_pass_mono
+; for the white outline, then cur_pass_mono again for the black body - read the
+; same framebuffer byte three times and wrote it twice, each time through its
+; own row walk, its own gfx_nextrow call and, for the save, the whole of
+; vga_rect_setup's generic clipping. They are the same bytes in the same order,
+; and the two masks compose: (under | white) & ~black is what drawing one pass
+; on top of the other always produced. So the byte is read once, banked once,
+; painted once and written once.
+;
+; The row advance is gfx_nextrow INLINED, which is PERFORMANCE.md Part 9 Set
+; 3's rule: at two framebuffer bytes a row, a near call and a ret are most of
+; the loop.
+;
+; in:       cur_drawn_x/y; IF = 0 or the gfx lock held
+; clobbers: ax, bx, cx, dx, si, di, bp, es
+; -----------------------------------------------------------------------------
+cur_put_mono:
+    call cur_geom
+    mov ch, [cur_rows]
+    or ch, ch
+    jz .out                     ; wholly off the bottom: nothing to bank
     mov ax, [vid_seg]
     mov es, ax
-
-    cmp byte [vid_mono], 0      ; 1bpp: no Set/Reset, no bit mask, no ports -
-    je .planar                  ; the mask bits go in with plain CPU logic
-    mov byte [cur_ink], 1       ; white outline and fill
     mov si, cur_and
-    call cur_pass_mono
-    mov byte [cur_ink], 0       ; black body on top
-    mov si, cur_data
-    call cur_pass_mono
+    mov bp, cur_save
+.row:
+    mov ax, [si]                ; the white pass's row...
+    mov dx, [si+CUR_TABSZ]      ; ...and the black one's, one table along
+    add si, 2
+    shr ax, cl                  ; AH:AL = white bits, byte 0 : byte 1
+    shr dx, cl                  ; DH:DL = black bits, likewise...
+    not dx                      ; ...as an AND mask, so the body clears to 0
+
+    mov bl, [es:di]             ; ONE read of the byte under the arrow...
+    mov [ds:bp], bl             ; ...banked (SS is LOW_SEG, so ds: is not
+                                ; decoration - SPEC.md 2.1)
+    or  bl, ah                  ; ...white outline...
+    and bl, dh                  ; ...black body over it...
+    mov [es:di], bl             ; ...and ONE write
+
+    cmp byte [cur_b1ok], 0      ; the second byte, unless the screen edge is
+    je .adv                     ; between them
+    mov bl, [es:di+1]
+    mov [ds:bp+1], bl
+    or  bl, al
+    and bl, dl
+    mov [es:di+1], bl
+.adv:
+    add bp, CUR_SPAN            ; RESERVED whether or not byte 1 was taken, so
+                                ; cur_get_mono's walk needs no clip of its own
+    add di, [cs:vid_rowadd]     ; gfx_nextrow, inlined (SPEC.md 39.3)
+    test di, [cs:vid_wrapbit]
+    jz .nowrap
+    add di, [cs:vid_wrapfix]
+.nowrap:
+    dec ch
+    jnz .row
+.out:
     ret
-.planar:
+
+; -----------------------------------------------------------------------------
+; cur_get_mono - put cur_put_mono's bytes back, replaying its geometry
+;
+; [cur_off], [cur_shift], [cur_rows] and [cur_b1ok] are not recomputed: the
+; cursor cannot have moved between the two, because every caller that moves it
+; (the ISR's .redraw path) erases at the OLD position before it writes the new
+; one. Recomputing would be a second answer to a question that already has one.
+; clobbers: ax, cx, si, di, es
+; -----------------------------------------------------------------------------
+cur_get_mono:
+    mov ch, [cur_rows]
+    or ch, ch
+    jz .out
+    mov ax, [vid_seg]
+    mov es, ax
+    mov di, [cur_off]
+    mov si, cur_save
+.row:
+    lodsb                       ; both bytes are always CONSUMED - the stride
+    mov [es:di], al             ; is CUR_SPAN whatever the clip said - and only
+    lodsb                       ; the second one is conditionally written
+    cmp byte [cur_b1ok], 0
+    je .adv
+    mov [es:di+1], al
+.adv:
+    add di, [cs:vid_rowadd]     ; gfx_nextrow, inlined
+    test di, [cs:vid_wrapbit]
+    jz .nowrap
+    add di, [cs:vid_wrapfix]
+.nowrap:
+    dec ch
+    jnz .row
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cur_draw - paint the arrow at (cur_drawn_x, cur_drawn_y) on a PLANAR screen:
+;            white pass with the cur_and outline mask, black pass with the
+;            cur_data body. Set/Reset supplies the color; the Bit Mask register
+;            carries the row bits, shifted across the cell's two VRAM bytes; a
+;            read of each target byte loads the latches before the masked
+;            write. Leaves the GC in the default state (SPEC 1 rule 7).
+;            Internal; caller guarantees IF=0 and default GC state on entry.
+; clobbers: ax, bx, cx, dx, si, di, bp, es
+; -----------------------------------------------------------------------------
+cur_draw:
+    call cur_geom               ; DI = the top-left byte, CL = shift, and
+    mov ax, [vid_seg]           ; [cur_rows]/[cur_b1ok] = how much is on screen
+    mov es, ax
     mov dx, 0x3CE               ; GC1: enable Set/Reset on all planes
     mov ax, 0x0F01
     out dx, ax
@@ -643,28 +795,31 @@ cur_draw:
     ret
 
 ; -----------------------------------------------------------------------------
-; cur_pass - one 16-row masked pass. Each 16-bit row lands at bit offset CL
-;            inside a 24-bit window: B0:B1 = row >> CL, B2 = row << (8-CL).
-;            Zero mask bytes are skipped.
-; ins:  SI -> 16-dw row table, DI = VRAM offset of the top-left byte,
-;       CL = shift, CH = 8-shift, ES = VGA_SEG,
+; cur_pass - one masked pass over the cell. Each 16-bit row lands at bit offset
+;            CL inside a 16-bit window: B0:B1 = row >> CL. Zero mask bytes are
+;            skipped.
+;
+; There is no third byte. Every row of both tables has a zero low byte - an
+; 8px arrow (CUR_GW, asserted at the tables) - so `row << (8-CL)` could only
+; ever be 0, and what it bought was a shift pair, a branch and a cur_b2ok test
+; on every row of every pass.
+; ins:  SI -> CUR_H-word row table, DI = VRAM offset of the top-left byte,
+;       CL = shift, ES = VGA_SEG,
 ;       GC: Set/Reset enabled + color set, index register = 8
 ; outs: none; preserves CX, DI; clobbers ax, bx, dx, si, bp
 ; -----------------------------------------------------------------------------
 cur_pass:
     push di
     xor ax, ax
-    mov al, [cur_rows]          ; clipped row count from cur_draw
+    mov al, [cur_rows]          ; clipped row count from cur_geom
     mov bp, ax
+    or  bp, bp
+    jz .out
     mov dx, 0x3CF               ; GC data port; index already 8 (Bit Mask)
 .row:
     lodsw                       ; AX = row bits, MSB = leftmost pixel
+    shr ax, cl                  ; AH:AL = B0:B1
     mov bx, ax
-    shr bx, cl                  ; BH:BL = B0:B1
-    xchg cl, ch
-    shl ax, cl                  ; AL = B2
-    xchg cl, ch
-    mov ah, al                  ; stash B2
 
     mov al, bh                  ; --- byte 0 ---
     or  al, al
@@ -675,143 +830,98 @@ cur_pass:
 .b1:
     mov al, bl                  ; --- byte 1 ---
     or  al, al
-    jz .b2
+    jz .next
     cmp byte [cur_b1ok], 0      ; clipped off the right screen edge?
-    je .b2
+    je .next
     out dx, al
     mov al, [es:di+1]
     mov [es:di+1], al
-.b2:
-    mov al, ah                  ; --- byte 2 ---
-    or  al, al
-    jz .next
-    cmp byte [cur_b2ok], 0      ; clipped off the right screen edge?
-    je .next
-    out dx, al
-    mov al, [es:di+2]
-    mov [es:di+2], al
 .next:
     add di, ROW_BYTES
     dec bp
     jnz .row
+.out:
     pop di
-    ret
-
-; -----------------------------------------------------------------------------
-; cur_pass_mono - cur_pass for a 1bpp adapter: the same 16-row, 3-byte
-;                 shifted window and the same cur_b1ok/cur_b2ok/cur_rows
-;                 clipping, with each masked write done by the CPU - OR the
-;                 bits in for the white pass, AND them out for the black one
-;                 - and the row advance following the banked layout through
-;                 gfx_nextrow (SPEC.md 39.3).
-;
-; This is the only genuinely new renderer loop in the multi-adapter port:
-; the cursor is the one drawing path with no bb_* twin to borrow, because
-; cur_saveu/cur_restoreu deliberately bypass the buffer (SPEC.md 32). It runs
-; inside IRQ4, where the vector is a seg:off into KERNEL_SEG.
-; in:   SI -> 16-word row table, DI = offset of the top-left byte, CL =
-;       shift, CH = 8-shift, ES = [vid_seg], [cur_ink] = 1 white / 0 black
-; out:  none; preserves CX, DI; clobbers ax, bx, dx, si, bp
-; -----------------------------------------------------------------------------
-cur_pass_mono:
-    push di
-    xor ax, ax
-    mov al, [cur_rows]          ; clipped row count from cur_draw
-    mov bp, ax
-.row:
-    lodsw                       ; AX = row bits, MSB = leftmost pixel
-    mov bx, ax
-    shr bx, cl                  ; BH:BL = B0:B1
-    xchg cl, ch
-    shl ax, cl                  ; AL = B2
-    xchg cl, ch
-    mov ah, al                  ; stash B2
-
-    mov al, bh                  ; --- byte 0 ---
-    or  al, al
-    jz .b1
-    call cur_ink_byte
-.b1:
-    mov al, bl                  ; --- byte 1 ---
-    or  al, al
-    jz .b2
-    cmp byte [cur_b1ok], 0      ; clipped off the right screen edge?
-    je .b2
-    inc di
-    call cur_ink_byte
-    dec di
-.b2:
-    mov al, ah                  ; --- byte 2 ---
-    or  al, al
-    jz .next
-    cmp byte [cur_b2ok], 0
-    je .next
-    inc di
-    inc di
-    call cur_ink_byte
-    dec di
-    dec di
-.next:
-    call gfx_nextrow
-    dec bp
-    jnz .row
-    pop di
-    ret
-
-; -----------------------------------------------------------------------------
-; cur_ink_byte - internal: merge the mask in AL into [es:di] per [cur_ink].
-;                clobbers AL and flags; AH (the stashed B2) survives.
-; -----------------------------------------------------------------------------
-cur_ink_byte:
-    cmp byte [cur_ink], 0
-    je .clr
-    or [es:di], al
-    ret
-.clr:
-    not al
-    and [es:di], al
     ret
 
 ; -----------------------------------------------------------------------------
 ; cursor bitmap - classic Mac arrow, hot spot (0,0), black body 11 rows tall
 ; with a 1px white outline. cur_and is the white pass (outline + fill),
 ; cur_data the black body drawn on top. MSB = leftmost pixel.
+;
+; The rows go in through CUR_ROW rather than `dw`, which emits the same word
+; and ALSO accumulates the two facts the drawing code is built on: the widest
+; bit set anywhere (CUR_GW) and the last row that has one (CUR_GH). Both are
+; checked below. Neither can be trusted as a comment, because both fail
+; silently - a wider arrow loses its right-hand column on the two mono
+; adapters, a taller one leaves its bottom rows on the screen for the rest of
+; the session, and neither shows up anywhere but on the glass.
 ; -----------------------------------------------------------------------------
-cur_and:                        ; white: body dilated by 1px in all directions
-    dw 0xE000                   ; ***.............
-    dw 0xF000                   ; ****............
-    dw 0xF800                   ; *****...........
-    dw 0xFC00                   ; ******..........
-    dw 0xFE00                   ; *******.........
-    dw 0xFF00                   ; ********........
-    dw 0xFF00                   ; ********........
-    dw 0xFF00                   ; ********........
-    dw 0xFE00                   ; *******.........
-    dw 0xFE00                   ; *******.........
-    dw 0xDE00                   ; **.****.........
-    dw 0x1E00                   ; ...****.........
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
+%assign cur_bits 0              ; every bit any row sets, ORed together
+%assign cur_hi   0              ; ...and one past the last row that sets any
+%macro CUR_ROW 1
+    dw %1
+  %if (%1) != 0
+   %if cur_row_i + 1 > cur_hi
+    %assign cur_hi cur_row_i + 1
+   %endif
+  %endif
+  %assign cur_bits  cur_bits | (%1)
+  %assign cur_row_i cur_row_i + 1
+%endmacro
 
+%assign cur_row_i 0
+cur_and:                        ; white: body dilated by 1px in all directions
+    CUR_ROW 0xE000              ; ***.............
+    CUR_ROW 0xF000              ; ****............
+    CUR_ROW 0xF800              ; *****...........
+    CUR_ROW 0xFC00              ; ******..........
+    CUR_ROW 0xFE00              ; *******.........
+    CUR_ROW 0xFF00              ; ********........
+    CUR_ROW 0xFF00              ; ********........
+    CUR_ROW 0xFF00              ; ********........
+    CUR_ROW 0xFE00              ; *******.........
+    CUR_ROW 0xFE00              ; *******.........
+    CUR_ROW 0xDE00              ; **.****.........
+    CUR_ROW 0x1E00              ; ...****.........
+    CUR_ROW 0x0000
+    CUR_ROW 0x0000
+    CUR_ROW 0x0000
+    CUR_ROW 0x0000
+
+%assign cur_row_i 0
 cur_data:                       ; black: the arrow body itself
-    dw 0x8000                   ; #...............
-    dw 0xC000                   ; ##..............
-    dw 0xE000                   ; ###.............
-    dw 0xF000                   ; ####............
-    dw 0xF800                   ; #####...........
-    dw 0xFC00                   ; ######..........
-    dw 0xFE00                   ; #######.........
-    dw 0xF800                   ; #####...........
-    dw 0xD800                   ; ##.##...........
-    dw 0x8C00                   ; #...##..........
-    dw 0x0C00                   ; ....##..........
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
-    dw 0x0000
+    CUR_ROW 0x8000              ; #...............
+    CUR_ROW 0xC000              ; ##..............
+    CUR_ROW 0xE000              ; ###.............
+    CUR_ROW 0xF000              ; ####............
+    CUR_ROW 0xF800              ; #####...........
+    CUR_ROW 0xFC00              ; ######..........
+    CUR_ROW 0xFE00              ; #######.........
+    CUR_ROW 0xF800              ; #####...........
+    CUR_ROW 0xD800              ; ##.##...........
+    CUR_ROW 0x8C00              ; #...##..........
+    CUR_ROW 0x0C00              ; ....##..........
+    CUR_ROW 0x0000
+    CUR_ROW 0x0000
+    CUR_ROW 0x0000
+    CUR_ROW 0x0000
+    CUR_ROW 0x0000
+cur_tabend:
+
+; --- what the drawing code above claims about those two tables ---------------
+%if cur_data - cur_and != CUR_TABSZ
+  %error "mouse: cur_data must sit exactly one table past cur_and - cur_put_mono reads the black row at [si+CUR_TABSZ]"
+%endif
+%if cur_tabend - cur_data != CUR_TABSZ
+  %error "mouse: a cursor table is not CUR_H rows"
+%endif
+%if cur_hi > CUR_GH
+  %error "mouse: the arrow is taller than CUR_GH - raise it, or its bottom rows are neither drawn nor erased"
+%endif
+%if (cur_bits & ((1 << (16 - CUR_GW)) - 1)) != 0
+  %error "mouse: the arrow is wider than CUR_GW - raise it, and give cur_pass and cur_put_mono the third byte back"
+%endif
 
 ; -----------------------------------------------------------------------------
 ; module state (small - stays inline)
@@ -841,10 +951,10 @@ mou_drain   db 0                ; ISR discards RX while set (armed by a
 mou_dstamp  dw 0                ; hot-plug raise; expires MOU_DRAINT later)
 
 section .bss
-cur_save    resb CUR_SAVE_SZ    ; save-under: 3 bytes x 16 rows x 4 planes
-cur_ink     resb 1              ; cur_pass_mono: 1 = OR the white in,
-                                ; 0 = AND the black out
-cur_rows    resb 1              ; edge clipping, set per draw by cur_draw:
-cur_b1ok    resb 1              ; rows on screen, and whether the DI+1/DI+2
-cur_b2ok    resb 1              ; bytes of each row are still inside the row
+cur_save    resb CUR_SAVE_SZ    ; save-under: CUR_SPAN bytes x CUR_GH rows,
+                                ; x four planes on VGA
+cur_off     resw 1              ; cur_geom's answers, banked for cur_get_mono:
+cur_rows    resb 1              ; the cell's top-left framebuffer byte, the
+cur_b1ok    resb 1              ; rows of it on screen, and whether the DI+1
+                                ; byte of each row is still inside the row
 section .text

@@ -404,6 +404,17 @@ What it measures, and why in that shape:
   could never show it.
 - **The same ten characters as `fontbench`**, so the two harnesses check each
   other for free.
+- **The gfx lock, measured backwards** — `GFX_UNLOCK+LOCK pair`. A package
+  cannot call `OSAPI_GFX_LOCK`: it runs inside a callback that already holds
+  it and the lock is not reentrant, so that is a deadlock rather than a slow
+  row. Unlock-then-lock is the same two routines in the other order, and it
+  is an idiom the kernel already uses inside a callback (`fm_drag`). What is
+  in them is not the mutex but the **mouse cursor** (SPEC.md §7.1), and a
+  field log put the pair at 21.8% of a Missile Command session with no pixel
+  of the game in it. It is the one row here whose measured span cannot be
+  interrupt-free — `gfx_lock` ends with `sti` by contract — so one IRQ per
+  iteration can land inside it; the error is bounded and upward, and
+  `[bl_max]` and the `!` flag are what to read it against.
 
 `sysbench`'s headline is the one PERFORMANCE.md Part 2 has been quoting from
 memory: **8086-nominal clocks against a real 8088**, per instruction class,
