@@ -893,15 +893,13 @@ seconds**. And a per-track batch — nine sectors per revolution instead of one
 single number in this document.
 
 **Both loops have since taken it** — `dsk_xfer` in SPEC.md §18.91 and the boot
-sector in §18.93 — and the field machine gets **less than the 9x this section
-predicted**, for a reason worth recording: the IBM ROM's diskette parameter
-table says the FDC may not pass **sector 8** (§18.92), so a 9-sector track
-costs two commands rather than one. The kernel installs its own table and gets
-the full width; the boot sector honours the ROM's, because it cannot install
-one that outlives it. Simulated exactly on the 131-sector kernel, the boot
-read is **131 int 13h calls → 30**, so roughly 31 s → 6–9 s rather than
-31 s → 3.5 s. The remaining ~3 s is a known, separately testable follow-up and
-not a mystery.
+sector in §18.93 — and the prediction held, but only after a detour worth
+recording: the IBM ROM's diskette parameter table says the FDC may not pass
+**sector 8** (§18.92), so until both loops installed a table of their own, a
+9-sector track cost two commands rather than one. Simulated exactly on the
+131-sector kernel, the boot read is **131 int 13h calls → 16 (8.2x)**, so
+roughly 31 s → 4–5 s. Honouring the ROM's EOT instead gave 30 calls and
+6–9 s, which is what an 8-sector ceiling on a 9-sector track is worth.
 
 #### The kernel's own interrupts cost 1–3%
 

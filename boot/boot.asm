@@ -52,6 +52,15 @@ SPL_RESIDENT equ 7              ; splash is fully aboard after this many
                                 ; sectors - must match kernel/splash.inc
 
 BPB_END      equ 62             ; where a DOS BPB stops and our code starts
+DPT_AT       equ 0x0580         ; 0000:0580 - where we put our copy of the
+                                ; diskette parameter table (SPEC.md 18.93).
+                                ; ABOVE the BIOS data area (which ends at
+                                ; 0x4FF) and clear of every documented use of
+                                ; the 0x500 page - print-screen status at
+                                ; 0x500, DOS's single-drive byte at 0x504,
+                                ; BASIC at 0x510 - and BELOW KERNEL_SEG, so
+                                ; nothing the kernel or its heap can ever
+                                ; claim reaches it and it needs no restoring
 
 ; -----------------------------------------------------------------------------
 ; The first 62 bytes are NOT ours. tools/os88disk.py writes a full FAT12 BPB
@@ -132,6 +141,40 @@ entry:
     mov dl, [boot_drive]
     int 0x13
 
+    ; --- take over the diskette parameter table (SPEC.md 18.92/18.93) -------
+    ; int 1Eh is a POINTER, not a handler: it names an 11-byte table the BIOS
+    ; re-reads on every floppy operation, and byte 4 of it is EOT - the last
+    ; sector number the FDC may touch on a track. The IBM PC and XT ROMs say
+    ; 8, from the 8-sector diskettes of DOS 1.x, and the BIOS issues READ with
+    ; the multi-track bit set, so a run reaching sector 9 does not stop - it
+    ; flips to the other head and returns ITS sectors, with CF=0 and the full
+    ; count. Every DOS since 1982 has replaced this table at boot.
+    ;
+    ; The machine's own table is COPIED and one byte patched: the step rate,
+    ; head load/unload, motor timings and gap lengths in it belong to these
+    ; drives and are not ours to guess. With EOT correct the track bound in
+    ; read_run IS the EOT bound, which is why that routine needs no test of
+    ; its own - and why a 9-sector track costs one command instead of two.
+    ;
+    ; No guard on the vector, deliberately: the BIOS read THIS SECTOR through
+    ; it, so a machine that could not use it is a machine that never got here.
+    push ds
+    push es
+    xor ax, ax
+    mov ds, ax
+    mov es, ax
+    mov di, DPT_AT
+    lds si, [0x0078]            ; DS:SI = the BIOS's table
+    mov cx, 11
+    rep movsb                   ; ...ES:DI = ours
+    xor ax, ax
+    mov ds, ax
+    mov word [0x0078], DPT_AT   ; and the vector names it from here
+    mov [0x007A], ax
+    mov byte [es:DPT_AT + 4], SPT   ; EOT = this disk's sectors per track
+    pop es
+    pop ds
+
     ; --- copy KERNEL_SECTORS sectors, the kernel FILE, to KERNEL_SEG:0000 ---
     ; It starts at the first data cluster, so its LBA is where the data area
     ; begins and the BPB above says where that is:
@@ -203,20 +246,19 @@ entry:
 ; (PERFORMANCE.md) is over thirty seconds of the boot, and it is the single
 ; largest cost in it.
 ;
-; A run stops at the first of four bounds, and the third is the one that is
+; A run stops at the first of three bounds, and the third is the one that is
 ; easy not to think of:
-;   1. the end of the track  - a CHS call must not cross one
+;   1. the end of the track - a CHS call must not cross one, and since entry
+;      set the diskette parameter table's EOT to SPT (SPEC.md 18.92/18.93)
+;      this is the FDC's bound too, so there is no separate test for it
 ;   2. the sectors still wanted
-;   3. the ROM's EOT (SPEC.md 18.92) - the FDC stops at it and the BIOS reads
-;      the READ command with the multi-track bit set, so a run reaching past
-;      EOT silently returns the OTHER HEAD's sectors. An IBM ROM says 8.
-;      Honoured rather than overridden: this sector cannot install a table
-;      that outlives it, and the kernel does that for its own transfers.
-;   4. the 64KB DMA page - a single 512-aligned sector cannot cross one, a
+;   3. the 64KB DMA page - a single 512-aligned sector cannot cross one, a
 ;      run can, and the controller answers a straddle with error 09h
 ; -----------------------------------------------------------------------------
 read_run:
     ; --- 1 and 2: the track, and what is left to read -----------------------
+    ; The track bound is ALSO the EOT bound: entry above set the table's EOT
+    ; to SPT, so the FDC stops exactly where a CHS call had to anyway.
     mov ax, [lba]
     xor dx, dx
     mov bx, SPT
@@ -224,33 +266,10 @@ read_run:
     mov di, SPT
     sub di, dx                  ; DI = sectors to the end of this track
     cmp di, [left]
-    jbe .eot
+    jbe .page
     mov di, [left]
 
-    ; --- 3: EOT, out of the BIOS's own diskette parameter table -------------
-.eot:
-    push dx                     ; sector - 1, wanted after the far read below
-    push ds
-    xor ax, ax
-    mov ds, ax
-    mov ax, [0x007A]            ; a machine with no table at all cannot read a
-    or ax, ax                   ; floppy at all, but garbage here would cap
-    jz .nodpt                   ; every run to one sector in silence
-    lds bx, [0x0078]            ; int 1Eh is a POINTER, not a handler
-    mov al, [bx+4]              ; ...and byte 4 of what it names is EOT
-.nodpt:
-    pop ds
-    pop dx
-    or al, al
-    jz .page                    ; no usable EOT: the track bound stands
-    xor ah, ah
-    sub ax, dx                  ; sectors from here to EOT, inclusive
-    jbe .one                    ; already at or past it: one always works
-    cmp ax, di
-    jae .page
-    mov di, ax
-
-    ; --- 4: the 64KB DMA page ----------------------------------------------
+    ; --- 3: the 64KB DMA page ----------------------------------------------
 .page:
     mov ax, es
     mov cl, 4

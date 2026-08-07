@@ -626,7 +626,7 @@ loader.
 
 ---
 
-## 5. Multi-sector floppy reads returned the wrong sectors (FIXED, awaiting field confirmation)
+## 5. Multi-sector floppy reads returned the wrong sectors (FIXED, confirmed on PCem)
 
 **Observed.** With SPEC.md §18.91's transfer batching enabled, *every* package
 hard-froze the machine as its window drew — Note Pad, Paint, Tracker, the Task
@@ -659,7 +659,13 @@ multi-sector int 13h in the system, and the only machines that judge it are
 the ones with a real BIOS and a real FDC.
 
 **Fix.** `dsk_dpt_init` copies the ROM's table, patches EOT to the mounted
-volume's `[disk_spt]` before every transfer, and installs the vector.
-**`make FLOPPY1=1` is the A/B** — it forces `AL = 1` and changes nothing else,
-so a field run can take the batching out of the picture without a source edit.
-This entry stays open until a real machine says so.
+volume's `[disk_spt]` before every transfer, and installs the vector. The boot
+sector does the same for its own load, into `0000:0580` (SPEC.md §18.93).
+**`make FLOPPY1=1` is the A/B** — it forces `AL = 1` in both loops and changes
+nothing else, so a field run can take the batching out of the picture without
+a source edit.
+
+**Confirmed on PCem**, batching on, apps launching. Kept here because the
+mechanism is worth reading before anyone touches a transfer loop again: the
+harness cannot see this class of bug at all, at any speed, because the
+difference is in the *BIOS* and not in the timing.

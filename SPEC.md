@@ -4642,11 +4642,9 @@ the batching can be taken out of the picture on real hardware without a source
 edit. Measured under QEMU, entering `APPS/` is **12 sectors in 4 int 13h
 calls** with the batching and 12 in 12 with the knob.
 
-**This diagnosis is not field-confirmed.** It is a mechanism that exactly fits
-the symptom, is invisible to every test this container can run, and is a
-documented requirement of the platform regardless — an OS that issues
-multi-sector floppy transfers owns int 1Eh. The measurement that settles it is
-a real machine, which is what `FLOPPY1=1` is there to bracket.
+**Field-confirmed.** Reported fixed on PCem — a real BIOS and period timing —
+with the batching on. `FLOPPY1=1` remains the bracket for the next time
+something in this area is in doubt.
 
 ### 18.93 The boot sector batches too, and it is the largest single win
 
@@ -4657,30 +4655,39 @@ already named the fix and priced it at "about 9x on every load in the system,
 which is the largest single number in this document"; §18.91 took it for the
 kernel's transfers and this takes it for the one that runs first.
 
-`read_run` replaces `read_sector` and stops at the first of four bounds — the
-track, the sectors still wanted, **the ROM's EOT** and the 64KB DMA page. The
-third is §18.92's, and the boot sector **honours** it rather than overriding
-it: it cannot install a table that outlives it without pointing int 1Eh into
-what becomes heap, and the kernel does that properly a few hundred
-instructions later.
+**The boot sector installs §18.92's table too**, before its first read, and
+that turned out to be the cheap way rather than the expensive one: with EOT =
+SPT the **track bound IS the EOT bound**, so `read_run` needs no test of its
+own and the routine came out *smaller* than the version that read the ROM's
+EOT every call. It stops at the first of three bounds — the track (which is
+now also the FDC's), the sectors still wanted, and the 64KB DMA page.
+
+The table's home is **`0000:0580`**, and that is what makes it free. Above the
+BIOS data area (which ends at 0x4FF) and clear of every documented use of the
+0x500 page — print-screen status at 0x500, DOS's single-drive byte at 0x504,
+BASIC at 0x510 — and **below `KERNEL_SEG`**, so no heap claim can ever reach
+it and nothing has to be restored at handoff. The first design put it in the
+boot sector's own relocated image at linear 0x15000, which is *above* the
+kernel and therefore inside the heap, and would have made "`dsk_dpt_init` runs
+before `mem_init`" load-bearing across two files. `dsk_dpt_init` still
+re-homes the vector into the kernel's own segment, but as belt and braces
+rather than as an invariant.
+
+There is **no guard on the vector**, deliberately: the BIOS read the boot
+sector through it, so a machine that could not use it never got here.
 
 Simulating the splitter exactly, for a 131-sector kernel:
 
 | geometry | EOT | int 13h calls | runs |
 |---|---|---|---|
-| 1.44MB (QEMU/SeaBIOS) | 18 | **10** | 3, 18×6, 14, 4, 2 |
-| 360KB (IBM ROM) | 8 | **30** | 5, 1, then 8, 1 per track |
-| 360KB, hypothetical | 9 | 16 | 6, then 9 per track |
+| 1.44MB | 18 | **10** | 3, 18×6, 14, 4, 2 |
+| 360KB (the field machine) | 9 | **16** | 6, then 9 a track, 2, 6 |
+| 360KB, honouring an IBM ROM's 8 | 8 | 30 | 5, 1, then 8, 1 a track |
 
-**The field machine's 30 is the honest number and its shape is the point**: a
-9-sector track costs two commands, eight sectors and then the ninth alone,
-because the ROM says the FDC may not pass sector 8. ~31 s becomes roughly
-6–9 s. The third row is what an installed table would buy — about another
-3 s — and it is **deliberately not taken here**: 47 bytes remain in the
-sector, the install plus a restore does not comfortably fit, and stacking a
-second unverified change into the one piece of code whose failure mode is "the
-machine does not boot" is the wrong trade. It is a separately testable
-follow-up, not an oversight.
+**8.2x on the machine this targets**, and roughly 31 s becomes 4–5 s. The
+third row is what the previous version did, and its shape is why the table was
+worth installing: a 9-sector track cost two commands, eight sectors and then
+the ninth alone, because the ROM says the FDC may not pass sector 8.
 
 Two smaller things fell out:
 
@@ -4703,7 +4710,10 @@ guest RAM and compared against `build/kernel.bin`. Across `.text`, **73
 differing bytes of 57,088 on 1.44MB and 71 on 360KB, longest contiguous run 8
 bytes** — the `.text`-resident variables the kernel writes at run time, one
 cluster of which is `dsk_vtab` and `dsk_dpt` themselves. A misplaced run would
-show as ~512 differing bytes in one block, and there is no such block.
+show as ~512 differing bytes in one block, and there is no such block. The
+same two figures came back byte for byte before and after the table install,
+which is the check that the wider runs changed the number of commands and
+nothing else.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 
