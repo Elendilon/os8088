@@ -128,6 +128,25 @@ disk_spt:    dw 9                ; sectors per track  } fallback geometry,
 disk_heads:  dw 2                ; heads              } replaced at mount
 disk_nfiles: dw 0                ; file count, valid after a good mount
 
+; The diskette parameter table (SPEC.md 18.92) - int 1Eh's, ours from
+; dsk_dpt_init onward. In .text because the BIOS reads it on EVERY floppy
+; operation and dsk_xfer writes byte 4 before every transfer; the values here
+; are the fallback for a machine whose vector is null, and are the IBM 5.25"
+; ones with the ONE byte this exists for already right.
+dsk_dpt:
+    db 0xDF                      ; +0  step rate / head unload
+    db 0x02                      ; +1  head load, DMA
+    db 0x25                      ; +2  motor-off delay, ticks
+    db 0x02                      ; +3  bytes/sector code: 2 = 512
+    db 9                         ; +4  EOT - THE one dsk_xfer rewrites
+    db 0x2A                      ; +5  gap length, read/write
+    db 0xFF                      ; +6  DTL
+    db 0x50                      ; +7  gap length, format
+    db 0xF6                      ; +8  format fill byte
+    db 0x0F                      ; +9  head settle, ms
+    db 0x08                      ; +10 motor start, 1/8 s
+DPT_LEN equ 11
+
 %ifdef DISK_COUNTERS
 ; The measurement instruments of docs/DISK-PERF-PLAN.md 2, compiled in only by
 ; `make DISKCNT=1` and never shipped. Read over QMP with `xp /3xh <linear>`;
@@ -250,6 +269,58 @@ dsk_folder_ico:
 ; int 13h regs: CH = cyl low 8 (cyl < 80, no high bits), CL = sector,
 ; DH = head, DL = drive.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; dsk_dpt_init - take ownership of the diskette parameter table (SPEC.md 18.92)
+; in:  nothing;  DS = KERNEL_SEG.  Called once from kmain, before any transfer
+; out: nothing (all registers preserved)
+;
+; int 1Eh is a FAR POINTER to an 11-byte table the BIOS re-reads on every
+; floppy operation, and byte 4 of it is EOT - the last sector number the FDC
+; may touch. The IBM PC and XT ROMs ship EOT = 8, from the 8-sector diskettes
+; of DOS 1.x, and every DOS since has replaced the table at boot for exactly
+; this reason. An OS that issues multi-sector transfers and leaves the ROM's
+; table alone is reading a number that has been wrong since 1982.
+;
+; It is COPIED and patched rather than replaced outright: the other ten bytes
+; are the step rate, head load/unload, motor timings and gap lengths of THIS
+; machine's drives, and a Tandon TM100 is not a place to substitute guesses.
+; Only a machine with no vector at all falls back to the values above.
+; -----------------------------------------------------------------------------
+dsk_dpt_init:
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov di, dsk_dpt             ; ES:DI = our copy
+    xor ax, ax
+    mov ds, ax
+    lds si, [0x0078]            ; DS:SI = the BIOS's table (int 1Eh's vector)
+    mov ax, ds
+    or ax, si
+    jz .keep                    ; no vector: the built-in values stand
+    mov cx, DPT_LEN
+    cld
+    rep movsb
+.keep:
+    xor ax, ax
+    mov ds, ax
+    pushf
+    cli                         ; the vector is two words and an ISR between
+    mov word [0x0078], dsk_dpt  ; them would hand the BIOS half an address
+    mov word [0x007A], KERNEL_SEG
+    popf
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
 disk_read:
     mov byte [dsk_op], 0x02     ; AH=02 read (mov leaves the flags alone)
     jmp short dsk_xfer
@@ -334,23 +405,10 @@ dsk_xfer:
 .runtrk:
     mov bp, ax
     call dsk_runcap             ; BP = min(BP, what the BUFFER allows)
-    ; ...and then ONE SECTOR, unconditionally (SPEC.md 18.91).
-    ;
-    ; The batching is disabled, not deleted. It measured 12 int 13h calls per
-    ; directory change down to 5 under QEMU and it hard-locks a real machine:
-    ; every package - Note Pad, Paint, Tracker, Task Manager - froze as its
-    ; window drew, and a build with this line was the only one that worked.
-    ; Advancing by the count int 13h RETURNS rather than the count requested
-    ; was the first theory and did NOT cure it, so whatever a real BIOS or FDC
-    ; does differently here is still unidentified and the run splitter above
-    ; is still suspect.
-    ;
-    ; The arithmetic is left standing because it is the part that was
-    ; reviewed and is probably right - the track bound, the 64KB DMA page and
-    ; the BX wrap - and because the next attempt starts by deleting this line
-    ; and nothing else. Correctness first: a machine that freezes on every
-    ; launch is not worth seven BIOS calls a folder.
-    mov bp, 1
+%ifdef FLOPPY_ONE
+    mov bp, 1                   ; FLOPPY1=1: one sector a call, the pre-18.91
+                                ; transfer, for A/B-ing this on real iron
+%endif
     mov [dsk_run], bp
 %ifdef DISK_COUNTERS
     add [dsk_dbg_sec], bp
@@ -367,6 +425,11 @@ dsk_xfer:
 %ifdef DISK_COUNTERS
     inc word [dsk_dbg_i13]
 %endif
+    mov al, [disk_spt]          ; the FDC stops a multi-sector transfer at EOT
+    mov [dsk_dpt+4], al         ; and the ROM's is 8 (SPEC.md 18.92) - so this
+                                ; volume's real spt goes in before every call,
+                                ; because the table is one and the mounted
+                                ; volume is not
     mov ax, [dsk_run]           ; AL = the run (<= 128, so AH is 0)...
     mov ah, [dsk_op]            ; ...AH = 02 read / 03 write
     int 0x13

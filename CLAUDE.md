@@ -175,6 +175,33 @@ make test RTC=ns       # the MM58167 probe against a machine that has none -
 `RTC=` shares `VIDEO=`'s stamp file, so changing it rebuilds the kernel; the
 shipped images are always built without either.
 
+A fourth takes the floppy transfer back to one sector per int 13h (SPEC.md
+§18.91/§18.92) — the A/B for a class of bug **only real hardware can judge**:
+
+```
+make FLOPPY1=1         # AL=1 again, nothing else changed
+```
+
+**A multi-sector floppy read is judged by the BIOS, not by the emulator.**
+int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4
+is **EOT**, and the IBM PC/XT ROM ships **EOT = 8** — a DOS 1.x number every
+DOS overwrites at boot. A *single*-sector transfer never consults it, so it
+was inert here for years; the BIOS issues READ DATA with the **multi-track
+bit set**, so once §18.91 started batching, a run reaching sector 9 of a
+9-sector track flipped to the other head and returned **head 1's sector 1**
+— `CF = 0`, full count, wrong bytes. Every package loaded with correct
+opening sectors, validated its header, drew its window and hard-froze on the
+substituted code. SeaBIOS never reads the table, so QEMU cannot show any of
+it, and the boot sector reads `AL = 1`, so the batching was the only
+multi-sector int 13h in the system. `dsk_dpt_init` owns the table now
+(copied from the ROM's and patched, because the other ten bytes are *this*
+machine's drive timings) and `dsk_xfer` writes EOT = `[disk_spt]` before
+every call. **The wrong diagnosis is worth knowing too**: a real BIOS *can*
+return a short count where SeaBIOS never does, that fix is right and is
+kept, and it changed nothing — a short read is the BIOS telling you it moved
+less than you asked, and what was happening was the BIOS moving exactly what
+it promised out of the wrong place. docs/FIELD-NOTES.md note 5.
+
 `VIDEO=` is tracked by a stamp file, so changing it rebuilds the kernel — without that,
 make sees an up-to-date `kernel.bin`, boots the previous adapter, and it reads exactly
 like the probe being broken.

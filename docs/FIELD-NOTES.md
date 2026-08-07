@@ -13,7 +13,9 @@ symptom is only visible on hardware, but the suspected causes are all *work*
 rather than timing, so QEMU can count them and the investigation should start
 there. **Note 4 is a third shape again** — reproduced on hardware, but its
 mechanism is *identified* rather than theorised, so it needs a fix and not an
-investigation.
+investigation. **Note 5 is a fourth, and the most valuable one to read**: a
+correctness bug the harness cannot see at all, at any speed, because the
+difference is in the *BIOS*, not in the timing.
 
 ---
 
@@ -621,3 +623,43 @@ A second, independent hardening is worth considering at the same time:
 name ends `.O88`** before reading it, so a mis-resolved index reports
 something better than "Bad package" — §47's say-*why*-not, applied to the
 loader.
+
+---
+
+## 5. Multi-sector floppy reads returned the wrong sectors (FIXED, awaiting field confirmation)
+
+**Observed.** With SPEC.md §18.91's transfer batching enabled, *every* package
+hard-froze the machine as its window drew — Note Pad, Paint, Tracker, the Task
+Manager alike. A kernel identical but for one line forcing `AL = 1` was fine.
+Reported on PCem; never once reproduced under QEMU, on VGA or Hercules, at
+1.44MB or 360KB.
+
+**What was ruled out first, and wrongly.** `AH=02h` answers with `AL` = the
+sectors actually transferred, and a real BIOS can return **short** where
+SeaBIOS never does. That is true, the transfer loop now advances by the
+returned count, and **it did not fix the freeze**. Three app-side handoffs
+were then built on top of the still-broken kernel and their freezes read as
+three new app bugs — until Note Pad, which had not been touched, froze too.
+That is the tell worth keeping: *a component you did not change failing is
+evidence about the component you did.*
+
+**Cause.** SPEC.md §18.92. int 1Eh's diskette parameter table carries **EOT**,
+the last sector number the FDC may touch, and the IBM PC/XT ROM ships **EOT =
+8** — a DOS 1.x number that every DOS since has overwritten at boot. os8088
+never did. A single-sector transfer never consults it, so this was inert for
+years; the BIOS issues READ DATA with the **multi-track bit set**, so a
+multi-sector run reaching sector 9 on a 9-sector track flips to the other head
+and returns **head 1's sector 1** instead, with `CF = 0` and the full count.
+Correct opening sectors, wrong bytes in the middle, header validates, load
+"succeeds", window draws, machine dies on the substituted code.
+
+**Why nothing here could have found it.** SeaBIOS never reads the table. The
+boot sector reads `AL = 1`, so §18.91's batching introduced the only
+multi-sector int 13h in the system, and the only machines that judge it are
+the ones with a real BIOS and a real FDC.
+
+**Fix.** `dsk_dpt_init` copies the ROM's table, patches EOT to the mounted
+volume's `[disk_spt]` before every transfer, and installs the vector.
+**`make FLOPPY1=1` is the A/B** — it forces `AL = 1` and changes nothing else,
+so a field run can take the batching out of the picture without a source edit.
+This entry stays open until a real machine says so.

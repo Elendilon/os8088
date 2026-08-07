@@ -4574,12 +4574,16 @@ another for the remainder, which is self-healing and correct on any BIOS.
 
 This is the one part of §18.91 **QEMU structurally cannot test**: SeaBIOS
 always returns the full count, so an implementation that advances by the
-*request* passes every emulated run and fails on iron. It did: packages loaded
-with a hole and a shifted tail, their first sector intact — so the header
-validated, the load "succeeded", and the machine hard-froze when the package's
-code was reached, which reads as "launching apps freezes" and not as a disk
-fault at all. A count of 0 with CF=0 is trusted for one sector rather than
-refused, so the loop always makes progress.
+*request* passes every emulated run. A count of 0 with CF=0 is trusted for one
+sector rather than refused, so the loop always makes progress.
+
+It is kept because it is **correct**, and it is worth recording that it was
+also the **wrong diagnosis**. Batching hard-froze a real machine on every
+package launch; the short read was the first theory, it was written, and it
+changed nothing. §18.92 is what the machine was actually doing, and the
+difference between the two is a useful shape: a short read is the BIOS
+*telling* you it moved less than you asked, and what was really happening was
+the BIOS moving exactly the count it promised, out of the wrong place.
 
 **The retry unit is the run, and it degrades to the sector.** Three attempts
 with a controller reset between, exactly as before — but a run that still
@@ -4588,6 +4592,61 @@ single bad sector costs its own 512 bytes and not the eight good ones beside
 it. Losing that would trade speed for data recovery on ageing media, which is
 the wrong trade on the machines this targets. Write-protect (03h) still fails
 immediately at any run length: retrying cannot help.
+
+### 18.92 The diskette parameter table is OURS, and EOT is why
+
+**int 1Eh is not an interrupt.** It is a far pointer to an 11-byte table the
+BIOS re-reads on every floppy operation, and byte 4 of it is **EOT — the last
+sector number the FDC may touch on a track**. The IBM PC and XT ROMs ship
+**EOT = 8**, from the 8-sector diskettes of DOS 1.x, and every DOS since has
+replaced the table at boot for exactly this reason. os8088 did not, and for
+years nothing noticed, because **a single-sector transfer never consults it**:
+the DMA controller's terminal count arrives after 512 bytes and the command
+ends before the FDC has to decide whether to continue.
+
+§18.91 made that decision matter. The BIOS issues READ DATA with the
+**multi-track bit set** (the command byte is E6h), so when the FDC finishes
+the sector whose number equals EOT it does not stop — **it flips to the other
+head and carries on from sector 1**. On a 9-sector track with EOT = 8, a run
+covering sectors 8 and 9 therefore reads head 0's sector 8 and then **head 1's
+sector 1**, and reports `CF = 0` with the full count. No error, no short read,
+no way for the caller to know.
+
+That is the failure: a package image with correct opening sectors and the
+wrong bytes in the middle, so `ld_check_hdr` passes, the load "succeeds", the
+window draws, and the machine hard-freezes the moment execution reaches the
+substituted region. Every package did it — Note Pad, Paint, Tracker, the Task
+Manager. It is invisible under QEMU because **SeaBIOS never reads the table**,
+and it is invisible on the boot path because `boot/boot.asm` reads `AL = 1`,
+so the batching introduced the only multi-sector int 13h in the system.
+
+`dsk_dpt_init` runs once from `kmain`, before any transfer, and `dsk_xfer`
+writes `[dsk_dpt+4] = [disk_spt]` before **every** int 13h — the table is one
+and the mounted volume is not.
+
+Three things about it are load-bearing:
+
+- **The table is COPIED from the ROM's and patched, not replaced.** The other
+  ten bytes are the step rate, head load/unload, motor timings and gap lengths
+  of *this machine's* drives, and a Tandon TM100 is not a place to substitute
+  guesses. Only a machine with a null vector falls back to the values in
+  `dsk_dpt`.
+- **It lives in `.text`, not `.bss`.** `-f bin` zeroes nothing, the BIOS reads
+  it on every operation, and the fallback values have to be real ones — the
+  `dsk_fatw0` precedent (§18.8.1).
+- **The vector is written under `cli`.** It is two words, and an interrupt
+  between them hands the BIOS half an address.
+
+**`FLOPPY1=1`** is the A/B: it forces `AL = 1` and changes nothing else, so
+the batching can be taken out of the picture on real hardware without a source
+edit. Measured under QEMU, entering `APPS/` is **12 sectors in 4 int 13h
+calls** with the batching and 12 in 12 with the knob.
+
+**This diagnosis is not field-confirmed.** It is a mechanism that exactly fits
+the symptom, is invisible to every test this container can run, and is a
+documented requirement of the platform regardless — an OS that issues
+multi-sector floppy transfers owns int 1Eh. The measurement that settles it is
+a real machine, which is what `FLOPPY1=1` is there to bracket.
 
 ## 19. FAT12/FAT16 — the data-disk format (data floppies)
 

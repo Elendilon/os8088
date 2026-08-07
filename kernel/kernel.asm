@@ -1103,6 +1103,10 @@ kmain:
                                 ; per SPEC.md 7), claim the HMA, arm unreal
                                 ; mode on tier 2, publish [xm_kb] LAST
 
+    call dsk_dpt_init           ; int 1Eh becomes ours (SPEC.md 18.92) before
+                                ; any transfer: the ROM's EOT is 8, and every
+                                ; multi-sector read past it silently returns
+                                ; the OTHER HEAD's sectors
     call sched_init             ; pre-emption live from here on
     call evq_init
     call FAT_SEG:ovl_clk_init   ; system clock (SPEC.md 37): probe the RTC,

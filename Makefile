@@ -72,7 +72,14 @@ endif
 # which builds knob-free.
 ifneq ($(DISKCNT),)
 VIDDEF += -DDISK_COUNTERS
+endif
 
+# FLOPPY1=1 puts the floppy transfer back to one sector per int 13h - the
+# pre-SPEC.md-18.91 loop, with nothing else changed. It exists so that the
+# batching can be A/B'd on real hardware without a source edit, which is the
+# only place its failures have ever been visible (18.92).
+ifneq ($(FLOPPY1),)
+VIDDEF += -DFLOPPY_ONE
 endif
 # ...and a stamp so that CHANGING VIDEO rebuilds the kernel. Without it make
 # sees an up-to-date kernel.bin, skips it, and boots the PREVIOUS adapter -
@@ -84,7 +91,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin; \
                                 touch $(VIDSTAMP); })
@@ -128,7 +135,7 @@ $(BUILD)/kernel.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) tools/os88ovlchk.py
 	$(NASM) -f bin -w+error -I kernel/ -I $(BUILD)/ $(VIDDEF) -o $@ $(KERNEL_SRC)
 	@echo "kernel: $(call FILESIZE,$@) bytes (image rung + boot overlay)"
 ifneq ($(VIDDEF),)
-	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC) DISKCNT=$(DISKCNT): this kernel is ***"
+	@echo "  *** VIDEO=$(VIDEO) RTC=$(RTC) DISKCNT=$(DISKCNT) FLOPPY1=$(FLOPPY1): kernel is ***"
 	@echo "  *** BUILT WITH A KNOB - a forced probe and/or disk counters.   ***"
 	@echo "  *** build/ is git-tracked - rebuild with plain \`make\` before  ***"
 	@echo "  *** committing, or every machine boots that way.               ***"
