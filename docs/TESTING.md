@@ -140,8 +140,16 @@ Then run it the other way round — the socket at 3F8 *and* `msmouse` at 2F8 —
 and check the mouse still reaches its run, `mou_lockon` still retires COM1,
 and chatter afterwards is ignored. The one thing to expect and not to file as
 a bug: on a two-port machine the first ~8 packets of the session are counted
-and discarded, so `tools/mouse.py`'s first absolute position can be tens of
-pixels out. Every position after it is exact.
+and discarded, so `tools/mouse.py`'s first absolute position is wrong. **In
+practice it is wrong by the whole move, not by a few pixels** — `mouse.py`
+pins against the top-left clamp with a burst of large negative deltas and then
+walks to the target, the contest eats the front of the burst, and the pin
+still lands because it over-drives; what gets lost is the walk. So the first
+`to X Y` after boot leaves the cursor **at 0,0**, which reads exactly like a
+mouse that is not working at all, and a screendump cropped to the target shows
+nothing rather than something near it. Call `mouse.py` a second time — the
+whole session is exact from there. Costed the same way twice, on VGA and on a
+CGA field disk.
 
 ---
 
