@@ -132,6 +132,7 @@ the floor is **128KB of RAM** rather than 256KB.
 | derived       | `FAT_SEG` | mount-time FAT snapshot, `DSK_FAT_SECS`×512 = 4,608 bytes, via **ES only** (§18) |
 | derived       | `LOW_SEG` | `.lowbss`: task stacks + disk buffers (9,216 B), then task 0's stack (`STK0_SIZE`, 1,024 B) growing down from `STK0_TOP` |
 | derived       | `HEAP_SEG` | **the claim heap (§50)** — everything from there to the top of conventional memory, handed out on demand. Data claims grow **up** from here; a package's region is claimed **down** from the top (§50.3) |
+| the last 2,560 B | derived | **the boot sector and its stack (§2.7)** — live only until handoff, ordinary heap afterwards, and the first place `mem_claim_hi` hands a package region |
 | 0xA0000       | 0xA000  | VGA planar framebuffer, 80 bytes/row               |
 | 0xB0000       | 0xB000  | Hercules framebuffer, 4 banks × 0x2000, 90 bytes/row (§39) — mono adapters only |
 | 0xB8000       | 0xB800  | CGA framebuffer, 2 banks × 0x2000, 80 bytes/row (§39) — mono adapters only |
@@ -422,6 +423,62 @@ cosmetic: they used to sit with the API stubs, which is above `splash.inc`,
 and `splash.inc` has to end inside the image's first `SPL_RESIDENT` sectors
 (§15). At 140 bytes they fitted; at over 500 they push the splash out of its
 sectors, and the build then fails naming splash and nothing else.
+
+### 2.7 The boot sector goes to the top of RAM, not to a fixed address
+
+`boot/boot.asm` has to move out of the kernel's landing zone before it reads
+anything (§15.2), and **where it moves to is computed**: `int 12h`, times 64
+for paragraphs, less `0x7E0` — its own `0x7C00` offset and its own 512 bytes
+— so its last byte is the machine's last byte and its stack grows down from
+there. The whole cost to the machine is **2,560 bytes at the ceiling**, and
+only until handoff: `kmain` sets `SS:SP` in its fourth instruction and the
+sector is dead memory from that moment, so those bytes are ordinary heap.
+`mem_claim_hi` hands package regions out downward, which means **the first
+package loaded sits exactly where the sector was**.
+
+It used to be a fixed `BOOT_RELOC` = 0x0D40 (linear 0x15000), and that
+address, not any property of the kernel, was what bounded the kernel:
+`KERNEL_SEG*16 + KERN_SIZE` had to end below it, which capped the footprint
+at 82,432 bytes. `KERN_BUDGET` reached that number in its ninth move and
+guard 5 became the binding constraint on the whole system — a build that
+failed for the budget and a build that failed for the sector were the same
+build, and raising the budget could not help. `BOOT_RELOC` had moved five
+times already, each move dragging a constant across two separately-assembled
+files and raising the minimum machine by the same amount. Putting the sector
+at the ceiling ends that sequence: it is above every kernel that could fit
+the machine at all, by construction, on every machine.
+
+**Trusting `int 12h` is not a new dependency.** DOS sizes itself from the
+same call, so a BIOS that lies about it is a machine that cannot run DOS
+correctly either — and on an XT that number comes from the DIP switches, so
+a memory board the switches do not mention is a machine with plenty of RAM
+and a small answer. `mem_init` reads the same call for the top of the heap,
+so the sector and the allocator agree by construction rather than by
+arithmetic.
+
+**The sector refuses rather than being overwritten.** Before it relocates it
+compares its computed segment against `KERNEL_SEG + KERNEL_SECTORS*32` — the
+paragraph the kernel's read will end on, a number the Makefile already
+measures and injects — and prints `RAM` and halts if the read would reach it.
+Three failures land on that one compare: a machine genuinely too small, a
+BIOS under-reporting, and a `KB*64` that overflowed a claim of 1MB or more.
+Note what it compares against: the **read**, not `KERN_SIZE`. The stacks and
+buffers above the image are only in use after handoff, by which time the
+sector is dead — so the *runtime* question is narrower than guard 5's, which
+has to hold for the whole span because it is asked about a machine nobody has
+in front of them.
+
+**What the refusal does not do is choose the minimum machine.** That is
+`MIN_RAM_KB` (§15.1), a policy figure of 128KB: the smallest machine the
+shipped system is *claimed* to work on, not the smallest that can boot. The
+smallest that can boot is roughly the kernel's own span plus this sector,
+which leaves a heap too small to open anything (docs/KERNEL-MEMORY.md).
+
+**Testing it needs a knob, because QEMU cannot vary the answer.** SeaBIOS
+reports 639KB whatever `-m` says, so `make test RAMKB=<n>` assembles the
+sector to believe a different number — the low-memory boot and the refusal
+are both unreachable here otherwise (docs/TESTING.md). It costs the shipped
+sector nothing: unset, the `%ifdef` is not assembled.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
@@ -4098,8 +4155,8 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 %if HEAP_SEG % 32
 %error "the pool or the heap is not 512-byte aligned - see KIMG_PARA"
 %endif
-%if KERNEL_SEG*16 + KERN_SIZE > BOOT_LIN - BOOT_STACK
-%error "the kernel would land on the relocated boot sector's stack"
+%if KERNEL_SEG*16 + KERN_SIZE > MIN_RAM_KB*1024 - BOOT_SECT - BOOT_STACK
+%error "the kernel does not fit MIN_RAM_KB - see docs/KERNEL-MEMORY.md"
 %endif
 ```
 
@@ -4115,26 +4172,41 @@ Guard 4 is the menu save-under, the one kernel buffer deliberately outside
 that budget because it is a heap claim (§12.4/§50) that exists only while a
 menu is down — it bounds what `gfx_save` can be asked to write, which is a
 build-time property of the clamps and does not depend on when it is claimed. Guard 6 is the 512-byte
-alignment every int 13h target depends on (§2.1.1). Guard 7 is the relocated
-boot sector (§15.2). Keep this block last.
+alignment every int 13h target depends on (§2.1.1).
+
+**Guard 5 is the relocated boot sector (§15.2), and it is the third POLICY
+figure in the file.** The sector puts itself at the top of conventional RAM
+(§2.7), an address this file cannot know, so what the guard checks is the
+machine the system is *claimed* to run on: at `MIN_RAM_KB` = 128 the sector
+and its stack take the top 2,560 bytes and the kernel must fit below them —
+126,976 bytes. It used to name a fixed `BOOT_RELOC` and cap the footprint at
+82,432, which is exactly what `KERN_BUDGET` had reached, so for a while
+raising the budget bought nothing and the only way up was to move the sector.
+It is 44.5KB above the budget now. **When the kernel approaches *this* one
+the answer is not a raise**: it is two kernels off one tree, a full one and a
+minimum one, because a 128KB machine and a 640KB machine stop wanting the
+same feature set long before they stop fitting the same image. Keep this
+block last.
 
 ### 15.2 The boot sector relocates itself
 
 The BIOS loads `boot/boot.asm` to 0000:7C00 and jumps there. That code is
 still executing while the kernel's sectors arrive — it far-calls the splash
 at `KERNEL_SEG:0008` after every one — and the kernel lands at 0x00600 and
-runs up to 64KB, so it covers 0x7C00 long before the last sector.
+runs up past 80KB, so it covers 0x7C00 long before the last sector.
 
-So `start`'s first act, before it touches a drive, is to copy its own 512
-bytes to `BOOT_RELOC:7C00` (linear 0x11000, above anything the kernel can
-reach) and far-jump there. **The copy keeps the same offset**: every label in
-the file still resolves at `org 0x7C00`, only the segment registers change,
-and the stack rides along at the same offset and grows down from 0x11000.
-Nothing above the far jump addresses memory through a label, so that prologue
-runs correctly at 0000:7C00 where the BIOS put it.
+So `entry`'s first act, before it touches a drive, is to copy its own 512
+bytes out of the landing zone and far-jump there. **The copy keeps the same
+offset**: every label in the file still resolves at `org 0x7C00`, only the
+segment registers change, and the stack rides along at the same offset and
+grows down from the new base. Nothing above the far jump addresses memory
+through a label, so that prologue runs correctly at 0000:7C00 where the BIOS
+put it.
 
-`BOOT_RELOC` and `KERNEL_SEG` are mirrored in `kernel/kernel.asm`, whose
-guard 7 proves the kernel ends clear of the relocated stack.
+**Where it goes is computed — the top of conventional RAM, §2.7 — and that
+is what makes the kernel's footprint a policy question rather than an
+address.** `KERNEL_SEG` is the only constant `kernel/kernel.asm` and
+`boot/boot.asm` still share.
 
 ### 15.3 The bar does not stop at the last sector of the kernel
 

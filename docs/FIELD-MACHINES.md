@@ -76,7 +76,7 @@ by name in a dozen places.
 | owner | `Elendilon` — owner of this fork, `Elendilon/os8088` |
 | machine | **IBM PC 5150**, Intel 8088 at 4.77 MHz |
 | motherboard | the 64–256K board, **256 KB populated** |
-| expansion | **AST SixPakPlus Rev 1** — carries the other **384 KB** (256 + 384 = the 640 KB every set reports) **and the clock** |
+| expansion | **AST SixPakPlus Rev 1** — carries the other **384 KB** (256 + 384 = the 640 KB every set reports) **and the clock**. That 640 is what `int 12h` answers, and since SPEC.md §2.7 the boot sector relocates itself to the top of it — so if this machine ever stops booting after a memory change, the first thing to check is the motherboard DIP switches, which are where an XT's RAM count comes from. A board the switches do not mention is a machine with plenty of RAM and a small answer, and the sector prints `RAM` and stops rather than loading a kernel over itself |
 | clock | the SixPakPlus's **MM58167 at 2C0h** — §37.90's **rung 2**, and the machine the whole ladder was written for: an XT BIOS implements `int 1Ah` AH=00h/01h and nothing else, so this BIOS knows nothing about a clock sitting in its own backplane. It is also what keeps rung 3 off a SixPakPlus — rung 3 is claimed only when the BIOS *can* read the clock, and here it cannot |
 | video | **Hercules GB101 → IBM 5151** (mono TTL) **and IBM CGA, new style → IBM 5153** (RGB). **Both cards and both monitors, always, in the machine.** So the second column costs a *build*, never a card swap — but the probe (§39.1) finds the Hercules first, so the CGA needs a kernel told to ignore it |
 | floppy | **one** — a **Tandon TM100-2**, 360 KB 5.25" DD. There is no drive B |

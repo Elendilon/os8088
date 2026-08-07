@@ -84,9 +84,26 @@ ifneq ($(FLOPPY1),)
 VIDDEF += -DFLOPPY_ONE
 BOOTDEF += -DFLOPPY_ONE
 endif
-# ...and a stamp so that CHANGING VIDEO rebuilds the kernel. Without it make
-# sees an up-to-date kernel.bin, skips it, and boots the PREVIOUS adapter -
-# which reads exactly like the probe or the renderer being broken.
+
+# RAMKB=<n> makes the boot sector believe the machine has n KB, instead of
+# asking int 12h (SPEC.md 2.7). It exists because QEMU always answers 639 -
+# conventional memory is capped there whatever -m says - so the relocation
+# arithmetic, the low-memory boot and the refusal below the floor are all
+# unreachable here without it. `make test RAMKB=128` boots with the sector
+# where a 128KB machine would put it (MIN_RAM_KB, the guard 5 case) and
+# `RAMKB=64` must print RAM and stop rather than load a kernel over itself.
+# The kernel still reads the REAL int 12h for its heap, so this moves the
+# sector and nothing else. It costs the shipped sector nothing: with the knob
+# unset the %ifdef is not assembled.
+ifneq ($(RAMKB),)
+BOOTDEF += -DRAM_KB=$(RAMKB)
+endif
+# ...and a stamp so that CHANGING A KNOB rebuilds what it affects. Without it
+# make sees an up-to-date kernel.bin, skips it, and boots the PREVIOUS
+# adapter - which reads exactly like the probe or the renderer being broken.
+# RAMKB is in the key for the same reason and is the sharper case: it touches
+# neither boot.asm nor kernel.bin, so nothing at all would rebuild and the
+# machine would boot the previous relocation while reporting the new one.
 #
 # The invalidation runs at PARSE time, not as a rule. A rule that deletes
 # kernel.bin is worse than no rule at all: make has already stat'd the target
@@ -94,9 +111,10 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(RAMKB),-ram$(RAMKB))
 $(shell mkdir -p $(BUILD); \
-        [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin; \
+        [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
+                                      $(BUILD)/boot.bin $(BUILD)/boot360.bin; \
                                 touch $(VIDSTAMP); })
 
 # "size of this file in bytes" is spelled differently by GNU coreutils and by

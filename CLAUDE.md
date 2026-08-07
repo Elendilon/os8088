@@ -186,6 +186,21 @@ A fourth takes the floppy transfer back to one sector per int 13h (SPEC.md
 make FLOPPY1=1         # AL=1 again, in BOTH transfer loops
 ```
 
+A fifth lies to the boot sector about how much RAM the machine has (SPEC.md
+§2.7). The sector relocates itself to the top of conventional memory, and
+QEMU answers 639KB whatever `-m` says — so the small-machine cases are
+unreachable here without it:
+
+```
+make test RAMKB=128    # boot with the sector where a 128KB machine puts it
+make test RAMKB=104    # ...and below the floor: it must print RAM and stop
+```
+
+It shares the `VIDEO=`/`RTC=` stamp, so changing it rebuilds the sector — and
+without that nothing at all would rebuild, since the knob touches neither
+`boot.asm` nor `kernel.bin`. It moves the SECTOR only: the kernel still reads
+the real `int 12h` for its heap, so this is not a small-machine simulation.
+
 **The boot sector batches too, and that is where the boot time is** (SPEC.md
 §18.93). It read `AL = 1` — 131 sectors, one int 13h each, at PERFORMANCE.md's
 measured **238 ms per sector**, so **over thirty seconds** of every boot, which
@@ -343,7 +358,7 @@ Testing quirks (learned the hard way):
   when a **document's** program was missing. A second caller is where a
   hard-coded string becomes a lie; the window is reused, so `W_TITLE` is
   restamped per call, before `wm_show`.
-- **Memory budget — read `docs/KERNEL-MEMORY.md` before spending any.** Two guards bind the kernel, they bind *different* things, and they are named for what they bound rather than numbered (they were "guard 1" and "guard 2" until the numbering turned out to be why the distinction kept getting lost). **`KERN_BUDGET` — the FOOTPRINT**: the whole kernel — image, `.bss`, the cold segment, the FAT window, the disk buffers and every task stack — is one contiguous span from `KERNEL_SEG`, measured against it (80.5KB, with the kernel at 80,384 — **2,048 bytes spare**; it has moved nine times, each asked for and granted, the fifth downward to put the guard back within reach of ordinary growth — the constant's own comment in `kernel.asm` is the history, and `docs/KERNEL-MEMORY.md` carries the bisect recipe rather than a figure, so the next author measures rather than trusts). **`KERN_BUDGET` cannot be raised again**: it is now exactly guard 5's ceiling — the kernel must end below the relocated boot sector's stack, which caps `KERN_SIZE` at 82,432, and that IS the budget. The next footprint raise is a `BOOT_RELOC` move, mirrored in `boot/boot.asm`, which also raises the machine's minimum RAM to boot. **`KERN_CODE_MAX` — the SEGMENT**: `.text` + `.bss` must fit the kernel's own 64KB segment, which no budget and no conversation can raise — 16-bit offsets. Two mechanisms relieve `KERN_CODE_MAX` and neither relieves `KERN_BUDGET`: the **boot overlay** (`.ovl`, SPEC.md §2.5 — run-once init code landed in the FAT window and overwritten by the first mount, costing nothing at all) and the **cold segment** (`.cold`, SPEC.md §2.6 — resident code with a CS of its own, DS still `KERNEL_SEG`; it holds 19.5KB now — the five file modules and the Control Panel — which is 31% of the kernel's code). Moving a module cold to fix a *footprint* overrun is a no-op that looks like a fix, and because the two rungs it moves between round separately it usually costs a 512-byte step. With the budget at its ceiling, the only levers left on the footprint are deleting kernel code and moving a feature out to a package (SPEC.md §28's precedent). A near call or branch crossing either boundary is a bug NASM cannot see; `tools/os88ovlchk.py`, run by `make`, refuses it. The menu save-under is a heap claim rather than a reservation. **Growing past the budget is a decision to take with whoever asked for the feature, not a build fix.** The heap starts where *this build's* kernel ends, so it moves whenever the kernel does. Task stacks are **256 bytes** with a `SCH_MAGIC` canary at the bottom of every slice, checked at each switch away — an overrun halts in `sch_stkdie` instead of corrupting the next task's stack. Re-run the fill probe (KERNEL-MEMORY) before trusting a smaller number, and remember the probe under QEMU understates a real BIOS's interrupt stack use — SeaBIOS services its interrupts on an internal stack; an IBM BIOS lands them on whichever task stack is current.
+- **Memory budget — read `docs/KERNEL-MEMORY.md` before spending any.** Two guards bind the kernel, they bind *different* things, and they are named for what they bound rather than numbered (they were "guard 1" and "guard 2" until the numbering turned out to be why the distinction kept getting lost). **`KERN_BUDGET` — the FOOTPRINT**: the whole kernel — image, `.bss`, the cold segment, the FAT window, the disk buffers and every task stack — is one contiguous span from `KERNEL_SEG`, measured against it (80.5KB, with the kernel at 80,384 — **2,048 bytes spare**; it has moved nine times, each asked for and granted, the fifth downward to put the guard back within reach of ordinary growth — the constant's own comment in `kernel.asm` is the history, and `docs/KERNEL-MEMORY.md` carries the bisect recipe rather than a figure, so the next author measures rather than trusts). **`KERN_BUDGET` can be raised again, and for one release it could not** — move 9 landed it exactly on guard 5's ceiling, because the kernel had to end below a boot sector nailed to linear 0x15000. The sector relocates to the **top of conventional RAM** now (SPEC.md §2.7: `int 12h`, its last byte on the machine's last byte), so it is above every kernel that could fit the machine at all and guard 5 is a statement about `MIN_RAM_KB` = 128 instead — a ceiling of 126,976, some 44.5KB above the budget. A tenth move is therefore the same decision the nine were, and **not** an invitation to take the slack. When the kernel approaches *that* ceiling the answer is two kernels off one tree, a full one and a minimum one, rather than a raise. **`KERN_CODE_MAX` — the SEGMENT**: `.text` + `.bss` must fit the kernel's own 64KB segment, which no budget and no conversation can raise — 16-bit offsets. Two mechanisms relieve `KERN_CODE_MAX` and neither relieves `KERN_BUDGET`: the **boot overlay** (`.ovl`, SPEC.md §2.5 — run-once init code landed in the FAT window and overwritten by the first mount, costing nothing at all) and the **cold segment** (`.cold`, SPEC.md §2.6 — resident code with a CS of its own, DS still `KERNEL_SEG`; it holds 19.5KB now — the five file modules and the Control Panel — which is 31% of the kernel's code). Moving a module cold to fix a *footprint* overrun is a no-op that looks like a fix, and because the two rungs it moves between round separately it usually costs a 512-byte step. The levers on the footprint itself are deleting kernel code, moving a feature out to a package (SPEC.md §28's precedent), and asking for the raise. A near call or branch crossing either boundary is a bug NASM cannot see; `tools/os88ovlchk.py`, run by `make`, refuses it. The menu save-under is a heap claim rather than a reservation. **Growing past the budget is a decision to take with whoever asked for the feature, not a build fix.** The heap starts where *this build's* kernel ends, so it moves whenever the kernel does. Task stacks are **256 bytes** with a `SCH_MAGIC` canary at the bottom of every slice, checked at each switch away — an overrun halts in `sch_stkdie` instead of corrupting the next task's stack. Re-run the fill probe (KERNEL-MEMORY) before trusting a smaller number, and remember the probe under QEMU understates a real BIOS's interrupt stack use — SeaBIOS services its interrupts on an internal stack; an IBM BIOS lands them on whichever task stack is current.
 
 ### Concurrency (SPEC.md §7 — the crux)
 
@@ -957,7 +972,7 @@ Five things got it there, and `docs/KERNEL-MEMORY.md` is the maintained account:
 Two invariants that are easy to break, both asserted:
 
 - **Every disk-visible base is 512-byte aligned.** int 13h moves one sector per call, which bounds a transfer to 512 bytes but does **not** stop one straddling a 64KB physical boundary — only starting 512-aligned does, and the DMA controller answers a straddle with error 09h. The FAT snapshot, the disk buffers, a package image and a package's file buffer out of the heap are all int 13h targets, so `KIMG_PARA` rounds the image to a whole 512 bytes and the rest of the ladder follows. It held by accident while every base was a round constant; the symptom when it broke was a **"Disk error" on any save big enough to reach the next 64KB boundary** — Paint's 63KB BMP immediately, a Note Pad file never.
-- **The boot sector relocates itself.** It runs at 0000:7C00 and is *still running* while the kernel's sectors land, and the kernel now covers 0x7C00. So it copies itself to `BOOT_RELOC:7C00` (linear 0x11000) and far-jumps there, **keeping the same offset** so every `org 0x7C00` label still resolves. **Three files carry `KERNEL_SEG`** — `kernel/kernel.asm`, `boot/boot.asm` and `apps/os88api.inc`, the last because it is baked into every package's far-call targets, so a kernel move means rebuilding every `.o88` and both apps floppies.
+- **The boot sector relocates itself, to the TOP OF CONVENTIONAL RAM** (SPEC.md §2.7). It runs at 0000:7C00 and is *still running* while the kernel's sectors land — it far-calls the splash between runs — and the kernel covers 0x7C00 long before the last one. So it copies itself to `int 12h`'s top less its own 512 bytes and far-jumps there (`push`/`push`/`retf`: the segment is computed, and the 8086 has no `push imm`), **keeping the same offset** so every `org 0x7C00` label still resolves. It used to be a fixed `BOOT_RELOC`, and that address — not any property of the kernel — was what capped the footprint; at the ceiling it can only meet the kernel on a machine too small to run the OS, so it **refuses** instead, comparing its computed base against where the kernel's read plus its own 2,048-byte stack would end, printing `RAM` and halting. Three failures land on that one compare: a machine genuinely too small, a BIOS under-reporting (an XT counts RAM from its DIP switches), and a `KB*64` that overflowed. Trusting `int 12h` is not a new dependency — DOS sizes itself from the same call, and `mem_init` reads it for the top of the heap, so the sector and the allocator agree by construction. The heap hands regions out downward, so **the first package loaded sits exactly where the sector was**. QEMU always answers 639KB, so the low-memory paths need `make test RAMKB=<n>` (measured: 105 boots, 104 refuses). **Two files carry `KERNEL_SEG`** — `kernel/kernel.asm` and `boot/boot.asm` — plus `apps/os88api.inc`, because it is baked into every package's far-call targets, so a kernel move means rebuilding every `.o88` and both apps floppies.
 
 ### Layout
 
@@ -1192,13 +1207,13 @@ whole diagnosis.
   two maps above (SPEC.md §41.6).
 
 **That store is what first pushed `KERN_BUDGET` past 64KB** — the first of
-four granted moves; the constant's comment in `kernel/kernel.asm` carries the
-full history. It stands at 74,240 (72.5KB) today, having been lowered onto the
-kernel once the optimisation passes had left over 9KB of unexamined slack
-under it. The 64KB *segment* limit (`KERN_CODE_MAX`) is untouched and
-unraisable: 16-bit offsets. `BOOT_RELOC` moves
-whenever the budget does — 0x0D40 (linear 0x15000) today — and is mirrored
-in `boot/boot.asm`.
+nine granted moves; the constant's comment in `kernel/kernel.asm` carries the
+full history. It stands at 82,432 today, the fifth move having been *downward*
+once the optimisation passes had left over 9KB of unexamined slack under it.
+The 64KB *segment* limit (`KERN_CODE_MAX`) is untouched and unraisable: 16-bit
+offsets. `BOOT_RELOC` used to move whenever the budget did, dragging a
+constant across two separately-assembled files and raising the minimum machine
+each time; it is gone (SPEC.md §2.7) and the sector computes its own address.
 
 The apps disk is **foldered**: `APPS/` and `GAMES/`, via a
 `DIR:` prefix per package in the Makefile, so a package is two double-clicks
