@@ -13569,29 +13569,71 @@ it opens a 124,918-byte one (620×400, cropped to the screen's 594×390) and
 every one of the 390 decoded rows matches the source pixel for pixel, 190 of
 them read from source bytes past the 64KB horizon.
 
-### 42.7 Full Screen — the §11.2 surface, and the §53 bracket on it
+### 42.7 Full Screen — the §53 bracket, and why NOT the §11.2 surface
 
-View ▸ Full Screen, or Ctrl+F. `pt_cmd_fs` makes two calls and the order is
-the design:
+View ▸ Full Screen, or Ctrl+F. `pt_cmd_fs` calls `OSAPI_FSX_RUN` and nothing
+else, and **the thing it deliberately does not do is take the §11.2 fullscreen
+surface first**. That is the opposite of Missile Command (§48.13), which is on
+the §11.2 surface and puts a bracket on top of it, and the reason is the
+repaint count — measured, on the restore path the 8088 target actually takes.
 
-**`OSAPI_FULLSCREEN` first**, because it is what makes the *window record*
-say "the whole screen". Every coordinate in this app is derived from that
-record — `pt_org` asks `OSAPI_WM_CONTENT` for the content origin and
-`OSAPI_WM_GEOM` for its size, and the palette, the divider, the canvas, the
-strip and the whole click ladder come off those two answers — so the layout
-follows with **no fullscreen branch in any drawing or hit-testing code**.
-`wm_raise` then paints the window whole, which runs Paint's own `W_PAINT`,
-which is where `pt_track` adopts the bigger content as a bigger canvas. By
-the time the bracket starts the screen is already right and the exclusive
-main draws nothing to begin with.
+The obvious design is §11.2 then the bracket, and it is genuinely attractive:
+`wm_fullscreen` writes the screen's geometry into the *window record*, so
+`pt_org`'s `OSAPI_WM_CONTENT` + `OSAPI_WM_GEOM` answer the whole screen by
+themselves and every coordinate in the app follows with no fullscreen branch
+anywhere. It was built that way first. **What kills it is coming home.**
+§53.6 step 4 owes the desktop one `wm_paint_all` — and with the window still
+`WF_FULL` at that moment, that repaint draws the *full-screen* Paint, which
+the `OSAPI_FULLSCREEN` AL=0 that follows immediately throws away and repaints
+again as a window. A full-canvas draw here is the app's whole cost, and one of
+them is spare.
 
-That is what made `pt_org`'s content size a call rather than the subtraction
-it used to be. `[es:bx+W_W] - 2` and `[es:bx+W_H] - TITLE_H - 1` are only
-right for a window that *has* a border and a title bar; under `WF_FULL` the
-frame **is** the content (§11.2), and `wm_geom` is the one place that knows
-(§41). One line, and it is the entire fullscreen geometry.
+Measured with the counters at `gfx_blit4` / `gfx_fill` / `font_char`
+(CLAUDE.md's recipe), one launch-enter-leave round trip, nothing drawn in
+between, **the §53.6.1 XMS stash forced off** because the target is tier 0 and
+has no store:
 
-**`OSAPI_FSX_RUN` second**, and it is a **same-mode bracket** (§53.7): no
+| | canvas blits | `gfx_fill` | glyphs |
+|---|---|---|---|
+| enter, either design | 2 | ~730 | 14 |
+| leave, §11.2 + bracket | **3** | 1,496 | 102 |
+| leave, bracket alone | **1** | 770 | 88 |
+
+The two blits are one full-screen canvas: `pt_blit` bands a canvas that spans
+more than one segment, and 594×390 at the BMP stride is 117,000 bytes. So the
+round trip went from **five full-canvas draws to three** — two on the way in,
+which is the app's ordinary repaint at a new size, and one on the way home,
+which the desktop is owed anyway. `gfx_fill` on the exit halved (1.94x).
+
+**That measurement had to be taken with the stash off, and this is the trap
+worth recording**: on a 286+/VGA machine with extended memory, `fsx_restore`
+writes the saved planes back instead of repainting (§53.6.1), so the spare
+repaint *disappears* — the same test on a stock QEMU box measures the two
+designs as 4 blits against 3 and the problem looks minor. The machine this
+tree is calibrated against has no XMS at all, which is exactly where the spare
+repaint costs the most.
+
+So the geometry moves into the app instead, and it is **one branch in one
+routine**: `pt_org` answers origin (0,0) and the content box `[pt_scrw]` ×
+`[pt_scrh]` while `[pt_fsx]` is set, and asks the kernel otherwise. Everything
+downstream — the palette, the divider, the canvas origin, the strip, the whole
+click ladder — is derived from those four words and needs no fullscreen branch
+of its own. Two consequences follow from the kernel not knowing:
+`pt_repaint` skips `OSAPI_WM_GROW` (there is no grow box on a screen the
+window manager is not drawing, and `wm_grow_paint` would put one at the
+record's own corner, which is a window nobody can see), and the first paint
+has to clear its own bed, because there is no `wm_draw_win` white fill in
+front of it — `pt_fsbed`, two rects rather than one over the whole screen,
+since the rest is about to be covered by `pt_blit_all` and the strip's own bed
+and painting it twice is PERFORMANCE.md's double-draw with the picture as the
+second layer.
+
+The windowed path kept the change `wm_geom` brought: `[es:bx+W_W] - 2` and
+`[es:bx+W_H] - TITLE_H - 1`, open-coded in `pt_org` for years, are the
+kernel's own arithmetic and belong in the one routine that knows about title
+bars (§41).
+
+**The bracket is a same-mode bracket** (§53.7): no
 `fsx_mode` call, so every drawing slot stays legal and one body serves VGA,
 Hercules and CGA. Nothing here consults `fsx_caps` and **the menu item never
 greys** — the caps mask answers a question about *modes* and this sets none,
@@ -13662,19 +13704,23 @@ destroying their artwork or trapping them in full screen. The white band is
 the honest price of an exit that always works. It is worst on CGA (67 of 200
 rows) and there the canvas was already the awkward one.
 
-Leaving is therefore the ordinary resize path, unchanged: `wm_fs_drop` puts
-the saved rect back, `wm_paint_all` runs `W_PAINT`, and `pt_track` shrinks the
-canvas to the smaller content or refuses because that would crop artwork.
-`[pt_fs]` is still set across that call, which is what stops `pt_track` from
-rewriting a frame `wm_fs_drop` is about to overwrite — the refusal owes the
+Leaving is therefore the ordinary resize path, unchanged. `pt_fsx_main` clears
+`[pt_fsx]` and returns; `fsx_restore`'s one `wm_paint_all` runs `W_PAINT`;
+`pt_org` answers for the window again and `pt_track` shrinks the canvas back
+to the smaller content — or refuses, because that would crop artwork. **The
+canvas is resized before that repaint draws it**, `pt_track` running at the top
+of `pt_paint`, so the single repaint is also the correct one. `[pt_fs]` is
+still set across the whole bracket, `pt_cmd_fs` clearing it only after
+`OSAPI_FSX_RUN` returns, and that is what stops `pt_track` from calling
+`pt_wfix` inside a paint the kernel is in the middle of: a refusal owes the
 toast and nothing else (`[pt_apend]` = 2). `pt_cmd_fs` then squares the frame
 with `OSAPI_WM_RESIZE`, from outside a paint proc where that call is legal,
-**and only when the canvas and the record actually disagree** — which is what
-keeps the ordinary exit to one repaint, the ordinary exit being the canvas
-fitting the window it left. `pt_szapply` takes the same fork the other way:
-with the kernel owning the frame the content box did not move, so a canvas
-resized from the size boxes owes the repaint `wm_resize` would have brought
-and not the resize.
+**and only when the canvas and the record actually disagree** — the second
+repaint an exit can cost, owed only when the user's own artwork asked for it,
+and never on the ordinary trip where the canvas fits the window it left.
+`pt_szapply` takes the same fork the other way: inside the bracket the content
+box did not move, so a canvas resized from the size boxes owes the repaint
+`wm_resize` would have brought and not the resize.
 
 **The strip is flush with the bottom of the content, not one row under the
 canvas** (`pt_stripset`). In a window those are the same row by construction —
@@ -18269,7 +18315,11 @@ second is Tracker (§45), whose worker-fed audio ring is what
 that shows what a **same-mode** bracket is for on its own: it sets no mode, so
 it needs no caps bit and runs on all three adapters out of one body, and what
 it takes the machine for is not a raster but the lock — a drag samples the
-mouse once a frame and every sample was an unlock/yield/lock round trip.
+mouse once a frame and every sample was an unlock/yield/lock round trip. It is
+also the one that does **not** sit on the §11.2 surface, and §42.7 records the
+measurement that decided it: for an app whose repaint is expensive, §11.2 plus
+a bracket pays step 4's `wm_paint_all` on a window that is still `WF_FULL` and
+then repaints it again as a window, and the first of those two is spare.
 
 ### 53.1 The bracket (binding)
 

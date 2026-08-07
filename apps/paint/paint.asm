@@ -1100,25 +1100,34 @@ pt_org:
     push bx
     push cx                         ; CX too: pt_click calls this while CX/DX
     push dx                         ; still hold the click point
+    cmp byte [pt_fsx], 0            ; the ONE place full screen is a different
+    jne .fsx                        ; answer (SPEC.md 42.7) - everything else
+                                    ; in this app, the palette, the divider,
+                                    ; the canvas, the strip and the whole click
+                                    ; ladder, is derived from the four words
+                                    ; below and follows for free
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    push ax
+    push dx
+    call OSAPI_WM_GEOM              ; CX/DX = the CONTENT box (SPEC.md 41).
+    mov [pt_contw], cx              ; This used to be [es:bx+W_W] - 2 and
+    mov [pt_conth], dx              ; [es:bx+W_H] - TITLE_H - 1, open-coded
+    pop dx                          ; here, which is the same arithmetic with
+    pop ax                          ; nothing to say about a window that has
+    jmp short .org                  ; no title bar
+.fsx:
+    xor ax, ax                      ; the bracket owns the machine, so the
+    xor dx, dx                      ; content IS the screen. The window record
+    mov cx, [pt_scrw]               ; still describes a window - one nothing
+    mov [pt_contw], cx              ; can see, and one the kernel puts back
+    mov cx, [pt_scrh]               ; for us when the bracket ends
+    mov [pt_conth], cx
+.org:
     mov [pt_ox], ax
     mov [pt_oy], dx
     add ax, PT_CV_X
     mov [pt_cx0], ax
     mov [pt_cy0], dx
-    call OSAPI_WM_GEOM              ; CX/DX = the CONTENT box (SPEC.md 41).
-    mov [pt_contw], cx              ; This used to be [es:bx+W_W] - 2 and
-    mov [pt_conth], dx              ; [es:bx+W_H] - TITLE_H - 1, open-coded
-                                    ; here: the live record is still the truth
-                                    ; about size (ui_grow rewrites it under us,
-                                    ; SPEC.md 11.1) but that arithmetic is only
-                                    ; right for a window with a title bar and a
-                                    ; border. Under WF_FULL the frame IS the
-                                    ; content (SPEC.md 11.2) and the kernel's
-                                    ; own routine is the one place that knows -
-                                    ; which is what lets pt_cmd_fs put us on
-                                    ; the fullscreen surface with no coordinate
-                                    ; in this app knowing it happened
     call pt_stripset
     ; --- the strip's right-hand controls are anchored to the right edge, clear
     ; --- of the grow box, and the swatch row takes what is left -------------
@@ -2589,14 +2598,34 @@ pt_draw_strip:
     ; not just the paint proc. Putting it here covers the tool, colour, width
     ; and toggle clicks in one place; leaving it to pt_paint alone made the box
     ; vanish until the next full repaint.
-    mov bx, [pt_win]
-    call OSAPI_WM_GROW
+    call pt_growbox
     pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; pt_growbox - put the grow box back, if this screen has one
+; in:  gfx lock held; out: nothing; preserves all registers
+;
+; The gate is why this is a routine rather than two call sites: inside the
+; SPEC.md 53 bracket there is no grow box, because the window manager is not
+; drawing this screen at all (SPEC.md 42.7). wm_grow_paint would draw one at
+; the RECORD's corner - a window nobody can see, somewhere in the middle of
+; the canvas - and it is not an error there, so nothing would say so. It was
+; a stray icon on the CGA canvas until this gate covered both callers.
+; -----------------------------------------------------------------------------
+pt_growbox:
+    cmp byte [pt_fsx], 0
+    jne .out
+    push bx
+    mov bx, [pt_win]
+    call OSAPI_WM_GROW
+    pop bx
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3069,42 +3098,28 @@ pt_cmd_fs:
     jne .out
     cmp byte [pt_fs], 0             ; already ours - unreachable while the
     jne .out                        ; bracket is up, and cheap to answer
-    mov byte [pt_fs], 1             ; BEFORE the call, not after: OSAPI_FULLSCREEN
-                                    ; repaints us under the held lock, and the
-                                    ; W_PAINT inside it is exactly where
-                                    ; pt_track can refuse the bigger canvas for
-                                    ; want of memory - which windowed means
-                                    ; "write the frame back to fit" and here
-                                    ; would mean clobbering the geometry
-                                    ; wm_fullscreen just set. Missile Command's
-                                    ; idiom, for its own version of the reason
-    mov al, 1
-    mov bx, [pt_win]
-    call OSAPI_FULLSCREEN           ; fronts, resizes and repaints us under the
-    jnc .have                       ; held lock; CF = another window owns it
-    mov byte [pt_fs], 0
-    jmp short .out
-.have:
+    mov byte [pt_fs], 1             ; set BEFORE the bracket: the W_PAINT that
+                                    ; fsx_restore runs on the way home is
+                                    ; inside OSAPI_FSX_RUN, and it must already
+                                    ; know the frame is not ours to rewrite
     mov ax, pt_fsx_main
     mov bx, [pt_win]
     xor cx, cx                      ; no KEEPWORKER: Paint claims no worker
     call OSAPI_FSX_RUN              ; task, so there is nothing to keep alive
     pushf
-    mov al, 0                       ; the window back, whichever way that went.
-    mov bx, [pt_win]                ; [pt_fs] is still set across this, so the
-    call OSAPI_FULLSCREEN           ; W_PAINT inside it knows the frame is not
-    mov byte [pt_fs], 0             ; ours to rewrite (pt_track)
+    mov byte [pt_fs], 0
     popf
     jnc .fitwin
-    mov si, pt_s_nofsx              ; refused: say so over the restored window
-    call pt_msg_show
+    mov si, pt_s_nofsx              ; refused, and nothing has changed: no
+    call pt_msg_show                ; surface was taken and nothing was drawn
     jmp short .out
 .fitwin:
-    ; The canvas may have outgrown the rect wm_fs_drop just put back - the user
-    ; grew it while we had the screen, and pt_track's shrink is refused when it
-    ; would crop artwork (SPEC.md 42). Saying so is OSAPI_WM_RESIZE's job and
-    ; it repaints; the compare is what keeps the ordinary exit to ONE repaint,
-    ; because the ordinary exit is the canvas fitting the window it left.
+    ; The canvas may have outgrown the window while we had the screen, and
+    ; pt_track's shrink on the way back is refused when it would crop artwork
+    ; (SPEC.md 42). Saying so is OSAPI_WM_RESIZE's job and it repaints - the
+    ; ONLY second repaint an exit can cost, and only when the user's own
+    ; artwork asked for it. The compare is what keeps the ordinary exit to the
+    ; one repaint fsx_restore owes the desktop anyway.
     push es
     mov ax, KERNEL_SEG              ; the record is the kernel's (SPEC.md 20.1)
     mov es, ax
@@ -3158,6 +3173,15 @@ pt_fsx_main:
     push es
     mov byte [pt_fsx], 1
     mov byte [pt_ptron], 0          ; nothing of ours is on this screen yet
+    mov bx, [pt_win]                ; ONE draw, and it is the app's ordinary
+    call pt_org                     ; one at a new size: pt_org now answers
+    call pt_track                   ; the whole screen, pt_track grows the
+    call pt_fsbed                   ; canvas into it (memory only - pt_resize
+    call pt_repaint                 ; never draws), and pt_repaint is the same
+                                    ; body W_PAINT runs. Coming home costs the
+                                    ; one wm_paint_all fsx_restore owes the
+                                    ; desktop anyway, so a round trip is two
+                                    ; full-screen redraws and neither is spare
     call OSAPI_MOUSE                ; AL = buttons, CX/DX = screen position
     mov [pt_pbtn], al               ; the click or key that got us here must
     mov [pt_ptrx], cx               ; not read as a fresh press on the first
@@ -6593,9 +6617,52 @@ pt_repaint:
     je .noab                        ; it is drawn last and by every repaint -
     call pt_abdraw                  ; otherwise a paint triggered while it is
 .noab:                              ; up would quietly erase it
-    mov bx, [pt_win]
-    call OSAPI_WM_GROW              ; the white-fill idiom ate the grow box
-                                    ; (SPEC.md 11.1) - put it back
+    call pt_growbox                 ; the white-fill idiom ate it (SPEC.md
+                                    ; 11.1) - put it back, unless this screen
+                                    ; has none (pt_growbox)
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; pt_fsbed - the pixels pt_repaint does NOT cover, white, once
+; in:  [pt_ch], [pt_cw], [pt_contw]; gfx lock held
+; out: nothing; preserves all registers
+;
+; Windowed, wm_draw_win white-fills the whole content before it calls W_PAINT
+; and this never runs. The bracket has no wm_draw_win, so the first paint on a
+; screen still showing the desktop has to clear what the repaint will not
+; write - which is the tool column's bed and, if memory would not fund a
+; canvas as wide as the screen, the columns to the right of it. Two fills
+; rather than one over the whole screen, because the rest is about to be
+; covered by pt_blit_all and the strip's own bed, and painting it twice is
+; PERFORMANCE.md's double-draw with the picture as the second layer.
+; -----------------------------------------------------------------------------
+pt_fsbed:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov byte [pt_pen], CWHITE
+    xor ax, ax
+    xor bx, bx
+    mov cx, PT_SEPX - 1
+    mov dx, [pt_ch]
+    dec dx
+    call pt_cfill
+    mov ax, [pt_cw]                 ; ...and anything the canvas leaves to its
+    add ax, PT_CV_X                 ; right (pt_fit shrank it, not the user)
+    mov cx, [pt_contw]
+    dec cx
+    cmp ax, cx
+    jg .out
+    xor bx, bx
+    mov dx, [pt_ch]
+    dec dx
+    call pt_cfill
+.out:
     pop dx
     pop cx
     pop bx
