@@ -881,7 +881,18 @@ osapi_table:
                                   ;          N then M is exactly the N+M one
                                   ;          call would have drawn, which is
                                   ;          what lets an erase replay a draw
-osapi_table_end:                  ; 0x0310
+    OSAPI_SLOT gfx_pen_cf         ; 0x0310 - CF = 0 live / 1 disabled, and it
+                                  ;          sets [gfx_color] AND [gfx_dis]
+                                  ;          together (SPEC.md 47 rule 3), so
+                                  ;          a package's disabled TEXT
+                                  ;          dithers on mono like the
+                                  ;          kernel's. The cell is
+                                  ;          push/pop/call/retf and touches
+                                  ;          no flag, so CF crosses it
+                                  ;          unchanged - which is why this
+                                  ;          needs no stub and no AL
+                                  ;          argument
+osapi_table_end:                  ; 0x0318
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -889,8 +900,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 96 * 8
-%error "os8088 API jump table must be exactly 96 8-byte slots"
+%if OSAPI_TABLE_LEN != 97 * 8
+%error "os8088 API jump table must be exactly 97 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
