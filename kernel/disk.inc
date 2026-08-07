@@ -180,6 +180,16 @@ dsk_dbg_rst: dw 0                ; +10 controller resets (the 00h after a
                                  ;     retrying is a read that looks slow for
                                  ;     a reason no timing row can show
 dsk_dbg_ent: dw dsk_dbg_raw      ; +12 near offset of the FAR entry below
+dsk_dbg_tn:  dw 0                ; +14 how many trace slots are filled; a
+                                 ;     reader ZEROES this to start a trace
+dsk_dbg_tp:  dw dsk_dbg_trc      ; +16 ...and where they are
+
+DSK_DBG_TRC equ 40               ; (lba, run) pairs. 40 covers a 16KB read on
+                                 ; the machine that needed it - 34 calls -
+                                 ; and stops rather than wrapping, because a
+                                 ; wrapped trace is indistinguishable from a
+                                 ; short one and this exists to be READ
+dsk_dbg_trc: times DSK_DBG_TRC*2 dw 0
 
 ; -----------------------------------------------------------------------------
 ; dsk_dbg_raw - one raw int 13h, from the KERNEL, with sch_lock held
@@ -484,6 +494,17 @@ dsk_xfer:
     jbe .dbgnomax
     mov [dsk_dbg_max], ax
 .dbgnomax:
+    push bx                     ; ...and the (LBA, run) of this very call, so
+    mov bx, [dsk_dbg_tn]        ; a reader can see whether the SAME sectors
+    cmp bx, DSK_DBG_TRC         ; are being fetched more than once - which is
+    jae .dbgnotrc               ; the shape 148 sectors for a 32-sector file
+    add bx, bx                  ; has, and which no total can distinguish
+    add bx, bx                  ; from "reads too much"
+    mov [dsk_dbg_trc+bx], di    ; DI is the LBA this pass is issuing
+    mov [dsk_dbg_trc+bx+2], ax
+    inc word [dsk_dbg_tn]
+.dbgnotrc:
+    pop bx
 %endif
     mov al, [disk_spt]          ; the FDC stops a multi-sector transfer at EOT
     mov [dsk_dpt+4], al         ; and the ROM's is 8 (SPEC.md 18.92) - so this

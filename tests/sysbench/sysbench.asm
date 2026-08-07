@@ -1864,6 +1864,7 @@ sb_dbgctr:
     mov si, sb_l_c16
     call bl_sline
     call sb_ctr_show
+    call sb_ctr_trace               ; ...and every call it made, in order
 
     call sb_ctr_bank                ; --- ...and one ONE-SECTOR read, which is
     call sb_b_rdsml                 ; the same overhead with no data behind it
@@ -1895,6 +1896,7 @@ sb_ctr_bank:
     mov [sb_c0i13], ax
     mov word [es:bx+8], 0           ; longest run and resets are per-operation
     mov word [es:bx+10], 0
+    mov word [es:bx+14], 0          ; ...and so is the (LBA, run) trace
     pop es
     pop bx
     pop ax
@@ -1961,6 +1963,82 @@ sb_ctr_show:
     mov si, sb_d_cspc
     mov cx, 9
     call bl_kv
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sb_ctr_trace - the (LBA, run) of every int 13h the last read issued
+;
+; A total cannot tell "reads too much" from "reads the same thing twice", and
+; those want completely different fixes. 148 sectors for a 32-sector file is
+; either one long walk over sectors nobody asked for, or a short walk done
+; four times, and the LBAs say which at a glance: repeats mean re-reading,
+; a monotone climb past the file's own length means over-reading.
+;
+; Four pairs a line, `lba+run`, in the order they were issued.
+; -----------------------------------------------------------------------------
+sb_ctr_trace:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov bx, [sb_dbgblk]
+    mov ax, [es:bx+14]              ; slots filled
+    mov [sb_tn], ax
+    or ax, ax
+    jz .out
+    mov ax, [es:bx+16]              ; ...and where they are
+    mov [sb_tbase], ax
+    mov word [sb_tslot], 0
+    mov si, sb_l_ctrc
+    call bl_sline
+.line:
+    call bl_lclr
+    mov word [sb_tcol], 2
+.pair:
+    mov bx, [sb_tslot]
+    add bx, bx
+    add bx, bx
+    add bx, [sb_tbase]
+    mov ax, [es:bx]                 ; the LBA
+    xor dx, dx
+    mov di, [sb_tcol]
+    mov cx, 5
+    call bl_dec
+    mov bx, [sb_tslot]
+    add bx, bx
+    add bx, bx
+    add bx, [sb_tbase]
+    mov ax, [es:bx+2]               ; ...and the run it asked for
+    xor dx, dx
+    mov di, [sb_tcol]
+    add di, 6
+    mov cx, 2
+    call bl_dec
+    add word [sb_tcol], 10
+    inc word [sb_tslot]
+    mov ax, [sb_tslot]
+    cmp ax, [sb_tn]
+    jae .flush                      ; ran out of slots mid-line
+    cmp word [sb_tcol], 42          ; four pairs fit; a fifth would not
+    jb .pair
+.flush:
+    call bl_lcommit
+    mov ax, [sb_tslot]
+    cmp ax, [sb_tn]
+    jb .line
+.out:
+    pop es
+    pop di
     pop si
     pop dx
     pop cx
@@ -2598,6 +2676,7 @@ sb_s_h_ctr2: db '   the 1-sector read is the same overhead with no data in it', 
 sb_l_c16:    db '  one 16KB FILE_READ:', 0
 sb_l_c1:     db '  one 1-sector FILE_READ:', 0
 sb_l_cmnt:   db 'disk_mount calls', 0
+sb_l_ctrc:   db '  every int 13h it issued, as lba+run:', 0
 sb_l_csec:   db 'sectors moved', 0
 sb_l_ci13:   db 'int 13h calls', 0
 sb_l_cmax:   db 'longest run, sectors', 0
@@ -2626,7 +2705,7 @@ sb_it_top:  db 'Top of Report', 0
 ; The bss offsets past the scalars are derived, never hand-totalled: a figure
 ; that is too small is a package writing over benchlib's arena, which assembles
 ; cleanly and produces a report full of plausible nonsense.
-SB_O_SYSKB equ 112
+SB_O_SYSKB equ 120
 SB_O_RES   equ SB_O_SYSKB + SYSKB_SIZE
 SB_O_RROW  equ SB_O_RES + SB_NCPU * 4
 SB_O_RAM   equ SB_O_RROW + SB_BWROWS * 2
@@ -2687,7 +2766,11 @@ sb_c0sec    equ os88_image_end + 100   ; word: sectors one 16KB read moved
 sb_c0i13    equ os88_image_end + 102   ; word: ...and int 13h calls it took
 sb_c0max    equ os88_image_end + 104   ; word: the longest run in it
 sb_c0rst    equ os88_image_end + 106   ; word: ...and controller resets
-sb_c0mnt    equ os88_image_end + 108   ; word: disk_mount calls in it (109)
+sb_c0mnt    equ os88_image_end + 108   ; word: disk_mount calls in it
+sb_tcol     equ os88_image_end + 110   ; word: the trace line's next column
+sb_tslot    equ os88_image_end + 112   ; word: ...and the slot it is printing
+sb_tn       equ os88_image_end + 114   ; word: how many slots there are
+sb_tbase    equ os88_image_end + 116   ; word: where the trace array is (117)
 sb_syskb    equ os88_image_end + SB_O_SYSKB    ; SYSKB_SIZE bytes
 sb_res      equ os88_image_end + SB_O_RES      ; SB_NCPU dwords
 sb_rrow     equ os88_image_end + SB_O_RROW     ; SB_BWROWS words
