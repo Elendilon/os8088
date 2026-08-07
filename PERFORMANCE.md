@@ -1736,7 +1736,15 @@ harness that cannot be measured with interrupts off** (`gfx_lock` ends with
 `cur_lazyend` → `cur_move`, which runs when the mouse has moved since the
 cursor was drawn. Not reproduced under QEMU: with the pointer in the middle
 of the screen and again parked in a corner, the pair is **0.5 instructions an
-iteration** either way. Open; see the question in docs/FIELD-NOTES.md.
+iteration** either way — with the mouse *idle*, which is the whole question.
+
+SPEC.md §7.1.4.1, found separately and after these runs, measured that
+mechanism firing: under a flood of mouse packets, **279 `cur_move` calls in
+972 unlocks**, about 29%. So a moving pointer plausibly explains the whole
+gap, and the row would then be measuring unlock+lock **while the mouse
+moves** — arguably the number that matters, since a Missile Command player
+never stops moving it. Open until somebody says whether they had a hand on
+the mouse. docs/FIELD-NOTES.md 8.
 
 #### The harness bug: two fill rows measured a line-step for four commits
 

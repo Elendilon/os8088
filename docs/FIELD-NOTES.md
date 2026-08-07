@@ -860,11 +860,27 @@ which is about the right size to explain 2 ms on a 4.77 MHz machine.
 - **The adapter.** Both 5150 columns are expensive and the T1100's CGA column
   is not.
 
-**The open question is whether the mouse was moving.** The row is 100
-iterations and lasts about 224 ms on that machine — long enough for a hand
-resting on a mouse, or a ball mouse picking up the machine's own vibration,
-to make every iteration a `cur_move`. If that is the answer the row is
-honest and the lesson is that it must be labelled "cursor idle"; if it is
-not, something makes `cur_drawn_*` chase `mouse_*` without catching it, and
-that is a bug worth finding, because CLAUDE.md already prices this pair at
-21.8% of a Missile Command session.
+**The open question is whether the mouse was moving**, and the mechanism has
+since been measured independently. SPEC.md §7.1.4.1 — a *different* bug,
+`cur_lazyend` eating the caller's registers — was found by flooding the
+machine with mouse packets and counting, and the count is the interesting
+part here: **279 `cur_move` calls in 972 unlocks**, so under continuous
+movement roughly **29% of unlocks take the expensive path**. The row is 100
+iterations and lasts about 224 ms on that machine, which is long enough for a
+hand resting on a mouse, or a ball mouse picking up the machine's own
+vibration, to keep that rate up throughout.
+
+If that is the answer the row is honest and the lesson is that it measures
+**unlock+lock with the pointer moving**, not idle — which is arguably the
+number that matters, since CLAUDE.md prices this pair at 21.8% of a Missile
+Command session and a Missile Command player never stops moving the mouse.
+It would then want taking twice, labelled. If it is *not* the answer,
+something makes `cur_drawn_*` chase `mouse_*` without ever catching it, and
+that is a real bug.
+
+**The field disks predate the §7.1.4.1 fix**, so the runs above were taken on
+a kernel where a `cur_move` inside an unlock destroyed the caller's
+registers. That does not invalidate the data: `bl_time` banks CX around
+`call word [bl_body]` and keeps every accumulator in memory, so the harness
+survives a body that clobbers everything — which is its documented contract.
+A re-run should still be on a fixed kernel.
