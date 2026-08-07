@@ -324,7 +324,15 @@ Testing quirks (learned the hard way):
   rather than *whether*. **A greying change is not done until it has been looked
   at on a 1bpp adapter** — the two mono adapters differ from VGA in kind, not
   just in depth, and a glyph there is a checkerboard while a ring is dotted.
-- **Memory budget — read `docs/KERNEL-MEMORY.md` before spending any.** Two guards bind the kernel, they bind *different* things, and they are named for what they bound rather than numbered (they were "guard 1" and "guard 2" until the numbering turned out to be why the distinction kept getting lost). **`KERN_BUDGET` — the FOOTPRINT**: the whole kernel — image, `.bss`, the cold segment, the FAT window, the disk buffers and every task stack — is one contiguous span from `KERNEL_SEG`, measured against it (72.5KB, with the kernel at 72,704 — **1,536 bytes spare**; it has moved five times, each asked for and granted, and the fifth was downward to put the guard back within reach of ordinary growth — the constant's own comment in `kernel.asm` is the history). **`KERN_CODE_MAX` — the SEGMENT**: `.text` + `.bss` must fit the kernel's own 64KB segment, which no budget and no conversation can raise — 16-bit offsets. Two mechanisms relieve `KERN_CODE_MAX` and neither relieves `KERN_BUDGET`: the **boot overlay** (`.ovl`, SPEC.md §2.5 — run-once init code landed in the FAT window and overwritten by the first mount, costing nothing at all) and the **cold segment** (`.cold`, SPEC.md §2.6 — resident code with a CS of its own, DS still `KERNEL_SEG`). Moving a module cold to fix a *footprint* overrun is a no-op that looks like a fix. A near call or branch crossing either boundary is a bug NASM cannot see; `tools/os88ovlchk.py`, run by `make`, refuses it. The menu save-under is a heap claim rather than a reservation. **Growing past the budget is a decision to take with whoever asked for the feature, not a build fix.** The heap starts where *this build's* kernel ends, so it moves whenever the kernel does. Task stacks are **256 bytes** with a `SCH_MAGIC` canary at the bottom of every slice, checked at each switch away — an overrun halts in `sch_stkdie` instead of corrupting the next task's stack. Re-run the fill probe (KERNEL-MEMORY) before trusting a smaller number, and remember the probe under QEMU understates a real BIOS's interrupt stack use — SeaBIOS services its interrupts on an internal stack; an IBM BIOS lands them on whichever task stack is current.
+- **A kernel notice names the thing that failed (SPEC.md §54.4.1).**
+  `ui_note` takes the message, the line above it **and the window's title**
+  from the caller. It used to bake the last two in as the Task Manager's,
+  because `ui_tm_open` was its only caller — so the association open path
+  reported "Cannot open the Task Manager" over a window titled *Task Manager*
+  when a **document's** program was missing. A second caller is where a
+  hard-coded string becomes a lie; the window is reused, so `W_TITLE` is
+  restamped per call, before `wm_show`.
+- **Memory budget — read `docs/KERNEL-MEMORY.md` before spending any.** Two guards bind the kernel, they bind *different* things, and they are named for what they bound rather than numbered (they were "guard 1" and "guard 2" until the numbering turned out to be why the distinction kept getting lost). **`KERN_BUDGET` — the FOOTPRINT**: the whole kernel — image, `.bss`, the cold segment, the FAT window, the disk buffers and every task stack — is one contiguous span from `KERNEL_SEG`, measured against it (78.5KB, with the kernel at 78,336 — **2,048 bytes spare**; it has moved eight times, each asked for and granted, the fifth downward to put the guard back within reach of ordinary growth — the constant's own comment in `kernel.asm` is the history, and `docs/KERNEL-MEMORY.md` carries the bisect recipe rather than a figure, so the next author measures rather than trusts). **`KERN_CODE_MAX` — the SEGMENT**: `.text` + `.bss` must fit the kernel's own 64KB segment, which no budget and no conversation can raise — 16-bit offsets. Two mechanisms relieve `KERN_CODE_MAX` and neither relieves `KERN_BUDGET`: the **boot overlay** (`.ovl`, SPEC.md §2.5 — run-once init code landed in the FAT window and overwritten by the first mount, costing nothing at all) and the **cold segment** (`.cold`, SPEC.md §2.6 — resident code with a CS of its own, DS still `KERNEL_SEG`). Moving a module cold to fix a *footprint* overrun is a no-op that looks like a fix. A near call or branch crossing either boundary is a bug NASM cannot see; `tools/os88ovlchk.py`, run by `make`, refuses it. The menu save-under is a heap claim rather than a reservation. **Growing past the budget is a decision to take with whoever asked for the feature, not a build fix.** The heap starts where *this build's* kernel ends, so it moves whenever the kernel does. Task stacks are **256 bytes** with a `SCH_MAGIC` canary at the bottom of every slice, checked at each switch away — an overrun halts in `sch_stkdie` instead of corrupting the next task's stack. Re-run the fill probe (KERNEL-MEMORY) before trusting a smaller number, and remember the probe under QEMU understates a real BIOS's interrupt stack use — SeaBIOS services its interrupts on an internal stack; an IBM BIOS lands them on whichever task stack is current.
 
 ### Concurrency (SPEC.md §7 — the crux)
 
@@ -705,6 +713,27 @@ Four things about it are easy to undo:
   every caller is still inside this tree; it invalidates every `.o88`, and
   `make` is what makes that survivable. The next contract change is a new
   number.
+
+**Both data walkers coalesce runs** (SPEC.md §18.4.2), and only one of them
+used to. `dskw_wdata` appended whole sectors to a pending run and spent it
+with `dskw_wflush`; `dskw_rdata` — the body behind `OSAPI_FILE_READ` — issued
+**one `disk_read` per sector**, and its own header comment claimed it was
+"stepped the same way" as the write side it had stopped mirroring. §18.91's
+batching could not help, because `dsk_xfer` only batches what one call hands
+it, so the largest file operation in the system still paid a revolution per
+sector: PERFORMANCE.md's "a 116KB Tracker module is 57 seconds" was this and
+nothing else. Measured after, on the same load: **295 sectors in 34 int 13h
+calls against 244**, with the sector count *identical* — which is the shape
+that says the splitter is not dropping work. The two now share one flush body
+picked by `[dskw_fop]`, for the reason `disk_read` and `disk_write` share
+`dsk_xfer`: the run arithmetic must not be able to differ between reading and
+writing, which is exactly how this drifted. What is deliberately still one
+sector at a time: **directory walks** (they read into the single 512-byte
+`dsk_secbuf`, and a walk stops early — at the match, or at the first `0x00`
+name — so reading ahead can cost work rather than save it, the opposite trade
+from a file read whose length is known up front) and **`dskw_mkdir`'s
+zero-fill**, which writes the same buffer per sector and is bounded at 3 extra
+writes because §18.7's 65,535-sector partition cap keeps cluster size at 4.
 
 What this did *not* remove: `dskw_append` and the file manager's chunked copy
 (SPEC.md §22.5) stay, because the copy **buffer** is a heap claim of whatever

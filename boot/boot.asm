@@ -102,6 +102,13 @@ entry:
     mov ss, ax
     mov sp, STACK_TOP
 
+    ; --- t = 0 for the boot timer (SPEC.md 15.4) -----------------------------
+    ; The BIOS tick at 0040:006C, read HERE because everything expensive is
+    ; below it: this sector's own read of the kernel is most of a boot. BP
+    ; carries it through the relocation and the whole load - nothing in this
+    ; sector uses BP - and it is handed to the kernel at the far jump.
+    mov bp, [0x046C]
+
     ; --- relocate: same offset, new segment ---------------------------------
     ; Nothing above this point touches memory through a label, so it runs
     ; correctly at 0000:7C00 where the BIOS put it. After the far jump CS is
@@ -228,6 +235,10 @@ entry:
     jne .load_next
 
     ; --- hand off ------------------------------------------------------------
+    mov ax, KERNEL_SEG          ; the boot timer's t=0, into the fixed word the
+    mov es, ax                  ; kernel keeps for it (SPEC.md 15.4). It has to
+    mov [es:0x000C], bp         ; be written AFTER the load, or the sectors
+                                ; landing here would overwrite it
     mov dl, [boot_drive]        ; kernel may want to know the boot drive
     jmp KERNEL_SEG:0x0000
 

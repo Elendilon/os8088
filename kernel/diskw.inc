@@ -1464,7 +1464,12 @@ dskw_wdata:
 ; A no-op with nothing pending, which is what lets every path out of the
 ; cluster loop call it without asking.
 ; -----------------------------------------------------------------------------
-dskw_wflush:
+dskw_rflush:
+    mov byte [dskw_fop], 0      ; ...and dskw_rdata's, which is the same run
+    jmp short dskw_flushrun     ; arithmetic over the same words (SPEC.md
+dskw_wflush:                    ; 18.4.2) - one body, the disk_read/disk_write
+    mov byte [dskw_fop], 1      ; idiom, so the two cannot drift apart
+dskw_flushrun:
     push ax
     push bx
     push cx
@@ -1474,7 +1479,13 @@ dskw_wflush:
     mov ax, [dskw_rlba]
     mov es, [dskw_wseg]
     mov bx, [dskw_src]
-    call disk_write             ; in: AX=LBA, CX=count, ES:BX
+    cmp byte [dskw_fop], 0      ; in: AX=LBA, CX=count, ES:BX
+    je .rd
+    call disk_write
+    jmp short .did
+.rd:
+    call disk_read
+.did:
     jc .err
     mov ax, [dskw_rlen]
     mov word [dskw_rlen], 0
@@ -1606,14 +1617,17 @@ dskw_rbody:
 ; out: CF=0, or CF=1 with AX = FERR_*
 ; clobbers: AX (the output), BX, CX, DI, ES, CF
 ;
-; dskw_wdata's twin, and stepped the same way: one disk_read per sector at
-; [dskw_wseg]:[dskw_src], then wseg += 32 paragraphs, so no transfer ever
-; crosses the destination's 16-bit offset horizon. The partial final sector
-; stages through dsk_secbuf with only its live bytes copied out, so no memory
-; past EOF reaches the caller - and there is nothing here to zero, because
-; the buffer is the caller's.
+; dskw_wdata's twin, and coalescing the same way (SPEC.md 18.4.2): whole
+; sectors are APPENDED TO A PENDING RUN rather than read here, and the run is
+; spent by dskw_rflush when the LBA stops being contiguous, when its DMA page
+; is full, or at the end. A run crosses CLUSTER boundaries, which is the whole
+; point - a file laid down contiguously is one run per track. The partial
+; final sector stages through dsk_secbuf with only its live bytes copied out,
+; so no memory past EOF reaches the caller - and there is nothing here to
+; zero, because the buffer is the caller's.
 ; -----------------------------------------------------------------------------
 dskw_rdata:
+    mov word [dskw_rlen], 0     ; no data run pending
     mov ax, [dskw_seg]
     mov [dskw_wseg], ax         ; the ADVANCING destination segment
     jmp short .clus
@@ -1642,51 +1656,86 @@ dskw_rdata:
 .take:
     mov [dskw_take], ax
     mov cx, ax
-    call dskw_last_p
+    call dskw_last_p            ; ZF=1 if this take ends in a partial sector
     jnz .whole
-    dec cx
+    dec cx                      ; that last sector comes in through the stage
 .whole:
-    jcxz .tail
-.sect:                          ; whole sectors, one per read, ES stepping
-    push cx
-    call dskw_cross             ; CF=1: the 8237 cannot move this one
-    jc .stg
-    mov ax, [dskw_lba]
-    mov es, [dskw_wseg]
-    mov bx, [dskw_src]
+    mov ax, [dskw_lba]          ; the cursor, set BEFORE the count is tested:
+    mov [dskw_clba], ax         ; a take that is nothing but a partial sector
+                                ; skips the walk and .tail still reads it
+    or cx, cx                   ; (not jcxz: .tail is out of its reach now)
+    jnz .sect
+    jmp .tail
+.sect:
+    cmp word [dskw_rlen], 0
+    je .newrun
+    mov ax, [dskw_rlba]         ; does this sector continue the pending run?
+    add ax, [dskw_rlen]
+    cmp ax, [dskw_clba]
+    jne .breakrun
+    mov ax, [dskw_rcap]         ; ...and is there room left in it?
+    cmp ax, [dskw_rlen]
+    ja .append
+.breakrun:
+    call dskw_rflush            ; no: spend it and start again here
+    jc .ioerr
+    jmp .sect
+.newrun:
+    call dskw_runmax            ; AX = the cap, from the CURRENT wseg:src -
+    or ax, ax                   ; which is where this run's first byte is
+    jz .stg                     ; not even one sector fits its DMA page
+    mov [dskw_rcap], ax
+    mov ax, [dskw_clba]
+    mov [dskw_rlba], ax         ; ([dskw_rlen] is already 0)
+.append:
+    mov ax, [dskw_rcap]
+    sub ax, [dskw_rlen]         ; room in the run...
+    cmp ax, cx
+    jbe .grow
+    mov ax, cx                  ; ...and what is left of this cluster's take
+.grow:
+    add [dskw_rlen], ax
+    add [dskw_clba], ax
+    sub cx, ax
+    jnz .sect
+    jmp short .tail
+.jioerr:
+    jmp .ioerr
+.stg:                           ; one sector the 8237 cannot carry, alone,
+    mov ax, LOW_SEG             ; through the scratch - which is 512-aligned
+    mov es, ax                  ; and therefore never straddles. No run can be
+    mov bx, dsk_secbuf          ; pending here: dskw_runmax answered 0, and it
+    push cx                     ; is only asked with [dskw_rlen] = 0
     mov cx, 1
+    mov ax, [dskw_clba]
     call disk_read
-    jc .ioerrp
-    jmp short .next
-.stg:
-    mov ax, LOW_SEG             ; ...so it comes in through the scratch, which
-    mov es, ax                  ; is 512-aligned and therefore never straddles
-    mov bx, dsk_secbuf
-    mov cx, 1
-    mov ax, [dskw_lba]
-    call disk_read
-    jc .ioerrp
+    pop cx
+    jc .jioerr
     mov es, [dskw_wseg]
     mov di, [dskw_src]
+    push cx
     mov cx, 512
     call dskw_fetch             ; ...and up to the caller, all 512 of it
-.next:
     pop cx
-    inc word [dskw_lba]         ; next sector...
-    add word [dskw_wseg], 32    ; ...lands 512 bytes = 32 paragraphs on
-    loop .sect
-    jmp short .tail
-.ioerrp:
-    pop cx
-    jmp .ioerr                  ; (near: the loop body outruns a short jump)
+    inc word [dskw_clba]
+    add word [dskw_wseg], 32    ; 512 bytes = 32 paragraphs on
+    dec cx
+    jz .tail
+    jmp .sect
+
+    ; the partial final sector: only its live bytes reach the caller. The run
+    ; goes first - its bytes come BEFORE these, and flushing it is also what
+    ; advances [dskw_wseg] to where the tail's destination actually is.
 .tail:
     call dskw_last_p
     jnz .advance
+    call dskw_rflush
+    jc .ioerr
     mov ax, LOW_SEG
     mov es, ax
     mov bx, dsk_secbuf
     mov cx, 1
-    mov ax, [dskw_lba]          ; (.sect already advanced dskw_lba to it)
+    mov ax, [dskw_clba]         ; the sector the whole-sector walk stopped at
     call disk_read              ; the last sector, whole, into the scratch
     jc .ioerr
     mov es, [dskw_wseg]
@@ -1696,13 +1745,15 @@ dskw_rdata:
 .advance:
     mov ax, [dskw_take]
     sub [dskw_rem], ax
-    jz .done
+    jz .rdone
     mov ax, [dskw_cur]          ; follow the chain
     call dsk_next_clus
     jc .corrupt
     mov [dskw_cur], ax
     jmp .clus                   ; (near: the loop body outruns a short jump)
-.done:
+.rdone:
+    call dskw_rflush            ; the last run of the file
+    jc .ioerr
     clc
     ret
 
@@ -3080,6 +3131,11 @@ dskw_rlba:    resw 1            ; the pending data run: its first LBA...
 dskw_rlen:    resw 1            ; ...how many sectors are in it (0 = none)...
 dskw_rcap:    resw 1            ; ...and the most it may ever hold
 dskw_clba:    resw 1            ; the whole-sector walk's cursor inside a take
+dskw_fop:     resb 1            ; 0 = read, 1 = write, for the ONE flush body
+                                ; the two data walkers share (SPEC.md 18.4.2)
+                                ; - dsk_op's idiom, and for dsk_op's reason:
+                                ; the run arithmetic must not be able to
+                                ; differ between reading and writing
 dskw_take:    resw 1            ; sectors this cluster contributes
 dskw_lba:     resw 1            ; this cluster's first LBA
 dskw_cur:     resw 1            ; the cluster being written / read

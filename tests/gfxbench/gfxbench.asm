@@ -931,6 +931,56 @@ gb_prims:
     xor al, al                          ; to its own unclipped row on purpose:
     call bl_run                         ; the gap is the region's cost, and the
     mov word [bl_body], gb_b_fill       ; API block prices SET+CLEAR alone
+
+    ; --- gfx_line, four rows whose sizes are predicted in advance ------------
+    ; SPEC.md 5.6.6 made a STEEP dilated line one Bresenham walk instead of
+    ; three, and left "how much cheaper" unsettled: tests/linetest said
+    ; 1.3x-1.9x, which is the spread of the SAME two builds measured four
+    ; times, because it was taken as QEMU host time - the one thing Part 4
+    ; says is not a measurement. These four rows settle it, in instructions
+    ; under -icount and in microseconds on iron.
+    ;
+    ; The two geometries are the SAME LINE TRANSPOSED - 32x127 against 127x32,
+    ; so 128 pixels each - which is what makes the comparison mean anything.
+    ; Predicted, and a run that disagrees has found something: the two THIN
+    ; rows should match; shallow fat should be about 3x its thin row, because
+    ; it still walks three times; and steep fat should be well under 3x, which
+    ; is the whole claim. The derived block prints both ratios.
+    mov word [gb_lfat], 0
+    mov word [bl_n], 24
+    mov word [bl_body], gb_b_lsteep
+    mov si, gb_r_lst
+    xor al, al
+    call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [gb_tlst], ax
+    mov [gb_tlst+2], dx
+    mov word [bl_body], gb_b_lshal
+    mov si, gb_r_lsh
+    xor al, al
+    call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [gb_tlsh], ax
+    mov [gb_tlsh+2], dx
+    mov word [gb_lfat], 1
+    mov word [bl_body], gb_b_lsteep
+    mov si, gb_r_lstf
+    xor al, al
+    call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [gb_tlstf], ax
+    mov [gb_tlstf+2], dx
+    mov word [bl_body], gb_b_lshal
+    mov si, gb_r_lshf
+    xor al, al
+    call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [gb_tlshf], ax
+    mov [gb_tlshf+2], dx
     call gb_boxfull
     mov word [bl_n], 6
     mov si, gb_r_fbox
@@ -1376,6 +1426,22 @@ gb_derived:
     mov si, gb_d_fillpx2
     call gb_num32
 
+    mov ax, [gb_tlstf]              ; SPEC.md 5.6.6, settled: a dilated line is
+    mov dx, [gb_tlstf+2]            ; three Bresenham walks unless it is STEEP,
+    mov bx, [gb_tlst]               ; where one walk writing a three-bit mask
+    mov cx, [gb_tlst+2]             ; is the identical pixel set. So the shallow
+    call gb_ratio                   ; ratio is the control and should sit near
+    mov si, gb_d_lsteep             ; 300; the steep one is the answer
+    call gb_num32
+
+    mov ax, [gb_tlshf]
+    mov dx, [gb_tlshf+2]
+    mov bx, [gb_tlsh]
+    mov cx, [gb_tlsh+2]
+    call gb_ratio
+    mov si, gb_d_lshal
+    call gb_num32
+
     mov ax, [gb_tfbox]              ; the per-ROW term, cleanly: 256x128 against
     mov dx, [gb_tfbox+2]            ; 256x1 differs by 127 rows and by NOTHING
     mov cx, 6                       ; else, so neither the per-call floor nor
@@ -1704,6 +1770,31 @@ gb_b_vline:
 ; top the region is one rectangle, so gfx_clip_run re-enters the raw body
 ; exactly once and the row measures the ARMING plus one fragment - which is
 ; the cheapest case, and the one a background painter pays on a quiet desktop.
+; The two line geometries, transposed so the pixel counts match: 32 across by
+; 127 down, and 127 across by 32 down. [gb_lfat] is SPEC.md 5.6.5's dilation,
+; 0 for a draw and 1 for an erase-what-was-drawn-in-pieces.
+gb_b_lsteep:
+    mov ax, [gb_x]
+    mov cx, ax
+    add cx, 32
+    mov bx, [gb_y]
+    mov dx, bx
+    add dx, 127
+    mov si, [gb_lfat]
+    call OSAPI_GFX_LINE
+    ret
+
+gb_b_lshal:
+    mov ax, [gb_x]
+    mov cx, ax
+    add cx, 127
+    mov bx, [gb_y]
+    mov dx, bx
+    add dx, 32
+    mov si, [gb_lfat]
+    call OSAPI_GFX_LINE
+    ret
+
 gb_b_clipfill:
     mov bx, [gb_win]
     call OSAPI_WM_CLIP_SET
@@ -2147,6 +2238,10 @@ gb_r_f8:   db 'GFX_FILL 8x8', 0
 gb_r_f64:  db 'GFX_FILL 64x64', 0
 gb_r_fbox: db 'GFX_FILL 256x128', 0
 gb_r_f64c: db 'GFX_FILL 64x64 clipped', 0
+gb_r_lst:  db 'GFX_LINE steep thin', 0
+gb_r_lstf: db 'GFX_LINE steep fat', 0
+gb_r_lsh:  db 'GFX_LINE shallow thin', 0
+gb_r_lshf: db 'GFX_LINE shallow fat', 0
 gb_r_frow: db 'GFX_FILL 256x1', 0
 gb_r_fr:   db 'GFX_FRAME 64x64', 0
 gb_r_gy:   db 'GFX_FILL_GRAY 64x64', 0
@@ -2181,6 +2276,8 @@ gb_r_fspair:  db 'FULLSCREEN in+out', 0
 
 gb_d_fillpx:   db 'fill ns/px 8-64', 0
 gb_d_fillrow:  db 'fill ns per row', 0
+gb_d_lsteep:   db 'line steep fat/thin', 0
+gb_d_lshal:    db 'line shal fat/thin ~300', 0
 gb_d_fillpx2:  db 'fill ns/px 64-box', 0
 gb_d_hlpx:     db 'hline ns per pixel', 0
 gb_d_cell:     db 'FONT_CHAR us x100', 0
@@ -2215,7 +2312,7 @@ gb_it_top:  db 'Top of Report', 0
 ; A hand-totalled figure that is too small is a package writing over
 ; benchlib's arena, which assembles cleanly and produces a report full of
 ; plausible nonsense.
-GB_O_SYSKB  equ 140
+GB_O_SYSKB  equ 160
 GB_O_VROW   equ GB_O_SYSKB + SYSKB_SIZE
 GB_O_RROW   equ GB_O_VROW + GB_BWROWS * 2
 GB_O_RAM    equ GB_O_RROW + GB_BWROWS * 2
@@ -2279,6 +2376,11 @@ gb_tpage    equ os88_image_end + 118
 gb_tfbox    equ os88_image_end + 130   ; dword: the 256x128 fill, for slope 2
 gb_tfrow    equ os88_image_end + 136   ; dword: ...and the 256x1 one, for the
                                        ; per-row term it pins against
+gb_lfat     equ os88_image_end + 140   ; word: SPEC.md 5.6.5's dilation flag
+gb_tlst     equ os88_image_end + 142   ; dword: the four gfx_line rows, whose
+gb_tlstf    equ os88_image_end + 146   ; two RATIOS are the finding rather
+gb_tlsh     equ os88_image_end + 150   ; than any one of them (SPEC.md 5.6.6)
+gb_tlshf    equ os88_image_end + 154
 gb_tapi     equ os88_image_end + 122   ; dword: 122..125
 gb_ran      equ os88_image_end + 126   ; byte: has the suite been run yet?
 gb_syskb    equ os88_image_end + GB_O_SYSKB    ; SYSKB_SIZE bytes

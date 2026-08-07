@@ -763,15 +763,34 @@ every step *i* of one Bresenham. When the minor axis is **x** — a steep line �
 those three pixels are on the *same row* and usually in the *same byte*. So
 one walk that writes a three-bit mask is the identical pixel set:
 
-**How much cheaper is not settled.** `tests/linetest` times 20 fans of 48
-dilated steep lines and says **1.3× to 1.9×** — that is the spread of the
-same two builds measured four times, not a confidence interval, and it is
-the spread because QEMU host time is not a measurement. PERFORMANCE.md Part 4
-is explicit that QEMU is exact about *work* and useless about time, and this
-figure was taken the wrong way round; an `-icount` run or a field number is
-what would settle it. What is not in doubt is the direction — every pairing
-put the one-walk build ahead — and the arithmetic, which is that two of three
-Bresenham walks stop happening.
+**It is 1.9×, and `gfxbench` settled it the right way round.** The first
+answer here was `tests/linetest`'s **1.3× to 1.9×**, which was the spread of
+the same two builds measured four times rather than a confidence interval —
+it was taken as QEMU *host* time, the one thing PERFORMANCE.md Part 4 says is
+not a measurement. `gfxbench` now carries four `GFX_LINE` rows measured in
+guest instructions under `-icount`, which is reproducible and
+machine-independent, and they are built to check themselves: the two
+geometries are **the same line transposed**, 32×127 against 127×32, so 128
+pixels each.
+
+| row, CGA, `-icount` | counts (24 iterations) | ratio to its thin row |
+|---|---|---|
+| steep thin | 1,232 | |
+| shallow thin | 1,200 | |
+| steep fat | 1,922 | **156** |
+| shallow fat | 3,583 | **298** |
+
+The two thin rows agree to 2.6%, which is the harness confirming the two
+geometries really are the same work. The shallow ratio is **298** — three
+walks, as predicted, and it is the control rather than the finding. The steep
+ratio is **156**, so the optimisation is worth **1.91×** on a steep dilated
+line: the top of `linetest`'s range, now as a number that repeats.
+
+Instructions are not microseconds, but they are closer here than they were
+for §5.7's per-call work: what this removes is per-*pixel* — Bresenham steps
+and framebuffer read-modify-writes — and a mono RMW is 79.6 clocks of which
+only about 7 are the bus (Part 9). A field set is still what would settle the
+duration.
 
 **That the pixels are identical IS settled**, and it is the half that
 matters: the same fan drawn by both kernels and the framebuffer compared byte
@@ -3512,6 +3531,52 @@ Four things are load-bearing:
    one frame routine both callers share, so the two cannot disagree about
    what a frame is.
 
+### 15.4 The boot timer
+
+**How long this machine took to boot, in system ticks**, from the boot
+sector's first instruction to the first desktop frame being on the glass.
+`OSAPI_BOOT_TICKS` (slot 0x02F8) answers it; `sysbench` prints it as ticks
+and as milliseconds.
+
+It exists because a boot is the one thing this project could never measure.
+It is over before a package can run, and on a floppy machine it is mostly
+**disk**: 125 sectors of kernel at 238 ms each (PERFORMANCE.md Part 2), then
+the mount, then every driver `SYSTEM.CFG` asked for. Any change to the read
+path — §18.91's batching, §18.93's parameter table — has to answer to a
+number, and this is the number.
+
+The mechanism is two words of arithmetic and one fixed offset:
+
+- **`0060:000C` is a fixed entry point**, alongside `jmp kmain` at 0x0000 and
+  the splash tick at 0x0008 and the API table at 0x0010. It has to be fixed
+  because the boot sector has no other way to name a kernel symbol.
+- **The boot sector reads the BIOS tick at `0040:006C` in its first
+  instructions**, before it has loaded anything, and carries it in **BP** —
+  which nothing in that sector uses — through the relocation and the whole
+  read. It writes it to `0060:000C` **after** the load and immediately before
+  the far jump, because the sectors landing there would otherwise overwrite
+  it.
+- **`kmain` replaces it in place** with the elapsed count, straight after the
+  first `gfx_unlock`. Nothing can read it in between.
+- **`0xFFFF` means never stamped** — an image whose boot sector predates the
+  timer. It must be reported as unknown and never printed as a duration.
+
+Three things about it are deliberate:
+
+- **The BIOS tick, not `[ticks]`.** The kernel's own counter starts when its
+  int 08h hook installs, which is *after* the expensive part; the BIOS
+  counter has been running since POST and the hook chains it, so it never
+  stops. One word is an hour at 18.2065 Hz.
+- **`gfx_unlock`, not `cursor_show`.** The question is when the first desktop
+  *frame* is finished, and `gfx_unlock` is what puts it on the glass — it
+  flushes the back buffer where there is one, so it is the same instant on
+  all three adapters. The cursor is not the desktop.
+- **Ticks, not a finer unit.** 54.925 ms of resolution on a boot measured in
+  seconds is quantisation, not noise, and it costs nothing: there is no
+  timebase available in the boot sector's first instruction that is finer and
+  still running when the desktop appears.
+
+
 ## 16. Build & test
 
 - Makefile: boot-image recipes unchanged. `run` target keeps the serial
@@ -4168,6 +4233,65 @@ multiple, so `dskw_norm`'s arithmetic is what the probe is testing; check 3
 writes those 96KB straight back out from the same `ES:BX`; check 4 reads the
 copy back at offset 0; check 5 deletes it, so §18.4's free-space equality
 check still closes over the whole run.
+
+### 18.4.2 The read walker coalesces runs too, and the audit that found it
+
+`dskw_wdata` appends whole sectors to a **pending run** and spends it with
+`dskw_wflush` when the LBA stops being contiguous, when the run's DMA page is
+full, or at the end. `dskw_rdata` — its twin, and the body behind
+`OSAPI_FILE_READ` — did not: it issued **one `disk_read` per sector**, and its
+own header comment said so ("stepped the same way: one disk_read per sector"),
+which had stopped being true of the write side it was claiming to mirror.
+
+§18.91 could not help, because `dsk_xfer` can only batch what one call hands
+it. So the largest file operation in the system was still paying a revolution
+per sector — PERFORMANCE.md's "a 116KB Tracker module is **57 seconds**" was
+this, and nothing else.
+
+It now mirrors `dskw_wdata` exactly, and **the two share one flush body**
+(`dskw_flushrun`, picked by `[dskw_fop]`) for the reason `disk_read` and
+`disk_write` share `dsk_xfer`: the run arithmetic must not be able to differ
+between reading and writing, which is precisely how this drifted in the first
+place.
+
+**Measured** on the same 116KB module load, counters over QMP, 1.44MB:
+
+| | sectors | int 13h calls |
+|---|---|---|
+| before | 295 | **244** |
+| after | 295 | **34** |
+
+**The sector count is identical**, which is the shape `docs/DISK-PERF-PLAN.md`
+§2.1 demands: if both numbers moved, the run splitter would be dropping or
+duplicating work. 7.2x, and a run crosses *cluster* boundaries, so a
+contiguously written file is one run per track.
+
+#### What the rest of the audit found, and why it stays
+
+Everything else that touches `disk_read`/`disk_write` was checked at the same
+time. `dsk_read_chain` (the loader, `ASSOC.DAT`, the copy engine) already
+coalesces; the FAT window loads and flushes in one call per FAT; the boot
+sector's LBA 0, the package header peek and `dsk_dotdot` are genuinely one
+sector. Two things are left one-sector-at-a-time **deliberately**:
+
+- **Directory-sector walks** — the mount scan, `dskw_find`, `dskw_stat`,
+  `dskw_rmtree`, the rename scan, `asc_root_find`, `fcp_scan`. They read into
+  `dsk_secbuf`, one 512-byte scratch, so batching costs `KERN_BUDGET`; and
+  more to the point **a directory walk stops early** — at the matching entry,
+  or at the first `0x00` name — so reading ahead can *cost* work rather than
+  save it. That is the opposite trade from a file read, where the length is
+  known before the first sector. On the shipped volumes a directory change is
+  1–3 directory sectors.
+- **`dskw_mkdir`'s zero-fill of the new cluster's remaining sectors.** Every
+  sector writes the *same* buffer, so a run would need a multi-sector zeroed
+  one. It is bounded at **3 extra writes** by construction: §18.7 caps a
+  partition at 65,535 sectors, so `hd_fmt_spc0`'s table never picks more than
+  4 sectors per cluster, and a floppy's is 1 or 2.
+
+Verified with `tests/filetest` — all 25 on the ordinary image **and on
+`--scramble`'s legally fragmented one**, which is the case that proves runs
+break where the chain does — plus `os88disk.py --verify` on both afterwards,
+and Tracker still reports its module's title.
 
 ### 18.5 `dskw_mkdir` — creating a subdirectory
 
@@ -17293,6 +17417,51 @@ bare pages, and they are right.
 Because the glyph is cached in the app slot rather than resolved on demand,
 **the icons survive the disk leaving the drive**: browse `APPS/` once, swap to
 a documents floppy, and every `.MOD` there still carries Tracker's mark.
+
+### 54.4.1 A notice names the thing that failed
+
+`ui_note` is the kernel's one-line notice window and it takes **three**
+strings from the caller: the message, the line above it, and the window's
+title. It used to take one. The other two were baked in as `'Task Manager'`
+and `'Cannot open the Task Manager:'`, because `ui_tm_open` was the only
+thing that raised a notice — so when §54.4's open path became the second
+caller, a document whose program was not on the disk reported a failure to
+open **a component the user had not mentioned**, over a window titled after
+it. Reported from the field as *"I double-clicked the .mod and it said
+Unable to open Task Manager"*.
+
+The window is created once and reused, so `W_TITLE` is restamped per call,
+before `wm_show` — which draws the frame whole, so nothing else is owed.
+
+**And the message names the program**, which is the half that turns a correct
+error into a useful one. The reporting disk was a `make trklog` build
+(§45.14): `TRKLOG.O88` and `BEVERLY.MOD` and no `TRACKER.O88`, so the
+built-in `MOD → TRACKER` default resolved to a program that was genuinely not
+there. "Program not found" is true and tells the user nothing they can act
+on; `assoc_progname` builds the stem into `'TRACKER.O88 - not on this disk'`
+out of the slot the lookup already returned.
+
+**Costed exactly, because it crosses a `KIMG_PARA` step and those are 512
+bytes each:** the branding fix is **0 bytes** — measured, the kernel lands at
+67,016, byte for byte its size before — and the naming is **78**. The image
+was already sitting **17 bytes** below a rounding step, so the 512 is not
+what naming cost; it is what the *next* 18 bytes of anything would have cost.
+Granted as the eighth `KERN_BUDGET` move, which leaves 2,048 spare.
+
+#### The other half: Tracker declares `.MOD` (§54.6)
+
+A better message still leaves that disk unable to open its module. The fix is
+the declaration mechanism doing what it was built for: a block carries
+**extensions only** and the stem comes from the file it was harvested out of,
+so one 16-byte block in Tracker's header claims `.MOD` for `TRACKER.O88` on
+the apps disk and for `TRKLOG.O88` on the log disk, with no build-time
+conditional and nothing in the kernel that knows either name. Verified both
+ways: the log disk now opens `BEVERLY.MOD` into the logging build with the
+module loaded, and the shipped disk is unchanged.
+
+That is also the general answer for **any** program shipping under a stem the
+kernel's defaults do not name — which is every third-party package there will
+ever be.
 
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 

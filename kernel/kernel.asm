@@ -114,10 +114,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 78336           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 80384           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved six times, every one asked
+                                ; It has moved eight times, every one asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -215,6 +215,32 @@ KERN_BUDGET equ 78336           ; the whole kernel's FOOTPRINT. Growing past
                                 ; int 13h calls to 5, and mechanism D
                                 ; (docs/DISK-PERF-PLAN.md 5.5) removes 8 of
                                 ; the 13 an APPS/ open still costs.
+                                ;
+                                ; The eighth move, 78,336 -> 80,384, is the
+                                ; seventh's tail: the association work's own
+                                ; bug reports. SPEC.md 54.4.1's notice - a
+                                ; document whose program is not on the disk
+                                ; now says WHICH program, instead of
+                                ; reporting a Task Manager the user never
+                                ; asked for - needs a name built at run time,
+                                ; and the branding half of that fix costs
+                                ; nothing at all: measured, it lands at
+                                ; 67,016, byte for byte the size before it.
+                                ; The naming half is ~115 bytes and crosses a
+                                ; KIMG_PARA step, which is the whole 512, and
+                                ; the seventh move's 2,048 had 16 bytes left.
+                                ; Asked for and granted with the buffer work
+                                ; that came with it and pays part of it back
+                                ; in TIME rather than bytes: SPEC.md 18.92's
+                                ; diskette parameter table (the batching was
+                                ; returning the wrong head's sectors on real
+                                ; hardware), 18.93's batched boot read (131
+                                ; int 13h calls to 16, ~31 s to 4-5 s on the
+                                ; target) and 18.4.2's read-side run
+                                ; coalescer (a 116KB load, 244 calls to 34).
+                                ; None of those three cost the footprint a
+                                ; byte - they all landed inside the image's
+                                ; existing 512-byte rounding.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
@@ -429,6 +455,20 @@ cold_entry:
 
     times 0x08 - ($ - $$) db 0
     jmp near spl_tick           ; 0800:0008 - boot splash tick (SPEC.md 15)
+
+    times 0x0C - ($ - $$) db 0
+boot_ticks:                     ; 0060:000C - the boot timer (SPEC.md 15.4).
+    dw 0xFFFF                   ; The BOOT SECTOR writes the BIOS tick it read
+                                ; before it loaded anything; kmain replaces it
+                                ; IN PLACE with the elapsed count once the
+                                ; first desktop frame is on the glass, and
+                                ; nothing can read it in between. 0xFFFF is
+                                ; "never stamped" - an image whose boot sector
+                                ; predates the timer, which must report
+                                ; unknown rather than a plausible wrong
+                                ; number. The offset is fixed because the boot
+                                ; sector has no other way to name it, exactly
+                                ; like the two jumps above and the table below.
 
     times 0x10 - ($ - $$) db 0  ; the table must land exactly at 0x0010
 
@@ -816,7 +856,12 @@ osapi_table:
                                   ;          not an oversight - and marks it
                                   ;          sticky so a header declaration
                                   ;          cannot take it back
-osapi_table_end:                  ; 0x02F8
+    OSAPI_SLOT osapi_boot_ticks   ; 0x02F8 - how long this machine took to
+                                  ;          boot, in system ticks (SPEC.md
+                                  ;          15.4): the boot sector's first
+                                  ;          instruction to the first desktop
+                                  ;          frame. 0xFFFF = unknown
+osapi_table_end:                  ; 0x0300
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -824,8 +869,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 93 * 8
-%error "os8088 API jump table must be exactly 91 8-byte slots"
+%if OSAPI_TABLE_LEN != 94 * 8
+%error "os8088 API jump table must be exactly 94 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
@@ -1167,6 +1212,23 @@ kmain:
     call gfx_lock
     call wm_paint_all
     call gfx_unlock
+
+    ; --- stop the boot timer (SPEC.md 15.4) ----------------------------------
+    ; HERE, not after cursor_show: the question is when the first desktop
+    ; FRAME is finished, and gfx_unlock is what puts it on the glass - it
+    ; flushes the back buffer where there is one, so this is the same instant
+    ; on all three adapters. The cursor is not the desktop.
+    cmp word [boot_ticks], 0xFFFF   ; unstamped: leave it saying unknown
+    je .nobt
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov ax, [0x046C]            ; the same BIOS tick the boot sector read. Our
+    pop ds                      ; own int 08h hook chains it, so it never
+    sub ax, [boot_ticks]        ; stopped ticking. One word: 65,536 ticks is
+    mov [boot_ticks], ax        ; an hour, and a boot is not
+.nobt:
+
     call cursor_show
 
     call drv_notice             ; ...and only NOW say what did not load: a
@@ -1179,6 +1241,14 @@ kmain:
 ; only through the jump table. Each preserves all registers except its
 ; documented outputs.
 ; =============================================================================
+
+; ---- osapi_boot_ticks - out: AX = the boot timer (SPEC.md 15.4) --------------
+; System-tick units, 18.2065 Hz, from the boot sector's first instruction to
+; the first desktop frame being on the glass. 0xFFFF = the boot sector never
+; stamped it, which is an image built before the timer existed.
+osapi_boot_ticks:
+    mov ax, [boot_ticks]
+    ret
 
 ; ---- osapi_get_ticks - out: AX = [ticks] -------------------------------------
 osapi_get_ticks:
