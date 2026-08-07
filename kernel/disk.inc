@@ -2231,8 +2231,8 @@ dsk_fatw_drop:
 ; clobbers: AX (the output), CF
 ;
 ; The same answer dskw_dfree's loop gives and about 9x cheaper, which is what
-; makes a free-space figure affordable on EVERY mount rather than only when
-; the user asks for one (SPEC.md 22.7). The loop it replaces called
+; makes a free-space figure affordable on EVERY mount, which is what let the
+; Folder menu's on-demand item go away entirely (SPEC.md 22.7). The loop it replaces called
 ; dsk_next_clus per cluster, and that call is ~850 clocks of push/pop, window
 ; revalidation and variable shifts around ~15 clocks of actual FAT read - on
 ; a 4.77MHz 8088 a 1.44MB floppy's 2,846 clusters is over half a second, all

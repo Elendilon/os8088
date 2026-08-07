@@ -19,7 +19,7 @@
 ; I/O. Anything that acts calls fmv_sync first, which remounts only when the
 ; acting window's (drive, cwd) is not the one currently mounted.
 ;
-; Per-window state is an 18-byte KD_POOL block (fm_pool, 4 x 18) that
+; Per-window state is a 24-byte KD_POOL block (fm_pool, 4 x 24) that
 ; app_launch allocates and hands to fm_kinit in DI. fm_vp_set publishes the
 ; acting window's block, cache segment and instance record into [fm_vp] /
 ; [fm_vseg] / [fm_vinst], and fm_layout mirrors the fields the 400-line
@@ -87,7 +87,7 @@ FMI_CELL_H  equ 40
 ; Everything else - buttons, status line, rows that fit, columns - comes
 ; from fm_layout at run time (the window resizes).
 
-; --- per-window state block (KD_POOL, 4 x 16 bytes; SPEC.md 22/29.3) ---------
+; --- per-window state block (KD_POOL, 4 x 24 bytes; SPEC.md 22/29.3) --------
 ; One block per open window, allocated and cascaded by app_launch, handed to
 ; fm_kinit in DI, and reached everywhere else through [fm_vp]. FS_CLKT moves
 ; with FS_SEL or not at all: shared, a click on row 3 in one window followed
@@ -159,8 +159,6 @@ files_init:
     mov byte [fm_ebuf], 0       ; awaiting a confirmation, and no window has
     mov byte [fm_onam], 0       ; asked how much room is left
     mov byte [fm_odir], 0
-    mov word [fm_msgwin], 0
-    mov byte [fm_msgbuf], 0
     mov word [fm_tdirty], 0
     mov word [fm_vp], fm_pool   ; no acting window yet: point the three
     mov word [fm_vseg], 0           ; published words at slot 0, and at the
@@ -822,12 +820,6 @@ fm_errtab:    dw fm_s_empty,  fm_s_enodisk, fm_s_dskerr, fm_s_ename
               dw fm_s_enoent, fm_s_eexist,  fm_s_efull,  fm_s_edfull
               dw fm_s_eprot,  fm_s_ewprot,  fm_s_toobig
 FM_NERR       equ 11            ; FERR_OK .. FERR_BIG
-FM_FREE       equ 255           ; the one FS_FERR value that is not a FERR_*:
-                                ; "draw fm_msgbuf", the free-space figure.
-                                ; It rides in FS_FERR rather than in a field
-                                ; of its own because it wants exactly that
-                                ; field's lifetime - cleared by fmv_load, by
-                                ; fm_edit_arm and by the next verdict.
 
 ; --- the status-line input prompts (SPEC.md 22) ------------------------------
 ; The delete line is the ONLY thing between a menu click and a file that is
@@ -855,7 +847,6 @@ fm_s_repk:    db 'Enter=yes  A=all  Esc=stop', 0  ; three answers are 45
 fm_s_delpr:   db 'Delete ', 0
 fm_s_delq:    db '? Enter=yes Esc=no', 0
 fm_s_delq2:   db ' +contents? Enter=yes Esc=no', 0   ; ...for a folder
-fm_s_kbfree:  db ' KB free', 0      ; Folder > Free Space
 fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which
 fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
 fm_s_root:    db 'Disk', 0      ; window title at the root...
@@ -894,7 +885,6 @@ fm_s_up:      db 'Up One Folder', 0
 fm_s_rootf:   db 'Root Folder', 0
 fm_s_drva:    db 'Drive A:', 0
 fm_s_drvb:    db 'Drive B:', 0
-fm_s_dfree:   db 'Free Space', 0
 fm_s_aslist:  db 'as List', 0
 fm_s_asicon:  db 'as Icons', 0
 fm_s_newwin:  db 'New Window', 0
@@ -905,7 +895,7 @@ fm_items_file:
     dw fm_s_cut, fm_s_copy, fm_s_paste, fm_s_closew
 fm_items_fold:
     dw fm_s_newwin, fm_s_opennew
-    dw fm_s_refr, fm_s_up, fm_s_rootf, fm_s_drva, fm_s_drvb, fm_s_dfree
+    dw fm_s_refr, fm_s_up, fm_s_rootf, fm_s_drva, fm_s_drvb
 fm_items_view:
     dw fm_s_aslist, fm_s_asicon
 fm_items_spec:
@@ -916,7 +906,7 @@ fm_menus:
     dw fm_oncmd                 ; AM_ONCMD: our own handler
     dw 4                        ; AM_COUNT (= MENU_APPMAX, used exactly)
     dw fm_s_mfile, fm_items_file, 8
-    dw fm_s_mfold, fm_items_fold, 8
+    dw fm_s_mfold, fm_items_fold, 7
     dw fm_s_mview, fm_items_view, 2
     dw fm_s_mspec, fm_items_spec, 3
 
@@ -1310,13 +1300,6 @@ fm_layout:
     mov al, [di+FS_EDIT]
     mov [fm_ledit], al
     mov al, [di+FS_FERR]
-    cmp al, FM_FREE             ; the free-space figure lives in ONE module
-    jne .lferr                  ; buffer: only the window that asked for it
-    mov cx, [fm_msgwin]         ; may draw it, or a second window would show
-    cmp cx, di                  ; the first one's disk
-    je .lferr
-    xor al, al
-.lferr:
     mov [fm_lferr], al
     mov ax, [di+FS_N]
     mov [fm_lnf], ax
@@ -2194,19 +2177,18 @@ FMC_UP      equ 11
 FMC_ROOT    equ 12
 FMC_DRVA    equ 13
 FMC_DRVB    equ 14
-FMC_FREE    equ 15
-FMC_LIST    equ 16              ; View
-FMC_ICONS   equ 17
-FMC_TIMER   equ 18              ; Special
-FMC_BOUNCE  equ 19
-FMC_RESTART equ 20
-FMC_PASTEIN equ 21              ; no menu CELL of its own: the context menu's
+FMC_LIST    equ 15              ; View
+FMC_ICONS   equ 16
+FMC_TIMER   equ 17              ; Special
+FMC_BOUNCE  equ 18
+FMC_RESTART equ 19
+FMC_PASTEIN equ 20              ; no menu CELL of its own: the context menu's
                                 ; "paste into the folder under the pointer"
                                 ; (SPEC.md 22.3), which the bar cannot offer
                                 ; because the bar has no pointer. It sits
                                 ; PAST every menu's range so no base + item
                                 ; sum can reach it by accident.
-FMC_COUNT   equ 22
+FMC_COUNT   equ 21
 
 FM_NMENUS   equ 4               ; = fm_menus' AM_COUNT = MENU_APPMAX
 fm_menu_base:
@@ -2239,8 +2221,6 @@ fm_jmp:
     dw fm_c_root                ; inline (fmv_load at the root)
     dw fm_c_drva                ; inline (fmv_load, drive 0)
     dw fm_c_drvb                ; inline (fmv_load, drive 1)
-    dw fm_c_free                ; inline (dskw_dfree reads the resident FAT
-                                ;         snapshot - no I/O at all)
     dw fm_c_list                ; inline (FS_VIEW = 0)
     dw fm_c_icons               ; inline (FS_VIEW = 1)
     dw fm_c_timer               ; POSTED - app_launch takes the lock
@@ -2502,34 +2482,6 @@ fm_c_root:                      ; Folder > Root Folder
     xor ax, ax
     xor si, si
     jmp fm_go
-
-fm_c_free:                      ; Folder > Free Space
-    ; dskw_dfree counts the resident FAT snapshot, which belongs to the
-    ; MOUNTED volume - so the sync is not optional: asked from a window on
-    ; the other drive it would otherwise answer about this one.
-    mov di, [fm_vp]
-    call fmv_sync
-    call dskw_dfree             ; DX:AX = free bytes, BX = spc (18.4)
-    jc .bad
-    mov cx, 10                  ; ...reported in KB: fm_utoa is 16-bit, and
-.kb:                            ; even a 32MB FAT16 volume fits once shifted
-    shr dx, 1
-    rcr ax, 1
-    loop .kb
-    mov di, fm_msgbuf
-    call fm_utoa                ; DI -> the stored NUL
-    mov si, fm_s_kbfree
-    call fm_scat
-    mov ax, [fm_vp]
-    mov [fm_msgwin], ax         ; one buffer, one figure: name its owner, or
-                                ; a second window's status line would show
-                                ; this window's disk (SPEC.md 22)
-    mov di, [fm_vp]
-    mov byte [di+FS_FERR], FM_FREE
-    ret
-.bad:
-    mov [di+FS_FERR], al        ; FERR_NODISK, and it says so
-    ret
 
 fm_c_list:                      ; View > as List
     xor al, al
@@ -4141,9 +4093,12 @@ fm_draw_status:
     push si
     push di
     ; --- status line at (6, staty): the precedence is binding (SPEC.md 22),
-    ;     because all four of these can be true at the same moment. The
-    ;     header buffer is free by now, so every branch stages into it and
-    ;     one truncation serves them all.
+    ;     because every one of these can be true at the same moment. Rungs
+    ;     1..4 are NOTIFICATIONS and hold the line while they have something
+    ;     to say; rung 5 is what it says the rest of the time (SPEC.md 22.7),
+    ;     which is why nothing needs a rule for putting it back. The header
+    ;     buffer is free by now, so every branch stages into it and one
+    ;     truncation serves them all.
     mov di, fm_hdrbuf
     mov si, fm_s_loading        ; 1. a pending load trumps everything
     cmp word [ld_pending], 0
@@ -4193,18 +4148,13 @@ fm_draw_status:
     mov si, fm_s_delq2
     jmp short .fs_stat
 .fs_st_err:
-    mov al, [fm_lferr]          ; 3./4. this window's own last word: the
-    or al, al                   ;    free-space figure, or the FERR_* text
-    jz .fs_st_load                 ;    that keeps no dskw_* failure silent
-    cmp al, FM_FREE
-    je .fs_st_free
+    mov al, [fm_lferr]          ; 3. this window's own last word: the FERR_*
+    or al, al                   ;    text that keeps no dskw_* failure silent
+    jz .fs_st_load
     mov bx, fm_errtab
     jmp short .fs_st_tab
-.fs_st_free:
-    mov si, fm_msgbuf
-    jmp short .fs_stat
 .fs_st_load:
-    mov al, [ld_status]         ; 5. and finally the loader's
+    mov al, [ld_status]         ; 4. and finally the loader's
     or al, al
     jz .fs_st_space             ; ...and when even that has nothing to say,
     mov bx, fm_stattab          ; the line belongs to the free/size figures
@@ -4219,7 +4169,7 @@ fm_draw_status:
     mov si, [bx]
     jmp short .fs_st_tab
 
-    ; --- 6. the resting state: this folder's size and the volume's free
+    ; --- 5. the resting state: this folder's size and the volume's free
     ;     space (SPEC.md 22.7). Every rung above is a NOTIFICATION and takes
     ;     the line for as long as it has something to say; this one is what
     ;     the line says the rest of the time, so it needs no clearing rule of
@@ -4470,11 +4420,6 @@ fm_ebuf:    resb 13             ; the name being typed, NUL-terminated
 ; draws (SPEC.md 22).
 fm_onam:    resb 13             ; the target's 8.3 display name
 fm_odir:    resb 1              ; 1 = it is a folder, so Delete means rmdir
-
-; The free-space line. FS_FERR = FM_FREE marks the window that asked; this
-; word says which one that was, because the figure itself is one buffer.
-fm_msgwin:  resw 1              ; -> the state block that owns fm_msgbuf
-fm_msgbuf:  resb 16             ; "65535 KB free" + NUL, with room to spare
 
 ; --- fm_layout's mirrors of the acting window's hot fields (SPEC.md 22.1) ---
 ; Read-only snapshots refreshed at the head of every fm_layout, because

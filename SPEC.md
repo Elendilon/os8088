@@ -6433,7 +6433,7 @@ allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 | 11 | `FS_MOK` b | 1 = that listing came from a fully successful mount |
 | 12 | `FS_VIEW` b | 0 = list view, 1 = icon view |
 | 13 | `FS_EDIT` b | status-line editor: 0 = off, 1 = new folder, 2 = rename, 3 = delete confirm |
-| 14 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none; 255 = "show the free-space line" (below) |
+| 14 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none |
 | 16 | `FS_VSEG` w | this window's listing-cache claim (§50.2), 0 = none |
 | 18 | `FS_VKB` b | how many KB that claim actually is (§22.6) |
 | 20 | `FS_FREE` w | KB free on its volume, 0xFFFF = not known (§22.7) |
@@ -6740,7 +6740,7 @@ cells are `font_width + MENU_TITLE_PAD`:
 | menu | width | x range | items |
 |------|-------|---------|-------|
 | **File** | 44 | 110..153 | Open · New Folder… · Rename… · Delete · Close Window |
-| **Folder** | 60 | 154..213 | New Window · Open in New Window · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: · Free Space |
+| **Folder** | 60 | 154..213 | New Window · Open in New Window · Refresh · Up One Folder · Root Folder · Drive A: · Drive B: |
 | **View** | 44 | 214..257 | as List · as Icons |
 | **Special** | 68 | 258..325 | Timer · Bounce · Restart |
 
@@ -6766,7 +6766,6 @@ only by the UI task (§7) and `fm_oncmd` runs *inside* it:
 |---------|-------------|
 | Open | `fm_open_sel` — inline (loader is deferred, `dsk_chdir` is I/O under the lock like Refresh) |
 | New Folder… / Rename… / Delete | inline: enters edit mode, draws nothing but the status line. The disk is touched at **Enter**, not here |
-| Free Space | `fmv_sync` first (§22.1 — the answer must be about OUR volume, and that sync is a full mount when another window navigated last), then `dskw_dfree`, which reads the resident FAT snapshot with no I/O of its own |
 | Refresh / Drive A: / Drive B: | inline `disk_mount`, exactly as the button and the a/b/r keys already do |
 | Up One Folder / Root Folder | inline: `fmv_sync`, then `dsk_dotdot` + `fmv_load` / `fmv_load` AX=0 |
 | New Window / Open in New Window | **deferred** — seed + `inst_launch_post` (§29.4); at cap, `snd_beep` and nothing else, because `app_launch` would front an existing window and silently drop the seed |
@@ -7352,14 +7351,26 @@ Folder menu put there, the loader's verdict. When none of them had anything
 to say the line was blank — a whole line of every Disk window, reserved and
 usually empty.
 
-Rung **6** is what it says the rest of the time: `Size <n>K   Free <n>K`, the
-bytes of what this folder LISTS and the KB free on the volume it is on. It is
-the lowest rung on purpose, so it needs no clearing rule of its own — a
+The resting rung is what it says the rest of the time: `Size <n>K   Free <n>K`,
+the bytes of what this folder LISTS and the KB free on the volume it is on. It
+is the lowest rung on purpose, so it needs no clearing rule of its own — a
 notification takes the line while it has something to say and the resting
-state comes back when it stops, out of the same precedence ladder that
-already ordered the other five. Nothing about drawing it is new: it is staged
-into `fm_hdrbuf` and drawn by `fm_stat_line` like every rung above it, so it
+state comes back when it stops, out of the same precedence ladder that already
+ordered the others. Nothing about drawing it is new: it is staged into
+`fm_hdrbuf` and drawn by `fm_stat_line` like every rung above it, so it
 truncates at a narrow window exactly as they do.
+
+**`Folder > Free Space` is gone, and that is the point rather than a side
+effect.** A figure that is always on screen cannot also be a thing you ask
+for; leaving both would have meant a menu item whose only effect was to
+replace the number under it with the same number, formatted differently. Its
+removal takes the whole one-buffer apparatus with it — `FM_FREE` (the one
+`FS_FERR` value that was not a `FERR_*`), `fm_msgbuf`, and `fm_msgwin`, the
+word that said which window owned the single shared figure so that a second
+window's status line could not show the first one's disk. Per-window fields
+make that question unaskable. The `FMC_*` ids after it renumber, which is
+allowed: they are internal constants and the context menu (§12.4) reaches
+them by name.
 
 **The two figures are found in completely different ways, and that is the
 whole design.**
