@@ -1587,3 +1587,36 @@ was block staging and `gfx_ink` — genuinely per call — while a fill's is
 geometry. Shortening *that* is §5.7's problem: diffuse, no hot spot, already
 worth 20% once, and wanting a dedicated pass with `tests/gfxbench` as the
 gate rather than a new API slot.
+
+### Set 11 — the three trades, measured; and the one that was reverted
+
+| | |
+|---|---|
+| machine | MartyPC, per-call floor **1,287 counts** against Set 10's 1,247 — 3.2% dearer, so these gains are if anything understated |
+| build | `7f010ec` plus the logger |
+| run | 54 usable seconds, mean 15.98 fps |
+
+|  | Set 9 | Set 10 | **Set 11** |
+|---|---|---|---|
+| median worst frame | 57.9 | 63.0 | **52.4 ms** |
+| worst frames over a tick | 54% | 54% | **49%** |
+| `exp` median / p90 / max | 19.0 / 39.4 / 76.1 | 16.6 / 39.9 / 73.8 | **15.7 / 32.1 / 47.1** |
+| `crs` median | 6.8 | 6.9 | **4.4** |
+| fills on a worst frame (mean) | 20.3 | 22.4 | **17.2** |
+
+**The median worst frame went under the tick for the first time in the
+investigation** (52.4 against 54.9), and `exp`'s *maximum* — the thing that
+actually reads as a stutter — fell 36%.
+
+Attribution, and the reason the band change did not survive:
+
+- **The crosshair is 6.9 → 4.4 ms**, exactly the two-of-four-calls the change
+  predicted, and it is paid on every frame the mouse moves. Kept on looks as
+  well as on cost.
+- **Two drawn states** removes one blob draw in three and shortens a burst
+  from 21 frames to 15, so fewer are live at once. Most of `exp`'s fall.
+- **The coarser bands were reverted.** Two fills out of nine per blob, about
+  **4.3 ms on a worst frame** — real, and roughly the margin that took the
+  median under the tick — but the burst lost its round edge for it. The
+  measured middle, if it is ever wanted: **R/6 + 1 is also 7 fills** at the
+  only radius two states ever draw, with a 3px step instead of 4.

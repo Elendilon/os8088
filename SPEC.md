@@ -16492,8 +16492,14 @@ calibration is unambiguous:
 **~85% of a worst frame is `gfx_fill`, and most of that is arriving.** So the
 lever is the fill *count*, and three changes take it:
 
-- **`mc_blob`'s band quantum is R/4 + 1**, not R/8 + 1: a peak burst goes
-  from 9 fills to 7, a small one from 7 to 5. The disc's edge steps in fours.
+- **`mc_blob`'s band quantum was taken to R/4 + 1 and put back.** It made a
+  peak burst 7 fills instead of 9, worth about 4.3 ms on a worst frame — real,
+  and roughly the margin that took the median worst frame under a tick for the
+  first time — but it cost the burst its round edge, which is not a trade
+  worth a couple of milliseconds. **The measured middle is R/6 + 1**: at the
+  only radius two states ever draw it is *also* 7 fills, with a 3px step
+  instead of 4. It is not shipped, but it is the option to reach for if this
+  ever needs the fills back.
 - **Two drawn burst states, not three** — dark, peak, gone. A burst is drawn
   once and erased once where it was drawn twice and erased once, and
   `MC_EXPFR3` falls 21 → 15 to hold Σr (13×13 = 169 against 5×9 + 13×10 =
