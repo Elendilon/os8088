@@ -1884,6 +1884,55 @@ Something about a multi-sector `int 13h` on that drive, that controller or
 that media costs more than the revolutions it saves, and the emulators cannot
 see it because neither models the revolutions in the first place (Set 11).
 
+#### What the floppy SHOULD do, and what DOS gets on the same machine
+
+The A/B says the batching is a loss. The next question is what the *floor*
+is, and the arithmetic is not close:
+
+| | bytes/second |
+|---|---|
+| raw MFM bit rate (250 kbit/s — the Tandon's "32 KB/s") | 31,250 |
+| **a whole 9-sector track per revolution (1:1)** | **23,040** |
+| ...with a 25 ms step every cylinder | 21,685 |
+| **a 2:1 interleave — two revolutions a track** | **11,520** |
+| a 3:1 interleave | 7,680 |
+| **one sector per revolution** | **2,560** |
+| | |
+| **DOS 3.3 on this machine, this drive, this media** | **~12,700** |
+| os8088, `FLOPPY1=1` | 2,161 |
+| os8088, batched | 1,877 |
+
+A 360KB disk turns at 300 RPM, so a revolution is 200 ms and a track holds
+4,608 data bytes. Against that, **os8088 catches 0.84 sectors per revolution
+unbatched and 0.73 batched** — it is not merely missing the next sector, it
+is missing whole turns — while **DOS 3.3 copying 62 KB off the same disk in
+about 5 seconds is catching five**, and that figure *includes* a per-file
+round trip because of how `COPY` works, so DOS's raw read rate is higher
+still.
+
+**That rules out the media and the drive.** Whatever the physical interleave
+is, DOS achieves 5 sectors a revolution on it and we achieve 0.84, so the
+6x is ours. Set 13's finding that batching makes it *worse* is a second
+symptom of the same thing rather than a separate puzzle: if a multi-sector
+command were streaming at all, nine sectors in one call could not cost more
+than nine calls.
+
+`sysbench` grew a block for exactly this — **raw `int 13h`, called by the
+benchmark with no kernel code in the way**, timing one sector, a whole track
+in one call, and the same track one call at a time, plus the four bytes of
+the diskette parameter table the BIOS is actually using. If `int 13h track,
+1 call` comes back near one revolution the hardware streams perfectly and
+the fault is entirely in `dsk_xfer`; if it comes back near nine, the BIOS or
+the media does not stream and nothing above it can help. Under QEMU it reads
+correctly and measures zero, which is the caution block working as intended.
+
+The parameter table is worth a look on its own. QEMU/SeaBIOS reports **EOT
+9** (so §18.92's patch is landing), head settle **15 ms**, and **motor start
+8** — eighths of a second, so **one full second** before a transfer the BIOS
+believes needs the motor started. DOS installs its own table with smaller
+values. What that byte reads on the 5150, and whether the BIOS thinks the
+motor has stopped between our calls, is now on the report.
+
 #### `GFX_UNLOCK+LOCK` was never the mouse, and is no longer 9x
 
 | | Set 11 (`16844dd`) | now, pointer untouched | now, pointer moved all run |

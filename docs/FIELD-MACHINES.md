@@ -143,6 +143,17 @@ seconds.
 
 The rules for anything that touches C: on this machine, from its owner:
 
+0. **The hard disk is only mounted when a run asks for it, and the asking
+   happens BEFORE the images are sent.** The driver is off by default
+   (SPEC.md §51.3 — a freshly built image carries no `SYSTEM.CFG`, so nothing
+   is loaded and nothing is probed), and its owner leaves it that way. So a
+   set that wants the hard-disk rows has to say so **while the disks are
+   being prepared**, not after they arrive: the operator ticks
+   **Drivers → Hard Disk** in the Control Panel and **closes the panel**
+   (§31.8 — closing is what writes `SYSTEM.CFG`) before the run. A set that
+   does not ask gets `No volume at index 2 - no hard disk mounted`, which is
+   the correct answer and not a fault. **If a change makes those rows
+   necessary, ask in the message that carries the images.**
 1. **Do not format it. Do not partition it.** §52's disk tool is exactly the
    thing that must not be pointed at it.
 2. **Do not leave anything behind.** Whatever a test writes, it removes.

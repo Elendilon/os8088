@@ -776,7 +776,7 @@ larger of the two windows there.
 
 ---
 
-## 7. The per-track floppy batching is SLOWER on real hardware (ANSWERED, unfixed)
+## 7. The floppy is 6x slower than DOS on the same machine (OPEN, and it is ours)
 
 **Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
 ladder was calibrated against. `sysbench`'s floppy block, same machine, same
@@ -841,9 +841,53 @@ boundary mid-command, and the physical interleave of media written by
 
 **Do not quote the 9x**, do not cost a future disk change against it, and
 treat SPEC.md §18.91/§18.93's stated gain as refuted on the target machine.
-Whether the default should flip is a design decision, not a build fix: the
-knob already exists, one emulator-facing user would lose a large speedup, and
-nothing outside this one machine has been A/B'd yet.
+
+**And the batching is the smaller half of the problem.** The owner then ran
+the decisive cross-check: DOS 3.3 on the same 5150, the same Tandon TM100-2
+and the same disk copied roughly **62 KB in about 5 seconds** — ~12,700
+bytes/second, *including* a per-file round trip because that is how `COPY`
+works. A 360KB disk turns at 300 RPM, so a revolution is 200 ms and a
+9-sector track holds 4,608 data bytes:
+
+| | bytes/second | sectors per revolution |
+|---|---|---|
+| a whole track per revolution (1:1) | 23,040 | 9 |
+| a 2:1 interleave | 11,520 | 4.5 |
+| one sector per revolution | 2,560 | 1 |
+| **DOS 3.3, this machine** | **~12,700** | **5.0** |
+| os8088, `FLOPPY1=1` | 2,161 | **0.84** |
+| os8088, batched | 1,877 | **0.73** |
+
+So we are **6x slower than DOS on identical hardware and media**, and we are
+not merely missing the next sector — at 0.84 sectors a revolution we are
+missing whole turns. **That rules out the drive, the controller and the
+physical interleave**: whatever they are, DOS gets 5 sectors a revolution out
+of them. The batching being *worse* is a second symptom of the same fault
+rather than a separate puzzle — if a multi-sector command streamed at all,
+nine sectors in one call could not cost more than nine separate calls.
+
+**The instrument is built and shipped.** `sysbench` now has a raw `int 13h`
+block that calls the BIOS directly, with no os8088 code in the path, timing
+one sector, a whole track in one call, and the same track one call at a time
+— plus the four diskette-parameter-table bytes the BIOS is actually using.
+It splits the question cleanly:
+
+- `int 13h track, 1 call` near **one revolution** → the hardware streams and
+  the fault is entirely in `dsk_xfer`;
+- near **nine** → the BIOS or the media does not stream, and no batching
+  above it could ever have helped.
+
+Two things on that table are already worth watching. **`DPT motor start`** is
+in eighths of a second and reads **8** under QEMU — a full second before a
+transfer the BIOS believes needs the motor started, where DOS installs its
+own table with smaller values; if the BIOS thinks the motor has stopped
+between our calls, that alone is the whole gap. And **`DPT head settle`**,
+for the same reason.
+
+Whether the batching default should flip is a design decision and not a build
+fix — the knob exists, nothing outside this one machine has been A/B'd, and
+it is very likely the wrong lever anyway now that the gap is known to be 6x
+rather than 15%.
 
 ---
 

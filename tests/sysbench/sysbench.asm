@@ -1141,14 +1141,17 @@ sb_disk:
     mov al, 1
     call bl_run
 
+    call sb_raw13                   ; ...and the same disk with no kernel code
+                                    ; in the way at all (below)
+
     mov ax, [sb_bseg]               ; hand the claim back: a benchmark that
     mov dx, ax                      ; holds 32KB for the session changes what
     call OSAPI_MEM_FREE             ; every row after it is measuring
-    jmp short .rate
+    jmp .rate
 .noclaim:
     mov si, sb_s_noclaim
     call bl_sline
-    jmp short .out
+    jmp .out
 .rate:
     mov ax, [sb_td2]                ; bytes per second, from the WARM read.
     mov dx, [sb_td2+2]              ; counts / 1193 is milliseconds exactly
@@ -1629,6 +1632,244 @@ sb_b_rdbig:
     pop es
     ret
 
+; -----------------------------------------------------------------------------
+; sb_raw13 - the same drive with NO kernel code in the way (SPEC.md 18.91)
+;
+; Every other floppy row here measures os8088's transfer path. This one calls
+; int 13h itself, so it prices the BIOS, the controller, the drive and the
+; media's physical interleave and nothing else - which is the only way to
+; answer "what SHOULD our transfer rate be" on a machine nobody can attach a
+; logic analyser to.
+;
+; It exists because of PERFORMANCE.md Part 9 Set 13 and the DOS cross-check
+; that followed it. A 360KB disk turns at 300 RPM, so a revolution is 200 ms
+; and a 9-sector track holds 4,608 data bytes: 23,040 bytes/second if a whole
+; track arrives in one turn, 11,520 at a 2:1 interleave, and 2,560 if only one
+; sector is caught per revolution. os8088 measures 2,161 - about 0.84 sectors
+; a revolution - while DOS 3.3 on the SAME machine, drive and media copies at
+; roughly 12,700, which is five sectors a revolution. So the media is not the
+; problem and the drive is not the problem. These three rows say whether the
+; BIOS is: if `9 sectors, 1 call` is near one revolution then the hardware
+; streams perfectly and the fault is entirely ours, and if it is near nine
+; then it does not and no amount of batching above it can help.
+;
+; READ ONLY, and it reads a cylinder the disk it booted from already holds.
+; It never writes, and it needs no drive it is not already using.
+;
+; Two things it has to get right. The transfer must not straddle a 64KB
+; physical boundary (the ISA DMA page register does not carry, and the
+; controller answers 09h), so the buffer is placed inside the claim rather
+; than at its base. And every row is method T - tick-timed with interrupts ON
+; - because int 13h waits on IRQ6 and a cli window around it is a hang, not a
+; measurement.
+; -----------------------------------------------------------------------------
+SB_R13_CYL  equ 5                   ; a cylinder every geometry here has
+SB_R13_N    equ 9                   ; ...and one 9-sector track off it
+
+sb_raw13:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    ; --- place the buffer so 9 sectors cannot cross a 64KB page -------------
+    mov ax, [sb_bseg]
+    mov bx, ax
+    and bx, 0x0FFF                  ; paragraphs into the current 64KB page
+    mov cx, 4096
+    sub cx, bx                      ; ...and paragraphs left in it
+    cmp cx, (SB_R13_N * 512) / 16
+    jae .placed                     ; room where the claim starts
+    add ax, cx                      ; else start at the page boundary, which
+.placed:                            ; is inside the claim (16KB = 1024 paras)
+    mov [sb_bseg2], ax
+
+    call bl_blank
+    mov si, sb_s_h_r13
+    call bl_sline
+    mov si, sb_s_h_r132
+    call bl_sline
+    mov si, sb_s_h_r133
+    call bl_sline
+
+    ; --- the diskette parameter table the BIOS is actually using (18.92) ----
+    push es
+    xor ax, ax
+    mov es, ax
+    mov bx, [es:0x1E*4]             ; int 1Eh is a FAR POINTER to the table
+    mov ax, [es:0x1E*4+2]
+    mov es, ax
+    mov al, [es:bx+4]               ; EOT - the byte 18.92 patches
+    xor ah, ah
+    mov [sb_st13], ax
+    mov al, [es:bx]                 ; step rate / head unload
+    xor ah, ah
+    mov [sb_bcnt13], ax
+    mov al, [es:bx+9]               ; head settle, ms
+    xor ah, ah
+    mov di, ax
+    mov al, [es:bx+10]              ; motor start, eighths of a second
+    xor ah, ah
+    mov si, ax
+    pop es
+    push si
+    push di
+    mov si, sb_l_dptn
+    mov ax, [sb_st13]
+    call sb_num
+    mov si, sb_l_dpts
+    mov ax, [sb_bcnt13]
+    call sb_hex
+    pop ax
+    mov si, sb_l_dpth
+    call sb_num
+    pop ax
+    mov si, sb_l_dptm
+    call sb_num
+
+    call bl_head
+    call sb_b_r13one                ; warm the motor; this one is not timed
+
+    mov word [bl_n], 8              ; one sector, one call
+    mov word [bl_body], sb_b_r13one
+    mov si, sb_r_131
+    mov al, 1
+    call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [sb_t131], ax
+    mov [sb_t131+2], dx
+
+    mov word [bl_n], 4              ; nine sectors, ONE call
+    mov word [bl_body], sb_b_r13trk
+    mov si, sb_r_139
+    mov al, 1
+    call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [sb_t139], ax
+    mov [sb_t139+2], dx
+
+    mov word [bl_n], 4              ; ...and the same nine, one call each
+    mov word [bl_body], sb_b_r13nine
+    mov si, sb_r_13n
+    mov al, 1
+    call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [sb_t13n], ax
+    mov [sb_t13n+2], dx
+
+    mov si, sb_l_r13st              ; ...and whether the BIOS was happy
+    mov ax, [sb_st13]
+    call sb_hex
+
+    mov ax, [sb_t139]               ; bytes/sec for the batched track
+    mov dx, [sb_t139+2]
+    mov cx, SB_R13_N * 512
+    call sb_r13rate
+    mov si, sb_d_r13b
+    mov cx, 9
+    call bl_kv
+    mov ax, [sb_t13n]               ; ...and for the same nine one at a time
+    mov dx, [sb_t13n+2]
+    mov cx, SB_R13_N * 512
+    call sb_r13rate
+    mov si, sb_d_r13s
+    mov cx, 9
+    call bl_kv
+
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; sb_r13rate - DX:AX = counts for CX bytes -> DX:AX = bytes per second
+sb_r13rate:
+    push bx
+    push cx
+    push si
+    push cx
+    mov cx, 1193                    ; counts -> ms (1.193182 counts per us)
+    call gb_div_sb
+    mov bx, ax
+    mov cx, dx
+    or bx, bx
+    jnz .have
+    or cx, cx
+    jnz .have
+    mov bx, 1                       ; too fast to time: do not divide by zero
+.have:
+    pop ax                          ; the byte count back
+    xor dx, dx
+    mov si, 1000
+    call sb_mul16
+    call sb_divby
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; The three bodies. AH=02h read, AL=count, CH=cylinder, CL=sector (1-based),
+; DH=head, DL=drive 0 (A:), ES:BX = the buffer. The status is banked every
+; time, so a row that failed cannot read as a fast row.
+sb_b_r13one:
+    push es
+    mov es, [sb_bseg2]
+    xor bx, bx
+    mov ax, 0x0201
+    mov cx, (SB_R13_CYL << 8) | 1
+    xor dx, dx
+    int 0x13
+    mov al, ah
+    xor ah, ah
+    mov [sb_st13], ax
+    pop es
+    ret
+
+sb_b_r13trk:
+    push es
+    mov es, [sb_bseg2]
+    xor bx, bx
+    mov ax, 0x0200 | SB_R13_N
+    mov cx, (SB_R13_CYL << 8) | 1
+    xor dx, dx
+    int 0x13
+    mov al, ah
+    xor ah, ah
+    mov [sb_st13], ax
+    pop es
+    ret
+
+sb_b_r13nine:
+    push es
+    mov es, [sb_bseg2]
+    xor bx, bx
+    mov cl, 1                       ; sector, 1-based; CH is set per call so
+.next:                              ; CL survives as the counter
+    push bx
+    push cx
+    mov ax, 0x0201
+    mov ch, SB_R13_CYL
+    xor dx, dx                      ; head 0, drive 0 (A:)
+    int 0x13
+    mov al, ah
+    xor ah, ah
+    mov [sb_st13], ax
+    pop cx
+    pop bx
+    add bx, 512
+    inc cl
+    cmp cl, SB_R13_N
+    jbe .next
+    pop es
+    ret
+
 sb_b_rdsml:
     push es
     mov es, [sb_bseg]
@@ -1771,7 +2012,7 @@ sb_hdd:
     call sb_hdd_back
     mov si, sb_s_noclaim
     call bl_sline
-    jmp short .out
+    jmp .out
 .none:
     call sb_hdd_back                ; a failed goto leaves the volume elsewhere
     mov si, sb_s_hddno
@@ -2160,6 +2401,20 @@ sb_d_mhzdiv: db 'est CPU MHz x100 DIV', 0
 sb_d_tick:   db 'PIT/tick want 65536', 0
 sb_d_isr:    db 'interrupt load pct', 0
 sb_d_rate:   db 'floppy bytes/sec', 0
+
+sb_s_h_r13:  db '-- the same drive with NO kernel code in the way: raw int 13h --', 0
+sb_s_h_r132: db '   READ ONLY. 300 RPM = 200 ms a turn; a 9-sector track is 4,608', 0
+sb_s_h_r133: db '   bytes, so 23,040 B/s at 1:1, 11,520 at 2:1, 2,560 one-per-turn.', 0
+sb_l_dptn:   db 'DPT EOT (18.92 patches)', 0
+sb_l_dpts:   db 'DPT step/head unload', 0
+sb_l_dpth:   db 'DPT head settle ms', 0
+sb_l_dptm:   db 'DPT motor start /8 s', 0
+sb_r_131:    db 'int 13h 1 sector', 0
+sb_r_139:    db 'int 13h track, 1 call', 0
+sb_r_13n:    db 'int 13h track, 9 calls', 0
+sb_l_r13st:  db 'int 13h last status AH', 0
+sb_d_r13b:   db 'bios track 1 call B/s', 0
+sb_d_r13s:   db 'bios track 9 calls B/s', 0
 sb_d_hdrate: db 'hdd bytes/sec', 0
 sb_d_shlbit: db 'shl clk/bit x100 ~400', 0
 
@@ -2230,6 +2485,13 @@ sb_hclus    equ os88_image_end + 64    ; word: ...and its directory cluster
 sb_hsz      equ os88_image_end + 66    ; word: bytes the hard-disk read got
 sb_herr     equ os88_image_end + 68    ; word: ...or the FERR_* it refused with
 sb_thd      equ os88_image_end + 70    ; dword: that read's counts (70..73)
+sb_bseg2    equ os88_image_end + 74    ; word: the raw int 13h block's buffer,
+                                       ; page-safe inside the claim above
+sb_bcnt13   equ os88_image_end + 76    ; word: sectors the last int 13h asked
+sb_st13     equ os88_image_end + 78    ; word: ...and the AH it answered with
+sb_t131     equ os88_image_end + 80    ; dword: one sector, one call
+sb_t139     equ os88_image_end + 84    ; dword: nine sectors, one call
+sb_t13n     equ os88_image_end + 88    ; dword: nine sectors, nine calls (92)
 sb_syskb    equ os88_image_end + SB_O_SYSKB    ; SYSKB_SIZE bytes
 sb_res      equ os88_image_end + SB_O_RES      ; SB_NCPU dwords
 sb_rrow     equ os88_image_end + SB_O_RROW     ; SB_BWROWS words
