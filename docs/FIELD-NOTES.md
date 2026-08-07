@@ -895,11 +895,19 @@ the arrow was "visually corrupted as the bench ran". One sighting; the
 machine and the adapter are both unremembered — the same session covered a
 5150 with a Hercules and a CGA card, a T1100 Plus and a 286.
 
-**Not reproduced.** Both adapters, both kernels, cursor parked on the
-gfxbench window's title bar at the same place, the full suite run underneath
-it, and the arrow checked **exactly** rather than by eye — the composite
-`(background | white) & ~black` computed from `CUR_ARROW` and compared with
-the framebuffer cell:
+**It is easily repeatable on the machine**, and two photographs of it exist:
+the pointer resting on the title bar with its 8x12 cell hanging over the
+bottom edge into the content, and then, mid-suite, a light fragment left
+inside the black rectangle the benchmark is filling. The reporter's own
+description is the useful part — *"the corruption starts higher up, then
+clips down to this, then disappears as the next tests overwrite it"* — which
+is the signature of a **stale cursor save-under**: pixels put back by
+`cursor_hide` that describe the screen as it was before the app drew there.
+
+**Not reproduced under QEMU, at either position, on either adapter.** The
+arrow was checked **exactly** rather than by eye — the composite
+`(background | white) & ~black` computed from `CUR_ARROW` and compared
+against the framebuffer cell:
 
 | | |
 |---|---|
@@ -907,12 +915,38 @@ the framebuffer cell:
 | Hercules, current kernel | **0 of 96** cell mismatches, before and mid-run |
 | Hercules, `16844dd` — the build the field disks were made from, *before* SPEC.md §7.1.4.1 | **0 of 96**, before, mid-run and after |
 
-So it is not the deferred hide failing to be spent by `wm_draw_title` (which
-draws through `gfx_fill` and `gfx_hline`, both of which spend it), and it is
-not the pre-§7.1.4.1 register bug on its own.
+A second round, after the photographs arrived, added the **straddle**
+position — the cell half in the title bar and half in the content, which is
+what the photograph shows and what the first round did not test — sampled at
+60 ms intervals straight through the suite (250 framebuffer dumps over one
+QMP connection, because the run outpaces one screenshot a second even under
+`-icount`). Every frame in which the sandbox was being filled had the cursor
+correctly **absent**, and the title bar intact.
 
-**What is left is the mouse having moved**, which is the one thing those runs
-could not do and the field run could — §7.1.4.1 counted `cur_move` firing on
+So four things are ruled out:
+
+- **the deferred hide not being spent by `wm_draw_title`** — it draws through
+  `gfx_fill` and `gfx_hline`, and both spend it;
+- **a primitive missing the `cur_unlazy` hook** — `gfx_blit4` and
+  `gfx_scroll` are off §11.3's clip list and both call it explicitly, and
+  everything else reaches it through `GFXCLIP` or `fnt_unlazy`;
+- **a package arming a clip region without spending it** — `wm_clip_set`
+  calls `cur_lazyck` at its `.done`, and the API slot goes straight there, so
+  a cursor inside the window's own frame rect is hidden before any clipped
+  primitive runs;
+- **the mouse ISR drawing into a half-drawn frame** — it tests
+  `[gfx_lock_flag]`, not `[cur_lazy]`, so for the whole of a lock hold it
+  only sets `[cur_dirty]` and moves nothing;
+- and **the pre-§7.1.4.1 register bug on its own**, which the third row above
+  tests directly.
+
+**What is left needs the real machine**, and most plausibly a real mouse.
+Every negative above was taken with QEMU's `msmouse`, which sends nothing at
+all while it is not being driven — so the one path in the suite where the
+cursor is legitimately put back on screen (`gfx_unlock` in the
+`GFX_UNLOCK+LOCK` row calls `cursor_show`; the ninety-nine unlocks after it
+take `cur_lazyend`) is never followed by any cursor motion here. On the 5150
+a ball mouse resting on the same desk as the drive motor is not silent — §7.1.4.1 counted `cur_move` firing on
 279 of 972 unlocks under a flood of packets, and on the pre-fix kernel that
 call ate the caller's registers. It is also the same unknown that note 8
 turns on, which is why both got the same instrument rather than two.
@@ -923,7 +957,16 @@ ends with a block that says whether it moved: `pointer moved (samples)`,
 `pointer x span` / `y span` (a nudge that returns between samples moves no
 sample but still widens the box — the counter alone shipped first and would
 have missed exactly that), and where the pointer started and ended. A run
-with all three at **0** rules this note out; a run with the pointer parked on
+with all three at **0** rules the mouse out; a run with the pointer parked on
 a title bar and a non-zero span, that then corrupts, confirms it in one
 sitting. The operator's side of it is to leave the mouse alone from before
 `R` is pressed.
+
+**Three observations from the machine would finish this**, and each is one
+run: whether it still happens with the pointer parked on the **bare desktop**
+away from every window (which separates "the cell overlaps a window's
+content" from "the cursor is being restored wrongly anywhere"); whether it
+happens on **Hercules** as well as CGA; and whether the fragment is still
+there when the suite **finishes**, before the report repaints over it. It has
+never affected a number — the artifact is in the sandbox the benchmark is
+scribbling in — so this is a cursor question, not a measurement one.
