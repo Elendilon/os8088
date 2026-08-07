@@ -1119,8 +1119,9 @@ sb_disk:
     mov ax, [sb_rsz]
     call sb_num
 
-    mov word [bl_n], 1              ; the second does not
-    mov si, sb_r_d2
+    mov word [bl_n], 1              ; the second does not - the SAME body
+    mov word [bl_body], sb_b_rdbig  ; deliberately, and it says so rather than
+    mov si, sb_r_d2                 ; carrying it (tools/benchlint.py)
     mov al, 1
     call bl_run
     mov ax, [bl_last]

@@ -650,14 +650,16 @@ $(BUILD)/typebnch.o88: $(BUILD)/typebnch.bin tools/os88pkg.py
 
 # The two report-writing harnesses. They share tests/benchlib.inc, which is why
 # these two rules carry -I tests/ and the two above do not.
-$(BUILD)/gfxbench.bin: tests/gfxbench/gfxbench.asm tests/benchlib.inc apps/os88api.inc | $(BUILD)
+$(BUILD)/gfxbench.bin: tests/gfxbench/gfxbench.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/gfxbench/gfxbench.asm
 	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/gfxbench/gfxbench.asm
 	@echo "gfxbench: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/gfxbench.o88: $(BUILD)/gfxbench.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/gfxbench.bin -o $@
 
-$(BUILD)/sysbench.bin: tests/sysbench/sysbench.asm tests/benchlib.inc apps/os88api.inc | $(BUILD)
+$(BUILD)/sysbench.bin: tests/sysbench/sysbench.asm tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/sysbench/sysbench.asm
 	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/sysbench/sysbench.asm
 	@echo "sysbench: $(call FILESIZE,$@) bytes"
 

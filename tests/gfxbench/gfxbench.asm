@@ -903,6 +903,7 @@ gb_prims:
     mov [gb_thl8+2], dx
     call gb_boxfull
     mov word [bl_n], 60
+    mov word [bl_body], gb_b_hline
     mov si, gb_r_hlw
     xor al, al
     call bl_run
@@ -919,6 +920,7 @@ gb_prims:
     call bl_run
     call gb_boxfull
     mov word [bl_n], 40
+    mov word [bl_body], gb_b_vline
     mov si, gb_r_vlh
     xor al, al
     call bl_run
@@ -935,6 +937,7 @@ gb_prims:
     mov [gb_tf8+2], dx
     call gb_box64
     mov word [bl_n], 24
+    mov word [bl_body], gb_b_fill
     mov si, gb_r_f64
     xor al, al
     call bl_run
@@ -1049,17 +1052,19 @@ gb_prims:
     mov [gb_tlsv8+2], dx
     call gb_boxfull
     mov word [bl_n], 6
-    mov si, gb_r_fbox
-    xor al, al
-    call bl_run
+    mov word [bl_body], gb_b_fill   ; RESTORE it: this used to be carried over
+    mov si, gb_r_fbox               ; from the 64x64 fill twelve lines up, and
+    xor al, al                      ; then the line and lstep blocks were
+    call bl_run                     ; inserted between the two (see gb_boxrow)
     mov ax, [bl_last]
     mov dx, [bl_last+2]
     mov [gb_tfbox], ax
     mov [gb_tfbox+2], dx
     call gb_boxrow                  ; ...and ONE row of that same width. It is
     mov word [bl_n], 100            ; the third fill size because two could not
-    mov si, gb_r_frow               ; separate the per-CALL term from the
-    xor al, al                      ; per-ROW one: fitting c + a*rows + b*px to
+    mov word [bl_body], gb_b_fill   ; separate the per-CALL term from the
+    mov si, gb_r_frow               ; per-ROW one: fitting c + a*rows + b*px to
+    xor al, al
     call bl_run                     ; 8x8 / 64x64 / 256x128 gave a NEGATIVE c
     mov ax, [bl_last]               ; (PERFORMANCE.md Part 9 Set 1). Holding
     mov dx, [bl_last+2]             ; the width fixed and varying only the rows
@@ -1101,6 +1106,7 @@ gb_prims:
     mov [gb_tbs+2], dx
     mov word [gb_src], gb_bstripe
     mov word [bl_n], 6
+    mov word [bl_body], gb_b_blit
     mov si, gb_r_bn
     xor al, al
     call bl_run

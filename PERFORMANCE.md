@@ -1616,3 +1616,144 @@ was block staging and `gfx_ink` — genuinely per call — while a fill's is
 geometry. Shortening *that* is §5.7's problem: diffuse, no hot spot, already
 worth 20% once, and wanting a dedicated pass with `tests/gfxbench` as the
 gate rather than a new API slot.
+
+### Set 11 — the 5150 again, and four more machines beside it
+
+**Five machines, eight reports, and the provenance matters more than usual**
+— three of them are real iron and two are emulators, and the two emulators
+were run *to be a delta against the 5150*, not to price anything. Nothing
+below treats a PCem or MartyPC figure as a measurement of os8088.
+
+| set | machine | adapter | notes |
+|---|---|---|---|
+| **11a** | IBM 5150, 4.77 MHz 8088, 640KB | Hercules GB101 | the calibration machine (docs/FIELD-MACHINES.md) |
+| **11b** | ...the same 5150 | IBM CGA, `VIDEO=cga` build | both cards are permanent; the build ignores the Hercules |
+| **11c** | Toshiba T1100 Plus | CGA (LCD) | tier 0, and the instruction table says **16-bit bus at ~7.1 MHz** |
+| **11d** | Packard Bell 286 | **CGA**, not VGA | ran the `VIDEO=cga` disk; the file is named `GFXVGA.TXT` but the report self-identifies as `CGA 640x200 mono`, tier 1 |
+| **11e/f** | PCem, MartyPC | both | claim a 4.77 MHz 8088; **delta only** |
+
+Build: `16844dd` field disks. PCem's CGA `SYSBENCH.TXT` is not in the set.
+
+#### MartyPC is the real thing on the CPU and not on the disk
+
+Against 11a, row for row, **MartyPC lands within 0–4% on 45 of 47 gfxbench
+rows** — the closest agreement any emulator has managed here, and enough that
+its "cycle accurate" claim survives contact with a 5150. PCem is uniformly
+**10–20% fast**. Three rows are the exceptions and each says something:
+
+| row | 5150 | PCem | MartyPC |
+|---|---|---|---|
+| `one retrace period` | **19,473 µs** (51.4 Hz, right for Hercules) | 9,533 | 9,501 |
+| `VRAM write word` | 5,647 µs | 2,529 (**no VRAM cost at all**) | 6,082 |
+| `read 16K, cold motor` | **8.07 s** | 1.10 s | **0.27 s** |
+| `boot ms` | **38,886** | 5,108 | 2,306 |
+
+So: **neither emulator models floppy rotational latency**, which is the one
+thing the last two disk optimisations were aimed at, and PCem additionally
+gives Hercules VRAM the speed of RAM. Use MartyPC for CPU and drawing work,
+and neither for anything with a disk in it.
+
+#### The two disk optimisations bought nothing on the iron
+
+This is the finding of the set, and it is a **regression against a
+prediction, not against a measurement**. Same machine, same test, same
+media, kernel before and after both §18.4.2's run coalescing and §18.91's
+per-track batching:
+
+| | Set 1 (before) | Set 11a (after) |
+|---|---|---|
+| 16 KB read, cold motor | 7.63 s | **8.07 s** |
+| 16 KB read, warm | 7.80 s | **8.18 s** |
+| a one-sector file | 796 ms | 796 ms |
+| throughput | 2,100 B/s | **2,001 B/s** |
+
+Set 1 priced the per-track batch at "about **9x** on every load in the
+system, which is the largest single number in this document". Measured: it
+is **1.0x**, and if anything 6% the wrong way. The boot agrees — 138 kernel
+sectors at the unbatched 238 ms is 32.8 s, and `boot ticks` says **708
+(38.9 s)** against a predicted 4–5.
+
+Two things rule out the obvious explanations. The file is **contiguous** —
+every file on the field image is `runs=1`, so the coalescer hands `dsk_xfer`
+one 32-sector run — and the T1100 Plus, a *different* real machine with a
+different drive, reads at **2,161 B/s**, the same wall. The two emulators
+disagree loudly and cannot arbitrate, because neither models the latency.
+What is left is either that the multi-sector `int 13h` is not being issued on
+that hardware, or that it is and the drive/media does not reward it; **the
+`FLOPPY1=1` A/B disk is what separates those**, and that knob exists for
+exactly this (SPEC.md §18.91).
+
+The 286 is the one real machine that does gain: **9,041 B/s**, 4.5x the 5150.
+
+#### What the set was asked, and what it answered
+
+| question | answer |
+|---|---|
+| `shl clk/bit x100`, the variable-shift model | **400** — the 8086 book's 4.00 clocks a bit, exactly. §5.7's mask and bank tables are justified |
+| `mov al,[bx+disp16]`, what a table lookup costs | **24.09 clocks** against `shl r16,cl (13)`'s **60.37**. The trade is 2.5x, not a wash |
+| `mov ax,i + mul [m]` | **154.98** against `mul r16`'s 132.54 — the memory form costs 17%, so the `mul` left in `gfx_rowbase` is not the thing to remove |
+| `GFX_FILL 256x1` and `fill ns per row` | **void — harness bug**, below |
+| `FULLSCREEN in+out` | **6.17 s** on Hercules, **3.50 s** on CGA. Part 1's "visible redraw", priced |
+| `GFX_FILL 64x64 clipped` | 8,750 µs against 8,221 unclipped: **+528 µs** to draw under an armed region, against a 328 µs `SET+CLEAR`. The region arithmetic is cheaper than re-entering the primitive |
+| the whole **fullscreen block** | **boring, as hoped**: `GFX_PIXEL` 640.87 vs 641.32 (0.07%), `GFX_FILL 64x64` 8,221.20 vs 8,225.77 (0.06%), `FONT_CHAR` 890.02 vs 887.92 (0.24%), `FONT_RUN` 8,996 vs 9,008 (0.13%). A primitive costs what it costs wherever it is drawn |
+| `boot ticks` / `boot ms` | **708 / 38,886** (Hercules), 700 / 38,447 (CGA) |
+| the **hard disk** | it works, and it is **50,904 B/s** — **25x the floppy**. `HDD FILE_DFREE` 402 ms across a 41-sector FAT through a 9-sector window; mount and back 1.79 s |
+
+#### §5.6.8 is settled, and the instruction count was right
+
+`LSTEP8/LSTEPV8` reads **116** on the 5150 against **118** in guest
+instructions under `-icount`. The decomposition is what makes it useful:
+
+| | |
+|---|---|
+| a walk step's **arrival** | **128.7 µs** |
+| a walk step's **pixel** | **655.0 µs** |
+
+The pixel dominates the arrival **5:1**, so batching cannot be where the cost
+is, and §5.6.8's field-inferred **356** is refuted — by the machine those
+field figures came off. The open gap the row was written to close closes in
+favour of the cheap measurement, which is the outcome that was least
+expected and the reason the row exists.
+
+`gfx_line`'s pair came out **better** than claimed: `line steep fat/thin` is
+**135** against a predicted 156 (CGA 134), with the shallow control at
+**309** (CGA 297) where three walks say ~300. The two *thin* rows were meant
+to match and are **10% apart** — steep 21,184 µs, shallow 19,245 (CGA 21,403
+/ 19,245) — so a y-major line costs a tenth more than the same line
+transposed, which is `gfx_rowbase` per step against a pointer add.
+
+#### The one row nobody can explain: `GFX_UNLOCK+LOCK`
+
+| 5150 Herc | 5150 CGA | T1100 | PB286 | PCem | MartyPC |
+|---|---|---|---|---|---|
+| **2,241 µs** | **2,402 µs** | 119 µs | 36 µs | 223 µs | 246 µs |
+
+As a fraction of that machine's own `GFX_PIXEL`, the 5150 is **3.49** and
+every other machine is **0.16–0.38** — a 9x outlier on the one machine that
+agrees with MartyPC everywhere else. It is also **the only row in either
+harness that cannot be measured with interrupts off** (`gfx_lock` ends with
+`sti` by contract), and the only variable work inside it is
+`cur_lazyend` → `cur_move`, which runs when the mouse has moved since the
+cursor was drawn. Not reproduced under QEMU: with the pointer in the middle
+of the screen and again parked in a corner, the pair is **0.5 instructions an
+iteration** either way. Open; see the question in docs/FIELD-NOTES.md.
+
+#### The harness bug: two fill rows measured a line-step for four commits
+
+`GFX_FILL 256x128` and `GFX_FILL 256x1` are **void in every report in this
+set**. `bl_body` is a module word and the fill block set it once and reused
+it across three rectangle sizes — correct until the `GFX_LINE` and
+`GFX_LSTEP` blocks were inserted between the 64x64 fill and the 256x128 one,
+after which both rows timed `gb_b_lstepv8`. It could not be seen from the
+report: a fill and a vector walk-step happen to cost about the same, so the
+two rows agreed with each other to **0.4%** (6,410 and 6,432 counts against
+the lstepv row's 6,406) and the two derived rows they feed printed a tidy
+**0**.
+
+`tools/benchlint.py` refuses it now — every `call bl_run` must set
+`[bl_body]` since the previous one, so repeating a body is allowed and
+*carrying* one is not, which is what an insertion cannot silently break. Run
+by `make bench`. Four sites were carrying legitimately and now say so.
+
+Everything else in the set stands: the bug is two raw rows and two derived
+ones out of about sixty.

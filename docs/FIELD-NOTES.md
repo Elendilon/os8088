@@ -750,3 +750,98 @@ What is NOT fixed is the planar path — VGA still moves erase-then-draw,
 because its save is four planes through Read Map Select and cannot take a
 background from a buffer. Its *draw* is one store now (§7.1), which was the
 larger of the two windows there.
+
+---
+
+## 7. The per-track floppy batching bought nothing on real hardware
+
+**Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
+ladder was calibrated against. `sysbench`'s floppy block, same machine, same
+media, same test, kernel before and after both SPEC.md §18.4.2 (run
+coalescing in `dskw_rdata`) and §18.91/§18.93 (per-track batching in
+`dsk_xfer` and the boot sector):
+
+| | Set 1 (before) | Set 11a (after) |
+|---|---|---|
+| 16 KB read, cold motor | 7.63 s | **8.07 s** |
+| 16 KB read, warm | 7.80 s | **8.18 s** |
+| a one-sector file, open and read | 796 ms | 796 ms |
+| throughput | 2,100 B/s | **2,001 B/s** |
+
+Set 1's prediction was "about **9x** on every load in the system, which is the
+largest single number in this document". It measured **1.0x**, and 6% the
+wrong way. `boot ticks` says the same thing independently: 138 kernel sectors
+at the unbatched 238 ms is 32.8 s, and the boot measured **708 ticks
+(38.9 s)** against a predicted 4–5 s.
+
+**Already ruled out.**
+
+- **Fragmentation.** Every file on the field image is one run —
+  `KERNEL.SYS` 69 clusters, `BENCH.DAT` 16, all `runs=1` — so the coalescer
+  hands `dsk_xfer` a single 32-sector run and it splits only at the track and
+  the DMA page, exactly as designed.
+- **A one-machine artefact.** The Toshiba T1100 Plus, a different real
+  machine with a different drive and different media, reads at **2,161 B/s**.
+  Two real machines, one wall. (The Packard Bell 286 does gain: 9,041 B/s.)
+- **The emulators.** They report 13,562 B/s (PCem) and 59,795 (MartyPC) and
+  are worthless here: neither models rotational latency, which is the entire
+  thing the batching exists to avoid. A green run on either proves nothing
+  about this, and one was taken.
+- **The code not being built in.** `FLOPPY_ONE` is not defined; the batching
+  block and `dsk_dpt_init`'s EOT patch are both in the shipped kernel.
+
+**What is left**, and they are separable: either the multi-sector `int 13h`
+is not actually being issued on that hardware, or it is and the drive, the
+controller or the media's physical interleave does not reward it. **The
+`FLOPPY1=1` A/B disk is the test** — that knob was added for precisely this
+class of question (SPEC.md §18.91) and has never been run on iron. If
+`FLOPPY1=1` measures the same 8.07 s, the batching is not reaching the
+hardware; if it is much slower, the batching works and 8.07 s is already the
+improved figure, which would put the fault in Set 1's model instead.
+
+Until then, **do not quote the 9x**, and do not cost a future disk change
+against it.
+
+---
+
+## 8. `GFX_UNLOCK+LOCK` is 9x dearer on the 5150 than on any other machine
+
+**Observed.** PERFORMANCE.md Part 9 Set 11, `gfxbench`'s composite block:
+
+| 5150 Herc | 5150 CGA | T1100 Plus | PB 286 | PCem | MartyPC |
+|---|---|---|---|---|---|
+| **2,241 µs** | **2,402 µs** | 119 µs | 36 µs | 223 µs | 246 µs |
+
+Normalised against each machine's own `GFX_PIXEL` — which removes the clock
+entirely — the 5150 is **3.49** and every other machine is **0.16–0.38**.
+That is the only row where the 5150 and MartyPC disagree at all; the other 45
+gfxbench rows agree within 0–4%. So the 5150 is doing *different work* in
+this pair, not the same work more slowly.
+
+**What the pair can vary by.** With no back buffer (both mono adapters,
+`[bb_dbl]` = 0) `gfx_flush` returns before it can spend the deferred hide, so
+`gfx_unlock` takes `.never` → `cur_lazyend` every iteration. That path is a
+few compares **unless `[mouse_x]`/`[mouse_y]` differ from
+`[cur_drawn_x]`/`[cur_drawn_y]`**, in which case it is a full `cur_move` —
+which is about the right size to explain 2 ms on a 4.77 MHz machine.
+
+**Already ruled out.**
+
+- **An interrupt storm.** This is the one row in either harness that cannot
+  be measured with interrupts off (`gfx_lock` ends with `sti` by contract),
+  which makes it the obvious suspect — but `sysbench` puts the whole
+  interrupt load at **3%** on the same machine in the same session.
+- **Cursor position.** Under QEMU the pair is **0.5 instructions an
+  iteration** with the pointer in the middle of the screen and again with it
+  parked in the top-left corner, so a clipped cursor cell is not it.
+- **The adapter.** Both 5150 columns are expensive and the T1100's CGA column
+  is not.
+
+**The open question is whether the mouse was moving.** The row is 100
+iterations and lasts about 224 ms on that machine — long enough for a hand
+resting on a mouse, or a ball mouse picking up the machine's own vibration,
+to make every iteration a `cur_move`. If that is the answer the row is
+honest and the lesson is that it must be labelled "cursor idle"; if it is
+not, something makes `cur_drawn_*` chase `mouse_*` without catching it, and
+that is a bug worth finding, because CLAUDE.md already prices this pair at
+21.8% of a Missile Command session.
