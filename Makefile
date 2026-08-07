@@ -971,23 +971,41 @@ $(APPSIMG360): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(APPSARGS)
 
 # The GUI reads a Microsoft serial mouse on COM1 or COM2 (SPEC.md 9.5); QEMU
-# emulates one natively. MOUSEPORT= puts it on the other one:
+# emulates one natively. MOUSEPORT= says where, and on WHICH IRQ:
 #
-#   make run                  the mouse on COM1, and NOTHING at 2F8 - so the
-#                             probe finds one port and the kernel runs the
-#                             single-port path it always did
-#   make test MOUSEPORT=com2  a live but SILENT UART at 3F8 (-serial null) and
-#                             the mouse at 2F8. This is the hard case, and the
-#                             only one that tests anything: a probe that found
-#                             both ports, a contest the second one wins, and a
-#                             first port that must be retired rather than
-#                             preferred. `-serial none` instead would leave 3F8
-#                             unpopulated and test only the easy half.
+#   make run                    the mouse on COM1, nothing at 2F8 - so the
+#                               probe finds one port and the kernel runs the
+#                               single-port path it always did
+#   make test MOUSEPORT=com2    a live but SILENT UART at 3F8 and the mouse at
+#                               2F8 on its textbook IRQ3. The two-port contest:
+#                               a first port that must be retired rather than
+#                               preferred. Leaving 3F8 unpopulated instead
+#                               would test only the easy half
+#   make test MOUSEPORT=com2irq4  THE COMPAQ PORTABLE III (SPEC.md 9.5.2): the
+#                               mouse at 2F8 with its card driving IRQ4, which
+#                               is where the base-to-IRQ convention the kernel
+#                               used to rely on stops being true. Before that
+#                               fix this configuration never finds the mouse at
+#                               all - [mou_seen] stays 0 however far you move
+#                               it - so it is the regression test for a bug
+#                               that took real hardware to find
+#   make test MOUSEPORT=com1irq3  the mirror image, for symmetry
 #
-# QEMU assigns -serial options to 3F8, 2F8, 3E8, 2E8 in the order they appear.
+# `-serial` cannot set an IRQ, so these go through `-device isa-serial`, which
+# takes iobase= and irq= and is what makes a cross-wired card reproducible at
+# all. `-serial none` suppresses the machine's default ports so the devices
+# below are the only ones.
 MOUSEPORT ?= com1
+MOUSEQ    := -serial none -chardev null,id=mq
 ifeq ($(MOUSEPORT),com2)
-MOUSE := -serial null -chardev msmouse,id=m0 -serial chardev:m0
+MOUSE := $(MOUSEQ) -device isa-serial,chardev=mq,iobase=0x3f8,irq=4 \
+         -chardev msmouse,id=m0 -device isa-serial,chardev=m0,iobase=0x2f8,irq=3
+else ifeq ($(MOUSEPORT),com2irq4)
+MOUSE := $(MOUSEQ) -device isa-serial,chardev=mq,iobase=0x3f8,irq=4 \
+         -chardev msmouse,id=m0 -device isa-serial,chardev=m0,iobase=0x2f8,irq=4
+else ifeq ($(MOUSEPORT),com1irq3)
+MOUSE := $(MOUSEQ) -device isa-serial,chardev=mq,iobase=0x2f8,irq=3 \
+         -chardev msmouse,id=m0 -device isa-serial,chardev=m0,iobase=0x3f8,irq=3
 else
 MOUSE := -chardev msmouse,id=m0 -serial chardev:m0
 endif

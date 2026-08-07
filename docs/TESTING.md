@@ -37,6 +37,7 @@ below, is the short version of it.**
 | Sound Blaster 16 | ✅ | `make test-snd SB16=1` | 2.00 s at 1000.0 Hz |
 | Scripted mouse / keys | ✅ | `tools/mouse.py`, `tools/qmp.py` | all adapters, incl. Hercules |
 | Mouse on COM2 (SPEC.md §9.5) | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |
+| A **cross-wired IRQ** (SPEC.md §9.5.2) | ✅ | `make test MOUSEPORT=com2irq4` | the Compaq Portable III: mouse at 2F8 driving IRQ4. Undetectable before the fix |
 | A **modem** on the other port | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
 | Performance benchmarks | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
 | Fullscreen exclusive (SPEC.md §53) | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
@@ -139,11 +140,10 @@ rm -f build/os8088.img build/os8088-720.img build/os8088-360.img && make
 
 ## The mouse's port, and the modem on the other one (SPEC.md §9.5)
 
-`make test MOUSEPORT=com2` gives QEMU a **live but silent** UART at 3F8
-(`-serial null`) and the mouse at 2F8. That shape is the point: `-serial none`
-would leave 3F8 unpopulated, the probe would find one port, and the kernel
-would take the single-port path — testing the easy half and none of the
-contest. Read the answer out of the kernel rather than off the glass; the
+`make test MOUSEPORT=com2` gives QEMU a **live but silent** UART at 3F8 and
+the mouse at 2F8. That shape is the point: leaving 3F8 unpopulated would make
+the probe find one port and the kernel take the single-port path — testing
+the easy half and none of the contest. Read the answer out of the kernel rather than off the glass; the
 offsets move whenever an include before `mouse.inc` does, so re-derive them
 from a listing (`nasm … -l`) and peek at `KERNEL_SEG*16 + offset`:
 
@@ -205,28 +205,61 @@ real run**: the Compaq Portable III's mouse turned out to be at 0x2F8 driving
 **IRQ4**, which is SPEC.md §9.5.2 and was invisible to every other test in
 this tree.
 
-**QEMU can reproduce a cross-wired card**, which is worth knowing because it
-turns a field-only bug into a regression test. `-serial` gives no control over
-the IRQ; `-device isa-serial` does:
+**QEMU can reproduce a cross-wired card**, which turns a field-only bug into
+a regression test — and all four combinations are `MOUSEPORT=` knobs:
 
-```sh
-qemu-system-i386 -drive file=build/os8088.img,format=raw,if=floppy -boot a \
-  -serial none \
-  -chardev null,id=modem -device isa-serial,chardev=modem,iobase=0x3f8,irq=4 \
-  -chardev msmouse,id=m0 -device isa-serial,chardev=m0,iobase=0x2f8,irq=4 \
-  -display none -qmp unix:build/qmp.sock,server,nowait -daemonize
-```
+| | mouse | and the other port |
+|---|---|---|
+| `make test` | 3F8, IRQ4 | nothing |
+| `make test MOUSEPORT=com2` | 2F8, IRQ3 | live but silent at 3F8 |
+| `make test MOUSEPORT=com2irq4` | **2F8, IRQ4 — the Compaq Portable III** | live but silent at 3F8 |
+| `make test MOUSEPORT=com1irq3` | 3F8, IRQ3 | live but silent at 2F8 |
 
-That is the Portable III exactly. On a kernel without §9.5.2 the mouse is
-never detected — `[mou_seen]` stays 0 through forty `mouse_move`s and the
-cursor never leaves its start — and on one with it, the port settles and the
-cursor tracks. All four base/IRQ combinations (3F8/IRQ4, 2F8/IRQ3, 2F8/IRQ4,
-3F8/IRQ3) are worth running: the two cross-wired ones both failed before.
+`-serial` cannot set an IRQ, so those go through `-device isa-serial`, which
+takes `iobase=` and `irq=`. On a kernel without §9.5.2 the two cross-wired
+rows never find the mouse at all — `[mou_seen]` stays 0 through forty
+`mouse_move`s and the cursor never leaves its start.
 
 One trap in writing that test, and it produced two false failures: a movement
 pattern that **nets to zero** returns the cursor to where it started, so
 "the cursor changed" reports a perfectly working mouse as broken. Drift in one
 direction.
+
+### Can we boot a real 5150 BIOS instead of SeaBIOS?
+
+Asked, checked, and **no** — but the instinct behind it is sound and worth
+recording so the next person does not re-derive it.
+
+SeaBIOS genuinely does misrepresent a period machine, and it has cost this
+project real bugs: the **int 1Eh diskette parameter table** it never reads,
+which is the whole of FIELD-NOTES 5 (a real ROM ships EOT = 8 and the
+multi-track bit, and QEMU cannot show any of it); a real BIOS's **short int
+13h reads**, which SeaBIOS never returns; and **interrupt stack usage**,
+which SeaBIOS keeps on an internal stack where a real BIOS lands it on
+whichever task stack is current — the reason `tests/stackprobe`'s QEMU answer
+is not the answer.
+
+`-bios` will not fix any of that, because it maps a *file* and does not change
+the *hardware underneath it*. QEMU has no XT-class machine — `-machine help`
+lists i440fx variants, q35, microvm and `isapc`, all 486-era or later — and
+the concrete blocker is the configuration read at the very start of the 5150
+POST: an IBM PC reads its DIP switches through the **8255 PPI at 60h–63h**,
+and every QEMU machine puts an **8042 keyboard controller** at 60h/64h with a
+port-61h NMI/speaker latch instead. There is no 8255 anywhere in
+`qemu-system-i386 -device help`. The POST fails its first configuration read,
+before video, and beeps.
+
+**86Box is the answer to that question and the repo already has it
+configured** — `make xt`, `xt-640`, `xt-cga`, `xt-hercules`, `286`, `386sx`,
+`386dx`, each with the real ROM set. That is what the "What 86Box is genuinely
+for" section below is about.
+
+Two footnotes. `-machine isapc` *does* boot os8088 (ISA-only, no PCI) and is
+marginally more period-shaped than the default, but the BIOS is still SeaBIOS
+so it buys nothing on the list above; it is not worth changing the default
+for. And for the bug that prompted the question — §9.5.2's cross-wired IRQ —
+**neither would have helped**: that is a property of a card's jumper, not of
+the BIOS, and `-device isa-serial,irq=` models it exactly.
 
 One trap that cost a whole debugging round, and it is the kernel's own idiom
 misapplied: the per-port state is walked with a **word** index (0, 2, 4, 6), so
