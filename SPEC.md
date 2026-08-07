@@ -14413,6 +14413,18 @@ whole of why this is a section:
   stalled. The reading that the guest was losing ticks, which the apparent
   byte rate swinging between 186 and 683 bytes/tick seems at first to show,
   is that same observation lag and not a lost interrupt.
+- **Anchored only forward.** A report is the driver's *block* counter, so it
+  is quantized **down**: it names the last 2,048-byte boundary the card
+  crossed and is therefore up to a whole block behind where the card actually
+  is. The model interpolates past that on purpose — so restarting the model at
+  every report threw the interpolation away, and with the monotone guard
+  holding the old answer the display *froze* until the model climbed back. Up
+  to a block of it, which is 6.8 ticks. The field measured **26% of
+  row-to-row gaps at 4 ticks or more** with exactly that shape. The report
+  re-anchors the model only when it has **overtaken** it — which means the
+  model ran slow and the truth is the better answer — and drift the other way
+  is bounded by the staged cap. Measured after: **0% of gaps at 4 ticks or
+  more**, and a mean of 2.53 ticks against an ideal row period of 2.51.
 - **Monotone**, which is the load-bearing one. `[tui_play]` is the last answer
   given and the estimate can never fall below it. Without that, any
   disagreement between the estimate and the next real block — a byte rate a
@@ -14511,8 +14523,17 @@ Two things in it were wrong, and both are fixed here:
 ticks in both captures, which is what "not keeping up" actually looks like
 from the inside and is the number to watch after these two changes.
 
-`DX` is the one instrument that has so far measured nothing, and it was
-mis-placed rather than uninformative: `tlog_wstart` sat at the top of
+**`DX`, once it measured the pass rather than the poll, cleared the worker of
+the microstutter.** A feed pass takes **6 ticks 54 times** in a capture and up
+to 19, which is the mixer's own price — one 2,048-byte half is ~372 ms of
+audio and the XT mixer spends ~44% of the machine, so ~3 ticks of CPU per
+half. But the `FR` column through those same passes reads 1 to 4 frames a
+tick: **the worker is preempted normally and the display keeps drawing**. The
+four passes that do coincide with `FR` = 0 are all in the last records of a
+capture, which is Esc and the desktop repaint. So `TRK_MAXFEED` was the
+standing suspect and is not the culprit; the stutter was in the estimate.
+
+The instrument was mis-placed rather than uninformative before that: `tlog_wstart` sat at the top of
 `trk_feed` and the span closed at `tlog_feed` four instructions later, so it
 priced the status poll and not the pass. It closes at `trk_feed`'s own exit
 now. That matters because a capture holds **18-tick windows with no record at

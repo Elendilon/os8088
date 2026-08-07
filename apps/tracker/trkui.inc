@@ -1618,6 +1618,18 @@ tui_sync:
 ;   exactly those words. The card was playing normally throughout; only our
 ;   view of it had stalled.
 ;
+;   ANCHORED ONLY FORWARD. A report is the driver's block counter, so it is
+;   quantized DOWN: it names the last 2,048-byte boundary the card crossed and
+;   is therefore up to a whole block BEHIND where the card actually is. The
+;   model interpolates past that on purpose - so restarting the model at every
+;   report threw the interpolation away and, with the monotone guard holding
+;   the old answer, froze the display until the model climbed back. Up to a
+;   block of it, which is 6.8 ticks; the field measured 26% of row-to-row gaps
+;   at 4 ticks or more with exactly that shape. So the report re-anchors the
+;   model only when it has OVERTAKEN it, which means the model ran slow and
+;   the truth is the better answer. Drift the other way is bounded by the
+;   staged cap above.
+;
 ;   MONOTONE, and this is the load-bearing one. [tui_play] is the last answer
 ;   given and the estimate can never go below it. Without that, any
 ;   disagreement between the estimate and the next real block - a rate that
@@ -1630,25 +1642,35 @@ tui_playpos:
     push dx
     call OSAPI_GET_TICKS
     mov cx, ax                      ; CX = now, asked once
-    mov ax, [trk_consumed]
-    cmp ax, [tui_lcons]
-    je .est
-    mov [tui_lcons], ax             ; a fresh report: re-anchor on the truth
-    mov [tui_ct0], cx
-.est:
-    sub cx, [tui_ct0]               ; CX = ticks since that report landed
-    push ax
+    sub cx, [tui_ct0]               ; CX = ticks since the anchor
     mov ax, cx
-    mul word [tui_bpt]              ; DX:AX = bytes played since the anchor
-    pop bx                          ; BX = the anchor (POP touches no flags)
+    mul word [tui_bpt]              ; DX:AX = bytes played since it
     or dx, dx
     jnz .cap                        ; past 64KB: past anything ever staged
-    add ax, bx                      ; AX = the interpolated position
+    add ax, [tui_lcons]             ; AX = what the model says
+    mov bx, [trk_consumed]          ; has the REPORT overtaken the model?
+    sub bx, ax                      ; (wrap-safe: the sign decides)
+    js .have                        ; no - and that is the normal case, see
+                                    ; the header: re-anchoring on a report
+                                    ; that is quantized BEHIND us throws the
+                                    ; interpolation away
+    mov ax, [trk_consumed]          ; yes: the model ran slow, so take the
+    mov [tui_lcons], ax             ; truth and restart the clock on it
+    push ax
+    call OSAPI_GET_TICKS
+    mov [tui_ct0], ax
+    pop ax
+.have:
     mov bx, [trk_total]             ; ...bounded by what the mixer has WRITTEN,
     sub bx, ax                      ; because the card cannot play what is not
     jns .mono                       ; there yet (wrap-safe: the sign decides)
 .cap:
     mov ax, [trk_total]
+    mov [tui_lcons], ax             ; a capped estimate re-anchors there too,
+    push ax                         ; or the model keeps sprinting into a
+    call OSAPI_GET_TICKS            ; ceiling it cannot pass
+    mov [tui_ct0], ax
+    pop ax
 .mono:
     mov bx, ax                      ; ...and it may never go backwards
     sub bx, [tui_play]
