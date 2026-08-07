@@ -14081,65 +14081,63 @@ Three things the bracket owes that a window gets free, and they are the only
 new code:
 
 - **The pointer.** The held lock keeps the mouse ISR off the screen for the
-  whole session (§53.6), so the app draws its own: `pt_ptr_xor` is two XOR
-  bars with the centre pixel left as a hole by the double XOR — Missile
-  Command's crosshair (§48.18), and what a bitmap editor wants over a picture
-  anyway. XOR being its own inverse is what makes `[pt_ptrx]`/`[pt_ptry]`
+  whole session (§53.6), so the app draws its own: one XOR **square**, 5×5.
+  It was a crosshair — Missile Command's two bars with the centre pixel left
+  as a hole by the double XOR (§48.18), and the shape a bitmap editor wants —
+  and §42.7.1 is why it is not. XOR being its own inverse is what makes
+  `[pt_ptrx]`/`[pt_ptry]`
   load-bearing: the position is **banked and replayed** rather than re-read
   from the mouse, because an erase at a position the draw never used leaves
-  half a crosshair on the picture for the rest of the session. It comes
+  the square on the picture for the rest of the session. It comes
   **off around every dispatch** and back on after — a click or a key may draw
   anywhere, and an XOR overlay that has been drawn over can never be erased,
   only smeared. It stays off for the whole of a tracking loop, which is not a
   compromise: the ink or the rubber band is the feedback while the button is
   down, and it is where the pointer is. **Moving it is §42.7.1.**
 
-#### 42.7.1 Moving the crosshair writes every pixel at most once
+#### 42.7.1 The pointer is a square, and moving it writes every pixel once
 
-§7.1.2's rule, found again in an app's own overlay and reported off the field
-machine as a pointer that "draws fine, but is flickery" on Hercules. The move
-was `pt_ptr_xor` at the old position and then at the new one, so **every pixel
-the two crosshairs share was written twice** — dark, and then lit again. The
-glass catches the value in between, which is the kernel cursor's own defect
-before `cur_move` and the same symptom (docs/FIELD-NOTES.md 6).
+Two defects in one routine, both reported off the field machine as a pointer
+that "draws fine, but is flickery" on Hercules, and neither observable here.
 
-XOR makes the fix simpler than the cursor's, which needed two save buffers: a
-pixel lit in both crosshairs must not be **touched**, two XORs being the
-identity anyway. So each bar emits the **symmetric difference** of its old and
-new spans — the whole bar when the two do not share a row (or a column), two
-short stubs when they do — and `pt_ptr_sym` is that arithmetic, once per bar
-rather than once per pixel.
+**It was written twice.** The move was `pt_ptr_xor` at the old position and
+then at the new one, so **every pixel the two positions share was written
+twice** — dark, and then lit again. The glass catches the value in between,
+which is §7.1.2's defect and the kernel cursor's own symptom before `cur_move`
+(docs/FIELD-NOTES.md 6). XOR makes the fix simpler than the cursor's, which
+needed two save buffers: a pixel lit in both must not be **touched**, two XORs
+being the identity. `pt_ptr_sub` emits the part of one rect the other does not
+cover, as up to four strips of which two are ever non-empty for equal squares,
+and a move larger than the pointer degenerates to one rect each way by itself.
 
-**The runs belonging to the new crosshair go first**, which is the other half
-and costs nothing. Any move with both a dx and a dy leaves the two crosshairs
-disjoint, so the difference *is* "all of the new, then all of the old", and in
-that order the pointer is never **absent** — only briefly doubled. An absence
-reads as a blink; a double reads as movement. On the overlapping path the order
-does not matter, the two runs touching disjoint pixels.
+**And it cost too much to be atomic.** As a crosshair — two bars, R=7 — a move
+was four calls and 32 scan lines: priced against PERFORMANCE.md Part 2, 4 ×
+756 µs of *arriving* plus 32 × 177 µs is **8.7 ms against a 20 ms Hercules
+frame**, so nearly half of every refresh caught a partly-updated pointer. The
+**fixed cost per call is the lever, not the size** — a shorter crosshair only
+touches the second term, and R=3 is still four calls and still 5.9 ms — so the
+shape became one rect. Measured over an identical 33-move walk: **136 calls
+and 872 scan lines → 76 and 354**, which is 257 ms of the walk against 120,
+**2.1x**, and 2.3 calls a move confirms the two-call path is the common one.
+The centre hole goes with the crosshair, and that was the property worth
+losing.
 
-Verified the way §7.1.2 verified `cur_move`, and the apparatus took two
-corrections that are worth keeping because both made a broken build pass:
-`tools/mouse.py`'s `to` **re-pins against the edge clamp**, so no two samples
-ever land on one row and the overlapping path is never reached — the walk has
-to use relative `move`; and an **out-and-back pair cancels its own error
-exactly**, the same two spans in the other order, so the return leg must use
-different step sizes than the outward one. With both fixed: a closed loop of
-33 moves over a textured canvas — every overlap phase in x and in y, plus
-diagonals — returns **0 differing pixels** on VGA and on Hercules, against
-**54 bytes** with one shared pixel deliberately left in a stub.
-- **The input model.** No events are dispatched, so `pt_fsx_main` polls int
-  16h and `OSAPI_MOUSE` and calls **this app's own callbacks with the
-  arguments the kernel would have handed them** — a press becomes `pt_click`
-  with the mouse's own absolute screen coordinates, a key becomes `pt_onkey`
-  with int 16h's own AX. Nothing else in the app is told the difference, which
-  is why tools, the tool palette, the colour strip, the size boxes, the toast
-  and the About card all work in there unchanged.
-- **The pace.** `[pt_fsx]` turns `pt_wait` and `pt_wait_tick` into
-  `OSAPI_FSX_WAIT`. Not a substitution of convenience: the lock in there is
-  the caller's, taken before `fsx_run` and released after it returns, and
-  `gfx_unlock` is where the §32 flush lives — so on a double-buffered machine
-  `fsx_wait` is the **only present a tracking loop gets** (§53.5). What is
-  given up is the yield, and a bracket has nothing to yield to.
+**The new square's own pixels go first**, which costs nothing and is the other
+half. Any move bigger than the pointer leaves the two positions disjoint, so
+the difference *is* "all of the new, then all of the old", and in that order
+the pointer is never **absent** — only briefly doubled. An absence reads as a
+blink; a double reads as movement.
+
+Verified the way §7.1.2 verified `cur_move`, and **the apparatus took two
+corrections that each made a broken build pass** — worth recording, because
+either one alone leaves a test that proves nothing. `tools/mouse.py`'s `to`
+re-pins against the edge clamp, so no two samples ever land on one row and the
+overlapping path is never reached: the walk has to use relative `move`. And an
+out-and-back **pair cancels its own error exactly**, the same two rects in the
+other order, so the return leg must use different step sizes than the outward
+one. With both fixed, a closed loop of 33 moves over a textured canvas returns
+**0 differing pixels** on VGA and on Hercules, against **126 bytes** with one
+shared column deliberately left in a strip.
 
 Two ways out, and the second is conditional. Ctrl+F always. Escape **only
 when it has nothing else to cancel** — it already ends a text run, drops a

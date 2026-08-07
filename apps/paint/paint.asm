@@ -2976,62 +2976,192 @@ pt_wait_tick:
 ; app's own W_ONKEY and W_ONCLICK with the arguments the kernel would have).
 ; =============================================================================
 
-PT_PTR_R    equ 7                   ; the crosshair's arms, pixels either side
+PT_PTR_R    equ 2                   ; half-side: the pointer is a 5x5 square
 
 ; -----------------------------------------------------------------------------
-; pt_ptr_xor - draw or erase the crosshair at [pt_ptrx],[pt_ptry]
+; The bracket's pointer - a SQUARE, and the reason is the call count
+;
+; It was a crosshair, two XOR bars with the centre pixel left as a hole by the
+; double XOR - Missile Command's (SPEC.md 48.18), and the shape a bitmap editor
+; wants. On the field machine it flickered, and priced against PERFORMANCE.md
+; Part 2 it is easy to see why: a move is four gfx calls and 32 scan lines,
+; 4 x 756us of ARRIVING plus 32 x 177us = 8.7 ms, against a 20 ms Hercules
+; frame. Nearly half of every refresh caught a partly-updated pointer.
+;
+; **The fixed cost per call is the lever, not the size.** A shorter crosshair
+; only touches the 177us term: R=3 is still four calls and still 5.9 ms. One
+; rect is two calls and, at 5x5, ten scan lines - 3.3 ms, 2.6x better - and
+; that is the whole of why the shape changed. The centre hole goes with it,
+; which was the property worth losing.
+;
+; The square keeps SPEC.md 42.7.1's rule: a move writes every pixel at most
+; once, and the pixels the two squares SHARE are not touched at all, two XORs
+; being the identity. pt_ptr_sub is that subtraction - the part of one rect the
+; other does not cover, as up to four strips, of which two are ever non-empty
+; for equal squares. A move that clears the old square entirely (any move of
+; more than PT_PTR_R*2 in either axis, which most are) degenerates to one rect
+; each way by itself, and that is the two-call case.
+; -----------------------------------------------------------------------------
+
+; pt_ptr_rect - the clipped pointer square about (AX, DX), into the four words
+; at DS:DI - left, top, right, bottom
+; out: nothing; preserves all registers
+pt_ptr_rect:
+    push ax
+    push bx
+    push dx
+    mov bx, ax
+    sub bx, PT_PTR_R
+    jns .l
+    xor bx, bx
+.l:
+    mov [di], bx
+    mov bx, ax
+    add bx, PT_PTR_R
+    mov ax, [pt_scrw]
+    dec ax
+    cmp bx, ax
+    jle .r
+    mov bx, ax
+.r:
+    mov [di+4], bx
+    mov bx, dx
+    sub bx, PT_PTR_R
+    jns .t
+    xor bx, bx
+.t:
+    mov [di+2], bx
+    mov bx, dx
+    add bx, PT_PTR_R
+    mov ax, [pt_scrh]
+    dec ax
+    cmp bx, ax
+    jle .b
+    mov bx, ax
+.b:
+    mov [di+6], bx
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; pt_ptr_strip - XOR (AX,BX)-(CX,DX) if it is a non-empty rect
+; out: nothing; preserves all registers
+pt_ptr_strip:
+    cmp ax, cx
+    jg .out
+    cmp bx, dx
+    jg .out
+    push si
+    push di
+    call OSAPI_GFX_XOR_FILL
+    pop di
+    pop si
+.out:
+    ret
+
+; pt_ptr_sub - XOR the part of the rect at DS:SI that the rect at DS:DI does
+; NOT cover; both are (left, top, right, bottom) words
+; out: nothing; preserves all registers
+;
+; Four strips - left of the overlap, right of it, and the top and bottom of
+; what is left between them - and the empty ones cost a compare. Two squares
+; of the same size can only overlap in a corner or an edge, so at most two of
+; the four are ever drawn; no overlap at all is the whole rect in one.
+pt_ptr_sub:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [si]                    ; the overlap, or the whole-rect exit
+    cmp ax, [di]
+    jge .ovl
+    mov ax, [di]
+.ovl:
+    mov cx, [si+4]
+    cmp cx, [di+4]
+    jle .ovr
+    mov cx, [di+4]
+.ovr:
+    cmp ax, cx
+    jg .whole
+    mov bx, [si+2]
+    cmp bx, [di+2]
+    jge .ovt
+    mov bx, [di+2]
+.ovt:
+    mov dx, [si+6]
+    cmp dx, [di+6]
+    jle .ovb
+    mov dx, [di+6]
+.ovb:
+    cmp bx, dx
+    jg .whole
+    mov [pt_ovl], ax
+    mov [pt_ovr], cx
+    mov [pt_ovt], bx
+    mov [pt_ovb], dx
+    mov ax, [si]                    ; left of the overlap, full height
+    mov cx, [pt_ovl]
+    dec cx
+    mov bx, [si+2]
+    mov dx, [si+6]
+    call pt_ptr_strip
+    mov ax, [pt_ovr]                ; right of it, full height
+    inc ax
+    mov cx, [si+4]
+    mov bx, [si+2]
+    mov dx, [si+6]
+    call pt_ptr_strip
+    mov ax, [pt_ovl]                ; above it, between the two
+    mov cx, [pt_ovr]
+    mov bx, [si+2]
+    mov dx, [pt_ovt]
+    dec dx
+    call pt_ptr_strip
+    mov ax, [pt_ovl]                ; and below it
+    mov cx, [pt_ovr]
+    mov bx, [pt_ovb]
+    inc bx
+    mov dx, [si+6]
+    call pt_ptr_strip
+    jmp short .out
+.whole:
+    mov ax, [si]
+    mov bx, [si+2]
+    mov cx, [si+4]
+    mov dx, [si+6]
+    call pt_ptr_strip
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; pt_ptr_xor - draw or erase the whole square at [pt_ptrx],[pt_ptry]
 ; in:  gfx lock held; out: nothing; preserves all registers
 ;
-; A crosshair rather than an arrow, for two reasons that agree: two XOR bars
-; are two drawing calls where a save-under arrow is a save, two draws and a
-; restore, and a crosshair is what a bitmap editor wants over a picture anyway.
-; The centre pixel is a hole - both bars cover it, and XOR twice is the
-; identity - which is Missile Command's own crosshair (SPEC.md 48.18) and is
-; what keeps the pixel being aimed at visible.
-;
-; XOR is its own inverse, so drawing and erasing are the same two calls. That
-; is what makes [pt_ptrx]/[pt_ptry] load-bearing: they are BANKED and replayed
+; XOR is its own inverse, so drawing and erasing are the same call. That is
+; what makes [pt_ptrx]/[pt_ptry] load-bearing: they are BANKED and replayed
 ; rather than re-read from the mouse, because an erase at a position the draw
-; never used leaves half a crosshair on the picture for the rest of the
-; session - the smear SPEC.md 7.1 warns about, in an app's own overlay.
-; -----------------------------------------------------------------------------
+; never used leaves the square on the picture for the rest of the session.
 pt_ptr_xor:
     push ax
     push bx
     push cx
     push dx
-    mov ax, [pt_ptrx]               ; the horizontal arm, clipped to the screen
-    sub ax, PT_PTR_R                ; (the primitives clip too, but a negative
-    jns .hx0                        ; x1 is not a clip, it is a wrong rect)
-    xor ax, ax
-.hx0:
-    mov cx, [pt_ptrx]
-    add cx, PT_PTR_R
-    mov bx, [pt_scrw]
-    dec bx
-    cmp cx, bx
-    jle .hx1
-    mov cx, bx
-.hx1:
-    mov bx, [pt_ptry]
-    mov dx, bx
-    call OSAPI_GFX_XOR_FILL
-    mov bx, [pt_ptry]               ; ...and the vertical one
-    sub bx, PT_PTR_R
-    jns .vy0
-    xor bx, bx
-.vy0:
-    mov dx, [pt_ptry]
-    add dx, PT_PTR_R
-    mov ax, [pt_scrh]
-    dec ax
-    cmp dx, ax
-    jle .vy1
-    mov dx, ax
-.vy1:
+    push di
     mov ax, [pt_ptrx]
-    mov cx, ax
-    call OSAPI_GFX_XOR_FILL
+    mov dx, [pt_ptry]
+    mov di, pt_pnew
+    call pt_ptr_rect
+    mov ax, [pt_pnew]
+    mov bx, [pt_pnew+2]
+    mov cx, [pt_pnew+4]
+    mov dx, [pt_pnew+6]
+    call pt_ptr_strip
+    pop di
     pop dx
     pop cx
     pop bx
@@ -3061,31 +3191,22 @@ pt_ptr_off:
 ; in:  CX/DX = the new screen position; gfx lock held
 ; out: nothing; preserves all registers except FLAGS
 ;
-; SPEC.md 7.1.2's rule, in an app's own overlay. This was erase-then-draw -
-; pt_ptr_xor at the old position, then at the new - so every pixel the two
-; crosshairs SHARE was written twice: dark, and then lit again. The glass
-; catches the value in between, and on a real Hercules that is the pointer
-; flickering as the mouse moves, which is the same defect and the same symptom
-; the kernel cursor had before cur_move (docs/FIELD-NOTES.md 6).
+; SPEC.md 42.7.1, which is SPEC.md 7.1.2's rule in an app's own overlay. This
+; was erase-then-draw, so every pixel the two positions SHARE was written
+; twice - dark, and then lit again - and the glass catches the value in
+; between. On a real Hercules that is the pointer flickering as the mouse
+; moves, the same defect and the same symptom the kernel cursor had before
+; cur_move (docs/FIELD-NOTES.md 6).
 ;
-; XOR makes the fix simpler than the cursor's, which needed two save buffers: a
-; pixel lit in BOTH crosshairs must not be touched at all, two XORs being the
-; identity anyway. So each bar emits the SYMMETRIC DIFFERENCE of its old and
-; new spans - the whole bar when the two do not share a row (or a column), two
-; short stubs when they do. Nothing is written twice, and nothing is written
-; that did not change.
-;
-; **The runs belonging to the NEW crosshair go first**, which is the other half
-; and costs nothing. Any move with both a dx and a dy leaves the two crosshairs
-; disjoint, so the difference is "all of the new, then all of the old" - and in
-; that order the pointer is never ABSENT from the screen, only briefly doubled.
-; An absence is what reads as a blink; a double reads as movement. The order is
-; free either way, because on the overlapping path the two runs touch disjoint
-; pixels and every shared pixel stays lit throughout.
+; **The NEW square's own pixels go first**, which costs nothing and is the
+; other half. Any move bigger than the square leaves the two disjoint, so the
+; difference is "all of the new, then all of the old" - and in that order the
+; pointer is never ABSENT, only briefly doubled. An absence reads as a blink;
+; a double reads as movement.
 ;
 ; A pointer that is HIDDEN still tracks: the position is banked without
-; drawing, so the show that follows a dispatch puts the crosshair where the
-; mouse actually is rather than where it was when it went away.
+; drawing, so the show that follows a dispatch puts it where the mouse
+; actually is rather than where it was when it went away.
 ; -----------------------------------------------------------------------------
 pt_ptr_move:
     cmp cx, [pt_ptrx]
@@ -3103,78 +3224,20 @@ pt_ptr_move:
     push di
     mov [pt_pnx], cx
     mov [pt_pny], dx
-    ; --- the horizontal bars ------------------------------------------------
-    mov ax, [pt_ptry]
-    cmp ax, [pt_pny]
-    jne .hfull
-    mov ax, [pt_pnx]                ; same row: span0 = NEW so the disjoint
-    call pt_ptr_hspan               ; path below emits it first
-    push ax
-    push bx
     mov ax, [pt_ptrx]
-    call pt_ptr_hspan               ; span1 = OLD
-    mov cx, ax
-    mov dx, bx
-    pop bx
-    pop ax
-    call pt_ptr_sym
-    mov dx, [pt_pny]                ; the row they share
-    mov ax, [pt_ps0l]
-    mov cx, [pt_ps0h]
-    call pt_ptr_hrun
-    mov ax, [pt_ps1l]
-    mov cx, [pt_ps1h]
-    call pt_ptr_hrun
-    jmp short .vert
-.hfull:
-    mov ax, [pt_pnx]                ; different rows: no shared pixel, so the
-    call pt_ptr_hspan               ; new bar whole...
-    mov cx, bx
-    mov dx, [pt_pny]
-    call pt_ptr_hrun
-    mov ax, [pt_ptrx]               ; ...and then the old one
-    call pt_ptr_hspan
-    mov cx, bx
     mov dx, [pt_ptry]
-    call pt_ptr_hrun
-.vert:
-    ; --- and the vertical bars, by the same argument in the other axis ------
-    mov ax, [pt_ptrx]
-    cmp ax, [pt_pnx]
-    jne .vfull
-    mov ax, [pt_pny]
-    call pt_ptr_vspan
-    push ax
-    push bx
-    mov ax, [pt_ptry]
-    call pt_ptr_vspan
-    mov cx, ax
-    mov dx, bx
-    pop bx
-    pop ax
-    call pt_ptr_sym
-    mov ax, [pt_pnx]                ; the column they share
-    mov bx, [pt_ps0l]
-    mov dx, [pt_ps0h]
-    call pt_ptr_vrun
-    mov bx, [pt_ps1l]
-    mov dx, [pt_ps1h]
-    call pt_ptr_vrun
-    jmp short .done
-.vfull:
-    mov ax, [pt_pny]
-    call pt_ptr_vspan
-    mov dx, bx
-    mov bx, ax
+    mov di, pt_pold
+    call pt_ptr_rect
     mov ax, [pt_pnx]
-    call pt_ptr_vrun
-    mov ax, [pt_ptry]
-    call pt_ptr_vspan
-    mov dx, bx
-    mov bx, ax
-    mov ax, [pt_ptrx]
-    call pt_ptr_vrun
-.done:
+    mov dx, [pt_pny]
+    mov di, pt_pnew
+    call pt_ptr_rect
+    mov si, pt_pnew                 ; the new square's own pixels...
+    mov di, pt_pold
+    call pt_ptr_sub
+    mov si, pt_pold                 ; ...and only then the old square's
+    mov di, pt_pnew
+    call pt_ptr_sub
     mov ax, [pt_pnx]
     mov [pt_ptrx], ax
     mov ax, [pt_pny]
@@ -3189,107 +3252,6 @@ pt_ptr_move:
 .bank:
     mov [pt_ptrx], cx
     mov [pt_ptry], dx
-.out:
-    ret
-
-; pt_ptr_hspan / pt_ptr_vspan - the arm's span about a centre, clipped
-; in:  AX = centre; out: AX = lo, BX = hi; clobbers flags
-pt_ptr_hspan:
-    mov bx, ax
-    add bx, PT_PTR_R
-    sub ax, PT_PTR_R
-    jns .lo
-    xor ax, ax
-.lo:
-    cmp bx, [pt_scrw]
-    jl .out
-    mov bx, [pt_scrw]
-    dec bx
-.out:
-    ret
-
-pt_ptr_vspan:
-    mov bx, ax
-    add bx, PT_PTR_R
-    sub ax, PT_PTR_R
-    jns .lo
-    xor ax, ax
-.lo:
-    cmp bx, [pt_scrh]
-    jl .out
-    mov bx, [pt_scrh]
-    dec bx
-.out:
-    ret
-
-; pt_ptr_sym - the symmetric difference of two ordered spans, as up to two runs
-; in:  AX/BX = span 0 lo/hi, CX/DX = span 1 lo/hi
-; out: [pt_ps0l]/[pt_ps0h] and [pt_ps1l]/[pt_ps1h]; lo > hi means "nothing"
-; clobbers SI, DI, flags
-;
-; Disjoint spans come back as themselves - span 0 first, which is what lets the
-; caller pass the NEW bar as span 0 and have it drawn before the old one is
-; erased. Overlapping spans come back as the two end stubs, and the pixels they
-; share are in neither.
-pt_ptr_sym:
-    cmp bx, cx
-    jl .disjoint                    ; hi0 < lo1
-    cmp dx, ax
-    jl .disjoint                    ; hi1 < lo0
-    mov si, ax                      ; stub A = [min lo, max lo - 1]
-    cmp si, cx
-    jle .la
-    mov si, cx
-.la:
-    mov di, ax
-    cmp di, cx
-    jge .lb
-    mov di, cx
-.lb:
-    dec di
-    mov [pt_ps0l], si
-    mov [pt_ps0h], di
-    mov si, bx                      ; stub B = [min hi + 1, max hi]
-    cmp si, dx
-    jle .ha
-    mov si, dx
-.ha:
-    inc si
-    mov di, bx
-    cmp di, dx
-    jge .hb
-    mov di, dx
-.hb:
-    mov [pt_ps1l], si
-    mov [pt_ps1h], di
-    ret
-.disjoint:
-    mov [pt_ps0l], ax
-    mov [pt_ps0h], bx
-    mov [pt_ps1l], cx
-    mov [pt_ps1h], dx
-    ret
-
-; pt_ptr_hrun - XOR row DX from AX to CX inclusive, if the run is non-empty
-; pt_ptr_vrun - XOR column AX from BX to DX inclusive, likewise
-; both: gfx lock held; preserve all registers except flags
-pt_ptr_hrun:
-    cmp ax, cx
-    jg .out
-    push bx
-    mov bx, dx
-    call OSAPI_GFX_XOR_FILL
-    pop bx
-.out:
-    ret
-
-pt_ptr_vrun:
-    cmp bx, dx
-    jg .out
-    push cx
-    mov cx, ax
-    call OSAPI_GFX_XOR_FILL
-    pop cx
 .out:
     ret
 
@@ -9602,10 +9564,12 @@ pt_ic_text:
     PTWORD pt_ptry                  ; is what the XOR erase has to replay
     PTWORD pt_pnx                   ; pt_ptr_move: where it is going...
     PTWORD pt_pny
-    PTWORD pt_ps0l                  ; ...and the two runs that differ
-    PTWORD pt_ps0h
-    PTWORD pt_ps1l
-    PTWORD pt_ps1h
+    PTBUF  pt_pold, 8               ; ...and the two squares, l/t/r/b
+    PTBUF  pt_pnew, 8
+    PTWORD pt_ovl                   ; pt_ptr_sub: where they overlap
+    PTWORD pt_ovt
+    PTWORD pt_ovr
+    PTWORD pt_ovb
 
     PTBYTE pt_mode                  ; PT_M_*
     PTBYTE pt_tool                  ; PT_T_*
