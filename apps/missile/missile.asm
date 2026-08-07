@@ -179,15 +179,18 @@ MC_DSCMAX   equ 16                  ; walks handed to OSAPI_GFX_LSTEPV at once
   %error "mc_dsc holds fewer walks than one batch can produce"
 %endif
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
-MC_EXPJIT   equ 4                   ; frames of ramp PHASE a burst is jittered
-                                    ; by (SPEC.md 48.17), coarse ramp only:
-                                    ; the fine one redraws every frame anyway
-MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
+MC_EXPFR3   equ 15                  ; ...and what the coarse ramp lasts, which
                                     ; is SHORTER on purpose: with no collapse
                                     ; the peak is held instead, so the life is
                                     ; cut to keep the sum of the radii - the
                                     ; whole of how lethal a burst is - where
-                                    ; the arcade put it (SPEC.md 48.12)
+                                    ; the arcade put it (SPEC.md 48.12). It was
+                                    ; 21 with three drawn states; SPEC.md 48.18
+                                    ; makes it TWO, so a burst is drawn once
+                                    ; and erased once instead of twice and
+                                    ; once. 13 x 13 = 169 against the old
+                                    ; 5x9 + 13x10 = 175: -3.4%, inside 48.12's
+                                    ; own tolerance and on the safe side
 MC_RMAX     equ 13                  ; ...and the radius it peaks at, on the
                                     ; arcade's 256x231 field
 MC_RMAXP    equ 34                  ; ...and the most mc_escale may scale that
@@ -2460,16 +2463,8 @@ mc_add_exp:
     mov [mc_ex + di], ax
     mov ax, [mc_expy]
     mov [mc_ey + di], ax
-    xor ax, ax                      ; SPEC.md 48.17: the coarse ramp redraws a
-    cmp byte [mc_ecoarse], 0        ; burst only when its drawn STATE changes,
-    je .phase                       ; so a salvo detonating together redraws
-    push cx                         ; together - a field log caught 76 ms of
-    mov cx, MC_EXPJIT               ; explosion in ONE frame. Starting each
-    call mc_rand_mod                ; burst a frame or two INTO the ramp
-    pop cx                          ; spreads the transitions, and costs no
-.phase:                             ; lethality worth the name: the frames it
-    mov [mc_et + si], al            ; skips are the small ones at the start,
-    mov byte [mc_er + si], 0        ; about 1% of the radius sum on average
+    mov byte [mc_et + si], 0
+    mov byte [mc_er + si], 0
     mov byte [mc_ea + si], 1
 .out:
     pop si
@@ -5328,10 +5323,18 @@ mc_blob:
     mov [mc_bw], bx                 ; ...and the half-width of the rect that
                                     ; is currently open, which lags it
     mov ax, bx
-    mov cl, 3
+    mov cl, 2
     shr ax, cl
     inc ax
-    mov [mc_bq], ax                 ; the quantum: R/8 + 1
+    mov [mc_bq], ax                 ; the quantum: R/4 + 1 (SPEC.md 48.18).
+                                    ; It was R/8 + 1, and the difference is
+                                    ; two fills out of nine on a peak burst -
+                                    ; which is 2.5 ms of a 63 ms frame on the
+                                    ; machine this game is written for, paid
+                                    ; several times a frame. The cost is that
+                                    ; the disc's edge steps in fours instead
+                                    ; of twos: a chunkier blob, which is what
+                                    ; an explosion looks like anyway
     mov word [mc_bprev], -1         ; no band closed yet (SPEC.md 48.10)
     mov di, 1                       ; DI = dy; row 0 is inside the first rect
 .row:
@@ -5602,10 +5605,20 @@ mc_sat_shape:
 ; of eight far calls, and mc_cross_on at the end is a compare.
 ; -----------------------------------------------------------------------------
 MC_CHARM  equ 8                     ; arm length. Big enough to read AROUND the
-MC_CHGAP  equ 3                     ; system arrow, which the kernel keeps
+                                    ; system arrow, which the kernel keeps
                                     ; drawing at the same point (SPEC.md 11.2:
                                     ; even fullscreen, the cursor stays live)
                                     ; - a short crosshair simply hides under it
+                                    ;
+                                    ; TWO bars, not four arms (SPEC.md 48.18).
+                                    ; XOR is its own inverse, so where the two
+                                    ; cross the second undoes the first and the
+                                    ; centre hole comes back for free - one
+                                    ; pixel of it rather than the three-pixel
+                                    ; gap the four arms left. Two calls instead
+                                    ; of four, on EVERY frame the mouse moves:
+                                    ; a field log put this at 6.8 ms of a 63 ms
+                                    ; frame with no content in it at all
 
 mc_cross_on:
     push ax
@@ -5701,30 +5714,16 @@ mc_cross_xor:
     push bx
     push cx
     push dx
-    mov ax, [mc_chpx]               ; the left arm
+    mov ax, [mc_chpx]               ; ONE horizontal bar, straight through
     sub ax, MC_CHARM
-    mov bx, [mc_chpy]
-    mov cx, [mc_chpx]
-    sub cx, MC_CHGAP
-    mov dx, bx
-    call mc_xorc
-    mov ax, [mc_chpx]               ; the right arm
-    add ax, MC_CHGAP
     mov bx, [mc_chpy]
     mov cx, [mc_chpx]
     add cx, MC_CHARM
     mov dx, bx
     call mc_xorc
-    mov ax, [mc_chpx]               ; up
+    mov ax, [mc_chpx]               ; ...and one vertical, likewise
     mov bx, [mc_chpy]
     sub bx, MC_CHARM
-    mov cx, ax
-    mov dx, [mc_chpy]
-    sub dx, MC_CHGAP
-    call mc_xorc
-    mov ax, [mc_chpx]               ; ...and down
-    mov bx, [mc_chpy]
-    add bx, MC_CHGAP
     mov cx, ax
     mov dx, [mc_chpy]
     add dx, MC_CHARM
@@ -6940,10 +6939,9 @@ mc_expcol:   db CWHITE, CYELLOW, CLRED, CLMAGENTA
 ; sum(r^2) to 0.2% (1633 against 1637). How much sky one ABM covers and for
 ; how long IS the game (SPEC.md 48.4), and this leaves it alone.
 mc_step3:    db 0, 0                            ; 0..1:  not yet lit, as OLDRAD
-             db 1, 1, 1, 1, 1, 1, 1, 1, 1       ; 2..10
-             db 2, 2, 2, 2, 2, 2, 2, 2, 2, 2    ; 11..20: the peak, HELD
-             db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; 21..31: padding, as mc_rad
-mc_rad3v:    db 0, 5, 13
+             db 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1  ; 2..14: the peak, HELD
+             db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0  ; padding
+mc_rad3v:    db 0, 13, 13
 ; ...and one colour per DRAWN state, both from SPEC.md 39.4's WHITE class.
 ; There is no dithered frame on this path: on the two adapters that reach it a
 ; dithered burst is just a grey one, and the flash it was buying is what made
@@ -6953,7 +6951,7 @@ mc_rad3v:    db 0, 5, 13
 ; SPEC.md 48.12 dropped the collapse, and a state that changes only the COLOUR
 ; would never be drawn: the coarse path's whole economy is that it compares
 ; RADIUS, so a same-radius state is a state nobody sees.
-mc_col3:     db MC_BG, CWHITE, CYELLOW
+mc_col3:     db MC_BG, CYELLOW, CYELLOW
 
 ; The coastline: how many rows the ground rises above its base every 16px.
 ; Fixed rather than random, so a repaint puts back exactly what was there.
