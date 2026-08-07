@@ -90,6 +90,7 @@ font_init:
 ; glyph is unreadable anyway.
 ; -----------------------------------------------------------------------------
 font_char:
+    call fnt_unlazy
     push ax
     push bx
     push cx
@@ -489,7 +490,19 @@ font_str_x:
 ;     before. No regression, no new planar VRAM code, and the answer is
 ;     identical either way.
 ; =============================================================================
+; fnt_unlazy - a glyph under an ARMED clip region is confined to it by
+; wm_clip_test (it draws a cell whole or not at all), so a cursor outside that
+; region is provably safe. Unarmed, a glyph lands wherever it is told and the
+; deferred hide is owed (SPEC.md 7.1.4).
+fnt_unlazy:
+    cmp word [wm_clip_n], 0
+    jne .out
+    call cur_unlazy
+.out:
+    ret
+
 font_run:
+    call fnt_unlazy
     push es
     push ds
     pop es

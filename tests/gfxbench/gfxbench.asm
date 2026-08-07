@@ -391,8 +391,10 @@ gb_run:
     call bl_progress
     call gb_fs
     call gb_derived
+    call bl_operator                ; ...and what the OPERATOR was doing
 %endif
     call gb_trailer
+    call gb_save                    ; SAVE IT, without being asked (below)
 
     pop di
     pop si
@@ -613,6 +615,8 @@ gb_hint:
     call bl_blank
     mov si, gb_h_6
     call bl_sline
+    mov si, gb_h_6b
+    call bl_sline
     mov si, gb_h_7
     call bl_sline
     pop si
@@ -708,6 +712,26 @@ gb_header:
     mov si, gb_l_xms
     mov ax, [gb_syskb + SK_XMS]
     call gb_num
+    call OSAPI_BOOT_TICKS           ; the same machine facts sysbench prints,
+    cmp ax, 0xFFFF                  ; so a gfxbench report alone still says
+    je .noboot                      ; which machine and which boot it came off
+    mov si, gb_l_boott              ; (SPEC.md 15.4; PERFORMANCE.md Part 9's
+    call gb_num                     ; "what to record with the numbers")
+    jmp short .snd
+.noboot:
+    mov si, gb_l_boott
+    mov di, gb_n_nostamp
+    call bl_kvs
+.snd:
+    call OSAPI_SND_CAPS             ; a sound driver attached, or not
+    mov si, gb_l_snd
+    call gb_hex
+    call OSAPI_FILE_HERE            ; ...and which volume the report will
+    add bl, 'A'                     ; land on, which is the commonest way to
+    mov [gb_volch], bl              ; lose one. BL is the drive, not AL
+    mov si, gb_l_vol
+    mov di, gb_volch
+    call bl_kvs
 
     call bl_blank
     mov si, gb_s_pit1
@@ -903,6 +927,7 @@ gb_prims:
     mov [gb_thl8+2], dx
     call gb_boxfull
     mov word [bl_n], 60
+    mov word [bl_body], gb_b_hline
     mov si, gb_r_hlw
     xor al, al
     call bl_run
@@ -919,6 +944,7 @@ gb_prims:
     call bl_run
     call gb_boxfull
     mov word [bl_n], 40
+    mov word [bl_body], gb_b_vline
     mov si, gb_r_vlh
     xor al, al
     call bl_run
@@ -935,6 +961,7 @@ gb_prims:
     mov [gb_tf8+2], dx
     call gb_box64
     mov word [bl_n], 24
+    mov word [bl_body], gb_b_fill
     mov si, gb_r_f64
     xor al, al
     call bl_run
@@ -998,19 +1025,70 @@ gb_prims:
     mov dx, [bl_last+2]
     mov [gb_tlshf], ax
     mov [gb_tlshf+2], dx
-    call gb_boxfull
-    mov word [bl_n], 6
-    mov si, gb_r_fbox
+
+    ; --- many walks, one arrival (SPEC.md 5.6.8) -----------------------------
+    ; The resumable walk (5.6.7) gives a moving line a cheap PIXEL and does
+    ; nothing about the ARRIVAL, which for a caller stepping eight live trails
+    ; is the whole cost: 5.7 prices getting into a drawing call at ~756 us
+    ; whatever it then draws. gfx_lstepv is CX of those calls with the pushes,
+    ; the far call, the dispatch and the ink paid ONCE.
+    ;
+    ; So the two rows draw the IDENTICAL eight pixels and differ only in how
+    ; many times they arrive - eight against one - and the ratio is the whole
+    ; measurement. 5.6.8 argues its case from 5.7's floor rather than from a
+    ; measurement of itself, and tests/linetest gates the PIXELS (0 differing
+    ; of 236,160) without pricing them; this is the missing half.
+    ;
+    ; THIS ROW ALREADY CONTRADICTED ITS OWN PREDICTION, which is why it is
+    ; here. The guess was "approaching 800, because 5.7 prices an arrival at
+    ; ~756 us"; it measures 118 in instructions, and ~36 instructions removed
+    ; per arrival rather than 5.7's 196. The reason is structural and worth
+    ; knowing: gfx_lstep is NOT a rect primitive - it never goes near
+    ; vga_rect_setup or bb_rect - so its arrival is the far-call cell and a
+    ; prologue, not the rect machinery 5.7 measured. 5.6.8 borrowed a floor
+    ; that does not apply to it.
+    ;
+    ; Instructions understate the clocks here (Part 9 measured the far-call
+    ; cell at 46.7 us for about seven instructions), so the field ratio will
+    ; be higher than 118 - but even charging every removed instruction at
+    ; far-call rates only reaches about 160, against the 356 that 5.6.8's own
+    ; field figures imply (570 us a pixel stepping one call per missile
+    ; against 160 in the drain). That gap is unexplained, and settling it is
+    ; what these two rows are for.
+    call gb_lsinit                  ; walks are 126 px long and each row steps
+    mov word [bl_n], 100            ; one pixel per iteration, so 100 cannot
+    mov word [bl_body], gb_b_lstep8 ; run one off its end
+    mov si, gb_r_ls8
     xor al, al
     call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [gb_tls8], ax
+    mov [gb_tls8+2], dx
+    call gb_lsinit                  ; fresh walks: the row above spent 100 px
+    mov word [bl_body], gb_b_lstepv8
+    mov si, gb_r_lsv8
+    xor al, al
+    call bl_run
+    mov ax, [bl_last]
+    mov dx, [bl_last+2]
+    mov [gb_tlsv8], ax
+    mov [gb_tlsv8+2], dx
+    call gb_boxfull
+    mov word [bl_n], 6
+    mov word [bl_body], gb_b_fill   ; RESTORE it: this used to be carried over
+    mov si, gb_r_fbox               ; from the 64x64 fill twelve lines up, and
+    xor al, al                      ; then the line and lstep blocks were
+    call bl_run                     ; inserted between the two (see gb_boxrow)
     mov ax, [bl_last]
     mov dx, [bl_last+2]
     mov [gb_tfbox], ax
     mov [gb_tfbox+2], dx
     call gb_boxrow                  ; ...and ONE row of that same width. It is
     mov word [bl_n], 100            ; the third fill size because two could not
-    mov si, gb_r_frow               ; separate the per-CALL term from the
-    xor al, al                      ; per-ROW one: fitting c + a*rows + b*px to
+    mov word [bl_body], gb_b_fill   ; separate the per-CALL term from the
+    mov si, gb_r_frow               ; per-ROW one: fitting c + a*rows + b*px to
+    xor al, al
     call bl_run                     ; 8x8 / 64x64 / 256x128 gave a NEGATIVE c
     mov ax, [bl_last]               ; (PERFORMANCE.md Part 9 Set 1). Holding
     mov dx, [bl_last+2]             ; the width fixed and varying only the rows
@@ -1052,6 +1130,7 @@ gb_prims:
     mov [gb_tbs+2], dx
     mov word [gb_src], gb_bstripe
     mov word [bl_n], 6
+    mov word [bl_body], gb_b_blit
     mov si, gb_r_bn
     xor al, al
     call bl_run
@@ -1468,6 +1547,63 @@ gb_derived:
     mov si, gb_d_lshal
     call gb_num32
 
+    mov ax, [gb_tls8]               ; SPEC.md 5.6.8: eight arrivals over one,
+    mov dx, [gb_tls8+2]             ; for the same eight pixels. 118 in
+    mov bx, [gb_tlsv8]              ; instructions under -icount; higher on
+    mov cx, [gb_tlsv8+2]            ; iron, because what comes off is far-call
+    call gb_ratio                   ; cells. 5.6.8's own field figures imply
+    mov si, gb_d_lsv                ; 356 and nothing reconciles that yet
+    call gb_num32
+
+    ; ...and the two rows are two equations in two unknowns, so the walk comes
+    ; apart with no extra rows at all. A = 100(8a + 8p), B = 100(a + 8p), so
+    ; A - B = 700a and B - 100a = 800p. THIS is what settles 5.6.8: if a
+    ; pixel dominates an arrival then batching cannot be where the cost is,
+    ; whatever the ratio above says, and the field's 570 us a pixel becomes a
+    ; number this report can be held against directly.
+    ; BOTH SUBTRACTIONS GO THROUGH gb_sub, which floors at zero, and that is
+    ; not defensive tidiness - it is a bug this row shipped with for one run.
+    ; A raw `sub`/`sbb` of two measured totals UNDERFLOWS the moment the
+    ; vector row measures larger than the scalar one, which is exactly what
+    ; noise does when the two are close, and 4 billion divided by 700 is a
+    ; large plausible-looking number in a report meant to be carried off a
+    ; machine (PERFORMANCE.md Part 6 rule 3: the failure mode is a number that
+    ; looks fine). Floored, an inverted pair reports an arrival of 0 and gives
+    ; the whole cost to the pixel, which is what "the batching saved nothing
+    ; measurable" honestly means.
+    mov ax, [gb_tls8]               ; A - B = 700a
+    mov dx, [gb_tls8+2]
+    call gb_stash
+    mov ax, [gb_tlsv8]
+    mov dx, [gb_tlsv8+2]
+    call gb_sub
+    mov [gb_tlsa], ax               ; park it: bl_us100 consumes DX:AX
+    mov [gb_tlsa+2], dx
+    mov cx, 700
+    call bl_us100
+    mov si, gb_d_lsarr
+    call gb_num32
+
+    mov ax, [gb_tlsa]               ; 100a = (A - B) / 7
+    mov dx, [gb_tlsa+2]
+    mov cx, 1
+    call bl_mul48
+    mov cx, 7
+    call bl_div48
+    call bl_get32
+    mov bx, ax
+    mov cx, dx
+    mov ax, [gb_tlsv8]              ; B - 100a = 800p
+    mov dx, [gb_tlsv8+2]
+    call gb_stash
+    mov ax, bx
+    mov dx, cx
+    call gb_sub
+    mov cx, 800
+    call bl_us100
+    mov si, gb_d_lspx
+    call gb_num32
+
     mov ax, [gb_tfbox]              ; the per-ROW term, cleanly: 256x128 against
     mov dx, [gb_tfbox+2]            ; 256x1 differs by 127 rows and by NOTHING
     mov cx, 6                       ; else, so neither the per-call floor nor
@@ -1818,6 +1954,71 @@ gb_b_vline:
 ; top the region is one rectangle, so gfx_clip_run re-enters the raw body
 ; exactly once and the row measures the ARMING plus one fragment - which is
 ; the cheapest case, and the one a background painter pays on a quiet desktop.
+; GB_NWALK resumable walks (SPEC.md 5.6.7) side by side in the sandbox, 126
+; pixels long so a 100-iteration row cannot step one off its end, plus the
+; descriptor array gfx_lstepv takes. Both are rebuilt from scratch before each
+; row, untimed, because the rows consume the walks.
+;
+; Note what is NOT passed: these are X slots, so the stub puts the caller's DS
+; in ES itself and a package hands over a bare offset in its own segment.
+gb_lsinit:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov word [gb_lsi], 0
+    mov di, gb_lsblk
+.next:
+    mov ax, [gb_lsi]                ; walk i runs from (x + 8i, y) to
+    mov cl, 3                       ; (x + 8i + 4, y + 126): steep, and clear
+    shl ax, cl                      ; of its neighbours
+    add ax, [gb_x]
+    mov cx, ax
+    add cx, 4
+    mov bx, [gb_y]
+    mov dx, bx
+    add dx, 126
+    call OSAPI_GFX_LINIT
+    add di, GLS_SZ
+    inc word [gb_lsi]
+    cmp word [gb_lsi], GB_NWALK
+    jb .next
+    mov di, gb_lsdsc                ; (block, count) pairs, one pixel each
+    mov ax, gb_lsblk
+    mov cx, GB_NWALK
+.d:
+    mov [di], ax
+    mov word [di+2], 1
+    add ax, GLS_SZ
+    add di, 4
+    loop .d
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+gb_b_lstep8:                        ; eight arrivals for eight pixels
+    mov di, gb_lsblk
+    mov si, GB_NWALK
+.next:
+    mov cx, 1
+    call OSAPI_GFX_LSTEP
+    add di, GLS_SZ
+    dec si
+    jnz .next
+    ret
+
+gb_b_lstepv8:                       ; one arrival for the same eight
+    mov di, gb_lsdsc
+    mov cx, GB_NWALK
+    call OSAPI_GFX_LSTEPV
+    ret
+
 ; The two line geometries, transposed so the pixel counts match: 32 across by
 ; 127 down, and 127 across by 32 down. [gb_lfat] is SPEC.md 5.6.5's dilation,
 ; 0 for a draw and 1 for an erase-what-was-drawn-in-pieces.
@@ -2220,8 +2421,9 @@ gb_h_1:     db 'Every gfx_* and font_* slot the OS publishes, priced on the adap
 gb_h_2:     db 'this machine actually has, plus the RAM and framebuffer bandwidth under', 0
 gb_h_3:     db '   R  or the Bench menu   run it.  About 10 seconds on a 4.77MHz 8088,', 0
 gb_h_4:     db '                          and the machine is FROZEN while it runs - the', 0
-gb_h_5:     db '                          bottom line says which block it is on.', 0
-gb_h_6:     db '   S  or the Bench menu   save the report to the current volume.', 0
+gb_h_5:     db '                          bottom line says which block it is on, and', 0
+gb_h_6:     db '                          it SAVES ITSELF when it finishes.  S or the', 0
+gb_h_6b:    db '                          Bench menu writes it again, after a disk swap.', 0
 gb_h_7:     db '   Space PgDn PgUp Up Dn Home End   page through it afterwards.', 0
 
 gb_s_h_fs:  db '-- fullscreen (SPEC.md 11.2): the same rows, no window around them --', 0
@@ -2259,6 +2461,11 @@ gb_l_kern:    db 'kernel span KB', 0
 gb_l_heap:    db 'claim heap KB', 0
 gb_l_mlarge:  db 'largest free run KB', 0
 gb_l_mtotal:  db 'total free KB', 0
+gb_l_boott: db 'boot ticks', 0
+gb_l_snd:   db 'sound caps word', 0
+gb_l_vol:   db 'current volume', 0
+gb_n_nostamp: db '  not stamped', 0
+gb_volch:   db 'A', 0
 gb_l_xms:     db 'pool above 1MB KB', 0
 gb_l_ovh:     db 'loop overhead counts', 0
 gb_l_ovh1:    db 'loop overhead usx100', 0
@@ -2305,6 +2512,8 @@ gb_r_lst:  db 'GFX_LINE steep thin', 0
 gb_r_lstf: db 'GFX_LINE steep fat', 0
 gb_r_lsh:  db 'GFX_LINE shallow thin', 0
 gb_r_lshf: db 'GFX_LINE shallow fat', 0
+gb_r_ls8:  db 'GFX_LSTEP x8 (8 calls)', 0
+gb_r_lsv8: db 'GFX_LSTEPV x8 (1 call)', 0
 gb_r_frow: db 'GFX_FILL 256x1', 0
 gb_r_fr:   db 'GFX_FRAME 64x64', 0
 gb_r_gy:   db 'GFX_FILL_GRAY 64x64', 0
@@ -2342,6 +2551,9 @@ gb_d_fillpx:   db 'fill ns/px 8-64', 0
 gb_d_fillrow:  db 'fill ns per row', 0
 gb_d_lsteep:   db 'line steep fat/thin', 0
 gb_d_lshal:    db 'line shal fat/thin ~300', 0
+gb_d_lsv:      db 'LSTEP8/LSTEPV8 icnt118', 0
+gb_d_lsarr:    db 'lstep arrival us x100', 0
+gb_d_lspx:     db 'lstep pixel us x100', 0
 gb_d_fillpx2:  db 'fill ns/px 64-box', 0
 gb_d_hlpx:     db 'hline ns per pixel', 0
 gb_d_cell:     db 'FONT_CHAR us x100', 0
@@ -2378,7 +2590,11 @@ gb_it_top:  db 'Top of Report', 0
 ; A hand-totalled figure that is too small is a package writing over
 ; benchlib's arena, which assembles cleanly and produces a report full of
 ; plausible nonsense.
-GB_O_SYSKB  equ 164             ; the scalars above end at gb_tlock's 158..161
+GB_NWALK    equ 8               ; walks stepped together (SPEC.md 5.6.8)
+GB_O_SYSKB  equ 178 + GB_NWALK * (4 + GLS_SZ)   ; the scalars above end at
+                                ; gb_lsblk, which is DERIVED - a hand-totalled
+                                ; figure that is too small is a package writing
+                                ; over benchlib's arena, and it assembles
 GB_O_VROW   equ GB_O_SYSKB + SYSKB_SIZE
 GB_O_RROW   equ GB_O_VROW + GB_BWROWS * 2
 GB_O_RAM    equ GB_O_RROW + GB_BWROWS * 2
@@ -2450,6 +2666,12 @@ gb_tlshf    equ os88_image_end + 154
 gb_tapi     equ os88_image_end + 122   ; dword: 122..125
 gb_ran      equ os88_image_end + 126   ; byte: has the suite been run yet?
 gb_tlock    equ os88_image_end + 158   ; dword: the gfx lock pair (SPEC.md 7)
+gb_tls8     equ os88_image_end + 162   ; dword: eight arrivals (SPEC.md 5.6.8)
+gb_tlsv8    equ os88_image_end + 166   ; dword: ...and one, for the same pixels
+gb_tlsa     equ os88_image_end + 174   ; dword: A - B, parked across bl_us100
+gb_lsi      equ os88_image_end + 170   ; word:  gb_lsinit's walk index
+gb_lsdsc    equ os88_image_end + 178   ; GB_NWALK (block, count) pairs
+gb_lsblk    equ os88_image_end + 178 + GB_NWALK * 4      ; GB_NWALK walk states
 gb_syskb    equ os88_image_end + GB_O_SYSKB    ; SYSKB_SIZE bytes
 gb_vrow     equ os88_image_end + GB_O_VROW     ; GB_BWROWS words: fb offsets
 gb_rrow     equ os88_image_end + GB_O_RROW     ; ...and the RAM ones

@@ -66,7 +66,10 @@ gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); 0 = free.
 ; -----------------------------------------------------------------------------
 %macro GFXCLIP 1
     cmp word [wm_clip_n], 0     ; clipped background draw? (SPEC.md 11.3)
-    je %1
+    jne %%clipped
+    call cur_unlazy             ; UNCLIPPED: this may write any pixel on the
+    jmp %1                      ; screen, so a deferred hide is owed (7.1.4)
+%%clipped:
     push di
     mov di, %1
     call gfx_clip_run
@@ -423,6 +426,7 @@ gfx_lstep:
 ; caller may build the array once and vary what it asks for.
 ; -----------------------------------------------------------------------------
 gfx_lstepv:
+    call cur_unlazy             ; ...and so does the resumable walk
     push ax
     push bx
     push cx
@@ -758,6 +762,7 @@ gfx_ls_box:
 ; down, instead of a gfx_rowbase per pixel.
 ; -----------------------------------------------------------------------------
 gfx_line:
+    call cur_unlazy             ; walks pixels, not clipped rects: 7.1.4
     push ax
     push bx
     push cx
@@ -1222,6 +1227,7 @@ gfx_line_flush:
 ; the rest of the UI does.
 ; -----------------------------------------------------------------------------
 gfx_blit4:
+    call cur_unlazy             ; off the clip list (SPEC.md 11.3): 7.1.4
     push ax
     push bx
     push cx
@@ -1923,7 +1929,9 @@ gfx_xor_rect:
                                 ; middle of it, so it decomposes first
     cmp byte [bb_on], 0         ; double-buffered? (SPEC.md 32)
     jne bb_xor_rect
-vga_xor_rect_vram:              ; VRAM body under its own name: transient
+vga_xor_rect_vram:
+    call cur_unlazy             ; the drag outline bypasses the buffer AND
+                                ; the clip (SPEC.md 32): 7.1.4              ; VRAM body under its own name: transient
                                 ; overlays (the drag outline) call it direct
                                 ; so they never enter the back buffer
     cmp byte [vid_mono], 0      ; ...but "direct" means the framebuffer, and
@@ -2027,7 +2035,8 @@ gfx_xor_fill:
 gfx_xor_fill_raw:
     cmp byte [bb_on], 0         ; double-buffered? (SPEC.md 32)
     jne bb_xor_fill
-vga_xor_fill_vram:              ; VRAM body under its own name (see
+vga_xor_fill_vram:
+    call cur_unlazy             ; ...and the menu highlights with it              ; VRAM body under its own name (see
                                 ; vga_xor_rect_vram) - the menu highlights
     cmp byte [vid_mono], 0
     jne bb_xor_fill
@@ -2116,6 +2125,8 @@ vga_xor_fill_vram:              ; VRAM body under its own name (see
 ; it directly - the cursor lives in VRAM, never in the back buffer.
 ; -----------------------------------------------------------------------------
 gfx_save:
+    call cur_unlazy             ; the menu save-under READS the screen, so
+                                ; the arrow must not be in what it banks
     cmp byte [bb_on], 0
     jne bb_save
 vga_save_vram:
@@ -2181,6 +2192,7 @@ vga_save_vram:
 ; vga_restore_vram is the VRAM body for the cursor path (see gfx_save).
 ; -----------------------------------------------------------------------------
 gfx_restore:
+    call cur_unlazy             ; ...and writes it back, unclipped
     cmp byte [bb_on], 0
     jne bb_restore
 vga_restore_vram:
@@ -2278,6 +2290,7 @@ gfx_pen_dis:
 ; out:      -
 ; clobbers: flags (IF = 1 on return)
 ; -----------------------------------------------------------------------------
+
 gfx_lock:
 .retry:
     cli
@@ -2289,8 +2302,10 @@ gfx_lock:
 .take:
     mov byte [gfx_lock_flag], 1
     sti
-    call cursor_hide
-    ret
+    mov byte [cur_lazy], 1      ; PROMISE the hide (SPEC.md 7.1.4) - the ISR
+    ret                         ; will not move the arrow while the flag is
+                                ; set, so it is frozen where it is until
+                                ; something is about to draw over it
 
 ; -----------------------------------------------------------------------------
 ; gfx_unlock - flush, show the cursor, then release the mutex (SPEC.md 7)
@@ -2316,7 +2331,13 @@ gfx_unlock:
                                 ; site that forgets gfx_pen_live cannot leak
                                 ; dithered text into whatever draws next
     call gfx_flush
-    call cursor_show
+    cmp byte [cur_lazy], 0      ; was the hide ever spent? (SPEC.md 7.1.4)
+    jne .never                  ; no: the arrow never left the screen, so
+    call cursor_show            ; showing it would bank itself as background
+    jmp short .rel
+.never:
+    call cur_lazyend            ; ...but the ISR could not move it all hold
+.rel:
     mov byte [gfx_lock_flag], 0
     ret
 

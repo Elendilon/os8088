@@ -182,6 +182,15 @@ menu_activate:
     cmp bx, [menu_win]
     je .same
     mov [menu_win], bx
+    mov byte [fm_fchk], 1       ; the active application changed, so a Disk
+                                ; window may have just gained the focus with
+                                ; a refresh owing (SPEC.md 22.8). This is the
+                                ; catch-all rather than the main path -
+                                ; wm_raise spends the debt before it draws -
+                                ; and it is here because THIS is where every
+                                ; focus change passes, including the one no
+                                ; raise reaches: losing the front window
+                                ; promotes the window under it (menu_check)
     call menu_relayout
     stc
     ret

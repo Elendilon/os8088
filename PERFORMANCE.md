@@ -444,6 +444,7 @@ list to check yourself against.
 | Copy a file | 5 volume switches per file | 2, one `dsk_read_chain` per chunk | §22.5 |
 | FAT access across a copy | re-read on every switch | a window per volume: 45 mounts → 3 loads | §18.8.1 |
 | The per-call floor itself (1bpp) | one `gfx_pixel` = **196** guest instructions of generic rect machinery | **158**; `GFX_FILL 8x8` −19.3%, `64x64` −14.5%, `GFX_BLIT4` −13.8%, output byte-identical on all three adapters | §5.7, Part 9 Set 3 |
+| The pointer during a window refresh | `gfx_lock` erased the cursor for the **whole** hold, so a Task Manager refresh — twice a second, and a visible span on a 4.77 MHz machine — blinked the pointer off and on every time, most obviously with the mouse sitting still | the hide is **deferred** and `wm_clip_set` spends it only if the cursor is reachable: **30 of 31 refreshes kept it on screen**, 0 cell violations across menus, drags and a Control Panel | §7.1.4 |
 | A press-and-hold on a file row | `fm_drag`'s `.wait` poll, unpaced: `gfx_unlock`/`task_yield`/`gfx_lock` as fast as the CPU allows, drawing **nothing**. **20,761 lock/unlock pairs a second** under `-icount`; on the field machine each costs ~1.9 ms, so it is the whole machine for as long as the button is down, and the pointer blinks continuously | one pair a tick, like the three sibling loops that already lingered: **21** | §7.1.3 |
 | Moving the cursor | erase-then-draw, two walks, so every byte where the old and new cells overlap is written **twice** — and the value in between is the background, `ffff` on all twelve rows inside a window. ~6.5% of a 20 ms Hercules frame, on every mouse packet | each byte written **once**: pass 1 skips what pass 2 will write, pass 2 sources its background from the save buffer. No gate, no union walk, and the pair unmoved at 544 counts against 541 | §7.1.2, docs/FIELD-NOTES.md 6 |
 | A renderer row step | `call gfx_nextrow`: a near call plus two CS-overridden memory reads, **three times per scan line** | three register instructions, parameters hoisted out of the loop | §39.3, §32 |
@@ -663,12 +664,40 @@ worth taking:
 | `gfxbench: GFX_FILL 64x64 clipped` | **what §11.3's clip region costs a covered background window.** `WM_CLIP_SET+CLEAR` was measured; drawing *under* one never was. It sits next to its own unclipped row, so the gap is the answer | a little over the unclipped row plus the `SET+CLEAR` cell. Much more and `gfx_clip_run`'s re-entry is dearer than the region arithmetic it saves |
 | `gfxbench:` the whole **fullscreen block** | **whether a primitive costs what it costs wherever it is drawn.** Same code, same sandbox, different place on the glass, no chrome around it. The rows carry the same labels as their windowed twins so they diff by name | the primitives to be **boring** — landing on their twins. One that does not has found something position-dependent nobody believed was |
 | `sysbench: boot ticks` / `boot ms` | **how long the machine takes to boot** (§15.4) — the one thing this project could never measure, because it is over before a package can run. On a floppy machine it is mostly the 125-sector kernel read at 238 ms a sector, so it is what §18.91's batching and §18.93's parameter table have to answer to | a number at last. Resolution is one tick, 54.925 ms, which on a boot measured in seconds is quantisation rather than noise |
+| `gfxbench: GFX_LSTEP x8` vs **`GFX_LSTEPV x8`** | **§5.6.8's batching, which was argued from §5.7's floor and never measured.** The two rows draw the identical eight pixels and differ only in arriving eight times or once | it already contradicted its own prediction: **118** in instructions, not the ~800 the floor implies, because `gfx_lstep` is not a rect primitive and its arrival is a far-call cell rather than `vga_rect_setup`. Expect higher than 118 on iron — far-call cells are 46.7 µs for ~7 instructions — but §5.6.8's own field figures imply **356**, and nothing reconciles that yet. **This is the row most likely to find something** |
 | `gfxbench:` the four **`GFX_LINE`** rows | **§5.6.6's dilated-line optimisation, in microseconds.** The instruction answer is already in (below); this is the duration. The two geometries are the same line transposed, 128 pixels each, so the pair checks itself | the two **thin** rows to match; `line shal fat/thin` near **300** (three walks, the control); `line steep fat/thin` near **156**, which is the claim |
 | `sysbench:` the **hard-disk block** | **§52's driver on real spinning MFM, which has never been measured** — and the first hard-disk twin of the floppy rows. Read-only by construction: it mounts, walks the FAT, reads one file and puts the volume back, because the disk it will run against is somebody's DOS 3.3 install (docs/FIELD-MACHINES.md) | anything at all. The floppy is 2,100 bytes/second and 238 ms a sector; whatever `hdd bytes/sec` says is the first number on the other side of that. `HDD FILE_DFREE` is the one to watch — the 9-sector FAT window (§18.8) has to page across a 41-sector FAT, which is what §18.8.1 was written against |
 
 None of them says anything on an emulator, and two say so loudly: under
 `-icount` both shift rows measure identically and the derived per-bit line
 reads **0**, which is correct and is the caution block in miniature.
+
+**The two decomposed `lstep` rows are WRONG in the first field set that
+carries them, and they are recoverable by hand.** `lstep arrival us x100` and
+`lstep pixel us x100` were computed with a raw `sub`/`sbb`, which **underflows
+whenever the vector row measures larger than the scalar one** — which is what
+noise does the moment the two are close, and the whole point of the pair is
+that they might be. What comes out is a nine-digit number (a sighting run
+printed `514229986` and `385674937`), so it does not hide, but it is exactly
+Part 6 rule 3's failure: arithmetic that looks like a measurement. Both
+subtractions go through the floored `gb_sub` now, and an inverted pair reports
+an arrival of **0** and gives the whole cost to the pixel, which is what "the
+batching saved nothing measurable" honestly means.
+
+Nothing is lost, because **both inputs are printed as their own rows in the
+same report**. Take `R_A` = `GFX_LSTEP x8 (8 calls)` and `R_B` =
+`GFX_LSTEPV x8 (1 call)`, both µs × 100 per iteration, and redo the two lines:
+
+| | |
+|---|---|
+| arrival, µs × 100 | `(R_A − R_B) / 7` |
+| pixel, µs × 100 | `(R_B − arrival) / 8` |
+
+That is the same pair of equations the harness solves — `R_A = 100(8a + 8p)`,
+`R_B = 100(a + 8p)` — so a set taken with the broken build is a complete set
+with two rows to recompute, not a set to retake. If `R_B > R_A` the equations
+have no positive solution and the answer is the floored one: arrival 0, pixel
+`R_B / 8`.
 
 **Reading the fullscreen pairs has one trap, and it is a VGA one.**
 `[bb_mono]` (§32) is one-way, and `bb_mono_chk` is five instructions cheaper
@@ -1588,6 +1617,7 @@ geometry. Shortening *that* is §5.7's problem: diffuse, no hot spot, already
 worth 20% once, and wanting a dedicated pass with `tests/gfxbench` as the
 gate rather than a new API slot.
 
+<<<<<<< HEAD
 ### Set 11 — the three trades, measured; and the one that was reverted
 
 | | |
@@ -1620,3 +1650,172 @@ Attribution, and the reason the band change did not survive:
   median under the tick — but the burst lost its round edge for it. The
   measured middle, if it is ever wanted: **R/6 + 1 is also 7 fills** at the
   only radius two states ever draw, with a 3px step instead of 4.
+=======
+### Set 11 — the 5150 again, and four more machines beside it
+
+**Five machines, eight reports, and the provenance matters more than usual**
+— three of them are real iron and two are emulators, and the two emulators
+were run *to be a delta against the 5150*, not to price anything. Nothing
+below treats a PCem or MartyPC figure as a measurement of os8088.
+
+| set | machine | adapter | notes |
+|---|---|---|---|
+| **11a** | IBM 5150, 4.77 MHz 8088, 640KB | Hercules GB101 | the calibration machine (docs/FIELD-MACHINES.md) |
+| **11b** | ...the same 5150 | IBM CGA, `VIDEO=cga` build | both cards are permanent; the build ignores the Hercules |
+| **11c** | Toshiba T1100 Plus | CGA (LCD) | tier 0, and the instruction table says **16-bit bus at ~7.1 MHz** |
+| **11d** | PCem, MartyPC | both adapters, both | claim a 4.77 MHz 8088; **delta only** |
+
+Build: `16844dd` field disks. PCem's two columns are the same machine with the
+video config changed and agree everywhere outside the video block, as expected.
+
+**A fifth set was taken and is deliberately DISCARDED**, on the owner's
+instruction and for a reason worth writing down rather than deleting: a
+Packard Bell Victory 286 (16 MHz AMD, 4MB, onboard **Paradise PVGA1A**). It is
+a VGA machine, its files were hand-renamed `GFXVGA.TXT`, and the reports
+self-identify as `CGA 640x200 mono` — because the field disk is a `VIDEO=cga`
+build, so what was measured is **a Paradise VGA driven through the CGA
+framebuffer path on a 286**. That is a fourth thing, not a data point on any
+of the three the project supports, and two of its derived rows are actively
+misleading: `est CPU MHz x100` read **8866** and `shl clk/bit x100` read
+**29**, both because they are computed against 8088 instruction timings that a
+286 does not have. Keeping the numbers would cost a future reader more than it
+gives them. The machine itself is in docs/FIELD-MACHINES.md; what it needs
+before it is worth running again is a **VGA** field disk, which does not exist.
+
+#### MartyPC is the real thing on the CPU and not on the disk
+
+Against 11a, row for row, **MartyPC lands within 0–4% on 45 of 47 gfxbench
+rows** — the closest agreement any emulator has managed here, and enough that
+its "cycle accurate" claim survives contact with a 5150. PCem is uniformly
+**10–20% fast**. Three rows are the exceptions and each says something:
+
+| row | 5150 | PCem | MartyPC |
+|---|---|---|---|
+| `one retrace period` | **19,473 µs** (51.4 Hz, right for Hercules) | 9,533 | 9,501 |
+| `VRAM write word` | 5,647 µs | 2,529 (**no VRAM cost at all**) | 6,082 |
+| `read 16K, cold motor` | **8.07 s** | 1.10 s | **0.27 s** |
+| `boot ms` | **38,886** | 5,108 | 2,306 |
+
+So: **neither emulator models floppy rotational latency**, which is the one
+thing the last two disk optimisations were aimed at, and PCem additionally
+gives Hercules VRAM the speed of RAM. Use MartyPC for CPU and drawing work,
+and neither for anything with a disk in it.
+
+#### The two disk optimisations bought nothing on the iron
+
+This is the finding of the set, and it is a **regression against a
+prediction, not against a measurement**. Same machine, same test, same
+media, kernel before and after both §18.4.2's run coalescing and §18.91's
+per-track batching:
+
+| | Set 1 (before) | Set 11a (after) |
+|---|---|---|
+| 16 KB read, cold motor | 7.63 s | **8.07 s** |
+| 16 KB read, warm | 7.80 s | **8.18 s** |
+| a one-sector file | 796 ms | 796 ms |
+| throughput | 2,100 B/s | **2,001 B/s** |
+
+Set 1 priced the per-track batch at "about **9x** on every load in the
+system, which is the largest single number in this document". Measured: it
+is **1.0x**, and if anything 6% the wrong way. The boot agrees — 138 kernel
+sectors at the unbatched 238 ms is 32.8 s, and `boot ticks` says **708
+(38.9 s)** against a predicted 4–5.
+
+Two things rule out the obvious explanations. The file is **contiguous** —
+every file on the field image is `runs=1`, so the coalescer hands `dsk_xfer`
+one 32-sector run — and the T1100 Plus, a *different* real machine with a
+different drive, reads at **2,161 B/s**, the same wall — and its maintenance
+manual gives that drive as **300 RPM, 250 kbit/s, 100 ms average latency**,
+the same revolution the 5150's 360KB Tandon turns at, which is exactly where
+two different machines would land if a sector still costs one. The two emulators
+disagree loudly and cannot arbitrate, because neither models the latency.
+What is left is either that the multi-sector `int 13h` is not being issued on
+that hardware, or that it is and the drive/media does not reward it; **the
+`FLOPPY1=1` A/B disk is what separates those**, and that knob exists for
+exactly this (SPEC.md §18.91).
+
+A third real machine did read **4.5x faster**, and it is the discarded
+Packard Bell 286 — a different CPU, a different controller and an unknown
+drive/media pairing, so it says only that the wall is not universal.
+
+#### What the set was asked, and what it answered
+
+| question | answer |
+|---|---|
+| `shl clk/bit x100`, the variable-shift model | **400** — the 8086 book's 4.00 clocks a bit, exactly. §5.7's mask and bank tables are justified |
+| `mov al,[bx+disp16]`, what a table lookup costs | **24.09 clocks** against `shl r16,cl (13)`'s **60.37**. The trade is 2.5x, not a wash |
+| `mov ax,i + mul [m]` | **154.98** against `mul r16`'s 132.54 — the memory form costs 17%, so the `mul` left in `gfx_rowbase` is not the thing to remove |
+| `GFX_FILL 256x1` and `fill ns per row` | **void — harness bug**, below |
+| `FULLSCREEN in+out` | **6.17 s** on Hercules, **3.50 s** on CGA. Part 1's "visible redraw", priced |
+| `GFX_FILL 64x64 clipped` | 8,750 µs against 8,221 unclipped: **+528 µs** to draw under an armed region, against a 328 µs `SET+CLEAR`. The region arithmetic is cheaper than re-entering the primitive |
+| the whole **fullscreen block** | **boring, as hoped**: `GFX_PIXEL` 640.87 vs 641.32 (0.07%), `GFX_FILL 64x64` 8,221.20 vs 8,225.77 (0.06%), `FONT_CHAR` 890.02 vs 887.92 (0.24%), `FONT_RUN` 8,996 vs 9,008 (0.13%). A primitive costs what it costs wherever it is drawn |
+| `boot ticks` / `boot ms` | **708 / 38,886** (Hercules), 700 / 38,447 (CGA) |
+| the **hard disk** | it works, and it is **50,904 B/s** — **25x the floppy**. `HDD FILE_DFREE` 402 ms across a 41-sector FAT through a 9-sector window; mount and back 1.79 s |
+
+#### §5.6.8 is settled, and the instruction count was right
+
+`LSTEP8/LSTEPV8` reads **116** on the 5150 against **118** in guest
+instructions under `-icount`. The decomposition is what makes it useful:
+
+| | |
+|---|---|
+| a walk step's **arrival** | **128.7 µs** |
+| a walk step's **pixel** | **655.0 µs** |
+
+The pixel dominates the arrival **5:1**, so batching cannot be where the cost
+is, and §5.6.8's field-inferred **356** is refuted — by the machine those
+field figures came off. The open gap the row was written to close closes in
+favour of the cheap measurement, which is the outcome that was least
+expected and the reason the row exists.
+
+`gfx_line`'s pair came out **better** than claimed: `line steep fat/thin` is
+**135** against a predicted 156 (CGA 134), with the shallow control at
+**309** (CGA 297) where three walks say ~300. The two *thin* rows were meant
+to match and are **10% apart** — steep 21,184 µs, shallow 19,245 (CGA 21,403
+/ 19,245) — so a y-major line costs a tenth more than the same line
+transposed, which is `gfx_rowbase` per step against a pointer add.
+
+#### The one row nobody can explain: `GFX_UNLOCK+LOCK`
+
+| 5150 Herc | 5150 CGA | T1100 Plus | PCem | MartyPC |
+|---|---|---|---|---|
+| **2,241 µs** | **2,402 µs** | 119 µs | 223 µs | 246 µs |
+
+As a fraction of that machine's own `GFX_PIXEL`, the 5150 is **3.49** and
+every other machine is **0.16–0.38** — a 9x outlier on the one machine that
+agrees with MartyPC everywhere else. It is also **the only row in either
+harness that cannot be measured with interrupts off** (`gfx_lock` ends with
+`sti` by contract), and the only variable work inside it is
+`cur_lazyend` → `cur_move`, which runs when the mouse has moved since the
+cursor was drawn. Not reproduced under QEMU: with the pointer in the middle
+of the screen and again parked in a corner, the pair is **0.5 instructions an
+iteration** either way — with the mouse *idle*, which is the whole question.
+
+SPEC.md §7.1.4.1, found separately and after these runs, measured that
+mechanism firing: under a flood of mouse packets, **279 `cur_move` calls in
+972 unlocks**, about 29%. So a moving pointer plausibly explains the whole
+gap, and the row would then be measuring unlock+lock **while the mouse
+moves** — arguably the number that matters, since a Missile Command player
+never stops moving it. Open until somebody says whether they had a hand on
+the mouse. docs/FIELD-NOTES.md 8.
+
+#### The harness bug: two fill rows measured a line-step for four commits
+
+`GFX_FILL 256x128` and `GFX_FILL 256x1` are **void in every report in this
+set**. `bl_body` is a module word and the fill block set it once and reused
+it across three rectangle sizes — correct until the `GFX_LINE` and
+`GFX_LSTEP` blocks were inserted between the 64x64 fill and the 256x128 one,
+after which both rows timed `gb_b_lstepv8`. It could not be seen from the
+report: a fill and a vector walk-step happen to cost about the same, so the
+two rows agreed with each other to **0.4%** (6,410 and 6,432 counts against
+the lstepv row's 6,406) and the two derived rows they feed printed a tidy
+**0**.
+
+`tools/benchlint.py` refuses it now — every `call bl_run` must set
+`[bl_body]` since the previous one, so repeating a body is allowed and
+*carrying* one is not, which is what an insertion cannot silently break. Run
+by `make bench`. Four sites were carrying legitimately and now say so.
+
+Everything else in the set stands: the bug is two raw rows and two derived
+ones out of about sixty.
+>>>>>>> origin/elendilon

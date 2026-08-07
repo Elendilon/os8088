@@ -11,9 +11,10 @@ Notes 1 and 2 are things QEMU cannot show, because QEMU is ~1000x the target
 machine. **Note 3 is the other half of that rule** and the happier case: the
 symptom is only visible on hardware, but the suspected causes are all *work*
 rather than timing, so QEMU can count them and the investigation should start
-there. **Note 4 is a third shape again** — reproduced on hardware, but its
-mechanism is *identified* rather than theorised, so it needs a fix and not an
-investigation. **Note 5 is a fourth, and the most valuable one to read**: a
+there. **Note 4 is a third shape again** — reproduced on hardware, its
+mechanism *identified* rather than theorised, and now **fixed** (SPEC.md
+§22.8) and reproduced under QEMU both ways: it never needed the iron at all,
+it needed somebody to open a Disk window and save a file from a package. **Note 5 is a fourth, and the most valuable one to read**: a
 correctness bug the harness cannot see at all, at any speed, because the
 difference is in the *BIOS*, not in the timing.
 
@@ -551,7 +552,28 @@ separate them.
 
 ---
 
-## 4. "Bad package" on a file that is perfectly good, until the Disk window is refreshed
+## 4. "Bad package" on a file that is perfectly good, until the Disk window is refreshed (FIXED, verified under QEMU)
+
+> **FIXED — SPEC.md §22.8.** Very nearly the "Directions" below, with the
+> counter turned inside out: rather than a mount generation every cache
+> compares itself against, `dskw_sync` — the one routine a successful file
+> operation passes through — marks `FS_DIRTY` on every Disk window showing
+> the folder that changed, and `fm_focus` spends the mark when that window
+> next comes to the front, re-listing and repainting **together**. A
+> generation counter would have re-listed on a *paint*, which is the half of
+> §22.1 that must not cost I/O; a mark spent at the focus is the same
+> invalidation charged where the user is already waiting for a window.
+>
+> Reproduced under QEMU exactly as reported, using Note Pad in place of Gfx
+> Bench: Disk window open on `B:APPS`, launch `NOTEPAD.O88`, Ctrl-S (which
+> writes `NOTES.TXT` into that folder), close Note Pad. Before: the promoted
+> window still says `9 files`, still lists no `NOTES.TXT`, still says
+> `Free 1201K`, and double-clicking the row labelled `PAINT.O88` — index 6,
+> which the rebuilt globals now call `NOTES.TXT` — opens nothing at all.
+> After: the window comes forward saying `10 files` with `NOTES.TXT` in its
+> sorted place, and the same double-click launches Paint. **What the harness
+> could always have shown, and did not, is the whole lesson of this note**:
+> the mechanism was pure bookkeeping, and nothing about it needed a 5150.
 
 **Observed.** On a real 5150, on the boot floppy (drive A:): run `GFXBENCH.O88`
 from an open Disk window, press `S` to save its report — which creates
@@ -603,7 +625,8 @@ name that sorts *before* something you then launch. A report saved as
 And the error names the file the user thinks they clicked, so it reads as that
 file being damaged.
 
-**Directions when this is picked up.** The invariant to restore is SPEC.md
+**Directions when this was picked up** (kept for the reasoning; the fix taken
+is at the top of this note). The invariant to restore is SPEC.md
 §22.1's own sentence — "paints read the cache, actions re-sync". Step 4 is
 where it is false: `fmv_sync` re-lists on a *location* change and not on a
 *content* change. The cheapest honest fix is a **mount generation counter**:
@@ -750,3 +773,157 @@ What is NOT fixed is the planar path — VGA still moves erase-then-draw,
 because its save is four planes through Read Map Select and cannot take a
 background from a buffer. Its *draw* is one store now (§7.1), which was the
 larger of the two windows there.
+
+---
+
+## 7. The per-track floppy batching bought nothing on real hardware
+
+**Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
+ladder was calibrated against. `sysbench`'s floppy block, same machine, same
+media, same test, kernel before and after both SPEC.md §18.4.2 (run
+coalescing in `dskw_rdata`) and §18.91/§18.93 (per-track batching in
+`dsk_xfer` and the boot sector):
+
+| | Set 1 (before) | Set 11a (after) |
+|---|---|---|
+| 16 KB read, cold motor | 7.63 s | **8.07 s** |
+| 16 KB read, warm | 7.80 s | **8.18 s** |
+| a one-sector file, open and read | 796 ms | 796 ms |
+| throughput | 2,100 B/s | **2,001 B/s** |
+
+Set 1's prediction was "about **9x** on every load in the system, which is the
+largest single number in this document". It measured **1.0x**, and 6% the
+wrong way. `boot ticks` says the same thing independently: 138 kernel sectors
+at the unbatched 238 ms is 32.8 s, and the boot measured **708 ticks
+(38.9 s)** against a predicted 4–5 s.
+
+**Already ruled out.**
+
+- **Fragmentation.** Every file on the field image is one run —
+  `KERNEL.SYS` 69 clusters, `BENCH.DAT` 16, all `runs=1` — so the coalescer
+  hands `dsk_xfer` a single 32-sector run and it splits only at the track and
+  the DMA page, exactly as designed.
+- **A one-machine artefact.** The Toshiba T1100 Plus, a different real
+  machine with a different drive and different media, reads at **2,161 B/s**.
+  Two real machines, one wall. (The Packard Bell 286 does gain: 9,041 B/s.)
+- **The emulators.** They report 13,562 B/s (PCem) and 59,795 (MartyPC) and
+  are worthless here: neither models rotational latency, which is the entire
+  thing the batching exists to avoid. A green run on either proves nothing
+  about this, and one was taken.
+- **The code not being built in.** `FLOPPY_ONE` is not defined; the batching
+  block and `dsk_dpt_init`'s EOT patch are both in the shipped kernel.
+
+**What is left**, and they are separable: either the multi-sector `int 13h`
+is not actually being issued on that hardware, or it is and the drive, the
+controller or the media's physical interleave does not reward it. **The
+`FLOPPY1=1` A/B disk is the test** — that knob was added for precisely this
+class of question (SPEC.md §18.91) and has never been run on iron. If
+`FLOPPY1=1` measures the same 8.07 s, the batching is not reaching the
+hardware; if it is much slower, the batching works and 8.07 s is already the
+improved figure, which would put the fault in Set 1's model instead.
+
+Until then, **do not quote the 9x**, and do not cost a future disk change
+against it.
+
+---
+
+## 8. `GFX_UNLOCK+LOCK` is 9x dearer on the 5150 than on any other machine
+
+**Observed.** PERFORMANCE.md Part 9 Set 11, `gfxbench`'s composite block:
+
+| 5150 Herc | 5150 CGA | T1100 Plus | PB 286 | PCem | MartyPC |
+|---|---|---|---|---|---|
+| **2,241 µs** | **2,402 µs** | 119 µs | 36 µs | 223 µs | 246 µs |
+
+Normalised against each machine's own `GFX_PIXEL` — which removes the clock
+entirely — the 5150 is **3.49** and every other machine is **0.16–0.38**.
+That is the only row where the 5150 and MartyPC disagree at all; the other 45
+gfxbench rows agree within 0–4%. So the 5150 is doing *different work* in
+this pair, not the same work more slowly.
+
+**What the pair can vary by.** With no back buffer (both mono adapters,
+`[bb_dbl]` = 0) `gfx_flush` returns before it can spend the deferred hide, so
+`gfx_unlock` takes `.never` → `cur_lazyend` every iteration. That path is a
+few compares **unless `[mouse_x]`/`[mouse_y]` differ from
+`[cur_drawn_x]`/`[cur_drawn_y]`**, in which case it is a full `cur_move` —
+which is about the right size to explain 2 ms on a 4.77 MHz machine.
+
+**Already ruled out.**
+
+- **An interrupt storm.** This is the one row in either harness that cannot
+  be measured with interrupts off (`gfx_lock` ends with `sti` by contract),
+  which makes it the obvious suspect — but `sysbench` puts the whole
+  interrupt load at **3%** on the same machine in the same session.
+- **Cursor position.** Under QEMU the pair is **0.5 instructions an
+  iteration** with the pointer in the middle of the screen and again with it
+  parked in the top-left corner, so a clipped cursor cell is not it.
+- **The adapter.** Both 5150 columns are expensive and the T1100's CGA column
+  is not.
+
+**The open question is whether the mouse was moving**, and the mechanism has
+since been measured independently. SPEC.md §7.1.4.1 — a *different* bug,
+`cur_lazyend` eating the caller's registers — was found by flooding the
+machine with mouse packets and counting, and the count is the interesting
+part here: **279 `cur_move` calls in 972 unlocks**, so under continuous
+movement roughly **29% of unlocks take the expensive path**. The row is 100
+iterations and lasts about 224 ms on that machine, which is long enough for a
+hand resting on a mouse, or a ball mouse picking up the machine's own
+vibration, to keep that rate up throughout.
+
+If that is the answer the row is honest and the lesson is that it measures
+**unlock+lock with the pointer moving**, not idle — which is arguably the
+number that matters, since CLAUDE.md prices this pair at 21.8% of a Missile
+Command session and a Missile Command player never stops moving the mouse.
+It would then want taking twice, labelled. If it is *not* the answer,
+something makes `cur_drawn_*` chase `mouse_*` without ever catching it, and
+that is a real bug.
+
+**The field disks predate the §7.1.4.1 fix**, so the runs above were taken on
+a kernel where a `cur_move` inside an unlock destroyed the caller's
+registers. That does not invalidate the data: `bl_time` banks CX around
+`call word [bl_body]` and keeps every accumulator in memory, so the harness
+survives a body that clobbers everything — which is its documented contract.
+A re-run should still be on a fixed kernel.
+
+---
+
+## 9. A cursor seen visually corrupted over a title bar, once, mid-benchmark
+
+**Observed**, once, by the 5150's owner during the Part 9 Set 11 runs: the
+mouse was left resting **over a window's title bar, near the left side**, and
+the arrow was "visually corrupted as the bench ran". One sighting; the
+machine and the adapter are both unremembered — the same session covered a
+5150 with a Hercules and a CGA card, a T1100 Plus and a 286.
+
+**Not reproduced.** Both adapters, both kernels, cursor parked on the
+gfxbench window's title bar at the same place, the full suite run underneath
+it, and the arrow checked **exactly** rather than by eye — the composite
+`(background | white) & ~black` computed from `CUR_ARROW` and compared with
+the framebuffer cell:
+
+| | |
+|---|---|
+| CGA, current kernel | before / mid-run / after **pixel-identical**, whole screen |
+| Hercules, current kernel | **0 of 96** cell mismatches, before and mid-run |
+| Hercules, `16844dd` — the build the field disks were made from, *before* SPEC.md §7.1.4.1 | **0 of 96**, before, mid-run and after |
+
+So it is not the deferred hide failing to be spent by `wm_draw_title` (which
+draws through `gfx_fill` and `gfx_hline`, both of which spend it), and it is
+not the pre-§7.1.4.1 register bug on its own.
+
+**What is left is the mouse having moved**, which is the one thing those runs
+could not do and the field run could — §7.1.4.1 counted `cur_move` firing on
+279 of 972 unlocks under a flood of packets, and on the pre-fix kernel that
+call ate the caller's registers. It is also the same unknown that note 8
+turns on, which is why both got the same instrument rather than two.
+
+**What to do next time, and it is now automatic.** `tests/benchlib.inc`
+samples the pointer twice per row, outside every timed span, and every report
+ends with a block that says whether it moved: `pointer moved (samples)`,
+`pointer x span` / `y span` (a nudge that returns between samples moves no
+sample but still widens the box — the counter alone shipped first and would
+have missed exactly that), and where the pointer started and ended. A run
+with all three at **0** rules this note out; a run with the pointer parked on
+a title bar and a non-zero span, that then corrupts, confirms it in one
+sitting. The operator's side of it is to leave the mouse alone from before
+`R` is pressed.

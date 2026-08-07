@@ -76,7 +76,7 @@ by name in a dozen places.
 | owner | `Elendilon` — owner of this fork, `Elendilon/os8088` |
 | machine | **IBM PC 5150**, Intel 8088 at 4.77 MHz |
 | motherboard | the 64–256K board, **256 KB populated** |
-| expansion | **AST SixPakPlus Rev 1** — carries the other **384 KB** (256 + 384 = the 640 KB every set reports) **and the clock** |
+| expansion | **AST SixPakPlus Rev 1** — carries the other **384 KB** (256 + 384 = the 640 KB every set reports) **and the clock**. That 640 is what `int 12h` answers, and since SPEC.md §2.7 the boot sector relocates itself to the top of it — so if this machine ever stops booting after a memory change, the first thing to check is the motherboard DIP switches, which are where an XT's RAM count comes from. A board the switches do not mention is a machine with plenty of RAM and a small answer, and the sector prints `RAM` and stops rather than loading a kernel over itself |
 | clock | the SixPakPlus's **MM58167 at 2C0h** — §37.90's **rung 2**, and the machine the whole ladder was written for: an XT BIOS implements `int 1Ah` AH=00h/01h and nothing else, so this BIOS knows nothing about a clock sitting in its own backplane. It is also what keeps rung 3 off a SixPakPlus — rung 3 is claimed only when the BIOS *can* read the clock, and here it cannot |
 | video | **Hercules GB101 → IBM 5151** (mono TTL) **and IBM CGA, new style → IBM 5153** (RGB). **Both cards and both monitors, always, in the machine.** So the second column costs a *build*, never a card swap — but the probe (§39.1) finds the Hercules first, so the CGA needs a kernel told to ignore it |
 | floppy | **one** — a **Tandon TM100-2**, 360 KB 5.25" DD. There is no drive B |
@@ -165,6 +165,65 @@ to A:, and with a 20 MB FAT16 partition on ST-225 geometry every row produces
 a number, the read returns the file's exact size, and **the disk image is
 byte-for-byte identical afterwards**. That last check is the one that matters
 here, and it is the one to repeat if anything in that block changes.
+
+---
+
+## The Toshiba T1100 Plus — `Elendilon`'s, and the only 8086 in the register
+
+The second real machine, and it earns its place by being *nearly* the target
+and not quite: an 8086 rather than an 8088, so the same instruction set over
+a **16-bit bus**. That makes it the one machine that separates "this is
+slow because the CPU is slow" from "this is slow because every instruction
+byte is fetched one at a time".
+
+| | |
+|---|---|
+| CPU | **i80C86-2**, 7.16 MHz fast / 4.77 MHz slow, switchable from the keyboard; it powers on in fast mode |
+| RAM | 256KB on the board + the **384KB expansion** = 640KB |
+| video | CGA-compatible, LCD |
+| floppy | **two 720KB 3.5" drives** — 300 RPM, 250 kbit/s, 100 ms average latency, 6 ms track-to-track |
+| other | the modem expansion is fitted |
+| disks | it takes the **720KB** images (`build/cga720.img`), which is why they exist — no `dd` step, unlike the 360KB pair |
+
+Two things it has already been worth. Its `est CPU MHz` came out at **7.12 /
+7.29** against the manual's 7.16, so sysbench's estimator is **0.6% out on a
+machine nobody calibrated it against** — which is the only independent check
+that number has ever had. And its instruction table is the 16-bit bus in
+plain sight: `mov r16,r16` is 4.34 clocks a byte on the 5150 (2 bytes, 8.69
+clocks) and **3.31 clocks total** here, while `mul` and `div` scale by the
+clock alone. Part 2's instruction floor is a property of the 8088's bus, and
+this is the machine that shows it by not having it.
+
+It walls at the same **2,161 bytes/second** on the floppy as the 5150 does
+(docs/FIELD-NOTES.md 7), which is what makes that wall two machines wide.
+
+---
+
+## The Packard Bell Victory 286 — in the register, results discarded once
+
+| | |
+|---|---|
+| board | Packard Bell Victory (theretroweb.com/motherboards/s/packard-bell-victory) |
+| CPU | **16 MHz AMD 286** |
+| RAM | 4MB, 100ns |
+| video | onboard **Paradise PVGA1A**, 256KB — a **VGA** card |
+| clock | Dallas DS1287/DS12887, potted |
+| floppy | 1.44MB drive A, 1.2MB drive B |
+
+**Its first set was thrown away, and the reason is a trap for the next
+person.** It was run from a `VIDEO=cga` field disk, so a VGA machine spent
+the whole suite driving the CGA framebuffer path — a fourth combination that
+is not one of the three the project supports — and the reports self-identify
+as `CGA 640x200 mono` while the files had been hand-renamed `GFXVGA.TXT`.
+Two derived rows were worse than useless: `est CPU MHz x100` read **8866**
+and `shl clk/bit x100` read **29**, both because they are computed against
+**8088** instruction timings a 286 does not have.
+
+So before this machine is worth running again it needs a **VGA field disk**,
+which `make field` does not build. And whoever adds one should fix the two
+8088-only derived rows to say so on a tier-1 machine rather than printing a
+number. It also has a known quirk: **it sometimes decides to boot in mono**,
+which may be what put it into the CGA path in the first place.
 
 ---
 

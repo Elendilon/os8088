@@ -132,6 +132,7 @@ the floor is **128KB of RAM** rather than 256KB.
 | derived       | `FAT_SEG` | mount-time FAT snapshot, `DSK_FAT_SECS`×512 = 4,608 bytes, via **ES only** (§18) |
 | derived       | `LOW_SEG` | `.lowbss`: task stacks + disk buffers (9,216 B), then task 0's stack (`STK0_SIZE`, 1,024 B) growing down from `STK0_TOP` |
 | derived       | `HEAP_SEG` | **the claim heap (§50)** — everything from there to the top of conventional memory, handed out on demand. Data claims grow **up** from here; a package's region is claimed **down** from the top (§50.3) |
+| the last 2,560 B | derived | **the boot sector and its stack (§2.7)** — live only until handoff, ordinary heap afterwards, and the first place `mem_claim_hi` hands a package region |
 | 0xA0000       | 0xA000  | VGA planar framebuffer, 80 bytes/row               |
 | 0xB0000       | 0xB000  | Hercules framebuffer, 4 banks × 0x2000, 90 bytes/row (§39) — mono adapters only |
 | 0xB8000       | 0xB800  | CGA framebuffer, 2 banks × 0x2000, 80 bytes/row (§39) — mono adapters only |
@@ -140,8 +141,9 @@ the floor is **128KB of RAM** rather than 256KB.
 `KERNEL_SEG` through the top of task 0's stack is one contiguous span — code,
 read-only data, `.bss`, the FAT snapshot, the disk caches, the sector buffer
 and every task stack — and the **`KERN_BUDGET`** guard (§15.1) holds the whole
-of it to 74,240 bytes (72.5KB) just above the BIOS data area. It measures
-72,704 bytes on the shipped build, so 1,536 are spare. **`docs/KERNEL-MEMORY.md`
+of it to 86,528 bytes (84.5KB) just above the BIOS data area. It measures
+81,920 bytes on the shipped build, so 4,608 are spare — nine 512-byte steps,
+because move 10 was granted 4KB in advance of the work it is for. **`docs/KERNEL-MEMORY.md`
 is the maintained account of what that is spent on**; raising `KERN_BUDGET` is
 a decision to be taken with whoever asked for the feature, not a build fix.
 
@@ -422,6 +424,62 @@ cosmetic: they used to sit with the API stubs, which is above `splash.inc`,
 and `splash.inc` has to end inside the image's first `SPL_RESIDENT` sectors
 (§15). At 140 bytes they fitted; at over 500 they push the splash out of its
 sectors, and the build then fails naming splash and nothing else.
+
+### 2.7 The boot sector goes to the top of RAM, not to a fixed address
+
+`boot/boot.asm` has to move out of the kernel's landing zone before it reads
+anything (§15.2), and **where it moves to is computed**: `int 12h`, times 64
+for paragraphs, less `0x7E0` — its own `0x7C00` offset and its own 512 bytes
+— so its last byte is the machine's last byte and its stack grows down from
+there. The whole cost to the machine is **2,560 bytes at the ceiling**, and
+only until handoff: `kmain` sets `SS:SP` in its fourth instruction and the
+sector is dead memory from that moment, so those bytes are ordinary heap.
+`mem_claim_hi` hands package regions out downward, which means **the first
+package loaded sits exactly where the sector was**.
+
+It used to be a fixed `BOOT_RELOC` = 0x0D40 (linear 0x15000), and that
+address, not any property of the kernel, was what bounded the kernel:
+`KERNEL_SEG*16 + KERN_SIZE` had to end below it, which capped the footprint
+at 82,432 bytes. `KERN_BUDGET` reached that number in its ninth move and
+guard 5 became the binding constraint on the whole system — a build that
+failed for the budget and a build that failed for the sector were the same
+build, and raising the budget could not help. `BOOT_RELOC` had moved five
+times already, each move dragging a constant across two separately-assembled
+files and raising the minimum machine by the same amount. Putting the sector
+at the ceiling ends that sequence: it is above every kernel that could fit
+the machine at all, by construction, on every machine.
+
+**Trusting `int 12h` is not a new dependency.** DOS sizes itself from the
+same call, so a BIOS that lies about it is a machine that cannot run DOS
+correctly either — and on an XT that number comes from the DIP switches, so
+a memory board the switches do not mention is a machine with plenty of RAM
+and a small answer. `mem_init` reads the same call for the top of the heap,
+so the sector and the allocator agree by construction rather than by
+arithmetic.
+
+**The sector refuses rather than being overwritten.** Before it relocates it
+compares its computed segment against `KERNEL_SEG + KERNEL_SECTORS*32` — the
+paragraph the kernel's read will end on, a number the Makefile already
+measures and injects — and prints `RAM` and halts if the read would reach it.
+Three failures land on that one compare: a machine genuinely too small, a
+BIOS under-reporting, and a `KB*64` that overflowed a claim of 1MB or more.
+Note what it compares against: the **read**, not `KERN_SIZE`. The stacks and
+buffers above the image are only in use after handoff, by which time the
+sector is dead — so the *runtime* question is narrower than guard 5's, which
+has to hold for the whole span because it is asked about a machine nobody has
+in front of them.
+
+**What the refusal does not do is choose the minimum machine.** That is
+`MIN_RAM_KB` (§15.1), a policy figure of 128KB: the smallest machine the
+shipped system is *claimed* to work on, not the smallest that can boot. The
+smallest that can boot is roughly the kernel's own span plus this sector,
+which leaves a heap too small to open anything (docs/KERNEL-MEMORY.md).
+
+**Testing it needs a knob, because QEMU cannot vary the answer.** SeaBIOS
+reports 639KB whatever `-m` says, so `make test RAMKB=<n>` assembles the
+sector to believe a different number — the low-memory boot and the refusal
+are both unreachable here otherwise (docs/TESTING.md). It costs the shipped
+sector nothing: unset, the `%ifdef` is not assembled.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
@@ -973,6 +1031,38 @@ unaffected by each other's staging. Keys 6 and 7 redraw the fan LT_NVEC walks
 to a call in chunks of 3 and 1, and must match keys 3 and 1 byte for byte —
 **0 differing pixels of 236,160** on Hercules.
 
+**And the saving is now priced, which the argument above never was.**
+`gfxbench` carries two rows that draw the identical eight pixels and differ
+only in how many times they arrive — `GFX_LSTEP x8` against `GFX_LSTEPV x8`.
+They were added expecting a ratio near 800, because that is what §5.7's floor
+would give. They measure **118** in guest instructions, and about **36
+instructions removed per arrival** rather than §5.7's 196.
+
+The reason is structural, and it corrects the argument this section opens
+with: **`gfx_lstep` is not a rect primitive.** It never goes near
+`vga_rect_setup` or `bb_rect`, so its arrival is the far-call cell and a
+prologue, not the rect machinery §5.7 measured. Borrowing §5.7's ~756 µs for
+it was wrong.
+
+Instructions understate the clocks — Part 9 measured the far-call cell at
+46.7 µs for about seven instructions — so the field ratio will be higher than
+118. But charging *every* removed instruction at far-call rates still only
+reaches about 160, against the **356** this section's own field figures imply
+(570 µs a pixel stepping one call per missile against 160 µs in the drain).
+**That gap is unexplained.** The batching is still a win and the drain still
+needs it; what is not established is that the *arrival count* is where a
+moving line's cost lives, and the two rows are what a field set should use to
+settle it.
+
+**§48.18.1 reached the same structural distinction from the other end**, by
+costing a vector `gfx_fill` against the floor instead of measuring one: a
+walk step's fixed cost is block staging and `gfx_ink`, which are per *call*,
+while a fill's is geometry, which is per *rect* — so the same trick recovers
+about 4% there and was rightly not built. Two routes to one conclusion, which
+is the agreement PERFORMANCE.md Part 6 rule 7 asks for. What this section
+adds is the *size* of the per-call part, and it is smaller than the pixel it
+guards.
+
 ### 5.7 The per-call floor — what a small drawing call spends
 
 **A drawing call costs almost the same whatever it draws**, and the field
@@ -1442,7 +1532,7 @@ tested — over glyphs byte-aligned and skewed, against the right screen edge
 where the second byte is clipped away, and against the bottom edge where the
 arrow is cut short.
 
-### 7.1.1 The lazy hide — measured twice, and NOT worth building
+### 7.1.1 The lazy hide — measured twice, and dropped ON COST (see §7.1.4)
 
 The pair above is still paid on **every** lock hold, whether or not anything
 drawn came near the cursor. A *lazy* hide — leave the arrow up at `gfx_lock`,
@@ -1487,6 +1577,14 @@ stride, which `tests/gfxbench` itself does. Plugging it would need a new API
 contract — a "cursor off while I do this" slot, or a rule that raw framebuffer
 writes are out of contract — which is a real change to the package ABI in
 exchange for 144 ms.
+
+**And then §7.1.4 built it anyway, for a reason this section never weighed:**
+the pair is not just a cost, it is a *visible absence*, and 144 ms of saving is
+irrelevant beside a pointer that blinks once per window refresh. What follows
+is still the right answer to "is it worth the CPU" - and that was the wrong
+question. The design that shipped is also not the one costed here: it gates on
+the clip region rather than on a per-primitive overlap test, which is why the
+nine miss paths below reduce to "hide unless a region proves otherwise".
 
 **The general lesson is the one to keep**: the 21.8% that started this whole
 line of work (Part 9 Set 4) was two different things wearing one number.
@@ -1594,6 +1692,101 @@ The latency cost is one tick, ~55 ms, before a press is recognised as a drag.
 `.track` already accepts exactly that for recognising a drop, and double-click
 detection is unaffected because it compares **birth ticks stamped by the ISR**,
 not processing time (§9).
+
+### 7.1.4 The hide is DEFERRED, and the clip region is what spends it
+
+The pair is cheap now, but it still made the pointer **absent for the whole of
+every lock hold** - and a hold that repaints a window takes a visible amount of
+time on a 4.77MHz machine. With the mouse sitting still that reads as the
+cursor blinking off and on, once per refresh, forever. A Task Manager
+refreshing twice a second is the reported case.
+
+That is a §1-of-PERFORMANCE.md defect, not a cost: §7.1.1 dropped the "lazy
+hide" on a *time* argument (144 ms across minutes) and the time argument was
+answering the wrong question.
+
+`gfx_lock` therefore only **promises** the hide, in `[cur_lazy]`; the arrow
+stays where it is, and the ISR will not move it because `gfx_lock_flag` is set.
+Something must spend that promise before any pixel lands where the cursor is,
+and two things do:
+
+- **`cur_unlazy`** - take it now, unconditionally. Every path that can draw
+  ANYWHERE calls this: `GFXCLIP`'s unclipped branch, the primitives §11.3
+  keeps off the clip list (`gfx_blit4`, `gfx_scroll`, `gfx_line`,
+  `gfx_lstepv`), the VRAM XOR twins, `gfx_flush`, `gfx_save`/`gfx_restore`
+  and `fsx_run`.
+- **`cur_lazyck`** - take it only if the cursor is reachable. `wm_clip_set`
+  calls it, and this is the whole trick: **once a region is armed the clipped
+  primitives are CONFINED to it**, so a cursor outside that window is provably
+  safe and the promise is not owed.
+
+**The default is therefore "hide", and the win is the exception.** A painter
+that arms a region away from the pointer keeps its cursor; everything else
+behaves exactly as it did. That is free for all twelve `wm_clip_set` callers -
+the Task Manager's refresh, the menu bar clock, Fractal, Bounce, every package
+worker - none of which had to change.
+
+`cur_lazyck` tests the window's **frame** rect, not the region: the region is
+the content minus what covers it, so outside the frame is outside every
+fragment, and one rect test is far cheaper than sixteen. It takes the window in
+**SI**, which is `wm_win_rect`'s own register, so it cannot be called with the
+window in the wrong one - and `wm_clip_set` banks it in `[wm_clipwin]` at entry
+because **BX does not survive the fragment loop**.
+
+Glyphs and icons are the third case: `font_char`, `font_run` and `ico_core`
+clip whole-shape through `wm_clip_test`, so under an armed region they too are
+confined - but unarmed they draw wherever they are told. `fnt_unlazy` is that
+one test.
+
+**The safety argument is a measurement, not an audit.** A debug build
+snapshots the drawn cell at `gfx_lock` and compares it at `gfx_unlock`
+whenever the promise survived: if any path wrote there while the arrow was up,
+the cell differs. Across a session of menus, window drags, a Control Panel, a
+Disk window and a Task Manager refreshing throughout - **0 violations**, with
+the cursor kept up on 30 of 31 refreshes while parked away from the window.
+
+**One trap, and it cost the boot.** `vid_setmode` looks like it wants
+`cur_unlazy` - a mode set clears the screen under the arrow. It must NOT have
+it. `viddet.inc` runs from the splash, *before the rest of the kernel has been
+read off the floppy* (§15.3), so a call from there into `mouse.inc` lands in
+whatever is not loaded yet: the machine hangs executing data, with a black
+screen and no clue. Mid-session mode changes all come through `fsx_run`, which
+takes the promise itself.
+
+### 7.1.4.1 A promise that survives puts a MOVE inside `gfx_unlock`
+
+`cur_lazyend` is the third routine and the one that broke something: when the
+promise was never spent the arrow never left the screen, so `cursor_show` must
+NOT run (it would bank the drawn arrow as its own background) - but the ISR
+refused to move the arrow for the whole hold, so any motion is owed here, and
+`cur_lazyend` calls **`cur_move`**.
+
+`cur_move` clobbers `ax, bx, cx, dx, si, di, bp` and `es`. `gfx_unlock`'s
+contract is **"clobbers: flags"**, and that is not a courtesy: §14's background
+tasks hold their instance record in **BP** and their state block in **SI** *for
+the life of the task*, across every `gfx_unlock` they make. `cur_lazyend`
+pushed AX and BX. So one mouse packet landing inside a hold whose promise
+survived - the pointer parked away from the window, which is precisely the case
+this optimisation exists to serve - silently destroyed the caller's world.
+
+**It presented as "a worker has stopped", which is why it is worth writing
+down.** Bounce read `[ds:bp+I_WIN]` out of a wrecked BP, got a window record
+whose visible bit was clear, and took the blind branch **for the rest of the
+session**: the ball stepped invisibly while the last-drawn square sat on
+screen forever. The Timer stopped counting the same way. Nothing faulted,
+nothing froze, the UI task and the cursor were fine, and the task table showed
+both tasks sleeping and waking on schedule - so every obvious instrument said
+the scheduler was healthy, because it was.
+
+`cur_lazyend` saves everything now, exactly like `cursor_show` and
+`cursor_hide` either side of it. Measured with a detector that banks BP and SI
+across `gfx_unlock` in `app_bounce_task` and counts mismatches, under a mouse
+flood: **279 corruptions in 279 `cur_move` calls before, 0 in 270 after.**
+
+The general rule this is an instance of: **a routine that is reached from
+`gfx_lock`/`gfx_unlock` inherits their register contract, not its own.** The
+pair sits under every drawing site in the machine, kernel and package alike,
+and there is no call site that can compensate.
 
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
@@ -1923,16 +2116,27 @@ then, so this is invisible.
 
 ## 9. mouse.inc — serial Microsoft mouse + cursor
 
-- COM1 base 0x3F8, IRQ4 → int 0x0C. `mouse_init`: save old vector, install
-  ISR, program UART: 1200 baud (DLAB, divisor 96), LCR = 0x02 (7N1),
-  MCR = 0x0B (DTR|RTS|OUT2), IER = 0x01 (RX interrupt), read RX/LSR/IIR once
-  to flush, unmask IRQ4 in the 8259 (clear bit 4 of port 0x21).
+- **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both
+  at once (§9.5). `mouse_init`: probe each base for a UART, and for every one
+  that answers save the old vector, install the ISR, program the UART:
+  1200 baud (DLAB, divisor 96), LCR = 0x02 (7N1), MCR = 0x0B (DTR|RTS|OUT2),
+  IER = 0x01 (RX interrupt), read RX/LSR/IIR once to flush, unmask that
+  port's IRQ in the 8259 (clear bit 4 for IRQ4, bit 3 for IRQ3, at port
+  0x21). A port no UART answered at is never hooked and its IRQ is never
+  unmasked.
 - Microsoft protocol, 3-byte packets, 7 data bits. Byte 0 has bit 6 set:
   `1 LB RB Y7 Y6 X7 X6`; bytes 1/2 have bit 6 clear: low 6 bits of X, Y.
   dx = sign-extended {X7X6,X5..X0}, dy likewise (positive = down).
-- ISR: save all registers used + DS/ES, load DS=KERNEL_SEG, then: read port
-  0x3F8, assemble packet (resync: any byte with bit 6 set restarts the
-  packet), update `mouse_x` (clamp 0..`[vid_wm1]`), `mouse_y`
+- ISR: `mou_isr` (IRQ4) and `mou_isr3` (IRQ3) differ only in the port row
+  each hands the shared body in BX — the one register that can be spent
+  before DS is loaded and still index a table afterwards, so it is pushed
+  *first* and popped *last*, and it stays the port row all the way to the
+  completed packet because **every port decodes independently** (§9.5). Then:
+  save the remaining registers + DS/ES, load DS=KERNEL_SEG, read that port's
+  RX register — **always**, whatever is to be done with the byte, because the
+  read is what clears the UART's interrupt — assemble packet (resync: any
+  byte with bit 6 set restarts the packet), update
+  `mouse_x` (clamp 0..`[vid_wm1]`), `mouse_y`
   (0..`[vid_hm1]`; the live screen, §39.2), `mouse_btn`
   (bit 0 = left, bit 1 = right). On button *change*, push an event (§10):
   EVT_MDOWN / EVT_MUP with a=x, b=y, c=[ticks] — the click's birth time;
@@ -1962,8 +2166,13 @@ then, so this is invisible.
   Move the cursor per §7 (draw only when
   `gfx_lock_flag` is clear AND `cur_level` >= 0; otherwise just update
   position and set `cur_dirty`). Send EOI (AL=0x20 → port 0x20) — the BIOS
-  does not handle IRQ4 for us. `cld` before any string op; never `sti`.
-- `mouse_unhook` — restore int 0x0C vector, mask IRQ4 again, IER=0.
+  handles neither IRQ4 nor IRQ3 for us, and both are on the master 8259, so
+  it is the same non-specific EOI either way. `cld` before any string op;
+  never `sti`.
+- `mouse_unhook` — for **every port the probe found**, IER=0, mask its IRQ
+  again, restore its old vector. It walks what was probed, not what the mouse
+  turned out to be on: a retired port (§9.5) still owes its vector back, or
+  the handoff leaves an IVT entry pointing into `KERNEL_SEG` that nobody owns.
 - Cursor: classic Mac arrow, 11 px tall, hot spot (0,0) — black body,
   1px white outline. Two 16-row × 16-bit tables: `cur_and` (white outline
   mask) and `cur_data` (black body). **The tables are 16×16; the arrow is
@@ -2028,6 +2237,133 @@ complete a packet while DTR is low), so the stand-down path must check the
 poller's state and restore DTR/RTS first. Standing down with DTR low would
 leave the mouse unpowered for the session — deader than the bug the poller
 exists to fix.
+
+### 9.5 COM1 or COM2 — the port is not asked and not configured
+
+A serial card is jumpered to a base address, and the mouse goes on whichever
+one is free. COM1 is the common answer and was for years the only one this
+kernel could read; COM2 is the other half of the standard pair, and a machine
+with a card already at 0x3F8 — a modem, a printer, a terminal — has nowhere
+else to put a mouse.
+
+So both are supported, and **neither is selected**. There is no Control Panel
+row, no `SYSTEM.CFG` key and no build knob, for the same reason §9.4 has no
+probe for the mouse itself: the machine can answer the question faster than
+the user can, and an answer stored in a settings file is one more thing to be
+wrong after the card moves. Every present port is programmed, hooked and
+listened to at once, and **the first port to deliver a complete packet wins**.
+
+The port table is one row per candidate — base, IVT offset, 8259 mask bit,
+ISR stub — walked with BX as a word index. **The base decides the IRQ**
+(0x3F8 → IRQ4, 0x2F8 → IRQ3), because that is what the BIOS, DOS and every
+mouse driver ever written assume; a card whose jumper disagrees with its base
+is out of scope here as it was before.
+
+`mou_pall` is `mou_pout` over every row, and it is what every phase of
+`mouse_init` and every step of §9.4's recovery cycle is written in: both
+ports are reset, powered, drained and re-offered *together*, because until a
+packet arrives there is nothing to say which one the mouse is on and no
+reason to prefer either.
+
+Two things frame the whole design:
+
+- **A port is probed before its IRQ is unmasked**, and that is the whole
+  reason `mou_uart` exists. Unmasking IRQ3 on a machine with no COM2 card
+  arms a line nothing drives. The test is the **divisor latch**: with LCR's
+  DLAB set, base+0 is an ordinary read/write register, so writing two
+  distinct values and reading each back proves a latch is there to hold them,
+  and an unpopulated ISA address answers 0FFh to both. Two values, not one,
+  because a bus that happens to float to the first would otherwise pass.
+  Every 8250 variant has that latch — unlike the scratch register at +7,
+  which the original 8250 on a period serial card does not. A row the probe
+  rejects has its base **zeroed**, and `mou_pout` reads that as "this port
+  does not exist", so every UART write below is a presence test it does not
+  have to write: a one-card machine runs the identical sequence it always did
+  with one dead call per step.
+- **The loser is retired, on the UI task, exactly once.** `mou_lockon` sets
+  IER = 0 and masks the IRQ on every port but `[mou_port]`, from
+  `mou_hotplug`'s stand-down path — which already existed, already ran once,
+  and already had to put DTR/RTS back up first for §9.4's reason.
+  `[mou_hpst] = 2` is that path's terminal state. Retirement deliberately
+  leaves the row's **base in place**, because `mouse_unhook` still owes that
+  port its vector. After it, the second port cannot be heard again at all,
+  which is what bounds everything below to the seconds before the mouse is
+  first moved.
+
+#### 9.5.1 The other port is a modem, and that is the hard part
+
+The second serial port on a real machine has something on it, and the thing
+it usually has is a modem. That turns out to be the whole difficulty here,
+because **a Hayes result code is a well-formed Microsoft mouse packet**. The
+protocol asks only for a byte with bit 6 set followed by two with bit 6
+clear; `'O'`, `'K'`, CR, LF is exactly that, and so are `RING`+CRLF and
+`NO CARRIER`+CRLF. Worse, bit 5 of the header byte is the **left button** and
+bit 4 the right — and bit 5 is set in every lowercase letter, so a modem
+saying `no carrier` is a modem clicking the mouse.
+
+Three rules answer it, and each was put there by a case that got through the
+one before it:
+
+- **A run, not the first packet.** `[mou_need]` clean packets in a row on one
+  port settle it. First-past-the-post handed the mouse's slot to the modem on
+  its first `OK` and masked the real mouse off for the session.
+- **The run must be of CLEAN packets, where clean means the port's bytes were
+  ALL of them.** A count alone still lost, because nothing decayed: four
+  result codes *seconds apart* accumulated a run of four exactly as four
+  mouse packets would. What actually separates a mouse from ASCII is not how
+  many packets complete but that a mouse's bytes arrive in threes with
+  nothing between, so the ISR breaks the run on either protocol violation — a
+  bit-6 byte arriving mid-packet (a resync) and a bit-6-clear byte arriving
+  between packets (a stray). Every modem string above dies on its second
+  byte: `RING` is `R` then `I`, both bit-6, and that is a resync.
+  `mou_newround` clears every part-built packet and part-built run at each
+  reset edge, so nothing can be carried across one either.
+- **Each port decodes INDEPENDENTLY.** `mou_phase`, `mou_b0`, `mou_b1` and
+  `mou_run` are per-row arrays, which is why BX stays the port row from the
+  stub all the way to `.pkt`. They were shared once and that is wrong in both
+  directions: a modem's byte resynced the *mouse's* half-built packet, and a
+  modem's violation reset the *mouse's* run — so a chattering modem on COM1
+  starved a mouse moving on COM2 out of ever being found, while its own
+  violations kept it from winning either. **A device that cannot win must not
+  be able to stop the one that should.**
+
+And one rule about what a port may *do* before it has won: **nothing**. A
+packet on an unsettled port is counted and discarded — no cursor motion, no
+event — because a modem must not be clicking and jumping the pointer on its
+way to losing. The packet that *settles* the port is acted on, so this costs
+a one-port machine nothing whatever.
+
+That is what `[mou_need]` is for: **one port is not a contest.** Where the
+probe found a single UART there is nothing that could steal the slot and
+nothing to weigh against, so the threshold is 1, the first packet settles it
+and is acted on, and the behaviour is this kernel's before COM2 existed, byte
+for byte. Only a machine with two live ports pays `MOU_LOCKN` = 8, and what
+it pays is about a fifth of a second of the *first* mouse movement of the
+session — swallowed, once, and exact from then on.
+
+The honest residual is a second port carrying **binary** traffic in those
+same seconds: random bytes do satisfy the protocol from time to time, and no
+packet count makes that impossible. `MOU_LOCKN` is what prices it — eight
+clean packets is 24 bytes that all had to fall right, against a mouse that
+emits them in a fifth of a second of motion.
+
+The other thing to state plainly is what §9.4's recovery cycle now does to
+that modem: it is **reprogrammed to 1200 baud 7N1, and its DTR is dropped and
+raised** at boot and then every `MOU_REPOLL` ticks for as long as no mouse
+has been found. On a modem set `&D2` that hangs up a call. This is not new —
+§9.4 has always done it to whatever was on COM1 — but it now reaches COM2 as
+well, and the mitigation is the same one that ends everything else here: the
+cycle stops at the first mouse, and `mou_lockon` then leaves that port alone
+for the rest of the session. A machine with a modem and **no** mouse at all
+is the case that pays, and it pays what it paid before.
+
+#### 9.5.2 What it costs
+
+302 bytes of `.text`, and **nothing at all against `KERN_BUDGET`** (§15.1):
+the kernel image is padded to `OVL_START` and the growth lands in that
+padding. The per-pass cost of `mou_hotplug` after the mouse is found is
+unchanged at two compares, and the ISR's per-packet cost grows by one compare
+and one branch.
 
 ## 10. events.inc
 
@@ -2665,9 +3001,28 @@ grown to full width *for the damage's entire height* — which erased the
 drive icons out from under a window that merely reached the bottom of the
 screen, and left them erased, because `desk_dmg_zones` had already run
 against the smaller rect. The dock is a **per-window test** in the marking
-pass instead: the strip is repainted unconditionally and is drawn under
-windows, so a window whose rect reaches `[vid_dock_y0]` is marked, and no
-other pixel is disturbed.
+pass instead: the strip is drawn under windows, so a window whose rect
+reaches `[vid_dock_y0]` is marked, and no other pixel is disturbed.
+
+**That test is gated on the strip actually having been drawn**, and forgetting
+the gate cost a whole window repaint per damage pass. `dock_paint` is
+incremental (§30): it keys each tile on its icon and its
+live/minimized/active state, so a quiet desktop costs no pixels at all — and
+this test was written when the strip *was* repainted unconditionally, with a
+comment saying so that outlived the code it described. A window dragged low
+enough to sit on the strip was therefore erased and re-`W_PAINT`ed every time
+a volume was mounted, for a strip that had not changed a pixel; and the
+marking is transitive, so everything overlapping that window went with it.
+Measured on VGA with the Control Panel dragged onto the strip, one mount:
+313 glyphs and 103 fills, against 148 and 58 with the gate — the same cost as
+a mount with no window near the dock at all. `[wm_dmg_dk]` is the gate,
+a **one-shot argument** to `wm_dmg_wins` set by whichever caller just called
+`dock_paint` and got CF = 1, and cleared by `wm_dmg_wins` on the way out. It
+is cleared by the callee rather than the caller because the two errors are not
+symmetric: a wrong 1 costs a needless repaint, a wrong 0 leaves a window with
+the dock drawn through it, so the value that survives a forgotten call site
+must be the safe one — and a path that never set it is a path that drew no
+strip.
 
 **A wholly covered window is not drawn at all.** `wm_covered` seeds §11.3's
 region arithmetic with the **frame** rect instead of the content rect — a
@@ -3820,16 +4175,17 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 %if HEAP_SEG % 32
 %error "the pool or the heap is not 512-byte aligned - see KIMG_PARA"
 %endif
-%if KERNEL_SEG*16 + KERN_SIZE > BOOT_LIN - BOOT_STACK
-%error "the kernel would land on the relocated boot sector's stack"
+%if KERNEL_SEG*16 + KERN_SIZE > MIN_RAM_KB*1024 - BOOT_SECT - BOOT_STACK
+%error "the kernel does not fit MIN_RAM_KB - see docs/KERNEL-MEMORY.md"
 %endif
 ```
 
 **`KERN_BUDGET` is the one the project is steered by**: the kernel's whole
 footprint — image, scratch, FAT snapshot, disk buffers and every task stack
-— against 74,240 bytes (§2). Raising it is a decision to be taken with
+— against 86,528 bytes (§2). Raising it is a decision to be taken with
 whoever asked for the feature, which is why its message points at
-`docs/KERNEL-MEMORY.md` rather than telling you what to edit.
+`docs/KERNEL-MEMORY.md` rather than telling you what to edit; it has been
+taken ten times, and the doc records what each one bought.
 **`KERN_CODE_MAX`** is the guard immediately below it, and no conversation
 can move that one: 65,536 is what a 16-bit offset reaches.
 
@@ -3837,26 +4193,41 @@ Guard 4 is the menu save-under, the one kernel buffer deliberately outside
 that budget because it is a heap claim (§12.4/§50) that exists only while a
 menu is down — it bounds what `gfx_save` can be asked to write, which is a
 build-time property of the clamps and does not depend on when it is claimed. Guard 6 is the 512-byte
-alignment every int 13h target depends on (§2.1.1). Guard 7 is the relocated
-boot sector (§15.2). Keep this block last.
+alignment every int 13h target depends on (§2.1.1).
+
+**Guard 5 is the relocated boot sector (§15.2), and it is the third POLICY
+figure in the file.** The sector puts itself at the top of conventional RAM
+(§2.7), an address this file cannot know, so what the guard checks is the
+machine the system is *claimed* to run on: at `MIN_RAM_KB` = 128 the sector
+and its stack take the top 2,560 bytes and the kernel must fit below them —
+126,976 bytes. It used to name a fixed `BOOT_RELOC` and cap the footprint at
+82,432, which is exactly what `KERN_BUDGET` had reached, so for a while
+raising the budget bought nothing and the only way up was to move the sector.
+It is 44.5KB above the budget now. **When the kernel approaches *this* one
+the answer is not a raise**: it is two kernels off one tree, a full one and a
+minimum one, because a 128KB machine and a 640KB machine stop wanting the
+same feature set long before they stop fitting the same image. Keep this
+block last.
 
 ### 15.2 The boot sector relocates itself
 
 The BIOS loads `boot/boot.asm` to 0000:7C00 and jumps there. That code is
 still executing while the kernel's sectors arrive — it far-calls the splash
 at `KERNEL_SEG:0008` after every one — and the kernel lands at 0x00600 and
-runs up to 64KB, so it covers 0x7C00 long before the last sector.
+runs up past 80KB, so it covers 0x7C00 long before the last sector.
 
-So `start`'s first act, before it touches a drive, is to copy its own 512
-bytes to `BOOT_RELOC:7C00` (linear 0x11000, above anything the kernel can
-reach) and far-jump there. **The copy keeps the same offset**: every label in
-the file still resolves at `org 0x7C00`, only the segment registers change,
-and the stack rides along at the same offset and grows down from 0x11000.
-Nothing above the far jump addresses memory through a label, so that prologue
-runs correctly at 0000:7C00 where the BIOS put it.
+So `entry`'s first act, before it touches a drive, is to copy its own 512
+bytes out of the landing zone and far-jump there. **The copy keeps the same
+offset**: every label in the file still resolves at `org 0x7C00`, only the
+segment registers change, and the stack rides along at the same offset and
+grows down from the new base. Nothing above the far jump addresses memory
+through a label, so that prologue runs correctly at 0000:7C00 where the BIOS
+put it.
 
-`BOOT_RELOC` and `KERNEL_SEG` are mirrored in `kernel/kernel.asm`, whose
-guard 7 proves the kernel ends clear of the relocated stack.
+**Where it goes is computed — the top of conventional RAM, §2.7 — and that
+is what makes the kernel's footprint a policy question rather than an
+address.** `KERNEL_SEG` is the only constant `kernel/kernel.asm` and
+`boot/boot.asm` still share.
 
 ### 15.3 The bar does not stop at the last sector of the kernel
 
@@ -5251,42 +5622,58 @@ words little-endian. Sector size 512.
 **Shipped geometries** (what §24's os88disk.py emits — canonical DOS
 formats):
 
-| BPB field (off, size)      | 1.44MB            | 360KB             |
-|----------------------------|-------------------|-------------------|
-| BS_jmpBoot (0, 3)          | `EB 3C 90`        | `EB 3C 90`        |
-| BS_OEMName (3, 8)          | `"MSDOS5.0"`      | `"MSDOS5.0"`      |
-| BPB_BytsPerSec (11, 2)     | 512               | 512               |
-| BPB_SecPerClus (13, 1)     | 1                 | 2                 |
-| BPB_RsvdSecCnt (14, 2)     | 1                 | 1                 |
-| BPB_NumFATs (16, 1)        | 2                 | 2                 |
-| BPB_RootEntCnt (17, 2)     | 224               | 112               |
-| BPB_TotSec16 (19, 2)       | 2880              | 720               |
-| BPB_Media (21, 1)          | 0xF0              | 0xFD              |
-| BPB_FATSz16 (22, 2)        | 9                 | 2                 |
-| BPB_SecPerTrk (24, 2)      | 18                | 9                 |
-| BPB_NumHeads (26, 2)       | 2                 | 2                 |
-| BPB_HiddSec (28, 4)        | 0                 | 0                 |
-| BPB_TotSec32 (32, 4)       | 0                 | 0                 |
-| BS_DrvNum (36, 1)          | 0                 | 0                 |
-| BS_Reserved1 (37, 1)       | 0                 | 0                 |
-| BS_BootSig (38, 1)         | 0x29              | 0x29              |
-| BS_VolID (39, 4)           | 0x88000888 fixed  | 0x88000888 fixed  |
-| BS_VolLab (43, 11)         | `"OS8088APPS "`   | `"OS8088APPS "`   |
-| BS_FilSysType (54, 8)      | `"FAT12   "`      | `"FAT12   "`      |
-| boot code (62..509)        | message stub      | message stub      |
-| signature (510, 2)         | 0x55 0xAA         | 0x55 0xAA         |
+| BPB field (off, size)      | 1.44MB            | 720KB             | 360KB             |
+|----------------------------|-------------------|-------------------|-------------------|
+| BS_jmpBoot (0, 3)          | `EB 3C 90`        | `EB 3C 90`        | `EB 3C 90`        |
+| BS_OEMName (3, 8)          | `"MSDOS5.0"`      | `"MSDOS5.0"`      | `"MSDOS5.0"`      |
+| BPB_BytsPerSec (11, 2)     | 512               | 512               | 512               |
+| BPB_SecPerClus (13, 1)     | 1                 | 2                 | 2                 |
+| BPB_RsvdSecCnt (14, 2)     | 1                 | 1                 | 1                 |
+| BPB_NumFATs (16, 1)        | 2                 | 2                 | 2                 |
+| BPB_RootEntCnt (17, 2)     | 224               | 112               | 112               |
+| BPB_TotSec16 (19, 2)       | 2880              | 1440              | 720               |
+| BPB_Media (21, 1)          | 0xF0              | 0xF9              | 0xFD              |
+| BPB_FATSz16 (22, 2)        | 9                 | 3                 | 2                 |
+| BPB_SecPerTrk (24, 2)      | 18                | 9                 | 9                 |
+| BPB_NumHeads (26, 2)       | 2                 | 2                 | 2                 |
+| BPB_HiddSec (28, 4)        | 0                 | 0                 | 0                 |
+| BPB_TotSec32 (32, 4)       | 0                 | 0                 | 0                 |
+| BS_DrvNum (36, 1)          | 0                 | 0                 | 0                 |
+| BS_Reserved1 (37, 1)       | 0                 | 0                 | 0                 |
+| BS_BootSig (38, 1)         | 0x29              | 0x29              | 0x29              |
+| BS_VolID (39, 4)           | 0x88000888 fixed  | 0x88000888 fixed  | 0x88000888 fixed  |
+| BS_VolLab (43, 11)         | `"OS8088APPS "`   | `"OS8088APPS "`   | `"OS8088APPS "`   |
+| BS_FilSysType (54, 8)      | `"FAT12   "`      | `"FAT12   "`      | `"FAT12   "`      |
+| boot code (62..509)        | message stub      | message stub      | message stub      |
+| signature (510, 2)         | 0x55 0xAA         | 0x55 0xAA         | 0x55 0xAA         |
 
 Derived layout (all LBAs volume-relative = disk-absolute; unpartitioned):
 
-|                     | 1.44MB                  | 360KB                 |
-|---------------------|-------------------------|-----------------------|
-| FAT1 / FAT2         | LBA 1–9 / 10–18         | LBA 1–2 / 3–4         |
-| Root dir            | LBA 19–32 (14 sec)      | LBA 5–11 (7 sec)      |
-| First data sector   | LBA 33                  | LBA 12                |
-| CountOfClusters     | 2847 (clusters 2..2848) | 354 (clusters 2..355) |
-| FAT type            | FAT12 (2847 < 4085)     | FAT12 (354 < 4085)    |
-| FAT bytes needed    | 2849×1.5 = 4274 ≤ 4608  | 356×1.5 = 534 ≤ 1024  |
-| FAT[0..1] reserved  | `F0 FF FF`              | `FD FF FF`            |
+|                     | 1.44MB                  | 720KB                  | 360KB                 |
+|---------------------|-------------------------|------------------------|-----------------------|
+| FAT1 / FAT2         | LBA 1–9 / 10–18         | LBA 1–3 / 4–6          | LBA 1–2 / 3–4         |
+| Root dir            | LBA 19–32 (14 sec)      | LBA 7–13 (7 sec)       | LBA 5–11 (7 sec)      |
+| First data sector   | LBA 33                  | LBA 14                 | LBA 12                |
+| CountOfClusters     | 2847 (clusters 2..2848) | 713 (clusters 2..714)  | 354 (clusters 2..355) |
+| FAT type            | FAT12 (2847 < 4085)     | FAT12 (713 < 4085)     | FAT12 (354 < 4085)    |
+| FAT bytes needed    | 2849×1.5 = 4274 ≤ 4608  | 715×1.5 = 1073 ≤ 1536  | 356×1.5 = 534 ≤ 1024  |
+| FAT[0..1] reserved  | `F0 FF FF`              | `F9 FF FF`             | `FD FF FF`            |
+
+**720KB is 360KB's track shape on twice the cylinders**, and everything that
+follows from that is why it costs so little to carry. 9 sectors, 2 heads, 80
+cylinders instead of 40 — so `boot/boot.asm` is assembled once for both
+(`-DSPT=9 -DHEADS=2`), because the sector it produces derives the cylinder
+from the LBA and never holds a count of them to be wrong about. `BPB_FATSz16`
+rises to 3 for the same reason `BPB_TotSec16` doubles, and `DSK_FAT_SECS` (9)
+covers it, so the FAT window (§18.8) is still the degenerate whole-FAT case a
+floppy has always got. The cluster is 1KB on both, so §22.5's `fcp_clspan`
+and §18.4.2's run coalescing meet nothing new.
+
+**Why ship it**: it is the geometry of the machines *between* the two the
+project already targets — an XT or AT fitted with a 3.5" DD drive — and it is
+what a USB floppy drive or a Gotek reads. Those handle 720KB and 1.44MB and
+nothing 5.25", so on a machine whose BIOS cannot read a 1.44MB disk this is
+the only image that reaches it.
 
 **There was a test-only third geometry** — 2.88M ED, 23 FAT sectors,
 CountOfClusters 5698 ≥ 4085 ⇒ FAT16 — built by neither the Makefile nor the
@@ -5305,8 +5692,9 @@ reboot. Zero-padded to 510, then 55 AA. Byte-fixed ⇒ deterministic images
 (§24).
 
 **Why these choices**: canonical cluster/root/FAT counts — every era of
-DOS recognizes the textbook 1.44M/360K layouts (pre-BPB DOS keys on the
-media byte). NumFATs=2 — DOS and macOS expect it; single-FAT floppies
+DOS recognizes the textbook 1.44M/720K/360K layouts (pre-BPB DOS keys on
+the media byte, which is why the three differ there and it is not a serial
+number: F0h, F9h and FDh are what those DOSes look up). NumFATs=2 — DOS and macOS expect it; single-FAT floppies
 confuse CHKDSK. BS_BootSig 0x29 + serial + label — Windows/macOS mount
 heuristics. OEM "MSDOS5.0" — legacy DOS/Windows mount heuristics key on
 it; identity is carried by label+serial, and the kernel never reads OEM.
@@ -5559,10 +5947,10 @@ none can straddle a 64KB DMA boundary.
 armed once `SPL_RESIDENT` sectors are aboard, and the loop used to test
 `[lba]` for that — true while the kernel started at LBA 1 and *sectors done*
 and *sector number* were the same quantity. They are not any more: `[lba]`
-starts at 33 on the 1.44MB geometry and 12 on the 360KB one, both already
-past `SPL_RESIDENT`, so the splash was far-called before a byte of it had
-landed and the machine hung with a black screen inside `KERNEL_SEG`. Sectors
-done is now counted on its own.
+starts at 33 on the 1.44MB geometry, 14 on the 720KB one and 12 on the 360KB
+one, all three already past `SPL_RESIDENT`, so the splash was far-called
+before a byte of it had landed and the machine hung with a black screen
+inside `KERNEL_SEG`. Sectors done is now counted on its own.
 
 #### Why: DOS does not read `BPB_RsvdSecCnt` on a floppy
 
@@ -5582,20 +5970,25 @@ against the old image reproduced the figure to the byte.
 one vintage that a later one fixes. A boot-sector BPB is what DOS reads for a
 hard-disk *partition*; for a standard floppy format it is not consulted at
 all — which is why the fix is not "write a better BPB" but "put nothing where
-DOS is going to look". The image is now a byte-exact standard format on both
-geometries:
+DOS is going to look". The image is a byte-exact standard format on every
+geometry it is built for:
 
-| | 1.44MB | 360KB |
-|---|---:|---:|
-| `BytsPerSec` | 512 | 512 |
-| `SecPerClus` | 1 | 2 |
-| `RsvdSecCnt` | 1 | 1 |
-| `NumFATs` | 2 | 2 |
-| `RootEntCnt` | 224 | 112 |
-| `TotSec16` | 2880 | 720 |
-| `Media` | F0h | FDh |
-| `FATSz16` | 9 | 2 |
-| data area at LBA | 33 | 12 |
+| | 1.44MB | 720KB | 360KB |
+|---|---:|---:|---:|
+| `BytsPerSec` | 512 | 512 | 512 |
+| `SecPerClus` | 1 | 2 | 2 |
+| `RsvdSecCnt` | 1 | 1 | 1 |
+| `NumFATs` | 2 | 2 | 2 |
+| `RootEntCnt` | 224 | 112 | 112 |
+| `TotSec16` | 2880 | 1440 | 720 |
+| `Media` | F0h | F9h | FDh |
+| `FATSz16` | 9 | 3 | 2 |
+| data area at LBA | 33 | 14 | 12 |
+
+That is also what made the 720KB disk cheap to add rather than a port: its
+column is the DOS format nobody had to invent, so DOS and os8088 read it for
+the same reasons they read the other two, and the boot sector derives the
+data area from the BPB instead of being told where it is.
 
 Three consequences fall out, all wanted:
 
@@ -6785,6 +7178,7 @@ allocated and cascaded by `app_launch` and handed to `fm_kinit` in DI:
 | 14 | `FS_FERR` b | `FERR_*` of the last file operation **in this window**, 0 = none |
 | 16 | `FS_VSEG` w | this window's listing-cache claim (§50.2), 0 = none |
 | 18 | `FS_VKB` b | how many KB that claim actually is (§22.6) |
+| 19 | `FS_DIRTY` b | 1 = a file operation changed this folder under it, and neither its cache nor its pixels shows that yet (§22.8) |
 | 20 | `FS_FREE` w | KB free on its volume, 0xFFFF = not known (§22.7) |
 | 22 | `FS_USED` w | KB summed over its listed entries, 0xFFFF = not known (§22.7) |
 
@@ -7272,7 +7666,10 @@ performance input, not a precondition.
 | `fmv_get_icon` | in AX = entry index; out SI → `dsk_ico`. Same. |
 | `fmv_load` | in AL = drive, DX = cwd cluster, DI = state block; **no gfx lock requirement, but real floppy I/O**. `dsk_chdir` (DL = AL, AX = DX), then copy the fresh global snapshot into the block's slot and write back `FS_DRV`/`FS_CWD`/`FS_MOK`/`FS_N` from what the mount actually produced (a failed mount lands at the root with `FS_MOK` = 0 — §19.2). Clears `FS_SEL`/`FS_SCRL`/`FS_FERR`: every index into the old listing is meaningless. Preserves all registers. |
 | `fmv_sync` | in DI = state block. Returns immediately when `(FS_DRV, FS_CWD)` already equals `([disk_drive], [dsk_cwd])`; otherwise `fmv_load` on the block's own drive and cwd, **banking `FS_SEL` and `FS_SCRL` across it** — a sync is not navigation, the window is re-listed where it already was, and clearing them would scroll a background window back to the top on a double-click. **Every action calls this first.** Preserves all registers. |
-| `fmv_bcast` | after a successful metadata write, re-copies the (already correct, §18.4) global snapshot into **every** live file-manager window on the same `(drive, cwd)` — the acting one included, since its own cache is stale too — and clears their `FS_SEL`/`FS_SCRL`. Pure memory, no extra I/O. |
+| `fmv_bcast` | after a successful metadata write, re-copies the (already correct, §18.4) global snapshot into **every** live file-manager window on the same `(drive, cwd)` — the acting one included, since its own cache is stale too — and clears their `FS_SEL`/`FS_SCRL`. Pure memory, no extra I/O. Clears `FS_DIRTY` for the acting window alone (§22.8): it is the one its caller repaints. |
+| `fmv_take` | in DI = state block, whose `(FS_DRV, FS_CWD)` the caller has already compared against the globals. The memory half of a re-list — the four stores `fmv_load` makes around its `dsk_chdir`, with no mount in it. Shared by `fmv_bcast` and `fm_focus`. Preserves all registers. |
+| `fmv_mark` | in nothing: `([disk_drive], [dsk_cwd])` are the folder that just changed. Sets `FS_DIRTY` on every live file-manager window showing it and raises `[fm_fchk]` (§22.8). Writes bytes only — the caller may hold the gfx lock. Called by `dskw_sync`. |
+| `fm_focus` | in BX = the window gaining the focus (0 = none), AL = 0 the caller draws it / 1 draw it here; **gfx lock held, UI task**. On a file-manager window owing a refresh: re-list (`fmv_take` where the globals allow, else `fmv_load`), clear `FS_DIRTY`, and either repaint or answer **CF = 1** so the caller draws it whole (§22.8). CF = 0 = nothing owed. Preserves all registers. |
 
 **`fm_layout` is the sole authority on `[fm_vseg]`** (and `[fm_vp]`): it
 calls `fm_vp_set` at its head, then mirrors **eight** fields — `FS_VIEW`,
@@ -7776,6 +8173,88 @@ entries that are not in it) and to `[dsk_maxclus]` (or it counts past the end
 of the volume). Clamping to one and not the other is the bug that reads as a
 free-space figure which is merely plausible.
 
+### 22.8 A write marks the folder; the focus spends the mark
+
+§22.1's rule has two halves — "paints read the cache, actions re-sync" — and
+only one of them was ever implemented on the **write** side. A window's cache
+is rebuilt by the file manager's own operations (`fmv_bcast`,
+`fmv_reload_all`) and by nothing else, so a *package* writing through the
+file API changed a folder that up to four windows might be showing and none
+of them was told. What that cost was not a stale display but **the wrong
+file**: a double-click resolves the clicked row against the window's cache
+and hands `loader_run` a directory INDEX, `fmv_sync` finds the window's
+`(drive, cwd)` already mounted and does not re-list, and the index is then
+resolved against globals in which a newly written name has sorted itself into
+place (§19.4) and shifted every entry after it. The loader reads the entry
+next door and reports **Bad package** — correctly, about a file the user
+never clicked (docs/FIELD-NOTES.md 4).
+
+The fix is a byte per window and two hooks.
+
+**`FS_DIRTY` (block offset 19)** means *neither this window's cache nor its
+pixels is a picture of its folder any more*. It is not a cache flag: a cache
+rebuilt without a repaint is the same failure with the stale half moved onto
+the glass — the rows on screen naming one file while the hit-tester resolves
+another — so the two are made current together or not at all.
+
+**`fmv_mark` sets it, from `dskw_sync`.** That is the one routine a
+successful file operation passes through (§18.4's coherence remount), so no
+operation can be added that forgets to mark, and `[disk_drive]` / `[dsk_cwd]`
+at that moment ARE the folder that changed, because that is where every file
+API resolves a name (§19.2). It only ever writes bytes: the caller may hold
+the gfx lock and must not be made to draw or to mount. It is called **ahead
+of** the `[dskw_batch]` test, because a tree copy changes folders that the
+single remount at the end of the batch has long left — but inside a batch it
+marks *without* raising `[fm_fchk]`, because a multi-file operation pays its
+own coherence at the end (§22.3) and `fcp_step` reaches the event loop at
+exactly one point before then: the replace question's pause, the one moment
+the operation is stopped and the user is reading the line it is asking about.
+
+**`fm_focus` spends it, when the window comes to the front.** A window
+nobody is looking at is not re-listed, because a re-list is a mount and four
+windows may owe one; the debt is paid where it becomes visible. It answers
+CF = 1 when it re-listed, and takes AL to say who is going to draw:
+
+- **`wm_raise` (§11.90) calls it first, with AL = 0**, before a pixel of the
+  raise is drawn — so the raise itself puts the new listing up, rather than
+  drawing the old one and then the new. CF = 1 upgrades a title-bar-only
+  raise to a whole-window one, which is exactly right: §11.90's cheap path
+  reasons that coming to the front reveals nothing, and this is the one case
+  where the window's own CONTENT changed as well.
+- **The UI task's deferred pass calls it with AL = 1**, where there is no
+  caller to defer to and `fm_repaint` runs unclipped — safe because `wm_top`
+  has just said nothing is on top of this window. That pass is the catch-all
+  and it is gated on one byte, `[fm_fchk]`, set by `fmv_mark` and by
+  `menu_activate` when the active application changes. It covers the two
+  focus gains no raise reaches: **the front window being dirtied under the
+  pointer** (a package writing from a callback while a Disk window is
+  frontmost, where waiting for a focus change means waiting for a click that
+  never comes), and **promotion** — losing the front window hands the bar and
+  the pinstripes to the window underneath (§11.91, `menu_check`) without ever
+  calling `wm_front`.
+
+The mount is usually skipped. `fmv_take` — the memory half of a re-list,
+factored out of `fmv_bcast` so the two cannot disagree about what a fresh
+cache means — is taken when the globals already are this window's folder,
+are not `[dsk_lstale]` (§18.9) and came from a mount that worked; and they
+usually are, because the write that dirtied the window ended in a remount of
+the folder it wrote to. Otherwise it is `fmv_load`, which is what Refresh has
+always cost.
+
+**Clearing is the sharp end, and the rule is: only something that makes the
+cache AND the pixels current may clear it.** `fm_focus` does both.
+`fmv_reload_all` does, because `fmv_repaint_all` is the other half of that
+pass (§22.3) — and a window it re-listed while hidden is drawn whole from the
+new cache when it is next shown, so no debt survives. `fmv_bcast` clears it
+for the **acting** window only, the one its caller is about to repaint; a
+sibling gets the cache and keeps the mark, which also repairs a staleness
+that predates this section — `fmv_bcast` never did repaint the siblings it
+refreshed. `fmv_load` and `fmv_sync` clear **nothing**: `fmv_sync` re-lists a
+background window in order to act in its folder and draws no pixels at all.
+`fm_kinit` clears it because a `KD_POOL` block is reused (§29.3) and a window
+closed still owing a refresh must not hand that debt to the next window in
+its slot.
+
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
 Not kernel code: a .o88 package built with os88api.inc, org 0 (§20.1), all
@@ -7845,12 +8324,13 @@ and non-zero exit + stderr message on any validation failure.
   [0x20, image) (≥ 0x60 with the icon flag); image + bss ≤ `APP_MAX_SIZE`
   (0xF000); with the icon flag, image ≥ 96; name printable, ≤ 15, NUL-padded
   with nothing after the terminator.
-- `tools/os88disk.py -o OUT.img --size {1440,360} [PKG.o88 ...]` — builds
-  a FAT12 data floppy per §19. CLI shape unchanged from the os88fs era —
-  the Makefile call sites need zero edits; pure Python 3 stdlib (no
-  mtools). These two are the only geometries: a `--size 2880` (2.88M ED,
+- `tools/os88disk.py -o OUT.img --size {1440,720,360} [PKG.o88 ...]` —
+  builds a FAT12 data floppy per §19. CLI shape unchanged from the os88fs
+  era — the Makefile call sites need zero edits; pure Python 3 stdlib (no
+  mtools). These three are the only geometries: a `--size 2880` (2.88M ED,
   FAT16) existed so the kernel's FAT16 path had a positive test and went
-  with it (§2.1). The tool still derives the FAT type from the cluster
+  with it (§2.1). 720 and 360 share a boot sector — same 9 spt / 2 heads,
+  and `boot/boot.asm` knows nothing else about a disk's shape. The tool still derives the FAT type from the cluster
   count exactly like the kernel does, and its `--verify` fsck carries the
   same `1 ≤ FATSz16 ≤ 10` bound as mount rule 10, so a volume the kernel
   would refuse fails on the host too.
@@ -7898,8 +8378,11 @@ and non-zero exit + stderr message on any validation failure.
     doubles as the test-plan oracle.
 - Makefile: one `nasm -f bin -w+error -I apps/` per package (dep on
   apps/os88api.inc) — a single assembly each since v3 — fed to os88pkg.py,
-  then `build/apps.img` (1440) + `build/apps360.img` (360) via os88disk.py;
-  all built by `all`.
+  then `build/apps.img` (1440) + `build/apps720.img` (720) +
+  `build/apps360.img` (360) via os88disk.py; all built by `all`, alongside
+  the three bootable system disks `build/os8088.img`,
+  `build/os8088-720.img` and `build/os8088-360.img`. Every one of the six is
+  git-tracked and therefore checked by `make check-images`.
   The apps disks are **foldered**: the root holds `APPS`, `GAMES` and the
   one root-level file `TASKMGR.O88` (§28.3 — the chip menu's copy, for a
   single-floppy machine). `APPS` holds the tools plus the data file
@@ -8098,21 +8581,52 @@ up, two partitions mounted — 371 glyphs became 182, and the 182 is almost
 entirely the Control Panel redrawing its own page after the click. No
 `wm_paint_all` runs at all.
 
-**The rect is the GRID, not the zones currently shown**, and that is the one
-subtle part. Adding or removing a volume can move the zones *after* it: a
+**The rect covers ordinals 0..n-1, and n is a HIGH-WATER MARK.** The subtle
+part is that adding or removing a volume moves the zones *after* it — a
 volume added into a hole an earlier unmount left takes an ordinal that used
-to be somebody else's. Sizing to the grid makes the answer independent of
-what is mounted. `desk_zones_dmg` asks `desk_ord_xy` for two corners rather
-than writing the layout arithmetic a second time — ordinal 0 is the top of
-the rightmost column, and the bottom-left corner is
-`(cols-1) * desk_rows + (rows_used-1)`.
+to be somebody else's — so the rect cannot simply be "the zones that are
+there now". The first answer to that was the whole GRID, `DVOL_MAX` zones,
+independent of what is mounted. **That was too big, and on a short-column
+geometry it was too big in the worst possible direction**: zones fill a
+column downwards and then wrap LEFT, so the unused ones are not slack at the
+edge of the rect but whole *columns* of empty desktop reaching back across
+the screen. On CGA `[desk_rows]` is 2, so a machine showing three volumes
+occupied x 526..633 while the grid claimed x 470..633 — and those 56 phantom
+pixels reached into the Control Panel window that the Mount button lives in,
+so §11.91's marking pass redrew that window WHOLE, `W_PAINT` and all, every
+time a disk was mounted. Measured on CGA: 295 glyphs and 102 fills for one
+mount, against 148 and 58 once the phantom column went — **2.0x**, with the
+framebuffer byte-identical.
 
-That last expression is **not** the last volume's ordinal, and the difference
-is a real bug on one adapter. `[desk_rows]` is 4 on Hercules, so six volumes
-are two columns of four and two — the last ordinal sits in row 1, two whole
-zones above the bottom of the first column, and a rect sized to it would cut
-them off. Taking the deepest row any column reaches costs at most one unused
-row of slack, in the safe direction.
+`[desk_zhw]` is that mark: the largest number of zones the screen may be
+showing while the repaint debt stands. `desk_zmark` raises it and sets
+`[desk_zdirty]` together, and the asymmetry in *when* the two callers mark is
+what makes it exact — **the changing zone is counted either way**. An add
+marks after the row goes live, because an add renumbers only ordinals below
+the new count. A delete marks *before* the flag is cleared, because what it
+leaves behind is stale pixels at what was the last ordinal. Taking the max
+also survives coalescing, which "the live count plus one" does not:
+unmounting a three-partition disk drops three volumes before `ui_task` looks
+at the flag. `desk_zones_paint` spends the mark and clears it — once those
+pixels are back the screen shows exactly the zones that exist, so the next
+change starts counting from what it can see. A mark of 0 means no pending
+change at all, and `desk_zones_dmg` then falls back to the live count, which
+is what `osapi_vol_paint` needs; it also floors n at 1, so ordinal 0 is
+always a legal argument.
+
+`desk_zones_dmg` asks `desk_ord_xy` for two corners rather than writing the
+layout arithmetic a second time — ordinal 0 is the top of the rightmost
+column, and the bottom-left corner is `(cols-1) * desk_rows + (rows_used-1)`.
+`desk_zones_shown` is likewise `desk_ord` asked about an index no row can
+have: the walk then never stops early and reports every shown zone in AH, so
+there is one definition of which zones are shown and in what order.
+
+That corner expression is **not** the last volume's ordinal, and the
+difference is a real bug on one adapter. `[desk_rows]` is 4 on Hercules, so
+six volumes are two columns of four and two — the last ordinal sits in row 1,
+two whole zones above the bottom of the first column, and a rect sized to it
+would cut them off. Taking the deepest row any column reaches costs at most
+one unused row of slack, in the safe direction.
 
 ## 27. HELLO and NOTEPAD — the second and third packages
 
@@ -8948,7 +9462,50 @@ the far end of the span — which is exactly what a move is. The alternative was
 a staging claim the size of the selection, and a drag that fails because the
 heap is busy is a drag the user has no way to understand.
 
-#### 27.8.2 Cut, Copy and Paste
+#### 27.8.2 Moving the inversion draws no glyphs
+
+`np_rflush` folds the **union** of a row's old and new selected spans into the
+span it draws, so changing which cells are inverted dragged the *glyphs* along
+with it: a drag re-lettered every dirty row in full, at ~30 cells a row. That
+is ~1ms a cell on the target machine (PERFORMANCE.md Part 2), and it is what
+made dragging feel slow long after §27.8.1 had cut the layout.
+
+But a drag **changes no character anywhere**. What it changes is which cells
+are inverted, and XOR is exactly that operation — so a row whose only change
+is its inversion flips the cells whose selected-ness differs and letters
+nothing at all. The walk already visits every character, so it records two
+spans per row instead of one: `[np_rs0]`/`[np_rs1]`, the cells that are
+selected, and `[np_xs0]`/`[np_xs1]`, the cells whose selected-ness differs
+from **what the screen is showing** — the symmetric difference, which is
+precisely what one XOR must flip.
+
+`[np_osel0]`/`[np_osel1]`/`[np_oselon]` are that "what the screen is showing",
+in character indices, and `np_selmark` is the single place they are set: every
+path that finishes a redraw calls it, *including the ones that drew nothing*,
+because a row whose selection did not change is not in the dirty band and the
+live selection describes it either way. Three words, no per-row array, and
+nothing for a scroll to keep in step — which is what `np_shiftrows` would
+otherwise have had to do for a fourth and fifth array.
+
+**The gate is a selection at both ends**, and that is what keeps the caret out
+of it: `np_carets` draws no bar while a selection is up, so with one before
+and one after there is no caret to erase — and erasing a caret means lettering
+the cell underneath it, which this path cannot do. A drag that collapses its
+selection to nothing falls back to the ordinary row draw and costs one row.
+
+Measured over an identical scripted drag: **4,049 glyph cells in 141
+`font_run` calls → 929 in 33**, a 4.4x cut, on top of §27.8.1's 4.2x on
+layout. Verified the §48.12 way on VGA and CGA — grow, shrink, and drag back
+past the anchor so the selection flips direction — **0 differing pixels**
+against a forced full repaint every time.
+
+**No new kernel primitive was needed, and the obvious one would not have
+helped.** `gfx_xor_fill` (slot 0x0058) is already an inversion, and `font_run`
+already takes an ink *and* a background (§6.1), so "draw this run inverted" is
+`AL = CWHITE, AH = CBLACK` and has always been expressible. The cost was never
+the inversion — it was re-lettering cells whose characters had not moved.
+
+#### 27.8.3 Cut, Copy and Paste
 
 Over §55's system clipboard, so what is copied here can be pasted in another
 program and outlives the instance that copied it.
@@ -13399,6 +13956,173 @@ too large" — its staging was the default canvas's undo image. The Paint after
 it opens a 124,918-byte one (620×400, cropped to the screen's 594×390) and
 every one of the 390 decoded rows matches the source pixel for pixel, 190 of
 them read from source bytes past the 64KB horizon.
+
+### 42.7 Full Screen — the §53 bracket, and why NOT the §11.2 surface
+
+View ▸ Full Screen, or Ctrl+F. `pt_cmd_fs` calls `OSAPI_FSX_RUN` and nothing
+else, and **the thing it deliberately does not do is take the §11.2 fullscreen
+surface first**. That is the opposite of Missile Command (§48.13), which is on
+the §11.2 surface and puts a bracket on top of it, and the reason is the
+repaint count — measured, on the restore path the 8088 target actually takes.
+
+The obvious design is §11.2 then the bracket, and it is genuinely attractive:
+`wm_fullscreen` writes the screen's geometry into the *window record*, so
+`pt_org`'s `OSAPI_WM_CONTENT` + `OSAPI_WM_GEOM` answer the whole screen by
+themselves and every coordinate in the app follows with no fullscreen branch
+anywhere. It was built that way first. **What kills it is coming home.**
+§53.6 step 4 owes the desktop one `wm_paint_all` — and with the window still
+`WF_FULL` at that moment, that repaint draws the *full-screen* Paint, which
+the `OSAPI_FULLSCREEN` AL=0 that follows immediately throws away and repaints
+again as a window. A full-canvas draw here is the app's whole cost, and one of
+them is spare.
+
+Measured with the counters at `gfx_blit4` / `gfx_fill` / `font_char`
+(CLAUDE.md's recipe), one launch-enter-leave round trip, nothing drawn in
+between, **the §53.6.1 XMS stash forced off** because the target is tier 0 and
+has no store:
+
+| | canvas blits | `gfx_fill` | glyphs |
+|---|---|---|---|
+| enter, either design | 2 | ~730 | 14 |
+| leave, §11.2 + bracket | **3** | 1,496 | 102 |
+| leave, bracket alone | **1** | 770 | 88 |
+
+The two blits are one full-screen canvas: `pt_blit` bands a canvas that spans
+more than one segment, and 594×390 at the BMP stride is 117,000 bytes. So the
+round trip went from **five full-canvas draws to three** — two on the way in,
+which is the app's ordinary repaint at a new size, and one on the way home,
+which the desktop is owed anyway. `gfx_fill` on the exit halved (1.94x).
+
+**That measurement had to be taken with the stash off, and this is the trap
+worth recording**: on a 286+/VGA machine with extended memory, `fsx_restore`
+writes the saved planes back instead of repainting (§53.6.1), so the spare
+repaint *disappears* — the same test on a stock QEMU box measures the two
+designs as 4 blits against 3 and the problem looks minor. The machine this
+tree is calibrated against has no XMS at all, which is exactly where the spare
+repaint costs the most.
+
+So the geometry moves into the app instead, and it is **one branch in one
+routine**: `pt_org` answers origin (0,0) and the content box `[pt_scrw]` ×
+`[pt_scrh]` while `[pt_fsx]` is set, and asks the kernel otherwise. Everything
+downstream — the palette, the divider, the canvas origin, the strip, the whole
+click ladder — is derived from those four words and needs no fullscreen branch
+of its own. Two consequences follow from the kernel not knowing:
+`pt_repaint` skips `OSAPI_WM_GROW` (there is no grow box on a screen the
+window manager is not drawing, and `wm_grow_paint` would put one at the
+record's own corner, which is a window nobody can see), and the first paint
+has to clear its own bed, because there is no `wm_draw_win` white fill in
+front of it — `pt_fsbed`, two rects rather than one over the whole screen,
+since the rest is about to be covered by `pt_blit_all` and the strip's own bed
+and painting it twice is PERFORMANCE.md's double-draw with the picture as the
+second layer.
+
+The windowed path kept the change `wm_geom` brought: `[es:bx+W_W] - 2` and
+`[es:bx+W_H] - TITLE_H - 1`, open-coded in `pt_org` for years, are the
+kernel's own arithmetic and belong in the one routine that knows about title
+bars (§41).
+
+**The bracket is a same-mode bracket** (§53.7): no
+`fsx_mode` call, so every drawing slot stays legal and one body serves VGA,
+Hercules and CGA. Nothing here consults `fsx_caps` and **the menu item never
+greys** — the caps mask answers a question about *modes* and this sets none,
+so there is no fact to grey on (§47 rule 3). What the bracket buys is
+exclusivity, and on a paint program that is the largest item there is:
+`pt_wait` runs once per mouse sample of every stroke, and windowed it is an
+unlock/yield/lock round trip — the pair PERFORMANCE.md Set 4 priced at 21.8%
+of a Missile Command session with no pixel of the game in it, plus the system
+arrow erased and redrawn inside each one. A drag here issues more of those
+than a game frame does.
+
+Three things the bracket owes that a window gets free, and they are the only
+new code:
+
+- **The pointer.** The held lock keeps the mouse ISR off the screen for the
+  whole session (§53.6), so the app draws its own: `pt_ptr_xor` is two XOR
+  bars with the centre pixel left as a hole by the double XOR — Missile
+  Command's crosshair (§48.18), and what a bitmap editor wants over a picture
+  anyway. XOR being its own inverse is what makes `[pt_ptrx]`/`[pt_ptry]`
+  load-bearing: the position is **banked and replayed** rather than re-read
+  from the mouse, because an erase at a position the draw never used leaves
+  half a crosshair on the picture for the rest of the session. It comes
+  **off around every dispatch** and back on after — a click or a key may draw
+  anywhere, and an XOR overlay that has been drawn over can never be erased,
+  only smeared. It stays off for the whole of a tracking loop, which is not a
+  compromise: the ink or the rubber band is the feedback while the button is
+  down, and it is where the pointer is.
+- **The input model.** No events are dispatched, so `pt_fsx_main` polls int
+  16h and `OSAPI_MOUSE` and calls **this app's own callbacks with the
+  arguments the kernel would have handed them** — a press becomes `pt_click`
+  with the mouse's own absolute screen coordinates, a key becomes `pt_onkey`
+  with int 16h's own AX. Nothing else in the app is told the difference, which
+  is why tools, the tool palette, the colour strip, the size boxes, the toast
+  and the About card all work in there unchanged.
+- **The pace.** `[pt_fsx]` turns `pt_wait` and `pt_wait_tick` into
+  `OSAPI_FSX_WAIT`. Not a substitution of convenience: the lock in there is
+  the caller's, taken before `fsx_run` and released after it returns, and
+  `gfx_unlock` is where the §32 flush lives — so on a double-buffered machine
+  `fsx_wait` is the **only present a tracking loop gets** (§53.5). What is
+  given up is the yield, and a bracket has nothing to yield to.
+
+Two ways out, and the second is conditional. Ctrl+F always. Escape **only
+when it has nothing else to cancel** — it already ends a text run, drops a
+selection and abandons a size-box edit, and answering a half-typed caption by
+throwing the user out of full screen would be the wrong answer to the same
+keypress.
+
+What is not there is the menu bar, so File and the §38 dialog are out — the
+dialog is modal and its answer arrives through the event ladder, which does
+not run in a bracket (Tracker has the same limit, §45.13). `pt_dlg` carries
+the fence anyway, as a refusal with a toast. Nothing routes to it from in
+there today, so it is a fence and not a path; it is written down at the
+routine the rule constrains rather than left to the callers that happen to
+respect it.
+
+**The canvas maxima do NOT rise, and that is the one decision worth the
+argument.** `[pt_cwmax]`/`[pt_chmax]` keep meaning "the biggest canvas a
+*window* can show", so a fullscreen Paint grows the picture up to that bound
+and no further — which on every adapter leaves exactly **67 rows** of white
+between the canvas and the strip, that being precisely the chrome a window
+costs: `DOCK_H` 24 + `MBAR_H` 20 + `TITLE_H` 18 + the separator row + the four
+rows `PT_WIN_Y` leaves under the bar. Giving those rows to the canvas
+is a one-way door: the canvas **is** the content (§42), the window has no
+viewport and cannot show a picture larger than itself, and a shrink that would
+throw away ink is refused per axis — so a user who painted in the borrowed
+band could never come back to a window, and the only ways out would be
+destroying their artwork or trapping them in full screen. The white band is
+the honest price of an exit that always works. It is worst on CGA (67 of 200
+rows) and there the canvas was already the awkward one.
+
+Leaving is therefore the ordinary resize path, unchanged. `pt_fsx_main` clears
+`[pt_fsx]` and returns; `fsx_restore`'s one `wm_paint_all` runs `W_PAINT`;
+`pt_org` answers for the window again and `pt_track` shrinks the canvas back
+to the smaller content — or refuses, because that would crop artwork. **The
+canvas is resized before that repaint draws it**, `pt_track` running at the top
+of `pt_paint`, so the single repaint is also the correct one. `[pt_fs]` is
+still set across the whole bracket, `pt_cmd_fs` clearing it only after
+`OSAPI_FSX_RUN` returns, and that is what stops `pt_track` from calling
+`pt_wfix` inside a paint the kernel is in the middle of: a refusal owes the
+toast and nothing else (`[pt_apend]` = 2). `pt_cmd_fs` then squares the frame
+with `OSAPI_WM_RESIZE`, from outside a paint proc where that call is legal,
+**and only when the canvas and the record actually disagree** — the second
+repaint an exit can cost, owed only when the user's own artwork asked for it,
+and never on the ordinary trip where the canvas fits the window it left.
+`pt_szapply` takes the same fork the other way: inside the bracket the content
+box did not move, so a canvas resized from the size boxes owes the repaint
+`wm_resize` would have brought and not the resize.
+
+**The strip is flush with the bottom of the content, not one row under the
+canvas** (`pt_stripset`). In a window those are the same row by construction —
+`[pt_conth]` is the canvas plus the separator plus `PT_STRIP_H` — so the two
+expressions agree to the pixel and nothing changed there; on the fullscreen
+surface it is what puts the controls at the screen edge instead of leaving
+them floating with 67 rows of white below. `pt_draw_strip`'s white bed starts
+at the canvas rather than at the strip, so the gap is erased by the fill that
+was always there, and `pt_strip_click` stays correct for the reason it always
+was: it tests only that the click is at or below `[pt_stripy]`, which is safe
+exactly because the strip ends where the content does. The columns to the
+right of a canvas narrower than its content need no fill of their own — a
+width shrink is refused unless the doomed columns are white, so they already
+are.
 
 ## 43. Solitaire — the eighth package (apps/solitaire/solitaire.asm)
 
@@ -17981,7 +18705,15 @@ the video mode is the app's to change (§53.4: all four CGA modes, both
 Hercules modes, four VGA modes). Module `kernel/fsx.inc`, prefix `fsx_`,
 four API slots (§53.8). The first consumer is Missile Command (§48); the
 second is Tracker (§45), whose worker-fed audio ring is what
-`FSXF_KEEPWORKER` exists for.
+`FSXF_KEEPWORKER` exists for. The third is Paint (§42.7), and it is the one
+that shows what a **same-mode** bracket is for on its own: it sets no mode, so
+it needs no caps bit and runs on all three adapters out of one body, and what
+it takes the machine for is not a raster but the lock — a drag samples the
+mouse once a frame and every sample was an unlock/yield/lock round trip. It is
+also the one that does **not** sit on the §11.2 surface, and §42.7 records the
+measurement that decided it: for an app whose repaint is expensive, §11.2 plus
+a bracket pays step 4's `wm_paint_all` on a window that is still `WF_FULL` and
+then repaints it again as a window, and the first of those two is spare.
 
 ### 53.1 The bracket (binding)
 
@@ -18342,7 +19074,13 @@ everything they touch.
   `VIDEO=herc` + hercshot. 86Box: `xt-cga`, `xt-hercules` (the real 6845
   text↔graphics flip — the one thing QEMU cannot exercise), `286`/`386`.
 - Missile Command (§48) is the shipped reference consumer; Tracker
-  (§45) follows with `FSXF_KEEPWORKER`.
+  (§45) follows with `FSXF_KEEPWORKER`. Paint (§42.7) is the same-mode
+  consumer, and the one to run when the question is whether a bracket that
+  sets no mode still works everywhere: enter, draw, leave and check the
+  picture on VGA, on `VIDEO=cga` and on `VIDEO=herc` + hercshot, and again
+  with the Control Panel's Display page armed — with a back buffer up, the
+  entry frame reaches VRAM only through `fsx_wait`'s flush, so a blank screen
+  there is §53.5's present and not the app.
 
 ---
 

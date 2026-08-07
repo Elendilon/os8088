@@ -17,8 +17,8 @@ last time.
 ## The rule
 
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
-includes its buffers.** The span is `KERN_BUDGET` bytes — 80.5KB today. It
-currently runs 0x00600 through 0x13FFF, and the budget's ceiling is 0x14800.
+includes its buffers.** The span is `KERN_BUDGET` bytes — 84.5KB today. It
+currently runs 0x00600 through 0x145FF, and the budget's ceiling is 0x15800.
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
 data, `.bss`, the cold segment, the FAT window, the directory and icon
@@ -33,7 +33,7 @@ says which is which:
 
 | name | what it bounds | can it be raised? |
 |---|---|---|
-| **`KERN_BUDGET`** | the **footprint** — this whole span, RAM taken from the machine | not any more. See below |
+| **`KERN_BUDGET`** | the **footprint** — this whole span, RAM taken from the machine | yes, by asking. Ten times so far — see below |
 | **`KERN_CODE_MAX`** | the **segment** — `.text` + `.bss` in one 64KB window | **no.** It is what a 16-bit offset reaches |
 
 They are relieved by different things, and that is the distinction that
@@ -74,15 +74,13 @@ or not a package was loaded. A package's region is an ordinary heap claim now
 (SPEC.md §20.1), taken from the top of the heap downward while data claims
 grow up from the bottom.
 
-### `KERN_BUDGET` has run out of room to be raised
+### `KERN_BUDGET` ran out of room to be raised, and then the wall moved
 
-This is new, it is the most important fact in this document, and it is
-measured rather than reasoned. **`KERN_BUDGET` is now exactly equal to guard
-5's ceiling.**
-
-Guard 5 exists because `boot/boot.asm` relocates itself to `BOOT_RELOC:7C00`
-and is *still executing* while the kernel's sectors land, so the kernel must
-end below the relocated sector's stack:
+For one release this was the most important fact in this document:
+**`KERN_BUDGET` was exactly equal to guard 5's ceiling**, so raising it
+bought nothing. Guard 5 existed because `boot/boot.asm` relocated itself to a
+fixed `BOOT_RELOC:7C00` and is *still executing* while the kernel's sectors
+land, so the kernel had to end below the relocated sector's stack:
 
 ```
 KERNEL_SEG*16 + KERN_SIZE  <=  BOOT_LIN - BOOT_STACK
@@ -90,23 +88,52 @@ KERNEL_SEG*16 + KERN_SIZE  <=  BOOT_LIN - BOOT_STACK
                  KERN_SIZE  <=   82,432
 ```
 
-and `KERN_BUDGET` is **82,432**. Confirmed by padding `.text` until something
-breaks: at 2,182 bytes of padding the build passes, at 2,183 guard 5 fires —
-not guard 1. So raising `KERN_BUDGET` by even one byte buys nothing; the
-build would still fail, just with a different message.
+Confirmed at the time by padding `.text` until something broke: at 2,182
+bytes of padding the build passed, at 2,183 guard 5 fired — not guard 1.
 
-**The next footprint raise is therefore a `BOOT_RELOC` move**, and
-`BOOT_RELOC` is mirrored in `boot/boot.asm`, which is assembled separately.
-Moving it also raises the machine's minimum RAM to boot at all (below), so it
-is a bigger decision than a budget raise ever was. That is the conversation to
-have, and it is not a build fix.
+**The sector is at the top of conventional RAM now (SPEC.md §2.7).** It reads
+`int 12h` and lands its last byte on the machine's last byte, so it is above
+every kernel that could fit the machine at all, on every machine, by
+construction. What that deletes is not the guard but its *address*: there is
+nothing left for `kernel.asm` to compare against, so guard 5 became a
+statement about the smallest machine the system is claimed to run on —
 
-There are 2,048 bytes — four 512-byte steps — between here and that wall.
+```
+KERNEL_SEG*16 + KERN_SIZE  <=  MIN_RAM_KB*1024 - BOOT_SECT - BOOT_STACK
+       1,536  +  KERN_SIZE  <=       131,072   -    512    -    2,048
+                 KERN_SIZE  <=   126,976
+```
 
-### The nine moves
+— which is **44.5KB above `KERN_BUDGET`**. `BOOT_RELOC` is gone from both
+files; `KERNEL_SEG` is the only constant they still share.
+
+So a tenth budget move is possible again, on the terms the nine below were:
+asked for, granted, and spent on something named. What is *not* available is
+a move that takes the slack — 44.5KB of headroom is the fifth move's mistake
+at five times the size, and this constant has only ever bought scrutiny.
+
+**Move 10 is that tenth move**, 82,432 → 86,528, granted in advance for
+"Incoming QOL improvements". Two things about it are on the record rather
+than in a commit message. It is the third raise granted *ahead* of the work
+(3 and 7 were the others), so move 7's term applies: the raise is spent by
+the commits that need it, and a plan document is not one of them. And it
+leaves **4,608 bytes spare — nine 512-byte steps**, where the fifth move
+settled that 2,048 is the right amount: enough that an ordinary bug fix does
+not trip the guard, small enough that a feature does. Until the QOL work
+lands, the guard is looser than the project's own standard. If that work
+comes in under the 4KB, the fifth move is the precedent for what to do with
+the rest — hand it back, rather than leave it for the next author to find.
+
+**And when the kernel does approach 126,976, the answer is not a raise
+either.** It is two kernels off one tree — a full one and a minimum one —
+because a 128KB machine and a 640KB machine stop wanting the same feature set
+long before they stop fitting the same image. Raising `MIN_RAM_KB` instead
+would be the project quietly dropping the machines it was written for.
+
+### The ten moves
 
 `KERN_BUDGET` was 65,536 — the first 64KB above the BIOS data area, which is
-where the "one region" rule came from. It has moved nine times; the raises
+where the "one region" rule came from. It has moved ten times; the raises
 were each asked for and granted, and move 5 is the only one downward.
 
 | | budget | bought |
@@ -119,12 +146,19 @@ were each asked for and granted, and move 5 is the only one downward.
 | 6 | 74,240 → **76,288** | SPEC.md §5.6's `gfx_line` and the file dialog's size-before-load (§38.6), which met at the guard. Either alone fitted; together they overran by 512 |
 | 7 | 76,288 → **78,336** | SPEC.md §54's file type associations and the disk path, costed together before either was written |
 | 8 | 78,336 → **80,384** | the association work's own bug reports — §54.4.1's notice naming the missing program — plus the §18.92/§18.93/§18.4.2 disk work, which cost the footprint nothing and paid back in seconds of boot |
-| 9 | 80,384 → **82,432** | the file modules into `.cold` (SPEC.md §2.6). The first raise bought for the OTHER guard, and the last one possible: it lands exactly on guard 5's ceiling |
+| 9 | 80,384 → **82,432** | the file modules into `.cold` (SPEC.md §2.6). The first raise bought for the OTHER guard, and it landed exactly on guard 5's ceiling — the last one possible until that ceiling moved |
+| 10 | 82,432 → **86,528** | **"Incoming QOL improvements"** — 4KB granted in ADVANCE, and the first move taken against the room SPEC.md §2.7 opened up. Terms below |
 
 **`BOOT_RELOC` moved with the first five** — 0x0940 → 0x0AA0 → 0x0B80 →
 0x0C00 → **0x0D40** (linear 0x11000 → 0x12600 → 0x13400 → 0x13C00 →
-**0x15000**) — and has not moved since, which is why moves 6 through 9 have
-consumed the whole of the gap it left.
+**0x15000**) — and never moved again, which is why moves 6 through 9 consumed
+the whole of the gap it left. **That sequence is over rather than paused**:
+the sector is at the top of RAM now (SPEC.md §2.7), so there is no address to
+move and no constant to keep in step across two separately-assembled files.
+Each of those five moves also raised the smallest machine that could boot, by
+exactly the distance it travelled, which is the cost that made it a decision;
+the computed placement raises nothing, because the sector is by definition
+already above whatever the machine has.
 
 ### Which guard binds
 
@@ -139,20 +173,23 @@ Move 9 made that lopsided:
 | | headroom |
 |---|---:|
 | `KERN_CODE_MAX`, the segment | **18,592 B** for `.text` + `.bss` |
-| **`KERN_BUDGET`, the footprint** | **2,048 B** for the whole span |
+| **`KERN_BUDGET`, the footprint** | **4,608 B** for the whole span |
+| guard 5, the smallest supported machine | **46,592 B** for the whole span |
 
-The segment has nine times the room the footprint has, and the footprint can
-no longer be bought. So the levers that matter now are the ones that take
-bytes off **both**: deleting kernel code, or moving a feature out to a
-package (SPEC.md §28's precedent, below). `.cold` and `.ovl` no longer help —
-there is nothing left for them to relieve.
+The budget is still the tighter of the three and is meant to be. What changed
+with SPEC.md §2.7 is that it is a *decision* again rather than a wall: below
+it sits the same conversation the nine moves record, and above it sits a real
+ceiling 44.5KB away instead of one the budget was already touching. `.cold`
+and `.ovl` relieve the segment and nothing else, exactly as before; the
+levers that take bytes off **both** are still deleting kernel code and moving
+a feature out to a package (SPEC.md §28's precedent, below).
 
 **Do not trust that table — measure it.** It has been stale twice, once by
 1,024 bytes and once by three whole budget moves, which is how two features
 met at the guard without either author knowing it was close:
 
 ```sh
-lo=70000; hi=82432
+lo=70000; hi=86528
 while [ $((hi-lo)) -gt 1 ]; do mid=$(((lo+hi)/2))
   sed -i "s/^KERN_BUDGET equ .*/KERN_BUDGET equ $mid           ; x/" kernel/kernel.asm
   nasm -f bin -w+error -I kernel/ -I build/ -o /dev/null kernel/kernel.asm 2>/dev/null \
@@ -167,8 +204,8 @@ The two are also coupled through the rounding, and that coupling is
 load-bearing in both directions. A byte moved from `.bss` to `.lowbss` helps
 `KERN_CODE_MAX` but *hurts* `KERN_BUDGET` until the image falls far enough to
 drop a 512-byte step: when the `.lowbss` rung is full, the very first byte
-moved costs a whole step. With four steps left, **moving data out of the
-segment is not free**, and neither is moving code into `.cold`.
+moved costs a whole step. Even with nine steps left under the budget, **moving data
+out of the segment is not free**, and neither is moving code into `.cold`.
 
 ---
 
@@ -184,7 +221,7 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | `.lowbss` + task 0's stack | 8,704 B | 7,668 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
 | the boot overlay | 0 B | 2,504 bytes of code inside the FAT window, gone by the first mount |
-| **total** | **80,384 B** | of an 82,432-byte budget — **2,048 B spare** |
+| **total** | **81,920 B** | of an 86,528-byte budget — **4,608 B spare** after move 10 |
 
 Each rung is its contents rounded up to a whole 512 bytes, and the remainders
 are the only slack anywhere in the ladder: 160 bytes on the image, 397 on the
@@ -224,7 +261,8 @@ big the kernel below it is — with only the RAM column re-derived.
 
 | RAM | heap | what happens |
 |---|---|---|
-| < 84.5KB | — | **cannot boot.** Nothing to do with the heap: `boot/boot.asm` relocates itself to `BOOT_RELOC:7C00` = linear 0x15000 and reads the kernel from there, so the machine has to have the 512 bytes through 0x151FF. Guard 5 checks the kernel clears its stack |
+| < 82KB | — | **cannot boot**, and nothing to do with the heap: the kernel's whole span has to fit under the top of RAM, because `.lowbss` and task 0's stack are the top of it. **This row now tracks the kernel** — the boot sector relocates to the top of conventional RAM (SPEC.md §2.7) rather than to a fixed address, so it is never the thing in the way |
+| < 105KB | — | **refuses**, on this build: the sector compares its computed base against where the kernel's read plus its own 2,048-byte stack would end, prints `RAM` and halts rather than loading a kernel over itself. Measured at exactly the boundary — 105KB boots to a desktop, 104KB never loads a byte (`make test RAMKB=104`). The number moves with the kernel's size, which is the point of computing it |
 | 85KB | 5KB | boots, full desktop, opens a Disk window and browses both floppies — and **will not load a package**. Measured |
 | 88KB | 8KB | **loads a package** (`hello`). Measured |
 | 103KB | 23KB | Note Pad runs. Paint loads and puts up its "Not enough memory" notice — the designed tier, not a crash |
@@ -240,17 +278,31 @@ Paint declines.
 **The boot floor and the useful floor have come apart**, and that is the one
 qualitative change here. They used to coincide — the first machine that could
 boot at all had 14KB of heap and ran packages fine. `KERN_END` has since
-risen to 80KB while `BOOT_RELOC` stayed put, so the smallest bootable machine
-now has 4.5KB of heap and cannot load anything. Two machines that both "run
-os8088" are three kilobytes apart and do different things.
+risen to 80KB, so the smallest machine that gets to a desktop has a heap too
+small to load anything. Two machines that both "run os8088" are a few
+kilobytes apart and do different things.
+
+That gap is now a property of the *kernel* and not of an address: with the
+sector at the top of RAM (SPEC.md §2.7) both floors move together whenever
+`KERN_END` does, where the old fixed `BOOT_RELOC` held the boot floor still
+and let the kernel drift up towards it. The floors will still separate as the
+kernel grows — that is arithmetic — but nothing in the memory map is holding
+them apart on purpose any more.
 
 Two things this table is not. It is not a promise about *speed* — these were
 measured under QEMU, which does not model 8086 timing at all (SPEC.md §5.4).
 And the sizes below 640KB were simulated by clamping the heap, so they
 exercise every "the heap said no" path faithfully but do not exercise a BIOS
-that reports a small number, which only real hardware and 86Box can do. (Nor
-can the "cannot boot" row be tested here at all: QEMU/SeaBIOS will not boot
-below 1MB, so that one is derived from `BOOT_RELOC` rather than observed.)
+that reports a small number to the KERNEL, which only real hardware and 86Box
+can do.
+
+The **boot sector's** half of that is testable here now, which it was not
+before: SeaBIOS answers 639KB whatever `-m` says, so `make test RAMKB=<n>`
+assembles the sector to believe a different number (SPEC.md §2.7). That is
+what the two rows above were measured with. It moves the sector and nothing
+else — the kernel still reads the real `int 12h` for its heap — so it tests
+the relocation and the refusal, not the small-heap behaviour the rows below
+it describe.
 
 ### What the Task Manager shows
 
@@ -522,18 +574,30 @@ the kernel's sectors arrive — it far-calls the splash at `KERNEL_SEG:0008`
 after every run of them. With the kernel landing at 0x00600 and running up to
 80KB, it covers 0x7C00 long before the last sector.
 
-So the sector's first act is to copy itself to `BOOT_RELOC:7C00` (linear
-**0x15000**) and far-jump there. **The copy keeps the same offset**, so every
+So the sector's first act is to copy itself **to the top of conventional
+RAM** — `int 12h`, times 64, less `0x7E0` for its own offset and its own 512
+bytes — and far-jump there. **The copy keeps the same offset**, so every
 label in the file still resolves at `org 0x7C00` and only the segment
 registers change; its stack rides along at the same offset and grows down
-from 0x15000, with `BOOT_STACK` = 2,048 bytes reserved under it.
+from its new base, with `BOOT_STACK` = 2,048 bytes under it. The far jump is
+`push`/`push`/`retf` rather than `jmp seg:off`, because the segment is not a
+constant any more and the 8086 has no `push imm`.
 
-Guard 5 proves the kernel ends clear of that stack, and **it is now the
-binding guard on the footprint** — see "`KERN_BUDGET` has run out of room"
-above. At today's size the kernel clears the stack by 2,048 bytes.
+That is 2,560 bytes at the ceiling, and only until handoff: `kmain` sets
+`SS:SP` in its fourth instruction, after which the sector is dead and those
+bytes are ordinary heap — the first package loaded lands on them, since
+`mem_claim_hi` hands regions out downward.
 
-`BOOT_RELOC` and `KERNEL_SEG` are mirrored in `boot/boot.asm`, which is
-assembled separately. `apps/os88api.inc` carries a third copy of
+**It used to be a fixed `BOOT_RELOC` = 0x0D40 (linear 0x15000), and that is
+what guard 5 was about.** The address, not any property of the kernel,
+capped the footprint at 82,432 bytes — which `KERN_BUDGET` reached in move 9,
+so for one release the budget could not be raised at all. See
+"`KERN_BUDGET` ran out of room" above for what replaced it.
+
+`KERNEL_SEG` is now the **only** constant `boot/boot.asm` and
+`kernel/kernel.asm` share (`BOOT_STACK` is in both, but it is a size that
+cannot be wrong by being stale — the same 2,048 bytes asked about two
+different machines). `apps/os88api.inc` carries a third copy of
 `KERNEL_SEG`, because it is baked into every package's far-call targets —
 **a kernel move means rebuilding every `.o88` and both apps floppies**, or a
 package calls into empty memory.
@@ -1002,15 +1066,21 @@ say so almost too neatly: raises 7 and 8 each landed on a kernel of 76,288
 and 78,336 bytes — *exactly* the budget then in force, to the byte. Raise 6
 landed 512 over it, which is the same thing one step later. Only raise 9 was
 granted with room to spare, because it was asked for ahead of the work rather
-than by a build that had already failed. The slack after a raise has been
-2,048 bytes every time, and until now it has been spent every time.
+than by a build that had already failed. The slack after a raise was 2,048
+bytes every time through move 9, and every time it was spent. **Move 10 is
+the exception on both counts**: 4,608 bytes, and unspent as this is written,
+because it was granted for work that has not landed yet.
 
-**The footprint has grown 7,168 bytes since the low point at move 5** —
-73,216 to 80,384 — and every one of those seven kilobytes was a feature that
-was asked for.
+**The footprint has grown 8,704 bytes since the low point at move 5** —
+73,216 to 81,920 — and every one of those kilobytes was a feature that was
+asked for.
 
-**The budget has now caught up with the boot sector**, so the next row cannot
-be a raise. It has to be a `BOOT_RELOC` move or a deletion.
+**The budget caught up with the boot sector at move 9**, and for one release
+the next row could not have been a raise at all. Moving the sector to the top
+of RAM (SPEC.md §2.7) ended that, and move 10 is the first row taken against
+the room it opened — on the same terms as the nine: asked for, granted, and
+owed to something named. The row after the row that reaches **126,976** is
+not a raise either, and not a deletion: it is a second kernel.
 
 `docs/MEMORY-PLAN.md` is the narrative of how it got here, step by step, and
 what was rejected along the way. This document is what it looks like now.

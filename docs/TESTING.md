@@ -36,8 +36,12 @@ below, is the short version of it.**
 | AdLib / OPL2 | ✅ | `make test-snd ADLIB=1` | dominant 880.0 Hz from a keyed 440 |
 | Sound Blaster 16 | ✅ | `make test-snd SB16=1` | 2.00 s at 1000.0 Hz |
 | Scripted mouse / keys | ✅ | `tools/mouse.py`, `tools/qmp.py` | all adapters, incl. Hercules |
+| Mouse on COM2 (SPEC.md §9.5) | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |
+| A **modem** on the other port | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
 | Performance benchmarks | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
 | Fullscreen exclusive (SPEC.md §53) | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
+| Boot-sector relocation (SPEC.md §2.7) | ✅ | `make test RAMKB=<n>` — see below | 105 boots, 104 prints `RAM` and never loads a byte |
+| A machine that reports a **small** `int 12h` to the KERNEL | ❌ | 86Box `mem_size` | `RAMKB=` moves the sector only; the heap still sees the real answer |
 | Video **detection probe** | ❌ | `make xt-cga` / `xt-hercules` | 86Box only |
 | 6845 programming | ❌ | `make xt-hercules` (and fsx id 4's real mode set) | 86Box only |
 | Period-correct timing | ❌ | `make xt` (4.77 MHz), `286`, `386` | 86Box only |
@@ -46,6 +50,48 @@ below, is the short version of it.**
 chosen it. That distinction is the whole of the ❌ column for video: QEMU
 emulates no CGA and no Hercules card, so what is untestable here is the
 *choosing*, not the *drawing* — and the drawing is almost all of the code.
+
+---
+
+## How much RAM the machine says it has
+
+`boot/boot.asm` relocates itself to the top of conventional memory (SPEC.md
+§2.7), which it finds with `int 12h`. **SeaBIOS answers 639 whatever `-m`
+says** — conventional memory is capped there and the rest is above 1MB — so
+neither the arithmetic nor the refusal below the floor can be reached here by
+configuring QEMU. `RAMKB=<n>` assembles the sector to believe a number:
+
+```sh
+make test RAMKB=128         # where a 128KB machine (MIN_RAM_KB) puts it
+make test RAMKB=104         # below the floor: must refuse
+python3 tools/qmp.py build/qmp.sock 'xp /4xb 0x600'   # 00 00 00 00 = never loaded
+```
+
+Verifying it landed where it should is a memory dump, not a screenshot: the
+sector's last two bytes are its `0xAA55` signature, so on a machine of *n* KB
+they are at linear `n*1024 - 2`, and its first three are `EB 3C 90`.
+
+```sh
+python3 tools/qmp.py build/qmp.sock 'xp /4xb 0x9fbfc'   # 639KB: .. 55 aa
+python3 tools/qmp.py build/qmp.sock 'xp /8xb 0x9fa00'   # eb 3c 90 'MSDOS'
+```
+
+Three things to know before trusting a run of this:
+
+- **It shares the `VIDEO=`/`RTC=` stamp**, and needs to: the knob touches
+  neither `boot.asm` nor `kernel.bin`, so without the stamp `make` rebuilds
+  nothing and the machine boots the PREVIOUS relocation while you read the
+  new one. That failure was seen once, and it reads as the address arithmetic
+  being wrong.
+- **It moves the sector and nothing else.** The kernel still asks the real
+  `int 12h` for the top of its heap, so this is not a small-machine
+  simulation — the rows in docs/KERNEL-MEMORY.md's RAM table below the boot
+  floor are still simulated by clamping the heap.
+- **The boundary is arithmetic, so test it at the boundary.** The sector
+  refuses when its computed base is below where the kernel's read plus its
+  own 2,048-byte stack would end, which for a 71,112-byte kernel is 105KB.
+  Both sides of that were measured; the number moves whenever the kernel's
+  size does.
 
 ---
 
@@ -86,6 +132,68 @@ check-images` reports STALE:
 ```sh
 rm -f build/os8088.img build/os8088-360.img && make && make check-images
 ```
+
+---
+
+## The mouse's port, and the modem on the other one (SPEC.md §9.5)
+
+`make test MOUSEPORT=com2` gives QEMU a **live but silent** UART at 3F8
+(`-serial null`) and the mouse at 2F8. That shape is the point: `-serial none`
+would leave 3F8 unpopulated, the probe would find one port, and the kernel
+would take the single-port path — testing the easy half and none of the
+contest. Read the answer out of the kernel rather than off the glass; the
+offsets move whenever an include before `mouse.inc` does, so re-derive them
+from a listing (`nasm … -l`) and peek at `KERNEL_SEG*16 + offset`:
+
+```
+mou_bases  0x03f8 0x02f8     both probed present
+mou_need   8                 two live ports, so a contest
+mou_port   2   seen 1        the mouse is on COM2
+mou_hpst   2                 mou_lockon has retired COM1
+```
+
+**The case that actually matters is a talkative device on the other port**,
+because a Hayes result code is a well-formed Microsoft packet (§9.5.1). QEMU
+can be that device: put a socket chardev at 3F8 and type at it.
+
+```sh
+qemu-system-i386 -drive file=build/os8088.img,format=raw,if=floppy -boot a \
+  -chardev socket,id=modem,host=127.0.0.1,port=45881,server=on,wait=off \
+  -serial chardev:modem \        # 0x3F8 - the "modem"
+  -serial null \                 # 0x2F8 - a live UART, saying nothing
+  -display none -qmp unix:build/qmp.sock,server,nowait -daemonize
+# then: connect to 45881 and send OK/RING/NO CARRIER/CONNECT, CRLF-wrapped,
+# pacing each burst by len*10/1200 seconds - it is a 1200-baud line
+```
+
+Two traps in building that harness, both of which produced a green run that
+proved nothing:
+
+- **`msmouse` speaks during boot.** With a real mouse attached to 2F8 the
+  contest is over before the first byte of chatter is sent, so the modem is
+  being tested against a port that has already lost. To test the *open*
+  contest there must be no mouse anywhere — 3F8 the socket, 2F8 `-serial
+  null` — and then `[mou_seen]` must simply stay 0 forever.
+- **Assert on more than the port.** The first fix stopped the modem
+  *claiming* a port while it was still moving the cursor and latching a right
+  button (`mouse_btn` = 2) — a modem opening context menus is the same bug
+  wearing a different hat. Check `mouse_x`/`mouse_y` and `mouse_btn` too;
+  they must be exactly where the machine booted.
+
+Then run it the other way round — the socket at 3F8 *and* `msmouse` at 2F8 —
+and check the mouse still reaches its run, `mou_lockon` still retires COM1,
+and chatter afterwards is ignored. The one thing to expect and not to file as
+a bug: on a two-port machine the first ~8 packets of the session are counted
+and discarded, so `tools/mouse.py`'s first absolute position is wrong. **In
+practice it is wrong by the whole move, not by a few pixels** — `mouse.py`
+pins against the top-left clamp with a burst of large negative deltas and then
+walks to the target, the contest eats the front of the burst, and the pin
+still lands because it over-drives; what gets lost is the walk. So the first
+`to X Y` after boot leaves the cursor **at 0,0**, which reads exactly like a
+mouse that is not working at all, and a screendump cropped to the target shows
+nothing rather than something near it. Call `mouse.py` a second time — the
+whole session is exact from there. Costed the same way twice, on VGA and on a
+CGA field disk.
 
 ---
 
