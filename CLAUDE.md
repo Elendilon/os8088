@@ -1583,6 +1583,30 @@ kernel is 63,944 bytes today, so it would have started calling the system disk
 foreign the moment the kernel grew. The refusal keeps `[cp_wdirty]`, so
 putting the right disk back and closing again saves.
 
+**…and it puts the user's volume back** (SPEC.md §51.5.2), which is the other
+half and took a second fix. §51.5.1 settled *which disk gets written*; going
+to A: is a **navigation**, and nothing undid it — so `drv_cfg_save` on the
+panel's close, and `drv_load` on a Drivers-row tick, both returned with A:
+current. A user working on B: was silently moved to A: by a Control Panel
+click, and **nothing said so**: the file API resolves every name in the
+current directory (§19.2), so the next Standard File dialog just opened on the
+wrong disk. It was found by accident — a scripted test ticked the sound
+driver, closed the panel, then drove a package's Open dialog by row position;
+the dialog was on A:, the row hit nothing, and the app said `Disk error`,
+which points nowhere near the Control Panel. `drv_vol_bank`/`drv_vol_back` are
+`ui_tm_open`'s bank-and-restore (§28.3) made a routine, and three things hold
+them up: **both preserve the FLAGS**, because each caller's result is in CF
+and AX and a failed remount must not read as a failed load or a failed save
+(so a failed restore is swallowed — root, write gate shut, `ui_tm_back`'s
+answer); **the compare is what makes it free**, since a remount is a floppy's
+worth of sectors and `drv_boot` calls `drv_load` per wanted driver, so banked
+== current means nothing to undo; and **`drv_boot` needs no exception**, which
+falls out of that compare rather than being arranged — it mounts A: itself
+before the loop, so every load inside it banks A: and finds A:. Measured with
+§18.94's counters rather than argued: a tick from A: is 1 → 2 mounts (restore
+skipped), from B: 2 → 4 (restore fires), and a boot with a driver wanted is 2
+where an unconditional restore would be 3.
+
 Two traps. **`build/os8088.img` is now writable and the OS writes to it** —
 any test that touches a Control Panel setting is remembered by that image and
 survives the next boot, exactly like `build/apps.img`; `rm -f build/os8088.img

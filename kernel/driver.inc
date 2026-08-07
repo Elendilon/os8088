@@ -1014,6 +1014,72 @@ drv_mounted:
     ret
 
 ; -----------------------------------------------------------------------------
+; drv_vol_bank / drv_vol_back - put the user's volume back (SPEC.md 51.5.2)
+; in (bank):  nothing.  in (back): the banked pair
+; out: nothing. BOTH PRESERVE EVERY REGISTER AND THE FLAGS.
+;
+; drv_mounted goes to A: because that is where the system files are, and for
+; a long time nothing put the volume back - so a user working on B: was
+; silently moved to A: by a Control Panel click. Nothing said so: the next
+; Standard File dialog simply opened on the wrong disk, and a package
+; resolving a file name resolved it there. It is the same shape of bug the
+; hard disk's Mount had (SPEC.md 52.6) and the same answer ui_tm_open already
+; used for the Task Manager (SPEC.md 28.3) - which is why this is a routine
+; and not a third open-coded dance.
+;
+; FLAGS ARE PRESERVED, and that is the load-bearing part rather than
+; politeness: both callers return a result in CF and in AX, the restore runs
+; at their common exit, and a remount that failed must not be mistaken for a
+; driver that failed to load. A failed restore is therefore SWALLOWED - the
+; volume is left at its root with the write gate shut, exactly as after any
+; failed mount, which is ui_tm_back's answer too and a survivable place to be.
+;
+; THE COMPARE IS WHAT MAKES IT FREE. A remount is a floppy's worth of sectors
+; (SPEC.md 19.2), so putting back a volume that never moved would put one on
+; the boot path: drv_boot calls drv_load once per wanted driver, and each of
+; those would have paid a mount to arrive where it already was. Banked equal
+; to current means nothing moved and there is nothing to undo.
+;
+; One static pair, like ui_tm_cwd and for the same reason: this is UI-task
+; context and the two brackets never nest - cp_flush_x is the only caller of
+; drv_cfg_save, and drv_load reaches no path that writes the settings file.
+; In .text with real initialisers, because -f bin zeroes no .bss and A:'s root
+; is the right answer before anything has been banked.
+; -----------------------------------------------------------------------------
+drv_vol_bank:
+    push ax
+    push bx
+    push dx
+    call osapi_file_here        ; DX = the directory cluster, BL = the drive
+    mov [drv_vol_cwd], dx
+    mov [drv_vol_drv], bl
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+drv_vol_back:
+    pushf
+    push ax
+    push dx
+    mov ax, [drv_vol_cwd]       ; dsk_chdir's arguments, loaded before the
+    mov dl, [drv_vol_drv]       ; compare because they ARE the compare
+    cmp dl, [disk_drive]        ; still where the user left us? then there is
+    jne .go                     ; nothing to undo, and the remount is the
+    cmp ax, [dsk_cwd]           ; whole cost
+    je .out
+.go:
+    call dsk_chdir              ; CF = the remount failed; swallowed by the
+.out:                           ; popf below, deliberately
+    pop dx
+    pop ax
+    popf
+    ret
+
+drv_vol_cwd: dw 0               ; the directory and drive to go back to
+drv_vol_drv: db 0
+
+; -----------------------------------------------------------------------------
 ; drv_find - a file's byte size, straight out of the directory
 ; in:  SI -> a NUL display name (upper case, as dsk_synth writes them);
 ;      drive A: already mounted
@@ -1085,6 +1151,8 @@ drv_load:
     push bp
     push es
 
+    call drv_vol_bank           ; this goes to A: to find the .DRV, and the
+                                ; user may have been anywhere (SPEC.md 51.5.2)
     call drv_row                ; BX = the row for the whole routine
     cmp word [bx+DRVR_SEG], 0
     jne .already
@@ -1169,7 +1237,9 @@ drv_load:
     mov [bx+DRVR_ERR], al
     stc
 .out:
-    pop es
+    call drv_vol_back           ; every exit, including .already, which never
+                                ; mounted - the compare makes that free. It
+    pop es                      ; preserves CF, so the result above survives
     pop bp
     pop di
     pop si
@@ -2025,6 +2095,9 @@ drv_cfg_save:
     push si
     push di
     push es
+    call drv_vol_bank           ; the panel is closing on top of whatever the
+                                ; user was doing; this write goes to A: and
+                                ; must not move them (SPEC.md 51.5.2)
     call drv_mounted
     jc .nodisk
     mov si, drv_sysname
@@ -2052,7 +2125,9 @@ drv_cfg_save:
     mov ax, FERR_NODISK
     stc
 .out:
-    pop es
+    call drv_vol_back           ; CF and AX are this routine's result and
+                                ; drv_vol_back preserves both - a remount
+    pop es                      ; that failed must not read as a write that did
     pop di
     pop si
     pop dx

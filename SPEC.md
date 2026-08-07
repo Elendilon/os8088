@@ -18427,6 +18427,58 @@ system disk back and closing the panel again saves it — verified end to end:
 the apps disk stays byte-identical, the caption names the remedy, and the
 retry writes the setting where it belongs and survives a reboot.
 
+#### 51.5.2 …and it puts the user's volume back
+
+§51.5.1 fixed *which disk gets written*. It left the other half: going to A:
+is a **navigation**, and nothing undid it. `drv_mounted` mounts drive A:
+because that is where the system files are, and both of its user-facing
+callers — `drv_cfg_save` when the panel closes, and `drv_load` when a Drivers
+row is ticked — returned with A: current. A user working on B: was silently
+moved to A: by a Control Panel click.
+
+**Nothing said so, which is what makes it expensive.** The file API resolves
+every name in the volume's current directory (§19.2), so the next Standard
+File dialog simply opened on the wrong disk and a package resolving a file
+name resolved it there. It was found by accident: a scripted test enabled the
+sound driver, closed the panel, and then drove a package's Open dialog by row
+position — the dialog was on A:, the row hit nothing, and the app reported
+`Disk error`. Nothing in that chain points at the Control Panel.
+
+It is the same shape as the hard disk's Mount (§52.6), which made C: current
+and then silently made A: current again, and the answer is the one
+`ui_tm_open` already used for the Task Manager (§28.3): bank the volume, do
+the work, put it back. `drv_vol_bank` / `drv_vol_back` are that pair, so this
+is a routine rather than a third open-coded dance.
+
+Three things about it are load-bearing:
+
+- **Both preserve the flags**, and that is not politeness. Both callers
+  return a result in `CF` *and* in `AX`, and the restore runs at their common
+  exit — so a remount that failed must not read as a driver that failed to
+  load or a setting that failed to save. A failed restore is therefore
+  **swallowed**: the volume is left at its root with the write gate shut,
+  exactly as after any failed mount, which is `ui_tm_back`'s answer too.
+- **The compare is what makes it free.** A remount is a floppy's worth of
+  sectors (§19.2), and `drv_boot` calls `drv_load` once per wanted driver —
+  so an unconditional restore would put a mount on the boot path for every
+  one of them, to arrive where it already was. Banked equal to current means
+  nothing moved and there is nothing to undo. Measured with §18.94's counters
+  rather than argued: ticking a driver **from A:** costs `disk_mount` 1 → 2
+  (the load's own mount, restore skipped) and **from B:** 2 → 4 (the load's,
+  plus the restore); and a boot with a driver wanted is **2 mounts**,
+  `drv_boot`'s and `drv_load`'s, where an unconditional restore would be 3.
+- **`drv_boot` needs no exception**, and that falls out of the compare rather
+  than being arranged. It mounts A: itself before the loop, so every
+  `drv_load` inside it banks A: and finds A: — the restore is skipped without
+  anything having to know it is boot.
+
+One static pair holds the banked volume, like `ui_tm_cwd` and for the same
+reason: this is UI-task context and the two brackets never nest — `cp_flush_x`
+is the only caller of `drv_cfg_save`, and `drv_load` reaches no path that
+writes the settings file. It lives in `.text` with real initialisers, because
+`-f bin` zeroes no `.bss` and A:'s root is the right answer before anything
+has been banked.
+
 ### 51.6 Author rules
 
 1. **Attach all-or-nothing, detach cannot fail.** Restated because it is the
