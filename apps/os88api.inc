@@ -1509,6 +1509,36 @@ OS88_BSS_SIZE equ 0
                                  ; is legal and does nothing. Lock held.
                                  ; Preserves all. N then M == one call of N+M.
 GLS_SZ    equ 14                 ; the walk state, in YOUR bss
+
+; --- the system clipboard (SPEC.md 55) ---------------------------------------
+; One TEXT buffer for the whole machine, living in the claim heap and sized to
+; what is in it. It outlives the app that filled it - the owner is a kernel
+; tag, not your instance - so copy in one program, close it, paste in another.
+; All three take no lock, touch no VRAM and do no I/O: legal from a window
+; callback AND from a worker (SPEC.md 20.6 rule 7).
+%define OSAPI_CLIP_PUT      KERNEL_SEG:0x0310   ; ES:SI = the text, CX = its
+                                 ; length. CX = 0 EMPTIES the clipboard and
+                                 ; is not an error. Out CF=1 = refused (over
+                                 ; CLIP_MAXKB, or the heap could not fund it),
+                                 ; and then the clipboard is EMPTY rather than
+                                 ; stale. Preserves every register.
+                                 ; ES:SI, not your DS: a document is usually a
+                                 ; claim of its own, so set ES yourself.
+%define OSAPI_CLIP_GET      KERNEL_SEG:0x0318   ; ES:DI = your buffer, CX = its
+                                 ; capacity. Out CF=1 = empty (AX = CX = 0);
+                                 ; CF=0 with AX = the clipboard's WHOLE length
+                                 ; and CX = the bytes actually copied. AX > CX
+                                 ; means your buffer was too small and you got
+                                 ; a prefix. Preserves all but AX and CX.
+%define OSAPI_CLIP_SIZE     KERNEL_SEG:0x0320   ; out CF=1 and AX=0 when empty,
+                                 ; else CF=0 and AX = the length. Ask this
+                                 ; FIRST and grow your own buffer before
+                                 ; OSAPI_CLIP_GET - on a machine with a claim
+                                 ; heap that is the difference between a paste
+                                 ; that works and one that half-arrives.
+                                 ; Preserves all but AX.
+CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
+                                 ; than this is refused whole, never truncated
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x02F8   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,
                                  ; 54.925 ms each): the boot sector's first

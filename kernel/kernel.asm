@@ -881,7 +881,21 @@ osapi_table:
                                   ;          N then M is exactly the N+M one
                                   ;          call would have drawn, which is
                                   ;          what lets an erase replay a draw
-osapi_table_end:                  ; 0x0310
+    OSAPI_SLOT clip_put           ; 0x0310 - the system clipboard (SPEC.md
+                                  ;          55): ES:SI = text, CX = bytes
+                                  ;          (0 = empty it); out CF=1 refused.
+                                  ;          ES:SI and not the caller's DS
+                                  ;          because a document is usually a
+                                  ;          heap claim of its own, not the
+                                  ;          package's image
+    OSAPI_SLOT clip_get           ; 0x0318 - ES:DI = the caller's buffer, CX =
+                                  ;          its capacity; out CF=1 empty,
+                                  ;          else AX = the whole length and
+                                  ;          CX = the bytes copied
+    OSAPI_SLOT clip_size          ; 0x0320 - out CF=1 and AX=0 when empty,
+                                  ;          else AX = the length. What a
+                                  ;          paste asks BEFORE it makes room
+osapi_table_end:                  ; 0x0328
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -889,8 +903,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 96 * 8
-%error "os8088 API jump table must be exactly 96 8-byte slots"
+%if OSAPI_TABLE_LEN != 99 * 8
+%error "os8088 API jump table must be exactly 99 8-byte slots"
 %endif
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
@@ -1405,6 +1419,8 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "wm.inc"
 %include "memory.inc"           ; the claim heap (SPEC.md 50): after
                                 ; instance.inc, whose records own the claims
+%include "clip.inc"             ; the system clipboard (SPEC.md 55): after
+                                ; memory.inc, whose heap the text lives in
 %include "instance.inc"
 %include "menu.inc"
 %include "ui.inc"
