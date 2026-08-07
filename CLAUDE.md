@@ -85,15 +85,18 @@ shipped stale binaries.
 **docs/FIELD-NOTES.md is the fourth one, and it is the shortest: what real
 hardware found and the harness could not.** Open, reproduced, unfixed — with
 what has already been *ruled out* for each, so an investigation starts from
-evidence. Three live entries: a periodic ~1/3s audio tail-off in Tracker
+evidence. Two live entries: a periodic ~1/3s audio tail-off in Tracker
 (A/B'd against the pre-fsx commit and present in BOTH, so it is older than that
-work and not the bracket); a heap-fragmentation refusal where the total says
-there is room and the largest run does not; and a **stale Disk-window listing**
-that reports a perfectly good package as "Bad package" — a package writing a
-file remounts the GLOBAL snapshot, `fmv_sync` re-lists only on a drive/cwd
-change, and a display index taken from the window's own cache then resolves
-against a listing that has shifted under it. Read it before you spend a day
-re-deriving any of them.
+work and not the bracket) and a heap-fragmentation refusal where the total says
+there is room and the largest run does not. The third, a **stale Disk-window
+listing** that reported a perfectly good package as "Bad package", is FIXED
+(SPEC.md §22.8) and worth reading anyway for what it says about this harness:
+a package writing a file remounted the GLOBAL snapshot, `fmv_sync` re-listed
+only on a drive/cwd change, and a display index taken from the window's own
+cache then resolved against a listing that had shifted under it — pure
+bookkeeping, reproducible under QEMU in four clicks, and it took a 5150 to
+find because nobody here had opened a Disk window and saved a file from a
+package. Read it before you spend a day re-deriving any of them.
 
 ## Commands
 
@@ -564,6 +567,59 @@ covered (past that it was deliberate; leave it and let `wm_dock_under` pay) and
 completely alone, because Paint grown to nearly the whole screen is a legal
 size). In `ui_grow` a snap moves the **origin**, which nothing else in a resize
 does, so bank the old rect's last row before the call and union against it.
+
+### A write marks the folder; the focus spends the mark (SPEC.md §22.8)
+
+§22.1's rule is "paints read the cache, actions re-sync", and the **write**
+side of it was never implemented: a window's cache is rebuilt by the file
+manager's own operations and by nothing else, so a *package* writing through
+the file API changed a folder up to four windows might be showing and none
+was told. That cost the wrong FILE, not a stale display — a double-click
+resolves the row against the cache and hands `loader_run` a directory INDEX,
+which is then resolved against globals where a new name has sorted itself
+into place (§19.4) and shifted everything after it, so the loader reads the
+entry next door and says **Bad package** about a file nobody clicked
+(docs/FIELD-NOTES.md 4).
+
+A byte per window (`FS_DIRTY`) and two hooks. **`fmv_mark`, called from
+`dskw_sync`** — the one routine a successful file operation passes through,
+so no new operation can forget it — marks every window on
+`([disk_drive], [dsk_cwd])`, which at that moment *is* the folder that
+changed. **`fm_focus` spends the mark** when the window comes to the front,
+because a re-list is a MOUNT and a window nobody is looking at should not pay
+for one.
+
+Four things are load-bearing:
+
+- **The cache and the pixels are made current TOGETHER.** The flag is not a
+  cache flag: a cache rebuilt without a repaint is the same bug with the
+  stale half moved onto the glass, the rows naming one file while the
+  hit-tester resolves another. So `fm_focus` takes AL = *who is going to
+  draw*: `wm_raise` calls it **before it draws anything** with AL = 0 and
+  takes CF = 1 as "draw this window whole" — so a raise puts the new listing
+  up instead of drawing the old one and then the new — and the UI task's own
+  pass, which has nobody to defer to, asks for AL = 1.
+- **The UI pass is the catch-all, gated on one byte** (`[fm_fchk]`, set by
+  `fmv_mark` and by `menu_activate`). It covers the two focus gains no raise
+  reaches: the front window being dirtied under the pointer, and **promotion**
+  — losing the front window hands the bar and the pinstripes to the window
+  underneath (§11.91) without ever calling `wm_front`. Every step of that
+  deferred chain names the NEXT step in its own "nothing to do" jump, so a
+  step inserted in the middle is a step the jump above it has to be pointed
+  at; getting that wrong leaves the whole catch-all unreachable and only the
+  raise path working, which is a bug that half-works convincingly.
+- **The mount is usually skipped.** `fmv_take` (the memory half of a re-list,
+  factored out of `fmv_bcast` so the two cannot disagree) is taken when the
+  globals already are this folder, are not `[dsk_lstale]` and came from a
+  mount that worked — which they usually are, the write having ended in a
+  remount of the folder it wrote to.
+- **Only something that makes cache AND pixels current may clear the flag.**
+  `fm_focus` does; `fmv_reload_all` does (`fmv_repaint_all` is its other
+  half); `fmv_bcast` clears it for the ACTING window only, because its caller
+  repaints that one and never the siblings; `fmv_load` and `fmv_sync` clear
+  nothing at all — `fmv_sync` re-lists a background window to act in its
+  folder and draws no pixels. And `fm_kinit` clears it because a `KD_POOL`
+  block is reused.
 
 ### A paste repaints the Disk windows, not the screen (SPEC.md §22.3)
 
