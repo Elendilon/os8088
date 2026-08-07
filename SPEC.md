@@ -1588,6 +1588,45 @@ with pass 2's background source deliberately broken back to "always read the
 screen", the same walk leaves **98**. `GFX_UNLOCK+LOCK pair` is unmoved at 544
 counts against 541.
 
+### 7.1.3 A press-and-hold must not spin the lock
+
+`gfx_unlock` / `task_yield` / `gfx_lock` is the idiom for dropping the drawing
+mutex around a poll, and there are four loops of that shape: `ui_drag`'s
+tracking pass, `ui_grow`'s, and both of `fm_drag`'s. **Three of them wait out
+the tick before going round again, and one did not.**
+
+The one that did not is `fm_drag`'s `.wait` — the pass that runs while the
+button is down and the pointer has not yet moved `FM_DRAGMIN` pixels, i.e.
+while the user is holding the mouse still on a file. It draws **nothing**, so
+every round trip it makes is a cursor erase and redraw for no reason at all.
+Unpaced, it goes round as fast as the CPU allows: measured under `-icount`,
+**one second of holding the button was 20,761 lock/unlock pairs against 21**
+with the linger — 989x. On the field machine the loop cannot actually turn
+over twenty thousand times, because each pair costs it ~1.9 ms; what it does
+instead is spend **the whole machine** on the cursor for as long as the button
+is down, and the visible form of that is the pointer blinking continuously
+under a held button.
+
+`ui_drag`'s own comment had already named the failure, in the loop next door:
+*"without this linger the cursor blits inside `gfx_unlock`/`gfx_lock` dominate
+the loop and the outline is dark more often than lit."* The fix is that same
+linger, and the rule it stands for is worth stating on its own: **a poll loop
+that drops the gfx lock must pace itself to the tick.** Not because the poll
+is expensive — it is a few compares — but because *taking the lock back is*.
+
+One difference from its three siblings, and it is deliberate. Their linger
+runs with the lock **held**, because each of them has an XOR outline on screen
+that must stay lit while it waits. `.wait` has drawn nothing, so its linger
+sits **between** the unlock and the lock: the lock is free for the whole tick,
+which lets the mouse ISR move the cursor itself and lets background tasks
+paint. That is also `np_selpace`'s shape, which Note Pad's drag-select already
+uses (§27.8.1).
+
+The latency cost is one tick, ~55 ms, before a press is recognised as a drag.
+`.track` already accepts exactly that for recognising a drop, and double-click
+detection is unaffected because it compares **birth ticks stamped by the ISR**,
+not processing time (§9).
+
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
 - `MAX_TASKS equ 12`. Task 0 is the boot thread (becomes the UI task); it

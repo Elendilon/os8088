@@ -728,6 +728,23 @@ The bar is **chip menu → active application's name → that application's menu
 
 Three one-line hooks move it, and nothing else in the kernel knows the bar exists: `wm_front` activates the window it raises (so launching, raising, un-minimizing and dock clicks all follow for free); the event ladder's window branch activates the clicked window too (a click on the *already* frontmost window never reaches `wm_front`, and the bar still has to follow); and `menu_check`, run at the top of every `menu_draw_bar`, hands the bar to `wm_top` the moment `[menu_win]` names a window that stopped being visible — one validation covering close, minimize and hide. It **promotes rather than reverting** because the title bar does: losing the front window promotes whatever was under it and `wm_paint_dmg` gives that window the pinstripes (§11.91), so a bar that fell back to Locator instead made the screen say two different things about which app is active. `wm_top` answers 0 when nothing visible is left, and 0 *is* Locator, so the old fallback is still the last rung. A deliberate switch to Locator (clicking the bare desktop) is sticky — `[menu_win]` = 0 leaves `menu_check` at its first test.
 
+**A poll loop that drops the gfx lock must pace itself to the TICK** (SPEC.md
+7.1.3). `gfx_unlock`/`task_yield`/`gfx_lock` is the idiom for polling without
+holding the mutex, and there are four loops of that shape - `ui_drag`'s
+tracking pass, `ui_grow`'s and both of `fm_drag`'s. Three waited out the tick;
+`fm_drag`'s `.wait`, which runs while the button is down and the pointer has
+not yet moved far enough to be a drag, did not. It draws NOTHING, so every
+round trip was a cursor erase and redraw for no reason: **20,761 pairs per
+second of held button against 21** once paced. On the 5150 it cannot really
+turn over that fast - each pair costs ~1.9 ms - so what it did instead was
+spend the whole machine, with the pointer blinking under a held button. The
+rule is not that the poll is expensive (it is a few compares) but that
+**taking the lock back is**. `.wait`'s linger sits BETWEEN the unlock and the
+lock rather than after both, unlike its siblings': they hold the lock through
+their wait because an XOR outline is on screen and must stay lit, and `.wait`
+has drawn nothing, so a free lock lets the mouse ISR move the cursor and
+background tasks paint.
+
 **Locator** is the kernel acting as an application (the Finder analogue): the desktop, the drive icons, the Disk browser (up to **four** windows, each on its own drive and folder) and the menus that launch everything else. It is not an instance — it is just the menu set the bar falls back to when no window owns it, and **clicking the bare desktop switches back to it** (the `.desk_icons` branch, before `desk_click`). `menu_loc_set` is an ordinary app menu set whose `AM_ONCMD` is 0, the one value reserved to mean *dispatched by the kernel*: `ui_dispatch` recognises it and rebuilds a `CMD_*` from `ui_loc_base` instead of calling through, which is how the old flat command dispatch survives intact behind the new (cell, item) return. `fm_kinit` points every Disk window at `fm_menus` — Locator's *second* set, same `AM_NAME` but a real `AM_ONCMD` — so the file browser reads as Locator's own window rather than an app called "Disk", and the bar carries File/Folder/View/Special while one of its windows is active.
 
 For an application, the whole interface is `OSAPI_MENU_SET` plus the `OS88_MENUSET`/`OS88_MENU`/`OS88_MENUSET_END` macros in `apps/os88api.inc`. The command handler is **a window callback reached through the bar**: called on the UI task under the gfx lock, billed to the instance, same rules as `W_ONCLICK` — it may draw and may call the file API, must never take the lock, and **must repaint itself**, because the kernel does not repaint after it returns.

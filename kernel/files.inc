@@ -2987,8 +2987,25 @@ fm_drag:
     call fm_dgabs
     cmp ax, FM_DRAGMIN
     jae .begin
+    ; ...and wait out the tick with the lock FREE (SPEC.md 7.1.3). This pass
+    ; drew nothing, so every gfx_unlock/gfx_lock round trip it makes is a
+    ; cursor erase and redraw for no reason - ~1.9 ms of the field machine
+    ; each, and unpaced this loop turns over as fast as the CPU allows. Every
+    ; other loop of this shape already lingers (.track below, ui_drag,
+    ; ui_grow) and ui_drag's comment says why in as many words: without it
+    ; "the cursor blits inside gfx_unlock/gfx_lock dominate the loop". This
+    ; one was the exception, and the exception is what a held button costs.
+    ;
+    ; The linger sits BETWEEN the unlock and the lock rather than after both,
+    ; unlike .track's - .track holds the lock through its wait because its
+    ; outline is drawn and must stay lit. Nothing is drawn here, so the free
+    ; lock lets the mouse ISR move the cursor and background tasks paint.
     call KERNEL_SEG:cw_gfx_unlock ; the lock may only drop with nothing drawn
+    mov ax, [ticks]
+.wlinger:
     call KERNEL_SEG:cw_task_yield
+    cmp ax, [ticks]
+    je .wlinger
     call KERNEL_SEG:cw_gfx_lock
     jmp short .wait
 
