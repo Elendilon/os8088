@@ -1104,6 +1104,9 @@ menu_drop:
                                 ; no flush: the highlights are VRAM-direct and
                                 ; nothing else draws while we hold the lock,
                                 ; so the back buffer is untouched here (§32)
+    call kbm_poll               ; ...and let the keyboard mouse release the
+                                ; button it latched, or this loop never ends
+                                ; on a machine with no mouse (SPEC.md 9.6)
     call task_yield             ; keep the scheduler healthy while we spin
     jmp .poll
 

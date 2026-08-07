@@ -28,8 +28,15 @@ no way to know whether there *is* one, which one, or who to ask.
 What is durable is the **fork**. `Elendilon/os8088` is visible to every
 session that works in it — it is the remote, the branch name and the owner —
 and it is visible to every human reading the repo. So the register is keyed on
-the GitHub handle of whoever owns the iron, and it lives here rather than in a
-conversation.
+the **full fork name** of whoever owns the iron — `Elendilon/os8088`, not
+`Elendilon` — and it lives here rather than in a conversation.
+
+The full name and not the bare handle, because **this file is written to be
+merged upstream**. In the fork, "owner: `Elendilon`" is unambiguous and a
+reader can work out the rest; in the parent repository, with contributors from
+several forks, a bare handle names a person with no way to tell which tree
+they hold the hardware for. The fork name survives the merge with its meaning
+intact, and it is still exactly what an agent can see from its remote.
 
 Handles, not email addresses: this repo is public (it ships releases and feeds
 os8088.com), and a personal address in a tracked file is published, not
@@ -73,7 +80,7 @@ by name in a dozen places.
 
 | | |
 |---|---|
-| owner | `Elendilon` — owner of this fork, `Elendilon/os8088` |
+| owner | **`Elendilon/os8088`** |
 | machine | **IBM PC 5150**, Intel 8088 at 4.77 MHz |
 | motherboard | the 64–256K board, **256 KB populated** |
 | expansion | **AST SixPakPlus Rev 1** — carries the other **384 KB** (256 + 384 = the 640 KB every set reports) **and the clock** |
@@ -179,10 +186,19 @@ as it applies between iron and an emulator.
 
 | | |
 |---|---|
-| owner | `Elendilon` — owner of this fork |
+| owner | **`Elendilon/os8088`** |
 | machine | **Compaq Portable III** |
 | serial | a **1200 baud modem on COM1**. The mouse is on the other port, which is what §9.5 was built for |
+| floppy | **one 1.2MB 5.25"**, and it boots the **360KB** images — so `make field`'s disks and `make comscan`'s `comscan.img` are the ones to send, not the 1.44MB pair |
 | everything else | **not recorded, because it has not been measured.** Do not fill this table in from what a Portable III generally has — ask, or read it off `comscan` |
+
+**A 1.2MB drive writing a 360KB disk is a known hazard and the owner is
+handling it by keeping those disks separate** — a 1.2M drive's head is
+narrower than a 360K drive's track, so a disk it has *written* may be
+unreadable in a real 360K drive afterwards. It is worth knowing which images
+write: the field disks do (their whole point is that the benchmark reports
+land back on the disk they came from, and the Control Panel writes
+`SYSTEM.CFG` on close), and **`comscan` never writes to a disk at all**.
 
 **What it found:** with §9.5's two-port support in, the mouse was **not
 detected** on this machine. That is open, and it is the reason

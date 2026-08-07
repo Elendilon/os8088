@@ -103,6 +103,26 @@ have, and it is not a build fix.
 
 There are 2,048 bytes — four 512-byte steps — between here and that wall.
 
+### The first thing to take out again, if space becomes the priority
+
+**The keyboard mouse (SPEC.md §9.6, `kernel/mouse.inc`) — 527 bytes of
+`.text`, one 512-byte step.** It went in with the budget already at guard 5's
+ceiling, deliberately and with the cost quoted, because it is the difference
+between a usable machine and an unusable one at exactly the moment the mouse
+fails — which is what happened on the Compaq Portable III
+(docs/FIELD-MACHINES.md). The spare went **1,024 → 512** to pay for it.
+
+It is recorded here because a size decision taken on those grounds is one the
+next author should be able to *find* rather than rediscover. If footprint ever
+outranks it, this is the first candidate: dropped outright, or built only into
+the testing and benchmark kernels, where the harness drives the mouse over QMP
+and never needs it. Nothing else depends on it — one module plus four call
+sites (`ui_task`'s key poll, and the `kbm_poll` in `menu_track`, `ui_drag`
+and `ui_grow`).
+
+**Recommend it; do not remove it unasked.** On a machine with no working
+mouse, taking it out means the desktop cannot be clicked at all.
+
 ### The nine moves
 
 `KERN_BUDGET` was 65,536 — the first 64KB above the BIOS data area, which is

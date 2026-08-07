@@ -52,6 +52,10 @@ ui_task:
     jz .events
     mov ah, 0x00                ; fetch it: AL = ascii, AH = scan
     int 0x16
+    call kbm_key                ; with no mouse on the machine, the arrows ARE
+    jc .events                  ; the mouse (SPEC.md 9.6) and this key is not
+                                ; the application's. One compare per keystroke
+                                ; on a machine that has one
     call gfx_lock               ; handler draws; it runs under the lock
     call wm_top                 ; BX = frontmost visible window, 0 if none
     call fdlg_top               ; ...unless a modal file dialog is up, which
@@ -478,6 +482,7 @@ ui_drag:
     jz .release                 ; (queue full) - the level still says so
     call ui_drag_xor            ; erase...
     call gfx_unlock             ; ...only then may the lock drop
+    call kbm_poll               ; the keyboard mouse drags too (SPEC.md 9.6)
     call task_yield             ; background tasks stay live here
     call gfx_lock
     mov ax, [mouse_x]           ; outline pos = orig + (mouse - start)
@@ -645,6 +650,7 @@ ui_grow:
     jz .release
     call ui_drag_xor            ; erase...
     call gfx_unlock             ; ...only then may the lock drop
+    call kbm_poll               ; ...and resizes (SPEC.md 9.6)
     call task_yield
     call gfx_lock
     mov ax, [mouse_x]           ; tracked size = orig + (mouse - start),
