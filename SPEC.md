@@ -3781,7 +3781,7 @@ Three things about it are deliberate:
     `SCH_WD_TICKS` ticks (`sch_wd_hits` advances, readable with QMP `xp` on
     segment 0x0800).
 12. **Writing works and the volume stays a legal FAT volume** (§18.4/§27.1):
-    type into Note Pad, F2 saves ("Saved NOTES.TXT"), F3 in a *second*
+    type into Note Pad, F2 saves ("Saved NOTES.TXT"), `Ctrl-O` in a *second*
     Note Pad instance loads the same text back; the Disk window's Refresh
     lists `NOTES.TXT` with its true size; and after QEMU exits,
     `python3 tools/os88disk.py --verify build/apps.img` passes — FAT1 ≡
@@ -7828,8 +7828,10 @@ instance table like any other package.
 
 NOTEPAD is where §18.4 becomes visible to a user, and the package-side
 proof that the file slots work from a plain window callback. Two keys, DOS
-Editor's: **F2 saves** (scan 3Ch), **F3 loads** (scan 3Dh); both arrive
-through the existing onkey with AL = 0.
+Editor's: **F2 saves** (scan 3Ch), and **F3 loaded** (scan 3Dh); both arrive
+through the existing onkey with AL = 0. F3 is Find Next now and the load is
+`Ctrl-O` — §27.10 has the argument — so F2 is the only F-key this section
+still owns.
 
 **The file used to be a fixed `NOTES.TXT`** — not because one note is
 enough, but because a package had no way to ask for a name. §38 removed
@@ -7841,12 +7843,15 @@ document name seeded to `NOTES.TXT` at launch, and four File commands:
 |---------|-----------|
 | **New** | empties the buffer and resets the name to `NOTES.TXT` |
 | **Open…** | slot 0x0150 in Open mode, default = the current name; the callback stores the chosen name and loads it |
-| **Save** (F2) | writes `np_name` — no dialog, the second and later saves of a document are silent |
+| **Open…** is also `Ctrl-O` | the key the dialog answers to since F3 became Find Next (§27.10) |
+| **Save** (F2, `Ctrl-S`) | writes `np_name` — no dialog, the second and later saves of a document are silent |
 | **Save As…** | slot 0x0150 in Save mode; the callback stores the chosen name and writes it |
 
-F3 is **Open…**, i.e. it now raises the dialog rather than re-reading a
-fixed file — the one behaviour change to an existing key, and the reason
+The load key is **Open…**, i.e. it raises the dialog rather than re-reading
+a fixed file — the one behaviour change to an existing key, and the reason
 for it is that a load with no way to say *what* was never the useful half.
+It was F3 when that was written and is `Ctrl-O` since §27.10 took F3 for
+Find Next.
 Both dialog commands go through one completion proc, `np_ondlg` (AL = mode,
 SI = our window, DI = the name): it copies the name into `np_name`, runs
 `np_load` or `np_save`, and repaints its own content, which §38.5 requires

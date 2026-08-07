@@ -16,7 +16,8 @@
 ; the text when its own row fits.
 ;
 ; What is new is SPEC.md 27.1: F2 saves the note to NOTES.TXT on the mounted
-; data disk and F3 loads it back, over the file API of SPEC.md 18.4 - which
+; data disk and Ctrl-O loads it back (it was F3, which is Find Next now -
+; SPEC.md 27.10), over the file API of SPEC.md 18.4 - which
 ; makes this package the first caller of those slots and the proof that they
 ; work from an ordinary window callback. Line endings are translated in both
 ; directions (13 here, CR LF on the disk), because the whole point of
@@ -28,7 +29,7 @@
 ; application the menu bar while its window is frontmost, so Note Pad ships
 ; a one-menu set - File: New, Open, Save - registered from the entry proc
 ; and dispatched to np_oncmd. The menu is strictly a second door onto the
-; existing routines: "Open" is np_load, "Save" is np_save, F3 and F2 still
+; existing routines: "Open" is np_load, "Save" is np_save, Ctrl-O and F2 still
 ; call exactly the same two, and both doors end at np_redraw. "New" is the
 ; one thing here that is genuinely new rather than a second door - emptying
 ; the buffer had no key and no button before - and it is menu-only for the
@@ -195,8 +196,10 @@ NP_MARGIN    equ 8              ; left/top text margin inside the content. It
                                 ; SECOND framebuffer byte whenever the shift
                                 ; carries ink into it, and this window redraws
                                 ; text on every keystroke
-NP_KEY_SAVE  equ 0x3C           ; F2 scan code (DOS Editor's keys)
-NP_KEY_LOAD  equ 0x3D           ; F3
+NP_KEY_SAVE  equ 0x3C           ; F2 scan code (DOS Editor's keys). The other
+                                ; two F-keys are NP_KEY_NEXT and NP_KEY_PREV
+                                ; below; there is no NP_KEY_LOAD any more,
+                                ; because F3 became Find Next (SPEC.md 27.10)
 NP_K_HOME    equ 0x47           ; the caret keys, int 16h scan codes
 NP_K_UP      equ 0x48
 NP_K_LEFT    equ 0x4B
@@ -4132,7 +4135,7 @@ np_new:
 ;      BX = our menu set ptr; gfx lock held by the caller, UI task
 ; out: nothing; clobbers AX/BX/CX/DX/DI/ES like any window callback
 ;
-; Open and Save are menu-driven twins of F3 and F2 - the same np_load /
+; Open and Save are menu-driven twins of Ctrl-O and F2 - the same np_load /
 ; np_save the keyboard path calls, so the two doors can never drift apart;
 ; New is menu-only, and empties the buffer. Every item changes
 ; what the window shows - the text, the toast, or both - and the kernel does
@@ -4353,7 +4356,7 @@ np_goto:
 ; putting us in the right folder, because it cannot: the loader read our own
 ; image out of OUR directory and far-called this entry as one unit. So the
 ; whole of accepting a document is to copy the name, record the folder the
-; way Save As already records one, and let np_load do exactly what F3 does.
+; way Save As already records one, and let np_load do what Ctrl-O does.
 ;
 ; The name lives in the KERNEL segment, so ES is loaded explicitly rather
 ; than trusted: it happens to still be KERNEL_SEG here, and a later edit that
@@ -4390,7 +4393,7 @@ np_arg:
 .named:
     push ds
     pop es                          ; ES = DS again, the callback default
-    call np_load                    ; ...and this is F3, unchanged
+    call np_load                    ; ...and this is Ctrl-O, unchanged
 .out:
     pop es
     pop di
@@ -7947,7 +7950,7 @@ np_ttl: db 'Note Pad', 0
 
 ; --- the app menu set (SPEC.md 12.2) -------------------------------------------
 ; One menu, three items, all of them existing behaviour: New empties the
-; buffer, Open is F3, Save is F2. AM_NAME reuses np_ttl so the bar label and
+; buffer, Open is Ctrl-O, Save is F2. AM_NAME reuses np_ttl so the bar label and
 ; the window title are the same eight characters by construction. The bar
 ; runs 38 + 64 ('Note Pad') + 16 = 118 to the File cell's left edge, and
 ; 32 + 12 more to its right edge at 162 - nowhere near the clock at 434.
