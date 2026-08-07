@@ -452,8 +452,11 @@ ttx_shstart:
     dec al
     call mp_order
     mov [ttx_shprev], al
-    jmp short .out
-    jmp short .carry
+    jmp short .carry                ; the ONLY path that can carry: a song
+                                    ; walking its order list. A pattern loop
+                                    ; never changes pattern (so never rebuilds)
+                                    ; and position 0 with no restart there has
+                                    ; nothing above it to carry from
 .nomod:
     mov byte [ttx_shbusy], 0        ; no module: an empty grid IS the truth,
     mov byte [ttx_shok], 1          ; and the blank already wrote it
@@ -481,6 +484,10 @@ ttx_shstart:
     rep movsw                               ; the view is sitting on
     mov byte [ttx_srow], 2 * TTX_HALF       ; so the cursor starts BELOW them
     mov byte [ttx_sleft], TTX_SHROWS - 2 * TTX_HALF
+%ifdef TRKLOG
+    mov al, TLOGF_CARRY             ; so a capture says which of the two a
+    call tlog_flag                  ; boundary took, not just that one happened
+%endif
 .out:
     pop es
     pop di

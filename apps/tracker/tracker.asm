@@ -1122,7 +1122,13 @@ trk_fsx_main:
 .txdraw:
     call ttx_draw_dyn
     mov al, [ttx_clk]               ; retrace-paced where the adapter can be
+%ifdef TRKLOG
+    call tlog_wtstart               ; the loop's OTHER half, timed: FX covers
+%endif                              ; the frame and DX the feed pass, and a
     call OSAPI_FSX_WAIT             ; (SPEC.md 45.16), one frame per tick where
+%ifdef TRKLOG                       ; field gap had both healthy - so the time
+    call tlog_wtend                 ; went here or nowhere either task can see
+%endif
     jmp .txloop                     ; it cannot. The SPEC.md 53.5 present
                                     ; clause is dead either way by
                                     ; construction: fsx_mode refused a buffer
@@ -1796,6 +1802,10 @@ trk_xt_toggle:
 ; =============================================================================
 trk_worker:
 .loop:
+%ifdef TRKLOG
+    call tlog_wake                  ; WK: how often this got the CPU, which is
+%endif                              ; what tells a STARVED worker from an idle
+                                    ; one - FD reads 0 for both
     mov bx, [trk_win]
     call OSAPI_TASK_ALIVE           ; lock NOT held here (rule 4)
     mov ax, 1

@@ -14165,10 +14165,33 @@ jump, a `Bxx` or a fresh bracket fails those tests and formats from scratch as
 before — which is why the three old values are banked before the claim
 overwrites them.
 
-Verified by reading the text page out of guest memory across a boundary and
-comparing every row that appears on both sides by the row number it carries:
-**13 rows in common, 0 differences**. The rows the carry moved are
-byte-identical to the rows the formatter would have written.
+**It shipped once as dead code, and the verification did not notice.** Two
+`jmp short`s ended up in a row — the `.song` path's `jmp short .out` followed
+by the `jmp short .carry` that was meant to replace it — so nothing ever
+reached `.carry` and every boundary formatted from scratch, exactly as before.
+It assembled with `-w+error` (an unreachable instruction is not a warning), it
+booted, and the field reported the original symptom again in the original
+words. The check that missed it compared **rows that appear on both sides of a
+boundary, keyed by row number**, and found 13 in common with 0 differences —
+which is true of a *correct rebuild* as well as of a carry, because both end
+up with the right bytes. It was measuring the destination, not the path.
+
+Two checks replace it, and both distinguish the paths rather than the results:
+
+- **The log says which one ran.** `TLOGF_CARRY` (FL bit 7, §45.14) is set
+  inside `.carry` itself, so a capture reads `FL 80` at a boundary that
+  carried and does not at one that formatted. Three boundaries in a QEMU
+  capture, three carries.
+- **Nothing on screen may change except by scrolling.** Sample the 19-row
+  window repeatedly and require that each pair line up under *some* shift:
+  window N with its first `d` rows dropped must equal window N+1's first
+  `19-d` rows, byte for byte. A rebuild that rewrites visible rows fails for
+  every `d`. 69 consecutive pairs across two boundaries, 0 misaligned, shifts
+  of 2 and 3 rows only.
+
+The second is the property the feature actually claims, and it is worth
+stating in that form: *the window scrolls and never re-letters*. The first
+check could only ever say the pixels were eventually right.
 
 #### 45.13.3 What the bracket may not do, and the two keys that say why not
 
@@ -14329,11 +14352,12 @@ old `WAKE` extreme could only report as one number after the fact.
 | `S` | stream state: 0 playing, 1 underrun-paused, 2 watchdog-ended |
 | `PS PT RW` | song position, pattern, row **of the MIXER** — so any line can be placed in the music |
 | `FR FD` | drawing frames and feed passes in that tick |
-| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened, **10h listener mark (`M`)**, 20h `Y` (display on the mixer), 40h `T` (tick clock) |
+| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened, **10h listener mark (`M`)**, 20h `Y` (display on the mixer), 40h `T` (tick clock), **80h that rebuild CARRIED** (§45.13.5 — bit 1 alone cannot tell the two apart, and they cost completely different things) |
 | `BP SP` | tempo and speed, so rows-per-second is derivable per record |
 | `AR AP` | the row and pattern the **SCREEN** showed (§45.15). Disagreeing with `RW`/`PT` by the ring lead is the healthy case; either one frozen is not |
 | `SD` | that lead counted in ROWS — stamps between the card and the mixer. ~`1.19 × BPM / speed`, and pinning at `MP_ST_N` means the stamp ring lapped |
 | `FX DX` | the longest single drawing frame / feed pass in that tick, **in ticks**. 00 is the healthy answer for both; anything else is the stall, named |
+| `WX WK` | the rest of the loop. `WX` is the longest single `OSAPI_FSX_WAIT` — the only other thing the drawing loop does — and `WK` counts `trk_worker` loop passes, which is what tells a **starved** worker from an idle one (`FD` reads 0 for both). Added because a field capture's 18-tick gap had `FX` = 00 and `DX` = 07: the frame was healthy and the feed pass accounts for a third of it, so the rest went somewhere neither existing span covered |
 
 The buffer is a **ring of the last `TLOG_RECS` ticks**, not the first: the
 listener arms the log, plays, hears the thing and only then reaches for `W`.

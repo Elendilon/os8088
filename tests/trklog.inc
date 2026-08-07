@@ -45,7 +45,10 @@
 ;   FR FD how many drawing frames and feed passes happened in that tick. FR 0
 ;         for a run of ticks is the text screen frozen; FD 0 is the worker not
 ;         running.
-;   FL    1 a shadow rebuild started, 2 a rebuild step ran, 4 a blit ran,
+;   FL    1 a shadow rebuild started, 80h that rebuild CARRIED the window
+;         instead of formatting a fresh one (SPEC.md 45.13.5 - the two are
+;         the same bit 1 and nothing else in the file tells them apart),
+;         2 a rebuild step ran, 4 a blit ran,
 ;         8 a stream was opened - and 10h, the one bit a MACHINE cannot set:
 ;         M stamps it, so the listener can put a mark in the file at the
 ;         moment they hear a hitch. Everything else here says what the guest
@@ -64,6 +67,15 @@
 ;   SD    stamps between the card and the mixer (mp_stw - mp_str), which is
 ;         the ring lead in ROWS. Pinned at MP_ST_N means the history lapped
 ;         and the display is being dragged forward by the writer (45.15).
+;   WX WK the other half of the loop, added after a capture whose 18-tick
+;         gap had FX = 00 and DX = 07: the frame was fine and the feed pass
+;         accounts for a third of it, so the rest went somewhere neither span
+;         covered. WX is the longest single OSAPI_FSX_WAIT in the tick - the
+;         only other thing the drawing loop does - and WK counts trk_worker
+;         loop passes, which is how a worker that was STARVED is told from a
+;         worker that was ASLEEP. A gap with WX high is the app blocked in
+;         the wait; a gap with WX low and WK low is both tasks starved by
+;         something that is neither of them.
 ;   FX DX the longest SINGLE drawing frame and feed pass in that tick, in
 ;         ticks. 00 is the healthy answer - one frame is 9 ms and one pass is
 ;         a status poll - and anything else is the stall, named. Tick
@@ -91,7 +103,7 @@ TLOG_RECS   equ 512                 ; 28 s of RING at one record per tick -
                                     ; actually spare (SPEC.md 50.3)
 TLOG_RSZ    equ 32                  ; a power of two so the index is 5 shifts
 TLOG_KB     equ (TLOG_RECS * TLOG_RSZ + 1023) / 1024
-TLOG_LINE   equ 64                  ; 61 columns + CR LF
+TLOG_LINE   equ 72                  ; 67 columns + CR LF
 TLOG_TXTKB  equ (TLOG_RECS * TLOG_LINE + 1024 + 1023) / 1024
 
 TLOGF_REBUILD equ 1
@@ -101,6 +113,10 @@ TLOGF_STREAM  equ 8
 TLOGF_MARK    equ 16               ; M: the LISTENER heard something here
 TLOGF_NOSYNC  equ 32               ; Y: the display is back on the MIXER
 TLOGF_TICKCLK equ 64               ; T: the frame clock is back on the tick
+TLOGF_CARRY   equ 128              ; the boundary MOVED the window (45.13.5)
+                                   ; rather than formatting a new one - the
+                                   ; two look identical in the FL rebuild bit
+                                   ; and cost completely different things
 
 ; record field offsets
 TLR_TICK  equ 0
@@ -121,6 +137,8 @@ TLR_SDEP  equ 17                    ; stamps between the card and the mixer
 TLR_FRMX  equ 18                    ; longest single frame this tick, in ticks
 TLR_FDMX  equ 19                    ; ...and longest single feed pass
 TLR_PLAY  equ 20                    ; w: the INTERPOLATED play position
+TLR_WTMX  equ 22                    ; longest single OSAPI_FSX_WAIT, in ticks
+TLR_WLOOP equ 23                    ; trk_worker loop passes since the record
 
 ; -----------------------------------------------------------------------------
 ; tlog_key - D: arm or disarm. Arming claims the record buffer, disarming
@@ -275,6 +293,35 @@ tlog_wend:
     pop ax
     ret
 
+; tlog_wtstart / tlog_wtend - the same pair around OSAPI_FSX_WAIT, which is
+; everything the drawing loop does that tlog_fstart..tlog_frame does not.
+tlog_wtstart:
+    push ax
+    call OSAPI_GET_TICKS
+    mov [tlog_wtt0], ax
+    pop ax
+    ret
+
+tlog_wtend:
+    push ax
+    push bx
+    mov ax, [tlog_wtt0]
+    mov bx, tlog_wtmx
+    call tlog_span
+    pop bx
+    pop ax
+    ret
+
+; tlog_wake - one trk_worker loop pass. Counted at the TOP of the loop, before
+; the sleep, so it says how often the worker got the CPU rather than how often
+; it found work: a starved worker and an idle one both show FD 0.
+tlog_wake:
+    inc byte [tlog_wloop]
+    jnz .ok
+    dec byte [tlog_wloop]
+.ok:
+    ret
+
 ; tlog_span - AX = the tick the thing started at, BX = the max byte's address;
 ;             keep the larger of what is there and how long it took
 tlog_span:
@@ -414,11 +461,17 @@ tlog_tick:
     mov [es:di + TLR_FDMX], al
     mov ax, [tui_play]              ; what tui_playpos answered (45.15.1):
     mov [es:di + TLR_PLAY], ax      ; PL - CONS is the interpolation itself
+    mov al, [tlog_wtmx]
+    mov [es:di + TLR_WTMX], al
+    mov al, [tlog_wloop]
+    mov [es:di + TLR_WLOOP], al
     mov byte [tlog_frames], 0
     mov byte [tlog_feeds], 0
     mov byte [tlog_flags], 0
     mov byte [tlog_frmx], 0
     mov byte [tlog_fdmx], 0
+    mov byte [tlog_wtmx], 0
+    mov byte [tlog_wloop], 0
     inc word [tlog_w]               ; the RING wraps rather than stopping:
     cmp word [tlog_w], TLOG_RECS    ; the listener reaches for W AFTER hearing
     jb .count                       ; the thing, so the LAST 28 s is the half
@@ -540,6 +593,8 @@ tlog_save:
     mov si, tlog_s_h7
     call tlog_emit
     mov si, tlog_s_h8
+    call tlog_emit
+    mov si, tlog_s_h9
     call tlog_emit
     call tlog_hdr_clk               ; the frame clock the probe chose, which
     mov si, tlog_line               ; is constant for the bracket and so has
@@ -671,9 +726,14 @@ tlog_fmt:
     inc bx
     cmp bx, TLR_FDMX
     jbe .b
-    mov ax, [es:si + TLR_PLAY]      ; ...and the interpolated position last,
-    call tlog_hex4                  ; so the byte columns stay where they were
-    dec di                          ; drop the trailing space
+    mov ax, [es:si + TLR_PLAY]      ; ...the interpolated position, then the
+    call tlog_hex4                  ; two loop spans, so the byte columns
+    mov al, [es:si + TLR_WTMX]      ; above stay where they were
+    call tui_hexb
+    mov byte [di], ' '
+    inc di
+    mov al, [es:si + TLR_WLOOP]
+    call tui_hexb
     mov byte [di], 0
     pop es
     pop di
@@ -746,12 +806,14 @@ tlog_s_fsw:     db 'Save is windowed: Esc first', 0
 tlog_s_mark:    db 'MARK', 0
 tlog_s_h1:      db 'os8088 tracker log - one record per system tick (18.2065 Hz)', 0
 tlog_s_h2:      db 'CONS advances one 2048-byte half per block IRQ; TOTL-CONS is the ring lead', 0
-tlog_s_h3:      db 'FL bits: 1 rebuild  2 step  4 blit  8 stream opened  10 LISTENER MARK', 0
-tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP AR AP SD FX DX PLAY', 0
+tlog_s_h3:      db 'FL: 1 rebuild 2 step 4 blit 8 stream 10 MARK 80 rebuild CARRIED', 0
+tlog_s_h4:      db 'TICK CONS TOTL S PS PT RW FR FD FL BP SP AR AP SD FX DX PLAY WX WK', 0
 tlog_s_h5:      db 'AR/AP is what the SCREEN showed; SD is the card-to-mixer lead in ROWS', 0
-tlog_s_h6:      db 'FX/DX: longest single frame / feed pass in that tick, IN TICKS (00 = ok)', 0
+tlog_s_h6:      db 'FX/DX/WX: longest frame / feed pass / FSX_WAIT that tick, TICKS (00 ok)', 0
+tlog_s_h9:      db 'WK counts trk_worker loop passes: low WK in a TICK GAP is a STARVED worker', 0
 tlog_s_h8:      db 'PLAY is CONS interpolated between block IRQs; PLAY-CONS <= one block', 0
 tlog_s_h7:      db 'FL 20 = Y pressed (display on the mixer), 40 = T pressed (tick clock)', 0
+                ; 80 = the rebuild CARRIED (SPEC.md 45.13.5) - named in h3
 tlog_s_clk:     db 'clock: ', 0
 tlog_s_tick:    db 'tick', 0
 tlog_s_retr:    db 'retrace', 0
@@ -772,8 +834,11 @@ tlog_s_clkr:    db 'Clock: one frame per retrace', 0
     TRKW tlog_lastt                 ; the tick the last record carries
     TRKW tlog_ft0                   ; the tick the current frame began at
     TRKW tlog_wt0                   ; ...and the current feed pass
-    TRKB tlog_frmx                  ; longest frame / feed pass this tick
-    TRKB tlog_fdmx
+    TRKW tlog_wtt0                  ; ...and the current OSAPI_FSX_WAIT
+    TRKB tlog_frmx                  ; longest frame / feed pass / wait this
+    TRKB tlog_fdmx                  ; tick
+    TRKB tlog_wtmx
+    TRKB tlog_wloop                 ; worker loop passes since the record
     TRKB tlog_nosync                ; Y: the display is back on the mixer
     TRKW tlog_cons                  ; what the worker last saw...
     TRKW tlog_totl
