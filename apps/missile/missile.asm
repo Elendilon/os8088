@@ -179,6 +179,9 @@ MC_DSCMAX   equ 16                  ; walks handed to OSAPI_GFX_LSTEPV at once
   %error "mc_dsc holds fewer walks than one batch can produce"
 %endif
 MC_EXPFR    equ 27                  ; EXDONE: frames an explosion lasts
+MC_EXPJIT   equ 4                   ; frames of ramp PHASE a burst is jittered
+                                    ; by (SPEC.md 48.17), coarse ramp only:
+                                    ; the fine one redraws every frame anyway
 MC_EXPFR3   equ 21                  ; ...and what the coarse ramp lasts, which
                                     ; is SHORTER on purpose: with no collapse
                                     ; the peak is held instead, so the life is
@@ -2457,8 +2460,16 @@ mc_add_exp:
     mov [mc_ex + di], ax
     mov ax, [mc_expy]
     mov [mc_ey + di], ax
-    mov byte [mc_et + si], 0
-    mov byte [mc_er + si], 0
+    xor ax, ax                      ; SPEC.md 48.17: the coarse ramp redraws a
+    cmp byte [mc_ecoarse], 0        ; burst only when its drawn STATE changes,
+    je .phase                       ; so a salvo detonating together redraws
+    push cx                         ; together - a field log caught 76 ms of
+    mov cx, MC_EXPJIT               ; explosion in ONE frame. Starting each
+    call mc_rand_mod                ; burst a frame or two INTO the ramp
+    pop cx                          ; spreads the transitions, and costs no
+.phase:                             ; lethality worth the name: the frames it
+    mov [mc_et + si], al            ; skips are the small ones at the start,
+    mov byte [mc_er + si], 0        ; about 1% of the radius sum on average
     mov byte [mc_ea + si], 1
 .out:
     pop si
@@ -3456,6 +3467,8 @@ mc_draw_all:
     mov word [mc_msgp], 0           ; the content fill took the banner with it
     call mc_drn_clear               ; ...and every pending erase, which would
                                     ; otherwise erase what this repaint drew
+    call mc_sshad_clr               ; ...and what the status strip held: the
+                                    ; content fill took it with it
     call mc_gdclear
     mov byte [mc_bdirty], 0
     mov byte [mc_sdirty], 0
@@ -5762,12 +5775,13 @@ mc_draw_status:
     mov cx, MC_SFW
     call mc_field
     mov si, mc_sbuf
-    mov word [mc_runw], MC_SFW * 8
+    mov di, mc_shad0
+    mov bx, MC_SFW
     xor cx, cx                      ; hard left, already aligned
     mov dx, [mc_texty]
     mov al, CWHITE
     mov ah, MC_BG
-    call mc_runc
+    call mc_srun
 
     mov ax, [mc_hilo]               ; the high score, centred on its SPAN so
     mov dx, [mc_hihi]               ; the field does not move as it grows
@@ -5777,7 +5791,8 @@ mc_draw_status:
     mov cx, MC_SFW
     call mc_field
     mov si, mc_sbuf
-    mov word [mc_runw], MC_SFW * 8
+    mov di, mc_shad1
+    mov bx, MC_SFW
     mov cx, [mc_cw]
     sub cx, MC_SFW * 8
     shr cx, 1
@@ -5785,7 +5800,7 @@ mc_draw_status:
     mov dx, [mc_texty]
     mov al, CYELLOW
     mov ah, MC_BG
-    call mc_runc
+    call mc_srun
 
     ; Wave and multiplier, right-aligned. All THREE figures in this strip are
     ; drawn from SPEC.md 39.4's white class (15, 14, 12) and none from its
@@ -5818,14 +5833,15 @@ mc_draw_status:
     mov cx, MC_WFW
     call mc_field
     mov si, mc_sbuf
-    mov word [mc_runw], MC_WFW * 8
+    mov di, mc_shad2
+    mov bx, MC_WFW
     mov cx, [mc_cw]
     sub cx, MC_WFW * 8
     and cx, 0xFFF8
     mov dx, [mc_texty]
     mov al, CLRED
     mov ah, MC_BG
-    call mc_runc
+    call mc_srun
     pop di
     pop si
     pop dx
@@ -5880,6 +5896,110 @@ mc_field:
     pop si
     pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_srun - mc_runc, but only the cells of the field that CHANGED
+; in:  SI = the new text, DI = its shadow, BX = the field width in CELLS,
+;      CX = x, DX = y, AL = ink, AH = background
+; preserves all registers
+;
+; The strip is three fields of 10, 10 and 9 cells and [mc_sdirty] is set on
+; every kill, so a kill re-lettered all TWENTY-NINE - about 29 ms on a 4.77MHz
+; Hercules machine (PERFORMANCE.md's ~1 ms a cell), in one frame, several
+; times a second. A field log caught it as `rst` at 28-37 ms in the worst
+; frame of eight different seconds, with only eleven fills in them.
+;
+; Only the score changes on a kill, and usually only its last digit or two. So
+; each field carries the text it was last DRAWN with, and what goes out is the
+; span from the first differing cell to the last - one or two cells for a
+; score bump, nothing at all for the two fields that did not move.
+;
+; This subsumes a per-field dirty bit rather than needing one: a field whose
+; text is unchanged draws nothing, whatever the flag said.
+; -----------------------------------------------------------------------------
+mc_srun:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [mc_sax], ax
+    mov [mc_sdx], dx
+    mov [mc_scx], cx
+    mov [mc_ssi], si
+    mov [mc_sfw], bx
+    mov word [mc_sf0], -1
+    mov word [mc_sf1], -1
+    xor bx, bx
+.scan:
+    cmp bx, [mc_sfw]
+    jae .done
+    mov al, [si + bx]
+    cmp al, [di + bx]
+    je .nx
+    cmp word [mc_sf0], -1
+    jne .lo
+    mov [mc_sf0], bx
+.lo:
+    mov [mc_sf1], bx
+.nx:
+    inc bx
+    jmp short .scan
+.done:
+    cmp word [mc_sf0], -1
+    je .out                         ; unchanged: nothing goes out at all
+    xor bx, bx                      ; the shadow becomes what is on screen
+.cp:
+    cmp bx, [mc_sfw]
+    jae .cpd
+    mov al, [si + bx]
+    mov [di + bx], al
+    inc bx
+    jmp short .cp
+.cpd:
+    mov bx, [mc_sf0]
+    mov si, [mc_ssi]
+    add si, bx                      ; the run starts at the first change...
+    mov ax, bx
+    mov cl, 3
+    shl ax, cl
+    add ax, [mc_scx]
+    mov cx, ax
+    mov ax, [mc_sf1]                ; ...and ends at the last
+    sub ax, [mc_sf0]
+    inc ax
+    push cx
+    mov cl, 3
+    shl ax, cl
+    pop cx
+    mov [mc_runw], ax
+    mov dx, [mc_sdx]
+    mov ax, [mc_sax]
+    call mc_runc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mc_sshad_clr - forget what the strip holds, so the next paint draws it whole
+; preserves all registers
+mc_sshad_clr:
+    push cx
+    push di
+    mov di, mc_shad0
+    mov cx, MC_SFW + MC_SFW + MC_WFW + 3
+.z:
+    mov byte [di], 0FFh             ; a byte no field can contain, so every
+    inc di                          ; cell reads as changed
+    loop .z
+    pop di
+    pop cx
     ret
 
 ; mc_runc - one opaque run in CONTENT coordinates (the mc_textc of SPEC.md 6.1)
@@ -7049,6 +7169,16 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_spx2                   ; drawing this call (SPEC.md 48.9)
     MBYTE mc_bmask                  ; ...and which bases they may touch
     MBYTE mc_sdirty                 ; ...or at least the score strip
+    MBUF  mc_shad0,  MC_SFW + 1     ; what each field was last DRAWN with
+    MBUF  mc_shad1,  MC_SFW + 1
+    MBUF  mc_shad2,  MC_WFW + 1
+    MWORD mc_sax                    ; mc_srun's arguments, out of the
+    MWORD mc_sdx                    ; registers its scan needs
+    MWORD mc_scx
+    MWORD mc_ssi
+    MWORD mc_sfw
+    MWORD mc_sf0
+    MWORD mc_sf1
     MWORD mc_msgp                   ; the banner ACTUALLY on screen, 0 = none
     MBUF  mc_msgbuf, MC_MSGW + 2
     MWORD mc_runw                   ; mc_runc's field width, in pixels

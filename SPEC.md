@@ -15954,6 +15954,57 @@ full repaint replays it with the **scalar** one (`mc_redraw_trails` was left
 alone), so a disagreement between the two would show directly. **0 differing
 pixels** on VGA (of 224,961), CGA (of 129,485) and Hercules (of 236,160).
 
+### 48.17 The strip drew 29 cells to change one digit; a salvo redrew together
+
+The MartyPC log (PERFORMANCE.md Part 9, Set 9) is the first with a working
+**MAX line** — the worst single frame of each second, in raw counts — and a
+per-second mean could never have said what it says. **33 of 60 seconds
+contain a frame over one tick**, and in those frames the biggest stage is
+`exp` in **20** and `rst` in **8**. The worst three are 126.5, 111.3 and
+107.8 ms, with `exp` at 76.1, 65.8 and 74.0 ms of them.
+
+Two spikes, unrelated to each other, and both are "everything at once".
+
+**`rst` is the status strip.** `mc_draw_status` drew three space-padded
+fields — 10 cells of score, 10 of high score, 9 of `W12 x6` — every time
+`[mc_sdirty]` was set, which is **on every kill**. Twenty-nine glyph cells at
+PERFORMANCE.md's ~1 ms each is ~29 ms in one frame, several times a second,
+and the log shows it exactly: `rst` at 28-37 ms in the worst frame of eight
+different seconds, with only *eleven* fills in them. §48.9.3 fixed this
+routine's *flicker* and left its *size* alone.
+
+Only the score changes on a kill, and usually only its last digit. `mc_srun`
+is `mc_runc` with a memory: each field carries the text it was last **drawn**
+with, and what goes out is the span from the first differing cell to the
+last. A score bump is one or two cells; the two fields that did not move draw
+nothing at all. **It subsumes a per-field dirty bit rather than needing one** —
+a field whose text is unchanged draws nothing whatever the flag says — and
+`mc_sshad_clr` runs in `mc_draw_all`, because the content fill took the strip
+with it and a shadow that survived that is a lie.
+
+**`exp` is a salvo.** §48.8's coarse ramp redraws a burst only when its drawn
+*state* changes, and §48.12 left it three states in 21 frames — so bursts that
+detonate together transition together, and the whole cluster's discs land on
+the same two frames. `mc_add_exp` seeds `[mc_et]` with `rand mod MC_EXPJIT`
+instead of 0, so each burst starts a frame or two **into** the ramp.
+
+That construction is chosen because it costs almost nothing:
+
+- **The life test is unchanged**, so a burst seeded at *j* lives `MC_EXPFR3 −
+  j` frames. What it skips is the *front* of the ramp — the frames at radius
+  0 and the first at radius 5 — never the peak. Σr falls by about 1% on
+  average against §48.12's 3.3% tolerance, and in the safe direction.
+- **One table still drives the drawn and the lethal radius**, because the
+  jitter is in the *index*, not in either consumer. §48.12's invariant is
+  untouched.
+- **Coarse ramp only.** The fine ramp redraws every frame anyway, so there is
+  no simultaneity to spread and a jitter there would only shorten bursts.
+
+Verified the §48.14 way on both mono adapters, after letting a cluster of
+jittered bursts die and with the score having moved several times: **0
+differing pixels** against a forced full repaint — CGA (of 129,485) and
+Hercules (of 236,160).
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
