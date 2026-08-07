@@ -976,7 +976,10 @@ a harmless tidy-up in the other direction:
    already was in font.inc's (§6.1). Its body is three instructions and the
    call and ret around them cost as much again — and **a fill walks its rows
    three times**, once per edge column and once for the interior, so a fill
-   pays it three times per scan line.
+   pays it three times per scan line. `bb_xfer`'s two loops were the last
+   holdouts and followed later (§7.1's work): the save side walks the
+   framebuffer in **SI**, so through the call it paid two `xchg si, di` as
+   well, around a body that is a `rep movsb` of two or three bytes.
 7. **`[bb_pat]` is staged by whoever needs it**, not by `bb_rect` for all
    three modes: `BBM_GRAY` starts from the dither byte, `BBM_SOLID`'s own
    dither branch stages it in `bb_ink`, and `BBM_XOR` never reads it.
@@ -1315,6 +1318,77 @@ not worth what it would do to dragging.
   Every rule in this section holds unchanged in both modes: the locks, the
   cursor/ISR protocol and the BIOS restriction are about who may touch
   what, not about when the CPU is taken away.
+
+### 7.1 What the lock actually costs — it is the cursor, not the mutex
+
+The mutex is one byte and six instructions. Everything else in `gfx_lock`
+and `gfx_unlock` is the **mouse cursor**: the lock erases it so nothing may
+draw over it, and the unlock saves what it will cover and draws it again. A
+field log of Missile Command put the pair at **21.8% of a 77-second session**
+with not one pixel of the game in it (PERFORMANCE.md Part 9 Set 4) — and
+because it is entirely kernel-side, every application on every machine was
+paying it.
+
+`tests/gfxbench` measures it as one row, `GFX_UNLOCK+LOCK pair`. It is
+measured **backwards** — `OSAPI_GFX_LOCK` from inside a callback that already
+holds the lock is a deadlock, but unlock-then-lock is the same two routines
+in the other order, and `fm_drag` (§22.4) already uses that idiom. The two
+halves cannot be separated from a package because they must alternate.
+
+Four things make the pair what it is.
+
+- **The arrow is 8x12, and the tables are 16x16.** `cur_and`'s widest row is
+  `0xFF00` and its last non-zero row is 11, so `CUR_GW`/`CUR_GH` bound every
+  walk instead of `CUR_W`/`CUR_H` — a quarter of the rows and a third of the
+  bytes per row that used to be saved, restored, drawn and erased on empty
+  bits. Both are **asserted against the tables at assembly time**, because
+  both fail silently: a wider arrow loses its right-hand column on the two
+  mono adapters, a taller one leaves its bottom rows on the screen for the
+  rest of the session, and neither shows up anywhere but on the glass. The
+  rows go in through a `CUR_ROW` macro that emits the same word and
+  accumulates the two facts.
+- **The width is what retires the cell's third byte.** A 16-bit row whose low
+  byte is zero cannot reach a third framebuffer byte however far it is
+  shifted, so `row << (8-shift)` was a byte that was always 0, guarding a
+  branch that was never taken, once per row per pass. `CUR_SPAN` is 2, and
+  `cur_b2ok` is gone.
+- **On a 1bpp adapter the cursor is ONE pass, not three.** The framebuffer is
+  the renderer's own target there (§39.5), so `cur_put_mono` reads the byte
+  under the arrow, banks it, ORs the white outline in, ANDs the black body
+  out and writes it back — in one row loop. The three it replaces (a save
+  through `vga_rect_setup` and `bb_xfer`, then `cur_pass_mono` for white,
+  then `cur_pass_mono` again for black) read the same byte three times and
+  wrote it twice, each through its own row walk and its own `gfx_nextrow`
+  call. The masks compose: `(under | white) & ~black` is exactly what drawing
+  one pass on top of the other always produced. VGA keeps the old shape — the
+  save is four planes through Read Map Select and the draw is Set/Reset
+  through the Bit Mask, so there is no single byte to fuse — but it gets the
+  8x12 cell and the missing third byte.
+- **The geometry is computed once and banked, not derived twice.**
+  `cur_geom` answers the cell's framebuffer offset, the shift, the rows on
+  screen and whether the `DI+1` byte is still inside the row; `cur_get_mono`
+  replays them out of `[cur_off]`/`[cur_rows]`/`[cur_b1ok]` rather than
+  recomputing. That is a correctness rule before it is a speed one: **a save
+  and its restore that disagree by one byte smear the cursor across the
+  screen**, and two derivations are two chances to disagree. It is sound
+  because the cursor cannot move between them — every caller that moves it
+  erases at the OLD position first (§7's ISR rule).
+
+Measured under `-icount` (Part 9 Set 7), the pair went **17.82 → 5.41** PIT
+counts on Hercules, 17.98 → 5.46 on CGA and 23.00 → 11.85 on VGA, with the
+framebuffer **byte-identical** on all three adapters at every cursor position
+tested — over glyphs byte-aligned and skewed, against the right screen edge
+where the second byte is clipped away, and against the bottom edge where the
+arrow is cut short.
+
+**What was NOT done, and why it is written down.** The pair is still paid on
+every lock hold whether or not anything drawn came near the cursor, and a
+*lazy* hide — leave the arrow up, and erase it only when a primitive's rect
+reaches it — would take the untouched case to nothing. It is not here because
+it needs the check at every path that writes the framebuffer, and a path that
+is missed does not draw wrong: it smears the cursor permanently. That is
+§11.3's "a primitive not on that list is a hole" with a worse failure mode,
+and it wants its own change with its own verification, not a rider on this one.
 
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
@@ -1687,11 +1761,18 @@ then, so this is invisible.
 - `mouse_unhook` — restore int 0x0C vector, mask IRQ4 again, IER=0.
 - Cursor: classic Mac arrow, 11 px tall, hot spot (0,0) — black body,
   1px white outline. Two 16-row × 16-bit tables: `cur_and` (white outline
-  mask) and `cur_data` (black body). Draw on VGA: white pass = Set/Reset
-  white, Bit Mask = mask row bits; black pass likewise. On a 1bpp adapter
-  (§39) the same two passes go in with plain CPU OR/AND — no Set/Reset, no
-  Bit Mask, no ports. Save-under buffer in .bss:
-  3 bytes wide × 16 rows × 4 planes = 192 bytes. The cursor is **always
+  mask) and `cur_data` (black body). **The tables are 16×16; the arrow is
+  `CUR_GW`×`CUR_GH` = 8×12, and that is what every walk is bounded by**
+  (§7.1) — asserted against the tables at assembly time, because a redrawn
+  arrow that outgrew either bound would fail only on the glass. Draw on
+  VGA: white pass = Set/Reset white, Bit Mask = mask row bits; black pass
+  likewise, across the cell's `CUR_SPAN` = 2 bytes. On a 1bpp adapter
+  (§39) the framebuffer is the renderer's own target, so the save and both
+  passes are fused into **one** row loop (`cur_put_mono`) with plain CPU
+  OR/AND — no Set/Reset, no Bit Mask, no ports; `cur_get_mono` puts the
+  banked bytes back, replaying `cur_geom`'s geometry rather than
+  re-deriving it. Save-under buffer in .bss: `CUR_SPAN` × `CUR_GH` × 4
+  planes = 96 bytes. The cursor is **always
   VRAM-direct**, double buffering or not: save/restore go through
   `vga_save_vram`/`vga_restore_vram` (§5, §32), never the dispatching
   `gfx_save`/`gfx_restore` — the back buffer must never contain cursor
