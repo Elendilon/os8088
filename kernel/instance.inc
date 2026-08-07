@@ -105,9 +105,11 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_about,  0,               0,             0,   0,                app_ttl_about
     dw inst_ico_about
     db 1, 0                     ; About: stateless singleton
-    dw app_tpl_timer,  app_tmr_task,    app_tmr_pool,  8,   app_tmr_kinit,    app_ttl_timer
+    dw app_tpl_timer,  app_tmr_task,    app_tmr_pool,  TMR_SIZE, app_tmr_kinit, app_ttl_timer
     dw inst_ico_timer
-    db 10, 0                    ; Timer: 10 x 8-byte time state, one task each
+    db 10, 0                    ; Timer: 10 x 16-byte time state, one task each
+                                ; (8 of the 16 are the cells on screen, so a
+                                ; redraw can be the ones that moved - SPEC.md 14)
     dw app_tpl_bounce, app_bounce_task, app_ball_pool, 8,   app_bounce_kinit, app_ttl_bounce
     dw inst_ico_bounce
     db 10, 0                    ; Bounce: 10 x 8-byte ball state, one task each

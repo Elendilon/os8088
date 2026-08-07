@@ -117,7 +117,9 @@ at five times the size, and this constant has only ever bought scrutiny.
 than in a commit message. It is the third raise granted *ahead* of the work
 (3 and 7 were the others), so move 7's term applies: the raise is spent by
 the commits that need it, and a plan document is not one of them. And it
-leaves **4,608 bytes spare — nine 512-byte steps**, where the fifth move
+left **4,608 bytes spare — nine 512-byte steps** (eight now: SPEC.md §14.1's
+Timer redraw is the first of the QOL work to land and it took one), where the
+fifth move
 settled that 2,048 is the right amount: enough that an ordinary bug fix does
 not trip the guard, small enough that a feature does. Until the QOL work
 lands, the guard is looser than the project's own standard. If that work
@@ -172,9 +174,9 @@ Move 9 made that lopsided:
 
 | | headroom |
 |---|---:|
-| `KERN_CODE_MAX`, the segment | **18,592 B** for `.text` + `.bss` |
-| **`KERN_BUDGET`, the footprint** | **4,608 B** for the whole span |
-| guard 5, the smallest supported machine | **46,592 B** for the whole span |
+| `KERN_CODE_MAX`, the segment | **17,168 B** for `.text` + `.bss` |
+| **`KERN_BUDGET`, the footprint** | **4,096 B** for the whole span |
+| guard 5, the smallest supported machine | **44,544 B** for the whole span |
 
 The budget is still the tighter of the three and is meant to be. What changed
 with SPEC.md §2.7 is that it is a *decision* again rather than a wall: below
@@ -216,36 +218,42 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 
 | region | size | what it is |
 |---|---:|---|
-| image (`.text` 43,430 + `.bss` 3,514) | 47,104 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
-| cold code | 19,968 B | 19,571 bytes with a CS of their own: the five file modules and the Control Panel |
+| image (`.text` 44,806 + `.bss` 3,562) | 48,640 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
+| cold code | 19,968 B | 19,808 bytes with a CS of their own: the five file modules and the Control Panel |
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
-| `.lowbss` + task 0's stack | 8,704 B | 7,668 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
+| `.lowbss` + task 0's stack | 9,216 B | 7,748 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
 | the boot overlay | 0 B | 2,504 bytes of code inside the FAT window, gone by the first mount |
-| **total** | **81,920 B** | of an 86,528-byte budget — **4,608 B spare** after move 10 |
+| **total** | **82,432 B** | of an 86,528-byte budget — **4,096 B spare**, eight of move 10's nine steps |
 
 Each rung is its contents rounded up to a whole 512 bytes, and the remainders
-are the only slack anywhere in the ladder: 160 bytes on the image, 397 on the
-cold segment, 12 on `.lowbss`. They are rounding artefacts, not reservations.
+are the only slack anywhere in the ladder: 272 bytes on the image, 160 on the
+cold segment, 444 on `.lowbss`. They are rounding artefacts, not reservations.
 
-The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0BE0,
-`FAT_SEG` 0x10C0, `LOW_SEG` 0x11E0, `HEAP_SEG` 0x1400.
+The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0C40,
+`FAT_SEG` 0x1120, `LOW_SEG` 0x1240, `HEAP_SEG` 0x1480.
 
-**The cold rung is where the rounding bites hardest**, because it is the
-newest and the one most likely to be added to. A 397-byte remainder means the
-next 400 bytes of cold code are free and the 400 after that cost 512 of a
-2,048-byte allowance. A rung step is the unit to reason in, not a byte count.
+**`.lowbss` is where the rounding last bit**, and SPEC.md §14.1 is the worked
+example of the warning above it: the Timer's per-instance state grew 8 bytes
+to hold the characters its window is showing, ten instances of that is 80
+bytes, and the rung had **12** left — so 80 bytes of data cost a 512-byte
+step and took the footprint 81,920 → 82,432. The alternative on offer was a
+parallel array in `.bss`, whose rung did have room; it was refused because
+indexing per-instance state by a slot derived from a stride is a thing that
+breaks silently, and because a step of move 10's nine is what move 10 was
+granted for. A rung step is the unit to reason in, not a byte count.
 
 Everything above `KERN_END` is the claim heap, up to whatever int 12h
 reports. The arithmetic is exact and worth writing down, because every RAM
 figure in this project falls out of it:
 
-> **heap KB = what int 12h reports − 80**
+> **heap KB = what int 12h reports − 80.5**
 
-`KERN_END` is 5,120 paragraphs = 81,920 bytes = **exactly 80.0 KB**, and the
-heap starts there. Checked against a live machine: QEMU with `-m 1M` reports
-**639KB** and the Task Manager shows **559KB** of heap. Re-derive this after
-any change that moves `KERN_END`, which is any change at all that crosses a
-rung step.
+`KERN_END` is 5,152 paragraphs = 82,432 bytes = **exactly 80.5 KB**, and the
+heap starts there. It was a round 80.0 for the whole of moves 1..10 and the
+`.lowbss` step above is what ended that, which is worth noticing precisely
+because the half-kilobyte is easy to drop from a mental sum. Re-derive this
+after any change that moves `KERN_END`, which is any change at all that
+crosses a rung step.
 
 ## What it actually takes to run
 
