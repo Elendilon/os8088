@@ -384,6 +384,22 @@ $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
 $(BUILD)/tracker.o88: $(BUILD)/tracker.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/tracker.bin -o $@
 
+# ModPlug Player, the fourteenth shipped package (SPEC.md 56): a port of
+# ModPlug Player V2's LOOK AND FEEL - the skinned player window with its LCD
+# panel, LED transport row and visualiser, the Setup window with its page
+# list, and the PlayList editor - onto the window manager. Its replayer is an
+# INDEPENDENT copy of the tree's 8086 ProTracker engine (ModPlugPlayer's own
+# is libopenmpt, which no 8086 runs), extended with the four DSP stages its
+# Setup pages expose. Four sources, one binary.
+$(BUILD)/modplug.bin: apps/modplug/modplug.asm apps/modplug/mppmix.inc \
+                      apps/modplug/mppui.inc apps/modplug/mppset.inc \
+                      apps/modplug/mpplist.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/modplug/ -o $@ apps/modplug/modplug.asm
+	@echo "modplug: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/modplug.o88: $(BUILD)/modplug.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/modplug.bin -o $@
+
 # ArtfulType, the eleventh shipped package (SPEC.md 46): a port of
 # ActionRetro's ArtfulType, the distraction-free Markdown writer for classic
 # 68k Macs, onto the fullscreen surface (SPEC.md 11.2). Windowed it is the
@@ -864,8 +880,8 @@ $(BUILD)/stkprobe360.img: $(BUILD)/stkprobe.o88 tools/os88disk.py
 # also the only answer that survives a host OS writing to the disk. What is
 # left here is which packages ship and which folder each lands in.
 APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/fractal.o88 $(BUILD)/hello.o88 \
-              $(BUILD)/notepad.o88 $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
-              $(BUILD)/recorder.o88 $(BUILD)/tracker.o88
+              $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 $(BUILD)/paint.o88 \
+              $(BUILD)/piano.o88 $(BUILD)/recorder.o88 $(BUILD)/tracker.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/mines.o88 $(BUILD)/missile.o88 \
               $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
 
