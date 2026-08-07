@@ -1474,3 +1474,61 @@ cursor cell or moved the mouse — so a lazy hide would now save ~74 x 1.94 ms
 path, a permanent-smear failure mode, and a new package ABI contract to cover
 the one path that cannot be hooked. Re-measure before building an
 optimisation whose justification predates its neighbours' fixes.
+
+### Set 9 — MartyPC, and the first log with a working MAX line
+
+| | |
+|---|---|
+| machine | **MartyPC**, cycle-accurate IBM 5150, 4.77 MHz 8088, Hercules |
+| adapter | Hercules 720x348, content 628x247, surface 5 (§53.7 same-mode bracket) |
+| build | `c39eb93` plus the debug frame logger (never committed) |
+| date | 2026-08-07 |
+| run | 60 usable seconds, mean **15.63 fps** |
+
+**Sets 6-8 were PCem and this one is MartyPC**, which the reporter did not
+know at the time and the **calibration caught anyway** — which is the whole
+reason it is in the log (§docs/FIELD-MACHINES.md: *a number is not a field
+number because a human handed it to you*):
+
+| | cpu | per-call | per-scan-line |
+|---|---|---|---|
+| PCem, Sets 7-8 | 48,300-48,544 | 1,072 counts (899 µs) | 121 counts (102 µs) |
+| MartyPC, Set 9 | 49,788 | **1,246 counts (1,044 µs)** | **149 counts (125 µs)** |
+| the real 5150 (Part 2) | — | ~900 counts (756 µs) | ~211 counts (177 µs) |
+
+The **CPU agrees to 0.7%** and the *drawing* does not: MartyPC prices a call
+16% dearer and a scan line 21% dearer. That is the shape you would expect
+from cycle-accurate bus modelling — framebuffer writes on an 8088 are
+bus-bound and PCem is optimistic about them — and it means **no absolute
+figure from Sets 6-8 may be compared with one from Set 9**, only ratios
+within a set.
+
+#### The MAX line: a per-second mean cannot describe a per-frame spike
+
+One row a second gives the worst *single* frame's stage split in raw counts.
+It is the only instrument in this investigation that answered the question
+asked, and the previous three logs could not have:
+
+| | |
+|---|---|
+| seconds whose worst frame exceeded one tick (54.9 ms) | **33 of 60** |
+| of those, biggest stage `exp` | **20** |
+| ...`rst` | 8 |
+| ...`mov` / `all` / `upd` | 3 / 1 / 1 |
+| worst three frames | 126.5, 111.3, 107.8 ms |
+| `exp` in those three | **76.1, 65.8, 74.0 ms** |
+| fills on a worst frame (mean) | **34.8**, against those seconds' mean of 19.1 |
+
+So the stutter is a **spike, not a load** — a second whose stages average
+60 ms containing one frame of 126 — and the two things that spike are a
+salvo's explosions redrawing on the same frame and the status strip
+re-lettering 29 cells to change one digit. §48.17 is both.
+
+The instrument itself had to be fixed first, and the bug is worth recording:
+the frame-start snapshot was taken in the worker's `.frame:` hook, and the
+**catch-up path runs a frame without passing it** — the same catch-up the
+reporter had noticed as trails "playing in fast motion" after a file save. So
+across a second boundary the snapshot went stale under a reset, the delta came
+out small and *negative*, and an unsigned comparison read −303 as four billion
+and latched it for the whole second. The tell is `3599181` repeated across a
+row, which is 2³² counts in milliseconds. It is banked at frame *end* now.
