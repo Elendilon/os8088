@@ -5710,7 +5710,7 @@ they are per-read questions, so a reader zeroes them first.
 
 **`dsk_dbg_raw` is a far entry, and it is the reason this is in the kernel
 rather than in the package.** `tests/sysbench` called `int 13h` itself and
-**hard froze the 5150** (docs/FIELD-NOTES.md 10): a BIOS runs its disk
+**hard froze the 5150** (docs/FIELD-NOTES.md 11): a BIOS runs its disk
 handler and its IRQ6 nesting on whichever 256-byte task stack is current
 (§8), on top of the harness's own frames, and every other `int 13h` in this
 system holds `sch_lock` across the call so nothing switches underneath one. A
@@ -14287,6 +14287,57 @@ exactly because the strip ends where the content does. The columns to the
 right of a canvas narrower than its content need no fill of their own — a
 width shrink is refused unless the doomed columns are white, so they already
 are.
+
+### 42.8 A one-pixel stroke is a LINE, and the pencil had a top speed
+
+`pt_seg` draws the brush's leading edge per step, which is why the 32px eraser
+is usable: a square swept one pixel uncovers one edge of itself, so each new
+pixel is written exactly once. At **width 1** that edge is a single pixel, so
+the same loop issues one `gfx_fill` per step — and a second whenever the minor
+axis moves. Priced on the field machine (PERFORMANCE.md Part 2: 756 µs of
+*arriving* + 177 µs a scan line, so a 1×1 fill is **933 µs**), a 300-pixel
+chord is ~400 calls and **373 ms**.
+
+That gives the pencil a **maximum drawable speed of about 1,000 px/s**, and
+past it the lag runs away: the longer the chord, the longer it takes to draw,
+the further the hand has gone by the next sample. It was reported from the
+field as freehand circles coming out as a few long straight chords with whole
+arcs missing, and as the mouse "not being read" — docs/FIELD-NOTES.md 11.
+
+`pt_segdo` routes a width-1 segment to `pt_lineseg` + **one**
+`OSAPI_GFX_LINE`: the walk keeps only the half that cannot be batched — the
+canvas nibbles and the undo marking, which `[pt_noscr]` has always been the
+switch for — and the screen becomes a single call. Measured on Hercules over
+one scripted stroke: **576 drawing calls → 66** (61 fills + 5 lines), 8.7x.
+A line pixel costs ~160 µs (§48.16), so the ceiling moves to ~6,000 px/s.
+
+**The walk had to become the kernel's own, and that is the whole difficulty.**
+The canvas is what a repaint draws from, so a canvas walked one way and a
+screen drawn another disagree — and not subtly: `gfx_line` uses the two-error
+form (`err = dx - dy`, one `e2` read by both axis tests, so both axes can step
+in one iteration) and normalises its ends so it always walks *downward*, while
+`pt_seg` used the DDA form (`err = steps/2`) in the drag's own direction.
+Almost every pixel of a chord lands somewhere different. Measured before
+`pt_lineseg` existed: **3,015 differing bytes** over twelve strokes, against
+**0** with the fast path switched off. `pt_lineseg` is `gfx_line_mono`'s
+arithmetic verbatim, and it plots the start pixel because `gfx_line` draws
+both endpoints — re-inking a pixel the previous segment already laid is free.
+
+**It is gated on a 1bpp adapter, and that is a fact about the kernel rather
+than a preference.** `gfx_line_raw` sends a mono adapter to `gfx_line_mono`
+and VGA to `gfx_line_runs`, and **the two do not agree pixel for pixel**: the
+same test that returns 0 on Hercules and CGA returns **663 bytes** on VGA. So
+VGA keeps the per-dab path, which costs it nothing that matters — the machine
+this exists for is the 4.77MHz one and it is mono. Nothing in the kernel was
+changed to make this work, so `gfx_line`'s other consumer (Missile Command's
+trails, §48.14) is untouched.
+
+**And the bracket had a 55 ms floor under every sample**, which is the other
+half of the same complaint. `pt_wait` is `fsx_wait` inside the bracket, and a
+tick is the fastest that can return — so full screen sampled the mouse *more
+slowly than the window*, which yields. On a 1bpp adapter no back buffer is
+possible (§32), so nothing is owed a present and nothing is being unlocked:
+there is nothing to wait for, and `pt_wait` returns at once.
 
 ## 43. Solitaire — the eighth package (apps/solitaire/solitaire.asm)
 
