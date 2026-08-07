@@ -19,9 +19,11 @@ as much as in prose, and `tools/checkdocs.py` would only catch the ones that
 stopped resolving — not the ones that resolved to something else. That is the
 whole reason to leave them.
 
-The same rule governs the API table (§20.3): **a shipped slot keeps its
+The same rule governs the API table (§20.3): **a RELEASED slot keeps its
 contract**, and "we no longer implement this" is a refusing stub, not a reuse
-(§20.8 rule 4).
+(§20.8 rule 4). A slot introduced since the last release is not shipped and
+may still be changed freely — the obligation is to get a contract right
+before it goes out, not to freeze it the moment it is typed.
 
 ## 0. Goal
 
@@ -6076,15 +6078,32 @@ without anyone noticing it was a rule.
    contended register in this kernel and those bodies serve kernel-internal
    callers whose pointers are plain DS. The override version of this feature is
    where the bugs would have lived.
-4. **A shipped slot keeps its contract.** The table is 8 bytes per cell from
-   0x0010, and a number, once it means something, never means something else —
-   retired functionality gets a **refusing stub**, not a reuse. What this rule
-   is *not* is a promise that the numbers match another tree's: they did while
-   two branches were live and stopped when they merged (§20.3), and closing
-   that gap moved every cell above 0x01B0 down 88 bytes. Renumbering is
-   therefore possible but expensive and deliberate: it invalidates every `.o88`
-   at once, and it is only survivable because every package is in this tree and
-   `make` rebuilds all of them. It has happened three times.
+4. **A RELEASED slot keeps its contract.** The table is 8 bytes per cell from
+   0x0010, and a number that has gone out in a release never means something
+   else afterwards — retired functionality gets a **refusing stub**, not a
+   reuse. What this rule is *not* is a promise that the numbers match another
+   tree's: they did while two branches were live and stopped when they merged
+   (§20.3), and closing that gap moved every cell above 0x01B0 down 88 bytes.
+   Renumbering is therefore possible but expensive and deliberate: it
+   invalidates every `.o88` at once, and it is only survivable because every
+   package is in this tree and `make` rebuilds all of them. It has happened
+   three times.
+
+   **A slot introduced since the last release is not shipped and may still be
+   changed freely** — renumbered, re-contracted or withdrawn — because nothing
+   outside this tree can have been built against it yet. That is the whole
+   reason the rule says *released* rather than *written*: a development cycle
+   that cannot edit its own API spends its slots defensively and ends up
+   carrying every first draft forever. The obligation is to get the contract
+   right **before** it goes out, not to freeze it the moment it is typed. Once
+   a release carries it, the first paragraph binds and nothing relaxes it
+   again.
+
+   `gfx_line` (0x02E0) is the worked example: introduced after the last
+   release, so its `SI = 0/1` thin-or-dilated contract may be replaced
+   outright by a resumable walk rather than kept alongside one. Under the old
+   wording that would have meant a second slot and a permanent dilation path
+   with no consumer left to use it.
 
    **The unification of §18.4.1 is the one recorded exception, and it is an
    exception to the first sentence, not to the rest of the rule.** Slots

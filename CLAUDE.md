@@ -928,8 +928,14 @@ whole diagnosis.
   (`OSAPI_SND_FM`/`OSAPI_SND_STREAM` at 0x00F8/0x0100, now the loadable
   sound driver's).
 
-  The rule that governs the table is **a shipped slot keeps its contract**,
-  and "we no longer implement this" is a refusing stub, not a reuse. Reusing
+  The rule that governs the table is **a RELEASED slot keeps its contract**,
+  and "we no longer implement this" is a refusing stub, not a reuse. A slot
+  introduced since the last release is NOT shipped and may still be changed
+  freely - renumbered, re-contracted or withdrawn - because nothing outside
+  this tree can have been built against it; the obligation is to get the
+  contract right before it goes out, not to freeze it the moment it is typed.
+  `gfx_line` is the worked example, its thin-or-dilated `SI` contract having
+  been replaced outright rather than kept alongside a successor. Reusing
   0x01C8 for a KB-counting `mem_avail` where a paragraph-counting one had
   been published would fail silently and by a factor of 64 — which is why
   that block was *moved* rather than overlaid. SPEC.md §20.8 rule 4 is the

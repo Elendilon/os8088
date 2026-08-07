@@ -450,7 +450,7 @@ VID_CGA    equ 2
 ; OSAPI_FILE_READBIG, the one file op with no 64KB ceiling; OSAPI_FILE_READ
 ; has none either now, and the two contracts differed only in where the
 ; destination's offset came from. The cell is still there and still answers -
-; CF=1 with AX = FERR_NAME - because a shipped slot keeps its contract and
+; CF=1 with AX = FERR_NAME - because a RELEASED slot keeps its contract and
 ; "we no longer implement this" is a refusal, never a different routine at
 ; the same address. Nothing above it moved. A source that still names
 ; OSAPI_FILE_READBIG fails to assemble, which is the intended way to find
