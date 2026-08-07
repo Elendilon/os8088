@@ -677,7 +677,7 @@ dsk_vol_add:
     mov byte [di], 0            ; no label: desk_zone_label derives 'Disk X'
 .live:
     mov byte [bx+DV_KIND], DVK_DRV      ; published LAST: the row is now live
-    mov byte [desk_zdirty], 1   ; the desktop owes a zone - and a driver adds
+    call desk_zmark             ; the desktop owes a zone - and a driver adds
                                 ; a volume from a page click, with the gfx
                                 ; lock HELD, so the repaint is deferred to
                                 ; ui_task's idle pass exactly as the Control
@@ -685,7 +685,13 @@ dsk_vol_add:
                                 ; flag and not [cp_dirty]: that one means the
                                 ; SCHEDULER MODE changed, which every window
                                 ; quoting it has to be told about, and a drive
-                                ; zone is one icon (SPEC.md 26.3)
+                                ; zone is one icon (SPEC.md 26.3).
+                                ;
+                                ; AFTER the flag and the kind are set, so the
+                                ; mark counts the zone being added - that is
+                                ; what sizes the damage rect, and the delete
+                                ; side marks BEFORE clearing for the same
+                                ; reason (SPEC.md 26.3)
     mov ax, bx                  ; the index, back out of the row pointer
     sub ax, dsk_vtab
     mov cl, 4                   ; / DV_SIZE
@@ -722,9 +728,14 @@ dsk_vol_del:
     jc .out
     cmp byte [bx+DV_KIND], DVK_DRV
     jne .out                    ; a BIOS floppy is not the driver's to drop
+    call desk_zmark             ; ...and owes the zone's removal likewise -
+                                ; BEFORE the flag goes, so the mark counts the
+                                ; zone that is about to vanish. Its pixels are
+                                ; at the ordinal nothing will occupy after
+                                ; this, and they are exactly what the repaint
+                                ; has to reach (SPEC.md 26.3)
     mov byte [bx+DV_KIND], DVK_FREE
     mov byte [bx+DV_FLAGS], 0
-    mov byte [desk_zdirty], 1   ; ...and owes the zone's removal likewise
     mov word [bx+DV_SEG], 0
     mov byte [bx+DV_LBL], 0
     call dsk_fatw_drop          ; AL is still the index; it also puts the

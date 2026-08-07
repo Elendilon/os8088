@@ -1009,19 +1009,45 @@ Two invariants that are easy to break, both asserted:
   driver's own image; and `[cp_sel]` is clamped at detach, or the panel
   dispatches through a freed segment on its next paint - and the panel need
   not be open for that to be owed.
-- **Mounting a volume costs the zone grid, not the screen** (SPEC.md 26.3).
-  `osapi_vol_add`/`del` cannot repaint (a driver calls them with the gfx lock
-  held), so they post `[desk_zdirty]` and `ui_task` spends it — and that is a
-  DIFFERENT flag from `[cp_dirty]` on purpose: `cp_dirty` means the scheduler
-  mode changed, which every window quoting it must be told about, so it is
-  honestly a `wm_paint_all`. A drive zone is one icon. `desk_zones_paint` is
-  `wm_paint_dmg` over the grid; the measured case went from 371 glyphs to 182,
-  with no `wm_paint_all` at all. The trap is that the rect must be the GRID
-  and not the zones currently shown — a volume added into a hole an earlier
-  unmount left takes an ordinal that was somebody else's — and that the
-  bottom-left corner is `(cols-1)*desk_rows + (rows_used-1)`, NOT the last
-  volume's ordinal: `[desk_rows]` is 4 on Hercules, where the last ordinal
-  sits two whole zones above the bottom of the first column.
+- **Mounting a volume costs the zones that MOVED, not the screen and not the
+  grid** (SPEC.md 26.3). `osapi_vol_add`/`del` cannot repaint (a driver calls
+  them with the gfx lock held), so they post `[desk_zdirty]` and `ui_task`
+  spends it — and that is a DIFFERENT flag from `[cp_dirty]` on purpose:
+  `cp_dirty` means the scheduler mode changed, which every window quoting it
+  must be told about, so it is honestly a `wm_paint_all`. A drive zone is one
+  icon. `desk_zones_paint` is `wm_paint_dmg` over that rect, and no
+  `wm_paint_all` runs at all. **The rect was the whole GRID and that was the
+  bug** — `DVOL_MAX` zones whatever is mounted, which sounds like harmless
+  slack and is not, because zones fill a column downwards and wrap LEFT, so
+  the unused ones are whole COLUMNS of empty desktop reaching back across the
+  screen. On CGA (`desk_rows` = 2) three volumes occupy x 526..633 and the
+  grid claimed x 470..633; those 56 phantom pixels reached into the Control
+  Panel window the Mount button is IN, so 11.91's marking pass redrew that
+  window whole, `W_PAINT` and all, on every mount. 295 glyphs → 148,
+  framebuffer byte-identical. `[desk_zhw]` is the fix: a high-water mark of
+  how many zones the screen may be showing, raised by `desk_zmark` and spent
+  by `desk_zones_paint`. **The changing zone is COUNTED either way** — an add
+  marks after the row goes live, a delete marks BEFORE the flag is cleared,
+  because what a delete leaves behind is stale pixels at the old last
+  ordinal — and taking the max is what survives coalescing, which "the live
+  count plus one" does not: unmounting a three-partition disk drops three
+  volumes into one drain. The other trap is unchanged: the bottom-left corner
+  is `(cols-1)*desk_rows + (rows_used-1)`, NOT the last volume's ordinal —
+  `[desk_rows]` is 4 on Hercules, where the last ordinal sits two whole zones
+  above the bottom of the first column.
+- **A per-window test that keys off another routine's drawing must ask whether
+  it DREW** (SPEC.md 11.91). `wm_paint_dmg` marks every window reaching
+  `[vid_dock_y0]`, because the dock strip is drawn under windows — but
+  `dock_paint` is incremental and a quiet desktop costs it no pixels, so the
+  test's own comment ("the dock is repainted unconditionally above") had
+  outlived the code it described. A window dragged onto the strip was erased
+  and re-`W_PAINT`ed on every mount for a strip that had not changed, and the
+  marking is transitive so everything overlapping it went too: 313 glyphs
+  against 148. `[wm_dmg_dk]` is a one-shot argument set by whichever caller
+  got CF = 1 out of `dock_paint`, and **cleared by `wm_dmg_wins` rather than
+  by the caller**, because the two errors are not symmetric — a wrong 1 is a
+  wasted repaint, a wrong 0 is the dock drawn through a window — so the value
+  a forgotten call site inherits has to be the safe one.
 - **Desktop zones ARE the volume table** (SPEC.md 26.1), and they wrap into a
   new column to the LEFT when one will not fit above the dock. `[desk_rows]`
   is computed at boot from the live geometry: 7 on VGA, 4 on Hercules, **2 on

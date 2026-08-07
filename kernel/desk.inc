@@ -300,33 +300,108 @@ desk_ord_xy:
     ret
 
 ; -----------------------------------------------------------------------------
-; desk_zones_dmg - the rect every drive zone could ever occupy (SPEC.md 26.3)
+; desk_zmark - a volume gained or lost its zone: post the repaint (SPEC.md 26.3)
+; in:  the zone table already reflects an ADD, and does NOT yet reflect a
+;      DELETE - either way the changing zone is still COUNTED
+; out: nothing (all registers preserved)
+;
+; The two callers are dsk_vol_add and dsk_vol_del, and the asymmetry in when
+; they call is the whole point. An add renumbers ordinals below the new count;
+; a delete leaves stale pixels at what was the last ordinal. Counting with the
+; changing zone included covers both, and taking the MAX covers a drain that
+; coalesces several changes - unmounting a three-partition disk drops three
+; volumes before ui_task looks. desk_zones_paint spends the mark and clears it.
+; -----------------------------------------------------------------------------
+desk_zmark:
+    push ax
+    call desk_zones_shown
+    cmp al, [desk_zhw]
+    jbe .post
+    mov [desk_zhw], al
+.post:
+    mov byte [desk_zdirty], 1
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_zones_shown - how many volumes have a zone right now (module internal)
+; out: AX = the count, 0..DVOL_MAX
+; clobbers: AX (the output), flags
+;
+; desk_ord IS this walk - it counts the shown zones ahead of the volume it was
+; asked about - so asking it for an index no row can have runs the count to the
+; end and reports it in AH. One definition of "which zones are shown, and in
+; what order", which is the property the damage rect has to agree with.
+; -----------------------------------------------------------------------------
+desk_zones_shown:
+    mov al, 0xFF                ; matches no volume, so the walk never stops
+    call desk_ord               ; early: CF = 1 and AH = every shown zone
+    mov al, ah
+    xor ah, ah
+    ret
+
+; -----------------------------------------------------------------------------
+; desk_zones_dmg - the rect the zones that MOVED could occupy (SPEC.md 26.3)
 ; out: AX/BX/CX/DX = x1/y1/x2/y2, inclusive, for wm_paint_dmg
 ; clobbers: the four outputs, flags
 ;
-; The GRID, not the zones currently shown - because the caller is about to add
-; or remove one, and either can move the zones AFTER it: a volume added into a
-; hole an earlier unmount left takes an ordinal that used to be somebody
-; else's. Sizing to the grid makes the answer independent of what is mounted,
-; at a cost of at most one unused row when the last column is short.
+; NOT the whole grid, and that distinction is worth a paragraph because the
+; grid is what this used to be. Sizing to DVOL_MAX made the answer independent
+; of what is mounted, which is a real property - but the grid is six zones and
+; a machine usually shows three, and the unused ones are not slack at the edge:
+; columns fill downwards and wrap LEFT, so on a geometry with few rows the
+; phantom zones are whole COLUMNS of desktop reaching back across the screen.
+; On CGA (desk_rows = 2) three mounted volumes occupy x 526..633 and the grid
+; claimed x 470..633 - 56 pixels of empty desktop that reached into the
+; Control Panel window the Mount button lives in, so wm_paint_dmg's marking
+; pass redrew that window WHOLE, W_PAINT and all, on every mount.
 ;
-; Ordinal 0 is the top of the rightmost column and the last ordinal the bottom
-; of the leftmost, because columns fill downwards and then wrap LEFT - so the
-; two corners are the two extremes, and desk_ord_xy is asked for both rather
-; than the arithmetic being written out a second time.
+; What actually has to be covered is ordinals 0..n-1 where n is the largest
+; number of zones the screen may currently be showing - [desk_zhw], the
+; high-water mark desk_zmark keeps. An ADD renumbers only ordinals below the
+; new count and a DELETE leaves stale pixels at the old last ordinal, so the
+; mark is taken with the changing zone COUNTED in both cases: after the row
+; goes live on an add, before its flag is cleared on a delete. That also
+; survives coalescing, which "the current count plus one" does not - unmounting
+; a three-partition disk drops three volumes into one drain.
+;
+; A mark of 0 means no change is pending, and the live count is the answer -
+; which is what osapi_vol_paint needs, a driver being free to call it with
+; nothing owed. There is no floor to apply when the mark IS set: an add stamps
+; exactly the live count and a delete stamps one more, so a set mark is never
+; below it. The count is floored at 1, so ordinal 0 is always a legal argument
+; to desk_ord_xy.
+;
+; Ordinal 0 is the top of the rightmost column and ordinal n-1 the bottom of
+; the leftmost, because columns fill downwards and then wrap LEFT - so the two
+; corners are the two extremes, and desk_ord_xy is asked for both rather than
+; the arithmetic being written out a second time.
 ; -----------------------------------------------------------------------------
 desk_zones_dmg:
     push si
     push di
+    push bp
+    mov al, [desk_zhw]          ; BP = the number of zones to cover. A set mark
+    xor ah, ah                  ; is never below the live count - an add stamps
+    or ax, ax                   ; exactly it and a delete stamps one more - so
+    jnz .have                   ; there is nothing to floor it against, and 0
+    call desk_zones_shown       ; means no pending change at all: osapi_vol_paint
+.have:                          ; asking for the zones that exist
+    or ax, ax
+    jnz .n
+    mov ax, 1                   ; ordinal 0 is always a legal argument
+.n:
+    mov bp, ax
     xor al, al
     call desk_ord_xy            ; ordinal 0 = the top of the RIGHTMOST column
     mov si, ax                  ; SI = its left edge...
     mov di, dx                  ; DI = ...and its top
-    mov ax, DVOL_MAX-1
+    mov ax, bp
+    dec ax                      ; the last ordinal in use
     xor dx, dx
     div word [desk_rows]        ; AX = the LEFTMOST column's index...
     mul word [desk_rows]        ; ...as the ordinal at the TOP of it
-    mov cx, DVOL_MAX            ; the deepest row any column reaches - NOT the
+    mov cx, bp                  ; the deepest row any column reaches - NOT the
     cmp cx, [desk_rows]         ; last ordinal's row, which on a geometry
     jbe .deep                   ; whose final column is short (Hercules: four
     mov cx, [desk_rows]         ; rows, two columns, six volumes) sits above
@@ -336,6 +411,7 @@ desk_zones_dmg:
                                 ; row past what a short last column uses -
                                 ; slack, and in the safe direction
     call desk_ord_xy
+    pop bp
     mov cx, si
     add cx, DESK_ZW + DESK_ZOVER - 1    ; x2, label overhang included
     sub ax, DESK_ZOVER                  ; x1, likewise
@@ -400,9 +476,13 @@ desk_dmg_zones:
 ; every W_PAINT - to make one icon appear at the right-hand edge.
 ;
 ; wm_paint_dmg (SPEC.md 11.91) is the right size of hammer: the dither
-; clipped to the grid, the zones themselves, the chrome, and only the windows
-; that overlap. On a desktop with nothing near the right edge that is the
-; zones and nothing else.
+; clipped to the zones that moved, the zones themselves, the chrome, and only
+; the windows that overlap. On a desktop with nothing near the right edge that
+; is the zones and nothing else.
+;
+; The high-water mark is spent HERE and nowhere else: once these pixels are
+; back, the screen shows exactly the zones that exist, so the next change
+; starts counting again from what it can see.
 ; -----------------------------------------------------------------------------
 desk_zones_paint:
     push ax
@@ -410,6 +490,7 @@ desk_zones_paint:
     push cx
     push dx
     call desk_zones_dmg
+    mov byte [desk_zhw], 0
     call wm_paint_dmg
     pop dx
     pop cx
@@ -739,6 +820,11 @@ desk_rows    resw 1             ; zones that fit in one column above the dock
                                 ; 2 on CGA, which is why the wrap exists
 desk_zdirty  resb 1             ; 1 = a volume was added or removed and the
                                 ; drive zones owe a repaint (SPEC.md 26.3)
+desk_zhw     resb 1             ; ...and the largest number of zones the screen
+                                ; may be showing while that debt stands, which
+                                ; is what sizes the damage rect. desk_zmark
+                                ; raises it, desk_zones_paint spends it. 0 is
+                                ; "no pending change", and .bss arrives zeroed
 desk_sel     resb 1             ; selected VOLUME index, 0xFF = none
 desk_clkt    resw 1             ; click birth tick (EV_C) of the last zone click
 desk_zy      resw 1             ; desk_draw_zone: current zone top
