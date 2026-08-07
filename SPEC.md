@@ -1541,6 +1541,53 @@ mode, and it wants its own change with its own verification — including the
 `tests/linetest`-style byte-for-byte framebuffer comparison this one used —
 rather than a rider on the work above.
 
+### 7.1.2 Moving the cursor writes every byte exactly once
+
+§7.1 made the *draw* one store on every adapter. Moving the cursor was still
+two walks — `cur_get` puts the old cell's saved bytes back, then `cur_put`
+saves and draws at the new one — so **every framebuffer byte where the two
+cells overlap was written twice**, once with the background and once with the
+arrow. The glass can catch the value in between, and read back off the
+machine that value is `ffff` on all twelve rows inside a window: a solid white
+blob exactly where the arrow was. On a real Hercules that is the arrow washing
+out to white while the mouse moves (docs/FIELD-NOTES.md 6). The pair is ~1.3 ms
+against a 20 ms frame, so ~6.5% of every frame, on every mouse packet.
+
+`cur_move` is the fix, and the shape of it is the part worth keeping:
+
+- **It is not a union walk, and it needs no gate.** The two passes walk the
+  old cell and the new cell exactly as before — 12 rows each, bounded by the
+  cells and not by how far the cursor went. Each byte is written once because
+  **pass 1 skips the bytes pass 2 is going to write** and **pass 2 takes their
+  background from the save buffer instead of the screen**. Cells that do not
+  overlap degenerate to the old behaviour by themselves: the skip never fires
+  and the background always comes from the screen. There is nothing to bound
+  and nothing to get wrong at the extremes.
+- **Which bytes those are is decided once, not per row.** `cur_mvcols` turns
+  the byte-column difference `d = newcol - oldcol` into four answers —
+  `mv_p1s0/1` (pass 1 must skip this old column) and `mv_p2s0/1` (pass 2's
+  offset into the old save, or `0FFh` for "read the screen") — because it is
+  the same answer for every row. Both halves fold in the *other* cell's edge
+  clip: pass 1 may only skip a byte pass 2 will really write, and pass 2 may
+  only source from a slot the old cell really saved.
+- **Two save buffers, swapped by a pointer.** Pass 2 reads the old background
+  while filling the new, so they cannot be the same 24 bytes. `[cur_sptr]`
+  names the live one; nothing is copied. `cur_sptr` lives in `.text` with a
+  real initialiser rather than in `.bss` — `.bss` arrives zeroed and 0 here is
+  a pointer at the API jump table.
+- **VGA keeps erase-then-draw.** Its save is four planes through Read Map
+  Select and cannot take a background from a buffer. Its draw is one store
+  now (§7.1), which was the larger of the two windows there.
+
+Verified the only way a save-under can be: a dense walk of 37 moves — column
+deltas 0, ±1, ±2 and larger, every shift phase, plus the right and bottom
+screen edges — then park the cursor back at the start and compare the whole
+screen. **0 differing pixels of 237,600.** A wrong background is permanent
+rather than transient, so a zero there means every move restored exactly; and
+with pass 2's background source deliberately broken back to "always read the
+screen", the same walk leaves **98**. `GFX_UNLOCK+LOCK pair` is unmoved at 544
+counts against 541.
+
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
 - `MAX_TASKS equ 12`. Task 0 is the boot thread (becomes the UI task); it
