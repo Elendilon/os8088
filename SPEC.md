@@ -8902,6 +8902,39 @@ rather than recomputed — a scroll between the draw and the erase would move
 where the bar belongs and leave the old one on screen for good, which is
 §48.11's rule in miniature.
 
+**A drag pass costs one row of layout, not one note.** `np_hitpt` asks the
+same question `np_onclick` asks — which character is under this pointer — and
+`np_onclick` has always answered it the §27.5 way: seed the walk at the row
+the pointer is on, and stop after it. `np_hitpt` did not, so it called
+`np_measure` with no seed and no bound and **relaid out the whole note on
+every pass**, eighteen times a second. It seeds now, and the two paths use the
+same idiom because they are the same question.
+
+The other half is that **a pointer that has not moved has nothing to say**.
+The loop runs at a tick whether the mouse reported anything or not, and at
+1200 baud it usually did not, so most passes were re-deriving an answer they
+already had. A pass whose `(x, y)` is unchanged is skipped outright — *unless*
+the pointer is parked outside the view, where every tick genuinely owes
+another row of scroll. That test is `np_hitpt`'s own threshold (the last
+visible row's top), written once so the two cannot disagree about which
+passes matter.
+
+Measured over an identical scripted drag on a note about twice the height of
+the view, counting `np_walk` iterations: **154,112 → 36,608, a 4.2x cut**, in
+264 walks against 194. (The first attempt at that measurement used a 16-bit
+counter and silently wrapped — 154,112 reads as 23,040 — so the instrument
+counts in units of 256 now. A wrapped counter reporting a speedup is the
+failure PERFORMANCE.md Part 4 warns about, arriving through the apparatus
+rather than the thing measured.)
+
+What is *not* the cost, though it looks like it: `np_dragsel` clears
+`[np_ckok]` before each redraw, and §27.4's checkpoint plays no part in a
+drag — `np_redraw`'s pass 1 only consults it when `[np_ekind]` names an edit
+at the caret, and a drag sets no kind. Pass 1 seeds from the top of the
+**view** instead and is bounded to it either way. The clear is kept because a
+caret that has jumped should re-derive its checkpoint, not because it is
+expensive.
+
 **The move is three in-place reversals and no buffer at all.** Reversing
 `[s,e)`, then the run beside it, then the two together, rotates the block to
 the far end of the span — which is exactly what a move is. The alternative was
