@@ -5791,6 +5791,16 @@ harness run on both kernels.
 | +8 | `dsk_dbg_max` | the longest run any one call carried |
 | +10 | `dsk_dbg_rst` | controller resets (the 00h after a failure) |
 | +12 | `dsk_dbg_ent` | offset of the far entry below |
+| +14 | `dsk_dbg_tn` | trace slots filled; a reader **zeroes this** to start one |
+| +16 | `dsk_dbg_tp` | ...and where they are: `DSK_DBG_TRC` (LBA, run) pairs |
+
+**The trace is what a total cannot give you.** Set 15 measured 148 sectors
+for a 32-sector file, and that is either one long walk over sectors nobody
+asked for or a short walk done four times — completely different faults, and
+no count distinguishes them. The LBAs do, at a glance: repeats mean
+re-reading, a monotone climb past the file's length means over-reading. It
+**stops rather than wrapping**, because a wrapped trace is indistinguishable
+from a short one and this exists to be read.
 
 The counters are **free-running and never reset by the kernel**: a reader
 banks them, does the thing, and subtracts. `+8` and `+10` are the exception —
