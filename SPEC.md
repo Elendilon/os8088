@@ -1695,6 +1695,41 @@ whatever is not loaded yet: the machine hangs executing data, with a black
 screen and no clue. Mid-session mode changes all come through `fsx_run`, which
 takes the promise itself.
 
+### 7.1.4.1 A promise that survives puts a MOVE inside `gfx_unlock`
+
+`cur_lazyend` is the third routine and the one that broke something: when the
+promise was never spent the arrow never left the screen, so `cursor_show` must
+NOT run (it would bank the drawn arrow as its own background) - but the ISR
+refused to move the arrow for the whole hold, so any motion is owed here, and
+`cur_lazyend` calls **`cur_move`**.
+
+`cur_move` clobbers `ax, bx, cx, dx, si, di, bp` and `es`. `gfx_unlock`'s
+contract is **"clobbers: flags"**, and that is not a courtesy: §14's background
+tasks hold their instance record in **BP** and their state block in **SI** *for
+the life of the task*, across every `gfx_unlock` they make. `cur_lazyend`
+pushed AX and BX. So one mouse packet landing inside a hold whose promise
+survived - the pointer parked away from the window, which is precisely the case
+this optimisation exists to serve - silently destroyed the caller's world.
+
+**It presented as "a worker has stopped", which is why it is worth writing
+down.** Bounce read `[ds:bp+I_WIN]` out of a wrecked BP, got a window record
+whose visible bit was clear, and took the blind branch **for the rest of the
+session**: the ball stepped invisibly while the last-drawn square sat on
+screen forever. The Timer stopped counting the same way. Nothing faulted,
+nothing froze, the UI task and the cursor were fine, and the task table showed
+both tasks sleeping and waking on schedule - so every obvious instrument said
+the scheduler was healthy, because it was.
+
+`cur_lazyend` saves everything now, exactly like `cursor_show` and
+`cursor_hide` either side of it. Measured with a detector that banks BP and SI
+across `gfx_unlock` in `app_bounce_task` and counts mismatches, under a mouse
+flood: **279 corruptions in 279 `cur_move` calls before, 0 in 270 after.**
+
+The general rule this is an instance of: **a routine that is reached from
+`gfx_lock`/`gfx_unlock` inherits their register contract, not its own.** The
+pair sits under every drawing site in the machine, kernel and package alike,
+and there is no call site that can compensate.
+
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
 - `MAX_TASKS equ 12`. Task 0 is the boot thread (becomes the UI task); it
