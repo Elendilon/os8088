@@ -29,9 +29,10 @@
 ;
 ; GREYING FOLLOWS SPEC.md 47: one predicate per control, shared by the
 ; greying, the click refusal and the explanation; a fact and never a guess;
-; and the whole control, not just its caption. There is no gfx_pen_cf in the
-; package ABI, so a disabled button is drawn in CDGRAY and its click refuses
-; - and the caption says why, which is the half that matters.
+; and the whole control, not just its caption. The pen comes from
+; OSAPI_GFX_PEN (slot 0x0310), so a disabled button carries [gfx_dis] as well
+; as CDGRAY and its LABEL dithers on the two 1bpp adapters instead of coming
+; out solid black next to a dotted frame.
 ; =============================================================================
 
 HDP_HY       equ 4              ; the heading's text row
@@ -273,12 +274,13 @@ hd_page_button:
     push bx
     push si
     mov al, cl
-    call hd_btn_ok              ; CF = 1 = this control is disabled
-    mov al, CBLACK
-    jnc .pen
-    mov al, CDGRAY              ; the disabled pen - and it colours the FRAME
-.pen:                           ; as well as the label, because greying half
-    call OSAPI_SET_COLOR        ; a control is worse than not greying it
+    call hd_btn_ok              ; CF = 1 = this control is disabled, which is
+    call OSAPI_GFX_PEN          ; the shape the pen takes: one call, no test.
+                                ; It sets CDGRAY and [gfx_dis] together, and
+                                ; it colours the FRAME as well as the label -
+                                ; greying half a control is worse than not
+                                ; greying it, and on mono the flag is what
+                                ; stops the label being the half that is left
     pop si
     pop bx
     pop ax
@@ -304,6 +306,10 @@ hd_page_button:
     mov dx, bx
     add dx, 4
     call OSAPI_FONT_STR
+    clc                         ; a button leaves the pen LIVE. The colour was
+    call OSAPI_GFX_PEN          ; put back by whatever drew next anyway; the
+                                ; FLAG is not, and a disabled Mount button
+                                ; would otherwise dither the caption under it
     pop si
     pop dx
     pop cx

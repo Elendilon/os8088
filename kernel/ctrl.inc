@@ -2155,18 +2155,21 @@ cp_snd_row:
 ; in:  DI = pane left, BP = pane top; gfx lock held
 ; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
 ;
-; THE GLYPH IS GREYED TOO, not just the label beside it, and on this page that
-; is what carries the whole signal on two adapters out of three. font_ink
-; rounds CDGRAY to BLACK for text - a dithered 8x8 glyph is unreadable, so
-; mono has no grey to draw a letter in - which means a disabled LABEL is
-; pixel-identical to a live one on Hercules and CGA. The Display page gets
-; away with that because its caption says why in words; this page has no
-; caption, so the row had to say it some other way.
+; THE GLYPH IS GREYED TOO, not just the label beside it, which is SPEC.md 47
+; rule 2 - grey the WHOLE control - and not a workaround for anything.
 ;
-; A glyph can, because it is drawn with gfx_pixel rather than as a font cell:
-; gfx_ink maps CDGRAY to the 50% dither, so the ring comes out dotted. Dark
-; grey on VGA, dotted on mono, and either way the whole row reads as disabled
-; instead of a black control with faint writing next to it.
+; Both halves take cp_snd_rowok's pen through gfx_pen_cf, and on mono the two
+; reductions differ in kind but agree in meaning: the ring is drawn with
+; gfx_pixel, so gfx_ink maps CDGRAY to the 50% dither and it comes out DOTTED;
+; the label is a font cell, so font_ink masks a flagged glyph and it comes out
+; a CHECKERBOARD. Dark grey on VGA, dithered on the other two, and on all
+; three the whole row reads as disabled.
+;
+; This comment used to say the label could not carry it - that a dithered 8x8
+; glyph was unreadable and mono had no grey to draw a letter in, so the ring
+; had to say it instead. That was false, and false about the renderer sitting
+; underneath it: [gfx_dis] has masked disabled text since SPEC.md 47 landed.
+; Go and look at the Display page's 'Double Buffered' on CGA.
 ; -----------------------------------------------------------------------------
 cp_snd_radios:
     push ax

@@ -885,7 +885,7 @@ one does not make it cheaper (the walk is the cost).
 Verified on all three adapters: drawn in chunks of 3 and erased in chunks of
 5, the content comes back with **0 lit pixels** on Hercules, CGA and VGA.
 
-#### 5.6.8 Many walks, one arrival — `gfx_lstepv` (0x0310)
+#### 5.6.8 Many walks, one arrival — `gfx_lstepv` (0x0318)
 
 §5.6.7 gives a moving line a cheap *pixel*. It does nothing about the
 *arrival*, and for the caller this was written for that is the whole cost: a
@@ -1029,7 +1029,9 @@ window. Under `[bb_on]` (§32/§39.5) `font_char` branches after clipping to
 the software renderer, which applies the same shifted row masks to every
 plane the adapter has (or/and-not per the `[gfx_color]` plane bit — at 1bpp
 there is one plane and one bit, and `font_ink` rounds everything but pure
-white to black, because a dithered 8x8 glyph is unreadable, §39.4).
+white to black, because a *decorative* colour should not become texture —
+Piano's letters want contrast. `[gfx_dis]` is the exception and dithers the
+glyph deliberately, §39.4/§47 rule 3).
 
 ### 6.1 `font_run` — the erase-and-letter pair, as one operation
 
@@ -5702,7 +5704,8 @@ mirrors every offset as an `OSAPI_*` `%define` (§20.5).
                                                 0x02E0 gfx_line
                                                 0x0300 gfx_linit   X
                                                 0x0308 gfx_lstep   X
-                                                0x0310 gfx_lstepv  X
+                                                0x0310 gfx_pen_cf
+                                                0x0318 gfx_lstepv  X
 ```
 
 **Every RELEASED slot keeps its number and contract** (§20.8 rule 4), on the
@@ -5861,11 +5864,21 @@ Slot-specific contracts that are not simply their target routine's:
                          many. Lock held; CX=0 legal. N then M is exactly
                          the N+M one call would have drawn, which is what
                          lets an erase replay a draw. Preserves all.
-0x0310 gfx_lstepv        in ES:DI = an array of CX `dw block, pixels` pairs,
+0x0318 gfx_lstepv        in ES:DI = an array of CX `dw block, pixels` pairs,
                          the blocks in ES too (X); CX = 0 legal. Identical to
                          CX separate gfx_lstep calls in one pen, with the
                          arriving done once (§5.6.8). Lock held. Preserves
                          all.
+0x0310 gfx_pen_cf        in CF = 0 live / CF = 1 disabled. Sets [gfx_color]
+                         and [gfx_dis] together, which is what makes a
+                         disabled glyph a checkerboard on mono (§47 rule 3).
+                         The cell is push/pop/call/retf and touches no flag,
+                         so the CF-in contract crosses it unchanged - and CF
+                         is what every greying predicate already answers in,
+                         so a call site is `call <ok-test>` then this.
+                         `clc`/`stc` first for the unconditional cases.
+                         gfx_unlock clears the flag, so it lives for exactly
+                         one lock hold. Preserves all.
 0x01D8 gfx_blit4         in ES:SI = packed 4bpp source, BP = source stride
                          in bytes, AX/BX = dest x/y, CX/DX = width/height
                          in pixels (§5.4). ES is the caller's own here.
@@ -9901,17 +9914,20 @@ A driver that publishes `DSV_TIERS` = 0 said nothing and is taken at its word:
 every row stays live and the click finds out the slow way, which is exactly the
 behaviour before the cell existed.
 
-**A greyed row greys its GLYPH as well as its label**, and on this page that is
-what carries the whole signal on two adapters out of three. `font_ink` rounds
-`CDGRAY` to *black* for text — a dithered 8x8 glyph is unreadable, so mono has
-no grey to draw a letter in (§39.4) — which means a disabled label is
-pixel-identical to a live one on Hercules and CGA. The Display page gets away
-with that because its caption says why in words; this page has no caption, so
-the row has to say it some other way. A glyph can, because it is drawn with
-`gfx_pixel` rather than as a font cell: `gfx_ink` maps `CDGRAY` to the 50%
-dither, so the ring comes out **dotted**. Dark grey on VGA, dotted on mono, and
-on all three the whole row reads as disabled instead of a black control with
-faint writing beside it.
+**A greyed row greys its GLYPH as well as its label**, which is rule 2 and
+nothing more exotic. Both halves take `cp_snd_rowok`'s pen through
+`gfx_pen_cf`, so on mono the ring comes out **dotted** (`gfx_ink` maps `CDGRAY`
+to the 50% dither for a shape) and the label comes out a **checkerboard**
+(`font_ink` masks a flagged glyph, §39.4). Dark grey on VGA, dithered on the
+other two, and on all three the whole row reads as disabled.
+
+This paragraph used to claim the label could not say so — that a dithered 8x8
+glyph was unreadable, that mono had no grey to draw a letter in, and that the
+Display page "got away with" a pixel-identical label because its caption
+explained in words. All three were false, and the last was false about a page
+whose `Double Buffered` label has been rendering as a legible checkerboard on
+CGA since `font_ink` learned the flag. The glyph is greyed here because rule 2
+says grey the whole control, not because the text was thought incapable.
 
 A refused tier change leaves the setting where it was and writes the reason
 into a **notice line** below the Test button, using the loader's own
@@ -11607,8 +11623,9 @@ and a frame plus a label per keypress is real money on the machines this runs
 on.
 
 `fdlg_btn` takes the **caller's** pen rather than forcing `CBLACK`, so the
-disabled frame greys with the label — which is what shows on a mono adapter,
-where a package's grey text alone would round to black (§46 rule 2/3).
+disabled frame greys with the label — and because that pen comes from
+`gfx_pen_cf`, it carries `[gfx_dis]` too, so on a mono adapter the frame goes
+dotted and the label goes to a checkerboard together (§47 rule 2/3).
 
 `fdlg_paint` calls the **bodies**, because `wm_paint_all` already handed it a
 white content; everything else calls the wrappers. Neither erase touches its
@@ -14665,26 +14682,38 @@ means.
    reads as a live control that someone mislabelled — which is exactly what the
    Sound page shipped as until it was reported.
 
-3. **Grey does not survive 1bpp; the flag does.** Every middle grey rounds to
-   black in text (§39.4) — a dithered 8x8 glyph costs half its strokes, which
-   is the wrong trade for Piano's coloured letters and right for nothing —
-   so a `CDGRAY` label used to be *pixel-identical* to a live one on Hercules
-   and CGA. `[gfx_dis]` is the carve-out: `font_ink` masks a disabled glyph to
-   a checkerboard, exactly as the 1bpp Macintosh drew a greyed-out menu item,
-   and just as readable.
+3. **Grey does not survive 1bpp; the flag does — including on text.** Every
+   middle grey rounds to black in text (§39.4), because a *decorative* colour
+   should not become texture — Piano's coloured letters want contrast — so a
+   bare `CDGRAY` label is pixel-identical to a live one on Hercules and CGA.
+   `[gfx_dis]` is the carve-out and it applies to glyphs exactly as it does to
+   shapes: `font_ink` masks a disabled glyph to a checkerboard, which is what
+   the 1bpp Macintosh did to a greyed-out menu item and is **legible and
+   plainly distinct from a live label**. The Display page's `Double Buffered`
+   row on CGA is the reference to go and look at (§31.3): the ring is dotted,
+   the label is a checkerboard, and nothing else on the page is needed to say
+   the row is off.
 
-   Shapes never needed it — `gfx_ink` maps `CDGRAY` to the 50% dither, so a
-   ring or a frame comes out dotted on mono — which is why rule 2's "grey the
-   whole control" was load-bearing before this existed and remains the rule for
-   **packages**, which have no way to reach the flag (§20.3 publishes no slot
-   for it, deliberately: nothing has needed one). A package's disabled *label*
-   still rounds to black on mono, so a package's disabled control must include
-   a non-text mark — a frame, a box, an icon — and `rc_btn` (Recorder) is the
-   reference.
+   **Dithered text is a first-class answer, not a compromise.** Half a stroke
+   is a real cost and it is the right one to pay, for the same reason it was
+   right on a 512x342 Macintosh. Nothing in this tree should avoid greying
+   text on the theory that mono cannot show it; that claim was documented in
+   six places and was false in all of them.
+
+   Shapes never needed the flag — `gfx_ink` maps `CDGRAY` to the 50% dither,
+   so a ring or a frame comes out dotted on mono — which is why rule 2's "grey
+   the whole control" was load-bearing before the flag existed. It is still
+   rule 2, but it is no longer a *substitute* for greying the label: a control
+   whose frame dithers and whose label does not is rule 2's own failure, two
+   halves disagreeing, and that is precisely what a package shipped for as long
+   as the flag was kernel-only. **`gfx_pen_cf` is published at slot 0x0310**
+   (§20.3), so a package reaches the flag the same way the kernel does and its
+   disabled text dithers on mono like everything else.
 
    Words are still worth adding — `'Save Gif (NoRam)'` (§12.2), or a caption
    that says why (§31.3) — but they say *why not*, not *whether*. They stopped
-   being load-bearing for kernel-drawn text when the renderer took the state.
+   being load-bearing for kernel-drawn text when the renderer took the state,
+   and for a package's when the slot was published.
 
 4. **One predicate, three consumers.** The test that greys the control, the
    test that refuses the click and the text that explains it are the *same
@@ -14740,8 +14769,10 @@ Conformant, and worth reading as the reference:
 
 - **`cp_snd_rowok` / `cp_snd_radios` / `cp_snd_paint`** (§31.7) — one
   predicate, glyph and label both, dotted ring on mono.
-- **`rc_btn`** (Recorder) — greys the button frame with the label, so the
-  frame dithers and the button reads as disabled on every adapter.
+- **`rc_btn`** (Recorder) — takes the pen through slot 0x0310, so the frame
+  dithers *and* the label does, and the button reads as disabled on every
+  adapter. It greyed the frame with a bare `CDGRAY` until the slot existed,
+  which left a dotted frame around a solid-black caption on mono.
 - **Paint's menu items** (§12.2) — text-only controls that also carry the state
   in words, `'Save Gif (NoRam)'` and five more. Since `font_ink` learned the
   dither those words say *why not* rather than *whether*, which is still worth
@@ -14784,11 +14815,16 @@ refusals *ought* to grey and do not, and three answer no:
 **Owed:** nothing else identified. §47.2 is the standing obligation — a greying
 change is not finished until it has been looked at on a mono adapter.
 
-**Packages have no `[gfx_dis]`, on purpose.** §20.3 publishes no slot for it
-because nothing has needed one: a package's disabled control is covered by rule
-2, whose non-text mark dithers through `gfx_ink` without help. If an app ever
-needs disabled *text* with no shape beside it, that is when the slot gets
-added — and adding one is an append, which §20.8 allows.
+**Packages reach `[gfx_dis]` through slot 0x0310**, and the reasoning that
+withheld it was wrong twice over. It said a package's disabled control was
+covered by rule 2's non-text mark, which dithers through `gfx_ink` without
+help — true, but rule 2 asks for the *whole* control, and a package could only
+ever grey the part of it that was not text. Every package button in the tree
+therefore shipped a dotted frame around a solid-black caption on Hercules and
+CGA: rule 2's named failure, arriving by construction rather than by
+oversight. And it rested on the belief that a dithered 8x8 glyph was unreadable
+anyway, which the Display page had been disproving on screen the whole time.
+The slot is an append, which §20.8 allows; no number moved.
 
 ## 48. Missile Command — the twelfth package (apps/missile/missile.asm)
 
@@ -16870,15 +16906,13 @@ because both halves look like details and neither is:
   acts on it. That is rule 4's named failure — "looks unavailable and works" —
   and it is the drift rule 4 exists to stop, arriving from the direction rule 4
   does not cover, because there is no predicate here at all: nothing refuses.
-- **It did not even show.** Rule 3: `CDGRAY` *text* rounds to black on the two
-  1bpp adapters (§39.4 rounds a glyph rather than dithering it), and
-  `[gfx_dis]` — the carve-out that makes a disabled glyph a checkerboard — is
-  not in the package ABI (§20.3 publishes no slot). Looked at on CGA per §47.2,
-  the greyed row was pixel-identical to the live row beneath it. Rule 3's
-  package clause is the general form: a package's disabled control **must carry
-  a non-text mark**, which is why `hd_page_button` greys the button's *frame*
-  along with its label and reads correctly on all three adapters, and why a
-  bare row of text can never be made to.
+- **It did not show.** A bare `CDGRAY` glyph rounds to black on the two 1bpp
+  adapters, so looked at on CGA per §47.2 the greyed row was pixel-identical to
+  the live row beneath it. The fix for a *control* is the pen — `gfx_pen_cf`,
+  slot 0x0310, which sets `[gfx_dis]` and makes the glyph a checkerboard — and
+  `hd_page_button` takes it, so its frame and its label both read as disabled
+  on every adapter. A **row is not a control** and so takes no pen at all;
+  its State column is the signal.
 
 So the **State column is the whole signal**, and it says the same thing on VGA,
 CGA and Hercules. That is not a consolation prize for the missing colour: a
@@ -16959,9 +16993,9 @@ said it would not.** The distinction §52.2.2 turns on is that a *row* is not a
 control and a button is. Every rule that refused the greying there permits it
 here: the predicate is a fact already printed in the row and not a guess (rule
 4), one `hd_tw_delok` serves the greying and the click refusal (rule 2), and
-the pen colours the button's **frame** as well as its label — the non-text mark
-rule 3's package clause requires, since `CDGRAY` text rounds to black on the
-two 1bpp adapters (§39.4) and `[gfx_dis]` is not in the package ABI. The
+the pen comes from `gfx_pen_cf` (slot 0x0310) so it carries `[gfx_dis]` as well
+as `CDGRAY` — the button's frame goes dotted and its label goes to a
+checkerboard, and the two halves of the control cannot disagree on mono. The
 refused click still sets the caption, as the page's does: the reason is already
 on screen and this only makes sure of it.
 

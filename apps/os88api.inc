@@ -98,17 +98,22 @@ CLGRAY    equ 7             ; DECORATION grey - Minesweeper's covered cells,
                             ; Arkanoid's rails, Recorder's centre line
 CDGRAY    equ 8             ; the disabled pen (SPEC.md 47). GREY THE WHOLE
                             ; CONTROL - frame, ring, box, icon AND label -
-                            ; never just the caption, and that is not a style
-                            ; note: on a mono adapter your greyed LABEL comes
-                            ; out solid black, pixel-identical to a live one,
-                            ; because a dithered 8x8 glyph loses half its
-                            ; strokes and font_ink will not do that to a
-                            ; package's text. A frame or a ring DOES dither
-                            ; (gfx_ink), so the shape is what carries the
-                            ; state at 1bpp. rc_btn in apps/recorder is the
-                            ; reference: it greys the button frame with the
-                            ; label, so the button reads as disabled on every
-                            ; adapter
+                            ; never just the caption.
+                            ;
+                            ; **Set it with OSAPI_GFX_PEN and not with
+                            ; OSAPI_SET_COLOR**, because a disabled control is
+                            ; two pieces of state: this colour AND the
+                            ; [gfx_dis] flag. The flag is what makes your
+                            ; LABEL a checkerboard on Hercules and CGA -
+                            ; legible, and plainly different from a live one.
+                            ; The colour alone rounds to solid black there, so
+                            ; a button set with OSAPI_SET_COLOR comes out with
+                            ; a dotted frame around a black caption: the two
+                            ; halves of one control disagreeing, which is
+                            ; exactly what rule 2 forbids. Every package in
+                            ; this tree shipped that until slot 0x0310 was
+                            ; published. rc_btn in apps/recorder is the
+                            ; reference
 CLBLUE    equ 9
 CLGREEN   equ 10
 CLCYAN    equ 11
@@ -902,7 +907,7 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
 ;  6. Your stack is SCH_STACK (512) bytes in LOW_SEG and SS != DS (see the header of
 ;     this file). No deep recursion, no big stack buffers, and BP-relative
 ;     operands address SS.
-;  7. You may call: the gfx_* and font_* slots, OSAPI_SET_COLOR,
+;  7. You may call: the gfx_* and font_* slots, OSAPI_SET_COLOR, OSAPI_GFX_PEN,
 ;     OSAPI_WM_CONTENT, OSAPI_WM_OBSCURED, OSAPI_WM_CLIP_SET,
 ;     OSAPI_WM_CLIP_CLEAR, OSAPI_WM_CLIP_TEST, OSAPI_VIDEO, OSAPI_GET_TICKS,
 ;     OSAPI_MOUSE, OSAPI_SRAND/RAND, OSAPI_SND_CAPS, OSAPI_SND_TONE,
@@ -1519,11 +1524,30 @@ OS88_BSS_SIZE equ 0
 ;   dw block2, count2            ; `block` an offset in it. A zero count is
 ;   ...                          ; legal and skipped, so build it once and
 ;                                ; vary what you ask for.
-%define OSAPI_GFX_LSTEPV    KERNEL_SEG:0x0310   ; ES:DI = the array, CX = how
+%define OSAPI_GFX_LSTEPV    KERNEL_SEG:0x0318   ; ES:DI = the array, CX = how
                                  ; many pairs. Identical to CX separate
                                  ; OSAPI_GFX_LSTEP calls in one pen. Lock
                                  ; held. Preserves all.
 GLS_SZ    equ 14                 ; the walk state, in YOUR bss
+; The DISABLED pen (SPEC.md 47 rule 3). A disabled control is CDGRAY *and* the
+; [gfx_dis] flag, and this is the only way to set both - which matters most on
+; the two 1bpp adapters, where the flag is the entire difference between a
+; greyed label and a live one: font_ink masks a flagged glyph to a
+; checkerboard, while the colour on its own rounds to solid black.
+;
+; CF IS THE ARGUMENT, and that is not an oddity - it is the shape every
+; greying predicate already answers in, so a call site is `call <your ok-test>`
+; then `call OSAPI_GFX_PEN` and nothing between them. The cell is
+; push/pop/call/retf and touches no flag, so your CF crosses it unchanged. Use
+; `clc` or `stc` first for the unconditional cases.
+;
+; It is one lock hold long: OSAPI_GFX_UNLOCK clears the flag the way it clears
+; the clip region, so you cannot leak dithered text into the next painter. Put
+; the pen back with a `clc` call when the control is drawn, all the same - the
+; next thing YOU draw in this hold would otherwise come out disabled.
+%define OSAPI_GFX_PEN       KERNEL_SEG:0x0310   ; CF = 0 live (CBLACK, flag
+                                 ; clear) / CF = 1 disabled (CDGRAY, flag
+                                 ; set). Preserves every register.
 %define OSAPI_BOOT_TICKS    KERNEL_SEG:0x02F8   ; out AX = how long this machine
                                  ; took to boot, in SYSTEM TICKS (18.2065 Hz,
                                  ; 54.925 ms each): the boot sector's first

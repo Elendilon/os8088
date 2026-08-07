@@ -324,6 +324,13 @@ Testing quirks (learned the hard way):
   rather than *whether*. **A greying change is not done until it has been looked
   at on a 1bpp adapter** — the two mono adapters differ from VGA in kind, not
   just in depth, and a glyph there is a checkerboard while a ring is dotted.
+  **Dithered text is the answer on mono and not a compromise** — go and look at
+  the Display page's `Double Buffered` on CGA — and a claim that mono cannot
+  show greyed text is a misconception this tree carried in six places at once.
+  **A package sets the pen with `OSAPI_GFX_PEN` (slot 0x0310)**, never with
+  `OSAPI_SET_COLOR`: the colour alone leaves the flag clear, which is a dotted
+  frame around a solid-black caption — rule 2's own failure, and what every
+  package here shipped until the slot was published.
 - **A kernel notice names the thing that failed (SPEC.md §54.4.1).**
   `ui_note` takes the message, the line above it **and the window's title**
   from the caller. It used to bake the last two in as the Task Manager's,
@@ -1110,16 +1117,17 @@ takes the LARGEST, because the slots are scarce: first-fit spent one of four
 primaries on that 1MB gap while 30MB sat free in the middle of the disk. **A slot over
 the ceiling or of a foreign type is `Unmountable` and its Format button stays
 LIVE**, because reclaiming the first 32MB of it is the only useful thing left
-to do there. **Nothing in that window is greyed** (§52.2.2), and the row that
+to do there. **No ROW in that window is greyed** (§52.2.2), and the row that
 briefly was is the §47 case worth reading: greying is a claim about a
 *control*, the row is selectable and Format acts on it (rule 4's "looks
 unavailable and works", arriving where rule 4 does not look because no
-predicate refuses anything) — **and it did not show anyway**, because `CDGRAY`
-text rounds to BLACK on 1bpp and `[gfx_dis]` is not in the package ABI, so on
-CGA it was pixel-identical to the live row beneath it. Rule 3's package clause
-is the general form: a package's disabled control must carry a **non-text
-mark**, which is why `hd_page_button` greys the button *frame* with the label
-and why a bare row of text cannot be made to work. **`Not Formatted` means unpartitioned OR
+predicate refuses anything) — **and it did not show anyway**, because it was
+greyed with a bare `CDGRAY`, which rounds to black on 1bpp with no `[gfx_dis]`
+to dither it, so on CGA it was pixel-identical to the live row beneath it. The
+window's **buttons** do grey, Delete on an empty slot, and they take the pen
+through `OSAPI_GFX_PEN` so the frame *and* the label dither together — a
+button is a control and a row is not, which is the whole distinction.
+**`Not Formatted` means unpartitioned OR
 partitioned-and-empty** on purpose: both mean Format makes a volume, and the
 second is what an interrupted format leaves. And **the table entry is written
 BEFORE the volume**, for the same reason the boot sector goes last inside the
