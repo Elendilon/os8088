@@ -389,7 +389,7 @@ Two things live there. The Control Panel's three code runs — large, cold
 enough that a far call per entry costs nothing measurable, and needed on
 exactly the machine where things are going wrong, so it must stay resident.
 And the five **file modules**: `loader.inc` (§21), `diskw.inc` (§18.4),
-`files.inc` (§22), `filecp.inc` (§22.3) and `fdlg.inc` (§38), ~15.3KB
+`files.inc` (§22), `filecp.inc` (§22.3) and `fdlg.inc` (§38), ~16.6KB
 between them, moved together because they mostly call each other — a call
 inside the set stays near, and only the ones that leave it pay a shim.
 Growing the set makes the ones already in it *cheaper*: `fdlg.inc` joining
@@ -571,7 +571,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
-| `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, the frame clock/present, and the cold XMS desktop stash (§53.6.1) — prefix `fsx_` |
+| `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, and the frame clock/present — prefix `fsx_` |
 
 `kernel/video.inc`, `keyboard.inc`, `string.inc`, `gfx.inc` remain in the
 tree but are **no longer included**; the GUI replaces the text shell.
@@ -2965,7 +2965,7 @@ worth writing down, because it is the guard behaving as designed rather than
 the feature being expensive: the image rung had **one byte** of slack
 (`.text` + `.bss` = 49,151 against a 49,152 ceiling), so any addition at all
 cost the same 512 and trimming the feature could not have avoided it. Buying
-the step back needs 666 bytes moved out of `.text`, and `.cold` has 160 bytes
+the step back needs 666 bytes moved out of `.text`, and `.cold` has 57 bytes
 of rung slack, so a cold move would only spend the same step over there.
 **If footprint ever becomes the higher priority, this is a first candidate to
 remove** — either dropped entirely or built only into the testing and
@@ -7561,7 +7561,8 @@ Slot-specific contracts that are not simply their target routine's:
 0x02C0 fsx_caps          out AX = the FSXM_* bitmask the live adapter can
                          set, DL = vid_kind (§53.4). Any context.
 0x02C8 fsx_run           in AX = near entry, BX = own window ptr, CX =
-                         flags (bit 0 FSXF_KEEPWORKER). X — the ownership
+                         flags (bit 0 FSXF_KEEPWORKER, bit 1
+                         FSXF_FASTTICK). X — the ownership
                          fence reads the caller's DS, inst_pkg_spawn's
                          test. UI-task window callback, lock held; does
                          NOT return until the app's proc does (§53.1).
@@ -8852,6 +8853,127 @@ Two things hold it up:
 
 `fdlg.inc` has the same rule and its own `fdlg_sel_bar` (§38.3): the geometry
 differs, the argument does not.
+
+### 22.2.1 A right-click moves the selection; a keystroke owes one line
+
+Two paths were still ending in `fm_repaint` — the 400-line painter, a white
+fill of the whole content plus every row, every icon, the header, the buttons
+and the scroll bar — to change something much smaller.
+
+**A right-click selects the row under the pointer**, and that is *all* it
+changes to the window. It painted the whole thing "so the save-under captures
+the new highlight", which is a real requirement and is satisfied just as well
+by §22.2's two inverted bands: the old one XORed off, the new one XORed on,
+before `menu_popup` runs. Measured with counters in `font_char`/`gfx_fill`, a
+right-click that MOVES the selection and one that does not now cost the
+**same** — 26 glyphs and 5 fills, which is the popup itself — where the
+selection change used to add a whole window.
+
+Two things it needs. `[fm_lsel]` is `fm_layout`'s mirror of the old
+selection, and the layout runs *before* `FS_SEL` is written here, so it still
+names the outgoing row. And `[fm_wased]` — "an editor line was up, so the
+status line was rewritten and the bands cannot put it back" — has to be
+banked **in `fm_rclick` too**: it is a per-click flag that `fm_onclick` sets,
+so reading it without banking is reading the last LEFT click's answer.
+
+**A keystroke into the rename/new-folder editor changes one line of text**,
+the status line the editor lives on, and it repainted the whole window per
+character. `fm_editkey` now answers **CF = 0 for "only the status line
+moved"** — the ordinary-character and Backspace paths, and nothing else — and
+`fm_onkey` spends that on `fm_status_only`, falling back to `fm_repaint` on
+§11.3's granularity refusal. Everything else it can do (commit, cancel, the
+replace question) changes the listing or the mode and still owes the window.
+
+Measured on the same window: a keystroke was **91 glyphs and 40 fills** (the
+same cost `r` still pays for a re-list, which is a real full repaint) and is
+now **25 glyphs and 1 fill** — the line and nothing else. At
+PERFORMANCE.md's ~1 ms per glyph cell that is a keystroke costing ~25 ms
+instead of ~120, on a machine where the typist is waiting for it.
+
+### 22.9 A status line belongs to ONE window, and it does not outlive its cause
+
+The line under a Disk window's listing is a **report about what the user did
+in that window**. Two rules follow, and neither held.
+
+**It is per window.** `[ld_status]` is one global, and `fm_stat_line`'s rung 4
+drew it for whatever window it was painting - so a failed load put
+`Bad package` on *every* open Disk window at once, two of them both claiming
+to have been asked. `FS_LDST` is the per-window copy, stamped on `[ld_pwin]`
+- the block that POSTED the load - and mirrored into `[fm_lldst]` by
+`fm_layout` the way `FS_FERR` is into `[fm_lferr]`. A load with no poster
+(the chip menu's Task Manager, `[ld_pwin]` = 0) stamps nobody and reports
+through `ui_note` instead, which is right: no window asked. It cost no bytes
+- offset 15 was the padding hole in front of `FS_VSEG`.
+
+`[ld_status]` remains the LOADER's own result (§21) and is what `ui.inc`
+reads; it is simply no longer what the window DRAWS.
+
+**It does not outlive its cause.** A notification took the line until
+something else had something to say, so `Bad package` sat there through
+scrolling, selecting, navigating and everything else the user did next. The
+rule is now that any interaction with the window clears its verdicts FIRST,
+and whatever that interaction does then sets its own: `fm_stat_clear` zeroes
+`FS_FERR` and `FS_LDST` at the top of `fm_onclick`, `fm_onkey` and
+`fm_docmd`, before the handler runs.
+
+**Clearing is a change to the line, so it has to be drawn**, and that is the
+part that interacts with §22.2.1. A row click's cheap path draws two XOR
+bands and no text at all, so a click that clears a message would leave it on
+screen. `fm_stat_clear` answers **CF = 1 when it actually cleared
+something**, and the cheap path spends that on one `fm_status_only` -
+a click that clears a message costs two bands and one line, not a window.
+
+**Two causes, ONE question.** `[fm_wased]` ("an editor line was up and ending
+it rewrote the line") and a retired verdict say exactly the same thing about
+what has to be drawn, and each used to escalate its own path to a whole
+repaint - so a click on the row *already selected* cost a window whenever
+there was anything to retire, which is the bug this rule introduced and the
+correction that closes it. `fm_onclick` ORs both into `[fm_statowed]` at
+entry, and every exit spends it the same way: `.newsel` draws its two bands
+and then the line, `.quiet` draws the line alone, and a click with nothing to
+retire and nothing to move draws **nothing at all**. Measured, clicking a bad
+package's row a second time: 20 glyphs and 1 fill against a 91-glyph,
+40-fill repaint; a third click, 0 and 0.
+
+Three things fall out of the ordering. The clear runs BEFORE the handler, so
+an operation that fails still shows its own new verdict. `fm_edit_arm`'s
+existing `FS_FERR = 0` is the same rule arriving earlier and stays. And the
+resting state (§22.7's size and free space) needs no clearing rule of its own,
+because it is what the line says once the notifications are gone.
+
+### 22.10 Rename starts from the name it has
+
+Renaming `BEVERLY.MOD` meant typing all twelve characters back, and the
+punishment for missing one was a file with the wrong extension - which on
+this system is a file that has stopped being a document its program will
+open (§54). Two halves, and the split between them is the point.
+
+**The buffer is seeded with the STEM, not the whole name.** `fm_edit_seed`
+runs from `fm_edit_arm` on mode 2 only - New Folder and the replace question
+start empty as before - and copies `fm_onam` up to the `.`, bounded by the
+same twelve characters `fm_editkey` allows.
+
+**The extension comes back at commit if the user typed none.** `fm_extkeep`
+appends the old one when `fm_ebuf` carries no `.` at all, so `BEVERLY` becomes
+`BEVERLY.MOD`. Typing a `.` is how you change it, and that includes a
+trailing `.` with nothing after it, which is how you drop it: the user's dot
+always wins. Bounded at twelve again, and a name with no room left for an
+extension is passed to `dskw_name83` as typed, to be judged there rather than
+truncated here.
+
+The two are deliberately asymmetric. Seeding the whole name would put the
+extension where the caret is and make renaming *within* the extension the
+easy case; seeding neither would be the old behaviour. Stem in, extension
+implied, is the shape that makes the common rename one or two keystrokes and
+still allows the rare one.
+
+**It costs the buffer's old exit, and that had to be given back.** "Nothing
+typed, so Enter simply cancels" is unreachable once the buffer is never
+empty, so Enter on an untouched prompt would ask to rename a file to the name
+it already has - and `dskw_rename` answers that with `Name taken`, a refusal
+where the user did nothing. `fm_samename` compares the two and cancels
+instead. Both sides are §19.1 display names, sanitized identically, so the
+comparison is uppercase-exact and needs no folding.
 
 ### 22.3 Cut, Copy and Paste (`kernel/filecp.inc`)
 
@@ -15188,8 +15310,9 @@ them is spare.
 
 Measured with the counters at `gfx_blit4` / `gfx_fill` / `font_char`
 (CLAUDE.md's recipe), one launch-enter-leave round trip, nothing drawn in
-between, **the §53.6.1 XMS stash forced off** because the target is tier 0 and
-has no store:
+between (at the time, with §53.6.1's XMS stash forced off, because the target
+is tier 0 and has no store — the stash is gone now and step 4 repaints on
+every machine, so the figures below are simply what every machine does):
 
 | | canvas blits | `gfx_fill` | glyphs |
 |---|---|---|---|
@@ -15203,13 +15326,16 @@ round trip went from **five full-canvas draws to three** — two on the way in,
 which is the app's ordinary repaint at a new size, and one on the way home,
 which the desktop is owed anyway. `gfx_fill` on the exit halved (1.94x).
 
-**That measurement had to be taken with the stash off, and this is the trap
-worth recording**: on a 286+/VGA machine with extended memory, `fsx_restore`
-writes the saved planes back instead of repainting (§53.6.1), so the spare
-repaint *disappears* — the same test on a stock QEMU box measures the two
-designs as 4 blits against 3 and the problem looks minor. The machine this
-tree is calibrated against has no XMS at all, which is exactly where the spare
-repaint costs the most.
+**The measurement had to be taken with the stash off, and the trap is worth
+recording even though the stash has since been removed**: while it existed, a
+286+/VGA machine with extended memory had `fsx_restore` write the saved planes
+back instead of repainting (§53.6.1), so the spare repaint *disappeared* — the
+same test on a stock QEMU box measured the two designs as 4 blits against 3
+and the problem looked minor. The machine this tree is calibrated against has
+no XMS at all, which is exactly where the spare repaint costs the most. The
+shape generalises past this one feature: **a harness that is faster than the
+target can hide the cost you are measuring for, and an optimisation that only
+engages off-target hides it in the one direction that matters.**
 
 So the geometry moves into the app instead, and it is **one branch in one
 routine**: `pt_org` answers origin (0,0) and the content box `[pt_scrw]` ×
@@ -16385,6 +16511,13 @@ what the exclusive surface gives, with the audio-feeding worker kept alive
 across the freeze so a Sound Blaster stream never underruns while the app
 owns the screen.
 
+It passes **`FSXF_FASTTICK`** alongside it (§53.2.1), and that is the same
+worker seen from the other side: kept alive, the worker's turn costs the
+drawing half a whole 55 ms quantum, which the field logs show as a periodic
+frame that advances no row (§45.16.1). With the sub-tick the turn costs 18
+ms. `[ticks]` keeps its rate, so `[tui_bpt]`, `fsx_wait`'s tick pacing and
+the §45.15 stamp arithmetic are all untouched.
+
 **Which surface depends on XT mode.** With it off, Tracker does NOT switch
 video mode: the FT2 screen wants the desktop's resolution, so this is
 "exclusive but same mode" (§53.7) and the drawing slots stay legal
@@ -17019,26 +17152,31 @@ On the target that is a Part 1 *visible redraw*, and it was reported exactly
 as one: the screen stopping for about a third of a second and then jumping,
 reliably, every eight seconds or so. So the periodic rebuild is **spread**:
 
-- `ttx_shstart` claims `[mp_pattern]`, sets `[ttx_shbusy]` and arms a cursor.
+- `ttx_shstart` claims `[mp_pattern]`, resolves the two neighbouring orders
+  (§45.13.4), sets `[ttx_shbusy]` and arms a cursor.
 - `ttx_shstep` formats `TTX_SHCHUNK` (4) rows and returns; `ttx_draw_dyn`
-  calls it once a frame, forcing a blit each time, until the 64th row clears
-  `[ttx_shbusy]` and sets `[ttx_shok]`. Worst frame ~25 ms instead of ~330.
+  calls it once a frame, forcing a blit each time, until the last of
+  `TTX_SHROWS` clears `[ttx_shbusy]` and sets `[ttx_shok]`. Worst frame ~25 ms
+  instead of ~330.
 - `ttx_shbuild` is that loop run to completion, and its **only** caller is
   `ttx_draw_all`: the mode has just been set, there are no pixels on screen
   to stop updating, and paying it there is what makes the first frame after
-  F complete. It is also the only place that blanks — every later build
-  rewrites all 64 content rows, and the pad rows are never written at all.
+  F complete. It is also the only place that blanks, and the blank is not
+  redundant with the build it precedes: a module-less grid formats no rows
+  at all.
 
-Three things about the spread are load-bearing. **The cursor starts at
-`view − TTX_HALF`** (clamped, then wrapping inside the pattern) rather than at
-row 0, so a `Dxx` break or a position jump that lands mid-pattern fills the
-*visible* window first instead of counting up to it. **It cannot be
-overtaken**: 4 rows a frame against a view that advances 7.14 rows a *second*.
-And **the pattern is claimed at the start, not at the end** — otherwise
-`ttx_draw_dyn`'s change test refires on every frame of the build — which also
-closes an old race, because the worker can move `[mp_pattern]` mid-build and
-recording it afterwards marked a mixed shadow as current. Recorded first, a
-mid-build move is caught by the same test on the next frame and restarts.
+Three things about the spread are load-bearing. **The cursor is a SHADOW row
+and starts at the one the view needs** — shadow row *view* is the top of the
+visible window — rather than at row 0, so a `Dxx` break or a position jump
+that lands mid-pattern fills the *visible* window first instead of counting up
+to it, and a pattern flip, where that window is mostly the pad, fills the pad
+first. **It cannot be overtaken**: 4 rows a frame against a view that advances
+7.14 rows a *second*. And **the pattern is claimed at the start, not at the
+end** — otherwise `ttx_draw_dyn`'s change test refires on every frame of the
+build — which also closes an old race, because the worker can move
+`[mp_pattern]` mid-build and recording it afterwards marked a mixed shadow as
+current. Recorded first, a mid-build move is caught by the same test on the
+next frame and restarts.
 
 A spread build is visible in §45.14's log as one `FL 07` (a rebuild started)
 followed by a run of `FL 06` (a step ran, and a blit put the new rows on
@@ -17046,26 +17184,28 @@ screen), which is how the chunking was checked rather than asserted.
 
 Three things about it are load-bearing:
 
-- **The shadow carries `TTX_HALF` blank rows above row 0 and below row 63**, so
-  the window into it is `shadow + viewrow * TTX_RW * 2` with **no clamp and no
+- **The shadow carries `TTX_HALF` rows above row 0 and below row 63**, so the
+  window into it is `shadow + viewrow * TTX_RW * 2` with **no clamp and no
   branch**: pattern row *r* lives at shadow row *r + TTX_HALF*, the visible
   area starts at *view − TTX_HALF*, and the two cancel. The ends of a pattern
-  are not a special case, they are blank rows being blitted like any other.
-  **Those pad rows are visible, and that is the intended appearance**: at row 0
-  the top nine rows of the area are blank and at row 63 the bottom nine are, so
-  a playing pattern opens with the blank shrinking away and closes with it
-  growing back — the second of which reads, watched rather than reasoned about,
-  as the lower half of the screen losing its text while the upper half keeps
-  scrolling. It has been mistaken for the shadow emptying, which is why
-  §45.14's `SHB` exists to say otherwise in one number. Showing the
-  neighbouring patterns' rows instead would mean a three-pattern shadow and a
-  rebuild whenever *any* of the three moved; the blanks are the price of the
-  no-clamp window.
-- **The band is an attribute, not a redraw.** The shadow holds every row in
-  `TTX_A_NORM`; the blit lands them all and 59 attribute bytes turn the middle
-  row `TTX_A_INV` afterwards. Nothing has to remember which row *used* to be
-  the band, because the blit rewrote it on the way past — which is the whole of
-  what §45.12's three-strip bookkeeping was for.
+  are not a special case, they are rows being blitted like any other — and
+  since §45.13.4 they are the neighbouring orders' rows rather than blanks, so
+  what the blit lands at a pattern boundary is the music's own next line.
+- **The band is an attribute, not a redraw**, and it is landed **by the same
+  pass**. Nothing has to remember which row *used* to be the band, because the
+  blit rewrites it on the way past — which is the whole of what §45.12's
+  three-strip bookkeeping was for. The relight used to be a *second* pass, 59
+  attribute bytes written after all 19 rows had gone down in `TTX_A_NORM`, and
+  that is Part 1's double-draw defect in text-mode clothes: for the ~9 ms of
+  the copy the band row was on screen drawn **normal**, and since `TTX_A_INV`
+  is black-on-white while `TTX_A_NORM` is white-on-black, the intermediate
+  state is *the white bar going black*. The field reported it in those words —
+  "the highlighted line is flicking black, sometimes" — and §45.15.1's
+  interpolation is what made it visible, by taking the row changes from 2.4 a
+  second to 7. Copying the band row with `lodsw` / `mov ah, TTX_A_INV` /
+  `stosw` puts every cell from its old contents to its final contents in one
+  store, and is *cheaper* than the `rep movsw` plus a read-modify-write of
+  every attribute byte that it replaces.
 - **The row goes through a bss byte, not a register.** `mp_cell2txt` decodes
   through BX and CX and returns with ES = the pattern segment; there is no
   general register that survives it.
@@ -17075,6 +17215,63 @@ an **MDA** can render, so they mean the same thing on Hercules, CGA and VGA
 text alike — §39.4's discipline in its text-mode clothes. The box-drawing and
 block characters are CP437, which is the ROM font on every adapter that can set
 this mode.
+
+#### 45.13.5 A sequential boundary MOVES the window rather than reformatting it
+
+The spread rebuild (§45.13.2) formats 82 rows at one to four a frame, and the
+cursor starts on the visible window — so at a pattern boundary the user
+watches nineteen rows being *rewritten under them*, one per frame, for the
+best part of a second. The field reported it in the right words: **"a whole
+line of replacements going down the first column"**, and the suggestion that
+came with it — make the buffer twice the screen so replacements land
+off-screen — is the correct diagnosis. It needs no second buffer, because the
+shadow already holds the rows:
+
+- this pattern's tail (shadow rows 64..72) is what the next shadow needs as
+  its pad **above** (rows 0..8);
+- the pad **below** (rows 73..81), which already holds the next pattern's
+  first nine rows, is what it needs as its first nine content rows (9..17).
+
+That is exactly the window the view sits on when a boundary passes. So
+`ttx_shstart` moves shadow rows 64..81 down to 0..17 in one `rep movsw` and
+starts the format cursor at row 18 — **below the screen** — with
+`TTX_SHROWS - 18` rows still owed. The rebuild costs 64 formatted rows instead
+of 82, and nothing on screen is rewritten at all.
+
+The carry is taken **only when this build follows the one in the shadow**: the
+shadow was complete (`[ttx_ocok]`), the pattern now playing is the one it
+named as next, and the pattern before this one is the one it held. A position
+jump, a `Bxx` or a fresh bracket fails those tests and formats from scratch as
+before — which is why the three old values are banked before the claim
+overwrites them.
+
+**It shipped once as dead code, and the verification did not notice.** Two
+`jmp short`s ended up in a row — the `.song` path's `jmp short .out` followed
+by the `jmp short .carry` that was meant to replace it — so nothing ever
+reached `.carry` and every boundary formatted from scratch, exactly as before.
+It assembled with `-w+error` (an unreachable instruction is not a warning), it
+booted, and the field reported the original symptom again in the original
+words. The check that missed it compared **rows that appear on both sides of a
+boundary, keyed by row number**, and found 13 in common with 0 differences —
+which is true of a *correct rebuild* as well as of a carry, because both end
+up with the right bytes. It was measuring the destination, not the path.
+
+Two checks replace it, and both distinguish the paths rather than the results:
+
+- **The log says which one ran.** `TLOGF_CARRY` (FL bit 7, §45.14) is set
+  inside `.carry` itself, so a capture reads `FL 80` at a boundary that
+  carried and does not at one that formatted. Three boundaries in a QEMU
+  capture, three carries.
+- **Nothing on screen may change except by scrolling.** Sample the 19-row
+  window repeatedly and require that each pair line up under *some* shift:
+  window N with its first `d` rows dropped must equal window N+1's first
+  `19-d` rows, byte for byte. A rebuild that rewrites visible rows fails for
+  every `d`. 69 consecutive pairs across two boundaries, 0 misaligned, shifts
+  of 2 and 3 rows only.
+
+The second is the property the feature actually claims, and it is worth
+stating in that form: *the window scrolls and never re-letters*. The first
+check could only ever say the pixels were eventually right.
 
 #### 45.13.3 What the bracket may not do, and the two keys that say why not
 
@@ -17111,6 +17308,79 @@ are never both holding the setting.
 `fsx_wait` is a pure frame clock here: §53.5's present clause is dead by
 construction, because `fsx_mode` had already refused to run with a buffer
 armed.
+
+#### 45.13.4 The pads are the neighbouring ORDERS, so the scroll is contiguous
+
+The `TTX_HALF` pad rows at each end of the shadow used to be blank, and
+§45.13.2 said so and called it the intended appearance. It was not. The
+consequence, watched rather than reasoned about, is that **every pattern
+boundary is 18 rows of nothing crossing the screen** — nine growing in from
+the bottom as the pattern runs out and nine draining off the top as the next
+one starts, ~2.2 s of it at 8.3 rows a second — while the music carries
+straight on through the boundary without a pause. The grid empties and refills
+against audio that never stops, which reads as the display having lost the
+song rather than as the song having changed pattern. That is the report this
+section answers.
+
+So the pads hold the neighbouring orders' rows:
+
+- **Above row 0**: the pattern at the **previous** order position, rows
+  `64 − TTX_HALF .. 63` — its tail, which is exactly what was playing a moment
+  ago.
+- **Below row 63**: the pattern at the **next** order position, rows
+  `0 .. TTX_HALF − 1` — its head, which is exactly what plays next.
+
+Both are resolved once per rebuild, in `ttx_shstart`, into `[ttx_shprev]` and
+`[ttx_shnext]`; `ttx_shline` is the one place that turns a shadow row into a
+(pattern, row) pair, and `ttx_rowtext` takes its pattern from `[ttx_pat]`
+rather than `[mp_pattern]` for that reason. Nothing else in the module knows
+the pads are special, the blit least of all: the window arithmetic is
+unchanged, no clamp appeared, and a boundary costs the same 19 `rep movsw`s
+as any other row change. **The row numbers down both edges are the boundary
+marker** — they run `..3E 3F 00 01..` — so no rule, colour or attribute was
+needed to show where one pattern ends.
+
+Five things decide what a neighbour *is*, and each is a play-order question
+rather than an order-table one:
+
+- **Past the last order the song restarts**, so the order after `songlen − 1`
+  is `[mp_restart]`, which is what `mp_nextrow` actually does.
+- **Position 0 is reached from the last order only when the song restarts
+  there.** With a non-zero restart position nothing precedes position 0, and
+  `TTX_NOPAT` in the neighbour byte draws a blank row — the one case where a
+  blank pad is the truth rather than a gap.
+- **Pattern-loop mode (`P`) makes the pattern its own neighbour both ways**, so
+  a looped pattern closes on itself and the scroll never breaks at all.
+- **The claim is the order POSITION, not the pattern number.** `[ttx_shpos]`
+  is compared alongside `[ttx_shpat]` (and `[ttx_shloop]`), because two
+  consecutive orders naming the same pattern move both pads without moving
+  `[mp_pattern]` — the case the change test would otherwise miss. The old
+  objection to doing any of this, that a three-pattern shadow means "a rebuild
+  whenever *any* of the three moves", is answered by the same observation from
+  the other side: the three move **together**, when the position moves, and
+  that already forced a rebuild.
+- **A pending `Bxx` is not a position.** The effect parks `[mp_songpos]` at
+  `target − 1` for the rest of its row (`mp_start`'s note), so the position
+  test is skipped while `[mp_posjmp]` is set; the advance clears it and the
+  next frame sees the real position.
+
+The cost is 18 more rows per rebuild — `TTX_SHROWS` is 82, so 328
+`mp_cell2txt` calls and ~420 ms of the target's time, 21 `TTX_SHCHUNK` frames
+instead of 16. **The frame is unchanged**, which is the only figure §45.13.2's
+spread was defending: a rebuild simply occupies ~1.15 s of a ~7.7 s pattern
+instead of ~0.88 s, at 4 rows a frame either way, and the cursor still cannot
+be overtaken by a view moving 7.14 rows a second. A row is still formatted
+exactly once per rebuild and a row change is still a blit out of a shadow.
+
+Two things are deliberately not done. A `Dxx` break means the previous pattern
+ended somewhere other than row 63 and the next one may start somewhere other
+than row 0, so the pad is then a plausible tail rather than the rows that
+literally played; predicting an effect that has not run is not on offer, and
+the blank it replaces was no more accurate. And **the graphics FT2 screen
+(§45.6/§45.12) still blanks beyond a pattern's ends** — `tui_row1` erases rows
+outside 0..63 — which is FT2's own behaviour and, on the machine that reaches
+that surface, sits behind a grid that does not scroll per row in the first
+place (§45.9.1).
 
 ### 45.14 The instrumentation is a LOG, and it does not ship
 
@@ -17160,16 +17430,323 @@ old `WAKE` extreme could only report as one number after the fact.
 | `CONS` | the driver's free-running consumed count — one 2,048-byte half per block IRQ, and only from `sbl_isr`, so the tick spacing between two different values *is* the block-IRQ interval (6.8 ticks at 5,500 Hz) |
 | `TOTL` | the app's staged total; `TOTL − CONS` is the ring lead in bytes |
 | `S` | stream state: 0 playing, 1 underrun-paused, 2 watchdog-ended |
-| `PS PT RW` | song position, pattern, row — so any line can be placed in the music |
+| `PS PT RW` | song position, pattern, row **of the MIXER** — so any line can be placed in the music |
 | `FR FD` | drawing frames and feed passes in that tick |
-| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened, **10h listener mark (`M`)** |
+| `FL` | 1 rebuild started, 2 rebuild step, 4 blit, 8 stream opened, **10h listener mark (`M`)**, 20h `Y` (display on the mixer), 40h `T` (tick clock), **80h that rebuild CARRIED** (§45.13.5 — bit 1 alone cannot tell the two apart, and they cost completely different things) |
 | `BP SP` | tempo and speed, so rows-per-second is derivable per record |
+| `AR AP` | the row and pattern the **SCREEN** showed (§45.15). Disagreeing with `RW`/`PT` by the ring lead is the healthy case; either one frozen is not |
+| `SD` | that lead counted in ROWS — stamps between the card and the mixer. ~`1.19 × BPM / speed`, and pinning at `MP_ST_N` means the stamp ring lapped |
+| `FX DX` | the longest single drawing frame / feed pass in that tick, **in ticks**. 00 is the healthy answer for both; anything else is the stall, named |
+| `WX WK` | the rest of the loop. `WX` is the longest single `OSAPI_FSX_WAIT` — the only other thing the drawing loop does — and `WK` counts `trk_worker` loop passes, which is what tells a **starved** worker from an idle one (`FD` reads 0 for both). Added because a field capture's 18-tick gap had `FX` = 00 and `DX` = 07: the frame was healthy and the feed pass accounts for a third of it, so the rest went somewhere neither existing span covered |
+
+The buffer is a **ring of the last `TLOG_RECS` ticks**, not the first: the
+listener arms the log, plays, hears the thing and only then reaches for `W`.
+`tlog_save` emits oldest-first either way.
+
+**Two keys exist only to split a question in half.** `Y` puts the display back
+on the mixer's position (§45.15 off) and `T` puts the frame clock back on the
+tick (§45.16 off); both are recorded in `FL` on every record, so a file can
+never be read against the wrong mode. A field report of the form "it is smooth
+with `Y`, jerky without" is worth a day of arithmetic, and it costs one
+sitting on the machine that has the problem instead of one rebuild per
+hypothesis.
 
 Verified under QEMU with an SB16 in XT mode: 706 records, **zero tick gaps**,
 block-IRQ intervals with a median of **7 ticks** (6.8 predicted), and the
 §45.13.2 spread rebuild visible as one `FL 07` followed by a run of `FL 06` —
 which is the chunking doing what it says, read off the data rather than
 asserted.
+
+### 45.15 The screen shows what is being HEARD, not what is being mixed
+
+`mp_row` is the row the **mixer** is on, and `trk_feed` keeps the ring topped
+up to `TRK_RING - TRK_HALF` — so at XT mode's 5,500 Hz the mixer is **2.2–3.0
+seconds of music ahead of the card**, and every readout that quoted `mp_*`
+was that far ahead of the sound. That is measured, not modelled: press Enter
+and screendump 0.15 s later, and the grid was already on **row 21** — the
+6-half pre-roll (12,288 bytes = 2.23 s) is mixed on the UI task before the
+stream is even opened. The same screendump now reads **row 00**.
+
+The fix is a ring of **position stamps** in the replayer. When a row begins
+generating, `mp_stamp` records where its first sample lands in the stream
+together with the position, pattern, row, tempo, speed and the four channel
+volumes; `mp_at_pos` answers with the stamp the card is inside. `tui_sync`
+runs once per frame at the top of every drawer and publishes that stamp into
+`tui_apos` / `tui_apat` / `tui_arow` / `tui_abpm` / `tui_aspd` / `tui_avol`,
+and **every drawer quotes those instead of `mp_*`** — the graphics screen and
+the §45.13 text one alike, because the lag was never a property of one
+surface.
+
+Seven things are load-bearing:
+
+- **The card's position is the WORKER's poll, not a new one.** `trk_feed`
+  already asks verb 3 every wake for the lead calculation, so it publishes
+  `consumed` into `[trk_consumed]` and nothing else ever asks. At most one
+  tick old — a fifth of a row at the default tempo — and it can never move
+  backwards.
+- **The app supplies the byte base, the replayer supplies the row.**
+  `trk_mix_stage` sets `[mp_stampbase]` to `[trk_total]` before each `mp_gen`,
+  and a stamp is written at `base + (mp_outp - mp_outbuf)`. That is the whole
+  interface: the replayer still knows nothing about streams and the app still
+  knows nothing about rows.
+- **The position is caught BEFORE the row's effects run.** A `Bxx` parks
+  `[mp_songpos]` at `target - 1` for the rest of its row (`mp_start`'s note),
+  so a stamp taken after `mp_readrow` would carry a position that row never
+  belonged to. `mp_dotick` copies it into `[mp_pendpos]`/`[mp_pendpat]`
+  between `mp_nextrow` and `mp_readrow`. That also retires §45.13.4's
+  `[mp_posjmp]` guard, which existed only to hide the parked value.
+- **Both cursors are free-running bytes, masked at use.** The writer is
+  `trk_feed`'s deliberately lock-free worker and the reader is the UI task, so
+  each advance has to be one indivisible `inc`; a read-mask-store pair can
+  rewind the other task's. `MP_ST_N` is a power of two and 256 is a multiple
+  of it, so the byte wrap is invisible and the distance `stw - str` is exact.
+- **Overflow degrades towards the mixer, never past it.** The ring holds 64
+  rows and the lead is ~`1.19 × BPM / speed` rows at the XT rate — 25 rows at
+  BPM 125 speed 6, and everything down to speed 3 fits. Faster than that the
+  writer laps and pushes the reader forward, so the display is *less late*
+  than the music rather than ahead of it.
+- **Stopping parks the replayer where the LISTENER was.** `trk_play_stop`
+  calls `tui_sync` while the stream can still answer, then copies the audible
+  position back into `mp_songpos`/`mp_pattern`/`mp_row` after
+  `trk_stream_close` has drained the worker. Without it the display jumped
+  forward by three seconds at the moment of stopping — and `P` resumed from
+  a row nobody had heard.
+- **With no stream the two positions are the same thing**, and `tui_sync`
+  falls back to `mp_*` verbatim. That is also what keeps the stopped view
+  live: Up/Down and the position keys move the replayer, and with no music to
+  sync to the display has to follow them.
+- **The stamp comparison is `js`, not `jg`**, and the difference is not
+  stylistic. Both counters are free-running 16-bit, so `pos − consumed` is
+  modular arithmetic and **the sign of the RESULT decides** — the kernel's own
+  idiom, in `sch_isr`'s wake scan. `jg` is a signed comparison of the two
+  *operands*, so it honours the overflow flag, which is exactly what modular
+  arithmetic must ignore: with it the reader stopped dead whenever `consumed`
+  sat in the upper half of the range and the stamp in the lower — six seconds
+  out of every twelve at the XT rate. The display froze there, the stamp ring
+  filled, the writer dragged it forward 62 rows behind the mixer, and it then
+  jumped 44 rows at once. **§45.14's log is what caught it**, on its first
+  capture, in the two columns added for the purpose: `SD` pinned at 63 and
+  `AR` standing still while `CONS` advanced.
+
+#### 45.15.1 …and it is interpolated between block interrupts
+
+`[trk_consumed]` is the truth and it is **coarse**: the driver advances it one
+whole DMA half per block IRQ, which at the XT rate is 2,048 bytes — 372 ms,
+6.8 system ticks, about three rows. Followed raw, the grid stands still for a
+third of a second and then jumps three rows, whatever the frame rate. Measured
+exactly so in a §45.14 capture: **the longest run of ticks with the screen row
+unchanged was 7**, and the card's own report was unchanged for 6 of them.
+
+So `tui_playpos` estimates the position between blocks — elapsed ticks times
+the stream's byte rate, added to the last reported position. The rate is
+`mixrate / 18.2065`, computed once per play as the **high word of
+`mixrate × 3600`** (3600/65536 is that ratio to 0.011%), so no division is
+involved at all.
+
+Two properties make it safe rather than merely smoother, and both are the
+whole of why this is a section:
+
+- **Bounded by what was staged.** The card cannot have played bytes the mixer
+  has not written, so `[trk_total]` is the cap — a *physical* bound rather
+  than an arbitrary one. It was "one block past the last report" first, and
+  the field showed why those are not the same thing: `[trk_consumed]` is not
+  sampled per tick, it is **whatever the worker last saw**, and a capture has
+  feed passes 10 to 20 ticks apart. Through a gap like that the estimate hit
+  the clamp after one block and stopped, so the scroll ran three or four rows
+  and then froze for about a fifth of a second — reported from the field in
+  exactly those words, with 20% of its row-to-row gaps at 4 ticks or more.
+  The card was playing normally throughout; only our *view* of it had
+  stalled. The reading that the guest was losing ticks, which the apparent
+  byte rate swinging between 186 and 683 bytes/tick seems at first to show,
+  is that same observation lag and not a lost interrupt.
+- **An accumulator, not a stopwatch.** `[tui_lcons]` is the model's own
+  running position and `[tui_ct0]` the tick it was last advanced on, so the
+  elapsed term is only ever 0, 1 or 2 ticks. Holding an anchor and multiplying
+  a *growing* elapsed against it overflows a word at **217 ticks — twelve
+  seconds** — and the overflow branch then slammed the estimate to
+  `[trk_total]`, which is the **mixer's** position, nearly three seconds ahead
+  of the music. The field measured it as `PLAY − CONS` reaching **+15,242
+  bytes** against a ring of 16,384, and `SD` collapsing from 21 rows to 7.9.
+  QEMU could not: the model only free-runs that long when the report fails to
+  overtake it for twelve seconds, which needs a machine whose byte rate
+  matches the model as closely as the real one does. It is the third time in
+  this section that a bound which looked like a safety net was the defect.
+- **Anchored only forward.** A report is the driver's *block* counter, so it
+  is quantized **down**: it names the last 2,048-byte boundary the card
+  crossed and is therefore up to a whole block behind where the card actually
+  is. The model interpolates past that on purpose — so restarting the model at
+  every report threw the interpolation away, and with the monotone guard
+  holding the old answer the display *froze* until the model climbed back. Up
+  to a block of it, which is 6.8 ticks. The field measured **26% of
+  row-to-row gaps at 4 ticks or more** with exactly that shape. The report
+  re-anchors the model only when it has **overtaken** it — which means the
+  model ran slow and the truth is the better answer — and drift the other way
+  is bounded by the staged cap. Measured after: **0% of gaps at 4 ticks or
+  more**, and a mean of 2.53 ticks against an ideal row period of 2.51.
+- **Monotone**, which is the load-bearing one. `[tui_play]` is the last answer
+  given and the estimate can never fall below it. Without that, any
+  disagreement between the estimate and the next real block — a byte rate a
+  hair fast, an IRQ that lands early — moves the answer *backwards*, and a
+  scroll that jumps back a row reads far worse than one that steps.
+
+Measured on the same capture that priced the defect: the longest run with the
+screen row unchanged goes **7 ticks → 2** (0.38 s → 0.11 s, against a row
+period of 0.14 s), every advance is **exactly one row** (198 of them, no
+three-row jumps left), the row never moves backwards inside a pattern, and
+`PLAY − CONS` stays inside `[−538, +1510]` bytes against a 2,048-byte clamp —
+the negatives being the sampling skew between the worker banking `CONS` and
+the next frame updating `PLAY`, not the estimate lagging.
+
+What is deliberately *not* done: a position jump while playing is still heard
+2–3 seconds later, and the display moves when it is heard rather than when the
+key was pressed. Flushing the ring to make it immediate is a stream close and
+reopen — the underrun history in docs/FIELD-NOTES.md is what that would be
+trading against.
+
+#### 45.15.2 …and between system ticks, because the frames are the finer clock
+
+§45.15.1 interpolates between the card's **block** reports, 2,048 bytes apart.
+What that leaves is a staircase whose step is the **system tick**, because
+`[tui_lcons]` only moves when `[ticks]` does. A field capture is the proof
+rather than the theory: every single-tick `PLAY` step in it is **0, 302 or
+604 and nothing between** — one whole 302-byte lump per tick, the 0s and 604s
+being the log's own sampling phase.
+
+At the XT rate a row is 2.549 ticks, so a row change can only be *noticed* on
+a tick edge, and the crossings quantize to a repeating **3, 2, 3, 3, 2** — 165
+ms, 110, 165, 165, 110. A 1.5x swing in the spacing of a scroll is visible as
+a limp, and it is exactly what the field reported **after** the music itself
+was smooth and the boundary rewrite (§45.13.5) was fixed: *"the music is
+mostly smooth… the text is what is microstuttering."*
+
+The screen redraws far more often than the tick — the same capture says
+**1.81 frames a tick**, 33 fps, against a row every 2.5 — so the frames
+themselves are the finer clock, and **no other one is available**: §34.1
+reserves the ch0 latch to `sch_account` and its atomicity rule, and a package
+has no slot for it. So the frames of the **previous** tick are counted and the
+current one is divided into that many equal steps.
+
+Four properties make that safe rather than merely smoother:
+
+- **The sub-term is an offset, never an addition.** `[tui_sub]` is added to
+  `[tui_lcons]` on the way out and zeroed at every tick edge; the accumulator
+  itself still moves only in exact whole-tick lumps, so nothing about
+  §45.15.1's overtake, cap and monotone reasoning changes and the model
+  cannot drift.
+- **It is capped one byte below a whole tick**, so the edge that zeroes it is
+  also the edge that adds `[tui_bpt]` — monotone across the boundary by
+  construction rather than by the `.mono` guard catching it.
+- **A re-anchor spends it.** Both places that move the anchor — the report
+  overtaking, and the `[trk_total]` cap — zero `[tui_sub]`, because the anchor
+  is now *here* and the offset that got us here is not owed again.
+- **Counting and capping are separate, and getting that wrong is a ratchet.**
+  The frame counter must not be clamped at the divisor: clamp it and the
+  measured count can never exceed its own previous value, so the divider
+  falls to 1 and stays there — the feature silently reverts to the staircase
+  it was written to remove. The counter saturates at 255 and the *offset* is
+  what stops at a whole tick.
+
+A machine that manages one frame a tick divides by one and gets the old
+behaviour back exactly, which is what **QEMU** does: it refuses the retrace
+clock (§45.16), runs tick-paced at 0.86 frames a tick, and so tests the
+degenerate case and the arithmetic — `PLAY` never backwards, steps of 302 with
+occasional 312/340/378/406 where a tick did hold extra frames — while the
+field machine tests the case the feature exists for.
+
+### 45.16 The text screen's frame clock is measured, not assumed
+
+`fsx_wait` takes a **tick** (18.2065 Hz) or a **vertical retrace** (§53.5), and
+retrace is 50 Hz on Hercules/MDA, 60 on CGA and 70 on VGA text — three to four
+times the frames. The text screen (§45.13) can afford them because everything
+expensive on it is change-driven: the 1,121-word blit runs at the **row** rate
+whatever the frame rate is, so tripling the clock triples only the poll, six
+byte compares and the needles. Priced against the field constants, the whole
+surface goes from ~15% of the machine to ~18–20%, against XT mode's ~44%
+mixer.
+
+What it buys is not smoothness in the abstract. At a 120 ms row period against
+a 54.9 ms frame, a row is drawn 110, 110, 110, **165**, 110 ms after the last
+one — an uneven scroll with a hiccup every sixth row; and a module faster than
+18.2 rows a second (speed 3 at BPM 150 is 20) has rows the display **never
+shows at all**. The retrace clock takes the jitter to ±18 ms and the dropped
+rows to none.
+
+`ttx_clkprobe` decides once per bracket, and the measurement is the point:
+`fsx_wait`'s retrace path is a **poll with a 3-tick timeout**, so on a machine
+whose status port never toggles it is six frames a second — three times
+*worse* than the tick clock. `TTX_PROBE` (8) waits are timed against
+`OSAPI_GET_TICKS` and the retrace clock is taken only for a result between 1
+and 7 ticks. **Zero is refused too**: eight real retraces cannot fit inside one
+tick on any adapter, so zero means the poll is not pacing at all — which is
+exactly what QEMU's std VGA does, answering 3DAh with a dumb toggle. **So QEMU
+tests the refusal and the field machine tests the acceptance**; the accepted
+branch was exercised here by forcing it.
+
+The ratio the probe measures is kept as `[ttx_fdiv]`, frames per tick, because
+two things are per-FRAME and have to be re-tuned when frames get three times
+as common:
+
+- **`ttx_shstep`'s chunk.** 4 rows is ~25 ms, which does not fit an 18 ms
+  slot, so `TTX_SHCHUNKF` is 1 there. The total work is identical — a rebuild
+  takes 1.5 s of a ~7.7 s pattern instead of 1.15 s, at a quarter of the peak.
+- **The VU needles.** `tui_vu_step` decays per CALL, so at 3× the frames they
+  fell 3× faster; `ttx_vu` is stepped every `[ttx_fdiv]`th frame, which is the
+  same rate in seconds as before.
+
+The graphics bracket keeps the tick clock and should: its frames are already
+over budget on the machine this is for (§45.13.1), and Missile Command's are
+15.5 ms quiet against 43.5–73.5 ms busy (§48.11).
+
+#### 45.16.1 What the field measured, and the two things it changed
+
+Two PCem captures through §45.14's log, 29 s and 37 s of XT-mode playback on
+period hardware at period speed. **The clock probe took the retrace path**, as
+QEMU structurally cannot, and the frame rate it bought is **29.1 fps** in the
+first capture and **25.4 fps** in the second — against 18.2 for the tick
+clock. Not the 50–70 the adapter runs at, because the frame's own work eats
+into it, but the grid is drawn 1.4–1.6× more often for it. The rest of the
+capture is clean: no underruns (`S` = 0 throughout), no feed pass ever
+spanning a tick (`DX` = 0), `SD` at a mean of 21.7 and 20.8 against a
+predicted 21.
+
+Two things in it were wrong, and both are fixed here:
+
+- **A rebuild step forced a blit whether or not the row it formatted was on
+  screen.** The cursor walks all 82 shadow rows and 19 of them are visible, so
+  77% of those blits redrew an unchanged screen — and at `TTX_SHCHUNKF` = 1
+  that is one per frame for the whole rebuild. The capture shows 5 rebuilds,
+  so ~410 forced blits at ~8.9 ms: **3.6 s of the 28.9 s capture, 12.6% of the
+  machine, drawing nothing**. `ttx_shstep` now sets `[ttx_vdirty]` itself and
+  only for a row inside the window. It is the §11.3 discipline arriving in a
+  text mode: draw what changed *on screen*, not what changed in the model.
+- **`[ttx_fdiv]` is not a frame rate.** The probe measured 1 in the first
+  capture and 2 in the second against actual rates of 29.1 and 25.4 fps, since
+  it runs at bracket entry where the machine is at its busiest. The VU needles
+  hung off it and fell 1.4–1.6× too fast. They are stepped **once per system
+  tick** now, which is exactly 18.2 a second on any clock and needs no
+  measurement at all; `fdiv` survives only as something the log header
+  reports.
+
+`FX` — the longest single frame in a tick — is 1 to 2 ticks on 16–18% of
+ticks in both captures, which is what "not keeping up" actually looks like
+from the inside and is the number to watch after these two changes.
+
+**`DX`, once it measured the pass rather than the poll, cleared the worker of
+the microstutter.** A feed pass takes **6 ticks 54 times** in a capture and up
+to 19, which is the mixer's own price — one 2,048-byte half is ~372 ms of
+audio and the XT mixer spends ~44% of the machine, so ~3 ticks of CPU per
+half. But the `FR` column through those same passes reads 1 to 4 frames a
+tick: **the worker is preempted normally and the display keeps drawing**. The
+four passes that do coincide with `FR` = 0 are all in the last records of a
+capture, which is Esc and the desktop repaint. So `TRK_MAXFEED` was the
+standing suspect and is not the culprit; the stutter was in the estimate.
+
+The instrument was mis-placed rather than uninformative before that: `tlog_wstart` sat at the top of
+`trk_feed` and the span closed at `tlog_feed` four instructions later, so it
+priced the status poll and not the pass. It closes at `trk_feed`'s own exit
+now. That matters because a capture holds **18-tick windows with no record at
+all** — neither producer ran for a full second — and a pass that mixes
+`TRK_MAXFEED` halves is the standing suspect for them.
 
 ## 46. ArtfulType — the eleventh package (apps/artful/artful.asm)
 
@@ -20315,7 +20892,8 @@ then repaints it again as a window, and the first of those two is spare.
 gfx lock held, the `wm_fullscreen` contract — and **does not return until
 the app is done being fullscreen**. In: AX = a near entry inside the
 caller's own image, BX = the caller's own window ptr, CX = flags (bit 0 =
-`FSXF_KEEPWORKER`, §53.2; all other bits must be 0). The kernel arms the
+`FSXF_KEEPWORKER`, §53.2; bit 1 = `FSXF_FASTTICK`, §53.2.1; all other bits
+must be 0). The kernel arms the
 freeze, silences what the freeze strands (§53.3), and calls the entry
 through `wm_pkgcall` — SI = the window ptr, DS = CS = the package's own
 segment, ES = KERNEL_SEG, an ordinary near proc with a near `ret`, exactly
@@ -20394,6 +20972,60 @@ the outgoing task at once); pacing is `fsx_wait` or polling `[ticks]`, and
 the SDK says so. And the §8.2 cooperative watchdog needs no special case:
 when it forces a switch the whitelist means it picks a service task or
 resumes the exclusive one — harmless either way.
+
+### 53.2.1 `FSXF_FASTTICK` — a finer quantum for a task set that is known
+
+The bracket's round-robin quantum is one system tick, 55 ms, and the app
+does not get it back until the worker gives it up. A `FSXF_KEEPWORKER`
+feeder is ready for a small slice of each turn and asleep for the rest, so
+the cost shows on the *drawing* side as an occasional whole frame that
+advances nothing — the Tracker field logs' periodic `+0` row (§45.16.1),
+and the microstutter it reads as.
+
+`FSXF_FASTTICK` (CX bit 1) reprograms **PIT channel 0** for the bracket so
+IRQ0 arrives `FSX_SUBTICK` = 3 times a tick, and the quantum with it: 18 ms
+instead of 55. `sch_fast_on` / `sch_fast_off` in sched.inc own it,
+`fsx_run` arms it after the freeze and `fsx_restore` disarms it first.
+
+**`[ticks]` does not change rate, and that is the whole safety argument.**
+`sch_isr` divides: `[sch_fcnt]` counts down from `[sch_fast]`, and only the
+Nth entry is a *tick* — it chains the BIOS, bumps `[ticks]`, runs the wake
+scan and `snd_tick`, exactly as before. The other two entries send the EOI
+themselves (the BIOS handler that normally sends it is only chained on the
+tick), honour `[sch_lock]` and `[sch_coop]` unchanged, and otherwise do
+nothing but switch. So `task_sleep`, every timeout, the double-click
+window, the §45.15 `tui_bpt` byte rate, `fsx_wait`'s tick pacing and the
+BIOS clock at 40:6C are untouched **by construction rather than by
+adjustment**, and nothing outside sched.inc can tell. Measured under QEMU:
+18.19 ticks/s at the desktop, 18.19 inside an armed bracket, 18.19 after it.
+
+The divisor is a table (65536/N for N = 2..4) so arming costs no division.
+The N = 3 divisor 21845 gives 54.6205 Hz, three of which is 18.2068 Hz
+against the BIOS's 18.2065 — 0.002%, about one tick per fourteen hours, and
+only for the length of a bracket.
+
+Three things are binding:
+
+- **It is scoped to the bracket, and would not be safe outside one.** The
+  eligible task set is small and known (§53.2) — the exclusive task, its
+  kept worker, `TF_SERVICE` drivers — and the machine is otherwise frozen,
+  so nothing can be mid-anything when the quantum changes underneath it.
+  There is no general "fast scheduler" here and this must not become one.
+- **`sch_account` pauses while it is armed** — the one thing that genuinely
+  cannot survive, because its 32-bit timestamp is `[ticks]*65536 + phase`
+  against a 65536-count period and the sub-tick divides exactly that. The
+  gate is inside `sch_account` and not at its call sites: `task_yield` and
+  `task_cycles` reach it too, and a half-gated stamp is worse than none.
+  `sch_fast_off` re-seeds `[sch_pit_last]` from a fresh latch before it
+  clears the flag, or the first full tick afterwards charges a whole
+  bracket's worth of garbage to whoever is running.
+- **Disarming is unconditional and idempotent** — `fsx_restore` calls
+  `sch_fast_off` first, ahead of the mode restore and the repaint, and it
+  returns at once when nothing was armed. Everything below that line runs
+  on the ordinary quantum.
+
+A bracket that does not ask for it is bit-for-bit unaffected: `sch_fast` is
+0, the ISR's first test falls straight through to the path it always took.
 
 ### 53.3 Entry silences what it strands (binding)
 
@@ -20541,12 +21173,23 @@ The app's proc returning is the only exit. In order:
    the game must not land in the desktop ladder. The §34.4 click-abort
    drain is the precedent.
 3. Disarm: `[fsx_task]` = `[fsx_worker]` = 0xFF, under `cli`.
-4. Bring the desktop back under the still-held lock — the **XMS stash**
-   if one was taken at entry (§53.6.1), else a full `wm_paint_all` with
-   `[menu_bdirty]` forced (the save-under-overdraw precedent, §12.05).
-   With `[bb_dbl]` armed the repaint renders into the buffer and the
-   callback epilogue's flush carries it to VRAM; without, it writes VRAM
-   direct.
+4. Bring the desktop back under the still-held lock: a full
+   `wm_paint_all` with `[menu_bdirty]` forced (the save-under-overdraw
+   precedent, §12.05). With `[bb_dbl]` armed the repaint renders into the
+   buffer and the callback epilogue's flush carries it to VRAM; without,
+   it writes VRAM direct.
+
+   **A snapshot is not an option here, and §53.6.1 records why one was
+   tried.** The repaint is expensive — a whole-screen planar dither plus
+   every window's frame and `W_PAINT` — and saving the desktop's pixels
+   at entry to write back at exit is the obvious trade. It is wrong,
+   because a bracket takes real TIME and the desktop behind it is not a
+   still image: the menu bar's clock has moved, the Timer has counted, a
+   Bounce has stepped, any background task that paints has painted, and
+   the exclusive app's own window content — which the bracket usually
+   exists to change — is whatever the app just did to it. `wm_paint_all`
+   asks every window what it looks like NOW; a snapshot answers with what
+   it looked like before.
 5. Return CF=0. The callback returns; its dispatch epilogue's
    `gfx_unlock` flushes (if buffered) and brings the cursor back with a
    fresh save-under from the restored VRAM — §7's own contract, nothing
@@ -20559,78 +21202,55 @@ surviving drawer (it parks in the lock's yield loop until the desktop is
 back), and what makes the §11.3 clip machinery unreachable rather than
 stale.
 
-### 53.6.1 The XMS desktop stash — an instant restore on a machine with a store
+### 53.6.1 The XMS desktop stash — tried, and removed
 
-Coming home is a `wm_paint_all`: a whole-screen planar dither plus every
-window's frame and `W_PAINT`. On a 286+/VGA machine with an extended-memory
-store that is avoidable — the desktop's four planes are 150KB, which fits
-the §41 store — so `fsx_run` **saves** them at entry, while the desktop is
-still on screen and before the app's proc draws, and `fsx_restore` **writes
-them straight back** at exit instead of repainting. `kernel/fsx.inc`,
-`fsxc_save`/`fsxc_load`.
+There was a snapshot path here, and it is written down because it is a
+plausible idea that a later author will have again. On a 286+/VGA machine with
+an extended-memory store the desktop's four planes are 150KB, which fits the
+§41 store, so `fsx_mode`'s first call **saved** them — the last moment VRAM
+still held the desktop — and `fsx_restore` **wrote them straight back** at exit
+instead of repainting. A cold engine (`fsxc_save`/`fsxc_load`/`fsxc_xfer`),
+eight `xm_copy` calls each way, gated on tier ≠ 0, a VGA adapter and `[bb_dbl]`
+clear. Tier 0 — the target machine — never touched it.
 
-**It is taken at the first `fsx_mode` call, not at bracket entry, and that is
-a correctness rule rather than a tuning.** The stash exists to recover a
-desktop the app is about to *replace*; a **same-mode** bracket (§53.7) draws on
-the desktop's own surface with the kernel's own primitives, so a snapshot taken
-at entry goes stale the moment the app draws — and restoring it silently undoes
-that drawing. Paint (§42.7) is where this surfaced and it is the first consumer
-it could surface on: its window content is **persistent**, so a picture drawn
-in full screen came back to a window that still showed the pre-bracket image.
-The picture was never lost — the canvas held it, and any later repaint drew it
-— which is exactly what makes the failure worth naming: it reads as data loss
-and is a stale snapshot. Missile Command and Tracker could not show it, their
-window content being redrawn from scratch every frame anyway. **The 8086 target
-never saw it at all**, tier 0 having no store, so it took a 286 with XMS to
-find. Taking the stash inside `fsx_mode` fixes it by construction: a bracket
-that never switches modes never holds a snapshot, and one that does still takes
-it at the last moment VRAM holds the desktop.
+**What it got wrong is that the desktop is not a still image.** A bracket runs
+for as long as the app wants the machine, and the screen behind it is live
+state, not pixels: the menu bar carries a clock, the Timer counts, a Bounce
+steps, and any background task holding a window paints into it. The exclusive
+app's **own** window is the sharpest case, because a full-screen session is
+usually spent changing exactly the content that window shows — and the app is
+under no obligation to keep its window and its full-screen surface in step
+while it owns the machine.
 
-**`fsx_stash_save` preserves every register**, which its `fsx_run` caller did
-not need and its `fsx_mode` caller cannot do without: `ES:DI` there is the
-*app's* FSI block, and `fsxc_xfer` leaves ES on 0A000h and uses DI as its own
-direction word — so an unbanked call wrote the info block into VRAM and handed
-the app garbage geometry. Missile Command's Mode X restoring to a black screen
-is what caught it.
+**It had conceded the argument twice already, both times in a form narrow
+enough to patch.** Paint (§42.7) is a same-mode bracket, so a snapshot taken
+at `fsx_run` went stale the moment the app drew on the desktop's own surface,
+and a picture came back to a window still showing the pre-bracket image; the
+fix was to move the take to the first `fsx_mode` call, which is real but is
+"take the photograph later" rather than "stop taking a photograph". And the
+restore path redrew the **menu bar** after writing the planes back, *because
+the clock was stale* — the general defect, seen in one special case and fixed
+there instead of being recognised. A snapshot is correct only for a desktop
+that cannot change, and this one has three independent sources of change in it
+before the app is counted.
 
-It engages only when it is free of risk and pays off: `[cpu_tier]` ≠ tier 0,
-a VGA adapter (four planes to read; a mono framebuffer is one plane and
-already cheap), and the desktop straight in VRAM (`[bb_dbl]` clear — a back
-buffer holds the desktop elsewhere). Any of those false, or the `xm_alloc`
-refused, and `[fsx_stashed]` stays 0 and step 4 is the ordinary
-`wm_paint_all`. **The 8086 target never touches it** and its restore is
-exactly what it was.
+So step 4 is `wm_paint_all` on every machine and every tier, which is what
+tier 0 always did. Measured on the removal alone: 84 bytes off `.text` +
+`.bss`, 190 off `.cold` — enough to drop the cold rung from 40 × 512 to 39 —
+and one 512-byte step off `KERN_BUDGET` (86,528 → 86,016), the eleventh move
+of that constant and the second downward one. It landed in the same round as
+§22.9's status-line work, which spent a step of its own, so the *tree's*
+footprint is back where it started at 84,480 with 1,536 spare; the removal's
+own delta is the figure above, and docs/KERNEL-MEMORY.md carries the standing
+total.
 
-Five things make it correct:
-
-- **The save is at entry, the standard mode is guaranteed.** At `fsx_run`
-  entry the adapter is still in mode 12h (the app has not called `fsx_mode`
-  yet), so the four planes read cleanly through GC Read Map Select. At exit
-  step 1's `vid_setmode` has already restored mode 12h and its standard
-  planar write state (Bit Mask 0xFF, write mode 0) — for a same-mode bracket
-  the app never left it — so the plane writes back through SEQ Map Mask land
-  correctly. Verified: a Mode X bracket (which unchains the VGA) restores
-  byte-identical.
-- **`xm_copy` runs under the held lock, which §41.8 now permits** — the copy
-  touches no VRAM, and the freeze means there is no painter to stall. A plane
-  is 38,400 bytes, past `XM_MAX_COPY`, so each is two even 19,200-byte halves;
-  eight copies each way.
-- **The cursor is not in the saved image.** The lock was taken with the
-  cursor hidden (§7), so the planes hold a cursor-free desktop; step 5's
-  `gfx_unlock` draws the cursor fresh at the live position.
-- **A back buffer armed *during* the bracket is caught at exit.** If the app
-  armed `[bb_dbl]` (Tracker's Smooth) and did not hand it back, the VRAM the
-  stash holds is stale; `fsxc_load` then frees the block and reports it did
-  not write, and step 4 falls back to `wm_paint_all`.
-- **The restored bar carries a stale clock**, because real time passed inside
-  the bracket — so the stash path redraws the **menu bar alone**
-  (`menu_draw_bar`), not the whole screen. Desktop and windows are the saved
-  pixels; only the bar is fresh.
-
-The engine is **cold code** (§2.6): entry and exit are once-per-bracket, never
-a hot path, so it costs guard 1 (the budget) and not guard 2 (the 64KB
-segment) — 63 bytes of `.text` glue (two entry thunks, three `cw_xm_*` shims)
-and ~250 bytes of `.cold`.
+Two things it did NOT take with it. **§41 stays**: the `xm_*` slots are a
+published package ABI (§20.8 rule 4, and the Task Manager and `sysbench` read
+them), and this was one kernel-side consumer of the store, not the store.
+And **§41.8's permission stands** — `xm_copy` under the held gfx lock is
+legal, because a window callback is its intended caller and always holds the
+lock; that clause was corrected on its own merits and the stash was only the
+first thing to rely on it.
 
 ### 53.7 What a bracket may call (binding)
 
@@ -20647,7 +21267,9 @@ jitter), and that costs nothing to allow. Author rule, same enforcement
 class as "workers never call the file API".
 
 Forbidden always, binding: reprogramming PIT channel 0 (the tick feeds
-the floppy motor, `[ticks]` and `snd_tick`); touching channel 2 or any
+the floppy motor, `[ticks]` and `snd_tick` — `FSXF_FASTTICK` is how an app
+asks for a finer quantum, and the kernel divides in the ISR so none of
+those three notices, §53.2.1); touching channel 2 or any
 §34.1-owned sound port directly; `int 10h` mode sets outside `fsx_mode`
 (the kernel must know what it is restoring *from* — Hercules needs the
 non-BIOS path); `task_exit` and the worker-only slots from the bracket.
@@ -20662,9 +21284,10 @@ everything they touch.
 0x02C0 fsx_caps   out AX = FSXM bitmask for the live adapter, DL =
                   vid_kind. Any context. Everything else preserved.
 0x02C8 fsx_run    in AX = near entry, BX = own window ptr, CX = flags
-                  (bit 0 FSXF_KEEPWORKER). X — the fence reads the
-                  caller's DS. UI-task window callback, lock held. Does
-                  not return until the app's proc does. CF=1 refused.
+                  (bit 0 FSXF_KEEPWORKER, bit 1 FSXF_FASTTICK). X — the
+                  fence reads the caller's DS. UI-task window callback,
+                  lock held. Does not return until the app's proc does.
+                  CF=1 refused.
 0x02D0 fsx_mode   in AL = FSXM_* id, ES:DI = FSI_SIZE buffer (caller's
                   ES). Bracket-only. CF=0 mode set + block filled;
                   CF=1 refused (id, adapter, back buffer armed, context).
@@ -20674,7 +21297,7 @@ everything they touch.
 ```
 
 `apps/os88api.inc` publishes `OSAPI_FSX_CAPS`/`RUN`/`MODE`/`WAIT`, the
-`FSXM_*` ids, `FSXF_KEEPWORKER` and the `FSI_*` offsets.
+`FSXM_*` ids, `FSXF_KEEPWORKER`, `FSXF_FASTTICK` and the `FSI_*` offsets.
 
 ### 53.9 Acceptance
 
@@ -20691,14 +21314,23 @@ everything they touch.
   included); ids 0–3 gating under `VIDEO=cga`; id 4 rendering under
   `VIDEO=herc` + hercshot. 86Box: `xt-cga`, `xt-hercules` (the real 6845
   text↔graphics flip — the one thing QEMU cannot exercise), `286`/`386`.
+- `FSXF_FASTTICK` (§53.2.1): read `[ticks]` over a fixed wall interval at
+  the desktop, inside an armed bracket and after it — all three must give
+  18.2/s, because the ISR divides. `[sch_fast]` must read N inside and 0
+  after. A second entry/exit must arm and disarm again. The two bugs this
+  caught both passed a build: the arm's table index was left in the
+  register the flag was then stored from (N became 6, and `[ticks]` ran at
+  half rate), and `mov al, <N>` clobbered the app's entry offset, which
+  `fsx_run` still owed `wm_pkgcall` — a bracket that far-called into the
+  middle of the package.
 - Missile Command (§48) is the shipped reference consumer; Tracker
-  (§45) follows with `FSXF_KEEPWORKER`. Paint (§42.7) is the same-mode
-  consumer, and the one to run when the question is whether a bracket that
-  sets no mode still works everywhere: enter, draw, leave and check the
-  picture on VGA, on `VIDEO=cga` and on `VIDEO=herc` + hercshot, and again
-  with the Control Panel's Display page armed — with a back buffer up, the
-  entry frame reaches VRAM only through `fsx_wait`'s flush, so a blank screen
-  there is §53.5's present and not the app.
+  (§45) follows with `FSXF_KEEPWORKER | FSXF_FASTTICK`. Paint (§42.7) is the
+  same-mode consumer, and the one to run when the question is whether a
+  bracket that sets no mode still works everywhere: enter, draw, leave and
+  check the picture on VGA, on `VIDEO=cga` and on `VIDEO=herc` + hercshot, and
+  again with the Control Panel's Display page armed — with a back buffer up,
+  the entry frame reaches VRAM only through `fsx_wait`'s flush, so a blank
+  screen there is §53.5's present and not the app.
 
 ---
 

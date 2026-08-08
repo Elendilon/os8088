@@ -117,6 +117,22 @@ class Marty:
         """
         return self.cmd(cmd="video")
 
+    def flicker(self, frames=60, aperture=0):
+        """Sample the glass once per DISPLAYED FRAME and price what a person
+        would have seen (PERFORMANCE.md Part 3.1).
+
+        Call it with the machine PAUSED and the action already injected, so
+        the action lands inside the capture window instead of racing it:
+
+            m.pause(); m.key("KeyA")
+            r = m.flicker(frames=40)
+
+        Returns the per-frame `changed` and `transient` counts, the bounding
+        box of the transient pixels, and `settled` - which must be true, or
+        every count was measured against a moving target.
+        """
+        return self.cmd(cmd="flicker", frames=frames, aperture=aperture)
+
     def fbuf(self, aperture=0):
         """The card's RENDERED framebuffer as (width, height, rgb24 bytes).
 
@@ -356,6 +372,12 @@ def main():
                         "is no flat framebuffer to decode.")
     p.add_argument("--aperture", type=int, default=0)
 
+    p = sub.add_parser("flicker", help="price a visible drawing defect in frames")
+    p.add_argument("-n", "--frames", type=int, default=60)
+    p.add_argument("--aperture", type=int, default=0)
+    p.add_argument("--key", help="inject this MartyKey before capturing")
+    p.add_argument("--click", action="store_true", help="inject a click before capturing")
+
     p = sub.add_parser("read"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
     p = sub.add_parser("dump"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
     p.add_argument("-o", "--out", required=True)
@@ -434,6 +456,28 @@ def main():
                     lit = sum(sum(r) for r in rows)
                     print("%s: %dx%d, %d lit of %d (%.1f%%)"
                           % (a.out, w, h, lit, w * h, 100.0 * lit / (w * h)))
+            elif a.op == "flicker":
+                m.pause()
+                if a.key:
+                    m.key(a.key)
+                if a.click:
+                    m.mouse(0, 0, l=True)
+                    m.mouse(0, 0)
+                r = m.flicker(a.frames, a.aperture)
+                per = r["cycles"] / r["frames"] / (r["cpu_mhz"] * 1000.0)
+                print("%dx%d, %d frames, %.1f ms/frame, settled=%s"
+                      % (r["w"], r["h"], r["frames"], per, r["settled"]))
+                print("  VISIBLE REDRAW : %2d frames changed = %6.0f ms"
+                      % (r["moved_frames"], r["moved_frames"] * per))
+                print("  FLASH          : %2d frames with transient pixels = %6.0f ms, worst %d px"
+                      % (r["flash_frames"], r["flash_frames"] * per, r["worst_transient"]))
+                if not r["settled"]:
+                    print("  ...NOT SETTLED: ask for more frames; every count above is "
+                          "measured against a moving target.")
+                for f in r["per_frame"]:
+                    if f["changed"] or f["transient"]:
+                        print("   frame %3d  changed %6d  transient %6d  %s"
+                              % (f["frame"], f["changed"], f["transient"], f["bbox"] or ""))
             elif a.op == "screen":
                 for row in m.screen():
                     print(row.rstrip())

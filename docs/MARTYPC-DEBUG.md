@@ -229,6 +229,7 @@ is the client — a CLI, a REPL and an importable `Marty` class.
 | `screen` | the video card's text, in text modes |
 | `video` | which card, its raster geometry and its display apertures |
 | `fbuf` | the card's RENDERED framebuffer as rgb24 — the only route on VGA |
+| `flicker` | one sample per DISPLAYED FRAME, and the flash/redraw counts |
 | `key` | a keypress by MartyKey name — `KeyA`, `Enter`, `ArrowRight` |
 | `mouse` | one Microsoft packet: relative `dx`/`dy` and button state |
 | `history` / `callstack` | the CPU's own instruction history |
@@ -494,6 +495,37 @@ shipped with its licence, so this cost no new asset.
 `os8088_xt_vga` is the machine. A 5150 with a VGA in it is an anachronism
 and a deliberate one: what is under test is os8088's mode 12h path on the CPU
 the project is calibrated against.
+
+**Flicker is measurable here, and that is PERFORMANCE.md Part 3.1.** The
+`flicker` command steps the machine until the card finishes a frame, grabs
+the rendered buffer, and repeats — sampling the glass exactly as often as an
+eye does, because a CRT shows whatever the raster read on its last pass. It
+reports two things per frame: `changed` (the ordinary delta, which prices a
+**visible redraw** in frames × the frame period) and `transient` — the pixels
+whose value before the operation and after it are the *same*, but which showed
+something else in between. That second one is the **double-draw flash** stated
+as arithmetic, and it needs no notion of "background" and cannot fire on an
+honest change.
+
+```sh
+python3 tools/os88marty.py 127.0.0.1:9001 flicker -n 90 --click
+```
+
+A Disk window's full repaint measures **11 frames (183 ms) of redraw and 1,963
+flashed pixels for 10 frames (166 ms)** on CGA; an idle desktop and a bare
+pointer move measure zero, and a Note Pad keystroke flashes nothing in its
+text. Three traps, all in Part 3.1 at length: inject the input while **paused**
+so the action lands inside the capture rather than racing it; check `settled`
+or every count was measured against a moving target; and **always read the
+bbox** — a count alone misattributes, which is how 42 pixels of "text flash"
+turned out to be the mouse pointer blinking under the gfx lock.
+
+**It does not work on Hercules**, and that is a MartyPC gap rather than a
+choice: the MDA does not rasterise Hercules graphics mode, so the rendered
+buffer is 0 lit of 252,000 and `frame_count()` never advances. `shot`'s VRAM
+route reads guest memory and works there perfectly, which is why nobody had
+noticed. Measure the flash on CGA — §39.5 is one renderer for both 1bpp
+adapters — and note that `--rendered` is likewise CGA and VGA only.
 
 **Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
 two are complementary rather than competing. And not for a machine that is

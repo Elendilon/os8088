@@ -66,7 +66,7 @@ heading, and the next reader has no way to catch it.
 | you were given | what it is worth |
 |---|---|
 | a `.TXT` report the owner says came off the 5150 | a **field set**. Part 9, with its four provenance lines |
-| a report from **PCem** or **MartyPC** | a good cross-check of *work* and a reasonable sanity check on *time* — but a model of the machine, not the machine. **Name the emulator in Part 9**, as Set 4 does, or leave it out |
+| a report from **PCem** or **MartyPC** | a good cross-check of *work* and a reasonable sanity check on *time* — but a model of the machine, not the machine. **PCem runs ~20% fast**, so its timings are a floor. **Name the emulator in Part 9**, as Set 4 does, or leave it out |
 | a report from **QEMU** | instruction counts only, and only under `-icount`. Never microseconds |
 | a screenshot, a description, "it looked fine" | evidence about behaviour, not about time |
 
@@ -394,6 +394,15 @@ Both emulate period hardware at period speed, which puts them in a different
 class from QEMU entirely: their numbers are in the right units and the right
 order of magnitude, so nothing about them looks wrong. Treat either as a
 **very good model** and never as the machine —
+
+**PCem runs about 20% fast**, and that figure is the 5150's owner's, from
+running the same things on both. It is the single most useful thing to know
+about a PCem report, because it is small enough to be invisible and large
+enough to matter: a stall PCem shows at 990 ms is about 1.2 s on the iron,
+and a frame budget that just fits under PCem is over on the machine. So a
+PCem timing is a **lower bound on the real cost**, never an upper one, and
+"it keeps up on PCem" is not yet "it keeps up". Work counts — instructions,
+calls, glyph cells — are unaffected; only the clock is.
 
 - it is the right tool for *reproducing* something the 5150 showed, without
   spending the seven-step trip below;

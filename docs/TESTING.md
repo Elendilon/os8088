@@ -130,6 +130,7 @@ emulator have the hardware": a ✅ means reach for it first.
 | A **cross-wired IRQ** (SPEC.md §9.5.2) | ➖ | ✅ | `make test MOUSEPORT=com2irq4` | the Compaq Portable III: mouse at 2F8 driving IRQ4. Undetectable before the fix |
 | A **modem** on the other port | ➖ | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
 | Performance benchmarks | ✅ | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
+| **Flicker** — the double-draw flash | ✅ | ❌ | `os88marty.py flicker` (PERFORMANCE.md Part 3.1) | one sample per displayed frame. A Disk window repaint flashes 1,963 px for 166 ms; an idle desktop and a pointer move measure zero. CGA and VGA — MartyPC's MDA does not rasterise Hercules graphics mode |
 | Fullscreen exclusive (SPEC.md §53) | ➖ | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
 | Boot-sector relocation (SPEC.md §2.7) | ✅ | ✅ | `make test RAMKB=<n>` — see below | 105 boots, 104 prints `RAM` and never loads a byte |
 | A machine that reports a **small** `int 12h` to the KERNEL | ✅ | ❌ | MartyPC `conventional.size`, or 86Box `mem_size` | `RAMKB=` moves the sector only; the heap still sees the real answer. MartyPC's real BIOS counts what the config says it has |
@@ -695,7 +696,7 @@ make test SB16=1 TESTAPPS=build/trklog.img   # builds the disk on demand
 # double-click Disk B, launch TRKLOG.O88
 # X    XT mode (5,500 Hz - what the 4.77MHz floor machine boots with)
 # L    load BEVERLY.MOD (it is on the same disk), which starts playback
-# D    arm the log       -> the status line counts 'LOG nnnn /1024'
+# D    arm the log       -> the status line counts 'LOG nnnn /0512'
 # F    fullscreen; let it run through a few pattern boundaries (~9 s each)
 # Esc  back to windowed  (W is refused in a bracket - the file API is
 #                         UI-callback-only, SPEC.md 53.7)
@@ -706,7 +707,39 @@ make test SB16=1 TESTAPPS=build/trklog.img   # builds the disk on demand
 #      the file that is not a measurement, and the first field capture is
 #      why it exists - 62 seconds in which every counter was healthy and
 #      nothing in the file knew whether any of it was audible.
+#
+# Y    the display back on the MIXER (SPEC.md 45.15 off) - and again to undo
+# T    the frame clock back on the tick (SPEC.md 45.16 off) - likewise
+#      Both are recorded in FL (20h, 40h) on EVERY record, so a file always
+#      says which mode it was taken in. They exist so that "it is smooth
+#      with Y, jerky without" can be answered in one sitting on the machine
+#      that has the problem, instead of one rebuild per hypothesis.
 ```
+
+**The buffer is a RING of the LAST 512 ticks (28 s).** It used to stop at the
+first 1,024, which is the wrong half of a session to keep - the listener arms
+it, plays, hears the thing, and only then reaches for W. `tlog_save` emits
+oldest-first, so the file reads forwards in time either way.
+
+The columns beyond §45.14's original set: **AR AP** are what the SCREEN
+showed, which since SPEC.md §45.15 is the row the CARD is playing and not the
+row the mixer is on - so `PS PT RW` and `AR AP` disagreeing by the ring lead
+is the healthy case, and either of them frozen is not. **SD** is the number of
+stamps between the two, i.e. the same lead counted in ROWS: it should sit near
+`1.19 x BPM / speed` (22 at the default tempo) and pinning at 63 means the
+stamp ring lapped. **FX DX** are the longest single drawing frame and feed
+pass in that tick, in ticks, where 00 is the healthy answer for both.
+**PLAY** is `CONS` interpolated between block IRQs (SPEC.md §45.15.1):
+`PLAY - CONS` should stay between roughly zero and one block, and `AR`
+advancing one row at a time rather than three is what it buys.
+
+That set earned itself on its first run: `SD` pinned at 63 with `AR` frozen
+for a hundred ticks and then jumping 44 rows, twice a capture, exactly when
+`CONS` was in the upper half of its 16-bit range - which is how `mp_at_pos`'s
+`jg` (a signed compare of the operands, so it honours the overflow flag) was
+caught standing in for the kernel's wrap-safe `js` idiom. After the fix the
+same capture holds `SD` at 22-25 and the screen row never stands still for
+more than 7 ticks, which is the block-IRQ interval and not a stall.
 
 Read it back off the image from the host with a FAT12 extractor, or mount
 `build/trklog.img` — it is an ordinary floppy. **The disk must not be
@@ -1028,6 +1061,47 @@ Two rules that fall out of it:
   what it cost. Multiply by the calibration numbers above to get milliseconds,
   and say that you did — ~500 8086 cycles per walk iteration is a reading of
   the instruction stream, not a measurement.
+
+### Reading a kernel word whose offset you cannot grep for
+
+`ticks` is in `.bss`, and a `.bss` label's address in the listing is
+**section-relative** — `mov ax, [ticks]` prints as `A1 [2A02]`, and 0x022A is
+an offset into `.bss`, not into the segment. Grepping the listing for it and
+adding `KERNEL_SEG*16` reads the wrong address, and the wrong address is
+usually a plausible-looking number rather than an error. Take the operand out
+of the **built binary** instead, which is by definition the linked one:
+
+```sh
+python3 - <<'EOF'
+import struct
+d = open('build/kernel.bin','rb').read()
+off = struct.unpack('<H', d[0x606:0x608])[0]     # the imm16 of osapi_get_ticks
+print("ticks at linear 0x%X" % (0x600 + off))    # KERNEL_SEG*16 + off
+EOF
+```
+
+`0x605` is `osapi_get_ticks`'s `A1` opcode; the two bytes after it are the
+address. Every other `.bss` word is that one plus the difference of their
+listing offsets. It moves on every rebuild — re-derive, and note that the
+answer can be **odd**, so a word dump on even addresses straddles it and shows
+two neighbours changing instead of one.
+
+That is how `FSXF_FASTTICK` (SPEC.md §53.2.1) is verified, and the check is
+worth copying for anything that claims to leave a clock alone:
+
+```sh
+# at the desktop, inside an armed bracket, and after leaving it - all three
+# must read 18.2/s, because the ISR divides and [ticks] does not change rate
+python3 tools/qmp.py build/qmp.sock 'xp /1xh 0x<ticks>'   # ...twice, 10s apart
+python3 tools/qmp.py build/qmp.sock 'xp /2xb 0x<sch_fast>' # N inside, 0 after
+```
+
+Both of that feature's bugs assembled cleanly, booted, and drew a correct
+first frame: one halved the tick rate (the flag was stored from the register
+the divisor's table index had been shifted into), and the other corrupted the
+low byte of the app's entry offset. The rate reading caught the first and
+nothing else would have — a display that scrolls smoothly at half speed looks
+like a display that scrolls smoothly.
 
 ### Prefer a self-checking harness to a careful one
 

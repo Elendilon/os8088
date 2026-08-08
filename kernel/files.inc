@@ -115,6 +115,15 @@ FS_VIEW     equ 12              ; byte: 0 = list, 1 = icon grid
 FS_EDIT     equ 13              ; byte: the status-line editor is armed here
 FS_FERR     equ 14              ; byte: FERR_* of the last file operation IN
                                 ; THIS WINDOW, 0 = none
+FS_LDST     equ 15              ; byte: LD_* of the last load THIS window
+                                ; posted. Per window for the reason FS_FERR
+                                ; is: a status line is a report about what
+                                ; the user did HERE, and [ld_status] is one
+                                ; global, so a failed load put 'Bad package'
+                                ; on every open Disk window at once - two
+                                ; windows both claiming to have been asked.
+                                ; Offset 15 was the padding hole in front of
+                                ; the word below, so FS_SIZE is unchanged
 FS_VSEG     equ 16              ; word: this window's listing-cache claim
                                 ; (SPEC.md 50.2), 0 = none - fm_kinit claims
                                 ; VIEW_KB and the instance's teardown frees
@@ -240,6 +249,7 @@ fm_kinit_x:
     mov byte [di+FS_VIEW], 0
     mov byte [di+FS_EDIT], 0
     mov byte [di+FS_FERR], 0
+    mov byte [di+FS_LDST], 0
     mov byte [di+FS_DIRTY], 0   ; a KD_POOL block is REUSED (SPEC.md 29.3):
                                 ; a window closed while it still owed a
                                 ; refresh must not hand that debt to the next
@@ -1591,6 +1601,8 @@ fm_layout:
     mov [fm_ledit], al
     mov al, [di+FS_FERR]
     mov [fm_lferr], al
+    mov al, [di+FS_LDST]
+    mov [fm_lldst], al
     mov ax, [di+FS_N]
     mov [fm_lnf], ax
     mov ax, [di+FS_SCRL]
@@ -1811,6 +1823,19 @@ fm_onclick_x:
     mov [fm_wased], al          ; only thing besides the two selection bands a
                                 ; row click can change (SPEC.md 22.2)
     call fm_edit_end            ; clicking away abandons a half-typed name
+    call fm_stat_clear          ; ...and retires the last verdict (22.9)
+    mov al, 0
+    jnc .noclr
+    inc al
+.noclr:
+    or al, [fm_wased]           ; ONE question, two causes: a retired verdict
+    mov [fm_statowed], al       ; and an ended editor line both rewrite the
+                                ; status LINE and change nothing else on this
+                                ; window. The cheap paths below draw no text
+                                ; at all, so they pay one fm_status_only for
+                                ; it - where each used to escalate to a whole
+                                ; repaint instead, which is what made clicking
+                                ; a row a SECOND time cost a window
 
     mov [fm_pressx], cx         ; the ABSOLUTE point, banked before the
     mov [fm_pressy], dx         ; conversion below eats it: a drag tracks in
@@ -1958,19 +1983,21 @@ fm_onclick_x:
     mov dx, [fm_lsel]           ; the mirror still names the OLD selection
     mov [bx+FS_SEL], ax
     mov [fm_lsel], ax
-    cmp byte [fm_wased], 0
-    jne .redraw                 ; an editor line was up: the repaint below
-                                ; owes the status line anyway and draws the
-                                ; new bar itself, so the XORs would be waste
     xchg ax, dx
     call fm_sel_bar             ; off...
     xchg ax, dx
     call fm_sel_bar             ; ...and on
+    cmp byte [fm_statowed], 0   ; the bands drew no text, so a line that
+    je .out                     ; changed is still owed (22.9)
+    call fm_status_only
+    jc .redraw                  ; 11.3's granularity refusal
     jmp short .out
 
 .quiet:
-    cmp byte [fm_wased], 0      ; nothing moved - but ending an editor line
-    je .out                     ; rewrote the status line, so that still owes
+    cmp byte [fm_statowed], 0   ; nothing moved, so there are no bands either -
+    je .out                     ; but the line may still have changed, and a
+    call fm_status_only         ; click on the row ALREADY selected owes that
+    jnc .out                    ; and nothing more
 
 .redraw:
     call fm_repaint             ; SI still = window ptr
@@ -2066,7 +2093,12 @@ fm_onkey_x:
     mov di, [fm_vp]
 
     cmp byte [di+FS_EDIT], 0
-    jne .editing                ; naming: nothing below is reachable
+    jne .editing                ; naming: nothing below is reachable - and the
+                                ; prompt already owns the line, so there is no
+                                ; verdict on it to retire
+    call fm_stat_clear          ; ...otherwise this keystroke retires it
+                                ; (22.9). Every path below draws the line one
+                                ; way or another, so nothing is owed here
 
     cmp al, 13
     je .enter
@@ -2114,7 +2146,10 @@ fm_onkey_x:
     or al, al
     jz .out                     ; a bare scan code: swallowed, nothing moved
     call fm_editkey
-    jmp .redraw
+    jc .redraw                  ; it changed the listing or the mode
+    call fm_status_only         ; ...otherwise the name being typed lives on
+    jc .redraw                  ; the status line and that is ALL that moved.
+    jmp .out                    ; CF = 1 is 11.3's granularity refusal
 
 .remount:
     call fm_reload              ; r: re-list, without leaving the folder
@@ -2245,6 +2280,7 @@ fm_open_sel:
     inc ax                      ; index + 1: ui.inc runs the loader once the
     mov [ld_pending], ax        ; lock drops (SPEC.md 21)
     mov [ld_pwin], di           ; ...resolved against THIS window (22.1)
+    mov byte [di+FS_LDST], 0    ; ...whose last verdict is not this one's
     jmp short .out
 .folder:
     call fm_stage_name          ; fm_name = the folder's display name, out
@@ -2588,9 +2624,17 @@ fm_docmd:
     cmp bx, FMC_COUNT
     jae .out
     shl bx, 1
-    call [fm_jmp+bx]            ; CALL r/m16 near-indirect: 8086-legal
+    mov byte [fm_cmdline], 0    ; assume the whole window until a body says
+    call fm_stat_clear          ; a command retires the last verdict (22.9),
+                                ; BEFORE the body runs so its own survives
+    call [fm_jmp+bx]            ; otherwise. CALL r/m16 near-indirect: 8086
     mov si, [fm_cmdwin]
-    call fm_repaint
+    cmp byte [fm_cmdline], 0
+    je .full                    ; the command changed the listing, the
+    call fm_status_only         ; selection or the mode...
+    jnc .out                    ; ...or it only put a PROMPT on the status
+.full:                          ; line, which is one line of text. CF = 1 is
+    call fm_repaint             ; 11.3's granularity refusal, same as always
 .out:
     ret
 
@@ -2897,6 +2941,12 @@ fm_rclick_x:
     mov bx, si                  ; repaint needs it too
     call fm_vp_set
 
+    mov di, [fm_vp]             ; was an editor line up in THIS window? Bank
+    mov al, [di+FS_EDIT]        ; it BEFORE ending one, exactly as fm_onclick
+    mov [fm_wased], al          ; does - the two selection bands below cannot
+                                ; put a rewritten status line back, and this
+                                ; flag is per-CLICK, so a stale one from the
+                                ; last left-click is not an answer
     call fm_edit_end            ; a right-click abandons a half-typed name
                                 ; exactly as a left one does (SPEC.md 22)
 
@@ -2930,13 +2980,22 @@ fm_rclick_x:
     mov word [di+FS_SEL], 0xFFFF
     mov di, fm_ctx_dir
 .have:
-    push di                     ; fm_draw_core is the 400-line painter and
-                                ; uses every register there is - the chosen
-                                ; descriptor does not survive it
+    push di                     ; fm_sel_bar preserves everything, but the
+                                ; fm_repaint fallback below is the 400-line
+                                ; painter and uses every register there is
     mov si, [fm_cmdwin]
-    call fm_repaint             ; show the new selection BEFORE the popup -
-                                ; the save-under would otherwise capture the
-                                ; old one and put it straight back
+    cmp byte [fm_wased], 0      ; an editor line was up: fm_edit_end rewrote
+    jne .rc_full                ; the status line, so the whole window owes
+    mov ax, [fm_lsel]           ; SPEC.md 22.2, exactly as fm_onclick does it:
+    call fm_sel_bar             ; the old band off...
+    mov di, [fm_vp]
+    mov ax, [di+FS_SEL]
+    mov [fm_lsel], ax           ; keep fm_layout's mirror honest
+    call fm_sel_bar             ; ...and the new one on. The selection is the
+    jmp short .rc_shown         ; ONLY thing a right-click changes, and this
+.rc_full:                       ; still puts it on screen BEFORE the popup, so
+    call fm_repaint             ; the save-under captures the new highlight
+.rc_shown:
     pop di
     pop dx                      ; the absolute press point again
     pop cx
@@ -3046,7 +3105,7 @@ fm_editkey:
     inc bx
     mov byte [fm_ebuf+bx], 0
     mov [fm_elen], bl
-    jmp short .out
+    jmp short .lineonly
 
 .back:
     mov bl, [fm_elen]
@@ -3056,7 +3115,7 @@ fm_editkey:
     dec bl                      ; `dec bl` IS `dec bx` here (BH is 0), so BX
     mov [fm_elen], bl           ; is the NEW length and the terminator lands
     mov byte [fm_ebuf+bx], 0    ; on the character just dropped - the -1 that
-    jmp short .out              ; used to be here punched a NUL one byte
+    jmp short .lineonly         ; used to be here punched a NUL one byte
                                 ; EARLIER, so the name displayed short and
                                 ; every character typed after a backspace
                                 ; landed behind that NUL and never appeared
@@ -3092,10 +3151,51 @@ fm_editkey:
     jmp short .out
 .cancel:
     call fm_edit_end
-.out:
-    pop di
-    pop bx
+.lineonly:
+    clc                         ; CF = 0: the typed name is ON the status line
+    jmp short .pops             ; and NOTHING else on this window moved, so a
+.out:                           ; keystroke owes one line, not a repaint
+    stc                         ; anything else - commit, cancel, the replace
+.pops:                          ; question - changed the listing or the mode
+    pop di                      ; and still owes the whole window. `pop` does
+    pop bx                      ; not touch flags, so CF survives to the caller
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_samename - is the typed name the one it already has? (SPEC.md 22.10)
+; in:  fm_ebuf, fm_onam
+; out: CF = 1 if identical; all registers preserved
+;
+; Seeding the buffer took away the "nothing typed, so Enter cancels" exit -
+; the buffer is never empty now - and pressing Enter on an untouched prompt
+; would otherwise ask to rename a file to the name it has, which dskw_rename
+; answers with 'Name taken'. That reads as a refusal when it was a no-op.
+; Uppercase-exact: both sides are 19.1 display names, sanitized alike.
+; -----------------------------------------------------------------------------
+fm_samename:
+    push ax
+    push si
+    push di
+    mov si, fm_ebuf
+    mov di, fm_onam
+.cmp:
+    lodsb                       ; DF=0 per SPEC.md 1
+    cmp al, [di]
+    jne .diff
+    inc di
+    or al, al
+    jnz .cmp
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
+.diff:
+    pop di
+    pop si
+    pop ax
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3161,6 +3261,10 @@ fm_edit_commit:
     call dskw_mkdir_x           ; CF=1 with AX = FERR_* (SPEC.md 18.5)
     jmp short .verdict
 .ren:
+    call fm_extkeep             ; typed no extension? keep the old one (22.10)
+    call fm_samename            ; ...and a name that came back UNCHANGED is
+    jc .done                    ; Enter on an untouched prompt, which used to
+                                ; be the empty buffer above and cancelled
     mov si, fm_onam             ; old name...
     mov di, fm_ebuf             ; ...new name; the eleven name bytes and
     call dskw_rename_x          ; nothing else move (SPEC.md 18.4)
@@ -3716,6 +3820,36 @@ fm_stage_onam:
     ret
 
 ; -----------------------------------------------------------------------------
+; fm_stat_clear - a new interaction retires this window's verdicts (22.9)
+; in:  [fm_vp] published
+; out: CF = 1 if something was actually cleared (the LINE changed, so a
+;      caller drawing nothing else still owes it); all registers preserved
+;
+; A status message is a report about what the user did here, and it must not
+; outlive the doing of it: 'Bad package' used to sit under the listing through
+; every scroll, click and navigation that followed. Called at the TOP of the
+; three interaction entry points, before the handler runs - so an operation
+; that fails still publishes its own verdict straight after.
+; -----------------------------------------------------------------------------
+fm_stat_clear:
+    push di
+    mov di, [fm_vp]
+    cmp byte [di+FS_FERR], 0
+    jne .clr
+    cmp byte [di+FS_LDST], 0
+    je .none
+.clr:
+    mov byte [di+FS_FERR], 0
+    mov byte [di+FS_LDST], 0
+    pop di
+    stc
+    ret
+.none:
+    pop di
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; fm_edit_arm - hand the status-line editor to one window (SPEC.md 22)
 ; in:  DI = state block, AL = mode (1 = new folder, 2 = rename, 3 = delete)
 ; out: nothing (all registers preserved)
@@ -3730,6 +3864,108 @@ fm_edit_arm:
     call fm_edit_end
     mov [di+FS_EDIT], al
     mov byte [di+FS_FERR], 0    ; the prompt replaces the old verdict
+    mov byte [fm_cmdline], 1    ; ...and the prompt IS the whole change: no
+                                ; row moves, the selection stays where it is,
+                                ; and the header, the icons and the buttons
+                                ; are untouched. fm_docmd spends this; a
+                                ; caller that is not fm_docmd simply leaves
+                                ; it set for the next one to clear, which
+                                ; fm_docmd does before every dispatch
+    cmp al, 2                   ; RENAME starts from the name the file has
+    jne .out                    ; (SPEC.md 22.10). Modes 1 and 4 - New Folder
+    call fm_edit_seed           ; and the replace question - start empty
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_edit_seed - start a rename from the current name's STEM (SPEC.md 22.10)
+; in:  fm_onam = the target's display name (fm_stage_onam has run)
+; out: nothing (all registers preserved)
+;
+; The stem only. An extension is the part of a name a user almost never means
+; to change and would otherwise have to retype exactly, so it is left off the
+; buffer and fm_extkeep puts it back at commit - which also means typing one
+; is how you CHANGE it. Bounded by the same 12 characters fm_editkey allows.
+; -----------------------------------------------------------------------------
+fm_edit_seed:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, fm_onam
+    mov di, fm_ebuf
+    xor cl, cl
+.cp:
+    lodsb                       ; DF=0 per SPEC.md 1
+    or al, al
+    jz .end
+    cmp al, '.'
+    je .end
+    mov [di], al                ; mov/inc, never stosb: ES is not DS here
+    inc di
+    inc cl
+    cmp cl, 12
+    jb .cp
+.end:
+    mov byte [di], 0
+    mov [fm_elen], cl
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_extkeep - no extension typed? keep the one it had (SPEC.md 22.10)
+; in:  fm_ebuf/fm_elen = the typed name, fm_onam = the old one
+; out: nothing (all registers preserved); fm_ebuf/fm_elen may grow
+;
+; Only when the user typed no '.' at all. Typing one - including a trailing
+; '.' with nothing after it - is how the extension is changed or dropped, so
+; theirs always wins. Bounded at 12, and a name with no room for an extension
+; is left as typed for dskw_name83 to judge.
+; -----------------------------------------------------------------------------
+fm_extkeep:
+    push ax
+    push bx
+    push si
+    push di
+    call fm_hasdot
+    jc .out                     ; the user typed one: theirs wins
+    mov si, fm_onam
+.find:
+    lodsb
+    or al, al
+    jz .out                     ; the old name had no extension either
+    cmp al, '.'
+    jne .find                   ; SI now points AT the old extension
+    mov bl, [fm_elen]
+    xor bh, bh
+    cmp bl, 12
+    jae .out                    ; no room for the '.', let alone what follows
+    mov di, fm_ebuf
+    add di, bx
+    mov byte [di], '.'
+    inc di
+    inc bl
+.cp:
+    lodsb
+    or al, al
+    jz .term
+    cmp bl, 12
+    jae .term
+    mov [di], al
+    inc di
+    inc bl
+    jmp short .cp
+.term:
+    mov byte [di], 0
+    mov [fm_elen], bl
+.out:
+    pop di
+    pop si
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4488,7 +4724,7 @@ fm_draw_status:
     mov bx, fm_errtab
     jmp short .fs_st_tab
 .fs_st_load:
-    mov al, [ld_status]         ; 4. and finally the loader's
+    mov al, [fm_lldst]          ; 4. and finally the loader's - THIS window's
     or al, al
     jz .fs_st_space             ; ...and when even that has nothing to say,
     mov bx, fm_stattab          ; the line belongs to the free/size figures
@@ -4501,7 +4737,19 @@ fm_draw_status:
     shl ax, 1
     add bx, ax
     mov si, [bx]
-    jmp short .fs_st_tab
+    jmp short .fs_stat          ; DRAW it. This said .fs_st_tab - a jump to
+                                ; its own head - and the loop terminated
+                                ; rather than hanging only because `shl ax, 1`
+                                ; doubles the code every pass: LD_EBAD walked
+                                ; 2, 4, 8, 16, failed the FM_NERR bound and
+                                ; fell out at .fs_done, which draws NOTHING.
+                                ; So every rung of this ladder went silent -
+                                ; 'Bad package' on a corrupt .o88, and every
+                                ; FERR_* the table exists to keep from being
+                                ; silent. It fell through to .fs_stat until
+                                ; .fs_st_space was inserted below it and
+                                ; needed a jump added; the jump went to the
+                                ; wrong label
 
     ; --- 5. the resting state: this folder's size and the volume's free
     ;     space (SPEC.md 22.7). Every rung above is a NOTIFICATION and takes
@@ -4775,6 +5023,12 @@ fm_wased:   resb 1              ; NOT a mirror: FS_EDIT as it stood BEFORE
 fm_lnf:     resw 1              ; FS_N
 fm_lscr:    resw 1              ; FS_SCRL
 fm_lsel:    resw 1              ; FS_SEL
+fm_lldst:   resb 1              ; FS_LDST
+fm_statowed: resb 1             ; 1 = this click retired a verdict, so the
+                                ; status line owes a redraw the two selection
+                                ; bands do not provide (SPEC.md 22.9)
+fm_cmdline: resb 1              ; 1 = the FMC_* just run changed the status
+                                ; LINE and nothing else on the window
 
 fm_pressx:  resw 1              ; fm_onclick's press point, ABSOLUTE - the
 fm_pressy:  resw 1              ; drag tracks in screen coordinates (22.4)

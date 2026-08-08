@@ -131,10 +131,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 86528           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 86016           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved nine times, every one asked
+                                ; It has moved eleven times, every raise asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -320,6 +320,46 @@ KERN_BUDGET equ 86528           ; the whole kernel's FOOTPRINT. Growing past
                                 ; lands under it, hand the remainder back the
                                 ; way move 5 did rather than leaving it for
                                 ; the next author to find.
+                                ;
+                                ; The eleventh move, 86,528 -> 86,016, is the
+                                ; second DOWNWARD one and it is that last
+                                ; sentence being honoured rather than an
+                                ; optimisation pass: SPEC.md 53.6.1's XMS
+                                ; desktop stash was REMOVED, and the step it
+                                ; cost goes back with it. The feature saved
+                                ; the desktop's four planes at the first
+                                ; fsx_mode call and wrote them back at exit
+                                ; instead of repainting - correct for the
+                                ; PIXELS and wrong about the DESKTOP, because
+                                ; a bracket takes real time and what is on
+                                ; screen behind it is not a constant: the
+                                ; menu bar's clock (which the stash path
+                                ; already had to redraw, the one admission
+                                ; that a snapshot goes stale), the Timer's
+                                ; window, a Bounce, any background task that
+                                ; paints - and the exclusive app's OWN window,
+                                ; whose content is usually what the bracket
+                                ; just spent the whole session changing. So
+                                ; the stash restored a photograph of a desktop
+                                ; that had moved on, and wm_paint_all - which
+                                ; asks every window what it looks like NOW -
+                                ; was the correct answer all along. Measured
+                                ; on the removal alone: 84 bytes off .text +
+                                ; .bss (the image rung unmoved) and 190 off
+                                ; .cold, whose rung falls 40 -> 39, so it is
+                                ; worth 84,480 -> 83,968. SPEC.md 22.9's
+                                ; status-line work landed in the same round
+                                ; and spent a step, so the tree stands at
+                                ; 84,480 with 1,536 spare - one step UNDER
+                                ; the fifth move's standard, which is the
+                                ; guard doing its job rather than a fault in
+                                ; either change. The next feature asks.
+                                ; What it does NOT touch is SPEC.md 41: the
+                                ; xm_* slots are a published package ABI
+                                ; (20.8 rule 4) with the Task Manager and
+                                ; sysbench reading them, and this was one
+                                ; kernel-side consumer of that store, not the
+                                ; store itself.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
