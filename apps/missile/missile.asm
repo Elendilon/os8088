@@ -177,6 +177,10 @@ MC_DRN      equ 36                  ; the stride. Not a shift any more, and
 MC_DRNRATE  equ 24                  ; ...and its floor: eight times the rate a
                                     ; trail is DRAWN at, so a spent one is
                                     ; gone in well under a second
+MC_DHEXT    equ 6                   ; probes mc_drn_hold spends walking the
+                                    ; Chebyshev square back to the DISC. The
+                                    ; gap is at most 0.41r and r is 13, so
+                                    ; six is exactly it
 MC_DRNBUD   equ 64                  ; pixels a frame across the whole queue -
                                     ; the cap that stops one explosion's worth
                                     ; of dead missiles landing in one frame
@@ -256,11 +260,14 @@ mc_entry:
     mov byte [mc_expfr], MC_EXPFR   ; bss is zeroed, and a life of zero kills
                                     ; every burst on the frame it is lit
     cmp dh, 1                       ; a 1bpp adapter, or a tier-0 CPU, gets
-    jbe .coarse                     ; the three-state explosion (SPEC.md
-    call OSAPI_CPU_INFO             ; 48.8). Both are FACTS this code can
-    cmp al, CPU_8086                ; test, which is the honest way to spend
-    jne .fine                       ; an optimisation only the slow machine
-.coarse:                            ; needs (PERFORMANCE.md rule 10)
+    ja .chkcpu                      ; the three-state explosion (SPEC.md
+    mov byte [mc_mono], 1           ; 48.8). Both are FACTS this code can
+    jmp short .coarse               ; test, which is the honest way to spend
+.chkcpu:                            ; an optimisation only the slow machine
+    call OSAPI_CPU_INFO             ; needs (PERFORMANCE.md rule 10). The
+    cmp al, CPU_8086                ; 1bpp half is banked as well, because
+    jne .fine                       ; SPEC.md 48.21's trail pens want it
+.coarse:
     mov byte [mc_ecoarse], 1
     mov byte [mc_expfr], MC_EXPFR3
 .fine:
@@ -3127,6 +3134,13 @@ mc_startwave:
     mov [mc_ccity], al
     mov al, [mc_pal + bx + 3]
     mov [mc_cabm], al
+    cmp byte [mc_mono], 0           ; SPEC.md 48.21: a TRAIL is one pixel
+    je .palok                       ; wide, and a dither-class colour keeps
+    mov byte [mc_cicbm], CWHITE     ; every other pixel of it. mc_pal puts
+    mov byte [mc_cabm], CWHITE      ; exactly one of the two trails in that
+.palok:                             ; class in every palette, on purpose -
+                                    ; and on 1bpp that is not a second ink,
+                                    ; it is half a line
 
     ; ALL THREE BASES COME BACK, with ten missiles each. That is NEWWV1
     ; verbatim - it writes MAXMIS into every NMMISB and 0E0 into MBLEFT, "ALL
@@ -4387,14 +4401,17 @@ mc_drn_push:
 ; drifts however many frames an entry takes.
 ; -----------------------------------------------------------------------------
 mc_drn_hold:
-    push ax
     push bx
     push cx
     push dx
     push si
     push di
     mov [mc_dhent], si
-    mov [mc_dhn], ax                ; the step
+    mov [mc_dhcnt], ax
+    mov ax, [mc_drn + si + MC_DRN_CX]   ; where the erase has reached
+    mov [mc_dhx0], ax
+    mov ax, [mc_drn + si + MC_DRN_CY]
+    mov [mc_dhy0], ax
     mov ax, [mc_drn + si + MC_DRN_X2]
     sub ax, [mc_drn + si + MC_DRN_X1]
     mov [mc_dhdx], ax               ; dx and dy, signed
@@ -4409,16 +4426,126 @@ mc_drn_hold:
     jns .ady                        ; point on the wrong side of the start
     neg bx                          ; whenever the line runs left or up
 .ady:
-    mov cx, [mc_drn + si + MC_DRN_CX]   ; where the erase has reached
-    mov dx, [mc_drn + si + MC_DRN_CY]
-    mov [mc_dhx0], cx
-    mov [mc_dhy0], dx
+    mov byte [mc_dhmaj], 0          ; 0 x-major / 1 y-major / 2 a single point
     cmp ax, bx
-    jb .ymaj
-    or ax, ax                       ; both zero: one pixel, and it is already
-    jz .point                       ; where the step ends
-    mov ax, [mc_dhn]                ; x advances by exactly the step - that
-    cmp word [mc_dhdx], 0           ; is what makes it the major axis
+    jae .maj
+    mov byte [mc_dhmaj], 1
+.maj:
+    or ax, ax
+    jnz .live
+    or bx, bx
+    jnz .live
+    mov byte [mc_dhmaj], 2
+.live:
+    ; --- how far may this entry go before it reaches a lit burst? ----------
+    ; A step moves each axis by at most one, so the CHEBYSHEV distance to a
+    ; burst falls by at most one per step - which makes this bound safe for
+    ; the whole PATH rather than just its end, and it costs no division at
+    ; all. It is the square round the disc, so it stops up to 0.41r short on
+    ; a diagonal approach; .ext below spends that back a pixel at a time.
+    mov cx, [mc_dhcnt]
+    xor si, si
+.each:
+    cmp byte [mc_ea + si], 1        ; a burst at mc_er 0 has drawn nothing to
+    jne .enext                      ; protect, and one on its way out is
+    mov bl, [mc_er + si]            ; erased whole anyway
+    mov bh, 0
+    or bx, bx
+    jz .enext
+    mov di, si
+    add di, di
+    mov ax, [mc_ex + di]
+    sub ax, [mc_dhx0]
+    jns .cxp
+    neg ax
+.cxp:
+    mov dx, [mc_ey + di]
+    sub dx, [mc_dhy0]
+    jns .cyp
+    neg dx
+.cyp:
+    cmp ax, dx                      ; AX = Chebyshev distance to the centre
+    jae .cheb
+    mov ax, dx
+.cheb:
+    sub ax, bx                      ; ...less the radius, less one
+    dec ax
+    jns .cok
+    xor ax, ax                      ; already inside it: nothing may be
+.cok:                               ; erased at all
+    cmp ax, cx
+    jae .enext
+    mov cx, ax
+.enext:
+    inc si
+    cmp si, MC_MAXEXP
+    jb .each
+    cmp cx, [mc_dhcnt]              ; nothing in the way: the whole step, and
+    jae .take                       ; no probe needed to know it
+
+    ; --- the square stopped us short of the DISC; walk the gap back --------
+    ; Each probe tests the point itself, so this can only extend into space
+    ; that is genuinely outside every burst - and it stops at the first one
+    ; that is not, so it can never step over a disc.
+    mov si, MC_DHEXT
+.ext:
+    cmp cx, [mc_dhcnt]
+    jae .take
+    inc cx
+    mov [mc_dhn], cx
+    call mc_dh_pt
+    call mc_dh_in                   ; CF=1: that pixel is inside a lit burst
+    jnc .enext2
+    dec cx                          ; ...so the one before it is the edge
+    jmp short .take
+.enext2:
+    dec si
+    jnz .ext
+.take:
+    mov [mc_dhk], cx
+    jcxz .hold
+    mov [mc_dhn], cx
+    call mc_dh_pt
+    mov si, [mc_dhent]
+    mov ax, [mc_dhnx]
+    mov [mc_drn + si + MC_DRN_CX], ax
+    mov ax, [mc_dhny]
+    mov [mc_drn + si + MC_DRN_CY], ax
+    mov ax, [mc_dhk]
+    clc
+    jmp short .out
+.hold:
+    xor ax, ax
+    stc
+.out:                               ; pop leaves the flags alone, which is
+    pop di                          ; what carries CF out of here
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; mc_dh_pt - the point [mc_dhn] steps further along this entry's line
+; in:  [mc_dhent], [mc_dhx0]/[mc_dhy0], [mc_dhdx]/[mc_dhdy], [mc_dhmaj]
+; out: [mc_dhnx]/[mc_dhny]; preserves every register
+;
+; The MAJOR axis advances by exactly the step - that is what makes it the
+; major axis - and the minor is derived from it rather than accumulated, so
+; an entry that takes twenty frames drifts by nothing.
+mc_dh_pt:
+    push ax
+    push cx
+    push dx
+    push si
+    mov si, [mc_dhent]
+    mov cx, [mc_dhx0]
+    mov dx, [mc_dhy0]
+    cmp byte [mc_dhmaj], 2
+    je .point
+    cmp byte [mc_dhmaj], 1
+    je .ymaj
+    mov ax, [mc_dhn]
+    cmp word [mc_dhdx], 0
     jl .xneg
     add cx, ax
     jmp short .xd
@@ -4426,13 +4553,13 @@ mc_drn_hold:
     sub cx, ax
 .xd:
     mov [mc_dhnx], cx               ; banked before the divide eats DX
-    mov ax, cx                      ; y = y1 + dy * (x - x1) / |dx|
+    mov ax, cx                      ; y = y1 + dy * (x - x1) / dx
     sub ax, [mc_drn + si + MC_DRN_X1]
     imul word [mc_dhdy]
     idiv word [mc_dhdx]
     add ax, [mc_drn + si + MC_DRN_Y1]
     mov [mc_dhny], ax
-    jmp short .box
+    jmp short .out
 .ymaj:
     mov ax, [mc_dhn]
     cmp word [mc_dhdy], 0
@@ -4443,77 +4570,81 @@ mc_drn_hold:
     sub dx, ax
 .yd:
     mov [mc_dhny], dx
-    mov ax, dx                      ; x = x1 + dx * (y - y1) / |dy|
+    mov ax, dx                      ; x = x1 + dx * (y - y1) / dy
     sub ax, [mc_drn + si + MC_DRN_Y1]
     imul word [mc_dhdx]
     idiv word [mc_dhdy]
     add ax, [mc_drn + si + MC_DRN_X1]
     mov [mc_dhnx], ax
-    jmp short .box
+    jmp short .out
 .point:
     mov [mc_dhnx], cx
     mov [mc_dhny], dx
-.box:                               ; the span, grown by the pixel the
-    mov ax, [mc_dhx0]               ; interpolation and Bresenham can differ
-    mov bx, [mc_dhnx]               ; by, and one more for the disc's own edge
-    cmp ax, bx
-    jle .bx
-    xchg ax, bx
-.bx:
-    sub ax, 2
-    add bx, 2
-    mov [mc_dhx0], ax
-    mov [mc_dhx1], bx
-    mov ax, [mc_dhy0]
-    mov bx, [mc_dhny]
-    cmp ax, bx
-    jle .by
-    xchg ax, bx
-.by:
-    sub ax, 2
-    add bx, 2
-    mov [mc_dhy0], ax
-    mov [mc_dhy1], bx
-    xor si, si                      ; every burst that is LIT - one at mc_er
-.each:                              ; 0 has drawn nothing to protect, and one
-    cmp byte [mc_ea + si], 1        ; on its way out is erased whole anyway
-    jne .enext
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; mc_dh_in - is [mc_dhnx]/[mc_dhny] inside a burst that is lit?
+; out: CF=1 inside; preserves every register
+;
+; The DISC and not its bounding square, which is the whole point of this
+; probe. Both deltas are bounded before they are squared: this is only ever
+; called within a radius and a few pixels of a centre, so a far one is
+; rejected on the compare and the products stay well inside a word.
+mc_dh_in:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    xor si, si
+.each:
+    cmp byte [mc_ea + si], 1
+    jne .next
     mov bl, [mc_er + si]
     mov bh, 0
     or bx, bx
-    jz .enext
+    jz .next
     mov di, si
     add di, di
     mov ax, [mc_ex + di]
+    sub ax, [mc_dhnx]
+    jns .xp
+    neg ax
+.xp:
+    cmp ax, bx                      ; INSIDE needs |dx| <= r and |dy| <= r, so
+    ja .next                        ; this rejects every burst but the one
+    mov cx, [mc_ey + di]            ; being approached without a single
+    sub cx, [mc_dhny]               ; multiply - which is what keeps a probe
+    jns .yp                         ; affordable, since the loop runs
+    neg cx                          ; MC_DHEXT times per entry per frame. It
+.yp:                                ; is exact, not a heuristic: |dx| > r
+    cmp cx, bx                      ; already means dx*dx > r*r. It also
+    ja .next                        ; bounds the squares below, r being a byte
+    imul ax                         ; dx*dx + dy*dy <= r*r
+    mov dx, ax
+    mov ax, cx
+    imul ax
+    add ax, dx
     mov cx, ax
-    sub ax, bx
-    add cx, bx
-    cmp cx, [mc_dhx0]
-    jl .enext
-    cmp ax, [mc_dhx1]
-    jg .enext
-    mov ax, [mc_ey + di]
-    mov cx, ax
-    sub ax, bx
-    add cx, bx
-    cmp cx, [mc_dhy0]
-    jl .enext
-    cmp ax, [mc_dhy1]
-    jg .enext
-    stc                             ; in the way: the entry waits, and the
-    jmp short .out                  ; point is NOT committed
-.enext:
+    mov ax, bx
+    imul ax
+    cmp cx, ax
+    jbe .hit
+.next:
     inc si
     cmp si, MC_MAXEXP
     jb .each
-    mov si, [mc_dhent]
-    mov ax, [mc_dhnx]
-    mov [mc_drn + si + MC_DRN_CX], ax
-    mov ax, [mc_dhny]
-    mov [mc_drn + si + MC_DRN_CY], ax
     clc
-.out:                               ; pop leaves the flags alone, which is
-    pop di                          ; what carries CF out of here
+    jmp short .out
+.hit:
+    stc
+.out:
+    pop di
     pop si
     pop dx
     pop cx
@@ -4575,7 +4706,9 @@ mc_drn_run:
     mov ax, [mc_drnbud]
 .r2:
     call mc_drn_hold                ; SPEC.md 48.19: pixels under a lit burst
-    jc .next                        ; are that burst's to erase, not ours
+    jc .next                        ; are that burst's to erase, not ours -
+                                    ; and AX comes back CLAMPED to the disc's
+                                    ; edge, so the erase stops exactly there
     sub [mc_drnbud], ax
     sub [mc_drn + si + MC_DRN_LEFT], ax
     mov [mc_drncnt], ax
@@ -7296,8 +7429,9 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_dhny
     MWORD mc_dhx0
     MWORD mc_dhy0
-    MWORD mc_dhx1
-    MWORD mc_dhy1
+    MWORD mc_dhcnt                  ; the step asked for, and the step allowed
+    MWORD mc_dhk
+    MBYTE mc_dhmaj                  ; 0 x-major / 1 y-major / 2 a single point
 
 ; --- the explosions -------------------------------------------------------------
     MBUF  mc_ea,     MC_MAXEXP      ; 0 free / 1 burning / FF needs erasing
@@ -7396,6 +7530,9 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBYTE mc_ecoarse                ; 1 = SPEC.md 48.8's three-state burst:
                                     ; 1bpp adapter or tier-0 CPU, decided
                                     ; once in mc_entry
+    MBYTE mc_mono                   ; ...and the 1bpp half of that on its own,
+                                    ; which is what SPEC.md 48.21's trail pens
+                                    ; turn on - a tier-0 VGA still has colour
     MBYTE mc_expfr                  ; ...and how many frames a burst lasts,
                                     ; which the coarse ramp shortens (48.12)
     MWORD mc_bw                     ; mc_blob: the open rect's half-width
