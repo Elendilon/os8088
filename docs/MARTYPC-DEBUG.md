@@ -230,6 +230,7 @@ is the client — a CLI, a REPL and an importable `Marty` class.
 | `video` | which card, its raster geometry and its display apertures |
 | `fbuf` | the card's RENDERED framebuffer as rgb24 — the only route on VGA |
 | `flicker` | one sample per DISPLAYED FRAME, and the flash/redraw counts |
+| `pace` | per-frame changed counts over a long run — frame pacing / smoothness |
 | `key` | a keypress by MartyKey name — `KeyA`, `Enter`, `ArrowRight` |
 | `mouse` | one Microsoft packet: relative `dx`/`dy` and button state |
 | `history` / `callstack` | the CPU's own instruction history |
@@ -495,6 +496,56 @@ shipped with its licence, so this cost no new asset.
 `os8088_xt_vga` is the machine. A 5150 with a VGA in it is an anachronism
 and a deliberate one: what is under test is os8088's mode 12h path on the CPU
 the project is calibrated against.
+
+## Capturing a screen — every mode, including the fullscreen ones
+
+There are **three** capture routes and they answer different questions. Picking
+the wrong one does not error; it produces a plausible picture of nothing.
+
+| route | what it is | works in |
+|---|---|---|
+| `shot` (VRAM) | decodes SPEC.md §39.3's banked **graphics** framebuffer out of guest memory | CGA mode 6, Hercules graphics |
+| `shot --rendered` (`fbuf`) | asks the CARD what it rasterised, as rgb24 | **every mode**, CGA and VGA (see the Hercules note) |
+| `screen` | the card's text rows as **characters** | text modes |
+
+**`video` reports `mode` and `text`, and that is the discriminator to use.**
+It comes from the card's `display_mode()`, derived from its actual registers —
+unlike `graphics`, which is a dead field on the VGA and always false. `shot`
+now reads it and routes itself, so the failure below cannot happen silently
+again.
+
+**The failure it exists to prevent.** SPEC.md §53.4's `FSXM_TEXT80` puts a
+fullscreen app into an 80x25 **text** mode; Tracker's XT-mode fullscreen
+(§45.13) is the shipped consumer. The VRAM route decodes character/attribute
+pairs as a bitmap, so it returns a full-size image made of noise, with no
+error and no clue. `shot` now says what it is doing:
+
+```
+$ os88marty.py <addr> shot out.png
+out.png: card is in Mode3TextCo80 (a TEXT mode) - capturing the RENDERED framebuffer.
+  The VRAM route would decode character cells as a bitmap and show you nothing real.
+  For the characters themselves: os88marty.py <addr> screen
+```
+
+and `--kind cga` against a text mode is **refused** rather than obeyed.
+
+**Every fullscreen mode, and how to capture it.** The nine `FSXM_*` ids
+(`apps/os88api.inc`) reduce to three cases:
+
+| `FSXM_*` | what it is | capture with |
+|---|---|---|
+| `TEXT80`, `TEXT40` | 80x25 / 40x25 text | **`screen`** for content, `shot` (auto-rendered) for pixels |
+| `CGA320`, `CGA640`, `HERC` | 1bpp / 4-colour banked graphics | `shot` — VRAM route, byte-comparable with `hercshot.py` |
+| `VGA0D`, `VGA13`, `VGA12`, `MODEX` | planar or chunky VGA | `shot` — auto-rendered; VRAM is planar behind the GC and not flat-readable |
+
+For a text mode, **`screen` is usually what you actually wanted**: it gives
+you the characters, so an assertion can be `"Pos 08/52" in rows[1]` rather
+than a pixel comparison. Verified against Tracker's fullscreen:
+
+```
+  TRACKER   Beverly Hills Cop                                       XT 5500 Hz
+          Pos 08/52  Ptn 15  Row 33  BPM 125  Spd 07
+```
 
 **Flicker is measurable here, and that is PERFORMANCE.md Part 3.1.** The
 `flicker` command steps the machine until the card finishes a frame, grabs

@@ -64,7 +64,7 @@ use std::{
 use marty_core::{
     breakpoints::BreakPointType,
     cpu_common::{Cpu, Register16},
-    device_traits::videocard::{RenderBpp, VideoCard},
+    device_traits::videocard::{DisplayMode, RenderBpp, VideoCard},
     keys::MartyKey,
     machine::{ExecutionControl, ExecutionOperation, ExecutionState, Machine},
     vhd::VirtualHardDisk,
@@ -94,6 +94,10 @@ const MAX_READ: usize = 1 << 20;
 /// 600 frames is ten seconds of guest time on a 60Hz card, which is longer
 /// than any single redraw in this OS.
 const MAX_FRAMES: usize = 600;
+
+/// `pace` keeps two frames, not all of them, so it can run far longer - which
+/// is what a jitter question needs. 20,000 frames is ~5.5 minutes of guest time.
+const MAX_PACE: usize = 20_000;
 
 /// The standard IBM 16-colour palette, RGBA, for the cards that publish none.
 const IBM16: [[u8; 4]; 16] = [
@@ -350,6 +354,7 @@ impl DebugServer {
             "video" => video(machine),
             "fbuf" => fbuf(machine, &req),
             "flicker" => flicker(machine, exec, &req),
+            "pace" => pace(machine, exec, &req),
             "key" => key(machine, &req),
             "mouse" => mouse(machine, &req),
             "history" => json!({"ok": true, "history": machine.cpu().dump_instruction_history_string()}),
@@ -663,6 +668,16 @@ fn breakpoints(machine: &mut Machine, req: &Value) -> Value {
 fn video(machine: &mut Machine) -> Value {
     match machine.primary_videocard() {
         Some(mut card) => {
+            let dm = card.display_mode();
+            let mode_name = format!("{:?}", dm);
+            let is_text = matches!(
+                dm,
+                DisplayMode::Mode0TextBw40
+                    | DisplayMode::Mode1TextCo40
+                    | DisplayMode::Mode2TextBw80
+                    | DisplayMode::Mode3TextCo80
+                    | DisplayMode::Mode7MonochromeText
+            );
             let ext = card.display_extents();
             let apers: Vec<Value> = card
                 .display_apertures()
@@ -678,6 +693,15 @@ fn video(machine: &mut Machine) -> Value {
                 // is honest on CGA and MDA. Ask `fbuf` for the geometry
                 // instead - the card cannot fake having rasterised 480 rows.
                 "graphics": card.is_in_graphics_mode(),
+                // `mode` and `text` come from `display_mode()`, which every
+                // card derives from its actual registers. THIS is the
+                // text-vs-graphics discriminator: a capture that decodes
+                // character/attribute pairs as a bitmap produces a
+                // plausible-looking picture of nothing, with no error, and
+                // that is exactly what `shot` used to do to a text-mode
+                // fullscreen app (SPEC.md 53.4's FSXM_TEXT80).
+                "mode": mode_name,
+                "text": is_text,
                 "field_w": ext.field_w,
                 "field_h": ext.field_h,
                 "stride": ext.row_stride,
@@ -894,6 +918,91 @@ fn flicker(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> V
         "flash_frames": flash_frames,
         "moved_frames": moved_frames,
         "per_frame": out,
+    })
+}
+
+/// FRAME PACING — how EVENLY the picture moves, which is what "smooth" means.
+///
+/// `flicker` asks what a single operation looked like; this asks what a
+/// CONTINUOUSLY ANIMATING one looks like over time, and they are different
+/// defects with different fixes. A scrolling pattern grid, a bouncing ball or
+/// a game loop can be perfectly free of double-draw flash and still look bad,
+/// because what the eye objects to is not the cost of a frame but the VARIANCE
+/// between frames: a step that lands 2 frames after the last one and then 7
+/// frames after that reads as judder even when the average rate is fine.
+///
+/// So this records, once per DISPLAYED frame, how many pixels differ from the
+/// frame before. That series is everything: the gaps between non-zero entries
+/// are the update intervals, and their spread is the jitter. It keeps only two
+/// frames in memory rather than all of them - unlike `flicker`, which needs
+/// every frame to compare against a settled end state - so it can run for
+/// thousands of frames, which is what a pacing question actually needs.
+///
+/// Deliberately NOT computed here: the verdict. Mean, jitter and the histogram
+/// are the client's to derive from the series, because "smooth enough" depends
+/// on what is being animated - a 3-frame music-row step and a 1-frame game
+/// loop have completely different right answers, and a threshold baked in here
+/// would be a threshold nobody could see or argue with.
+fn pace(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Value {
+    let n = req.get("frames").and_then(Value::as_u64).unwrap_or(300) as usize;
+    if n < 2 || n > MAX_PACE {
+        return err(&format!("frames must be 2..{}", MAX_PACE));
+    }
+    let sel = req.get("aperture").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let batch = ((machine.get_cpu_mhz() * 1_000_000.0) / 4000.0) as u32;
+    let c0 = machine.cpu_cycles();
+
+    let mut prev: Option<Vec<u8>> = None;
+    let mut changed: Vec<u64> = Vec::with_capacity(n);
+    let mut cycles: Vec<u64> = Vec::with_capacity(n);
+    let (mut w, mut h) = (0u32, 0u32);
+    let started = Instant::now();
+
+    for _ in 0..n {
+        let f0 = match machine.primary_videocard() {
+            Some(c) => c.frame_count(),
+            None => return err("no video card"),
+        };
+        exec.set_op(ExecutionOperation::Run);
+        exec.set_state(ExecutionState::Running);
+        loop {
+            machine.run(batch, exec);
+            let f = machine.primary_videocard().map(|c| c.frame_count()).unwrap_or(f0);
+            if f != f0 {
+                break;
+            }
+            if started.elapsed() > Duration::from_secs(300) {
+                return err("timed out waiting for a frame - is the display enabled? \
+                            (MartyPC's MDA does not rasterise Hercules graphics mode)");
+            }
+        }
+        exec.set_op(ExecutionOperation::Pause);
+        exec.set_state(ExecutionState::Paused);
+        let (gw, gh, cur) = match grab(machine, sel) {
+            Ok(v) => v,
+            Err(e) => return err(&e),
+        };
+        w = gw;
+        h = gh;
+        let d = match &prev {
+            None => 0u64,
+            Some(p) => (0..(gw * gh) as usize)
+                .filter(|&i| cur[i * 3..i * 3 + 3] != p[i * 3..i * 3 + 3])
+                .count() as u64,
+        };
+        changed.push(d);
+        cycles.push(machine.cpu_cycles() - c0);
+        prev = Some(cur);
+    }
+
+    json!({
+        "ok": true,
+        "w": w,
+        "h": h,
+        "frames": changed.len(),
+        "cpu_mhz": machine.get_cpu_mhz(),
+        "cycles": cycles,
+        "changed": changed,
     })
 }
 

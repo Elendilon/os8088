@@ -490,6 +490,103 @@ one is a number that has not been attributed.
 
 ---
 
+## Part 3.2 — Measuring smoothness: pacing is variance, not rate
+
+Part 3.1 asks what a single operation looked like. This asks what a
+**continuously animating** one looks like over time, and they are different
+defects with different fixes. A scrolling pattern grid, a bouncing ball or a
+game loop can be entirely free of double-draw flash and still look bad.
+
+**What the eye objects to is not the cost of a frame, it is the variance
+between them.** A step that lands 2 frames after the last one and then 7
+frames after that reads as judder even when the average rate is exactly right
+— and "exactly right" is not a figure of speech here, as the worked example
+below shows. So the number that matters is the **spread** of the update
+intervals, and the one that does not is the mean.
+
+`pace` records, once per displayed frame, how many pixels differ from the
+frame before. That series is everything: the gaps between non-zero entries are
+the intervals, and their standard deviation is the judder. It keeps two frames
+server-side rather than all of them — unlike `flicker`, which needs every
+frame to compare against a settled end state — so it runs for thousands of
+frames, which is what a pacing question needs.
+
+```sh
+python3 tools/os88marty.py 127.0.0.1:9001 pace -n 500
+```
+
+**Evenness = sd / mean** is the headline. 0.00 is a metronome; past ~0.5 the
+irregularity is what you notice rather than the rate.
+
+### The worked example: Tracker's fullscreen text mode
+
+SPEC.md §45.13's `FSXM_TEXT80` screen, playing a MOD at BPM 125 / Speed 7 on
+a 5150 with a Sound Blaster, 500 frames at 59.9 Hz:
+
+```
+  updates      : 131 in 500 frames (26.2% of frames move)
+  interval     : mean 3.79 fr (63.3 ms) -> 15.8 updates/s
+  JITTER       : sd 2.41 fr (40.2 ms), min 1, max 7 fr (117 ms)
+  evenness     : 0.63
+  intervals    : 1fr x53  3fr x2  4fr x3  5fr x21  6fr x40  7fr x11
+```
+
+**The interval histogram is bimodal, and that is the whole diagnosis.** 53
+intervals of one frame and 72 of five to seven, with almost nothing between.
+A bimodal histogram means **two things are updating on two different rhythms**
+and the summary line is their interleaving — a "mean of 3.79 frames"
+describing nothing that is actually on the screen. Splitting by update size
+separates them:
+
+| | n | mean | sd | evenness | intervals |
+|---|---|---|---|---|---|
+| **big** (the grid) | 61 | 8.28 fr (**138.2 ms**) | 4.91 | 0.59 | 1fr x13, 6fr x12, 7fr x6, **13fr x20** |
+| small (the counters) | 63 | 7.69 fr (128.4 ms) | 3.38 | 0.44 | 5fr x14, 6fr x11, 7fr x13, 8fr x12 |
+
+Repeated on a from-scratch build the whole picture comes back: evenness 0.61,
+big-update mean 8.23 fr (137.4 ms), sd 4.73, and the same `1fr` / `13fr`
+clustering. The split is done by `report_pace` automatically, on a threshold
+of a quarter of the largest update — there is nothing to tune.
+
+And now the result that makes the measurement trustworthy: **a MOD row at
+BPM 125 / Speed 7 lasts exactly 140 ms** — ticks-per-row 7 at a tick rate of
+`BPM x 2 / 5` = 50 Hz. The measured mean interval of the big update is
+**138.2 ms across two runs (137.4 and 138.2), an error of 1.3-1.9%.** The
+instrument is measuring the music, from pixels, with no instrumentation in the
+guest at all.
+
+So **the rate is right and the delivery is not**: the correct number of
+screen updates arrive at the wrong times, clustering at intervals of one
+frame and thirteen instead of a steady eight. That is what "visibly not
+smooth" is, and it is now a number that a change can be held against.
+
+What this does *not* establish is the cause. A pair of big writes one frame
+apart is the shape you would expect from §45.13's "the frame is a `rep movsw`"
+followed by "the band is an attribute, relit after the blit" — two writes, one
+row apart in time — but the measurement says nothing about which code did
+what, and a hypothesis with an obvious mechanism is exactly the kind that gets
+believed without checking. The way to settle it is a counter or a breakpoint
+on the two write paths, not another reading of this table.
+
+### Using it
+
+- **Pick the run length from the thing you are watching.** 500 frames is 8.3
+  seconds; a defect with a period longer than the capture reads as a single
+  interval or none at all. The desktop's menu-bar clock shows `HH:MM`, so it
+  updates **once a minute** — 3,594 frames — and a 600-frame capture of an
+  idle desktop correctly reports *nothing is animating* rather than a rate.
+- **Read the histogram before the summary.** One mode means one rhythm and the
+  mean is meaningful. Two modes mean the mean is an artefact.
+- **`--min` raises the pixel threshold for "an update"**, which is the cheap
+  way to ignore a caret or a counter and watch only the thing that moves.
+- Everything Part 3.1 says about the **disk** applies unchanged: an animation
+  that pauses for I/O has the wrong gap here by more than an order of
+  magnitude.
+- It needs a rasterising card, so it is **CGA and VGA** — Part 3.1's Hercules
+  note applies, and a capture there times out rather than answering.
+
+---
+
 ## Part 4 — What QEMU is exact about: work
 
 The guest does the identical amount of work on both machines, and QEMU will

@@ -133,6 +133,11 @@ class Marty:
         """
         return self.cmd(cmd="flicker", frames=frames, aperture=aperture)
 
+    def pace(self, frames=300, aperture=0):
+        """Per-frame changed-pixel counts, for FRAME PACING (PERFORMANCE.md
+        Part 3.2). Keeps two frames server-side, so `frames` can be large."""
+        return self.cmd(cmd="pace", frames=frames, aperture=aperture)
+
     def fbuf(self, aperture=0):
         """The card's RENDERED framebuffer as (width, height, rgb24 bytes).
 
@@ -312,6 +317,66 @@ def write_png_rgb(path, w, h, data):
     _png(path, w, h, raw, 2)
 
 
+def report_pace(r, minpx=1):
+    """Turn a per-frame changed series into a pacing verdict.
+
+    SMOOTH IS LOW VARIANCE, not a high rate. The gaps between frames that
+    actually changed are the update intervals; their spread is the jitter, and
+    the jitter is what the eye calls judder. A 3,3,3,3 series and a 2,7,1,5
+    series can have the identical mean and look completely different.
+    """
+    ch, cyc = r["changed"], r["cycles"]
+    per = (cyc[-1] - cyc[0]) / max(1, len(cyc) - 1) / (r["cpu_mhz"] * 1000.0)
+    hits = [i for i, c in enumerate(ch) if c >= minpx]
+    print("%dx%d, %d frames, %.2f ms/frame (%.1f Hz)"
+          % (r["w"], r["h"], r["frames"], per, 1000.0 / per))
+    if len(hits) < 2:
+        print("  %d frames changed - nothing is animating." % len(hits))
+        return
+    gaps = [hits[i + 1] - hits[i] for i in range(len(hits) - 1)]
+    mean = sum(gaps) / len(gaps)
+    var = sum((g - mean) ** 2 for g in gaps) / len(gaps)
+    sd = var ** 0.5
+    hist = {}
+    for g in gaps:
+        hist[g] = hist.get(g, 0) + 1
+    moved = [c for c in ch if c >= minpx]
+    print("  updates      : %d in %d frames (%.1f%% of frames move)"
+          % (len(hits), len(ch), 100.0 * len(hits) / len(ch)))
+    print("  interval     : mean %.2f fr (%.1f ms) -> %.1f updates/s"
+          % (mean, mean * per, 1000.0 / (mean * per)))
+    print("  JITTER       : sd %.2f fr (%.1f ms), min %d, max %d fr (%.0f ms)"
+          % (sd, sd * per, min(gaps), max(gaps), max(gaps) * per))
+    print("  evenness     : %.2f  (sd/mean; 0.00 is perfect, >0.5 is visible judder)"
+          % (sd / mean if mean else 0))
+    print("  pixels/update: mean %d, max %d" % (sum(moved) // len(moved), max(moved)))
+    print("  intervals    : " + "  ".join(
+        "%dfr x%d" % (g, hist[g]) for g in sorted(hist)[:10]))
+
+    # SPLIT BY SIZE, because a bimodal interval histogram almost always means
+    # TWO THINGS are updating on two different rhythms and the summary above is
+    # their interleaving rather than either one. Tracker's fullscreen is the
+    # worked example: a small element ticking every frame and a big grid blit
+    # every music row read together as "mean 3.8 frames", which is a number
+    # describing nothing that is actually on screen.
+    big = max(moved) // 4
+    if len(set(moved)) > 1 and min(moved) < big:
+        for name, keep in (("BIG   >=%d px" % big, lambda c: c >= big),
+                           ("small < %d px" % big, lambda c: c < big)):
+            idx = [i for i in hits if keep(ch[i])]
+            if len(idx) < 3:
+                continue
+            g = [idx[k + 1] - idx[k] for k in range(len(idx) - 1)]
+            mu = sum(g) / len(g)
+            s = (sum((x - mu) ** 2 for x in g) / len(g)) ** 0.5
+            hh = {}
+            for x in g:
+                hh[x] = hh.get(x, 0) + 1
+            print("  %-14s n=%3d  mean %5.2f fr (%6.1f ms)  sd %5.2f  evenness %.2f  %s"
+                  % (name, len(idx), mu, mu * per, s, s / mu if mu else 0,
+                     "  ".join("%dfr x%d" % (k, hh[k]) for k in sorted(hh)[:6])))
+
+
 def parse_addr(text):
     """`0060:0000`, `0x600` or `600` -> a flat address."""
     text = text.strip()
@@ -378,6 +443,12 @@ def main():
     p.add_argument("--key", help="inject this MartyKey before capturing")
     p.add_argument("--click", action="store_true", help="inject a click before capturing")
 
+    p = sub.add_parser("pace", help="frame pacing / smoothness over time")
+    p.add_argument("-n", "--frames", type=int, default=300)
+    p.add_argument("--aperture", type=int, default=0)
+    p.add_argument("--min", type=int, default=1,
+                   help="pixels that count as an update (default 1)")
+
     p = sub.add_parser("read"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
     p = sub.add_parser("dump"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
     p.add_argument("-o", "--out", required=True)
@@ -442,7 +513,30 @@ def main():
                 # adapters keep the VRAM route by default, because that is the
                 # one whose output is byte-comparable with tools/hercshot.py
                 # and so with every "0 differing pixels" check in this tree.
-                rendered = a.rendered or (a.kind is None and m.video()["type"] == "vga")
+                # THE CAPTURE ROUTE IS CHOSEN FROM THE CARD'S MODE, never
+                # guessed. `vram` decodes SPEC.md 39.3's banked GRAPHICS
+                # layout; point it at a text screen and it reads
+                # character/attribute pairs as pixel bits and produces a
+                # plausible picture of nothing, with no error - which is
+                # exactly what happened to a fullscreen text-mode app
+                # (SPEC.md 53.4's FSXM_TEXT80). In text mode the rendered
+                # route is the only one that means anything, and `screen`
+                # is usually what you actually wanted.
+                v = m.video()
+                if v.get("text") and not a.rendered and a.kind is None:
+                    print("%s: card is in %s (a TEXT mode) - capturing the "
+                          "RENDERED framebuffer.\n"
+                          "  The VRAM route would decode character cells as a "
+                          "bitmap and show you nothing real.\n"
+                          "  For the characters themselves: os88marty.py <addr> screen"
+                          % (a.out, v.get("mode")), file=sys.stderr)
+                if a.kind is not None and v.get("text"):
+                    raise MartyError(
+                        "--kind %s decodes a GRAPHICS framebuffer and the card is in "
+                        "%s, a text mode. Drop --kind (the rendered route works in "
+                        "every mode), or use `screen` for the characters."
+                        % (a.kind, v.get("mode")))
+                rendered = a.rendered or v.get("text") or (a.kind is None and v["type"] == "vga")
                 if rendered:
                     w, h, data = m.fbuf(a.aperture)
                     write_png_rgb(a.out, w, h, data)
@@ -478,6 +572,9 @@ def main():
                     if f["changed"] or f["transient"]:
                         print("   frame %3d  changed %6d  transient %6d  %s"
                               % (f["frame"], f["changed"], f["transient"], f["bbox"] or ""))
+            elif a.op == "pace":
+                r = m.pace(a.frames, a.aperture)
+                report_pace(r, a.min)
             elif a.op == "screen":
                 for row in m.screen():
                     print(row.rstrip())
