@@ -521,7 +521,12 @@ irregularity is what you notice rather than the rate.
 ### The worked example: Tracker's fullscreen text mode
 
 SPEC.md §45.13's `FSXM_TEXT80` screen, playing a MOD at BPM 125 / Speed 7 on
-a 5150 with a Sound Blaster, 500 frames at 59.9 Hz:
+a 5150 with a Sound Blaster, 500 frames at 59.9 Hz. **This is a before-and-
+after**: the numbers immediately below are the version this instrument was
+first pointed at, and §45.15's smoothness work is measured against them at the
+end of the section.
+
+Before:
 
 ```
   updates      : 131 in 500 frames (26.2% of frames move)
@@ -567,6 +572,79 @@ row apart in time — but the measurement says nothing about which code did
 what, and a hypothesis with an obvious mechanism is exactly the kind that gets
 believed without checking. The way to settle it is a counter or a breakpoint
 on the two write paths, not another reading of this table.
+
+### The same screen after §45.15/§45.16's smoothness work
+
+Identical protocol, identical module, identical machine — the interpolated
+play model (§45.15.1/§45.15.2), the pattern-window scroll and the **measured
+frame clock** (§45.16, which takes the text screen off the 18.2 Hz system tick
+and onto the retrace) merged in:
+
+| | before | after |
+|---|---|---|
+| updates in 500 frames | 125–131 | **226–229** |
+| mean interval | 3.79–3.99 fr | 2.16–2.21 fr |
+| **jitter (sd)** | 2.41–2.44 fr (**40.2–40.7 ms**) | 1.28–1.33 fr (**21.4–22.2 ms**) |
+| evenness | 0.61–0.63 | 0.60 |
+| interval histogram | `1fr x48  5fr x14  6fr x50  7fr x10` | `1fr x90  2fr x64  3fr x25  4fr x29  5fr x15  6fr x1  7fr x1` |
+| big-update stalls | **`13fr x20`** — a third of them | *gone* |
+
+**It is substantially smoother, and it lands where SPEC.md said it would.**
+§45.16 predicts, from the field constants and without any of this, that the
+retrace clock *"takes the jitter to ±18 ms"*. Measured here, from pixels, with
+nothing in the guest: **sd 21.4–22.2 ms, down from 40.2–40.7.** Two independent
+routes to the same number is the strongest evidence in this document that
+either of them is right.
+
+The histogram says the rest more clearly than any summary line. The absolute
+timing scatter **halved**, 40.7 ms to 21.4 ms. The distribution stopped being bimodal — one decaying cluster where
+there were two — which means the two rhythms were merged into one. The long
+tail collapsed: 61 gaps of six or seven frames became **two**. And the
+`13fr x20` cluster that dominated the big updates, twenty stalls of 217 ms
+each, is gone entirely. Updates nearly doubled at about a fifth the size:
+the work is spread rather than delivered in bursts.
+
+**What has not changed is the evenness ratio, and that is the remaining
+issue.** 0.60 against 0.61–0.63, because the mean and the sd both halved.
+The raw gap sequence says what it is:
+
+```
+4 1 1 4 1 3 4 2 1 2 4 2 4 1 2 1 1 4 1 4 2 4 1 2 4 1 1 5 2 1 1 2 2 8 1 1 1 1 1 1 4 2 ...
+```
+
+**39% of the gaps are exactly one frame, in ~34 separate runs** — updates
+still arrive in *bursts of consecutive frames* separated by quiet periods of
+four to eight. The bursts are much shorter than the old stalls, which is why
+it looks better, but the delivery is still clumped rather than even. And the
+rate is 25.4 updates/s against a MOD tick rate of **50/s** at this tempo, so
+it is not simply one update per tick either.
+
+What that is *caused by* is not established here, and the mechanism is not
+obvious enough to guess at safely — 50 Hz of ticks against a 59.9 Hz raster
+cannot divide evenly, so some beat is inherent, but nothing in these numbers
+separates an inherent beat from a burst the app could pace better.
+
+### The trap that cost two wrong answers: the guest's own counters
+
+The music's tempo is the ground truth this measurement leans on, and reading
+it off the screen is where it goes wrong. `Pos x 64 + Row` looks like a row
+index and **is not one**: an order position does not always span 64 rows (a
+pattern break ends one early) and an order list may revisit a pattern, so the
+arithmetic silently under- or over-counts across a boundary. Measured that
+way, three windows of the same playback gave **+2.4%, +10.4% and +28.1%**
+against the 140 ms row — and the obvious reading, *the tempo is drifting*, is
+wrong.
+
+Measure **inside one pattern** instead — `Ptn` unchanged and `Row` advancing,
+so no multiplication is involved — and take the **ratio of sums** rather than
+the mean of per-window ratios, because a short window holds three to five rows
+and `ms/row` quantises to `window/integer`. Done that way the same playback
+reads **141.54 ms/row against 140.00, +1.1%**, with individual windows
+138.5–145.9. The tempo was correct the whole time.
+
+Both errors produced *plausible* numbers with no warning, which is the theme:
+`+26%` and a quantised histogram of exactly three values both look like
+findings.
 
 ### Using it
 
