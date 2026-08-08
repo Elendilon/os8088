@@ -1253,6 +1253,8 @@ ovw_xm_arm:         call xm_arm
                     retf
 ovw_dsk_vol_slot:   call dsk_vol_slot
                     retf
+ovw_desk_rowcalc:   call desk_rowcalc
+                    retf
 
 ; ...and the clock's five. Each is a port helper the READ path (overlay) and
 ; the WRITE path (resident, because the Control Panel can set the clock all
@@ -1341,6 +1343,15 @@ kmain:
                                 ; splash already did, EXCEPT the mode set -
                                 ; the loading screen stays up and keeps
                                 ; ticking until spl_finish below (15.3)
+    call vid_probe_avail        ; ...and which OTHER adapters this machine has
+                                ; (SPEC.md 39.11.1). AFTER the mode is set, and
+                                ; that is the whole correctness argument: a VGA
+                                ; in mode 12h decodes A000 only, so B000 and
+                                ; B800 are free for a second card to answer at.
+                                ; Probed before the mode set, a VGA whose BIOS
+                                ; came up in mono text answers at B000 as
+                                ; ITSELF and reports a Hercules that is not
+                                ; there
     call mem_init               ; the claim heap (SPEC.md 50): int 12h, the
                                 ; empty map. FIRST of the memory users -
                                 ; every claim below goes through it
@@ -1608,6 +1619,12 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
                                 ; so this must be resident with it
 %include "splash.inc"           ; must be resident within the image's opening
                                 ; SPL_RESIDENT sectors (SPEC.md 15)
+%include "vidsel.inc"           ; which adapters the machine HAS, and moving
+                                ; between them at run time (SPEC.md 39.11).
+                                ; AFTER splash.inc and not beside viddet.inc,
+                                ; because nothing here is reachable from the
+                                ; splash and everything above it eats that
+                                ; module's residency budget
 %include "cpudet.inc"           ; CPU tiers + the A20 line (SPEC.md 41.1-41.3)
 %include "xmem.inc"             ; memory above 1MB (SPEC.md 41.4/41.5): after
                                 ; cpudet.inc, whose tier and feature bits it
@@ -1842,6 +1859,10 @@ cw_task_yield:          call task_yield
 cw_ui_post_cmd:         call ui_post_cmd
                     retf
 cw_vga_xor_rect_vram:   call vga_xor_rect_vram
+                    retf
+cw_vid_avail_test:      call vid_avail_test
+                    retf
+cw_vid_switch:          call vid_switch
                     retf
 cw_wm_clip_set:         call wm_clip_set
                     retf
