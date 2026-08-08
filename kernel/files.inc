@@ -1823,13 +1823,19 @@ fm_onclick_x:
     mov [fm_wased], al          ; only thing besides the two selection bands a
                                 ; row click can change (SPEC.md 22.2)
     call fm_edit_end            ; clicking away abandons a half-typed name
-    call fm_stat_clear          ; ...and retires the last verdict (22.9). CF=1
-    jnc .noclr                  ; means the LINE changed, and the cheap path
-    mov byte [fm_statowed], 1   ; below draws no text at all - so bank it and
-    jmp short .clrdone          ; pay one fm_status_only there rather than
-.noclr:                         ; letting 'Bad package' survive the click that
-    mov byte [fm_statowed], 0   ; was supposed to retire it
-.clrdone:
+    call fm_stat_clear          ; ...and retires the last verdict (22.9)
+    mov al, 0
+    jnc .noclr
+    inc al
+.noclr:
+    or al, [fm_wased]           ; ONE question, two causes: a retired verdict
+    mov [fm_statowed], al       ; and an ended editor line both rewrite the
+                                ; status LINE and change nothing else on this
+                                ; window. The cheap paths below draw no text
+                                ; at all, so they pay one fm_status_only for
+                                ; it - where each used to escalate to a whole
+                                ; repaint instead, which is what made clicking
+                                ; a row a SECOND time cost a window
 
     mov [fm_pressx], cx         ; the ABSOLUTE point, banked before the
     mov [fm_pressy], dx         ; conversion below eats it: a drag tracks in
@@ -1977,25 +1983,21 @@ fm_onclick_x:
     mov dx, [fm_lsel]           ; the mirror still names the OLD selection
     mov [bx+FS_SEL], ax
     mov [fm_lsel], ax
-    cmp byte [fm_wased], 0
-    jne .redraw                 ; an editor line was up: the repaint below
-                                ; owes the status line anyway and draws the
-                                ; new bar itself, so the XORs would be waste
     xchg ax, dx
     call fm_sel_bar             ; off...
     xchg ax, dx
     call fm_sel_bar             ; ...and on
-    cmp byte [fm_statowed], 0   ; a verdict was retired above and these bands
-    je .out                     ; drew no text (22.9)
+    cmp byte [fm_statowed], 0   ; the bands drew no text, so a line that
+    je .out                     ; changed is still owed (22.9)
     call fm_status_only
     jc .redraw                  ; 11.3's granularity refusal
     jmp short .out
 
 .quiet:
-    cmp byte [fm_statowed], 0   ; nothing moved - but a retired verdict and an
-    jne .redraw                 ; ended editor line both rewrote the line, so
-    cmp byte [fm_wased], 0      ; those still owe it
-    je .out
+    cmp byte [fm_statowed], 0   ; nothing moved, so there are no bands either -
+    je .out                     ; but the line may still have changed, and a
+    call fm_status_only         ; click on the row ALREADY selected owes that
+    jnc .out                    ; and nothing more
 
 .redraw:
     call fm_repaint             ; SI still = window ptr
