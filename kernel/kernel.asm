@@ -1644,6 +1644,8 @@ cw_inst_launch_post:    call inst_launch_post
                     retf
 cw_inst_set_name_x:     call inst_set_name_x
                     retf
+cw_inst_fhome_idx:      call inst_fhome_idx
+                    retf
 cw_inst_win_owner:      call inst_win_owner
                     retf
 cw_mem_avail:           call mem_avail
@@ -1744,6 +1746,8 @@ dskw_flush:           call COLD_SEG:dwf_dskw_flush
 dskw_gone:            call COLD_SEG:dwf_dskw_gone
                     ret
 dskw_read:            call COLD_SEG:dwf_dskw_read
+                    ret
+dskw_remount:         call COLD_SEG:dwf_dskw_remount
                     ret
 dskw_rename:          call COLD_SEG:dwf_dskw_rename
                     ret

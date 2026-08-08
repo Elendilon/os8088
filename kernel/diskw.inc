@@ -2053,6 +2053,15 @@ dskw_nbody:
 ; harvested for free. It cannot repaint the Disk window (the caller may
 ; hold the gfx lock) - SPEC.md 22 covers what the user sees.
 ;
+; WHEN that rebuild happens is fmv_gneed's question, and the answer is
+; usually "not now" (SPEC.md 18.4 rule 3). The invariant above is about what
+; the snapshot IS, never about how soon: a mount snapshot or nothing at all,
+; and the empty-listing-plus-debt this leaves is the second of those - the
+; identical state a quiet mount publishes (18.9), paid by dsk_relist. What
+; that buys is every write the user cannot see, and the Control Panel is the
+; measured case: 3 mounts and 47 sectors to save SYSTEM.CFG while the user
+; is on B:, none of which changed a pixel.
+;
 ; [dsk_keepcwd] is raised for the same reason dsk_chdir raises it, and
 ; leaving it out was a real bug (SPEC.md 18.4/19.2): a bare disk_mount
 ; resets [dsk_cwd] to the root BY DESIGN, so every successful write, delete,
@@ -2070,6 +2079,30 @@ dskw_sync_x:
                                 ; the single remount at its end has left
     cmp byte [dskw_batch], 0    ; a tree copy remounts ONCE, when it ends -
     jne .defer                  ; not after every one of its files (22.3)
+    call fmv_gneed              ; is anything ON SCREEN drawn from the global
+    jc dskw_remount_x           ; listing? then rebuild it now, as we always
+                                ; did - the Standard File dialog's New Folder
+                                ; is that case, and it is a write made while
+                                ; the dialog is up
+    mov word [disk_nfiles], 0   ; ...otherwise publish the EMPTY listing and
+    mov byte [dsk_lstale], 1    ; the debt, exactly the state a quiet mount
+                                ; leaves (18.9): a wrong listing is worse than
+                                ; no listing, and dsk_relist is the payment
+.defer:
+    ret
+
+; -----------------------------------------------------------------------------
+; dskw_remount_x - rebuild the global snapshot where we stand (SPEC.md 18.4)
+; in:  nothing
+; out: nothing (all registers preserved); CF is NOT propagated
+;
+; The remount half of dskw_sync, split out because dsk_relist has to be able
+; to FORCE it: dsk_relist used to tail-call dskw_sync, and once dskw_sync
+; learned to defer, that pair would have cleared the debt and then declined to
+; pay it - a listing that is never rebuilt, which is the one failure this
+; whole mechanism must not have.
+; -----------------------------------------------------------------------------
+dskw_remount_x:
     push ax
     push dx
     mov dl, [disk_drive]
@@ -2078,7 +2111,6 @@ dskw_sync_x:
     mov byte [dsk_keepcwd], 0
     pop dx
     pop ax
-.defer:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3175,6 +3207,8 @@ dwf_dskw_flush:         call dskw_flush_x
 dwf_dskw_gone:          call dskw_gone_x
                     retf
 dwf_dskw_read:          call dskw_read_x
+                    retf
+dwf_dskw_remount:       call dskw_remount_x
                     retf
 dwf_dskw_rename:        call dskw_rename_x
                     retf

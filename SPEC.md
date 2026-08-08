@@ -5201,6 +5201,8 @@ the volume.
 | `dskw_dfree` | out: CF=0, DX:AX = free bytes (32-bit), BX = **sectors** per cluster (not bytes — `spc`×512 overflows 16 bits at the §18.2-legal `spc` = 128); CF=1, AX = `FERR_*`. Counts free entries across the resident FAT snapshot; no disk I/O. |
 | `dskw_mkdir` | in: SI → name. Creates a subdirectory in the current directory (§18.5). Out: CF/AX as above. Not an API slot — kernel-internal, because a package has no way to navigate. |
 | `dskw_rmdir` | in: SI → name. Removes an **empty** subdirectory of the current directory (§18.6): `FERR_PROT` if it holds anything, if it is not a directory, or if it is read-only/hidden/system/label. Out: CF/AX as above. Not an API slot, for `dskw_mkdir`'s reason. |
+| `dskw_sync` | in nothing. The coherence pass every successful write ends in: `fmv_mark` always, then `dskw_remount` only if `fmv_gneed` says something on screen is drawn from the global listing — otherwise `disk_nfiles` = 0 and `[dsk_lstale]` = 1, the §18.9 debt. Suppressed entirely by `[dskw_batch]`. Preserves all registers; CF is **not** propagated. |
+| `dskw_remount` | in nothing. The remount half on its own: `disk_mount` of `[disk_drive]` with `[dsk_keepcwd]` raised. Preserves all registers; CF not propagated. **`dsk_relist` calls this and never `dskw_sync`** — the payment must not be able to defer again (§18.9). |
 
 **Error codes (pinned; returned in AX with CF=1, mirrored as `FERR_*` in
 `apps/os88api.inc`):** 0 ok, 1 no mounted disk, 2 disk I/O error, 3 bad
@@ -5318,24 +5320,69 @@ orphaned — harmless (every host ignores or reclaims them) but real, and the
 reason the shipped apps disk and everything os8088 writes use plain 8.3
 names.
 
-**Cache coherence.** A successful `dskw_write` / `dskw_delete` /
-`dskw_rename` / `dskw_mkdir` / `dskw_rmdir` ends in `dskw_sync`, which **remounts the
-current drive** (§18.3) with `[dsk_keepcwd]` raised, exactly as `dsk_chdir`
-does (§19.2). Raising it is **binding**, not an optimisation: a bare
+**Cache coherence — a write MARKS, and only a reader pays.** A successful
+`dskw_write` / `dskw_delete` / `dskw_rename` / `dskw_mkdir` / `dskw_rmdir`
+ends in `dskw_sync`, which does two things: it marks every view of the
+folder that changed (`fmv_mark`, §22.8), and it makes the global snapshot
+coherent again. The first is a byte per window. The second is a **remount**
+(§18.3) with `[dsk_keepcwd]` raised, exactly as `dsk_chdir` does (§19.2) —
+and it is the expensive half, so it happens **when something on screen is
+drawn from that snapshot, and not otherwise**.
+
+`[dsk_keepcwd]` is **binding** and unchanged by any of this: a bare
 `disk_mount` resets `[dsk_cwd]` to the root by design, so without it every
 successful write performed inside a subdirectory would silently teleport
 the volume back to the root — the file manager would keep showing a folder
 whose contents it was no longer listing, and the *next* write would resolve
-its name in the root instead. It costs
-the §18.3 mount budget (16 sector reads on the shipped disk, instant under
-QEMU) and it keeps the system's single strongest disk invariant intact:
-`disk_dir`, `disk_icons` and `disk_nfiles` are *always* exactly a mount
-snapshot, never a patched one. No new staleness rule enters the kernel, a
-package that writes a `.o88` gets its icon harvested for free, and the
-directory indices the Disk window and loader use stay meaningful. The
-remount cannot repaint the Disk window (the caller may hold the gfx lock),
-so an open Disk window shows the new listing at its next repaint or
-Refresh (§22).
+its name in the root instead.
+
+**The rule this replaces was "every write remounts", and it was too
+strict.** It was written when the only writer was the file manager acting
+on the window the user was looking at, and it stopped being true the moment
+a package — or the OS itself — could write. The invariant it protects is
+about what the snapshot **is**, never about how soon: `disk_dir`,
+`disk_icons` and `disk_nfiles` are *always* either exactly a mount snapshot
+or **nothing at all**, and never a patched one. So the deferral publishes
+the second of those — `disk_nfiles` = 0 with `[dsk_lstale]` raised, the
+identical state a quiet mount leaves (§18.9), because a wrong listing is
+worse than no listing. `dsk_relist` is the payment. No new staleness rule
+enters the kernel; the one §18.9 already had is simply also reachable from
+here.
+
+`fmv_gneed` is the question, and the answer is short because only **one**
+thing reads the global listing while it is on screen: the Standard File
+dialog, which is modal and deliberately keeps no cache of its own (§38.2).
+Its **New Folder** button is a write made while it is up, so this is the
+case that must never be deferred. A Disk window is *not* on that list and
+its absence is §22.1/§22.8 rather than an oversight — it paints from its
+own view cache, `fmv_mark` has just marked it, and `fm_focus` rebuilds
+cache and pixels **together** when it comes to the front. Remounting here
+could not refresh one; it could only make that window's mount happen
+earlier, for a window that may never be looked at again.
+
+**What it costs when it does run** is the §18.3 mount budget (16 sector
+reads on the shipped disk, instant under QEMU), it cannot repaint the Disk
+window (the caller may hold the gfx lock), and a package that writes a
+`.o88` still gets its icon harvested — by the mount whoever needs the
+listing performs.
+
+**Measured, on the case the old rule was worst for** (`make DISKCNT=1`,
+§18.94; the user is on B:, changes a Control Panel setting and closes the
+panel, which writes `SYSTEM.CFG` to the *system* disk — §51.5.1):
+
+| | `disk_mount` | sectors | int 13h |
+|---|---|---|---|
+| every write remounts | 3 | 47 | 21 |
+| **this rule** | **2** | **28** | **12** |
+
+Nineteen sectors is **~4.5 s of floppy on the field machine** at
+PERFORMANCE.md's 238 ms per sector, spent rebuilding a listing that no
+pixel on screen was drawn from — and `SYSTEM.CFG` is hidden+system (§19.6),
+so it does not appear in a listing even on a machine with A:'s root open.
+The two that remain are the volume switch to A: and the switch back, which
+are what "write to a disk the user is not on" *means*; both are quiet now
+(§18.9). An app saving a document into a folder no window is showing was
+one mount and is **zero**.
 
 **The cost of that ordering**, stated plainly: a replace holds both chains
 at once, so rewriting a file needs room for the new copy *beside* the old
@@ -5880,14 +5927,28 @@ buffer still holds the previous volume's entries, and a stale `disk_nfiles`
 is the one thing that could make a reader take them for this volume's — so
 it goes to 0, which is a state the whole kernel already handles, and
 `[dsk_lstale]` says the global snapshot is owed a rebuild. `dsk_relist` pays
-it by tail-calling `dskw_sync`, and it is idempotent so a caller may spend it
-without asking whether it switched.
+it, and it is idempotent so a caller may spend it without asking whether it
+switched.
 
-**Every path back to the event loop must pay.** The copy engine is the only
-caller, and it has two such paths — `fcp_stop` and the replace question's
-pause — because at both of them the world repaints and other writes become
-legal again. The pause is the sharp one: it is not an end, so nothing else
-would have reconciled it.
+**`dsk_relist` pays through `dskw_remount`, NOT through `dskw_sync`, and
+those two are separate routines for exactly this reason.** It used to tail-
+call `dskw_sync`, which was then unconditional. Once `dskw_sync` learned to
+defer (§18.4), that pair would have cleared the debt and then declined to
+pay it — a listing that is never rebuilt, which is the one failure the whole
+mechanism must not have. `dskw_sync` is *mark, then decide*; `dskw_remount`
+is the remount on its own, and the payment is always the second.
+
+**Three callers now leave this debt, and only one of them owes an
+immediate payment.** The copy engine's volume switching does, and it has two
+paths back to the event loop — `fcp_stop` and the replace question's pause —
+because at both of them the world repaints and other writes become legal
+again; the pause is the sharp one, since it is not an end and nothing else
+would have reconciled it. `drv_mounted` and `drv_vol_back` (§51.5.2) leave
+it and owe nothing: no pixel on screen is drawn from the global listing, so
+the reader who needs one pays for it. And §18.4's deferred write leaves it
+on the same terms. **A debt that is never collected is the correct outcome**
+here, not a leak — it costs one word of state and means the sectors were
+never spent.
 
 ### 18.91 The transfer loop batches a run into one int 13h
 
@@ -6437,7 +6498,13 @@ forever, though — a directory walk has no file size to bound it the way
 walk. 256 sectors is 4,096 entries, past anything real and far past the
 32-entry listing cap.
 
-**Navigation is a remount.**
+**Navigation is a remount — and navigation is the thing that is.** The rule
+is about a user moving around a file system UI, not about the disk being
+touched: a *file operation* wants the BPB, the FAT window and a validated
+cwd, and nothing below that (§18.9), while a *background write* wants no
+listing at all until somebody looks (§18.4). Both of those have their own
+cheaper path. What follows is the full-fat one, and what earns it is that
+the user is about to read the listing off the glass.
 
 ```
 dsk_chdir    in:  AX = the directory's first cluster (0 = the root),
@@ -6459,8 +6526,15 @@ whole of navigation: rather than a second way to fill
 `disk_dir`/`disk_icons`, entering a folder re-runs the one validated
 pipeline — BPB re-checked, FAT re-snapshotted, listing and icon harvest
 rebuilt. It costs a floppy's worth of sectors per navigation and buys the
-property that `disk_dir` is **always** exactly a mount snapshot, with no
-third staleness rule anywhere in the kernel.
+property that `disk_dir` is **always** exactly a mount snapshot — or, when
+one is owed rather than held, nothing at all (§18.4/§18.9) — with no third
+staleness rule anywhere in the kernel.
+
+That cost is **affordable precisely because it is per navigation**: the
+user asked for a different folder and is waiting to see it, so the sectors
+buy something visible. The same sectors spent behind a write nobody
+requested buy nothing, which is why §18.4 no longer spends them and why
+`dsk_chdir_q` exists for the callers that only mean to open a file.
 
 `DL` is an input rather than a read of `[disk_drive]` so that a caller can
 name the drive it means; today every caller passes `[disk_drive]`, but the
@@ -8235,6 +8309,7 @@ performance input, not a precondition.
 | `fmv_bcast` | after a successful metadata write, re-copies the (already correct, §18.4) global snapshot into **every** live file-manager window on the same `(drive, cwd)` — the acting one included, since its own cache is stale too — and clears their `FS_SEL`/`FS_SCRL`. Pure memory, no extra I/O. Clears `FS_DIRTY` for the acting window alone (§22.8): it is the one its caller repaints. |
 | `fmv_take` | in DI = state block, whose `(FS_DRV, FS_CWD)` the caller has already compared against the globals. The memory half of a re-list — the four stores `fmv_load` makes around its `dsk_chdir`, with no mount in it. Shared by `fmv_bcast` and `fm_focus`. Preserves all registers. |
 | `fmv_mark` | in nothing: `([disk_drive], [dsk_cwd])` are the folder that just changed. Sets `FS_DIRTY` on every live file-manager window showing it and raises `[fm_fchk]` (§22.8). Writes bytes only — the caller may hold the gfx lock. Called by `dskw_sync`. |
+| `fmv_gneed` | in nothing. Out: CF=1 = something on screen is drawn from the **global** listing, so §18.4's coherence remount must run now; CF=0 = record the debt instead. Only the Standard File dialog answers yes — a Disk window paints from its own cache (§22.1) and has just been marked. Clobbers flags. Called by `dskw_sync`. |
 | `fm_focus` | in BX = the window gaining the focus (0 = none), AL = 0 the caller draws it / 1 draw it here; **gfx lock held, UI task**. On a file-manager window owing a refresh: re-list (`fmv_take` where the globals allow, else `fmv_load`), clear `FS_DIRTY`, and either repaint or answer **CF = 1** so the caller draws it whole (§22.8). CF = 0 = nothing owed. Preserves all registers. |
 
 **`fm_layout` is the sole authority on `[fm_vseg]`** (and `[fm_vp]`): it
@@ -8399,9 +8474,11 @@ Four things hold the engine up:
   mount, because then the snapshot genuinely is wrong. The cluster is
   range-checked here, since the quiet path skips `disk_mount`'s own
   `.cwd_lost` validation.
-- **`[dskw_batch]` defers the coherence remount.** §18.4 rule 3 has every
-  `dskw_*` re-mount on success; a tree copy would pay that per file, so the
-  flag suppresses it and the operation ends with one `fmv_reload_all` — every
+- **`[dskw_batch]` defers the coherence remount** — a second deferral, above
+  §18.4's own and older than it. §18.4 rule 3 has every `dskw_*` reconcile on
+  success, and even the *marking* half is per file; a tree copy would pay the
+  remount per file whenever a view was watching, so the flag suppresses it
+  outright and the operation ends with one `fmv_reload_all` — every
   live Disk window re-listed from its own (drive, folder), because a paste
   changes the destination, a Cut's source, and every folder it created.
   `fmv_bcast` reaches only the windows on the *current* (drive, cwd), which
@@ -8799,13 +8876,21 @@ CF = 1 when it re-listed, and takes AL to say who is going to draw:
   the pinstripes to the window underneath (§11.91, `menu_check`) without ever
   calling `wm_front`.
 
-The mount is usually skipped. `fmv_take` — the memory half of a re-list,
+The mount is sometimes skipped. `fmv_take` — the memory half of a re-list,
 factored out of `fmv_bcast` so the two cannot disagree about what a fresh
 cache means — is taken when the globals already are this window's folder,
-are not `[dsk_lstale]` (§18.9) and came from a mount that worked; and they
-usually are, because the write that dirtied the window ended in a remount of
-the folder it wrote to. Otherwise it is `fmv_load`, which is what Refresh has
-always cost.
+are not `[dsk_lstale]` (§18.9) and came from a mount that worked. Otherwise
+it is `fmv_load`, which is what Refresh has always cost.
+
+**That used to be the common case and is now the uncommon one, and the
+change is a saving rather than a loss.** The write that dirtied the window
+used to end in a remount of the folder it wrote to, so the globals were hot
+and `fmv_take` was free — but the kernel had *already paid* for that mount,
+whether or not the window was ever brought forward. §18.4 stopped paying it,
+so the globals are usually `[dsk_lstale]` here and this is usually a real
+`fmv_load`. The arithmetic is what matters: one mount, moved from the write
+to the look. A user who never focuses that window pays nothing, and one who
+does pays exactly what the write used to charge everybody.
 
 **Clearing is the sharp end, and the rule is: only something that makes the
 cache AND the pixels current may clear it.** `fm_focus` does both.
@@ -13489,9 +13574,62 @@ no longer always reaches it.
 **What this deliberately does not do.** No filtering by extension (an Open
 dialog that hid `.TXT` from Note Pad would be a lie about what is on the
 disk), no icon view (the Disk window is where you browse; this is where you
-choose), no new-folder button (§22 has one, one implementation is enough),
-no multiple selection, and no second dialog on top of the first — the gate
-is a single word for the same reason `[menu_win]` is.
+choose), no multiple selection, and no second dialog on top of the first —
+the gate is a single word for the same reason `[menu_win]` is. It *does*
+have a New Folder button, and that button is load-bearing well outside this
+module: it is the one write in the system made while something on screen is
+drawing from the global listing, which is the case §18.4's deferral must
+never take.
+
+### 38.10 The location and the name are per APPLICATION
+
+`fdlg_open` used to end its setup with an unconditional "re-list where the
+volume already is" — `[disk_drive]` and `[dsk_cwd]`, the globals. Those are
+**one** pair for the whole machine, so anything that moved them moved every
+application's idea of where its documents live. A Control Panel close writes
+`SYSTEM.CFG` to the system disk (§51.5.1); a package writing a file leaves
+the volume wherever it wrote; a Disk window coming to the front re-lists into
+*its* folder (§22.8). After any of those, the next Save As in an unrelated
+app opened somewhere the user had never taken it.
+
+So each instance carries its own. `inst_fdrv` / `inst_fcwd` / `inst_fname`
+are a side table in `instance.inc`, one row per record: the volume, the
+directory and the name that instance last **committed** to.
+
+Six things about it:
+
+- **A side table, not three more record fields.** `I_RECSZ` is 32, it is
+  full (`I_CYC`'s dword ends it), and index<<5 is what makes a record cheap
+  to reach everywhere else in the kernel — widening it to carry 16 more bytes
+  would put a multiply in every walk. `inst_fhome_idx` owns the indexing so
+  `instance.inc` and `fdlg.inc` cannot come to disagree about which row
+  belongs to which record.
+- **Cleared in `inst_alloc`, for `I_CYC`'s reason.** A reused record must not
+  inherit a dead instance's folder, or the first Save from a freshly launched
+  app would open somewhere only its predecessor had been.
+- **The first open inherits the volume the user is on**, which is what the
+  old behaviour was for and the half of it worth keeping: `0xFF` in
+  `inst_fdrv` means "has never used a dialog", and Note Pad launched from
+  `B:\APPS` opens its first Save As there.
+- **Written on a COMMIT and nowhere else.** A cancelled dialog is not a
+  statement about where an app keeps its documents, and neither is a folder
+  the user looked into and backed out of. The store sits after
+  `fdlg_commit`'s staleness triple, so a dead record is never written to.
+- **The caller's default name still wins.** `fdlg_open`'s `SI` is the
+  document the app is actually on; the remembered name is what fills the box
+  when `SI` is 0, which is the case that used to give an empty box.
+- **The banked fallback is taken FIRST**, because a remembered folder can
+  have gone away — the disk was swapped, or the directory deleted — and
+  `dsk_chdir`'s failure path leaves `[dsk_cwd]` at 0 on the drive it tried.
+  Re-reading the globals after a failed attempt would therefore not recover
+  where the user is; `fdlg_home_go` banks the pair before it tries.
+
+What this does **not** change is where a *file operation* resolves. Names
+still resolve in the current directory (§19.2), and the dialog leaves the
+volume at the folder it just committed to, so the write an app performs
+inside its completion callback lands where the user chose. This section is
+about which folder the **chooser opens on**, which is the thing a background
+write was silently moving.
 
 ## 39. viddet.inc — video adapters, runtime geometry, the mono renderer
 
@@ -18827,6 +18965,12 @@ Three things about it are load-bearing:
   | after, volume already A: | 1 | 26 | 10 |
   | **the restore itself** | **1** | **15** | **5** |
 
+  **Those four rows predate the quiet mounts below and are kept as the
+  record of what the restore cost when it was introduced.** Both mounts in
+  this pair are `dsk_chdir_q` now, so the *sector* figures are smaller than
+  the table says while the mount counts are unchanged; §18.4 carries the
+  current measurement of the path this sits on.
+
   So the fix **adds one floppy remount, and only when the volume actually
   moved**. That is not a side effect to be optimised away later — putting the
   volume back *is* a remount, because navigation in this OS is a remount by
@@ -18843,6 +18987,18 @@ Three things about it are load-bearing:
   than being arranged. It mounts A: itself before the loop, so every
   `drv_load` inside it banks A: and finds A: — the restore is skipped without
   anything having to know it is boot.
+- **Both mounts are QUIET** (`dsk_chdir_q`, §18.9). Going to A: and coming
+  back are volume switches made to read or write a file **by name** —
+  `drv_find` is `dskw_stat`, `drv_cfg_load`/`drv_cfg_save` are
+  `dskw_read`/`dskw_write_sys`, and not one of them looks at a listing — so
+  the directory scan, the sort and one icon-harvest read per file in A:'s
+  root were all bought for nothing. Coming back is the same argument from the
+  other side: putting the user's **volume** back is not the same as putting a
+  **listing** on screen, because every Disk window paints from its own view
+  cache (§22.1). `ui_tm_open` is the caller that genuinely does need a
+  listing — it hands the loader a directory index — and it mounts A: itself
+  rather than coming through `drv_mounted`, which is why it is unaffected.
+  Measured on the boot path: a plain boot is **14 sectors → 11**.
 
 One static pair holds the banked volume, like `ui_tm_cwd` and for the same
 reason: this is UI-task context and the two brackets never nest — `cp_flush_x`

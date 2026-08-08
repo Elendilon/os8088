@@ -744,8 +744,12 @@ Four things are load-bearing:
 - **The mount is usually skipped.** `fmv_take` (the memory half of a re-list,
   factored out of `fmv_bcast` so the two cannot disagree) is taken when the
   globals already are this folder, are not `[dsk_lstale]` and came from a
-  mount that worked — which they usually are, the write having ended in a
-  remount of the folder it wrote to.
+  mount that worked. That used to be the common case *because* the write had
+  just remounted the folder it wrote to — but the kernel had already paid for
+  that mount whether or not the window was ever looked at. §18.4 stopped
+  paying it, so this is usually a real `fmv_load` now: **one mount, moved
+  from the write to the look.** A user who never focuses the window pays
+  nothing; one who does pays what the write used to charge everybody.
 - **Only something that makes cache AND pixels current may clear the flag.**
   `fm_focus` does; `fmv_reload_all` does (`fmv_repaint_all` is its other
   half); `fmv_bcast` clears it for the ACTING window only, because its caller
@@ -1097,6 +1101,30 @@ holds the gfx lock, so it creates and shows the window inline and returns; the
 answer comes back later through a completion callback, run after the dialog is
 destroyed so the app repaints onto clean screen.
 
+**Where it OPENS is per application, not global (SPEC.md §38.10).** It used
+to end its setup with an unconditional "re-list where the volume already is",
+and `[disk_drive]`/`[dsk_cwd]` are one pair for the whole machine — so
+anything that moved them moved every app's idea of where its documents are:
+a Control Panel close writes `SYSTEM.CFG` to the system disk (§51.5.1), a
+package writing a file leaves the volume where it wrote, a Disk window coming
+to the front re-lists into *its* folder (§22.8). The next Save As in an
+unrelated app then opened somewhere the user had never taken it.
+`inst_fdrv`/`inst_fcwd`/`inst_fname` are a side table in `instance.inc`, one
+row per record, carrying the volume, directory and name that instance last
+**committed** to. Six things hold it up: it is a side table because `I_RECSZ`
+is 32 and full and `index<<5` is what makes a record cheap to reach
+everywhere else; `inst_alloc` clears it for `I_CYC`'s reason (a reused record
+must not inherit a dead instance's folder); `0xFF` means "never used a
+dialog", so the **first** open still inherits the volume the user is on;
+it is written on a COMMIT only, after `fdlg_commit`'s staleness triple, since
+a cancelled dialog is not a statement about anything; the caller's `SI`
+default still wins, the remembered name filling the box only when `SI` is 0;
+and `fdlg_home_go` banks the current pair **before** trying the remembered
+one, because `dsk_chdir`'s failure path moves the globals it would otherwise
+be recovered from. What it does *not* change is where a file operation
+resolves — names still resolve in the current directory (§19.2), and the
+dialog leaves the volume at the folder it committed to.
+
 ### Where the memory went (SPEC.md §2, `docs/KERNEL-MEMORY.md`)
 
 **The kernel is one span, and it fits the budget.** `KERNEL_SEG` = 0x0060 — the first paragraph above the BIOS data area — through the top of task 0's stack: image, `.bss`, the cold segment, the FAT window (which doubles as the boot overlay's landing zone), the disk caches, the sector buffer and every task stack. 72,704 bytes of the 74,240-byte `KERN_BUDGET` (the footprint guard), with `KERN_CODE_MAX` — `.text` + `.bss` inside one 64KB segment — at 55,456 of 65,536. `KERN_BUDGET` is the tighter of the two by 5x and is meant to be; `docs/KERNEL-MEMORY.md` is the byte-exact account of both. Above it: the claim heap, and nothing else. The 60KB package pool is retired — a package's region is an ordinary heap claim (SPEC.md §20.1), which returned those 60KB to every machine and dropped the RAM floor from 256KB to **128KB**.
@@ -1203,9 +1231,18 @@ re-harvested on every switch and copying a folder got slower as it filled. The
 trap is that a quiet mount leaves the global snapshot EMPTY and owed —
 `disk_nfiles` goes to 0 (a wrong listing is worse than no listing) and
 `[dsk_lstale]` is the debt, which `dsk_relist` pays by tail-calling
-`dskw_sync`. **Every path back to the event loop must pay it**, and the copy
-engine has two: `fcp_stop` and the replace question's pause. The pause is the
-sharp one — it is not an end, so nothing else would reconcile it.
+**`dskw_remount`, never `dskw_sync`** — `dskw_sync` defers when nothing on
+screen is drawn from the listing (§18.4), so that pair would clear the debt
+and then decline to pay it, which is a listing that is never rebuilt. **The
+copy engine's paths back to the event loop must pay**, and it has two:
+`fcp_stop` and the replace question's pause. The pause is the
+sharp one — it is not an end, so nothing else would reconcile it. **The
+other three debtors owe nothing at all**: `drv_mounted` and `drv_vol_back`
+(both quiet now — going to A: to write `SYSTEM.CFG` and coming back are file
+operations, not navigations, and no Disk window paints from the global
+listing) and §18.4's deferred write. A debt nobody ever collects is the
+right outcome there rather than a leak: it costs one word of state and means
+the sectors were never spent.
 
 **A copy costs two volume switches per file** (SPEC.md §22.5), down from five.
 The destination is created WITH its first chunk instead of empty (so the first
@@ -1224,7 +1261,7 @@ that ends before the size says it should is an ERROR now, where the old loop
 returned short and the caller read that as "finished" and truncated in
 silence.
 
-**Writing** is `kernel/diskw.inc` (prefix `dskw_`, the only caller of `disk_write`): seven operations — write (create or replace), read, delete, rename, dfree, plus `dskw_mkdir` and `dskw_rmdir` for folders (SPEC.md §18.5/§18.6) — the first five reached by the OS directly and by packages through API slots 0x0120..0x0140, UI-task context only. Names resolve in the volume's **current directory** (`[dsk_cwd]`, SPEC.md §19.2), not the root. Three rules are binding and easy to break by accident. (1) **Commit order**: allocate + write the data, flush the FAT, *then* write the directory entry (one sector — the commit), *then* free the replaced chain and flush again; a crash leaks lost clusters, never a cross-link. (2) **Rollback**: any failure before the commit re-reads the FAT off the disk (`dskw_refat`), so a half-built chain cannot survive in RAM to be flushed later. (3) **Coherence by remount**: a successful metadata change re-runs `disk_mount`, so `disk_dir`/`disk_icons`/`disk_nfiles` stay exactly a mount snapshot and no new staleness rule enters the kernel. Writes are gated on `[dsk_mntok]`, set only by a fully successful mount — which is why the boot floppy (no valid BPB) can never be written. Verify write changes with the `tests/filetest` gate package (`make test-snd TESTAPPS=build/filetest.img`, plus the `-frag` image) **and** `python3 tools/os88disk.py --verify <img>` from the host afterwards — the in-kernel free-space check and the host fsck catch different bugs.
+**Writing** is `kernel/diskw.inc` (prefix `dskw_`, the only caller of `disk_write`): seven operations — write (create or replace), read, delete, rename, dfree, plus `dskw_mkdir` and `dskw_rmdir` for folders (SPEC.md §18.5/§18.6) — the first five reached by the OS directly and by packages through API slots 0x0120..0x0140, UI-task context only. Names resolve in the volume's **current directory** (`[dsk_cwd]`, SPEC.md §19.2), not the root. Three rules are binding and easy to break by accident. (1) **Commit order**: allocate + write the data, flush the FAT, *then* write the directory entry (one sector — the commit), *then* free the replaced chain and flush again; a crash leaks lost clusters, never a cross-link. (2) **Rollback**: any failure before the commit re-reads the FAT off the disk (`dskw_refat`), so a half-built chain cannot survive in RAM to be flushed later. (3) **Coherence by mark, then remount only if somebody is looking**: a successful metadata change always marks the views of the folder that changed (`fmv_mark`, SPEC.md §22.8) and re-runs `disk_mount` **only when `fmv_gneed` says something on screen is drawn from the global snapshot** — in practice only the Standard File dialog, whose New Folder button is a write made while it is up. Otherwise it publishes `disk_nfiles` = 0 with `[dsk_lstale]` raised, which is the identical state a quiet mount leaves (§18.9), and `dsk_relist` pays. `disk_dir`/`disk_icons`/`disk_nfiles` are therefore still *always* either exactly a mount snapshot or nothing at all, never a patched one, and no new staleness rule enters the kernel. **The old rule was "every write remounts" and it was too strict** — it was written when the only writer was the file manager acting on the window the user was looking at. Measured: a Control Panel close while the user is on B: was 3 mounts / 47 sectors and is **2 / 28** (~4.5 s of floppy on the 5150), and an app saving into a folder no window shows was 1 mount and is **0**. Writes are gated on `[dsk_mntok]`, set only by a fully successful mount — which is why the boot floppy (no valid BPB) can never be written. Verify write changes with the `tests/filetest` gate package (`make test-snd TESTAPPS=build/filetest.img`, plus the `-frag` image) **and** `python3 tools/os88disk.py --verify <img>` from the host afterwards — the in-kernel free-space check and the host fsck catch different bugs.
 
  Packages are format v3 (SPEC.md §20.2) and **own a segment**: assembled at org 0, loaded on a paragraph boundary claimed off the top of the heap (`mem_claim_hi`), bss zeroed, entry far-called with DS = CS = the package's own segment. There is no relocation of any kind — no dual assembly, no reloc table, no author rule about whole-word addresses — and `tools/os88pkg.py` is a validator rather than a generator.
 
@@ -1741,10 +1778,20 @@ with §18.94's counters rather than argued: ticking a driver on B: was 1 mount
 the restore itself is 1 / 15 / 5; on A: it stays 1 / 26 / 10; and a boot with
 a driver wanted is 2 mounts where an unconditional restore would be 3. **That
 cost is the fix rather than an overhead on it** — putting the volume back *is*
-a remount, because navigation here is a remount by design (§19.2) — and it is
+a remount — and it is
 affordable because of what it is attached to: both callers already touch the
 floppy, and a `SYSTEM.CFG` write alone is 2+ seconds of frozen UI on the floor
-machine (§31.8).
+machine (§31.8). **Those figures predate the quiet mounts and are kept as the
+record of what the restore cost when it was introduced**: going to A: and
+coming back are `dsk_chdir_q` now (SPEC.md §18.9), because both are file
+operations by NAME — `drv_find` is `dskw_stat`, `drv_cfg_*` are
+`dskw_read`/`dskw_write_sys` — and none of them looks at a listing, so the
+scan, the sort and one icon-harvest read per file in A:'s root were bought
+for nothing. Navigation is still a remount by design (§19.2); this was never
+navigation. Measured on the boot path: a plain boot is **14 sectors → 11**.
+`ui_tm_open` is the one caller that genuinely needs a listing (it hands the
+loader a directory index) and it mounts A: itself rather than coming through
+`drv_mounted`, so it is untouched.
 
 Two traps. **`build/os8088.img` is now writable and the OS writes to it** —
 any test that touches a Control Panel setting is remembered by that image and

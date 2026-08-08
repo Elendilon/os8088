@@ -822,6 +822,43 @@ fmv_mark:
     ret
 
 ; -----------------------------------------------------------------------------
+; fmv_gneed - does anything ON SCREEN need the GLOBAL listing right now?
+; in:  nothing
+; out: CF = 1 = rebuild it before returning to the event loop; CF = 0 = record
+;      the debt instead and let whoever reads it next pay
+; clobbers: flags
+;
+; The other half of SPEC.md 18.4 rule 3, which used to have no other half: a
+; successful write ALWAYS remounted, so a background write to a folder nobody
+; was looking at cost a floppy's worth of sectors to rebuild a listing no
+; pixel on screen was drawn from. That is the Control Panel's whole cost -
+; SYSTEM.CFG lands on the system disk (51.5.1) while the user is on B: - and
+; a package saving a file is the same shape.
+;
+; The answer is short because only ONE thing reads disk_dir / disk_nfiles
+; while it is on screen: the Standard File dialog, which is modal and
+; deliberately keeps no cache of its own (38.2). Its New Folder button is a
+; WRITE made while it is up (fdlg_newfolder -> dskw_mkdir), so this is not a
+; theoretical case - it is the one that must not be deferred, or the folder
+; the user just made would not appear until something else re-listed.
+;
+; A Disk window is NOT on this list, and that is 22.1/22.8 rather than an
+; omission: it paints from its own VIEW CACHE, it has just been marked
+; FS_DIRTY by fmv_mark, and fm_focus rebuilds cache and pixels TOGETHER when
+; it comes to the front. Remounting here would not refresh one - it would
+; only make the mount fm_focus is about to skip happen earlier, for a window
+; that may never be looked at again.
+; -----------------------------------------------------------------------------
+fmv_gneed:
+    cmp word [fdlg_win], 0
+    je .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; fm_focus - spend a Disk window's refresh debt as it comes to the front
 ; in:  BX = the window gaining the focus (0 = none), AL = 0 the caller draws
 ;      this window whole when we answer CF=1 / AL = 1 draw it here;

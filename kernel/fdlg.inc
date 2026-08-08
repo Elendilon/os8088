@@ -112,6 +112,10 @@ FD_NTY      equ 128
 FD_NAMEMAX  equ 12              ; 8 + '.' + 3, the whole 8.3 budget
 FD_DBLCLK   equ 9               ; double-click window, ticks (as SPEC.md 22)
 
+%if FD_NAMEMAX + 1 > INST_FNSZ  ; the per-instance name row (SPEC.md 38.10)
+  %error "INST_FNSZ too small for FD_NAMEMAX + NUL"
+%endif
+
 ; -----------------------------------------------------------------------------
 ; fdlg_tpl - the window template (SPEC.md 11): x, y, w, h, title, paint,
 ; onkey, onclick. The title word is overwritten per mode by fdlg_open.
@@ -206,17 +210,21 @@ fdlg_open_x:
     mov byte [fdlg_nmode], 0    ; ...as a FILE name; the New Folder button is
     mov byte [fdlg_name], 0     ; what switches the box to naming a folder
     or si, si
-    jz .fresh
+    jnz .setname                ; the CALLER's default wins - it knows which
+    call fdlg_home_name         ; document it is on - and failing that, the
+    jc .fresh                   ; name this app last picked (SPEC.md 38.10)
+.setname:
     call fdlg_setname
 .fresh:
     mov word [fdlg_sel], 0xFFFF
     mov word [fdlg_scrl], 0
     mov word [fdlg_clkt], 0
 
-    mov dl, [disk_drive]        ; re-list where the volume already is: the
-    mov ax, [dsk_cwd]           ; snapshot may be another window's folder
-    call KERNEL_SEG:cw_dsk_chdir ; (SPEC.md 22.1), and from here until the
-                                ; dialog closes nothing else can move it
+    call fdlg_home_go           ; open on THIS application's folder, not on
+                                ; wherever the GLOBAL volume was last left by
+                                ; a background write (SPEC.md 38.10) - and from
+                                ; here until the dialog closes nothing else
+                                ; can move it
 
     mov si, fdlg_tpl            ; wm_create reads the template at ES:SI, and
     push es                     ; ours is kernel data - which is also what
@@ -242,6 +250,157 @@ fdlg_open_x:
     pop di
     pop si
     pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fdlg_hidx - the requesting instance's file-home row (internal, SPEC.md 38.10)
+; in:  nothing ([fdlg_rqrec] names the record)
+; out: CF = 0 with BX = the slot index; CF = 1 = no live requester, and every
+;      caller then falls back to the global behaviour this module used to have
+; clobbers: BX (the output), flags
+;
+; [fdlg_rqrec] is validated by fdlg_open before it is stored and again by
+; fdlg_commit, so this only has to turn a record into a row - inst_fhome_idx
+; owns that arithmetic, because the table is instance.inc's.
+; -----------------------------------------------------------------------------
+fdlg_hidx:
+    push di
+    mov di, [fdlg_rqrec]
+    or di, di
+    jz .no
+    call KERNEL_SEG:cw_inst_fhome_idx ; BX = the slot
+    cmp bx, INST_MAX
+    jae .no
+    pop di
+    clc
+    ret
+.no:
+    pop di
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; fdlg_home_go - open on THIS application's folder (internal, SPEC.md 38.10)
+; in:  nothing; the gfx lock is held (fdlg_open's contract)
+; out: nothing (all registers preserved)
+;
+; This used to be an unconditional "re-list where the volume already is", and
+; the volume is GLOBAL - so anything that moved it moved every application's
+; idea of where its documents are. A Control Panel close writes SYSTEM.CFG to
+; the system disk (SPEC.md 51.5.1) and a package writing a file leaves the
+; volume wherever it wrote; either one silently relocated the next Save.
+;
+; The banked pair is the fallback and is taken FIRST, because a remembered
+; folder can have gone away - the disk was swapped, or the directory deleted -
+; and dsk_chdir's failure path leaves [dsk_cwd] at 0 on the drive it tried,
+; so re-reading the globals afterwards would not recover where the user is.
+; -----------------------------------------------------------------------------
+fdlg_home_go:
+    push ax
+    push bx
+    push dx
+    mov al, [disk_drive]        ; where the user is now: the first open of a
+    mov [fdlg_hdrv], al         ; freshly launched app inherits this, and any
+    mov ax, [dsk_cwd]           ; failure below comes back to it
+    mov [fdlg_hcwd], ax
+    call fdlg_hidx
+    jc .cur
+    cmp byte [inst_fdrv+bx], 0xFF
+    je .cur                     ; never used a dialog: inherit the volume
+    mov dl, [inst_fdrv+bx]      ; ...otherwise where THIS app last was
+    shl bx, 1
+    mov ax, [inst_fcwd+bx]
+    call KERNEL_SEG:cw_dsk_chdir
+    jnc .done
+.cur:
+    mov dl, [fdlg_hdrv]
+    mov ax, [fdlg_hcwd]
+    call KERNEL_SEG:cw_dsk_chdir
+.done:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fdlg_home_name - the name this application last picked (SPEC.md 38.10)
+; in:  nothing
+; out: CF = 0 with SI -> a NUL-terminated name; CF = 1 = none recorded
+; clobbers: SI (the output), flags
+; -----------------------------------------------------------------------------
+fdlg_home_name:
+    push ax
+    push bx
+    push cx
+    call fdlg_hidx
+    jc .no
+    mov al, bl
+    mov cl, INST_FNSZ
+    mul cl                      ; AX = slot * INST_FNSZ
+    mov si, inst_fname
+    add si, ax
+    cmp byte [si], 0
+    je .no
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; fdlg_home_save - record where this application ended up (SPEC.md 38.10)
+; in:  the volume is at the chosen folder and fdlg_name holds the answer
+; out: nothing (all registers preserved)
+;
+; Written on a COMMIT and nowhere else: a cancelled dialog is not a statement
+; about where the app keeps its documents, and neither is a folder the user
+; looked into and backed out of.
+;
+; The copy is a plain byte loop rather than movsb because ES here is the
+; requesting package's segment (SPEC.md 20.1) and stosb writes through it.
+; -----------------------------------------------------------------------------
+fdlg_home_save:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    call fdlg_hidx
+    jc .out
+    mov al, [disk_drive]
+    mov [inst_fdrv+bx], al
+    mov si, bx
+    shl si, 1
+    mov ax, [dsk_cwd]
+    mov [inst_fcwd+si], ax
+    mov al, bl
+    mov cl, INST_FNSZ
+    mul cl
+    mov di, inst_fname
+    add di, ax
+    mov si, fdlg_name
+    mov cx, INST_FNSZ - 1
+.cp:
+    mov al, [si]
+    mov [di], al
+    or al, al
+    jz .out
+    inc si
+    inc di
+    loop .cp
+    mov byte [di], 0            ; a name that filled the row still terminates
+.out:
+    pop di
+    pop si
     pop cx
     pop bx
     pop ax
@@ -447,6 +606,9 @@ fdlg_commit:
     mov ax, [fdlg_rqsp]
     cmp ax, [di+I_SPTR]
     jne .out
+    call fdlg_home_save         ; this app's folder and name, for its NEXT
+                                ; dialog (SPEC.md 38.10) - after the staleness
+                                ; triple, so a dead record is never written to
     mov cx, [fdlg_rqcb]
     or cx, cx
     jz .out
@@ -2331,6 +2493,10 @@ section .bss
                                 ; `dw 0` up in .text; see the note there)
 fdlg_mode:  resb 1              ; 0 = Open, 1 = Save
 fdlg_rqwin: resw 1              ; the requester's window...
+fdlg_hdrv:  resb 1              ; fdlg_home_go's fallback: the volume the user
+fdlg_hcwd:  resw 1              ; is on, banked before a remembered folder is
+                                ; tried, because a chdir that FAILS moves the
+                                ; globals it would otherwise be re-read from
 fdlg_rqcb:  resw 1              ; ...its near completion proc...
 fdlg_rqrec: resw 1              ; ...its instance record...
 fdlg_rqsp:  resw 1              ; ...and that record's I_SPTR: the staleness

@@ -2691,9 +2691,16 @@ dsk_relist:
                                 ; an empty listing, which is exactly what the
                                 ; flag exists to stop being wrong about, so
                                 ; there is nothing left to owe
-    jmp dskw_sync               ; the same remount-where-we-stand that every
-                                ; successful write already does (18.4) - a
-                                ; tail call, and it preserves everything
+    jmp dskw_remount            ; the remount-where-we-stand half of dskw_sync
+                                ; (18.4) - a tail call, and it preserves
+                                ; everything.
+                                ;
+                                ; dskw_remount and NOT dskw_sync, which is the
+                                ; whole reason those two are separate routines:
+                                ; dskw_sync DEFERS when nothing on screen is
+                                ; drawn from the global listing, so this pair
+                                ; would clear the debt and then decline to pay
+                                ; it - and this is the payment.
 .out:
     ret
 
