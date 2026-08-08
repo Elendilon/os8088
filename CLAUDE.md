@@ -1805,6 +1805,33 @@ loads on the spot), and the "no hardware found" report is still exactly
 right when the settings file *did* ask — that path is untouched and gated on
 the same `DRVR_WANT`.
 
+**…but the first boot ASKS, and that is not the same as guessing (SPEC.md
+§51.3.1).** What §51.3 refused is in its own paragraph: 5.5KB of driver read
+off a floppy to be told there was no card. `drv_snd_sniff` is §34.2's OPL2
+timer-flag dance and costs **~2 ms of port I/O** — a hundredth of one floppy
+sector — so on a machine with no `SYSTEM.CFG` yet, the sound row's `DRVR_WANT`
+starts at 1 if there is an FM chip at 388h and 0 if there is not. Four things
+about it. **It is a DEFAULT and nothing enforces that** — `drv_cfg_unpack`
+calls `drv_want_set`, which rewrites all three `WANT` bytes from the file's
+bitmap, so a settings file always wins in both directions and there is no "did
+the file exist" test anywhere to get wrong. **It is in the BOOT OVERLAY**
+(§2.5), called from `kmain` and not from `drv_boot`, where it belongs by
+subject and cannot live: `drv_boot`'s own mount is what writes over the
+overlay, so by the time `drv_cfg_load` has answered the probe's code is FAT —
+which is also why it **costs nothing at all against `KERN_BUDGET`** (measured:
+`.text` +5 bytes for the far call, into 354 bytes of image-rung slack;
+`.ovl` +113, and the overlay is free). `clk_init`'s four-rung RTC ladder is
+the precedent, same shape and same home. **One probe covers both cards, as a
+fact about the hardware**: every Sound Blaster carries an OPL2 at 388h, which
+is why the driver's own attach probes FM first (§34.2). And **the DSP reset
+scan is a knob, `make SNDSNIFF=sb`, gated on the FM probe having missed**,
+because it costs the thing §51.3 refuses to spend on the hard-disk driver —
+*writing* to six unknown port ranges on every boot. Two cases want it: a card
+whose FM half is jumpered off, and QEMU's `-device sb16`, whose OPL does **not**
+answer the timer probe where a real one does (verified both ways). The field
+machine has no sound card at all (docs/FIELD-MACHINES.md), so it is the one
+that pays a probe and gains nothing — which is what decided the default.
+
 **`bb_set` is the LAST thing `drv_boot` does**, after the load loop, and that
 is SPEC.md §15.3's requirement rather than tidiness: it seeds the back buffer
 from VRAM, and until the first `wm_paint_all` VRAM holds the loading screen

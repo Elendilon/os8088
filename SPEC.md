@@ -18866,6 +18866,65 @@ page. The `[cp_sel]`-before-`KIND_CTRL` precedent is the menu bar clock's
 A machine with **no system disk at all** is not told about drivers it never
 enabled: only a row whose `DRVR_WANT` is set counts as a failure.
 
+### 51.3.1 The first boot asks the hardware, once
+
+§51.3's rule is that nothing loads that `SYSTEM.CFG` did not ask for, and it
+stands. What it was really refusing is stated in its own paragraph: reading
+**5.5KB of driver off a floppy — 27 sectors, about 6.4 s** — to be told there
+was no card. A *probe* is not that. `drv_snd_sniff` is the OPL2 timer-flag
+dance of §34.2 and costs about **two milliseconds of port I/O**, which is
+under one hundredth of a single floppy sector on the field machine, and it
+only ever asks for the read on a machine that answered.
+
+So on a machine that has **never been asked** — no `SYSTEM.CFG`, or one this
+kernel cannot deserialise — the sound row's `DRVR_WANT` starts at 1 if there
+is an FM chip at 388h, and at 0 if there is not. The kernel still does not
+guess: it measures.
+
+**Setting `DRVR_WANT` is a DEFAULT, not an override, and no code enforces
+that** — it falls out of the order the boot already ran in. `drv_cfg_unpack`
+calls `drv_want_set`, which writes **all three** `WANT` bytes from the file's
+bitmap, so a settings file that deserialises always wins, in both directions.
+A file that says *off* on a machine with a card loads nothing; a file that
+says *on* on a machine with none still reports `DRVE_HW`, exactly as before.
+There is no "did the file exist" test anywhere, because there is nothing for
+one to decide.
+
+**It runs from the boot overlay** (§2.5), called by `kmain` between `drv_init`
+and `ovl_snd_init` — not from inside `drv_boot`, which is where it belongs by
+subject and where it cannot live: `drv_boot`'s own `disk_mount` is what writes
+over the overlay, so by the time `drv_cfg_load` has answered, the probe's code
+is FAT. The consequence is that the probe cannot be conditional on the file
+being absent, and does not need to be. Being in the overlay is also why it
+**costs nothing at all against `KERN_BUDGET`** — the same trade, and the same
+home, as `clk_init`'s four-rung RTC ladder (§37.90): a hardware probe that
+answers once at boot has no business being resident.
+
+**One probe covers both cards, and that is a fact about the hardware rather
+than an economy.** Every Sound Blaster ever made carries an OPL2 of its own at
+388h — which is why the driver's own attach probes the FM half *first* and
+lets the SB rename the Control Panel row afterwards (§34.2). The DSP reset
+scan finds nothing on real hardware that the timer dance has not already
+found, and it costs what §51.3 refuses to spend for the hard-disk driver:
+**writing** to six unknown port ranges (210h–260h) on every boot of every
+machine, one of which may hold somebody else's card. `make SNDSNIFF=sb` adds
+it, gated on the FM probe having missed, for the two cases that want it — a
+card whose FM half is jumpered off or decoded elsewhere, and QEMU's own
+`-device sb16`, whose OPL does **not** answer the timer probe where a real one
+does. About 60 ms of a cardless boot; nothing at all on a machine with any FM
+chip in it.
+
+The dance leaves the chip masked and its flags reset, exactly as it found it,
+which is what makes it safe to run ahead of the driver's own `opl_probe`. It
+is the one exception to §34.1's "all access to 388h/389h goes through
+`opl_wr`", and a bounded one: it runs before any driver exists, it is that
+protocol byte for byte, and the code is gone before a driver can be loaded.
+
+The consequence for the user is the one §51.3 named and priced at "one click,
+once": on a machine with a card, that click is now zero clicks. On a machine
+without one, nothing changed — no probe of a disk, no read of a driver, no
+`DRVE_HW`, and no Control Panel opening on a failure nobody asked for.
+
 ### 51.4 Unloading, and why detach comes first
 
 `drv_unload` detaches, then frees — never the other way round. The detach
