@@ -72,3 +72,42 @@ overlays = [
     bus_type = "ISA"
     type = "CGA"
     clock_mode = "Dynamic"
+
+# ...and the SOUND machine: the CGA 5150 with an AdLib and a Sound Blaster.
+#
+# Both cards, because they are two halves of one real one - a Sound Blaster's
+# FM is an OPL2 at 0x388, which `adlib` already is, and this tree's driver
+# probes them separately (SPEC.md 51.4). The DSP version is a SETTING: at 2.01
+# the card does auto-init DMA and os8088 takes SPEC.md 34.5's looping path;
+# drop it to (1, 5) and the same driver has to re-arm the 8237 per half-buffer
+# from inside its own ISR, which is different guest code and worth testing.
+[[machine]]
+name = "os8088_5150_sb"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "AdLib"
+    io_base = 0x388
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
