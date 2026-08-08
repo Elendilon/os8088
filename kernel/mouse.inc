@@ -126,9 +126,16 @@ CUR_SAVE_SZ equ CUR_SPAN * CUR_GH * 4       ; ...x four planes, for VGA
 ; driver ever written assume: 3F8 is IRQ4 and 2F8 is IRQ3. A card whose jumper
 ; disagrees with its base address is out of scope here, as it was before.
 ; -----------------------------------------------------------------------------
+MOU_L4      equ 0x10            ; IRQ4's bit in the master 8259's OCW1 (0x21)
+MOU_L3      equ 0x08            ; ...and IRQ3's. Named because the ISR entries
+                                ; carry them too (SPEC.md 9.5.2.1) and a table
+                                ; and a stub that disagree about which bit is
+                                ; which line would mask the mouse's own
+
 mou_bases   dw 0x3F8, 0x2F8     ; UART base per port; 0 = nothing answered
 mou_ivecs   dw 0x30, 0x2C       ; ...its IVT offset: int 0x0C, int 0x0B
-mou_masks   dw 0x10, 0x08       ; ...its bit in the master 8259's OCW1 (0x21)
+mou_masks   dw MOU_L4, MOU_L3   ; ...the line its base says it drives, which is
+                                ; what to HOOK and never what to retire
 mou_isrs    dw mou_isr, mou_isr3    ; ...and the stub that vector points at
 
 ; -----------------------------------------------------------------------------
@@ -557,6 +564,8 @@ mou_claim:
     jb .out
     mov [mou_port], bl          ; settled. mou_hotplug's next pass retires
     mov byte [mou_seen], 1      ; every other port
+    mov al, [mou_lfired]        ; ...and THIS is the line those packets came in
+    mov [mou_line], al          ; on, which the base cannot say (SPEC 9.5.2.1)
 .out:
     pop ax
     ret
@@ -589,7 +598,15 @@ mou_newround:
 ; A second serial device is somebody else's - a modem, a printer, a terminal -
 ; and once the mouse is found its bytes can only cost interrupts and, through
 ; the ISR's shared packet state, corrupt real packets.
-; ins:  none (reads [mou_port])
+;
+; THE MASK IS TAKEN FROM THE LINE, NOT FROM THE BASE (SPEC.md 9.5.2.1). 9.5.2
+; fixed the ISR and left this behind: a loser's row says it is on IRQ4 because
+; its base is 3F8, and on a Compaq Portable III the MOUSE is the thing on IRQ4
+; - so retiring the loser masked the winner's own line. One movement settled
+; the port, this ran on the UI task's next pass, and the mouse was dead for
+; the session. IER = 0 is what actually silences a loser; the mask is the half
+; that needed to know which wire, and only the ISR can say.
+; ins:  none (reads [mou_port] and [mou_line])
 ; outs: none (all registers preserved)
 ; -----------------------------------------------------------------------------
 mou_lockon:
@@ -602,9 +619,14 @@ mou_lockon:
     je .next
     cmp word [bx+mou_bases], 0
     je .next
-    mov ax, 0x0100              ; IER = 0
-    call mou_pout
-    mov cl, [bx+mou_masks]
+    mov ax, 0x0100              ; IER = 0 - and THIS is what silences the
+    call mou_pout               ; loser, whatever line it turns out to drive
+    mov cl, [bx+mou_masks]      ; the line its BASE says it is on...
+    mov al, [mou_line]          ; ...against the one the mouse's packets
+    or  al, al                  ; actually arrived on. Unknown (impossible:
+    jz .next                    ; mou_claim sets it with [mou_seen]) masks
+    cmp cl, al                  ; nothing, because the failure is silent
+    je .next                    ; and permanent
     in  al, 0x21
     or  al, cl
     out 0x21, al
@@ -1090,9 +1112,14 @@ kbm_ev      times 8 db 0        ; the record kbm_post fills for evq_push
 ; could starve the real mouse out of ever being found (SPEC.md 9.5).
 ; -----------------------------------------------------------------------------
 mou_isr:                        ; IRQ4, and...
-mou_isr3:                       ; ...IRQ3, on the SAME body: which LINE fired
-    push bx                     ; says nothing about which PORT has the byte
-    push ax                     ; (SPEC.md 9.5.2)
+    push bx
+    mov bl, MOU_L4              ; ...the ONE thing the two entries disagree
+    jmp short mou_isr_body      ; about: which LINE fired. Not which PORT has
+mou_isr3:                       ; the byte - that is scanned for below - but
+    push bx                     ; which 8259 bit must SURVIVE retirement, and
+    mov bl, MOU_L3              ; nothing else can tell mou_lockon that
+mou_isr_body:
+    push ax
     push cx
     push dx
     push si
@@ -1102,7 +1129,8 @@ mou_isr3:                       ; ...IRQ3, on the SAME body: which LINE fired
     push es
     mov ax, KERNEL_SEG
     mov ds, ax
-    cld
+    mov [mou_lfired], bl        ; BL survives the pushes above; AX does not, so
+    cld                         ; this is the first instruction that can store
 
     ; --- whoever is holding a byte, take it ---------------------------------
     ; Not "the port this vector belongs to": there is no such thing. A card at
@@ -2257,6 +2285,18 @@ mou_hpst    db 0                ; hot-plug poller state: 0 waiting out the
 mou_hpt     dw 0                ; tick stamp for whichever wait state 0/1 is in
 mou_drain   db 0                ; ISR discards RX while set (armed by a
 mou_dstamp  dw 0                ; hot-plug raise; expires MOU_DRAINT later)
+mou_line    db 0                ; the 8259 bit of the line the WINNING packets
+                                ; came in on, banked by mou_claim beside
+                                ; [mou_seen]. 0x10 = IRQ4, 0x08 = IRQ3, 0 =
+                                ; not settled. Published because a machine
+                                ; whose mouse is at 2F8 on IRQ4 (SPEC.md
+                                ; 9.5.2.1) is otherwise indistinguishable from
+                                ; an ordinary one, and only on real iron
+; --- ...and here the published span ENDS. Scratch below it ------------------
+mou_lfired  db 0                ; the line CURRENTLY being serviced, stamped by
+                                ; the ISR entry. Live for the length of one
+                                ; interrupt, meaningless outside it, and so not
+                                ; state anyone off-machine should read
 
 ; --- what SPEC.md 9.4.2 says the published block IS --------------------------
 ; A test package reads these by offset, off a floppy, on a machine with no
@@ -2281,6 +2321,9 @@ mou_dstamp  dw 0                ; hot-plug raise; expires MOU_DRAINT later)
 %endif
 %if MOUDBG(mou_drain)  != 30 || MOUDBG(mou_dstamp) != 31
   %error "mouse: SPEC.md 9.4.2 block - mou_drain/mou_dstamp moved"
+%endif
+%if MOUDBG(mou_line)   != 33
+  %error "mouse: SPEC.md 9.4.2 block - mou_line moved"
 %endif
 
 section .bss

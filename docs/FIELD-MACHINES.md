@@ -339,6 +339,21 @@ hooked line now services every live port. Reproduced in QEMU first
 (`-device isa-serial,iobase=0x2f8,irq=4`), which fails identically on the old
 kernel and passes on the new one.
 
+**…and that fix was half of it.** The machine came back with the mouse
+detected, moving **exactly once**, and then frozen — a different symptom from
+the same one fact. `mou_lockon` retires the losing port with an 8259 mask
+taken from its *base*, so retiring 3F8 masked **IRQ4**, which on this machine
+is the mouse's own line; the port settles after eight packets and the next UI
+pass kills it. SPEC.md §9.5.2.1 is that fix (the mask comes from the line the
+winning packets arrived on) and docs/FIELD-NOTES.md 13 is the write-up.
+`make test MOUSEPORT=com2irq4` is this machine, and it reproduces both halves.
+
+**So this machine has now found the same wrong assumption twice**, in two
+routines, with two unrelated-looking symptoms — which is the thing to expect
+of it rather than to be surprised by. It is the only two-port machine in the
+register and the only cross-wired one, so it is the sole witness for §9.5's
+contest, §9.5.1's modem defences and §9.5.2's line/port split alike.
+
 Two lessons from the same run, both about the instrument rather than the
 machine. **COM1's loopback failure was comscan's own bug**, not the modem's —
 the test inherited whatever divisor the previous one left, so it timed out on

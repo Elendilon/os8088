@@ -1240,7 +1240,7 @@ sb_mouse:
     mov ax, [es:bx+2]
     mov [sb_mbase], ax              ; -> mou_bases, 2 words, 0 = no UART there
     mov ax, [es:bx+4]
-    mov [sb_mstate], ax             ; -> the 33-byte state span
+    mov [sb_mstate], ax             ; -> the 34-byte state span
 
     mov bx, [sb_mbase]              ; --- which ports exist at all ------------
     mov ax, [es:bx]
@@ -1291,6 +1291,10 @@ sb_mouse:
     mov si, sb_l_mpt
     mov al, 4                       ; mou_port: a ROW (0 or 2), not a COM number
     call sb_mb
+    mov si, sb_l_mln                ; mou_line: the 8259 bit the winning packets
+    mov al, 33                      ; actually arrived on. Read it TOGETHER with
+    call sb_mbx                     ; the row above - 10 with row 2, or 08 with
+                                    ; row 0, is a cross-wired card (SPEC 9.5.2.1)
     mov si, sb_l_mrn0
     mov al, 0                       ; mou_run[0]: how far a LOSING port got
     call sb_mb
@@ -2872,6 +2876,7 @@ sb_l_mhpt:   db '  poller stamp (0=nvr)', 0
 sb_l_mhps:   db '  poller state', 0
 sb_l_msn:    db '  mouse found', 0
 sb_l_mpt:    db '  winning row (0/2)', 0
+sb_l_mln:    db '  winning IRQ hex 10=4', 0
 sb_l_mrn0:   db '  run reached COM1', 0
 sb_l_mrn1:   db '  run reached COM2', 0
 sb_l_hdfn:    db '  hdd file read', 0
