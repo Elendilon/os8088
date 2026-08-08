@@ -594,9 +594,9 @@ assoc_argp:  db 0               ; 1 = a document is waiting to be claimed by
 ;
 ; The document's LOCATION is deliberately not banked here. [dsk_cwd] is one
 ; global shared by every Disk window, and the window that posted this may not
-; be the one currently mounted - so assoc_run syncs to the poster FIRST and
-; reads the location on the other side of that, exactly as loader_run does
-; with its index (SPEC.md 22.1).
+; be the one currently mounted - so assoc_run reads the poster's own
+; FS_DRV/FS_CWD instead (SPEC.md 54.9.1). That used to be a fmv_sync, a FULL
+; mount, and all it was ever wanted for was those two words.
 ; -----------------------------------------------------------------------------
 assoc_post:
     push ax
