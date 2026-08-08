@@ -47,6 +47,11 @@ INST_MAX equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 20.9
                                 ; buffer sizing) - change together, rebuild
                                 ; every .o88
 
+INST_FNSZ equ 13                ; the per-instance Standard File name below:
+                                ; fdlg.inc's FD_NAMEMAX (12) plus the NUL, and
+                                ; asserted against it there rather than here,
+                                ; because this file is included first
+
 KIND_ABOUT   equ 0
 KIND_TIMER   equ 1              ; (Note Pad was kind 1 until it became the
 KIND_BOUNCE  equ 2              ;  NOTEPAD package - SPEC.md 27; kind 1 was
@@ -506,9 +511,60 @@ inst_alloc:
     mov word [di+I_ICON], 0
     mov word [di+I_CYC], 0      ; a reused record never inherits a dead
     mov word [di+I_CYC+2], 0    ; instance's CPU tally (SPEC.md 8.1)
+    call inst_fhome_clr         ; ...nor its Standard File location (38.10)
     clc
 .out:
     pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; inst_fhome_idx - a record pointer to its per-instance file-home index
+; in:  DI = a record inside inst_tab
+; out: BX = the slot index (0..INST_MAX-1)
+; clobbers: BX (the output), flags
+;
+; The one place the side table's indexing lives, so instance.inc and fdlg.inc
+; cannot come to disagree about which row belongs to which record.
+; -----------------------------------------------------------------------------
+inst_fhome_idx:
+    push cx
+    mov bx, di
+    sub bx, inst_tab
+    mov cl, 5                   ; I_RECSZ is a power of two for exactly this
+    shr bx, cl
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; inst_fhome_clr - forget a slot's Standard File location (SPEC.md 38.8)
+; in:  DI = the record being (re)allocated
+; out: nothing (all registers preserved, flags included)
+;
+; Called from inst_alloc for I_CYC's reason: a reused record must not inherit
+; a dead instance's folder, or the first Save from a freshly launched app
+; would open somewhere the user never took IT.
+; -----------------------------------------------------------------------------
+inst_fhome_clr:
+    pushf
+    push ax
+    push bx
+    push cx
+    push si
+    call inst_fhome_idx         ; BX = the slot
+    mov byte [inst_fdrv+bx], 0xFF   ; "never used the dialog"
+    mov si, bx
+    shl si, 1
+    mov word [inst_fcwd+si], 0
+    mov al, bl
+    mov cl, INST_FNSZ
+    mul cl                      ; AX = slot * INST_FNSZ (AL is 0..11, so the
+    mov si, ax                  ; product cannot leave AX)
+    mov byte [inst_fname+si], 0
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    popf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1372,6 +1428,20 @@ inst_tab:    resb 384           ; INST_MAX x I_RECSZ (12 x 32; literal per
                                 ; segment beside every one of those pointers,
                                 ; which is the MB_SEG trap of SPEC.md 12.2 for
                                 ; 384 bytes
+
+; The Standard File dialog's location and name, PER INSTANCE (SPEC.md 38.8).
+; A side table rather than three more record fields: I_RECSZ is 32, it is
+; full (I_CYC's dword ends it), and index<<5 is what makes a record cheap to
+; reach - so widening the record to hold 16 bytes would cost every walk in
+; the kernel a multiply. Read and written only by fdlg.inc, which is COLD
+; code: these are ordinary DS-relative data, so no thunk is involved.
+inst_fdrv:   resb INST_MAX      ; the volume this instance last chose in the
+                                ; dialog; 0xFF = it has never used one, which
+                                ; is what makes the first open inherit the
+                                ; volume the user is looking at
+inst_fcwd:   resw INST_MAX      ; ...the directory inside that volume...
+inst_fname:  resb INST_MAX * INST_FNSZ  ; ...and the name it picked there,
+                                ; NUL-terminated; an empty string = none
 
 inst_launch: resw 1             ; deferred launch: 0 = none, else kind + 1
 inst_knd:    resb 1             ; app_launch scratch: kind being launched
