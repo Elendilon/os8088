@@ -124,6 +124,7 @@ sched_init:
     mov byte [sch_cur], 0
     mov byte [sch_lock], 0
     mov word [ticks], 0
+    mov byte [sch_fast], 0      ; no sub-tick until a bracket asks (53.8)
     mov byte [sch_coop], 0      ; pre-emptive until the Control Panel says
     mov byte [sch_hold], 0      ; otherwise (SPEC.md 8.2). All three are
     mov word [sch_wd_hits], 0   ; zeroed HERE by hand: nothing clears .bss at
@@ -182,6 +183,89 @@ sched_init:
     pop bx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; sch_fast_on / sch_fast_off - the fsx sub-tick (SPEC.md 53.8)
+;
+; in: AL = sub-ticks per tick, 2..4 (anything else is refused)
+;
+; IRQ0 is made to arrive N times a system tick so the round-robin quantum -
+; the thing that decides how long the drawing side waits when the audio worker
+; becomes ready - drops from 55 ms to 18. [ticks] does NOT change rate: the
+; ISR divides, and the Nth entry does everything a tick has always done, chain
+; and all. So task_sleep, every timeout, the double-click window, snd_tick's
+; duties and the BIOS clock are all untouched by construction rather than by
+; adjustment, and only the SWITCHING gets finer.
+;
+; It is safe here and would not be system-wide because the bracket's task set
+; is small and known (SPEC.md 53.2): the exclusive task, its kept worker and
+; TF_SERVICE drivers. Nothing else can be mid-anything.
+;
+; The one thing that genuinely cannot survive is sch_account, whose elapsed
+; arithmetic reads the PIT counter against its own 65536 period; it pauses
+; while armed and is re-seeded here on the way out.
+; -----------------------------------------------------------------------------
+sch_fast_on:
+    push ax
+    push bx
+    cmp al, 2
+    jb .out
+    cmp al, 4
+    ja .out
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    mov bx, [sch_fdivs + bx - 4] ; BX = 65536/N, tabled: no division in an arm.
+                                ; AL stays N - the index arithmetic is BX's
+                                ; alone, because both are wanted below
+    pushf
+    cli
+    mov [sch_fcnt], al          ; divide from the first sub-tick, and set the
+    mov [sch_fast], al          ; flag INSIDE the same window as the reprogram
+    push ax
+    mov al, 0x34                ; ch0, lo/hi, mode 2 - the mode is unchanged,
+    out 0x43, al                ; only the divisor (SPEC.md 8.1)
+    mov ax, bx
+    out 0x40, al
+    mov al, ah
+    out 0x40, al
+    pop ax
+    popf
+.out:
+    pop bx
+    pop ax
+    ret
+
+sch_fast_off:
+    push ax
+    push cx
+    cmp byte [sch_fast], 0
+    je .out
+    pushf
+    cli
+    mov al, 0x34                ; the BIOS-compatible divisor 0 = 65536 back
+    out 0x43, al
+    xor al, al
+    out 0x40, al
+    out 0x40, al
+    mov al, 0x00                ; ...and re-seed the accounting stamp, or the
+    out 0x43, al                ; first full tick after this charges a whole
+    in al, 0x40                 ; bracket's worth of garbage to somebody
+    mov cl, al
+    in al, 0x40
+    mov ch, al
+    neg cx
+    mov [sch_pit_last], cx
+    mov ax, [ticks]
+    mov [sch_pit_last+2], ax
+    mov byte [sch_fast], 0
+    popf
+.out:
+    pop cx
+    pop ax
+    ret
+
+sch_fdivs:  dw 32768, 21845, 16384      ; N = 2, 3, 4
 
 ; -----------------------------------------------------------------------------
 ; sched_unhook - restore the BIOS int 08h vector, then unhook mouse + sound
@@ -499,6 +583,12 @@ task_exit:
 ; clobbers: AX, BX, CX, DX, SI
 ; -----------------------------------------------------------------------------
 sch_account:
+    cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.8) divides the
+    jne .idle                   ; very period this arithmetic is built on, so
+                                ; accounting PAUSES for the bracket - here
+                                ; rather than at the call sites, because
+                                ; task_yield and task_cycles reach it too and
+                                ; a half-gated stamp is worse than none
     mov al, 0x00                ; latch channel 0's count
     out 0x43, al
     in al, 0x40                 ; count lo
@@ -529,6 +619,7 @@ sch_account:
     mov si, cx
     add [si+sch_cycles], ax
     adc [si+sch_cycles+2], bx
+.idle:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -719,6 +810,23 @@ sch_isr:
     mov ax, KERNEL_SEG
     mov ds, ax
 
+    cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.8). While it is
+    je .full                    ; armed IRQ0 arrives N times a tick and only
+    dec byte [sch_fcnt]         ; the Nth entry IS a tick: everything that
+    jz .tick                    ; counts in ticks stays on that one, so
+                                ; nothing outside this file can tell
+    mov al, 0x20                ; ...and a sub-tick owes the EOI itself,
+    out 0x20, al                ; because the BIOS handler that normally
+                                ; sends it is only chained on the tick
+    cmp byte [sch_lock], 0      ; the lock still bars a switch (a floppy
+    jne sch_resume              ; transfer must not be pre-empted)
+    cmp byte [sch_coop], 0      ; cooperative mode: only the watchdog
+    jne sch_resume              ; switches, and it counts TICKS, not these
+    jmp sch_switch
+.tick:
+    mov al, [sch_fast]
+    mov [sch_fcnt], al
+.full:
     pushf                       ; chain: BIOS ticks its count and sends EOI
     call far [sch_old08]
 
@@ -726,7 +834,9 @@ sch_isr:
     call sch_account            ; after the inc, so [ticks] and the freshly
                                 ; reloaded counter agree (SPEC.md 8.1); and
                                 ; before the sch_lock check, so accounting
-                                ; runs every tick even during floppy reads
+                                ; runs every tick even during floppy reads.
+                                ; It no-ops itself while the fsx sub-tick is
+                                ; armed (SPEC.md 53.8)
     call snd_tick               ; sound duties (SPEC.md 8.2/34): a called
                                 ; leaf, gated on snd_live until snd_init
                                 ; publishes; runs every tick in both modes,
@@ -921,6 +1031,8 @@ sch_cycles: resw MAX_TASKS * 2          ; per-task CPU time, PIT cycles, dword
                                         ; each (lo word first); readers snap-
                                         ; shot under pushf/cli (SPEC.md 8.1)
 sch_pit_last: resw 2                    ; last timestamp: phase, then ticks
+sch_fast:   resb 1                      ; fsx sub-tick (SPEC.md 53.8): 0 off,
+sch_fcnt:   resb 1                      ; else N, with this counting down
 sch_coop:   resb 1                      ; mode (SPEC.md 8.2): 0 pre-emptive,
                                         ; 1 cooperative; sched_mode_set/_get
 sch_hold:   resb 1                      ; ticks the running task has held the

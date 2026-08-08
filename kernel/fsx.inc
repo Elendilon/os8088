@@ -29,6 +29,10 @@ FSXM_MODEX  equ 8               ; 320x240x256       VGA  (13h + unchain/retime)
 FSXM_COUNT  equ 9
 
 FSXF_KEEPWORKER equ 1           ; fsx_run CX bit 0 (SPEC.md 53.2)
+FSX_SUBTICK     equ 3           ; sub-ticks per tick when it is asked for
+FSXF_FASTTICK   equ 2           ; ...bit 1 (SPEC.md 53.8): IRQ0 three times a
+                                ; tick, so the round-robin quantum is 18 ms
+                                ; instead of 55. [ticks] does not change rate
 
 ; --- the info block fsx_mode fills (SPEC.md 53.4) ----------------------------
 FSI_SEG    equ 0                ; word: framebuffer segment
@@ -97,7 +101,8 @@ fsx_run:
     push dx
     push si
     push di
-    test cx, ~FSXF_KEEPWORKER   ; undefined flag bits refuse, so the word
+    test cx, ~(FSXF_KEEPWORKER | FSXF_FASTTICK)
+                                ; undefined flag bits refuse, so the word
     jnz .fail                   ; stays extensible (SPEC.md 53.1)
     cmp byte [sch_cur], 0       ; the UI task alone may enter - a worker's
     jne .fail                   ; bracket would freeze the UI task mid-frame
@@ -144,6 +149,13 @@ fsx_run:
     mov byte [fsx_task], 0      ; task 0 - checked above
     popf
     mov byte [fsx_cur], 0xFF    ; no foreign mode yet
+    test cl, FSXF_FASTTICK      ; ...and the finer quantum, AFTER the arm so
+    jz .nofast                  ; the task set it applies to is already the
+    push ax                     ; frozen one (SPEC.md 53.8). AX is the app's
+    mov al, FSX_SUBTICK         ; entry offset, still owed to wm_pkgcall far
+    call sch_fast_on            ; below - the argument register here is AL
+    pop ax
+.nofast:
 
     ; silence what the freeze strands (SPEC.md 53.3) - AFTER the arm, so no
     ; foreign task can take a fresh grant between the two. snd_release_inst
@@ -216,6 +228,9 @@ fsx_run:
 fsx_restore:
     push ax
     push di
+    call sch_fast_off           ; the sub-tick goes back FIRST (SPEC.md 53.8):
+                                ; everything below this runs on the ordinary
+                                ; quantum, and it is a no-op if none was armed
     cmp byte [fsx_cur], 0xFF
     je .nomode
     call vid_setmode            ; idempotent; the Hercules body clears its

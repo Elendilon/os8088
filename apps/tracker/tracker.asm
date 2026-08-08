@@ -470,6 +470,14 @@ trk_onkey:
     je .mark
     cmp bl, 'M'
     je .mark
+    cmp bl, 'y'
+    je .synct
+    cmp bl, 'Y'
+    je .synct
+    cmp bl, 't'
+    je .clkt
+    cmp bl, 'T'
+    je .clkt
 %endif
     cmp bl, '1'
     jb .out
@@ -508,6 +516,12 @@ trk_onkey:
     jmp .out
 .mark:
     call tlog_mark                  ; M: the listener heard something
+    jmp .out
+.synct:
+    call tlog_sync_key              ; Y: SPEC.md 45.15 off, to A/B it
+    jmp .out
+.clkt:
+    call tlog_clk_key               ; T: SPEC.md 45.16 off, likewise
     jmp .out
 %endif
 .play:
@@ -1026,7 +1040,11 @@ trk_fs_enter:
     mov byte [trk_fs], 1            ; BEFORE the call - see the header
     mov ax, trk_fsx_main
     mov bx, [trk_win]
-    mov cx, FSXF_KEEPWORKER         ; the worker feeds through the freeze
+    mov cx, FSXF_KEEPWORKER | FSXF_FASTTICK
+                                    ; the worker feeds through the freeze, and
+                                    ; the quantum goes to 18 ms so its slot
+                                    ; costs the scroll a third of a frame
+                                    ; rather than a whole one (SPEC.md 53.8)
     call OSAPI_FSX_RUN              ; blocks until trk_fsx_main returns; the
                                     ; kernel then repaints the desktop whole
     mov byte [trk_fs], 0            ; back to the windowed splash
@@ -1090,6 +1108,7 @@ trk_fsx_main:
 .txok:
     mov byte [trk_tx], 1
     call ttx_draw_all
+    call ttx_clkprobe               ; the frame clock, measured (SPEC.md 45.16)
 .txloop:
     call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
     mov ah, 1
@@ -1102,9 +1121,17 @@ trk_fsx_main:
     call trk_fsx_key
 .txdraw:
     call ttx_draw_dyn
-    xor al, al                      ; one frame per tick. The SPEC.md 53.5
-    call OSAPI_FSX_WAIT             ; present clause is dead here by
-    jmp .txloop                     ; construction: fsx_mode refused a buffer
+    mov al, [ttx_clk]               ; retrace-paced where the adapter can be
+%ifdef TRKLOG
+    call tlog_wtstart               ; the loop's OTHER half, timed: FX covers
+%endif                              ; the frame and DX the feed pass, and a
+    call OSAPI_FSX_WAIT             ; (SPEC.md 45.16), one frame per tick where
+%ifdef TRKLOG                       ; field gap had both healthy - so the time
+    call tlog_wtend                 ; went here or nowhere either task can see
+%endif
+    jmp .txloop                     ; it cannot. The SPEC.md 53.5 present
+                                    ; clause is dead either way by
+                                    ; construction: fsx_mode refused a buffer
 .txdone:
     mov byte [trk_tx], 0            ; before [trk_fs], so a message set on the
     mov byte [trk_fs], 0            ; way out reaches the windowed splash
@@ -1391,6 +1418,22 @@ trk_play:
     call tlog_stream                ; a new stream: the log's clocks restart
 %endif
     mov word [trk_total], 0
+    mov word [trk_consumed], 0      ; the stream's byte counters both restart
+    mov word [mp_stampbase], 0      ; here, so the stamp history does too -
+    call mp_stclear                 ; seeded with row 0, which mp_start has
+                                    ; already read but nothing has mixed yet
+    mov word [tui_lcons], 0         ; ...and so does tui_playpos's estimate
+    mov word [tui_play], 0          ; (SPEC.md 45.15.1), which is anchored on
+    call OSAPI_GET_TICKS            ; those same counters
+    mov [tui_ct0], ax
+    mov ax, [mp_mixrate]            ; bytes per system tick: rate / 18.2065,
+    mov dx, 3600                    ; and 3600/65536 is that to 0.011% - so
+    mul dx                          ; the product's HIGH word is the answer
+    mov [tui_bpt], dx               ; and no division is needed at all
+    mov [tui_bpf], dx               ; the sub-tick divider starts at one frame
+    mov word [tui_sub], 0           ; a tick (SPEC.md 45.15.2), which IS the
+    mov byte [tui_fpt], 1           ; old per-tick staircase - the first tick
+    mov byte [tui_fcnt], 0          ; measured replaces it
     mov cx, TRK_PREROLL             ; stage the cushion before the open, so
 .pre:                               ; the stream starts TRK_PREROLL halves
     call trk_mix_stage              ; ahead of the DSP instead of two
@@ -1456,7 +1499,9 @@ trk_mix_stage:
     push dx
     push si
     push di
-    mov cx, TRK_HALF
+    mov ax, [trk_total]             ; where mp_outbuf[0] lands in the stream:
+    mov [mp_stampbase], ax          ; the replayer stamps each row against it
+    mov cx, TRK_HALF                ; (SPEC.md 45.15)
     call mp_gen                     ; renders into mp_outbuf, advances the
                                     ; replayer; clobbers freely (mp_* rule)
     mov di, [trk_total]
@@ -1549,8 +1594,16 @@ trk_reap:
     ret
 
 trk_play_stop:
+    call tui_sync                   ; where the LISTENER is, asked while the
+                                    ; stream can still answer (SPEC.md 45.15)
     call trk_stream_close
     call mp_stop
+    mov al, [tui_apos]              ; ...and park the replayer there rather
+    mov [mp_songpos], al            ; than where the mixer got to, which is
+    mov al, [tui_apat]              ; up to three seconds of music further on.
+    mov [mp_pattern], al            ; trk_stream_close has drained the worker,
+    mov al, [tui_arow]              ; so nothing is inside mp_gen; trk_transport
+    mov [mp_row], al                ; then parks the view row on top of this
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1753,6 +1806,10 @@ trk_xt_toggle:
 ; =============================================================================
 trk_worker:
 .loop:
+%ifdef TRKLOG
+    call tlog_wake                  ; WK: how often this got the CPU, which is
+%endif                              ; what tells a STARVED worker from an idle
+                                    ; one - FD reads 0 for both
     mov bx, [trk_win]
     call OSAPI_TASK_ALIVE           ; lock NOT held here (rule 4)
     mov ax, 1
@@ -1799,6 +1856,10 @@ trk_feed:
     push dx
     push si
     push di
+%ifdef TRKLOG
+    call tlog_wstart                ; this pass's span starts here, and ENDS
+%endif                              ; at .out - a pass that mixes TRK_MAXFEED
+                                    ; halves is the thing DX exists to price
     mov byte [trk_mixing], 1        ; FIRST, before the guards: a pass past
                                     ; its guards must never be invisible to
                                     ; trk_stream_close's drain
@@ -1809,6 +1870,9 @@ trk_feed:
     mov al, 3                       ; verb 3: status - AX = state, DX =
     mov ah, [trk_hand]              ; consumed (free-running in ring mode)
     call OSAPI_SND_STREAM
+    mov [trk_consumed], dx          ; publish it for the display (SPEC.md
+                                    ; 45.15): the worker already asks once a
+                                    ; tick, so nothing else has to ask at all
     cmp ax, SND_ST_ENDED
     je .dead
     cmp ax, SND_ST_STALE
@@ -1851,6 +1915,9 @@ trk_feed:
     mov byte [trk_ended], 1         ; (SPEC.md 34.5); trk_reap or the next
                                     ; Play closes it on the UI task
 .out:
+%ifdef TRKLOG
+    call tlog_wend                  ; ...and the span closes here
+%endif
     mov byte [trk_mixing], 0        ; the drain gate reopens LAST
     pop di
     pop si
@@ -2024,6 +2091,9 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
     TRKB trk_ended                  ; watchdog/F00-ended: stop feeding, close
                                     ; on the next UI event (trk_reap)
     TRKW trk_total                  ; free-running total bytes mixed (mod 64K)
+    TRKW trk_consumed               ; ...and what the CARD has played of it,
+                                    ; polled by the worker once a tick and
+                                    ; read by every frame (SPEC.md 45.15)
     TRKB trk_halves                 ; halves fed this wake (bounds the burst)
     TRKB trk_rsel                   ; the Rate menu's pick (SPEC.md 45.10):
                                     ; 0/1/2 = 11/22/44 kHz; bss zeroes to
