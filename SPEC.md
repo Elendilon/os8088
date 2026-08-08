@@ -2456,20 +2456,23 @@ dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
 the **threshold drop**. A real two-port machine (the Compaq Portable III,
 §9.5.2's) is the witness neither covers and is still owed.
 
-#### 9.4.2 The block a test package reads (`0060:0006`)
+#### 9.4.2 The block a test package reads (registry tag `'MO'`)
 
 §9.4.1's whole question — does a **real** mouse on a **real** serial card
 answer a DTR/RTS raise with `'M'` — is one neither emulator in
 docs/FIELD-MACHINES.md can settle, so the state has to be readable on the
-field machine, which has no debugger. `0060:0006` is a word pointing at
-`mou_dbg_blk`: the magic `'MO'` (0x4F4D), then a pointer to `mou_bases` (two
+field machine, which has no debugger. It is published through the **debug
+registry** (§57) under the tag `'MO'`, which is also `mou_dbg_blk`'s own first
+word: after it, a pointer to `mou_bases` (two
 words, 0 = the probe rejected that port), then a pointer to a **33-byte
 contiguous span** — `mou_run` +0, `mou_port` +4, `mou_need` +5, `mou_idn` +9,
 `mou_idb0` +13, `mou_idlast` +17, `mou_ident` +21, `mou_idany` +25,
 `mou_seen` +26, `mou_hpst` +27, `mou_hpt` +28, `mou_drain` +30,
 `mou_dstamp` +31.
 
-It is `dsk_dbg_at`'s mechanism (§18.94) and **deliberately not its knob**.
+It shares §18.94's mechanism and **deliberately not its knob** — it had a
+fixed word of its own at `0060:0006` until §57 replaced the per-instrument
+words with one registry, and that address is free again.
 That one is `make DISKCNT=1` because it counts something a normal kernel has
 no reason to carry; this one names state that already exists, and the build
 the field machine is sent has **no knob set at all** by
@@ -6122,13 +6125,10 @@ not forming the runs it believes it is, or something below it is taking them
 apart, and **sectors ÷ int 13h calls** distinguishes the two with no timing
 at all.
 
-**`0060:000E` is a word**: 0 on a kernel built without the knob, else the
-`KERNEL_SEG` offset of the block. A fixed offset for `boot_ticks`' reason
-(§15.4) — a package has to find it without an API slot, and a slot that
-exists in one build and not another is an ABI that depends on a knob (§20.8).
-A reader checks the magic before trusting anything else, and a package that
-finds 0 must **say so and skip**, which is what makes one build of the
-harness run on both kernels.
+**It is found through the debug registry** (§57): tag `'DD'`, which is also
+the block's own first word. It had a fixed word of its own at `0060:000E`
+until the registry took that address over — one word per instrument stopped
+scaling at the third.
 
 | offset | | |
 |---|---|---|
@@ -20868,3 +20868,84 @@ click dispatchers on task 0's 1,024-byte stack, not in the worker's tree. That
 is a bound plus a peer comparison and not a field number; `tests/stackprobe`
 on real iron is still the only thing that settles the margin, because SeaBIOS
 hides a real BIOS's interrupt stack use (docs/TESTING.md).
+
+---
+
+## 57. The debug registry — how a test package reads kernel state
+
+**`0060:000E` is a word naming a list of published blocks. Nothing shipped may
+read it.** This is the mechanism for a *test* package — `tests/sysbench` and
+its kind — to see kernel internals that are not, and should not become, API
+slots.
+
+### 57.1 Why it is not an API slot, and not a fixed word either
+
+The obvious answer is a slot in the §20.3 table, and it is wrong twice. Half
+of what wants publishing is **knob-built** (`make DISKCNT=1`), and a slot that
+exists in one build and not another is an ABI that depends on a knob — §20.8
+rule 4 exists to forbid exactly that. And a slot is a *promise*: everything in
+that table keeps its contract forever, while a debug block is kernel internals
+whose whole value is that it can change the moment the code it describes does.
+
+The next answer is a fixed word per instrument, which is what this tree
+actually did: `boot_ticks` at `0060:000C` (§15.4), the mouse instrument at
+`0060:0006` (§9.4.2), the disk instrument at `0060:000E` (§18.94). It works
+and it does not scale — the first paragraph holds `jmp kmain`, `jmp spl_tick`
+and the API table's own start, so the third instrument filled it and the
+fourth had nowhere to go.
+
+So: **one fixed word, one level of indirection, and the list can grow.**
+
+### 57.2 The format
+
+```
+0060:000E   dw dbg_reg          ; or 0 - this kernel publishes nothing
+
+dbg_reg:    dw 'MO', mou_dbg_blk
+            dw 'DD', dsk_dbg_blk    ; only in a DISKCNT=1 build
+            dw 0                    ; end of list
+```
+
+| | |
+|---|---|
+| entry | `(tag, offset)`, both words, offset relative to `KERNEL_SEG` |
+| tag | **two ASCII characters**, and **also the block's own first word** |
+| end | tag 0 |
+| absent | the word at `0060:000E` is 0, or no entry carries the tag |
+
+**The tag is the block's first word as well as its key**, which does two
+things. A reader can check that the offset it followed lands on what it asked
+for — the only way to trust a pointer read out of a hard-coded address — and a
+human reading `xp` output over QMP sees `MO` and `DD` rather than counting
+words. `tests/sysbench`'s `sb_dbgfind` is the reference reader: tag in AX,
+CF=1 if this kernel does not publish it.
+
+Everything past that first word belongs to the section owning the block
+(§9.4.2, §18.94). The registry says only where to look, and imposes no shape.
+
+### 57.3 The rules
+
+1. **Shipped software may not read a block.** No `.o88` on either floppy does.
+   A block is internals with no compatibility promise; a package that depends
+   on one is a package that breaks when the kernel is tidied. The tags live in
+   `apps/os88api.inc` because a test package needs them, not as an invitation.
+2. **A reader that cannot find its block says so and continues.** Never
+   assume, never fail the run. `sysbench` prints `This kernel carries no disk
+   instrument - build DISKCNT=1.` and skips the block — which is what lets one
+   build of the harness run on both kernels, and what makes a knob-built
+   instrument affordable in the first place.
+3. **A block may change shape whenever its owner does**, as long as the tag
+   changes with it or the readers change with it. There is no version word and
+   deliberately so: the only readers are in this tree and `make` rebuilds them.
+4. **The cost must be zero for what it measures.** `dsk_dbg_raw` (§18.94) does
+   not count itself; a counter in a hot path is two instructions and lives
+   behind the knob.
+5. **A far entry is published as an offset in the block**, not as a slot, and
+   it is `retf`-terminated. §18.94's exists because a package *cannot* safely
+   issue `int 13h` itself — the BIOS runs its disk handler on whichever
+   256-byte task stack is current and `dsk_xfer` holds `sch_lock` across every
+   call (docs/FIELD-NOTES.md 10). Anything with that shape belongs here rather
+   than in the package.
+6. **Prefer publishing a POINTER to state that already exists** over copying
+   it. Both current blocks are three or four words of descriptor naming spans
+   the kernel already keeps; neither costs a byte of `.bss`.
