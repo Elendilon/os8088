@@ -1175,7 +1175,6 @@ fm_s_cut:     db 'Cut', 0
 fm_s_copy:    db 'Copy', 0
 fm_s_paste:   db 'Paste', 0
 fm_s_pastin:  db 'Paste Into', 0
-fm_s_closew:  db 'Close Window', 0
 fm_s_refr:    db 'Refresh', 0
 fm_s_up:      db 'Up One Folder', 0
 fm_s_rootf:   db 'Root Folder', 0
@@ -1188,7 +1187,7 @@ fm_s_opennew: db 'Open in New Window', 0
 
 fm_items_file:
     dw fm_s_open, fm_s_mkdir, fm_s_rename, fm_s_delete
-    dw fm_s_cut, fm_s_copy, fm_s_paste, fm_s_closew
+    dw fm_s_cut, fm_s_copy, fm_s_paste
 fm_items_fold:
     dw fm_s_newwin, fm_s_opennew
     dw fm_s_refr, fm_s_up, fm_s_rootf, fm_s_drva, fm_s_drvb
@@ -1202,7 +1201,14 @@ fm_menus:
     dw fm_oncmd                 ; AM_ONCMD: our own handler - the resident
                                 ; thunk, like fm_tpl's three above
     dw 4                        ; AM_COUNT (= MENU_APPMAX, used exactly)
-    dw fm_s_mfile, fm_items_file, 8
+    dw fm_s_mfile, fm_items_file, 7     ; 'Close Window' retired: the app-name
+                                        ; cell carries Close now (SPEC.md
+                                        ; 12.7), and a Disk window OWNS that
+                                        ; cell - unlike the bare desktop,
+                                        ; where [menu_win] is 0, no cell
+                                        ; exists and Locator's own File menu
+                                        ; keeps its Close Window as the only
+                                        ; way to close from the bar
     dw fm_s_mfold, fm_items_fold, 7
     dw fm_s_mview, fm_items_view, 2
     dw fm_s_mspec, fm_items_spec, 3
@@ -2498,7 +2504,13 @@ FMC_DELETE  equ 3
 FMC_CUT     equ 4
 FMC_COPY    equ 5
 FMC_PASTE   equ 6
-FMC_CLOSEW  equ 7
+FMC_CLOSEW  equ 7               ; RETIRED (SPEC.md 12.7): the item is gone
+                                ; from fm_items_file and this id is no longer
+                                ; reachable - fm_oncmd builds it as base +
+                                ; item and File now stops at 6. The NUMBER
+                                ; stays so that FMC_NEWWIN and everything
+                                ; after it do not shift, which is the same
+                                ; reasoning 20.8 rule 4 applies to API slots
 FMC_NEWWIN  equ 8               ; Folder
 FMC_OPENNEW equ 9
 FMC_REFRESH equ 10
@@ -2542,7 +2554,9 @@ fm_jmp:
     dw fm_c_paste               ; inline (disk I/O under the lock, like
                                 ;         Refresh and navigation already are;
                                 ;         SPEC.md 22.3)
-    dw fm_c_closew              ; POSTED - ui_cmd takes the lock
+    dw fm_c_closew              ; RETIRED with FMC_CLOSEW above - unreachable,
+                                ; and kept only so the entries below keep
+                                ; their indices
     dw fm_c_newwin              ; POSTED - app_launch takes the lock (29.4)
     dw fm_c_opennew             ; POSTED - ditto
     dw fm_c_refresh             ; inline (fmv_load, like the button)

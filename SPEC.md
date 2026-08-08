@@ -4322,6 +4322,23 @@ at most two items and the second one is the point:
 | `About <Name>` | the window registered a handler with `wm_about_set` (slot 0x01E0) | the application, through its own dispatcher, exactly like `W_ONCLICK` |
 | `Close` | **always** | the kernel |
 
+**One duplicate had to go with it, and exactly one.** A Disk window OWNS the
+app-name cell (`[menu_win]` is that window, and `fm_menus`' `AM_NAME` is
+still `'Locator'`), so its `File ▸ Close Window` said the same thing as the
+cell's `Close`. The item is retired and `fm_items_file` is 7 long. Two things
+that look like the same case and are not: **Locator's own** `File ▸ Close
+Window` STAYS, because with the bare desktop active `[menu_win]` is 0, no
+cell exists at all, and that item is then the only way to close from the bar —
+which is why it already greys itself against `wm_top`. And no application has
+one: every shipped `OS88_MENUSET` was surveyed and none carries a close item
+in its windowed menus. ArtfulType's `Quit` is in its FULLSCREEN table, where
+it draws its own bar over the kernel's and the cell is not on screen.
+
+`FMC_CLOSEW`'s *number* is kept even though the item is gone, because
+`fm_oncmd` builds an id as `fm_menu_base[menu] + item` — the retired item was
+the LAST of the File menu, so the id simply stops being produced and nothing
+after it shifts. Same reasoning §20.8 rule 4 applies to API slots.
+
 `Close` is the close box (§13) reached from the bar, and it does what the
 close box does: `app_close_win` on `[menu_win]`, under the gfx lock, on the
 UI task. A task-less instance is torn down synchronously; a task-owned one
@@ -10291,11 +10308,22 @@ still editable, and still saveable when something gives memory back.
 `FERR_*` code mapped
 through an eleven-entry table indexed by the code itself ("Done", "No
 disk", "Disk error", "Bad name", "Not found", "Name exists", "Disk full",
-"Dir full", "Protected", "Write protected", "Too big"). It is cleared by
-the **next** keystroke — by an edit, or by the next save/load replacing it —
-so it never becomes stale furniture, while a key the app ignores leaves
-both the toast and the screen alone. It is drawn last, so it sits above the
-text.
+"Dir full", "Protected", "Write protected", "Too big"). It is drawn last,
+so it sits above the text.
+
+**It is ONE-SHOT: `np_toast` clears `np_msg` after drawing it.** The
+keystroke clear is still there and is still what an edit does, but it was
+never the whole story — the toast belongs to the operation that raised it,
+and `np_paint` is reached from every repaint. Dragging the window put
+"Loaded README.TXT" straight back up, which reads as the file being loaded
+*again* and was reported as exactly that; the disk counters say it is never
+touched. So a repaint cannot resurrect a toast, and the claim that it can
+"never become stale furniture" is the build's rather than the reader's.
+
+What makes it *erase* rather than merely stop being redrawn is an ordering
+that was already there: the `np_smsg`/`np_smsgn` shadow is published
+**before** `np_toast` runs, so the next paint compares 0 against the toast
+the screen was drawn with, mismatches, and redraws the rows underneath.
 
 Save is `ES = DS` + slot 0x0120; load is slot 0x0128 with the buffer
 capacity, mapping `FERR_BIG` to the same "Too big" toast the truncation
@@ -15201,36 +15229,49 @@ chunky preview after a quarter of the work. `fr_rowcalc` computes one row
 into `fr_line` **with no lock held**; `fr_emit` then takes the lock for a
 run-coalesced band paint and releases it (rule 3 of §20.6).
 
-### 40.1 The pass-0 restore cache
+### 40.1 The restore cache
 
-**Why there is no frame buffer.** The canvas is 320×170. Raw at 4bpp that is
-27,200 bytes against the **19,968-byte package pool then shared by every resident
-package**; a run-length copy of a whole frame measures 11,712–13,928, most
-of the pool for one instance. A run-length copy of **pass 0 alone** is
-~3,300 bytes, and it is the right quarter of the work to keep, because pass 0
-already covers the whole canvas.
+**Why there is no frame buffer, and why the cache is not in bss.** The canvas
+is 320×170. Raw at 4bpp that is 27,200 bytes, and a run-length copy of a
+frame is 340 bytes for a deep zoom that is all interior, 15,366 worst case
+over the five types, five zooms and four palettes at their default centres,
+and 69,690 for a recentred deep zoom on the Burning Ship — measured with a C
+model of `frac_iter`, not estimated. So there is no size that is right: a
+fixed reservation is either too small for the view that wanted it or held
+against a machine that never asked for it. The cache is therefore a **heap
+claim that regrows** (§50.3) — 4KB at the first `fr_kick`, doubling whenever
+a row will not fit, ceiling 32KB because `fr_cn`, `fr_cpos` and `fr_cmax` are
+words. It was 4,000 bytes of bss when the package pool existed and image +
+bss had to fit a 7,168-byte slice of it; that pool is retired (§20.1), and
+what the old arrangement actually bought was a region twice the size on every
+machine and a cache that stopped at 25% on all of them.
+
+**It holds every pass, and that is the point.** Caching pass 0 alone meant
+the cache stopped growing after a quarter of the work, so every later repaint
+discarded three quarters of a computed frame and the percentage fell back to
+25 and climbed again. It now records every emitted row, so a repaint
+recomputes **nothing**.
 
 **Format.** One word per run: colour in bits 15..12, the run's last column in
 bits 11..0. A colour index is 0..15 and a column 0..319, so they cannot
 collide and the pack is an OR. Runs start at column 0 and each begins where
 the last ended, so the start column is implied and a row ends with the run
-whose last column is cw−1; the row is implied too, because pass 0 emits rows
-0, 4, 8 … in order. `fr_cache` is 4,000 bytes = 2,000 runs, and the ceiling
-is not that number — it is that image + bss must stay inside one 512-rounded
-7,168-byte region, because two Fractals plus Minesweeper plus Note Pad is
-19,456 of the pool and the next step up does not fit.
+whose last column is cw−1. The row is implied too — no longer by pass 0's
+0, 4, 8 … but by replaying the state machine: rows are appended in the order
+`fr_advance` produces them, so stepping once per stored row names every one
+of them. That is why the arithmetic is factored into **`fr_stepv`**, which
+takes its (pass, row) in registers and has three walkers over it — the
+render, the cache's frontier, and `fr_redraw`'s resume point. A second copy
+of it would be a second opinion about what the cache contains.
 
 **One lock hold owns "this row was consumed".** `fr_emit_body` does the cache
-append, the progress count *and* `fr_advance`, all behind its one restart
-check. None of them may live in the worker's loop, because the worker runs
-them with the lock released and `fr_redraw` publishes the (pass, row) to
-resume from: a stale `fr_advance` out there steps straight past that row, and
-then no pass ever paints it — pass 1 covers rows 2 mod 4 and pass 2 the odd
-ones — while `fr_crow` can never match `fr_row` again, freezing the cache for
-the rest of the frame. While `fr_restart` only ever meant "restart" this was
-harmless, because the worker's loop top rewrote pass and row anyway; the
-resume value 2 deliberately keeps them, which is exactly what makes the
-placement binding.
+append, the progress count, the replay cursor's step *and* `fr_advance`, all
+behind its one restart check. None of them may live in the worker's loop,
+because the worker runs them with the lock released and `fr_redraw` publishes
+the (pass, row) **and the cursor** to resume from: a stale step out there
+walks straight past them, and then no pass ever paints that row — pass 1
+covers rows 2 mod 4 and pass 2 the odd ones — while the frontier can never
+match again, freezing the cache for the rest of the frame.
 
 **Recording — `fr_cache_row`.** Called from `fr_emit_body`, under the gfx
 lock and *after* its restart check but *before* the visibility check. Under
@@ -15240,31 +15281,63 @@ one. Before the visibility check because a row that cannot be seen is still
 worth keeping — the cache is exactly what makes uncovering the window cheap.
 A row is committed **whole or not at all**; a partial row would desync every
 row after it, since each run's start column is implied by the previous run's
-end. On overflow the cache simply stops growing: `fr_crow` stays put, every
-later row fails its test, and the cached prefix stays replayable.
+end. Out of room it asks `fr_cache_grow` for more and lays the row down again
+from its rollback point — and **always takes the base back from `DX`**, since
+a grow that had to move leaves the old segment pointing at memory that is no
+longer ours. A grow is taken only when the heap's largest free run is at
+least twice the increment: this is an optimisation, not the app, and a
+fractal that swallows the last of the heap so nothing else will load has made
+the machine worse to use in order to make itself faster. When the heap says
+no the cache simply stops growing, the frontier stays put, every later row
+fails its test, and the cached prefix stays replayable.
 
-**Replay — `fr_redraw`.** `W_PAINT` no longer calls `fr_kick`. A repaint is
-not a view change: the content arrived white-filled but the view state is
-untouched, so `fr_redraw` replays the cached bands (`fr_replay` — the emit
-loop with the arithmetic removed) and then tells the worker to **resume**
-rather than restart. `fr_restart` therefore carries three values: 0 nothing
-pending, 1 restart from row 0, 2 resume with the pass and row the UI just
-set. The worker reads it with a read-and-clear `xchg`, not a test then a
-store, because with two values a separate test and clear could see the
-resume, have `fr_kick` overwrite it with a restart, and then clear the
-restart away.
+**A COMPUTED row's cursor follows the frontier.** `fr_emit_body` sets
+`fr_cpos` = `fr_cn` after an append. Without it the append pushes `fr_cn`
+past the cursor and the *next* `fr_take` replays the row just stored, onto
+the row after it.
 
-Resume lands at pass 0 row `fr_crow` if pass 0 was interrupted, or at pass 1
-row 2 if it completed — passes 1 and 2 are recomputed, which is why the
-percentage comes back at ~25% and climbs rather than at 0%. `fr_redraw` also
-compares the cached canvas size against the live one, because `fr_setup`
-re-reads W_W/W_H every time and `wm_fit` can clamp them (§39.7); a cache
-built for a different canvas would replay runs at the wrong columns.
+**Replay is split, and the split is the performance argument.** `W_PAINT`
+does not call `fr_kick`. `fr_redraw` replays the **pass-0 prefix inline**
+(`fr_replay` — the emit loop with the arithmetic removed), because that is
+the whole canvas at quarter vertical resolution and it is what "the picture
+is back" means, and hands the worker everything past it. The worker replays
+those rows one per lock hold through **`fr_take`**, which decodes a cached
+row into `fr_line` where `fr_rowcalc` would have computed one; nothing
+downstream knows the difference, so the band, the clip region and the
+visibility test are unchanged. A row is ~40 runs and a drawing call costs
+~756 µs on a 4.77MHz 8088 (PERFORMANCE.md Part 2), so replaying a finished
+170-row frame in one lock hold would be **seconds of frozen desktop**; the
+same drawing, paced the way it was rendered, freezes nothing — and is still
+an order of magnitude cheaper than recomputing rows at half a second each.
+
+`fr_restart` carries three values: 0 nothing pending, 1 restart from row 0,
+2 resume with the pass, row and cursor the UI just set. The worker reads it
+with a read-and-clear `xchg`, not a test then a store, because a separate
+test and clear could see the resume, have `fr_kick` overwrite it with a
+restart, and then clear the restart away.
+
+The resume point is one `fr_stepv` from the last cached pass-0 row, which
+handles both cases with no branch: pass 0 interrupted lands back in pass 0,
+pass 0 complete lands at the head of pass 1 (skipping a pass a degenerate
+canvas has no rows for). `fr_redraw` also compares the cached canvas size
+against the live one, because `fr_setup` re-reads W_W/W_H every time and
+`wm_fit` can clamp them (§39.7); a cache built for a different canvas would
+replay runs at the wrong columns.
+
+**`fr_prog` counts rows COMPUTED, never rows replayed**, and a repaint sets
+it to the cached row count. That is what the percentage is a percentage of,
+so a redraw no longer moves it — and when the cache overflowed the reduction
+is truthful, because those rows are about to be computed a second time and
+counted a second time. Either way the total is exactly `ch`.
 
 **Invalidation is one point.** `fr_kick` empties the cache, and every
 user-side view change — type, palette, centre, zoom, reset — funnels through
 it. There is nowhere else to get it wrong, and with the cache empty
-`fr_redraw` is exactly the old behaviour, spelled `fr_kick`.
+`fr_redraw` is exactly the old behaviour, spelled `fr_kick`. A **refused**
+claim degrades one rung further, to a repaint being a restart, which is where
+this package was before this section existed; the claim is retried on every
+kick, for `fr_hire`'s reason — a full heap is a transient fact, and the user
+who closes Paint should get the cache without relaunching.
 
 ### 40.2 Drawing while covered
 
@@ -15283,7 +15356,13 @@ not, and moving costs one replay because the cache survives the repaint.
 ### 40.3 Acceptance
 
 - Drag the window mid-render: the coarse image is back within one frame of
-  the drop and the percentage resumes rather than restarting at 0%.
+  the drop and **the percentage does not move at all** — not to 0%, and not
+  to the 25% a pass-0-only cache fell back to. The detail returns over the
+  next few seconds, from the cache, with the desktop live throughout.
+- Drag a **finished** frame: the same, and the screen that comes back is the
+  screen that went away. Gated by capture, drag, drag back, capture, diff —
+  0 differing pixels, which is what "replays rather than recomputes" has to
+  mean at the framebuffer.
 - Change type: the canvas clears and the render restarts at 0%.
 - Bury it behind another window: it keeps rendering the visible strips and
   paints nothing outside them; raise it and the whole picture is there.
