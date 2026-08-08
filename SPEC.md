@@ -5950,6 +5950,29 @@ on the same terms. **A debt that is never collected is the correct outcome**
 here, not a leak — it costs one word of state and means the sectors were
 never spent.
 
+**EVERY READER OF THE GLOBAL LISTING MUST CONSULT `[dsk_lstale]`, and a
+`(drive, cwd)` compare is not that test.** This is the binding rule, and it
+was learned by breaking it twice in one commit. The debt leaves the globals
+naming the *right folder* with **no listing in it** — so the ordinary "are we
+already where we want to be?" compare answers *yes* about an empty snapshot.
+Before the deferral existed that state could only follow a volume switch, so
+comparing `(drive, cwd)` was accidentally sufficient; it is not any more.
+`fm_focus` had the test from the start (§22.8); the other two did not, and
+both failures were **silent**:
+
+| reader | what it did | symptom, measured |
+|---|---|---|
+| `fmv_sync` | early-out on `(drive, cwd)`, then the caller resolved a directory **index** | a double-click after a Control Panel close **launched nothing at all**, and cost no I/O doing it |
+| `fmv_bcast` | `fmv_take` copied `disk_nfiles` = 0 into every window on the folder | deleting one file redrew its Disk window as **`Drive B: 0 files`** |
+
+Both are docs/FIELD-NOTES.md 4's family — a display index resolved against a
+listing that is not the one it was taken from — which is why neither
+announced itself as a disk problem. The fixes are the two shapes available:
+a reader that can re-list where it stands **falls through to its own load
+path** (`fmv_sync`), and a reader that adopts the snapshot wholesale **pays
+`dsk_relist` first** (`fmv_bcast`, which is idempotent and free when nothing
+is owed).
+
 ### 18.91 The transfer loop batches a run into one int 13h
 
 > **The 5150 measured this as a 15% LOSS, and Set 16 found why: `.ok` used to

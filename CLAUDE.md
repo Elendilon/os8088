@@ -1244,6 +1244,21 @@ listing) and §18.4's deferred write. A debt nobody ever collects is the
 right outcome there rather than a leak: it costs one word of state and means
 the sectors were never spent.
 
+**EVERY reader of the global listing must consult `[dsk_lstale]`, and a
+`(drive, cwd)` compare is NOT that test** — the binding rule, learned by
+breaking it twice in one commit. The debt leaves the globals naming the
+*right folder* with **no listing in it**, so "are we already where we want to
+be?" answers yes about an empty snapshot; before the deferral that state
+could only follow a volume switch, so the compare was accidentally
+sufficient. `fm_focus` had the test; `fmv_sync` and `fmv_bcast` did not, and
+both failed **silently** — a double-click after a Control Panel close
+launched *nothing at all* (and cost no I/O doing it), and deleting one file
+redrew its Disk window as `Drive B: 0 files`. Both are
+docs/FIELD-NOTES.md 4's family. The two fix shapes: a reader that can re-list
+where it stands falls through to its own load path (`fmv_sync`); one that
+adopts the snapshot wholesale pays `dsk_relist` first (`fmv_bcast` —
+idempotent, free when nothing is owed).
+
 **A copy costs two volume switches per file** (SPEC.md §22.5), down from five.
 The destination is created WITH its first chunk instead of empty (so the first
 chunk does not cost a switch back to a source we just left, and an empty
