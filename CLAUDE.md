@@ -1319,6 +1319,45 @@ For an application, the whole interface is `OSAPI_MENU_SET` plus the `OS88_MENUS
 
 One trap the bar has already sprung once: **every string in a menu set is an offset in the owning window's segment**, so `menu_bar` carries a `MB_SEG` word *per cell* and `[menu_dseg]` names the dropped one. With a single "active app's segment" instead, the System menu's own items were read out of the package's segment and every one of them drew as `O8` — the first two bytes of the package header.
 
+### The current directory belongs to the INSTANCE (SPEC.md §19.2.1)
+
+`[disk_drive]`/`[dsk_cwd]` are one pair for the whole machine, and §19.2's
+rule — every file name resolves in the current directory — made that pair
+every *application's* idea of where its documents were as well. The
+consequence was not a stale display but **a file written to the wrong folder
+in silence**: Note Pad's Save As commits into `B:\DOCS`, the user opens a
+Disk window on C:, and Note Pad's next plain Save resolves `NOTES.TXT` in
+C:'s current directory and puts it there, with no error anywhere. Four
+packages — Note Pad, Tracker, Paint, ArtfulType — each carried their own
+copy of the same six-line bank-and-restore around it, which is the shape
+that says the kernel owes the feature.
+
+So an instance owns a directory: `inst_fdrv`/`inst_fcwd`, seeded at
+`inst_alloc` from wherever the app was launched, and **`inst_vol_enter`
+stands the machine in the calling instance's folder before the file API
+resolves anything**. The globals still mean what they always meant — one
+floppy, one drive, one mount snapshot — they are now *where the hardware
+is*, not *where anybody thinks they are*. Six things hold it up. The switch
+is at the API cell and nowhere else (`FILE_WRITE`/`READ`/`DELETE`/`RENAME`/
+`DFREE`; the kernel's own `dskw_*` callers act for the machine and are
+untouched, and **`FDLG_OPEN` uses the same name-staging stub and deliberately
+does NOT get it**, because `fdlg_home_go` is what decides where a *dialog*
+opens and a switch underneath would pre-empt it). **The compare is what
+makes it free** — banked == current is six compares, and one app doing file
+work never moves, so a mount is paid only when something really did move the
+volume underneath it. It is a **quiet** mount (§18.9) whose `[dsk_lstale]`
+debt is deliberately never collected, on `drv_vol_back`'s and `assoc_back`'s
+terms. A failure needs no channel: `dsk_chdir_q`'s failure path shuts
+`[dsk_mntok]`, so the operation refuses with `FERR_NODISK` — which is why
+`inst_vol_enter` returns nothing at all, **not even CF**, and preserves every
+register and the flags. `inst_caller` answers "who is asking" and is
+SPEC.md §34.3's rule generalised rather than a second copy — `snd_req_inst`
+is a jump to it. And **`OSAPI_FILE_HERE`/`GOTO` answer for the instance
+now**, which turns them from a requirement into a convenience: all four
+existing callers keep working, their `goto` back becoming a compare that
+finds the volume already there. Redundant, not wrong — the only way to
+retire a duty a published slot handed to applications.
+
 ### One read, one write, and no 64KB ceiling on either (SPEC.md §18.4.1)
 
 There were three routines and there are two. `dskw_read` and `dskw_write` are
@@ -1423,19 +1462,23 @@ a Control Panel close writes `SYSTEM.CFG` to the system disk (§51.5.1), a
 package writing a file leaves the volume where it wrote, a Disk window coming
 to the front re-lists into *its* folder (§22.8). The next Save As in an
 unrelated app then opened somewhere the user had never taken it.
-`inst_fdrv`/`inst_fcwd`/`inst_fname` are a side table in `instance.inc`, one
-row per record, carrying the volume, directory and name that instance last
-chose — and **an app that has chosen nothing opens on `MEDIA`**, the folder
-both shipped disks carry (empty on the system disk) for exactly this. Seven
+`inst_fdrv`/`inst_fcwd`/`inst_fpick`/`inst_fname` are a side table in
+`instance.inc`, one row per record — and the first two are **the instance's
+own current directory** (SPEC.md §19.2.1), the pair its FILE OPERATIONS
+resolve in, not a memory the dialog keeps on the side. **An app that has
+chosen nothing opens on `MEDIA`**, the folder both shipped disks carry
+(empty on the system disk) for exactly this. Seven
 things hold it up. It is a side table because `I_RECSZ`
 is 32 and full and `index<<5` is what makes a record cheap to reach
-everywhere else; `inst_alloc` clears it for `I_CYC`'s reason (a reused record
-must not inherit a dead instance's folder); `0xFF` means "has chosen no
-folder", and the default it selects reads **only `[disk_drive]`** and never
-`[dsk_cwd]` — the cwd is precisely what a background read moves, so it
-resolves `MEDIA` in the ROOT of the drive the user is on and falls back to
-that root, which costs two mounts where it used to cost one and only on the
-opens before the user has gone anywhere. The **folder** is written by the
+everywhere else; `inst_alloc` SEEDS it from wherever the app was launched
+(a reused record must not inherit a dead instance's folder, and seeding
+rather than blanking is what leaves no "no folder" case for a file
+operation to have a policy about); `[inst_fpick]` — a question about the
+USER, not the data — is what selects the default, and neither of the first
+two answers reads the globals at all, so it resolves `MEDIA` in the ROOT of
+THIS INSTANCE's drive and falls back to that root, which costs two mounts
+where it used to cost one and only on the opens before the user has chosen
+anywhere. The **folder** is written by the
 user NAVIGATING, at `fdlg_go` — the one choke point all three ways of moving
 inside the dialog go through, and one `fdlg_home_go` deliberately does not
 use, so *arriving at a default* is not a choice and a background read cannot
