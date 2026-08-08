@@ -1315,7 +1315,7 @@ marty: $(IMG360)
 	@echo "       python3 tools/os88marty.py 127.0.0.1:9001 verify"
 	@echo ""
 	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb,"
-	@echo "                 _sbonly, _vga"
+	@echo "                 _sbonly, and os8088_xt_vga"
 	@echo "       ..._sb has an AdLib AND a Sound Blaster, _sbonly has the DSP"
 	@echo "       and NOTHING at 388h - the SPEC.md 51.3.1 pair; add"
 	@echo "       MARTYPC_WAV=/tmp/cap for one wav per source (sndcheck.py reads them)"

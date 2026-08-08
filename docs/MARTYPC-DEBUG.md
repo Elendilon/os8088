@@ -111,9 +111,10 @@ happened" is the one failure a debugger must not have.
 | `os8088_5150_herc` | the same with MDA — MartyPC models Hercules as an MDA sub-mode, so SPEC.md §39.1's probe is what decides |
 | `os8088_5150_cga_gla` | the same with GLaBIOS |
 | `os8088_5150_sb` | the same with an AdLib **and** a Sound Blaster (DSP 2.01, 0x220, IRQ 7) |
+| `os8088_5150_sbonly` | ...and with the FM half taken out: a DSP at 0x220 and **nothing at 0x388**. No real card is built that way, which is why it needs an emulator — it is SPEC.md §51.3.1's jumpered-off-FM case, and `_sb`/`_sbonly` are one pair with `make SNDSNIFF=sb` between them |
 | `os8088_xt_vga` | an IBM 5160 XT with GLaBIOS and a VGA — SPEC.md §39's mode 12h |
 
-The first four are shaped after docs/FIELD-MACHINES.md's calibration machine,
+The first five are shaped after docs/FIELD-MACHINES.md's calibration machine,
 as closely as MartyPC allows.
 
 **The VGA one is an XT and not a 5150, deliberately.** An 8-bit ISA VGA card
@@ -416,7 +417,7 @@ standard EGA/VGA palette entry (blue 1s, green 2s, a red 3, the exploded
 mine). The VGA BIOS is MartyPC's own bundled `BOCHS-VGABIOS.bin`, LGPL and
 shipped with its licence, so this cost no new asset.
 
-`os8088_5150_vga` is the machine. A 5150 with a VGA in it is an anachronism
+`os8088_xt_vga` is the machine. A 5150 with a VGA in it is an anachronism
 and a deliberate one: what is under test is os8088's mode 12h path on the CPU
 the project is calibrated against.
 
