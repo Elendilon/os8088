@@ -3163,6 +3163,42 @@ fm_editkey:
     ret
 
 ; -----------------------------------------------------------------------------
+; fm_samename - is the typed name the one it already has? (SPEC.md 22.10)
+; in:  fm_ebuf, fm_onam
+; out: CF = 1 if identical; all registers preserved
+;
+; Seeding the buffer took away the "nothing typed, so Enter cancels" exit -
+; the buffer is never empty now - and pressing Enter on an untouched prompt
+; would otherwise ask to rename a file to the name it has, which dskw_rename
+; answers with 'Name taken'. That reads as a refusal when it was a no-op.
+; Uppercase-exact: both sides are 19.1 display names, sanitized alike.
+; -----------------------------------------------------------------------------
+fm_samename:
+    push ax
+    push si
+    push di
+    mov si, fm_ebuf
+    mov di, fm_onam
+.cmp:
+    lodsb                       ; DF=0 per SPEC.md 1
+    cmp al, [di]
+    jne .diff
+    inc di
+    or al, al
+    jnz .cmp
+    pop di
+    pop si
+    pop ax
+    stc
+    ret
+.diff:
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; fm_hasdot - does the name being typed already carry a '.'? (internal)
 ; in:  nothing
 ; out: CF=1 if it does; all registers preserved
@@ -3225,6 +3261,10 @@ fm_edit_commit:
     call dskw_mkdir_x           ; CF=1 with AX = FERR_* (SPEC.md 18.5)
     jmp short .verdict
 .ren:
+    call fm_extkeep             ; typed no extension? keep the old one (22.10)
+    call fm_samename            ; ...and a name that came back UNCHANGED is
+    jc .done                    ; Enter on an untouched prompt, which used to
+                                ; be the empty buffer above and cancelled
     mov si, fm_onam             ; old name...
     mov di, fm_ebuf             ; ...new name; the eleven name bytes and
     call dskw_rename_x          ; nothing else move (SPEC.md 18.4)
@@ -3831,6 +3871,101 @@ fm_edit_arm:
                                 ; caller that is not fm_docmd simply leaves
                                 ; it set for the next one to clear, which
                                 ; fm_docmd does before every dispatch
+    cmp al, 2                   ; RENAME starts from the name the file has
+    jne .out                    ; (SPEC.md 22.10). Modes 1 and 4 - New Folder
+    call fm_edit_seed           ; and the replace question - start empty
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_edit_seed - start a rename from the current name's STEM (SPEC.md 22.10)
+; in:  fm_onam = the target's display name (fm_stage_onam has run)
+; out: nothing (all registers preserved)
+;
+; The stem only. An extension is the part of a name a user almost never means
+; to change and would otherwise have to retype exactly, so it is left off the
+; buffer and fm_extkeep puts it back at commit - which also means typing one
+; is how you CHANGE it. Bounded by the same 12 characters fm_editkey allows.
+; -----------------------------------------------------------------------------
+fm_edit_seed:
+    push ax
+    push cx
+    push si
+    push di
+    mov si, fm_onam
+    mov di, fm_ebuf
+    xor cl, cl
+.cp:
+    lodsb                       ; DF=0 per SPEC.md 1
+    or al, al
+    jz .end
+    cmp al, '.'
+    je .end
+    mov [di], al                ; mov/inc, never stosb: ES is not DS here
+    inc di
+    inc cl
+    cmp cl, 12
+    jb .cp
+.end:
+    mov byte [di], 0
+    mov [fm_elen], cl
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_extkeep - no extension typed? keep the one it had (SPEC.md 22.10)
+; in:  fm_ebuf/fm_elen = the typed name, fm_onam = the old one
+; out: nothing (all registers preserved); fm_ebuf/fm_elen may grow
+;
+; Only when the user typed no '.' at all. Typing one - including a trailing
+; '.' with nothing after it - is how the extension is changed or dropped, so
+; theirs always wins. Bounded at 12, and a name with no room for an extension
+; is left as typed for dskw_name83 to judge.
+; -----------------------------------------------------------------------------
+fm_extkeep:
+    push ax
+    push bx
+    push si
+    push di
+    call fm_hasdot
+    jc .out                     ; the user typed one: theirs wins
+    mov si, fm_onam
+.find:
+    lodsb
+    or al, al
+    jz .out                     ; the old name had no extension either
+    cmp al, '.'
+    jne .find                   ; SI now points AT the old extension
+    mov bl, [fm_elen]
+    xor bh, bh
+    cmp bl, 12
+    jae .out                    ; no room for the '.', let alone what follows
+    mov di, fm_ebuf
+    add di, bx
+    mov byte [di], '.'
+    inc di
+    inc bl
+.cp:
+    lodsb
+    or al, al
+    jz .term
+    cmp bl, 12
+    jae .term
+    mov [di], al
+    inc di
+    inc bl
+    jmp short .cp
+.term:
+    mov byte [di], 0
+    mov [fm_elen], bl
+.out:
+    pop di
+    pop si
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
