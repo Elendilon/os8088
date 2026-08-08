@@ -377,6 +377,30 @@ def report_pace(r, minpx=1):
                      "  ".join("%dfr x%d" % (k, hh[k]) for k in sorted(hh)[:6])))
 
 
+def video_is_text(v):
+    """Is the card in a TEXT mode? Ask the field that is LIVE on that card.
+
+    `video` reports both `graphics` and `mode`/`text`, and on any given card
+    one of them is a dead field left at its initial value:
+
+      - on the **VGA**, `graphics` is dead - it answers false in mode 12h
+        exactly as it does in mode 3 - so `mode`/`text` is the discriminator;
+      - on the **MDA/Hercules**, `mode`/`text` is dead. os8088 puts the card
+        into HGC graphics through 3BF/3B8 rather than through int 10h, so
+        `display_mode()` still says `Mode0TextBw40` while `graphics` correctly
+        says true. Trusting `text` there sends every Hercules capture down the
+        rendered route and REFUSES `--kind herc` - and the VRAM route is the
+        one whose output is byte-comparable with tools/hercshot.py, so every
+        "0 differing pixels" check in this tree goes through it.
+
+    The tell that one of them is dead is that they contradict each other:
+    `graphics: true` with `text: true` cannot both be so.
+    """
+    if v.get("type") == "vga":
+        return bool(v.get("text"))
+    return not v.get("graphics", True)
+
+
 def parse_addr(text):
     """`0060:0000`, `0x600` or `600` -> a flat address."""
     text = text.strip()
@@ -523,20 +547,21 @@ def main():
                 # route is the only one that means anything, and `screen`
                 # is usually what you actually wanted.
                 v = m.video()
-                if v.get("text") and not a.rendered and a.kind is None:
+                is_text = video_is_text(v)
+                if is_text and not a.rendered and a.kind is None:
                     print("%s: card is in %s (a TEXT mode) - capturing the "
                           "RENDERED framebuffer.\n"
                           "  The VRAM route would decode character cells as a "
                           "bitmap and show you nothing real.\n"
                           "  For the characters themselves: os88marty.py <addr> screen"
                           % (a.out, v.get("mode")), file=sys.stderr)
-                if a.kind is not None and v.get("text"):
+                if a.kind is not None and is_text:
                     raise MartyError(
                         "--kind %s decodes a GRAPHICS framebuffer and the card is in "
                         "%s, a text mode. Drop --kind (the rendered route works in "
                         "every mode), or use `screen` for the characters."
                         % (a.kind, v.get("mode")))
-                rendered = a.rendered or v.get("text") or (a.kind is None and v["type"] == "vga")
+                rendered = a.rendered or is_text or (a.kind is None and v["type"] == "vga")
                 if rendered:
                     w, h, data = m.fbuf(a.aperture)
                     write_png_rgb(a.out, w, h, data)
