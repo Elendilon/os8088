@@ -273,7 +273,8 @@ make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
               # dumps KERNEL_SEG and diffs it against build/kernel.bin, which
               # is FIELD-MACHINES.md's self-validating dump as one command
               # Machines: os8088_5150_cga (default), _5150_herc, _5150_cga_gla,
-              # _5150_sb (AdLib + Sound Blaster), _xt_vga (mode 12h). Add
+              # _5150_sb (AdLib + Sound Blaster), _xt_vga (mode 12h),
+              # _xt_hdd (XT-IDE, SPEC.md 52's rung 0). Add
               # MARTYPC_WAV=/tmp/cap for one wav per sound source.
 make clean
 ```
@@ -295,9 +296,11 @@ once, and each is now a MartyPC command.
 **The whole of QEMU's remaining list**, so that "a legitimate need" is a
 thing you can check rather than a thing you can argue: **286/386** (86Box
 covers these too and models the machine rather than just the CPU), the
-**hard-disk driver** (SPEC.md §52 - QEMU has an ATA disk at 1F0h and SeaBIOS
-gives it to int 13h; no MartyPC config here has a disk controller), and
-SPEC.md §9.5's **COM2 / cross-wired-IRQ / modem** mouse cases (`MOUSEPORT=`
+**hard-disk driver's RUNG 1** (SPEC.md §52.1 - the IDE task file read
+directly, gated on `CPU_286` because an 8088's `in ax, dx` loses the drive's
+high byte, so MartyPC's 8088 can never clear that gate; **rung 0 is
+MartyPC's**, `os8088_xt_hdd`, and it is the rung the target machine uses),
+and SPEC.md §9.5's **COM2 / cross-wired-IRQ / modem** mouse cases (`MOUSEPORT=`
 and a socket chardev - MartyPC can put its mouse on either port but the
 cross-wired and modem cases are not built). That is the list. Speed of
 typing is not on it, and neither is familiarity with QMP.
@@ -594,7 +597,29 @@ gstreamer/libcaca display extras, which 404 the same way and which a headless
 not `pkill -f apt-get` from inside a Bash tool call — the pattern matches the
 call's own shell and kills it.
 
-Requires `nasm`, `qemu-system-i386`, `python3`. No linker anywhere — everything is `nasm -f bin` flat binaries (deliberately, to avoid Apple's Mach-O-only toolchain).
+**`libudev-dev` 404s the same way, and it bites FIRST** — it is `make marty`'s
+dependency, the DEFAULT test target, the one this file says to build at the
+start of a session, where QEMU is the fallback with a short list. MartyPC
+depends on the `serialport` crate, whose build script hard-fails without
+`libudev-dev` + `pkg-config`, so a fresh container's first `make marty` ends
+in a cargo error several minutes in. Installing them out of the shipped index
+fails the same way QEMU does — the index names
+`libudev-dev_255.4-1ubuntu8.14`, which is gone from the pool:
+
+```
+apt-get update                       # ...and that is the WHOLE fix here
+apt-get install -y --no-install-recommends libudev-dev pkg-config
+```
+
+**Do not carry the QEMU recipe's version pinning over to it.** Same symptom,
+opposite cause: QEMU needs an OLDER version than the index names, because the
+`-updates` build is the broken one; `libudev-dev` needs the NEWER one a
+refreshed index names (`…8.16` today), because the stale entry is what has
+been superseded. Pinning `libudev-dev` to the base version reinstates exactly
+the 404 you are trying to escape. `pkg-config` installs normally either way.
+
+Requires `nasm`, `python3`, and — per the rule above, MartyPC first —
+`cargo`; `qemu-system-i386` only for the fallback's short list. No linker anywhere — everything is `nasm -f bin` flat binaries (deliberately, to avoid Apple's Mach-O-only toolchain).
 
 There are no unit tests. **`docs/TESTING.md` is the matrix of WHICH TOOL to
 reach for and what each can and cannot do**, with a verified recipe per
@@ -1608,16 +1633,26 @@ flashing menu from the other end. **A repeat is not a press** (`KBM_GAP`
 again): typematic is ~1.8 ticks and a deliberate second press is 4+, and
 without the guard a press held a moment too long opened a menu and closed it
 on its own repeat. **Five loops spin on that level and the list used to name
-three**: `menu_track`, `ui_drag`, `ui_grow` call `kbm_poll` beside their
-`task_yield` (it PEEKS with int 16h AH=01h and takes the key only if
-`kbm_key` claims it, because int 16h cannot put one back); **`osapi_mouse`
-calls it too**, gated on `[mou_seen]`, which is the same loop by another name
+three**: `menu_track`, `ui_drag`, `ui_grow` call `kbm_pollm` beside their
+`task_yield`; **`osapi_mouse` calls `kbm_poll`**, gated on `[mou_seen]`, which is the same loop by another name
 and is what makes a PACKAGE's drag reachable - Solitaire's `sol_drag`, Paint's
 `pt_wait`, Note Pad's selection - where this used to say they were not; and
 `fm_drag` is served by **not spinning at all** with no mouse, because it waits
 with the button down to tell a click from a drag and the button is latched for
 the whole dispatch, so a row click would cost two presses and a double-click
-four. File drag and drop wants a mouse, as it always did. **ScrollLock is the
+four. File drag and drop wants a mouse, as it always did. **What happens to a key
+the poll does NOT claim is the whole difference between `kbm_pollm` and
+`kbm_poll`, and getting it wrong is a machine you cannot get out of**: int 16h
+AH=01h reports the HEAD of the BIOS buffer, so an unclaimed key left there
+makes every later key queue behind it, invisible - the press that would close
+the menu included. The modal loops EAT it (they read no keys of their own, and
+a key typed into a menu is discarded, which is what modal means); `osapi_mouse`
+LEAVES it, because a package's loop polls int 16h itself and eating its
+keystrokes is worse than the bug. It reached the field as a Compaq Portable III
+stuck in a menu with a live machine underneath it, wedged by keypad 5 - which
+was unclaimed there because it is the one keypad key with NO cursor function,
+so what a BIOS puts in `AL` for it is that BIOS's business. It is matched on
+`AH = 4C` alone now; turn NumLock ON under QEMU to get the field's byte. **ScrollLock is the
 ONE latch, and the rule it encodes is that the way back to typing can never be
 a key you would want to type** (SPEC.md 9.6.2). A '.' was added as a second,
 friendlier hatch and was wrong within a day: '.' is wanted the moment anybody
@@ -1995,6 +2030,44 @@ speaker, which is where it lives with no `DSV_TONE` published, and the tick
 loads on the spot), and the "no hardware found" report is still exactly
 right when the settings file *did* ask — that path is untouched and gated on
 the same `DRVR_WANT`.
+
+**…but the first boot ASKS, and that is not the same as guessing (SPEC.md
+§51.3.1).** What §51.3 refused is in its own paragraph: 5.5KB of driver read
+off a floppy to be told there was no card. `drv_snd_sniff` is §34.2's OPL2
+timer-flag dance and costs **~2 ms of port I/O** — a hundredth of one floppy
+sector — so on a machine with no `SYSTEM.CFG` yet, the sound row's `DRVR_WANT`
+starts at 1 if there is an FM chip at 388h and 0 if there is not. Four things
+about it. **It is a DEFAULT and nothing enforces that** — `drv_cfg_unpack`
+calls `drv_want_set`, which rewrites all three `WANT` bytes from the file's
+bitmap, so a settings file always wins in both directions and there is no "did
+the file exist" test anywhere to get wrong. **It is in the BOOT OVERLAY**
+(§2.5), called from `kmain` and not from `drv_boot`, where it belongs by
+subject and cannot live: `drv_boot`'s own mount is what writes over the
+overlay, so by the time `drv_cfg_load` has answered the probe's code is FAT —
+which is also why it **costs nothing at all against `KERN_BUDGET`** (measured:
+`.text` +5 bytes for the far call, into 354 bytes of image-rung slack;
+`.ovl` +113, and the overlay is free). `clk_init`'s four-rung RTC ladder is
+the precedent, same shape and same home. **One probe covers both cards, as a
+fact about the hardware**: every Sound Blaster carries an OPL2 at 388h, which
+is why the driver's own attach probes FM first (§34.2). And **the DSP reset
+scan is a knob, `make SNDSNIFF=sb`, gated on the FM probe having missed**,
+because it costs the thing §51.3 refuses to spend on the hard-disk driver —
+*writing* to six unknown port ranges on every boot. Two cases want it: a card
+whose FM half is jumpered off, and QEMU's `-device sb16`, whose OPL does **not**
+answer the timer probe where a real one does. The field
+machine has no sound card at all (docs/FIELD-MACHINES.md), so it is the one
+that pays a probe and gains nothing — which is what decided the default.
+**MartyPC is the instrument and had to be**: the probe reads a timer that has
+to overflow in real guest time, so an emulator running the guest at host speed
+through a status stub can neither confirm nor refute it — QEMU says the probe
+works with `-device adlib` and says an `-device sb16` box is cardless, and only
+the first is a fact about hardware. On a cycle-accurate 5150 the FM probe hits
+on `os8088_5150_sb`, misses on `_cga` and on **`os8088_5150_sbonly`** — a
+machine added for this, a DSP with nothing at 388h, which no real card is but
+which is exactly the case the knob exists for — and `SNDSNIFF=sb` finds that
+one against a real DSP 2.01. End to end: the Sound page comes up on **Sound
+Blaster** with nothing ticked, and its Test tone is **660.0 Hz in the OPL2
+capture** while the speaker's holds only the 5150's POST beep.
 
 **`bb_set` is the LAST thing `drv_boot` does**, after the load loop, and that
 is SPEC.md §15.3's requirement rather than tidiness: it seeds the back buffer

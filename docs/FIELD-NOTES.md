@@ -1317,7 +1317,7 @@ worth more than any measurement taken here. A deterministic symptom cannot
 have a probabilistic cause, and that alone ruled out the mechanism the
 container had made easy to measure, in favour of the one it could not see.
 
-## 13. The mouse is detected, moves exactly once, then freezes (Compaq Portable III) (FIXED, reproduced in the container)
+## 13. The mouse is detected, moves exactly once, then freezes (Compaq Portable III) (FIXED, CONFIRMED on the machine)
 
 **Observed**, on the Compaq Portable III, booting `elendilon` at `c4aaab2`:
 the mouse is found, the cursor moves once, and then nothing for the rest of
@@ -1359,6 +1359,16 @@ breaks. `[mou_line]` is published in §9.4.2's block, so `winning row 2`
 beside `winning IRQ hex 10` now names a cross-wired card on any machine that
 runs `sysbench`.
 
+**Confirmed on the Compaq Portable III**, which reports exactly that pair —
+`winning row (0/2) 2` with `winning IRQ hex 10=4 0010`: the mouse is the
+device on 0x2F8 and its packets arrive on IRQ4. The mouse works for the whole
+session. Two more numbers in the same block are worth keeping, because they
+are the first real-hardware confirmation of §9.4.1: `packets needed COM1 8`
+against `packets needed COM2 1`, which is the identify burst having named
+COM2 the only mouse-shaped port and dropped its threshold — so the modem-ish
+device on COM1 was still owed its full eight while the mouse settled on its
+first packet.
+
 **The reusable lesson.** A wrong assumption usually has more than one reader,
 and fixing the one that produced the symptom leaves the others armed. §9.5.2
 found "the base does not determine which port has the byte" and changed the
@@ -1367,3 +1377,73 @@ lines*, one routine away, and nothing in the fix or its testing had any
 reason to look there. The second failure was not a regression and not a new
 bug — it was the rest of the first one, and it could only surface once the
 first fix let the mouse get far enough to be retired.
+
+## 14. The 5150's clock was not detected once, and has not failed since (OPEN, instrumented, one observation)
+
+**Observed**, once: the 5150 came up on the 4 July 2026 fallback date with its
+AST SixPakPlus in the machine and working. On the next run, with SPEC.md
+§37.92's instrument in the kernel, it answered `tier that answered 2` and
+`NS probe stop hex 00FF` — the MM58167 rung, every gate passed — and the
+operator's report is *"the clock just worked this time. I have no idea what
+happened before. If it's intermittent, I will call it out again."*
+
+**So there is one failing observation with no data and one passing
+observation with all of it, and that is not enough to change code on.** What
+it is enough for is to say what to look at when it recurs, and the whole
+value of the instrument is that the next failure names its own gate.
+
+**The passing card, in full:**
+
+```
+tier that answered            2      MM58167 (rung 4 of the ladder)
+int 1Ah readable              0      an XT BIOS: AH=02h is not implemented
+NS probe stop hex     00FF           every gate passed
+NS reg 00 hex         0090           ms counter, high nibble only
+NS reg 08 hex         0000           RAM 08h, no low nibble
+NS 0D wr AA rd hex    000A           the strict test, and it PASSES
+NS 08 wr FF rd hex    00F0
+```
+
+Two of those settle questions that were open in the source. `NS 0D wr AA rd
+= 0A` is the byte `clk_ns_probe`'s own comment nominates as the first thing
+to suspect — three sources say the absent nibble reads `0Ah`, GLaTICK's
+author's comment expected it might float to ones — and on this card **it
+reads `0Ah`**, so the strict test is right and is not the intermittency.
+`NS reg 00 = 90` is the *largest* value gate 2 accepts (`cmp al, 0x90 / ja`),
+which looks alarming and is not: the register is a tens-of-milliseconds digit
+and 9 is simply its top BCD value.
+
+**The one gate whose result depends on the time of day is gate 4**, the
+RP5C01 veto, and that is the shape an intermittent has. `clk_rp_fields` reads
+the *low nibble* of each port and refuses the MM58167 if they spell a
+plausible RP5C01 page 0 — but on an MM58167 those ports are its own counters,
+so what the veto is really testing is the current time:
+
+| port | RP5C01 wants | MM58167 has there | passes when |
+|---|---|---|---|
+| 0x01 | 0..5 | hundredths of a second | units digit ≤ 5 — **changes 100x/second** |
+| 0x03 | 0..5 | minutes | units digit ≤ 5 |
+| 0x05 | 0..3 | day of week, 1..7 | ≤ 3 |
+| 0x06 | 0..6 | day of month | units digit ≤ 6 |
+
+Multiply those and a genuine SixPakPlus looks like an RP5C01 a few percent of
+the time — **and the first row changes a hundred times a second**, so it is
+not reproducible boot to boot at the same time of day either. That is exactly
+"it worked this time and I do not know what happened before".
+
+**Nothing is being changed on this.** The veto is not silly — it exists so
+that two writes cannot land on a TC8521's MODE register and move a stranger's
+chip onto its NVRAM page — and one unexplained boot is not evidence enough to
+trade that away. What to do instead is read **one number** when it recurs:
+
+- `NS probe stop hex` = **04** → the veto fired, this table is the cause, and
+  the fix is to make gate 4 time-invariant rather than to delete it.
+- anything else → the veto is exonerated and the named gate is the lead.
+- `00` → an earlier rung claimed, which on an XT means something much
+  stranger than a clock fault.
+
+**The reusable lesson** is about what to build when a bug will not reproduce:
+not a fix, and not a bisect, but the one byte that makes the *next*
+occurrence self-diagnosing. This cost eleven bytes of kernel and the failure
+has not happened again since — which is the awkward part, and precisely why
+the instrument had to go in before it was understood rather than after.

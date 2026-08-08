@@ -1895,8 +1895,13 @@ sb_b_rdbig:
 ; logic analyser to.
 ;
 ; It exists because of PERFORMANCE.md Part 9 Set 13 and the DOS cross-check
-; that followed it. A 360KB disk turns at 300 RPM, so a revolution is 200 ms
-; and a 9-sector track holds 4,608 data bytes: 23,040 bytes/second if a whole
+; that followed it. THE REVOLUTION TIME BELONGS TO THE DRIVE AND NOT TO THE
+; MEDIA, which this header used to get wrong: a 360KB drive turns at 300 RPM
+; (200 ms), and a 1.2MB drive turns at 360 RPM (167 ms) even with a 360KB disk
+; in it - which is the Compaq Portable III, and reading its report against the
+; 300 RPM scale credits it with 0.82 of a revolution to fetch one sector, a
+; figure no drive can produce. A 9-sector track holds 4,608 data bytes:
+; 23,040 bytes/second if a whole
 ; track arrives in one turn, 11,520 at a 2:1 interleave, and 2,560 if only one
 ; sector is caught per revolution. os8088 measures 2,161 - about 0.84 sectors
 ; a revolution - while DOS 3.3 on the SAME machine, drive and media copies at
@@ -1978,6 +1983,14 @@ sb_raw13:
     mov si, sb_s_h_r132
     call bl_sline
     mov si, sb_s_h_r133
+    call bl_sline
+    mov si, sb_s_h_r134
+    call bl_sline
+    mov si, sb_s_h_r135
+    call bl_sline
+    mov si, sb_s_h_r136
+    call bl_sline
+    mov si, sb_s_h_r137
     call bl_sline
 
     ; --- the diskette parameter table the BIOS is actually using (18.92) ----
@@ -3046,8 +3059,12 @@ sb_d_isr:    db 'interrupt load pct', 0
 sb_d_rate:   db 'floppy bytes/sec', 0
 
 sb_s_h_r13:  db '-- the same drive with NO kernel code in the way: raw int 13h --', 0
-sb_s_h_r132: db '   READ ONLY. 300 RPM = 200 ms a turn; a 9-sector track is 4,608', 0
-sb_s_h_r133: db '   bytes, so 23,040 B/s at 1:1, 11,520 at 2:1, 2,560 one-per-turn.', 0
+sb_s_h_r132: db '   READ ONLY. A 9-sector track is 4,608 bytes. THE TURN DEPENDS ON', 0
+sb_s_h_r133: db '   THE DRIVE: a 360K drive is 300 RPM (200 ms), a 1.2M one 360 RPM', 0
+sb_s_h_r134: db '   (167 ms) even on 360K media. 1:1 / 2:1 / one-per-turn B/s are', 0
+sb_s_h_r135: db '   23040 / 11520 / 2560 at 300, and 27648 / 13824 / 3072 at 360.', 0
+sb_s_h_r136: db '   The B/s ROWS below are measured, not derived, so they are right', 0
+sb_s_h_r137: db '   either way - and `int 13h 1 sector` is ONE turn, so it says which.', 0
 sb_l_dptn:   db 'DPT EOT (18.92 patches)', 0
 sb_l_dpts:   db 'DPT step/head unload', 0
 sb_l_dpth:   db 'DPT head settle ms', 0

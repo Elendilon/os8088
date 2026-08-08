@@ -102,6 +102,23 @@ VIDDEF += -DFLOPPY_ONE
 BOOTDEF += -DFLOPPY_ONE
 endif
 
+# SNDSNIFF=sb adds the Sound Blaster DSP reset scan to the boot's sound probe
+# (SPEC.md 51.3.1), which by default is the OPL2 timer-flag dance at 388h and
+# nothing else. Every Sound Blaster ever made carries an OPL2 there, so the
+# scan finds nothing the default has not already found on real hardware - and
+# it costs six unknown port ranges being WRITTEN to on every boot of every
+# machine, which is the one thing SPEC.md 51.3 refuses to do for the hard-disk
+# driver. It is a knob because two cases want it: a card whose FM half is
+# jumpered off or decoded elsewhere, and QEMU's own `-device sb16`, whose OPL
+# does NOT answer the timer probe (a real one does). ~60 ms of a cardless
+# boot; free on a machine that has any FM chip at all, which is tested first.
+ifneq ($(SNDSNIFF),)
+ifneq ($(SNDSNIFF),sb)
+$(error SNDSNIFF must be: sb)
+endif
+VIDDEF += -DSND_SNIFF_SB
+endif
+
 # RAMKB=<n> makes the boot sector believe the machine has n KB, instead of
 # asking int 12h (SPEC.md 2.7). It exists because QEMU always answers 639 -
 # conventional memory is capped there whatever -m says - so the relocation
@@ -128,7 +145,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(SNDSNIFF),-ss$(SNDSNIFF))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin; \
@@ -143,11 +160,29 @@ KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 run-720 debug test test-snd xt xt-640 xt-cga \
         xt-hercules 286 386sx 386 xt-sound 286-sound 386-sound \
-        bench field stackprobe trklog marty comscan clean
+        bench field stackprobe trklog marty comscan checkdocs clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
-all: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360)
+all: checkdocs $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360)
+
+# The documentation gate (SPEC.md is the binding contract, so a citation that
+# names a heading which does not exist is a defect in it): a stale section
+# reference, and an API slot number in prose that no longer names that
+# routine. The second is the one that cannot be caught by reading - after a
+# renumbering a stale slot is usually still a VALID slot, just a different
+# call.
+#
+# It runs in the DEFAULT build rather than sitting behind `make checkdocs`,
+# and that is the whole point of the target: nothing ran it for long enough to
+# accumulate 34 findings, and a check nobody types has exactly that failure
+# mode. Same shape as os88ovlchk.py on the kernel rule below - a gate whose
+# value is that it cannot be skipped - and it costs ~0.7 s, reads only tracked
+# text and writes nothing. It builds no artifact, so it is PHONY and every
+# `make` pays it; that is deliberate, because the drift it catches arrives in
+# commits that touch no source at all.
+checkdocs:
+	@python3 tools/checkdocs.py
 
 $(BUILD):
 	@mkdir -p $(BUILD)
@@ -1297,8 +1332,10 @@ marty: $(IMG360)
 	@echo "         ./martypc_headless --mount fd:0:media/floppies/os8088-360.img &"
 	@echo "       python3 tools/os88marty.py 127.0.0.1:9001 verify"
 	@echo ""
-	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb, _vga"
-	@echo "       ..._sb has an AdLib AND a Sound Blaster; add"
+	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb,"
+	@echo "                 _sbonly, and os8088_xt_vga"
+	@echo "       ..._sb has an AdLib AND a Sound Blaster, _sbonly has the DSP"
+	@echo "       and NOTHING at 388h - the SPEC.md 51.3.1 pair; add"
 	@echo "       MARTYPC_WAV=/tmp/cap for one wav per source (sndcheck.py reads them)"
 
 # NOTHING IN build/ IS TRACKED, and that is a decision rather than an accident.

@@ -335,10 +335,20 @@ of the kernel. It holds code that runs **once**, from `kmain`, and is never
 called again: `cpu_detect`, `cpu_a20_enable`, `xm_init`, `desk_init`,
 `snd_init`, `clk_init` and the clock's whole probe-and-read ladder (§37.90).
 
-**It lands on `FAT_SEG` and is then overwritten by the first mount.** That is
+**It lands on `FAT_SEG`, whose bytes the first mount is free to take.** That is
 the entire trick: the FAT window (§18.8) is not filled until a volume is
 mounted, which happens after `kmain` has finished with all of this, so the
-overlay's bytes are free real estate that the ladder already reserved. The
+overlay's bytes are free real estate that the ladder already reserved.
+
+Since §18.8.2 the mount does not always *take* them — a volume that wins a
+private heap window leaves `FAT_SEG` alone, and on a 640K machine the overlay
+is measurably still intact at the desktop. **Nothing changes**: what this
+section buys is that the overlay costs no memory, and the window is reserved
+either way. But the rule is unchanged and is the reserved-ness, not the
+clobbering: an overlay entry is dead after `kmain` because the bytes are
+*forfeit*, not because something is known to have eaten them, and whether they
+survive now depends on how much heap was free at mount time. Do not build
+anything on reading them back. The
 `start=` is a *file* offset, not an address — it is the image rung — so NASM
 emits the space between `.text` and that rung as zeros and the boot sector's
 existing single contiguous read puts the overlay exactly where the ladder
@@ -2789,7 +2799,7 @@ The keys:
 | key | scan | does |
 |---|---|---|
 | the eight keypad directions | 47/48/49/4B/4D/4F/50/51 | move, clamped to `[vid_wm1]`/`[vid_hm1]` exactly as the ISR clamps |
-| **keypad 0 (Ins)**, **keypad 5**, **Space** | 52 / 4C / 39 | the **button** — one action, three keys (§9.6.1) |
+| **keypad 0 (Ins)**, **keypad 5**, **Space** | 52 / 4C / 39 | the **button** — one action, three keys (§9.6.1). Space and keypad 5 are matched **above** the `AL = 0` gate, keypad 0 below it |
 | **Del** | 53 | the right button, latching; press edge only (§9) |
 | **ScrollLock** | — | the **latch** — hand the whole keyboard to the window under the pointer (§9.6.2). Not a key here: a level (§9.6) |
 
@@ -2840,16 +2850,49 @@ double-click rhythm.
 
 **Every loop that spins on that level must service the keyboard**, or a
 latched button can never be released and the machine sits inside a menu no key
-can close. `kbm_poll` *peeks* with int 16h AH=01h and takes the key only if
-`kbm_key` claims it, because int 16h has no way to put one back; anything else
-stays in the BIOS buffer and is dispatched normally once the loop ends. There
-are **five** such loops and the list used to name three:
+can close. The key is *peeked* with int 16h AH=01h, because int 16h has no way
+to put one back. There are **five** such loops and the list used to name three:
 
 | loop | how it is served |
 |---|---|
-| `menu_track` (bar and `menu_popup`), `ui_drag`, `ui_grow` | `kbm_poll` beside the `task_yield` each already makes |
+| `menu_track` (bar and `menu_popup`), `ui_drag`, `ui_grow` | **`kbm_pollm`** beside the `task_yield` each already makes |
 | a **package's** tracking loop — `sol_drag`, Paint's `pt_wait`, Note Pad's selection drag, Piano, Recorder | **`osapi_mouse` calls `kbm_poll`** (gated on `[mou_seen]`, so a machine with a mouse pays one compare). A package spins on this slot exactly as the kernel spins on the level, so it is the same loop by another name — and it is what makes Solitaire's card drag reachable, which this section used to say it was not |
+
+**What happens to a key the poll does NOT claim is the whole difference
+between those two entry points, and getting it wrong is a machine you cannot
+get out of.** int 16h AH=01h reports the **head** of the BIOS buffer. Leave an
+unclaimed key sitting there and every following key queues behind it,
+invisible — so the very button press that would close the menu is never seen,
+and neither is the next one, or ScrollLock, or Escape. `ui_task`'s own poll
+cannot show this, because it always removes the key it peeked.
+
+- **`kbm_pollm` — modal: eat it.** `menu_track`, `ui_drag` and `ui_grow` read
+  no keys of their own, so nothing else is ever going to take it out. A key
+  typed into a menu or a drag is discarded, which is what modal means.
+- **`kbm_poll` — peek only: leave it.** `osapi_mouse`'s callers are packages
+  whose loops poll int 16h themselves (Paint's `pt_wait`, Missile Command), so
+  eating their keystrokes would be worse than the bug.
+
+It reached the field as a **Compaq Portable III stuck in a menu** — space,
+keypad 0, keypad 5, ScrollLock and Escape all dead, with a live machine
+underneath (BIOS ticks still advancing at 18.3 Hz, so it was never a freeze).
+The key that wedged it was keypad 5, for the reason in the next paragraph. It
+reproduces here in three keystrokes: open a menu, press `a`, try to close it.
 | `fm_drag` — the file manager's click-or-drag wait | **it does not spin at all with no mouse**: see below |
+
+**Keypad 5 is matched on its scancode alone, and that is not a detail.** It is
+the one keypad key with **no cursor function**, so what a BIOS puts in `AL`
+for it is that BIOS's business: SeaBIOS says 0 and the field machine says
+otherwise. Tested below the `AL = 0` gate it was simply dead there — "numpad 5
+still does nothing" — while every test here passed, and worse, it was then an
+*unclaimed* key, which is what wedged the menu above. Matching `AH = 4C`
+whatever `AL` holds fixes both, at the price of the keypad's `5` not typing a
+digit while the pointer is live; the main row's `5` is a different scancode
+and is untouched. The same reasoning does **not** apply to keypad 0: Ins has a
+cursor function, every BIOS agrees `AL` = 0, and leaving it below the gate is
+what keeps the keypad's `0` typing a digit. Reproduce the field's behaviour
+here by turning **NumLock on** — SeaBIOS then sends `AL` = `'5'` with scan 4C,
+which is exactly the byte the Compaq sends.
 
 `fm_drag` is the one that cannot be fixed by servicing it. It exists to
 disambiguate a click from a drag, and it waits with the button down to find
@@ -18254,17 +18297,18 @@ Four things about it are load-bearing:
   cursor off, so the bracket has one crosshair and no arrow — which is the
   cheapest confirmation that the bracket is actually running.
 
-**On the iron this is worth nine times what the emulators said.** Set 4
-priced the pair at 246 µs on MartyPC and 21.8% of a session; the 5150 itself
-measures `GFX_UNLOCK+LOCK` at **2,241 µs on Hercules and 2,402 on CGA**,
-against 119-246 on every other machine in Set 11 — the one gfxbench row where
-the 5150 and MartyPC disagree at all. The suspected mechanism is
-`cur_lazyend` → `cur_move`, which fires when the mouse has moved since the
-cursor was drawn, and **a Missile Command player never stops moving the
-mouse** (docs/FIELD-NOTES.md 8). The bracket holds the lock for the whole
-session and pays it **once**, so whatever that row turns out to be, this is
-the change that makes the game immune to it — and a *windowed* Missile
-Command on real hardware is paying it every frame.
+**What the pair costs on the iron is now measured, and it is not what Set 11
+suggested.** That set put `GFX_UNLOCK+LOCK` at 2,241 µs on the 5150 against
+119-246 everywhere else, and this section briefly claimed the bracket was
+therefore worth nine times what the emulators said. **Set 13 closed it: the
+row is 290 µs with the pointer demonstrably still and 369 µs with it moved
+continuously** — the mouse is worth +27%, never 9x, and the outlier was a
+kernel-version artefact that no longer exists (docs/FIELD-NOTES.md 8). So the
+bracket saves a windowed frame roughly what Set 4's MartyPC figure said all
+along. It is still the right change for the reason it was made — Set 4 priced
+the pair at 21.8% of a session with no drawn content in it — but the number
+is ~300 µs a frame, not 2 ms, and this paragraph is kept as written-down
+evidence that a *single* anomalous row is not a measurement.
 
 ### 48.14 A trail is ONE Bresenham, laid at launch and walked
 
@@ -19239,6 +19283,99 @@ page. The `[cp_sel]`-before-`KIND_CTRL` precedent is the menu bar clock's
 
 A machine with **no system disk at all** is not told about drivers it never
 enabled: only a row whose `DRVR_WANT` is set counts as a failure.
+
+### 51.3.1 The first boot asks the hardware, once
+
+§51.3's rule is that nothing loads that `SYSTEM.CFG` did not ask for, and it
+stands. What it was really refusing is stated in its own paragraph: reading
+**5.5KB of driver off a floppy — 27 sectors, about 6.4 s** — to be told there
+was no card. A *probe* is not that. `drv_snd_sniff` is the OPL2 timer-flag
+dance of §34.2 and costs about **two milliseconds of port I/O**, which is
+under one hundredth of a single floppy sector on the field machine, and it
+only ever asks for the read on a machine that answered.
+
+So on a machine that has **never been asked** — no `SYSTEM.CFG`, or one this
+kernel cannot deserialise — the sound row's `DRVR_WANT` starts at 1 if there
+is an FM chip at 388h, and at 0 if there is not. The kernel still does not
+guess: it measures.
+
+**Setting `DRVR_WANT` is a DEFAULT, not an override, and no code enforces
+that** — it falls out of the order the boot already ran in. `drv_cfg_unpack`
+calls `drv_want_set`, which writes **all three** `WANT` bytes from the file's
+bitmap, so a settings file that deserialises always wins, in both directions.
+A file that says *off* on a machine with a card loads nothing; a file that
+says *on* on a machine with none still reports `DRVE_HW`, exactly as before.
+There is no "did the file exist" test anywhere, because there is nothing for
+one to decide.
+
+**It runs from the boot overlay** (§2.5), called by `kmain` between `drv_init`
+and `ovl_snd_init` — not from inside `drv_boot`, which is where it belongs by
+subject and where it cannot live: the overlay lands on `FAT_SEG`, and
+`drv_boot`'s own mount is the first thing that may write over it, so by the
+time `drv_cfg_load` has answered, the probe's code may be FAT. **May**, since
+§18.8.2 — a volume that wins a private heap window leaves `FAT_SEG` alone, and
+measured on a 640K machine the overlay comes through the boot untouched. That
+is not a licence to call it afterwards: which way it goes depends on how much
+heap was free at mount time, so the only safe rule is the one that held when
+the window was always shared. The consequence is that the probe cannot be
+conditional on the file being absent, and does not need to be. Being in the overlay is also why it
+**costs nothing at all against `KERN_BUDGET`** — the same trade, and the same
+home, as `clk_init`'s four-rung RTC ladder (§37.90): a hardware probe that
+answers once at boot has no business being resident.
+
+**One probe covers both cards, and that is a fact about the hardware rather
+than an economy.** Every Sound Blaster ever made carries an OPL2 of its own at
+388h — which is why the driver's own attach probes the FM half *first* and
+lets the SB rename the Control Panel row afterwards (§34.2). The DSP reset
+scan finds nothing on real hardware that the timer dance has not already
+found, and it costs what §51.3 refuses to spend for the hard-disk driver:
+**writing** to six unknown port ranges (210h–260h) on every boot of every
+machine, one of which may hold somebody else's card. `make SNDSNIFF=sb` adds
+it, gated on the FM probe having missed, for the two cases that want it — a
+card whose FM half is jumpered off or decoded elsewhere, and QEMU's own
+`-device sb16`, whose OPL does **not** answer the timer probe where a real one
+does. About 60 ms of a cardless boot; nothing at all on a machine with any FM
+chip in it.
+
+The dance leaves the chip masked and its flags reset, exactly as it found it,
+which is what makes it safe to run ahead of the driver's own `opl_probe`. It
+is the one exception to §34.1's "all access to 388h/389h goes through
+`opl_wr`", and a bounded one: it runs before any driver exists, it is that
+protocol byte for byte, and the code is gone before a driver can be loaded.
+
+The consequence for the user is the one §51.3 named and priced at "one click,
+once": on a machine with a card, that click is now zero clicks. On a machine
+without one, nothing changed — no probe of a disk, no read of a driver, no
+`DRVE_HW`, and no Control Panel opening on a failure nobody asked for.
+
+**MartyPC is the instrument, and it had to be.** The probe's whole content is
+a timer that has to overflow in real guest time, read back through a status
+port — so an emulator that runs the guest at host speed and answers `in` from
+a stub can neither confirm nor refute it. QEMU says the probe works with
+`-device adlib` and says a `-device sb16` machine is cardless, and only the
+first of those is a fact about hardware. A cycle-accurate 5150 with an OPL2
+whose timers advance in guest time is what settles it, on three machines and
+a fresh image with no `SYSTEM.CFG`:
+
+| machine | probe | row 0 |
+|---|---|---|
+| `os8088_5150_sb` — AdLib + SB | FM hit | `WANT` 1, `SEG` 9E80, 6KB, `ERR` 0 |
+| `os8088_5150_cga` — no card | miss | `WANT` 0, `SEG` 0, `ERR` 0 — and so no notice |
+| `os8088_5150_sbonly` — DSP, nothing at 388h | miss | `WANT` 0 |
+| ...the same, `make SNDSNIFF=sb` | DSP scan hit | `WANT` 1, `SEG` 9E80 |
+
+And end to end, which is the assertion that counts: on `_sb` the Sound page
+comes up with **Sound Blaster** already selected, and its Test tone is
+**660.0 Hz in the OPL2 capture** — while the PC speaker's capture holds
+exactly one span in the whole session, 0.2 s at 26 s, which is the 5150's own
+POST beep and is over before the desktop exists. The tone left the speaker
+because the driver the probe asked for published `DSV_TONE` (§34), with
+nobody having ticked anything.
+
+`os8088_5150_sbonly` exists for this and is worth keeping: no real Sound
+Blaster is built that way, which is exactly why it needs an emulator. It and
+`_sb` are one pair with one knob between them, and that pair is the whole
+argument for why `SNDSNIFF=sb` is a knob rather than the default.
 
 ### 51.4 Unloading, and why detach comes first
 
@@ -20945,12 +21082,44 @@ audit for this path, since it is the one that decides:
   (drive, cwd) compare says "already there" and the index resolves against
   `disk_nfiles` = 0. It has the test (18.9).
 
-**What this does NOT reach** is the other two mounts of a document open,
-`fmv_sync`'s and `assoc_try`'s, which stay full. Both are full for one
-reason: `dsk_find_name` walks the LISTING, and it does so only because
-`ld_run_body` wants a directory INDEX. `dskw_stat` answers the same question
-off directory sectors. Breaking that link would take roughly 22 more sectors
-(~5.2 s) off every document open, and is the change 21.4 is reserved for.
+**The other two mounts of a document open are gone as well**, and both went
+for the one reason this paragraph used to predict: `dsk_find_name` walks the
+LISTING, and it did so only because `ld_run_body` wants a directory INDEX.
+21.4's `ld_run_name` answers the same question off directory sectors, so
+`assoc_try` needs no listing and is quiet too; and `assoc_run`'s is 54.9.1
+below. Measured on the same document open: 295 sectors → 284 → **274**, and
+35 `int 13h` calls → 32 → **30**.
+
+### 54.9.1 The document's folder comes from the POSTER, not from a mount
+
+`assoc_run` has to know where the document lives — to bank it, and to come
+back to it at 54.9 — and it used to learn that by calling `fmv_sync`: a
+**full mount**, wanted for exactly two words, which `fmv_sync` itself takes
+from exactly where `assoc_run` can read them. It reads them: `FS_DRV` and
+`FS_CWD` off the posting window's own state block (§22.1).
+
+**The globals are the wrong place to ask.** `[disk_drive]`/`[dsk_cwd]` are
+one pair for the whole machine, and the window that posted this double-click
+need not be the one currently mounted — four Disk windows may each be on
+their own drive and folder (§22). So the question "where is this document?"
+has one honest answer and it is the poster's, not the machine's.
+
+**What licenses it is that nothing downstream needs the globals to BE that
+folder**, which is the audit rather than the hope:
+
+- `assoc_locate` navigates itself, rung by rung (§54.4).
+- `assoc_back` returns to what was banked here, not to what was mounted.
+- `files_refresh` / `files_poster` paint from the **window's** cache (§22.1).
+- the document is handed over by PULL (§54.5), so nothing has to be standing
+  in its directory when the entry proc runs.
+
+**With no poster the current volume IS the home** — that is a package's own
+request rather than a double-click, and there is no window to ask.
+
+**The trap is the pointer's name.** `[assoc_pwin]`, like `[ld_pwin]`, holds
+the poster's **state block** and not its window record; `FS_DRV`/`FS_CWD` are
+`fm_pool` fields (§22). Read as a window it is a garbage rect, and 22's own
+`files_poster` note is the same distinction from the other side.
 
 ## 55. clip.inc — the system clipboard
 

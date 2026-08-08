@@ -16,10 +16,14 @@ argue yourself into:
 
 1. **286 and 386.** 86Box covers these too, and models the machine rather
    than just the CPU — prefer it where the question is about the machine.
-2. **The hard-disk driver** (SPEC.md §52). QEMU has an ATA disk at 1F0h and
-   SeaBIOS hands it to int 13h, so both rungs of the transport ladder, the
-   partitioner, the formatter and the mount are testable end to end. No
-   MartyPC config here has a disk controller.
+2. **Rung 1 of the hard-disk driver** (SPEC.md §52.1) — the IDE task file
+   read directly, which is gated on `CPU_286` because an 8088's `in ax, dx`
+   is two 8-bit bus cycles at the same port and loses the drive's high byte.
+   QEMU has an ATA disk at 1F0h and a CPU that clears that gate; MartyPC's
+   8088 never can. **Rung 0 is MartyPC's now** and is the one the target
+   machine actually uses (`os8088_xt_hdd` — an XT-IDE controller whose GPL
+   option ROM ships with MartyPC, answering int 13h), so the two are
+   complementary and neither replaces the other.
 3. **SPEC.md §9.5's awkward mouse cases** — a mouse on COM2, the cross-wired
    IRQ4 card, and a modem chattering on the other port (`MOUSEPORT=com2`,
    `com2irq4`, a socket chardev). MartyPC can put its mouse on either port,
@@ -113,12 +117,13 @@ emulator have the hardware": a ✅ means reach for it first.
 
 | Capability | MartyPC | QEMU | How (QEMU) | Verified result |
 |---|---|---|---|---|
-| VGA 640x480x16 (mode 12h) | ✅ | ✅ | `make test`, or the `os8088_5150_vga` machine | boots to Locator; loads packages. MartyPC has a register-level VGA and rasterises 12h — `vid_w=640 vid_h=480 vid_planes=4`, raster 800x524, and Minesweeper renders in 8 distinct palette colours |
+| VGA 640x480x16 (mode 12h) | ✅ | ✅ | `make test`, or the `os8088_xt_vga` machine | boots to Locator; loads packages. MartyPC has a register-level VGA and rasterises 12h — `vid_w=640 vid_h=480 vid_planes=4`, raster 800x524, and Minesweeper renders in 8 distinct palette colours |
 | CGA 640x200 mono | ✅ | ✅ | `make test VIDEO=cga` | renders; dumps 640x400 (line-doubled) |
 | Hercules 720x348 mono | ✅ | ✅ | `make test VIDEO=herc HERCSEG=0x7000` | renders; 55.8% lit at the desktop |
 | PC speaker | ✅ | ✅ | `make test-snd`, or `MARTYPC_WAV=` | dominant 880.0 Hz (891.0 on MartyPC, inside tolerance) |
 | AdLib / OPL2 | ✅ | ✅ | `make test-snd ADLIB=1`, or the `os8088_5150_sb` machine | dominant 880.0 Hz from a keyed 440; the Sound page's Test tone came out of MartyPC's OPL2 at 660 Hz |
 | Sound Blaster (DMA streams) | ✅ | ✅ | `make test-snd SB16=1 TESTAPPS=build/sbtest.img`, or the `os8088_5150_sb` machine | 2.00 s at 1000.0 Hz on BOTH. MartyPC's is a DSP **2.01** by default — the classic `0x48`+`0x1C` auto-init path — where QEMU's is an SB16; `dsp_version` picks |
+| Boot sound probe (SPEC.md §51.3.1) | ⚠️ | ✅ | the `os8088_5150_sb` / `_sbonly` / `_cga` machines, fresh image | MartyPC is the instrument here: its AdLib **answers the OPL2 timer-flag dance** on a cycle-accurate 8088, which is the whole of what the probe reads and what QEMU cannot show — QEMU's `-device sb16` has an OPL *stub* that does not answer, so on QEMU an SB16-only box reads as cardless. `_sb` → row 0 `WANT` 1, `SEG` 9E80, and the Sound page comes up on **Sound Blaster** with nothing ticked; `_cga` → `WANT` 0, nothing loaded, no `DRVE_HW`; `_sbonly` → `WANT` 0 by default and 1 under `make SNDSNIFF=sb`, against a real DSP 2.01 |
 | Scripted mouse / keys | ✅ | ✅ | `os88marty.py key` / `mouse`, or `tools/mouse.py` | MartyPC drives the REAL devices: a Microsoft packet through the UART (`mou_seen` goes 0→1) and a keystroke through int 09h (SPEC.md §9.6's arrows moved `mouse_x` 320→350) |
 | **Screenshots** (CGA/Herc) | ✅ | ✅ | `os88marty.py shot`, or `tools/shot.py` / `hercshot.py` | MartyPC reads VRAM directly — 60.0% lit, matching QEMU's CGA on the same desktop |
 | Mouse on COM2 (SPEC.md §9.5) | ➖ | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |

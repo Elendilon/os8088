@@ -1310,6 +1310,14 @@ kmain:
     call drv_init               ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
+    call FAT_SEG:drv_snd_sniff  ; is there an FM chip at 388h? (SPEC.md
+                                ; 51.3.1) If so, row 0 becomes WANTED by
+                                ; DEFAULT - which a SYSTEM.CFG that says
+                                ; otherwise then overwrites, so this is only
+                                ; ever the answer on a machine that has never
+                                ; been asked. HERE and not inside drv_boot,
+                                ; because the overlay this lives in is dead by
+                                ; then: drv_boot's own mount writes over it
     call FAT_SEG:ovl_snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running

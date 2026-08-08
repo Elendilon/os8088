@@ -21,8 +21,9 @@ removing them; re-pinning is a deliberate act, not maintenance.
 **THIS IS WHAT YOU DEVELOP ON.** Anything that runs on an 8088 — which is
 the whole of this OS bar the 286/386 targets, and now includes **all three**
 of SPEC.md §39's adapters, input, screenshots and sound — is tested here.
-QEMU is a fallback with a three-item list (286/386, the hard-disk driver, and
-SPEC.md §9.5's COM2/cross-wired/modem mouse cases); docs/TESTING.md states it
+QEMU is a fallback with a three-item list (286/386, **rung 1** of the
+hard-disk driver, and SPEC.md §9.5's COM2/cross-wired/modem mouse cases);
+docs/TESTING.md states it
 in full, and states it as a list on purpose, so that "a legitimate need" is
 something you can check rather than something you can argue yourself into.
 The 5150 remains the only instrument for anything with a disk in its timing.
@@ -80,6 +81,17 @@ rows, which is the closest any emulator has come here.
 Needs `cargo` (Rust) and, on Linux, `libudev-dev` + `pkg-config` — MartyPC
 depends on `serialport`, whose build script hard-fails without them.
 
+**In a fresh container, `apt-get update` FIRST.** The shipped index names
+`libudev-dev_255.4-1ubuntu8.14`, which has been superseded and removed from
+the pool, so installing it straight off 404s — and since this is the default
+test target, that 404 is the first thing a session hits. A refresh is the
+whole fix; it resolves to a version that exists (`…8.16` today) and installs.
+**Do not pin a version here.** CLAUDE.md's QEMU recipe pins one deliberately,
+for the opposite reason — there the `-updates` build is the broken one and an
+older version is wanted — and applying that shape to `libudev-dev` reinstates
+the same 404. Skipping the deps entirely does not fail at apt at all: it fails
+minutes later inside cargo, on `serialport`.
+
 ```sh
 tools/martypc/build.sh              # clone at the pin, patch, stage, build
 cd build/martypc/run
@@ -108,13 +120,76 @@ happened" is the one failure a debugger must not have.
 | config | what it is |
 |---|---|
 | `os8088_5150_cga` | the default: IBM 5150, 8088 at 4.77MHz, 640K, CGA, real 1982 IBM BIOS |
-| `os8088_5150_herc` | the same with MDA — MartyPC models Hercules as an MDA sub-mode, so SPEC.md §39.1's probe is what decides |
+| `os8088_5150_herc` | the same with a Hercules — MartyPC models it as an MDA **subtype**, so the block needs `subtype = "Hercules"` as well as `type = "MDA"`, and SPEC.md §39.1's probe is what decides |
 | `os8088_5150_cga_gla` | the same with GLaBIOS |
 | `os8088_5150_sb` | the same with an AdLib **and** a Sound Blaster (DSP 2.01, 0x220, IRQ 7) |
+| `os8088_5150_sbonly` | ...and with the FM half taken out: a DSP at 0x220 and **nothing at 0x388**. No real card is built that way, which is why it needs an emulator — it is SPEC.md §51.3.1's jumpered-off-FM case, and `_sb`/`_sbonly` are one pair with `make SNDSNIFF=sb` between them |
 | `os8088_xt_vga` | an IBM 5160 XT with GLaBIOS and a VGA — SPEC.md §39's mode 12h |
+| `os8088_xt_hdd` | the same XT with an **XT-IDE** controller — SPEC.md §52's rung 0 |
 
-The first four are shaped after docs/FIELD-MACHINES.md's calibration machine,
+The first five are shaped after docs/FIELD-MACHINES.md's calibration machine,
 as closely as MartyPC allows.
+
+**`subtype = "Hercules"` is load-bearing and its absence is silent.** Without
+it MartyPC builds a plain MDA, whose `mem_mask` is `MDA_MEM_MASK` = 0x0FFF —
+so the card decodes **4KB and mirrors it eight times** across the 32KB
+aperture, and the mask only ever moves to `HGC_MEM_MASK_HALF` inside an
+`if let VideoCardSubType::Hercules`. The kernel's own probe is unaffected and
+still reports Hercules (it programs 3BF/3B8 and reads the geometry back
+correctly: `[vid_w]`/`[vid_h]`/`[vid_stride]` = 720/348/90, `[vid_mono]` = 1),
+so **everything on the guest side looks right** — while every write above
+0x0FFF aliases on top of the first 4KB.
+
+What it looks like when it is wrong: `shot` returns a **sheared** picture with
+the desktop repeated down the screen, because it is decoding §39.3's four
+banks out of one mirrored page; `shot --rendered` returns an **all-black**
+720x350, because the card is rasterising MDA text out of graphics bytes. Both
+are pictures rather than errors, which is the failure mode this file warns
+about elsewhere. The one-command diagnosis is to dump the aperture and test
+it for period: `dump 0xB0000 32768` and check whether byte *i* equals byte
+*i*+4096.
+
+**The hard-disk one tests RUNG 0, and that is the point.** SPEC.md §52.1's
+rung 1 reads the IDE task file directly and is gated on `CPU_286`, because an
+8088's `in ax, dx` is two 8-bit bus cycles at the same port and loses the
+drive's high byte — so on the machine this project is about, an option ROM
+answering `int 13h` is the only transport there is, and QEMU (a modern CPU
+and an ATA disk at 1F0h) can only ever test the other rung. The controller is
+**XT-IDE** and not the IBM/Xebec because MartyPC's romdef matches the Xebec's
+BIOS by MD5 alone and that ROM is IBM's; the XT-IDE entry matches by
+filename, and `ide_xtl.bin` — XTIDE Universal BIOS, GPL — already ships in
+`media/roms/XUB/`. So this machine costs no new asset either.
+
+The disk is MartyPC's own bundled `media/hdds/default_xtide.vhd`: 615/4/26 =
+**63,960 sectors**, just under SPEC.md §18.7's 65,535-sector volume cap.
+**Copy it rather than mounting it in place** — a format is a write, and a
+test that mutates the run tree's shipped image behaves differently the second
+time:
+
+```sh
+cp build/martypc/run/media/hdds/default_xtide.vhd /tmp/scratch.vhd
+MARTYPC_DEBUG_ADDR=127.0.0.1:9001 ./martypc_headless \
+    --machine-config-name os8088_xt_hdd \
+    --mount fd:0:media/floppies/os8088-360.img \
+    --mount hd:0:/tmp/scratch.vhd &
+```
+
+Verified end to end: the Drivers page loads `HDD.DRV`, its own Control Panel
+page appears (SPEC.md §31.9) reporting **`BIOS0  615x 4x 26  31M`** — the
+geometry MartyPC mounted, read back through `int 13h` — Format lists the
+partition table, Mount says `Mounted 1 volume` and puts an **`HDD C`** zone on
+the desktop, and opening it lists the DOS filesystem on the shipped image
+(`COMMAND.COM`, `CONFIG.SYS`, `AUTOEXEC.BAT`, `Free 31760K`).
+
+**Two bugs in headless had to be fixed to get there, both of which look like
+the driver failing.** Attaching a VHD is the eframe frontend's job, and the
+headless `insert_vhds()` that mirrors it had a `hdc_mut()` — the **Xebec
+alone** — so an XT-IDE machine took the else branch and logged "No Hard Disk
+Controller present" while having one. And it resolves a drive's name through
+the resource manager, which only ever scans `media/hdds/`, so
+`--mount hd:0:/abs/path.vhd` failed with "File not found scanning Vhd
+directory" — a path is taken as a path now, which is what a scratch copy
+needs.
 
 **The VGA one is an XT and not a 5150, deliberately.** An 8-bit ISA VGA card
 in a 5160 is a machine people actually built; a VGA in a 5150 is not, and the
@@ -416,7 +491,7 @@ standard EGA/VGA palette entry (blue 1s, green 2s, a red 3, the exploded
 mine). The VGA BIOS is MartyPC's own bundled `BOCHS-VGABIOS.bin`, LGPL and
 shipped with its licence, so this cost no new asset.
 
-`os8088_5150_vga` is the machine. A 5150 with a VGA in it is an anachronism
+`os8088_xt_vga` is the machine. A 5150 with a VGA in it is an anachronism
 and a deliberate one: what is under test is os8088's mode 12h path on the CPU
 the project is calibrated against.
 

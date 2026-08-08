@@ -2206,6 +2206,197 @@ drv_cfg_save:
 ; Boot (SPEC.md 51.3) and the notice that follows it
 ; =============================================================================
 
+section .ovl                    ; boot overlay (SPEC.md 2.5): this runs ONCE,
+                                ; from kmain, before the first mount overwrites
+                                ; it - so it costs no RAM and nothing at all
+                                ; against KERN_BUDGET. Same shape and the same
+                                ; home as clk_init's four-rung RTC ladder
+                                ; (SPEC.md 37.90), for the same reason: a
+                                ; hardware probe that answers once at boot has
+                                ; no business being resident.
+
+DRVP_OPL    equ 0x388           ; the OPL2's address/status port; +1 is data
+
+; -----------------------------------------------------------------------------
+; drv_snd_sniff - is there an FM chip in this machine? (SPEC.md 51.3.1)
+; in:  nothing (kmain, after drv_init and BEFORE drv_boot's first mount)
+; out: nothing (all registers preserved). On a hit, row 0's DRVR_WANT is set
+;
+; Called before drv_cfg_load rather than after, because the overlay is dead by
+; then - drv_boot's own mount is what writes over it. Setting DRVR_WANT is
+; therefore a DEFAULT and not an override, and no test of "did the file exist"
+; is needed anywhere: a SYSTEM.CFG that deserialises calls drv_want_set, which
+; overwrites all three WANT bytes with the file's bitmap, so the user's answer
+; always wins. A missing or malformed file leaves the defaults standing, and
+; on a machine with a card the default is now "load it".
+;
+; SPEC.md 51.3 says the kernel does not GUESS, and it still does not: what it
+; refused to do was read 5.5KB of driver off a floppy - 27 sectors, ~6.4 s on
+; the field machine - to be told there was no card. This costs about a
+; millisecond of port I/O and only ever asks for the read on a machine that
+; answered.
+;
+; ONE probe covers both cards. Every Sound Blaster ever made carries an OPL2
+; of its own at 388h - which is why the driver's own attach probes the FM half
+; FIRST and lets the SB rename the Control Panel row afterwards (SPEC.md 34.2).
+; The DSP reset scan is six bases x ~10ms plus a ~100ms slow retry, all of it
+; paid on every boot of every machine with no card, and it would find nothing
+; the timer-flag dance below has not already found on any real hardware.
+;
+; The dance is SPEC.md 34.2's, exactly: mask + reset the timers, read the flags
+; (they must be clear), run timer 1 for >= 80us, read them again (they must
+; have fired), and clean up so the chip is left as it was found. That last part
+; is what makes this safe to run ahead of the driver's own probe.
+; -----------------------------------------------------------------------------
+drv_snd_sniff:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, 0x0460              ; 04h <- 60h: mask both timers
+    call drvp_wr
+    mov ax, 0x0480              ; 04h <- 80h: reset the IRQ flags
+    call drvp_wr
+    mov dx, DRVP_OPL
+    in al, dx
+    mov bl, al                  ; s1: the flags must read clear
+    mov ax, 0x02FF              ; timer 1 count FFh (overflows in 80us)
+    call drvp_wr
+    mov ax, 0x0421              ; start timer 1, timer 2 masked
+    call drvp_wr
+    mov cx, 200                 ; >= 80us of counted status reads on any bus
+.wait:
+    in al, dx
+    loop .wait
+    in al, dx
+    mov bh, al                  ; s2: overflow + timer-1 flags must be set
+    mov ax, 0x0460              ; clean up: mask + reset, leaving the flags
+    call drvp_wr                ; clear for the driver's own probe
+    mov ax, 0x0480
+    call drvp_wr
+    and bl, 0xE0
+    jnz .nofm                   ; an absent bus floats, so a NON-zero s1 is
+    and bh, 0xE0                ; the commonest way this ends
+    cmp bh, 0xC0
+    jne .nofm
+    mov byte [drv_tab+DRVR_WANT], 1   ; row 0 is the sound driver. Through DS,
+                                ; which is KERNEL_SEG in here (SPEC.md 2.5)
+    jmp short .out
+.nofm:                          ; No OPL2. On real hardware that settles it -
+                                ; every Sound Blaster has one - so what follows
+                                ; is built only under SNDSNIFF=sb, and with the
+                                ; knob unset this label simply falls into .out
+%ifdef SND_SNIFF_SB
+    push si                     ; --- the DSP reset scan (SPEC.md 34.2) ------
+    mov si, drvp_sbbase         ; ...read through CS: the overlay may not reach
+    cld                         ; its own data through DS (SPEC.md 2.5)
+.base:
+    cs lodsw
+    or ax, ax
+    jz .sbno                    ; list exhausted: no card
+    mov bx, ax
+    mov cx, 2000                ; ~10ms of ISA status reads per base
+    call drvp_reset
+    jc .base
+    mov byte [drv_tab+DRVR_WANT], 1
+.sbno:
+    pop si
+%endif
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf                        ; kmain reaches this as FAT_SEG:drv_snd_sniff
+
+; -----------------------------------------------------------------------------
+; drvp_wr - write one OPL2 register (overlay-local; SPEC.md 34.1)
+; in:  AH = register index, AL = value
+; out: nothing (all registers preserved)
+;
+; The driver owns 388h/389h and opl_wr is the only routine allowed to touch
+; them (SPEC.md 34.1) - this is the one exception, and it is bounded: it runs
+; before any driver exists, it is a byte-for-byte copy of that protocol, and
+; the overlay it lives in is gone before the driver can be loaded. Select via
+; 388h, 6 counted status reads, data to 389h, 35 more.
+; -----------------------------------------------------------------------------
+drvp_wr:
+    push ax
+    push cx
+    push dx
+    pushf
+    cli
+    mov dx, DRVP_OPL
+    xchg al, ah                 ; AL = register (value parked in AH)
+    out dx, al
+    mov cx, 6
+.post_addr:
+    in al, dx
+    loop .post_addr
+    mov al, ah
+    inc dx                      ; 389h
+    out dx, al
+    popf                        ; the long delay runs at the caller's IF
+    dec dx
+    mov cx, 35
+.post_data:
+    in al, dx
+    loop .post_data
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+%ifdef SND_SNIFF_SB
+drvp_sbbase: dw 0x220, 0x240, 0x210, 0x230, 0x250, 0x260, 0
+                                ; the pinned scan order (SPEC.md 34.2), read
+                                ; through CS - see the overlay contract
+
+; -----------------------------------------------------------------------------
+; drvp_reset - reset the DSP at BX and wait for 0AAh (overlay-local)
+; in:  BX = the card's base, CX = poll budget
+; out: CF = 0 a DSP answered; CF = 1 nothing there
+; clobbers: AL, CX (flags)
+; -----------------------------------------------------------------------------
+drvp_reset:
+    push dx
+    mov dx, bx
+    add dx, 6                   ; 2x6h: reset
+    mov al, 1
+    out dx, al
+    push cx
+    add dx, 8                   ; hold >= 3us: 8 ISA reads of 2xEh
+    mov cx, 8
+.dly:
+    in al, dx
+    loop .dly
+    sub dx, 8
+    pop cx
+    xor al, al
+    out dx, al
+    add dx, 8                   ; 2xEh: data-available status
+.poll:
+    in al, dx
+    test al, 0x80
+    jz .next
+    sub dx, 4                   ; 2xAh: read the identity byte
+    in al, dx
+    add dx, 4
+    cmp al, 0xAA
+    je .yes
+.next:
+    loop .poll
+    stc
+    jmp short .ret
+.yes:
+    clc
+.ret:
+    pop dx
+    ret
+%endif
+
+section .text
+
 ; -----------------------------------------------------------------------------
 ; drv_boot - load every driver the settings file asks for
 ; in:  nothing
