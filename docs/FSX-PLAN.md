@@ -359,9 +359,12 @@ build fix.
    carry over untouched — the game logic does not know the mode changed.
    **Tracker follows immediately** as the second consumer and the
    `FSXF_KEEPWORKER` + present-semantics proof (§6, §7).
-4. **XMS desktop stash** (§41): on 286+ VGA, `xm_copy` the four planes out
-   at entry and back at exit — instant restore, no repaint, and `xm_copy`'s
-   second real consumer. Tier 0 machines keep the repaint. Phase 4 polish.
+4. ~~**XMS desktop stash**~~ (§41) — **BUILT, then REMOVED.** On 286+ VGA,
+   `xm_copy` the four planes out at entry and back at exit — instant restore,
+   no repaint. It shipped and came out again: see phase 4's entry below, and
+   SPEC.md §53.6.1, which is now the record of why. The short version is that
+   a bracket takes real TIME, so the desktop behind it is live state and not
+   an image, and a snapshot restores a screen that has moved on.
 5. ~~**Task Manager service badge**~~ — **DROPPED, not deferred.** The
    idea was to surface `TF_SERVICE` as "kernel plumbing vs app work" in the
    task list. But `TF_SERVICE` has exactly one reader (`sch_switch`'s
@@ -427,21 +430,30 @@ half-working panic key is worse than a documented absence).
      Task Manager IS on screen the flag is never even read. There is nothing
      to show at the moment you could show it. (The instance-vs-task model and
      the `SYS_SNAPSHOT` ABI cost are real too, but secondary to that.)
-   - **XMS desktop stash — DONE** (SPEC.md §53.6.1, `fsxc_save`/`fsxc_load`).
-     The four desktop planes (150KB) go to the §41 store at bracket entry and
+   - **XMS desktop stash — SHIPPED, then REMOVED** (SPEC.md §53.6.1). The
+     four desktop planes (150KB) went to the §41 store at bracket entry and
      back at exit — an instant restore instead of `wm_paint_all` — on a
-     286+/VGA machine with a store; the 8086 target, a mono adapter, an armed
-     back buffer or a refused claim all fall through to the repaint, unchanged.
-     Built in **`.cold`** at the user's direction so it costs guard 1 (the
+     286+/VGA machine with a store, with the 8086 target, a mono adapter, an
+     armed back buffer or a refused claim all falling through to the repaint.
+     Built in **`.cold`** at the user's direction so it cost guard 1 (the
      budget), not guard 2 (measured: 63 bytes of `.text` glue, ~250 in cold).
-     It is the first consumer of `xm_copy` under the gfx lock — which forced a
-     good side quest: the "never under the gfx lock" restriction turned out to
-     be unenforced conservatism (the stated 286-CPU-reset reason does not
-     survive scrutiny), and lifting it (docs-only, no code) makes XMS usable
-     from any window callback. Verified under QEMU: `fsx_stashed`=1 with the
-     block at linear 0x110000, byte-identical restore for a same-mode bracket
-     AND a Mode X bracket (VGA reprogrammed), and the `-m 1M` no-store case
-     falling cleanly through to the repaint.
+     It verified cleanly under QEMU — `fsx_stashed`=1 with the block at linear
+     0x110000, byte-identical restore for a same-mode bracket AND a Mode X
+     bracket, and `-m 1M` falling through — and **byte-identical restore was
+     never the question it needed to answer.** A bracket takes real TIME. What
+     is behind it is not pixels but live state: the menu bar's clock, the
+     Timer, a Bounce, any background task with a window — and the exclusive
+     app's own window, whose content is usually the thing the full-screen
+     session was spent changing. The stash restored a photograph of a desktop
+     that had moved on. It had even conceded the point in miniature and nobody
+     read it as general: the stash path redrew the menu bar afterwards
+     *because the clock was stale*. Removed; step 4 is `wm_paint_all` on every
+     machine, which is what tier 0 always did. What survives it is the side
+     quest, which was right on its own merits: `xm_copy` under the gfx lock is
+     legal (§41.8), the "never under the gfx lock" restriction having been
+     unenforced conservatism whose stated 286-CPU-reset reason does not
+     survive scrutiny. The §41 slots are untouched — a published package ABI
+     with its own consumers, of which this was one.
 
 ## 12. Decisions — all four made, recorded here with their reasoning
 
