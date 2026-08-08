@@ -7166,7 +7166,13 @@ place — `sys_attr` in `tools/os88disk.py` — for everything the build ships:
 | `*.DRV` | read-only + hidden + system | the same, per driver (§51) |
 | `SYSTEM.CFG` | hidden + system | written by the kernel, so **not** read-only |
 | `TASKMGR.O88` | read-only + archive | **visible**: it is an application, and the chip menu loads it by name (§28). Read-only so it cannot be deleted out from under that menu |
+| `README.TXT` | read-only + archive | **visible**: it is the manual and it is meant to be opened (§19.7). Read-only for `TASKMGR.O88`'s reason — it is the machine's copy, not a scratch file |
 | everything on a data disk | archive | ordinary — **including the apps disk's own copy of `TASKMGR.O88`** (§28.3): the rule is the DISK, not the name, because that disk is the user's |
+
+The last three rows are **one rule and not three**: `sys_attr` stamps
+read-only + archive on anything on the boot disk that is not a `.DRV`, so a
+file added to the system disk is protected by default and a row here is a
+description rather than a registration.
 
 The hiding itself costs nothing new. `disk_mount`'s species filter (§19) has
 always dropped hidden and system entries from the listing — the DOS
@@ -7206,6 +7212,55 @@ Two things do NOT follow, and both had to be arranged:
 Read-only needs no exemption anywhere, because nothing in the kernel ever
 rewrites a read-only file: `KERNEL.SYS` and the drivers are replaced by
 rebuilding the disk, not by the running system.
+
+### 19.7 `README.TXT` — the manual is on the disk, and the reader sets its shape
+
+The system disk's root carries `README.TXT`, the user manual: what the screen
+is made of, how windows and menus behave, the Disk window and its file
+operations, the Control Panel, every key the *kernel* binds, what each
+`FERR_*` message means, and how to restart. It is on the disk rather than in
+the repository because the machine it is about is usually not on a network
+and often is not next to one — a 5150 with two floppies in it and no host
+computer has no other way to be told what a greyed menu item means. Source is
+`readme.txt` in the repo root; the Makefile's `SYSDOC` puts it on the three
+shipped system images and **nowhere else**, deliberately not in `SYSAPPS`,
+which also rides the apps disk and all five `make field` disks.
+
+**Its two constraints both come from the only editor on the shipped disks**,
+and neither is a style choice:
+
+- **28 columns.** Note Pad's default window is 260px wide (`np_tpl`); take
+  off the 1px border, `NP_MARGIN` = 8 and `NP_SB_W` = 14 and 235px are left
+  for text, which is 29 whole 8px cells (§27). Authored to 28, so a future
+  layout change of one glyph does not reflow the whole document. A line that
+  wraps is a line the reader has to reassemble, and the two-column key tables
+  are the part that suffers worst.
+- **Under 16KB.** `NP_MAXKB` is 16 and `np_load` opens the note to exactly
+  that before the read, so a longer file comes back `FERR_BIG` and Note Pad
+  shows **nothing at all**. The size that binds is the size **on the disk**,
+  with the CRLF line endings applied at build time — not the length of the
+  source file.
+
+`tools/checkreadme.py` holds both, plus printable ASCII (`np_load` silently
+drops anything outside 32..126, so a stray tab or typographic dash is a
+character that disappears between the disk and the screen). It runs from the
+Makefile rule that produces `build/readme.txt`, i.e. before the file can
+reach an image. Neither limit fails loudly on its own — one wraps, which
+reads as sloppy formatting, and the other refuses the whole file — which is
+why they are a gate rather than a note to the author.
+
+**CRLF is applied by the build, not committed.** The repository copy stays a
+plain LF text file that diffs and merges normally; the disk gets the DOS line
+endings a `.TXT` on a FAT floppy is expected to have, since these disks are
+meant to be readable on a DOS PC as well (§19). The conversion normalises LF
+out first, so it is idempotent.
+
+Two things fall out with no work at all. `.TXT` is a built-in association
+(§54.2), so double-clicking `README.TXT` opens it in Note Pad — and the
+lookup finds `NOTEPAD.O88` on the *other* floppy by §54.4's rungs, so the
+system disk needs no copy of it. And the `sys_attr` rule above stamps the
+file read-only, so it lists like an ordinary document and cannot be deleted
+or saved over.
 
 
 ## 20. Loadable programs — the .o88 package format
