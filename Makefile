@@ -102,6 +102,23 @@ VIDDEF += -DFLOPPY_ONE
 BOOTDEF += -DFLOPPY_ONE
 endif
 
+# SNDSNIFF=sb adds the Sound Blaster DSP reset scan to the boot's sound probe
+# (SPEC.md 51.3.1), which by default is the OPL2 timer-flag dance at 388h and
+# nothing else. Every Sound Blaster ever made carries an OPL2 there, so the
+# scan finds nothing the default has not already found on real hardware - and
+# it costs six unknown port ranges being WRITTEN to on every boot of every
+# machine, which is the one thing SPEC.md 51.3 refuses to do for the hard-disk
+# driver. It is a knob because two cases want it: a card whose FM half is
+# jumpered off or decoded elsewhere, and QEMU's own `-device sb16`, whose OPL
+# does NOT answer the timer probe (a real one does). ~60 ms of a cardless
+# boot; free on a machine that has any FM chip at all, which is tested first.
+ifneq ($(SNDSNIFF),)
+ifneq ($(SNDSNIFF),sb)
+$(error SNDSNIFF must be: sb)
+endif
+VIDDEF += -DSND_SNIFF_SB
+endif
+
 # RAMKB=<n> makes the boot sector believe the machine has n KB, instead of
 # asking int 12h (SPEC.md 2.7). It exists because QEMU always answers 639 -
 # conventional memory is capped there whatever -m says - so the relocation
@@ -128,7 +145,7 @@ endif
 # about a file that recipe just removed, and then build the floppy image from
 # a kernel that is not there. Doing it here means the file is simply gone
 # before make builds its graph.
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(SNDSNIFF),-ss$(SNDSNIFF))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/boot.bin $(BUILD)/boot360.bin; \
@@ -1297,8 +1314,10 @@ marty: $(IMG360)
 	@echo "         ./martypc_headless --mount fd:0:media/floppies/os8088-360.img &"
 	@echo "       python3 tools/os88marty.py 127.0.0.1:9001 verify"
 	@echo ""
-	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb, _vga"
-	@echo "       ..._sb has an AdLib AND a Sound Blaster; add"
+	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb,"
+	@echo "                 _sbonly, _vga"
+	@echo "       ..._sb has an AdLib AND a Sound Blaster, _sbonly has the DSP"
+	@echo "       and NOTHING at 388h - the SPEC.md 51.3.1 pair; add"
 	@echo "       MARTYPC_WAV=/tmp/cap for one wav per source (sndcheck.py reads them)"
 
 # NOTHING IN build/ IS TRACKED, and that is a decision rather than an accident.

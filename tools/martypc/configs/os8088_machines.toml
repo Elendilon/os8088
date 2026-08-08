@@ -112,6 +112,43 @@ overlays = [
     irq = 7
     dsp_version = [2, 1]
 
+# ...and the SAME machine with the FM half taken out: a DSP at 0x220 and
+# NOTHING at 0x388.
+#
+# No real Sound Blaster is built this way - the FM is on the card - which is
+# exactly why it needs an emulator to exist at all. It models the one case
+# SPEC.md 51.3.1's boot probe cannot see: a card whose OPL is jumpered off or
+# decoded elsewhere. The default probe is the OPL2 timer-flag dance and must
+# find NOTHING here; `make SNDSNIFF=sb` adds the DSP reset scan and must find
+# the card. Two machines, one knob, and the pair is the whole argument for
+# why that knob is a knob and not the default.
+[[machine]]
+name = "os8088_5150_sbonly"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+
 # ...and the VGA machine, for SPEC.md 39's first adapter - mode 12h, 640x480,
 # 16 colours, four planes.
 #
