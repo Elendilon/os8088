@@ -20880,6 +20880,13 @@ debugger at all, and until this the only route to "what does the kernel think"
 on a machine outside the container was to ask its owner to take a MartyPC dump
 by hand (docs/FIELD-MACHINES.md).
 
+**On an EMULATOR, reach for MartyPC instead** (docs/MARTYPC-DEBUG.md,
+docs/TESTING.md): it costs the guest no cycles, needs nothing installed,
+answers on a machine that has hard-frozen, and does what this cannot —
+breakpoints, single-step, register access. This exists for the machine on
+somebody's desk, which no emulator reaches, and the two are complementary
+rather than competing.
+
 **It is a DRIVER, and that is the whole of why it may ship.** The obvious
 build is a `SERDBG=1` kernel — §18.94's `DISKCNT=1` shape, and the plan in
 docs/DEBUG-PLAN.md said so. It has one fault that outweighs its

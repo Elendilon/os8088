@@ -18,6 +18,52 @@ is that instrument as a command.
 that changes under you is one more variable in a session whose whole point is
 removing them; re-pinning is a deliberate act, not maintenance.
 
+**Reach for this FIRST** when the thing under test runs on an 8088 with a CGA
+or a Hercules — which is most of this OS. docs/TESTING.md carries the full
+ordering; the short version is MartyPC, then QEMU for what it does not cover
+(VGA, 286/386, sound, scripted input), then 86Box, then the 5150.
+
+---
+
+## The one thing it is not: a disk
+
+**MartyPC is cycle-accurate. It is not disk-accurate.** It models the 8088's
+instruction timing, its prefetch queue and its bus contention, and it does not
+model a platter turning at 300 rpm, a head seeking, or a 2:1 interleave.
+PERFORMANCE.md Set 11 measured the gap on the same test, the same kernel and
+the same media:
+
+| | real 5150 | MartyPC |
+|---|---|---|
+| read 16 KB, cold motor | **8.07 s** | **0.27 s** — 30x fast |
+| boot | **38,886 ms** | **2,306 ms** — 17x fast |
+
+So: **if a disk is anywhere in the path, the number this tool gives you is
+wrong, and wrong by more than an order of magnitude in the flattering
+direction.** That catches a great deal that is not obviously about disks — a
+boot time, a package launch, a Tracker module load, a `SYSTEM.CFG` save, the
+Control Panel closing. When any of those is the question, the instrument is
+the machine in docs/FIELD-MACHINES.md and there is no substitute.
+
+**It will not catch a disk CORRECTNESS bug either, and that is the sharper
+half.** SPEC.md §18.91's `AL` bug is the worked example: `dsk_xfer` asked the
+BIOS for nine sectors, the BIOS moved nine, and answered `AL = 1` — and the
+kernel believed `AL` and re-read the rest one sector at a time. On the 5150
+that was 148 sectors in 34 `int 13h` calls for a 32-sector file, 4.6x the
+traffic, and it made the *batching optimisation measure slower than no
+batching*. **The same binary on the same image under QEMU moved 34 sectors in
+6 calls** — correct, fast, and completely silent about the bug. The boot
+sector carried the identical bug for as long again and it took the 5150 plus
+SPEC.md §18.94's counters to find either. An emulator's floppy controller
+returns what its author believed the hardware returns; real hardware is under
+no such obligation, and the whole class — `int 1Eh`'s parameter table, short
+`int 13h` reads, BIOS interrupt stack depth — is behaviour an emulator smooths
+over rather than reproduces.
+
+Read that as a boundary on the tool, not a complaint about it: everything on
+the CPU side agrees with the 5150 to within 0–4% across 45 of 47 `gfxbench`
+rows, which is the closest any emulator has come here.
+
 ---
 
 ## Build and run
@@ -145,7 +191,8 @@ covers worst, so the split is a good one.
 **And a number from it is still a number from an emulator.**
 docs/FIELD-MACHINES.md's first rule is unchanged: a timing goes in
 PERFORMANCE.md Part 9 labelled MartyPC, and a dump is evidence about *logic*,
-never about time. What is new is that this one is cycle-accurate for the CPU,
+never about time. On the CPU that labelling is a formality — it agrees with
+the 5150 to 0–4%. On a disk it is the whole point. What is new is that this one is cycle-accurate for the CPU,
 so `step` gives real cycle counts — 50 instructions measured 719 cycles on a
 booted desktop, 14.4 cycles per instruction, which is the same class of
 figure as PERFORMANCE.md Part 2's instruction floor.
@@ -161,14 +208,22 @@ All of the following was run end to end in the container, against
   vector at `0xFFFF0` as `EA 5B E0 00 F0` — `jmp F000:E05B`.
 - os8088 boots, twice: once from the development tree and once from what
   `build.sh` produces from scratch, with identical results.
-- **Reset to the kernel's first instruction is 300,798,299 cycles — 63.02
-  seconds of guest time**, 23,586,325 instructions, 12.75 cycles each, on a
-  5150 with the 1982 IBM BIOS reading `build/os8088-360.img`. That is an exec
-  breakpoint on `0x600` against a `reset`, which is the only honest way to
-  ask: the first two attempts at this number *polled memory* every few
-  seconds of wall clock while MartyPC runs faster than real time at a
-  load-dependent rate, and got 81M and 313M cycles for the same event on the
-  same machine — a 3.9x spread that was measuring when somebody looked.
+- **Reset to the kernel's first instruction is 300,798,299 cycles**,
+  23,586,325 instructions, 12.75 cycles each, on a 5150 with the 1982 IBM
+  BIOS reading `build/os8088-360.img`. That is an exec breakpoint on `0x600`
+  against a `reset`, which is the only honest way to ask it: the first two
+  attempts *polled memory* every few seconds of wall clock while MartyPC runs
+  faster than real time at a load-dependent rate, and got 81M and 313M cycles
+  for the same event on the same machine — a 3.9x spread that was measuring
+  when somebody looked.
+  **It is a cycle count and NOT a boot time.** Dividing it by 4.772728 MHz
+  gives 63.02 s, and that figure is worth nothing: a boot is mostly POST and
+  floppy, and this tool is 30x fast on the floppy. The real machine's boot is
+  PERFORMANCE.md's 38,886 ms and the only way to move that number is to
+  measure it there. What the cycle count IS good for is a **delta** against
+  another MartyPC run — that is how you tell whether a change to the boot path
+  did anything, which is a question this can answer and the 5150 answers
+  slowly.
 - `verify`: **71,624 bytes dumped, 1,351 differing (1.89%)** in 183 runs, with
   `boot_ticks` reading 40 live against `0xFFFF` in the file — **byte-identical
   between the development build and `build.sh`'s**, which is the check that

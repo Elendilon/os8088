@@ -32,6 +32,44 @@ Two sentences carry the whole document:
 > defects it cannot show at all (Parts 1 and 3), the judgement is made on
 > hardware.
 
+### ...and MartyPC changes the first sentence, but not the third
+
+**`make marty` is now the first tool to reach for** when the thing under test
+runs on an 8088 with a CGA or a Hercules (docs/TESTING.md carries the
+ordering, docs/MARTYPC-DEBUG.md the recipe). It is **cycle-accurate**: Set 11
+put it within 0–4% of the 5150 on 45 of 47 `gfxbench` rows, which is the
+closest agreement any emulator has managed here, so on the CPU and on drawing
+you may finally *time* work rather than only count it. The debugger attached
+to it costs the guest no cycles at all, so measuring does not change the
+measurement.
+
+**It is cycle-accurate and it is NOT disk-accurate, and that distinction is
+load-bearing enough to sit at the top of this document rather than in Set 11
+where it was measured.** MartyPC models instruction timing, the prefetch queue
+and bus contention; it models no platter, no seek and no interleave:
+
+| | real 5150 | MartyPC |
+|---|---|---|
+| read 16 KB, cold motor | **8.07 s** | **0.27 s** — 30x fast |
+| boot | **38,886 ms** | **2,306 ms** — 17x fast |
+
+So **any figure with a disk in its path is wrong on MartyPC, by more than an
+order of magnitude and in the flattering direction** — and that reaches a lot
+that is not obviously about disks: a boot time, a package launch, a Tracker
+module load, a `SYSTEM.CFG` write, the Control Panel closing. Part 9's disk
+rows come off the 5150 and nowhere else.
+
+**Nor will it catch a disk CORRECTNESS bug**, which is how the last two disk
+optimisations came to measure *worse* than what they replaced. §18.91's `AL`
+bug is the case: the BIOS moved nine sectors and answered `AL = 1`, the kernel
+believed `AL`, and re-read the rest one sector at a time — 148 sectors in 34
+`int 13h` calls for a 32-sector file on the 5150, while **the same binary on
+the same image under QEMU moved 34 sectors in 6 calls**. Correct, fast, and
+silent. It took the field machine plus §18.94's counters to see it, the boot
+sector carried the identical bug for as long again, and no emulator here would
+ever have shown either. An emulator's floppy controller returns what its
+author believed the hardware returns.
+
 ---
 
 ## Part 1 — The vocabulary — say what you actually saw
@@ -229,6 +267,13 @@ Multiply and say that you did. "~500 cycles per iteration × 404 iterations
 
 Not "shows inaccurately" — **cannot show**.
 
+**MartyPC shows the first two**, and that is most of why it now comes first:
+a cycle-accurate 8088 spends a visible redraw's seconds, so a repaint that
+should not be happening is visible in the cycle count rather than only on
+somebody's desk. The third is still a person in front of a machine, and the
+fourth — a lost optimisation that kept its shape — is unchanged, because it
+is a failure of the *question*, not of the emulator.
+
 1. **Visible redraw.** A full window repaint is microseconds here and
    seconds there. Nothing in a screendump, a timing column or a QMP script
    distinguishes a window that repaints from one that does not.
@@ -273,6 +318,12 @@ The guest does the identical amount of work on both machines, and QEMU will
 report it precisely. So when the question is "is this slow because it does
 too much?", **instrument a counter and read it over QMP** — do not reach for
 86Box, and do not guess.
+
+**On MartyPC the counter is often unnecessary**: `step` returns real cycles,
+so work and time are the same question there and `tools/os88marty.py` reads
+any variable by name out of a `nasm -l` listing without one being added. The
+counter idiom below is still the QEMU answer, still correct, and still the
+only route when the thing you are counting is not on an 8088.
 
 ```nasm
 ; kernel/font.inc, in .text so the offset is fixed

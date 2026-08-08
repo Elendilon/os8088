@@ -41,6 +41,11 @@ and what was rejected.
 >   stub structurally cannot: breakpoints, single-step, cycle counts. On an
 >   emulator it supersedes the driver entirely.
 >
+> **And MartyPC is now the FIRST tool to reach for, not the last**
+> (docs/TESTING.md carries the ordering). The one boundary that matters:
+> **cycle-accurate is not disk-accurate** — its floppy is 30x fast and it
+> would not have caught SPEC.md §18.91's `AL` bug any more than QEMU did.
+>
 > Two things in the plan below were **not** built and the reasons are in the
 > outcome docs: the **disk data plane** of section 3 (it needs a `[sch_lock]`
 > entry point, which is kernel code — §57.4's divisor switch is the bulk path

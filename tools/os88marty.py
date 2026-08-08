@@ -22,6 +22,17 @@ step, breakpoints, cycle counts, registers.
 Use this one for everything on an emulator. Use os88dbg when the machine is
 on somebody's desk.
 
+MARTYPC IS CYCLE-ACCURATE AND IT IS NOT DISK-ACCURATE. It models the 8088's
+instruction timing, prefetch queue and bus contention; it models no platter,
+no seek and no interleave. PERFORMANCE.md Set 11 measured a 16KB read at
+0.27s against the 5150's 8.07 - 30x fast - and a boot 17x fast. So any figure
+with a disk in its path is wrong here, including plenty that is not obviously
+about disks: a boot time, a package launch, a module load, a SYSTEM.CFG
+write. And it will not catch a disk CORRECTNESS bug either - SPEC.md 18.91's
+AL bug moved 148 sectors in 34 int 13h calls on the 5150 and 34 sectors in 6
+calls under QEMU, correct and silent. For anything with a disk in it the
+instrument is docs/FIELD-MACHINES.md's machine and there is no substitute.
+
 THE DUMP IS SELF-VALIDATING, and that is the point of `verify`:
 docs/FIELD-MACHINES.md's rule is that linear 0x600 onward is build/kernel.bin
 byte for byte apart from writable state, so a diff proves you are running the
