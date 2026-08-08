@@ -231,6 +231,8 @@ is the client — a CLI, a REPL and an importable `Marty` class.
 | `fbuf` | the card's RENDERED framebuffer as rgb24 — the only route on VGA |
 | `flicker` | one sample per DISPLAYED FRAME, and the flash/redraw counts |
 | `pace` | per-frame changed counts over a long run — frame pacing / smoothness. `ignore` excludes a rect (a blinking cursor); `video` reports the card's cursor state |
+| `advance` | run a bounded amount of GUEST time — `frames=` or `cycles=` |
+| `snapshot` / `restore` | fork a holder process; wake it on a port, any number of times |
 | `key` | a keypress by MartyKey name — `KeyA`, `Enter`, `ArrowRight` |
 | `mouse` | one Microsoft packet: relative `dx`/`dy` and button state |
 | `history` / `callstack` | the CPU's own instruction history |
@@ -577,6 +579,33 @@ buffer is 0 lit of 252,000 and `frame_count()` never advances. `shot`'s VRAM
 route reads guest memory and works there perfectly, which is why nobody had
 noticed. Measure the flash on CGA — §39.5 is one renderer for both 1bpp
 adapters — and note that `--rendered` is likewise CGA and VGA only.
+
+**It has snapshots, and it did not need a save format to get them** —
+docs/SNAPSHOT-PLAN.md is the full pattern, §7 and §8. The headline is that **the emulator is
+bit-exact deterministic**: two independent processes reach a breakpoint at the
+same 261,943,446 cycles with the same 1 MB memory hash, and stay identical
+through injected input. So "continue from a known state" is available today by
+replaying the inputs, with no snapshot format at all.
+
+The sharp edge is that **a wall-clock client destroys that determinism**: two
+free-running instances paused after the same `sleep(22)` were **21.7 M cycles
+apart**. So `advance(frames=…)` / `advance(cycles=…)` is the way to wait, never
+`time.sleep`, and `tools/os88drive.py` is the mouse driver paced that way —
+two processes running the same script from reset land on the identical cycle
+count and the identical 1 MB.
+
+**And `snapshot`/`restore` freezes a state outright**, by forking a holder
+process rather than serializing anything, so nothing can be left out of it:
+
+```python
+s = m.snapshot()               # {'id': 1, 'cycles': 167309139}
+r = m.restore(s["id"], 9995)   # a Marty on the restored machine, byte-identical
+r.quit(); r = m.restore(s["id"], 9995)   # …and again, from the same state
+```
+
+Unix only, in-memory only, and the mounted floppy is shared rather than rolled
+back — SNAPSHOT-PLAN §8 has the limits. Combine it with a `bp mem` watchpoint
+to snapshot the instant a value is touched.
 
 **Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
 two are complementary rather than competing. And not for a machine that is

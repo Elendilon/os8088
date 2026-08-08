@@ -66,6 +66,7 @@ class Marty:
                 f"{addr}: {e}. Is martypc_headless running with "
                 f"MARTYPC_DEBUG_ADDR set?") from None
         self.f = self.s.makefile("rwb")
+        self._log = []          # every input, stamped with its guest cycle
 
     def __enter__(self):
         return self
@@ -255,6 +256,74 @@ class Marty:
     # A debug module poking [mouse_x] would skip the UART, the packet decoder
     # and SPEC.md 9.5's port contest - the code most likely to be wrong.
 
+    # --- reproducibility: guest-time positioning (docs/SNAPSHOT-PLAN.md) -----
+
+    def advance(self, frames=None, cycles=None):
+        """Run a bounded amount of GUEST time and stop.
+
+        USE THIS INSTEAD OF time.sleep FOR ANYTHING THAT MUST REPEAT. The
+        emulator is bit-exact deterministic in guest time and runs at whatever
+        multiple of real time the host manages, so a wall-clock wait lands at a
+        different guest position every run - two instances given the same
+        sleep(22) were measured 21.7 million cycles apart.
+        """
+        kw = {"cmd": "advance"}
+        if frames is not None:
+            kw["frames"] = frames
+        if cycles is not None:
+            kw["cycles"] = cycles
+        return self.cmd(**kw)
+
+    def input_log(self):
+        """Every input this session delivered, with the guest cycle it landed
+        at. Replaying these positions on a fresh machine reproduces the state
+        exactly; replaying them by wall clock does not."""
+        return list(self._log)
+
+    def replay(self, log, settle=0):
+        """Re-drive an input log on a fresh machine, positioning by CYCLES.
+
+        The machine must start from the same image and be at a cycle count at
+        or below the first entry's. `settle` frames are advanced at the end.
+        """
+        for e in log:
+            here = self.status()["cycles"]
+            if e["cycles"] > here:
+                self.advance(cycles=e["cycles"] - here)
+            if e["kind"] == "key":
+                self.cmd(cmd="key", **e["args"])
+            elif e["kind"] == "mouse":
+                self.cmd(cmd="mouse", **e["args"])
+        if settle:
+            self.advance(frames=settle)
+        return self.status()
+
+    # --- fork snapshots (docs/SNAPSHOT-PLAN.md B) ----------------------------
+
+    def snapshot(self):
+        """Fork a holder process that freezes the machine exactly as it is.
+
+        Returns {'id', 'pid', 'cycles'}. Nothing is serialized, so nothing can
+        be left out - the holder is a copy-on-write image of the whole process.
+        """
+        return self.cmd(cmd="snapshot")
+
+    def restore(self, snap_id, port):
+        """Wake a holder onto `port` and return a Marty connected to it.
+
+        THIS CONNECTION STAYS THE SNAPSHOT REGISTRY. The restored machine is a
+        different process; keep this one to restore again. The holder re-forks
+        itself first, so one snapshot can be restored any number of times.
+        """
+        r = self.cmd(cmd="restore", id=snap_id, port=port)
+        for _ in range(100):
+            try:
+                return Marty("127.0.0.1:%d" % r["port"])
+            except MartyError:
+                import time as _t
+                _t.sleep(0.1)
+        raise MartyError("snapshot %d never came up on port %d" % (snap_id, port))
+
     def key(self, name, down=True, up=True):
         """One MartyKey by name: 'KeyA', 'Enter', 'Digit1', 'ArrowUp'."""
         return self.cmd(cmd="key", key=name, down=down, up=up)
@@ -275,7 +344,10 @@ class Marty:
 
     def mouse(self, dx=0, dy=0, l=False, r=False):
         """One packet. dx/dy are RELATIVE and clamped to a signed byte."""
-        return self.cmd(cmd="mouse", dx=dx, dy=dy, l=l, r=r)
+        rr = self.cmd(cmd="mouse", dx=dx, dy=dy, l=l, r=r)
+        self._log.append({"cycles": rr.get("cycles", 0), "kind": "mouse",
+                          "args": {"dx": dx, "dy": dy, "l": l, "r": r}})
+        return rr
 
     def mouse_move(self, dx, dy, l=False, r=False, step=100):
         """A long move as several packets - a packet carries a signed byte."""

@@ -4322,6 +4322,23 @@ at most two items and the second one is the point:
 | `About <Name>` | the window registered a handler with `wm_about_set` (slot 0x01E0) | the application, through its own dispatcher, exactly like `W_ONCLICK` |
 | `Close` | **always** | the kernel |
 
+**One duplicate had to go with it, and exactly one.** A Disk window OWNS the
+app-name cell (`[menu_win]` is that window, and `fm_menus`' `AM_NAME` is
+still `'Locator'`), so its `File ▸ Close Window` said the same thing as the
+cell's `Close`. The item is retired and `fm_items_file` is 7 long. Two things
+that look like the same case and are not: **Locator's own** `File ▸ Close
+Window` STAYS, because with the bare desktop active `[menu_win]` is 0, no
+cell exists at all, and that item is then the only way to close from the bar —
+which is why it already greys itself against `wm_top`. And no application has
+one: every shipped `OS88_MENUSET` was surveyed and none carries a close item
+in its windowed menus. ArtfulType's `Quit` is in its FULLSCREEN table, where
+it draws its own bar over the kernel's and the cell is not on screen.
+
+`FMC_CLOSEW`'s *number* is kept even though the item is gone, because
+`fm_oncmd` builds an id as `fm_menu_base[menu] + item` — the retired item was
+the LAST of the File menu, so the id simply stops being produced and nothing
+after it shifts. Same reasoning §20.8 rule 4 applies to API slots.
+
 `Close` is the close box (§13) reached from the bar, and it does what the
 close box does: `app_close_win` on `[menu_win]`, under the gfx lock, on the
 UI task. A task-less instance is torn down synchronously; a task-owned one
@@ -10291,11 +10308,22 @@ still editable, and still saveable when something gives memory back.
 `FERR_*` code mapped
 through an eleven-entry table indexed by the code itself ("Done", "No
 disk", "Disk error", "Bad name", "Not found", "Name exists", "Disk full",
-"Dir full", "Protected", "Write protected", "Too big"). It is cleared by
-the **next** keystroke — by an edit, or by the next save/load replacing it —
-so it never becomes stale furniture, while a key the app ignores leaves
-both the toast and the screen alone. It is drawn last, so it sits above the
-text.
+"Dir full", "Protected", "Write protected", "Too big"). It is drawn last,
+so it sits above the text.
+
+**It is ONE-SHOT: `np_toast` clears `np_msg` after drawing it.** The
+keystroke clear is still there and is still what an edit does, but it was
+never the whole story — the toast belongs to the operation that raised it,
+and `np_paint` is reached from every repaint. Dragging the window put
+"Loaded README.TXT" straight back up, which reads as the file being loaded
+*again* and was reported as exactly that; the disk counters say it is never
+touched. So a repaint cannot resurrect a toast, and the claim that it can
+"never become stale furniture" is the build's rather than the reader's.
+
+What makes it *erase* rather than merely stop being redrawn is an ordering
+that was already there: the `np_smsg`/`np_smsgn` shadow is published
+**before** `np_toast` runs, so the next paint compares 0 against the toast
+the screen was drawn with, mismatches, and redraws the rows underneath.
 
 Save is `ES = DS` + slot 0x0120; load is slot 0x0128 with the buffer
 capacity, mapping `FERR_BIG` to the same "Too big" toast the truncation
@@ -19838,6 +19866,50 @@ which is better than what it replaces. In the common case it is not even
 visible: the burst sits at the trail's **end**, so what waits is the last
 dozen pixels and there is nothing beyond them to look detached.
 
+### 48.19.1 …and it stops at the DISC's edge, not at the square round it
+
+§48.19's first version held the **whole** step the moment any part of it would
+reach a burst, and a step is 24–31 pixels against a 26-pixel disc — so a trail
+could stop a full step short and leave a stub of line poking out of the
+fireball with a gap between them. Reported from the field as *the extra lines
+look a bit weird*, which is exactly what it is: the cleanup is supposed to run
+up to the fire and stop.
+
+`mc_drn_hold` returns a **clamped step** now rather than a yes/no, and the
+clamp is two-stage because the two stages answer different questions:
+
+- **The Chebyshev distance bounds the whole PATH, and costs no division.** A
+  Bresenham step moves each axis by at most one, so the Chebyshev distance to
+  a burst falls by at most one per step: `d - r - 1` pixels are safe *for
+  every pixel on the way*, not merely for the endpoint. That is what makes the
+  common case free — no burst within reach means one compare per live burst
+  and no arithmetic at all, where the first version paid an `imul`/`idiv` per
+  entry per frame whatever was on screen.
+- **Then `MC_DHEXT` probes walk the square back to the disc.** Chebyshev is
+  the *square* round the burst, so a diagonal approach stops up to `0.41r` —
+  five pixels at r = 13 — short of the fire. Each probe computes the actual
+  point and tests it against `dx² + dy² ≤ r²`, and stops at the first one
+  inside, so it can never step over a disc; eight probes covers the worst gap
+  with one spare.
+
+**Inside a disc needs `|dx| ≤ r` AND `|dy| ≤ r`, and that test comes before
+either multiply.** It is exact rather than a heuristic — `|dx| > r` already
+means `dx² > r²` — and it is what makes the probe affordable: the loop runs up
+to `MC_DHEXT` times per entry per frame and would otherwise square *every* lit
+burst each time, which on a screen with five of them is fifteen `imul`s a
+probe. It also bounds the products inside a word, on a CPU with no 32-bit
+compare to fall back on.
+
+**What the probe costs is below the noise, and that is the honest answer
+rather than a claim of free.** Frame periods measured at `mc_worker`'s
+breakpoint, wave certified 1 at both ends, 219 periods a run: `MC_DHEXT` 6
+gives 18.21 fps / sd 7.16 ms and `MC_DHEXT` 0 — the Chebyshev bound alone —
+gives 18.12 fps / sd 5.12 ms, while repeated runs of a *single* build spread
+across sd 4.4–7.2 ms on their own. The mean frame period sat in 54.9–55.2 ms
+for every build measured. So the rate is untouched and the probe's cost does
+not separate from run-to-run variation at this load; what does separate is
+what it is for, the stub going from most of a step to **0.6 px**.
+
 ### 48.20 The catch-up frame IS the judder, and it was free to stop
 
 `MC_LAGMAX` is 0. §44.1's deadline scheme lets a worker that overran run the
@@ -19875,6 +19947,98 @@ came in at **54.92 ms mean, sd 1.28 ms**, and — diffing the framebuffer at
 each frame boundary — **0 of 199 drew nothing**. 95% of frames land exactly on
 the tick even under sustained fire; the jitter is the ~5% that overrun, and
 the only lever left on those is the fill count §48.18 already worked.
+
+### 48.21 A trail is one pixel wide, so it cannot be dithered
+
+`mc_pal` puts the ground, the cities and the two kinds of trail in different
+§39.4 classes on purpose, "so the four things a player must tell apart stay
+apart once colour has reduced to three inks" — and in **every one of the ten
+palettes exactly one of the two trails lands in the dither class**. On VGA
+that is a colour. On Hercules and CGA it is a 50% checkerboard, and
+`gfx_line_mono` and `gfx_lstep_mono` both light a dithered pixel only where
+`(x ^ y)` is even — so a **one-pixel-wide** line keeps every other pixel and
+actively clears the rest.
+
+What that looks like is a dotted trail, and how dotted depends on the slope,
+which is the tell: a steep or shallow line changes parity every pixel and
+comes out **50% gone**, while a 45° line holds its parity and comes out solid
+(or, starting on the wrong foot, invisible). Reported from the field as
+*missile lines are drawing dotted, the steeper the line the more black space
+in them*.
+
+This is §48's own recorded lesson arriving somewhere new. The wave counter was
+`CLGREEN` and on CGA it was not faint but **absent**, because a dithered 8x8
+glyph loses the half of each stroke the pattern masks out and a 1px stroke has
+nothing left — and a 1px *line* is the same object as a 1px stroke. So on
+1bpp both trail pens go to `CWHITE`: `[mc_mono]` is banked in `mc_entry` (the
+1bpp half of `[mc_ecoarse]`'s test on its own, because a tier-0 VGA is slow
+and still has colour) and spent where the wave palette is loaded.
+
+**The distinction it gives up was not there to give up.** Two trails in
+different §39.4 classes are two colours on VGA and one line and one dotted
+line on mono, which is not a second ink — and the trails were never told apart
+by colour anyway: an ABM rises from a base and an ICBM falls from the top of
+the screen. The ground, the cities and the explosions keep their classes,
+because those are **areas**, where a 50% dither is a grey and is exactly what
+§39.4 is for.
+
+### 48.22 A dying burst takes a bite out of the one next to it
+
+Explosions overlap — one ABM kills a cluster and the bursts sit on top of each
+other — and `mc_draw_exp`'s `.gone` erases the **whole blob it drew** back to
+sky. Any other burst that blob covered is now holed, and §48.8 never redraws
+it, because *its* radius has not changed. It stays holed for the rest of its
+life, and with two or three neighbours dying in turn the survivor can be
+erased **entirely**.
+
+§48.9.1's rule for the third time: an optimisation that stops something being
+redrawn every frame inherits every place that used to rely on that redraw.
+This one was there before §48.19 and invisible — a trail erased straight
+through where the fireball should have been and nothing looked wrong. §48.19
+is what exposed it: the drain now **stops** at a burst it believes is lit, so
+a cluster kill left a star of trail stubs converging on a patch of empty sky.
+That is what the field reported as *a few tails have lines sticking out*, and
+the tails were the symptom rather than the defect.
+
+Caught by watching one burst per frame at `mc_worker`'s breakpoint and
+counting lit pixels in its own box: a healthy burst holds ~562–614 lit for its
+whole life and drops to the leftover trail stubs when it dies. The broken one
+read `ea = 1`, `er = 13`, `et = 12` — perfectly consistent state — with **no
+disc on screen**, and forcing `[mc_full]` brought it straight back at 578
+pixels. State right, screen wrong, which is the signature of a lost erase
+rather than a lost update.
+
+`mc_exp_hole` marks it: after `.gone` lays its disc of background, every lit
+burst whose centre is closer than the **sum of the radii** has its `mc_er`
+cleared, which is `mc_draw_exp`'s own word for *not drawn*. `[mc_ehole]` then
+sends the loop round once more and the neighbour is redrawn at its target
+radius. Three things about it:
+
+- **One extra pass at most.** `.gone` clears its own `mc_ea` before any of
+  this, so the second pass cannot reach a `.gone` again and cannot mark
+  anything; there is no third pass to bound.
+- **The overlap test is the square round the sum, not the circle**, and being
+  generous is the safe direction here: the cost of a false positive is one
+  `mc_blob` that changed nothing, against a hole that would otherwise stand
+  for the burst's whole remaining life.
+- **It costs nothing when bursts do not overlap**, which is the common case —
+  a compare per lit burst, and no drawing at all.
+
+Measured by scanning **every lit burst on every game frame** at the frame
+breakpoint and counting lit pixels inside its own box — a solid disc is
+`πr²` ≈ 530 at r = 13, and anything under `2r²` is holed — with the same
+scripted cluster salvo in both arms: **18 holed samples of 137 with the
+repair off, 0 of 74 / 0 of 112 / 0 of 113 with it on.** The worst reading off
+was 24 lit of 530: a fireball almost entirely gone.
+
+**One residual is not covered and is a different path**: a single run showed a
+burst holed at the ground line (`lit` 67, centre one radius above
+`[mc_groundy]`) for ten consecutive frames. Terrain is drawn *after* the
+bursts and `mc_exp_restore` (§48.9) is what puts them back, but only over the
+span `[mc_gdx1]` armed — so a burst standing in ground that was **not**
+repaired this frame is not restored. That is the same shape of bug in
+`mc_exp_restore`'s gate rather than in `.gone`'s erase, and it is left open
+rather than guessed at.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
