@@ -3040,6 +3040,22 @@ np_toast:
     add dx, 2
     mov si, [np_msg]
     call OSAPI_FONT_STR
+    mov word [np_msg], 0        ; ...and FORGET it. A toast belongs to the
+                                ; operation that raised it, and this routine
+                                ; is reached from np_paint - so every later
+                                ; repaint was putting it back up. Dragging the
+                                ; window re-showed 'Loaded README.TXT', which
+                                ; reads as the file being loaded AGAIN and was
+                                ; reported as exactly that; the counters say
+                                ; the disk is never touched. The header above
+                                ; already claimed the toast could "never
+                                ; become stale furniture" because a keystroke
+                                ; clears it - a repaint is not a keystroke.
+                                ; The np_smsg shadow is published BEFORE this
+                                ; runs, so the next paint sees 0 against the
+                                ; toast it was drawn with, mismatches, and
+                                ; redraws the rows underneath - which is what
+                                ; erases it
 .out:
     pop di
     pop si

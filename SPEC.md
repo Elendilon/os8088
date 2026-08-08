@@ -10124,11 +10124,22 @@ still editable, and still saveable when something gives memory back.
 `FERR_*` code mapped
 through an eleven-entry table indexed by the code itself ("Done", "No
 disk", "Disk error", "Bad name", "Not found", "Name exists", "Disk full",
-"Dir full", "Protected", "Write protected", "Too big"). It is cleared by
-the **next** keystroke — by an edit, or by the next save/load replacing it —
-so it never becomes stale furniture, while a key the app ignores leaves
-both the toast and the screen alone. It is drawn last, so it sits above the
-text.
+"Dir full", "Protected", "Write protected", "Too big"). It is drawn last,
+so it sits above the text.
+
+**It is ONE-SHOT: `np_toast` clears `np_msg` after drawing it.** The
+keystroke clear is still there and is still what an edit does, but it was
+never the whole story — the toast belongs to the operation that raised it,
+and `np_paint` is reached from every repaint. Dragging the window put
+"Loaded README.TXT" straight back up, which reads as the file being loaded
+*again* and was reported as exactly that; the disk counters say it is never
+touched. So a repaint cannot resurrect a toast, and the claim that it can
+"never become stale furniture" is the build's rather than the reader's.
+
+What makes it *erase* rather than merely stop being redrawn is an ordering
+that was already there: the `np_smsg`/`np_smsgn` shadow is published
+**before** `np_toast` runs, so the next paint compares 0 against the toast
+the screen was drawn with, mismatches, and redraws the rows underneath.
 
 Save is `ES = DS` + slot 0x0120; load is slot 0x0128 with the buffer
 capacity, mapping `FERR_BIG` to the same "Too big" toast the truncation
