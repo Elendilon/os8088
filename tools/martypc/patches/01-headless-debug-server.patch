@@ -1,5 +1,18 @@
+diff --git a/crates/binaries/martypc_headless/Cargo.toml b/crates/binaries/martypc_headless/Cargo.toml
+index ccfc2ba..e2819c3 100644
+--- a/crates/binaries/martypc_headless/Cargo.toml
++++ b/crates/binaries/martypc_headless/Cargo.toml
+@@ -12,7 +12,7 @@ path = "src/lib.rs"
+ crate-type = ["lib"]
+ 
+ [dependencies]
+-marty_core = { path = "../../marty_core" }
++marty_core = { path = "../../marty_core", features = ["sound", "opl"] }
+ marty_common = { path = "../../marty_common" }
+ marty_frontend_common =  { path = "../../lib/frontend/marty_frontend_common", default-features = false }
+ marty_display_common = { path = "../../lib/frontend/marty_display_common", default-features = false }
 diff --git a/crates/binaries/martypc_headless/src/lib.rs b/crates/binaries/martypc_headless/src/lib.rs
-index e1680ee..84deb72 100644
+index e1680ee..3f9c952 100644
 --- a/crates/binaries/martypc_headless/src/lib.rs
 +++ b/crates/binaries/martypc_headless/src/lib.rs
 @@ -32,6 +32,7 @@
@@ -10,7 +23,7 @@ index e1680ee..84deb72 100644
  mod emulator;
  
  mod run_benchmark;
-@@ -740,9 +741,47 @@ pub fn run() {
+@@ -740,9 +741,52 @@ pub fn run() {
      // Start emulator
      emu.start();
  
@@ -42,6 +55,11 @@ index e1680ee..84deb72 100644
 +                        {
 +                            log::error!("Could not mount floppy {}: {}", filename, e);
 +                        }
++                    }
++                }
++                if let Ok(wav) = std::env::var("MARTYPC_WAV") {
++                    if !wav.is_empty() {
++                        server.capture_audio(&emu.machine, &wav);
 +                    }
 +                }
 +                log::info!("Headless debug server on {}. Machine starts PAUSED.", addr);

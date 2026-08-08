@@ -113,6 +113,7 @@ pub fn mount_floppy(machine: &mut Machine, drive: usize, path: &Path) -> Result<
 }
 
 pub struct DebugServer {
+    wavs:     Vec<WavSink>,
     listener: TcpListener,
     client:   Option<BufReader<TcpStream>>,
     pending:  VecDeque<String>,
@@ -125,6 +126,7 @@ impl DebugServer {
         listener.set_nonblocking(true)?;
         log::info!("Debug server listening on {}", addr);
         Ok(Self {
+            wavs: Vec::new(),
             listener,
             client: None,
             pending: VecDeque::new(),
@@ -139,6 +141,19 @@ impl DebugServer {
     /// into its boot cannot set a breakpoint on anything it wanted to watch,
     /// and "it had already happened" is the one failure a debugger must not
     /// have. `run` starts it.
+    /// Capture every sound source to `<dir>.<source>.wav`.
+    pub fn capture_audio(&mut self, machine: &Machine, dir: &str) {
+        for src in machine.get_sound_sources() {
+            match WavSink::open(dir, src) {
+                Ok(w) => self.wavs.push(w),
+                Err(e) => log::error!("Could not open capture for '{}': {}", src.name, e),
+            }
+        }
+        if self.wavs.is_empty() {
+            log::warn!("MARTYPC_WAV set but this machine has no sound sources");
+        }
+    }
+
     pub fn run_loop(&mut self, machine: &mut Machine) {
         let mut exec = ExecutionControl::new();
         exec.set_state(ExecutionState::Paused);
@@ -155,11 +170,20 @@ impl DebugServer {
 
             if matches!(exec.get_state(), ExecutionState::Running) {
                 machine.run(batch, &mut exec);
+                // Drain after every batch, not on a timer: the channels are
+                // bounded and a device that outruns the reader drops samples,
+                // which would read as the guest having gone quiet.
+                for w in self.wavs.iter_mut() {
+                    w.drain();
+                }
             }
             else {
                 // Paused: do not spin a core waiting for a command.
                 std::thread::sleep(Duration::from_millis(2));
             }
+        }
+        for w in self.wavs.iter_mut() {
+            w.close();
         }
     }
 
@@ -655,5 +679,96 @@ fn mouse(machine: &mut Machine, req: &Value) -> Value {
             json!({"ok": true})
         }
         None => err("no mouse in this machine - add the microsoft_serial_mouse_com1 overlay"),
+    }
+}
+
+// --- audio capture ----------------------------------------------------------
+//
+// Headless MartyPC had no audio path at ALL - marty_core's `sound` feature
+// was not even enabled for this crate - so a card's samples went nowhere and
+// there was nothing for tools/sndcheck.py to read. That is a bigger gap than
+// any missing device: without it you can add a Sound Blaster and still not be
+// able to say whether it made the right noise.
+//
+// One file per sound source, at that source's own rate, no mixing: the PC
+// speaker and a card run at different sample rates and answer different
+// questions, and a mixed file would make each one harder to assert about.
+//
+// The format is what tools/sndcheck.py already parses - 16-bit PCM - so every
+// existing assertion (RMS, Goertzel dominant frequency, --expect-silence)
+// works unchanged against a MartyPC capture.
+pub struct WavSink {
+    name:     String,
+    file:     std::fs::File,
+    receiver: crossbeam_channel::Receiver<marty_core::device_traits::sounddevice::AudioSample>,
+    channels: u16,
+    frames:   u32,
+}
+
+impl WavSink {
+    fn header(rate: u32, channels: u16) -> [u8; 44] {
+        let mut h = [0u8; 44];
+        let byte_rate = rate * channels as u32 * 2;
+        h[0..4].copy_from_slice(b"RIFF");
+        h[8..12].copy_from_slice(b"WAVE");
+        h[12..16].copy_from_slice(b"fmt ");
+        h[16..20].copy_from_slice(&16u32.to_le_bytes());
+        h[20..22].copy_from_slice(&1u16.to_le_bytes()); // PCM
+        h[22..24].copy_from_slice(&channels.to_le_bytes());
+        h[24..28].copy_from_slice(&rate.to_le_bytes());
+        h[28..32].copy_from_slice(&byte_rate.to_le_bytes());
+        h[32..34].copy_from_slice(&(channels * 2).to_le_bytes());
+        h[34..36].copy_from_slice(&16u16.to_le_bytes());
+        h[36..40].copy_from_slice(b"data");
+        // RIFF and data sizes are patched on close; sndcheck.py reads a zero
+        // data size as "to end of file" anyway, which is what makes a killed
+        // emulator's capture still readable.
+        h
+    }
+
+    pub fn open(dir: &str, src: &marty_core::sound::SoundSourceDescriptor) -> std::io::Result<Self> {
+        let safe: String = src.name.chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+            .collect();
+        let path = format!("{}.{}.wav", dir.trim_end_matches(".wav"), safe);
+        let mut file = std::fs::File::create(&path)?;
+        use std::io::Write;
+        file.write_all(&Self::header(src.sample_rate, src.channels as u16))?;
+        log::info!("Capturing '{}' to {} ({} Hz, {} ch)", src.name, path, src.sample_rate, src.channels);
+        Ok(Self {
+            name: src.name.clone(),
+            file,
+            receiver: src.receiver.clone(),
+            channels: src.channels as u16,
+            frames: 0,
+        })
+    }
+
+    /// Drain whatever the device has produced since the last call.
+    pub fn drain(&mut self) {
+        use std::io::Write;
+        let mut buf: Vec<u8> = Vec::new();
+        while let Ok(s) = self.receiver.try_recv() {
+            // f32 -> i16, clamped: a sample out of range is a device bug and
+            // wrapping it would hide that as a click.
+            let v = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+        if !buf.is_empty() {
+            self.frames += (buf.len() / 2 / self.channels as usize) as u32;
+            let _ = self.file.write_all(&buf);
+        }
+    }
+
+    /// Patch the two size fields so ordinary players can read it too.
+    pub fn close(&mut self) {
+        use std::io::{Seek, SeekFrom, Write};
+        let data = self.frames * self.channels as u32 * 2;
+        let _ = self.file.seek(SeekFrom::Start(4));
+        let _ = self.file.write_all(&(36 + data).to_le_bytes());
+        let _ = self.file.seek(SeekFrom::Start(40));
+        let _ = self.file.write_all(&data.to_le_bytes());
+        let _ = self.file.flush();
+        log::info!("Capture '{}': {} frames", self.name, self.frames);
     }
 }

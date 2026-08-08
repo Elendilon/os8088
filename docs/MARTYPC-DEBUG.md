@@ -240,6 +240,32 @@ keyboard has a zero-code answer anyway — poke the BIOS buffer at
 `DEBUG.DRV` and a guest-side injection verb. Neither is built; both are
 wanted only if 86Box automation is.
 
+**Audio capture**, which headless MartyPC did not have at all — marty_core's
+`sound` feature was not even enabled for the crate, so a device's samples
+went nowhere. `MARTYPC_WAV=/tmp/cap` writes **one 16-bit PCM file per sound
+source** at that source's own rate (`/tmp/cap.pc_speaker.wav`), no mixing,
+because the speaker and a card run at different rates and answer different
+questions. The format is what `tools/sndcheck.py` already parses, so every
+existing assertion — RMS, the Goertzel dominant-frequency scan,
+`--expect-silence` — works against a MartyPC capture unchanged. Verified by
+programming PIT channel 2 for 880 Hz through `outb` alone, with nothing in
+the guest involved: `sndcheck` reported **dominant 891.0 Hz**, inside its 5%
+tolerance.
+
+Two differences from QEMU's `-audiodev wav` are worth knowing. The capture is
+**continuous**, not gated — QEMU's pcspk stream only runs while the speaker
+is on, so its file time *is* speaker-on time and a silent boot yields an
+empty file; here the file is guest time and silence is silence. And **the
+guest is also driving port 61h**, so a tone you open by hand may be closed
+again by `snd_tick` a moment later — which is why the run above shows 0.26 s
+of clean tone rather than the three seconds it was held for.
+
+**There is no Sound Blaster**, and that is the one real gap left on an 8088:
+`adlib.rs` (an OPL2 via `opl3_rs`) and `dma.rs` are both there, and the
+`SoundDevice` trait's own comment names Sound Blaster as an intended
+implementor, but the DSP does not exist. QEMU is still the route for
+SPEC.md §34.5's stream tier.
+
 **Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
 two are complementary rather than competing. Also not for VGA: MartyPC's VGA
 is in development and covers Mode 13h and Mode X, while os8088's whole VGA
