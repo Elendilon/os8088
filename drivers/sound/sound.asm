@@ -129,8 +129,9 @@ snd_entry:
     clc
     ret
 .nohw:
-    stc
-    ret
+    mov al, DRVE_HW             ; the reason, explicitly: attach's refusal may
+    stc                         ; carry a DRVE_* now (SPEC.md 51.2) and the
+    ret                         ; kernel reads whatever AL holds
 
 ; -----------------------------------------------------------------------------
 ; snd_tier - DRVV_TIER: how much of ourselves the user wants (SPEC.md 34.8)

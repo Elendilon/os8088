@@ -49,6 +49,11 @@
 ; so a sound driver and a disk driver do not disconnect one another.
 DRVC_SOUND   equ 1
 DRVC_DISK    equ 2              ; block volumes: hard disks (SPEC.md 51.8)
+DRVC_DEBUG   equ 3              ; the serial monitor (SPEC.md 58): no service
+                                ; the kernel dispatches, only a Control Panel
+                                ; page - but a class of its own, because a
+                                ; class is the publication slot and sharing
+                                ; one disconnects the driver already in it
 
 ; --- the capability bits a sound driver may ADD (SPEC.md 34.2) ---------------
 ; os88api.inc publishes the two the resident kernel already has (TONE and
@@ -111,6 +116,12 @@ DRVV_TIER    equ 2              ; in AH = how much of yourself the user wants
 ; with the string it already has for a refused LOAD - one vocabulary for both.
 DRVE_MEM     equ 4              ; the heap cannot fund that tier right now
 DRVE_HW      equ 5              ; the hardware that tier needs is not there
+DRVE_BUSY    equ 6              ; ...or it IS there and something the kernel
+                                ; already owns has its port or its IRQ. A
+                                ; separate code because the two send the user
+                                ; to different places: DRVE_HW means buy or
+                                ; fit a card, this means move a jumper
+                                ; (SPEC.md 58.2)
 
 ; --- the service table you return in SI at attach ----------------------------
 ; Offsets in YOUR segment. The kernel copies the whole thing once, so it may

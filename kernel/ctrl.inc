@@ -2412,9 +2412,22 @@ CP_DSTDY  equ CP_PLDY + 9       ; 11: the reason line, one text row under the
                                 ; CP_PLX and not at the pane margin: the two
                                 ; share a scan line and only the x separation
                                 ; keeps them apart (cp_drv_line1)
-CP_DB0Y1  equ CP_DR0Y - 4                       ; row 0's hit band, top...
-CP_DB0Y2  equ CP_DR0Y + CP_DROWH - 5            ; ...and bottom = row 1 top-1
-CP_DB1Y2  equ CP_DR0Y + CP_DROWH + CP_GW + 5    ; row 1's bottom
+; The hit bands are DERIVED from DRV_MAX rather than enumerated, and that is
+; a fix rather than tidiness: they were three constants describing exactly two
+; rows (CP_DB0Y1/CP_DB0Y2/CP_DB1Y2), so the third driver row (SPEC.md 58)
+; drew, said what it was doing, and could not be clicked - a control that
+; looks live and is not, which is SPEC.md 47 rule 4's failure arriving where
+; rule 4 does not look because no predicate refuses anything. One band per
+; row, one pitch tall, and cp_drv_click divides.
+CP_DBY1   equ CP_DR0Y - 4                       ; the first band's top
+CP_DBYN   equ CP_DBY1 + CP_DROWH * DRV_MAX      ; ...and one past the last
+
+; ...and so is the caption, for the same reason and a sharper symptom: it sat
+; at CP_PCAPY (74), which was below two rows and INSIDE the third. cp_drv_cap
+; wipes a full-width line, so a third driver had the top of its name and
+; checkbox erased on every paint - it read as the page being clipped by the
+; window rather than as two numbers colliding.
+CP_DCAPY  equ CP_DBYN + 2
 
 cp_drv_rowy:
     push ax
@@ -2523,15 +2536,14 @@ cp_drv_click:
     push bx
     push dx
 
-    cmp dx, CP_DB0Y1            ; outside every band: nothing
-    jl .done
-    cmp dx, CP_DB1Y2
-    jg .done
-    xor al, al                  ; upper band = row 0
-    cmp dx, CP_DB0Y2
-    jle .got
-    mov al, 1                   ; lower band = row 1
-.got:
+    mov ax, dx                  ; which band, by division rather than by a
+    sub ax, CP_DBY1             ; constant per row: DRV_MAX has changed twice
+    js .done                    ; and a hand-written ladder does not follow it
+    xor dx, dx                  ; (DX is banked on the stack above)
+    mov bx, CP_DROWH
+    div bx                      ; AX = the row, DX = where in it (unused)
+    cmp ax, DRV_MAX
+    jae .done
     push ax
     call KERNEL_SEG:cw_drv_row
     cmp word [bx+DRVR_FILE], 0  ; an empty table row is not a control
@@ -2659,7 +2671,7 @@ cp_drv_cap:
     push dx
     push si
     mov dx, bp
-    add dx, CP_PCAPY
+    add dx, CP_DCAPY            ; BELOW every driver row, derived from DRV_MAX
     mov ax, CP_PMX              ; the caption owns the pane's full width
     call cp_drv_wipe            ; ...which leaves the pen CBLACK
     cmp byte [cp_dsave], 0

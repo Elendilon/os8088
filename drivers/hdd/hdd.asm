@@ -140,8 +140,9 @@ hd_entry:
     clc
     ret
 .refuse:
-    stc
-    ret
+    mov al, DRVE_HW             ; the reason, explicitly: attach's refusal may
+    stc                         ; carry a DRVE_* now (SPEC.md 51.2), and this
+    ret                         ; path is reached with AL = the verb
 
 ; -----------------------------------------------------------------------------
 ; hd_ready - the kernel can take our calls now (SPEC.md 51.2.2/52.6)
