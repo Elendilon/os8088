@@ -74,6 +74,20 @@ machine a report came from), and **the 5150's C: is a real DOS 3.3 install**,
 so nothing may format, partition, write or delete on it. `make field`'s two
 images are built on demand and SENT, never committed.
 
+**Two standing rules for work on any branch of the `Elendilon/os8088` fork,
+written down in that file's last section.** They are that fork owner's
+preference, not a property of the project. **Send the 360KB pair
+(`build/os8088-360.img` and `build/apps360.img`) after EVERY commit, without
+being asked** - and "send" means ATTACH the files (`SendUserFile`), because a
+path into the session's `build/` is a container the owner cannot reach.
+**And do not boot an image after building it**, on request or after a commit:
+by the time one is being built, the change it carries has almost always just
+been driven as part of the work, so a second cycle re-establishes what the
+first already did - the owner asks when they want one exercised harder. It
+relaxes neither the testing that earns a commit nor the rule that a MERGE
+onto the integration branch rebuilds and boots first, a merge being two trees
+that were never tested together.
+
 **"Merge to elendilon" means the BRANCH, not the repository.** `elendilon` is
 the integration branch this work lands on — feature branches merge into it and
 it is what gets tested on the iron; `main` is behind it and is not the target.
