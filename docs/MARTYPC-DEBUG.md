@@ -81,6 +81,17 @@ rows, which is the closest any emulator has come here.
 Needs `cargo` (Rust) and, on Linux, `libudev-dev` + `pkg-config` — MartyPC
 depends on `serialport`, whose build script hard-fails without them.
 
+**In a fresh container, `apt-get update` FIRST.** The shipped index names
+`libudev-dev_255.4-1ubuntu8.14`, which has been superseded and removed from
+the pool, so installing it straight off 404s — and since this is the default
+test target, that 404 is the first thing a session hits. A refresh is the
+whole fix; it resolves to a version that exists (`…8.16` today) and installs.
+**Do not pin a version here.** CLAUDE.md's QEMU recipe pins one deliberately,
+for the opposite reason — there the `-updates` build is the broken one and an
+older version is wanted — and applying that shape to `libudev-dev` reinstates
+the same 404. Skipping the deps entirely does not fail at apt at all: it fails
+minutes later inside cargo, on `serialport`.
+
 ```sh
 tools/martypc/build.sh              # clone at the pin, patch, stage, build
 cd build/martypc/run

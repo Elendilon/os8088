@@ -597,7 +597,29 @@ gstreamer/libcaca display extras, which 404 the same way and which a headless
 not `pkill -f apt-get` from inside a Bash tool call — the pattern matches the
 call's own shell and kills it.
 
-Requires `nasm`, `qemu-system-i386`, `python3`. No linker anywhere — everything is `nasm -f bin` flat binaries (deliberately, to avoid Apple's Mach-O-only toolchain).
+**`libudev-dev` 404s the same way, and it bites FIRST** — it is `make marty`'s
+dependency, the DEFAULT test target, the one this file says to build at the
+start of a session, where QEMU is the fallback with a short list. MartyPC
+depends on the `serialport` crate, whose build script hard-fails without
+`libudev-dev` + `pkg-config`, so a fresh container's first `make marty` ends
+in a cargo error several minutes in. Installing them out of the shipped index
+fails the same way QEMU does — the index names
+`libudev-dev_255.4-1ubuntu8.14`, which is gone from the pool:
+
+```
+apt-get update                       # ...and that is the WHOLE fix here
+apt-get install -y --no-install-recommends libudev-dev pkg-config
+```
+
+**Do not carry the QEMU recipe's version pinning over to it.** Same symptom,
+opposite cause: QEMU needs an OLDER version than the index names, because the
+`-updates` build is the broken one; `libudev-dev` needs the NEWER one a
+refreshed index names (`…8.16` today), because the stale entry is what has
+been superseded. Pinning `libudev-dev` to the base version reinstates exactly
+the 404 you are trying to escape. `pkg-config` installs normally either way.
+
+Requires `nasm`, `python3`, and — per the rule above, MartyPC first —
+`cargo`; `qemu-system-i386` only for the fallback's short list. No linker anywhere — everything is `nasm -f bin` flat binaries (deliberately, to avoid Apple's Mach-O-only toolchain).
 
 There are no unit tests. **`docs/TESTING.md` is the matrix of WHICH TOOL to
 reach for and what each can and cannot do**, with a verified recipe per
