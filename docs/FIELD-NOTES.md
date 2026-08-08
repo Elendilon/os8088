@@ -1258,3 +1258,48 @@ adapter**: `gfx_line_raw` sends mono to `gfx_line_mono` and VGA to
 on VGA. Nothing depends on the two agreeing today — Missile Command draws and
 erases through the same path on the same machine — so it is recorded rather
 than fixed, and Paint's fast path is gated to 1bpp.
+
+---
+
+## 12. The mouse does nothing for a third of a second, then jumps (FIXED, confirmed on the 5150 and MartyPC)
+
+**Observed.** After the desktop appears, the first mouse movement of the
+session did nothing for roughly a third of a second, then the cursor jumped
+and tracked perfectly for the rest of the session. **1/1, every boot** — not
+intermittent, which is the detail that pointed at the cause.
+
+**Why the harness could not show it.** QEMU's `msmouse` is not a UART-level
+device: it ignores MCR/DTR outright and emits packets during boot regardless,
+so `[mou_seen]` is 1 and `[mou_hpst]` 2 straight out of `make test`. The
+container therefore sits permanently in the state that comes *after* the bug,
+and no amount of scripting reaches it.
+
+**Two causes, not one, and the smaller one looks like the culprit** (SPEC.md
+§9.4.1). The kernel never *identified* a mouse — `[mou_seen]` is set only by
+the ISR on a completed packet, so a plugged-in mouse nobody has touched is
+indistinguishable from no mouse. That cost (a) the §9.5 contest, where a
+two-port machine discards its first eight clean packets, deterministic and
+worth ~200 ms of continuous motion; and (b) `mou_hotplug` power-cycling the
+mouse every 3.19 s, 20.7% of it dead, with its first cycle landing on the
+desktop. The first estimate here attributed the whole symptom to (b) and was
+wrong: (b) is probabilistic in where a nudge lands and cannot be 1/1.
+
+**Fixed** by reading the identify burst `mouse_init` already provokes and then
+discards (SPEC.md §9.4.1), and **confirmed on both machines through §9.4.2's
+published block**:
+
+- **the 5150** — one serial port, so no contest: `first byte 004D`,
+  `identified 1`, **`poller stamp 0`**. A real Microsoft mouse on a real card
+  answers the DTR/RTS raise with exactly one `'M'` and then goes silent, which
+  is the premise the whole fix rests on and the one thing no emulator could
+  have settled.
+- **MartyPC** — two ports, so the contest is live: `[mou_need]` `01 08`, the
+  threshold drop doing the visible work.
+
+**Still owed:** a real two-port machine. The Compaq Portable III is that
+machine (§9.5.2 is its bug) and is not booting these images yet.
+
+**The reusable lesson** is about the report rather than the code: *"1/1"* was
+worth more than any measurement taken here. A deterministic symptom cannot
+have a probabilistic cause, and that alone ruled out the mechanism the
+container had made easy to measure, in favour of the one it could not see.
