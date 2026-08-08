@@ -1,16 +1,23 @@
-# Saving and restoring machine state — research
+# Saving and restoring machine state
 
 **The question.** Can an agent dump MartyPC's whole state at a chosen point —
 say when a watched value changes — reload it later, and continue from there, so
 that a test starts from a *known* state rather than from whatever a fresh boot
 and two minutes of clicking happened to produce?
 
-**The short answer.** Yes, and the cheapest route needs no emulator change at
-all, because **the emulator is already bit-exact deterministic**. That is the
-result everything below turns on, so it was measured first rather than assumed.
-What snapshots buy on top of it is not correctness but *time*.
+**The short answer.** Yes, twice over. The emulator turns out to be **bit-exact
+deterministic**, which makes a replay of the inputs exact on its own; and a
+`fork()` snapshot makes the same guarantee instant. Both are **built and
+working** — §7 and §8 are the patterns to copy. C (a serialized save file) is
+tabled until something needs durability.
 
-Nothing here is built. This is the research and a recommendation.
+The two compose, and that is the intended workflow: **A drives you to the
+state, B freezes it.** Note what that does to A's requirements — once you
+snapshot, the navigation no longer has to be *reproducible*, because the
+snapshot captures the state you actually reached rather than a state you hope
+to re-reach. Guest-time pacing is still worth having (it is what makes a
+scripted click land on the same thing twice), but it stops being load-bearing
+the moment a snapshot exists.
 
 ---
 
@@ -81,11 +88,10 @@ Two consequences, and the second is about work already in this tree:
   instructions, frames, or a breakpoint — and never in `time.sleep`. The
   `flicker`/`pace` protocol already has this discipline (inject while paused,
   advance by frames), which is why those measurements repeat.
-- **`tools/…/mdrive.py`'s navigation is wall-clock paced and is therefore NOT
-  reproducible run to run.** Every scripted click in this session landed at a
-  different guest position each time. It is fine for *driving* a machine to a
-  state a human would recognise, and it is not a way to arrive at the *same*
-  state twice. That is worth knowing independently of snapshots: it is the
+- **Scripted mouse navigation used to be wall-clock paced and was therefore
+  NOT reproducible run to run.** `tools/os88drive.py` is that driver re-paced
+  on frames; §7 measures the difference. Anything else still written with
+  `time.sleep` around a running machine has the same defect, and it is the
   likeliest reason a measurement moves slightly between sessions.
 
 ---
@@ -174,7 +180,7 @@ re-attach the blockers, and rebuild the derived tables on load.
 
 ---
 
-## 5. Recommendation
+## 5. Recommendation (and what was built)
 
 **Do A now and B if the iteration cost justifies it. Do not start with C.**
 
@@ -196,16 +202,16 @@ diff the full machine against a replayed one, using §2's determinism as the
 oracle. A snapshot format that cannot be checked against a known-good state is
 a snapshot format nobody should trust.
 
-### What to build first, concretely
+### What was built
 
-1. **A guest-time input log in `os88marty.py`** — every `key`/`mouse` call
-   records the cycle count it was delivered at, and a `replay` helper re-drives
-   them by stepping to those positions. This is small, useful on its own, and
-   it is A.
-2. **Re-pace `mdrive.py` on frames rather than `time.sleep`**, so scripted
-   navigation becomes reproducible. Independent of snapshots and overdue.
-3. **Then** `fork` snapshot/restore in the debug server, verified by diffing a
-   restored machine's full 1 MB and cycle count against a replayed one.
+All three of the steps this section originally proposed, and C was left alone:
+
+1. **`advance`** — the guest-time primitive (`frames=` or `cycles=`), plus a
+   cycle stamp on every `key`/`mouse` reply and an input log in the client.
+2. **`tools/os88drive.py`** — the mouse/menu driver, re-paced on frames.
+3. **`snapshot`/`restore`** — the fork holder, restorable any number of times.
+
+§7 and §8 below are how to use them.
 
 ---
 
@@ -220,3 +226,130 @@ a snapshot format nobody should trust.
 | devices to cover | ~25 slots + CPU + 1 MB + 3 machine counters |
 | serialization blockers | `Instant` x1, `Sender` x5, `File` x4, `Box<dyn>` x5, `Arc` x2 |
 | threads in the headless path | **none** |
+
+
+---
+
+## 7. Pattern A — guest-time pacing and replay
+
+**The rule: never wait in wall time while the machine is running.** Use
+`advance`, which runs a bounded amount of *guest* time and stops.
+
+```python
+m.advance(frames=30)      # 30 completed video frames (~0.5 s on a 60 Hz card)
+m.advance(cycles=500000)  # stops at the first instruction boundary past it
+```
+
+A breakpoint ends either one early and `state` says so, so `advance` doubles as
+"run until something happens, but not forever".
+
+### Driving the UI reproducibly
+
+`tools/os88drive.py` is the mouse/menu driver, paced on frames. Use it exactly
+like the old one — `home()`, `goto()`, `click()`, `dblclick()`, `menu()` — and
+scripted navigation becomes bit-exact:
+
+```python
+from os88drive import Pointer
+p = Pointer(m, 640, 200)
+p.home(); p.dblclick(608, 105); m.advance(frames=500)
+```
+
+Measured, two independent processes driven from reset by that exact script:
+
+| | port 9991 | port 9992 |
+|---|---|---|
+| after `advance(frames=1500)` | 120,157,285 cycles | 120,157,285 |
+| memory | `c28e95b1f66d918c` | `c28e95b1f66d918c` |
+| after the scripted navigation | 167,309,139 cycles | 167,309,139 |
+| memory | `27a1854a328be5a4` | `27a1854a328be5a4` |
+
+**Identical, cycle for cycle and byte for byte.** The same script written with
+`time.sleep` diverged by 21.7 million cycles (§2.1).
+
+`dblclick` is the case that shows why this matters beyond reproducibility:
+SPEC.md §13's double-click window is 9 ticks of *guest* time, so a wall-clock
+script can miss it on a loaded host and hit it on an idle one.
+
+### Replaying
+
+Every `key` and `mouse` call is stamped with the guest cycle it landed at:
+
+```python
+log = m.input_log()          # [{'cycles': …, 'kind': 'mouse', 'args': {…}}, …]
+fresh.replay(log, settle=60) # re-drive them at the same guest positions
+```
+
+`replay` advances to each entry's cycle position before delivering it. It needs
+a machine from the same image at or below the first entry's cycle count — in
+practice, a fresh one.
+
+---
+
+## 8. Pattern B — fork snapshots
+
+**A snapshot is a process, not a file.** `fork()` gives a copy-on-write image of
+everything: the CPU, all memory, every device, the video card's raster
+position, the FDC's pending command — bit for bit, with no serialization. That
+is the property that matters: **nothing can be left out of it**, which is the
+one guarantee a hand-written save format cannot make.
+
+```python
+m = Marty("127.0.0.1:9001")
+#  … drive the machine to the state you care about, however you like …
+s  = m.snapshot()                 # {'id': 1, 'pid': 746, 'cycles': 167309139}
+r  = m.restore(s["id"], 9995)     # a Marty connected to the restored machine
+#  … break it, measure it, poke it …
+r.quit()
+r2 = m.restore(s["id"], 9995)     # the SAME snapshot again, pristine
+```
+
+Measured end to end:
+
+| | cycles | memory |
+|---|---|---|
+| original at the snapshot | 167,309,139 | `27a1854a328be5a4` |
+| restored #1 | **167,309,139** | **`27a1854a328be5a4`** |
+| …after `advance(frames=600)` | 215,098,097 | `fb09987d44fc12fa` |
+| restored #2, same snapshot | **167,309,139** | **`27a1854a328be5a4`** |
+| the original, untouched throughout | 167,309,139 | `27a1854a328be5a4` |
+
+### Four things to know
+
+- **The connection you snapshot from stays the registry.** A restored machine
+  is a *different process* and knows nothing about the snapshot list. Keep the
+  original connection open to restore again; open a second connection to
+  whatever you are currently driving. `m.restore()` returns that second
+  connection for you.
+- **A snapshot is reusable.** The holder re-forks itself before going live, so
+  the same `id` can be restored any number of times, always from the same
+  state. Pick a fresh port each time, or quit the previous one first.
+- **You choose the port.** `restore(id, port)` binds it; the client polls until
+  it answers.
+- **Watchpoints are how you choose the moment.** `bp mem <flat>` stops the
+  machine when a value is touched, which is exactly the "snapshot when this
+  changes" case:
+
+  ```python
+  m.breakpoints([{"type": "mem", "addr": 0x46C}])
+  m.run()                       # …until it stops
+  s = m.snapshot()
+  ```
+
+### Limits
+
+- **Unix only**, and gone when the process exits. Nothing persists to disk;
+  that is C, and C is tabled.
+- **Each holder is a live process** holding a copy-on-write image. They are
+  cheap until they are not — a long chain of them is a long chain of processes,
+  so quit the ones you are done with.
+- **A holder's audio capture is turned off** on fork, because two processes
+  appending to one wav produce a file that is neither of them. Only the live
+  machine writes. A restored machine inherits the *file handle* of whatever
+  `MARTYPC_WAV` named, so if you care about audio after a restore, point the
+  restored run at its own capture.
+- **The floppy image is shared, not copied.** A snapshot restores the machine's
+  RAM and devices exactly; it does not roll back writes the guest already made
+  to the mounted image. If the test writes to disk — os8088 saves `SYSTEM.CFG`
+  on a Control Panel close — restore from a pristine copy of the image, or
+  accept that the disk has moved on while the RAM has not.
