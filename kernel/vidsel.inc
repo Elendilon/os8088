@@ -143,6 +143,16 @@ vid_probe_avail:
 .yes:
     or byte [vid_avail], VID_A_CGA
 .out:
+    ; ...and one adapter is not a CHOICE, so the Control Panel does not offer
+    ; a page about it (SPEC.md 31.10.1). Here because this is the only routine
+    ; that can answer the question and it answers it once - [vid_avail] is
+    ; fixed for the life of the machine, so [cp_nst] is written once too.
+    mov al, [vid_avail]
+    dec al
+    and al, [vid_avail]         ; x & (x-1) == 0: exactly one bit set
+    jnz .done
+    dec byte [cp_nst]           ; the Display item is LAST, so the list simply
+.done:                          ; stops one row short of it (SPEC.md 31.10.1)
     pop cx
     pop ax
     ret
@@ -318,6 +328,52 @@ spl_reset:
     ret
 
 ; -----------------------------------------------------------------------------
+; vid_blank - dark the card the machine is LEAVING (SPEC.md 39.11.4)
+;
+; in:       AL = the kind being switched TO; [vid_kind] = the one being left
+; out:      -
+; clobbers: flags
+;
+; On a two-monitor 5150 a switch otherwise leaves the outgoing tube lit with a
+; frozen desktop on it - harmless, since the live screen is the one whose
+; cursor moves, and still the wrong thing to show somebody. Stopping the video
+; signal costs two OUTs and the card keeps its sync, exactly as vid_setmode's
+; own blank-first sequence does (SPEC.md 39.6).
+;
+; ONLY WHEN THE TWO KINDS ARE TWO CARDS, which here means exactly one of them
+; is the mono one. That test is not fussiness: on a VGA machine the CGA row IS
+; the VGA doing mode 6 (SPEC.md 39.11.1), so "blank the outgoing card" would
+; blank the very card the next three lines programme, and the machine would
+; come back on a dark screen.
+;
+; Nothing has to be un-blanked: vid_setmode re-enables whichever card it
+; programmes, on both paths.
+; -----------------------------------------------------------------------------
+vid_blank:
+    push ax
+    push dx
+    cmp al, VID_HERC
+    je .tomono
+    cmp byte [vid_kind], VID_HERC
+    jne .out                    ; colour -> colour: one card, nothing to do
+    mov dx, 0x3B8               ; leaving the Hercules: video off (bit 3), and
+    xor al, al                  ; 3BFh back to "graphics not allowed", which is
+    out dx, al                  ; also the page-1 decode locked out again
+    mov dx, 0x3BF
+    out dx, al
+    jmp short .out
+.tomono:
+    cmp byte [vid_kind], VID_HERC
+    je .out                     ; already there; vid_switch caught this anyway
+    mov dx, 0x3D8               ; leaving a CGA: mode control, video bit clear.
+    xor al, al                  ; A VGA does not implement 3D8h at all, so a
+    out dx, al                  ; VGA-plus-Hercules machine keeps its VGA lit -
+.out:                           ; accepted, that pairing being one nobody built
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; vid_switch - drive a different adapter, now (SPEC.md 39.11.2)
 ;
 ; in:       AL = the VID_* kind to switch to
@@ -369,6 +425,7 @@ vid_switch:
     call bb_set
     pop ax
     call cur_unlazy             ; 2. ...and so is the cursor's save-under
+    call vid_blank              ; ...and the tube we are walking away from
 
     mov [vid_kind], al          ; 3. republish the geometry
     call vid_equip

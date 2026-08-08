@@ -131,10 +131,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 86016           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 90112           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved eleven times, every raise asked
+                                ; It has moved twelve times, every raise asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -360,6 +360,38 @@ KERN_BUDGET equ 86016           ; the whole kernel's FOOTPRINT. Growing past
                                 ; sysbench reading them, and this was one
                                 ; kernel-side consumer of that store, not the
                                 ; store itself.
+                                ;
+                                ; The twelfth move, 86,016 -> 90,112, is 4KB
+                                ; asked for and granted in ADVANCE, on the
+                                ; seventh move's terms and the fifth move's
+                                ; warning: the project is in a growth phase
+                                ; and the raise lands with the commit that
+                                ; first needs it. That commit is SPEC.md
+                                ; 39.11's adapter switching, which took the
+                                ; spare to EXACTLY ZERO - 6 bytes left in the
+                                ; image rung and 155 in the cold one, so the
+                                ; next byte added to .text anywhere failed the
+                                ; build. What it buys immediately is 39.11.4
+                                ; (blanking the card the machine has just
+                                ; left, so a two-monitor 5150 does not sit
+                                ; with a frozen desktop on the tube nobody is
+                                ; using) and 31.10's hiding of a Display page
+                                ; that has nothing to choose between.
+                                ;
+                                ; It is granted WITHOUT the usual "and hand
+                                ; back what the optimisation pass saves",
+                                ; because the plan for the small machine has
+                                ; changed shape: the 128KB floor is to be met
+                                ; by a SECOND BUILD of this kernel rather than
+                                ; by keeping one build inside a figure both
+                                ; machines can live with. Once that exists the
+                                ; guard here is kern_big's, and the one that
+                                ; has to be defended byte by byte is
+                                ; kern_small's. Until it exists this is still
+                                ; the only guard there is, so the fifth move's
+                                ; rule stands unchanged: this is headroom for
+                                ; ordinary growth, not an invitation to spend
+                                ; 4KB without a conversation.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET

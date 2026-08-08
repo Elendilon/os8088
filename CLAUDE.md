@@ -715,7 +715,15 @@ Testing quirks (learned the hard way):
   the framebuffer and the two callers want different things put back.
   `SYSTEM.CFG`'s `VM` key remembers the choice and `vid_switch` REFUSES a card
   the machine does not have, so a settings disk carried between machines
-  cannot boot one to a dead monitor.
+  cannot boot one to a dead monitor. **One adapter is not a choice, so the
+  page is not drawn at all** (§31.10.1) — and the Display item is LAST in
+  `cp_items` precisely so that hiding it is a shorter list rather than a
+  remapping every row below it would have to agree about. `[cp_nst]`, not
+  `CP_ITEMS`, is §31.9's static/driver boundary now; miss one of those sites
+  and a loaded driver's row dispatches as the Display page. **And the card
+  the machine LEAVES is darked** (§39.11.4), but only when the two kinds are
+  two cards — on a VGA the CGA row IS the VGA doing mode 6, so blanking "the
+  outgoing card" there would blank the one being programmed.
 - **8086 only.** `kernel.asm` opens with `cpu 8086` and the build uses `-w+error`, so NASM rejects anything newer: no `pusha`, no `push imm`, no `shl reg, imm` other than 1 (use CL), no `movzx`, no 32-bit registers.
 - **Near model — for the kernel.** CS = DS = `KERNEL_SEG` (0x0060) for all kernel code and every task; **SS = `LOW_SEG`**, because every task stack lives outside the kernel's own segment (just above it). **Every** inter-module call in the kernel is near — there is no far code and no second code segment (SPEC.md §33). ES is scratch but must be restored unless documented. **SS ≠ DS means `[bp+disp]` addresses SS** — code holding a kernel pointer in BP needs `[ds:bp+…]`. **A package owns its own segment** (SPEC.md §20.1), so every crossing of that boundary is a far call in one direction and a dispatcher call in the other; see "Packages own a segment" below.
 - **Register discipline.** Every public routine preserves all registers except documented outputs. ISRs push DS/ES, load DS = KERNEL_SEG, `cld` before string ops. Critical sections use `pushf`/`cli` … `popf`, never `cli` … `sti`.

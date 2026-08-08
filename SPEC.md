@@ -12634,8 +12634,9 @@ a tone route, to allow or forbid exclusive clips, and to
 play a test clip through the sound card. With one sink there is nothing to
 choose, and the page went with §34's driver table. `CP_ITIME` — the
 Date/Time item index ui.inc selects when the menu-bar clock is clicked
-(§12.1) — went to **2**, and to **3** when §31.10's Display page was
-inserted after Scheduler. `CP_IDRV` is 4 and `CP_ISND` 5.
+(§12.1) — is therefore **2**, not 3, and §31.10's Display page did not move
+it: that page is appended LAST, for §31.10.1's reason. `CP_IDRV` is 3 and
+`CP_ISND` 4.
 
 The three-layer refusal idiom the page demonstrated (setter refuses,
 caption explains, click ignored) is not retired with it: §31.3's Buffer
@@ -13060,7 +13061,7 @@ window to grow first — `%if CP_ITEMS + 2 > (CP_CH - CP_I0Y) / CP_IROWH` in
 
 ### 31.10 Display page — which adapter the machine is driven as
 
-Second item in the list. One radio row per adapter `vid_probe_avail` found
+**Last** item in the list, for §31.10.1's reason. One radio row per adapter `vid_probe_avail` found
 (§39.11.1), and an **"Activate Mode"** button that moves the machine onto the
 selected one there and then (§39.11.2). Heading "Display"; the row labels are
 "Vga 640x480", "Hercules 720x348" and "Cga 640x200", indexed by `VID_*` —
@@ -13116,11 +13117,46 @@ panel.** The radio bands run the pane's whole width as usual, but the button
 is a rect and a click to the right of it is not a press. The button's band is
 tested first because it sits below the rows and the two are contiguous.
 
-The caption has three answers, most specific first: a machine with one
-adapter is not being offered a choice at all and says "No other adapter
-found"; a dot already on the running adapter says "This adapter is running",
-which is §47 rule 7's say-why-not for the greyed button; anything else says
-"Switches now, and is kept".
+The caption has two answers: a dot already on the running adapter says "This
+adapter is running", which is §47 rule 7's say-why-not for the greyed button;
+anything else says "Switches now, and is kept". (It had a third — "No other
+adapter found" — until §31.10.1 made that state unreachable.)
+
+#### 31.10.1 One adapter is not a choice, so the page is not shown
+
+A machine with a single adapter got a page with one row, a dead button and a
+caption explaining that there was nothing to do. That is a page whose entire
+content is an apology, and §47's reasoning about *controls* applies to a
+whole *page* the same way: the honest answer to "there is nothing here" is
+not to draw it. So `[cp_nst]` — the number of static rows the list is
+showing — is `CP_ITEMS` normally and one fewer when `[vid_avail]` has a
+single bit set.
+
+**The Display item is LAST in `cp_items` and that is what makes it
+hideable.** Hiding a row in the *middle* of the table would mean every row
+below it maps to a different record, which is a second opinion about what the
+user just clicked on at four separate call sites. Last, it is simply a
+shorter list: row → record stays the identity and `cp_entry` does not change.
+It also leaves `CP_ITIME`/`CP_IDRV`/`CP_ISND` at the values they had before
+this page existed.
+
+**`[cp_nst]` is the static/driver boundary, not just a row count.** §31.9's
+rebasing (`cmp al, CP_ITEMS` → `sub al, CP_ITEMS` → the class) is what
+decides whether a row is a static page or a driver's, so every one of those
+sites reads the byte instead of the constant — otherwise, on a machine with
+the page hidden, the first driver's row would dispatch as static item 5 and
+paint the Display page over it.
+
+**One writer, and it is the only routine that could answer the question:**
+`vid_probe_avail` (§39.11.1), which sets it in the same pass that fills
+`[vid_avail]`. Because `[vid_avail]` is fixed for the life of the machine,
+the byte is written once at boot and read for ever after — no refresh, no
+staleness. It is initialised `.text` data like `[cp_sel]`, and the
+initialiser is the safe answer: a build whose probe never ran shows the page
+rather than losing a row belonging to something else.
+
+The pane assertion still uses `CP_ITEMS` rather than the byte, because the
+guard has to hold on the machine that shows every row.
 
 ## 32. vgabb.inc — the software renderer (double buffering, and §39's 1bpp driver)
 
@@ -15426,6 +15462,32 @@ instructions after it happened.
 this machine does not have, and `drv_boot` then simply stays on the probe's
 answer — so a settings disk carried from a machine with a Hercules in it
 cannot boot a machine without one to a dead monitor.
+
+#### 39.11.4 Darking the card the machine just left — `vid_blank`
+
+On a two-monitor 5150 a switch otherwise leaves the outgoing tube lit with a
+frozen desktop on it. Harmless — the live screen is the one whose cursor
+moves — and still the wrong thing to show somebody. Stopping the video signal
+costs two `out`s and the card keeps its sync, exactly as `vid_setmode`'s own
+blank-first sequence does (§39.6). Leaving the Hercules writes 0 to 3B8h
+(video off) and 0 to 3BFh (graphics disallowed, and the page-1 decode locked
+out again); leaving a CGA writes 0 to 3D8h.
+
+**Only when the two kinds are two CARDS, which here means exactly one of them
+is the mono one.** That test is not fussiness. On a VGA machine the CGA row
+*is* the VGA doing mode 6 (§39.11.1), so "blank the outgoing card" would
+blank the very card the next three lines programme and the machine would come
+back on a dark screen.
+
+Nothing has to be un-blanked: `vid_setmode` re-enables whichever card it
+programmes, on both of its paths.
+
+The one case it does not cover is a VGA **and** a Hercules in the same
+machine: 3D8h is a CGA register that a VGA does not implement, so the write
+lands nowhere and the VGA stays lit. Accepted rather than fixed — that
+pairing is not a machine anybody built, and reaching the VGA's own screen-off
+(Sequencer register 1, bit 5) would put a VGA-specific register write on a
+path that runs on all three adapters.
 
 ## 40. apps/fractal — the progressive renderer and its restore cache
 

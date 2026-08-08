@@ -144,22 +144,43 @@ CP_I_PAINT  equ 2               ; -> page paint proc (in DI/BP = pane origin)
 CP_I_CLICK  equ 4               ; -> page click proc (in DI/BP, CX/DX = rel)
 CP_ISTRIDE  equ 8
 
+; DISPLAY IS LAST, AND THAT IS WHAT MAKES IT HIDEABLE (SPEC.md 31.10.1). A
+; machine with one adapter has nothing to choose between, so the page is not
+; shown at all - and "hidden" for a row in the MIDDLE of this table would mean
+; every row below it maps to a different record, which is a second opinion
+; about what the user clicked on at four call sites. Last, it is simply a
+; shorter list: [cp_nst] falls by one, row -> record stays the identity, and
+; cp_entry does not change. It also leaves the four indices below at the
+; values they had before this page existed.
 cp_items:
     dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
-    dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0
     dw cp_s_buf,   cp_buf_paint,   cp_buf_click,   0
     dw cp_s_time,  cp_time_paint,  cp_time_click,  0
     dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0
     dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0
+    dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0
 cp_items_end:
 CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
-CP_ITIME  equ 3                 ; the Date/Time item: ui.inc selects it by
+CP_ITIME  equ 2                 ; the Date/Time item: ui.inc selects it by
                                 ; name when the menu bar clock is clicked
                                 ; (SPEC.md 12.1/31.5)
-CP_IDRV   equ 4                 ; ...and the Drivers item, which drv_notice
+CP_IDRV   equ 3                 ; ...and the Drivers item, which drv_notice
                                 ; opens the panel on when a driver did not
                                 ; load at boot (SPEC.md 51.3)
-CP_ISND   equ 5                 ; ...and Sound, the tone tier's route (34.8)
+CP_ISND   equ 4                 ; ...and Sound, the tone tier's route (34.8)
+
+; How many static rows the list is showing RIGHT NOW - CP_ITEMS, or one fewer
+; when the Display page is hidden. It is the boundary between a static row and
+; a driver's (SPEC.md 31.9), so every site that used to compare against
+; CP_ITEMS reads this instead, and there is exactly one place that writes it:
+; vid_probe_avail, which is also the only thing that could ever answer the
+; question (SPEC.md 39.11.1). [vid_avail] is fixed for the life of the
+; machine, so this is written once at boot and read for ever after.
+;
+; Initialised .text data, like cp_sel and cp_tsel - and the initialiser is the
+; SAFE answer: a build whose probe never ran shows the page rather than losing
+; a row of somebody else's.
+cp_nst:   db CP_ITEMS
 
 ; THE LIST HAS ROOM FOR EIGHT ROWS AND NO MORE: row i's bar runs
 ; CP_I0Y + i*CP_IROWH .. + CP_IBH - 1, so row 7 ends at 116 inside a content
@@ -167,7 +188,8 @@ CP_ISND   equ 5                 ; ...and Sound, the tone tier's route (34.8)
 ; desktop. Six static items plus the two drivers that publish a page
 ; (SPEC.md 31.9 - the hard disk's and the debug monitor's; the sound driver
 ; publishes none) is exactly eight. A THIRD driver page, or a seventh static
-; item, needs the window to grow first.
+; item, needs the window to grow first. CP_ITEMS and not [cp_nst], because
+; the guard has to hold on the machine that shows every row.
 %if CP_ITEMS + 2 > (CP_CH - CP_I0Y) / CP_IROWH
 %error "ctrl: the item list can overflow its pane - grow CP_CH (SPEC.md 31.1)"
 %endif
@@ -229,13 +251,13 @@ cp_s_vherc: db 'Hercules 720x348', 0
 cp_s_vcga:  db 'Cga 640x200', 0
 cp_vidnam:  dw cp_s_vvga, cp_s_vherc, cp_s_vcga
 cp_s_vact:  db 'Activate Mode', 0
-; The three captions, all inside the pane's 27-character limit. The first is
-; the ordinary one; the second is what a machine with one adapter says,
-; because a page offering a single row and a dead button has to say why it is
-; not a choice; the third is SPEC.md 47 rule 7's say-why-not for the button,
-; which greys whenever the dot is already on the running adapter.
+; The two captions, both inside the pane's 27-character limit: the ordinary
+; one, and SPEC.md 47 rule 7's say-why-not for the button, which greys
+; whenever the dot is already on the running adapter. There was a third -
+; 'No other adapter found' - until SPEC.md 31.10.1 stopped drawing the page
+; at all on a machine with one adapter, which is the same answer given by
+; not asking the question.
 cp_s_vcap:  db 'Switches now, and is kept', 0
-cp_s_vone:  db 'No other adapter found', 0
 cp_s_vnow:  db 'This adapter is running', 0
 
 ; Display page geometry, PANE-relative. The Sound page's tighter 16px row
@@ -579,7 +601,7 @@ cp_entry:
 ; -----------------------------------------------------------------------------
 cp_nitems:
     call KERNEL_SEG:cw_drv_cp_count
-    add al, CP_ITEMS
+    add al, [cp_nst]
     ret
 
 ; -----------------------------------------------------------------------------
@@ -589,14 +611,14 @@ cp_nitems:
 ; clobbers: AL (on a hit), flags
 ; -----------------------------------------------------------------------------
 cp_drv_item:
-    cmp al, CP_ITEMS
+    cmp al, [cp_nst]
     jb .static
-    sub al, CP_ITEMS
+    sub al, [cp_nst]
     call KERNEL_SEG:cw_drv_cp_class           ; CF=1 if the driver went away under us
     jc .gone
     ret
 .gone:
-    add al, CP_ITEMS            ; hand back the ROW index, not the rebased
+    add al, [cp_nst]            ; hand back the ROW index, not the rebased
     stc                         ; one (add clears CF): a CF=1 answer carrying
     ret                         ; the rebased index read as "static row 5 ->
                                 ; dispatch the Scheduler page", and the
@@ -619,7 +641,7 @@ cp_item_name:
     pop ax
     ret
 .static:
-    cmp al, CP_ITEMS            ; a vanished driver's row has no name; the
+    cmp al, [cp_nst]            ; a vanished driver's row has no name; the
     jae .gone                   ; empty string letters as a blank row
     call cp_entry
     mov si, [si + CP_I_NAME]
@@ -656,7 +678,7 @@ cp_item_paint:
     call KERNEL_SEG:cw_drv_cp_call
     jmp short .done
 .static:
-    cmp al, CP_ITEMS            ; a vanished driver's row paints nothing -
+    cmp al, [cp_nst]            ; a vanished driver's row paints nothing -
     jae .done                   ; unreachable while cp_drv_gone_x clamps
     call cp_entry               ; [cp_sel] at detach, and checked anyway
     call [si + CP_I_PAINT]
@@ -690,7 +712,7 @@ cp_item_click:
     call KERNEL_SEG:cw_drv_cp_call
     jmp short .done
 .static:
-    cmp al, CP_ITEMS            ; a vanished driver's row refuses the click
+    cmp al, [cp_nst]            ; a vanished driver's row refuses the click
     jae .done                   ; (same reasoning as cp_item_paint's guard)
     call cp_entry
     call [si + CP_I_CLICK]
@@ -719,7 +741,8 @@ cp_drv_gone_x:
     mov al, [cp_sel]
     call cp_drv_item
     jnc .out                    ; still a live page: this was another class
-    cmp byte [cp_sel], CP_ITEMS
+    mov al, [cp_nst]
+    cmp [cp_sel], al
     jb .out
     mov byte [cp_sel], 0        ; Scheduler: the boot selection, always there
 .out:
@@ -1572,16 +1595,10 @@ cp_vid_cap:
     call KERNEL_SEG:cw_gfx_fill
 
     mov byte [gfx_color], CBLACK
-    mov si, cp_s_vone
-    mov al, [vid_avail]         ; exactly one bit set = one adapter, and this
-    mov bl, al                  ; is a fact about the bitmap rather than a
-    dec al                      ; second copy of anybody's policy
-    and al, bl
-    jz .draw
-    mov si, cp_s_vcap
-    call cpf_vidok
-    jnc .draw
-    mov si, cp_s_vnow
+    mov si, cp_s_vcap           ; two answers, not three: the page is not
+    call cpf_vidok              ; drawn at all on a machine with one adapter
+    jnc .draw                   ; (SPEC.md 31.10.1), so there is no longer a
+    mov si, cp_s_vnow           ; "nothing to choose from" case to caption
 .draw:
     mov cx, di
     add cx, CP_PMX
