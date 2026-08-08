@@ -196,14 +196,30 @@ make comscan  # the SERIAL PORT SURVEY (tests/comscan) - the field diagnostic
               # the kernel never probes, and answers the one question no
               # emulator can: WHICH IRQ LINE the card actually drives
               # (docs/TESTING.md)
-make field    # ...and the FIELD disks: build/herc.img + build/cga.img, two
+make field    # ...and the FIELD disks: herc, cga, cga720, flop1 and cqdiag,
               # BOOTABLE 360KB system disks with the benchmarks in their root.
               # Shaped by the machine the project is calibrated against
               # (docs/FIELD-MACHINES.md): it has ONE floppy drive, so a
               # benchmark on a second disk means a swap; and it holds a
               # Hercules AND a CGA permanently, so the CGA needs a kernel
               # told to ignore the Hercules — built in build/cgak/, never in
-              # build/, where it would boot the wrong card for everyone
+              # build/, where it would boot the wrong card for everyone.
+              # EVERY one of them is DISKCNT=1 (SPEC.md 18.94.1) - there is no
+              # dskdbg.img any more, because both reasons it was a disk of its
+              # own expired: the counters cost the image 0 bytes (same
+              # 142-sector rung) and 12 instructions per int 13h CALL against
+              # a 238ms sector, and "the published word is an ABI that depends
+              # on a knob" stopped being true when SPEC.md 57's registry made
+              # the block findable BY TAG. A later change removed the reason
+              # and nobody re-asked the question - worth knowing as a shape.
+              # A BENCHMARK KERNEL IS NOT BOUND BY KERN_BUDGET (640KB on every
+              # field machine); what it IS bound by is parity, because
+              # `boot ticks` and every heap row measure the kernel that is
+              # RUNNING. tools/fieldsize.py, run by `make field`, reports
+              # whether the field kernel and the shipped one share a
+              # KIMG_PARA rung - same rung, exactly comparable - and never
+              # fails the build, since growing is allowed and only has to be
+              # known about
 make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
               # server bolted into MartyPC's headless frontend, pinned to one
               # upstream commit in tools/martypc/. Memory, registers, I/O
