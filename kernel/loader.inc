@@ -284,6 +284,78 @@ loader_run_x:
 ; path leaves running instances untouched - the reserved record was never
 ; published, so it (and with it the region) is simply still free.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; ld_run_name - the load pipeline, resolved by NAME (SPEC.md 21.4)
+; in:  SI -> a NUL-terminated 8.3 name, in the CURRENT directory
+; out: AL = LD_* status
+;
+; ld_run_body's twin, and it exists so a caller does not need a LISTING. An
+; index is only meaningful against disk_dir, and making disk_dir be a given
+; folder is a FULL mount - the directory scan, the sort and one icon-harvest
+; read per file (SPEC.md 18.9) - where dskw_stat walks the directory sectors
+; and answers the same three questions step 1 asks. Every caller that had to
+; mount only to turn a name it already had into an index can stop.
+;
+; It is also the SAFER resolution, which is worth saying because it looks
+; like a pure optimisation. An index is resolved against a snapshot that can
+; have shifted underneath it - a name sorting into place moves everything
+; after it (SPEC.md 19.4) - and that is docs/FIELD-NOTES.md 4, "Bad package"
+; about a file nobody clicked. A name cannot be shifted into somebody else's
+; entry: it either exists in this directory now or it does not.
+; -----------------------------------------------------------------------------
+ld_run_name_x:
+    call ld_res_name
+    jc .fail
+    mov ax, [ld_clus]           ; ...AND IN AX. Step 1 ends on the cluster it
+                                ; just stored, so .peek's first instruction
+                                ; takes it from the register - an undocumented
+                                ; contract at a jump target, which is exactly
+                                ; the kind of difference that assembles
+                                ; cleanly and runs wrong: without this, AL was
+                                ; still dskw_stat's ATTRIBUTE byte and
+                                ; dsk_clus2lba was handed 0x20 as a cluster
+    jmp ld_run_body_x.peek      ; joins the pipeline exactly where the index
+.fail:                          ; resolver leaves it - [ld_fsz] and [ld_clus]
+    ret                         ; are the rest of what step 1 produces
+
+; -----------------------------------------------------------------------------
+; ld_res_name - fill [ld_fsz]/[ld_clus] from a name (module internal)
+; in:  SI -> a NUL-terminated 8.3 name
+; out: CF=0; CF=1 with AL = LD_EBAD / LD_EBIG
+; -----------------------------------------------------------------------------
+ld_res_name:
+    call dskw_stat_x            ; AL = raw attribute, BX = first cluster,
+    jc .bad                     ; DX:CX = size. A near call - loader.inc and
+                                ; diskw.inc are both .cold (SPEC.md 2.6)
+    test al, 0x1E               ; hidden | system | volume | directory: the
+    jnz .bad                    ; species disk_mount's own filter drops, so
+                                ; this and "type 1" agree on what may be
+                                ; loaded. READ-ONLY is deliberately allowed -
+                                ; TASKMGR.O88 is read-only and is an app
+                                ; (SPEC.md 19.6)
+    or dx, dx
+    jnz .big                    ; over 64KB before the cap is even consulted
+    or cx, cx
+    jz .bad                     ; empty file
+    cmp cx, APP_MAX_SIZE
+    ja .big
+    mov [ld_fsz], cx
+    cmp bx, 2                   ; the same range step 1 re-checks, and for the
+    jb .bad                     ; same reason: it stands alone if the mount
+    cmp bx, [dsk_maxclus]       ; code ever changes (SPEC.md 21 step 1)
+    ja .bad
+    mov [ld_clus], bx
+    clc
+    ret
+.bad:
+    mov al, LD_EBAD
+    stc
+    ret
+.big:
+    mov al, LD_EBIG
+    stc
+    ret
+
 ld_run_body_x:
     ; --- 1. validate the directory entry --------------------------------------
     cmp ax, [disk_nfiles]
@@ -540,6 +612,8 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
                                 ; these near-call the bodies above - so every
                                 ; routine here keeps its ordinary near `ret`
 ldf_ld_run_body:        call ld_run_body_x
+                    retf
+ldf_ld_run_name:        call ld_run_name_x
                     retf
 ldf_loader_init:        call loader_init_x
                     retf

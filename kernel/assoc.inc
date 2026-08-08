@@ -694,17 +694,34 @@ assoc_fname:
 ; so the hint is only ever a place to look.
 ; -----------------------------------------------------------------------------
 assoc_try:
+    push ax
+    push bx
+    push cx
+    push dx
     push si
-    call dsk_chdir
-    jc .no
+    call dsk_chdir_q            ; QUIET (SPEC.md 18.9): the question here is
+    jc .no                      ; whether a FILE is in this directory, and
+                                ; dskw_stat walks the directory sectors to
+                                ; answer it. A listing would be a scan, a sort
+                                ; and one icon-harvest read per file, bought
+                                ; entirely for an INDEX nobody needs now that
+                                ; the loader takes a name (SPEC.md 21.4)
     mov si, assoc_fnb
-    call dsk_find_name
+    call dskw_stat              ; ...and since 18.4.3 it costs no re-read
     jc .no
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     clc
     ret
 .no:
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     stc
     ret
 
@@ -716,6 +733,8 @@ assoc_try:
 assoc_tryfold:
     push si
     push di
+    push cx
+    push dx
     or bl, bl
     jz .no
     mov si, assoc_s_apps
@@ -725,22 +744,30 @@ assoc_tryfold:
 .named:
     push si
     xor ax, ax                  ; the volume's root first
-    call dsk_chdir
+    call dsk_chdir_q            ; quiet, for assoc_try's reason
     pop si
     jc .no
-    call dsk_find_name          ; AX = the FOLDER's index
+    call dskw_stat              ; AL = attribute, BX = the FOLDER's own first
+    jc .no                      ; cluster - no listing, no index and no staged
+                                ; entry, where this used to want all three
+    test al, 0x10               ; ...and it must actually be a folder
+    jz .no
+    mov ax, bx
+    pop dx                      ; the volume, which dskw_stat clobbered (it
+    push dx                     ; answers DX:CX = size) - peeked back off our
+                                ; own frame rather than kept in a spare
+                                ; register, because there is not one
+    call assoc_try
     jc .no
-    call dsk_get_dir            ; SI -> its staged entry
-    cmp word [si+16], 2         ; ...and it must actually be a folder
-    jne .no
-    mov ax, [si+18]
-    call assoc_try              ; DL is still the volume
-    jc .no
+    pop dx
+    pop cx
     pop di
     pop si
     clc
     ret
 .no:
+    pop dx
+    pop cx
     pop di
     pop si
     stc
@@ -842,13 +869,23 @@ assoc_run:
 
     mov di, [assoc_pwin]
     or di, di
-    jz .located
-    call fmv_sync               ; ...the globals become the poster's listing
-.located:
-    mov ax, [dsk_cwd]           ; and only NOW is the document's home known
-    mov [assoc_dclus], ax
+    jz .curvol
+    mov al, [di+FS_DRV]         ; the poster's OWN folder, read straight off
+    mov [assoc_ddrv], al        ; its state block. This was a fmv_sync - a
+    mov ax, [di+FS_CWD]         ; FULL mount - and all it was ever wanted for
+    mov [assoc_dclus], ax       ; was these two words, which fmv_sync itself
+    jmp short .located          ; takes from exactly here (SPEC.md 54.9.1).
+                                ; Nothing downstream needs the globals to be
+                                ; this folder: assoc_locate navigates itself,
+                                ; assoc_back comes back to what is banked
+                                ; here, and files_refresh / files_poster
+                                ; paint from the WINDOW's cache (SPEC.md 22.1)
+.curvol:
+    mov ax, [dsk_cwd]           ; no poster - a package's own request - so the
+    mov [assoc_dclus], ax       ; volume the machine is on IS the home
     mov al, [disk_drive]
     mov [assoc_ddrv], al
+.located:
 
     pop ax
     push ax
@@ -859,7 +896,9 @@ assoc_run:
     mov [ld_pwin], bx
     mov byte [ld_painted], 0
     mov byte [assoc_argp], 1    ; armed ACROSS the load and disarmed after,
-    call ld_run_body            ; so exactly one entry proc can claim it -
+    mov si, assoc_fnb           ; '<STEM>.O88' - assoc_locate left us in its
+    call ld_run_name            ; directory and the name is what it matched
+                                ; on, so no listing and no index (21.4)
     mov byte [assoc_argp], 0    ; a package launched later, by any route,
     mov [ld_status], al         ; must never inherit this document
     push ds

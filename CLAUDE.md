@@ -1346,10 +1346,19 @@ mount is still a mount and what changed is the ~12 sectors one costs becoming
 ~1. Its debt is deliberately never collected, which is safe only because
 `files_refresh`/`files_poster` paint from the WINDOW's cache, `fdlg_home_go`
 ends in a full `dsk_chdir` on both branches, and `fmv_sync` has the test.
-**The other two mounts of a document open stay full** — `fmv_sync`'s and
-`assoc_try`'s — both only because `dsk_find_name` walks the LISTING, and it
-does so only because `ld_run_body` wants a directory INDEX where `dskw_stat`
-would answer off directory sectors; that is ~22 more sectors on the table.
+**The other two mounts of a document open are gone as well** (SPEC.md §21.4):
+`ld_run_name` resolves through `dskw_stat` rather than a directory index, so
+`assoc_try` needs no listing and is quiet too, and `assoc_run` reads the
+poster's own `FS_DRV`/`FS_CWD` off its state block instead of calling
+`fmv_sync` at all — a full mount that only ever existed to produce two words
+`fmv_sync` itself takes from exactly there. Measured on the same document
+open: 295 → 284 → **274 sectors**. **By name is also SAFER than by index** —
+an index is resolved against a snapshot that can have shifted (§19.4), which
+is docs/FIELD-NOTES.md 4; a name cannot be shifted into somebody else's
+entry. The trap it sprang is worth reading before touching either entry:
+`.peek` takes the cluster **in AX** as well as in `[ld_clus]`, undocumented,
+so the first version handed `dsk_clus2lba` an attribute byte — it assembled,
+every gate passed, and a document double-click silently did nothing.
 
 **The
 copy engine's paths back to the event loop must pay**, and it has two:

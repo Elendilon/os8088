@@ -8016,6 +8016,50 @@ RAM readout sums package records' I_SIZE under one cli (§28) and no longer
 peeks at package headers; the old "`ld_appwin` zeroed before the region is
 overwritten" invariant is retired.
 
+### 21.4 `ld_run_name` — the loader takes a name, not an index
+
+`ld_run_body` resolves a directory INDEX, and an index is only meaningful
+against `disk_dir`. So every caller holding a *name* had to make `disk_dir`
+be its folder first, and that is a **full mount** — the directory scan, the
+sort and one icon-harvest read per file (§18.9). `ld_run_name` (SI -> a
+NUL-terminated 8.3 name, in the current directory) resolves through
+`dskw_stat` instead, which walks the directory sectors and answers the same
+three questions step 1 asks: is it a file, how big, and which cluster.
+
+The two entries share everything below step 1. `ld_run_name` fills
+`[ld_fsz]`/`[ld_clus]` and jumps to `ld_run_body`'s `.peek`, because those
+are the whole of what step 1 produces.
+
+**It is also the safer resolution**, which is worth saying because it reads
+as a pure optimisation. An index is resolved against a snapshot that can have
+shifted underneath it — a name sorting into place moves every entry after it
+(§19.4) — and that is docs/FIELD-NOTES.md 4: `Bad package` reported about a
+file nobody clicked. A name cannot be shifted into somebody else's entry. It
+is in this directory now or it is not.
+
+Three things about the resolver:
+
+- **The species test is `attr & 0x1E`** — hidden, system, volume label,
+  directory — which is what `disk_mount`'s own filter drops, so this and
+  "type 1" agree about what may be loaded. **Read-only is deliberately
+  allowed**: `TASKMGR.O88` is read-only and is an application (§19.6).
+- **The size is checked in 32 bits.** `dskw_stat` answers `DX:CX`, and a
+  file over 64KB has to be refused on DX before `APP_MAX_SIZE` is consulted,
+  or a 64KB-plus file wraps into a plausible small one.
+- **The cluster range is re-checked** exactly as step 1 re-checks it, and for
+  the same stated reason: it stands alone if the mount code ever changes.
+
+**The trap it sprang, which is the §2.6 lesson in a different costume.**
+`.peek` takes the cluster **in AX** as well as in `[ld_clus]` — step 1 ends
+on the cluster it has just stored, so the register is live at the jump target
+and nothing says so. The first version left AX holding `dskw_stat`'s
+ATTRIBUTE byte, so `dsk_clus2lba` was handed `0x20` as a cluster. It
+assembled cleanly, every gate passed, and the failure was a document
+double-click that selected the row and did **nothing at all** — no window, no
+error, no notice, and five sectors of I/O where a load is three hundred. An
+undocumented register contract at a jump target is exactly the difference
+that survives a build and a review.
+
 ## 22. files.inc — the Disk window (file manager)
 
 Built-in app kind (KIND_FILES), **cap 4** — up to four windows, each on its

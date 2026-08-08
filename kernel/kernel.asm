@@ -1828,6 +1828,8 @@ fmv_sync:             call COLD_SEG:fmf_fmv_sync
                     ret
 ld_run_body:          call COLD_SEG:ldf_ld_run_body
                     ret
+ld_run_name:          call COLD_SEG:ldf_ld_run_name
+                    ret
 loader_init:          call COLD_SEG:ldf_loader_init
                     ret
 loader_run:           call COLD_SEG:ldf_loader_run
