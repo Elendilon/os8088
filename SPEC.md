@@ -8854,6 +8854,81 @@ Two things hold it up:
 `fdlg.inc` has the same rule and its own `fdlg_sel_bar` (§38.3): the geometry
 differs, the argument does not.
 
+### 22.2.1 A right-click moves the selection; a keystroke owes one line
+
+Two paths were still ending in `fm_repaint` — the 400-line painter, a white
+fill of the whole content plus every row, every icon, the header, the buttons
+and the scroll bar — to change something much smaller.
+
+**A right-click selects the row under the pointer**, and that is *all* it
+changes to the window. It painted the whole thing "so the save-under captures
+the new highlight", which is a real requirement and is satisfied just as well
+by §22.2's two inverted bands: the old one XORed off, the new one XORed on,
+before `menu_popup` runs. Measured with counters in `font_char`/`gfx_fill`, a
+right-click that MOVES the selection and one that does not now cost the
+**same** — 26 glyphs and 5 fills, which is the popup itself — where the
+selection change used to add a whole window.
+
+Two things it needs. `[fm_lsel]` is `fm_layout`'s mirror of the old
+selection, and the layout runs *before* `FS_SEL` is written here, so it still
+names the outgoing row. And `[fm_wased]` — "an editor line was up, so the
+status line was rewritten and the bands cannot put it back" — has to be
+banked **in `fm_rclick` too**: it is a per-click flag that `fm_onclick` sets,
+so reading it without banking is reading the last LEFT click's answer.
+
+**A keystroke into the rename/new-folder editor changes one line of text**,
+the status line the editor lives on, and it repainted the whole window per
+character. `fm_editkey` now answers **CF = 0 for "only the status line
+moved"** — the ordinary-character and Backspace paths, and nothing else — and
+`fm_onkey` spends that on `fm_status_only`, falling back to `fm_repaint` on
+§11.3's granularity refusal. Everything else it can do (commit, cancel, the
+replace question) changes the listing or the mode and still owes the window.
+
+Measured on the same window: a keystroke was **91 glyphs and 40 fills** (the
+same cost `r` still pays for a re-list, which is a real full repaint) and is
+now **25 glyphs and 1 fill** — the line and nothing else. At
+PERFORMANCE.md's ~1 ms per glyph cell that is a keystroke costing ~25 ms
+instead of ~120, on a machine where the typist is waiting for it.
+
+### 22.9 A status line belongs to ONE window, and it does not outlive its cause
+
+The line under a Disk window's listing is a **report about what the user did
+in that window**. Two rules follow, and neither held.
+
+**It is per window.** `[ld_status]` is one global, and `fm_stat_line`'s rung 4
+drew it for whatever window it was painting - so a failed load put
+`Bad package` on *every* open Disk window at once, two of them both claiming
+to have been asked. `FS_LDST` is the per-window copy, stamped on `[ld_pwin]`
+- the block that POSTED the load - and mirrored into `[fm_lldst]` by
+`fm_layout` the way `FS_FERR` is into `[fm_lferr]`. A load with no poster
+(the chip menu's Task Manager, `[ld_pwin]` = 0) stamps nobody and reports
+through `ui_note` instead, which is right: no window asked. It cost no bytes
+- offset 15 was the padding hole in front of `FS_VSEG`.
+
+`[ld_status]` remains the LOADER's own result (§21) and is what `ui.inc`
+reads; it is simply no longer what the window DRAWS.
+
+**It does not outlive its cause.** A notification took the line until
+something else had something to say, so `Bad package` sat there through
+scrolling, selecting, navigating and everything else the user did next. The
+rule is now that any interaction with the window clears its verdicts FIRST,
+and whatever that interaction does then sets its own: `fm_stat_clear` zeroes
+`FS_FERR` and `FS_LDST` at the top of `fm_onclick`, `fm_onkey` and
+`fm_docmd`, before the handler runs.
+
+**Clearing is a change to the line, so it has to be drawn**, and that is the
+part that interacts with §22.2.1. A row click's cheap path draws two XOR
+bands and no text at all, so a click that clears a message would leave it on
+screen. `fm_stat_clear` answers **CF = 1 when it actually cleared
+something**, and the cheap path spends that on one `fm_status_only` -
+a click that clears a message costs two bands and one line, not a window.
+
+Three things fall out of the ordering. The clear runs BEFORE the handler, so
+an operation that fails still shows its own new verdict. `fm_edit_arm`'s
+existing `FS_FERR = 0` is the same rule arriving earlier and stays. And the
+resting state (§22.7's size and free space) needs no clearing rule of its own,
+because it is what the line says once the notifications are gone.
+
 ### 22.3 Cut, Copy and Paste (`kernel/filecp.inc`)
 
 The clipboard is **(drive, folder, name, type)** and deliberately not an
@@ -18713,17 +18788,18 @@ Four things about it are load-bearing:
   cursor off, so the bracket has one crosshair and no arrow — which is the
   cheapest confirmation that the bracket is actually running.
 
-**On the iron this is worth nine times what the emulators said.** Set 4
-priced the pair at 246 µs on MartyPC and 21.8% of a session; the 5150 itself
-measures `GFX_UNLOCK+LOCK` at **2,241 µs on Hercules and 2,402 on CGA**,
-against 119-246 on every other machine in Set 11 — the one gfxbench row where
-the 5150 and MartyPC disagree at all. The suspected mechanism is
-`cur_lazyend` → `cur_move`, which fires when the mouse has moved since the
-cursor was drawn, and **a Missile Command player never stops moving the
-mouse** (docs/FIELD-NOTES.md 8). The bracket holds the lock for the whole
-session and pays it **once**, so whatever that row turns out to be, this is
-the change that makes the game immune to it — and a *windowed* Missile
-Command on real hardware is paying it every frame.
+**What the pair costs on the iron is now measured, and it is not what Set 11
+suggested.** That set put `GFX_UNLOCK+LOCK` at 2,241 µs on the 5150 against
+119-246 everywhere else, and this section briefly claimed the bracket was
+therefore worth nine times what the emulators said. **Set 13 closed it: the
+row is 290 µs with the pointer demonstrably still and 369 µs with it moved
+continuously** — the mouse is worth +27%, never 9x, and the outlier was a
+kernel-version artefact that no longer exists (docs/FIELD-NOTES.md 8). So the
+bracket saves a windowed frame roughly what Set 4's MartyPC figure said all
+along. It is still the right change for the reason it was made — Set 4 priced
+the pair at 21.8% of a session with no drawn content in it — but the number
+is ~300 µs a frame, not 2 ms, and this paragraph is kept as written-down
+evidence that a *single* anomalous row is not a measurement.
 
 ### 48.14 A trail is ONE Bresenham, laid at launch and walked
 

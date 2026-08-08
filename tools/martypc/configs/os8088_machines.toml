@@ -46,6 +46,7 @@ overlays = [
     [[machine.video]]
     bus_type = "ISA"
     type = "MDA"
+    subtype = "Hercules"
     clock_mode = "Dynamic"
 
 # The GLaBIOS twin, for when you want a machine that BOOTS FAST rather than one

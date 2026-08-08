@@ -902,6 +902,11 @@ assoc_run:
                                 ; on, so no listing and no index (21.4)
     mov byte [assoc_argp], 0    ; a package launched later, by any route,
     mov [ld_status], al         ; must never inherit this document
+    mov di, [ld_pwin]           ; ...and on the window that ASKED for it
+    or di, di                   ; (SPEC.md 22.9). 0 = no poster: a chip-menu
+    jz .ldst_none                    ; load reports through ui_note, not a line
+    mov [di+FS_LDST], al
+.ldst_none:
     push ds
     pop es                      ; ld_run_body's failure exits leave ES adrift
     call assoc_back             ; the user's volume FIRST, then the window
