@@ -197,6 +197,51 @@ class Marty:
         """
         return self.cmd(cmd="bp", list=bps)["count"]
 
+    # --- input, through the REAL devices -------------------------------------
+    #
+    # No guest code is involved in either of these, which is the point: `key`
+    # enters the emulator's keyboard buffer so the guest sees it through the
+    # 8255 and int 09h, and `mouse` builds a real Microsoft 3-byte packet and
+    # clocks it into the serial controller so the guest's own ISR decodes it.
+    # A debug module poking [mouse_x] would skip the UART, the packet decoder
+    # and SPEC.md 9.5's port contest - the code most likely to be wrong.
+
+    def key(self, name, down=True, up=True):
+        """One MartyKey by name: 'KeyA', 'Enter', 'Digit1', 'ArrowUp'."""
+        return self.cmd(cmd="key", key=name, down=down, up=up)
+
+    def type_text(self, s):
+        """ASCII through the keyboard. Letters, digits, space and Enter."""
+        for ch in s:
+            if ch == "\n":
+                self.key("Enter")
+            elif ch == " ":
+                self.key("Space")
+            elif ch.isalpha():
+                self.key("Key" + ch.upper())
+            elif ch.isdigit():
+                self.key("Digit" + ch)
+            else:
+                raise MartyError("no key mapping for %r" % ch)
+
+    def mouse(self, dx=0, dy=0, l=False, r=False):
+        """One packet. dx/dy are RELATIVE and clamped to a signed byte."""
+        return self.cmd(cmd="mouse", dx=dx, dy=dy, l=l, r=r)
+
+    def mouse_move(self, dx, dy, l=False, r=False, step=100):
+        """A long move as several packets - a packet carries a signed byte."""
+        while dx or dy:
+            sx = max(-step, min(step, dx))
+            sy = max(-step, min(step, dy))
+            self.mouse(sx, sy, l, r)
+            dx -= sx
+            dy -= sy
+
+    def click(self, l=True):
+        """Press and release in place."""
+        self.mouse(0, 0, l=l)
+        self.mouse(0, 0)
+
     def history(self):
         return self.cmd(cmd="history")["history"]
 
@@ -265,6 +310,12 @@ def main():
     for name in ("status", "regs", "run", "pause", "reset", "screen", "history", "quit"):
         sub.add_parser(name)
 
+    p = sub.add_parser("key"); p.add_argument("name")
+    p = sub.add_parser("type"); p.add_argument("text")
+    p = sub.add_parser("mouse")
+    p.add_argument("dx", type=int); p.add_argument("dy", type=int)
+    p.add_argument("--click", action="store_true")
+
     p = sub.add_parser("shot", help="the framebuffer as a PNG - no QEMU needed")
     p.add_argument("out")
     p.add_argument("--kind", choices=("cga", "herc"), default=None)
@@ -317,6 +368,15 @@ def main():
                 print(m.write(parse_addr(a.where), bytes.fromhex(a.hex)), "bytes written")
             elif a.op == "step":
                 print(json.dumps(m.step(a.n)))
+            elif a.op == "key":
+                m.key(a.name); print("ok")
+            elif a.op == "type":
+                m.type_text(a.text); print("ok")
+            elif a.op == "mouse":
+                m.mouse_move(a.dx, a.dy)
+                if a.click:
+                    m.click()
+                print("ok")
             elif a.op == "shot":
                 w, h, rows = m.vram(a.kind)
                 write_png(a.out, w, h, rows)

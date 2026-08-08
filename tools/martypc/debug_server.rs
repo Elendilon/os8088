@@ -65,8 +65,11 @@ use marty_core::{
     breakpoints::BreakPointType,
     cpu_common::{Cpu, Register16},
     device_traits::videocard::VideoCard,
+    keys::MartyKey,
     machine::{ExecutionControl, ExecutionOperation, ExecutionState, Machine},
 };
+use crate::KeyboardModifiers;
+use std::str::FromStr;
 
 use serde_json::{json, Value};
 
@@ -262,6 +265,8 @@ impl DebugServer {
             "bp" => breakpoints(machine, &req),
             "screen" => screen(machine),
             "video" => video(machine),
+            "key" => key(machine, &req),
+            "mouse" => mouse(machine, &req),
             "history" => json!({"ok": true, "history": machine.cpu().dump_instruction_history_string()}),
             "callstack" => json!({"ok": true, "callstack": machine.cpu().dump_call_stack()}),
             "quit" => {
@@ -585,5 +590,70 @@ fn screen(machine: &mut Machine) -> Value {
     match machine.primary_videocard() {
         Some(mut card) => json!({"ok": true, "rows": card.get_text_mode_strings()}),
         None => err("no video card"),
+    }
+}
+
+// --- input ------------------------------------------------------------------
+//
+// BOTH GO THROUGH THE REAL DEVICES, and that is the whole reason they are
+// here rather than in the guest. A debug module poking [mouse_x] would skip
+// the UART, the packet decoder and SPEC.md 9.5's port contest - which is to
+// say it would skip the code most likely to be wrong. `key` enters the
+// emulator's keyboard buffer, so it reaches the guest through the 8255 and
+// int 09h; `mouse` builds a real Microsoft 3-byte packet and clocks it into
+// the serial controller, so the guest's own mouse ISR decodes it.
+//
+// It also means neither one needs anything in the guest at all: an
+// unmodified shipped kernel is driven exactly as a person would drive it.
+
+/// A keypress, a release, or both.
+///
+/// `key` names a MartyKey variant ("KeyA", "Enter", "Digit1", "ArrowUp") -
+/// the emulator's own vocabulary rather than a second mapping table here,
+/// because a table that has to agree with an enum is a table that will stop
+/// agreeing with it.
+fn key(machine: &mut Machine, req: &Value) -> Value {
+    let name = match req.get("key").and_then(Value::as_str) {
+        Some(k) => k,
+        None => return err("need key (a MartyKey name, e.g. KeyA or Enter)"),
+    };
+    let code = match MartyKey::from_str(name) {
+        Ok(k) => k,
+        Err(_) => return err(&format!("unknown key: {}", name)),
+    };
+    // Default is press-then-release, because a debugger asking for "a
+    // keystroke" wants one and a stuck modifier is a machine nobody can get
+    // back. down/up are separate for the cases that genuinely need a hold.
+    let down = req.get("down").and_then(Value::as_bool).unwrap_or(true);
+    let up = req.get("up").and_then(Value::as_bool).unwrap_or(true);
+    if down {
+        machine.key_press(code, KeyboardModifiers::default());
+    }
+    if up {
+        machine.key_release(code);
+    }
+    json!({"ok": true})
+}
+
+/// A mouse movement and/or button state.
+///
+/// dx/dy are RELATIVE and clamped to a signed byte, because that is what a
+/// Microsoft packet carries - a caller wanting to cross the screen sends
+/// several. The client does the chunking, exactly as tools/mouse.py does for
+/// QEMU and for the same reason.
+fn mouse(machine: &mut Machine, req: &Value) -> Value {
+    let dx = req.get("dx").and_then(Value::as_i64).unwrap_or(0);
+    let dy = req.get("dy").and_then(Value::as_i64).unwrap_or(0);
+    if !(-127..=127).contains(&dx) || !(-127..=127).contains(&dy) {
+        return err("dx and dy must be -127..127: a Microsoft packet carries a signed byte");
+    }
+    let l = req.get("l").and_then(Value::as_bool).unwrap_or(false);
+    let r = req.get("r").and_then(Value::as_bool).unwrap_or(false);
+    match machine.mouse_mut() {
+        Some(m) => {
+            m.update(l, r, dx as f32, dy as f32);
+            json!({"ok": true})
+        }
+        None => err("no mouse in this machine - add the microsoft_serial_mouse_com1 overlay"),
     }
 }

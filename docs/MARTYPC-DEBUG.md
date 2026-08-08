@@ -133,6 +133,8 @@ is the client — a CLI, a REPL and an importable `Marty` class.
 | `bp` | breakpoints: `exec`, `execseg`, `mem`, `memseg`, `int`, `io` |
 | `screen` | the video card's text, in text modes |
 | `video` | which card, and whether it is in a graphics mode |
+| `key` | a keypress by MartyKey name — `KeyA`, `Enter`, `ArrowRight` |
+| `mouse` | one Microsoft packet: relative `dx`/`dy` and button state |
 | `history` / `callstack` | the CPU's own instruction history |
 | `quit` | stop the emulator |
 
@@ -206,6 +208,37 @@ of the tool: both are 1bpp, so the bytes *are* the pixels. **Mode 12h is four
 planes behind the Graphics Controller's Read Map Select** and is not readable
 as flat memory at all — you would have to drive the latches to get a plane
 out. Moot in practice, since MartyPC does not implement mode 12h either.
+
+**Input, without a guest module and without QEMU.** This was the last thing
+on the "go to QEMU for it" list, and it should not have been. `key` enters
+the emulator's keyboard buffer, so the guest sees it through the 8255 and
+int 09h; `mouse` builds a **real Microsoft 3-byte packet** and clocks it into
+the serial controller, so the guest's own `mou_isr` decodes it. Neither needs
+a byte of code in the guest, and both exercise *more* than a poke would — a
+debug module writing `[mouse_x]` would skip the UART, the packet decoder and
+SPEC.md §9.5's whole port contest, which is the code most likely to be wrong.
+It is better than QEMU's `msmouse` on the same grounds: that one is not a
+UART-level device and ignores DTR entirely (docs/TESTING.md).
+
+Verified, and the proof is deliberately not a screenshot. `mou_seen` — the
+byte SPEC.md §9.4.2 publishes, set by the mouse ISR only on a **complete
+decoded packet** — goes 0 → 1 when packets are injected, and the chip menu
+opens under a press-drag. For the keyboard, the test is SPEC.md §9.6: on a
+machine whose mouse has not spoken, the arrow keys *are* the mouse, so ten
+`ArrowRight` presses moved `mouse_x` from 320 to 350. That is the full path —
+emulator buffer, 8255, int 09h, BIOS buffer, int 16h, `kbm_poll` — and it is
+a path QEMU can barely reach, because there you would have to arrange for a
+machine with no mouse.
+
+`os88marty.py` wraps both: `key`, `type_text`, `mouse`, `mouse_move`,
+`click`. Long moves are chunked because a packet carries a **signed byte**,
+exactly as `tools/mouse.py` chunks for QEMU.
+
+**On 86Box, none of this exists** and the question comes back. There the
+keyboard has a zero-code answer anyway — poke the BIOS buffer at
+`0040:001A`/`001C`, which `int 16h` reads — and the mouse would need
+`DEBUG.DRV` and a guest-side injection verb. Neither is built; both are
+wanted only if 86Box automation is.
 
 **Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
 two are complementary rather than competing. Also not for VGA: MartyPC's VGA
