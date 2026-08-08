@@ -393,28 +393,63 @@ read_run:
     int 0x13
     jnc .done
 
+%ifdef BOOT_DIAG
+    mov [diag_ah], ah           ; BOOTDIAG=1: the reset below destroys the
+%endif                          ; status, and the status IS the diagnosis
     xor ah, ah                  ; reset and try again
     mov dl, [boot_drive]
     int 0x13
     dec si
     jnz .attempt
 
+%ifdef BOOT_DIAG
+    mov al, [diag_ah]           ; two hex digits and nothing else: 0C is a
+    mov cl, 4                   ; media type the drive could not identify
+    shr al, cl                  ; (a 360KB disk in a 1.2MB drive), 04 a
+    call .nib                   ; sector the FDC never found (EOT / the
+    mov al, [diag_ah]           ; multi-track flip), 09 a transfer that
+    and al, 0x0F                ; crossed a 64KB DMA page, 80 a drive that
+    call .nib                   ; never answered
+    jmp short .halt
+.nib:
+    add al, 0x90                ; the classic six bytes: 0..15 -> '0'..'F'
+    daa
+    adc al, 0x40
+    daa
+    mov ah, 0x0E
+    mov bx, 7
+    int 0x10
+    ret
+%else
     mov si, msg_err
     call print
+%endif
 .halt:
     cli
     hlt
     jmp .halt
 
 .done:
-    xor ah, ah                  ; AL = what the BIOS says it MOVED, which is
-    or al, al                   ; not always what was asked for; 0 with CF=0
-    jnz .clamp                  ; is trusted for one, so the loop progresses
-    inc ax
+    ; CF=0 IS the BIOS saying the whole request completed, and AL is not -
+    ; the same reading dsk_xfer takes (SPEC.md 18.91, PERFORMANCE.md Part 9
+    ; Set 16). This used to advance by AL, and on the IBM 5150 a nine-sector
+    ; read MOVES ALL NINE and answers AL = 1: the kernel's own transfer was
+    ; measured at 148 sectors for a 32-sector file that way, and fixing it
+    ; took a 16KB read from 8.29 s to 2.09. THIS loop has the same bug and it
+    ; is the whole boot - 140 sectors at a revolution each is 33 of the 40
+    ; seconds a 5150 spends booting.
+    ;
+    ; `make DISKAL=1` restores the old reading, in both loops together.
+%ifdef DISK_TRUST_AL
+    xor ah, ah
+    or al, al
+    jnz .clamp                  ; 0 with CF=0 is trusted for one, so the loop
+    inc ax                      ; always progresses
 .clamp:
     cmp ax, [run]
     jbe .out
-    mov ax, [run]               ; ...and never believe more than was asked
+%endif
+    mov ax, [run]               ; the whole run: CF=0 is the contract
 .out:
     ret
 
@@ -447,7 +482,11 @@ left        dw 0
 run         dw 0
 dest_seg    dw KERNEL_SEG
 
+%ifdef BOOT_DIAG
+diag_ah     db 0                ; the int 13h status, banked before the reset
+%else
 msg_err     db 'os8088: disk error', 13, 10, 0
+%endif
 msg_mem     db 'RAM', 13, 10, 0  ; three characters because three is what is
                                  ; left in 512 bytes, and a machine that says
                                  ; RAM and stops is diagnosable where a black

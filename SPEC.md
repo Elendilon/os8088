@@ -2430,6 +2430,32 @@ the deterministic cost above. And `[mou_seen]` = 0 beside a homed cursor is
 the check that the identify did **not** quietly settle anything: had it
 claimed the port, that word would be 1 before a packet ever arrived.
 
+**And the 5150 settles the premise itself.** §9.4.2's block, read by
+`sysbench` on the field machine — a real Microsoft mouse on a real serial
+card, which is the one thing no emulator's answer could stand in for:
+
+```
+COM1 base 03F8   COM2 base 0000      ONE serial port: no contest at all
+ident bytes COM1 1                   exactly one byte...
+first byte COM1  004D                ...and it was 'M'
+identified COM1  1
+packets needed   1 / 1               the one-port default, untouched
+poller stamp     0                   the cycle NEVER dropped DTR
+mouse found      1   run reached 1   settled on the operator's first move
+```
+
+So the premise the whole section rests on is **true of the hardware and not
+just of a model**: the raise provokes `'M'`, one byte, and then silence.
+`MOU_IDMAX` = 8 and `MOU_IDSTRICT` = 3 are both wide of what a period part
+actually sends, which is the direction to be wrong in.
+
+The two machines confirm **different halves**, which is the useful part: the
+5150 is single-port, so `[mou_need]` was already 1 and the whole visible win
+there is the **stand-down** — `poller stamp 0` where the old code would have
+dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
+the **threshold drop**. A real two-port machine (the Compaq Portable III,
+§9.5.2's) is the witness neither covers and is still owed.
+
 #### 9.4.2 The block a test package reads (`0060:0006`)
 
 §9.4.1's whole question — does a **real** mouse on a **real** serial card
@@ -5999,6 +6025,11 @@ something in this area is in doubt.
 > revolution instead of one" is a claim about revolutions that this drive,
 > controller or media does not honour. Both emulators show the predicted gain
 > and neither models rotational latency, so neither can arbitrate. The
+> **§18.93's loop had the same bug and it is the whole boot**: 140 sectors at
+> a revolution each is 33 of the 40 seconds a 5150 spends starting up, and
+> `.done` there believed AL exactly as `dsk_xfer` did. Both read `CF` now,
+> under the one `DISKAL=1` knob.
+>
 > cause is now FOUND (Set 16) and it was never the transfer: the BIOS moved
 > all nine sectors and answered **`AL = 1`**, the short-count handling
 > believed it, and `dsk_xfer` re-asked for the other eight one at a time.

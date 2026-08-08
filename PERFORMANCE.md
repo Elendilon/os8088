@@ -2213,3 +2213,43 @@ wrong is the worst available outcome, so the disk says.
 different reason and Set 13 measured as a loss. Under QEMU the change is a
 no-op, which is the point: 34 sectors in 6 calls before and after, data check
 OK.
+
+### Set 17 — the fix measured: 4.1x on the floppy
+
+One `sysbench` run on the 5150, `herc.img` from the `f9f226c` field build —
+the ordinary kernel, not the instrumented one.
+
+| | before (Set 15) | after |
+|---|---|---|
+| 16 KB read, cold motor | 8.29 s | **2.09 s** |
+| 16 KB read, warm | 8.35 s | **2.20 s** |
+| **throughput** | 1,912 B/s | **7,457 B/s** |
+| | | **3.9x** |
+
+Set 16's reading of the contract was right: `CF = 0` is the BIOS saying the
+whole request completed, `AL` is not, and believing `AL` was costing a
+revolution a sector. Everything else in the report is unchanged to within a
+tick, so this is the transfer and nothing else — `read 1 sector file` is
+810 ms both times, because a one-sector read never had a run to lose.
+
+**It is not yet at the ceiling.** 7,457 against the BIOS's own 11,570 for a
+whole track in one call is 1.55x still on the table, and the arithmetic says
+where: 32 sectors in ~4 calls of ~400 ms is 1.6 s, and we measure 2.09 —
+about two extra calls' worth. `dsk_read_chain`'s run coalescing tops out at
+the track and the DMA page, and the file's first cluster is rarely
+track-aligned, so a 32-sector read is 4 calls only when it starts on a track
+boundary and 5 when it does not. That is the next thing to look at, and it is
+worth about a second on every large load.
+
+#### The check that licensed it did not run
+
+`sb_verify` — the row that reads `BENCH.DAT` back and confirms every byte of
+sector *n* is *n* — was written inside the `DISKCNT=1` instrument block. The
+field run booted the **plain** kernel, so the block printed "this kernel
+carries no disk instrument" and skipped, and the 4x was taken with the one
+check that made it safe switched off. It is called from the floppy block now,
+on every kernel, and reads `data check, 32 sectors  OK`.
+
+**A guard that only runs on the build you are not shipping is not a guard.**
+The same shape as PERFORMANCE.md Part 6's rule about harness bugs, and it
+cost a round trip to a machine that is not in this room.

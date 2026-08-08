@@ -776,7 +776,7 @@ larger of the two windows there.
 
 ---
 
-## 7. The floppy is 6x slow because int 13h answers AL = 1 (FOUND, fix awaiting the field)
+## 7. The floppy is 6x slow because int 13h answers AL = 1 (FIXED, 3.9x measured)
 
 **Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
 ladder was calibrated against. `sysbench`'s floppy block, same machine, same
@@ -977,8 +977,32 @@ it changed something now. Because that risk is real if the reading is wrong,
 **`sysbench` verifies the file**: `BENCH.DAT` holds `(i >> 9) & 0xFF`, so
 every byte of sector *n* is *n*, and a gap or a repeat names itself.
 
-**Expected: ~1.6 s against 8.4 s for a 16KB read — about 5x on every load in
-the system.** Unconfirmed on iron at the time of writing.
+**Confirmed on the iron** (PERFORMANCE.md Part 9 Set 17): a 16 KB read is
+**2.09 s against 8.29**, throughput **7,457 B/s against 1,912** — **3.9x**,
+on the ordinary kernel. Everything else in the report is unchanged to within
+a tick, and `read 1 sector file` is 810 ms both times because a one-sector
+read never had a run to lose.
+
+**The BOOT SECTOR had the same bug and it was never fixed with the kernel.**
+`read_run`'s `.done` believed `AL` too, which is why `boot ticks` did not
+move in Set 17 while the file read got 4x faster: 140 sectors at a revolution
+each is 33 of the 40 seconds. Both loops read `CF` now, under the one
+`DISKAL=1` knob, and the boot should fall to roughly 12 s. Unconfirmed on
+iron at the time of writing.
+
+**Still 1.55x short of the ceiling**, and the arithmetic says where: the
+BIOS's own whole-track-in-one-call is 11,570 B/s, 32 sectors in ~4 calls of
+~400 ms is 1.6 s, and we measure 2.09 — about two extra calls. A run
+coalesces only up to the track and the DMA page, and a file's first cluster
+is rarely track-aligned. Worth about a second on every large load; not
+chased yet.
+
+**And the check that licensed the change did not run.** `sb_verify` was
+written inside the `DISKCNT=1` block, the field booted the plain kernel, so
+it printed "this kernel carries no disk instrument" and skipped — the 4x was
+taken with the one guard that made it safe switched off. It is unconditional
+now. *A guard that only runs on the build you are not shipping is not a
+guard.*
 
 **And the target is now a measured number rather than a model.** DOS copying
 the single 170 KB file off the same disk runs at **~13,390 B/s** (about 15
@@ -1241,3 +1265,48 @@ adapter**: `gfx_line_raw` sends mono to `gfx_line_mono` and VGA to
 on VGA. Nothing depends on the two agreeing today — Missile Command draws and
 erases through the same path on the same machine — so it is recorded rather
 than fixed, and Paint's fast path is gated to 1bpp.
+
+---
+
+## 12. The mouse does nothing for a third of a second, then jumps (FIXED, confirmed on the 5150 and MartyPC)
+
+**Observed.** After the desktop appears, the first mouse movement of the
+session did nothing for roughly a third of a second, then the cursor jumped
+and tracked perfectly for the rest of the session. **1/1, every boot** — not
+intermittent, which is the detail that pointed at the cause.
+
+**Why the harness could not show it.** QEMU's `msmouse` is not a UART-level
+device: it ignores MCR/DTR outright and emits packets during boot regardless,
+so `[mou_seen]` is 1 and `[mou_hpst]` 2 straight out of `make test`. The
+container therefore sits permanently in the state that comes *after* the bug,
+and no amount of scripting reaches it.
+
+**Two causes, not one, and the smaller one looks like the culprit** (SPEC.md
+§9.4.1). The kernel never *identified* a mouse — `[mou_seen]` is set only by
+the ISR on a completed packet, so a plugged-in mouse nobody has touched is
+indistinguishable from no mouse. That cost (a) the §9.5 contest, where a
+two-port machine discards its first eight clean packets, deterministic and
+worth ~200 ms of continuous motion; and (b) `mou_hotplug` power-cycling the
+mouse every 3.19 s, 20.7% of it dead, with its first cycle landing on the
+desktop. The first estimate here attributed the whole symptom to (b) and was
+wrong: (b) is probabilistic in where a nudge lands and cannot be 1/1.
+
+**Fixed** by reading the identify burst `mouse_init` already provokes and then
+discards (SPEC.md §9.4.1), and **confirmed on both machines through §9.4.2's
+published block**:
+
+- **the 5150** — one serial port, so no contest: `first byte 004D`,
+  `identified 1`, **`poller stamp 0`**. A real Microsoft mouse on a real card
+  answers the DTR/RTS raise with exactly one `'M'` and then goes silent, which
+  is the premise the whole fix rests on and the one thing no emulator could
+  have settled.
+- **MartyPC** — two ports, so the contest is live: `[mou_need]` `01 08`, the
+  threshold drop doing the visible work.
+
+**Still owed:** a real two-port machine. The Compaq Portable III is that
+machine (§9.5.2 is its bug) and is not booting these images yet.
+
+**The reusable lesson** is about the report rather than the code: *"1/1"* was
+worth more than any measurement taken here. A deterministic symptom cannot
+have a probabilistic cause, and that alone ruled out the mechanism the
+container had made easy to measure, in favour of the one it could not see.

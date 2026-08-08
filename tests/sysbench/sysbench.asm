@@ -1138,6 +1138,17 @@ sb_disk:
     mov [sb_td2], ax
     mov [sb_td2+2], dx
 
+    call sb_verify                  ; ...and CHECK WHAT IT READ, on every
+                                    ; kernel. This lived inside the DISKCNT
+                                    ; block at first, which meant it did not
+                                    ; run on the plain kernel the field
+                                    ; actually booted - so the 4x speedup of
+                                    ; PERFORMANCE.md Part 9 Set 17 was taken
+                                    ; with the one check that licensed it
+                                    ; switched off. A guard that only runs on
+                                    ; the build you are not shipping is not a
+                                    ; guard.
+
     mov word [bl_n], 4              ; a one-sector file: the per-call cost of
     mov word [bl_body], sb_b_rdsml  ; finding and opening one, with almost no
     mov si, sb_r_ds                 ; data behind it
@@ -2007,7 +2018,6 @@ sb_dbgctr:
     call sb_ctr_bank                ; --- one 16KB read
     call sb_b_rdbig
     call sb_ctr_take
-    call sb_verify                  ; ...and CHECK IT (below)
     mov si, sb_l_c16
     call bl_sline
     call sb_ctr_show
