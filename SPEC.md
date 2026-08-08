@@ -15178,9 +15178,19 @@ write outside its frame on a short screen, and only the screen edge stops it.
 
 The reference §20.6 worker, and the first shipped package whose window is
 worth more than the state behind it. Menus (§12.2) pick one of five types,
-one of four palettes, and zoom/reset/redraw; a click recentres. All of that
-is a couple of word stores plus `fr_kick` — the app never draws the picture
-from a callback, the worker does.
+one of four palettes, and zoom/reset/redraw; **a click recentres on the point
+clicked and zooms one level in**, which is the whole of the navigation — the
+menu's Zoom In is the same level without the move, and Reset is the way back
+out. All of that is a couple of word stores plus `fr_kick` — the app never
+draws the picture from a callback, the worker does.
+
+**The click's order is binding.** `fr_onclick` converts a pixel offset into a
+complex one with `[fr_step]`, so the recentre must be taken at the step of the
+view the user *clicked in*; zooming first measures the click against a view
+that was never on screen and lands the centre a factor of two from the thing
+pointed at. Both callers of the zoom share `fr_zoom_in`, because `FR_ZMAX` is
+measured rather than chosen — zoom is a shift count, and at z = 5 the step
+reaches the Q4.12 1-ulp floor — and at the cap a click still recentres.
 
 **Numerics (binding).** Q4.12 fixed point throughout, iteration cap 48, and
 the escape count *is* the palette index. `fr_clamp` bounds the centre on
@@ -15336,6 +15346,10 @@ not, and moving costs one replay because the cache survives the repaint.
   0 differing pixels, which is what "replays rather than recomputes" has to
   mean at the framebuffer.
 - Change type: the canvas clears and the render restarts at 0%.
+- Click the canvas: the strip's Zoom goes up by one and the point clicked is
+  at the centre of the new picture. Click the same feature repeatedly and it
+  stays under the pointer down all four levels; at Zoom 4 the picture still
+  recentres and the number stays at 4.
 - Bury it behind another window: it keeps rendering the visible strips and
   paints nothing outside them; raise it and the whole picture is there.
 - Two instances alongside Minesweeper and Note Pad all load (the heap must

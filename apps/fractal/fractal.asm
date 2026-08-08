@@ -301,13 +301,26 @@ fr_paint:
     ret
 
 ; -----------------------------------------------------------------------------
-; fr_onclick - W_ONCLICK: re-centre on the clicked point and restart
+; fr_onclick - W_ONCLICK: re-centre on the clicked point, zoom one level in,
+;              and restart
 ; in:  CX = x, DX = y (absolute screen), SI = window ptr; gfx lock held
 ; out: nothing; preserves all registers
 ;
 ; cen += (pixel - half) * step, then frac_clamp. |px - cw/2| <= 160 and
 ; step <= 64, so the product is at most 10240 and the addition cannot
 ; overflow before the clamp brings it back.
+;
+; The ZOOM goes after the recentre and not before it, and the order is the
+; whole of the arithmetic: the two products above convert a PIXEL offset into
+; a complex one using [fr_step], which is the step of the view the user
+; actually clicked in. Zooming first would deepen the step and then measure
+; the click against a view that was never on screen, putting the centre a
+; factor of two away from the thing pointed at. fr_kick's fr_setup is what
+; recomputes the step from the new zoom, after both.
+;
+; At FR_ZMAX the click still recentres and simply does not deepen - the point
+; clicked is worth moving to whether or not there is a level left, and the
+; strip goes on reporting the zoom it really has.
 ; -----------------------------------------------------------------------------
 fr_onclick:
     push ax
@@ -355,6 +368,7 @@ fr_onclick:
     imul word [fr_step]
     add ax, [fr_ceny]
     mov [fr_ceny], ax
+    call fr_zoom_in                 ; ...and only now, with both products taken
     call fr_kick                    ; fr_setup re-clamps both axes
 .out:
     pop bp
@@ -403,9 +417,7 @@ fr_oncmd:
 .m2:
     or al, al                       ; --- View: Zoom In / Out / Reset / Redraw
     jnz .v1
-    cmp word [fr_z], FR_ZMAX
-    jae .kick
-    inc word [fr_z]
+    call fr_zoom_in
     jmp .kick
 .v1:
     cmp al, 1
@@ -1218,6 +1230,23 @@ fr_clamp:
     pop dx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fr_zoom_in - one level deeper, if there is one
+; in:  [fr_z]; out: [fr_z]; preserves every register (flags go)
+;
+; Two callers - View > Zoom In and a click on the canvas - so the cap lives
+; here rather than at each of them. It is MEASURED and not chosen (see the
+; file header): zoom is a shift count, so at z = 5 the step reaches the Q4.12
+; format's 1-ulp floor and z = 6 draws the identical picture. A control that
+; deepened past it would report a zoom the arithmetic cannot deliver.
+; -----------------------------------------------------------------------------
+fr_zoom_in:
+    cmp word [fr_z], FR_ZMAX
+    jae .out
+    inc word [fr_z]
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
