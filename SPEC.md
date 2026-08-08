@@ -2789,7 +2789,7 @@ The keys:
 | key | scan | does |
 |---|---|---|
 | the eight keypad directions | 47/48/49/4B/4D/4F/50/51 | move, clamped to `[vid_wm1]`/`[vid_hm1]` exactly as the ISR clamps |
-| **keypad 0 (Ins)**, **keypad 5**, **Space** | 52 / 4C / 39 | the **button** — one action, three keys (§9.6.1) |
+| **keypad 0 (Ins)**, **keypad 5**, **Space** | 52 / 4C / 39 | the **button** — one action, three keys (§9.6.1). Space and keypad 5 are matched **above** the `AL = 0` gate, keypad 0 below it |
 | **Del** | 53 | the right button, latching; press edge only (§9) |
 | **ScrollLock** | — | the **latch** — hand the whole keyboard to the window under the pointer (§9.6.2). Not a key here: a level (§9.6) |
 
@@ -2840,16 +2840,49 @@ double-click rhythm.
 
 **Every loop that spins on that level must service the keyboard**, or a
 latched button can never be released and the machine sits inside a menu no key
-can close. `kbm_poll` *peeks* with int 16h AH=01h and takes the key only if
-`kbm_key` claims it, because int 16h has no way to put one back; anything else
-stays in the BIOS buffer and is dispatched normally once the loop ends. There
-are **five** such loops and the list used to name three:
+can close. The key is *peeked* with int 16h AH=01h, because int 16h has no way
+to put one back. There are **five** such loops and the list used to name three:
 
 | loop | how it is served |
 |---|---|
-| `menu_track` (bar and `menu_popup`), `ui_drag`, `ui_grow` | `kbm_poll` beside the `task_yield` each already makes |
+| `menu_track` (bar and `menu_popup`), `ui_drag`, `ui_grow` | **`kbm_pollm`** beside the `task_yield` each already makes |
 | a **package's** tracking loop — `sol_drag`, Paint's `pt_wait`, Note Pad's selection drag, Piano, Recorder | **`osapi_mouse` calls `kbm_poll`** (gated on `[mou_seen]`, so a machine with a mouse pays one compare). A package spins on this slot exactly as the kernel spins on the level, so it is the same loop by another name — and it is what makes Solitaire's card drag reachable, which this section used to say it was not |
+
+**What happens to a key the poll does NOT claim is the whole difference
+between those two entry points, and getting it wrong is a machine you cannot
+get out of.** int 16h AH=01h reports the **head** of the BIOS buffer. Leave an
+unclaimed key sitting there and every following key queues behind it,
+invisible — so the very button press that would close the menu is never seen,
+and neither is the next one, or ScrollLock, or Escape. `ui_task`'s own poll
+cannot show this, because it always removes the key it peeked.
+
+- **`kbm_pollm` — modal: eat it.** `menu_track`, `ui_drag` and `ui_grow` read
+  no keys of their own, so nothing else is ever going to take it out. A key
+  typed into a menu or a drag is discarded, which is what modal means.
+- **`kbm_poll` — peek only: leave it.** `osapi_mouse`'s callers are packages
+  whose loops poll int 16h themselves (Paint's `pt_wait`, Missile Command), so
+  eating their keystrokes would be worse than the bug.
+
+It reached the field as a **Compaq Portable III stuck in a menu** — space,
+keypad 0, keypad 5, ScrollLock and Escape all dead, with a live machine
+underneath (BIOS ticks still advancing at 18.3 Hz, so it was never a freeze).
+The key that wedged it was keypad 5, for the reason in the next paragraph. It
+reproduces here in three keystrokes: open a menu, press `a`, try to close it.
 | `fm_drag` — the file manager's click-or-drag wait | **it does not spin at all with no mouse**: see below |
+
+**Keypad 5 is matched on its scancode alone, and that is not a detail.** It is
+the one keypad key with **no cursor function**, so what a BIOS puts in `AL`
+for it is that BIOS's business: SeaBIOS says 0 and the field machine says
+otherwise. Tested below the `AL = 0` gate it was simply dead there — "numpad 5
+still does nothing" — while every test here passed, and worse, it was then an
+*unclaimed* key, which is what wedged the menu above. Matching `AH = 4C`
+whatever `AL` holds fixes both, at the price of the keypad's `5` not typing a
+digit while the pointer is live; the main row's `5` is a different scancode
+and is untouched. The same reasoning does **not** apply to keypad 0: Ins has a
+cursor function, every BIOS agrees `AL` = 0, and leaving it below the gate is
+what keeps the keypad's `0` typing a digit. Reproduce the field's behaviour
+here by turning **NumLock on** — SeaBIOS then sends `AL` = `'5'` with scan 4C,
+which is exactly the byte the Compaq sends.
 
 `fm_drag` is the one that cannot be fixed by servicing it. It exists to
 disambiguate a click from a drag, and it waits with the button down to find

@@ -1608,16 +1608,26 @@ flashing menu from the other end. **A repeat is not a press** (`KBM_GAP`
 again): typematic is ~1.8 ticks and a deliberate second press is 4+, and
 without the guard a press held a moment too long opened a menu and closed it
 on its own repeat. **Five loops spin on that level and the list used to name
-three**: `menu_track`, `ui_drag`, `ui_grow` call `kbm_poll` beside their
-`task_yield` (it PEEKS with int 16h AH=01h and takes the key only if
-`kbm_key` claims it, because int 16h cannot put one back); **`osapi_mouse`
-calls it too**, gated on `[mou_seen]`, which is the same loop by another name
+three**: `menu_track`, `ui_drag`, `ui_grow` call `kbm_pollm` beside their
+`task_yield`; **`osapi_mouse` calls `kbm_poll`**, gated on `[mou_seen]`, which is the same loop by another name
 and is what makes a PACKAGE's drag reachable - Solitaire's `sol_drag`, Paint's
 `pt_wait`, Note Pad's selection - where this used to say they were not; and
 `fm_drag` is served by **not spinning at all** with no mouse, because it waits
 with the button down to tell a click from a drag and the button is latched for
 the whole dispatch, so a row click would cost two presses and a double-click
-four. File drag and drop wants a mouse, as it always did. **ScrollLock is the
+four. File drag and drop wants a mouse, as it always did. **What happens to a key
+the poll does NOT claim is the whole difference between `kbm_pollm` and
+`kbm_poll`, and getting it wrong is a machine you cannot get out of**: int 16h
+AH=01h reports the HEAD of the BIOS buffer, so an unclaimed key left there
+makes every later key queue behind it, invisible - the press that would close
+the menu included. The modal loops EAT it (they read no keys of their own, and
+a key typed into a menu is discarded, which is what modal means); `osapi_mouse`
+LEAVES it, because a package's loop polls int 16h itself and eating its
+keystrokes is worse than the bug. It reached the field as a Compaq Portable III
+stuck in a menu with a live machine underneath it, wedged by keypad 5 - which
+was unclaimed there because it is the one keypad key with NO cursor function,
+so what a BIOS puts in `AL` for it is that BIOS's business. It is matched on
+`AH = 4C` alone now; turn NumLock ON under QEMU to get the field's byte. **ScrollLock is the
 ONE latch, and the rule it encodes is that the way back to typing can never be
 a key you would want to type** (SPEC.md 9.6.2). A '.' was added as a second,
 friendlier hatch and was wrong within a day: '.' is wanted the moment anybody
