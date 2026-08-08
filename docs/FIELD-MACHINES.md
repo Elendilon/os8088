@@ -491,8 +491,9 @@ make field          # -> build/herc.img and build/cga.img, both 360KB bootable
 
 Both are shaped by the machine, and neither decision in them is cosmetic:
 
-- **The benchmarks are on the BOOT disk**, in the root, beside `TASKMGR.O88`
-  and for the same reason it is there (§28.3). With one floppy drive, a
+- **The benchmarks are on the BOOT disk**, in the root, for the reason
+  `TASKMGR.O88` is on it at all (§28.3 — that one is in `SYSTEM/`, because
+  it is the kernel's and these are yours to double-click). With one floppy drive, a
   benchmark on a separate data floppy means a disk swap mid-session — and on
   this machine a disk swap is a walk to another room and back (below). Boot
   either image and the four harnesses are one double-click away in Disk A,

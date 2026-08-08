@@ -967,10 +967,16 @@ ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
 ; It was a built-in kind and is a package now, so the chip menu's item cannot
 ; be an app_launch. What it does instead is what a Disk window's double-click
 ; does, with the navigation added: bank the current volume and directory,
-; mount A:, find TASKMGR.O88 in the snapshot by name, run the loader, put the
-; volume back. drv_boot does the same dance for a .DRV and for the same
-; reason - every file name resolves in the CURRENT directory (SPEC.md 19.2),
-; which is wherever the user last browsed to.
+; mount A:, go into SYSTEM, find TASKMGR.O88 in the snapshot by name, run the
+; loader, put the volume back. drv_boot does the same dance for a .DRV and
+; for the same reason - every file name resolves in the CURRENT directory
+; (SPEC.md 19.2), which is wherever the user last browsed to.
+;
+; SYSTEM is a SECOND navigation (SPEC.md 28.3), so the file costs two mounts
+; rather than one - the folder has to be listed before its cluster is known.
+; That is the price of the kernel's own applications not being loose in the
+; root of the user's disk, it is paid once per chip-menu open, and it is
+; small beside the seven kilobytes of package that follow it.
 ;
 ; **The item stays live, and it says why when it fails.** Greying it would
 ; mean answering "can this be loaded?" without loading it, and the only
@@ -987,6 +993,9 @@ ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
 ; on TASKMGR.O88 in a Disk window is unaffected and still opens as many as
 ; you like - that is the package rule, and this is the menu item's rule.
 ; =============================================================================
+ui_s_tmdir:  db 'SYSTEM', 0      ; the folder it lives in (SPEC.md 28.3), on
+                                 ; the system disk and the apps disk alike -
+                                 ; the menu cannot know which is in the drive
 ui_s_tmfile: db 'TASKMGR.O88', 0
 ui_s_tmname: db 'TaskMgr', 0     ; the 16-byte header name inst_set_name_x
                                  ; copied into the record - what identifies
@@ -1027,6 +1036,9 @@ ui_tm_open:
     call disk_mount
     mov si, ui_s_nodisk
     jc .fail
+    call ui_tm_sysdir           ; into SYSTEM (SPEC.md 28.3); CF=1 = no such
+    mov si, ui_s_nofile         ; folder, which reads to the user as the file
+    jc .fail                    ; not being there, because it is not
     mov si, ui_s_tmfile
     call dsk_find_name          ; AX = its directory index
     mov si, ui_s_nofile
@@ -1071,6 +1083,38 @@ ui_tm_open:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; ui_tm_sysdir - step into SYSTEM on the volume just mounted (SPEC.md 28.3)
+; in:  the volume is mounted and standing in its root
+; out: CF = 0 and the volume is inside SYSTEM; CF = 1 = there is no SYSTEM
+;      folder here, or entering it failed
+; clobbers: AX, DL, SI, flags (ui_tm_open has banked all three)
+;
+; The entry has to be LISTED before its first cluster is known, which is why
+; this is a second mount and not an extra argument to the first: dsk_find_name
+; reads the snapshot the mount published (no I/O at all), and dsk_chdir then
+; re-runs the one validated pipeline over the folder (SPEC.md 19.2).
+;
+; The type test is what stops a FILE called SYSTEM being walked as a
+; directory: dsk_synth writes 1 for a file and 2 for a subdirectory, and 3 is
+; the synthesized '..' (SPEC.md 19.5), which cannot carry this name.
+; -----------------------------------------------------------------------------
+ui_tm_sysdir:
+    mov si, ui_s_tmdir
+    call dsk_find_name          ; AX = its index in the root's listing
+    jc .no
+    call dsk_get_dir            ; SI -> the staged 32-byte entry (SPEC.md 19)
+    cmp word [si+16], 2         ; its type: a folder, not a file of that name
+    jb .no
+    mov ax, [si+18]             ; its first cluster
+    or ax, ax
+    jz .no                      ; 0 is the root: a directory entry naming it
+    xor dl, dl                  ; would be a loop, not a folder
+    jmp dsk_chdir               ; CF is its answer, and it is ours
+.no:
+    stc
+    ret
+
 ; ui_tm_back - put the volume the user was on back. Preserves everything; a
 ; failed remount leaves the banked volume mount-failed at its root with the
 ; write gate shut (not A: - the bank holds whatever drive the user was on),
@@ -1103,7 +1147,11 @@ ui_tm_errs:                     ; indexed by LD_* (loader.inc)
 ui_s_tmttl:  db 'Task Manager', 0
 ui_s_tmlead: db 'Cannot open the Task Manager:', 0
 ui_s_nodisk: db 'No system disk in drive A:', 0
-ui_s_nofile: db 'TASKMGR.O88 is not on the disk', 0
+ui_s_nofile: db 'TASKMGR.O88 is not in SYSTEM', 0    ; ...and it fits the
+                                 ; 288px notice window, which a path spelled
+                                 ; out in full would not: app_about_center
+                                 ; centres it and font_str stops at the SCREEN
+                                 ; edge, not the window's
 ui_s_dskerr: db 'Disk error reading it', 0
 ui_s_badpkg: db 'TASKMGR.O88 is not a valid package', 0
 ui_s_toobig: db 'TASKMGR.O88 is too large', 0

@@ -3121,8 +3121,10 @@ dsk_get_dir:
 ; It answers the INDEX, because that is the currency every consumer speaks:
 ; ld_run_body loads by index, dsk_get_dir reads by index, and a caller that
 ; wants the size or the first cluster gets them by asking for the entry. The
-; two callers are drv_load, finding a .DRV by the name in its table row, and
-; the chip menu finding TASKMGR.O88 (SPEC.md 28).
+; callers are drv_load, finding a .DRV by the name in its table row; the chip
+; menu, finding SYSTEM and then TASKMGR.O88 inside it (SPEC.md 28.3); and the
+; file dialog, finding MEDIA to open on (SPEC.md 38.10). The last two want a
+; FOLDER, and take its first cluster out of the entry to navigate into.
 ; -----------------------------------------------------------------------------
 dsk_find_name:
     push bx
