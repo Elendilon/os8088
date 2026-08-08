@@ -16,10 +16,14 @@ argue yourself into:
 
 1. **286 and 386.** 86Box covers these too, and models the machine rather
    than just the CPU — prefer it where the question is about the machine.
-2. **The hard-disk driver** (SPEC.md §52). QEMU has an ATA disk at 1F0h and
-   SeaBIOS hands it to int 13h, so both rungs of the transport ladder, the
-   partitioner, the formatter and the mount are testable end to end. No
-   MartyPC config here has a disk controller.
+2. **Rung 1 of the hard-disk driver** (SPEC.md §52.1) — the IDE task file
+   read directly, which is gated on `CPU_286` because an 8088's `in ax, dx`
+   is two 8-bit bus cycles at the same port and loses the drive's high byte.
+   QEMU has an ATA disk at 1F0h and a CPU that clears that gate; MartyPC's
+   8088 never can. **Rung 0 is MartyPC's now** and is the one the target
+   machine actually uses (`os8088_xt_hdd` — an XT-IDE controller whose GPL
+   option ROM ships with MartyPC, answering int 13h), so the two are
+   complementary and neither replaces the other.
 3. **SPEC.md §9.5's awkward mouse cases** — a mouse on COM2, the cross-wired
    IRQ4 card, and a modem chattering on the other port (`MOUSEPORT=com2`,
    `com2irq4`, a socket chardev). MartyPC can put its mouse on either port,

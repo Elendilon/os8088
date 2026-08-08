@@ -273,7 +273,8 @@ make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
               # dumps KERNEL_SEG and diffs it against build/kernel.bin, which
               # is FIELD-MACHINES.md's self-validating dump as one command
               # Machines: os8088_5150_cga (default), _5150_herc, _5150_cga_gla,
-              # _5150_sb (AdLib + Sound Blaster), _xt_vga (mode 12h). Add
+              # _5150_sb (AdLib + Sound Blaster), _xt_vga (mode 12h),
+              # _xt_hdd (XT-IDE, SPEC.md 52's rung 0). Add
               # MARTYPC_WAV=/tmp/cap for one wav per sound source.
 make clean
 ```
@@ -295,9 +296,11 @@ once, and each is now a MartyPC command.
 **The whole of QEMU's remaining list**, so that "a legitimate need" is a
 thing you can check rather than a thing you can argue: **286/386** (86Box
 covers these too and models the machine rather than just the CPU), the
-**hard-disk driver** (SPEC.md §52 - QEMU has an ATA disk at 1F0h and SeaBIOS
-gives it to int 13h; no MartyPC config here has a disk controller), and
-SPEC.md §9.5's **COM2 / cross-wired-IRQ / modem** mouse cases (`MOUSEPORT=`
+**hard-disk driver's RUNG 1** (SPEC.md §52.1 - the IDE task file read
+directly, gated on `CPU_286` because an 8088's `in ax, dx` loses the drive's
+high byte, so MartyPC's 8088 can never clear that gate; **rung 0 is
+MartyPC's**, `os8088_xt_hdd`, and it is the rung the target machine uses),
+and SPEC.md §9.5's **COM2 / cross-wired-IRQ / modem** mouse cases (`MOUSEPORT=`
 and a socket chardev - MartyPC can put its mouse on either port but the
 cross-wired and modem cases are not built). That is the list. Speed of
 typing is not on it, and neither is familiarity with QMP.
