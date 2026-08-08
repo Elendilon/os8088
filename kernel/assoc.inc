@@ -774,11 +774,37 @@ assoc_tryfold:
     ret
 
 ; -----------------------------------------------------------------------------
-; assoc_locate - find the program, four rungs (SPEC.md 54.4)
-; in:  AL = app slot; [assoc_ddrv]/[assoc_dclus] = where the document lives
-; out: CF=0 and AX = the program's directory index, its volume+directory
-;      CURRENT; CF=1 = not found on any volume that would mount
+; assoc_tryvol - one whole volume: its root, then the folder a default names
+;                (rungs 3 and 4 of SPEC.md 54.4.2)
+; in:  DL = volume, DI = the app slot
+; out: as assoc_try
 ; clobbers: AX (the output), CF
+; -----------------------------------------------------------------------------
+assoc_tryvol:
+    push bx
+    push dx
+    xor ax, ax
+    call assoc_try              ; the volume's root
+    jnc .out
+    mov bx, di                  ; ...then APPS or GAMES, if a default names
+    mov bl, [assoc_dfold+bx]    ; one for this program (0 = nothing to try)
+    call assoc_tryfold
+.out:
+    pop dx                      ; a pop touches no flag, so the CF both rungs
+    pop bx                      ; answer in is what reaches the caller
+    ret
+
+; -----------------------------------------------------------------------------
+; assoc_locate - find the program, four rungs (SPEC.md 54.4.2)
+; in:  AL = app slot; [assoc_ddrv]/[assoc_dclus] = where the document lives
+; out: CF=0 = found, with its volume+directory CURRENT; CF=1 = not found on
+;      any volume that would mount
+; clobbers: AX, CF
+;
+; AX is NOT an output. It used to be documented as the program's directory
+; index and never was one - assoc_try restores AX across its own frame, and
+; SPEC.md 21.4 removed the last consumer when ld_run_name started resolving
+; by name - which is what frees .found to spend it on the hint.
 ; -----------------------------------------------------------------------------
 assoc_locate:
     push bx
@@ -807,25 +833,32 @@ assoc_locate:
     call assoc_try
     jnc .found
 
-    ; --- rungs 3 and 4: the root, then the folder a default names, on the
-    ; document's volume and then the other floppy --------------------------
-    mov cl, 2                   ; two volumes to try
+    ; --- rungs 3 and 4: the root, then the folder a default names, on EVERY
+    ; LIVE VOLUME - the document's own first (SPEC.md 54.4.2). This was the
+    ; document's volume and then `xor dl, 1`, "A: <-> B:, the only other
+    ; floppy there is" - true when it was written and false since SPEC.md 52,
+    ; where [disk_drive] is a VOLUME INDEX and a disk driver mounts one per
+    ; partition. A document on E: swept volumes 4 and 5 and never looked at
+    ; the floppies at all, which is where every shipped program lives.
     mov dl, [assoc_ddrv]
+    call assoc_tryvol           ; its own volume first: already mounted, and
+    jnc .found                  ; skipped below so nothing is visited twice
+    xor cl, cl                  ; CL = the volume index of the sweep
 .vol:
-    push dx
-    xor ax, ax
-    call assoc_try              ; the root
-    pop dx
+    mov bl, cl
+    cmp bl, [assoc_ddrv]
+    je .volnext
+    call dsk_vol_row            ; a FREE row is skipped for the TIME, not for
+    jc .volnext                 ; correctness: mounting one fails anyway, but
+                                ; that failure is the BIOS's retries and on a
+                                ; 4.77MHz machine those are seconds
+    mov dl, cl
+    call assoc_tryvol
     jnc .found
-    push dx
-    mov bx, di
-    mov bl, [assoc_dfold+bx]
-    call assoc_tryfold
-    pop dx
-    jnc .found
-    xor dl, 1                   ; A: <-> B:, the only other floppy there is
-    dec cl
-    jnz .vol
+.volnext:
+    inc cl
+    cmp cl, DVOL_MAX
+    jb .vol
     pop di
     pop si
     pop dx
@@ -834,13 +867,20 @@ assoc_locate:
     stc
     ret
 .found:
+    mov bx, di                  ; remember where it was, so a second document
+    mov al, [disk_drive]        ; of this type costs ONE quiet mount instead
+    mov [assoc_drv+bx], al      ; of the sweep again: assoc_try navigates with
+    shl bx, 1                   ; dsk_chdir_q, so there is no listing, no
+    mov ax, [dsk_cwd]           ; harvest and nothing that would have called
+    mov [assoc_clus+bx], ax     ; assoc_note_app for us (SPEC.md 54.4.2)
     pop di
     pop si
     pop dx
     pop cx
     pop bx
-    clc
-    ret
+    clc                         ; explicit, not inherited: a slot is 0..11 so
+    ret                         ; the shl above happens to clear CF, and that
+                                ; is an accident of the table's size
 
 ; -----------------------------------------------------------------------------
 ; assoc_run - open the pending document (SPEC.md 54.4)

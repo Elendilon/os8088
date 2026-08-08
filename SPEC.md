@@ -14813,6 +14813,34 @@ in, without the app storing anything or calling anything. Names are still
 bare 8.3 names with no path in them (§19.2); what changed is whose current
 directory they resolve against.
 
+### 38.11 The Drive button cycles every volume, not two floppies
+
+`fdlg_nextvol` walks `dsk_vtab` from `[disk_drive]` upward, wrapping, and
+stops at the first row whose `DV_KIND` is not `DVK_FREE`. It was `xor dl, 1`
+— *"the other drive"* — which was the whole truth while A: and B: were the
+whole machine and has been wrong since §52 made `[disk_drive]` a **volume
+index** with one row per partition.
+
+The consequence was larger than the button: the dialog has **no other way to
+change volume** — the list shows one directory and the Drive button is the
+only control that leaves it — so **no application could Open or Save on a
+hard disk at all.** Every `fdlg` in the system cycled C: right past, between
+0 and 1, on a machine with four partitions mounted and four icons on the
+desktop saying so.
+
+It reads `dsk_vtab` **directly**, with no `cw_` shim, and that is worth
+stating because `fdlg.inc` is cold (§2.6): cold code keeps `DS =
+KERNEL_SEG`, so kernel *data* is already in reach and only *calls* have to
+cross. The fix therefore costs `.text` nothing at all — which is the whole
+of why it is a data read rather than a call to `dsk_vol_row`.
+
+The loop is bounded at `DVOL_MAX` candidates, so the last one it tries is
+where it started: a machine with one live volume answers that volume instead
+of running off the end. A: and B: are permanent `DVK_BIOS` rows and can
+never be freed (`dsk_vol_del` refuses a row that is not `DVK_DRV`), so that
+fallback is unreachable in practice and is kept because it is cheaper than
+depending on the fact.
+
 ## 39. viddet.inc — video adapters, runtime geometry, the mono renderer
 
 The kernel drives three display adapters and picks one at boot. One binary,
@@ -22492,6 +22520,67 @@ module loaded, and the shipped disk is unchanged.
 That is also the general answer for **any** program shipping under a stem the
 kernel's defaults do not name — which is every third-party package there will
 ever be.
+
+### 54.4.2 Finding the program: the rungs, and the volume sweep
+
+`assoc_locate` answers *where is `<STEM>.O88`?* and it is the only thing
+between a double-click and `ld_run_name`. Four rungs, each leaving the
+program's volume and directory **current** when it succeeds, and each re-
+checking the NAME on arrival — which is what makes a remembered cluster safe,
+since a cluster means nothing on a disk that has been swapped:
+
+| rung | where |
+|---|---|
+| 1 | the **hint**: `assoc_drv[i]` / `assoc_clus[i]`, if this program has ever been seen |
+| 2 | the **document's own directory** |
+| 3 | the **root** of a volume |
+| 4 | the folder `assoc_dfold[i]` names on that volume — `APPS` or `GAMES` |
+
+Rungs 3 and 4 are a pair applied per volume (`assoc_tryvol`), and **which
+volumes they are applied to is the whole of this section.** It used to be
+two: the document's own, and then `xor dl, 1` — *"A: ↔ B:, the only other
+floppy there is"*. That was true when it was written and stopped being true at
+§52, where a disk driver mounts one volume per partition and `[disk_drive]` is
+a **volume index** running 0..`DVOL_MAX`-1, not a floppy.
+
+The failure it produced is worth stating exactly, because it reads as the
+feature being half-built rather than as an off-by-one. A document on **E:**
+(volume 4) swept volume 4 and then volume **5** — `4 xor 1` — so it never
+looked at A: or B: at all, where every shipped program lives. Reported from
+the field as *"opening `README.TXT` from drive A works, and `SONIC.MOD` from
+drive E says `TRACKER.O88 - not on this disk`"*, and both halves of that are
+this one line: from A: the toggle lands on B:, which is exactly right, and
+from anywhere above B: it lands on a volume that is usually not even mounted.
+
+**So the sweep is every live volume, the document's own first.** A row whose
+`DV_KIND` is `DVK_FREE` is skipped — not for correctness, since mounting one
+fails anyway, but because that failure is the BIOS's retries and on a 4.77MHz
+machine those are seconds. The document's volume is tried before the sweep and
+skipped inside it, so no volume is visited twice.
+
+The order inside the sweep is the **volume index** and deliberately not a
+heuristic. Preferring volumes of the document's own kind — hard disk before
+floppy for a document on C: — is plausible and would sometimes skip an empty
+floppy drive's retries, and it is exactly the kind of unmeasured ordering rule
+this tree has learned to refuse (PERFORMANCE.md Part 4). What it would buy is
+bounded by the case below, which removes the repeat entirely.
+
+**A successful locate writes the hint back**, which is new and is what keeps
+the sweep from being paid twice. `assoc_try` navigates with `dsk_chdir_q`
+(§18.9) — quiet, so there is no listing and therefore no harvest, and
+therefore nothing that would have called `assoc_note_app`. So before this,
+finding `TRACKER.O88` by sweeping five volumes taught the machine nothing and
+the *next* `.MOD` double-click swept them all again. `.found` records
+`[disk_drive]`/`[dsk_cwd]` into the slot's hint, which is exactly the pair
+rung 1 reads, so the second open of that type is **one quiet mount**. Browsing
+the folder still teaches it the same thing at no I/O at all (§54.3.1); this is
+the same lesson learned the expensive way, kept.
+
+**`assoc_locate` answers CF only**, and its comment used to promise `AX = the
+program's directory index`. It never did: `assoc_try` restores AX across its
+own frame, and §21.4 removed the last consumer when `ld_run_name` started
+resolving by name. The contract now says what the code does, which is what
+frees `.found` to spend AX on the hint.
 
 ### 54.5 The API: the app PULLS its document, and may claim an extension
 
