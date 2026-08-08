@@ -202,8 +202,32 @@ make field    # ...and the FIELD disks: build/herc.img + build/cga.img, two
               # Hercules AND a CGA permanently, so the CGA needs a kernel
               # told to ignore the Hercules — built in build/cgak/, never in
               # build/, where it would boot the wrong card for everyone
+make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
+              # server bolted into MartyPC's headless frontend, pinned to one
+              # upstream commit in tools/martypc/. Memory, registers, I/O
+              # ports, breakpoints, single-step and cycle counts on a running
+              # os8088 with NO code in the guest at all - it costs the guest
+              # not one cycle and answers on a machine that has hard-frozen.
+              # Needs cargo, and on Linux libudev-dev + pkg-config.
+              #   python3 tools/os88marty.py 127.0.0.1:9001 verify
+              # dumps KERNEL_SEG and diffs it against build/kernel.bin, which
+              # is FIELD-MACHINES.md's self-validating dump as one command
 make clean
 ```
+
+**There are TWO debuggers now and they are complementary, not competing.**
+`make marty` is the one to reach for on an emulator: nothing is installed in
+the guest, so nothing perturbs what you are measuring, and it does what a
+guest-side stub structurally cannot - breakpoints, single-step, real cycle
+counts. **SPEC.md 57's `DEBUG.DRV` is the one that works on real iron**: a
+loadable driver (not a `SERDBG=` kernel - a knob kernel is a different binary,
+so the machine you debugged is not the machine that ships) that owns COM4 at
+2E8, because os8088 hooks the IRQ of every UART answering at 3F8/2F8 and a
+monitor on 2F8 fights the mouse prober for its own port. It is not wanted by
+default, so a machine that never ticks it in the Control Panel pays one
+`drv_tab` row and a file on the floppy. MartyPC's VGA is Mode 13h/Mode X and
+os8088's whole VGA path is mode 12h, so the MartyPC configs are CGA and
+MDA/Hercules - which is the half QEMU covers worst.
 
 **Nothing in `build/` is tracked — never commit a binary.** `build/` is
 gitignored outright and no artifact inside it is force-added: not the kernel,

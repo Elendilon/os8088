@@ -27,11 +27,35 @@ and what was rejected.
 §18.94) exactly — its own `BUILD=` directory, its own disk image, on the
 `VIDSTAMP` so changing it rebuilds, and never in `build/`. Nothing here ships.
 
-**Status: designed, not built, and nothing below has been run.** The 86Box
-facts are read out of 86Box's own source at `master` and are cited; the
-os8088 facts are read out of this tree. Every "measured" claim in this
-document is somebody else's — there are none of its own yet. The container
-this was written in has neither nasm, QEMU nor 86Box.
+> **OUTCOME — both halves are built. Read this document for the reasoning and
+> the two others for what exists.**
+>
+> - **SPEC.md §57 / `drivers/debug/debug.asm`** — DEBUG.DRV, the serial
+>   monitor, built as a loadable driver rather than the `SERDBG=1` kernel this
+>   plan proposed. A knob kernel is a different binary, so the machine you
+>   debugged is not the machine that ships; a driver loads into the shipped
+>   one. It is the only half that works on real iron.
+> - **docs/MARTYPC-DEBUG.md / `tools/martypc/`** — a debug server in MartyPC's
+>   headless frontend. It costs the guest **nothing** (no driver, no UART, no
+>   IRQ, not one cycle), answers on a frozen machine, and does what a guest
+>   stub structurally cannot: breakpoints, single-step, cycle counts. On an
+>   emulator it supersedes the driver entirely.
+>
+> Two things in the plan below were **not** built and the reasons are in the
+> outcome docs: the **disk data plane** of section 3 (it needs a `[sch_lock]`
+> entry point, which is kernel code — §57.4's divisor switch is the bulk path
+> instead), and **Stage 0's trace hook** into the benchmarks. Section 5's
+> rejection of "patch the emulator" was **wrong about MartyPC** and right
+> about 86Box: the objection was that patching means *building* a debugger and
+> owning a fork, and MartyPC already has the debugger — the work was exposing
+> it, in ~500 lines against a pinned commit.
+
+**Status of the text below: it is the PLAN, as written before either half was
+built, and it is kept that way deliberately** — the outcome box above says
+what changed and why, and a plan rewritten to agree with its outcome records
+no decision. Every 86Box fact in it is cited to 86Box's own source at `master`
+and none of it has been run: the 86Box half is the next pass. The os8088 facts
+are read out of this tree.
 
 ---
 

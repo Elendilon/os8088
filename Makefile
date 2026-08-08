@@ -134,7 +134,7 @@ KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 run-720 debug test test-snd xt xt-640 xt-cga \
         xt-hercules 286 386sx 386 xt-sound 286-sound 386-sound \
-        bench field stackprobe trklog clean
+        bench field stackprobe trklog marty comscan clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -1242,6 +1242,24 @@ xt-sound: $(IMG360) $(APPSIMG360)
 386-sound: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VM386SND)/86box.cfg
 	$(BOX) -P $(VM386SND) -N
+
+# The MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug server bolted
+# into MartyPC's headless frontend, giving memory, registers, breakpoints,
+# single-step and cycle counts on a running os8088 with NO code in the guest
+# at all. It is the other half of SPEC.md 57's DEBUG.DRV and not a replacement
+# for it - this one costs the guest nothing and answers on a frozen machine,
+# that one is the only one that works on real iron.
+#
+# Pinned to one upstream commit on purpose (tools/martypc/UPSTREAM): a debugger
+# that changes under you is one more variable in a session whose whole point is
+# removing them. Needs cargo, and on Linux libudev-dev + pkg-config.
+marty: $(IMG360)
+	tools/martypc/build.sh
+	@mkdir -p $(BUILD)/martypc/run/media/floppies
+	@cp $(IMG360) $(BUILD)/martypc/run/media/floppies/
+	@echo "marty: cd $(BUILD)/martypc/run && MARTYPC_DEBUG_ADDR=127.0.0.1:9001 \\"
+	@echo "         ./martypc_headless --mount fd:0:media/floppies/os8088-360.img &"
+	@echo "       python3 tools/os88marty.py 127.0.0.1:9001 verify"
 
 # NOTHING IN build/ IS TRACKED, and that is a decision rather than an accident.
 #
