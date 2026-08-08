@@ -848,12 +848,18 @@ kbm_key:
                                 ; carries a byte - and it is the one printable
                                 ; key this takes, which is what makes the hatch
                                 ; below have to be a key that carries none
+    cmp ah, 0x4C                ; the keypad's centre 5: the button, and tested
+    je kbm_btn                  ; ABOVE the gate as well because it is the one
+                                ; keypad key with NO cursor function - so what
+                                ; a BIOS puts in AL for it is that BIOS's
+                                ; business. SeaBIOS says 0 and the field
+                                ; machine says otherwise, and testing AL is
+                                ; what made this key dead there while every
+                                ; test here passed (SPEC.md 9.6.1)
     or al, al
     jnz kbm_pass                ; ASCII - NumLock is on and these are digits,
                                 ; which belong to whatever is running
     cmp ah, 0x52                ; the keypad's 0 (Ins)...
-    je kbm_btn
-    cmp ah, 0x4C                ; ...and its centre 5: the button, both of them
     je kbm_btn
     cmp ah, 0x53                ; Del: the right button (SPEC.md 12.4)
     je kbm_rclick
@@ -1076,19 +1082,48 @@ kbm_rclick:                     ; latches too - menu_popup ends on a level poll
 ; This is what those loops call instead, beside the task_yield they already
 ; make.
 ;
-; The key is PEEKED first and only taken if kbm_key claims it, because int 16h
-; has no way to put one back - anything else stays in the BIOS buffer and is
-; dispatched normally once the loop ends.
+; The key is PEEKED first, because int 16h has no way to put one back. What
+; happens to a key we do NOT claim is the whole of the difference between the
+; two entry points, and getting it wrong wedges the machine:
+;
+;   kbm_pollm   MODAL - eat it. menu_track, ui_drag and ui_grow read no keys
+;               of their own, so nothing else is ever going to take it out of
+;               the buffer.
+;   kbm_poll    PEEK ONLY - leave it. osapi_mouse's callers are packages whose
+;               loops poll int 16h themselves (Paint's pt_wait, Missile
+;               Command), and eating their keystrokes would be worse than the
+;               bug below.
+;
+; THE BUG, because a peek-only poll in a modal loop is a machine you cannot
+; get out of: int 16h AH=01h reports the HEAD of the BIOS buffer. Leave an
+; unclaimed key there and every following key queues behind it, invisible -
+; so the very button press that would close the menu can never be seen, and
+; neither can the next, or ScrollLock, or Escape. ui_task's own poll cannot
+; show this because it always removes the key it peeked. It reached the field
+; as a Compaq Portable III stuck in a menu with a live machine underneath it
+; (BIOS ticks still advancing at 18.3Hz), because keypad 5 is unclaimed there
+; - and it reproduces here in three keystrokes: open a menu, press 'a', try
+; to close it.
+;
+; A key typed into a menu or a drag is discarded, which is what modal means.
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+kbm_pollm:
+    mov byte [kbm_eat], 1
+    jmp short kbm_poll0
 kbm_poll:
+    mov byte [kbm_eat], 0
+kbm_poll0:
     push ax
     mov ah, 0x01
     int 0x16
     jz .out                     ; nothing waiting
     call kbm_key
-    jnc .out                    ; not ours: leave it where it is
-    mov ah, 0x00                ; ...ours, and acted on: take it out
+    jc .take                    ; ours, and acted on: take it out
+    cmp byte [kbm_eat], 0
+    je .out                     ; not ours, and somebody else will read it
+.take:
+    mov ah, 0x00
     int 0x16
 .out:
     pop ax
@@ -1178,6 +1213,7 @@ kbm_lastk   db 0                ; ...and which direction it is a run OF
 kbm_last    dw 0                ; tick of the last movement key
 kbm_btick   dw 0                ; ...and of the last button key, for the repeat
 kbm_slast   db 0                ; the ScrollLock level kbm_ui last saw (9.6.2)
+kbm_eat     db 0                ; kbm_pollm: eat a key we did not claim
 kbm_ev      times 8 db 0        ; the record kbm_post fills for evq_push
 
 ; -----------------------------------------------------------------------------
