@@ -338,7 +338,14 @@ arithmetic, for nothing. `CF = 0` is the contract and `AL` is not, so
 `dsk_xfer` advances by the request now (`make DISKAL=1` restores the old
 behaviour), and `sysbench` verifies `BENCH.DAT`'s contents — every byte of
 sector *n* is *n* — because a floppy that got 5x faster and quietly wrong is
-the worst available outcome.
+the worst available outcome. **Measured on the iron: 8.29 s → 2.09 s for a
+16KB read, 1,912 → 7,457 bytes/second, 3.9x** (Set 17). Still 1.55x short of
+the BIOS's own 11,570, because a run coalesces only to the track and the DMA
+page and a file's first cluster is rarely track-aligned — worth a second on
+every large load, not chased yet. **And the verify row did not run in that
+set**, because it was written inside the `DISKCNT=1` block and the field
+boots the plain kernel: *a guard that only runs on the build you are not
+shipping is not a guard.* It is unconditional now.
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4

@@ -776,7 +776,7 @@ larger of the two windows there.
 
 ---
 
-## 7. The floppy is 6x slow because int 13h answers AL = 1 (FOUND, fix awaiting the field)
+## 7. The floppy is 6x slow because int 13h answers AL = 1 (FIXED, 3.9x measured)
 
 **Observed.** PERFORMANCE.md Part 9 Set 11, on the IBM 5150 the whole disk
 ladder was calibrated against. `sysbench`'s floppy block, same machine, same
@@ -977,8 +977,25 @@ it changed something now. Because that risk is real if the reading is wrong,
 **`sysbench` verifies the file**: `BENCH.DAT` holds `(i >> 9) & 0xFF`, so
 every byte of sector *n* is *n*, and a gap or a repeat names itself.
 
-**Expected: ~1.6 s against 8.4 s for a 16KB read — about 5x on every load in
-the system.** Unconfirmed on iron at the time of writing.
+**Confirmed on the iron** (PERFORMANCE.md Part 9 Set 17): a 16 KB read is
+**2.09 s against 8.29**, throughput **7,457 B/s against 1,912** — **3.9x**,
+on the ordinary kernel. Everything else in the report is unchanged to within
+a tick, and `read 1 sector file` is 810 ms both times because a one-sector
+read never had a run to lose.
+
+**Still 1.55x short of the ceiling**, and the arithmetic says where: the
+BIOS's own whole-track-in-one-call is 11,570 B/s, 32 sectors in ~4 calls of
+~400 ms is 1.6 s, and we measure 2.09 — about two extra calls. A run
+coalesces only up to the track and the DMA page, and a file's first cluster
+is rarely track-aligned. Worth about a second on every large load; not
+chased yet.
+
+**And the check that licensed the change did not run.** `sb_verify` was
+written inside the `DISKCNT=1` block, the field booted the plain kernel, so
+it printed "this kernel carries no disk instrument" and skipped — the 4x was
+taken with the one guard that made it safe switched off. It is unconditional
+now. *A guard that only runs on the build you are not shipping is not a
+guard.*
 
 **And the target is now a measured number rather than a model.** DOS copying
 the single 170 KB file off the same disk runs at **~13,390 B/s** (about 15
