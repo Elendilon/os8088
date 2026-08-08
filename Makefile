@@ -163,7 +163,7 @@ KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 run-720 debug test test-snd xt xt-640 xt-cga \
         xt-hercules 286 386sx 386 xt-sound 286-sound 386-sound 486 pentium \
-        bench field stackprobe trklog marty comscan checkdocs clean
+        bench field stackprobe trklog clicktest marty comscan checkdocs clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -721,6 +721,42 @@ $(BUILD)/trklog.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88disk
 $(BUILD)/trklog360.img: $(BUILD)/trklog.o88 apps/tracker/beverly.mod tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		$(BUILD)/trklog.o88 apps/tracker/beverly.mod
+
+# --- the A/V SYNC disk (ON DEMAND: `make clicktest`) -------------------------
+#
+# "The music is not synced to the display" cannot be judged against real
+# music - notes are everywhere, so there is nothing to time the display
+# against. CLICK.MOD (tests/mkclick.py) plays ONE click, on ONE channel, every
+# TWO SECONDS, on rows 00/10/20/30 of a single looping pattern, so the whole
+# question becomes one observation with no instruments at all:
+#
+#     when you HEAR the click, what row does the screen SHOW?
+#
+# Expected: 00, 10, 20 or 30. Anything else is the offset, read off the screen
+# in rows, and a row is exactly 125 ms here (BPM 120, speed 6 - chosen so that
+# 16 rows is 2.000 s and the arithmetic needs no calculator).
+#
+# It carries the TRKLOG build rather than the shipped one, because the two
+# extra keys are exactly what a sync question wants: M stamps "I heard it
+# here" into the current tick and W writes the log out (SPEC.md 45.14). The
+# hooks cost a few compares until D arms them.
+#
+#   make clicktest                                    # build the disks
+#   make test SB16=1 TESTAPPS=build/click.img         # ...or build and boot
+#
+# Must NOT be write-protected: W writes TRKLOG.TXT back to it.
+clicktest: $(BUILD)/click.img $(BUILD)/click360.img
+
+$(BUILD)/click.mod: tests/mkclick.py | $(BUILD)
+	python3 tests/mkclick.py $@
+
+$(BUILD)/click.img: $(BUILD)/trklog.o88 $(BUILD)/click.mod tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		$(BUILD)/trklog.o88 $(BUILD)/click.mod
+
+$(BUILD)/click360.img: $(BUILD)/trklog.o88 $(BUILD)/click.mod tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 \
+		$(BUILD)/trklog.o88 $(BUILD)/click.mod
 
 # --- the benchmark disk, from tests/ (ON DEMAND: `make bench`) ---------------
 #
