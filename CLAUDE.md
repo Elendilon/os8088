@@ -228,9 +228,9 @@ cycle-accurate 5150 running the real 1982 IBM BIOS with a debugger attached,
 and it agrees with the field machine to 0-4% on 45 of 47 gfxbench rows.
 **Use it whenever the thing under test runs on an 8088 with a CGA or a
 Hercules**, which is most of this OS; fall back to QEMU for what it does not
-cover - VGA (its VGA is Mode 13h/Mode X, os8088's path is mode 12h), 286/386
-and sound - and to 86Box for a machine that is not an 8088. **Neither
-screenshots NOR scripted input are reasons to start QEMU any more.**
+cover - VGA (its VGA is Mode 13h/Mode X, os8088's path is mode 12h) and
+286/386 - and to 86Box for a machine that is not an 8088. **Screenshots,
+scripted input and SOUND have all stopped being reasons to start QEMU.**
 `os88marty.py key` enters the emulator's keyboard buffer so the guest sees a
 keystroke through the 8255 and int 09h, and `mouse` builds a real Microsoft
 3-byte packet and clocks it into the serial controller so mou_isr decodes it
@@ -239,8 +239,20 @@ which is why no debug module was written for it. And: `os88marty.py shot out.png
 reads the framebuffer out of VRAM and decodes SPEC.md 39.3's banked layout,
 verified against QEMU's CGA at 60.0% lit on both. CGA and Hercules only -
 they are 1bpp so the bytes are the pixels, where mode 12h is four planes
-behind the Graphics Controller and not flat-readable. docs/TESTING.md is the full ordering; docs/MARTYPC-DEBUG.md is the
-recipe.
+behind the Graphics Controller and not flat-readable. **And sound is all
+three tiers now**: `MARTYPC_WAV=` captures one wav per source in the format
+`tools/sndcheck.py` already parses, and the machine has a PC speaker, an OPL2
+and a **Sound Blaster** - the last of which is OURS (`devices/sblaster.rs`,
+in our patch: upstream has the OPL2 and the 8237 and no DSP), a **DSP 2.01**,
+so os8088's driver takes the classic `0x48`+`0x1C` auto-init path where
+QEMU's SB16 makes it take another. `tests/sbtest` answers 2.00 s at 1000.0 Hz
+on both, and its underrun leg stops at exactly the granted 2,400 bytes.
+**One trap in the input, and it does not announce itself**: MartyPC's mouse
+scales deltas by 0.25 by default, so an unscaled move lands a QUARTER of the
+way and every click misses in a way that reads as a broken hit-test - the
+`mouse` command forces the scaler to 1.0 for exactly that reason, and there
+is no TOML key for it. docs/TESTING.md is the full ordering;
+docs/MARTYPC-DEBUG.md is the recipe.
 
 **MARTYPC IS CYCLE ACCURATE AND IT IS NOT DISK ACCURATE. If a disk is in the
 path, its timing is WRONG** - 30x fast on a 16KB read (0.27 s against the
@@ -494,10 +506,11 @@ There are no unit tests. **`docs/TESTING.md` is the matrix of WHICH TOOL to
 reach for and what each can and cannot do**, with a verified recipe per
 capability — read it before concluding anything is untestable here, and read
 its ordering before defaulting to `make test`. The short version: **MartyPC
-first** (`make marty`) for anything on an 8088 with a CGA or Hercules, then
-QEMU for VGA, 286/386, sound and scripted input, then 86Box for a machine that
-is not an 8088, then the 5150 for **anything with a disk in it**. Testing
-under QEMU is boot `make test`, then drive it over QMP.
+first** (`make marty`) for anything on an 8088 with a CGA or Hercules —
+including scripted input, screenshots and **sound**, all three of which used
+to be QEMU's alone — then QEMU for VGA and 286/386, then 86Box for a machine
+that is not an 8088, then the 5150 for **anything with a disk in it**.
+Testing under QEMU is boot `make test`, then drive it over QMP.
 
 Its **"Modelling the old machine from a fast one"** section is the part that
 has cost four bugs, and most of it is about QEMU: this container is ~1000x a

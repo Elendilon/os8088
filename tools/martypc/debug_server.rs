@@ -665,6 +665,14 @@ fn key(machine: &mut Machine, req: &Value) -> Value {
 /// Microsoft packet carries - a caller wanting to cross the screen sends
 /// several. The client does the chunking, exactly as tools/mouse.py does for
 /// QEMU and for the same reason.
+///
+/// The SPEED SCALER IS FORCED TO 1.0 here, and that is the whole reason a
+/// caller can count in pixels at all. MartyPC's mouse defaults to 0.25 - a
+/// human's acceleration preference - so an unscaled `dx` of 60 reaches the
+/// guest as 15, and a script that derives absolute position by pinning
+/// against the kernel's edge clamp then lands a QUARTER of the way to
+/// everything it aims at. Nothing errors: the pointer moves, menus open, and
+/// every click misses by a factor that reads as a broken hit-test.
 fn mouse(machine: &mut Machine, req: &Value) -> Value {
     let dx = req.get("dx").and_then(Value::as_i64).unwrap_or(0);
     let dy = req.get("dy").and_then(Value::as_i64).unwrap_or(0);
@@ -675,6 +683,7 @@ fn mouse(machine: &mut Machine, req: &Value) -> Value {
     let r = req.get("r").and_then(Value::as_bool).unwrap_or(false);
     match machine.mouse_mut() {
         Some(m) => {
+            m.set_speed(1.0);
             m.update(l, r, dx as f32, dy as f32);
             json!({"ok": true})
         }

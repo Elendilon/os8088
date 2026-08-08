@@ -2464,11 +2464,17 @@ docs/FIELD-MACHINES.md can settle, so the state has to be readable on the
 field machine, which has no debugger. It is published through the **debug
 registry** (§57) under the tag `'MO'`, which is also `mou_dbg_blk`'s own first
 word: after it, a pointer to `mou_bases` (two
-words, 0 = the probe rejected that port), then a pointer to a **33-byte
+words, 0 = the probe rejected that port), then a pointer to a **34-byte
 contiguous span** — `mou_run` +0, `mou_port` +4, `mou_need` +5, `mou_idn` +9,
 `mou_idb0` +13, `mou_idlast` +17, `mou_ident` +21, `mou_idany` +25,
 `mou_seen` +26, `mou_hpst` +27, `mou_hpt` +28, `mou_drain` +30,
-`mou_dstamp` +31.
+`mou_dstamp` +31, `mou_line` +33.
+
+`mou_line` is the newest and is read **together with `mou_port`**: the row
+says which UART the mouse is on and the line says which wire it pulls, and
+§9.5.2.1 is the machine where those two disagree. `0x10` with row 2, or
+`0x08` with row 0, is a cross-wired card — a fact no emulator here produces
+by accident and no reading of the source can supply.
 
 It shares §18.94's mechanism and **deliberately not its knob** — it had a
 fixed word of its own at `0060:0006` until §57 replaced the per-instrument
@@ -2485,7 +2491,10 @@ Three things hold it up:
 - **The layout is asserted, not trusted to declaration order.** A reader is
   a separate program, on a floppy, on a machine with no debugger; a member
   that moved would be silently republished as a different quantity. `mouse.inc`
-  ends in `%error` guards on all twelve offsets.
+  ends in `%error` guards on all thirteen offsets — and they earned their
+  keep: `mou_line` was first declared *beside* `mou_port`, in the middle of
+  the span, which republished nine members as quantities they are not and
+  failed the build instead.
 - **`mou_evrec` was moved out of the middle of it.** ISR scratch is not state,
   and it sat between `mou_idany` and `mou_seen` splitting the span in two.
 - **What survives the operator matters more than what does not.** By the time
@@ -2671,6 +2680,51 @@ machine with no second UART, which is a worse trade than the case it buys.
 `tests/comscan` names the line, which is what makes that diagnosable rather
 than mysterious.
 
+#### 9.5.2.1 …and which line to RETIRE is the same question, asked backwards
+
+§9.5.2 fixed the ISR and left half the bug on the machine. The same Compaq
+Portable III came back with the mouse **detected, moved exactly once, and
+then frozen for the session** — which is not the old symptom (that one never
+moved at all) and is the same root cause seen from the other end.
+
+`mou_lockon` retires the losing ports: IER = 0, and the port's IRQ masked at
+the 8259. It took the mask from `[bx+mou_masks]`, the line the row's **base**
+says it drives — 0x3F8 → IRQ4. On this machine the mouse is at 0x2F8 and
+pulls IRQ4, so retiring the 3F8 row masked **the winner's own line**. The
+sequence is exactly what was reported: the mouse moves, eight clean packets
+settle `[mou_port]`, `mou_hotplug`'s stand-down path calls `mou_lockon` on
+the UI task's next pass, IRQ4 goes into OCW1, and nothing is ever heard
+again. One movement, then silence.
+
+**So the mask comes from the line, and only the ISR knows the line.** The two
+entry points stop being the same instruction: each stamps its own 8259 bit
+into `[mou_lfired]` before falling into the shared body, `mou_claim` banks
+that into `[mou_line]` in the same breath as `[mou_seen]`, and `mou_lockon`
+skips any row whose mask is the line the winning packets actually arrived on.
+
+Four things are worth stating:
+
+- **`IER = 0` is what silences a loser**, and it always was. The mask is
+  belt-and-braces on a line the kernel unmasked itself, and it is the only
+  half that ever needed to know which wire — which is why the fix costs a
+  compare and not a redesign.
+- **`[mou_lfired]` is stamped after `mov ds, ax` and not before.** The store
+  needs DS; the entry has only BX pushed by then, and BX is the one register
+  the push sequence does not spend.
+- **Both cross-wirings are covered, not just this one.** A mouse at 0x3F8
+  driving IRQ3 is the mirror image and was broken identically;
+  `make test MOUSEPORT=com1irq3` is that case and `com2irq4` is the Compaq.
+  Both are verified along with the two ordinary configurations, because the
+  ordinary ones are what a fix like this quietly breaks.
+- **Its absence was invisible in every ordinary case**, which is why §9.5.2
+  shipped without it. Where the base-to-IRQ convention holds, the line and
+  the base agree and the old code was right by coincidence; the new code is
+  right for a reason.
+
+`[mou_line]` is published in §9.4.2's block for the same reason the rest of
+it is: a cross-wired card is a fact about a machine that only the machine can
+report, and `winning row 2` beside `winning IRQ 10` says it in two numbers.
+
 #### 9.5.3 What it costs
 
 302 bytes of `.text`, and **nothing at all against `KERN_BUDGET`** (§15.1):
@@ -2678,6 +2732,15 @@ the kernel image is padded to `OVL_START` and the growth lands in that
 padding. The per-pass cost of `mou_hotplug` after the mouse is found is
 unchanged at two compares, and the ISR's per-packet cost grows by one compare
 and one branch.
+
+§9.5.2.1 adds two bytes of state and about twenty of code — one `jmp short`
+and a `mov` at the ISR entry, two instructions in `mou_claim`, four in
+`mou_lockon` — and that is what **exhausted** the padding: the image moved up
+one 512-byte rung, from 71,624 bytes to 72,136. The guards both still pass
+and `KERNEL.SYS` is the same 141 sectors, so nothing about the boot changed;
+it is recorded because the next author to say "it lands in the padding" needs
+to know the padding is spent. Nothing is added to the per-interrupt path
+except that one `mov`, and `mou_lockon` runs once in the life of a machine.
 
 ### 9.6 The keyboard mouse — the arrows, when there is no mouse
 
@@ -13421,6 +13484,64 @@ rather than as a century byte that was believed. It is reproducible under
 QEMU by forcing `clk_rr+6` to 19h, and 86Box's 286 targets (`vm/286`,
 `vm/286-sound`) show it for real.
 
+### 37.92 The block a test package reads (registry tag `'CK'`)
+
+**Every failure of this ladder looks the same, and that is the problem it
+solves.** A rung that finds nothing, a rung that finds a chip and rejects it
+at the second of seven gates, and a machine with no clock card in it at all
+all produce one identical symptom: the 4 July 2026 fallback date. There is
+nowhere to look, because the only instrument that could tell them apart is
+the machine, and the machine is a 5150 with no debugger.
+
+Nor can the container help. QEMU has an **MC146818 and nothing else**, so
+rung 1 claims and rungs 3 and 4 never execute; `RTC=ns` forces the MM58167
+rung against a machine that has no MM58167, which exercises the **rejection**
+and never the acceptance. The AST SixPakPlus in docs/FIELD-MACHINES.md's
+5150 is the only place rung 4 has ever succeeded, anywhere, and this section
+exists because it stopped succeeding and nothing in the tree could say why.
+
+So the ladder publishes its verdict and its working through §57's registry
+under the tag `'CK'` — the block's own first word, the `'MO'` idiom — as a
+pointer to a **7-byte span**: `clk_dbg_tier` +0, `clk_dbg_ref` +1,
+`clk_dbg_step` +2, `clk_dbg_r00` +3, `clk_dbg_r08` +4, `clk_dbg_sig` +5,
+`clk_dbg_r08w` +6. Eleven bytes with the header, and the span is asserted at
+assembly time for §9.4.2's reason: a member that moved would be silently
+republished as a different quantity to a reader on a floppy.
+
+`clk_dbg_step` is the row that carries. **0** means `clk_ns_probe` never ran
+because an earlier rung claimed; **0FFh** means every gate passed; **1..7**
+names the gate that refused, in the order the routine tests them. The four
+raw bytes beside it are what separates the two answers a step alone cannot:
+all-`FF` is nothing answering at 2C0h, and a plausible byte with a late stop
+is a card that is there and a gate that is stricter than its silicon.
+`clk_dbg_sig` is the one the code's own comment already nominated —
+*"IF THE USER'S SIXPAKPLUS IS NEVER DETECTED, THIS IS THE FIRST LINE TO
+SUSPECT"* — where three sources say the absent nibble reads `0Ah` and
+GLaTICK's author's comment expects it might float to ones.
+
+Three things about it match §9.4.2 exactly, and one differs:
+
+- **Unconditional, not knob-built.** docs/FIELD-MACHINES.md's handover rule
+  sends the field machine a kernel with no knob set, so behind a knob this
+  would be absent from every disk that matters — which is the same argument
+  that keeps the mouse block out of `DISKCNT`'s company.
+- **`.text` with real initialisers**, because `-f bin` zeroes nothing and
+  "the probe never ran" has to be distinguishable from "gate 0 refused".
+- **Written from the boot overlay**, whose DS is `KERNEL_SEG` (§2.5), so
+  every store is an ordinary DS-relative move and none of it needs a shim.
+- **It is the one debug block that RECORDS rather than republishes.**
+  §9.4.2's members are all state the kernel keeps anyway; four of these seven
+  exist only to be read here. That is worth five bytes because the thing they
+  describe happens once, at boot, on hardware nobody has — and the
+  alternative is a bisect measured in field trips.
+
+Verified both ways it can be: QEMU's default answers `tier 1, stop 00` (rung
+1 claimed and the NS probe never ran), and `make test RTC=ns` answers
+`tier 0, stop 01, reg 00 = FF` — the ladder correctly refusing a chip that is
+not there, with the reason legible. `tests/sysbench`'s `sb_ladder` is the
+reference reader, and like the mouse block it emits no `bl_head`, because not
+one row of it is a measurement.
+
 ## 38. fdlg.inc — the Standard File dialog
 
 The kernel's file chooser: **one** window that lists a directory and hands
@@ -21379,9 +21500,18 @@ So: **one fixed word, one level of indirection, and the list can grow.**
 0060:000E   dw dbg_reg          ; or 0 - this kernel publishes nothing
 
 dbg_reg:    dw 'MO', mou_dbg_blk
+            dw 'CK', clk_dbg_blk
             dw 'DD', dsk_dbg_blk    ; only in a DISKCNT=1 build
             dw 0                    ; end of list
 ```
+
+Two of the three are unconditional and one is knob-built, and the split is
+the rule rather than an accident: `'MO'` (§9.4.2) and `'CK'` (§37.92) both
+describe **hardware nobody in this project owns twice** — a real serial card's
+answer to a DTR raise, a real MM58167's answer to a probe — so they have to
+be in the kernel the field machine is actually sent, which by
+docs/FIELD-MACHINES.md's handover rule carries no knob at all. `'DD'`
+(§18.94) counts something a normal kernel has no reason to carry.
 
 | | |
 |---|---|

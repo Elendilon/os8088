@@ -1316,3 +1316,54 @@ machine (§9.5.2 is its bug) and is not booting these images yet.
 worth more than any measurement taken here. A deterministic symptom cannot
 have a probabilistic cause, and that alone ruled out the mechanism the
 container had made easy to measure, in favour of the one it could not see.
+
+## 13. The mouse is detected, moves exactly once, then freezes (Compaq Portable III) (FIXED, reproduced in the container)
+
+**Observed**, on the Compaq Portable III, booting `elendilon` at `c4aaab2`:
+the mouse is found, the cursor moves once, and then nothing for the rest of
+the session. The operator worked around it by booting with the mouse
+unplugged, driving to the benchmark with §9.6's keyboard mouse, plugging the
+mouse in and running the tool — which is why the run's `mouse found 0` is not
+a second bug.
+
+**This is §9.5.2's machine and NOT §9.5.2's symptom**, and that distinction
+is the whole of the diagnosis. §9.5.2 was "the mouse is never seen at all",
+caused by an ISR that read the port its *vector* named; it was fixed, and the
+fix works — the mouse is now found, which is the movement being reported.
+What was left behind was the same wrong assumption in the retirement path.
+
+**Cause** (SPEC.md §9.5.2.1). `mou_lockon` retires the losing ports with
+IER = 0 *and* an 8259 mask taken from `[bx+mou_masks]` — the line the row's
+**base** implies. This machine's mouse is at 0x2F8 and pulls **IRQ4**, so
+retiring the 3F8 row masked the mouse's own line. Eight clean packets settle
+`[mou_port]`, `mou_hotplug`'s stand-down path calls `mou_lockon` on the UI
+task's next pass, and the line goes into OCW1. One movement, then silence,
+permanently.
+
+**The container CAN show this one**, which is worth recording because §9.5.2
+and note 12 could not. `make test MOUSEPORT=com2irq4` is exactly this
+machine — a live silent UART at 3F8 and the mouse at 2F8, both on IRQ4 — and
+the reproduction is unambiguous: the cursor tracks to (380, 300) as the port
+settles and then does not move again through four further moves, with
+`[mou_seen]` = 1 and `[mou_port]` = 2 the whole time. What made it reachable
+here is that the failure is in the *kernel's own* 8259 bookkeeping rather than
+in anything about how a real UART behaves, and QEMU's `irq=` option models
+the one hardware fact that matters.
+
+**Fixed** by taking the mask from the line the winning packets actually
+arrived on (`[mou_line]`, stamped by the ISR entry and banked by
+`mou_claim`) instead of from the base. Verified on all four configurations —
+`com1`, `com2`, `com1irq3`, `com2irq4` — each tracking to an exact final
+position, because the two ordinary ones are what a fix like this silently
+breaks. `[mou_line]` is published in §9.4.2's block, so `winning row 2`
+beside `winning IRQ hex 10` now names a cross-wired card on any machine that
+runs `sysbench`.
+
+**The reusable lesson.** A wrong assumption usually has more than one reader,
+and fixing the one that produced the symptom leaves the others armed. §9.5.2
+found "the base does not determine which port has the byte" and changed the
+code that *reads* bytes; the same sentence was true of the code that *masks
+lines*, one routine away, and nothing in the fix or its testing had any
+reason to look there. The second failure was not a regression and not a new
+bug — it was the rest of the first one, and it could only surface once the
+first fix let the mouse get far enough to be retired.
