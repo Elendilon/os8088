@@ -18,10 +18,10 @@ is that instrument as a command.
 that changes under you is one more variable in a session whose whole point is
 removing them; re-pinning is a deliberate act, not maintenance.
 
-**Reach for this FIRST** when the thing under test runs on an 8088 with a CGA
-or a Hercules — which is most of this OS. docs/TESTING.md carries the full
-ordering; the short version is MartyPC, then QEMU for what it does not cover
-(VGA, 286/386, sound, scripted input), then 86Box, then the 5150.
+**Reach for this FIRST** when the thing under test runs on an 8088 — which is
+most of this OS, and now includes **all three** of SPEC.md §39's adapters.
+docs/TESTING.md carries the full ordering; the short version is MartyPC, then
+QEMU for 286/386, then 86Box, then the 5150.
 
 ---
 
@@ -203,11 +203,36 @@ reads as **zeroes rather than erroring**, so "is there something at the MDA
 aperture" answers yes on a CGA-only machine. That guess shipped for about ten
 minutes and produced a confident 720x348 image of nothing.
 
-It is CGA and Hercules only, and that is a property of the format rather than
-of the tool: both are 1bpp, so the bytes *are* the pixels. **Mode 12h is four
-planes behind the Graphics Controller's Read Map Select** and is not readable
-as flat memory at all — you would have to drive the latches to get a plane
-out. Moot in practice, since MartyPC does not implement mode 12h either.
+`shot` reads **guest VRAM** and is CGA and Hercules only, which is a property
+of the format rather than of the tool: both are 1bpp, so the bytes *are* the
+pixels. **Mode 12h is four planes behind the Graphics Controller's Read Map
+Select** and is not readable as flat memory at all — you would have to drive
+the latches to get a plane out.
+
+**`shot --rendered` is the other route, and it covers everything.** It asks
+the CARD what it rasterised (`fbuf`) instead of asking memory what is in it,
+so it works in every mode on every adapter and comes back as 24-bit colour.
+VGA takes it automatically, having no other option. The two are a genuine
+cross-check rather than a convenience: on a CGA desktop they produce
+framebuffers that agree on **0 pixels of 128,000**, one having walked
+SPEC.md §39.3's banked layout in guest memory and the other having come out
+of the card's raster. Reach for the VRAM route by default on the 1bpp
+adapters anyway, because its output is byte-comparable with
+`tools/hercshot.py` and so with every "0 differing pixels" check in this
+tree.
+
+Two traps live inside `fbuf`, and both produce a black or sheared picture
+rather than an error. `display_buf()` casts the card's own array to `&[u8]`,
+and the cards disagree about what an element is: CGA, MDA and EGA hold
+one-byte palette indices, **VGA holds packed RGBA at four bytes per pixel**
+— and a wrong guess still yields a plausible-looking histogram, because the
+VGA's channel bytes are full of `0x00` and `0xFF`. Deriving the size from
+`buf.len() / (pitch * field_h)` is the obvious fix and is wrong twice over:
+the buffer is allocated at the card's **maximum** raster rather than its
+current one, and `field_h` on a double-scanned CGA is twice the rows the card
+actually renders. `render_depth()` is the card's own answer and is the one to
+use. The palette is the VGA's alone (its DAC is the guest's to program);
+the others answer `None` and get the standard IBM 16.
 
 **Input, without a guest module and without QEMU.** This was the last thing
 on the "go to QEMU for it" list, and it should not have been. `key` enters
@@ -337,12 +362,41 @@ and dropped rather than played. Nothing in this tree uses them — os8088's
 driver is DMA-only — but a program that does will hear nothing and get no
 error, which is the failure mode worth writing down rather than discovering.
 
+**And VGA mode 12h works, which this document said twice that it did not.**
+The correction is worth more than the feature, because the mistake was a
+*shape*: marty_core ships a register-level VGA — CRTC, sequencer, attribute
+controller, graphics controller, a 25.175 MHz dot clock and a `640x480+96+32`
+display aperture spelled out as constants — and its `vga` feature is **on by
+default**. It rasterises 12h correctly and always did. What was wrong was one
+line in the headless crate's `Cargo.toml`: `marty_frontend_common` was taken
+with `default-features = false` and nothing added back, so the arm of
+`get_rom_requirements` that asks for `ibm_vga` was **compiled out**. The
+machine then came up with a VGA card and no video BIOS behind it, the `_ =>
+{}` swallowed the requirement, and nothing in the log said a thing.
+
+Two symptoms sent the diagnosis the wrong way and are worth recognising. The
+card's `is_in_graphics_mode()` answers **false in mode 12h** — `mode_graphics`
+is initialised to false in the VGA and never assigned anywhere, so `video`
+reported a text mode on a machine that was drawing a desktop. And the first
+framebuffer read came back 57% "index 255", which reads as a plausible
+palette histogram and was four-bytes-per-pixel RGBA being read one byte at a
+time. Neither errored. `field_w`/`field_h` is the honest question: **800x524
+is mode 12h's raster** and a text mode's is not.
+
+Verified end to end: os8088 probes VGA, sets `vid_w=640 vid_h=480
+vid_planes=4 stride=80`, and the desktop, a Disk window and Minesweeper all
+render — the last with **eight distinct colours** on screen, every one a
+standard EGA/VGA palette entry (blue 1s, green 2s, a red 3, the exploded
+mine). The VGA BIOS is MartyPC's own bundled `BOCHS-VGABIOS.bin`, LGPL and
+shipped with its licence, so this cost no new asset.
+
+`os8088_5150_vga` is the machine. A 5150 with a VGA in it is an anachronism
+and a deliberate one: what is under test is os8088's mode 12h path on the CPU
+the project is calibrated against.
+
 **Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
-two are complementary rather than competing. Also not for VGA: MartyPC's VGA
-is in development and covers Mode 13h and Mode X, while os8088's whole VGA
-path is **mode 12h**, so the CGA and MDA/Hercules configs are what work here.
-That is a deferral, not a limitation of the tool — and it is the half QEMU
-covers worst, so the split is a good one.
+two are complementary rather than competing. And not for a machine that is
+not an 8088: the 286 and 386 targets are 86Box's.
 
 **And a number from it is still a number from an emulator.**
 docs/FIELD-MACHINES.md's first rule is unchanged: a timing goes in

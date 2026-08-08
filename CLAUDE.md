@@ -196,14 +196,30 @@ make comscan  # the SERIAL PORT SURVEY (tests/comscan) - the field diagnostic
               # the kernel never probes, and answers the one question no
               # emulator can: WHICH IRQ LINE the card actually drives
               # (docs/TESTING.md)
-make field    # ...and the FIELD disks: build/herc.img + build/cga.img, two
+make field    # ...and the FIELD disks: herc, cga, cga720, flop1 and cqdiag,
               # BOOTABLE 360KB system disks with the benchmarks in their root.
               # Shaped by the machine the project is calibrated against
               # (docs/FIELD-MACHINES.md): it has ONE floppy drive, so a
               # benchmark on a second disk means a swap; and it holds a
               # Hercules AND a CGA permanently, so the CGA needs a kernel
               # told to ignore the Hercules — built in build/cgak/, never in
-              # build/, where it would boot the wrong card for everyone
+              # build/, where it would boot the wrong card for everyone.
+              # EVERY one of them is DISKCNT=1 (SPEC.md 18.94.1) - there is no
+              # dskdbg.img any more, because both reasons it was a disk of its
+              # own expired: the counters cost the image 0 bytes (same
+              # 142-sector rung) and 12 instructions per int 13h CALL against
+              # a 238ms sector, and "the published word is an ABI that depends
+              # on a knob" stopped being true when SPEC.md 57's registry made
+              # the block findable BY TAG. A later change removed the reason
+              # and nobody re-asked the question - worth knowing as a shape.
+              # A BENCHMARK KERNEL IS NOT BOUND BY KERN_BUDGET (640KB on every
+              # field machine); what it IS bound by is parity, because
+              # `boot ticks` and every heap row measure the kernel that is
+              # RUNNING. tools/fieldsize.py, run by `make field`, reports
+              # whether the field kernel and the shipped one share a
+              # KIMG_PARA rung - same rung, exactly comparable - and never
+              # fails the build, since growing is allowed and only has to be
+              # known about
 make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
               # server bolted into MartyPC's headless frontend, pinned to one
               # upstream commit in tools/martypc/. Memory, registers, I/O
@@ -228,18 +244,33 @@ cycle-accurate 5150 running the real 1982 IBM BIOS with a debugger attached,
 and it agrees with the field machine to 0-4% on 45 of 47 gfxbench rows.
 **Use it whenever the thing under test runs on an 8088 with a CGA or a
 Hercules**, which is most of this OS; fall back to QEMU for what it does not
-cover - VGA (its VGA is Mode 13h/Mode X, os8088's path is mode 12h) and
-286/386 - and to 86Box for a machine that is not an 8088. **Screenshots,
-scripted input and SOUND have all stopped being reasons to start QEMU.**
+cover - 286/386 - and to 86Box for a machine that is not an 8088.
+**Screenshots, scripted input, SOUND and VGA have all stopped being reasons
+to start QEMU.**
 `os88marty.py key` enters the emulator's keyboard buffer so the guest sees a
 keystroke through the 8255 and int 09h, and `mouse` builds a real Microsoft
 3-byte packet and clocks it into the serial controller so mou_isr decodes it
 - both drive MORE of the real path than a guest-side poke to [mouse_x] would,
 which is why no debug module was written for it. And: `os88marty.py shot out.png`
 reads the framebuffer out of VRAM and decodes SPEC.md 39.3's banked layout,
-verified against QEMU's CGA at 60.0% lit on both. CGA and Hercules only -
-they are 1bpp so the bytes are the pixels, where mode 12h is four planes
-behind the Graphics Controller and not flat-readable. **And sound is all
+verified against QEMU's CGA at 60.0% lit on both. That route is CGA and
+Hercules only - they are 1bpp so the bytes are the pixels, where mode 12h is
+four planes behind the Graphics Controller and not flat-readable - and
+`shot --rendered` is the one that covers everything, asking the CARD what it
+rasterised instead of asking memory what is in it (colour, every mode, every
+adapter, automatic on VGA; the two agree on 0 pixels of 128,000 on a CGA
+desktop). **And VGA mode 12h works**, which these docs twice said it did not:
+marty_core ships a register-level VGA whose `vga` feature is ON BY DEFAULT
+and which rasterises 12h correctly, and the actual defect was one line in the
+headless crate's Cargo.toml - `marty_frontend_common` taken with
+`default-features = false` compiled out the arm that REQUESTS the VGA BIOS,
+so the machine came up with a VGA card and no video BIOS and nothing said so.
+Two things sent that diagnosis wrong and are worth recognising: the card's
+`is_in_graphics_mode()` answers FALSE in mode 12h (a field initialised to
+false and never assigned), and its framebuffer is four-bytes-per-pixel RGBA
+where the others are one-byte indices - read wrongly it yields a
+plausible-looking histogram rather than an error. `field_w`/`field_h` is the
+honest question: 800x524 is mode 12h's raster. **And sound is all
 three tiers now**: `MARTYPC_WAV=` captures one wav per source in the format
 `tools/sndcheck.py` already parses, and the machine has a PC speaker, an OPL2
 and a **Sound Blaster** - the last of which is OURS (`devices/sblaster.rs`,
@@ -506,11 +537,11 @@ There are no unit tests. **`docs/TESTING.md` is the matrix of WHICH TOOL to
 reach for and what each can and cannot do**, with a verified recipe per
 capability — read it before concluding anything is untestable here, and read
 its ordering before defaulting to `make test`. The short version: **MartyPC
-first** (`make marty`) for anything on an 8088 with a CGA or Hercules —
-including scripted input, screenshots and **sound**, all three of which used
-to be QEMU's alone — then QEMU for VGA and 286/386, then 86Box for a machine
-that is not an 8088, then the 5150 for **anything with a disk in it**.
-Testing under QEMU is boot `make test`, then drive it over QMP.
+first** (`make marty`) for anything on an 8088 — all three adapters,
+scripted input, screenshots and **sound**, every one of which used to be
+QEMU's alone — then QEMU for 286/386, then 86Box for a machine that is not an
+8088, then the 5150 for **anything with a disk in it**. Testing under QEMU is
+boot `make test`, then drive it over QMP.
 
 Its **"Modelling the old machine from a fast one"** section is the part that
 has cost four bugs, and most of it is about QEMU: this container is ~1000x a
