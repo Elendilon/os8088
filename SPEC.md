@@ -4321,6 +4321,23 @@ at most two items and the second one is the point:
 | `About <Name>` | the window registered a handler with `wm_about_set` (slot 0x01E0) | the application, through its own dispatcher, exactly like `W_ONCLICK` |
 | `Close` | **always** | the kernel |
 
+**One duplicate had to go with it, and exactly one.** A Disk window OWNS the
+app-name cell (`[menu_win]` is that window, and `fm_menus`' `AM_NAME` is
+still `'Locator'`), so its `File ▸ Close Window` said the same thing as the
+cell's `Close`. The item is retired and `fm_items_file` is 7 long. Two things
+that look like the same case and are not: **Locator's own** `File ▸ Close
+Window` STAYS, because with the bare desktop active `[menu_win]` is 0, no
+cell exists at all, and that item is then the only way to close from the bar —
+which is why it already greys itself against `wm_top`. And no application has
+one: every shipped `OS88_MENUSET` was surveyed and none carries a close item
+in its windowed menus. ArtfulType's `Quit` is in its FULLSCREEN table, where
+it draws its own bar over the kernel's and the cell is not on screen.
+
+`FMC_CLOSEW`'s *number* is kept even though the item is gone, because
+`fm_oncmd` builds an id as `fm_menu_base[menu] + item` — the retired item was
+the LAST of the File menu, so the id simply stops being produced and nothing
+after it shifts. Same reasoning §20.8 rule 4 applies to API slots.
+
 `Close` is the close box (§13) reached from the bar, and it does what the
 close box does: `app_close_win` on `[menu_win]`, under the gfx lock, on the
 UI task. A task-less instance is torn down synchronously; a task-owned one
