@@ -19852,6 +19852,50 @@ which is better than what it replaces. In the common case it is not even
 visible: the burst sits at the trail's **end**, so what waits is the last
 dozen pixels and there is nothing beyond them to look detached.
 
+### 48.19.1 …and it stops at the DISC's edge, not at the square round it
+
+§48.19's first version held the **whole** step the moment any part of it would
+reach a burst, and a step is 24–31 pixels against a 26-pixel disc — so a trail
+could stop a full step short and leave a stub of line poking out of the
+fireball with a gap between them. Reported from the field as *the extra lines
+look a bit weird*, which is exactly what it is: the cleanup is supposed to run
+up to the fire and stop.
+
+`mc_drn_hold` returns a **clamped step** now rather than a yes/no, and the
+clamp is two-stage because the two stages answer different questions:
+
+- **The Chebyshev distance bounds the whole PATH, and costs no division.** A
+  Bresenham step moves each axis by at most one, so the Chebyshev distance to
+  a burst falls by at most one per step: `d - r - 1` pixels are safe *for
+  every pixel on the way*, not merely for the endpoint. That is what makes the
+  common case free — no burst within reach means one compare per live burst
+  and no arithmetic at all, where the first version paid an `imul`/`idiv` per
+  entry per frame whatever was on screen.
+- **Then `MC_DHEXT` probes walk the square back to the disc.** Chebyshev is
+  the *square* round the burst, so a diagonal approach stops up to `0.41r` —
+  five pixels at r = 13 — short of the fire. Each probe computes the actual
+  point and tests it against `dx² + dy² ≤ r²`, and stops at the first one
+  inside, so it can never step over a disc; eight probes covers the worst gap
+  with one spare.
+
+**Inside a disc needs `|dx| ≤ r` AND `|dy| ≤ r`, and that test comes before
+either multiply.** It is exact rather than a heuristic — `|dx| > r` already
+means `dx² > r²` — and it is what makes the probe affordable: the loop runs up
+to `MC_DHEXT` times per entry per frame and would otherwise square *every* lit
+burst each time, which on a screen with five of them is fifteen `imul`s a
+probe. It also bounds the products inside a word, on a CPU with no 32-bit
+compare to fall back on.
+
+**What the probe costs is below the noise, and that is the honest answer
+rather than a claim of free.** Frame periods measured at `mc_worker`'s
+breakpoint, wave certified 1 at both ends, 219 periods a run: `MC_DHEXT` 6
+gives 18.21 fps / sd 7.16 ms and `MC_DHEXT` 0 — the Chebyshev bound alone —
+gives 18.12 fps / sd 5.12 ms, while repeated runs of a *single* build spread
+across sd 4.4–7.2 ms on their own. The mean frame period sat in 54.9–55.2 ms
+for every build measured. So the rate is untouched and the probe's cost does
+not separate from run-to-run variation at this load; what does separate is
+what it is for, the stub going from most of a step to **0.6 px**.
+
 ### 48.20 The catch-up frame IS the judder, and it was free to stop
 
 `MC_LAGMAX` is 0. §44.1's deadline scheme lets a worker that overran run the
@@ -19889,6 +19933,40 @@ came in at **54.92 ms mean, sd 1.28 ms**, and — diffing the framebuffer at
 each frame boundary — **0 of 199 drew nothing**. 95% of frames land exactly on
 the tick even under sustained fire; the jitter is the ~5% that overrun, and
 the only lever left on those is the fill count §48.18 already worked.
+
+### 48.21 A trail is one pixel wide, so it cannot be dithered
+
+`mc_pal` puts the ground, the cities and the two kinds of trail in different
+§39.4 classes on purpose, "so the four things a player must tell apart stay
+apart once colour has reduced to three inks" — and in **every one of the ten
+palettes exactly one of the two trails lands in the dither class**. On VGA
+that is a colour. On Hercules and CGA it is a 50% checkerboard, and
+`gfx_line_mono` and `gfx_lstep_mono` both light a dithered pixel only where
+`(x ^ y)` is even — so a **one-pixel-wide** line keeps every other pixel and
+actively clears the rest.
+
+What that looks like is a dotted trail, and how dotted depends on the slope,
+which is the tell: a steep or shallow line changes parity every pixel and
+comes out **50% gone**, while a 45° line holds its parity and comes out solid
+(or, starting on the wrong foot, invisible). Reported from the field as
+*missile lines are drawing dotted, the steeper the line the more black space
+in them*.
+
+This is §48's own recorded lesson arriving somewhere new. The wave counter was
+`CLGREEN` and on CGA it was not faint but **absent**, because a dithered 8x8
+glyph loses the half of each stroke the pattern masks out and a 1px stroke has
+nothing left — and a 1px *line* is the same object as a 1px stroke. So on
+1bpp both trail pens go to `CWHITE`: `[mc_mono]` is banked in `mc_entry` (the
+1bpp half of `[mc_ecoarse]`'s test on its own, because a tier-0 VGA is slow
+and still has colour) and spent where the wave palette is loaded.
+
+**The distinction it gives up was not there to give up.** Two trails in
+different §39.4 classes are two colours on VGA and one line and one dotted
+line on mono, which is not a second ink — and the trails were never told apart
+by colour anyway: an ABM rises from a base and an ICBM falls from the top of
+the screen. The ground, the cities and the explosions keep their classes,
+because those are **areas**, where a 50% dither is a grey and is exactly what
+§39.4 is for.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
