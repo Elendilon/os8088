@@ -150,8 +150,48 @@ package. Read it before you spend a day re-deriving any of them.
 
 ## Commands
 
+**BEFORE YOU RUN ANY OF THESE: `make marty` IS THE DEFAULT TEST TARGET, AND
+`make test` IS THE FALLBACK.** This block used to start with the QEMU targets
+and put `make marty` twenty lines down, which is most of why sessions keep
+reaching for QEMU — a skim reads the list before it reads the rule. So the
+rule goes first:
+
+> **Develop on MartyPC.** Anything that runs on an 8088 — which is every
+> adapter, every package, the whole kernel, all three of SPEC.md §39's video
+> paths, input, screenshots and sound — is tested with `make marty`. It is a
+> **cycle-accurate 4.77MHz 8088 running a real period BIOS with real CGA,
+> Hercules and VGA cards in it**, and it agrees with the field machine to
+> 0–4% on 45 of 47 `gfxbench` rows.
+>
+> **Go to QEMU when you have a specific reason, and the list is short**:
+> 286/386 (86Box also does these, and better), the hard-disk driver
+> (SPEC.md §52 — `make test HDD=40`; no MartyPC config here has a disk
+> controller), and SPEC.md §9.5's COM2 / cross-wired-IRQ / modem mouse cases
+> (`MOUSEPORT=`, a socket chardev). "It is quicker to type" is not a reason;
+> neither is "I already know the QMP commands".
+>
+> **And for anything with a disk in its TIMING, neither one is the
+> instrument** — that is the 5150 (docs/FIELD-MACHINES.md), because no
+> emulator here is disk-accurate and MartyPC's error is 30x in the flattering
+> direction.
+>
+> Why this is a rule and not a preference: QEMU is the emulator **furthest
+> from the target**. It runs the guest at host speed, on a CPU that is not an
+> 8088, through SeaBIOS rather than a period ROM. Nearly every entry in
+> docs/FIELD-NOTES.md is something QEMU showed as fine — and SPEC.md §18.91's
+> `AL` bug is the worked example of the sharper failure: QEMU ran the buggy
+> binary *correctly and quickly* and said nothing, while the real machine was
+> issuing 4.6x the disk traffic.
+>
+> `make marty` builds from source with cargo and takes a few minutes the
+> first time in a container (`libudev-dev` + `pkg-config` on Linux). **Build
+> it at the start of a session, not when you first need it.**
+
+docs/TESTING.md is the full matrix; docs/MARTYPC-DEBUG.md is the recipe.
+
 ```
 make          # build all six floppy images into build/
+              # --- QEMU targets: the FALLBACK, per the rule above ---
 make run      # boot in QEMU with emulated serial mouse (1.44MB images)
 make run-640  # same, as a maxed-out 640KB machine (-m 1M; QEMU/SeaBIOS can't boot below 1MB, int 12h caps at 640K anyway; SeaBIOS's EBDA makes it 639K)
 make run-720  # same, off the 720KB pair (os8088-720.img + apps720.img)
@@ -220,42 +260,83 @@ make field    # ...and the FIELD disks: herc, cga, cga720, flop1 and cqdiag,
               # KIMG_PARA rung - same rung, exactly comparable - and never
               # fails the build, since growing is allowed and only has to be
               # known about
+              # --- THE DEFAULT. Everything above this line is the fallback ---
 make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
               # server bolted into MartyPC's headless frontend, pinned to one
               # upstream commit in tools/martypc/. Memory, registers, I/O
               # ports, breakpoints, single-step and cycle counts on a running
               # os8088 with NO code in the guest at all - it costs the guest
               # not one cycle and answers on a machine that has hard-frozen.
-              # Needs cargo, and on Linux libudev-dev + pkg-config.
+              # Needs cargo, and on Linux libudev-dev + pkg-config; build it
+              # at the START of a session rather than when you first need it.
               #   python3 tools/os88marty.py 127.0.0.1:9001 verify
               # dumps KERNEL_SEG and diffs it against build/kernel.bin, which
               # is FIELD-MACHINES.md's self-validating dump as one command
+              # Machines: os8088_5150_cga (default), _5150_herc, _5150_cga_gla,
+              # _5150_sb (AdLib + Sound Blaster), _xt_vga (mode 12h),
+              # _xt_hdd (XT-IDE, SPEC.md 52's rung 0). Add
+              # MARTYPC_WAV=/tmp/cap for one wav per sound source.
 make clean
 ```
 
-**MARTYPC IS THE FIRST TOOL TO REACH FOR, NOT THE LAST, and that is a
-REVERSAL of how this tree has worked.** Everything here was QEMU-first for
-years, and QEMU is the emulator FURTHEST from the target: it runs the guest at
-host speed on a CPU that is not an 8088, through SeaBIOS rather than a period
-ROM, with no CGA and no Hercules card in it at all. It is exact about how much
-WORK the guest does and it is not a machine - nearly every entry in
-docs/FIELD-NOTES.md is something QEMU showed as fine. `make marty` is a
-cycle-accurate 5150 running the real 1982 IBM BIOS with a debugger attached,
-and it agrees with the field machine to 0-4% on 45 of 47 gfxbench rows.
-**Use it whenever the thing under test runs on an 8088 with a CGA or a
-Hercules**, which is most of this OS; fall back to QEMU for what it does not
-cover - VGA (its VGA is Mode 13h/Mode X, os8088's path is mode 12h) and
-286/386 - and to 86Box for a machine that is not an 8088. **Screenshots,
-scripted input and SOUND have all stopped being reasons to start QEMU.**
+**MARTYPC IS WHAT YOU DEVELOP ON. QEMU IS A FALLBACK WITH A SHORT LIST, and
+that is a REVERSAL of how this tree has worked.** Everything here was
+QEMU-first for years, and QEMU is the emulator FURTHEST from the target: it
+runs the guest at host speed on a CPU that is not an 8088, through SeaBIOS
+rather than a period ROM, with no CGA and no Hercules card in it at all. It
+is exact about how much WORK the guest does and it is not a machine - nearly
+every entry in docs/FIELD-NOTES.md is something QEMU showed as fine. `make
+marty` is a cycle-accurate 4.77MHz 8088 running a real period BIOS with a
+debugger attached, and it agrees with the field machine to 0-4% on 45 of 47
+gfxbench rows. **Use it for anything that runs on an 8088**, which is the
+whole of this OS bar the 286/386 targets. **Screenshots, scripted input,
+SOUND and VGA have all stopped being reasons to start QEMU** - each was one
+once, and each is now a MartyPC command.
+
+**The whole of QEMU's remaining list**, so that "a legitimate need" is a
+thing you can check rather than a thing you can argue: **286/386** (86Box
+covers these too and models the machine rather than just the CPU), the
+**hard-disk driver's RUNG 1** (SPEC.md §52.1 - the IDE task file read
+directly, gated on `CPU_286` because an 8088's `in ax, dx` loses the drive's
+high byte, so MartyPC's 8088 can never clear that gate; **rung 0 is
+MartyPC's**, `os8088_xt_hdd`, and it is the rung the target machine uses),
+and SPEC.md §9.5's **COM2 / cross-wired-IRQ / modem** mouse cases (`MOUSEPORT=`
+and a socket chardev - MartyPC can put its mouse on either port but the
+cross-wired and modem cases are not built). That is the list. Speed of
+typing is not on it, and neither is familiarity with QMP.
+
+**One live caveat, and it should be deleted once it stops being true.** VGA
+mode 12h on MartyPC is NEW - verified on the desktop, a Disk window and
+Minesweeper's 16 colours, and *not yet* on Paint's canvas, SPEC.md §32's
+back buffer, `gfx_line_runs`, or SPEC.md §53's Mode 13h/Mode X brackets. It
+is the default for VGA work all the same, because the alternative is a
+machine that is not an 8088 at all. But **a disagreement between MartyPC and
+QEMU about a VGA pixel is not yet automatically MartyPC's win** - go and find
+out which is right, and then delete this paragraph.
 `os88marty.py key` enters the emulator's keyboard buffer so the guest sees a
 keystroke through the 8255 and int 09h, and `mouse` builds a real Microsoft
 3-byte packet and clocks it into the serial controller so mou_isr decodes it
 - both drive MORE of the real path than a guest-side poke to [mouse_x] would,
 which is why no debug module was written for it. And: `os88marty.py shot out.png`
 reads the framebuffer out of VRAM and decodes SPEC.md 39.3's banked layout,
-verified against QEMU's CGA at 60.0% lit on both. CGA and Hercules only -
-they are 1bpp so the bytes are the pixels, where mode 12h is four planes
-behind the Graphics Controller and not flat-readable. **And sound is all
+verified against QEMU's CGA at 60.0% lit on both. That route is CGA and
+Hercules only - they are 1bpp so the bytes are the pixels, where mode 12h is
+four planes behind the Graphics Controller and not flat-readable - and
+`shot --rendered` is the one that covers everything, asking the CARD what it
+rasterised instead of asking memory what is in it (colour, every mode, every
+adapter, automatic on VGA; the two agree on 0 pixels of 128,000 on a CGA
+desktop). **And VGA mode 12h works**, which these docs twice said it did not:
+marty_core ships a register-level VGA whose `vga` feature is ON BY DEFAULT
+and which rasterises 12h correctly, and the actual defect was one line in the
+headless crate's Cargo.toml - `marty_frontend_common` taken with
+`default-features = false` compiled out the arm that REQUESTS the VGA BIOS,
+so the machine came up with a VGA card and no video BIOS and nothing said so.
+Two things sent that diagnosis wrong and are worth recognising: the card's
+`is_in_graphics_mode()` answers FALSE in mode 12h (a field initialised to
+false and never assigned), and its framebuffer is four-bytes-per-pixel RGBA
+where the others are one-byte indices - read wrongly it yields a
+plausible-looking histogram rather than an error. `field_w`/`field_h` is the
+honest question: 800x524 is mode 12h's raster. **And sound is all
 three tiers now**: `MARTYPC_WAV=` captures one wav per source in the format
 `tools/sndcheck.py` already parses, and the machine has a PC speaker, an OPL2
 and a **Sound Blaster** - the last of which is OURS (`devices/sblaster.rs`,
@@ -522,11 +603,11 @@ There are no unit tests. **`docs/TESTING.md` is the matrix of WHICH TOOL to
 reach for and what each can and cannot do**, with a verified recipe per
 capability — read it before concluding anything is untestable here, and read
 its ordering before defaulting to `make test`. The short version: **MartyPC
-first** (`make marty`) for anything on an 8088 with a CGA or Hercules —
-including scripted input, screenshots and **sound**, all three of which used
-to be QEMU's alone — then QEMU for VGA and 286/386, then 86Box for a machine
-that is not an 8088, then the 5150 for **anything with a disk in it**.
-Testing under QEMU is boot `make test`, then drive it over QMP.
+first** (`make marty`) for anything on an 8088 — all three adapters,
+scripted input, screenshots and **sound**, every one of which used to be
+QEMU's alone — then QEMU for 286/386, then 86Box for a machine that is not an
+8088, then the 5150 for **anything with a disk in it**. Testing under QEMU is
+boot `make test`, then drive it over QMP.
 
 Its **"Modelling the old machine from a fast one"** section is the part that
 has cost four bugs, and most of it is about QEMU: this container is ~1000x a
@@ -875,8 +956,12 @@ Four things are load-bearing:
 - **The mount is usually skipped.** `fmv_take` (the memory half of a re-list,
   factored out of `fmv_bcast` so the two cannot disagree) is taken when the
   globals already are this folder, are not `[dsk_lstale]` and came from a
-  mount that worked — which they usually are, the write having ended in a
-  remount of the folder it wrote to.
+  mount that worked. That used to be the common case *because* the write had
+  just remounted the folder it wrote to — but the kernel had already paid for
+  that mount whether or not the window was ever looked at. §18.4 stopped
+  paying it, so this is usually a real `fmv_load` now: **one mount, moved
+  from the write to the look.** A user who never focuses the window pays
+  nothing; one who does pays what the write used to charge everybody.
 - **Only something that makes cache AND pixels current may clear the flag.**
   `fm_focus` does; `fmv_reload_all` does (`fmv_repaint_all` is its other
   half); `fmv_bcast` clears it for the ACTING window only, because its caller
@@ -1228,6 +1313,30 @@ holds the gfx lock, so it creates and shows the window inline and returns; the
 answer comes back later through a completion callback, run after the dialog is
 destroyed so the app repaints onto clean screen.
 
+**Where it OPENS is per application, not global (SPEC.md §38.10).** It used
+to end its setup with an unconditional "re-list where the volume already is",
+and `[disk_drive]`/`[dsk_cwd]` are one pair for the whole machine — so
+anything that moved them moved every app's idea of where its documents are:
+a Control Panel close writes `SYSTEM.CFG` to the system disk (§51.5.1), a
+package writing a file leaves the volume where it wrote, a Disk window coming
+to the front re-lists into *its* folder (§22.8). The next Save As in an
+unrelated app then opened somewhere the user had never taken it.
+`inst_fdrv`/`inst_fcwd`/`inst_fname` are a side table in `instance.inc`, one
+row per record, carrying the volume, directory and name that instance last
+**committed** to. Six things hold it up: it is a side table because `I_RECSZ`
+is 32 and full and `index<<5` is what makes a record cheap to reach
+everywhere else; `inst_alloc` clears it for `I_CYC`'s reason (a reused record
+must not inherit a dead instance's folder); `0xFF` means "never used a
+dialog", so the **first** open still inherits the volume the user is on;
+it is written on a COMMIT only, after `fdlg_commit`'s staleness triple, since
+a cancelled dialog is not a statement about anything; the caller's `SI`
+default still wins, the remembered name filling the box only when `SI` is 0;
+and `fdlg_home_go` banks the current pair **before** trying the remembered
+one, because `dsk_chdir`'s failure path moves the globals it would otherwise
+be recovered from. What it does *not* change is where a file operation
+resolves — names still resolve in the current directory (§19.2), and the
+dialog leaves the volume at the folder it committed to.
+
 ### Where the memory went (SPEC.md §2, `docs/KERNEL-MEMORY.md`)
 
 **The kernel is one span, and it fits the budget.** `KERNEL_SEG` = 0x0060 — the first paragraph above the BIOS data area — through the top of task 0's stack: image, `.bss`, the cold segment, the FAT window (which doubles as the boot overlay's landing zone), the disk caches, the sector buffer and every task stack. 72,704 bytes of the 74,240-byte `KERN_BUDGET` (the footprint guard), with `KERN_CODE_MAX` — `.text` + `.bss` inside one 64KB segment — at 55,456 of 65,536. `KERN_BUDGET` is the tighter of the two by 5x and is meant to be; `docs/KERNEL-MEMORY.md` is the byte-exact account of both. Above it: the claim heap, and nothing else. The 60KB package pool is retired — a package's region is an ordinary heap claim (SPEC.md §20.1), which returned those 60KB to every machine and dropped the RAM floor from 256KB to **128KB**.
@@ -1334,9 +1443,58 @@ re-harvested on every switch and copying a folder got slower as it filled. The
 trap is that a quiet mount leaves the global snapshot EMPTY and owed —
 `disk_nfiles` goes to 0 (a wrong listing is worse than no listing) and
 `[dsk_lstale]` is the debt, which `dsk_relist` pays by tail-calling
-`dskw_sync`. **Every path back to the event loop must pay it**, and the copy
-engine has two: `fcp_stop` and the replace question's pause. The pause is the
-sharp one — it is not an end, so nothing else would reconcile it.
+**`dskw_remount`, never `dskw_sync`** — `dskw_sync` defers when nothing on
+screen is drawn from the listing (§18.4), so that pair would clear the debt
+and then decline to pay it, which is a listing that is never rebuilt.
+
+**Coming back from a document open is a file operation too** (SPEC.md §54.9):
+`assoc_back` restores the volume so the app can READ ITS DOCUMENT, and a read
+resolves by name through `dskw_find`'s directory walk, so it is
+`dsk_chdir_q` — measured, opening `BEVERLY.MOD` from `APPS` went 295 → **284
+sectors** (~2.6 s on the 5150), the mount COUNT unchanged because a quiet
+mount is still a mount and what changed is the ~12 sectors one costs becoming
+~1. Its debt is deliberately never collected, which is safe only because
+`files_refresh`/`files_poster` paint from the WINDOW's cache, `fdlg_home_go`
+ends in a full `dsk_chdir` on both branches, and `fmv_sync` has the test.
+**The other two mounts of a document open are gone as well** (SPEC.md §21.4):
+`ld_run_name` resolves through `dskw_stat` rather than a directory index, so
+`assoc_try` needs no listing and is quiet too, and `assoc_run` reads the
+poster's own `FS_DRV`/`FS_CWD` off its state block instead of calling
+`fmv_sync` at all — a full mount that only ever existed to produce two words
+`fmv_sync` itself takes from exactly there. Measured on the same document
+open: 295 → 284 → **274 sectors**. **By name is also SAFER than by index** —
+an index is resolved against a snapshot that can have shifted (§19.4), which
+is docs/FIELD-NOTES.md 4; a name cannot be shifted into somebody else's
+entry. The trap it sprang is worth reading before touching either entry:
+`.peek` takes the cluster **in AX** as well as in `[ld_clus]`, undocumented,
+so the first version handed `dsk_clus2lba` an attribute byte — it assembled,
+every gate passed, and a document double-click silently did nothing.
+
+**The
+copy engine's paths back to the event loop must pay**, and it has two:
+`fcp_stop` and the replace question's pause. The pause is the
+sharp one — it is not an end, so nothing else would reconcile it. **The
+other three debtors owe nothing at all**: `drv_mounted` and `drv_vol_back`
+(both quiet now — going to A: to write `SYSTEM.CFG` and coming back are file
+operations, not navigations, and no Disk window paints from the global
+listing) and §18.4's deferred write. A debt nobody ever collects is the
+right outcome there rather than a leak: it costs one word of state and means
+the sectors were never spent.
+
+**EVERY reader of the global listing must consult `[dsk_lstale]`, and a
+`(drive, cwd)` compare is NOT that test** — the binding rule, learned by
+breaking it twice in one commit. The debt leaves the globals naming the
+*right folder* with **no listing in it**, so "are we already where we want to
+be?" answers yes about an empty snapshot; before the deferral that state
+could only follow a volume switch, so the compare was accidentally
+sufficient. `fm_focus` had the test; `fmv_sync` and `fmv_bcast` did not, and
+both failed **silently** — a double-click after a Control Panel close
+launched *nothing at all* (and cost no I/O doing it), and deleting one file
+redrew its Disk window as `Drive B: 0 files`. Both are
+docs/FIELD-NOTES.md 4's family. The two fix shapes: a reader that can re-list
+where it stands falls through to its own load path (`fmv_sync`); one that
+adopts the snapshot wholesale pays `dsk_relist` first (`fmv_bcast` —
+idempotent, free when nothing is owed).
 
 **A copy costs two volume switches per file** (SPEC.md §22.5), down from five.
 The destination is created WITH its first chunk instead of empty (so the first
@@ -1355,7 +1513,7 @@ that ends before the size says it should is an ERROR now, where the old loop
 returned short and the caller read that as "finished" and truncated in
 silence.
 
-**Writing** is `kernel/diskw.inc` (prefix `dskw_`, the only caller of `disk_write`): seven operations — write (create or replace), read, delete, rename, dfree, plus `dskw_mkdir` and `dskw_rmdir` for folders (SPEC.md §18.5/§18.6) — the first five reached by the OS directly and by packages through API slots 0x0120..0x0140, UI-task context only. Names resolve in the volume's **current directory** (`[dsk_cwd]`, SPEC.md §19.2), not the root. Three rules are binding and easy to break by accident. (1) **Commit order**: allocate + write the data, flush the FAT, *then* write the directory entry (one sector — the commit), *then* free the replaced chain and flush again; a crash leaks lost clusters, never a cross-link. (2) **Rollback**: any failure before the commit re-reads the FAT off the disk (`dskw_refat`), so a half-built chain cannot survive in RAM to be flushed later. (3) **Coherence by remount**: a successful metadata change re-runs `disk_mount`, so `disk_dir`/`disk_icons`/`disk_nfiles` stay exactly a mount snapshot and no new staleness rule enters the kernel. Writes are gated on `[dsk_mntok]`, set only by a fully successful mount — which is why the boot floppy (no valid BPB) can never be written. Verify write changes with the `tests/filetest` gate package (`make test-snd TESTAPPS=build/filetest.img`, plus the `-frag` image) **and** `python3 tools/os88disk.py --verify <img>` from the host afterwards — the in-kernel free-space check and the host fsck catch different bugs.
+**Writing** is `kernel/diskw.inc` (prefix `dskw_`, the only caller of `disk_write`): seven operations — write (create or replace), read, delete, rename, dfree, plus `dskw_mkdir` and `dskw_rmdir` for folders (SPEC.md §18.5/§18.6) — the first five reached by the OS directly and by packages through API slots 0x0120..0x0140, UI-task context only. Names resolve in the volume's **current directory** (`[dsk_cwd]`, SPEC.md §19.2), not the root. Three rules are binding and easy to break by accident. (1) **Commit order**: allocate + write the data, flush the FAT, *then* write the directory entry (one sector — the commit), *then* free the replaced chain and flush again; a crash leaks lost clusters, never a cross-link. (2) **Rollback**: any failure before the commit re-reads the FAT off the disk (`dskw_refat`), so a half-built chain cannot survive in RAM to be flushed later. (3) **Coherence by mark, then remount only if somebody is looking**: a successful metadata change always marks the views of the folder that changed (`fmv_mark`, SPEC.md §22.8) and re-runs `disk_mount` **only when `fmv_gneed` says something on screen is drawn from the global snapshot** — in practice only the Standard File dialog, whose New Folder button is a write made while it is up. Otherwise it publishes `disk_nfiles` = 0 with `[dsk_lstale]` raised, which is the identical state a quiet mount leaves (§18.9), and `dsk_relist` pays. `disk_dir`/`disk_icons`/`disk_nfiles` are therefore still *always* either exactly a mount snapshot or nothing at all, never a patched one, and no new staleness rule enters the kernel. **The old rule was "every write remounts" and it was too strict** — it was written when the only writer was the file manager acting on the window the user was looking at. Measured: a Control Panel close while the user is on B: was 3 mounts / 47 sectors and is **2 / 28** (~4.5 s of floppy on the 5150), and an app saving into a folder no window shows was 1 mount and is **0**. Writes are gated on `[dsk_mntok]`, set only by a fully successful mount — which is why the boot floppy (no valid BPB) can never be written. Verify write changes with the `tests/filetest` gate package (`make test-snd TESTAPPS=build/filetest.img`, plus the `-frag` image) **and** `python3 tools/os88disk.py --verify <img>` from the host afterwards — the in-kernel free-space check and the host fsck catch different bugs.
 
  Packages are format v3 (SPEC.md §20.2) and **own a segment**: assembled at org 0, loaded on a paragraph boundary claimed off the top of the heap (`mem_claim_hi`), bss zeroed, entry far-called with DS = CS = the package's own segment. There is no relocation of any kind — no dual assembly, no reloc table, no author rule about whole-word addresses — and `tools/os88pkg.py` is a validator rather than a generator.
 
@@ -1453,16 +1611,26 @@ flashing menu from the other end. **A repeat is not a press** (`KBM_GAP`
 again): typematic is ~1.8 ticks and a deliberate second press is 4+, and
 without the guard a press held a moment too long opened a menu and closed it
 on its own repeat. **Five loops spin on that level and the list used to name
-three**: `menu_track`, `ui_drag`, `ui_grow` call `kbm_poll` beside their
-`task_yield` (it PEEKS with int 16h AH=01h and takes the key only if
-`kbm_key` claims it, because int 16h cannot put one back); **`osapi_mouse`
-calls it too**, gated on `[mou_seen]`, which is the same loop by another name
+three**: `menu_track`, `ui_drag`, `ui_grow` call `kbm_pollm` beside their
+`task_yield`; **`osapi_mouse` calls `kbm_poll`**, gated on `[mou_seen]`, which is the same loop by another name
 and is what makes a PACKAGE's drag reachable - Solitaire's `sol_drag`, Paint's
 `pt_wait`, Note Pad's selection - where this used to say they were not; and
 `fm_drag` is served by **not spinning at all** with no mouse, because it waits
 with the button down to tell a click from a drag and the button is latched for
 the whole dispatch, so a row click would cost two presses and a double-click
-four. File drag and drop wants a mouse, as it always did. **ScrollLock is the
+four. File drag and drop wants a mouse, as it always did. **What happens to a key
+the poll does NOT claim is the whole difference between `kbm_pollm` and
+`kbm_poll`, and getting it wrong is a machine you cannot get out of**: int 16h
+AH=01h reports the HEAD of the BIOS buffer, so an unclaimed key left there
+makes every later key queue behind it, invisible - the press that would close
+the menu included. The modal loops EAT it (they read no keys of their own, and
+a key typed into a menu is discarded, which is what modal means); `osapi_mouse`
+LEAVES it, because a package's loop polls int 16h itself and eating its
+keystrokes is worse than the bug. It reached the field as a Compaq Portable III
+stuck in a menu with a live machine underneath it, wedged by keypad 5 - which
+was unclaimed there because it is the one keypad key with NO cursor function,
+so what a BIOS puts in `AL` for it is that BIOS's business. It is matched on
+`AH = 4C` alone now; turn NumLock ON under QEMU to get the field's byte. **ScrollLock is the
 ONE latch, and the rule it encodes is that the way back to typing can never be
 a key you would want to type** (SPEC.md 9.6.2). A '.' was added as a second,
 friendlier hatch and was wrong within a day: '.' is wanted the moment anybody
@@ -1613,9 +1781,29 @@ are the floppy's code, unchanged. A volume caps at 65,535 sectors (31.99MB),
 which is both BPB rule 8's existing refusal and the DOS 3.3 limit these
 machines ran; more capacity is more partitions.
 
-**Each volume can own its FAT window** (SPEC.md §18.8.1) — `DSK_FAT_SECS`
-sectors of heap per DRIVER-BACKED volume, claimed at `osapi_vol_add`, with
-`[dsk_fatseg]` naming the live one. That is what stops a copy reloading nine
+**Every volume can own its FAT window, floppies included** (SPEC.md
+§18.8.1/§18.8.2) — `DSK_FAT_SECS` sectors of heap, claimed at
+`osapi_vol_add` for a driver volume and at mount time for a floppy
+(`dsk_fatw_want`), with `[dsk_fatseg]` naming the live one. **The floppy half
+is measured rather than assumed**: a floppy mount is ~12 sectors *regardless
+of what is in the directory* (B: root with 1 package = 11, `APPS` with 9 =
+12, `GAMES` with 5 = 12), so it is BPB(1) + **FAT(9)** + dir(1) +
+`ASSOC.DAT`(1) — the icon harvest, which looks like the expensive part, is
+already answered from §54.7's per-volume icon cache. **The gate is 128KB of
+FREE heap**, not the 4.5KB the claim needs, retried per mount rather than
+latched, and a refusal just shares as before. Reuse needs a QUIET mount
+**and** a matching `dsk_bpb_sig` — a position-sensitive 16-bit signature of
+the boot sector the mount has already read, so revalidation costs no I/O. It
+**cannot** tell two os8088 disks of the same geometry apart, because
+`os88disk.py` pins `BS_VolID` for reproducible images; that residual swap
+case is accepted deliberately, since a full mount (every navigation) always
+re-validates. The three per-volume arrays are in `.text` with real
+initialisers, which is a **latent-bug fix**: `dsk_fatwc` was `.bss`, `-f bin`
+zeroes none, and `dsk_fatw_pick` reads it as a SEGMENT. Measured on the
+Control Panel case: 47 → 28 → **10 sectors**, and **9** once §18.4.3's
+`dskw_find` arrived from `elendilon` — different sectors (the FAT re-read at
+the switch against the directory re-read at the open), so the two compose
+rather than overlapping. That is what stops a copy reloading nine
 sectors on every switch: 45 mounts, 3 loads. A floppy gets none (its window
 is the whole FAT and never moves) and a refused claim just shares, as
 everything did before. Four traps: only a QUIET mount may reuse a banked
@@ -1821,6 +2009,44 @@ loads on the spot), and the "no hardware found" report is still exactly
 right when the settings file *did* ask — that path is untouched and gated on
 the same `DRVR_WANT`.
 
+**…but the first boot ASKS, and that is not the same as guessing (SPEC.md
+§51.3.1).** What §51.3 refused is in its own paragraph: 5.5KB of driver read
+off a floppy to be told there was no card. `drv_snd_sniff` is §34.2's OPL2
+timer-flag dance and costs **~2 ms of port I/O** — a hundredth of one floppy
+sector — so on a machine with no `SYSTEM.CFG` yet, the sound row's `DRVR_WANT`
+starts at 1 if there is an FM chip at 388h and 0 if there is not. Four things
+about it. **It is a DEFAULT and nothing enforces that** — `drv_cfg_unpack`
+calls `drv_want_set`, which rewrites all three `WANT` bytes from the file's
+bitmap, so a settings file always wins in both directions and there is no "did
+the file exist" test anywhere to get wrong. **It is in the BOOT OVERLAY**
+(§2.5), called from `kmain` and not from `drv_boot`, where it belongs by
+subject and cannot live: `drv_boot`'s own mount is what writes over the
+overlay, so by the time `drv_cfg_load` has answered the probe's code is FAT —
+which is also why it **costs nothing at all against `KERN_BUDGET`** (measured:
+`.text` +5 bytes for the far call, into 354 bytes of image-rung slack;
+`.ovl` +113, and the overlay is free). `clk_init`'s four-rung RTC ladder is
+the precedent, same shape and same home. **One probe covers both cards, as a
+fact about the hardware**: every Sound Blaster carries an OPL2 at 388h, which
+is why the driver's own attach probes FM first (§34.2). And **the DSP reset
+scan is a knob, `make SNDSNIFF=sb`, gated on the FM probe having missed**,
+because it costs the thing §51.3 refuses to spend on the hard-disk driver —
+*writing* to six unknown port ranges on every boot. Two cases want it: a card
+whose FM half is jumpered off, and QEMU's `-device sb16`, whose OPL does **not**
+answer the timer probe where a real one does. The field
+machine has no sound card at all (docs/FIELD-MACHINES.md), so it is the one
+that pays a probe and gains nothing — which is what decided the default.
+**MartyPC is the instrument and had to be**: the probe reads a timer that has
+to overflow in real guest time, so an emulator running the guest at host speed
+through a status stub can neither confirm nor refute it — QEMU says the probe
+works with `-device adlib` and says an `-device sb16` box is cardless, and only
+the first is a fact about hardware. On a cycle-accurate 5150 the FM probe hits
+on `os8088_5150_sb`, misses on `_cga` and on **`os8088_5150_sbonly`** — a
+machine added for this, a DSP with nothing at 388h, which no real card is but
+which is exactly the case the knob exists for — and `SNDSNIFF=sb` finds that
+one against a real DSP 2.01. End to end: the Sound page comes up on **Sound
+Blaster** with nothing ticked, and its Test tone is **660.0 Hz in the OPL2
+capture** while the speaker's holds only the 5150's POST beep.
+
 **`bb_set` is the LAST thing `drv_boot` does**, after the load loop, and that
 is SPEC.md §15.3's requirement rather than tidiness: it seeds the back buffer
 from VRAM, and until the first `wm_paint_all` VRAM holds the loading screen
@@ -1904,10 +2130,20 @@ with §18.94's counters rather than argued: ticking a driver on B: was 1 mount
 the restore itself is 1 / 15 / 5; on A: it stays 1 / 26 / 10; and a boot with
 a driver wanted is 2 mounts where an unconditional restore would be 3. **That
 cost is the fix rather than an overhead on it** — putting the volume back *is*
-a remount, because navigation here is a remount by design (§19.2) — and it is
+a remount — and it is
 affordable because of what it is attached to: both callers already touch the
 floppy, and a `SYSTEM.CFG` write alone is 2+ seconds of frozen UI on the floor
-machine (§31.8).
+machine (§31.8). **Those figures predate the quiet mounts and are kept as the
+record of what the restore cost when it was introduced**: going to A: and
+coming back are `dsk_chdir_q` now (SPEC.md §18.9), because both are file
+operations by NAME — `drv_find` is `dskw_stat`, `drv_cfg_*` are
+`dskw_read`/`dskw_write_sys` — and none of them looks at a listing, so the
+scan, the sort and one icon-harvest read per file in A:'s root were bought
+for nothing. Navigation is still a remount by design (§19.2); this was never
+navigation. Measured on the boot path: a plain boot is **14 sectors → 11**.
+`ui_tm_open` is the one caller that genuinely needs a listing (it hands the
+loader a directory index) and it mounts A: itself rather than coming through
+`drv_mounted`, so it is untouched.
 
 Two traps. **`build/os8088.img` is now writable and the OS writes to it** —
 any test that touches a Control Panel setting is remembered by that image and

@@ -1310,6 +1310,14 @@ kmain:
     call drv_init               ; the driver table (SPEC.md 51) - BEFORE
                                 ; snd_init, whose tone route reads the
                                 ; published service table on its first tick
+    call FAT_SEG:drv_snd_sniff  ; is there an FM chip at 388h? (SPEC.md
+                                ; 51.3.1) If so, row 0 becomes WANTED by
+                                ; DEFAULT - which a SYSTEM.CFG that says
+                                ; otherwise then overwrites, so this is only
+                                ; ever the answer on a machine that has never
+                                ; been asked. HERE and not inside drv_boot,
+                                ; because the overlay this lives in is dead by
+                                ; then: drv_boot's own mount writes over it
     call FAT_SEG:ovl_snd_init   ; sound layer (SPEC.md 34.7): saves the 61h
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running
@@ -1687,6 +1695,8 @@ cw_inst_launch_post:    call inst_launch_post
                     retf
 cw_inst_set_name_x:     call inst_set_name_x
                     retf
+cw_inst_fhome_idx:      call inst_fhome_idx
+                    retf
 cw_inst_win_owner:      call inst_win_owner
                     retf
 cw_mem_avail:           call mem_avail
@@ -1788,6 +1798,8 @@ dskw_gone:            call COLD_SEG:dwf_dskw_gone
                     ret
 dskw_read:            call COLD_SEG:dwf_dskw_read
                     ret
+dskw_remount:         call COLD_SEG:dwf_dskw_remount
+                    ret
 dskw_rename:          call COLD_SEG:dwf_dskw_rename
                     ret
 dskw_stat:            call COLD_SEG:dwf_dskw_stat
@@ -1829,6 +1841,8 @@ fm_rcmd:              call COLD_SEG:fmf_fm_rcmd
 fmv_sync:             call COLD_SEG:fmf_fmv_sync
                     ret
 ld_run_body:          call COLD_SEG:ldf_ld_run_body
+                    ret
+ld_run_name:          call COLD_SEG:ldf_ld_run_name
                     ret
 loader_init:          call COLD_SEG:ldf_loader_init
                     ret

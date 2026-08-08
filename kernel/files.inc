@@ -717,7 +717,20 @@ fmv_sync_x:
     jne .load
     mov dx, [di+FS_CWD]
     cmp dx, [dsk_cwd]
-    je .out
+    jne .load
+    cmp byte [dsk_lstale], 0    ; RIGHT FOLDER, NO LISTING. A quiet mount and
+    je .out                     ; a deferred write both leave the globals
+                                ; naming this very folder with disk_nfiles = 0
+                                ; and the rebuild owed (SPEC.md 18.9/18.4), so
+                                ; the (drive, cwd) compare above says "already
+                                ; synced" about an EMPTY snapshot. The caller
+                                ; is about to resolve a directory INDEX
+                                ; against it - that is what a sync is for -
+                                ; and index-against-nothing is the silent
+                                ; half of docs/FIELD-NOTES.md 4: measured, a
+                                ; double-click after a Control Panel close
+                                ; launched nothing at all and cost no I/O
+                                ; doing it. Fall through and re-list.
 .load:
     mov al, [di+FS_DRV]
     mov dx, [di+FS_CWD]
@@ -819,6 +832,43 @@ fmv_mark:
     pop dx
     pop cx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fmv_gneed - does anything ON SCREEN need the GLOBAL listing right now?
+; in:  nothing
+; out: CF = 1 = rebuild it before returning to the event loop; CF = 0 = record
+;      the debt instead and let whoever reads it next pay
+; clobbers: flags
+;
+; The other half of SPEC.md 18.4 rule 3, which used to have no other half: a
+; successful write ALWAYS remounted, so a background write to a folder nobody
+; was looking at cost a floppy's worth of sectors to rebuild a listing no
+; pixel on screen was drawn from. That is the Control Panel's whole cost -
+; SYSTEM.CFG lands on the system disk (51.5.1) while the user is on B: - and
+; a package saving a file is the same shape.
+;
+; The answer is short because only ONE thing reads disk_dir / disk_nfiles
+; while it is on screen: the Standard File dialog, which is modal and
+; deliberately keeps no cache of its own (38.2). Its New Folder button is a
+; WRITE made while it is up (fdlg_newfolder -> dskw_mkdir), so this is not a
+; theoretical case - it is the one that must not be deferred, or the folder
+; the user just made would not appear until something else re-listed.
+;
+; A Disk window is NOT on this list, and that is 22.1/22.8 rather than an
+; omission: it paints from its own VIEW CACHE, it has just been marked
+; FS_DIRTY by fmv_mark, and fm_focus rebuilds cache and pixels TOGETHER when
+; it comes to the front. Remounting here would not refresh one - it would
+; only make the mount fm_focus is about to skip happen earlier, for a window
+; that may never be looked at again.
+; -----------------------------------------------------------------------------
+fmv_gneed:
+    cmp word [fdlg_win], 0
+    je .no
+    stc
+    ret
+.no:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -928,6 +978,18 @@ fmv_bcast:
     push dx
     push si
     push di
+    call KERNEL_SEG:cw_dsk_relist   ; PAY THE DEBT BEFORE ADOPTING ANYTHING.
+                                ; Every window below takes the global snapshot
+                                ; by memory copy (fmv_take), so if the write
+                                ; that got us here DEFERRED its rebuild
+                                ; (SPEC.md 18.4) the thing being broadcast is
+                                ; disk_nfiles = 0 - and it lands in the cache
+                                ; of every window on this folder, the acting
+                                ; one included, which its caller then repaints
+                                ; from. Measured: deleting one file out of a
+                                ; Disk window redrew it as 'Drive B: 0 files'.
+                                ; dsk_relist is idempotent and costs nothing
+                                ; when nothing is owed.
     mov si, inst_tab
     mov cx, INST_MAX
 .scan:

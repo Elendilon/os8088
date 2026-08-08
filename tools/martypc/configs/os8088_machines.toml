@@ -111,3 +111,139 @@ overlays = [
     io_base = 0x220
     irq = 7
     dsp_version = [2, 1]
+
+# ...and the SAME machine with the FM half taken out: a DSP at 0x220 and
+# NOTHING at 0x388.
+#
+# No real Sound Blaster is built this way - the FM is on the card - which is
+# exactly why it needs an emulator to exist at all. It models the one case
+# SPEC.md 51.3.1's boot probe cannot see: a card whose OPL is jumpered off or
+# decoded elsewhere. The default probe is the OPL2 timer-flag dance and must
+# find NOTHING here; `make SNDSNIFF=sb` adds the DSP reset scan and must find
+# the card. Two machines, one knob, and the pair is the whole argument for
+# why that knob is a knob and not the default.
+[[machine]]
+name = "os8088_5150_sbonly"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+
+# ...and the VGA machine, for SPEC.md 39's first adapter - mode 12h, 640x480,
+# 16 colours, four planes.
+#
+# AN XT AND NOT A 5150, deliberately. An 8-bit ISA VGA card in a 5160 is a
+# machine people actually built; a VGA in a 5150 is not, and the first version
+# of this config was one. Nothing is lost by moving: the 5160 is the same
+# 4.77MHz 8088 on the same bus, and this config was never going to be a
+# TIMING instrument anyway - the machine the project is calibrated against
+# (docs/FIELD-MACHINES.md) has a Hercules and a CGA in it and no VGA at all,
+# so there is nothing to compare a VGA number to. It is a correctness
+# instrument, and GLaBIOS boots it faster than the 1982 ROM does.
+#
+# THE VGA WAS NEVER THE MISSING PIECE, which is worth writing down because
+# this tree's docs claimed for a while that it was. marty_core ships a
+# register-level VGA (crtc/sequencer/attribute_controller/graphics_controller)
+# whose `vga` feature is ON BY DEFAULT, and it rasterises 12h correctly. What
+# was missing was one line in the headless crate's Cargo.toml: without
+# `marty_frontend_common/vga` the arm of get_rom_requirements that asks for
+# `ibm_vga` is compiled out, so the machine came up with a VGA card and NO
+# VIDEO BIOS behind it and nothing said so.
+#
+# The BIOS is MartyPC's own bundled BOCHS-VGABIOS.bin (media/roms/VGA/, LGPL,
+# shipped with its licence) - no asset of ours, and nothing to fetch.
+[[machine]]
+name = "os8088_xt_vga"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "VGA"
+    clock_mode = "Default"
+
+# ...and the HARD DISK machine, for SPEC.md 52's driver.
+#
+# THE CONTROLLER IS XT-IDE AND NOT THE IBM/XEBEC, for one reason: MartyPC's
+# romdef matches the Xebec's controller BIOS by MD5 only, and that ROM is
+# IBM's and not something this tree can obtain or ship. The XT-IDE entry
+# matches by FILENAME, and `ide_xtl.bin` - XTIDE Universal BIOS, GPL - already
+# ships with MartyPC in media/roms/XUB/. So this machine costs no new asset,
+# exactly like the VGA one.
+#
+# WHAT IT TESTS IS RUNG 0, AND THAT IS THE POINT. SPEC.md 52.1's rung 1 reads
+# the IDE task file directly and is gated on CPU_286, because an 8088's
+# `in ax, dx` is two 8-bit bus cycles at the same port and loses the drive's
+# high byte - so on the machine this project is about, an option ROM answering
+# int 13h is the ONLY transport there is. QEMU tests the other rung (a modern
+# CPU, an ATA disk at 1F0h) and cannot test this one, having no 8088; this
+# cannot test that one. They are complementary and neither replaces the other.
+#
+# The disk itself is MartyPC's own bundled media/hdds/default_xtide.vhd
+# (615/4/26 = 63,960 sectors, just under SPEC.md 18.7's 65,535-sector volume
+# cap). COPY IT rather than mounting it in place - a format is a write, and a
+# test that mutates the run tree's shipped image is a test that behaves
+# differently the second time:
+#
+#   cp build/martypc/run/media/hdds/default_xtide.vhd /tmp/scratch.vhd
+#   ./martypc_headless --machine-config-name os8088_xt_hdd \
+#       --mount fd:0:media/floppies/os8088-360.img --mount hd:0:/tmp/scratch.vhd
+[[machine]]
+name = "os8088_xt_hdd"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
