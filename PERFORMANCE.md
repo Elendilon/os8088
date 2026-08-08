@@ -2349,6 +2349,12 @@ The cold/warm gap is 2.4x here against the 5150's 1.05x, which is the AT
 BIOS's media-type detection: a 360 KB disk in a 1.2 MB drive has to be
 identified by trying data rates, and that cost is paid once.
 
+Its mouse rows read `mouse found 0`, and that is **not** a fault: there was
+no mouse plugged into it. The owner has one serial mouse and it was on the
+5150. It looks like §9.5.2's cross-wired IRQ and is the same category of
+misreading as taking `No volume at index 2` for a missing hard disk — ask
+what was connected.
+
 #### The disk error that would not reproduce
 
 The previous build refused to boot this machine — `os8088: disk error`, the
@@ -2364,3 +2370,39 @@ honestly both readings advance correctly. What is left is the disk: **360 KB
 media in a 1.2 MB drive is marginal by construction** — 48 tpi tracks under a
 96 tpi head — and a rewrite is the ordinary fix. The knob stays, because the
 next one may not be marginal media and one boot is cheaper than three.
+
+### The directory sector was read twice (SPEC.md §18.4.3)
+
+Set 18 left 1.55x on the table — 7,457 B/s against the BIOS's own 11,570 —
+and §18.94's trace says where a third of it went:
+
+```
+    5  1      5  1    254  7    255  6 ...
+```
+
+**LBA 5 twice.** `dskw_find` walked the directory and recorded where the
+entry was; `dskw_ent_load` then re-read the same sector to copy the 32 bytes
+out. Seven call sites, all `call dskw_find` / `jc` / `call dskw_ent_load`.
+
+A re-read of a sector that has just passed the head costs a **whole
+revolution** — 199 ms — which is 9.5% of a 16 KB read and **a third of the
+cost of opening a small file**, where the whole operation is three sectors.
+
+`dskw_find` copies the entry while the buffer still holds it. Measured under
+QEMU, which counts calls exactly even though it cannot time them:
+
+| | before | after |
+|---|---|---|
+| 16 KB `FILE_READ` | 34 sectors / **6 calls** | 33 / **5** |
+| one-sector `FILE_READ` | 3 / **3** | 2 / **2** |
+
+Predicted on the 5150 at 199 ms a call: the 16 KB read **2.09 s → ~1.89 s**
+(7,457 → ~8,670 B/s) and a small-file open **810 ms → ~540**, which is the
+larger win in practice — every `SYSTEM.CFG` read, every package header check
+and every double-click pays it.
+
+What is left after this is structural rather than a bug: the first data run
+is short whenever a file's first cluster is not track-aligned (5 sectors of a
+9-sector track in the trace above), and a run coalesces only to the track and
+the DMA page. Worth knowing before anyone goes looking for another factor of
+two — there is not one there.

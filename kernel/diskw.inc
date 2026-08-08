@@ -629,7 +629,6 @@ dskw_rmbody_n83:                ; the same pipeline with dskw_n83 already
                                 ; disk rather than from display names
     call dskw_find              ; in the CURRENT directory (SPEC.md 19.2)
     jc .out                     ; AX = FERR_NOENT / FERR_IO already
-    call dskw_ent_load
     jc .out
     mov al, [dskw_raw+DSK_R_ATTR]
     test al, DSKW_NPROT
@@ -771,7 +770,6 @@ dskw_rtbody:
     call dskw_rt_copy
     call dskw_find
     jc .out                     ; AX = FERR_NOENT / FERR_IO already
-    call dskw_ent_load
     jc .out
     mov al, [dskw_raw+DSK_R_ATTR]
     test al, DSKW_NPROT
@@ -1564,7 +1562,6 @@ dskw_rbody:
     call dskw_norm              ; the destination becomes seg:0..15 + a run
     call dskw_find
     jc .out                     ; AX = FERR_NOENT / FERR_IO already
-    call dskw_ent_load
     jc .out
     test byte [dskw_raw+DSK_R_ATTR], 0x18
     jz .isfile
@@ -1927,7 +1924,6 @@ dskw_dbody:
 dskw_dbody_n83:                 ; dskw_n83 already filled (dskw_rmtree)
     call dskw_find
     jc .out
-    call dskw_ent_load
     jc .out
     test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT
     jz .live
@@ -2018,7 +2014,6 @@ dskw_nbody:
     jc .badarg
     call dskw_find
     jc .out
-    call dskw_ent_load
     jc .out
     test byte [dskw_raw+DSK_R_ATTR], DSKW_NPROT
     jz .patch                   ; 0x0F, not 0x1F: a FOLDER may be renamed
@@ -2103,10 +2098,8 @@ dskw_stat_x:
     mov di, dskw_n83
     call dskw_name83
     jc .badname
-    call dskw_find
-    jc .fail                    ; AX = FERR_NOENT / FERR_IO already
-    call dskw_ent_load
-    jc .fail
+    call dskw_find              ; ...which now leaves the 32 raw bytes in
+    jc .fail                    ; dskw_raw itself (AX = FERR_* on failure)
     mov bx, [dskw_raw+DSK_R_CLUS]
     mov cx, [dskw_raw+DSK_R_SIZE]
     mov dx, [dskw_raw+DSK_R_SIZE+2]
@@ -2202,7 +2195,6 @@ dskw_apbody:
     jc .badarg
     call dskw_find
     jc .out                     ; AX = FERR_NOENT / FERR_IO already
-    call dskw_ent_load
     jc .out
     test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT
     jnz .prot
@@ -2406,8 +2398,20 @@ dskw_find:
     mov ax, si
     sub ax, dsk_secbuf
     mov [dskw_doff], ax
-    clc
-    jmp short .out
+    mov di, dskw_raw            ; ...and TAKE THE ENTRY WHILE IT IS HERE.
+    mov cx, 32                  ; dsk_secbuf holds this very sector - we read
+    call KERNEL_SEG:cw_dsk_copy_in  ; it two instructions ago - and every
+    clc                         ; caller that succeeds here wanted these 32
+    jmp short .out              ; bytes next. dskw_ent_load used to re-read
+                                ; the sector to get them, which on the field
+                                ; machine is a whole REVOLUTION: the trace of
+                                ; a 16KB read showed LBA 5 twice, 199 ms of a
+                                ; 2,090 ms read, and a third of the cost of
+                                ; opening a small file (SPEC.md 18.4.3).
+                                ; Copying here rather than caching the buffer
+                                ; is what makes it safe: there is no window in
+                                ; which dsk_secbuf could be reused, so there
+                                ; is no invalidation anybody can forget.
 .free:
     cmp word [dskw_fsec], 0xFFFF
     jne .next                   ; an earlier slot already won

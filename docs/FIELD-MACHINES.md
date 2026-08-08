@@ -254,10 +254,13 @@ instead of that message, which is one boot rather than a bisect.
 data rates, and it is paid once — so a cold-motor row from this machine is
 not comparable to a cold-motor row from an XT.
 
-**The mouse is not found here yet.** Both ports probe present, so §9.5's
-contest is open and `mouse found` reads 0 with no identify bytes on either.
-That is §9.5.2's cross-wired IRQ — a mouse at 2F8 driving IRQ4 — which
-`make test MOUSEPORT=com2irq4` reproduces under QEMU.
+**Its mouse is UNTESTED, not broken.** `sysbench` reports `mouse found 0`
+with both ports probing present and no identify bytes on either — which looks
+exactly like §9.5.2's cross-wired IRQ, and is not: **there was no mouse
+plugged into it.** The owner has one serial mouse and it lives on the 5150.
+A `mouse found 0` from a machine with nothing attached is the correct answer,
+and reading it as a fault is the same error as reading `No volume at index 2`
+as a missing hard disk. Ask what was connected before diagnosing a mouse.
 
 ---
 

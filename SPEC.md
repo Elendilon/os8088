@@ -6109,6 +6109,39 @@ same two figures came back byte for byte before and after the table install,
 which is the check that the wider runs changed the number of commands and
 nothing else.
 
+### 18.4.3 `dskw_find` takes the entry while it has it
+
+Every name-resolving operation in `diskw.inc` used to read the directory
+sector **twice**: `dskw_find` walked the directory and recorded which sector
+and offset the entry was at, and `dskw_ent_load` then re-read that same sector
+to copy the 32 bytes out of it. Seven call sites did it, all of the shape
+`call dskw_find` / `jc` / `call dskw_ent_load`.
+
+On real hardware a re-read of a sector that has just gone past the head is a
+**whole revolution**. §18.94's trace of one 16 KB read showed it plainly —
+`5+1, 5+1, 254+7, …` — 199 ms of a 2,090 ms read, and a **third** of the cost
+of opening a small file, where the whole operation is three sectors.
+
+`dskw_find` copies the entry into `dskw_raw` on its success path instead. The
+buffer holds that very sector — it was read two instructions earlier — and
+every caller that succeeds wanted those bytes next.
+
+**Copying there rather than caching the buffer is what makes it safe.** A
+cache tag on `dsk_secbuf` would work and would need every writer of that
+buffer to invalidate it: §11.3's "a primitive not on that list is a hole",
+with file corruption as the failure mode instead of a clipped rectangle.
+Copying inside `dskw_find` leaves no window in which the buffer could be
+reused, so there is no invalidation for anyone to forget.
+
+`dskw_ent_load` stays, for the two callers that reach it *without* a
+preceding `dskw_find` (`dskw_rt_zap`, and the replace path in the write
+pipeline) and may legitimately find the buffer holding something else.
+
+Measured, one 16 KB `OSAPI_FILE_READ`: **6 int 13h calls → 5**, and a
+one-sector file **3 → 2**. `tests/filetest` passes all 25 checks and
+`tools/os88disk.py --verify` is clean, which is the gate this had to clear —
+the change touches create, replace, delete, rename and stat alike.
+
 ### 18.94 The transfer instrument, published at a fixed offset
 
 **`make DISKCNT=1` only, and never shipped.** The counters of
