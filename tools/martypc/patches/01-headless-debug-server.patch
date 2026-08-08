@@ -1,8 +1,20 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index df0a894..6bc5c7b 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3427,6 +3427,7 @@ dependencies = [
+  "flate2",
+  "getrandom 0.3.1",
+  "indexmap 2.14.0",
++ "libc",
+  "log",
+  "marty_common",
+  "marty_config",
 diff --git a/crates/binaries/martypc_headless/Cargo.toml b/crates/binaries/martypc_headless/Cargo.toml
-index ccfc2ba..5966d12 100644
+index ccfc2ba..fd8383d 100644
 --- a/crates/binaries/martypc_headless/Cargo.toml
 +++ b/crates/binaries/martypc_headless/Cargo.toml
-@@ -12,9 +12,9 @@ path = "src/lib.rs"
+@@ -12,12 +12,17 @@ path = "src/lib.rs"
  crate-type = ["lib"]
  
  [dependencies]
@@ -14,6 +26,14 @@ index ccfc2ba..5966d12 100644
  marty_display_common = { path = "../../lib/frontend/marty_display_common", default-features = false }
  marty_config = { path = "../../lib/frontend/marty_config" }
  
++# For the fork() snapshot (docs/SNAPSHOT-PLAN.md B). Unix only; the feature
++# refuses to arm itself elsewhere rather than failing to compile.
++[target.'cfg(unix)'.dependencies]
++libc = "0.2"
++
+ colored = "3.0"
+ log.workspace = true
+ env_logger = "0.11"
 diff --git a/crates/binaries/martypc_headless/src/emulator/mod.rs b/crates/binaries/martypc_headless/src/emulator/mod.rs
 index c2c1591..a2508ed 100644
 --- a/crates/binaries/martypc_headless/src/emulator/mod.rs
@@ -84,18 +104,27 @@ index c2c1591..a2508ed 100644
                      }
                      Err(err) => {
 diff --git a/crates/binaries/martypc_headless/src/lib.rs b/crates/binaries/martypc_headless/src/lib.rs
-index e1680ee..74b16cc 100644
+index e1680ee..a748b4f 100644
 --- a/crates/binaries/martypc_headless/src/lib.rs
 +++ b/crates/binaries/martypc_headless/src/lib.rs
-@@ -32,6 +32,7 @@
- #![forbid(unsafe_code)]
+@@ -29,9 +29,15 @@
+ 
+ #![allow(clippy::upper_case_acronyms)]
+ #![allow(clippy::too_many_arguments)]
+-#![forbid(unsafe_code)]
++// `forbid` rather than `deny` upstream. Relaxed here because the fork()
++// snapshot (docs/SNAPSHOT-PLAN.md B) needs exactly one unsafe call and
++// `forbid` cannot be overridden locally by an `allow`. Everything else in the
++// crate is still denied, so a second unsafe block is a compile error and has
++// to be a deliberate act.
++#![deny(unsafe_code)]
  
  mod cpu_test;
 +mod debug_server;
  mod emulator;
  
  mod run_benchmark;
-@@ -740,9 +741,57 @@ pub fn run() {
+@@ -740,9 +746,57 @@ pub fn run() {
      // Start emulator
      emu.start();
  
