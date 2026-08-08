@@ -180,19 +180,6 @@ fsx_run:
     loop .rel
     pop ax
 
-    mov byte [fsx_stashed], 0   ; NOT stashed here: the desktop is only worth
-                                ; saving if the app is about to REPLACE it,
-                                ; and that is what fsx_mode means. A same-mode
-                                ; bracket (SPEC.md 53.7) draws on the desktop's
-                                ; own surface with the kernel's own primitives,
-                                ; so a snapshot taken here goes stale the
-                                ; moment the app draws - and Paint (SPEC.md
-                                ; 42.7) is the consumer whose window content is
-                                ; PERSISTENT, so the stale planes read as the
-                                ; picture having been thrown away. fsx_mode
-                                ; takes it instead, on the first switch, while
-                                ; VRAM still holds the desktop (SPEC.md 53.6.1)
-
     push bp                     ; the app owns the machine from here to its
     mov si, bx                  ; ret: wm_pkgcall's contract, record in SI,
     mov bp, ax                  ; offset in BP (SPEC.md 53.1)
@@ -216,15 +203,21 @@ fsx_run:
 ; fsx_restore - one path home (SPEC.md 53.6, order binding)
 ;
 ; 1. the desktop's mode back (skipped when no fsx_mode call happened - the
-;    screen is already the desktop's mode); this also restores the standard
-;    planar VGA state the stash-load's plane writes need; 2. drain the BIOS
-;    key buffer and the event queue - keys typed and clicks queued at the
-;    game must not land in the desktop ladder (the SPEC.md 34.4 click-abort
-;    drain is the precedent); 3. disarm the freeze; 4. bring the desktop
-;    back under the still-held lock - the XMS stash if one was taken
-;    (SPEC.md 53.6), a full wm_paint_all otherwise. The callback epilogue's
+;    screen is already the desktop's mode); the BIOS mode set also restores
+;    the default palette and the standard planar write state; 2. drain the
+;    BIOS key buffer and the event queue - keys typed and clicks queued at
+;    the game must not land in the desktop ladder (the SPEC.md 34.4
+;    click-abort drain is the precedent); 3. disarm the freeze; 4. repaint
+;    the desktop under the still-held lock. The callback epilogue's
 ;    gfx_unlock then flushes (if buffered) and re-shows the cursor with a
 ;    fresh save-under from the restored VRAM - SPEC.md 7's own contract.
+;
+; Step 4 is a wm_paint_all on every machine and every CPU tier, and SPEC.md
+; 53.6.1 is the record of the snapshot that used to short-circuit it: a
+; bracket takes real TIME, so the desktop behind it is live state (the bar's
+; clock, the Timer, a Bounce, and the exclusive app's own window content)
+; rather than an image to be put back. wm_paint_all asks every window what it
+; looks like NOW, which is the only question with a correct answer here.
 ; -----------------------------------------------------------------------------
 fsx_restore:
     push ax
@@ -254,18 +247,8 @@ fsx_restore:
     mov byte [fsx_worker], 0xFF ; bracket run from the next tick
     popf
     mov byte [fsx_cur], 0xFF
-    cmp byte [fsx_stashed], 0   ; a stash to write back?
-    je .repaint
-    call fsx_stash_load         ; AL=1 it wrote the desktop, 0 it could not
-    or al, al                   ; (the back buffer got armed - VRAM is stale)
-    jz .repaint
-    mov byte [menu_bdirty], 1   ; the restored bar carries a stale clock - one
-    call menu_draw_bar          ; cheap bar redraw, not a whole-screen repaint
-    jmp short .done
-.repaint:
     mov byte [menu_bdirty], 1   ; the bar was overdrawn (the save-under
     call wm_paint_all           ; precedent, SPEC.md 12.05)
-.done:
     pop di
     pop ax
     ret
@@ -307,11 +290,6 @@ fsx_mode:
     test dx, bx
     jz .fail
 
-    cmp byte [fsx_cur], 0xFF    ; the FIRST switch of this bracket, and the
-    jne .stashed                ; last moment the desktop is still in VRAM:
-    call fsx_stash_save         ; stash it now rather than at fsx_run, so a
-.stashed:                       ; bracket that never switches never holds a
-                                ; snapshot its own drawing invalidated
     mov ch, al                  ; CH = the id, live across the mode set
     cmp al, FSXM_TEXT80
     je .text
@@ -604,158 +582,6 @@ fsx_bmodes:                     ; the plain-BIOS rows' mode numbers; ids 0,
     db 0x00, 0x0D, 0x13, 0x12  ; never read theirs
     db 0x13
 
-; =============================================================================
-; The XMS desktop stash (SPEC.md 53.6): on a 286+/VGA machine with an extended
-; store, save the desktop's four planes at bracket entry and write them back
-; at exit - an instant restore instead of a full wm_paint_all. Tier 0 (the
-; 8086 target) and mono adapters fall through to the repaint, untouched.
-;
-; The engine is COLD code (SPEC.md 2.6): it runs once per bracket entry/exit,
-; never on a hot path, so it costs guard 1 (the budget) and NOT guard 2 (the
-; 64KB segment). CS = COLD_SEG, DS = KERNEL_SEG - so the state words are
-; DS-direct and the xm_* calls leave through cw_ shims. Only the ~30 bytes of
-; .text glue below (two entry thunks, three cw_ shims) touch guard 2.
-;
-; xm_copy under the held gfx lock is exactly the sanctioned use since SPEC.md
-; 41.8 - the copy touches no VRAM and takes no lock of its own, and the freeze
-; means there is no painter to stall anyway.
-; =============================================================================
-section .cold
-
-; fsxc_save - stash the desktop. Gated to VGA + a store + the desktop straight
-; in VRAM (not a back buffer). Sets [fsx_stashed]. retf to its .text thunk.
-fsxc_save:
-    cmp byte [cpu_tier], CPU_8086   ; tier 0: no store at all
-    je .no
-    cmp byte [vid_mono], 0          ; VGA only - four planes to read
-    jne .no
-    cmp byte [bb_dbl], 0            ; the desktop must be in VRAM (SPEC.md 53.6)
-    jne .no
-    mov ax, 0x5800                 ; DX:AX = 153,600 bytes = 150KB: the four
-    mov dx, 0x0002                 ; planes of a 640x480 screen
-    call KERNEL_SEG:cw_xm_alloc
-    jc .no
-    mov [fsx_xlo], ax
-    mov [fsx_xhi], dx
-    xor di, di                     ; direction 0: conventional -> extended
-    call fsxc_xfer
-    mov byte [fsx_stashed], 1
-    retf
-.no:
-    mov byte [fsx_stashed], 0
-    retf
-
-; fsxc_load - write the planes back and free the block. out AL = 1 it wrote
-; the desktop, 0 it only freed (the back buffer was armed during the bracket,
-; so the VRAM the stash holds is stale and the caller must repaint). Called
-; only when [fsx_stashed] is set.
-fsxc_load:
-    xor bx, bx                     ; BX = "wrote it" flag
-    cmp byte [bb_dbl], 0
-    jne .free
-    mov di, 1                      ; direction 1: extended -> conventional
-    call fsxc_xfer
-    mov dx, 0x3C4                  ; SEQ Map Mask back to all four planes, so
-    mov ax, 0x0F02                ; the kernel's own drawing writes normally
-    out dx, ax
-    inc bx
-.free:
-    mov ax, [fsx_xlo]
-    mov dx, [fsx_xhi]
-    call KERNEL_SEG:cw_xm_free
-    mov byte [fsx_stashed], 0
-    mov ax, bx                    ; AL = the wrote-it flag
-    retf
-
-; fsxc_xfer - the eight-copy engine (four planes, two 19,200-byte halves each,
-; because a whole 38,400-byte plane is past XM_MAX_COPY and would also straddle
-; the 0xA000 segment). DI = 0 reads each plane through GC Read Map Select /
-; 1 writes each through SEQ Map Mask; DI is also xm_copy's own direction word,
-; so it is set once and left. Near proc, cold-local.
-fsxc_xfer:
-    xor bp, bp                    ; BP = copy index 0..7
-.each:
-    test bp, 1
-    jnz .body                     ; half 1: the plane register is already set
-    mov ax, bp                    ; half 0: this plane is bp >> 1
-    mov cl, 1
-    shr ax, cl
-    or di, di
-    jnz .wr
-    mov ah, al                    ; save: GC index 4 (Read Map Select) = plane
-    mov al, 4
-    mov dx, 0x3CE
-    out dx, ax
-    jmp short .body
-.wr:
-    mov cl, al                    ; load: SEQ index 2 (Map Mask) = 1 << plane
-    mov ah, 1
-    shl ah, cl
-    mov al, 2
-    mov dx, 0x3C4
-    out dx, ax
-.body:
-    mov ax, 0x4B00                ; XMS end = base + bp * 19,200
-    mul bp                        ; DX:AX (bp <= 7, fits 32 bits)
-    add ax, [fsx_xlo]
-    adc dx, [fsx_xhi]
-    mov si, bp                    ; conventional SI = (bp & 1) * 19,200
-    and si, 1
-    jz .lo
-    mov si, 0x4B00
-    jmp short .es
-.lo:
-    xor si, si
-.es:
-    push ax                       ; ES = the framebuffer (xm_copy wants ES:SI);
-    mov ax, 0xA000                ; preserve the XMS low word across the load
-    mov es, ax
-    pop ax
-    mov cx, 0x4B00                ; 19,200 bytes: even, <= XM_MAX_COPY
-    call KERNEL_SEG:cw_xm_copy    ; DI already carries the direction
-    inc bp
-    cmp bp, 8
-    jb .each
-    ret
-
-section .text
-
-; --- the stash's .text glue (SPEC.md 2.6) ------------------------------------
-; Six-byte entry thunks fsx_run / fsx_restore near-call, and four-byte cw_
-; shims the cold engine far-calls out through. This is the whole guard-2 cost.
-; The save preserves EVERY register, which fsx_run did not need and fsx_mode
-; cannot do without: ES:DI there is the APP's FSI block, and fsxc_xfer leaves
-; ES on 0A000h and uses DI as its own direction word - so an unbanked call
-; wrote the info block into VRAM and handed the app a garbage one. Caught by
-; Missile Command's Mode X restoring to a black screen; the cost is 16 bytes
-; of guard 2, once per bracket.
-fsx_stash_save:   push ax
-                  push bx
-                  push cx
-                  push dx
-                  push si
-                  push di
-                  push bp
-                  push es
-                  call COLD_SEG:fsxc_save
-                  pop es
-                  pop bp
-                  pop di
-                  pop si
-                  pop dx
-                  pop cx
-                  pop bx
-                  pop ax
-                  ret
-fsx_stash_load:   call COLD_SEG:fsxc_load
-                  ret
-cw_xm_alloc:      call xm_alloc
-                  retf
-cw_xm_copy:       call xm_copy
-                  retf
-cw_xm_free:       call xm_free
-                  retf
-
 ; --- state -------------------------------------------------------------------
 section .bss
 
@@ -763,8 +589,5 @@ fsx_cur:   resb 1               ; the FSXM id on screen, 0xFF = unswitched.
                                 ; Written by fsx_run before anything reads
                                 ; it, so it needs no boot-time init.
 fsx_evtmp: resb 8               ; fsx_restore's event-drain scratch
-fsx_xlo:   resw 1               ; the stash block's 32-bit linear base, from
-fsx_xhi:   resw 1               ; xm_alloc (SPEC.md 53.6)
-fsx_stashed: resb 1            ; 1 = a desktop stash is live and owed a free
 
 section .text

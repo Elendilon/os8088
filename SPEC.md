@@ -389,7 +389,7 @@ Two things live there. The Control Panel's three code runs — large, cold
 enough that a far call per entry costs nothing measurable, and needed on
 exactly the machine where things are going wrong, so it must stay resident.
 And the five **file modules**: `loader.inc` (§21), `diskw.inc` (§18.4),
-`files.inc` (§22), `filecp.inc` (§22.3) and `fdlg.inc` (§38), ~15.3KB
+`files.inc` (§22), `filecp.inc` (§22.3) and `fdlg.inc` (§38), ~16.6KB
 between them, moved together because they mostly call each other — a call
 inside the set stays near, and only the ones that leave it pay a shim.
 Growing the set makes the ones already in it *cheaper*: `fdlg.inc` joining
@@ -571,7 +571,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/dock.inc`   | bottom dock strip: one tile per running instance, minimize/restore/activate (§30) |
 | `kernel/ctrl.inc`   | Control Panel window: two-pane item list + settings pages (§31), prefix `cp_`. **`.cold`** (§2.6) |
 | `kernel/snd.inc`    | sound core (§34): driver table + router, tone tier, speaker driver (tone + PWM clips), `snd_tick`, the five API slot targets, `snd_release_inst`/`snd_unhook` — prefix `snd_`, lands Phases 1–2 |
-| `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, the frame clock/present, and the cold XMS desktop stash (§53.6.1) — prefix `fsx_` |
+| `kernel/fsx.inc`    | fullscreen exclusive (§53): the bracket, the scheduler freeze arming, foreign mode set + info block, and the frame clock/present — prefix `fsx_` |
 
 `kernel/video.inc`, `keyboard.inc`, `string.inc`, `gfx.inc` remain in the
 tree but are **no longer included**; the GUI replaces the text shell.
@@ -2965,7 +2965,7 @@ worth writing down, because it is the guard behaving as designed rather than
 the feature being expensive: the image rung had **one byte** of slack
 (`.text` + `.bss` = 49,151 against a 49,152 ceiling), so any addition at all
 cost the same 512 and trimming the feature could not have avoided it. Buying
-the step back needs 666 bytes moved out of `.text`, and `.cold` has 160 bytes
+the step back needs 666 bytes moved out of `.text`, and `.cold` has 57 bytes
 of rung slack, so a cold move would only spend the same step over there.
 **If footprint ever becomes the higher priority, this is a first candidate to
 remove** — either dropped entirely or built only into the testing and
@@ -15264,8 +15264,9 @@ them is spare.
 
 Measured with the counters at `gfx_blit4` / `gfx_fill` / `font_char`
 (CLAUDE.md's recipe), one launch-enter-leave round trip, nothing drawn in
-between, **the §53.6.1 XMS stash forced off** because the target is tier 0 and
-has no store:
+between (at the time, with §53.6.1's XMS stash forced off, because the target
+is tier 0 and has no store — the stash is gone now and step 4 repaints on
+every machine, so the figures below are simply what every machine does):
 
 | | canvas blits | `gfx_fill` | glyphs |
 |---|---|---|---|
@@ -15279,13 +15280,16 @@ round trip went from **five full-canvas draws to three** — two on the way in,
 which is the app's ordinary repaint at a new size, and one on the way home,
 which the desktop is owed anyway. `gfx_fill` on the exit halved (1.94x).
 
-**That measurement had to be taken with the stash off, and this is the trap
-worth recording**: on a 286+/VGA machine with extended memory, `fsx_restore`
-writes the saved planes back instead of repainting (§53.6.1), so the spare
-repaint *disappears* — the same test on a stock QEMU box measures the two
-designs as 4 blits against 3 and the problem looks minor. The machine this
-tree is calibrated against has no XMS at all, which is exactly where the spare
-repaint costs the most.
+**The measurement had to be taken with the stash off, and the trap is worth
+recording even though the stash has since been removed**: while it existed, a
+286+/VGA machine with extended memory had `fsx_restore` write the saved planes
+back instead of repainting (§53.6.1), so the spare repaint *disappeared* — the
+same test on a stock QEMU box measured the two designs as 4 blits against 3
+and the problem looked minor. The machine this tree is calibrated against has
+no XMS at all, which is exactly where the spare repaint costs the most. The
+shape generalises past this one feature: **a harness that is faster than the
+target can hide the cost you are measuring for, and an optimisation that only
+engages off-target hides it in the one direction that matters.**
 
 So the geometry moves into the app instead, and it is **one branch in one
 routine**: `pt_org` answers origin (0,0) and the content box `[pt_scrw]` ×
@@ -21039,12 +21043,23 @@ The app's proc returning is the only exit. In order:
    the game must not land in the desktop ladder. The §34.4 click-abort
    drain is the precedent.
 3. Disarm: `[fsx_task]` = `[fsx_worker]` = 0xFF, under `cli`.
-4. Bring the desktop back under the still-held lock — the **XMS stash**
-   if one was taken at entry (§53.6.1), else a full `wm_paint_all` with
-   `[menu_bdirty]` forced (the save-under-overdraw precedent, §12.05).
-   With `[bb_dbl]` armed the repaint renders into the buffer and the
-   callback epilogue's flush carries it to VRAM; without, it writes VRAM
-   direct.
+4. Bring the desktop back under the still-held lock: a full
+   `wm_paint_all` with `[menu_bdirty]` forced (the save-under-overdraw
+   precedent, §12.05). With `[bb_dbl]` armed the repaint renders into the
+   buffer and the callback epilogue's flush carries it to VRAM; without,
+   it writes VRAM direct.
+
+   **A snapshot is not an option here, and §53.6.1 records why one was
+   tried.** The repaint is expensive — a whole-screen planar dither plus
+   every window's frame and `W_PAINT` — and saving the desktop's pixels
+   at entry to write back at exit is the obvious trade. It is wrong,
+   because a bracket takes real TIME and the desktop behind it is not a
+   still image: the menu bar's clock has moved, the Timer has counted, a
+   Bounce has stepped, any background task that paints has painted, and
+   the exclusive app's own window content — which the bracket usually
+   exists to change — is whatever the app just did to it. `wm_paint_all`
+   asks every window what it looks like NOW; a snapshot answers with what
+   it looked like before.
 5. Return CF=0. The callback returns; its dispatch epilogue's
    `gfx_unlock` flushes (if buffered) and brings the cursor back with a
    fresh save-under from the restored VRAM — §7's own contract, nothing
@@ -21057,78 +21072,55 @@ surviving drawer (it parks in the lock's yield loop until the desktop is
 back), and what makes the §11.3 clip machinery unreachable rather than
 stale.
 
-### 53.6.1 The XMS desktop stash — an instant restore on a machine with a store
+### 53.6.1 The XMS desktop stash — tried, and removed
 
-Coming home is a `wm_paint_all`: a whole-screen planar dither plus every
-window's frame and `W_PAINT`. On a 286+/VGA machine with an extended-memory
-store that is avoidable — the desktop's four planes are 150KB, which fits
-the §41 store — so `fsx_run` **saves** them at entry, while the desktop is
-still on screen and before the app's proc draws, and `fsx_restore` **writes
-them straight back** at exit instead of repainting. `kernel/fsx.inc`,
-`fsxc_save`/`fsxc_load`.
+There was a snapshot path here, and it is written down because it is a
+plausible idea that a later author will have again. On a 286+/VGA machine with
+an extended-memory store the desktop's four planes are 150KB, which fits the
+§41 store, so `fsx_mode`'s first call **saved** them — the last moment VRAM
+still held the desktop — and `fsx_restore` **wrote them straight back** at exit
+instead of repainting. A cold engine (`fsxc_save`/`fsxc_load`/`fsxc_xfer`),
+eight `xm_copy` calls each way, gated on tier ≠ 0, a VGA adapter and `[bb_dbl]`
+clear. Tier 0 — the target machine — never touched it.
 
-**It is taken at the first `fsx_mode` call, not at bracket entry, and that is
-a correctness rule rather than a tuning.** The stash exists to recover a
-desktop the app is about to *replace*; a **same-mode** bracket (§53.7) draws on
-the desktop's own surface with the kernel's own primitives, so a snapshot taken
-at entry goes stale the moment the app draws — and restoring it silently undoes
-that drawing. Paint (§42.7) is where this surfaced and it is the first consumer
-it could surface on: its window content is **persistent**, so a picture drawn
-in full screen came back to a window that still showed the pre-bracket image.
-The picture was never lost — the canvas held it, and any later repaint drew it
-— which is exactly what makes the failure worth naming: it reads as data loss
-and is a stale snapshot. Missile Command and Tracker could not show it, their
-window content being redrawn from scratch every frame anyway. **The 8086 target
-never saw it at all**, tier 0 having no store, so it took a 286 with XMS to
-find. Taking the stash inside `fsx_mode` fixes it by construction: a bracket
-that never switches modes never holds a snapshot, and one that does still takes
-it at the last moment VRAM holds the desktop.
+**What it got wrong is that the desktop is not a still image.** A bracket runs
+for as long as the app wants the machine, and the screen behind it is live
+state, not pixels: the menu bar carries a clock, the Timer counts, a Bounce
+steps, and any background task holding a window paints into it. The exclusive
+app's **own** window is the sharpest case, because a full-screen session is
+usually spent changing exactly the content that window shows — and the app is
+under no obligation to keep its window and its full-screen surface in step
+while it owns the machine.
 
-**`fsx_stash_save` preserves every register**, which its `fsx_run` caller did
-not need and its `fsx_mode` caller cannot do without: `ES:DI` there is the
-*app's* FSI block, and `fsxc_xfer` leaves ES on 0A000h and uses DI as its own
-direction word — so an unbanked call wrote the info block into VRAM and handed
-the app garbage geometry. Missile Command's Mode X restoring to a black screen
-is what caught it.
+**It had conceded the argument twice already, both times in a form narrow
+enough to patch.** Paint (§42.7) is a same-mode bracket, so a snapshot taken
+at `fsx_run` went stale the moment the app drew on the desktop's own surface,
+and a picture came back to a window still showing the pre-bracket image; the
+fix was to move the take to the first `fsx_mode` call, which is real but is
+"take the photograph later" rather than "stop taking a photograph". And the
+restore path redrew the **menu bar** after writing the planes back, *because
+the clock was stale* — the general defect, seen in one special case and fixed
+there instead of being recognised. A snapshot is correct only for a desktop
+that cannot change, and this one has three independent sources of change in it
+before the app is counted.
 
-It engages only when it is free of risk and pays off: `[cpu_tier]` ≠ tier 0,
-a VGA adapter (four planes to read; a mono framebuffer is one plane and
-already cheap), and the desktop straight in VRAM (`[bb_dbl]` clear — a back
-buffer holds the desktop elsewhere). Any of those false, or the `xm_alloc`
-refused, and `[fsx_stashed]` stays 0 and step 4 is the ordinary
-`wm_paint_all`. **The 8086 target never touches it** and its restore is
-exactly what it was.
+So step 4 is `wm_paint_all` on every machine and every tier, which is what
+tier 0 always did. Measured on the removal alone: 84 bytes off `.text` +
+`.bss`, 190 off `.cold` — enough to drop the cold rung from 40 × 512 to 39 —
+and one 512-byte step off `KERN_BUDGET` (86,528 → 86,016), the eleventh move
+of that constant and the second downward one. It landed in the same round as
+§22.9's status-line work, which spent a step of its own, so the *tree's*
+footprint is back where it started at 84,480 with 1,536 spare; the removal's
+own delta is the figure above, and docs/KERNEL-MEMORY.md carries the standing
+total.
 
-Five things make it correct:
-
-- **The save is at entry, the standard mode is guaranteed.** At `fsx_run`
-  entry the adapter is still in mode 12h (the app has not called `fsx_mode`
-  yet), so the four planes read cleanly through GC Read Map Select. At exit
-  step 1's `vid_setmode` has already restored mode 12h and its standard
-  planar write state (Bit Mask 0xFF, write mode 0) — for a same-mode bracket
-  the app never left it — so the plane writes back through SEQ Map Mask land
-  correctly. Verified: a Mode X bracket (which unchains the VGA) restores
-  byte-identical.
-- **`xm_copy` runs under the held lock, which §41.8 now permits** — the copy
-  touches no VRAM, and the freeze means there is no painter to stall. A plane
-  is 38,400 bytes, past `XM_MAX_COPY`, so each is two even 19,200-byte halves;
-  eight copies each way.
-- **The cursor is not in the saved image.** The lock was taken with the
-  cursor hidden (§7), so the planes hold a cursor-free desktop; step 5's
-  `gfx_unlock` draws the cursor fresh at the live position.
-- **A back buffer armed *during* the bracket is caught at exit.** If the app
-  armed `[bb_dbl]` (Tracker's Smooth) and did not hand it back, the VRAM the
-  stash holds is stale; `fsxc_load` then frees the block and reports it did
-  not write, and step 4 falls back to `wm_paint_all`.
-- **The restored bar carries a stale clock**, because real time passed inside
-  the bracket — so the stash path redraws the **menu bar alone**
-  (`menu_draw_bar`), not the whole screen. Desktop and windows are the saved
-  pixels; only the bar is fresh.
-
-The engine is **cold code** (§2.6): entry and exit are once-per-bracket, never
-a hot path, so it costs guard 1 (the budget) and not guard 2 (the 64KB
-segment) — 63 bytes of `.text` glue (two entry thunks, three `cw_xm_*` shims)
-and ~250 bytes of `.cold`.
+Two things it did NOT take with it. **§41 stays**: the `xm_*` slots are a
+published package ABI (§20.8 rule 4, and the Task Manager and `sysbench` read
+them), and this was one kernel-side consumer of the store, not the store.
+And **§41.8's permission stands** — `xm_copy` under the held gfx lock is
+legal, because a window callback is its intended caller and always holds the
+lock; that clause was corrected on its own merits and the stash was only the
+first thing to rely on it.
 
 ### 53.7 What a bracket may call (binding)
 
