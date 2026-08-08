@@ -251,11 +251,29 @@ loader_run_x:
     mov byte [ld_painted], 0
     call ld_run_body_x          ; out: AL = LD_* status
     mov [ld_status], al
+    mov di, [ld_pwin]           ; ...and on the window that ASKED for it
+    or di, di                   ; (SPEC.md 22.9). 0 = no poster: a chip-menu
+    jz .ldst_none                    ; load reports through ui_note, not a line
+    mov [di+FS_LDST], al
+.ldst_none:
     cmp byte [ld_painted], 0
     jne .painted                ; the success path published the status and
-    call files_refresh_x        ; drew the new window itself; all that is
-    jmp short .done             ; left is the poster's own status line, which
-.painted:                       ; still reads "Loading..."
+                                ; drew the new window itself; all that is
+                                ; left is the poster's own status line, which
+                                ; still reads "Loading..."
+    cmp al, LD_EABORT           ; ...and a FAILED load drew nothing AT ALL, so
+    jne .painted                ; it owes exactly the same one line - 'Bad
+                                ; package' where 'Loading...' is. This was an
+                                ; unconditional files_refresh, which is
+                                ; wm_paint_all: the desktop dither, the drive
+                                ; zones, the chrome and every window on the
+                                ; screen, to report four words. The one
+                                ; exception is a package the loader REFUSED
+                                ; after running its entry proc, which may have
+                                ; put pixels anywhere before it said no
+    call files_refresh_x
+    jmp short .done
+.painted:
     call files_poster_x
 .done:
 

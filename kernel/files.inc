@@ -115,6 +115,15 @@ FS_VIEW     equ 12              ; byte: 0 = list, 1 = icon grid
 FS_EDIT     equ 13              ; byte: the status-line editor is armed here
 FS_FERR     equ 14              ; byte: FERR_* of the last file operation IN
                                 ; THIS WINDOW, 0 = none
+FS_LDST     equ 15              ; byte: LD_* of the last load THIS window
+                                ; posted. Per window for the reason FS_FERR
+                                ; is: a status line is a report about what
+                                ; the user did HERE, and [ld_status] is one
+                                ; global, so a failed load put 'Bad package'
+                                ; on every open Disk window at once - two
+                                ; windows both claiming to have been asked.
+                                ; Offset 15 was the padding hole in front of
+                                ; the word below, so FS_SIZE is unchanged
 FS_VSEG     equ 16              ; word: this window's listing-cache claim
                                 ; (SPEC.md 50.2), 0 = none - fm_kinit claims
                                 ; VIEW_KB and the instance's teardown frees
@@ -240,6 +249,7 @@ fm_kinit_x:
     mov byte [di+FS_VIEW], 0
     mov byte [di+FS_EDIT], 0
     mov byte [di+FS_FERR], 0
+    mov byte [di+FS_LDST], 0
     mov byte [di+FS_DIRTY], 0   ; a KD_POOL block is REUSED (SPEC.md 29.3):
                                 ; a window closed while it still owed a
                                 ; refresh must not hand that debt to the next
@@ -1591,6 +1601,8 @@ fm_layout:
     mov [fm_ledit], al
     mov al, [di+FS_FERR]
     mov [fm_lferr], al
+    mov al, [di+FS_LDST]
+    mov [fm_lldst], al
     mov ax, [di+FS_N]
     mov [fm_lnf], ax
     mov ax, [di+FS_SCRL]
@@ -1811,6 +1823,13 @@ fm_onclick_x:
     mov [fm_wased], al          ; only thing besides the two selection bands a
                                 ; row click can change (SPEC.md 22.2)
     call fm_edit_end            ; clicking away abandons a half-typed name
+    call fm_stat_clear          ; ...and retires the last verdict (22.9). CF=1
+    jnc .noclr                  ; means the LINE changed, and the cheap path
+    mov byte [fm_statowed], 1   ; below draws no text at all - so bank it and
+    jmp short .clrdone          ; pay one fm_status_only there rather than
+.noclr:                         ; letting 'Bad package' survive the click that
+    mov byte [fm_statowed], 0   ; was supposed to retire it
+.clrdone:
 
     mov [fm_pressx], cx         ; the ABSOLUTE point, banked before the
     mov [fm_pressy], dx         ; conversion below eats it: a drag tracks in
@@ -1966,11 +1985,17 @@ fm_onclick_x:
     call fm_sel_bar             ; off...
     xchg ax, dx
     call fm_sel_bar             ; ...and on
+    cmp byte [fm_statowed], 0   ; a verdict was retired above and these bands
+    je .out                     ; drew no text (22.9)
+    call fm_status_only
+    jc .redraw                  ; 11.3's granularity refusal
     jmp short .out
 
 .quiet:
-    cmp byte [fm_wased], 0      ; nothing moved - but ending an editor line
-    je .out                     ; rewrote the status line, so that still owes
+    cmp byte [fm_statowed], 0   ; nothing moved - but a retired verdict and an
+    jne .redraw                 ; ended editor line both rewrote the line, so
+    cmp byte [fm_wased], 0      ; those still owe it
+    je .out
 
 .redraw:
     call fm_repaint             ; SI still = window ptr
@@ -2066,7 +2091,12 @@ fm_onkey_x:
     mov di, [fm_vp]
 
     cmp byte [di+FS_EDIT], 0
-    jne .editing                ; naming: nothing below is reachable
+    jne .editing                ; naming: nothing below is reachable - and the
+                                ; prompt already owns the line, so there is no
+                                ; verdict on it to retire
+    call fm_stat_clear          ; ...otherwise this keystroke retires it
+                                ; (22.9). Every path below draws the line one
+                                ; way or another, so nothing is owed here
 
     cmp al, 13
     je .enter
@@ -2248,6 +2278,7 @@ fm_open_sel:
     inc ax                      ; index + 1: ui.inc runs the loader once the
     mov [ld_pending], ax        ; lock drops (SPEC.md 21)
     mov [ld_pwin], di           ; ...resolved against THIS window (22.1)
+    mov byte [di+FS_LDST], 0    ; ...whose last verdict is not this one's
     jmp short .out
 .folder:
     call fm_stage_name          ; fm_name = the folder's display name, out
@@ -2591,9 +2622,17 @@ fm_docmd:
     cmp bx, FMC_COUNT
     jae .out
     shl bx, 1
-    call [fm_jmp+bx]            ; CALL r/m16 near-indirect: 8086-legal
+    mov byte [fm_cmdline], 0    ; assume the whole window until a body says
+    call fm_stat_clear          ; a command retires the last verdict (22.9),
+                                ; BEFORE the body runs so its own survives
+    call [fm_jmp+bx]            ; otherwise. CALL r/m16 near-indirect: 8086
     mov si, [fm_cmdwin]
-    call fm_repaint
+    cmp byte [fm_cmdline], 0
+    je .full                    ; the command changed the listing, the
+    call fm_status_only         ; selection or the mode...
+    jnc .out                    ; ...or it only put a PROMPT on the status
+.full:                          ; line, which is one line of text. CF = 1 is
+    call fm_repaint             ; 11.3's granularity refusal, same as always
 .out:
     ret
 
@@ -3739,6 +3778,36 @@ fm_stage_onam:
     ret
 
 ; -----------------------------------------------------------------------------
+; fm_stat_clear - a new interaction retires this window's verdicts (22.9)
+; in:  [fm_vp] published
+; out: CF = 1 if something was actually cleared (the LINE changed, so a
+;      caller drawing nothing else still owes it); all registers preserved
+;
+; A status message is a report about what the user did here, and it must not
+; outlive the doing of it: 'Bad package' used to sit under the listing through
+; every scroll, click and navigation that followed. Called at the TOP of the
+; three interaction entry points, before the handler runs - so an operation
+; that fails still publishes its own verdict straight after.
+; -----------------------------------------------------------------------------
+fm_stat_clear:
+    push di
+    mov di, [fm_vp]
+    cmp byte [di+FS_FERR], 0
+    jne .clr
+    cmp byte [di+FS_LDST], 0
+    je .none
+.clr:
+    mov byte [di+FS_FERR], 0
+    mov byte [di+FS_LDST], 0
+    pop di
+    stc
+    ret
+.none:
+    pop di
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; fm_edit_arm - hand the status-line editor to one window (SPEC.md 22)
 ; in:  DI = state block, AL = mode (1 = new folder, 2 = rename, 3 = delete)
 ; out: nothing (all registers preserved)
@@ -3753,6 +3822,13 @@ fm_edit_arm:
     call fm_edit_end
     mov [di+FS_EDIT], al
     mov byte [di+FS_FERR], 0    ; the prompt replaces the old verdict
+    mov byte [fm_cmdline], 1    ; ...and the prompt IS the whole change: no
+                                ; row moves, the selection stays where it is,
+                                ; and the header, the icons and the buttons
+                                ; are untouched. fm_docmd spends this; a
+                                ; caller that is not fm_docmd simply leaves
+                                ; it set for the next one to clear, which
+                                ; fm_docmd does before every dispatch
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4511,7 +4587,7 @@ fm_draw_status:
     mov bx, fm_errtab
     jmp short .fs_st_tab
 .fs_st_load:
-    mov al, [ld_status]         ; 4. and finally the loader's
+    mov al, [fm_lldst]          ; 4. and finally the loader's - THIS window's
     or al, al
     jz .fs_st_space             ; ...and when even that has nothing to say,
     mov bx, fm_stattab          ; the line belongs to the free/size figures
@@ -4810,6 +4886,12 @@ fm_wased:   resb 1              ; NOT a mirror: FS_EDIT as it stood BEFORE
 fm_lnf:     resw 1              ; FS_N
 fm_lscr:    resw 1              ; FS_SCRL
 fm_lsel:    resw 1              ; FS_SEL
+fm_lldst:   resb 1              ; FS_LDST
+fm_statowed: resb 1             ; 1 = this click retired a verdict, so the
+                                ; status line owes a redraw the two selection
+                                ; bands do not provide (SPEC.md 22.9)
+fm_cmdline: resb 1              ; 1 = the FMC_* just run changed the status
+                                ; LINE and nothing else on the window
 
 fm_pressx:  resw 1              ; fm_onclick's press point, ABSOLUTE - the
 fm_pressy:  resw 1              ; drag tracks in screen coordinates (22.4)

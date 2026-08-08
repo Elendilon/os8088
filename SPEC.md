@@ -8889,6 +8889,45 @@ now **25 glyphs and 1 fill** — the line and nothing else. At
 PERFORMANCE.md's ~1 ms per glyph cell that is a keystroke costing ~25 ms
 instead of ~120, on a machine where the typist is waiting for it.
 
+### 22.9 A status line belongs to ONE window, and it does not outlive its cause
+
+The line under a Disk window's listing is a **report about what the user did
+in that window**. Two rules follow, and neither held.
+
+**It is per window.** `[ld_status]` is one global, and `fm_stat_line`'s rung 4
+drew it for whatever window it was painting - so a failed load put
+`Bad package` on *every* open Disk window at once, two of them both claiming
+to have been asked. `FS_LDST` is the per-window copy, stamped on `[ld_pwin]`
+- the block that POSTED the load - and mirrored into `[fm_lldst]` by
+`fm_layout` the way `FS_FERR` is into `[fm_lferr]`. A load with no poster
+(the chip menu's Task Manager, `[ld_pwin]` = 0) stamps nobody and reports
+through `ui_note` instead, which is right: no window asked. It cost no bytes
+- offset 15 was the padding hole in front of `FS_VSEG`.
+
+`[ld_status]` remains the LOADER's own result (§21) and is what `ui.inc`
+reads; it is simply no longer what the window DRAWS.
+
+**It does not outlive its cause.** A notification took the line until
+something else had something to say, so `Bad package` sat there through
+scrolling, selecting, navigating and everything else the user did next. The
+rule is now that any interaction with the window clears its verdicts FIRST,
+and whatever that interaction does then sets its own: `fm_stat_clear` zeroes
+`FS_FERR` and `FS_LDST` at the top of `fm_onclick`, `fm_onkey` and
+`fm_docmd`, before the handler runs.
+
+**Clearing is a change to the line, so it has to be drawn**, and that is the
+part that interacts with §22.2.1. A row click's cheap path draws two XOR
+bands and no text at all, so a click that clears a message would leave it on
+screen. `fm_stat_clear` answers **CF = 1 when it actually cleared
+something**, and the cheap path spends that on one `fm_status_only` -
+a click that clears a message costs two bands and one line, not a window.
+
+Three things fall out of the ordering. The clear runs BEFORE the handler, so
+an operation that fails still shows its own new verdict. `fm_edit_arm`'s
+existing `FS_FERR = 0` is the same rule arriving earlier and stays. And the
+resting state (§22.7's size and free space) needs no clearing rule of its own,
+because it is what the line says once the notifications are gone.
+
 ### 22.3 Cut, Copy and Paste (`kernel/filecp.inc`)
 
 The clipboard is **(drive, folder, name, type)** and deliberately not an
