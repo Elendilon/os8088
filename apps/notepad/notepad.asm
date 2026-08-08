@@ -4404,15 +4404,21 @@ np_ondlg:
 ; np_goto - put the volume back in this document's folder (SPEC.md 19.2)
 ; out: nothing; preserves all registers
 ;
-; A file name resolves in the volume's CURRENT directory, and that is one
-; global word shared by every Disk window and by the file dialog. Right after
-; Save As it still names the folder the user picked - which is why saving
-; into a folder worked - but by the next Save anything that navigated has
-; moved it, and the write landed in the root. The pair OSAPI_FILE_HERE
-; recorded is what says otherwise.
+; **THE KERNEL DOES THIS NOW, and this routine is kept as a no-op that costs
+; two compares** (SPEC.md 19.2.1). A file name used to resolve in the ONE
+; global current directory shared by every Disk window and by the file
+; dialog: right after Save As it still named the folder the user picked -
+; which is why saving into a folder worked - but by the next Save anything
+; that navigated had moved it, and the write landed in the root. Four
+; packages each carried their own copy of the six lines below, which is what
+; eventually said the kernel owed the feature rather than the SDK owing an
+; example. An instance owns its directory now, so OSAPI_FILE_HERE answers
+; this document's folder and the OSAPI_FILE_GOTO below never fires.
 ;
-; A remount is real floppy I/O, so it is skipped when the volume is already
-; there, which is the common case.
+; It stays because the slots keep their contract (SPEC.md 20.8 rule 4) and
+; because a remount was always skipped when the volume was already there -
+; which is now every time. Deleting it would be correct and would also delete
+; the record of why it was ever needed.
 ; -----------------------------------------------------------------------------
 np_goto:
     push ax
