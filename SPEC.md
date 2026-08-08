@@ -20160,6 +20160,82 @@ rows — **5.5 ms against 11.6** — at the price of taking every trail pixel an
 neighbour inside its bounding box, which is more `mc_exp_hole` repairs. That
 trade has not been measured and should not be guessed at.
 
+### 48.25 An erase may over-cover; a draw may not
+
+Researching §48.24's remaining cost. The drawn burst and the erase that takes
+it away are the same `mc_blob` today, and they are not the same problem: the
+draw has to look like a fireball, and the erase has to make one **go away**.
+Background written over background is invisible, so the erase's only real
+obligation is to CONTAIN what was drawn — §48.4's "it must be the SAME shape"
+is true of a *shrinking* burst giving back an annulus and was carried over to
+`.gone` without being re-asked.
+
+`mc_blob`'s band quantum is `R >> 3 + 1` and it is `[mc_bqsh]` now, so `.gone`
+can pick a coarser one. At r = 13 that is a straight trade of fills against
+area, and both ends are measured below:
+
+| quantum | bands | cost at r=13 | area erased beyond the disc |
+|---|---|---|---|
+| `R>>3` (the drawn shape) | 9 | 11.6 ms | 0 |
+| `R>>1` | ~4 | 7.8 ms | small |
+| `R>>0` — one bounding rect | 1 | **5.5 ms** | the four corners, ~200 px |
+
+**The marking needs no adjustment for any of them**, which is the property
+that makes this cheap to try: whatever the quantum, the erase never reaches
+outside the bounding square of half-width `r`, and `mc_exp_hole`'s test is
+already a square on the **sum** of the radii. A coarser erase takes more
+*area* and never more *reach*.
+
+`mc_bqsh` lives in `.text` with a real initialiser rather than in bss, because
+bss arrives zeroed and zero here means "one bounding rect" — the erase's shape,
+which must never be the drawn one.
+
+#### 48.25.1 …but the erase was never the expensive half
+
+**The coarse erase was measured and REJECTED**, and `MC_ERSH` stays at 3.
+`mc_draw_exp` on a dying frame goes **21.2 → 16.93 ms** with the bounding
+rect — not the 6.1 ms the fill count predicts — and the whole dying frame only
+**67.6 → 65.36**, which is not smoothness. Meanwhile the fidelity check gets
+*worse*: a settled screen differs from a forced repaint by **63 pixels at
+`R>>3` and 130 at `R>>0`**, both in a three-row band at the ground line. Dearer
+to look at, barely cheaper to run.
+
+The reason it disappoints is the split: the erase is 5.5–11.6 ms of a 17–21 ms
+stage, and **the rest is `mc_exp_hole`'s repairs** — a repair is a whole
+`mc_blob`, so a coarser erase saves fills and buys back neighbours to redraw.
+The knob is kept so the measurement can be repeated, not because it is
+expected to pay.
+
+So the answer is not to erase more cheaply, it is **not to erase yet**.
+`mc_exp_lit` asks whether any burst that is still lit overlaps the one that
+just expired, and if so the erase WAITS — the slot stays at `0FFh` and is
+found again next frame. A cluster detonates together and so expires together,
+so the wait is a frame or two and nothing can see it; and when the neighbour
+has gone, the erase takes no bite out of anything and **needs no repair at
+all**. It is §48.15's rule once more: the work is owed, not urgent.
+
+`MC_EGDEF` bounds the wait, because a chain of fresh bursts arriving on top of
+an old one must not pin a fireball on the screen; past it the erase runs and
+marks exactly as before. **It is 3 and not 8, and that was measured on both
+axes** — at 8 the counter was seen reaching 7 in ordinary play, which is a
+fireball hanging about for 0.44 s, and 3 is *better for smoothness as well*:
+
+| | `mc_draw_exp`, dying frame | whole dying frame | worst frame | frames > 65 ms |
+|---|---|---|---|---|
+| §48.24, before this | 21.2 ms | 67.6 ms | 94–160 ms | 13–32 of 259 |
+| one bounding rect | 16.93 | 65.36 | 111.6 | 25 |
+| defer, `MC_EGDEF` 8 | **9.40** | 59.91 | 94.4 | 22 |
+| **defer, `MC_EGDEF` 3** | 13.10 | **59.17** | **87.6** | **16** |
+
+A shorter wait runs more erases, so the *stage* is dearer than at 8 — and the
+frame is the same, the worst frame is 7 ms better and a quarter fewer frames
+cross the tick, because the work is spread rather than pooled. The stage mean
+is the wrong number to tune on; the tail is the one the eye sees.
+
+`[mc_edef]` is cleared in `mc_add_exp` beside `mc_et` and `mc_er`, since a slot
+is reused. Verified for the other half at the same time: scanning every lit
+burst on every frame, **0 holed of 124 samples**.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
