@@ -13258,6 +13258,64 @@ rather than as a century byte that was believed. It is reproducible under
 QEMU by forcing `clk_rr+6` to 19h, and 86Box's 286 targets (`vm/286`,
 `vm/286-sound`) show it for real.
 
+### 37.92 The block a test package reads (registry tag `'CK'`)
+
+**Every failure of this ladder looks the same, and that is the problem it
+solves.** A rung that finds nothing, a rung that finds a chip and rejects it
+at the second of seven gates, and a machine with no clock card in it at all
+all produce one identical symptom: the 4 July 2026 fallback date. There is
+nowhere to look, because the only instrument that could tell them apart is
+the machine, and the machine is a 5150 with no debugger.
+
+Nor can the container help. QEMU has an **MC146818 and nothing else**, so
+rung 1 claims and rungs 3 and 4 never execute; `RTC=ns` forces the MM58167
+rung against a machine that has no MM58167, which exercises the **rejection**
+and never the acceptance. The AST SixPakPlus in docs/FIELD-MACHINES.md's
+5150 is the only place rung 4 has ever succeeded, anywhere, and this section
+exists because it stopped succeeding and nothing in the tree could say why.
+
+So the ladder publishes its verdict and its working through §57's registry
+under the tag `'CK'` — the block's own first word, the `'MO'` idiom — as a
+pointer to a **7-byte span**: `clk_dbg_tier` +0, `clk_dbg_ref` +1,
+`clk_dbg_step` +2, `clk_dbg_r00` +3, `clk_dbg_r08` +4, `clk_dbg_sig` +5,
+`clk_dbg_r08w` +6. Eleven bytes with the header, and the span is asserted at
+assembly time for §9.4.2's reason: a member that moved would be silently
+republished as a different quantity to a reader on a floppy.
+
+`clk_dbg_step` is the row that carries. **0** means `clk_ns_probe` never ran
+because an earlier rung claimed; **0FFh** means every gate passed; **1..7**
+names the gate that refused, in the order the routine tests them. The four
+raw bytes beside it are what separates the two answers a step alone cannot:
+all-`FF` is nothing answering at 2C0h, and a plausible byte with a late stop
+is a card that is there and a gate that is stricter than its silicon.
+`clk_dbg_sig` is the one the code's own comment already nominated —
+*"IF THE USER'S SIXPAKPLUS IS NEVER DETECTED, THIS IS THE FIRST LINE TO
+SUSPECT"* — where three sources say the absent nibble reads `0Ah` and
+GLaTICK's author's comment expects it might float to ones.
+
+Three things about it match §9.4.2 exactly, and one differs:
+
+- **Unconditional, not knob-built.** docs/FIELD-MACHINES.md's handover rule
+  sends the field machine a kernel with no knob set, so behind a knob this
+  would be absent from every disk that matters — which is the same argument
+  that keeps the mouse block out of `DISKCNT`'s company.
+- **`.text` with real initialisers**, because `-f bin` zeroes nothing and
+  "the probe never ran" has to be distinguishable from "gate 0 refused".
+- **Written from the boot overlay**, whose DS is `KERNEL_SEG` (§2.5), so
+  every store is an ordinary DS-relative move and none of it needs a shim.
+- **It is the one debug block that RECORDS rather than republishes.**
+  §9.4.2's members are all state the kernel keeps anyway; four of these seven
+  exist only to be read here. That is worth five bytes because the thing they
+  describe happens once, at boot, on hardware nobody has — and the
+  alternative is a bisect measured in field trips.
+
+Verified both ways it can be: QEMU's default answers `tier 1, stop 00` (rung
+1 claimed and the NS probe never ran), and `make test RTC=ns` answers
+`tier 0, stop 01, reg 00 = FF` — the ladder correctly refusing a chip that is
+not there, with the reason legible. `tests/sysbench`'s `sb_ladder` is the
+reference reader, and like the mouse block it emits no `bl_head`, because not
+one row of it is a measurement.
+
 ## 38. fdlg.inc — the Standard File dialog
 
 The kernel's file chooser: **one** window that lists a directory and hands
@@ -21101,9 +21159,18 @@ So: **one fixed word, one level of indirection, and the list can grow.**
 0060:000E   dw dbg_reg          ; or 0 - this kernel publishes nothing
 
 dbg_reg:    dw 'MO', mou_dbg_blk
+            dw 'CK', clk_dbg_blk
             dw 'DD', dsk_dbg_blk    ; only in a DISKCNT=1 build
             dw 0                    ; end of list
 ```
+
+Two of the three are unconditional and one is knob-built, and the split is
+the rule rather than an accident: `'MO'` (§9.4.2) and `'CK'` (§37.92) both
+describe **hardware nobody in this project owns twice** — a real serial card's
+answer to a DTR raise, a real MM58167's answer to a probe — so they have to
+be in the kernel the field machine is actually sent, which by
+docs/FIELD-MACHINES.md's handover rule carries no knob at all. `'DD'`
+(§18.94) counts something a normal kernel has no reason to carry.
 
 | | |
 |---|---|
