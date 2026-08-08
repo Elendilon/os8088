@@ -220,6 +220,38 @@ wm_fit:
     ret
 
 ; -----------------------------------------------------------------------------
+; wm_refit - clamp EVERY live window back onto the screen (SPEC.md 39.11.2)
+;
+; in:       nothing (the live geometry has just changed)
+; out:      every used record's W_X..W_H clamped
+; clobbers: flags
+;
+; wm_fit runs once per window at creation because the screen never used to
+; change afterwards. It can now (vid_switch), and a 640x480 machine switched
+; to CGA has every window hanging off the bottom of a 200-row screen - with
+; its title bar below the dock, which is a window the user cannot reach to
+; drag back. One pass over wm_wins puts them all inside the new one.
+;
+; A free slot is skipped rather than clamped: W_W/W_H are whatever the last
+; owner left there, and wm_create fits the record it fills in anyway.
+; -----------------------------------------------------------------------------
+wm_refit:
+    push bx
+    push cx
+    mov bx, wm_wins
+    mov cx, MAX_WIN
+.next:
+    test word [bx+W_FLAGS], 1   ; used?
+    jz .skip
+    call wm_fit
+.skip:
+    add bx, WIN_SIZE
+    loop .next
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; wm_dock_snap - a window left barely over the dock is nudged back above it
 ; in:  BX = window ptr (its rect already clamped by the caller)
 ; out: CF = 1 if W_Y moved, CF = 0 if nothing changed. All registers preserved.

@@ -693,6 +693,39 @@ Testing quirks (learned the hard way):
   screen is `[vid_w]`/`[vid_h]`/`[vid_stride]` and the derived words in §39.2. New code that
   clips, centres or anchors to a screen edge must read those, or it is wrong on two adapters
   out of three.
+- **…and the machine may have MORE THAN ONE, and may be moved between them
+  while it runs (SPEC.md §39.11, `kernel/vidsel.inc`).** `vid_detect` answers
+  *which adapter am I driving*; `[vid_avail]` answers *which ones could I
+  drive*, and on the machine this project is calibrated against — a 5150 with
+  a Hercules AND a CGA, each on its own monitor — that is two. The Control
+  Panel's **Display** page (§31.10) lists them and its **Activate Mode**
+  button switches there and then; the old Display page, which was always
+  about double buffering, is called **Buffer** now (§31.3). Four things are
+  easy to undo. **`vid_probe_avail` runs from `kmain` AFTER the mode is set**,
+  because a VGA in mode 12h decodes A000 only and so leaves B000/B800 free for
+  a second card to answer at — probed earlier, a VGA whose BIOS came up in
+  mono text answers at B000 *as itself*. **Memory answering at B800 is not a
+  CGA**: a Hercules has 64KB in two pages and page 1 IS B8000, so
+  `vid_cga_alias` writes at B000:8000 and looks for it at B800:0000 — MartyPC's
+  MDA decodes the whole 64KB whatever 3BFh says and reported a CGA on a machine
+  that has only a mono card. **`vid_switch` drops the back buffer and spends
+  the cursor's deferred hide BEFORE the geometry moves**, or `gfx_unlock`
+  restores a save-under through the new addressing and smears the arrow
+  permanently; and it re-runs `desk_rowcalc` and `wm_refit`, the two things
+  `vid_apply` does not own. **The caller owes the repaint** — the panel posts
+  `[cp_dirty]`, `drv_boot` redraws the splash — because `vid_setmode` clears
+  the framebuffer and the two callers want different things put back.
+  `SYSTEM.CFG`'s `VM` key remembers the choice and `vid_switch` REFUSES a card
+  the machine does not have, so a settings disk carried between machines
+  cannot boot one to a dead monitor. **One adapter is not a choice, so the
+  page is not drawn at all** (§31.10.1) — and the Display item is LAST in
+  `cp_items` precisely so that hiding it is a shorter list rather than a
+  remapping every row below it would have to agree about. `[cp_nst]`, not
+  `CP_ITEMS`, is §31.9's static/driver boundary now; miss one of those sites
+  and a loaded driver's row dispatches as the Display page. **And the card
+  the machine LEAVES is darked** (§39.11.4), but only when the two kinds are
+  two cards — on a VGA the CGA row IS the VGA doing mode 6, so blanking "the
+  outgoing card" there would blank the one being programmed.
 - **8086 only.** `kernel.asm` opens with `cpu 8086` and the build uses `-w+error`, so NASM rejects anything newer: no `pusha`, no `push imm`, no `shl reg, imm` other than 1 (use CL), no `movzx`, no 32-bit registers.
 - **Near model — for the kernel.** CS = DS = `KERNEL_SEG` (0x0060) for all kernel code and every task; **SS = `LOW_SEG`**, because every task stack lives outside the kernel's own segment (just above it). **Every** inter-module call in the kernel is near — there is no far code and no second code segment (SPEC.md §33). ES is scratch but must be restored unless documented. **SS ≠ DS means `[bp+disp]` addresses SS** — code holding a kernel pointer in BP needs `[ds:bp+…]`. **A package owns its own segment** (SPEC.md §20.1), so every crossing of that boundary is a far call in one direction and a dispatcher call in the other; see "Packages own a segment" below.
 - **Register discipline.** Every public routine preserves all registers except documented outputs. ISRs push DS/ES, load DS = KERNEL_SEG, `cld` before string ops. Critical sections use `pushf`/`cli` … `popf`, never `cli` … `sti`.
