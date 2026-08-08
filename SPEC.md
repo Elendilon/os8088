@@ -12459,14 +12459,18 @@ change.
 CP_I_NAME  equ 0   ; -> list name, ASCIIZ
 CP_I_PAINT equ 2   ; -> page paint proc   (in DI = pane left, BP = pane top)
 CP_I_CLICK equ 4   ; -> page click proc   (in DI/BP, CX/DX = pane-relative)
-CP_ISTRIDE equ 8   ; 4th word reserved (a future page onkey proc)
+CP_ISTRIDE equ 8   ; 4th word = the dispatch class (§31.9): 0 = a kernel proc
 cp_items:  dw cp_s_sched, cp_sched_paint, cp_sched_click, 0
-           dw cp_s_disp,  cp_disp_paint,  cp_disp_click,  0   ; §31.3
-           dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.4
+           dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0   ; §31.10
+           dw cp_s_buf,   cp_buf_paint,   cp_buf_click,   0   ; §31.3
            dw cp_s_time,  cp_time_paint,  cp_time_click,  0   ; §31.5
+           dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0   ; §31.6
+           dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0   ; §31.7
 cp_items_end:
 CP_ITEMS   equ (cp_items_end - cp_items) / CP_ISTRIDE
 CP_ITIME   equ 3     ; the Date/Time item's index: §12.1 selects it by name
+CP_IDRV    equ 4     ; ...the Drivers item (§51.3's drv_notice opens it)
+CP_ISND    equ 5     ; ...and Sound (§34.8)
 ```
 
 **List names are at most 9 characters** (72px): the selection bar runs from
@@ -12578,10 +12582,19 @@ repainted within the same UI pass by the `cp_dirty` repaint above, and the
 Task Manager's SCHED field (§28), rewritten at its next sample (≤ 9 ticks)
 and by that repaint.
 
-### 31.3 Display page — double buffering
+### 31.3 Buffer page — double buffering
 
-Second item in the panel list, same two-row radio geometry as §31.2 (it
-shares `cp_glyph` and the `CP_B*Y` hit bands). Heading "Display"; row 0
+Third item in the panel list, same two-row radio geometry as §31.2 (it
+shares `cp_glyph` and the `CP_B*Y` hit bands).
+
+**It was called "Display" until §31.10's Display page existed**, and the
+rename is the honest one of the two: this page has never had anything to do
+with *which* display the machine drives — it chooses whether drawing goes
+straight to the framebuffer or through the 150KB back buffer of §32, which
+is a question about buffering. Its procs are `cp_buf_*` to match; the
+string is `cp_s_buf`.
+
+Heading "Buffer"; row 0
 "Direct to screen", row 1 "Double buffered"; the filled glyph follows
 `[bb_dbl]`, the armed-buffer flag and **not** `[bb_on]` (1 on any mono
 adapter, §39.5); it is **0 at boot** — double buffering is opt-in.
@@ -12608,7 +12621,7 @@ be told no by the same answer. It is live state, not a boot-time verdict —
 open a package that claims a canvas and the row greys out; close it and the
 row comes back.
 
-`cp_disp_click` mirrors `cp_sched_click` — signed comparisons, x ignored,
+`cp_buf_click` mirrors `cp_sched_click` — signed comparisons, x ignored,
 a hit on the live row does nothing — and calls `bb_set` (§32), which
 requires the gfx lock the click handler already holds. It then redraws just
 the two glyphs. No `[cp_dirty]`: unlike the scheduler mode, no window quotes
@@ -12621,10 +12634,12 @@ a tone route, to allow or forbid exclusive clips, and to
 play a test clip through the sound card. With one sink there is nothing to
 choose, and the page went with §34's driver table. `CP_ITIME` — the
 Date/Time item index ui.inc selects when the menu-bar clock is clicked
-(§12.1) — is therefore **2**, not 3.
+(§12.1) — is therefore **2**, not 3, and §31.10's Display page did not move
+it: that page is appended LAST, for §31.10.1's reason. `CP_IDRV` is 3 and
+`CP_ISND` 4.
 
 The three-layer refusal idiom the page demonstrated (setter refuses,
-caption explains, click ignored) is not retired with it: §31.3's Display
+caption explains, click ignored) is not retired with it: §31.3's Buffer
 page still uses it, and §50.5 extends it to "Not Enough Ram".
 
 ### 31.5 Date/Time page — setting the system clock
@@ -13034,6 +13049,114 @@ Three things hold it up:
 The pane is 221 × 121 px — 27 characters by 13 rows — and the panel is not
 resizable, so a driver whose interface needs more room opens a window of its
 own (§38.1's unowned-window species, and §52.2/§52.3 are the worked examples).
+
+**The list holds eight rows and no more.** Row *i*'s bar runs
+`CP_I0Y + i*CP_IROWH` to `+ CP_IBH - 1`, so row 7 ends at 116 inside a
+content box 121 tall and row 8 would run through the bottom border onto the
+desktop. Six static items plus the two drivers that publish a page (the hard
+disk's and the debug monitor's; the sound driver publishes none) is exactly
+eight. A **third** driver page, or a **seventh** static item, needs the
+window to grow first — `%if CP_ITEMS + 2 > (CP_CH - CP_I0Y) / CP_IROWH` in
+`ctrl.inc` is the guard, and it fails the build rather than the pane.
+
+### 31.10 Display page — which adapter the machine is driven as
+
+**Last** item in the list, for §31.10.1's reason. One radio row per adapter `vid_probe_avail` found
+(§39.11.1), and an **"Activate Mode"** button that moves the machine onto the
+selected one there and then (§39.11.2). Heading "Display"; the row labels are
+"Vga 640x480", "Hercules 720x348" and "Cga 640x200", indexed by `VID_*` —
+the kernel's own enum *is* the row order, which is what keeps the label, the
+dot, the click and `vid_switch` from ever disagreeing about which row is
+which.
+
+**The rows are adapters, not modes.** Each adapter has exactly one graphics
+mode here (§39), so the resolution beside the name is a description rather
+than a second choice.
+
+**An adapter the machine does not have is no row, not a greyed row.** That is
+§47 rule 3 read the other way round: greying is a claim about a *control*,
+and a control for absent hardware should not be drawn at all. It is the same
+answer §52.2.2 reached for the partition rows. The one thing that does grey
+is the button, whose predicate is "the dot is not already on the running
+adapter" — and the frame *and* the label take that pen together through
+`gfx_pen_cf`, so on the two 1bpp adapters the ring comes out dotted and the
+caption a checkerboard (§47 rule 2).
+
+**The rows are COMPACTED, and `cp_vid_slot` is the one place that knows it.**
+A machine with a Hercules and a CGA and no VGA draws them in slots 0 and 1,
+not slots 1 and 2 with a hole at the top — so "which kind is this row" is
+real arithmetic over `[vid_avail]` and not the identity. The paint and the
+click both go through that one routine, which is §22.2's `fm_hit` argument:
+two copies of it would be two opinions about what the user just clicked on.
+
+**Selecting and switching are two actions on purpose.** A click that switched
+immediately would make a mis-click on a 5150 with two monitors move the
+picture to the other tube — recoverable, but only by finding a window you can
+no longer see. `[cp_vsel]` is the pending adapter; `[vid_kind]` is the
+running one, read live like every other page reads its subject; the two
+differ exactly between picking a row and pressing the button.
+
+`[cp_vsel]` is initialised `.text` data like `[cp_sel]` and `[cp_tsel]`, so
+its value is fixed at assembly time and which adapter a machine boots on is
+not known until `vid_detect` has run. **0FFh is therefore a sentinel, not a
+kind**, and so is any kind the machine turns out not to have — which is what
+a settings byte written on a machine with a card this one lacks decays to.
+`cp_vid_pick` repairs both, in one place rather than at every read.
+
+**Nothing is redrawn after a successful switch**, and that is load-bearing
+rather than an economy: `vid_switch` changes the geometry and re-fits every
+window, so `DI`/`BP` — this window's content origin, computed before the call
+— now describe a rectangle that may not exist. `[cp_dirty]` hands the whole
+screen to `ui_task`'s step 3, which repaints it outside the lock (§13/§31.2),
+and that is the only correct redraw here. `[cp_wdirty]` is set alongside it,
+so the choice reaches `SYSTEM.CFG` on the panel's close like every other
+setting (§31.8) — no page writes on a click, and this one is no exception.
+
+**`x` matters in this page's click handler, unlike every other page in the
+panel.** The radio bands run the pane's whole width as usual, but the button
+is a rect and a click to the right of it is not a press. The button's band is
+tested first because it sits below the rows and the two are contiguous.
+
+The caption has two answers: a dot already on the running adapter says "This
+adapter is running", which is §47 rule 7's say-why-not for the greyed button;
+anything else says "Switches now, and is kept". (It had a third — "No other
+adapter found" — until §31.10.1 made that state unreachable.)
+
+#### 31.10.1 One adapter is not a choice, so the page is not shown
+
+A machine with a single adapter got a page with one row, a dead button and a
+caption explaining that there was nothing to do. That is a page whose entire
+content is an apology, and §47's reasoning about *controls* applies to a
+whole *page* the same way: the honest answer to "there is nothing here" is
+not to draw it. So `[cp_nst]` — the number of static rows the list is
+showing — is `CP_ITEMS` normally and one fewer when `[vid_avail]` has a
+single bit set.
+
+**The Display item is LAST in `cp_items` and that is what makes it
+hideable.** Hiding a row in the *middle* of the table would mean every row
+below it maps to a different record, which is a second opinion about what the
+user just clicked on at four separate call sites. Last, it is simply a
+shorter list: row → record stays the identity and `cp_entry` does not change.
+It also leaves `CP_ITIME`/`CP_IDRV`/`CP_ISND` at the values they had before
+this page existed.
+
+**`[cp_nst]` is the static/driver boundary, not just a row count.** §31.9's
+rebasing (`cmp al, CP_ITEMS` → `sub al, CP_ITEMS` → the class) is what
+decides whether a row is a static page or a driver's, so every one of those
+sites reads the byte instead of the constant — otherwise, on a machine with
+the page hidden, the first driver's row would dispatch as static item 5 and
+paint the Display page over it.
+
+**One writer, and it is the only routine that could answer the question:**
+`vid_probe_avail` (§39.11.1), which sets it in the same pass that fills
+`[vid_avail]`. Because `[vid_avail]` is fixed for the life of the machine,
+the byte is written once at boot and read for ever after — no refresh, no
+staleness. It is initialised `.text` data like `[cp_sel]`, and the
+initialiser is the safe answer: a build whose probe never ran shows the page
+rather than losing a row belonging to something else.
+
+The pane assertion still uses `CP_ITEMS` rather than the byte, because the
+guard has to hold on the machine that shows every row.
 
 ## 32. vgabb.inc — the software renderer (double buffering, and §39's 1bpp driver)
 
@@ -15201,6 +15324,170 @@ On CGA the usable desktop is 156 rows, so windows authored at 640x480 meet
 The general rule this leaves for any new window: **the clamp is not a clip.**
 If a paint proc lays out from constants rather than from `W_W`/`W_H`, it can
 write outside its frame on a short screen, and only the screen edge stops it.
+
+### 39.11 More than one adapter — `vidsel.inc`
+
+§39.1 answers *which adapter am I driving*. This answers *which ones could
+I drive*, which is a different question and has more than one answer on the
+machine this project is calibrated against: `docs/FIELD-MACHINES.md`'s IBM
+5150 carries a Hercules **and** a CGA, both permanent, each on its own
+monitor, and until this existed the probe picked one at boot and the other
+card was unreachable for the life of the session.
+
+Module `kernel/vidsel.inc`, prefix `vid_`. It is `%include`d **after**
+`splash.inc`, and that placement is mechanical rather than editorial:
+`viddet.inc` comes *before* the splash because the splash calls into it on
+its first tick, so every byte added there pushes `splash.inc` further down
+the image and against the `SPL_RESIDENT` assertion (§15) — which had 234
+bytes of room when this was written. Nothing in this module is reachable
+from the splash: the probe runs from `kmain` and the switch from the Control
+Panel.
+
+#### 39.11.1 What the machine has — `vid_probe_avail`
+
+`[vid_avail]` is a bitmap, one bit per `VID_*` kind (`1 << VID_VGA` etc.),
+filled **once** at boot and cached — `vid_switch` moves `[vid_kind]`, so
+re-deriving it later would ask the question of the wrong machine.
+
+Three answers, and only one of them is a probe:
+
+- **VGA** — already answered. §39.1's steps 1 and 2 run *before* the
+  equipment word, so `[vid_kind]` is `VID_VGA` on every machine with a VGA
+  or EGA BIOS. There is nothing further to ask.
+- **CGA** — available on any machine that has a VGA or an EGA, because mode
+  6 is a standard BIOS mode on every one of them and its framebuffer is the
+  byte-exact 640x200 one this kernel's CGA path already drives (§39.9's
+  `VIDEO=cga` has relied on that for as long as it has existed).
+  Otherwise, a memory probe at B800.
+- **Hercules** — a memory probe at B000. There is no BIOS to ask: Hercules
+  graphics has no BIOS mode at all (§39.6).
+
+**The running adapter is marked available without being probed**, because
+the probe *writes* and that memory is the screen.
+
+**`vid_probe_avail` is called from `kmain` AFTER the mode is set, and that
+is the whole correctness argument.** A VGA in mode 12h has its Graphics
+Controller mapping 64KB at A000, so it decodes neither B000 nor B800 and a
+card answering there is a real second card. Run *before* the mode set, on a
+machine whose BIOS came up in mono text, the VGA answers at B000 **as
+itself** and the kernel reports a Hercules that is not there. The same
+ordering is what makes the CGA probe meaningful on a Hercules-primary
+machine: `vid_setmode` deliberately leaves the Hercules' second 32KB page
+disabled (§39.6), so B800 belongs to the CGA if there is one.
+
+**`vid_memchk` writes two different values to two different offsets and
+reads the first back.** The obvious test — write a byte, read it back —
+passes on an empty bus: ISA is capacitive and a read with nothing driving
+it returns whatever crossed the bus last, which is the byte just written.
+Writing 0xAA to a second address in between is what makes the read of 0x55
+mean something. Both bytes are restored either way.
+
+**The second offset is 0x1000, and that is also the Hercules-versus-MDA
+discrimination §39.1 recorded as a scope cut.** A plain MDA has 4KB at B000
+and aliases it upward, so its 0x1000 *is* its 0x0000: the 0xAA lands on top
+of the 0x55 and the probe fails — which is the right answer, because an MDA
+is text-only and has no 720x348 mode to offer. A Hercules has 32KB in page
+0 and a CGA 16KB at B800, and both keep the two offsets apart. So the one
+probe that rejects an empty bus rejects a text-only card for free, and
+nothing here needs the 3BAh vertical-sync timing loop. §39.1's fallback
+behaviour is unchanged: that cut still stands for *detection*, where driving
+an MDA as a Hercules remains strictly less wrong than driving it as a CGA.
+
+#### 39.11.2 Changing adapter while it runs — `vid_switch`
+
+`AL` = the target kind; `CF = 1` refuses one the machine does not have.
+**The caller owes the repaint**, deliberately: `vid_setmode` clears the
+framebuffer, so what is on screen on return is a black rectangle of the new
+geometry, and the two callers want different things put back (§39.11.3).
+
+Order is binding, and every step is somebody else's invariant:
+
+1. **The back buffer belongs to the old adapter.** Its 150KB claim is sized
+   for four 640x480 planes and its flush targets that framebuffer, so
+   `bb_set 0` runs while the old geometry still describes it. `bb_init`
+   below then re-answers whether the new adapter can have one at all — on
+   mono it cannot (§39.5), and a stale `[bb_avail]` would let the Buffer
+   page offer a buffer `bb_set` would refuse.
+2. **`cur_unlazy`, while the old geometry still describes the save-under.**
+   `gfx_lock` only *promises* the hide (§7.1.4), so under the Control
+   Panel's lock the arrow is typically still on screen with 24 bytes of
+   background banked against the old stride. Change the geometry first and
+   `gfx_unlock` restores those bytes through the new addressing, smearing
+   the arrow across the screen permanently. It is a no-op on the boot path,
+   where no promise is outstanding.
+3. **`vid_equip`, `vid_apply`, `bb_init`, `vid_setmode`.** `vid_apply`
+   republishes all nine live words and everything derived from them, and
+   homes the mouse — load-bearing for §39.2's reason.
+4. **`desk_rowcalc` and `wm_refit`**, the two things `vid_apply` does not
+   own. Zones per column is 7 on VGA, 4 on Hercules and 2 on CGA; and every
+   window's frame was clamped onto the *old* screen, so a 640x480 window is
+   off the bottom of a 640x200 one — with its title bar below the dock,
+   which is a window the user cannot reach to drag back.
+
+**`vid_equip` is the counterpart to `vid_cga_equip`, and it exists because
+that one is a one-way door.** `vid_cga_equip` flips 40:10's bits 5:4 from
+mono to colour so an XT BIOS's equipment-driven mode set can reach the CGA,
+and nothing ever put them back — correct while the adapter was chosen once
+at boot, wrong once the user can switch. On the 5150 with both cards,
+Hercules → CGA → Hercules left the flag saying colour, and `CMD_REBOOT`'s
+`vid_text` (int 10h AX=0007h) would then have programmed the CGA instead of
+the MDA: a machine that reboots to a dead mono monitor. Only `vid_switch`
+calls it, so the boot path is untouched.
+
+**`desk_rowcalc` moved out of `desk_init` for this.** `desk_init` is boot
+overlay code (§2.5) and is dead FAT by the time the Control Panel can change
+the adapter under it, so the arithmetic is resident and the overlay
+far-calls it through `ovw_desk_rowcalc` like any other overlay→text step.
+
+#### 39.11.3 Remembering it — the `VM` key
+
+`SYSTEM.CFG` gains one byte, key `VM` (§51.5's keyed container), holding a
+`VID_*` kind. `drv_cfg_pack` records `[vid_kind]` — the adapter actually
+running — so on a machine that has never been asked, the file records the
+probe's own answer and a first save changes nothing about the next boot.
+
+**It is applied by `drv_boot` and not by `drv_cfg_unpack`**, for the back
+buffer's reason: it is not a store. It sets a video mode.
+
+**It is applied FIRST, before the driver load loop and long before the back
+buffer at the bottom of that routine.** Everything after it draws — the
+splash bar is ticked once per sector by `dsk_xfer` (§15.3) — and
+`vid_setmode` clears the framebuffer, so the switch happens while there is
+the least possible loading screen to put back. `spl_reset` puts it back
+immediately, entering `spl_rechrome`: `spl_chrome` minus the `vid_detect`
+that would answer with the *probe's* adapter and undo the switch three
+instructions after it happened.
+
+**A refusal is the safety story.** `vid_switch` returns `CF = 1` for a card
+this machine does not have, and `drv_boot` then simply stays on the probe's
+answer — so a settings disk carried from a machine with a Hercules in it
+cannot boot a machine without one to a dead monitor.
+
+#### 39.11.4 Darking the card the machine just left — `vid_blank`
+
+On a two-monitor 5150 a switch otherwise leaves the outgoing tube lit with a
+frozen desktop on it. Harmless — the live screen is the one whose cursor
+moves — and still the wrong thing to show somebody. Stopping the video signal
+costs two `out`s and the card keeps its sync, exactly as `vid_setmode`'s own
+blank-first sequence does (§39.6). Leaving the Hercules writes 0 to 3B8h
+(video off) and 0 to 3BFh (graphics disallowed, and the page-1 decode locked
+out again); leaving a CGA writes 0 to 3D8h.
+
+**Only when the two kinds are two CARDS, which here means exactly one of them
+is the mono one.** That test is not fussiness. On a VGA machine the CGA row
+*is* the VGA doing mode 6 (§39.11.1), so "blank the outgoing card" would
+blank the very card the next three lines programme and the machine would come
+back on a dark screen.
+
+Nothing has to be un-blanked: `vid_setmode` re-enables whichever card it
+programmes, on both of its paths.
+
+The one case it does not cover is a VGA **and** a Hercules in the same
+machine: 3D8h is a CGA register that a VGA does not implement, so the write
+lands nowhere and the VGA stays lit. Accepted rather than fixed — that
+pairing is not a machine anybody built, and reaching the VGA's own screen-off
+(Sequencer register 1, bit 5) would put a VGA-specific register write on a
+path that runs on all three adapters.
 
 ## 40. apps/fractal — the progressive renderer and its restore cache
 
@@ -17687,6 +17974,85 @@ reaches any of this (§45.9's band relight short-circuits first).
 difference — a rising bar fills its growth, a falling one erases its
 shrinkage, a steady one costs nothing; `tui_el_scopes` zeroes the four
 widths whenever it repaints the cells under them.
+
+**And every value readout is ONE OPAQUE RUN, not an erase and a letter.**
+`tui_rdout` is the single routine behind Pos, Row, BPM, Spd, Ptn, Np, the
+song title and the status line, and it was a `gfx_fill` of the field's rect
+followed by a `font_str` over it — Part 1's **double-draw flash**, with the
+field blank for the gap between them. On an 8088 that gap is tens of
+milliseconds and the Pos/Row line redraws about seven times a second, so it
+strobes; reported from the field as *"windowed mode is drawing flashing
+characters"*. On a mono adapter it is now one `OSAPI_FONT_RUN` with the
+string **space-padded to the field's width**, so the padding *is* the erase
+and every cell goes from its old contents to its final contents in one store
+(§6.1).
+
+Two things earn that, and the second is the one that is easy to leave out:
+the window is `WF_SNAP` (§11.94) so `[tui_ox]` is a multiple of 8, **and the
+field's own x must be too** — `font_run`'s fallback is literally the
+fill-then-letter pair being escaped, so an unaligned run buys nothing at all.
+`tui_rdout` rounds its x **down** to the byte boundary rather than moving its
+callers: the up-to-7 extra pixels are inside the field's own background (a
+value sits in a box face with its label a cell or more to its left), and
+doing it in the routine makes every caller aligned including ones not yet
+written. The song title is the one field whose left-hand neighbour is *not*
+its own background, so its x is 296 rather than 295.
+
+On a colour adapter `tui_runc` does not fill — its callers there have already
+filled the band — so `tui_rdout` keeps the pair on VGA and is unchanged
+there. Measured on CGA with `os88marty.py flicker`, 200 frames of the same
+windowed scene: the **worst single flash goes 278 px → 57 px**, and what is
+left is the instrument counting a hex digit that cycled back to a value it
+had held before, which is a counter doing its job rather than a field going
+blank.
+
+#### 45.12.1 The needle is driven by the NOTE, and driving it by the volume cancelled out
+
+`tui_vu_step` used to *rise instantly to `[tui_avol]` and fall two units a
+call*, and on a MOD that is not a meter — it is a readout of the **volume
+column**, which changes only when a volume command changes it. On a channel
+holding one value the two halves of the rule cancel **exactly**: the needle
+falls two, finds the volume above it again, and jumps straight back.
+
+Measured on the field module, from outside the guest, one sample every 0.7 s:
+
+| | channel 2 | channels 1, 3, 4 |
+|---|---|---|
+| `mp_chvol` | **30, constant** | 64, constant |
+| `tui_vu` | alternating **30 / 28** | 64 / 62 |
+| `ttx_vuc` (cells of ten) | **4, for the whole song** | 10 |
+
+30·10/64 and 28·10/64 both floor to 4, so the bar never moved while notes
+played through it — reported from the field as *"stuck at like 40% filled,
+even when the second column is playing things"*, with the mechanism named in
+the same breath: *"the decay and growth are exactly matching up."* The three
+channels pinned at 10/10 are the identical defect wearing a plausible face.
+
+So the needle is an **impulse and a decay**:
+
+- **`mp_trig` raises `[mp_hit]`** for its channel, on the success path only —
+  a trigger that falls through to `.dead` makes no sound and must light
+  nothing. It is the one place a note actually starts, so the initial
+  trigger, `EDx`'s delayed one and `E9x`'s retrigger are all covered by one
+  edit, each inside a loop that maintains `[mp_curc]`.
+- **The stamp carries it** (`MP_SP_HIT`, the four bytes at offset 12 that
+  `MP_ST_SIZE` = 16 already had spare), **read and cleared** by
+  `mp_stamp_at`, so a strike belongs to the row that made it and to no later
+  one — and so the meter moves when the note is **heard**, not when it is
+  mixed, which is §45.15's whole rule.
+- **`tui_sync` spends it** when a row *becomes audible*, gated on the stamp's
+  stream position: unique per row and monotonic, so the kick is idempotent
+  across the several drawers that call `tui_sync` in one frame and fires once
+  per row however many frames that row is on screen for.
+- **`tui_vu_step` only decays**, `TUI_VUFALL` (2) a call at ~18 calls a
+  second — full to empty in 1.8 s, about one cell of ten per row at the XT
+  default. One constant, one place, both surfaces.
+
+**What this gives up is a sustained note**, which now fades while it is still
+sounding. That is unavoidable rather than a compromise: the true amplitude is
+only knowable by measuring the mixer's output, and `mp_mixch_xt` is already
+half of a 4.77MHz machine (§53.5.1). Note energy is what the app can honestly
+show, and it is what a tracker's bars have always shown.
 
 ### 45.13 XT mode's fullscreen is an 80x25 TEXT screen — and the grid scrolls again
 
