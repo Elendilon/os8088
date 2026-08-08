@@ -973,25 +973,16 @@ osapi_snd_tone:
 ; else falls through to their own T_INST. Arkanoid's worker calls SND_TONE
 ; while UI callbacks run, which is what makes this reachable rather than
 ; theoretical.
+;
+; **The body is inst_caller's now** (instance.inc). Nothing about this
+; contract changed - the reasoning above is still exactly why it is written
+; the way it is - but the question stopped being the sound tier's alone when
+; the file API needed the same answer to stand the volume in the calling
+; app's own directory (SPEC.md 19.2.1). Two copies of "who is asking?" is
+; the kind of pair that drifts silently, so there is one.
 ; -----------------------------------------------------------------------------
 snd_req_inst:
-    push bx
-    mov bx, [snd_inst]          ; BL = the stamped instance, BH = the task
-    cmp bh, [sch_cur]           ; that stamped it. A DIFFERENT task is running
-    jne .task                   ; now, so it pre-empted that callback and the
-    mov dh, bl                  ; callback's instance is not its to spend
-    cmp dh, 0xFF
-    jne .out
-.task:
-    mov bl, [sch_cur]           ; not our callback: the running task's
-    xor bh, bh                  ; instance (0xFF for the UI task)
-    shl bx, 1                   ; T_SIZE = 8
-    shl bx, 1
-    shl bx, 1
-    mov dh, [bx+sch_tasks+T_INST]
-.out:
-    pop bx
-    ret
+    jmp inst_caller
 
 ; -----------------------------------------------------------------------------
 ; osapi_snd_play - PCM_EXCL clip, run-to-completion (slot 0x00F0, SPEC.md

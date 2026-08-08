@@ -66,6 +66,7 @@ class Marty:
                 f"{addr}: {e}. Is martypc_headless running with "
                 f"MARTYPC_DEBUG_ADDR set?") from None
         self.f = self.s.makefile("rwb")
+        self._log = []          # every input, stamped with its guest cycle
 
     def __enter__(self):
         return self
@@ -133,10 +134,17 @@ class Marty:
         """
         return self.cmd(cmd="flicker", frames=frames, aperture=aperture)
 
-    def pace(self, frames=300, aperture=0):
+    def pace(self, frames=300, aperture=0, ignore=None):
         """Per-frame changed-pixel counts, for FRAME PACING (PERFORMANCE.md
-        Part 3.2). Keeps two frames server-side, so `frames` can be large."""
-        return self.cmd(cmd="pace", frames=frames, aperture=aperture)
+        Part 3.2). Keeps two frames server-side, so `frames` can be large.
+
+        `ignore` is an inclusive [x0,y0,x1,y1] excluded from every comparison —
+        for a blinking cursor, which changes pixels on a clock of its own.
+        """
+        kw = {"cmd": "pace", "frames": frames, "aperture": aperture}
+        if ignore:
+            kw["ignore"] = list(ignore)
+        return self.cmd(**kw)
 
     def fbuf(self, aperture=0):
         """The card's RENDERED framebuffer as (width, height, rgb24 bytes).
@@ -248,6 +256,74 @@ class Marty:
     # A debug module poking [mouse_x] would skip the UART, the packet decoder
     # and SPEC.md 9.5's port contest - the code most likely to be wrong.
 
+    # --- reproducibility: guest-time positioning (docs/SNAPSHOT-PLAN.md) -----
+
+    def advance(self, frames=None, cycles=None):
+        """Run a bounded amount of GUEST time and stop.
+
+        USE THIS INSTEAD OF time.sleep FOR ANYTHING THAT MUST REPEAT. The
+        emulator is bit-exact deterministic in guest time and runs at whatever
+        multiple of real time the host manages, so a wall-clock wait lands at a
+        different guest position every run - two instances given the same
+        sleep(22) were measured 21.7 million cycles apart.
+        """
+        kw = {"cmd": "advance"}
+        if frames is not None:
+            kw["frames"] = frames
+        if cycles is not None:
+            kw["cycles"] = cycles
+        return self.cmd(**kw)
+
+    def input_log(self):
+        """Every input this session delivered, with the guest cycle it landed
+        at. Replaying these positions on a fresh machine reproduces the state
+        exactly; replaying them by wall clock does not."""
+        return list(self._log)
+
+    def replay(self, log, settle=0):
+        """Re-drive an input log on a fresh machine, positioning by CYCLES.
+
+        The machine must start from the same image and be at a cycle count at
+        or below the first entry's. `settle` frames are advanced at the end.
+        """
+        for e in log:
+            here = self.status()["cycles"]
+            if e["cycles"] > here:
+                self.advance(cycles=e["cycles"] - here)
+            if e["kind"] == "key":
+                self.cmd(cmd="key", **e["args"])
+            elif e["kind"] == "mouse":
+                self.cmd(cmd="mouse", **e["args"])
+        if settle:
+            self.advance(frames=settle)
+        return self.status()
+
+    # --- fork snapshots (docs/SNAPSHOT-PLAN.md B) ----------------------------
+
+    def snapshot(self):
+        """Fork a holder process that freezes the machine exactly as it is.
+
+        Returns {'id', 'pid', 'cycles'}. Nothing is serialized, so nothing can
+        be left out - the holder is a copy-on-write image of the whole process.
+        """
+        return self.cmd(cmd="snapshot")
+
+    def restore(self, snap_id, port):
+        """Wake a holder onto `port` and return a Marty connected to it.
+
+        THIS CONNECTION STAYS THE SNAPSHOT REGISTRY. The restored machine is a
+        different process; keep this one to restore again. The holder re-forks
+        itself first, so one snapshot can be restored any number of times.
+        """
+        r = self.cmd(cmd="restore", id=snap_id, port=port)
+        for _ in range(100):
+            try:
+                return Marty("127.0.0.1:%d" % r["port"])
+            except MartyError:
+                import time as _t
+                _t.sleep(0.1)
+        raise MartyError("snapshot %d never came up on port %d" % (snap_id, port))
+
     def key(self, name, down=True, up=True):
         """One MartyKey by name: 'KeyA', 'Enter', 'Digit1', 'ArrowUp'."""
         return self.cmd(cmd="key", key=name, down=down, up=up)
@@ -268,7 +344,10 @@ class Marty:
 
     def mouse(self, dx=0, dy=0, l=False, r=False):
         """One packet. dx/dy are RELATIVE and clamped to a signed byte."""
-        return self.cmd(cmd="mouse", dx=dx, dy=dy, l=l, r=r)
+        rr = self.cmd(cmd="mouse", dx=dx, dy=dy, l=l, r=r)
+        self._log.append({"cycles": rr.get("cycles", 0), "kind": "mouse",
+                          "args": {"dx": dx, "dy": dy, "l": l, "r": r}})
+        return rr
 
     def mouse_move(self, dx, dy, l=False, r=False, step=100):
         """A long move as several packets - a packet carries a signed byte."""
@@ -317,7 +396,49 @@ def write_png_rgb(path, w, h, data):
     _png(path, w, h, raw, 2)
 
 
-def report_pace(r, minpx=1):
+# SPEC.md 7.1's arrow: 8 wide, 12 high. A drawn mouse cursor is the one thing
+# guaranteed to be changing pixels in a graphics-mode capture that has nothing
+# to do with what is being measured.
+CUR_GW, CUR_GH = 8, 12
+
+
+def strip_cursor(r):
+    """Drop the update events that are ENTIRELY the mouse arrow.
+
+    `gfx_lock` erases the arrow and `gfx_unlock` puts it back, so every locked
+    draw can produce a second changed-frame a frame or two later, at the
+    pointer and nowhere else. Those are not updates of the thing being
+    measured, and they do not merely add noise - they SUBDIVIDE genuine stalls,
+    so the interval histogram and the max-gap both come out flattering.
+
+    Detected from the data rather than from the kernel: the arrow is a small
+    fixed cell, so the most frequent bbox no bigger than CUR_GW x CUR_GH is it.
+    That needs no listing offsets and survives a rebuild. Returns
+    (changed, bbox, cell) with the cursor-only events zeroed.
+    """
+    ch = list(r["changed"])                 # two statements, not one tuple
+    bb = r.get("bbox") or [None] * len(ch)  # assignment: the len(ch) in the
+                                            # fallback reads ch BEFORE the
+                                            # tuple binds it, so a server
+                                            # older than bbox - which is any
+                                            # martypc_headless built before
+                                            # the pin moved - crashed here
+                                            # with an UnboundLocalError
+                                            # instead of degrading
+    small = {}
+    for c, b in zip(ch, bb):
+        if c and b and (b[2] - b[0]) < CUR_GW and (b[3] - b[1]) < CUR_GH:
+            small[tuple(b)] = small.get(tuple(b), 0) + 1
+    if not small:
+        return ch, bb, None
+    cell = max(small, key=small.get)
+    for i, (c, b) in enumerate(zip(ch, bb)):
+        if c and b and tuple(b) == cell:
+            ch[i] = 0
+    return ch, bb, cell
+
+
+def report_pace(r, minpx=1, nocursor=False):
     """Turn a per-frame changed series into a pacing verdict.
 
     SMOOTH IS LOW VARIANCE, not a high rate. The gaps between frames that
@@ -326,6 +447,13 @@ def report_pace(r, minpx=1):
     series can have the identical mean and look completely different.
     """
     ch, cyc = r["changed"], r["cycles"]
+    if nocursor:
+        ch, _, cell = strip_cursor(r)
+        if cell:
+            print("  (excluding %d update(s) that were entirely the mouse arrow at %s)"
+                  % (sum(1 for c, c2 in zip(r["changed"], ch) if c and not c2), list(cell)))
+        else:
+            print("  (--no-cursor: no arrow-sized recurring bbox found; nothing excluded)")
     per = (cyc[-1] - cyc[0]) / max(1, len(cyc) - 1) / (r["cpu_mhz"] * 1000.0)
     hits = [i for i, c in enumerate(ch) if c >= minpx]
     print("%dx%d, %d frames, %.2f ms/frame (%.1f Hz)"
@@ -375,6 +503,30 @@ def report_pace(r, minpx=1):
             print("  %-14s n=%3d  mean %5.2f fr (%6.1f ms)  sd %5.2f  evenness %.2f  %s"
                   % (name, len(idx), mu, mu * per, s, s / mu if mu else 0,
                      "  ".join("%dfr x%d" % (k, hh[k]) for k in sorted(hh)[:6])))
+
+
+def video_is_text(v):
+    """Is the card in a TEXT mode? Ask the field that is LIVE on that card.
+
+    `video` reports both `graphics` and `mode`/`text`, and on any given card
+    one of them is a dead field left at its initial value:
+
+      - on the **VGA**, `graphics` is dead - it answers false in mode 12h
+        exactly as it does in mode 3 - so `mode`/`text` is the discriminator;
+      - on the **MDA/Hercules**, `mode`/`text` is dead. os8088 puts the card
+        into HGC graphics through 3BF/3B8 rather than through int 10h, so
+        `display_mode()` still says `Mode0TextBw40` while `graphics` correctly
+        says true. Trusting `text` there sends every Hercules capture down the
+        rendered route and REFUSES `--kind herc` - and the VRAM route is the
+        one whose output is byte-comparable with tools/hercshot.py, so every
+        "0 differing pixels" check in this tree goes through it.
+
+    The tell that one of them is dead is that they contradict each other:
+    `graphics: true` with `text: true` cannot both be so.
+    """
+    if v.get("type") == "vga":
+        return bool(v.get("text"))
+    return not v.get("graphics", True)
 
 
 def parse_addr(text):
@@ -448,6 +600,9 @@ def main():
     p.add_argument("--aperture", type=int, default=0)
     p.add_argument("--min", type=int, default=1,
                    help="pixels that count as an update (default 1)")
+    p.add_argument("--no-cursor", action="store_true", dest="nocursor",
+                   help="drop update events that are entirely the mouse arrow")
+    p.add_argument("--ignore", help="exclude a rect: x0,y0,x1,y1 (inclusive)")
 
     p = sub.add_parser("read"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
     p = sub.add_parser("dump"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
@@ -523,20 +678,21 @@ def main():
                 # route is the only one that means anything, and `screen`
                 # is usually what you actually wanted.
                 v = m.video()
-                if v.get("text") and not a.rendered and a.kind is None:
+                is_text = video_is_text(v)
+                if is_text and not a.rendered and a.kind is None:
                     print("%s: card is in %s (a TEXT mode) - capturing the "
                           "RENDERED framebuffer.\n"
                           "  The VRAM route would decode character cells as a "
                           "bitmap and show you nothing real.\n"
                           "  For the characters themselves: os88marty.py <addr> screen"
                           % (a.out, v.get("mode")), file=sys.stderr)
-                if a.kind is not None and v.get("text"):
+                if a.kind is not None and is_text:
                     raise MartyError(
                         "--kind %s decodes a GRAPHICS framebuffer and the card is in "
                         "%s, a text mode. Drop --kind (the rendered route works in "
                         "every mode), or use `screen` for the characters."
                         % (a.kind, v.get("mode")))
-                rendered = a.rendered or v.get("text") or (a.kind is None and v["type"] == "vga")
+                rendered = a.rendered or is_text or (a.kind is None and v["type"] == "vga")
                 if rendered:
                     w, h, data = m.fbuf(a.aperture)
                     write_png_rgb(a.out, w, h, data)
@@ -573,8 +729,9 @@ def main():
                         print("   frame %3d  changed %6d  transient %6d  %s"
                               % (f["frame"], f["changed"], f["transient"], f["bbox"] or ""))
             elif a.op == "pace":
-                r = m.pace(a.frames, a.aperture)
-                report_pace(r, a.min)
+                ig = [int(v) for v in a.ignore.split(",")] if a.ignore else None
+                r = m.pace(a.frames, a.aperture, ig)
+                report_pace(r, a.min, a.nocursor)
             elif a.op == "screen":
                 for row in m.screen():
                     print(row.rstrip())

@@ -125,6 +125,15 @@ fdlg_tpl:   dw FD_X, FD_Y, FD_W, FD_H
 
 fdlg_s_topen:  db 'Open', 0
 fdlg_s_tsave:  db 'Save As', 0
+fdlg_s_media:  db 'MEDIA', 0     ; the default location (SPEC.md 38.10).
+                                 ; UP HERE with the rest of this module's
+                                 ; data, and not beside fdlg_home_go, because
+                                 ; everything below the `section .cold`
+                                 ; toggle is addressed through CS - and
+                                 ; dsk_find_name reads its name through DS,
+                                 ; so a string down there is read out of the
+                                 ; cold segment's code. It assembles, and the
+                                 ; folder is simply never found
 fdlg_s_open:   db 'Open', 0
 fdlg_s_save:   db 'Save', 0
 fdlg_s_cancel: db 'Cancel', 0
@@ -293,25 +302,46 @@ fdlg_hidx:
 ; the system disk (SPEC.md 51.5.1) and a package writing a file leaves the
 ; volume wherever it wrote; either one silently relocated the next Save.
 ;
-; The banked pair is the fallback and is taken FIRST, because a remembered
-; folder can have gone away - the disk was swapped, or the directory deleted -
-; and dsk_chdir's failure path leaves [dsk_cwd] at 0 on the drive it tried,
-; so re-reading the globals afterwards would not recover where the user is.
+; Three answers, in this order:
+;
+;   the user has chosen a folder ->  back there (inst_fdrv/inst_fcwd)
+;   they have not                ->  MEDIA in the root of THIS INSTANCE's
+;                                    drive, or that root if there is no MEDIA
+;   the volume will not mount    ->  the banked pair, which is the recovery
+;
+; **Nothing here reads the globals except as the recovery.** The drive comes
+; out of the instance's own row (SPEC.md 19.2.1) and so does the folder, so a
+; Disk window taken to C:, a background read, a driver's trip to A: for
+; SYSTEM.CFG - none of them can decide where this application's Open lands.
+; The instance's row is seeded at inst_alloc from wherever the app was
+; launched, so even an app that has never opened a dialog has a drive of its
+; own to resolve MEDIA on.
+;
+; [inst_fpick] is the middle row's gate and it is a question about the USER,
+; not about the data: the row always holds a real folder, and this asks
+; whether the person ever chose it. Until they have, the default wins.
+;
+; The banked pair is taken first and used last, because a remembered folder
+; can have gone away - the disk was swapped, or the directory deleted - and
+; dsk_chdir's failure path leaves [dsk_cwd] at 0 on the drive it tried, so
+; re-reading the globals afterwards would not recover where the user is.
 ; -----------------------------------------------------------------------------
 fdlg_home_go:
     push ax
     push bx
     push dx
-    mov al, [disk_drive]        ; where the user is now: the first open of a
-    mov [fdlg_hdrv], al         ; freshly launched app inherits this, and any
-    mov ax, [dsk_cwd]           ; failure below comes back to it
+    push si                     ; the MEDIA lookup below stages an entry
+    mov al, [disk_drive]        ; the RECOVERY only: where the machine is now,
+    mov [fdlg_hdrv], al         ; for the case where this instance's own
+    mov ax, [dsk_cwd]           ; volume cannot be mounted at all
     mov [fdlg_hcwd], ax
     call fdlg_hidx
-    jc .cur
-    cmp byte [inst_fdrv+bx], 0xFF
-    je .cur                     ; never used a dialog: inherit the volume
-    mov dl, [inst_fdrv+bx]      ; ...otherwise where THIS app last was
-    shl bx, 1
+    jc .cur                     ; no live requester: the machine's position is
+                                ; the only answer there is
+    mov dl, [inst_fdrv+bx]      ; THIS instance's drive, for either branch
+    cmp byte [inst_fpick+bx], 0
+    je .media                   ; the user has chosen no folder for this app
+    shl bx, 1                   ; ...otherwise the one they chose
     mov ax, [inst_fcwd+bx]
     call KERNEL_SEG:cw_dsk_chdir
     jnc .done
@@ -319,7 +349,32 @@ fdlg_home_go:
     mov dl, [fdlg_hdrv]
     mov ax, [fdlg_hcwd]
     call KERNEL_SEG:cw_dsk_chdir
+    jmp short .done
+
+    ; --- the default: MEDIA in the root of this instance's drive ---
+    ; Two mounts when it is there and one when it is not, paid on the opens
+    ; before the user has chosen anywhere; after that the row above is taken
+    ; and this never runs again for that instance.
+.media:
+    mov [fdlg_idrv], dl         ; banked: the two chdirs below both need it
+    xor ax, ax                  ; the root, whose listing names its folders
+    call KERNEL_SEG:cw_dsk_chdir
+    jc .cur                     ; the volume itself will not mount
+    mov si, fdlg_s_media
+    call KERNEL_SEG:cw_dsk_find_name ; AX = its index; no I/O - the snapshot
+    jc .done                    ; no MEDIA here: this root IS the answer, and
+                                ; it is still an answer nothing drifted into
+    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged entry (SPEC.md 19)
+    cmp word [si+16], 2         ; a folder, not a FILE called MEDIA
+    jb .done
+    mov ax, [si+18]             ; its first cluster
+    or ax, ax
+    jz .done                    ; 0 is the root: not a folder to enter
+    mov dl, [fdlg_idrv]
+    call KERNEL_SEG:cw_dsk_chdir
+    jc .cur
 .done:
+    pop si
     pop dx
     pop bx
     pop ax
@@ -357,13 +412,55 @@ fdlg_home_name:
     ret
 
 ; -----------------------------------------------------------------------------
+; fdlg_home_dir - record the folder this application is standing in (38.10)
+; in:  the volume is where the user just navigated to
+; out: nothing (all registers preserved; flags are not)
+;
+; Split out of fdlg_home_save because the FOLDER and the NAME are recorded at
+; different moments and for different reasons. A name is only ever a name the
+; user committed to; a folder is a place the user WENT, and going there is
+; the statement - so this runs from fdlg_go on every navigation, cancelled
+; dialog or not. Backing out of a folder is a navigation too, and records the
+; folder backed out to.
+;
+; It reads the GLOBALS rather than fdlg_go's arguments, because what has to
+; be recorded is where the mount actually landed.
+;
+; It writes the instance's OWN directory (SPEC.md 19.2.1) - the same pair its
+; file operations resolve in - so a Save As does not merely aim the next
+; dialog, it moves the application. [inst_fpick] is what it adds on top: the
+; row already held a folder (seeded at launch), and this is the user saying
+; they want THIS one.
+; -----------------------------------------------------------------------------
+fdlg_home_dir:
+    push ax
+    push bx
+    push si
+    call fdlg_hidx
+    jc .out
+    mov al, [disk_drive]
+    mov [inst_fdrv+bx], al
+    mov byte [inst_fpick+bx], 1 ; the user has now chosen, so the default
+                                ; (SPEC.md 38.10) stops applying to this app
+    mov si, bx
+    shl si, 1
+    mov ax, [dsk_cwd]
+    mov [inst_fcwd+si], ax
+.out:
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; fdlg_home_save - record where this application ended up (SPEC.md 38.10)
 ; in:  the volume is at the chosen folder and fdlg_name holds the answer
 ; out: nothing (all registers preserved)
 ;
-; Written on a COMMIT and nowhere else: a cancelled dialog is not a statement
-; about where the app keeps its documents, and neither is a folder the user
-; looked into and backed out of.
+; The NAME is written on a COMMIT and nowhere else: a cancelled dialog is not
+; a statement about which document an app is on. The folder beside it is
+; fdlg_home_dir's, and is usually already recorded by the navigation that got
+; here - this call is what covers the commit that never navigated at all.
 ;
 ; The copy is a plain byte loop rather than movsb because ES here is the
 ; requesting package's segment (SPEC.md 20.1) and stosb writes through it.
@@ -374,14 +471,9 @@ fdlg_home_save:
     push cx
     push si
     push di
+    call fdlg_home_dir          ; the folder; BX below is the row again
     call fdlg_hidx
     jc .out
-    mov al, [disk_drive]
-    mov [inst_fdrv+bx], al
-    mov si, bx
-    shl si, 1
-    mov ax, [dsk_cwd]
-    mov [inst_fcwd+si], ax
     mov al, bl
     mov cl, INST_FNSZ
     mul cl
@@ -842,10 +934,21 @@ fdlg_stage:
 ; input rather than a read of [disk_drive] for disk_mount's own reason: it
 ; is the routine that WRITES [disk_drive], so the drive button has nothing
 ; to set beforehand.
+;
+; **THIS is where the user changing directories is recorded** (SPEC.md 38.10).
+; All three ways to move inside the dialog come through here - the folder
+; dive, the drive button and the folder just created - and nothing else does:
+; fdlg_home_go calls dsk_chdir itself precisely so that arriving at a default
+; does not read as a choice. So one store here covers every user navigation
+; and cannot cover anything else, which is the whole distinction the feature
+; rests on.
 ; -----------------------------------------------------------------------------
 fdlg_go:
     push ax
     call KERNEL_SEG:cw_dsk_chdir
+    jc .moved                   ; a FAILED mount lands at the root of the
+    call fdlg_home_dir          ; drive it tried with the gate shut - not a
+.moved:                         ; folder to bring an app back to
     mov word [fdlg_sel], 0xFFFF
     mov word [fdlg_scrl], 0
     call fdlg_unfold            ; a folder name half typed here would be made
@@ -2493,10 +2596,15 @@ section .bss
                                 ; `dw 0` up in .text; see the note there)
 fdlg_mode:  resb 1              ; 0 = Open, 1 = Save
 fdlg_rqwin: resw 1              ; the requester's window...
-fdlg_hdrv:  resb 1              ; fdlg_home_go's fallback: the volume the user
-fdlg_hcwd:  resw 1              ; is on, banked before a remembered folder is
-                                ; tried, because a chdir that FAILS moves the
-                                ; globals it would otherwise be re-read from
+fdlg_hdrv:  resb 1              ; fdlg_home_go's fallback: the volume the
+fdlg_hcwd:  resw 1              ; MACHINE is on, banked before this instance's
+                                ; own folder is tried, because a chdir that
+                                ; FAILS moves the globals it would otherwise
+                                ; be re-read from
+fdlg_idrv:  resb 1              ; ...and the INSTANCE's drive, banked across
+                                ; the MEDIA lookup, which needs it for the
+                                ; chdir to the root and again for the chdir
+                                ; into the folder that root named
 fdlg_rqcb:  resw 1              ; ...its near completion proc...
 fdlg_rqrec: resw 1              ; ...its instance record...
 fdlg_rqsp:  resw 1              ; ...and that record's I_SPTR: the staleness

@@ -177,10 +177,16 @@ pub fn mount_vhd(machine: &mut Machine, drive: usize, path: &Path) -> Result<(),
 
 pub struct DebugServer {
     wavs:     Vec<WavSink>,
-    listener: TcpListener,
+    listener: Option<TcpListener>,
     client:   Option<BufReader<TcpStream>>,
     pending:  VecDeque<String>,
     quit:     bool,
+    #[cfg(unix)]
+    snaps:    Vec<Snap>,
+    #[cfg(unix)]
+    next_snap: u64,
+    #[cfg(unix)]
+    snap_cycles: u64,
 }
 
 impl DebugServer {
@@ -190,10 +196,16 @@ impl DebugServer {
         log::info!("Debug server listening on {}", addr);
         Ok(Self {
             wavs: Vec::new(),
-            listener,
+            listener: Some(listener),
             client: None,
             pending: VecDeque::new(),
             quit: false,
+            #[cfg(unix)]
+            snaps: Vec::new(),
+            #[cfg(unix)]
+            next_snap: 0,
+            #[cfg(unix)]
+            snap_cycles: 0,
         })
     }
 
@@ -252,9 +264,25 @@ impl DebugServer {
 
     // --- socket plumbing -----------------------------------------------------
 
+    /// Drop every socket, for a forked snapshot holder: two processes sharing
+    /// one listener would race to accept, and a holder must be inert.
+    #[cfg(unix)]
+    fn detach_for_holder(&mut self) {
+        self.listener = None;
+        self.client = None;
+        self.pending.clear();
+        for w in self.wavs.iter_mut() {
+            w.disable();
+        }
+    }
+
     fn poll_socket(&mut self) {
+        let listener = match self.listener.as_ref() {
+            Some(l) => l,
+            None => return, // a holder: inert until activated
+        };
         if self.client.is_none() {
-            match self.listener.accept() {
+            match listener.accept() {
                 Ok((stream, peer)) => {
                     log::info!("Debug client connected from {}", peer);
                     let _ = stream.set_nonblocking(true);
@@ -355,6 +383,9 @@ impl DebugServer {
             "fbuf" => fbuf(machine, &req),
             "flicker" => flicker(machine, exec, &req),
             "pace" => pace(machine, exec, &req),
+            "advance" => advance(machine, exec, &req),
+            "snapshot" => { self.snap_cycles = machine.cpu_cycles(); snapshot(self) }
+            "restore" => restore(self, &req),
             "key" => key(machine, &req),
             "mouse" => mouse(machine, &req),
             "history" => json!({"ok": true, "history": machine.cpu().dump_instruction_history_string()}),
@@ -668,6 +699,7 @@ fn breakpoints(machine: &mut Machine, req: &Value) -> Value {
 fn video(machine: &mut Machine) -> Value {
     match machine.primary_videocard() {
         Some(mut card) => {
+            let cur = card.cursor_info();
             let dm = card.display_mode();
             let mode_name = format!("{:?}", dm);
             let is_text = matches!(
@@ -702,6 +734,19 @@ fn video(machine: &mut Machine) -> Value {
                 // fullscreen app (SPEC.md 53.4's FSXM_TEXT80).
                 "mode": mode_name,
                 "text": is_text,
+                // THE CURSOR IS A CONTAMINANT FOR `pace`, so it is reported.
+                // A text-mode CRTC cursor blinks in hardware at a fraction of
+                // the field rate, which injects a periodic changed-pixel event
+                // into a pacing series that has nothing to do with what is
+                // being measured - and it is small, so it hides under any
+                // summary statistic while wrecking the interval histogram.
+                "cursor": json!({
+                    "visible": cur.visible,
+                    "x": cur.pos_x,
+                    "y": cur.pos_y,
+                    "line_start": cur.line_start,
+                    "line_end": cur.line_end,
+                }),
                 "field_w": ext.field_w,
                 "field_h": ext.field_h,
                 "stride": ext.row_stride,
@@ -949,10 +994,23 @@ fn pace(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Valu
         return err(&format!("frames must be 2..{}", MAX_PACE));
     }
     let sel = req.get("aperture").and_then(Value::as_u64).unwrap_or(0) as usize;
+    // An exclusion rect, [x0,y0,x1,y1] inclusive. What it exists for is a
+    // BLINKING CURSOR: hardware or drawn, it changes pixels on a clock of its
+    // own, and a pacing series is a question about somebody else's clock.
+    let ig: Option<Vec<i64>> = req
+        .get("ignore")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_i64).collect());
+    let ig = match &ig {
+        Some(v) if v.len() == 4 => Some((v[0], v[1], v[2], v[3])),
+        Some(_) => return err("ignore must be [x0,y0,x1,y1]"),
+        None => None,
+    };
     let batch = ((machine.get_cpu_mhz() * 1_000_000.0) / 4000.0) as u32;
     let c0 = machine.cpu_cycles();
 
     let mut prev: Option<Vec<u8>> = None;
+    let mut boxes: Vec<Value> = Vec::with_capacity(n);
     let mut changed: Vec<u64> = Vec::with_capacity(n);
     let mut cycles: Vec<u64> = Vec::with_capacity(n);
     let (mut w, mut h) = (0u32, 0u32);
@@ -984,12 +1042,27 @@ fn pace(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Valu
         };
         w = gw;
         h = gh;
-        let d = match &prev {
-            None => 0u64,
-            Some(p) => (0..(gw * gh) as usize)
-                .filter(|&i| cur[i * 3..i * 3 + 3] != p[i * 3..i * 3 + 3])
-                .count() as u64,
-        };
+        let mut d = 0u64;
+        let (mut bx0, mut by0, mut bx1, mut by1) = (i64::MAX, i64::MAX, -1i64, -1i64);
+        if let Some(p) = &prev {
+            for i in 0..(gw * gh) as usize {
+                if cur[i * 3..i * 3 + 3] == p[i * 3..i * 3 + 3] {
+                    continue;
+                }
+                let (x, y) = ((i as u32 % gw) as i64, (i as u32 / gw) as i64);
+                if let Some((x0, y0, x1, y1)) = ig {
+                    if x >= x0 && x <= x1 && y >= y0 && y <= y1 {
+                        continue;
+                    }
+                }
+                d += 1;
+                if x < bx0 { bx0 = x }
+                if y < by0 { by0 = y }
+                if x > bx1 { bx1 = x }
+                if y > by1 { by1 = y }
+            }
+        }
+        boxes.push(if d == 0 { Value::Null } else { json!([bx0, by0, bx1, by1]) });
         changed.push(d);
         cycles.push(machine.cpu_cycles() - c0);
         prev = Some(cur);
@@ -1003,7 +1076,211 @@ fn pace(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Valu
         "cpu_mhz": machine.get_cpu_mhz(),
         "cycles": cycles,
         "changed": changed,
+        "bbox": boxes,
     })
+}
+
+// --- fork() snapshots (docs/SNAPSHOT-PLAN.md B) ------------------------------
+//
+// A SNAPSHOT IS A PROCESS, NOT A FILE, and that is the whole design. `fork`
+// gives a copy-on-write image of everything this process holds - the CPU, all
+// of memory, every device, the video card's raster position, the FDC's
+// pending command - bit for bit, with NO serialization code. Nothing can be
+// forgotten from it, which is the failure a hand-written save format has and
+// cannot be talked out of: a snapshot missing one field restores a machine
+// that looks right and is not.
+//
+// The price is that it does not persist past the process and is Unix-only.
+// Both are acceptable for what it is for: iterating on a state that took two
+// minutes of clicking to reach.
+//
+// THE SHAPE. `snapshot` forks a child that closes its sockets and blocks
+// reading a pipe - it is a passive holder, burning nothing. `restore` writes a
+// port number down that pipe; the holder then forks AGAIN (the grandchild
+// inherits the same pipe and becomes the new holder, so one snapshot can be
+// restored any number of times) and serves the debug protocol on that port.
+// The original stays alive as the snapshot registry, so the client keeps one
+// connection for managing snapshots and opens another to whichever restored
+// machine it is currently driving.
+#[cfg(unix)]
+struct Snap {
+    id:  u64,
+    pid: i32,
+    fd:  i32, // write end of the holder's command pipe
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn snapshot(server: &mut DebugServer) -> Value {
+    let mut fds = [0i32; 2];
+    // SAFETY: the one unsafe call in this crate. `pipe` writes two fds into a
+    // buffer we own, and `fork` in a process with no threads (verified: the
+    // headless path spawns none) has no async-signal-safety hazard.
+    let rc = unsafe { libc::pipe(fds.as_mut_ptr()) };
+    if rc != 0 {
+        return err("pipe() failed");
+    }
+    let (rd, wr) = (fds[0], fds[1]);
+
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        return err("fork() failed");
+    }
+    if pid == 0 {
+        // --- the holder ---------------------------------------------------
+        // Drop everything that would make two processes fight over one
+        // socket, then block. Nothing here touches the machine, so the state
+        // is frozen exactly as it was at the moment of the fork.
+        server.detach_for_holder();
+        holder_loop(server, rd);
+        // holder_loop returns only when this process has been told to become
+        // live on a new port; it has already re-forked a replacement holder.
+        return json!({"ok": true, "activated": true});
+    }
+    // --- the parent ---------------------------------------------------------
+    server.next_snap += 1;
+    let id = server.next_snap;
+    server.snaps.push(Snap { id, pid, fd: wr });
+    log::info!("Snapshot {} held by pid {}", id, pid);
+    json!({"ok": true, "id": id, "pid": pid, "cycles": server.snap_cycles})
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn holder_loop(server: &mut DebugServer, rd: i32) {
+    loop {
+        let mut buf = [0u8; 4];
+        let n = unsafe { libc::read(rd, buf.as_mut_ptr() as *mut libc::c_void, 4) };
+        if n != 4 {
+            // The parent went away. A holder with nobody to wake it is a leak;
+            // exit rather than linger.
+            std::process::exit(0);
+        }
+        let port = u32::from_le_bytes(buf);
+        // Fork a replacement holder FIRST, so this snapshot survives being
+        // restored and can be restored again.
+        let pid = unsafe { libc::fork() };
+        if pid == 0 {
+            continue; // the grandchild is the new holder: go back to waiting
+        }
+        // This process becomes the live machine on `port`.
+        match TcpListener::bind(("127.0.0.1", port as u16)) {
+            Ok(l) => {
+                let _ = l.set_nonblocking(true);
+                server.listener = Some(l);
+                server.quit = false;
+                log::info!("Snapshot activated on port {}", port);
+                return;
+            }
+            Err(e) => {
+                log::error!("Snapshot could not bind port {}: {}", port, e);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn restore(server: &mut DebugServer, req: &Value) -> Value {
+    let id = match req.get("id").and_then(Value::as_u64) {
+        Some(v) => v,
+        None => return err("restore needs id"),
+    };
+    let port = req.get("port").and_then(Value::as_u64).unwrap_or(0) as u32;
+    if port == 0 || port > 65535 {
+        return err("restore needs a port (1..65535) for the restored machine to serve on");
+    }
+    let snap = match server.snaps.iter().find(|s| s.id == id) {
+        Some(s) => s,
+        None => return err(&format!("no snapshot {}", id)),
+    };
+    let buf = port.to_le_bytes();
+    let n = unsafe { libc::write(snap.fd, buf.as_ptr() as *const libc::c_void, 4) };
+    if n != 4 {
+        return err("snapshot holder is gone");
+    }
+    json!({"ok": true, "id": id, "port": port,
+           "note": "connect to that port; this connection still manages snapshots"})
+}
+
+#[cfg(not(unix))]
+fn snapshot(_server: &mut DebugServer) -> Value {
+    err("fork snapshots are Unix only")
+}
+#[cfg(not(unix))]
+fn restore(_server: &mut DebugServer, _req: &Value) -> Value {
+    err("fork snapshots are Unix only")
+}
+
+/// Advance the machine by a bounded amount of GUEST TIME and stop.
+///
+/// THIS IS THE PRIMITIVE THAT MAKES A RUN REPRODUCIBLE, and it exists because
+/// the obvious alternative does not work: a client that waits with
+/// `time.sleep` measures in WALL time, and the emulator runs at whatever
+/// multiple of real time the host can manage. Two instances given the same
+/// sleep were measured 21.7 million cycles apart - 4.5 seconds of guest time -
+/// which is enough for every later input to land somewhere else and every
+/// downstream state to differ (docs/SNAPSHOT-PLAN.md 2.1).
+///
+/// `cycles` stops at the first instruction boundary at or past the target, so
+/// it is deterministic but not cycle-exact; `frames` counts completed video
+/// frames, which is the natural unit when the thing being waited for is drawn.
+/// A breakpoint ends the run early and `state` says so.
+fn advance(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Value {
+    let want_cycles = req.get("cycles").and_then(Value::as_u64);
+    let want_frames = req.get("frames").and_then(Value::as_u64);
+    if want_cycles.is_none() == want_frames.is_none() {
+        return err("advance needs exactly one of cycles or frames");
+    }
+    let batch = ((machine.get_cpu_mhz() * 1_000_000.0) / 4000.0).max(1.0) as u32;
+    let c0 = machine.cpu_cycles();
+    let f0 = machine.primary_videocard().map(|c| c.frame_count()).unwrap_or(0);
+    let started = Instant::now();
+
+    // CLEAR A LATCHED BREAKPOINT STATE FIRST, exactly as `step` does. An
+    // ExecutionControl sitting in BreakpointHit stays there through a Run, so
+    // without this the loop below breaks on its own entry condition and
+    // advances nothing - silently, reporting 0 cycles and success.
+    if !matches!(exec.get_state(), ExecutionState::Paused) {
+        exec.set_op(ExecutionOperation::Pause);
+        exec.set_state(ExecutionState::Paused);
+    }
+    exec.set_op(ExecutionOperation::Run);
+    exec.set_state(ExecutionState::Running);
+    loop {
+        machine.run(batch, exec);
+        if matches!(exec.get_state(), ExecutionState::BreakpointHit) {
+            break;
+        }
+        if let Some(n) = want_cycles {
+            if machine.cpu_cycles().saturating_sub(c0) >= n {
+                break;
+            }
+        }
+        if let Some(n) = want_frames {
+            let f = machine.primary_videocard().map(|c| c.frame_count()).unwrap_or(f0);
+            if f.saturating_sub(f0) >= n {
+                break;
+            }
+        }
+        if started.elapsed() > Duration::from_secs(300) {
+            return err("advance timed out - a frame target on a card that is not \
+                        rasterising, or a cycle target far larger than intended?");
+        }
+    }
+    if !matches!(exec.get_state(), ExecutionState::BreakpointHit) {
+        exec.set_op(ExecutionOperation::Pause);
+        exec.set_state(ExecutionState::Paused);
+    }
+    let mut v = status(machine, exec);
+    v["advanced_cycles"] = json!(machine.cpu_cycles() - c0);
+    v["advanced_frames"] = json!(machine
+        .primary_videocard()
+        .map(|c| c.frame_count())
+        .unwrap_or(f0)
+        .saturating_sub(f0));
+    v
 }
 
 /// One rendered frame, cropped to an aperture, as packed rgb24.
@@ -1090,6 +1367,7 @@ fn key(machine: &mut Machine, req: &Value) -> Value {
         Some(k) => k,
         None => return err("need key (a MartyKey name, e.g. KeyA or Enter)"),
     };
+    let cycles = machine.cpu_cycles();
     let code = match MartyKey::from_str(name) {
         Ok(k) => k,
         Err(_) => return err(&format!("unknown key: {}", name)),
@@ -1105,7 +1383,7 @@ fn key(machine: &mut Machine, req: &Value) -> Value {
     if up {
         machine.key_release(code);
     }
-    json!({"ok": true})
+    json!({"ok": true, "cycles": cycles})
 }
 
 /// A mouse movement and/or button state.
@@ -1123,6 +1401,7 @@ fn key(machine: &mut Machine, req: &Value) -> Value {
 /// everything it aims at. Nothing errors: the pointer moves, menus open, and
 /// every click misses by a factor that reads as a broken hit-test.
 fn mouse(machine: &mut Machine, req: &Value) -> Value {
+    let cycles = machine.cpu_cycles();
     let dx = req.get("dx").and_then(Value::as_i64).unwrap_or(0);
     let dy = req.get("dy").and_then(Value::as_i64).unwrap_or(0);
     if !(-127..=127).contains(&dx) || !(-127..=127).contains(&dy) {
@@ -1134,7 +1413,10 @@ fn mouse(machine: &mut Machine, req: &Value) -> Value {
         Some(m) => {
             m.set_speed(1.0);
             m.update(l, r, dx as f32, dy as f32);
-            json!({"ok": true})
+            // The cycle count is returned so a caller can LOG where in guest
+            // time this input was delivered. That log is what makes a replay
+            // reproducible; wall-clock ordering is not (SNAPSHOT-PLAN 2.1).
+            json!({"ok": true, "cycles": cycles})
         }
         None => err("no mouse in this machine - add the microsoft_serial_mouse_com1 overlay"),
     }
@@ -1156,6 +1438,10 @@ fn mouse(machine: &mut Machine, req: &Value) -> Value {
 // existing assertion (RMS, Goertzel dominant frequency, --expect-silence)
 // works unchanged against a MartyPC capture.
 pub struct WavSink {
+    /// A forked snapshot holder inherits this file descriptor, and two
+    /// processes appending to one wav produce a file that is neither of them.
+    /// A holder turns its sinks off; only the live machine writes.
+    off:      bool,
     name:     String,
     file:     std::fs::File,
     receiver: crossbeam_channel::Receiver<marty_core::device_traits::sounddevice::AudioSample>,
@@ -1194,6 +1480,7 @@ impl WavSink {
         file.write_all(&Self::header(src.sample_rate, src.channels as u16))?;
         log::info!("Capturing '{}' to {} ({} Hz, {} ch)", src.name, path, src.sample_rate, src.channels);
         Ok(Self {
+            off: false,
             name: src.name.clone(),
             file,
             receiver: src.receiver.clone(),
@@ -1202,9 +1489,17 @@ impl WavSink {
         })
     }
 
+    #[cfg(unix)]
+    pub fn disable(&mut self) {
+        self.off = true;
+    }
+
     /// Drain whatever the device has produced since the last call.
     pub fn drain(&mut self) {
         use std::io::Write;
+        if self.off {
+            return;
+        }
         let mut buf: Vec<u8> = Vec::new();
         while let Ok(s) = self.receiver.try_recv() {
             // f32 -> i16, clamped: a sample out of range is a device bug and

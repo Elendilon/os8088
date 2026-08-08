@@ -624,14 +624,85 @@ obvious enough to guess at safely — 50 Hz of ticks against a 59.9 Hz raster
 cannot divide evenly, so some beat is inherent, but nothing in these numbers
 separates an inherent beat from a burst the app could pace better.
 
+### The mouse cursor contaminates it, and the contamination FLATTERS
+
+**In any graphics-mode capture with the pointer on screen, some of what `pace`
+reports is the arrow.** `gfx_lock` erases it and `gfx_unlock` puts it back
+(SPEC.md §7.1.4), so a locked draw can produce a *second* changed-frame a frame
+or two later, at the pointer and nowhere else. Measured on a windowed Tracker
+with the pointer parked at (300,120): **15–18% of all update events had a bbox
+lying entirely inside the arrow cell, and every one of them was exactly 44
+pixels** — the 8x12 arrow's lit-pixel count.
+
+The damage is not that it adds noise. It is that **it subdivides genuine
+stalls**: a blink landing in the middle of an 18-frame gap reads as two shorter
+gaps, so the histogram, the mean and the max-gap all come out better than the
+truth. Three runs, same scene, with and without the arrow:
+
+| | updates | mean interval | **max gap** |
+|---|---|---|---|
+| run 1 as measured | 83 | 4.82 fr | 20 fr (334 ms) |
+| run 1 cursor excluded | 74 | 5.29 fr | **22 fr (367 ms)** |
+| run 2 as measured | 98 | 3.95 fr | 17 fr (284 ms) |
+| run 2 cursor excluded | 87 | 4.51 fr | **18 fr (300 ms)** |
+| run 3 as measured | 82 | 4.70 fr | 22 fr (367 ms) |
+| run 3 cursor excluded | 63 | 6.34 fr | **25 fr (417 ms)** |
+
+Every column moves the same way: the count is inflated by 11–23%, the mean
+interval is short, and the worst stall is understated by up to 50 ms. An
+instrument whose error is in the flattering direction is the one to distrust
+most — it is the same shape as the disk figure at the top of this document.
+
+**Two workarounds, and they answer slightly different questions.**
+
+```sh
+os88marty.py <addr> pace -n 400 --no-cursor              # detected from the data
+os88marty.py <addr> pace -n 400 --ignore 300,120,307,131 # exact, if you know it
+```
+
+`--no-cursor` finds the most frequent bbox no larger than 8x12 and drops the
+update events that are entirely it — **no kernel offsets, survives a rebuild**,
+and it says what it excluded. `--ignore` excludes a rect server-side, before
+the pixels are counted at all, so it also removes the arrow's contribution from
+frames where the app changed *too*. On the same scene they agree on what
+matters — 61 updates and a 22-frame max gap either way, mean 6.32 against
+6.35 frames — and differ only in the pixel-count columns, which pacing does
+not use.
+
+Reproduced on a from-scratch build against the Task Manager, where it is
+starker still: **24 updates become 16** — a third of them were the arrow —
+and the max gap goes 31 to 32 frames.
+
+**Two different cursors, and `video` only knows about one of them.** Its
+`cursor` field is the **CRTC text cursor**, which the card draws itself; in a
+graphics mode it correctly answers `visible: false` *even while the mouse
+arrow is plainly on screen*, because the arrow is pixels the KERNEL wrote and
+the card has no idea it is a cursor. So `video.cursor` is the check for a
+blinking hardware cursor in a text mode and is **not** a check for the mouse.
+For the arrow, use `--no-cursor`, or nothing at all if the pointer is
+somewhere you do not care about — it contaminates only where it sits.
+
+**And a text mode has no drawn arrow at all**, which is why the before/after
+above needed no correction: Tracker's `FSXM_TEXT80` fullscreen has the gfx
+lock held for the whole bracket (so the kernel's arrow is off) and §45.13
+hides the CRTC cursor with `int 10h`, and `video` confirms `visible: false`.
+Check rather than assume — a text screen that *left* its hardware cursor on
+would blink it at a fraction of the field rate, a periodic contaminant with no
+relation to anything the guest is animating.
 ### …and what the evenness ratio was hiding: 28.8% of the machine in a poll
 
-The unanswered question above got its answer from a *different* instrument,
-and the reason it had to is worth the paragraph: `pace` reads pixels, so it
-can say the scroll is uneven and can never say why. The complaint that
-reopened it was audible rather than visible — *"the music plays smoothly for
-the first 10–20 s of fullscreen, then has dropouts"* — and the two turned out
-to be one defect seen from either side.
+The question two sections up — *what causes the clumping* — got its answer
+from a **different instrument**, and the reason it had to is worth the
+paragraph: `pace` reads pixels, so it can say the scroll is uneven and can
+never say why. The complaint that reopened it was audible rather than visible
+— *"the music plays smoothly for the first 10–20 s of fullscreen, then has
+dropouts"* — and the two turned out to be one defect seen from either side.
+
+Everything below is the `FSXM_TEXT80` fullscreen, so the cursor correction the
+section above establishes does not apply to any of it: the bracket holds the
+gfx lock throughout (no kernel arrow) and §45.13 hides the CRTC cursor. The
+before and the after were taken the same way, on the same scene, with the same
+build of the tool.
 
 **The instrument was a sampling profiler with no code in the guest**: ask
 MartyPC for CS:IP a few thousand times and bin it by the nearest symbol out
@@ -724,8 +795,81 @@ findings.
 - Everything Part 3.1 says about the **disk** applies unchanged: an animation
   that pauses for I/O has the wrong gap here by more than an order of
   magnitude.
-- It needs a rasterising card, so it is **CGA and VGA** — Part 3.1's Hercules
-  note applies, and a capture there times out rather than answering.
+- It needs a rasterising card — and **Hercules is one, which Part 3.1's note
+  said it was not.** MartyPC's MDA does rasterise HGC graphics: 250-frame
+  captures there run to completion and reproduce, and the rate they report
+  agrees with the guest's own frame counter to 1% (below). What is *not* true
+  on Hercules is that the rendered buffer is byte-exact — it disagrees with
+  the VRAM route on **2.8% of pixels on a paused machine**, spread evenly
+  across x mod 8 and x mod 9 and concentrated at horizontal edges, so it is a
+  raster alignment rather than a decode. That costs `pace` nothing, because it
+  compares rendered frames with rendered frames; it is why a **"0 differing
+  pixels" check on Hercules must stay on the VRAM route** (`shot --kind herc`).
+
+### Missile Command: what the exclusive bracket buys is evenness, not rate
+
+SPEC.md §48.13's same-mode bracket (§53.7) takes the `gfx_lock`/`gfx_unlock`
+pair out of every frame — Part 9 Set 4 priced that pair at **21.8% of a
+77-second session** with no pixel of the game in it. What that is worth was
+never measured on the axis the complaint was about. On MartyPC's Hercules at
+50.9 Hz (19.66 ms/frame), a wave descending with no player input, mode
+certified `M_PLAY` and the wave number unchanged across the capture, and both
+arms entered at the same point in the wave:
+
+| 250 frames | windowed | bracket (`F`) |
+|---|---|---|
+| paint-to-paint | 3.15 / 3.04 fr (62.0 / 59.7 ms) | 2.78 / 2.95 fr (54.7 / 58.1 ms) |
+| **jitter (sd)** | 1.17 / 1.20 fr (22.9 / 23.6 ms) | **0.41 / 0.90 fr (8.1 / 17.7 ms)** |
+| **evenness** | **0.37 / 0.40** | **0.15 / 0.30** |
+| histogram | `2fr x12 3fr x59 5fr x3 6fr x1 8fr x3` | `2fr x19 3fr x69` |
+| | `2fr x15 3fr x62 5fr x1 6fr x1 8fr x1 11fr x1` | `2fr x19 3fr x59 4fr x2 5fr x1 6fr x2 8fr x1` |
+
+**The rate is identical and the delivery is not.** Both are one frame per PIT
+tick; the bracket's best run is `2fr x19 3fr x69` **and nothing else**, which
+is not merely even but *exactly* at the floor — a 54.925 ms tick on a 19.66 ms
+display is 2.794 frames, so a metronome here **must** emit 2s and 3s in the
+ratio 0.206 : 0.794, giving sd 0.405 and **evenness 0.145**. Measured: 0.148.
+There is no smoothness left to win in that run. Windowed, the same 2/3 cadence
+carries a tail of 5, 6, 8 and 11-frame gaps that is not there in the bracket.
+
+Two things make the number trustworthy. **The game's own deadline counter is
+the ground truth**: `[mc_due]` advances once per `mc_worker` iteration, and
+sampled against MartyPC's cycle count it reads **18.19 and 18.37 fps** against
+a PIT tick of 18.2065 — so windowed Missile Command keeps its deadline exactly,
+and the jitter above is *delivery*, not dropped frames. (It reads 0 inside the
+bracket, correctly: `mc_fsx_main` has a loop of its own and never touches it.)
+
+**And the game itself, measured at the source, is a metronome — which `pace`
+alone could not have told you.** A breakpoint on `mc_worker`'s
+`call mc_render` stops the machine once per game frame, cycle-exact, with no
+code in the guest; MartyPC pauses while it is stopped, so guest time does not
+advance and nothing is perturbed. Windowed, a wave descending, no input:
+**199 consecutive frames at 54.92 ms mean, sd 1.28 ms**, against a PIT tick of
+54.925 — and diffing the framebuffer at each frame boundary, **0 of 199 frames
+drew nothing**. Under sustained fire (fire injected every 10th frame from the
+harness, so the load pattern is identical between arms) it is 18.21 fps with
+sd 5.43–6.44 ms, and only **~5% of frames are off-tick at all**.
+
+That is the instrument to reach for when `pace` reports a tail: it separates
+*the game delivered late* from *the display sampled it at an awkward phase*,
+and here it was the second. It also priced the one pacing change worth making —
+`MC_LAGMAX` 4 → 0, SPEC.md §48.20: **sd 5.43/6.44 → 4.43/4.76 ms, worst short
+frame 29 → 36 ms, worst long frame 98 → 81 ms, and 18.21 fps in all four
+runs.** Chasing a missed deadline is what the judder *is* when motion is
+per-frame, and stopping costs no frames.
+
+**`pace`'s own interval statistic had to be adapted too, for a reason that
+generalises.** Tracker's grid arrives as one blit on an otherwise-static
+screen, so one changed frame is one update. Missile Command *paints* for
+1.5–2.0 displayed frames per game frame — a 4.77MHz machine cannot fill a
+615x171 content box inside 19.66 ms — so the card catches it mid-paint and one
+game frame contributes several consecutive changed frames. Counting gaps
+between changed frames then splits every frame in two and reports ~28
+updates/s for an 18.2 fps game. **Grouping consecutive changed frames into one
+paint** is the fix, and it is validated rather than assumed: it recovers
+16.1–16.7 fps against the counter's 18.2. The rule of thumb is that `pace`'s
+raw intervals mean what they say only while a paint fits inside one displayed
+frame.
 
 ---
 
