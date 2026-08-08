@@ -781,19 +781,22 @@ mouse_unhook:
 ; could not have been launched. ScrollLock is one escape hatch: while it is on
 ; nothing here intercepts anything, so Arkanoid can be played and Note Pad's
 ; caret moved on a machine with no mouse. It is READ, not watched for - see
-; kbm_slock. '.' is the other and the better one (kbm_latch, SPEC.md 9.6.2):
-; a key beside the arrows the hand is already on, rather than a shift state
-; some keyboards do not report.
+; kbm_slock - and it is the ONLY one, which SPEC.md 9.6.2 records the reason
+; for: the way back to typing can never be a key you would want to type, and a
+; '.' latch lasted a day for exactly that reason. ScrollLock costs no
+; keystroke at all, and on a keyboard with the lamp it shows its own state.
+; kbm_ui watches its EDGE and raises the window under the pointer on the way
+; in, because keys go to wm_top.
 ;
 ; ---------------------------------------------------------------------------
 ; WHAT THIS COSTS, AND WHEN TO TAKE IT OUT AGAIN
 ;
-; 561 bytes of .text, which is two 512-byte steps of KERN_BUDGET: the spare
+; 520 bytes of .text, which is two 512-byte steps of KERN_BUDGET: the spare
 ; went 4,096 -> 3,584 -> 3,072. The first was decided on when the budget was
 ; at its OLD ceiling and that step was half the slack rather than an eighth of
 ; it, on the grounds that this is the difference between a usable machine and
 ; an unusable one at exactly the moment the mouse fails. The second bought
-; 9.6.1 and 9.6.2, and it is 155 bytes of code for a whole step: the image
+; 9.6.1 and 9.6.2, and it is 114 bytes of code for a whole step: the image
 ; rung had ONE byte of slack (.text + .bss = 49,151 against a 49,152
 ; ceiling), so any addition at all cost the same 512 and trimming could not
 ; have avoided it. That is the guard working, not this being dear - and the
@@ -840,22 +843,11 @@ kbm_key:
     jne kbm_pass                ; a real mouse has spoken: never intercept
     call kbm_slock              ; ...or ScrollLock is on and the user has asked
     jnz kbm_pass                ; for the keys back
-    cmp ah, 0x53                ; the keypad's '.' (Del, NumLock off): the
-    jne .unlatched              ; LATCH - and the one key that comes back OUT
-    or al, al                   ; of it, which is why it is tested ABOVE the
-    je kbm_latch                ; gate below and every other key is not
-.unlatched:
-    cmp byte [kbm_off], 0
-    jne kbm_pass                ; latched: the window has the whole keyboard
-    cmp al, '.'                 ; ...and a typed '.' latches too - it cannot
-    je kbm_latch                ; UNlatch, which is exactly what keeps '.'
-                                ; typeable in there (SPEC.md 9.6.2)
     cmp al, ' '                 ; Space: the button, for a hand already on the
-    je kbm_btn                  ; arrows
-    cmp ah, 0x4A                ; the keypad's '-': the right button (12.4).
-    je kbm_rclick               ; It moved off Del when Del became the latch,
-                                ; and it carries an ASCII byte, so it is tested
-                                ; above the ASCII gate as well
+    je kbm_btn                  ; arrows. Tested above the ASCII gate because it
+                                ; carries a byte - and it is the one printable
+                                ; key this takes, which is what makes the hatch
+                                ; below have to be a key that carries none
     or al, al
     jnz kbm_pass                ; ASCII - NumLock is on and these are digits,
                                 ; which belong to whatever is running
@@ -863,6 +855,8 @@ kbm_key:
     je kbm_btn
     cmp ah, 0x4C                ; ...and its centre 5: the button, both of them
     je kbm_btn
+    cmp ah, 0x53                ; Del: the right button (SPEC.md 12.4)
+    je kbm_rclick
 
     push bx
     push cx
@@ -1061,23 +1055,6 @@ kbm_btn:
     stc
     ret
 
-; --- the latch: hand the whole keyboard to the window under the pointer ------
-; The arrows are the mouse, so on a mouseless machine an application cannot
-; have them - which is right until the application IS the arrows. ScrollLock
-; says the same thing and says it as a shift state; this says it with a key
-; that every keyboard has in the same place, next to the arrows the hand is
-; already on (SPEC.md 9.6.2).
-kbm_latch:
-    xor byte [kbm_off], 1
-    push ax
-    mov al, [kbm_off]           ; on the way IN, the window under the pointer
-    mov [kbm_raise], al         ; is brought to the front, because keys go to
-    pop ax                      ; wm_top and 'latch to the window the cursor is
-    stc                         ; over' has to be true of the window that then
-    ret                         ; gets them. ui_task spends it: this is reached
-                                ; from kbm_poll with the gfx lock held, and
-                                ; wm_front takes that lock
-
 kbm_rclick:                     ; latches too - menu_popup ends on a level poll
     push ax                     ; of bit 1 exactly as menu_track does on bit 0
     xor byte [mouse_btn], 0x02
@@ -1118,13 +1095,15 @@ kbm_poll:
     ret
 
 ; -----------------------------------------------------------------------------
-; kbm_ui - the end of a ui_task pass: spend the raise, then the click latch
+; kbm_ui - the end of a ui_task pass: the ScrollLock edge, then the click latch
 ;
 ; Called once from ui_task's deferred ladder, where no lock is held. Two jobs,
 ; both of which have to happen HERE rather than where the key was seen:
 ;
-;   the raise   kbm_latch is reached from kbm_poll with the gfx lock held, and
-;               wm_front takes that lock.
+;   the raise   ScrollLock is a LEVEL and there is no keystroke to hang this
+;               off (see kbm_slock), so the edge is found by remembering it.
+;               And wm_front takes the gfx lock, which kbm_poll's callers
+;               hold - so even a keystroke could not have done it in place.
 ;   the release kbm_btn latches the button so that menu_track, ui_drag,
 ;               ui_grow and a package's tracking loop - none of which return
 ;               to ui_task until it comes up - can see it held. Whatever
@@ -1146,12 +1125,17 @@ kbm_poll:
 kbm_ui:
     cmp byte [mou_seen], 0
     jne .out                    ; a machine with a mouse pays this compare
-    cmp byte [kbm_raise], 0
-    je .relax
-    mov byte [kbm_raise], 0
-    push bx
-    push cx
-    push dx
+    xor al, al                  ; AL = the ScrollLock level, 0 or 1. kbm_slock
+    call kbm_slock              ; preserves AX and answers in ZF, and the pops
+    jz .lvl                     ; inside it do not disturb it
+    inc al
+.lvl:
+    cmp al, [kbm_slast]
+    je .relax                   ; unchanged, which is nearly every pass
+    mov [kbm_slast], al         ; banked whichever way it went, so the next
+    or al, al                   ; pass sees no edge
+    jz .relax                   ; the FALLING edge raises nothing - the pointer
+                                ; is simply live again
     call gfx_lock
     mov cx, [mouse_x]
     mov dx, [mouse_y]
@@ -1161,9 +1145,6 @@ kbm_ui:
     call wm_front               ; ...which activates it too, so the menu bar
 .unlock:                        ; and the keyboard end up on the same window
     call gfx_unlock
-    pop dx
-    pop cx
-    pop bx
 .relax:
     cmp word [ui_ev + EV_TYPE], EVT_MDOWN
     jne .out
@@ -1196,8 +1177,7 @@ kbm_step    db KBM_MIN          ; px the current run of repeats is worth
 kbm_lastk   db 0                ; ...and which direction it is a run OF
 kbm_last    dw 0                ; tick of the last movement key
 kbm_btick   dw 0                ; ...and of the last button key, for the repeat
-kbm_off     db 0                ; latched: the window has the keyboard (9.6.2)
-kbm_raise   db 0                ; ...and owes a raise, spent by kbm_ui
+kbm_slast   db 0                ; the ScrollLock level kbm_ui last saw (9.6.2)
 kbm_ev      times 8 db 0        ; the record kbm_post fills for evq_push
 
 ; -----------------------------------------------------------------------------

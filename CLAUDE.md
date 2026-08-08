@@ -1415,17 +1415,26 @@ and is what makes a PACKAGE's drag reachable - Solitaire's `sol_drag`, Paint's
 `fm_drag` is served by **not spinning at all** with no mouse, because it waits
 with the button down to tell a click from a drag and the button is latched for
 the whole dispatch, so a row click would cost two presses and a double-click
-four. File drag and drop wants a mouse, as it always did. **A typed '.' or the
-keypad's '.' LATCHES the keyboard to the window under the pointer** (SPEC.md
-9.6.2) - ScrollLock's job with a key beside the arrows - raising that window
-via `[kbm_raise]` because keys go to `wm_top`; the keypad '.' toggles and a
-typed '.' only latches, which is what keeps '.' and Space typeable in there. **The step accelerates
+four. File drag and drop wants a mouse, as it always did. **ScrollLock is the
+ONE latch, and the rule it encodes is that the way back to typing can never be
+a key you would want to type** (SPEC.md 9.6.2). A '.' was added as a second,
+friendlier hatch and was wrong within a day: '.' is wanted the moment anybody
+opens Note Pad, reserving the keypad's gives up Del, and letting a typed one
+latch but not un-latch leaves a full stop that works in one direction only.
+ScrollLock costs no keystroke at all - int 09h swallows it - and on a keyboard
+with the lamp the machine SAYS which mode it is in, a state indicator nobody
+had to draw. Space is the deliberate counter-example: printable and taken,
+because a hand on the arrows wants a button under its thumb, and it is only
+taken while the pointer is live. **It raises the window under the pointer on
+the way in** - a level has no keystroke to hang that off, so `kbm_ui` banks it
+in `[kbm_slast]` and finds the EDGE once per pass; a falling edge raises
+nothing. **The step accelerates
 and the ramp RESETS on a change of direction** - not a refinement: without it
 the correction travels at full speed too and a menu item sits unreachable
 between two 24px strides, which is exactly how the first version failed to
-pick one. **It costs 561 bytes and two 512-byte steps of `KERN_BUDGET` (spare
+pick one. **It costs 520 bytes and two 512-byte steps of `KERN_BUDGET` (spare
 4,096 → 3,584 → 3,072)**, the first decided on when that step was half the
-slack rather than an eighth of it, the second bought by 9.6.1/9.6.2 - **155
+slack rather than an eighth of it, the second bought by 9.6.1/9.6.2 - **114
 bytes of code for a whole step, because the image rung had ONE byte of slack**
 (`.text` + `.bss` = 49,151 against a 49,152 ceiling), so any addition at all
 cost the same 512 and trimming the feature could not have avoided it. That is

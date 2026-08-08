@@ -2704,9 +2704,8 @@ An application that wants arrow keys on a mouseless machine cannot have them
 while this is on, and that is the right default — without a pointer it could
 not have been launched. **ScrollLock is the escape hatch**: while it is on
 nothing here intercepts anything, so Arkanoid can be played and Note Pad's
-caret moved. It is not the only one any more — §9.6.2's latch does the same
-thing with a key that is next to the hand already on the arrows, and on a
-keyboard whose ScrollLock the BIOS does not report at all it is the only one.
+caret moved. **It is the only one** — §9.6.2 is why a printable key cannot be
+a second — and it now also raises the window under the pointer on the way in.
 
 **ScrollLock is READ, not watched for**, and that is worth stating because the
 first version got it wrong in a way that could never have worked. It is a
@@ -2722,8 +2721,8 @@ The keys:
 |---|---|---|
 | the eight keypad directions | 47/48/49/4B/4D/4F/50/51 | move, clamped to `[vid_wm1]`/`[vid_hm1]` exactly as the ISR clamps |
 | **keypad 0 (Ins)**, **keypad 5**, **Space** | 52 / 4C / 39 | the **button** — one action, three keys (§9.6.1) |
-| **keypad `-`** | 4A | the right button, latching; press edge only (§9). It carries an ASCII byte, so it is tested above the `AL = 0` gate |
-| **keypad `.` (Del)**, and a typed `.` | 53 / any | the **latch** — hand the whole keyboard to the window under the pointer (§9.6.2) |
+| **Del** | 53 | the right button, latching; press edge only (§9) |
+| **ScrollLock** | — | the **latch** — hand the whole keyboard to the window under the pointer (§9.6.2). Not a key here: a level (§9.6) |
 
 #### 9.6.1 The button is one action, and it is neither a click nor a hold
 
@@ -2793,34 +2792,45 @@ open files from and one you cannot. With `[mou_seen]` = 0 it returns "an
 ordinary click" immediately. **File drag and drop wants a mouse**, exactly as
 it did before any of this existed.
 
-#### 9.6.2 The latch — the arrows belong to the application now
+#### 9.6.2 The latch — ScrollLock, and why it must not be a printable key
 
 The arrows *are* the mouse, so an application cannot have them — until the
-application **is** the arrows. ScrollLock says that as a shift state; this says
-it with a key every keyboard has in the same place, next to the arrows the
-hand is already on. **`kbm_latch`** toggles `[kbm_off]`, and while it is set
-`kbm_key` passes every key straight through.
+application **is** the arrows. **ScrollLock is that switch, and it is the only
+one**, which is a decision worth recording because it was briefly two.
 
-Two asymmetries in what un-latches, and both are deliberate:
+A `.` — the keypad's and a typed one — was added as a second, friendlier
+hatch: a key beside the arrows the hand is already on. It was wrong, and the
+reason generalises. **The latch is the way back to typing, so it can never be
+a key you would want to type**, and `.` is wanted the moment anybody opens
+Note Pad. Every escape from that is worse than the disease: reserving the
+keypad's `.` alone gives up Del (§12.4's right button), and letting a typed
+`.` latch while refusing to un-latch — which is what was shipped for a day —
+leaves a machine where the full stop works only in one direction. ScrollLock
+has none of the problem: int 09h swallows it to toggle `KB_FLAG` and int 16h
+never reports a key for it (§9.6), so **it costs no keystroke at all**. On a
+keyboard with the lamp the machine also *says* which mode it is in, which is a
+state indicator no software of ours had to draw.
 
-- **The keypad `.` (scancode 53 with `AL` = 0) toggles**, and it is tested
-  *above* the `[kbm_off]` gate — it is the one key that comes back out.
-- **A typed `.` latches but cannot un-latch.** That is what keeps `.` typeable
-  while latched: a machine with no mouse would otherwise have no full stop in
-  Note Pad. Space is the same shape — it is the button when the pointer is
-  live and an ordinary space while latched, which is what "Space, for when
-  using the arrow keys" means at both ends.
+Space is the counter-example that proves the rule and is kept deliberately: it
+is printable and it *is* taken, because a hand on the arrows wants a button
+under its thumb. It is only taken while the pointer is live — with ScrollLock
+on it is an ordinary space — which is exactly the shape `.` could not have.
 
 **It raises the window under the pointer on the way in.** Keys go to `wm_top`,
 so "latch to the window the cursor is over" has to be true of the window that
-then gets them. `kbm_latch` cannot do it itself — it is reached from
-`kbm_poll` with the gfx lock held and `wm_front` takes that lock — so it posts
-`[kbm_raise]` and `kbm_ui` spends it, with `wm_hit` for the window and
-`wm_front` for the raise, which activates it too so the menu bar and the
-keyboard end up on the same window.
+then gets them. ScrollLock is a level with no keystroke to hang that off, so
+`kbm_ui` finds the **edge** by banking it in `[kbm_slast]` and comparing once
+per `ui_task` pass: a rising edge does `wm_hit` then `wm_front`, which
+activates it too so the menu bar and the keyboard end up on the same window.
+A falling edge raises nothing — the pointer is simply live again. Doing it
+here is not only convenient: `wm_front` takes the gfx lock, which `kbm_poll`'s
+callers hold, so even a keystroke could not have raised in place.
 
-Verified end to end on a mouseless QEMU boot: latch over Arkanoid, Space
-serves, the arrows drive the paddle, `.` gives the pointer back.
+Verified end to end on a mouseless QEMU boot: `KB_FLAG` bit 4 goes 0x00 → 0x10
+and 20 arrow presses move nothing; ScrollLock over a window whose app had lost
+the bar puts the bar back; off again and the arrows move 3px per tap; and two
+`.` presses change neither the pointer nor `mouse_btn`. Latch over Arkanoid,
+Space serves, the arrows drive the paddle.
 
 **The step accelerates, and the ramp resets on a change of direction.** A
 fixed step cannot be right: small enough to aim with is too small to cross a
@@ -2837,7 +2847,7 @@ which took one 512-byte step of `KERN_BUDGET` (§15.1) — spare 4,096 → 3,584
 one step of the eight move 10 left. It was decided on when the budget was at
 its old ceiling and the same step was half the remaining slack, on the grounds
 that it is the difference between a usable machine and an unusable one at
-exactly the moment the mouse fails. §9.6.1 and §9.6.2 added **155 bytes** and
+exactly the moment the mouse fails. §9.6.1 and §9.6.2 added **114 bytes** and
 took a **second** step — spare 3,584 → 3,072 — and the arithmetic there is
 worth writing down, because it is the guard behaving as designed rather than
 the feature being expensive: the image rung had **one byte** of slack

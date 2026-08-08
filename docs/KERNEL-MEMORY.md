@@ -134,7 +134,7 @@ would be the project quietly dropping the machines it was written for.
 
 ### The first thing to take out again, if space becomes the priority
 
-**The keyboard mouse (SPEC.md §9.6, `kernel/mouse.inc`) — 561 bytes of
+**The keyboard mouse (SPEC.md §9.6, `kernel/mouse.inc`) — 520 bytes of
 `.text`, two 512-byte steps: the spare went 4,096 → 3,584 → 3,072.** It is recorded here at the owner's request,
 because a size decision is one the next author should be able to *find*
 rather than rediscover, and this one was taken on grounds that are about
@@ -155,7 +155,7 @@ the mouse over QMP and never needs it. Nothing else depends on it — one module
 plus six call sites (`ui_task`'s key poll and its deferred ladder, the
 `kbm_poll` in `menu_track`, `ui_drag` and `ui_grow`, and `osapi_mouse`).
 
-**The second step was SPEC.md §9.6.1/§9.6.2 — 155 bytes of code for a
+**The second step was SPEC.md §9.6.1/§9.6.2 — 114 bytes of code for a
 512-byte step**, and the arithmetic is worth keeping because it is what this
 guard is *for* rather than a sign the feature was expensive. The image rung
 had **one byte** of slack (`.text` + `.bss` = 49,151 against a 49,152
