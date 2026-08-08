@@ -3836,8 +3836,12 @@ layout is **three zones, left to right**:
    pins per side; hand-authored `dw` rows are fine — this is the one place
    bitmap data is hand-made). It is the same three items in every
    application, always cell 0, always x 0..`MENU_SYS_XR`.
-2. the **active application's name**, drawn at `MENU_NAME_X` — a label,
-   not a menu: it has no hit range and drops nothing.
+2. the **active application's name**, drawn at `MENU_NAME_X` — and it is a
+   real menu cell whenever an application owns the bar (§12.7): `About
+   <Name>` when the window registered a handler, and **`Close` always**,
+   at the bottom. Locator alone keeps it as a bare label with no hit
+   range and nothing to drop, because the kernel is not an application
+   that can be closed.
 3. the **active application's own menus** (§12.2), laid out from
    `MENU_NAME_X + font_width(name) + MENU_NAME_PAD` rightward, each cell
    `font_width(title) + MENU_TITLE_PAD` wide. The first cell that would
@@ -3856,7 +3860,10 @@ own segment) is a *runtime* table, not static data.
 
 ```nasm
 MENU_APPMAX  equ 4              ; app menus the bar can host
-MENU_BARMAX  equ MENU_APPMAX+1  ; + the System cell, which is always cell 0
+MENU_BARMAX  equ MENU_APPMAX+2  ; + the System cell, which is always cell 0,
+                                ; + the app-NAME cell (§12.7), which is
+                                ; APPENDED last so the app's own menus keep
+                                ; bar index == set index + 1
 MENU_SYS_XR  equ 29             ; System cell: x 0..29, glyph at MENU_SYS_TX
 MENU_SYS_TX  equ 10
 MENU_NAME_X  equ 38             ; app-name label pen x
@@ -3870,7 +3877,9 @@ MB_NITEM equ 4   ; word: item count
 MB_XL    equ 6   ; word: bar hit range, left x (inclusive)
 MB_XR    equ 8   ; word: bar hit range, right x (inclusive)
 MB_TX    equ 10  ; word: title text / glyph left x
-MB_ENTSZ equ 12
+MB_SEG   equ 12  ; word: the segment this cell's strings live in (§12.2),
+                 ; 0 = the kernel's own
+MB_ENTSZ equ 14
 ```
 
 **The active application is a window**, tracked in the word `[menu_win]`
@@ -3913,7 +3922,7 @@ sites that already exist:
 | `menu_relayout` | recompute `[menu_set]`, `[menu_namep]` and the whole `menu_bar` from `[menu_win]`. Preserves all registers. |
 | `menu_win_set`  | in: BX = window ptr, SI = menu set ptr (0 = none) — stores `[bx+W_MENUS]` and relayouts if BX is the active window. The `OSAPI_MENU_SET` target (§20.3). Preserves every register **and the flags**: its intended call site sits between a package's `wm_create` and the `ret` that owes the loader that call's CF (§20.2). |
 | `menu_check`    | if `[menu_win]` names a window that is no longer visible, `menu_activate` on `wm_top` — the promoted window, or 0 for Locator when none is left. No-op while the owner is visible or already Locator. Preserves every register. Called only from `menu_draw_bar`, so it always runs under the gfx lock on the UI task. |
-| `menu_draw_bar` | draw the bar: `menu_check`, white field + black rule, every `menu_bar` cell's title (cell 0 = the logo glyph), the app-name label, then `menu_draw_clock`. Gfx lock held by caller. |
+| `menu_draw_bar` | draw the bar: `menu_check`, white field + black rule, every `menu_bar` cell's title (cell 0 = the logo glyph), then `menu_draw_clock`. Gfx lock held by caller. The app name is one of those cell titles whenever an application owns the bar (§12.7); the standalone label draw is Locator's alone, and is skipped when `[menu_abcell]` is non-zero so the name is never double-struck. |
 | `menu_track`    | in: CX = mousedown x. Runs the whole interaction while the button is held (caller holds gfx lock): highlight title (xor), drop the menu (gfx_save under it to the save-under claim, `[menu_sseg]:0`), track item highlight following `mouse_y`, on release restore save-under + unhighlight; **out AX = 0xFFFF if nothing was selected, else AH = bar cell index (0 = System), AL = item index within that cell**. Item cells are 16px tall, menu width = widest item + 16px padding. Only the bar-specific half is its own: the cell find, `menu_title_xor` and the (cell, item) pack. The drop itself is `menu_drop` (§12.4). |
 | `menu_drop`     | the tracker, anchored by variables so it serves both the bar and a context menu (§12.4). |
 | `menu_popup`    | drop a menu anywhere on screen under the right button (§12.4). |
@@ -4253,7 +4262,8 @@ the menu save-under claim (`MENU_SAVE_KB`, §12/§50) and no allocator
 appears. `[vid_popmax]` bounds a popup's HEIGHT (258 rows at `MENU_POPMAX`) and nothing bounds its
 width — `menu_widest` is taken as-is — so the honest budget is stated over
 the descriptors that actually exist rather than as a general guarantee.
-All three (`fm_ctx_file` / `fm_ctx_fold` / `fm_ctx_dir`) are immutable
+All of them (`fm_ctx_file` / `fm_ctx_fold` / `fm_ctx_dir` / `fm_ctx_up`,
+and the dock's one-item `dock_ctx_items`, §30.2) are immutable
 `.text`, ≤ 8 items of ≤ 18 chars, worst case 4 planes × 130 rows × ~21
 bytes against the `MENU_SAVE_KB` claim, and there is no API
 slot through which a package could supply another. **A width clamp in
@@ -4299,6 +4309,61 @@ and a resume that does not answer it is a pause no key can undo: the resume
 sets the mode, the next worker frame reads the same unchanged owner and pauses
 again. `OSAPI_WM_FRONT` on the frontmost window is the whole fix, and §44.8.1
 is the worked example.
+
+### 12.7 The app-name menu — `About` when it is offered, `Close` always
+
+The application's name in the bar is a **menu cell for every application**,
+built by `menu_ab_cell` and appended after the app's own menus. It carries
+at most two items and the second one is the point:
+
+| item | present when | dispatched by |
+|------|--------------|----------------|
+| `About <Name>` | the window registered a handler with `wm_about_set` (slot 0x01E0) | the application, through its own dispatcher, exactly like `W_ONCLICK` |
+| `Close` | **always** | the kernel |
+
+`Close` is the close box (§13) reached from the bar, and it does what the
+close box does: `app_close_win` on `[menu_win]`, under the gfx lock, on the
+UI task. A task-less instance is torn down synchronously; a task-owned one
+gets the die flag and a `wm_hide` (§29.4). Nothing is posted through
+`ui_post_cmd` and nothing needs to be — `ui_dispatch` runs with **no lock
+held** (`menu_track`'s is released before it is called), which is the same
+reason the `.close_box` branch of §13's ladder can take the lock itself.
+
+Three things about it are load-bearing.
+
+**The cell no longer depends on the About handler.** It used to exist only
+when `wm_about_get` answered non-zero, so most applications had a bare label
+where the name is and no way at all to quit from the bar. Now `[menu_win]`
+being non-zero is the whole condition, and `wm_about_get` decides only
+whether the cell has one item or two. `menu_abstr` — `'About '` + the name —
+is therefore built on **every** relayout rather than only in the About case,
+because the cell's *title* is `menu_abstr + MENU_ABPFX_LEN`, the same bytes
+read from the name onward (§12.2). Both of the cell's strings stay kernel
+data, so its `MB_SEG` is 0 even under a package.
+
+**Which item is `Close` is recorded, not derived.** `[menu_abclose]` holds
+its index — 1 with an About above it, 0 without — and `ui_dispatch` compares
+the selection against that byte *before* it routes the cell to the
+application. Deriving it from the item count at dispatch time would be a
+second place that has to agree with `menu_ab_cell` about what the cell looks
+like; a package's About handler being called with AL = 1 for an item the
+kernel owns is the failure that would follow.
+
+**Locator gets no such cell.** `[menu_win]` = 0 leaves `menu_ab_cell` at its
+first test: the kernel's own About is `CMD_ABOUT` in the System menu, which
+is cell 0 of every application including this one, and its `Close Window`
+is already an item of Locator's File menu (§12.3) — greyed by `ui_loc_gate`
+when there is nothing to close. A **Disk window** does get one, labelled
+`Locator` like the rest of its bar, and its `Close` closes that window: the
+window is a real instance (§29) and closing it is exactly what the close box
+on it does.
+
+An application needs no change of any kind for this, and no `.o88` is
+invalidated: the cell, both its strings and the `Close` dispatch are all the
+kernel's. A package that wants a Quit item of its own may still have one —
+it is an ordinary item in an ordinary menu of its set, answered by
+`AM_ONCMD` (§12.2) — and the two do not collide, because the name cell is
+never routed to `AM_ONCMD` at all.
 
 ## 13. ui.inc — the UI task (task 0)
 
@@ -4393,9 +4458,15 @@ Loop forever:
      `fm_rclick` moves `FS_SEL` without touching `FS_CLKT` (§22).
    - y < MBAR_H (and no fullscreen window) → **nothing**. The bar has no
      right-button behaviour, and neither does the clock cell.
-   - `wm_hit` reports no window → **nothing**. `dock_click` is never
-     reached from here: it toggles minimize, and a right-press must not
-     do that. Nor is `desk_click`.
+   - `wm_hit` reports no window → **`dock_rclick`** (§30.2) with CX=x,
+     DX=y, no lock held; CF=1 = the press was consumed (anywhere in the
+     strip). `dock_click` is never reached from here — it toggles
+     minimize, and a right-press must not do that; `dock_rclick` is the
+     right button's own, much smaller routine and shares only the hit
+     test. If the strip declines (CF=0) this is the bare desktop, and
+     that is still **nothing**: `desk_click` is not reached either, and
+     Locator is not activated — a right-press moves no focus it did not
+     have to.
    - a window that is not frontmost → raise it (`wm_front` under the
      lock) and stop. A right-click brings a window forward but opens
      nothing: the popup always belongs to the window you can see.
@@ -11865,7 +11936,9 @@ tile vanishes with the `wm_hide` repaint. Icon pointers must satisfy
 |--------------|--------------------------------------------------------------|
 | `dock_init`  | reset module scratch. From kmain, right after desk_init.    |
 | `dock_paint` | draw the rule, the strip and every live instance's tile. Called by wm_paint_all after `desk_paint`, before the menu bar and windows (lock held by caller) — windows cover the dock exactly like desktop icons (§26). |
+| `dock_hit`   | in CX=x, DX=y. Out: CF=1 = the point is not in the strip at all; CF=0 = the strip owns it, and then **DI = the live instance record under the pointer, or 0** for bare strip, an inter-tile gap, a slot past the last, and an empty or dying one. AL = the slot when DI ≠ 0. Clobbers AX and DI only. The one hit test both buttons use (§30.2). |
 | `dock_click` | in CX=x, DX=y (no lock held; called by ui.inc when wm_hit found no window, BEFORE desk_click). Out: CF=1 = consumed (any click with y ≥ `[vid_dock_y0]` — strip background clicks are consumed no-ops), CF=0 = not in the dock. Tile hit on a live instance: minimized → gfx_lock, `inst_restore`, gfx_unlock; else → gfx_lock, `wm_front` on I_WIN, gfx_unlock. Single click activates; no double-click logic. |
+| `dock_rclick`| in CX=x, DX=y (no lock held; called by `ui_rdown` when wm_hit found no window). Out: CF as `dock_click`'s. A tile on a live instance → gfx_lock, `menu_popup` anchored at the press, `app_close_win` if `Close` was chosen, gfx_unlock. Bare strip: consumed, and nothing drops (§30.2). |
 
 Every dock-state transition (launch, quit, minimize, restore) — and every
 change of the ACTIVE tile, which is every raise — rides a `wm_show`,
@@ -11879,6 +11952,58 @@ fallback).
 The window drag clamp (§13) is unchanged: windows may be dropped over the
 dock; clicks in the overlap go to the window (wm_hit wins), and the strip
 repaints when the window moves away — desk-icon semantics throughout.
+
+### 30.2 A tile's context menu — right-click to Close
+
+A right-press on a tile drops a one-item `menu_popup` (§12.4), `Close`, and
+picking it runs `app_close_win` on that instance's window — the close box
+(§13/§29.4) reached from the dock, which is the only way to quit an
+application without first restoring its window from the strip.
+
+It is anchored at the press **x** and at `[vid_dock_y0] - DOCK_CTX_H`, so it
+stands above the strip instead of on it. `DOCK_CTX_H` is `menu_popup`'s own
+`count·16 + 2` written a second time, which is a copy worth making: it
+decides only where the menu is *anchored*, and `menu_popup` shifts and
+floors whatever it is handed, so drift costs a few pixels of placement and
+can never put a menu off the screen. Anchored at the press point the menu
+would land on the strip, covering the tile it is asking about. `dock_ctx_items` is a single `dw` pointing at `menu_s_appclose`,
+the *same* string §12.7's app-name menu uses: one word of `.text`, and two
+menus that say `Close` can never come to say different things.
+
+The strip's own background is **consumed and drops nothing**, exactly as it
+is for the left button: a press there is neither a tile nor the desktop, and
+answering it with a menu about no application would be a menu with nothing
+in it.
+
+Four things hold it up.
+
+**One hit test, two buttons.** `dock_hit` is `dock_click`'s find lifted out
+whole — the y bound, the `DOCK_STEP` divide, the inter-tile gap, the slot
+bound and the `I_STATE` = 1 test — and both entry points now call it. It was
+factored rather than copied for §29.2 rule 3's sake: which records have tiles
+is one question, and a second copy of the answer is a second place for a
+dying record to be offered a menu.
+
+**A record pointer does not survive the tracker; a slot does.** `menu_popup`
+holds the button and `task_yield`s (§12.4), so a package worker can reach
+`inst_task_die` and free the very record the menu is about. `dock_rclick`
+banks the **slot index**, re-resolves it with `inst_ptr` after the popup
+returns and re-tests `I_STATE` = 1 before touching anything. Nothing can
+refill the slot in that window — `inst_alloc` runs on the UI task, which is
+standing inside `menu_drop` — so the state test is sufficient, and the
+`I_WIN` = 0 test after it is insurance rather than a case.
+
+**It is unbilled.** Like `menu_track` and `fm_rclick` (§13), the time a user
+spends holding the button is nobody's CPU cost. The command that follows is
+not billed either, and here that is not a choice: it *destroys* the instance
+it would be charged to, which is the same reason `ui_post_cmd` exists for
+`CMD_CLOSE` (§13).
+
+**A refused save-under still puts the strip back.** `menu_drop` falls back
+to `wm_paint_dmg` over the menu's own rect (§12.4), and that path reaches
+`[vid_dock_y0]`, so it calls `dock_force` and `dock_paint` (§11.91) — the
+popup may cover the strip freely on the machine small enough to refuse
+`MENU_SAVE_KB`.
 
 ## 31. ctrl.inc — the Control Panel window
 
