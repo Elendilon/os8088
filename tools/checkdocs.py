@@ -78,8 +78,16 @@ def headings(path):
 
 
 def main() -> int:
-    tracked = subprocess.run(["git", "ls-files"], check=True,
-                             capture_output=True, text=True).stdout.split()
+    # The file list is git's, so a source tree that is not a checkout cannot be
+    # checked at all. Say so and pass, rather than failing a build over it -
+    # this runs in the default `make` now, and a tarball is a legitimate way to
+    # have these sources. It reports SKIPPED and never a clean bill of health.
+    try:
+        tracked = subprocess.run(["git", "ls-files"], check=True,
+                                 capture_output=True, text=True).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        print("checkdocs: not a git checkout - SKIPPED")
+        return 0
     tracked = [f for f in tracked if not f.startswith("build/")]
 
     docs = {f: headings(f) for f in tracked if f.endswith(".md")}
