@@ -1155,17 +1155,25 @@ np_bounds:
     ; different geometry - and unlike the signatures, nothing else was going to
     ; notice. np_sigsame guards np_redraw; this guards everything else, which
     ; is every caret key and every click.
-    mov ax, [np_tx]
-    cmp ax, [np_stx]
-    jne .stale
-    mov ax, [np_ty]
-    cmp ax, [np_sty]
-    jne .stale
+    ; ...and what "a different geometry" means here is the WRAP WIDTH and the
+    ; view HEIGHT, never the origin. These four words are the content box in
+    ; SCREEN coordinates, so dragging the window changes np_tx and np_ty while
+    ; the note wraps identically - and comparing them absolutely made every
+    ; MOVE set [np_gchg], which np_paint pays with np_measure: an unbounded
+    ; walk of the whole note. On a 16KB file that is seconds of a window that
+    ; has been dropped and is not yet drawing, reported as exactly that. The
+    ; comment below is a RESIZE argument and always was.
     mov ax, [np_rgt]
-    cmp ax, [np_srgt]
+    sub ax, [np_tx]                 ; the wrap width now...
+    mov dx, [np_srgt]
+    sub dx, [np_stx]                ; ...against the one the screen was laid
+    cmp ax, dx                      ; out under
     jne .stale
     mov ax, [np_bot]
-    cmp ax, [np_sbot]
+    sub ax, [np_ty]                 ; ...and the view height, which decides how
+    mov dx, [np_sbot]               ; many of those rows fit and so whether the
+    sub dx, [np_sty]                ; view is looking past the end
+    cmp ax, dx
     je .out
 .stale:
     mov byte [np_ckok], 0
