@@ -668,6 +668,7 @@ fn breakpoints(machine: &mut Machine, req: &Value) -> Value {
 fn video(machine: &mut Machine) -> Value {
     match machine.primary_videocard() {
         Some(mut card) => {
+            let cur = card.cursor_info();
             let dm = card.display_mode();
             let mode_name = format!("{:?}", dm);
             let is_text = matches!(
@@ -702,6 +703,19 @@ fn video(machine: &mut Machine) -> Value {
                 // fullscreen app (SPEC.md 53.4's FSXM_TEXT80).
                 "mode": mode_name,
                 "text": is_text,
+                // THE CURSOR IS A CONTAMINANT FOR `pace`, so it is reported.
+                // A text-mode CRTC cursor blinks in hardware at a fraction of
+                // the field rate, which injects a periodic changed-pixel event
+                // into a pacing series that has nothing to do with what is
+                // being measured - and it is small, so it hides under any
+                // summary statistic while wrecking the interval histogram.
+                "cursor": json!({
+                    "visible": cur.visible,
+                    "x": cur.pos_x,
+                    "y": cur.pos_y,
+                    "line_start": cur.line_start,
+                    "line_end": cur.line_end,
+                }),
                 "field_w": ext.field_w,
                 "field_h": ext.field_h,
                 "stride": ext.row_stride,
@@ -949,10 +963,23 @@ fn pace(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Valu
         return err(&format!("frames must be 2..{}", MAX_PACE));
     }
     let sel = req.get("aperture").and_then(Value::as_u64).unwrap_or(0) as usize;
+    // An exclusion rect, [x0,y0,x1,y1] inclusive. What it exists for is a
+    // BLINKING CURSOR: hardware or drawn, it changes pixels on a clock of its
+    // own, and a pacing series is a question about somebody else's clock.
+    let ig: Option<Vec<i64>> = req
+        .get("ignore")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_i64).collect());
+    let ig = match &ig {
+        Some(v) if v.len() == 4 => Some((v[0], v[1], v[2], v[3])),
+        Some(_) => return err("ignore must be [x0,y0,x1,y1]"),
+        None => None,
+    };
     let batch = ((machine.get_cpu_mhz() * 1_000_000.0) / 4000.0) as u32;
     let c0 = machine.cpu_cycles();
 
     let mut prev: Option<Vec<u8>> = None;
+    let mut boxes: Vec<Value> = Vec::with_capacity(n);
     let mut changed: Vec<u64> = Vec::with_capacity(n);
     let mut cycles: Vec<u64> = Vec::with_capacity(n);
     let (mut w, mut h) = (0u32, 0u32);
@@ -984,12 +1011,27 @@ fn pace(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Valu
         };
         w = gw;
         h = gh;
-        let d = match &prev {
-            None => 0u64,
-            Some(p) => (0..(gw * gh) as usize)
-                .filter(|&i| cur[i * 3..i * 3 + 3] != p[i * 3..i * 3 + 3])
-                .count() as u64,
-        };
+        let mut d = 0u64;
+        let (mut bx0, mut by0, mut bx1, mut by1) = (i64::MAX, i64::MAX, -1i64, -1i64);
+        if let Some(p) = &prev {
+            for i in 0..(gw * gh) as usize {
+                if cur[i * 3..i * 3 + 3] == p[i * 3..i * 3 + 3] {
+                    continue;
+                }
+                let (x, y) = ((i as u32 % gw) as i64, (i as u32 / gw) as i64);
+                if let Some((x0, y0, x1, y1)) = ig {
+                    if x >= x0 && x <= x1 && y >= y0 && y <= y1 {
+                        continue;
+                    }
+                }
+                d += 1;
+                if x < bx0 { bx0 = x }
+                if y < by0 { by0 = y }
+                if x > bx1 { bx1 = x }
+                if y > by1 { by1 = y }
+            }
+        }
+        boxes.push(if d == 0 { Value::Null } else { json!([bx0, by0, bx1, by1]) });
         changed.push(d);
         cycles.push(machine.cpu_cycles() - c0);
         prev = Some(cur);
@@ -1003,6 +1045,7 @@ fn pace(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Valu
         "cpu_mhz": machine.get_cpu_mhz(),
         "cycles": cycles,
         "changed": changed,
+        "bbox": boxes,
     })
 }
 

@@ -133,10 +133,17 @@ class Marty:
         """
         return self.cmd(cmd="flicker", frames=frames, aperture=aperture)
 
-    def pace(self, frames=300, aperture=0):
+    def pace(self, frames=300, aperture=0, ignore=None):
         """Per-frame changed-pixel counts, for FRAME PACING (PERFORMANCE.md
-        Part 3.2). Keeps two frames server-side, so `frames` can be large."""
-        return self.cmd(cmd="pace", frames=frames, aperture=aperture)
+        Part 3.2). Keeps two frames server-side, so `frames` can be large.
+
+        `ignore` is an inclusive [x0,y0,x1,y1] excluded from every comparison —
+        for a blinking cursor, which changes pixels on a clock of its own.
+        """
+        kw = {"cmd": "pace", "frames": frames, "aperture": aperture}
+        if ignore:
+            kw["ignore"] = list(ignore)
+        return self.cmd(**kw)
 
     def fbuf(self, aperture=0):
         """The card's RENDERED framebuffer as (width, height, rgb24 bytes).
@@ -317,7 +324,41 @@ def write_png_rgb(path, w, h, data):
     _png(path, w, h, raw, 2)
 
 
-def report_pace(r, minpx=1):
+# SPEC.md 7.1's arrow: 8 wide, 12 high. A drawn mouse cursor is the one thing
+# guaranteed to be changing pixels in a graphics-mode capture that has nothing
+# to do with what is being measured.
+CUR_GW, CUR_GH = 8, 12
+
+
+def strip_cursor(r):
+    """Drop the update events that are ENTIRELY the mouse arrow.
+
+    `gfx_lock` erases the arrow and `gfx_unlock` puts it back, so every locked
+    draw can produce a second changed-frame a frame or two later, at the
+    pointer and nowhere else. Those are not updates of the thing being
+    measured, and they do not merely add noise - they SUBDIVIDE genuine stalls,
+    so the interval histogram and the max-gap both come out flattering.
+
+    Detected from the data rather than from the kernel: the arrow is a small
+    fixed cell, so the most frequent bbox no bigger than CUR_GW x CUR_GH is it.
+    That needs no listing offsets and survives a rebuild. Returns
+    (changed, bbox, cell) with the cursor-only events zeroed.
+    """
+    ch, bb = list(r["changed"]), r.get("bbox") or [None] * len(ch)
+    small = {}
+    for c, b in zip(ch, bb):
+        if c and b and (b[2] - b[0]) < CUR_GW and (b[3] - b[1]) < CUR_GH:
+            small[tuple(b)] = small.get(tuple(b), 0) + 1
+    if not small:
+        return ch, bb, None
+    cell = max(small, key=small.get)
+    for i, (c, b) in enumerate(zip(ch, bb)):
+        if c and b and tuple(b) == cell:
+            ch[i] = 0
+    return ch, bb, cell
+
+
+def report_pace(r, minpx=1, nocursor=False):
     """Turn a per-frame changed series into a pacing verdict.
 
     SMOOTH IS LOW VARIANCE, not a high rate. The gaps between frames that
@@ -326,6 +367,13 @@ def report_pace(r, minpx=1):
     series can have the identical mean and look completely different.
     """
     ch, cyc = r["changed"], r["cycles"]
+    if nocursor:
+        ch, _, cell = strip_cursor(r)
+        if cell:
+            print("  (excluding %d update(s) that were entirely the mouse arrow at %s)"
+                  % (sum(1 for c, c2 in zip(r["changed"], ch) if c and not c2), list(cell)))
+        else:
+            print("  (--no-cursor: no arrow-sized recurring bbox found; nothing excluded)")
     per = (cyc[-1] - cyc[0]) / max(1, len(cyc) - 1) / (r["cpu_mhz"] * 1000.0)
     hits = [i for i, c in enumerate(ch) if c >= minpx]
     print("%dx%d, %d frames, %.2f ms/frame (%.1f Hz)"
@@ -448,6 +496,9 @@ def main():
     p.add_argument("--aperture", type=int, default=0)
     p.add_argument("--min", type=int, default=1,
                    help="pixels that count as an update (default 1)")
+    p.add_argument("--no-cursor", action="store_true", dest="nocursor",
+                   help="drop update events that are entirely the mouse arrow")
+    p.add_argument("--ignore", help="exclude a rect: x0,y0,x1,y1 (inclusive)")
 
     p = sub.add_parser("read"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
     p = sub.add_parser("dump"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
@@ -573,8 +624,9 @@ def main():
                         print("   frame %3d  changed %6d  transient %6d  %s"
                               % (f["frame"], f["changed"], f["transient"], f["bbox"] or ""))
             elif a.op == "pace":
-                r = m.pace(a.frames, a.aperture)
-                report_pace(r, a.min)
+                ig = [int(v) for v in a.ignore.split(",")] if a.ignore else None
+                r = m.pace(a.frames, a.aperture, ig)
+                report_pace(r, a.min, a.nocursor)
             elif a.op == "screen":
                 for row in m.screen():
                     print(row.rstrip())
