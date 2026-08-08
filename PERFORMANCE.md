@@ -2406,3 +2406,76 @@ is short whenever a file's first cluster is not track-aligned (5 sectors of a
 9-sector track in the trace above), and a run coalesces only to the track and
 the DMA page. Worth knowing before anyone goes looking for another factor of
 two — there is not one there.
+
+### Set 19 — the Compaq's disk, and why a BETTER interleave leaves MORE on the table
+
+Two machines, same commit, same 360KB media, `DISKCNT=1` in both (SPEC.md
+§18.94.1, so this is an ordinary field disk rather than a special one). The
+operator's question was whether the Compaq Portable III's disk section
+"paused a moment, and took longer overall than the 5150". **Half right, and
+the half that is wrong is the interesting half.**
+
+|                          | IBM 5150 | Compaq Portable III |
+|---|---|---|
+| drive / revolution       | 360K, 300 RPM, 200 ms | 1.2M, 360 RPM, **167 ms** |
+| `int 13h` 1 sector       | 199.1 ms = **0.996 rev** | 164.8 ms = **0.989 rev** |
+| `int 13h` track, 1 call  | 384.5 ms = 1.922 rev | 206.0 ms = **1.236 rev** |
+| ...as bytes/second       | 11,984 | **22,368** |
+| interleave that implies  | 2:1 | ~1:1 |
+| 16K read, cold motor     | 1.867 s | **3.570 s** |
+| 16K read, warm           | 2.032 s | **1.483 s** |
+| 1-sector file open       | 0.604 s | **0.508 s** |
+| `floppy bytes/sec`       | 8,062 | **11,047** |
+| gap to its own ceiling   | 1.49x | **2.03x** |
+
+**The pause is real and it is the cold-motor row**: 3.570 s against the
+5150's 1.867 s, a single `N = 1` measurement that pays spin-up and the first
+seek on a drive that was not turning. Everything *after* it is faster on the
+Compaq — 16K warm 1.483 s against 2.032, a file open 0.508 against 0.604, and
+11,047 bytes/second against 8,062. Summed, the whole disk section is **15.2 s
+on the Compaq against 17.5 s on the 5150**, so "took longer overall" is the
+impression rather than the measurement, and the cold-motor row is what
+produced it.
+
+**`int 13h 1 sector` = one revolution on both machines is the check that
+licenses the whole table.** It comes out 0.996 rev at 300 RPM and 0.989 rev
+at 360 RPM; read the Compaq against the 300 RPM scale instead and it becomes
+0.82 of a revolution, which no drive can do. That is how the drive was
+identified as a 360 RPM one from the report alone — and it is why
+`sysbench`'s raw-int-13h header, which hard-coded "300 RPM = 200 ms a turn",
+now prints both scales and says the 1-sector row is what tells you which.
+
+**Now the finding.** The Compaq's BIOS streams a track at 22,368 B/s where
+the 5150's manages 11,984 — 1.87x, because its media is close to 1:1
+interleaved where the 5150's is 2:1. os8088 gets 11,047 against 8,062, only
+1.37x. So **the faster disk is the one os8088 wastes more of**: 2.03x off its
+ceiling against 1.49x.
+
+The mechanism is per-call rotational latency, and both machines pay about the
+same number of *milliseconds* for it. A 33-sector read is 5 `int 13h` calls
+(1, 6, 9, 9, 8 — identical on both machines, as the trace confirms), and
+against each machine's own streaming rate:
+
+|                                | 5150 | Compaq |
+|---|---|---|
+| 33 sectors if streamed         | 7.04 rev | 4.53 rev |
+| measured                       | 10.16 rev | 8.90 rev |
+| excess, per call               | 0.62 rev = **124 ms** | 0.87 rev = **145 ms** |
+
+124 ms and 145 ms — a little over half a revolution each, which is exactly
+what "the sector went past while os8088 walked the FAT, so wait for it to
+come round" costs. It is a **fixed cost in time**, so a drive that streams
+1.87x faster loses 1.87x more of its ceiling to it. Nothing about the Compaq
+is slow; its ceiling is simply further away.
+
+**What this does and does not license.** It does *not* say there is another
+factor of two available: Set 18's coda still stands, in that a run coalesces
+only to the track and the DMA page and a file's first cluster is rarely
+track-aligned. What it says is that the remaining gap is **per-call latency
+rather than per-sector transfer**, and therefore that the lever is the call
+*count* — 5 calls for a 32-sector file — and not anything inside a call. It
+also warns against a tempting mistake: measuring this on the 5150 alone makes
+the gap look like 1.49x and nearly closed, and the same code on a
+better-interleaved disk is 2.03x. **A single calibration machine can flatter
+a latency bug**, because how much a fixed delay costs depends on how fast the
+thing you are delaying would otherwise have gone.

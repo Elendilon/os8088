@@ -231,7 +231,7 @@ hardware.
 | CPU | 80286 (tier 1) |
 | video | CGA 640x200 — the plasma panel, which the §39 probe finds as CGA |
 | floppy | **1.2 MB 5.25"**, and it reads the 360 KB field disks |
-| serial | **two ports**, 3F8 and 2F8 |
+| serial | **two ports**, 3F8 and 2F8 — and the mouse is on **2F8 driving IRQ4**, the cross-wiring SPEC.md §9.5.2/§9.5.2.1 both exist for. `sysbench` reports it as `winning row 2` with `winning IRQ 0010` |
 
 What it has already been worth (PERFORMANCE.md Part 9 Set 18): **11,047 B/s**
 on a 16 KB read against the 5150's 7,457, because a 1.2 MB drive spins at
@@ -353,6 +353,25 @@ routines, with two unrelated-looking symptoms — which is the thing to expect
 of it rather than to be surprised by. It is the only two-port machine in the
 register and the only cross-wired one, so it is the sole witness for §9.5's
 contest, §9.5.1's modem defences and §9.5.2's line/port split alike.
+**Both are now confirmed fixed on the machine** (docs/FIELD-NOTES.md 13), and
+the same report carries the first real-hardware confirmation of §9.4.1's
+identify burst: `packets needed COM1 8` against `packets needed COM2 1`, the
+threshold dropped on the one port that answered like a mouse.
+
+**Its floppy drive is a 1.2MB 5.25", and that is a measurement fact, not
+trivia.** It turns at **360 RPM — 167 ms a revolution — even with 360KB media
+in it**, where every other machine here is a 300 RPM/200 ms drive, and its
+media is close to **1:1 interleaved** where the 5150's is 2:1. So it is the
+only machine in the register that can show a *latency* cost for what it is:
+its BIOS streams a track at 22,368 B/s against the 5150's 11,984, os8088 gets
+11,047 against 8,062, and the gap to its own ceiling is therefore **2.03x
+against the 5150's 1.49x** for identical code issuing an identical 5 calls
+(PERFORMANCE.md Part 9 Set 19). A single calibration machine flatters a
+latency bug, and this is the machine that says so.
+
+Read its reports with the revolution time in mind: `int 13h 1 sector` comes
+out at 0.989 of a revolution at 360 RPM and an impossible 0.82 at 300, which
+is how the drive identifies itself from the report alone.
 
 Two lessons from the same run, both about the instrument rather than the
 machine. **COM1's loopback failure was comscan's own bug**, not the modem's —
