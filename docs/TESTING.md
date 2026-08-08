@@ -94,9 +94,9 @@ emulator have the hardware": a ✅ means reach for it first.
 | VGA 640x480x16 | ❌ | ✅ | `make test` | boots to Locator; loads packages |
 | CGA 640x200 mono | ✅ | ✅ | `make test VIDEO=cga` | renders; dumps 640x400 (line-doubled) |
 | Hercules 720x348 mono | ✅ | ✅ | `make test VIDEO=herc HERCSEG=0x7000` | renders; 55.8% lit at the desktop |
-| PC speaker | ➖ | ✅ | `make test-snd` (no card) | dominant 880.0 Hz |
-| AdLib / OPL2 | ❌ | ✅ | `make test-snd ADLIB=1` | dominant 880.0 Hz from a keyed 440 |
-| Sound Blaster 16 | ❌ | ✅ | `make test-snd SB16=1` | 2.00 s at 1000.0 Hz |
+| PC speaker | ✅ | ✅ | `make test-snd`, or `MARTYPC_WAV=` | dominant 880.0 Hz (891.0 on MartyPC, inside tolerance) |
+| AdLib / OPL2 | ✅ | ✅ | `make test-snd ADLIB=1`, or the `os8088_5150_sb` machine | dominant 880.0 Hz from a keyed 440; the Sound page's Test tone came out of MartyPC's OPL2 at 660 Hz |
+| Sound Blaster (DMA streams) | ✅ | ✅ | `make test-snd SB16=1 TESTAPPS=build/sbtest.img`, or the `os8088_5150_sb` machine | 2.00 s at 1000.0 Hz on BOTH. MartyPC's is a DSP **2.01** by default — the classic `0x48`+`0x1C` auto-init path — where QEMU's is an SB16; `dsp_version` picks |
 | Scripted mouse / keys | ✅ | ✅ | `os88marty.py key` / `mouse`, or `tools/mouse.py` | MartyPC drives the REAL devices: a Microsoft packet through the UART (`mou_seen` goes 0→1) and a keystroke through int 09h (SPEC.md §9.6's arrows moved `mouse_x` 320→350) |
 | **Screenshots** (CGA/Herc) | ✅ | ✅ | `os88marty.py shot`, or `tools/shot.py` / `hercshot.py` | MartyPC reads VRAM directly — 60.0% lit, matching QEMU's CGA on the same desktop |
 | Mouse on COM2 (SPEC.md §9.5) | ➖ | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |
@@ -1099,9 +1099,16 @@ that neither of the others does:
 - **A modelled CGA and MDA/Hercules**, so the SPEC.md §39.1 detection probe
   actually runs — the thing this document called 86Box-only for years.
 
+- **A PC speaker, an OPL2 and a Sound Blaster**, captured to one wav per
+  source with `MARTYPC_WAV=`, in the format `tools/sndcheck.py` already
+  parses. The SB is ours (`devices/sblaster.rs`, in our patch — upstream has
+  the OPL2 and the 8237 but no DSP), and it is a **DSP 2.01**, so os8088's
+  driver takes the classic `0x48`+`0x1C` auto-init path rather than QEMU's
+  SB16 one. `tests/sbtest` gives the same 2.00 s at 1000.0 Hz on both.
+
 What it does **not** cover, and where to go instead: VGA (mode 12h — QEMU),
-286/386 (86Box), sound (QEMU or 86Box), and **anything with a disk in it**
-(the 5150, and nothing else).
+286/386 (86Box), and **anything with a disk in it** (the 5150, and nothing
+else).
 
 **Input is not on that list either, and no guest module was needed for it.**
 `os88marty.py key` enters the emulator's keyboard buffer, so the guest sees a
@@ -1130,9 +1137,10 @@ shipped kernel** — but the *timing* of those calls still has to come off the
 
 ## What 86Box is genuinely for
 
-Narrower than it was, now that MartyPC covers the 8088 probe and the 6845:
-**a machine that is not an 8088** (the 286 and 386 targets), **real sound
-cards on a period bus**, and a second opinion on the video probe. `make xt`,
+Narrower than it was, now that MartyPC covers the 8088 probe, the 6845 and
+the sound cards: **a machine that is not an 8088** (the 286 and 386 targets),
+a **period bus** under a card rather than a modelled one, and a second
+opinion on the video probe. `make xt`,
 `xt-640`, `xt-cga`, `xt-hercules`, `xt-sound`, `286`, `286-sound`, `386sx`,
 `386`, `386-sound`.
 

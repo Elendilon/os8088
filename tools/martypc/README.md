@@ -14,15 +14,17 @@ in the guest at all**.
 |---|---|
 | `UPSTREAM` | the pinned commit. Editing it is a deliberate act, not maintenance |
 | `debug_server.rs` | the new module, copied in whole |
-| `patches/` | the two upstream files that had to change |
-| `configs/` | three IBM 5150 machine configs shaped after docs/FIELD-MACHINES.md |
+| `patches/` | everything else: the upstream files that had to change, plus `devices/sblaster.rs`, the Sound Blaster upstream does not have |
+| `configs/` | four IBM 5150 machine configs shaped after docs/FIELD-MACHINES.md |
 | `roms/` | the 27 OCT 82 IBM 5150 BIOS — the ROM the calibration machine has |
 | `build.sh` | clone at the pin, patch, stage a run tree, build |
 
 **Reach for this first** when what you are testing runs on an 8088 with a CGA
-or a Hercules — screenshots included: `os88marty.py shot out.png` reads the
+or a Hercules — screenshots included (`os88marty.py shot out.png` reads the
 framebuffer out of VRAM, so there is no reason to start QEMU to look at a
-screen. **It is cycle-accurate and it is not disk-accurate**: its
+screen) and sound included (`MARTYPC_WAV=` captures one wav per source, and
+the `os8088_5150_sb` machine has a PC speaker, an OPL2 **and** a Sound
+Blaster). **It is cycle-accurate and it is not disk-accurate**: its
 floppy is 30x fast, so no figure with a disk in its path means anything here,
 and it would not have caught SPEC.md §18.91's `AL` bug any more than QEMU did.
 docs/MARTYPC-DEBUG.md has the long version of both.

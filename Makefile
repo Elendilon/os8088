@@ -1284,6 +1284,10 @@ marty: $(IMG360)
 	@echo "marty: cd $(BUILD)/martypc/run && MARTYPC_DEBUG_ADDR=127.0.0.1:9001 \\"
 	@echo "         ./martypc_headless --mount fd:0:media/floppies/os8088-360.img &"
 	@echo "       python3 tools/os88marty.py 127.0.0.1:9001 verify"
+	@echo ""
+	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb"
+	@echo "       ...the last has an AdLib AND a Sound Blaster; add"
+	@echo "       MARTYPC_WAV=/tmp/cap for one wav per source (sndcheck.py reads them)"
 
 # NOTHING IN build/ IS TRACKED, and that is a decision rather than an accident.
 #

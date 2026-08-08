@@ -232,7 +232,24 @@ machine with no mouse.
 
 `os88marty.py` wraps both: `key`, `type_text`, `mouse`, `mouse_move`,
 `click`. Long moves are chunked because a packet carries a **signed byte**,
-exactly as `tools/mouse.py` chunks for QEMU.
+exactly as `tools/mouse.py` chunks for QEMU. `key` names a **MartyKey**
+variant — `KeyC`, `Enter`, `ArrowUp`, `Digit1` — the emulator's own
+vocabulary rather than a second mapping table here; a bare `'c'` is refused
+rather than guessed at.
+
+**The speed scaler is forced to 1.0 by the `mouse` command, and that is what
+makes counting in pixels work at all.** MartyPC's mouse defaults to
+`DEFAULT_MOUSE_SPEED = 0.25` — a human's acceleration preference — so an
+unscaled `dx` of 60 reaches the guest as 15. A script that derives absolute
+position the way `tools/mouse.py` does, by slamming into a corner and
+counting from the kernel's own edge clamp, then lands **a quarter of the way**
+to everything it aims at. Nothing errors: the pointer moves, the chip menu
+opens under a press, and every click misses — which reads as a broken
+hit-test rather than a scaled delta, and cost a round of debugging before it
+was found. There is no TOML key for it in this build (`SerialMouseConfig`
+carries only `type` and `port`, and `bus/mod.rs` passes `None`), so the fix
+is at the command. In the **GUI** build the same knob is a runtime slider at
+**Input ▸ Mouse ▸ Speed**, 0.10x–2.00x, defaulting to 0.5x.
 
 **On 86Box, none of this exists** and the question comes back. There the
 keyboard has a zero-code answer anyway — poke the BIOS buffer at
@@ -260,11 +277,65 @@ guest is also driving port 61h**, so a tone you open by hand may be closed
 again by `snd_tick` a moment later — which is why the run above shows 0.26 s
 of clean tone rather than the three seconds it was held for.
 
-**There is no Sound Blaster**, and that is the one real gap left on an 8088:
-`adlib.rs` (an OPL2 via `opl3_rs`) and `dma.rs` are both there, and the
-`SoundDevice` trait's own comment names Sound Blaster as an intended
-implementor, but the DSP does not exist. QEMU is still the route for
-SPEC.md §34.5's stream tier.
+**And there is a Sound Blaster now** — `devices/sblaster.rs`, added by our
+patch, which was the one real gap left on an 8088. Upstream had `adlib.rs`
+(an OPL2 via `opl3_rs`) and `dma.rs` but no DSP, so SPEC.md §34.5's stream
+tier could only be reached under QEMU. The card is a DSP 2.01 by default at
+`0x220`/IRQ 7 on 8-bit DMA channel 1:
+
+```toml
+    [[machine.sound]]
+    type = "SoundBlaster"
+    io_base = 0x220
+    irq = 7
+    dsp_version = [2, 1]
+```
+
+`dsp_version` is the interesting knob and it is there for one reason: it is
+what the driver branches on. At `[2, 1]` os8088 takes the classic
+`0x48` + `0x1C` auto-init path; drop it to `[1, 5]` and the same driver has
+to re-arm the 8237 per half-buffer instead, which is a different code path in
+`sb.inc` that nothing else can make it take. The SB16-only commands (`0x41`,
+`0xC6`) are **refused rather than half-implemented**, which is honest: a card
+reporting a DSP below 4.00 is a card a correct driver never sends them to.
+
+What it models, in the order it matters: the reset handshake (write 1 then 0
+at base+6, read `0xAA` at base+0xA), `0xE1` version, `0xF2` forced IRQ — which
+is how a driver *finds* its line, so it fires with nothing running — `0x40`
+time constant, `0x48` block length, `0x14`/`0x24` single-cycle and
+`0x1C`/`0x2C` auto-init in both directions, `0xD0`/`0xD4` pause and continue,
+`0xD1`/`0xD3` speaker, and `0xDA` exit-auto-init-at-the-block-boundary.
+Reading base+0xE acknowledges the 8-bit IRQ, and a block completing while the
+previous interrupt is **still unacknowledged is counted as a missed ack**
+rather than hidden — the guest not keeping up is exactly the thing a
+cycle-accurate card exists to show you.
+
+It pulls its bytes through the real 8237 (`do_dma_read_u8`, the same call the
+FDC makes) and resamples to the host rate through a carried fractional
+accumulator, so a long stream does not drift. Verified three ways:
+
+- **From outside the guest entirely** — buffer written straight into RAM,
+  8237 channel 1 and the DSP programmed over `outb`, nothing in the guest
+  involved. A 20,000-byte square at `tc=206` (20 kHz, period 20 samples) came
+  back as **1.00 s, peak rms 0.7500, dominant 1000.0 Hz** — duration,
+  amplitude and pitch all exact. The auto-init variant of the same test
+  looped for **53.96 s of guest time** without drifting off 1000.0 Hz.
+- **Through os8088's own driver.** The Drivers page loads `SOUND.DRV`, the
+  probe finds the card, and the Sound page's third radio button — `Sound
+  Blaster` — comes up selected. That is the whole discovery path: reset,
+  version, the `0xF2` IRQ probe against four candidate lines with the
+  driver's own stubs hooked, and the 8259 mask dance around it.
+- **`tests/sbtest`, the gate package**, which is the assertion that counts.
+  `g:00000 o:K` in its window and **2.00 s at dominant 1000.0 Hz** in the
+  capture — byte for byte the figure `docs/TESTING.md` documents for QEMU's
+  SB16. Its underrun leg is the sharper one: `st:1 c:02400` (underrun-paused,
+  exactly the 2,400 granted bytes consumed) with **0.30 s of tone and then
+  silence** — 2,400 bytes at 8,000 Hz to the sample, and nothing looping.
+
+**One caveat, and it is the `0x10` command.** Direct DAC writes are accepted
+and dropped rather than played. Nothing in this tree uses them — os8088's
+driver is DMA-only — but a program that does will hear nothing and get no
+error, which is the failure mode worth writing down rather than discovering.
 
 **Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
 two are complementary rather than competing. Also not for VGA: MartyPC's VGA
