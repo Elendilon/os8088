@@ -339,7 +339,9 @@ arithmetic, for nothing. `CF = 0` is the contract and `AL` is not, so
 behaviour), and `sysbench` verifies `BENCH.DAT`'s contents — every byte of
 sector *n* is *n* — because a floppy that got 5x faster and quietly wrong is
 the worst available outcome. **Measured on the iron: 8.29 s → 2.09 s for a
-16KB read, 1,912 → 7,457 bytes/second, 3.9x** (Set 17). Still 1.55x short of
+16KB read, 1,912 → 7,457 bytes/second, 3.9x** (Set 17), and the BOOT **726
+ticks → 181 — 39.88 s to 9.94, 4.0x** once the boot sector took the same fix
+(Set 18). Still 1.55x short of
 the BIOS's own 11,570, because a run coalesces only to the track and the DMA
 page and a file's first cluster is rarely track-aligned — worth a second on
 every large load, not chased yet. **And the verify row did not run in that

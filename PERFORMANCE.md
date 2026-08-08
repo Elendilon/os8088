@@ -2253,3 +2253,63 @@ on every kernel, and reads `data check, 32 sectors  OK`.
 **A guard that only runs on the build you are not shipping is not a guard.**
 The same shape as PERFORMANCE.md Part 6's rule about harness bugs, and it
 cost a round trip to a machine that is not in this room.
+
+### Set 18 — the boot is 4x, and a second real machine
+
+Two `sysbench` runs from the `b71f6ca` field build: the 5150 on `herc.img`,
+and the **Compaq Portable III** — a new machine, and the first AT-class one
+in the register whose numbers are worth keeping.
+
+#### The boot sector's half of Set 16
+
+| | before | after |
+|---|---|---|
+| **`boot ticks`** | **726** (39.88 s) | **181** (9.94 s) |
+| 16 KB read | 8.29 s | 2.09 s |
+| | | **4.0x on both** |
+
+`read_run`'s `.done` believed `int 13h`'s `AL` exactly as `dsk_xfer` did, and
+the boot is 140 sectors — at a revolution each that is **33 of the 40
+seconds**. Set 17 fixed one loop and reported the other unchanged; this is the
+other. **A cold boot of this OS on a 4.77 MHz 8088 is now ten seconds.**
+
+And `data check, 32 sectors  OK` on **both** machines — the guard that
+licenses trusting `CF` finally ran where it matters. Set 17 took its 4x with
+that check switched off by a scoping mistake; it is unconditional now and it
+passes on real hardware, on two different BIOSes and two different drives.
+
+#### Compaq Portable III — 286, CGA, 1.2 MB drive
+
+| | |
+|---|---|
+| `boot ticks` | **154** (8.46 s) |
+| 16 KB read, warm | **1.48 s — 11,047 B/s** |
+| 16 KB read, cold motor | 3.63 s |
+| `read 1 sector file` | 673 ms |
+| adapter | CGA 640x200 (the plasma panel) |
+
+**11,047 B/s is 1.48x the 5150's 7,457**, and the mechanism is the drive
+rather than the CPU: a 1.2 MB drive spins at **360 RPM**, so a revolution is
+166.7 ms against the 5150's 200, and the 32-sector read costs 46.3 ms a
+sector — **0.28 revolutions**. That is batching working properly, on media
+this drive is only nominally compatible with.
+
+The cold/warm gap is 2.4x here against the 5150's 1.05x, which is the AT
+BIOS's media-type detection: a 360 KB disk in a 1.2 MB drive has to be
+identified by trying data rates, and that cost is paid once.
+
+#### The disk error that would not reproduce
+
+The previous build refused to boot this machine — `os8088: disk error`, the
+boot sector's own message. `make BOOTDIAG=1` was built to name the int 13h
+status in one boot instead of a three-disk bisect, and the answer was **no
+error at all**: the same code on a freshly written disk booted and read
+correctly, and the data check passed.
+
+**No code change explains it**, and it is worth saying so rather than
+claiming the fix. The boot sector's `.done` change alters *how many* calls
+are issued, not whether they succeed, and on a BIOS that reports `AL`
+honestly both readings advance correctly. What is left is the disk: **360 KB
+media in a 1.2 MB drive is marginal by construction** — 48 tpi tracks under a
+96 tpi head — and a rewrite is the ordinary fix. The knob stays, because the
+next one may not be marginal media and one boot is cheaper than three.
