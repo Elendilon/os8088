@@ -104,7 +104,7 @@ THEMES = (
       "xmem.inc")),
     ("drawing: adapters, primitives, glyphs, icons",
      ("vga12.inc", "vgabb.inc", "font.inc", "icons.inc", "viddet.inc",
-      "splash.inc")),
+      "vidsel.inc", "splash.inc")),
     ("the kernel proper: API table, heap, scheduler, events",
      (RESIDUAL, "memory.inc", "sched.inc", "events.inc")),
     ("the Control Panel", ("ctrl.inc",)),
