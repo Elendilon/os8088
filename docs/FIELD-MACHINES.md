@@ -219,6 +219,48 @@ It walls at the same **2,161 bytes/second** on the floppy as the 5150 does
 
 ---
 
+## The Compaq Portable III — `Elendilon`'s, and the fast floppy
+
+The third real machine, and the one that keeps the disk work honest: an
+AT-class BIOS and a **1.2 MB drive**, so every floppy assumption calibrated
+against the 5150's 360 KB Tandon gets a second reading from different
+hardware.
+
+| | |
+|---|---|
+| CPU | 80286 (tier 1) |
+| video | CGA 640x200 — the plasma panel, which the §39 probe finds as CGA |
+| floppy | **1.2 MB 5.25"**, and it reads the 360 KB field disks |
+| serial | **two ports**, 3F8 and 2F8 |
+
+What it has already been worth (PERFORMANCE.md Part 9 Set 18): **11,047 B/s**
+on a 16 KB read against the 5150's 7,457, because a 1.2 MB drive spins at
+**360 RPM** — a revolution is 166.7 ms, not 200 — so the same batched read
+costs 0.28 revolutions a sector. It is the second BIOS to confirm that
+trusting `CF` rather than `AL` reads the right bytes (`data check ... OK`),
+which one machine alone could not establish.
+
+Two things to know before running it.
+
+**360 KB media in a 1.2 MB drive is marginal by construction** — 48 tpi
+tracks written under a 96 tpi head — so a disk this machine refuses is a disk
+to rewrite before it is a bug. It refused one build with `os8088: disk error`
+and then booted the same code from a fresh disk with no error at all
+(Set 18). `make BOOTDIAG=1` builds a sector that prints int 13h's status
+instead of that message, which is one boot rather than a bisect.
+
+**Its cold read is 2.4x its warm one** (3.63 s against 1.48), where the
+5150's are within 5%. That is the AT BIOS identifying the media by trying
+data rates, and it is paid once — so a cold-motor row from this machine is
+not comparable to a cold-motor row from an XT.
+
+**The mouse is not found here yet.** Both ports probe present, so §9.5's
+contest is open and `mouse found` reads 0 with no identify bytes on either.
+That is §9.5.2's cross-wired IRQ — a mouse at 2F8 driving IRQ4 — which
+`make test MOUSEPORT=com2irq4` reproduces under QEMU.
+
+---
+
 ## The Packard Bell Victory 286 — in the register, results discarded once
 
 | | |
