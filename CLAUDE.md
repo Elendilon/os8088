@@ -228,9 +228,14 @@ cycle-accurate 5150 running the real 1982 IBM BIOS with a debugger attached,
 and it agrees with the field machine to 0-4% on 45 of 47 gfxbench rows.
 **Use it whenever the thing under test runs on an 8088 with a CGA or a
 Hercules**, which is most of this OS; fall back to QEMU for what it does not
-cover - VGA (its VGA is Mode 13h/Mode X, os8088's path is mode 12h), 286/386,
-sound and SCRIPTED INPUT - and to 86Box for a machine that is not an 8088.
-**Screenshots are not a reason to start QEMU**: `os88marty.py shot out.png`
+cover - VGA (its VGA is Mode 13h/Mode X, os8088's path is mode 12h), 286/386
+and sound - and to 86Box for a machine that is not an 8088. **Neither
+screenshots NOR scripted input are reasons to start QEMU any more.**
+`os88marty.py key` enters the emulator's keyboard buffer so the guest sees a
+keystroke through the 8255 and int 09h, and `mouse` builds a real Microsoft
+3-byte packet and clocks it into the serial controller so mou_isr decodes it
+- both drive MORE of the real path than a guest-side poke to [mouse_x] would,
+which is why no debug module was written for it. And: `os88marty.py shot out.png`
 reads the framebuffer out of VRAM and decodes SPEC.md 39.3's banked layout,
 verified against QEMU's CGA at 60.0% lit on both. CGA and Hercules only -
 they are 1bpp so the bytes are the pixels, where mode 12h is four planes
