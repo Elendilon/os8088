@@ -1627,6 +1627,11 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
                                 ; memory.inc, whose heap the text lives in
 %include "instance.inc"
 %include "menu.inc"
+%include "fprog.inc"          ; the file-operation progress widget (SPEC.md
+                              ; 12.8): after menu.inc, whose bar geometry it
+                              ; sits beside and whose menu_draw_bar gives the
+                              ; borrowed pixels back; before disk.inc, which
+                              ; steps it per sector
 %include "ui.inc"
 %include "apps.inc"
 %include "assoc.inc"          ; file type associations (SPEC.md 54): the
@@ -1759,6 +1764,10 @@ cw_evq_pop:             call evq_pop
 cw_font_str:            call font_str
                     retf
 cw_font_width:          call font_width
+                    retf
+cw_fpg_begin:           call fpg_begin
+                    retf
+cw_fpg_end:             call fpg_end
                     retf
 cw_gfx_fill:            call gfx_fill
                     retf
