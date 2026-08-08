@@ -155,3 +155,58 @@ overlays = [
     bus_type = "ISA"
     type = "VGA"
     clock_mode = "Default"
+
+# ...and the HARD DISK machine, for SPEC.md 52's driver.
+#
+# THE CONTROLLER IS XT-IDE AND NOT THE IBM/XEBEC, for one reason: MartyPC's
+# romdef matches the Xebec's controller BIOS by MD5 only, and that ROM is
+# IBM's and not something this tree can obtain or ship. The XT-IDE entry
+# matches by FILENAME, and `ide_xtl.bin` - XTIDE Universal BIOS, GPL - already
+# ships with MartyPC in media/roms/XUB/. So this machine costs no new asset,
+# exactly like the VGA one.
+#
+# WHAT IT TESTS IS RUNG 0, AND THAT IS THE POINT. SPEC.md 52.1's rung 1 reads
+# the IDE task file directly and is gated on CPU_286, because an 8088's
+# `in ax, dx` is two 8-bit bus cycles at the same port and loses the drive's
+# high byte - so on the machine this project is about, an option ROM answering
+# int 13h is the ONLY transport there is. QEMU tests the other rung (a modern
+# CPU, an ATA disk at 1F0h) and cannot test this one, having no 8088; this
+# cannot test that one. They are complementary and neither replaces the other.
+#
+# The disk itself is MartyPC's own bundled media/hdds/default_xtide.vhd
+# (615/4/26 = 63,960 sectors, just under SPEC.md 18.7's 65,535-sector volume
+# cap). COPY IT rather than mounting it in place - a format is a write, and a
+# test that mutates the run tree's shipped image is a test that behaves
+# differently the second time:
+#
+#   cp build/martypc/run/media/hdds/default_xtide.vhd /tmp/scratch.vhd
+#   ./martypc_headless --machine-config-name os8088_xt_hdd \
+#       --mount fd:0:media/floppies/os8088-360.img --mount hd:0:/tmp/scratch.vhd
+[[machine]]
+name = "os8088_xt_hdd"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"

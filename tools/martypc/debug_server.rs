@@ -67,6 +67,7 @@ use marty_core::{
     device_traits::videocard::{RenderBpp, VideoCard},
     keys::MartyKey,
     machine::{ExecutionControl, ExecutionOperation, ExecutionState, Machine},
+    vhd::VirtualHardDisk,
 };
 use crate::KeyboardModifiers;
 use std::str::FromStr;
@@ -121,6 +122,47 @@ pub fn mount_floppy(machine: &mut Machine, drive: usize, path: &Path) -> Result<
             Ok(())
         }
         None => Err("no floppy controller in this machine".to_string()),
+    }
+}
+
+/// Put a VHD on the machine's hard disk controller.
+///
+/// The same gap `mount_floppy` fills, for the same reason: attaching a VHD is
+/// the eframe frontend's `VhdManager` plus an `hdc.set_vhd`, and a headless
+/// run has neither - so `[[machine.hdc.drive]] vhd = "..."` in a machine
+/// config named an image that nothing ever opened, and the controller came up
+/// with no drive attached. That looks like the driver failing to find a disk,
+/// which is exactly the thing under test.
+///
+/// Both controllers are handled because os8088's driver does not care which
+/// it is talking to: SPEC.md §52.1's rung 0 is `int 13h` through whatever
+/// option ROM is at 0xC8000, and on an 8088 that is the only rung there is -
+/// rung 1 reads the IDE task file with `in ax, dx`, which an 8088 splits into
+/// two byte reads at the same port, losing the drive's high byte.
+pub fn mount_vhd(machine: &mut Machine, drive: usize, path: &Path) -> Result<(), String> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| format!("{}: {}", path.display(), e))?;
+    let vhd = VirtualHardDisk::parse(Box::new(file), false)
+        .map_err(|e| format!("{}: {}", path.display(), e))?;
+    let geom = format!("{}/{}/{}", vhd.max_cylinders, vhd.max_heads, vhd.max_sectors);
+    if let Some(xtide) = machine.xtide_mut() {
+        xtide
+            .set_vhd(drive, vhd)
+            .map_err(|e| format!("{}: {:?}", path.display(), e))?;
+        log::info!("Mounted {} ({}) on XT-IDE drive {}", path.display(), geom, drive);
+        return Ok(());
+    }
+    match machine.hdc_mut() {
+        Some(hdc) => {
+            hdc.set_vhd(drive, vhd)
+                .map_err(|e| format!("{}: {:?}", path.display(), e))?;
+            log::info!("Mounted {} ({}) on Xebec drive {}", path.display(), geom, drive);
+            Ok(())
+        }
+        None => Err("no hard disk controller in this machine".to_string()),
     }
 }
 
