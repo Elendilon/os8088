@@ -8940,6 +8940,40 @@ existing `FS_FERR = 0` is the same rule arriving earlier and stays. And the
 resting state (§22.7's size and free space) needs no clearing rule of its own,
 because it is what the line says once the notifications are gone.
 
+### 22.10 Rename starts from the name it has
+
+Renaming `BEVERLY.MOD` meant typing all twelve characters back, and the
+punishment for missing one was a file with the wrong extension - which on
+this system is a file that has stopped being a document its program will
+open (§54). Two halves, and the split between them is the point.
+
+**The buffer is seeded with the STEM, not the whole name.** `fm_edit_seed`
+runs from `fm_edit_arm` on mode 2 only - New Folder and the replace question
+start empty as before - and copies `fm_onam` up to the `.`, bounded by the
+same twelve characters `fm_editkey` allows.
+
+**The extension comes back at commit if the user typed none.** `fm_extkeep`
+appends the old one when `fm_ebuf` carries no `.` at all, so `BEVERLY` becomes
+`BEVERLY.MOD`. Typing a `.` is how you change it, and that includes a
+trailing `.` with nothing after it, which is how you drop it: the user's dot
+always wins. Bounded at twelve again, and a name with no room left for an
+extension is passed to `dskw_name83` as typed, to be judged there rather than
+truncated here.
+
+The two are deliberately asymmetric. Seeding the whole name would put the
+extension where the caret is and make renaming *within* the extension the
+easy case; seeding neither would be the old behaviour. Stem in, extension
+implied, is the shape that makes the common rename one or two keystrokes and
+still allows the rare one.
+
+**It costs the buffer's old exit, and that had to be given back.** "Nothing
+typed, so Enter simply cancels" is unreachable once the buffer is never
+empty, so Enter on an untouched prompt would ask to rename a file to the name
+it already has - and `dskw_rename` answers that with `Name taken`, a refusal
+where the user did nothing. `fm_samename` compares the two and cancels
+instead. Both sides are §19.1 display names, sanitized identically, so the
+comparison is uppercase-exact and needs no folding.
+
 ### 22.3 Cut, Copy and Paste (`kernel/filecp.inc`)
 
 The clipboard is **(drive, folder, name, type)** and deliberately not an
