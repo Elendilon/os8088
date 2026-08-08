@@ -399,9 +399,16 @@ the worst available outcome. **Measured on the iron: 8.29 s → 2.09 s for a
 16KB read, 1,912 → 7,457 bytes/second, 3.9x** (Set 17), and the BOOT **726
 ticks → 181 — 39.88 s to 9.94, 4.0x** once the boot sector took the same fix
 (Set 18). Still 1.55x short of
-the BIOS's own 11,570, because a run coalesces only to the track and the DMA
-page and a file's first cluster is rarely track-aligned — worth a second on
-every large load, not chased yet. **And the verify row did not run in that
+the BIOS's own 11,570, and §18.94's trace found a third of it: **the
+directory sector was read TWICE**, `dskw_find` locating the entry and
+`dskw_ent_load` re-reading the same sector to copy it out, at seven call
+sites. A re-read of a sector that has just passed the head is a whole
+revolution. `dskw_find` takes the entry while the buffer still holds it
+(SPEC.md §18.4.3) — **6 int 13h calls → 5** on a 16KB read and **3 → 2** on a
+small file, which is the bigger win in practice. Copying there rather than
+tagging `dsk_secbuf` is what makes it safe: no window, so no invalidation
+anyone can forget. What is left is structural — a run coalesces only to the
+track and the DMA page, and a file's first cluster is rarely track-aligned. **And the verify row did not run in that
 set**, because it was written inside the `DISKCNT=1` block and the field
 boots the plain kernel: *a guard that only runs on the build you are not
 shipping is not a guard.* It is unconditional now. **The BOOT SECTOR had the
