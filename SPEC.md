@@ -20837,3 +20837,187 @@ click dispatchers on task 0's 1,024-byte stack, not in the worker's tree. That
 is a bound plus a peer comparison and not a field number; `tests/stackprobe`
 on real iron is still the only thing that settles the margin, because SeaBIOS
 hides a real BIOS's interrupt stack use (docs/TESTING.md).
+
+
+## 57. debug.inc — DEBUG.DRV, the serial monitor (`drivers/debug/debug.asm`)
+
+A host-side tool reads and writes the machine's memory and I/O ports over a
+serial line. It exists because **there is nowhere else to ask the question**:
+86Box has no automation socket of any kind (no QMP, no monitor socket, no GDB
+stub — its `--testmode` entry point is one `pclog`), a real 5150 has no
+debugger at all, and until this the only route to "what does the kernel think"
+on a machine outside the container was to ask its owner to take a MartyPC dump
+by hand (docs/FIELD-MACHINES.md).
+
+**It is a DRIVER, and that is the whole of why it may ship.** The obvious
+build is a `SERDBG=1` kernel — §18.94's `DISKCNT=1` shape, and the plan in
+docs/DEBUG-PLAN.md said so. It has one fault that outweighs its
+convenience: a knob kernel is a *different binary*, so the machine you
+debugged is not the machine that ships. A driver loads into the shipped
+kernel, off the shipped disk, when the Control Panel's Drivers page is
+ticked. `DRVR_WANT` is 0 like every other row (§51.3), so a machine that
+never ticks it never probes 2E8, never hooks IRQ3 and never reads the file:
+the entire cost is one `drv_tab` row and 1,313 bytes on the floppy, and
+**no debug code enters the kernel at all**.
+
+### 57.1 What it deliberately cannot do
+
+There is no `call` verb and no disk payload channel, and both are refused for
+the same reason: `[sch_lock]` has no API slot. A far call into kernel code can
+land anywhere, and a raw `int 13h` runs the BIOS's disk handler and its IRQ
+nesting on whichever 256-byte task stack is current (§8) — which is what hard
+froze the 5150 when `tests/sysbench` did it (docs/FIELD-NOTES.md 10) and why
+§18.94's `dsk_dbg_raw` is a kernel entry rather than a package's. Giving the
+driver either one means adding kernel code, so neither exists until somebody
+asks. §57.4's divisor switch is the bulk path instead, and it needs nothing.
+
+It also cannot answer with interrupts off, on a triple-faulted machine, or
+with the 8259 wedged — everything a guest-side monitor cannot reach by
+construction. Those are the emulator's questions, not this one's.
+
+### 57.2 The port is COM4, and attach tests that it may have it
+
+os8088 owns both the ports it knows about: §9.5 probes 3F8 and 2F8, programs
+every UART that answers, hooks both IRQs and retires the loser only once the
+mouse has spoken. A monitor at 2F8 is therefore *competing with the mouse
+prober for its own port*, and losing in a way that reads as a mouse bug.
+
+**3E8 and 2E8 are the two the kernel has never probed** — `tests/comscan`
+surveys them precisely because a live UART there is invisible to os8088 — so
+2E8 (COM4 in the assignment 86Box's `serial.h` and QEMU both use: `COM4_ADDR
+0x2e8`, `COM4_IRQ 3`) is a port this driver can own outright.
+
+Its IRQ, though, is IRQ3, and IRQ3 is the mouse's whenever a card answers at
+2F8. That is a real condition and not an assumption, so **attach tests it**:
+§9.4.2 publishes a pointer to `mou_dbg_blk` at `0060:0006`, whose second word
+points at `mou_bases` — two words, **zero where no UART answered** — so a
+nonzero second word means the mouse module has hooked IRQ3, and the driver
+refuses with `DRVE_BUSY` rather than stealing the vector. The read is
+magic-checked first, because a kernel too old to publish the block has
+something else at that offset.
+
+**It is READ-only, deliberately.** Zeroing that word would hand the driver the
+port for free — `mou_pall` no-ops on a zeroed row, `mou_lockon` skips it,
+`mouse_unhook` skips it — and it would also be a driver writing kernel state
+through a block published for reading. Refusing is honest, and `DBG_BASE`/
+`DBG_IRQ` are two constants and a rebuild.
+
+### 57.3 The command runs in the ISR, with interrupts back on
+
+No worker task, and `OSAPI_DRV_TASK` (§51.7) is deliberately unused: a worker
+needs a teardown handshake that cannot spin (the scheduler has a cooperative
+mode, §8.2) and cannot yield either, since `DRVV_DETACH` arrives from a
+Control Panel click with the gfx lock held.
+
+So IRQ3's handler has two halves with a seam between them. The first is an
+ordinary ISR: interrupts off, drain every byte the UART has into a line
+buffer, EOI. The second runs a whole command **with interrupts on** — a reply
+is a quarter of a second at 9600 baud and holding IF=0 for that long loses the
+tick, the mouse and any sound refill. One flag (`[dbg_busy]`) excludes
+re-entry: a byte arriving mid-reply is collected and returns without
+re-entering the executor.
+
+Being an interrupt rather than a task is also most of the point — it answers
+on a machine whose tasks have all stopped.
+
+Detach's ordering is its correctness: **mask the line, silence IER, wait out a
+reply in flight, and only then restore the vector.** Restoring it under a live
+ISR points int 0Bh at the old handler halfway through our own frame. The wait
+is a bounded spin and is safe in both scheduler modes, which a worker's
+teardown would not have been: what it waits for is an interrupt, not a task.
+
+### 57.4 Receive caps the baud rate; transmit does not
+
+An 8250 has no FIFO — one holding register, and the next byte overwrites it —
+and an 8086/8088 answers an interrupt in about 61 clocks, ~13 µs at 4.77MHz,
+before the handler's first instruction. So a byte time shorter than that
+overruns by construction:
+
+| baud | byte time | on a 4.77MHz 8088 |
+|---|---|---|
+| 115200 | 8.7 µs | **overruns** — shorter than interrupt latency |
+| 38400 | 26 µs | marginal: a nested tick or mouse IRQ eats it |
+| 19200 | 52 µs | workable |
+| 9600 | 104 µs | the default |
+
+**Transmit has no such limit, because it is polled**: the sender waits for
+THRE and a guest too slow to keep up simply goes slower. One divisor sets both
+directions, so the fix is to change it between them — `s` moves the line for a
+bulk reply and back afterwards.
+
+Two orderings in that command are load-bearing. The `ok` goes out **before**
+the divisor changes, at the rate the host is still listening at; and the
+transmitter is drained to **LSR bit 6** (shift register empty), not bit 5
+(holding register empty), because reprogramming with a byte still clocking out
+truncates it and the host then resynchronises on a partial line at a rate it
+does not yet know about. That is the one ordering here that cannot be got
+wrong twice, because the channel is how you would have debugged it.
+
+The host end usually pays nothing to follow: under 86Box's `pipe` chardev and
+QEMU's socket chardev the host side is a FIFO with **no line rate at all**.
+Only a real cable calls `termios`, and `tools/os88dbg.py` does.
+
+**None of this is measurable under QEMU**, which does not pace a chardev by
+the emulated baud rate — 4KB clocks at the same ~119 KB/s at either divisor.
+It is a target-machine property, exactly like the three defects in
+docs/TESTING.md's "Modelling the old machine from a fast one".
+
+### 57.5 The protocol
+
+Line-at-a-time ASCII, CR-terminated, **one reply line per command including a
+refusal** (`?`) — so a host reading until a newline is never left waiting on a
+typo. Deliberately not a binary framing: it is typeable by hand into a
+terminal, which is what you want on a machine that will not boot, and a lost
+byte costs one command rather than resynchronisation.
+
+| | |
+|---|---|
+| `v` | the banner, `os8088 debug 1` |
+| `m SSSS OOOO LL` | read memory; `LL` of 0 means 256 |
+| `M SSSS OOOO hh hh …` | write memory; answers how many bytes it took |
+| `i PPPP` | read an I/O port |
+| `o PPPP hh` | write one |
+| `s DD` | set the divisor (§57.4) |
+
+`m` answers **the address back before the bytes**, so a captured transcript
+says what it is a picture of — docs/FIELD-MACHINES.md's third dump rule ("find
+a value that pins the reading") at its cheapest. `M` writes each byte as it is
+parsed rather than staging them, so a malformed tail leaves the good prefix
+written, which is what you want from a command whose purpose is to change one
+thing and see what happens.
+
+A hex field is one to four digits and an **empty** field is an error rather
+than zero: `m 60 0` and `m 60 0 0` mean different things, and a parser that
+read a missing length as 0 would silently answer the second when asked the
+first.
+
+`tools/os88dbg.py` is the host end — a REPL, a one-shot CLI and an importable
+`Dbg` class, over three transports (a QEMU socket, 86Box's `.in`/`.out` FIFO
+pair or pty, or a real serial port). It resolves symbols out of a `nasm -l`
+listing and **carries no table of its own**, because docs/FIELD-MACHINES.md's
+second dump rule is to re-derive every offset from a listing of the exact
+commit and a baked-in table is what that rule forbids.
+
+### 57.6 What it found on the way in
+
+Three things, all older than it, and the first two are one bug each in the
+same page:
+
+- **The Drivers page was laid out for exactly two rows.** Its caption sat at
+  `CP_PCAPY` (74), which is *inside* the third row's glyph top (76), and
+  `cp_drv_cap` wipes a full-width line — so a third driver had the top of its
+  name and its checkbox erased on every paint. It read as the page being
+  clipped by the window rather than as two numbers colliding.
+- **...and its hit bands were three hand-written constants describing two
+  rows** (`CP_DB0Y1`/`CP_DB0Y2`/`CP_DB1Y2`), so the third row drew, reported
+  its state, and could not be clicked: a control that looks live and is not,
+  which is §47 rule 4's failure arriving where rule 4 does not look, because
+  no predicate refuses anything. Both are derived from `DRV_MAX` now and
+  `cp_drv_click` divides.
+- **`DRVE_BUSY`.** "No hardware found" for a card that is sitting in the
+  machine with its IRQ taken sends the reader looking for the wrong thing —
+  `DRVE_HW` means *fit a card*, this means *move a jumper*. A refusing
+  `DRVV_ATTACH` may now carry a `DRVE_*` in AL; anything outside the table,
+  `DRVE_OK` included, means `DRVE_HW`, so the verb's old CF-only contract
+  still holds unchanged. The two drivers that predate it set AL explicitly
+  rather than leaking whatever their last compare loaded.
