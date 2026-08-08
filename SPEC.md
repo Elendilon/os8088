@@ -558,6 +558,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_` |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
+| `kernel/fprog.inc`  | the file-operation progress widget (§12.7): a document icon and a progress bar in a line box at the right end of the menu bar, armed by the file-operation layer and stepped from inside `dsk_xfer`'s per-sector loop — prefix `fpg_`, all state in `.text` |
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
 | `kernel/apps.inc`   | built-in app kinds: About, Timer, Bounce — state pools, kinit procs, per-instance tasks |
 | `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19) |
@@ -4299,6 +4300,111 @@ and a resume that does not answer it is a pause no key can undo: the resume
 sets the mode, the next worker frame reads the same unchanged owner and pauses
 again. `OSAPI_WM_FRONT` on the frontmost window is the whole fix, and §44.8.1
 is the worked example.
+
+### 12.7 The file-operation progress widget — `fprog.inc`
+
+A file operation freezes the machine. That is not a defect to be scheduled
+away — §18 keeps the disk on the UI task, `dsk_xfer` raises `[sch_lock]`
+across every `int 13h`, and the caller is a window callback that has been
+holding the gfx lock since before it started (§22). So the cursor stops, no
+window paints, and nothing moves for as long as the disk takes. On the field
+machine a sector is **238 ms** (PERFORMANCE.md Part 2) — a 116KB module is
+tens of seconds of a screen that looks hung.
+
+What was missing was not concurrency but **feedback**. The widget is a file
+icon and a progress bar in a line box, drawn at the right end of the menu
+bar immediately left of the clock cell, and stepped from inside the transfer
+loop — the one piece of code that still runs while everything else is
+stopped.
+
+```nasm
+FPG_ICO_W  equ 12               ; the document glyph's drawn width
+FPG_ICO_H  equ 14               ; rows FPG_ICO_Y..FPG_ICO_Y+13
+FPG_ICO_Y  equ 3
+FPG_ISP    equ 4                ; icon -> box gap
+FPG_BOX_W  equ 64               ; the line box, frame included
+FPG_BOX_H  equ 9                ; rows FPG_BOX_Y..FPG_BOX_Y+8
+FPG_BOX_Y  equ 5
+FPG_GAP    equ 8                ; box -> clock cell gap
+FPG_W      equ FPG_ICO_W + FPG_ISP + FPG_BOX_W + FPG_GAP    ; 88
+FPG_BAR_PX equ FPG_BOX_W - 2    ; 62: the trough, in pixels
+```
+
+The origin is `[vid_clk_hx] - FPG_W`, computed at arm time from the **live**
+geometry (§39.2) exactly as the clock is — never from `MENU_CLK_HX`, which is
+the VGA reference. Everything it draws is in §39.4's black/white class, no
+dither anywhere, because an 8x8 dithered glyph loses half its strokes on a
+1bpp adapter (§48's wave counter) and a 1px box frame would lose half of
+itself.
+
+| symbol      | contract                                                    |
+|-------------|---------------------------------------------------------------|
+| `fpg_begin` | in: AX = sectors this operation expects (0 is read as 1). Arms the widget and draws the **whole** of the expensive part — the white bed, the document icon and the box frame. Preserves all registers and the flags. |
+| `fpg_step`  | in: nothing. One sector done. Preserves **every register and the flags** — its caller is the middle of `dsk_xfer`'s per-sector loop, `spl_step`'s contract exactly. |
+| `fpg_end`   | in: nothing. Disarms and gives the bar back (`menu_force` + `menu_draw_bar`). Preserves all registers and the flags. |
+
+**The chrome is drawn once and the bar is the only thing that moves.** A
+`gfx_*` call costs ~756us of arriving whatever it draws (PERFORMANCE.md Part
+2), and the icon is a two-pass masked blit; paying that per sector would put
+drawing on the critical path of the very operation it is reporting. So
+`fpg_begin` spends it up front, and `fpg_step` draws **at most one
+`gfx_fill`** — the strip between the pixel column the bar had reached and the
+one it has reached now, because a bar that only grows is completely described
+by its current extent (`spl_bar`'s argument). A step whose pixel count did
+not change draws nothing at all, which is the common case: the trough is 62
+pixels and an operation is usually more sectors than that.
+
+Five things hold it up.
+
+- **`fpg_step` must not be able to cost anything when nothing is armed.**
+  It is `pushf` / `cmp byte [fpg_on], 0` / `je` on the disk path for the life
+  of the machine, the same ~13us against a 238 ms sector that `spl_step`
+  settled for (§15.3). All of its state is in `.text` with real
+  initialisers, **not `.bss`** — `-f bin` zeroes nothing, `drv_boot` reads
+  the disk before any init routine could run, and a garbage `[fpg_on]` would
+  have the widget drawing into the splash.
+- **It draws mid-lock, so it must flush itself.** With a back buffer armed
+  (§32) the `gfx_*` primitives render into RAM and only `gfx_unlock` pushes
+  them to VRAM — and the lock is not released until the file operation ends,
+  which is precisely the span the widget exists to report. Each of the three
+  entry points therefore ends in `gfx_flush`, as `menu_track` does for a
+  pull-down. On a mono adapter that is a compare and a return (`[bb_dbl]`,
+  not `[bb_on]` — §39).
+- **The arrow comes off before anything is drawn.** `gfx_lock` only
+  *promises* the hide (§7.1.4), so `fpg_begin` spends the promise with
+  `cur_unlazy`; it is one-way within a hold, so `fpg_step` inherits it for
+  free and never pays again.
+- **It refuses rather than draws wrong.** Already armed (an operation
+  nested inside another owns the widget, and the outer one is the honest
+  scale), `[spl_live]` set (boot — the splash owns the screen and the mode,
+  §15.3), a visible fullscreen window (`wm_fs_vis` — the bar is under it,
+  §11.2), or an origin that would collide with the System menu: any of
+  these and the whole feature is off for that operation, silently.
+- **The space is borrowed, not reserved.** `menu_relayout`'s limit
+  (`cmp dx, [vid_clk_hx]`) is untouched, so app menus keep every pixel they
+  have today and a machine that never touches the disk looks exactly as it
+  did. `fpg_begin` white-fills its bed over whatever was there and `fpg_end`
+  gives it back with `menu_force` + `menu_draw_bar`, which redraws the
+  field, the name, the titles and the clock in one pass. Reserving the 88
+  pixels instead would have cost them on every machine forever — and on CGA
+  the file manager's own titles have only ~108px of slack against that limit
+  to begin with.
+
+**Where it is armed** is the file-operation layer, because that is the only
+place a *total* exists: `dsk_xfer` knows one call's run and `dskw_rdata`
+coalesces many calls into one operation. The four sites are the three
+`diskw.inc` data pipelines, each immediately after `dskw_size32` has put the
+job's sector count in `[dskw_rem]` (§18.4), and `dsk_read_chain`, which takes
+its total in DX — between them, every multi-second transfer in the system:
+a package load, a document open, a Paint or Note Pad save, and each chunk of
+a file-manager copy. `fpg_end` sits in the matching `dskw_*_x` epilogue,
+where there is exactly one of it however many ways the body returned.
+
+Metadata sectors — the FAT flush, the directory commit — are outside
+`[dskw_rem]` and so are not counted, which is why the bar clamps at full
+rather than wrapping. The alternative was a total that had to be revised
+downward mid-operation, and a progress bar that goes backwards is worse than
+one that sits at 100% for a sector or two.
 
 ## 13. ui.inc — the UI task (task 0)
 

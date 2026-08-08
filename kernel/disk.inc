@@ -592,11 +592,17 @@ dsk_xfer:
     mov cx, ax                  ; the boot bar counts SECTORS, and a call now
 .notch:                         ; carries a run of them (SPEC.md 18.91) - so
     call spl_step               ; it is stepped per sector rather than per
-    loop .notch                 ; call, or the bar would under-count exactly
-                                ; as far as the batching won. Preserves every
-                                ; register and the flags, and after
-                                ; spl_finish it is a compare and a return
-                                ; (SPEC.md 15.3)
+    call fpg_step               ; call, or the bar would under-count exactly
+    loop .notch                 ; as far as the batching won. BOTH preserve
+                                ; every register and the flags - CX is this
+                                ; loop's counter and CF is dsk_xfer's answer
+                                ; in flight - and both are a compare and a
+                                ; return when their bar is not on screen:
+                                ; spl_step after spl_finish (SPEC.md 15.3),
+                                ; fpg_step whenever no file operation armed
+                                ; it (SPEC.md 12.7). The two are never both
+                                ; live, the splash owning the screen being
+                                ; one of the things fpg_begin refuses on.
     add di, ax                  ; next LBA
     sub si, ax                  ; sectors still wanted
     mov cl, 9
@@ -2908,6 +2914,12 @@ dsk_read_chain:
     push di
     push bp
 
+    xchg ax, dx                 ; the whole file's sectors ARE the widget's
+    call fpg_begin              ; scale, and this is the only place that knows
+    xchg ax, dx                 ; them: dsk_xfer sees one coalesced run at a
+                                ; time (SPEC.md 12.7). One byte each way, and
+                                ; AX is the first cluster either side of it.
+
     mov si, ax                  ; SI = current cluster
     xor cx, cx                  ; CX = run_len (0 = no pending run)
     xor di, di                  ; DI = run_lba (dead while run_len = 0)
@@ -2953,6 +2965,8 @@ dsk_read_chain:
     jc .fail1
     mov [dsk_chain_end], si     ; where a chunked caller resumes from
     clc
+    call fpg_end                ; preserves CF, so it sits either side of the
+                                ; clc without comment (SPEC.md 12.7)
     pop bp
     pop di
     pop si
@@ -2967,7 +2981,8 @@ dsk_read_chain:
 .fail2:
     mov byte [dsk_cherr], 2     ; chain corrupt
 .failc:
-    pop bp
+    call fpg_end                ; a failed read owes the bar back exactly as
+    pop bp                      ; a successful one does
     pop di
     pop si
     pop dx
