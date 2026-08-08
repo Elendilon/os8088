@@ -131,7 +131,8 @@ is the client — a CLI, a REPL and an importable `Marty` class.
 | `inb` / `outb` | I/O ports |
 | `run` / `pause` / `step` / `reset` | execution |
 | `bp` | breakpoints: `exec`, `execseg`, `mem`, `memseg`, `int`, `io` |
-| `screen` | the video card's text |
+| `screen` | the video card's text, in text modes |
+| `video` | which card, and whether it is in a graphics mode |
 | `history` / `callstack` | the CPU's own instruction history |
 | `quit` | stop the emulator |
 
@@ -144,13 +145,17 @@ Three things about it are load-bearing:
   test. **I/O ports are the exception and say so** — there is no peek for a
   port, so an `inb` is a real bus read and several devices clear a status or
   advance a sequencer by being read at all.
-- **`screen` is not a memory read, and must not be one.** Video RAM is an MMIO
-  region owned by the card; peeking `0xB8000` returns the flat memory
-  *underneath* it, which on a machine whose card has never written through is
-  a screen of zeroes. It does not error — it returns a plausible blank screen,
-  which is the worst way to be wrong. This cost an hour: a machine that had
+- **`read` resolves MMIO, so video RAM reads like any other memory** — and
+  getting that wrong cost an hour, so it is worth the paragraph. It went
+  through `BusInterface::peek_range`, which slices the flat memory vector and
+  does **not** resolve MMIO, so `0xB8000` returned whatever was in RAM under
+  the card: a screen of zeroes, with no error to say so. A machine that had
   POSTed and printed `Disk Boot Fail. You monster.` looked, through `read`,
-  exactly like a machine that had hung with a blank screen.
+  exactly like one that had hung. `get_vec_at_ex` is the one to use — equally
+  side-effect-free (it peeks a mapped device rather than reading it), a plain
+  slice when the range touches no device, so ordinary reads cost what they
+  did. `screen` is still the right call for **text** modes, because it asks
+  the card for characters rather than making you decode them.
 - **`bp` replaces the whole set.** A debugger that can only add breakpoints
   accumulates them until something stops for a reason nobody remembers asking
   for.
@@ -180,6 +185,27 @@ you every live variable at its listing offset with no instrumentation added.
 Breakpoints answer questions that previously needed a knob kernel: an `int`
 breakpoint on 13h counts disk calls on an **unmodified shipped kernel**, where
 SPEC.md §18.94 needs `make DISKCNT=1` and a test package on the floppy.
+
+**Screenshots, without leaving:** `os88marty.py shot out.png` reads the
+framebuffer straight out of VRAM and decodes SPEC.md §39.3's banked layout —
+the same arithmetic `tools/hercshot.py` applies to QEMU, so a picture from
+either route is the same picture. **Do not start QEMU just to look at the
+screen**: if MartyPC is already up, that is minutes of an agent's time for
+something one command already answers. Verified against QEMU's CGA on the
+same desktop: **60.0% lit in both**, 76,815 pixels against 76,809, and the
+six-pixel difference is the clock — MartyPC reads `Jul 04 2026`, which is
+SPEC.md §37.90's no-RTC fallback, correctly, because a 5150 has no CMOS.
+
+The card is asked which it is (`video`), never sniffed: an unmapped `0xB0000`
+reads as **zeroes rather than erroring**, so "is there something at the MDA
+aperture" answers yes on a CGA-only machine. That guess shipped for about ten
+minutes and produced a confident 720x348 image of nothing.
+
+It is CGA and Hercules only, and that is a property of the format rather than
+of the tool: both are 1bpp, so the bytes *are* the pixels. **Mode 12h is four
+planes behind the Graphics Controller's Read Map Select** and is not readable
+as flat memory at all — you would have to drive the latches to get a plane
+out. Moot in practice, since MartyPC does not implement mode 12h either.
 
 **Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
 two are complementary rather than competing. Also not for VGA: MartyPC's VGA
@@ -245,7 +271,8 @@ All of the following was run end to end in the container, against
 Both are in `tools/martypc/patches/01-headless-debug-server.patch` and both
 are worth offering upstream:
 
-- **`peek_range` was off by one.** `if address + len < self.memory.len()`
+- **`peek_range` was off by one.** (No longer load-bearing for us — `read`
+  uses `get_vec_at_ex` now — but still a real bug.) `if address + len < self.memory.len()`
   refuses a range *ending* at the last byte of memory — so
   `peek_range(0xFFFF0, 16)`, the reset vector paragraph and the most-read
   sixteen bytes in an 8088 machine, was refused while fifteen bytes at the

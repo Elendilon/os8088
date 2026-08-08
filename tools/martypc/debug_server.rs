@@ -43,7 +43,8 @@
     QEMU: cycle counts, the prefetch queue, per-device state.
 
     THE READS DO NOT PERTURB THE MACHINE. Memory comes back through
-    BusInterface::peek_range, which costs no cycles and triggers no MMIO, so a
+    BusInterface::get_vec_at_ex, which costs no cycles and only ever PEEKS a
+    mapped device, so a
     debugger reading a guest's memory while it runs changes neither its timing
     nor its behaviour. That matters more than usual here: MartyPC is
     cycle-accurate, and an instrument that costs cycles cannot be used to
@@ -260,6 +261,7 @@ impl DebugServer {
             }
             "bp" => breakpoints(machine, &req),
             "screen" => screen(machine),
+            "video" => video(machine),
             "history" => json!({"ok": true, "history": machine.cpu().dump_instruction_history_string()}),
             "callstack" => json!({"ok": true, "callstack": machine.cpu().dump_call_stack()}),
             "quit" => {
@@ -409,11 +411,22 @@ fn read_mem(machine: &mut Machine, req: &Value) -> Value {
     if len == 0 || len > MAX_READ {
         return err(&format!("len must be 1..{}", MAX_READ));
     }
-    // peek_range: no cycle cost, no MMIO side effects (see the header).
-    match machine.bus().peek_range(addr, len) {
-        Ok(slice) => json!({"ok": true, "addr": addr, "len": len, "data": hex_encode(slice)}),
-        Err(e) => err(&format!("read {:#07x}+{}: {:?}", addr, len, e)),
+    // get_vec_at_ex, NOT peek_range. Both are side-effect-free; only this one
+    // RESOLVES MMIO. peek_range slices the flat memory vector, so a read of
+    // 0xB8000 returned whatever was in RAM under the video card - a screen of
+    // zeroes on any machine whose card had never written through, with no
+    // error to say so. This takes the fast path (a plain slice) when the range
+    // touches no mapped device and falls back to a per-byte peek when it does,
+    // so ordinary reads cost what they always did and VRAM now works.
+    if addr >= (1 << 20) {
+        return err(&format!("read {:#07x}: past the 1MB address space", addr));
     }
+    let data = machine.bus().get_vec_at_ex(addr, len);
+    if data.len() != len {
+        return err(&format!("read {:#07x}+{}: only {} bytes available",
+                            addr, len, data.len()));
+    }
+    json!({"ok": true, "addr": addr, "len": len, "data": hex_encode(&data)})
 }
 
 fn write_mem(machine: &mut Machine, req: &Value) -> Value {
@@ -551,6 +564,23 @@ fn breakpoints(machine: &mut Machine, req: &Value) -> Value {
 /// RAM at that address, which on a machine whose card has never written
 /// through is a screen of zeroes. It does not error; it returns a plausible
 /// blank screen, which is the worst way to be wrong. Ask the card instead.
+/// Which card, and whether it is in a graphics mode.
+///
+/// A host that wants the framebuffer has to know the layout, and GUESSING it
+/// from memory does not work: an unmapped 0xB0000 reads as zeroes rather than
+/// erroring, so "is there something at the MDA aperture" answers yes on a
+/// machine that has only a CGA. The card knows; ask it.
+fn video(machine: &mut Machine) -> Value {
+    match machine.primary_videocard() {
+        Some(mut card) => json!({
+            "ok": true,
+            "type": format!("{:?}", card.video_type()).to_lowercase(),
+            "graphics": card.is_in_graphics_mode(),
+        }),
+        None => err("no video card"),
+    }
+}
+
 fn screen(machine: &mut Machine) -> Value {
     match machine.primary_videocard() {
         Some(mut card) => json!({"ok": true, "rows": card.get_text_mode_strings()}),

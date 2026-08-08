@@ -103,12 +103,50 @@ class Marty:
         return self.cmd(cmd="setreg", reg=reg, value=value)
 
     def screen(self):
-        """The video card's text, via the card - NOT via a memory read.
-
-        Video RAM is MMIO owned by the card; peeking its addresses returns the
-        flat memory underneath, which is a blank screen rather than an error.
-        """
+        """The video card's text rows, in text modes."""
         return self.cmd(cmd="screen")["rows"]
+
+    def video(self):
+        """Which card, and whether it is in a graphics mode."""
+        return self.cmd(cmd="video")
+
+    def vram(self, kind=None):
+        """The 1bpp framebuffer as (width, height, rows-of-bits).
+
+        `read` resolves MMIO, so video RAM comes back like any other memory -
+        no screendump, no HERCSEG relocation, and no reason to start QEMU just
+        to look at the screen. `kind` is 'cga' or 'herc'; None asks the
+        machine which card it has.
+
+        VGA is deliberately absent. Mode 12h is four PLANES behind the
+        Graphics Controller's Read Map Select, so it is not readable as flat
+        memory at all - and MartyPC does not implement mode 12h anyway, so
+        the question does not arise on a machine this can run.
+        """
+        if kind is None:
+            # ASK THE CARD. Sniffing memory does not work: an unmapped
+            # 0xB0000 reads as zeroes rather than erroring, so "is there
+            # something at the MDA aperture" answers yes on a CGA-only
+            # machine - which is exactly the wrong answer, silently.
+            vt = self.cmd(cmd="video")["type"]
+            kind = "cga" if vt == "cga" else "herc"   # MDA and Hercules share
+                                                      # a layout and an aperture
+        if kind == "cga":
+            base, w, h, stride, banks = 0xB8000, 640, 200, 80, 2
+        elif kind == "herc":
+            base, w, h, stride, banks = 0xB0000, 720, 348, 90, 4
+        else:
+            raise MartyError("kind must be 'cga' or 'herc'")
+        fb = self.read(base, banks * 0x2000)
+        rows = []
+        for y in range(h):
+            # SPEC.md 39.3's banked layout, byte for byte the arithmetic in
+            # tools/hercshot.py - so a picture from either route is the same
+            # picture, and a shear means the KERNEL's bank arithmetic moved.
+            off = (y % banks) * 0x2000 + (y // banks) * stride
+            rows.append(bytearray((fb[off + (x >> 3)] >> (7 - (x & 7))) & 1
+                                  for x in range(w)))
+        return w, h, rows
 
     # --- memory --------------------------------------------------------------
 
@@ -166,6 +204,22 @@ class Marty:
         return self.cmd(cmd="quit")
 
 
+def write_png(path, w, h, rows):
+    """1bpp rows out as a greyscale PNG, no dependencies (hercshot.py's)."""
+    import struct, zlib
+    raw = b"".join(b"\x00" + bytes(255 if b else 0 for b in row) for row in rows)
+
+    def chunk(tag, data):
+        c = tag + data
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c))
+
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n")
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)))
+        f.write(chunk(b"IDAT", zlib.compress(raw, 9)))
+        f.write(chunk(b"IEND", b""))
+
+
 def parse_addr(text):
     """`0060:0000`, `0x600` or `600` -> a flat address."""
     text = text.strip()
@@ -210,6 +264,10 @@ def main():
 
     for name in ("status", "regs", "run", "pause", "reset", "screen", "history", "quit"):
         sub.add_parser(name)
+
+    p = sub.add_parser("shot", help="the framebuffer as a PNG - no QEMU needed")
+    p.add_argument("out")
+    p.add_argument("--kind", choices=("cga", "herc"), default=None)
 
     p = sub.add_parser("read"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
     p = sub.add_parser("dump"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
@@ -259,6 +317,12 @@ def main():
                 print(m.write(parse_addr(a.where), bytes.fromhex(a.hex)), "bytes written")
             elif a.op == "step":
                 print(json.dumps(m.step(a.n)))
+            elif a.op == "shot":
+                w, h, rows = m.vram(a.kind)
+                write_png(a.out, w, h, rows)
+                lit = sum(sum(r) for r in rows)
+                print("%s: %dx%d, %d lit of %d (%.1f%%)"
+                      % (a.out, w, h, lit, w * h, 100.0 * lit / (w * h)))
             elif a.op == "screen":
                 for row in m.screen():
                     print(row.rstrip())

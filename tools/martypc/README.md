@@ -20,7 +20,9 @@ in the guest at all**.
 | `build.sh` | clone at the pin, patch, stage a run tree, build |
 
 **Reach for this first** when what you are testing runs on an 8088 with a CGA
-or a Hercules. **It is cycle-accurate and it is not disk-accurate**: its
+or a Hercules — screenshots included: `os88marty.py shot out.png` reads the
+framebuffer out of VRAM, so there is no reason to start QEMU to look at a
+screen. **It is cycle-accurate and it is not disk-accurate**: its
 floppy is 30x fast, so no figure with a disk in its path means anything here,
 and it would not have caught SPEC.md §18.91's `AL` bug any more than QEMU did.
 docs/MARTYPC-DEBUG.md has the long version of both.

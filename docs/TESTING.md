@@ -6,7 +6,7 @@ calibrated against — `make marty` gives you a cycle-accurate 5150 running the
 real 1982 IBM BIOS, with a debugger attached: memory, registers, I/O ports,
 breakpoints, single-step and cycle counts, none of it costing the guest a
 cycle (docs/MARTYPC-DEBUG.md). **Fall back to QEMU when MartyPC does not cover
-the thing** — VGA, 286/386, sound, or the scripted mouse. Go to 86Box for a
+the thing** — VGA, 286/386, sound, or scripted mouse input. Go to 86Box for a
 machine that is not an 8088. **And for anything with a disk in its timing, go
 to the 5150 — no emulator here is disk-accurate, MartyPC included.**
 
@@ -21,7 +21,7 @@ something QEMU showed as fine.
 | reach for | when | why |
 |---|---|---|
 | **MartyPC** | 8088/XT, CGA or MDA/Hercules, and any question of the form *what is the machine doing* | cycle-accurate CPU, a real BIOS ROM, and a debugger that perturbs nothing |
-| **QEMU** | VGA (mode 12h), 286/386, sound, scripted mouse and keys, screenshots | the automation harness lives here — QMP, `tools/mouse.py`, `tools/shot.py` |
+| **QEMU** | VGA (mode 12h), 286/386, sound, **scripted mouse and keys** | the input harness lives here — QMP, `tools/mouse.py`. Screenshots do NOT need it on an 8088: `os88marty.py shot` reads VRAM |
 | **86Box** | a machine that is **not an 8088** (the 286 and 386 targets), real sound cards on a period bus, a second opinion on the video probe | period-correct whole machines, and the widest hardware library |
 | **the 5150** | anything with a **disk** in it, and the three defects no emulator shows | docs/FIELD-MACHINES.md |
 
@@ -97,7 +97,8 @@ emulator have the hardware": a ✅ means reach for it first.
 | PC speaker | ➖ | ✅ | `make test-snd` (no card) | dominant 880.0 Hz |
 | AdLib / OPL2 | ❌ | ✅ | `make test-snd ADLIB=1` | dominant 880.0 Hz from a keyed 440 |
 | Sound Blaster 16 | ❌ | ✅ | `make test-snd SB16=1` | 2.00 s at 1000.0 Hz |
-| Scripted mouse / keys | ➖ | ✅ | `tools/mouse.py`, `tools/qmp.py` | all adapters, incl. Hercules |
+| Scripted mouse / keys | ❌ | ✅ | `tools/mouse.py`, `tools/qmp.py` | all adapters, incl. Hercules |
+| **Screenshots** (CGA/Herc) | ✅ | ✅ | `os88marty.py shot`, or `tools/shot.py` / `hercshot.py` | MartyPC reads VRAM directly — 60.0% lit, matching QEMU's CGA on the same desktop |
 | Mouse on COM2 (SPEC.md §9.5) | ➖ | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |
 | A **cross-wired IRQ** (SPEC.md §9.5.2) | ➖ | ✅ | `make test MOUSEPORT=com2irq4` | the Compaq Portable III: mouse at 2F8 driving IRQ4. Undetectable before the fix |
 | A **modem** on the other port | ➖ | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
@@ -1099,8 +1100,16 @@ that neither of the others does:
   actually runs — the thing this document called 86Box-only for years.
 
 What it does **not** cover, and where to go instead: VGA (mode 12h — QEMU),
-286/386 (86Box), sound (QEMU or 86Box), scripted mouse and screenshots
-(QEMU), **and anything with a disk in it (the 5150, and nothing else)**.
+286/386 (86Box), sound (QEMU or 86Box), **scripted mouse and keyboard input**
+(QEMU), and **anything with a disk in it** (the 5150, and nothing else).
+
+**Screenshots are NOT on that list.** `os88marty.py shot out.png` reads the
+framebuffer out of VRAM and decodes SPEC.md §39.3's banked layout — the same
+arithmetic `tools/hercshot.py` uses, verified against QEMU's CGA at 60.0% lit
+on both. Starting QEMU to look at a screen when MartyPC is already running
+costs minutes for something one command answers. CGA and Hercules only: they
+are 1bpp so the bytes are the pixels, where mode 12h is four planes behind
+the Graphics Controller and not flat-readable at all.
 
 An example worth copying, because it is the shape of question this is for.
 "How many `int 13h` calls does one file load issue?" used to need
