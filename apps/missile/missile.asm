@@ -210,8 +210,14 @@ MC_NWAVE    equ 19                  ; entries in mc_icbwav / mc_crmwav
 MC_FP       equ 4                   ; fixed point: positions are pixels * 16
 MC_ABMSPD   equ 120                 ; ABM speed, 1/16 px a frame (7.5 px)
 MC_SATSPD   equ 2                   ; satellite/bomber, whole px a frame
-MC_LAGMAX   equ 4                   ; frames behind its deadline the worker
-                                    ; will chase before re-anchoring (44.1)
+MC_LAGMAX   equ 0                   ; frames behind its deadline the worker
+                                    ; will chase before re-anchoring (44.1).
+                                    ; ZERO, and measured: chasing is what the
+                                    ; judder IS (SPEC.md 48.20) - a heavy
+                                    ; frame is followed by a short one, and
+                                    ; motion here is per-FRAME, so a short
+                                    ; frame moves everything at 2x. It costs
+                                    ; no frames at all: 18.21 fps either way
 MC_ABMBON   equ 5                   ; points per unused ABM, per multiplier
 MC_BONSTEP  equ 10000               ; ...and the bonus-city interval (BONINL)
 

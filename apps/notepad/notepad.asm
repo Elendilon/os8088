@@ -1155,17 +1155,25 @@ np_bounds:
     ; different geometry - and unlike the signatures, nothing else was going to
     ; notice. np_sigsame guards np_redraw; this guards everything else, which
     ; is every caret key and every click.
-    mov ax, [np_tx]
-    cmp ax, [np_stx]
-    jne .stale
-    mov ax, [np_ty]
-    cmp ax, [np_sty]
-    jne .stale
+    ; ...and what "a different geometry" means here is the WRAP WIDTH and the
+    ; view HEIGHT, never the origin. These four words are the content box in
+    ; SCREEN coordinates, so dragging the window changes np_tx and np_ty while
+    ; the note wraps identically - and comparing them absolutely made every
+    ; MOVE set [np_gchg], which np_paint pays with np_measure: an unbounded
+    ; walk of the whole note. On a 16KB file that is seconds of a window that
+    ; has been dropped and is not yet drawing, reported as exactly that. The
+    ; comment below is a RESIZE argument and always was.
     mov ax, [np_rgt]
-    cmp ax, [np_srgt]
+    sub ax, [np_tx]                 ; the wrap width now...
+    mov dx, [np_srgt]
+    sub dx, [np_stx]                ; ...against the one the screen was laid
+    cmp ax, dx                      ; out under
     jne .stale
     mov ax, [np_bot]
-    cmp ax, [np_sbot]
+    sub ax, [np_ty]                 ; ...and the view height, which decides how
+    mov dx, [np_sbot]               ; many of those rows fit and so whether the
+    sub dx, [np_sty]                ; view is looking past the end
+    cmp ax, dx
     je .out
 .stale:
     mov byte [np_ckok], 0
@@ -3040,6 +3048,22 @@ np_toast:
     add dx, 2
     mov si, [np_msg]
     call OSAPI_FONT_STR
+    mov word [np_msg], 0        ; ...and FORGET it. A toast belongs to the
+                                ; operation that raised it, and this routine
+                                ; is reached from np_paint - so every later
+                                ; repaint was putting it back up. Dragging the
+                                ; window re-showed 'Loaded README.TXT', which
+                                ; reads as the file being loaded AGAIN and was
+                                ; reported as exactly that; the counters say
+                                ; the disk is never touched. The header above
+                                ; already claimed the toast could "never
+                                ; become stale furniture" because a keystroke
+                                ; clears it - a repaint is not a keystroke.
+                                ; The np_smsg shadow is published BEFORE this
+                                ; runs, so the next paint sees 0 against the
+                                ; toast it was drawn with, mismatches, and
+                                ; redraws the rows underneath - which is what
+                                ; erases it
 .out:
     pop di
     pop si
@@ -4629,15 +4653,21 @@ np_ondlg:
 ; np_goto - put the volume back in this document's folder (SPEC.md 19.2)
 ; out: nothing; preserves all registers
 ;
-; A file name resolves in the volume's CURRENT directory, and that is one
-; global word shared by every Disk window and by the file dialog. Right after
-; Save As it still names the folder the user picked - which is why saving
-; into a folder worked - but by the next Save anything that navigated has
-; moved it, and the write landed in the root. The pair OSAPI_FILE_HERE
-; recorded is what says otherwise.
+; **THE KERNEL DOES THIS NOW, and this routine is kept as a no-op that costs
+; two compares** (SPEC.md 19.2.1). A file name used to resolve in the ONE
+; global current directory shared by every Disk window and by the file
+; dialog: right after Save As it still named the folder the user picked -
+; which is why saving into a folder worked - but by the next Save anything
+; that navigated had moved it, and the write landed in the root. Four
+; packages each carried their own copy of the six lines below, which is what
+; eventually said the kernel owed the feature rather than the SDK owing an
+; example. An instance owns its directory now, so OSAPI_FILE_HERE answers
+; this document's folder and the OSAPI_FILE_GOTO below never fires.
 ;
-; A remount is real floppy I/O, so it is skipped when the volume is already
-; there, which is the common case.
+; It stays because the slots keep their contract (SPEC.md 20.8 rule 4) and
+; because a remount was always skipped when the volume was already there -
+; which is now every time. Deleting it would be correct and would also delete
+; the record of why it was ever needed.
 ; -----------------------------------------------------------------------------
 np_goto:
     push ax
