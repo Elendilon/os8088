@@ -9674,14 +9674,19 @@ and non-zero exit + stderr message on any validation failure.
   the three bootable system disks `build/os8088.img`,
   `build/os8088-720.img` and `build/os8088-360.img`. None of the six is
   git-tracked — `build/` is gitignored outright (§16).
-  The apps disks are **foldered**: the root holds `APPS`, `GAMES` and the
-  one root-level file `TASKMGR.O88` (§28.3 — the chip menu's copy, for a
-  single-floppy machine). `APPS` holds the tools plus the data file
-  `BEVERLY.MOD` (the shipped module the Tracker package plays; a data file
-  rides its folder exactly like a package), `GAMES` holds the games. The
-  grouping lives in the Makefile — `APPS_TOOLS`/`APPS_GAMES`/`APPS_DATA`
-  become the `DIR:`-prefixed `APPSARGS`, and `APPS_ROOT` is passed with no
-  prefix — not in the tool.
+  The apps disks are **foldered**, and nothing of ours is in the root: it
+  holds `APPS`, `GAMES`, `MEDIA` and `SYSTEM`. `APPS` holds the tools,
+  `GAMES` the games, `MEDIA` the data file `BEVERLY.MOD` (the shipped module
+  the Tracker package plays — a data file rides its folder exactly like a
+  package, and this is the folder a File Open starts in, §38.10), and
+  `SYSTEM` the chip menu's `TASKMGR.O88` (§28.3 — its copy for a
+  single-floppy machine). The **system** disks carry the same two kernel
+  folders: `SYSTEM/TASKMGR.O88`, and a `MEDIA` that is **empty**, because a
+  boot floppy has no media on it and the folder still has to exist for the
+  dialog to open on. The grouping lives in the Makefile —
+  `APPS_TOOLS`/`APPS_GAMES`/`APPS_DATA`/`APPS_SYS` become the
+  `DIR:`-prefixed `APPSARGS`, and the empty folder is os88disk.py's
+  `--folder MEDIA` — not in the tool.
   **Order within a list means nothing and nothing may be built on it**: the
   mount sorts by name (§19.4), so a folder lists alphabetically whoever
   wrote it. It used to be pinned, because the listing was directory order
@@ -11064,10 +11069,11 @@ converted to them, as a separate step, so the API was proved sufficient
 before anything moved.
 
 **The chip menu's item stays live** (`ui_tm_open`, kernel/ui.inc). It banks
-the current volume and directory, mounts A:, finds `TASKMGR.O88` in the
-snapshot with `dsk_find_name`, runs `ld_run_body`, and puts the volume back —
-the `drv_boot` dance, and for the same reason: every file name resolves in
-the CURRENT directory (§19.2), which is wherever the user last browsed to.
+the current volume and directory, mounts A:, steps into `SYSTEM`
+(`ui_tm_sysdir`, §28.3), finds `TASKMGR.O88` in that folder's snapshot with
+`dsk_find_name`, runs `ld_run_body`, and puts the volume back — the
+`drv_boot` dance, and for the same reason: every file name resolves in the
+CURRENT directory (§19.2), which is wherever the user last browsed to.
 Greying the item would mean answering "can this be loaded?" without loading
 it, and §47 rule 3 forbids exactly that: the only honest test is the load.
 So it is always clickable, and a failure puts up `ui_note` — a one-line
@@ -11641,19 +11647,20 @@ band keeps 16 px of white at the right. `TM_PEN` cannot absorb that by moving
 either: the memory view's 27-character `RAM … HEAP` caption is drawn at it
 and is exactly what makes `TM_RW` 223.
 
-### 28.3 It is on the apps disk too, for the single-floppy machine
+### 28.3 It lives in `SYSTEM/`, on the apps disk as well as the system disk
 
-`ui_tm_open` mounts **A:** and resolves `TASKMGR.O88` in that volume's root.
-On a two-drive machine that is always the system disk and the story ends
-there. **A single-drive machine has one A:, and it is whatever disk is in
-it** — so the moment the user swaps to the apps disk to go and find a
-program, which is the whole reason they own that disk, the chip menu's Task
-Manager stops working and says `TASKMGR.O88 is not on the disk`. That is not
-a rare corner: a 5150 with one floppy drive was the ordinary machine, and
-swapping disks is what you do on one.
+`ui_tm_open` mounts **A:**, steps into **`SYSTEM`** and resolves
+`TASKMGR.O88` there. On a two-drive machine A: is always the system disk and
+the story ends there. **A single-drive machine has one A:, and it is whatever
+disk is in it** — so the moment the user swaps to the apps disk to go and
+find a program, which is the whole reason they own that disk, the chip menu's
+Task Manager would stop working. That is not a rare corner: a 5150 with one
+floppy drive was the ordinary machine, and swapping disks is what you do on
+one.
 
-So the file ships in the **root** of the apps disks as well, and the two
-copies differ in exactly one way:
+So the file ships on both disks, in a folder of the same name on each,
+because the menu cannot know which one is in the drive. The two copies differ
+in exactly one way:
 
 - on the system disk it is **read-only** (§19.6), because the chip menu
   loads it by name and deleting it would break a menu item with no other
@@ -11663,22 +11670,35 @@ copies differ in exactly one way:
   like anything else on it, and if it is, the chip menu simply says so the
   next time, which is the failure it already has words for.
 
-Three things about the placement:
+Four things about the placement:
 
-- **The root, not `APPS/`.** `ui_tm_open` looks in the root and nowhere
-  else; a copy inside a folder would be invisible to it. It also keeps the
-  Task Manager out of the folder a user browses to pick a program — it is
-  the chip menu's, not something to go and double-click, and two of them a
-  double-click apart would be the confusing arrangement.
+- **`SYSTEM/`, not the root and not `APPS/`.** It used to be the root, and
+  the root is the one directory a user cannot avoid: every disk opens there,
+  so the kernel's own application sat in front of them on the way to their
+  files. `APPS/` is worse — that is the folder a user browses to pick a
+  program, and a second Task Manager a double-click away from the chip
+  menu's is the confusing arrangement. `SYSTEM/` says what the thing is.
+- **The kernel pays a second mount for it.** The folder's first cluster is
+  not known until the root has been listed, so `ui_tm_sysdir` is a
+  `dsk_find_name` on the root's snapshot (no I/O) followed by a `dsk_chdir`
+  into it (§19.2, a remount). One extra mount per chip-menu open, against
+  the seven kilobytes of package that follow it.
+- **A missing folder and a missing file report the same thing**, because to
+  the user they are the same thing: `TASKMGR.O88 is not in SYSTEM`. The
+  message is 28 characters for a reason — `ui_note` centres it in a 288px
+  window and `font_str` stops at the screen edge, not the window's, so a
+  path spelled out in full would have drawn through the frame.
 - **It is still a package like any other.** A double-click on the row opens
   as many as you like; the singleton rule is the *menu item's*, not the
-  file's (§28), and neither cares which volume it came off.
-- **The apps disk root is no longer "`APPS` and `GAMES` and nothing else"**
-  (§19.2/§24), which it had been since the disk was foldered. It is those
-  two folders plus this one file, and the Disk window shows all three.
+  file's (§28), and neither cares which volume or folder it came off.
 
-The cost is 5,444 bytes twice: 6 clusters of the 360KB disk's 354, which had
-141 free.
+`os88disk.py` stamps attributes by **name and disk, never by directory**
+(`sys_attr` is applied to a folder's members as well as the root's), so the
+read-only mark followed the file into `SYSTEM/` rather than staying behind
+in the root it left.
+
+The cost is 5,444 bytes twice, plus one cluster per folder: 7 clusters of
+the 360KB disk's 354.
 
 ## 29. instance.inc — the instance table (running-app lifecycle)
 
@@ -14333,7 +14353,7 @@ module: it is the one write in the system made while something on screen is
 drawing from the global listing, which is the case §18.4's deferral must
 never take.
 
-### 38.10 The location and the name are per APPLICATION
+### 38.10 The default is `MEDIA`; after that the location is per APPLICATION
 
 `fdlg_open` used to end its setup with an unconditional "re-list where the
 volume already is" — `[disk_drive]` and `[dsk_cwd]`, the globals. Those are
@@ -14346,9 +14366,40 @@ app opened somewhere the user had never taken it.
 
 So each instance carries its own. `inst_fdrv` / `inst_fcwd` / `inst_fname`
 are a side table in `instance.inc`, one row per record: the volume, the
-directory and the name that instance last **committed** to.
+directory and the name that instance last chose.
 
-Six things about it:
+**And an application that has not chosen anything yet opens on `MEDIA`.**
+`fdlg_home_go` has three answers, in this order:
+
+| the app | opens on |
+|---|---|
+| has been somewhere (`inst_fdrv` ≠ `0xFF`) | back there |
+| has not | `MEDIA` in the **root of the drive the user is on** — or that root, if the volume has no `MEDIA` folder |
+| ...and the volume will not mount | the banked pair, which is the recovery |
+
+The middle row is the default location, and the thing it is careful about is
+**which globals it reads**. `[dsk_cwd]` is exactly what a background read
+moves — a package loading a module, `assoc_back` coming home from a document
+open (§54.9), a driver going to A: for `SYSTEM.CFG` (§51.5.1) — and nothing
+in that row reads it. Only `[disk_drive]` is taken, and only to say which
+volume's root to look in, so where a freshly launched app opens does not
+depend on what the machine has been doing behind the user's back. That is
+the half of the old "inherit the volume the user is on" behaviour worth
+keeping: a package launched off B: opens on `B:\MEDIA`, not on A:'s.
+
+The shipped disks both carry the folder, and the system disk carries it
+**empty** (§28.3): a boot floppy has no media on it, and the folder still
+has to exist for the dialog to land in. A volume without one is not an
+error — the dialog opens at that volume's root, which is still an answer
+nothing drifted into.
+
+It costs **two mounts instead of one** when `MEDIA` is there and one when it
+is not: the folder has to be listed before its first cluster is known, the
+same arithmetic §28.3 pays. That is charged only to the opens *before* the
+user has navigated anywhere; from the first navigation onward the first row
+of the table is taken and this never runs again for that instance.
+
+Seven things about it:
 
 - **A side table, not three more record fields.** `I_RECSZ` is 32, it is
   full (`I_CYC`'s dword ends it), and index<<5 is what makes a record cheap
@@ -14358,15 +14409,33 @@ Six things about it:
   belongs to which record.
 - **Cleared in `inst_alloc`, for `I_CYC`'s reason.** A reused record must not
   inherit a dead instance's folder, or the first Save from a freshly launched
-  app would open somewhere only its predecessor had been.
-- **The first open inherits the volume the user is on**, which is what the
-  old behaviour was for and the half of it worth keeping: `0xFF` in
-  `inst_fdrv` means "has never used a dialog", and Note Pad launched from
-  `B:\APPS` opens its first Save As there.
-- **Written on a COMMIT and nowhere else.** A cancelled dialog is not a
-  statement about where an app keeps its documents, and neither is a folder
-  the user looked into and backed out of. The store sits after
-  `fdlg_commit`'s staleness triple, so a dead record is never written to.
+  app would open somewhere only its predecessor had been. `0xFF` in
+  `inst_fdrv` is what that clear writes, and it means "has chosen no folder
+  of its own" — the value that selects the default above.
+- **The FOLDER is written by the user NAVIGATING, and by nothing else.** All
+  three ways to move inside the dialog — the folder dive, the drive button
+  and diving into a folder just created — go through `fdlg_go`, and that is
+  where `fdlg_home_dir` records where the mount landed. Nothing else can
+  reach it: `fdlg_home_go` calls `dsk_chdir` itself, deliberately, precisely
+  so that *arriving at a default* does not read as a choice. One store, at
+  the one place a user changes directories, covering every user navigation
+  and nothing else — which is the whole distinction the feature rests on.
+  A **failed** mount is not recorded: it lands at the root of the drive it
+  tried with the write gate shut, which is not a folder to bring an app back
+  to.
+- **Backing out is a navigation too**, and cancelling does not undo one. A
+  user who goes into a folder, looks, comes back out and cancels has chosen
+  the folder they came back out to — that is where the dialog opens next
+  time, because that is where they left it. This is a change: it used to be
+  written on a commit and nowhere else, on the reasoning that a cancelled
+  dialog is not a statement. It is a statement about the *location*, which
+  the user moved on purpose; it is not one about the NAME, which is the half
+  that still waits for a commit.
+- **The NAME is still written on a COMMIT and nowhere else** (`fdlg_home_save`,
+  which calls `fdlg_home_dir` for the folder and then copies the name). A
+  cancelled dialog is not a statement about which document an app is on. The
+  store sits after `fdlg_commit`'s staleness triple, so a dead record is
+  never written to.
 - **The caller's default name still wins.** `fdlg_open`'s `SI` is the
   document the app is actually on; the remembered name is what fills the box
   when `SI` is 0, which is the case that used to give an empty box.

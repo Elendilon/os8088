@@ -1677,6 +1677,8 @@ cw_dsk_dirw_start:      call dsk_dirw_start
                     retf
 cw_dsk_dotdot:          call dsk_dotdot
                     retf
+cw_dsk_find_name:       call dsk_find_name
+                    retf
 cw_dsk_free_clus:       call dsk_free_clus
                     retf
 cw_dsk_get_dir:         call dsk_get_dir

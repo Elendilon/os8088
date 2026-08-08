@@ -259,14 +259,27 @@ $(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 # rather than by double-click (SPEC.md 28). Only the Task Manager so far,
 # which the chip menu opens - so it has to be on the disk in drive A:.
 #
-# It is on the APPS disk TOO, in the root, for the SINGLE-FLOPPY machine
-# (SPEC.md 28.1): there, swapping to the apps disk makes it A:, and the chip
-# menu would otherwise stop working the moment the user went to look for a
-# program. Same file, different attributes - on the system disk it is
-# read-only (SPEC.md 19.6), on the apps disk it is an ordinary file, because
-# that disk is the user's.
+# It is on the APPS disk TOO, for the SINGLE-FLOPPY machine (SPEC.md 28.1):
+# there, swapping to the apps disk makes it A:, and the chip menu would
+# otherwise stop working the moment the user went to look for a program. Same
+# file, different attributes - on the system disk it is read-only
+# (SPEC.md 19.6), on the apps disk it is an ordinary file, because that disk
+# is the user's.
+#
+# It lives in SYSTEM/ on both, which is what SYSAPPSARGS says and what
+# ui_tm_open looks for (SPEC.md 28.3). Kernel machinery in a folder of its
+# own, so the root of a disk is the user's files - and the two disks agree,
+# because the chip menu cannot know which of them is in the drive.
 DRIVERS := $(BUILD)/sound.drv $(BUILD)/hdd.drv $(BUILD)/debug.drv
 SYSAPPS := $(BUILD)/taskmgr.o88
+SYSAPPSARGS := $(addprefix SYSTEM:,$(SYSAPPS))
+
+# ...and MEDIA, which every disk carries and the system disk carries EMPTY:
+# it is where a File Open or File Save starts (SPEC.md 38.10), so it has to
+# exist on whatever volume the user is on, and a boot floppy has no media to
+# put in it. --folder is os88disk's way of saying "this folder, with nothing
+# in it" - a folder otherwise exists only because a file named one.
+MEDIAFOLDER := --folder MEDIA
 
 $(BUILD)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/taskmgr/taskmgr.asm
@@ -309,7 +322,8 @@ $(BUILD)/debug.drv: $(BUILD)/debug.bin tools/os88drv.py
 
 $(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
-		--boot $(BUILD)/boot.bin --kernel $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS)
+		--boot $(BUILD)/boot.bin --kernel $(BUILD)/kernel.bin \
+		$(DRIVERS) $(SYSAPPSARGS) $(MEDIAFOLDER)
 
 # The 720KB 3.5" DD disk (SPEC.md 19). It is the geometry the machines
 # BETWEEN the two shipped ones have: an XT or AT fitted with a 3.5" DD drive,
@@ -322,11 +336,13 @@ $(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88di
 # 80 cylinders instead of 40, and the boot sector never counts cylinders.
 $(IMG720): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 \
-		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS)
+		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
+		$(DRIVERS) $(SYSAPPSARGS) $(MEDIAFOLDER)
 
 $(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
-		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS)
+		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
+		$(DRIVERS) $(SYSAPPSARGS) $(MEDIAFOLDER)
 
 # FMTEST: the AdLib gate package (SPEC.md 34.2/51.4). NEVER on the shipped
 # apps disks - their directory order is pinned (SPEC.md 24) - so it rides its
@@ -855,7 +871,7 @@ $(BUILD)/herc.img: $(BUILD)/kernel.bin $(DRIVERS) \
 	@$(MAKE) BUILD=$(HERCDIR) $(FIELDKNOBS) $(HERCDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(HERCDIR)/boot360.bin --kernel $(HERCDIR)/kernel.bin \
-		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@python3 tools/fieldsize.py $(BUILD)/kernel.bin $(HERCDIR)/kernel.bin
 	@echo "field: $@ - the PROBE kernel; on a machine holding both cards it"
 	@echo "       finds the Hercules (SPEC.md 39.1)"
@@ -864,7 +880,7 @@ $(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/kernel.bin \
-		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@echo "field: $@ - VIDEO=cga, so the Hercules is ignored and the CGA"
 	@echo "       column can be taken without opening the machine"
 
@@ -882,7 +898,7 @@ $(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/kernel.bin \
-		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@echo "field: $@ - the CGA disk on 720KB 3.5\" DD media"
 
 # ...and the A/B disk. FLOPPY1=1 puts dsk_xfer back to one sector per int 13h
@@ -903,7 +919,7 @@ $(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	@$(MAKE) BUILD=$(F1DIR) FLOPPY1=1 $(FIELDKNOBS) $(F1DIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(F1DIR)/boot360.bin --kernel $(F1DIR)/kernel.bin \
-		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@echo "field: $@ - FLOPPY1=1, one sector per int 13h. The A/B against"
 	@echo "       herc.img for docs/FIELD-NOTES.md 7 - run SYSBENCH on both"
 
@@ -925,7 +941,7 @@ $(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(FIELDKNOBS) $(CQDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(CQDIR)/boot360.bin --kernel $(CQDIR)/kernel.bin \
-		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+		$(DRIVERS) $(SYSAPPSARGS) $(FIELDBENCH)
 	@echo "field: $@ - BOOTDIAG=1. A boot that fails prints int 13h's status"
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
@@ -1036,23 +1052,29 @@ APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/mines.o88 $(BUILD)/missile.o88 \
 # open is a player with nothing to play, and this is the one it was written
 # against - so it travels with it rather than being something you have to
 # find. 116KB, which the 360KB disk can still hold alongside every package.
+#
+# It lives in MEDIA/ rather than beside the players in APPS/, because MEDIA
+# is where a File Open starts (SPEC.md 38.10): the module Tracker and ModPlug
+# were written against is in the folder their Open dialog already opens on,
+# which is the whole point of having a default location at all.
 APPS_DATA := apps/tracker/beverly.mod
 
-# The Task Manager, in the ROOT and not in a folder, because that is where
-# ui_tm_open looks: it mounts A: and resolves TASKMGR.O88 in the root
-# (SPEC.md 28.1). Not in APPS_TOOLS - it is not a program to go and find,
-# it is the chip menu's, and a copy in APPS/ would be a second one to
-# double-click by mistake.
-APPS_ROOT := $(SYSAPPS)
-APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_ROOT)
+# The Task Manager, in SYSTEM/ and not in the root, because that is where
+# ui_tm_open looks (SPEC.md 28.3). Not in APPS_TOOLS - it is not a program to
+# go and find, it is the chip menu's, and a copy in APPS/ would be a second
+# one to double-click by mistake.
+APPS_SYS := $(SYSAPPS)
+APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
-# in the tool; no prefix means the root.
+# in the tool; no prefix means the root - and no package uses it any more, so
+# the apps disk lists three folders and nothing else (ASSOC.DAT is the tool's
+# own, and hidden).
 APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
             $(addprefix GAMES:,$(APPS_GAMES)) \
-            $(addprefix APPS:,$(APPS_DATA)) \
-            $(APPS_ROOT)
+            $(addprefix MEDIA:,$(APPS_DATA)) \
+            $(SYSAPPSARGS)
 
 $(APPSIMG): $(APPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(APPSARGS)

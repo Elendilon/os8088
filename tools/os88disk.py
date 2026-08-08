@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """os88disk: build (or verify) a FAT data floppy image from .o88 packages.
 
-    python3 tools/os88disk.py -o OUT.img --size {1440,720,360} [[DIR:]PKG.o88 ...]
+    python3 tools/os88disk.py -o OUT.img --size {1440,720,360}
+                             [--folder NAME ...] [[DIR:]PKG.o88 ...]
     python3 tools/os88disk.py --verify IMG
 
 The image is a canonical DOS FAT floppy (SPEC.md section 19): boot sector
@@ -276,14 +277,19 @@ def build_assoc(groups) -> bytes:
 
 
 def sys_attr(name11: bytes, boot: bool) -> int:
-    """A root entry's attributes. Only a SYSTEM disk locks anything down: a
+    """An entry's attributes. Only a SYSTEM disk locks anything down: a
     data disk is the user's and everything on it is an ordinary file.
 
     The rule is by EXTENSION so it needs no maintenance as drivers are added:
     a `.DRV` on the boot disk is kernel machinery and disappears, anything
     else is visible but read-only, because the boot disk holds nothing a user
     should be deleting by accident. SYSTEM.CFG is not here - the kernel
-    creates that one itself, and stamps it the same way (SPEC.md 51.5)."""
+    creates that one itself, and stamps it the same way (SPEC.md 51.5).
+
+    It is by DISK and by name, never by directory: TASKMGR.O88 moved from the
+    boot disk's root into SYSTEM/ (SPEC.md 28.3) and is the same file it was,
+    so the stamp follows it rather than staying behind with the folder it
+    left."""
     if name11 == ASC_NAME:
         return A_HIDDEN | A_SYS     # the kernel rewrites it, so not read-only
     if not boot:
@@ -413,6 +419,20 @@ def build(args) -> int:
     # duplicates PER DIRECTORY: two folders may each hold a MINES.O88.
     groups: dict = {}                            # folder ('' = root) -> list
     seen: dict = {}                              # folder -> set of name11
+
+    # --folder makes a folder with NOTHING in it. A folder normally comes into
+    # existence because a package named it, which cannot express the one case
+    # the system disk needs: MEDIA is where the Standard File dialog opens
+    # (SPEC.md 38.10) and the boot floppy has no media on it to put there. An
+    # empty directory is one cluster holding '.' and '..', so the code below
+    # needs no special case - only a key with an empty list.
+    for folder in args.folder:
+        key = folder.upper()
+        if key not in groups:
+            folder83(key)
+            groups[key] = []
+            seen[key] = set()
+
     for arg in args.packages:
         folder, path = split_spec(arg)
         key = folder or ""
@@ -532,8 +552,8 @@ def build(args) -> int:
         raw[32:64] = dirent(b"..".ljust(11), 0x10, 0, 0)   # 0 = the root
         for i, (name11, body, _) in enumerate(groups[k]):
             off = (i + 2) * 32
-            raw[off:off + 32] = dirent(name11, 0x20, chains[at + i][0],
-                                       len(body))
+            raw[off:off + 32] = dirent(name11, sys_attr(name11, boot),
+                                       chains[at + i][0], len(body))
         at += len(groups[k])
         put(dir_chains[k], bytes(raw))
 
@@ -773,13 +793,17 @@ def main() -> int:
     ap.add_argument("--kernel", metavar="KERNEL.bin",
                     help="the kernel, placed in the FAT reserved area so the "
                          "boot sector's raw LBA read still finds it")
+    ap.add_argument("--folder", metavar="NAME", action="append", default=[],
+                    help="create this folder even if no file names it "
+                         "(repeatable); an 8.3 stem, no extension")
     ap.add_argument("packages", metavar="[DIR:]PKG.o88", nargs="*",
                     help="package files, in directory order "
                          "(none = empty disk)")
     args = ap.parse_args()
 
     if args.verify:
-        if args.output or args.size or args.scramble or args.packages:
+        if args.output or args.size or args.scramble or args.packages \
+                or args.folder:
             ap.error("--verify takes no other arguments")
         return verify(args.verify)
     if not args.output or not args.size:
