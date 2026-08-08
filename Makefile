@@ -281,6 +281,39 @@ SYSAPPSARGS := $(addprefix SYSTEM:,$(SYSAPPS))
 # in it" - a folder otherwise exists only because a file named one.
 MEDIAFOLDER := --folder MEDIA
 
+# SYSDOC is the manual, and it is deliberately NOT part of SYSAPPS: that list
+# rides the apps disk (APPS_ROOT) and all five `make field` disks as well, and
+# 16KB of prose on a 360KB benchmark disk is 16KB the benchmarks may want. It
+# goes on the three SHIPPED system images and nowhere else.
+#
+# README.TXT: the user manual, in the root of the system disk, so the machine
+# explains itself with no second disk and no host computer to read it on.
+#
+# Two constraints shape the source file and neither is arbitrary. Note Pad
+# wraps by WORD (SPEC.md 27.11), so PROSE is written as one long line per
+# paragraph and re-flows to whatever width the window is dragged to. What
+# cannot re-flow is everything whose SHAPE is the meaning - the rules under a
+# heading, the two-column key tables, the contents list - so those are
+# hand-wrapped to 28 columns, one under the 29 that Note Pad's default window
+# fits (260px frame, less the border, the 8px margin and the 14px scroll bar,
+# over an 8px cell). And the whole file stays under 16KB because that is Note
+# Pad's own ceiling (NP_MAXKB): a byte over and it refuses the file outright
+# with 'Too big'. tools/checkreadme.py holds both, and runs before the file
+# is used.
+#
+# CRLF is applied HERE rather than committed, so the repository copy stays a
+# plain LF text file that diffs and merges normally, and the disk gets the
+# DOS line endings a .TXT on a FAT floppy is expected to have (the disks are
+# meant to be readable on a DOS PC - SPEC.md 19). The conversion is
+# idempotent: LF is normalised out first, so re-running it never doubles a CR.
+SYSDOC := $(BUILD)/readme.txt
+
+$(BUILD)/readme.txt: readme.txt tools/checkreadme.py | $(BUILD)
+	python3 tools/checkreadme.py $<
+	python3 -c "import sys; d = open(sys.argv[1], 'rb').read(); \
+		open(sys.argv[2], 'wb').write(d.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n'))" \
+		$< $@
+
 $(BUILD)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/taskmgr/taskmgr.asm
 	@echo "taskmgr: $(call FILESIZE,$@) bytes"
@@ -320,10 +353,10 @@ $(BUILD)/debug.bin: drivers/debug/debug.asm drivers/os88drv.inc apps/os88api.inc
 $(BUILD)/debug.drv: $(BUILD)/debug.bin tools/os88drv.py
 	python3 tools/os88drv.py $(BUILD)/debug.bin -o $@
 
-$(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
+$(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(BUILD)/kernel.bin \
-		$(DRIVERS) $(SYSAPPSARGS) $(MEDIAFOLDER)
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
 
 # The 720KB 3.5" DD disk (SPEC.md 19). It is the geometry the machines
 # BETWEEN the two shipped ones have: an XT or AT fitted with a 3.5" DD drive,
@@ -334,15 +367,15 @@ $(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88di
 #
 # Same boot sector as the 360KB disk (see boot360.bin above): 9 spt, 2 heads,
 # 80 cylinders instead of 40, and the boot sector never counts cylinders.
-$(IMG720): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
+$(IMG720): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
-		$(DRIVERS) $(SYSAPPSARGS) $(MEDIAFOLDER)
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
 
-$(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
+$(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(SYSDOC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
-		$(DRIVERS) $(SYSAPPSARGS) $(MEDIAFOLDER)
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSDOC) $(MEDIAFOLDER)
 
 # FMTEST: the AdLib gate package (SPEC.md 34.2/51.4). NEVER on the shipped
 # apps disks - their directory order is pinned (SPEC.md 24) - so it rides its

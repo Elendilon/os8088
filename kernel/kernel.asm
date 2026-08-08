@@ -732,7 +732,10 @@ osapi_table:
                                   ;          its hands off it
     OSAPI_JSLOT api_file_delete   ; 0x0130   and the name still has to cross
     OSAPI_JSLOT api_file_rename   ; 0x0138   (two names, this one)
-    OSAPI_SLOT dskw_dfree         ; 0x0140
+    OSAPI_SLOT osapi_file_dfree   ; 0x0140 - free space on the CALLING
+                                  ;          INSTANCE's volume (SPEC.md
+                                  ;          19.2.1), which is the only
+                                  ;          volume its writes can reach
     OSAPI_SLOT menu_win_set       ; 0x0148 - app menus (SPEC.md 12.2): the
                                   ;          set's segment comes from the
                                   ;          window, so no stub is needed
@@ -1169,8 +1172,14 @@ dbg_reg:
     OSAPI_XSTUB api_assoc_set,  osapi_assoc_set
 
 ; N: the name at the caller's DS:SI is staged into kernel scratch first,
-; because ES:BX belongs to the caller's data buffer and cannot carry it
-%macro OSAPI_NSTUB 2
+; because ES:BX belongs to the caller's data buffer and cannot carry it.
+;
+; The optional third argument is V - "resolve this in the CALLING INSTANCE's
+; directory" (SPEC.md 19.2.1). It goes on every cell that resolves a file
+; name and on nothing else: api_fdlg_open uses this macro too and must NOT
+; have it, because fdlg_home_go is the routine that decides where a DIALOG
+; opens and a volume switch underneath it would pre-empt that decision.
+%macro OSAPI_NSTUB 2-3 0
 %1:
     push ds
     push si
@@ -1185,6 +1194,9 @@ dbg_reg:
                                 ; input (the completion proc's offset)
     push cs
     pop ds                      ; DS = KERNEL
+%if %3
+    call inst_vol_enter         ; this instance's own folder (SPEC.md 19.2.1);
+%endif                          ; preserves every register and the flags
     mov si, api_name
     call %2
     pop si
@@ -1192,10 +1204,10 @@ dbg_reg:
     retf
 %endmacro
 
-    OSAPI_NSTUB api_file_write,  dskw_write
-    OSAPI_NSTUB api_file_read,   dskw_read
-    OSAPI_NSTUB api_file_delete, dskw_delete
-    OSAPI_NSTUB api_fdlg_open,   fdlg_open
+    OSAPI_NSTUB api_file_write,  dskw_write,  1
+    OSAPI_NSTUB api_file_read,   dskw_read,   1
+    OSAPI_NSTUB api_file_delete, dskw_delete, 1
+    OSAPI_NSTUB api_fdlg_open,   fdlg_open       ; NO V - see the macro
 
 ; ...and the two-name case, which needs DI as well and so is written out
 api_file_rename:
@@ -1214,6 +1226,10 @@ api_file_rename:
     pop es
     push cs
     pop ds                      ; DS = KERNEL
+    call inst_vol_enter         ; V, as the three above (SPEC.md 19.2.1):
+                                ; BOTH names resolve in the calling
+                                ; instance's directory, which is the only
+                                ; reading of a rename that makes sense
     mov si, api_name
     mov di, api_name2
     call dskw_rename
@@ -1488,31 +1504,71 @@ osapi_font_glyphs:
     mov cx, 8
     ret
 
+; ---- osapi_file_dfree - free space where this app's writes will land -------
+; The same V as the three name cells (SPEC.md 19.2.1), and for a sharper
+; reason than symmetry: an app asks this to find out whether its save will
+; fit, so an answer about a volume other than the one the save is going to
+; is not merely stale, it is about the wrong disk.
+osapi_file_dfree:
+    call inst_vol_enter
+    jmp dskw_dfree              ; a tail call: its outputs and CF are ours
+
 ; ---- osapi_file_here / osapi_file_goto - the volume's location (SPEC.md 19.2)
 ;
-; The file API resolves every name in the volume's CURRENT directory, which is
-; one global word shared by every window and by the Standard File dialog
-; (SPEC.md 18.4/19.2). That is fine while a save is happening - the dialog
-; leaves the volume in the folder the user picked, so the write lands there -
-; and wrong the moment the app wants to write to the SAME PLACE again later,
-; because any Disk window navigating anywhere has moved it since.
+; **These two answer for the CALLING INSTANCE now** (SPEC.md 19.2.1), not for
+; the machine, and the change is worth reading because it turns this pair
+; from a requirement into a convenience.
 ;
-; So an app that means "where I saved last time" has to say so:
+; What it used to say here was: the file API resolves every name in the
+; volume's current directory, that is one global word shared by every window,
+; so an app that means "where I saved last time" has to bank the pair and put
+; it back - and four packages duly did (Note Pad, Tracker, Paint, ArtfulType),
+; each with its own copy of the same six lines, each of them a bug waiting for
+; the fifth package not to write them. The instance owns its directory now, so
+; the kernel does that banking underneath every file cell (inst_vol_enter) and
+; no package has to do it at all.
 ;
-;   osapi_file_here   out DX = the current directory's first cluster (0 = the
-;                     root), BL = the drive (0 = A:, 1 = B:). No disk I/O.
+;   osapi_file_here   out DX = the calling instance's current directory (0 =
+;                     the root), BL = its drive (0 = A:, 1 = B:). No disk I/O.
 ;   osapi_file_goto   in  DX = a cluster from osapi_file_here, BL = its drive;
+;                     MOVES that instance there, and the machine with it.
 ;                     out CF=1 the volume could not be listed there and is
 ;                     back at the root with the write gate shut. This is a
 ;                     REMOUNT (SPEC.md 19.2) - real floppy I/O, UI-task
 ;                     context only, exactly like the other file slots.
 ;
-; Storing the pair beside the file name is what makes an app's "Save" mean
-; the same file its "Save As" chose.
+; The four existing callers keep working unchanged: `here` still answers the
+; folder the dialog just committed to (fdlg_home_save records it into the
+; instance before the completion callback runs), and their `goto` back to it
+; is now a compare that finds the volume already there. Redundant, not wrong -
+; which is the only way to retire a duty a published slot handed to apps.
+;
+; A caller with no instance behind it - the kernel, a driver - gets the
+; machine's own position, exactly as before.
 ; -----------------------------------------------------------------------------
+; DX and BL are the outputs; SPEC.md 1 makes everything else this routine's
+; to preserve, BH and AX included - so the slot walks the side table through
+; SI rather than through the BX it is about to answer in.
 osapi_file_here:
-    mov dx, [dsk_cwd]
-    mov bl, [disk_drive]
+    push cx
+    push si
+    call inst_caller            ; DH = the calling instance; DX is an output,
+    mov si, dx                  ; so both halves of it are ours to spend
+    mov cl, 8
+    shr si, cl                  ; SI = the slot (8086: shifts go through CL)
+    cmp si, INST_MAX
+    jae .global
+    mov bl, [inst_fdrv+si]      ; the instance's drive...
+    shl si, 1
+    mov dx, [inst_fcwd+si]      ; ...and its directory
+    pop si
+    pop cx
+    ret
+.global:
+    mov dx, [dsk_cwd]           ; no instance behind this call: the machine's
+    mov bl, [disk_drive]        ; own position, exactly as before
+    pop si
+    pop cx
     ret
 
 osapi_file_goto:
@@ -1520,7 +1576,12 @@ osapi_file_goto:
     mov ax, dx
     mov dl, bl
     call dsk_chdir              ; CF = the mount failed; it has already put
-    pop ax                      ; the volume back at the root
+    jc .out                     ; the volume back at the root
+    call inst_vol_mark          ; ...and the instance follows the machine:
+                                ; this is a deliberate move, so it is where
+                                ; that app now believes it is standing
+.out:
+    pop ax
     ret
 
 ; ---- osapi_video - the screen the program actually got (SPEC.md 39.2) --------
@@ -1566,6 +1627,11 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
                                 ; memory.inc, whose heap the text lives in
 %include "instance.inc"
 %include "menu.inc"
+%include "fprog.inc"          ; the file-operation progress widget (SPEC.md
+                              ; 12.8): after menu.inc, whose bar geometry it
+                              ; sits beside and whose menu_draw_bar gives the
+                              ; borrowed pixels back; before disk.inc, which
+                              ; steps it per sector
 %include "ui.inc"
 %include "apps.inc"
 %include "assoc.inc"          ; file type associations (SPEC.md 54): the
@@ -1698,6 +1764,10 @@ cw_evq_pop:             call evq_pop
 cw_font_str:            call font_str
                     retf
 cw_font_width:          call font_width
+                    retf
+cw_fpg_begin:           call fpg_begin
+                    retf
+cw_fpg_end:             call fpg_end
                     retf
 cw_gfx_fill:            call gfx_fill
                     retf

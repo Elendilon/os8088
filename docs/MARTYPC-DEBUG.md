@@ -230,7 +230,7 @@ is the client — a CLI, a REPL and an importable `Marty` class.
 | `video` | which card, its raster geometry and its display apertures |
 | `fbuf` | the card's RENDERED framebuffer as rgb24 — the only route on VGA |
 | `flicker` | one sample per DISPLAYED FRAME, and the flash/redraw counts |
-| `pace` | per-frame changed counts over a long run — frame pacing / smoothness |
+| `pace` | per-frame changed counts over a long run — frame pacing / smoothness. `ignore` excludes a rect (a blinking cursor); `video` reports the card's cursor state |
 | `key` | a keypress by MartyKey name — `KeyA`, `Enter`, `ArrowRight` |
 | `mouse` | one Microsoft packet: relative `dx`/`dy` and button state |
 | `history` / `callstack` | the CPU's own instruction history |

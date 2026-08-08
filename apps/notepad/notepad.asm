@@ -11,7 +11,8 @@
 ;
 ; Editing behaviour is unchanged from the built-in (SPEC.md 14): printable
 ; 32..126 append, backspace deletes, Enter stores a newline byte; text wraps
-; at the content width with 6px margins, rows that would overflow the
+; at the content width BY WORD (SPEC.md 27.11), with 6px margins, rows that
+; would overflow the
 ; content bottom are dropped rather than scrolled, and a 1px caret follows
 ; the text when its own row fits.
 ;
@@ -1238,6 +1239,12 @@ np_walk:
                                     ; an array by it already tests UNSIGNED
                                     ; against a limit, and a negative word
                                     ; read as unsigned is past all of them
+    mov byte [np_wstart], 1         ; whatever this walk starts on begins a
+                                    ; word as far as it can tell (SPEC.md
+                                    ; 27.11). A seeded walk may in fact resume
+                                    ; inside one, and cannot be wrong for it:
+                                    ; a seed is always a row START, where the
+                                    ; word test never breaks anyway
     mov bx, [np_len]                ; BX = characters remaining
     xor si, si                      ; ES:SI = the document (SPEC.md 27.6), and
     mov es, [np_dseg]               ; ES survives every callee below: np_rstart
@@ -1265,7 +1272,14 @@ np_walk:
     mov cx, di
     add cx, 7
     cmp cx, [np_rgt]
-    jbe .fits
+    ja .over                        ; the cell itself does not fit...
+    call np_wordfit                 ; ...or the WORD that begins here would run
+    jnc .fits                       ; off the row (SPEC.md 27.11)
+    jmp short .wrap
+.over:
+    call np_hangsp                  ; a trailing SPACE hangs past the margin
+    jc .fits                        ; rather than indent the row below it
+.wrap:
     call np_rflush                  ; the row that is ENDING, before np_nextrow
     mov di, [np_tx]                 ; moves [np_row] off it
     add bp, 8
@@ -1302,6 +1316,8 @@ np_walk:
     inc word [np_i]
     cmp al, 13
     jne .glyph
+    mov byte [np_wstart], 1         ; a line break is a break opportunity like
+                                    ; a space (SPEC.md 27.11)
     call np_rflush                  ; same as the wrap above: flush before
     mov di, [np_tx]                 ; np_nextrow moves off this row
     add bp, 8                       ; newline: carriage return + line feed,
@@ -1312,6 +1328,11 @@ np_walk:
     jle .loop                       ; the reason at the wrap above
     jmp .stop
 .glyph:
+    mov byte [np_wstart], 0         ; the next index is mid-word...
+    cmp al, ' '
+    jne .wsdone
+    mov byte [np_wstart], 1         ; ...unless this is the space that ended
+.wsdone:                            ; one (SPEC.md 27.11)
     push ax                         ; fold it in whatever this pass is for:
     xor ah, ah                      ; the pass that COMPUTES the signatures is
     push ax                         ; a measure pass, so this cannot hang off
@@ -1486,6 +1507,138 @@ np_walk:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; np_hangsp - may the cell at this pen hang past the right edge?
+; in:  ES:SI = the document at [np_i], BX = characters left, DI = pen x
+; out: CF = 1 = do not wrap, let it hang; preserves every register
+;
+; Only a SPACE, and only one cell's worth. Word wrap ends a row after the last
+; word that fits, and the space that follows that word then has nowhere to go:
+; the cell rule sends it to the next row, where it is an indent nobody typed -
+; one row in [np_rcols], often enough to look like a mistake in a narrow
+; window. Every text editor hangs it past the margin instead, and here that
+; costs nothing, because the cell is beyond [np_rcols] and so is dropped by
+; the row buffer's own bound rather than drawn: a space paints nothing anyway.
+;
+; The overshoot is capped at that one cell, which is what keeps a run of
+; spaces from walking the pen out of the window - and out of a 16-bit DI.
+; -----------------------------------------------------------------------------
+np_hangsp:
+    or bx, bx
+    jz .no                          ; the end of the note: nothing to hang
+    push ax
+    mov ax, [np_rgt]
+    inc ax
+    cmp di, ax
+    ja .popno                       ; already hanging: the next one wraps
+    mov al, [es:si]
+    cmp al, ' '
+    jne .popno
+    pop ax
+    stc
+    ret
+.popno:
+    pop ax
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; np_wordfit - would the word beginning at this index run off the row?
+; in:  ES:SI = the document at [np_i], BX = characters left, DI = pen x,
+;      [np_wstart] = 1 if this index begins a word
+; out: CF = 1 = break the row BEFORE this index; preserves every register
+;
+; The whole of SPEC.md 27.11's word wrap, and the only lookahead in this
+; module. It is asked at a word's FIRST character and nowhere else, because
+; the answer cannot change inside one: what is left of a word only gets
+; shorter as the pen advances it, so a word that fitted at its first cell
+; still fits at its second. That is what keeps the cost one scan per word
+; rather than one per character.
+;
+; TWO thresholds, not one, and the second is what stops it spinning. R is what
+; is left of THIS row, and a word ending inside it needs no break at all.
+; [np_rcols] is a whole row, and a word longer than THAT can never be helped
+; by breaking - it has to be split by the cell rule wherever it stands, and
+; forcing a wrap for it would put the pen at the left margin and ask the same
+; question again, forever. Between the two thresholds is the only case there
+; is.
+;
+; A word already AT the left margin is the same guard doing second duty and
+; needs no test of its own: there R equals [np_rcols], so "longer than R" and
+; "longer than a row" are one question and the answer is always "do not
+; break".
+; -----------------------------------------------------------------------------
+np_wordfit:
+    cmp byte [np_wstart], 0
+    je .no                          ; mid-word: asked and answered at its first
+    or bx, bx                       ; character
+    jz .no                          ; nothing left to measure
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    mov ax, [np_rgt]
+    inc ax
+    sub ax, di                      ; pixels left on this row, this cell first
+    jle .pop_no                     ; the caller has already tested the cell,
+    mov cl, 3                       ; so this cannot fire - but a shift of a
+    shr ax, cl                      ; negative width would answer nonsense
+    mov dx, ax                      ; DX = R, whole cells left on this row
+
+    mov cx, dx                      ; --- does the word END inside them? -----
+.p1:                                ; THE BREAK TEST COMES FIRST, and the cell
+    or bx, bx                       ; count second: a word that exactly fills
+    jz .pop_no                      ; the space left ends on the cell after the
+    mov al, [es:si]                 ; last one it occupies, and testing the
+    cmp al, ' '                     ; count first calls that an overflow. It
+    je .pop_no                      ; is invisible at 29 columns and constant
+    cmp al, 13                      ; at 9, which is what a narrow window
+    je .pop_no                      ; showed
+    jcxz .p2
+    inc si
+    dec bx
+    dec cx
+    jmp short .p1
+
+.p2:                                ; --- no. Would a whole row hold it? -----
+    mov cx, [np_rcols]
+    sub cx, dx                      ; the cells a FRESH row would add
+    jbe .pop_no                     ; the pen is at the left margin already
+.p2l:
+    or bx, bx                       ; same order, for the same reason
+    jz .pop_yes                     ; the note ends: a fresh row would hold it
+    mov al, [es:si]
+    cmp al, ' '
+    je .pop_yes
+    cmp al, 13
+    je .pop_yes
+    jcxz .pop_no                    ; longer than a row: the cell rule owns it
+    inc si
+    dec bx
+    dec cx
+    jmp short .p2l
+
+.pop_yes:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+.pop_no:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.no:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2671,18 +2824,90 @@ np_settle:
 ; fall back. That fallback is the ONLY thing keeping a stale table from
 ; answering with a plausible wrong index.
 ; -----------------------------------------------------------------------------
+; np_seedck seeds one row EARLIER than the caret's, and walks back further
+; still through a long word. SPEC.md 27.4's licence to resume at the caret's
+; own row was "wrapping is an automaton with no lookahead", and SPEC.md 27.11
+; took that away: the break in FRONT of a row is decided by the length of the
+; word BEHIND it, so an edit inside the caret's row can move the break that
+; put the row where it is. Redoing the row above is what re-decides it.
+;
+; The walk back covers the other half. A row that begins mid-word was split by
+; the cell rule, and the word-fit test that let it get that far was taken at
+; the word's first character, which may be several rows up; only from there is
+; the layout genuinely independent of the edit. It is bounded by the note and
+; runs one iteration in every ordinary case, because an ordinary row begins
+; after a space.
+;
+; Failing back to a full walk when the table runs out is not a fallback but
+; the correct answer: [np_rows] describes visible rows only, so row 0 of a
+; SCROLLED view was placed by a break above the view, and nothing here can
+; redo it.
 np_seedck:
     push ax
+    push bx
+    push cx
+    push es
     mov byte [np_resume], 0
     cmp byte [np_ckok], 0
     je .out
-    mov ax, [np_ckpi]
-    mov [np_sdi], ax
-    mov ax, [np_ckpr]
+    mov es, [np_dseg]
+    mov ax, [np_ckpr]               ; the caret's row...
+.back:
+    call np_rowstart                ; ...and the index it begins at
+    jc .out
+    or bx, bx
+    jz .seed                        ; index 0 begins the NOTE: there is no
+                                    ; earlier break to be redecided
+    mov cl, [es:bx-1]
+    cmp cl, ' '
+    je .prev
+    cmp cl, 13
+    je .prev
+    or ax, ax                       ; mid-word: this row was split by the cell
+    jz .out                         ; rule, and the word began further back
+    dec ax
+    jmp short .back
+.prev:
+    or ax, ax                       ; a word start, so the break in front of it
+    jz .out                         ; was taken while the row ABOVE was laid
+    dec ax                          ; out - so redo that one too
+    call np_rowstart
+    jc .out
+.seed:
+    mov [np_sdi], bx
     mov [np_sdr], ax
     mov byte [np_resume], 1
 .out:
+    pop es
+    pop cx
+    pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; np_rowstart - the index visible row AX begins at (SPEC.md 27.5)
+; in:  AX = the row
+; out: CF = 0 and BX = the index; CF = 1 = np_rows does not describe that row
+; clobbers: BX and CF; every other register preserved
+; -----------------------------------------------------------------------------
+np_rowstart:
+    push ax
+    cmp byte [np_rowsok], 0
+    je .no
+    cmp ax, [np_rowsn]
+    jae .no                         ; unsigned, so a row ABOVE the view - a
+                                    ; negative index - fails here too
+    shl ax, 1
+    mov bx, ax
+    mov bx, [bx+np_rows]
+    cmp bx, [np_len]
+    ja .no
+    pop ax
+    clc
+    ret
+.no:
+    pop ax
+    stc
     ret
 
 np_seedrow:
@@ -4404,15 +4629,21 @@ np_ondlg:
 ; np_goto - put the volume back in this document's folder (SPEC.md 19.2)
 ; out: nothing; preserves all registers
 ;
-; A file name resolves in the volume's CURRENT directory, and that is one
-; global word shared by every Disk window and by the file dialog. Right after
-; Save As it still names the folder the user picked - which is why saving
-; into a folder worked - but by the next Save anything that navigated has
-; moved it, and the write landed in the root. The pair OSAPI_FILE_HERE
-; recorded is what says otherwise.
+; **THE KERNEL DOES THIS NOW, and this routine is kept as a no-op that costs
+; two compares** (SPEC.md 19.2.1). A file name used to resolve in the ONE
+; global current directory shared by every Disk window and by the file
+; dialog: right after Save As it still named the folder the user picked -
+; which is why saving into a folder worked - but by the next Save anything
+; that navigated had moved it, and the write landed in the root. Four
+; packages each carried their own copy of the six lines below, which is what
+; eventually said the kernel owed the feature rather than the SDK owing an
+; example. An instance owns its directory now, so OSAPI_FILE_HERE answers
+; this document's folder and the OSAPI_FILE_GOTO below never fires.
 ;
-; A remount is real floppy I/O, so it is skipped when the volume is already
-; there, which is the common case.
+; It stays because the slots keep their contract (SPEC.md 20.8 rule 4) and
+; because a remount was always skipped when the volume was already there -
+; which is now every time. Deleting it would be correct and would also delete
+; the record of why it was ever needed.
 ; -----------------------------------------------------------------------------
 np_goto:
     push ax
@@ -8714,6 +8945,15 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
     NPVAR np_rxs, NP_RXST*8
     NPVAR np_rxsp, 2        ; word: frames in use
     NPVAR np_rxend, 2       ; word: one past the match, when one is found
+
+; --- word wrap (SPEC.md 27.11) -----------------------------------------------
+    NPVAR np_wstart, 1      ; byte: the index the walk is standing on begins a
+                            ; word, so np_wordfit has a question to answer.
+                            ; Maintained by the walk itself - set at its start,
+                            ; by a space and by a line break, cleared by every
+                            ; other character - because the alternative is
+                            ; reading the character BEFORE the one in hand,
+                            ; which a seeded walk cannot always do
 
 %assign NP_BSS_TOTAL NPB
 
