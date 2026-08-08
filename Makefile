@@ -160,11 +160,29 @@ KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 run-720 debug test test-snd xt xt-640 xt-cga \
         xt-hercules 286 386sx 386 xt-sound 286-sound 386-sound \
-        bench field stackprobe trklog marty comscan clean
+        bench field stackprobe trklog marty comscan checkdocs clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
-all: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360)
+all: checkdocs $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360)
+
+# The documentation gate (SPEC.md is the binding contract, so a citation that
+# names a heading which does not exist is a defect in it): a stale section
+# reference, and an API slot number in prose that no longer names that
+# routine. The second is the one that cannot be caught by reading - after a
+# renumbering a stale slot is usually still a VALID slot, just a different
+# call.
+#
+# It runs in the DEFAULT build rather than sitting behind `make checkdocs`,
+# and that is the whole point of the target: nothing ran it for long enough to
+# accumulate 34 findings, and a check nobody types has exactly that failure
+# mode. Same shape as os88ovlchk.py on the kernel rule below - a gate whose
+# value is that it cannot be skipped - and it costs ~0.7 s, reads only tracked
+# text and writes nothing. It builds no artifact, so it is PHONY and every
+# `make` pays it; that is deliberate, because the drift it catches arrives in
+# commits that touch no source at all.
+checkdocs:
+	@python3 tools/checkdocs.py
 
 $(BUILD):
 	@mkdir -p $(BUILD)
