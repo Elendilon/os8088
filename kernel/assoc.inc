@@ -847,11 +847,12 @@ assoc_locate:
 ; in:  [assoc_dapp] != 0xFF; UI task, NO lock held
 ; out: nothing (all registers preserved)
 ;
-; Structured like loader_run and ui_tm_open together: sync to the poster so
-; the globals ARE its listing, bank where that is, go and find the program,
-; load it, and put the volume back where the user was. The document is handed
-; to the package by PULL - it asks with OSAPI_ARG_FILE - so nothing here has
-; to be standing in the document's directory when the entry proc runs.
+; Structured like loader_run and ui_tm_open together: bank where the document
+; lives, go and find the program, load it, and put the volume back where the
+; user was. Where it lives comes off the POSTER's state block and not from a
+; mount (SPEC.md 54.9.1). The document is handed to the package by PULL - it
+; asks with OSAPI_ARG_FILE - so nothing here has to be standing in the
+; document's directory when the entry proc runs.
 ; -----------------------------------------------------------------------------
 assoc_run:
     push ax
@@ -1010,7 +1011,9 @@ assoc_doc:   resb 13            ; the pending document's 8.3 name
 assoc_fnb:   resb 13            ; '<STEM>.O88', built by assoc_fname
 assoc_dclus: resw 1             ; ...and where it lives: directory cluster
 assoc_ddrv:  resb 1             ; ...and volume
-assoc_pwin:  resw 1             ; the Disk window that posted it
+assoc_pwin:  resw 1             ; the posting Disk window's STATE BLOCK, not
+                                ; its window record - FS_DRV/FS_CWD are read
+                                ; off it (SPEC.md 54.9.1), as ld_pwin is
 section .text
 
 ; =============================================================================

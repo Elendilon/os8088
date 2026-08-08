@@ -21045,12 +21045,44 @@ audit for this path, since it is the one that decides:
   (drive, cwd) compare says "already there" and the index resolves against
   `disk_nfiles` = 0. It has the test (18.9).
 
-**What this does NOT reach** is the other two mounts of a document open,
-`fmv_sync`'s and `assoc_try`'s, which stay full. Both are full for one
-reason: `dsk_find_name` walks the LISTING, and it does so only because
-`ld_run_body` wants a directory INDEX. `dskw_stat` answers the same question
-off directory sectors. Breaking that link would take roughly 22 more sectors
-(~5.2 s) off every document open, and is the change 21.4 is reserved for.
+**The other two mounts of a document open are gone as well**, and both went
+for the one reason this paragraph used to predict: `dsk_find_name` walks the
+LISTING, and it did so only because `ld_run_body` wants a directory INDEX.
+21.4's `ld_run_name` answers the same question off directory sectors, so
+`assoc_try` needs no listing and is quiet too; and `assoc_run`'s is 54.9.1
+below. Measured on the same document open: 295 sectors → 284 → **274**, and
+35 `int 13h` calls → 32 → **30**.
+
+### 54.9.1 The document's folder comes from the POSTER, not from a mount
+
+`assoc_run` has to know where the document lives — to bank it, and to come
+back to it at 54.9 — and it used to learn that by calling `fmv_sync`: a
+**full mount**, wanted for exactly two words, which `fmv_sync` itself takes
+from exactly where `assoc_run` can read them. It reads them: `FS_DRV` and
+`FS_CWD` off the posting window's own state block (§22.1).
+
+**The globals are the wrong place to ask.** `[disk_drive]`/`[dsk_cwd]` are
+one pair for the whole machine, and the window that posted this double-click
+need not be the one currently mounted — four Disk windows may each be on
+their own drive and folder (§22). So the question "where is this document?"
+has one honest answer and it is the poster's, not the machine's.
+
+**What licenses it is that nothing downstream needs the globals to BE that
+folder**, which is the audit rather than the hope:
+
+- `assoc_locate` navigates itself, rung by rung (§54.4).
+- `assoc_back` returns to what was banked here, not to what was mounted.
+- `files_refresh` / `files_poster` paint from the **window's** cache (§22.1).
+- the document is handed over by PULL (§54.5), so nothing has to be standing
+  in its directory when the entry proc runs.
+
+**With no poster the current volume IS the home** — that is a package's own
+request rather than a double-click, and there is no window to ask.
+
+**The trap is the pointer's name.** `[assoc_pwin]`, like `[ld_pwin]`, holds
+the poster's **state block** and not its window record; `FS_DRV`/`FS_CWD` are
+`fm_pool` fields (§22). Read as a window it is a garbage rect, and 22's own
+`files_poster` note is the same distinction from the other side.
 
 ## 55. clip.inc — the system clipboard
 
