@@ -145,10 +145,20 @@ All of the following was run end to end in the container, against
 
 - The BIOS date string read out of `0xFFFF5` as `10/27/82`, and the reset
   vector at `0xFFFF0` as `EA 5B E0 00 F0` — `jmp F000:E05B`.
-- os8088 boots. Its kernel reached `0x600` after **81M cycles — 17.0 seconds
-  of guest time**, and the desktop was up at 201.8s of guest time.
+- os8088 boots, twice: once from the development tree and once from what
+  `build.sh` produces from scratch, with identical results.
+- **The kernel is at `0x600` and the desktop comes up.** Two runs saw it
+  first at 81M and 313M cycles — and that spread is the measurement, not the
+  machine: both numbers come from *polling* memory every few seconds of wall
+  clock while MartyPC runs faster than real time and at a rate that depends
+  on host load, so what they bound is when somebody looked. **They are not a
+  boot time and must not be quoted as one.** The right instrument is an exec
+  breakpoint on `0060:0000`, and it did not fire inside the window this was
+  given; that is unfinished rather than answered.
 - `verify`: **71,624 bytes dumped, 1,351 differing (1.89%)** in 183 runs, with
-  `boot_ticks` reading 40 live against `0xFFFF` in the file. For scale,
+  `boot_ticks` reading 40 live against `0xFFFF` in the file — **byte-identical
+  between the development build and `build.sh`'s**, which is the check that
+  the vendored patch is the thing that was tested. For scale,
   docs/FIELD-MACHINES.md's hand-taken MartyPC dump was 1,353 differing of
   71,112 — the same instrument, automated.
 - `regs` at the desktop: `cs=0060 ds=0060 ss=1260 sp=2228` — SPEC.md §1's near
