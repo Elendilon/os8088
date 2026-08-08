@@ -17,8 +17,10 @@ last time.
 ## The rule
 
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
-includes its buffers.** The span is `KERN_BUDGET` bytes — 84KB today. It
-currently runs 0x00600 through 0x152FF, and the budget's ceiling is 0x15600.
+includes its buffers.** The budget is 84KB today; the span it holds currently
+runs 0x00600 through **0x153FF**, and the budget's ceiling is 0x15600 — so
+there is **one 512-byte step** left under it. `tools/kernsize.py`, below, is
+what says so, and `make` runs it on every build.
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
 data, `.bss`, the cold segment, the FAT window, the directory and icon
@@ -212,9 +214,9 @@ Move 9 made that lopsided:
 
 | | headroom |
 |---|---:|
-| `KERN_CODE_MAX`, the segment | **17,168 B** for `.text` + `.bss` |
-| **`KERN_BUDGET`, the footprint** | **4,096 B** for the whole span |
-| guard 5, the smallest supported machine | **44,544 B** for the whole span |
+| `KERN_CODE_MAX`, the segment | **14,553 B** for `.text` + `.bss` |
+| **`KERN_BUDGET`, the footprint** | **512 B** for the whole span — one step |
+| guard 5, the smallest supported machine | **41,472 B** for the whole span |
 
 The budget is still the tighter of the three and is meant to be. What changed
 with SPEC.md §2.7 is that it is a *decision* again rather than a wall: below
@@ -249,6 +251,114 @@ out of the segment is not free**, and neither is moving code into `.cold`.
 
 ---
 
+## Accounting: a rung is the unit, and staying under one is not free
+
+**"It did not cross a rung" is not "it cost nothing".** It is the single
+easiest thing to get wrong when reporting a change, and it has been reported
+wrongly in this tree, so it gets its own section.
+
+A section's bytes are rounded up to a whole 512 before they enter the ladder,
+so most changes move `KERN_SIZE` by exactly **zero**. That is a true statement
+about the machine — no boot takes another byte of RAM, the heap starts in the
+same place, no figure a user can see moves — and it is a false statement about
+the cost. The bytes came out of the **slack in that rung**, and that slack is
+not the change's to keep: it is the space the *next* feature has before it
+pays a whole 512 for its first byte.
+
+So a change has two prices and both have to be named:
+
+| | what it is | who pays |
+|---|---|---|
+| **the bytes** | `.text` + `.bss` + `.cold` + `.lowbss` deltas, summed | the next feature, out of the rung's slack |
+| **the rung** | whether `KERN_SIZE` moved a step | the machine, in RAM, on every boot |
+
+Two failure modes follow, and they are opposite. Reporting only the rung says
+"free" about a change that quietly ate 400 of a rung's 512 bytes, and the
+author of the next 200-byte change then gets handed a 512-byte bill they did
+nothing to earn — the SPEC.md §14.1 case, where 80 bytes of Timer state met a
+rung with **12** left and cost a whole step. Reporting only the bytes hides
+the moment the machine's RAM actually changed, which is the thing
+`KERN_BUDGET` exists to make a decision rather than an accident.
+
+**Report both, always: the per-section jumps, their sum, and the rung state
+including how much slack is left in each.** The last part is the one that
+makes the next author's estimate possible. `tools/kernsize.py` produces
+exactly that, and `make` runs it.
+
+### `tools/kernsize.py` — the numbers, as a command
+
+Every figure in this document used to be produced by hand, either by
+bisecting a constant (the recipe above) or by injecting a `%warning` probe
+into a copy of `kernel.asm`. That is why it has gone stale three times: a
+number nobody can produce in one command stops being produced. The probe is
+in `kernel.asm` now, behind `%ifdef KERNSIZE`, and the tool reads it:
+
+```
+$ make                                     # ...or tools/kernsize.py
+kernsize: sections   text 47,094 +273  bss 3,889 +100  cold 20,355 +0  lowbss 7,748 +0  ovl 2,680 +0   (sum +373)
+kernsize: rungs      image 51,200 +512 (217 left, was 78)   cold 20,480 +0 (125 left, was 125)   low 9,216 +0 (444 left, was 444)
+kernsize: footprint  KERN_SIZE 85,504 of KERN_BUDGET 86,016 -> 512 spare (1 step), was 1,024  [+512]
+kernsize: segment    .text+.bss 50,983 of KERN_CODE_MAX 65,536 -> 14,553 left
+kernsize: ladder     KERNEL 0x0060  COLD 0x0ce0  FAT 0x11e0  LOW 0x1300  HEAP 0x1540 = 85.0 KB   (heap KB = int 12h - 85.0)
+kernsize: *** the image rung CROSSED: 99 -> 100 steps of 512 - the machine's RAM moved ***
+```
+
+That is a real run — SPEC.md §11.95's title-bar zoom, reported against the
+commit it was branched from — and it is this section's worked example twice
+over. The image rung had **78 bytes** left when the work started, so the
+first commit's 140 bytes crossed a step and cost the machine 512; the second
+commit's 186 landed inside the new rung's 512 and was reported as "free",
+which is the word this section exists to retire. What the second commit
+actually did was take 186 of the 403 bytes the crossing had just bought.
+
+Three things about it:
+
+- **It never fails the build.** The guards inside `kernel.asm` are what refuse
+  an overrun; a reporter that can break `make` is a reporter somebody deletes.
+- **The figures come out of NASM**, from `kernel.asm`'s own `KIMG_PARA` /
+  `COLD_PARA` / `LOW_PARA` equations, not from a Python copy of them. A second
+  opinion about how a rung rounds is a second opinion that can drift, and the
+  tool would be the last place anyone looked when it did.
+- **A knob build is measured as itself.** `make VIDEO=cga`, `DISKCNT=1` and
+  the rest pass their own `-D` flags through, because a report describing a
+  different binary from the one on disk is worse than none — and the first
+  thing that turned up is worth writing down: **`make DISKCNT=1` now lands on
+  86,016, exactly `KERN_BUDGET`, with 0 spare.** It still builds (the guard is
+  `>`), but SPEC.md §18.94.1's field kernel has no step left at all, so the
+  next byte anywhere refuses it while the shipped kernel still assembles.
+  `--bless` refuses a knob build for the same reason: the baseline is the
+  shipped kernel.
+- **The baseline is in this file**, in the fenced block below, and
+  `tools/kernsize.py --bless` rewrites it. So the delta `make` prints is
+  "since this document last told the truth" — which means the document cannot
+  go stale quietly any more: an un-blessed change shows up as a non-zero delta
+  on every build until somebody either explains it or blesses it. Bless it in
+  the same commit as the change, and paste the report into the commit message.
+
+<!-- kernsize:begin -->
+```json
+{
+  "bss": 3889,
+  "budget": 86016,
+  "codemax": 65536,
+  "cold": 20355,
+  "coldpara": 1280,
+  "fatpara": 288,
+  "imgpara": 3200,
+  "kend": 5440,
+  "kseg": 96,
+  "ksize": 85504,
+  "lowbss": 7748,
+  "lowpara": 576,
+  "ovl": 2680,
+  "stk0": 1024,
+  "text": 47094
+}
+```
+<!-- kernsize:end -->
+
+---
+
 ## Where it goes
 
 Measured on the shipped build: the five section sizes by bisection, the rungs
@@ -256,19 +366,23 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 
 | region | size | what it is |
 |---|---:|---|
-| image (`.text` 45,910 + `.bss` 3,769) | 50,176 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
-| cold code | 20,480 B | 20,087 bytes with a CS of their own: the five file modules and the Control Panel, and since SPEC.md §53.6.1's removal nothing else at all |
+| image (`.text` 47,094 + `.bss` 3,889) | 51,200 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
+| cold code | 20,480 B | 20,355 bytes with a CS of their own: the five file modules and the Control Panel, and since SPEC.md §53.6.1's removal nothing else at all |
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | `.lowbss` + task 0's stack | 9,216 B | 7,748 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
 | the boot overlay | 0 B | 2,680 bytes of code inside the FAT window, gone by the first mount |
-| **total** | **84,480 B** | of an 86,016-byte budget — **1,536 B spare**, one step UNDER the fifth move's standard: see move 11 |
+| **total** | **85,504 B** | of an 86,016-byte budget — **512 B spare**, ONE step, three under the fifth move's standard: see move 11 |
 
 Each rung is its contents rounded up to a whole 512 bytes, and the remainders
-are the only slack anywhere in the ladder: 497 bytes on the image, 393 on the
-cold segment, 444 on `.lowbss`. They are rounding artefacts, not reservations.
+are the only slack anywhere in the ladder: **217 bytes on the image, 125 on
+the cold segment, 444 on `.lowbss`**. They are rounding artefacts, not
+reservations — and per the accounting section above they are also the whole
+of what the next feature can spend without moving the machine's RAM. Two of
+the three are now under half a rung.
 
-The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0CA0,
-`FAT_SEG` 0x11A0, `LOW_SEG` 0x12C0, `HEAP_SEG` 0x1500.
+The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0CE0,
+`FAT_SEG` 0x11E0, `LOW_SEG` 0x1300, `HEAP_SEG` 0x1540. `tools/kernsize.py`
+prints that line, so it need never be derived by hand again.
 
 **`.lowbss` is where the rounding last bit**, and SPEC.md §14.1 is the worked
 example of the warning above it: the Timer's per-instance state grew 8 bytes
@@ -284,14 +398,14 @@ Everything above `KERN_END` is the claim heap, up to whatever int 12h
 reports. The arithmetic is exact and worth writing down, because every RAM
 figure in this project falls out of it:
 
-> **heap KB = what int 12h reports − 80.5**
+> **heap KB = what int 12h reports − 85.0**
 
-`KERN_END` is 5,152 paragraphs = 82,432 bytes = **exactly 80.5 KB**, and the
-heap starts there. It was a round 80.0 for the whole of moves 1..10 and the
-`.lowbss` step above is what ended that, which is worth noticing precisely
-because the half-kilobyte is easy to drop from a mental sum. Re-derive this
-after any change that moves `KERN_END`, which is any change at all that
-crosses a rung step.
+`KERN_END` is 5,440 paragraphs = 87,040 bytes = **exactly 85.0 KB**, and the
+heap starts there. It was a round 80.0 for the whole of moves 1..10, and a
+`.lowbss` step took it to the awkward 80.5 that is easy to drop from a mental
+sum. **Do not re-derive it by hand**: it moves with every rung crossing, and
+`tools/kernsize.py`'s `ladder` line prints both the segment and this
+subtraction, which is the point of the tool.
 
 ## What it actually takes to run
 
@@ -419,13 +533,13 @@ shoulder to shoulder, and the scale is coarse enough (4KB per pixel on a
 
 ## Each region in detail
 
-### The image — `.text` 45,910 B + `.bss` 3,769 B
+### The image — `.text` 47,094 B + `.bss` 3,889 B
 
 One flat binary at `KERNEL_SEG:0000`, assembled `-f bin` with no linker.
 `.bss` follows `.text` immediately and is uninitialised by definition, so it
 costs nothing on the floppy and everything in RAM. The ladder charges the
 pair **rounded up to a whole 512 bytes** (see the alignment invariant below)
-— 50,176 B, so 497 bytes of the rung are rounding remainder.
+— 51,200 B, so 217 bytes of the rung are rounding remainder.
 
 **The file on disk runs past that rung**, and the gap is not padding for its
 own sake — it is where the cold segment and then the boot overlay live.
@@ -453,8 +567,8 @@ sizes are not terms in their own `start=`, so there is nothing to converge.
 section used to say. There was a period after `.fartext` was retired
 (SPEC.md §33) when it was true — when "cold code is ordinary code" and there
 was nowhere to put a module that was too cold to be worth the space. That
-stopped being true with SPEC.md §2.6: `.cold` holds 20,087 bytes today, and
-`.ovl` another 2,680 that cost nothing at all. Both have their own sections
+stopped being true with SPEC.md §2.6: `.cold` holds **20,355** bytes today,
+and `.ovl` another 2,680 that cost nothing at all. Both have their own sections
 below. What has *not* changed is the warning that went with it: neither
 mechanism buys a byte of footprint, so neither is a way to make the kernel
 smaller.
@@ -657,6 +771,20 @@ module. Measured by bracketing every `%include` with a bare label in each
 section and reading the differences back; bare labels emit nothing, so the
 measurement does not perturb what it measures. The module rows sum to the
 section totals exactly, which is the check that the attribution is complete.
+
+> **This breakdown is the one thing on this page that is still hand-measured,
+> and it has drifted.** The marker pass above has not been re-run since it was
+> taken, and the sections have moved on: `tools/kernsize.py` says `.text`
+> **47,094** (+1,184), `.cold` **20,355** (+268), `.bss` **3,889** (+120),
+> `.lowbss` 7,748 (unchanged). So the totals in the table below are stale by
+> those amounts and the attribution of them is unknown — the *shape* is still
+> right (the file system dominates, `.cold` is the file modules plus the
+> Control Panel), the last three digits are not. Re-run the pass before
+> quoting a row; the section totals above are live and need no pass at all.
+> Making this table generated rather than hand-taken is the obvious next
+> step and has deliberately not been taken here, because a generator that
+> rewrites `kernel.asm`'s include list to measure it is a bigger thing than
+> the report it feeds.
 
 Three results are worth knowing before you go looking:
 
@@ -975,7 +1103,7 @@ was the guard with no room. Nothing is copied and nothing is reserved.
 | `ctrl.inc` | 3,098 | the Control Panel (§31) |
 | `filecp.inc` | 2,127 | Cut/Copy/Paste (§22.3) |
 | `loader.inc` | 735 | the package loader (§21) |
-| **total** | **20,087** | of a 20,480-byte rung |
+| **total** | **20,087** | of a 20,480-byte rung — the rung is right, the total is the stale figure above: `.cold` is **20,355** today, 125 bytes short of it |
 
 `fsx.inc` was a seventh tenant at 190 bytes — SPEC.md §53.6.1's XMS desktop
 stash, the one cold module that was not part of the file system or the
