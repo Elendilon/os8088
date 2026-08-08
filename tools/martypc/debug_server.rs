@@ -509,11 +509,27 @@ fn breakpoints(machine: &mut Machine, req: &Value) -> Value {
         let addr = item.get("addr").and_then(Value::as_u64).unwrap_or(0) as u32;
         let seg = item.get("seg").and_then(Value::as_u64).unwrap_or(0) as u16;
         let off = item.get("off").and_then(Value::as_u64).unwrap_or(0) as u16;
+        // The segmented forms are FOLDED TO FLAT here rather than passed
+        // through, because BreakPointType::Execute(seg, off) and
+        // BreakPointType::MemAccess(seg, off) are declared in
+        // breakpoints.rs and matched by NEITHER CPU - grep cpu_808x and
+        // cpu_vx0 for them and you get nothing, while their Flat twins are
+        // handled in six places each. Passed through, they set silently and
+        // never fire: measured here on 0060:37F5, os8088's timer hook, which
+        // executes 18.2 times a second - `execseg` never stopped and `exec`
+        // on the same address stopped immediately.
+        //
+        // Folding costs one property and it is worth naming: a flat
+        // breakpoint aliases every seg:off pair that reaches the same linear
+        // address, so 0060:37F5 and 0000:3DF5 are one breakpoint here. On a
+        // real-mode 8086 that is almost always what was meant anyway - and
+        // it is certainly better than a breakpoint that looks armed and is
+        // not.
         bps.push(match kind {
             "exec" => BreakPointType::ExecuteFlat(addr),
-            "execseg" => BreakPointType::Execute(seg, off),
+            "execseg" => BreakPointType::ExecuteFlat(((seg as u32) << 4) + off as u32),
             "mem" => BreakPointType::MemAccessFlat(addr),
-            "memseg" => BreakPointType::MemAccess(seg, off),
+            "memseg" => BreakPointType::MemAccessFlat(((seg as u32) << 4) + off as u32),
             "int" => BreakPointType::Interrupt(addr as u8),
             "io" => BreakPointType::IoAccess(addr as u16),
             other => return err(&format!("unknown breakpoint type: {}", other)),

@@ -108,6 +108,20 @@ Three things about it are load-bearing:
 - **`bp` replaces the whole set.** A debugger that can only add breakpoints
   accumulates them until something stops for a reason nobody remembers asking
   for.
+- **`execseg` and `memseg` are folded to flat addresses, because the
+  segmented breakpoint types do not work.** `BreakPointType::Execute(seg,
+  off)` and `MemAccess(seg, off)` are declared in `breakpoints.rs` and matched
+  by **neither** CPU — grep `cpu_808x` and `cpu_vx0` for them and you get
+  nothing, while their `*Flat` twins are handled in six places each. Passed
+  through, they arm silently and never fire. That is measured, not inferred:
+  on `0060:37F5`, os8088's timer hook, which executes 18.2 times a second,
+  `execseg` never stopped and `exec` on the same address stopped immediately.
+  Folding costs one property worth naming — a flat breakpoint aliases every
+  `seg:off` pair reaching the same linear address — and on a real-mode 8086
+  that is nearly always what was meant.
+- **`reset` does not zero the cycle counter.** It is free-running for the life
+  of the process, so every span is a delta. A "cycles" figure read straight
+  out of `status` after a reset is the age of the emulator, not of the run.
 
 ---
 
@@ -147,14 +161,14 @@ All of the following was run end to end in the container, against
   vector at `0xFFFF0` as `EA 5B E0 00 F0` — `jmp F000:E05B`.
 - os8088 boots, twice: once from the development tree and once from what
   `build.sh` produces from scratch, with identical results.
-- **The kernel is at `0x600` and the desktop comes up.** Two runs saw it
-  first at 81M and 313M cycles — and that spread is the measurement, not the
-  machine: both numbers come from *polling* memory every few seconds of wall
-  clock while MartyPC runs faster than real time and at a rate that depends
-  on host load, so what they bound is when somebody looked. **They are not a
-  boot time and must not be quoted as one.** The right instrument is an exec
-  breakpoint on `0060:0000`, and it did not fire inside the window this was
-  given; that is unfinished rather than answered.
+- **Reset to the kernel's first instruction is 300,798,299 cycles — 63.02
+  seconds of guest time**, 23,586,325 instructions, 12.75 cycles each, on a
+  5150 with the 1982 IBM BIOS reading `build/os8088-360.img`. That is an exec
+  breakpoint on `0x600` against a `reset`, which is the only honest way to
+  ask: the first two attempts at this number *polled memory* every few
+  seconds of wall clock while MartyPC runs faster than real time at a
+  load-dependent rate, and got 81M and 313M cycles for the same event on the
+  same machine — a 3.9x spread that was measuring when somebody looked.
 - `verify`: **71,624 bytes dumped, 1,351 differing (1.89%)** in 183 runs, with
   `boot_ticks` reading 40 live against `0xFFFF` in the file — **byte-identical
   between the development build and `build.sh`'s**, which is the check that
@@ -181,6 +195,13 @@ are worth offering upstream:
   `peek_range(0xFFFF0, 16)`, the reset vector paragraph and the most-read
   sixteen bytes in an 8088 machine, was refused while fifteen bytes at the
   same address succeeded. `<=`.
+- **Two breakpoint types are dead code.** `BreakPointType::Execute(seg, off)`
+  and `MemAccess(seg, off)` are in the public enum and no CPU matches on
+  them — so a frontend that offers them offers controls that arm and never
+  fire. This works around it (above); upstream should either implement or
+  retire them. **A control that looks live and is not** is the sharpest kind
+  of bug in a debugger, because it makes the *absence* of a stop look like
+  evidence.
 - **Headless mode never mounted floppies.** `--mount fd:N:path` is parsed into
   `config.emulator.media.floppy` and then nothing reads it — mounting is done
   by the eframe frontend's file manager, which a headless run does not have.
