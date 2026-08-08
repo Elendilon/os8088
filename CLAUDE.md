@@ -1502,9 +1502,26 @@ are the floppy's code, unchanged. A volume caps at 65,535 sectors (31.99MB),
 which is both BPB rule 8's existing refusal and the DOS 3.3 limit these
 machines ran; more capacity is more partitions.
 
-**Each volume can own its FAT window** (SPEC.md §18.8.1) — `DSK_FAT_SECS`
-sectors of heap per DRIVER-BACKED volume, claimed at `osapi_vol_add`, with
-`[dsk_fatseg]` naming the live one. That is what stops a copy reloading nine
+**Every volume can own its FAT window, floppies included** (SPEC.md
+§18.8.1/§18.8.2) — `DSK_FAT_SECS` sectors of heap, claimed at
+`osapi_vol_add` for a driver volume and at mount time for a floppy
+(`dsk_fatw_want`), with `[dsk_fatseg]` naming the live one. **The floppy half
+is measured rather than assumed**: a floppy mount is ~12 sectors *regardless
+of what is in the directory* (B: root with 1 package = 11, `APPS` with 9 =
+12, `GAMES` with 5 = 12), so it is BPB(1) + **FAT(9)** + dir(1) +
+`ASSOC.DAT`(1) — the icon harvest, which looks like the expensive part, is
+already answered from §54.7's per-volume icon cache. **The gate is 128KB of
+FREE heap**, not the 4.5KB the claim needs, retried per mount rather than
+latched, and a refusal just shares as before. Reuse needs a QUIET mount
+**and** a matching `dsk_bpb_sig` — a position-sensitive 16-bit signature of
+the boot sector the mount has already read, so revalidation costs no I/O. It
+**cannot** tell two os8088 disks of the same geometry apart, because
+`os88disk.py` pins `BS_VolID` for reproducible images; that residual swap
+case is accepted deliberately, since a full mount (every navigation) always
+re-validates. The three per-volume arrays are in `.text` with real
+initialisers, which is a **latent-bug fix**: `dsk_fatwc` was `.bss`, `-f bin`
+zeroes none, and `dsk_fatw_pick` reads it as a SEGMENT. Measured on the
+Control Panel case: 47 → 28 → **10 sectors**. That is what stops a copy reloading nine
 sectors on every switch: 45 mounts, 3 loads. A floppy gets none (its window
 is the whole FAT and never moves) and a refused claim just shares, as
 everything did before. Four traps: only a QUIET mount may reuse a banked

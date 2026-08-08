@@ -5906,6 +5906,74 @@ Four things hold it up:
 - **Freeing a window that is live puts `[dsk_fatseg]` back** before the
   segment goes, or the next mount reads a claim something else now owns.
 
+### 18.8.2 …and so does a floppy, if the machine can spare it
+
+§18.8.1 gave the private window to driver-backed volumes only, because "a
+floppy's window is the whole FAT and never moves, so a private copy would buy
+nothing". That is true and it is beside the point: what costs is not the
+window *moving*, it is the **nine sectors re-read every time the volume
+switches**.
+
+Measured (`make DISKCNT=1`, §18.94), and the flatness is the finding: a
+floppy mount is **~12 sectors regardless of what is in the directory** — B:
+root with 1 package = 11, `APPS` with 9 = 12, `GAMES` with 5 = 12. So it is
+BPB(1) + **FAT(9)** + directory(1) + `ASSOC.DAT`(1), and the icon harvest —
+the thing that looks expensive — is already answered from §54.7's per-volume
+icon cache without reads. The FAT *is* the mount.
+
+`dsk_fatw_want` claims one at mount time for volumes 0 and 1. Four things:
+
+- **The gate is 128KB of FREE HEAP**, not the 4.5KB the claim needs. This is
+  a comfort, and a machine short of memory should spend what it has on the
+  user's application. `mem_avail`'s **total** free is the test.
+- **Retried at every mount rather than latched**, so a machine that frees the
+  heap later gets its window. One `mem_avail` walk (~1,000 cycles) against a
+  floppy mount measured in seconds.
+- **A refusal is a normal path** (§50): the volume shares the window below
+  the stacks and behaves exactly as it did before this existed.
+- **The three arrays moved to `.text` with real initialisers**, and that is a
+  latent-bug fix rather than tidiness. `dsk_fatwc` was `.bss`, `-f bin` zeroes
+  no `.bss`, and `dsk_fatw_pick` reads that word **as a segment** — so volumes
+  0 and 1 have always aimed the FAT window at whatever paragraph the
+  uninitialised bytes named. It never bit because a cold machine's RAM is
+  usually zero *and* only driver volumes had claims; this change ends the
+  second half of that, which is what makes it worth fixing now.
+
+**The revalidation, and exactly what it is worth.** Reuse still requires a
+QUIET mount (§18.8.1's rule: a full mount re-validates the volume, because
+the disk may have been swapped). On top of that, `dsk_bpb_sig` computes a
+16-bit signature of the boot sector **the mount has already read** — rotated
+between adds, so it is position-sensitive rather than a plain checksum — and
+`dsk_fatw_pick` reuses the banked window only when that signature matches the
+one banked with it. `dsk_fatw_park` banks it, and `[dsk_sigcur]` still
+describes the **outgoing** volume at that moment, which is precisely the one
+being banked.
+
+It catches a disk swapped for one of a different size, format, label or
+boot-sector contents, and it costs no I/O. **It cannot tell two os8088-built
+disks of the same geometry apart**, because `tools/os88disk.py` pins
+`BS_VolID` (0x88000888) and every FAT timestamp to keep image builds
+reproducible — their boot sectors are byte-identical. That residual case
+(swap one os8088 disk for another between two *quiet* mounts, then write) is
+**accepted deliberately**: a full mount re-validates and is what every
+navigation costs, so only a background operation is exposed. Un-pinning the
+serial would close it at the price of reproducible images; that trade was
+considered and declined.
+
+**Measured**, the user on B: changing a Control Panel setting and closing the
+panel — §18.4's case, carried the rest of the way:
+
+| | `disk_mount` | sectors | int 13h |
+|---|---|---|---|
+| every write remounts | 3 | 47 | 21 |
+| §18.4's deferral | 2 | 28 | 12 |
+| **…and this window** | **2** | **10** | **10** |
+
+47 → 10 sectors is **4.7x**, about **8.8 s of floppy** on the field machine
+at PERFORMANCE.md's 238 ms per sector. The two mounts are irreducible — they
+are the switch to A: and the switch back — and what is left of them is the
+boot sector, the directory and the commit.
+
 ### 18.9 A volume switch is not a mount
 
 `dsk_chdir` re-runs the whole of `disk_mount` because the LISTING has to
