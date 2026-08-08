@@ -335,10 +335,20 @@ of the kernel. It holds code that runs **once**, from `kmain`, and is never
 called again: `cpu_detect`, `cpu_a20_enable`, `xm_init`, `desk_init`,
 `snd_init`, `clk_init` and the clock's whole probe-and-read ladder (§37.90).
 
-**It lands on `FAT_SEG` and is then overwritten by the first mount.** That is
+**It lands on `FAT_SEG`, whose bytes the first mount is free to take.** That is
 the entire trick: the FAT window (§18.8) is not filled until a volume is
 mounted, which happens after `kmain` has finished with all of this, so the
-overlay's bytes are free real estate that the ladder already reserved. The
+overlay's bytes are free real estate that the ladder already reserved.
+
+Since §18.8.2 the mount does not always *take* them — a volume that wins a
+private heap window leaves `FAT_SEG` alone, and on a 640K machine the overlay
+is measurably still intact at the desktop. **Nothing changes**: what this
+section buys is that the overlay costs no memory, and the window is reserved
+either way. But the rule is unchanged and is the reserved-ness, not the
+clobbering: an overlay entry is dead after `kmain` because the bytes are
+*forfeit*, not because something is known to have eaten them, and whether they
+survive now depends on how much heap was free at mount time. Do not build
+anything on reading them back. The
 `start=` is a *file* offset, not an address — it is the image rung — so NASM
 emits the space between `.text` and that rung as zeros and the boot sector's
 existing single contiguous read puts the overlay exactly where the ladder
@@ -19230,10 +19240,15 @@ one to decide.
 
 **It runs from the boot overlay** (§2.5), called by `kmain` between `drv_init`
 and `ovl_snd_init` — not from inside `drv_boot`, which is where it belongs by
-subject and where it cannot live: `drv_boot`'s own `disk_mount` is what writes
-over the overlay, so by the time `drv_cfg_load` has answered, the probe's code
-is FAT. The consequence is that the probe cannot be conditional on the file
-being absent, and does not need to be. Being in the overlay is also why it
+subject and where it cannot live: the overlay lands on `FAT_SEG`, and
+`drv_boot`'s own mount is the first thing that may write over it, so by the
+time `drv_cfg_load` has answered, the probe's code may be FAT. **May**, since
+§18.8.2 — a volume that wins a private heap window leaves `FAT_SEG` alone, and
+measured on a 640K machine the overlay comes through the boot untouched. That
+is not a licence to call it afterwards: which way it goes depends on how much
+heap was free at mount time, so the only safe rule is the one that held when
+the window was always shared. The consequence is that the probe cannot be
+conditional on the file being absent, and does not need to be. Being in the overlay is also why it
 **costs nothing at all against `KERN_BUDGET`** — the same trade, and the same
 home, as `clk_init`'s four-rung RTC ladder (§37.90): a hardware probe that
 answers once at boot has no business being resident.
