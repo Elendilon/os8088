@@ -1377,7 +1377,16 @@ osapi_set_color:
     ret
 
 ; ---- osapi_mouse - out: CX = [mouse_x], DX = [mouse_y], AL = [mouse_btn] -----
+; A package's tracking loop spins on this and does not return until the button
+; comes up, exactly as menu_track / ui_drag / ui_grow do - so on a machine with
+; no mouse it is a loop the keyboard has to be serviced from, or the button the
+; keyboard latched can never be released and the UI task never comes back
+; (SPEC.md 9.6.1). One compare on every machine that has a mouse.
 osapi_mouse:
+    cmp byte [mou_seen], 0
+    jne .live
+    call kbm_poll
+.live:
     mov cx, [mouse_x]
     mov dx, [mouse_y]
     mov al, [mouse_btn]
