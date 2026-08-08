@@ -18261,17 +18261,18 @@ Four things about it are load-bearing:
   cursor off, so the bracket has one crosshair and no arrow — which is the
   cheapest confirmation that the bracket is actually running.
 
-**On the iron this is worth nine times what the emulators said.** Set 4
-priced the pair at 246 µs on MartyPC and 21.8% of a session; the 5150 itself
-measures `GFX_UNLOCK+LOCK` at **2,241 µs on Hercules and 2,402 on CGA**,
-against 119-246 on every other machine in Set 11 — the one gfxbench row where
-the 5150 and MartyPC disagree at all. The suspected mechanism is
-`cur_lazyend` → `cur_move`, which fires when the mouse has moved since the
-cursor was drawn, and **a Missile Command player never stops moving the
-mouse** (docs/FIELD-NOTES.md 8). The bracket holds the lock for the whole
-session and pays it **once**, so whatever that row turns out to be, this is
-the change that makes the game immune to it — and a *windowed* Missile
-Command on real hardware is paying it every frame.
+**What the pair costs on the iron is now measured, and it is not what Set 11
+suggested.** That set put `GFX_UNLOCK+LOCK` at 2,241 µs on the 5150 against
+119-246 everywhere else, and this section briefly claimed the bracket was
+therefore worth nine times what the emulators said. **Set 13 closed it: the
+row is 290 µs with the pointer demonstrably still and 369 µs with it moved
+continuously** — the mouse is worth +27%, never 9x, and the outlier was a
+kernel-version artefact that no longer exists (docs/FIELD-NOTES.md 8). So the
+bracket saves a windowed frame roughly what Set 4's MartyPC figure said all
+along. It is still the right change for the reason it was made — Set 4 priced
+the pair at 21.8% of a session with no drawn content in it — but the number
+is ~300 µs a frame, not 2 ms, and this paragraph is kept as written-down
+evidence that a *single* anomalous row is not a measurement.
 
 ### 48.14 A trail is ONE Bresenham, laid at launch and walked
 
