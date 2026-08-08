@@ -578,6 +578,20 @@ route reads guest memory and works there perfectly, which is why nobody had
 noticed. Measure the flash on CGA — §39.5 is one renderer for both 1bpp
 adapters — and note that `--rendered` is likewise CGA and VGA only.
 
+**It has no save states, and it does not need them to reproduce a state** —
+docs/SNAPSHOT-PLAN.md is the research. The headline is that **the emulator is
+bit-exact deterministic**: two independent processes reach a breakpoint at the
+same 261,943,446 cycles with the same 1 MB memory hash, and stay identical
+through injected input. So "continue from a known state" is available today by
+replaying the inputs, with no snapshot format at all.
+
+The sharp edge is that **a wall-clock client destroys that determinism**: two
+free-running instances paused after the same `sleep(22)` were **21.7 M cycles
+apart**. Position inputs in GUEST time — cycles, instructions, frames, or a
+breakpoint — never in `time.sleep`. `flicker` and `pace` already work that way,
+which is why they repeat; scripted mouse navigation does not, and is therefore
+not a way to arrive at the same state twice.
+
 **Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
 two are complementary rather than competing. And not for a machine that is
 not an 8088: the 286 and 386 targets are 86Box's.
