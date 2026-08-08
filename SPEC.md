@@ -19059,8 +19059,11 @@ were for. The update is 3.9 ms of that: the drawing was always the cost.
 **The erase cursor was then not worth building, and that is a measurement
 rather than a judgement.** It existed to cap a *five-tick* stall — an entire
 flight path erased in one frame at ~310 ms. `gfx_line` puts that frame at
-**59 ms**: one frame, 8% over budget, and `MC_LAGMAX` already absorbs four
-frames of lag before the worker re-anchors its deadline. Buying that 4 ms
+**59 ms**: one frame, 8% over budget, and §44.1's deadline scheme degrades
+smoothly across it — the period becomes the work rather than stepping to two
+ticks. (`MC_LAGMAX` was 4 when this was written and is 0 now, which does not
+touch the argument: what absorbs a single 59 ms frame is the deadline scheme,
+not the chase. §48.20.) Buying that 4 ms
 would mean keeping a dying missile's slot alive in an erasing state, with a
 cursor, a bounded spend per frame, and the `[mc_gdirty]` ground test moved
 to wherever the erase finishes — which is exactly the shape of change that
@@ -19820,6 +19823,44 @@ What it looks like is smoke hanging in the fireball until the fireball fades,
 which is better than what it replaces. In the common case it is not even
 visible: the burst sits at the trail's **end**, so what waits is the last
 dozen pixels and there is nothing beyond them to look detached.
+
+### 48.20 The catch-up frame IS the judder, and it was free to stop
+
+`MC_LAGMAX` is 0. §44.1's deadline scheme lets a worker that overran run the
+next frame immediately, so the *average* rate holds — and that recovery frame
+is exactly what the eye objects to, because **motion here is per-FRAME**: an
+ICBM steps a fixed distance every frame, so a frame delivered 29 ms after the
+last one moves everything at twice speed for that step. The rate was never the
+problem.
+
+Measured on MartyPC's Hercules with a breakpoint on `mc_worker`'s
+`call mc_render` — one stop per game frame, cycle-exact, no code in the guest —
+under a load pattern driven from the harness (fire every 10th frame) so both
+arms see the same one, 219 frame periods each:
+
+| | fps | sd | evenness | min | max | frames < 45 ms | > 65 ms |
+|---|---|---|---|---|---|---|---|
+| `MC_LAGMAX` 4 | 18.21 / 18.21 | 5.43 / 6.44 ms | 0.099 / 0.117 | 29.5 / 28.8 | 98.3 / 93.5 | 6 / 13 | 5 / 9 |
+| **`MC_LAGMAX` 0** | **18.21 / 18.21** | **4.43 / 4.76 ms** | **0.081 / 0.087** | **36.3 / 36.6** | **80.5 / 88.4** | 8 / 7 | 8 / 6 |
+
+**The frame rate is identical to four figures and the jitter is a quarter
+lower**, with the worst *short* frame going 29 → 36 ms and the worst long one
+98 → 81. It is faithful to §44.1's stated intent rather than against it —
+"absorb one slow frame, not run a backlog of them" — and 0 and 1 are the same
+build, because at `bx = 0` the re-anchor writes the value that is already
+there.
+
+Two things this does **not** claim. It does not remove the short frame, and
+cannot: `[ticks]` has 55 ms granularity, so a frame that runs late starts
+*mid*-tick and the next sleep still lands on the boundary — the residue is
+tick quantisation, and only sub-tick pacing (§53.2.1's `FSXF_FASTTICK`, which
+is bracket-scoped by design) could reach it. And it is not what makes the game
+smooth: **windowed Missile Command was already a metronome.** Measured at the
+same breakpoint with a wave descending and no input, 199 consecutive frames
+came in at **54.92 ms mean, sd 1.28 ms**, and — diffing the framebuffer at
+each frame boundary — **0 of 199 drew nothing**. 95% of frames land exactly on
+the tick even under sustained fire; the jitter is the ~5% that overrun, and
+the only lever left on those is the fill count §48.18 already worked.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 

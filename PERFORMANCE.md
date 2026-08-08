@@ -770,7 +770,26 @@ a PIT tick of 18.2065 — so windowed Missile Command keeps its deadline exactly
 and the jitter above is *delivery*, not dropped frames. (It reads 0 inside the
 bracket, correctly: `mc_fsx_main` has a loop of its own and never touches it.)
 
-**And `pace`'s own interval statistic had to be adapted, for a reason that
+**And the game itself, measured at the source, is a metronome — which `pace`
+alone could not have told you.** A breakpoint on `mc_worker`'s
+`call mc_render` stops the machine once per game frame, cycle-exact, with no
+code in the guest; MartyPC pauses while it is stopped, so guest time does not
+advance and nothing is perturbed. Windowed, a wave descending, no input:
+**199 consecutive frames at 54.92 ms mean, sd 1.28 ms**, against a PIT tick of
+54.925 — and diffing the framebuffer at each frame boundary, **0 of 199 frames
+drew nothing**. Under sustained fire (fire injected every 10th frame from the
+harness, so the load pattern is identical between arms) it is 18.21 fps with
+sd 5.43–6.44 ms, and only **~5% of frames are off-tick at all**.
+
+That is the instrument to reach for when `pace` reports a tail: it separates
+*the game delivered late* from *the display sampled it at an awkward phase*,
+and here it was the second. It also priced the one pacing change worth making —
+`MC_LAGMAX` 4 → 0, SPEC.md §48.20: **sd 5.43/6.44 → 4.43/4.76 ms, worst short
+frame 29 → 36 ms, worst long frame 98 → 81 ms, and 18.21 fps in all four
+runs.** Chasing a missed deadline is what the judder *is* when motion is
+per-frame, and stopping costs no frames.
+
+**`pace`'s own interval statistic had to be adapted too, for a reason that
 generalises.** Tracker's grid arrives as one blit on an otherwise-static
 screen, so one changed frame is one update. Missile Command *paints* for
 1.5–2.0 displayed frames per game frame — a 4.77MHz machine cannot fill a
