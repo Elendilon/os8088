@@ -185,7 +185,7 @@ sched_init:
     ret
 
 ; -----------------------------------------------------------------------------
-; sch_fast_on / sch_fast_off - the fsx sub-tick (SPEC.md 53.8)
+; sch_fast_on / sch_fast_off - the fsx sub-tick (SPEC.md 53.2.1)
 ;
 ; in: AL = sub-ticks per tick, 2..4 (anything else is refused)
 ;
@@ -583,7 +583,7 @@ task_exit:
 ; clobbers: AX, BX, CX, DX, SI
 ; -----------------------------------------------------------------------------
 sch_account:
-    cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.8) divides the
+    cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.2.1) divides the
     jne .idle                   ; very period this arithmetic is built on, so
                                 ; accounting PAUSES for the bracket - here
                                 ; rather than at the call sites, because
@@ -810,7 +810,7 @@ sch_isr:
     mov ax, KERNEL_SEG
     mov ds, ax
 
-    cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.8). While it is
+    cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.2.1). While it is
     je .full                    ; armed IRQ0 arrives N times a tick and only
     dec byte [sch_fcnt]         ; the Nth entry IS a tick: everything that
     jz .tick                    ; counts in ticks stays on that one, so
@@ -836,7 +836,7 @@ sch_isr:
                                 ; before the sch_lock check, so accounting
                                 ; runs every tick even during floppy reads.
                                 ; It no-ops itself while the fsx sub-tick is
-                                ; armed (SPEC.md 53.8)
+                                ; armed (SPEC.md 53.2.1)
     call snd_tick               ; sound duties (SPEC.md 8.2/34): a called
                                 ; leaf, gated on snd_live until snd_init
                                 ; publishes; runs every tick in both modes,
@@ -1031,7 +1031,7 @@ sch_cycles: resw MAX_TASKS * 2          ; per-task CPU time, PIT cycles, dword
                                         ; each (lo word first); readers snap-
                                         ; shot under pushf/cli (SPEC.md 8.1)
 sch_pit_last: resw 2                    ; last timestamp: phase, then ticks
-sch_fast:   resb 1                      ; fsx sub-tick (SPEC.md 53.8): 0 off,
+sch_fast:   resb 1                      ; fsx sub-tick (SPEC.md 53.2.1): 0 off,
 sch_fcnt:   resb 1                      ; else N, with this counting down
 sch_coop:   resb 1                      ; mode (SPEC.md 8.2): 0 pre-emptive,
                                         ; 1 cooperative; sched_mode_set/_get

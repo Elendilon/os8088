@@ -30,7 +30,7 @@ FSXM_COUNT  equ 9
 
 FSXF_KEEPWORKER equ 1           ; fsx_run CX bit 0 (SPEC.md 53.2)
 FSX_SUBTICK     equ 3           ; sub-ticks per tick when it is asked for
-FSXF_FASTTICK   equ 2           ; ...bit 1 (SPEC.md 53.8): IRQ0 three times a
+FSXF_FASTTICK   equ 2           ; ...bit 1 (SPEC.md 53.2.1): IRQ0 three times a
                                 ; tick, so the round-robin quantum is 18 ms
                                 ; instead of 55. [ticks] does not change rate
 
@@ -81,7 +81,8 @@ fsx_capstab:                    ; indexed by VID_* (VGA 0, HERC 1, CGA 2)
 ; fsx_run - the bracket (SPEC.md 53.1, slot 0x02C8 via X stub)
 ;
 ; in:       AX = near entry inside the caller's image, BX = the caller's own
-;           window ptr, CX = flags (bit 0 = FSXF_KEEPWORKER; others refuse);
+;           window ptr, CX = flags (bit 0 = FSXF_KEEPWORKER, bit 1 =
+;           FSXF_FASTTICK; others refuse);
 ;           ES = the CALLER's DS (the X stub) - the ownership fence reads it.
 ;           UI-task window-callback context, gfx lock held.
 ; out:      CF=1 refused, nothing changed. CF=0: the app's proc ran to its
@@ -151,7 +152,7 @@ fsx_run:
     mov byte [fsx_cur], 0xFF    ; no foreign mode yet
     test cl, FSXF_FASTTICK      ; ...and the finer quantum, AFTER the arm so
     jz .nofast                  ; the task set it applies to is already the
-    push ax                     ; frozen one (SPEC.md 53.8). AX is the app's
+    push ax                     ; frozen one (SPEC.md 53.2.1). AX is the app's
     mov al, FSX_SUBTICK         ; entry offset, still owed to wm_pkgcall far
     call sch_fast_on            ; below - the argument register here is AL
     pop ax
@@ -228,7 +229,7 @@ fsx_run:
 fsx_restore:
     push ax
     push di
-    call sch_fast_off           ; the sub-tick goes back FIRST (SPEC.md 53.8):
+    call sch_fast_off           ; the sub-tick goes back FIRST (SPEC.md 53.2.1):
                                 ; everything below this runs on the ordinary
                                 ; quantum, and it is a no-op if none was armed
     cmp byte [fsx_cur], 0xFF

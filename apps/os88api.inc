@@ -1601,7 +1601,7 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; existed. Report unknown, do not print it as
                                  ; a duration. Takes no lock, touches no disk.
 
-FSXF_FASTTICK   equ 2           ; OSAPI_FSX_RUN CX bit 1 (SPEC.md 53.8): the
+FSXF_FASTTICK   equ 2           ; OSAPI_FSX_RUN CX bit 1 (SPEC.md 53.2.1): the
                                 ; scheduler's quantum drops from 55 ms to 18
                                 ; for the bracket, so a worker becoming ready
                                 ; costs the drawing side a third of what it
