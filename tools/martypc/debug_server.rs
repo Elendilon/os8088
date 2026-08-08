@@ -64,7 +64,7 @@ use std::{
 use marty_core::{
     breakpoints::BreakPointType,
     cpu_common::{Cpu, Register16},
-    device_traits::videocard::VideoCard,
+    device_traits::videocard::{RenderBpp, VideoCard},
     keys::MartyKey,
     machine::{ExecutionControl, ExecutionOperation, ExecutionState, Machine},
 };
@@ -88,6 +88,18 @@ const MAX_STEP: u64 = 1_000_000;
 /// the far end is prepared to buffer. A caller wanting more loops; the host
 /// client does it for you.
 const MAX_READ: usize = 1 << 20;
+
+/// The standard IBM 16-colour palette, RGBA, for the cards that publish none.
+const IBM16: [[u8; 4]; 16] = [
+    [0x00, 0x00, 0x00, 0xFF], [0x00, 0x00, 0xAA, 0xFF],
+    [0x00, 0xAA, 0x00, 0xFF], [0x00, 0xAA, 0xAA, 0xFF],
+    [0xAA, 0x00, 0x00, 0xFF], [0xAA, 0x00, 0xAA, 0xFF],
+    [0xAA, 0x55, 0x00, 0xFF], [0xAA, 0xAA, 0xAA, 0xFF],
+    [0x55, 0x55, 0x55, 0xFF], [0x55, 0x55, 0xFF, 0xFF],
+    [0x55, 0xFF, 0x55, 0xFF], [0x55, 0xFF, 0xFF, 0xFF],
+    [0xFF, 0x55, 0x55, 0xFF], [0xFF, 0x55, 0xFF, 0xFF],
+    [0xFF, 0xFF, 0x55, 0xFF], [0xFF, 0xFF, 0xFF, 0xFF],
+];
 
 /// Put a raw sector image in a floppy drive.
 ///
@@ -289,6 +301,7 @@ impl DebugServer {
             "bp" => breakpoints(machine, &req),
             "screen" => screen(machine),
             "video" => video(machine),
+            "fbuf" => fbuf(machine, &req),
             "key" => key(machine, &req),
             "mouse" => mouse(machine, &req),
             "history" => json!({"ok": true, "history": machine.cpu().dump_instruction_history_string()}),
@@ -601,11 +614,123 @@ fn breakpoints(machine: &mut Machine, req: &Value) -> Value {
 /// machine that has only a CGA. The card knows; ask it.
 fn video(machine: &mut Machine) -> Value {
     match machine.primary_videocard() {
-        Some(mut card) => json!({
-            "ok": true,
-            "type": format!("{:?}", card.video_type()).to_lowercase(),
-            "graphics": card.is_in_graphics_mode(),
-        }),
+        Some(mut card) => {
+            let ext = card.display_extents();
+            let apers: Vec<Value> = card
+                .display_apertures()
+                .iter()
+                .map(|a| json!({"w": a.w, "h": a.h, "x": a.x, "y": a.y, "debug": a.debug}))
+                .collect();
+            json!({
+                "ok": true,
+                "type": format!("{:?}", card.video_type()).to_lowercase(),
+                // NOT TO BE TRUSTED ON VGA: `mode_graphics` is initialised to
+                // false in the VGA card and never assigned anywhere, so this
+                // answers false in mode 12h exactly as it does in mode 3. It
+                // is honest on CGA and MDA. Ask `fbuf` for the geometry
+                // instead - the card cannot fake having rasterised 480 rows.
+                "graphics": card.is_in_graphics_mode(),
+                "field_w": ext.field_w,
+                "field_h": ext.field_h,
+                "stride": ext.row_stride,
+                "double_scan": ext.double_scan,
+                "apertures": apers,
+            })
+        }
+        None => err("no video card"),
+    }
+}
+
+/// The card's RENDERED framebuffer, cropped to one of its display apertures,
+/// as packed 24-bit RGB.
+///
+/// This is the general answer to "what is on the screen", and it is the only
+/// one that works on VGA: mode 12h is four planes behind the Graphics
+/// Controller, so there is no flat framebuffer in guest memory to read the way
+/// `shot` reads a CGA's or a Hercules'. What comes back here is what the card
+/// actually rasterised, so a mode it never really entered shows up as an image
+/// that is visibly wrong rather than as a plausible dump of the wrong bytes.
+///
+/// THE PIXEL SIZE COMES FROM `render_depth()` AND MUST. `display_buf()` casts
+/// the card's own array to `&[u8]`, and the cards disagree about what an
+/// element is: CGA, MDA and EGA hold `[u8]` palette INDICES (`Four`/`Six`),
+/// VGA holds `[u32]` packed RGBA already through the DAC (`ThirtyTwo`). One
+/// byte per pixel and four bytes per pixel are both correct, on different
+/// machines, and assuming either gives a black or a sheared picture on the
+/// other WITHOUT an error - the VGA's channel bytes are full of 0x00 and 0xFF,
+/// so even the histogram of a wrong read looks plausible.
+///
+/// DERIVING it from `buf.len() / (pitch * field_h)` is the obvious thing and
+/// it is wrong twice: the buffer is allocated at the card's MAXIMUM raster
+/// rather than its current one (a VGA at the 25MHz clock carries a buffer
+/// sized for 28MHz), and `field_h` on a double-scanned CGA is twice the rows
+/// the card actually renders. Ask the card.
+///
+/// `row_stride` is in PIXELS, so the byte stride is `row_stride * bpp`. The
+/// answer is always rgb24, resolved here, because a caller wanting a picture
+/// should not have to know which kind of buffer it came out of.
+fn fbuf(machine: &mut Machine, req: &Value) -> Value {
+    let sel = req.get("aperture").and_then(Value::as_u64).unwrap_or(0) as usize;
+    match machine.primary_videocard() {
+        Some(mut card) => {
+            let apers = card.display_apertures();
+            let a = match apers.get(sel) {
+                Some(a) => *a,
+                None => return err(&format!("aperture {} of {}", sel, apers.len())),
+            };
+            let bpp = match card.render_depth() {
+                RenderBpp::ThirtyTwo => 4,
+                _ => 1,
+            };
+            let pitch = card.display_extents().row_stride;
+            // Only the VGA publishes a palette (its DAC is the guest's to
+            // program). CGA, MDA and EGA answer None, because their colours
+            // are fixed and the GUI frontend's own renderer holds the table -
+            // which a headless build does not link. So the standard IBM 16
+            // live here, and on the two 1bpp adapters only entries 0 and 15
+            // are ever reached anyway.
+            let pal = card.palette().unwrap_or_else(|| IBM16.to_vec());
+            let buf = card.display_buf();
+            if bpp == 1 && pal.is_empty() {
+                return err("indexed framebuffer but the card published no palette");
+            }
+            let stride = pitch * bpp;
+            let need = (a.y + a.h - 1) as usize * stride + (a.x + a.w) as usize * bpp;
+            if need > buf.len() {
+                return err(&format!(
+                    "aperture {}x{}+{}+{} wants {} bytes of a {}-byte buffer at stride {}",
+                    a.w,
+                    a.h,
+                    a.x,
+                    a.y,
+                    need,
+                    buf.len(),
+                    stride
+                ));
+            }
+            let mut out = Vec::with_capacity((a.w * a.h) as usize * 3);
+            for row in 0..a.h {
+                let s = (a.y + row) as usize * stride + a.x as usize * bpp;
+                for px in 0..a.w as usize {
+                    let p = s + px * bpp;
+                    if bpp == 4 {
+                        out.extend_from_slice(&buf[p..p + 3]); // RGBA; drop alpha
+                    }
+                    else {
+                        let c = pal[buf[p] as usize % pal.len()];
+                        out.extend_from_slice(&c[..3]);
+                    }
+                }
+            }
+            json!({
+                "ok": true,
+                "w": a.w,
+                "h": a.h,
+                "bpp": bpp,
+                "format": "rgb24",
+                "data": hex_encode(&out),
+            })
+        }
         None => err("no video card"),
     }
 }

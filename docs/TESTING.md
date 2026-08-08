@@ -1,14 +1,15 @@
 # What can actually be tested, and where
 
-**Reach for MartyPC FIRST.** If what you are testing runs on an 8088 with a
-CGA or a Hercules — which is most of this OS, and all of the machine it is
-calibrated against — `make marty` gives you a cycle-accurate 5150 running the
-real 1982 IBM BIOS, with a debugger attached: memory, registers, I/O ports,
-breakpoints, single-step and cycle counts, none of it costing the guest a
-cycle (docs/MARTYPC-DEBUG.md). **Fall back to QEMU when MartyPC does not cover
-the thing** — VGA, 286/386 or sound. Go to 86Box for a
-machine that is not an 8088. **And for anything with a disk in its timing, go
-to the 5150 — no emulator here is disk-accurate, MartyPC included.**
+**Reach for MartyPC FIRST.** If what you are testing runs on an 8088 — which
+is most of this OS, and all of the machine it is calibrated against —
+`make marty` gives you a cycle-accurate 5150 running the real 1982 IBM BIOS,
+with a debugger attached: memory, registers, I/O ports, breakpoints,
+single-step and cycle counts, none of it costing the guest a cycle
+(docs/MARTYPC-DEBUG.md). It covers **all three** of SPEC.md §39's adapters,
+scripted input, screenshots and sound. **Fall back to QEMU for 286/386**, and
+go to 86Box for another machine that is not an 8088. **And for anything with
+a disk in its timing, go to the 5150 — no emulator here is disk-accurate,
+MartyPC included.**
 
 That ordering is a **reversal**, and it is written down because the old one
 cost a great deal. Everything in this tree was QEMU-first for years, and QEMU
@@ -21,7 +22,7 @@ something QEMU showed as fine.
 | reach for | when | why |
 |---|---|---|
 | **MartyPC** | 8088/XT, CGA or MDA/Hercules, and any question of the form *what is the machine doing* | cycle-accurate CPU, a real BIOS ROM, and a debugger that perturbs nothing |
-| **QEMU** | VGA (mode 12h), 286/386, sound | on an 8088, MartyPC now covers input AND screenshots too — `os88marty.py key` / `mouse` / `shot`. QMP and `tools/mouse.py` remain the harness everywhere else |
+| **QEMU** | 286/386, and a second opinion on VGA | on an 8088, MartyPC now covers all three adapters, input, screenshots and sound. QMP and `tools/mouse.py` remain the harness everywhere else |
 | **86Box** | a machine that is **not an 8088** (the 286 and 386 targets), real sound cards on a period bus, a second opinion on the video probe | period-correct whole machines, and the widest hardware library |
 | **the 5150** | anything with a **disk** in it, and the three defects no emulator shows | docs/FIELD-MACHINES.md |
 
@@ -91,7 +92,7 @@ emulator have the hardware": a ✅ means reach for it first.
 
 | Capability | MartyPC | QEMU | How (QEMU) | Verified result |
 |---|---|---|---|---|
-| VGA 640x480x16 | ❌ | ✅ | `make test` | boots to Locator; loads packages |
+| VGA 640x480x16 (mode 12h) | ✅ | ✅ | `make test`, or the `os8088_5150_vga` machine | boots to Locator; loads packages. MartyPC has a register-level VGA and rasterises 12h — `vid_w=640 vid_h=480 vid_planes=4`, raster 800x524, and Minesweeper renders in 8 distinct palette colours |
 | CGA 640x200 mono | ✅ | ✅ | `make test VIDEO=cga` | renders; dumps 640x400 (line-doubled) |
 | Hercules 720x348 mono | ✅ | ✅ | `make test VIDEO=herc HERCSEG=0x7000` | renders; 55.8% lit at the desktop |
 | PC speaker | ✅ | ✅ | `make test-snd`, or `MARTYPC_WAV=` | dominant 880.0 Hz (891.0 on MartyPC, inside tolerance) |
@@ -1106,9 +1107,8 @@ that neither of the others does:
   driver takes the classic `0x48`+`0x1C` auto-init path rather than QEMU's
   SB16 one. `tests/sbtest` gives the same 2.00 s at 1000.0 Hz on both.
 
-What it does **not** cover, and where to go instead: VGA (mode 12h — QEMU),
-286/386 (86Box), and **anything with a disk in it** (the 5150, and nothing
-else).
+What it does **not** cover, and where to go instead: 286/386 (86Box), and
+**anything with a disk in it** (the 5150, and nothing else).
 
 **Input is not on that list either, and no guest module was needed for it.**
 `os88marty.py key` enters the emulator's keyboard buffer, so the guest sees a
@@ -1124,7 +1124,11 @@ arithmetic `tools/hercshot.py` uses, verified against QEMU's CGA at 60.0% lit
 on both. Starting QEMU to look at a screen when MartyPC is already running
 costs minutes for something one command answers. CGA and Hercules only: they
 are 1bpp so the bytes are the pixels, where mode 12h is four planes behind
-the Graphics Controller and not flat-readable at all.
+the Graphics Controller and not flat-readable at all. **`shot --rendered` is
+the route that covers everything** — it asks the card what it rasterised
+rather than asking memory what is in it, comes back in colour, and is taken
+automatically on VGA. On a CGA desktop the two routes agree on 0 pixels of
+128,000, which is a real cross-check and not a convenience.
 
 An example worth copying, because it is the shape of question this is for.
 "How many `int 13h` calls does one file load issue?" used to need
