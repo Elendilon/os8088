@@ -18984,6 +18984,35 @@ once": on a machine with a card, that click is now zero clicks. On a machine
 without one, nothing changed — no probe of a disk, no read of a driver, no
 `DRVE_HW`, and no Control Panel opening on a failure nobody asked for.
 
+**MartyPC is the instrument, and it had to be.** The probe's whole content is
+a timer that has to overflow in real guest time, read back through a status
+port — so an emulator that runs the guest at host speed and answers `in` from
+a stub can neither confirm nor refute it. QEMU says the probe works with
+`-device adlib` and says a `-device sb16` machine is cardless, and only the
+first of those is a fact about hardware. A cycle-accurate 5150 with an OPL2
+whose timers advance in guest time is what settles it, on three machines and
+a fresh image with no `SYSTEM.CFG`:
+
+| machine | probe | row 0 |
+|---|---|---|
+| `os8088_5150_sb` — AdLib + SB | FM hit | `WANT` 1, `SEG` 9E80, 6KB, `ERR` 0 |
+| `os8088_5150_cga` — no card | miss | `WANT` 0, `SEG` 0, `ERR` 0 — and so no notice |
+| `os8088_5150_sbonly` — DSP, nothing at 388h | miss | `WANT` 0 |
+| ...the same, `make SNDSNIFF=sb` | DSP scan hit | `WANT` 1, `SEG` 9E80 |
+
+And end to end, which is the assertion that counts: on `_sb` the Sound page
+comes up with **Sound Blaster** already selected, and its Test tone is
+**660.0 Hz in the OPL2 capture** — while the PC speaker's capture holds
+exactly one span in the whole session, 0.2 s at 26 s, which is the 5150's own
+POST beep and is over before the desktop exists. The tone left the speaker
+because the driver the probe asked for published `DSV_TONE` (§34), with
+nobody having ticked anything.
+
+`os8088_5150_sbonly` exists for this and is worth keeping: no real Sound
+Blaster is built that way, which is exactly why it needs an emulator. It and
+`_sb` are one pair with one knob between them, and that pair is the whole
+argument for why `SNDSNIFF=sb` is a knob rather than the default.
+
 ### 51.4 Unloading, and why detach comes first
 
 `drv_unload` detaches, then frees — never the other way round. The detach

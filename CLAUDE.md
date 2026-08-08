@@ -1859,9 +1859,20 @@ scan is a knob, `make SNDSNIFF=sb`, gated on the FM probe having missed**,
 because it costs the thing §51.3 refuses to spend on the hard-disk driver —
 *writing* to six unknown port ranges on every boot. Two cases want it: a card
 whose FM half is jumpered off, and QEMU's `-device sb16`, whose OPL does **not**
-answer the timer probe where a real one does (verified both ways). The field
+answer the timer probe where a real one does. The field
 machine has no sound card at all (docs/FIELD-MACHINES.md), so it is the one
 that pays a probe and gains nothing — which is what decided the default.
+**MartyPC is the instrument and had to be**: the probe reads a timer that has
+to overflow in real guest time, so an emulator running the guest at host speed
+through a status stub can neither confirm nor refute it — QEMU says the probe
+works with `-device adlib` and says an `-device sb16` box is cardless, and only
+the first is a fact about hardware. On a cycle-accurate 5150 the FM probe hits
+on `os8088_5150_sb`, misses on `_cga` and on **`os8088_5150_sbonly`** — a
+machine added for this, a DSP with nothing at 388h, which no real card is but
+which is exactly the case the knob exists for — and `SNDSNIFF=sb` finds that
+one against a real DSP 2.01. End to end: the Sound page comes up on **Sound
+Blaster** with nothing ticked, and its Test tone is **660.0 Hz in the OPL2
+capture** while the speaker's holds only the 5150's POST beep.
 
 **`bb_set` is the LAST thing `drv_boot` does**, after the load loop, and that
 is SPEC.md §15.3's requirement rather than tidiness: it seeds the back buffer
