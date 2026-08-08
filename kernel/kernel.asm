@@ -1687,6 +1687,8 @@ cw_inst_launch_post:    call inst_launch_post
                     retf
 cw_inst_set_name_x:     call inst_set_name_x
                     retf
+cw_inst_fhome_idx:      call inst_fhome_idx
+                    retf
 cw_inst_win_owner:      call inst_win_owner
                     retf
 cw_mem_avail:           call mem_avail
@@ -1788,6 +1790,8 @@ dskw_gone:            call COLD_SEG:dwf_dskw_gone
                     ret
 dskw_read:            call COLD_SEG:dwf_dskw_read
                     ret
+dskw_remount:         call COLD_SEG:dwf_dskw_remount
+                    ret
 dskw_rename:          call COLD_SEG:dwf_dskw_rename
                     ret
 dskw_stat:            call COLD_SEG:dwf_dskw_stat
@@ -1829,6 +1833,8 @@ fm_rcmd:              call COLD_SEG:fmf_fm_rcmd
 fmv_sync:             call COLD_SEG:fmf_fmv_sync
                     ret
 ld_run_body:          call COLD_SEG:ldf_ld_run_body
+                    ret
+ld_run_name:          call COLD_SEG:ldf_ld_run_name
                     ret
 loader_init:          call COLD_SEG:ldf_loader_init
                     ret

@@ -243,6 +243,26 @@ dsk_nmax:    dw DSK_NENT         ; how many entries fit
 ; cluster chain and the volume lists two lines of noise.
 dsk_fatw0:   dw 0xFFFF           ; the FAT WINDOW (SPEC.md 18.8): the first
                                  ; resident FAT sector, 0xFFFF = none
+; The per-volume FAT windows (SPEC.md 18.8.1/18.8.2). ALL THREE ARE .text
+; WITH REAL INITIALISERS, and that is load-bearing rather than tidy: -f bin
+; zeroes no .bss, dsk_fatw_pick reads dsk_fatwc as a SEGMENT, and volumes 0
+; and 1 are reached before anything could have written them. Garbage there
+; aims the FAT window at whatever paragraph the bytes happen to name. It has
+; never bitten because a cold machine's RAM is usually zero and only driver
+; volumes had claims - both of which stop being true below.
+; ADJACENT AND IN THIS ORDER: dsk_fatw_slot answers the first and reaches the
+; second at +DVOL_MAX*2 and the third at +DVOL_MAX*4.
+dsk_fatww:   times DVOL_MAX dw 0xFFFF   ; the FAT sector each private window
+                                 ; holds, 0xFFFF = nothing resident...
+dsk_fatwc:   times DVOL_MAX dw 0        ; ...the claim it lives in, 0 = none,
+                                 ; so this volume shares the window below the
+                                 ; stacks exactly as it always did...
+dsk_fatwsig: times DVOL_MAX dw 0        ; ...and the SIGNATURE of the disk
+                                 ; those bytes came off (18.8.2), 0 = none
+                                 ; banked, so a fresh row can never match
+dsk_sigcur:  dw 0                ; the signature of the volume mounted NOW,
+                                 ; computed once per mount off the boot sector
+                                 ; that mount already reads
 dsk_fatd0:   dw 0xFFFF           ; the dirty range's low end, 0xFFFF = clean
                                  ; (high end: dsk_fatd1 in .bss). BOTH ARE IN
                                  ; .text and not .bss, because dsk_fatw_park
@@ -1223,6 +1243,8 @@ disk_mount:
     jc .jfail
     call dsk_bpb_check          ; fills the 18.1 vars + disk_spt/disk_heads
     jc .jfail
+    call dsk_bpb_sig            ; [dsk_sigcur] = which disk this is (18.8.2),
+                                ; off the sector we have just read anyway
 
     ; --- 2. the FAT WINDOW's first load (SPEC.md 18.8; ES only, never DS) ---
     ; Not the whole FAT any more - a 32MB FAT16 volume's is 64 sectors and the
@@ -1231,6 +1253,8 @@ disk_mount:
     ; and a lazy first fault would move the moment an unreadable disk is
     ; diagnosed to some later cluster walk. Every window after this one faults
     ; in, with the same fallback.
+    call dsk_fatw_want          ; ...give a floppy one first, if the machine
+                                ; can spare it (SPEC.md 18.8.2)
     call dsk_fatw_pick          ; this volume's own window, if it has one and
     jnc .fat_ok                 ; this is a quiet switch back to it (18.8.1)
     xor dx, dx
@@ -2207,6 +2231,12 @@ dsk_fatw_park:
                                 ; an invalidate stick across a switch (the
                                 ; pick reads it as "owe a load", one 9-sector
                                 ; reload at worst)
+    mov ax, [dsk_sigcur]        ; ...and WHICH DISK those bytes came off
+    mov [bx+DVOL_MAX*4], ax     ; (18.8.2). [dsk_sigcur] still describes the
+                                ; OUTGOING volume here - this runs at the top
+                                ; of the mount, before the new boot sector is
+                                ; read - which is exactly the one we are
+                                ; banking
 .out:
     pop bx
     pop ax
@@ -2235,9 +2265,14 @@ dsk_fatw_pick:
     mov [dsk_fatseg], ax
     cmp byte [dsk_quiet], 0
     je .load
-    mov ax, [bx]
-    cmp ax, 0xFFFF
+    cmp word [bx], 0xFFFF
     je .load
+    mov ax, [bx+DVOL_MAX*4]     ; IS IT STILL THE SAME DISK? (SPEC.md 18.8.2)
+    or ax, ax                   ; 0 = nothing banked
+    jz .load
+    cmp ax, [dsk_sigcur]        ; the boot sector this mount just read
+    jne .load                   ; a different disk: reload, do not trust it
+    mov ax, [bx]
     mov [dsk_fatw0], ax         ; still resident, and nothing can have
     pop bx                      ; overwritten it: this window is ours alone
     pop ax
@@ -2250,9 +2285,97 @@ dsk_fatw_pick:
     ret
 
 ; -----------------------------------------------------------------------------
+; dsk_bpb_sig - which disk is this? (SPEC.md 18.8.2)
+; in:  ES = LOW_SEG and dsk_secbuf holds LBA 0, just read and validated
+; out: [dsk_sigcur] = a 16-bit signature, never 0
+; clobbers: nothing (all registers preserved)
+;
+; The whole 512 bytes, rotated between adds so the sum is position-sensitive
+; rather than a plain checksum. The sector is already in RAM - the mount has
+; just read and validated it - so this is arithmetic, not I/O, which is the
+; entire reason the revalidation is affordable at every switch.
+;
+; **What it can and cannot tell apart, stated plainly.** It catches a disk
+; swapped for one of a different size, format, label or contents-of-sector-0.
+; It CANNOT tell two os8088-built disks of the same geometry apart, because
+; tools/os88disk.py pins BS_VolID (0x88000888) and every FAT timestamp to
+; keep image builds reproducible - so their boot sectors are byte-identical.
+; That residual case (swap one os8088 disk for another between two QUIET
+; mounts, then write) is accepted deliberately; a full mount re-validates and
+; is what every navigation costs, so only a background operation is exposed.
+; -----------------------------------------------------------------------------
+dsk_bpb_sig:
+    push ax
+    push cx
+    push si
+    xor ax, ax
+    mov si, dsk_secbuf
+    mov cx, 256
+.sum:
+    add ax, [es:si]
+    rol ax, 1                   ; position-sensitive: two sectors holding the
+    inc si                      ; same bytes in a different order differ
+    inc si
+    loop .sum
+    or ax, ax
+    jnz .ok
+    inc ax                      ; 0 is the "nothing banked" value in
+.ok:                            ; dsk_fatwsig, so a real sector must not be it
+    mov [dsk_sigcur], ax
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_fatw_want - give a FLOPPY its own FAT window too (SPEC.md 18.8.2)
+; in:  [disk_drive] = the volume being mounted
+; out: nothing (all registers preserved)
+;
+; 18.8.1 gave the private window to driver-backed volumes only, on the
+; reasoning that a floppy's window is its whole FAT and never moves - true,
+; and beside the point: what costs is not the window MOVING, it is the nine
+; sectors re-read every time the volume switches. Measured, a floppy mount is
+; ~12 sectors of which the FAT is 9, and it does not vary with what is in the
+; directory (SPEC.md 54.7's ASSOC.DAT already answers the icon harvest).
+;
+; Gated on 128KB of FREE HEAP, not on the 4.5KB the claim needs: this is a
+; comfort, and a machine that is short of memory should spend what it has on
+; the user's application. Retried at every mount rather than latched, so a
+; machine that frees the heap later gets its window - one mem_avail walk
+; (~1,000 cycles) against a floppy mount measured in seconds.
+; -----------------------------------------------------------------------------
+DSK_FATW_MINK equ 128            ; free heap KB below which a floppy shares
+
+dsk_fatw_want:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bl, [disk_drive]
+    cmp bl, 2                   ; volumes 0 and 1 are the BIOS floppies; a
+    jae .out                    ; driver volume claims at osapi_vol_add
+    call dsk_fatw_slot
+    jc .out
+    cmp word [bx+DVOL_MAX*2], 0
+    jne .out                    ; it already has one
+    call mem_avail              ; AX = largest run KB, BX = TOTAL free KB -
+    cmp bx, DSK_FATW_MINK       ; and BX is why the slot is read above first
+    jb .out
+    mov al, [disk_drive]
+    call dsk_fatw_claim         ; a refusal is a normal path (SPEC.md 50) and
+.out:                           ; leaves this volume sharing, as before
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; dsk_fatw_slot - a volume's saved-sector word (module internal)
 ; in:  BL = a volume index
-; out: CF=0 and BX -> dsk_fatww[BL]; the claim is BX + DVOL_MAX*2 away
+; out: CF=0 and BX -> dsk_fatww[BL]; the claim is BX + DVOL_MAX*2 away and
+;      the disk signature (18.8.2) BX + DVOL_MAX*4
 ; clobbers: BX (the output), flags
 ; -----------------------------------------------------------------------------
 dsk_fatw_slot:
@@ -2272,9 +2395,9 @@ dsk_fatw_slot:
 ; in:  AL = a volume index
 ; out: nothing (all registers preserved)
 ;
-; DSK_FAT_SECS sectors of heap, per DRIVER-BACKED volume. Not for a floppy:
-; its window is the whole FAT and never moves, so a private copy would buy
-; nothing and cost 4.5KB twice on every machine, hard disk or not.
+; DSK_FAT_SECS sectors of heap. Per driver-backed volume at osapi_vol_add,
+; and per FLOPPY at mount time when the heap can spare it (dsk_fatw_want,
+; SPEC.md 18.8.2) - which is where the 128KB gate lives.
 ;
 ; A refused claim is not an error. The volume shares the window below the
 ; stacks and behaves exactly as it did before this existed, which is the
@@ -2691,9 +2814,16 @@ dsk_relist:
                                 ; an empty listing, which is exactly what the
                                 ; flag exists to stop being wrong about, so
                                 ; there is nothing left to owe
-    jmp dskw_sync               ; the same remount-where-we-stand that every
-                                ; successful write already does (18.4) - a
-                                ; tail call, and it preserves everything
+    jmp dskw_remount            ; the remount-where-we-stand half of dskw_sync
+                                ; (18.4) - a tail call, and it preserves
+                                ; everything.
+                                ;
+                                ; dskw_remount and NOT dskw_sync, which is the
+                                ; whole reason those two are separate routines:
+                                ; dskw_sync DEFERS when nothing on screen is
+                                ; drawn from the global listing, so this pair
+                                ; would clear the debt and then decline to pay
+                                ; it - and this is the payment.
 .out:
     ret
 
@@ -3184,13 +3314,6 @@ dsk_spc:      resb 1            ; BPB_SecPerClus (validated power of two)
 dsk_fatlba:   resw 1            ; = RsvdSecCnt (FAT1 start LBA)
 dsk_fatsz:    resw 1            ; = FATSz16 - capped at DSK_FAT_SECS only on
                                 ; a BIOS floppy (SPEC.md 18.2 rule 10)
-dsk_fatww:    resw DVOL_MAX     ; per volume (SPEC.md 18.8.1): the FAT sector
-                                ; its private window holds, 0xFFFF = none...
-dsk_fatwc:    resw DVOL_MAX     ; ...and the claim that window lives in, 0 =
-                                ; it has none and shares the one below the
-                                ; stacks. ADJACENT AND IN THIS ORDER:
-                                ; dsk_fatw_slot answers the first and reaches
-                                ; the second at +DVOL_MAX*2
 dsk_fatwn:    resw 1            ; ...and how many are resident. On a floppy
                                 ; this is the whole FAT and the window never
                                 ; moves - the degenerate case, byte for byte

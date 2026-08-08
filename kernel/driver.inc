@@ -1043,7 +1043,18 @@ drv_mounted:
     push ax
     push dx
     xor dl, dl                  ; drive A: - the disk we booted from
-    call disk_mount
+    xor ax, ax                  ; ...at its root, which is where 19.6 puts
+                                ; KERNEL.SYS, SYSTEM.CFG and every *.DRV
+    call dsk_chdir_q            ; QUIET (SPEC.md 18.9): all three callers here
+                                ; read or write a file BY NAME - drv_find is
+                                ; dskw_stat and drv_cfg_* are dskw_read /
+                                ; dskw_write_sys, none of which look at the
+                                ; listing - so the scan, the sort and one
+                                ; icon-harvest read per file in A:'s root are
+                                ; all bought for nothing. ui_tm_open is the
+                                ; caller that DOES need a listing (it hands
+                                ; the loader a directory index) and it mounts
+                                ; A: itself rather than coming through here
     pop dx
     pop ax
     ret
@@ -1104,8 +1115,17 @@ drv_vol_back:
     cmp ax, [dsk_cwd]           ; whole cost
     je .out
 .go:
-    call dsk_chdir              ; CF = the remount failed; swallowed by the
-.out:                           ; popf below, deliberately
+    call dsk_chdir_q            ; CF = the remount failed; swallowed by the
+                                ; popf below, deliberately.
+                                ;
+                                ; QUIET (SPEC.md 18.9), because putting the
+                                ; user's VOLUME back is not the same as
+                                ; putting a LISTING on screen: every Disk
+                                ; window paints from its own view cache
+                                ; (22.1), so nothing here is drawn from the
+                                ; global snapshot, and whoever reads it next
+                                ; pays for the rebuild if it is ever needed
+.out:
     pop dx
     pop ax
     popf
