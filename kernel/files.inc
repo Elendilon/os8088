@@ -2114,7 +2114,10 @@ fm_onkey_x:
     or al, al
     jz .out                     ; a bare scan code: swallowed, nothing moved
     call fm_editkey
-    jmp .redraw
+    jc .redraw                  ; it changed the listing or the mode
+    call fm_status_only         ; ...otherwise the name being typed lives on
+    jc .redraw                  ; the status line and that is ALL that moved.
+    jmp .out                    ; CF = 1 is 11.3's granularity refusal
 
 .remount:
     call fm_reload              ; r: re-list, without leaving the folder
@@ -2897,6 +2900,12 @@ fm_rclick_x:
     mov bx, si                  ; repaint needs it too
     call fm_vp_set
 
+    mov di, [fm_vp]             ; was an editor line up in THIS window? Bank
+    mov al, [di+FS_EDIT]        ; it BEFORE ending one, exactly as fm_onclick
+    mov [fm_wased], al          ; does - the two selection bands below cannot
+                                ; put a rewritten status line back, and this
+                                ; flag is per-CLICK, so a stale one from the
+                                ; last left-click is not an answer
     call fm_edit_end            ; a right-click abandons a half-typed name
                                 ; exactly as a left one does (SPEC.md 22)
 
@@ -2930,13 +2939,22 @@ fm_rclick_x:
     mov word [di+FS_SEL], 0xFFFF
     mov di, fm_ctx_dir
 .have:
-    push di                     ; fm_draw_core is the 400-line painter and
-                                ; uses every register there is - the chosen
-                                ; descriptor does not survive it
+    push di                     ; fm_sel_bar preserves everything, but the
+                                ; fm_repaint fallback below is the 400-line
+                                ; painter and uses every register there is
     mov si, [fm_cmdwin]
-    call fm_repaint             ; show the new selection BEFORE the popup -
-                                ; the save-under would otherwise capture the
-                                ; old one and put it straight back
+    cmp byte [fm_wased], 0      ; an editor line was up: fm_edit_end rewrote
+    jne .rc_full                ; the status line, so the whole window owes
+    mov ax, [fm_lsel]           ; SPEC.md 22.2, exactly as fm_onclick does it:
+    call fm_sel_bar             ; the old band off...
+    mov di, [fm_vp]
+    mov ax, [di+FS_SEL]
+    mov [fm_lsel], ax           ; keep fm_layout's mirror honest
+    call fm_sel_bar             ; ...and the new one on. The selection is the
+    jmp short .rc_shown         ; ONLY thing a right-click changes, and this
+.rc_full:                       ; still puts it on screen BEFORE the popup, so
+    call fm_repaint             ; the save-under captures the new highlight
+.rc_shown:
     pop di
     pop dx                      ; the absolute press point again
     pop cx
@@ -3046,7 +3064,7 @@ fm_editkey:
     inc bx
     mov byte [fm_ebuf+bx], 0
     mov [fm_elen], bl
-    jmp short .out
+    jmp short .lineonly
 
 .back:
     mov bl, [fm_elen]
@@ -3056,7 +3074,7 @@ fm_editkey:
     dec bl                      ; `dec bl` IS `dec bx` here (BH is 0), so BX
     mov [fm_elen], bl           ; is the NEW length and the terminator lands
     mov byte [fm_ebuf+bx], 0    ; on the character just dropped - the -1 that
-    jmp short .out              ; used to be here punched a NUL one byte
+    jmp short .lineonly         ; used to be here punched a NUL one byte
                                 ; EARLIER, so the name displayed short and
                                 ; every character typed after a backspace
                                 ; landed behind that NUL and never appeared
@@ -3092,9 +3110,14 @@ fm_editkey:
     jmp short .out
 .cancel:
     call fm_edit_end
-.out:
-    pop di
-    pop bx
+.lineonly:
+    clc                         ; CF = 0: the typed name is ON the status line
+    jmp short .pops             ; and NOTHING else on this window moved, so a
+.out:                           ; keystroke owes one line, not a repaint
+    stc                         ; anything else - commit, cancel, the replace
+.pops:                          ; question - changed the listing or the mode
+    pop di                      ; and still owes the whole window. `pop` does
+    pop bx                      ; not touch flags, so CF survives to the caller
     pop ax
     ret
 
@@ -4501,7 +4524,19 @@ fm_draw_status:
     shl ax, 1
     add bx, ax
     mov si, [bx]
-    jmp short .fs_st_tab
+    jmp short .fs_stat          ; DRAW it. This said .fs_st_tab - a jump to
+                                ; its own head - and the loop terminated
+                                ; rather than hanging only because `shl ax, 1`
+                                ; doubles the code every pass: LD_EBAD walked
+                                ; 2, 4, 8, 16, failed the FM_NERR bound and
+                                ; fell out at .fs_done, which draws NOTHING.
+                                ; So every rung of this ladder went silent -
+                                ; 'Bad package' on a corrupt .o88, and every
+                                ; FERR_* the table exists to keep from being
+                                ; silent. It fell through to .fs_stat until
+                                ; .fs_st_space was inserted below it and
+                                ; needed a jump added; the jump went to the
+                                ; wrong label
 
     ; --- 5. the resting state: this folder's size and the volume's free
     ;     space (SPEC.md 22.7). Every rung above is a NOTIFICATION and takes

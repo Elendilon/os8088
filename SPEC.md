@@ -8810,6 +8810,42 @@ Two things hold it up:
 `fdlg.inc` has the same rule and its own `fdlg_sel_bar` (§38.3): the geometry
 differs, the argument does not.
 
+### 22.2.1 A right-click moves the selection; a keystroke owes one line
+
+Two paths were still ending in `fm_repaint` — the 400-line painter, a white
+fill of the whole content plus every row, every icon, the header, the buttons
+and the scroll bar — to change something much smaller.
+
+**A right-click selects the row under the pointer**, and that is *all* it
+changes to the window. It painted the whole thing "so the save-under captures
+the new highlight", which is a real requirement and is satisfied just as well
+by §22.2's two inverted bands: the old one XORed off, the new one XORed on,
+before `menu_popup` runs. Measured with counters in `font_char`/`gfx_fill`, a
+right-click that MOVES the selection and one that does not now cost the
+**same** — 26 glyphs and 5 fills, which is the popup itself — where the
+selection change used to add a whole window.
+
+Two things it needs. `[fm_lsel]` is `fm_layout`'s mirror of the old
+selection, and the layout runs *before* `FS_SEL` is written here, so it still
+names the outgoing row. And `[fm_wased]` — "an editor line was up, so the
+status line was rewritten and the bands cannot put it back" — has to be
+banked **in `fm_rclick` too**: it is a per-click flag that `fm_onclick` sets,
+so reading it without banking is reading the last LEFT click's answer.
+
+**A keystroke into the rename/new-folder editor changes one line of text**,
+the status line the editor lives on, and it repainted the whole window per
+character. `fm_editkey` now answers **CF = 0 for "only the status line
+moved"** — the ordinary-character and Backspace paths, and nothing else — and
+`fm_onkey` spends that on `fm_status_only`, falling back to `fm_repaint` on
+§11.3's granularity refusal. Everything else it can do (commit, cancel, the
+replace question) changes the listing or the mode and still owes the window.
+
+Measured on the same window: a keystroke was **91 glyphs and 40 fills** (the
+same cost `r` still pays for a re-list, which is a real full repaint) and is
+now **25 glyphs and 1 fill** — the line and nothing else. At
+PERFORMANCE.md's ~1 ms per glyph cell that is a keystroke costing ~25 ms
+instead of ~120, on a machine where the typist is waiting for it.
+
 ### 22.3 Cut, Copy and Paste (`kernel/filecp.inc`)
 
 The clipboard is **(drive, folder, name, type)** and deliberately not an
