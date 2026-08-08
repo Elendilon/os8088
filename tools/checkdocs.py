@@ -72,9 +72,19 @@ HELD = {"0x01e8"}
 
 
 def headings(path):
-    """The numbered headings a document defines, as a set of strings."""
-    with open(path, encoding="utf-8") as fh:
-        return {m.group(1) for m in map(HEAD.match, fh.read().split("\n")) if m}
+    """The numbered headings a document defines, as a set of strings.
+
+    Unreadable is an empty set rather than a raise: git lists what is TRACKED,
+    which mid-rebase or mid-delete is not always what is on disk, and this runs
+    in the default build now. Empty fails safe in the direction that matters -
+    a citation into SPEC.md is then reported rather than passed.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return set()
+    return {m.group(1) for m in map(HEAD.match, text.split("\n")) if m}
 
 
 def main() -> int:
