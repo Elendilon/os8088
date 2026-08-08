@@ -254,6 +254,11 @@ ui_task:
 
     ; --- 3. deferred work (SPEC.md 13/21/29): OUTSIDE the gfx lock ------------
 .yield:
+    call kbm_ui                 ; the keyboard mouse's end-of-pass service
+                                ; (SPEC.md 9.6.1): a press held the button so
+                                ; that whatever this pass dispatched could
+                                ; track it, and if nothing did, this is where
+                                ; the press becomes a click
     call fdlg_reap              ; a file dialog cancelled by its close or
                                 ; minimize box is only HIDDEN by that route
                                 ; (SPEC.md 38.1) - collect it here rather
