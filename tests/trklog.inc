@@ -380,20 +380,20 @@ tlog_clk_key:
     push ax
     push si
     mov si, tlog_s_clkt
-    cmp byte [ttx_clk], 0
+    cmp byte [ttx_clk], FSXW_TICK
     je .fast
-    mov byte [ttx_clk], 0           ; back to one frame per tick, and the
+    mov byte [ttx_clk], FSXW_TICK   ; back to one frame per tick, and the
     mov al, TTX_SHCHUNK             ; rebuild chunk that goes with it
     mov [ttx_chunk], al
     mov byte [ttx_fdiv], 1
     mov byte [ttx_fcnt], 1
     jmp short .say
 .fast:
-    mov byte [ttx_clk], 1
+    mov byte [ttx_clk], FSXW_FRAME
     mov al, TTX_SHCHUNKF
     mov [ttx_chunk], al
-    mov byte [ttx_fdiv], 3
-    mov byte [ttx_fcnt], 3
+    mov byte [ttx_fdiv], FSX_SUBTICK
+    mov byte [ttx_fcnt], FSX_SUBTICK
     mov si, tlog_s_clkr
 .say:
     call tui_msg
@@ -454,7 +454,7 @@ tlog_tick:
     je .sy                          ; never be read against the wrong mode
     or al, TLOGF_NOSYNC
 .sy:
-    cmp byte [ttx_clk], 0
+    cmp byte [ttx_clk], FSXW_TICK
     jne .ck
     or al, TLOGF_TICKCLK
 .ck:
@@ -780,7 +780,7 @@ tlog_hdr_clk:
     mov si, tlog_s_clk
     call tui_scpy
     mov si, tlog_s_tick
-    cmp byte [ttx_clk], 0
+    cmp byte [ttx_clk], FSXW_TICK
     je .name
     mov si, tlog_s_retr
 .name:
@@ -840,13 +840,13 @@ tlog_s_h7:      db 'FL 20 = Y pressed (display on the mixer), 40 = T pressed (ti
                 ; 80 = the rebuild CARRIED (SPEC.md 45.13.5) - named in h3
 tlog_s_clk:     db 'clock: ', 0
 tlog_s_tick:    db 'tick', 0
-tlog_s_retr:    db 'retrace', 0
+tlog_s_retr:    db 'frame (sub-tick)', 0
 tlog_s_fdiv:    db '  fdiv ', 0
 tlog_s_chunk:   db '  chunk ', 0
 tlog_s_synco:   db 'Sync ON: the screen follows the card', 0
 tlog_s_syncx:   db 'Sync OFF: the screen follows the mixer', 0
 tlog_s_clkt:    db 'Clock: one frame per tick', 0
-tlog_s_clkr:    db 'Clock: one frame per retrace', 0
+tlog_s_clkr:    db 'Clock: one frame per sub-tick', 0
 
 ; --- bss ---------------------------------------------------------------------
     TRKW tlog_seg                   ; the record claim, 0 = not armed

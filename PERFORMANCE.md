@@ -624,6 +624,70 @@ obvious enough to guess at safely — 50 Hz of ticks against a 59.9 Hz raster
 cannot divide evenly, so some beat is inherent, but nothing in these numbers
 separates an inherent beat from a burst the app could pace better.
 
+### …and what the evenness ratio was hiding: 28.8% of the machine in a poll
+
+The unanswered question above got its answer from a *different* instrument,
+and the reason it had to is worth the paragraph: `pace` reads pixels, so it
+can say the scroll is uneven and can never say why. The complaint that
+reopened it was audible rather than visible — *"the music plays smoothly for
+the first 10–20 s of fullscreen, then has dropouts"* — and the two turned out
+to be one defect seen from either side.
+
+**The instrument was a sampling profiler with no code in the guest**: ask
+MartyPC for CS:IP a few thousand times and bin it by the nearest symbol out
+of a NASM listing. Tracker on the §45.13 text screen, MartyPC's
+cycle-accurate 5150 with a Sound Blaster, `BEVERLY.MOD` in XT mode:
+
+| | windowed | fullscreen, retrace clock | fullscreen, `FSXW_FRAME` |
+|---|---|---|---|
+| `mp_mixch_xt` — the mixer | 47.2% | **35.0%** | **51.4%** |
+| `fsx_insync` + `fsx_wait` — the poll | — | **28.8%** | *absent* |
+| `task_yield` | — | — | 0.8% |
+| bytes/second reaching the card | 5,533 | **4,808** | **5,520** |
+| ring lead, halves of 2,048 | 7.0–8.0 | **1.0**–8.0 | **5.0**–8.0 |
+
+`fsx_wait`'s retrace path is a **busy-wait**, and to a round-robin scheduler a
+busy-wait is work: the drawing task took its half of the machine whether it
+needed it or not, and the half it did not need was the mixer's. The mixer
+needs ~55% of a 4.77MHz 8088 to hold 5,500 Hz; it was getting 35%. 4,808
+against 5,533 is **13% of the audio never played** — the DSP pausing, which is
+what `SBL_ST_UNDER` does by design rather than loop stale samples — and the
+ring's eight halves are ~3 seconds of cushion, which is exactly why it sounds
+perfect for the first half-minute and then does not. §53.5.1 is the fix: a
+frame clock that waits on `[sch_subs]` and **yields**, so the frame time the
+app does not spend goes to its worker instead of to a port.
+
+**The scroll, measured the `pace` way, over the same change** — BIG-update
+class, which is the pattern-grid blit:
+
+| | retrace clock | `FSXW_FRAME` | + the `[tui_fpt]` fix |
+|---|---|---|---|
+| mean interval | 8.88 fr (148.2 ms) | 8.20 fr (136.9 ms) | 8.12 fr (135.4 ms) |
+| **jitter (sd)** | **5.60 fr** | 1.57 fr | 1.57 fr |
+| evenness | **0.63** — judder | **0.19** | **0.19** |
+| intervals ≤ 6 fr or ≥ 10 fr | scattered, 1–13 fr | 22 of 110 | **5 of 148** |
+
+The ideal is 8.39 CRT frames (140 ms at this tempo). After both changes
+**96% of row intervals are 7, 8 or 9 CRT frames**, which is what a 54.6 Hz
+display of a 7.14 Hz row stream quantizes to and is therefore the floor: a
+row change can only be shown on a frame, so 128 ms and 146 ms alternating is
+the best a 54.6 Hz clock can do, and nothing short of more frames improves
+it.
+
+The third column is a second, independent defect the first fix exposed
+(§45.15.2): `[tui_fcnt]` is reset *by* the frame standing on the tick edge, so
+it ends a tick holding the frames **inside** the tick — two, not three. The
+sub-tick interpolation divided by two and then capped, so the position froze
+for the last third of every tick and jumped half a tick. It measured as
+`[tui_fpt]` = 2 on a machine measured at three frames a tick; that
+disagreement *is* the bug, and it had been invisible while the frame count
+was a wobbling 1.81.
+
+**And the earlier open question is answered in passing**: the "39% of gaps are
+exactly one frame, in bursts" reading was the *small*-update class — the VU
+needles and the status line — not the scroll, which the BIG class isolates.
+The scroll's own clumping was the starvation.
+
 ### The trap that cost two wrong answers: the guest's own counters
 
 The music's tempo is the ground truth this measurement leans on, and reading
@@ -842,7 +906,7 @@ list to check yourself against.
 | Tracker's XT fullscreen | the scrolling grid in pixels: **2,567 glyph cells/s**, ~2.6 s of drawing per second of music | an 80x25 text mode: **0** glyph cells, **0** `gfx_fill` — 1,121 `rep movsw` words a row change, ~4% of the machine, and the grid scrolls again | §45.13 |
 | Tracker mixing at 11 kHz | ~7.9M cycles/s against a 4.77M budget | ~2.1M at 5,500 Hz, bounds check out of the inner loop | §45.9 |
 | Tracker's readouts and grid | quoted the MIXER, which `trk_feed` keeps a ring ahead of the card — **2.2–3.0 s of music** at XT mode's 5,500 Hz. Measured: press Enter, screendump 0.15 s later, the grid is on **row 21** | position stamps — the row the card is *inside*. Same screendump reads **row 00**, and the cost is one word the worker's existing status poll already had | §45.15 |
-| Tracker's text frame clock | one frame per tick: a 120 ms row drawn 110, 110, 110, **165** ms after the last, and on a module past 18.2 rows/s the display never shows some rows at all | retrace-paced where the adapter can be (50/60/70 Hz), **measured** at bracket entry because `fsx_wait`'s retrace path is a poll with a 3-tick timeout — a dead status port would be 6 fps | §45.16 |
+| Tracker's text frame clock | one frame per tick: a 120 ms row drawn 110, 110, 110, **165** ms after the last, and on a module past 18.2 rows/s the display never shows some rows at all | `FSXW_FRAME` — the fsx sub-tick, 54.6 Hz, and it **yields** rather than polls, so the mixer keeps the machine (the retrace clock that came between cost 28.8% of the CPU and 13% of the audio) | §45.16, §53.5.1 |
 | Tracker's text shadow rebuild | all 64 rows in one frame — 256 `mp_cell2txt` + 3,776 `lodsb`/`stosw` + a 9,676-byte blank ≈ **140–330 ms, once every ~9 s**, reported from the field as the screen stopping and then jumping | `TTX_SHCHUNK` = 4 rows a frame, cursor starting at the visible window and wrapping. **Confirmed on the 5150**: 51 s of bracket, frame spacings 432 × 1 tick / 247 × 2 / 2 × 3 and nothing else, with all five pattern boundaries indistinguishable from the baseline. (§45.13.4 took the shadow to 82 rows — 328 calls, 21 chunk frames instead of 16 — which lengthens the *rebuild*, not the frame the field run measured) | §45.13.2 |
 | Paint brush stroke | width² per pixel of travel | the dab's leading edge, one `gfx_fill` per step | docs/PAINT-NOTES.md |
 | Paint undo | whole canvas | row-granular and lazy | ibid |

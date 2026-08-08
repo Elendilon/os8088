@@ -1447,3 +1447,77 @@ not a fix, and not a bisect, but the one byte that makes the *next*
 occurrence self-diagnosing. This cost eleven bytes of kernel and the failure
 has not happened again since — which is the awkward part, and precisely why
 the instrument had to go in before it was understood rather than after.
+
+## 15. Fullscreen Tracker plays for 10-20 s and then drops audio, and the scroll micro-hitches (FIXED, reproduced under MartyPC)
+
+**Observed.** In Tracker's XT-mode fullscreen (the SPEC.md §45.13 text
+screen): three or four rows scroll smoothly and the next one "hitches" — a
+micro-stutter — and, separately and much larger, *"the music plays smoothly
+for the first 10-20 s of fullscreen, then has dropouts"*. Windowed is fine.
+
+**Both are one defect, and it is in the KERNEL rather than in Tracker.**
+`fsx_wait`'s retrace clock is a **busy-wait on the CRT status port**, and to
+a round-robin scheduler a busy-wait is indistinguishable from work — so the
+drawing task took its half of the machine whether it needed it or not, and
+the half it did not need belonged to the `FSXF_KEEPWORKER` mixer. That is the
+exact contradiction of the flag: the promise of `KEEPWORKER` is that the
+worker keeps running, and the frame clock was spending its CPU.
+
+**Reproduced and priced under MartyPC** (`os8088_5150_sb`, cycle-accurate
+4.77MHz 8088, `BEVERLY.MOD`), by two instruments that cost the guest nothing:
+a **sampling profiler** (ask for CS:IP a few thousand times, bin by the
+nearest symbol out of a NASM listing) and a **poll of the ring counters out
+of guest RAM** with cycle timestamps.
+
+| | windowed | fullscreen, before | fullscreen, after |
+|---|---|---|---|
+| `mp_mixch_xt` — the mixer | 47.2% | **35.0%** | **51.4%** |
+| `fsx_insync` + `fsx_wait` | — | **28.8%** | *absent* |
+| bytes/second reaching the card | 5,533 | **4,808** | **5,529** |
+| ring lead, halves of 2,048 | 7.0–8.0 | **1.0**–8.0 | **7.0**–8.0 |
+
+4,808 against 5,533 is **13% of the audio never played** — the DSP pausing,
+which is what an underrun does by design. The ring's eight halves are ~3
+seconds of cushion, which is why it sounds perfect for the first half-minute
+and then does not, and why the field machine (slower still) hears it sooner.
+
+**The fix is a third clock**, `FSXW_FRAME` (SPEC.md §53.5.1): it waits on the
+new `[sch_subs]` — a free-running counter of IRQ0 entries, sub-ticks included
+— and between polls it calls `task_yield`, so the frame time the app does not
+spend goes to the worker instead of to a port. It is also *faster* than what
+it replaces: with `FSXF_FASTTICK` armed it returns 54.6 times a second,
+quicker than a Hercules' 50 Hz retrace and evenly spaced by the crystal.
+
+**And the micro-hitch was TWO bugs, the second only visible once the first
+was fixed.** With the clock even, `[tui_fpt]` still read **2** on a machine
+measured at three frames a tick: `[tui_fcnt]` is reset *by* the frame standing
+on the tick edge, so it ends a tick holding the frames *inside* the tick.
+§45.15.2's interpolation therefore divided by two and then hit its own cap —
+`0, bpt/2, bpt/2` — so the position **froze for the last third of every tick
+and then jumped half a tick**. Measured on the card's own rendered output
+(`os88marty.py pace`, BIG-update class = the pattern-grid blit):
+
+| | before | + frame clock | + the `[tui_fpt]` fix |
+|---|---|---|---|
+| mean row interval | 8.88 fr (148.2 ms) | 8.20 fr (136.9 ms) | 8.27 fr (138.0 ms) |
+| **jitter (sd)** | **5.60 fr** | 1.57 fr | **1.31 fr** |
+| evenness | **0.63** — judder | 0.19 | **0.16** |
+
+96% of row intervals are now 7, 8 or 9 CRT frames, which is what a 54.6 Hz
+display of a 7.14 Hz row stream quantizes to and is therefore the floor.
+
+**Three reusable lessons.**
+
+- **A busy-wait is work.** Any poll loop in a task, on this scheduler, is a
+  claim on half the machine. That is free when the task is alone and it is a
+  starved worker when it is not — so the pairing is the rule: *a bracket with
+  a kept worker must not pace itself on `FSXW_VSYNC`*.
+- **The careful part was careful about the wrong quantity.** `ttx_clkprobe`
+  measured the retrace clock honestly and at length — timeouts, refusals, a
+  zero case — and never asked what polling it *cost*. Measuring the thing you
+  chose is not the same as measuring the choice.
+- **QEMU could not have found this and MartyPC could.** The defect is a CPU
+  budget on a 4.77MHz 8088; on a host-speed emulator every task has all the
+  time in the world and the counters read perfect. It needed a cycle-accurate
+  machine with a real Sound Blaster in it, which is `make marty`'s whole
+  argument arriving as a bug.

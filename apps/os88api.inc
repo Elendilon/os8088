@@ -1420,12 +1420,17 @@ OS88_BSS_SIZE equ 0
                                                 ; buffer is armed - call
                                                 ; OSAPI_GFX_DBUF off first.
 
-%define OSAPI_FSX_WAIT      KERNEL_SEG:0x02D8   ; in AL = 0 return at the
-                                                ; next tick / 1 return in
+%define OSAPI_FSX_WAIT      KERNEL_SEG:0x02D8   ; in AL = FSXW_TICK (0) the
+                                                ; next tick / FSXW_VSYNC (1)
                                                 ; vertical retrace (bounded -
                                                 ; a dead port times out
-                                                ; rather than hangs).
-                                                ; Bracket-only, CF=1 outside.
+                                                ; rather than hangs) /
+                                                ; FSXW_FRAME (2) the next
+                                                ; IRQ0, YIELDING while it
+                                                ; waits - the one to use with
+                                                ; a kept worker (53.5.1).
+                                                ; Bracket-only, CF=1 outside
+                                                ; or on an unknown AL.
                                                 ; THE PRESENT: while your
                                                 ; back buffer is armed and no
                                                 ; mode switch has happened,
@@ -1609,6 +1614,10 @@ FSXF_FASTTICK   equ 2           ; OSAPI_FSX_RUN CX bit 1 (SPEC.md 53.2.1): the
                                 ; costs the drawing side a third of what it
                                 ; did. [ticks] keeps its rate, so nothing you
                                 ; time in ticks changes
+FSX_SUBTICK     equ 3           ; ...and this is the divider, so with FASTTICK
+                                ; armed FSXW_FRAME returns 3 x 18.2065 = 54.6
+                                ; times a second. A constant, not a
+                                ; measurement: it is a crystal over an integer
 FSXF_KEEPWORKER equ 1           ; OSAPI_FSX_RUN CX bit 0: your worker stays
                                 ; scheduled through the bracket. For workers
                                 ; that FEED - an audio ring, a state word.
@@ -1616,6 +1625,23 @@ FSXF_KEEPWORKER equ 1           ; OSAPI_FSX_RUN CX bit 0: your worker stays
                                 ; or call a drawing slot: it parks safely on
                                 ; the held lock, but a parked feeder is a
                                 ; starved ring (SPEC.md 53.2).
+
+; --- OSAPI_FSX_WAIT's clock (SPEC.md 53.5/53.5.1) ---------------------------
+FSXW_TICK   equ 0               ; the next [ticks] change - 18.2 Hz, hlt
+FSXW_VSYNC  equ 1               ; vertical retrace - and it SPINS on the status
+                                ; port, so it takes its whole round-robin
+                                ; share whether it needs it or not. Fine for a
+                                ; bracket that is alone in the machine; with a
+                                ; FSXF_KEEPWORKER it is what starves the
+                                ; worker, which for an audio feeder means
+                                ; dropouts (SPEC.md 53.5.1)
+FSXW_FRAME  equ 2               ; the next IRQ0 - the SUB-TICK while
+                                ; FSXF_FASTTICK is armed (54.6 Hz, faster than
+                                ; a Hercules' retrace and evenly spaced by the
+                                ; crystal), the tick otherwise. It waits by
+                                ; YIELDING, so the frame time you do not spend
+                                ; goes to your worker instead of to a poll
+                                ; loop. USE THIS ONE WITH A KEPT WORKER
 
 FSXM_TEXT80 equ 0               ; 80x25 text        VGA CGA HERC
 FSXM_TEXT40 equ 1               ; 40x25 text        VGA CGA
