@@ -109,7 +109,7 @@ happened" is the one failure a debugger must not have.
 | config | what it is |
 |---|---|
 | `os8088_5150_cga` | the default: IBM 5150, 8088 at 4.77MHz, 640K, CGA, real 1982 IBM BIOS |
-| `os8088_5150_herc` | the same with MDA — MartyPC models Hercules as an MDA sub-mode, so SPEC.md §39.1's probe is what decides |
+| `os8088_5150_herc` | the same with a Hercules — MartyPC models it as an MDA **subtype**, so the block needs `subtype = "Hercules"` as well as `type = "MDA"`, and SPEC.md §39.1's probe is what decides |
 | `os8088_5150_cga_gla` | the same with GLaBIOS |
 | `os8088_5150_sb` | the same with an AdLib **and** a Sound Blaster (DSP 2.01, 0x220, IRQ 7) |
 | `os8088_5150_sbonly` | ...and with the FM half taken out: a DSP at 0x220 and **nothing at 0x388**. No real card is built that way, which is why it needs an emulator — it is SPEC.md §51.3.1's jumpered-off-FM case, and `_sb`/`_sbonly` are one pair with `make SNDSNIFF=sb` between them |
@@ -118,6 +118,25 @@ happened" is the one failure a debugger must not have.
 
 The first five are shaped after docs/FIELD-MACHINES.md's calibration machine,
 as closely as MartyPC allows.
+
+**`subtype = "Hercules"` is load-bearing and its absence is silent.** Without
+it MartyPC builds a plain MDA, whose `mem_mask` is `MDA_MEM_MASK` = 0x0FFF —
+so the card decodes **4KB and mirrors it eight times** across the 32KB
+aperture, and the mask only ever moves to `HGC_MEM_MASK_HALF` inside an
+`if let VideoCardSubType::Hercules`. The kernel's own probe is unaffected and
+still reports Hercules (it programs 3BF/3B8 and reads the geometry back
+correctly: `[vid_w]`/`[vid_h]`/`[vid_stride]` = 720/348/90, `[vid_mono]` = 1),
+so **everything on the guest side looks right** — while every write above
+0x0FFF aliases on top of the first 4KB.
+
+What it looks like when it is wrong: `shot` returns a **sheared** picture with
+the desktop repeated down the screen, because it is decoding §39.3's four
+banks out of one mirrored page; `shot --rendered` returns an **all-black**
+720x350, because the card is rasterising MDA text out of graphics bytes. Both
+are pictures rather than errors, which is the failure mode this file warns
+about elsewhere. The one-command diagnosis is to dump the aperture and test
+it for period: `dump 0xB0000 32768` and check whether byte *i* equals byte
+*i*+4096.
 
 **The hard-disk one tests RUNG 0, and that is the point.** SPEC.md §52.1's
 rung 1 reads the IDE task file directly and is gated on `CPU_286`, because an
