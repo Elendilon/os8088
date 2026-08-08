@@ -17688,6 +17688,54 @@ difference — a rising bar fills its growth, a falling one erases its
 shrinkage, a steady one costs nothing; `tui_el_scopes` zeroes the four
 widths whenever it repaints the cells under them.
 
+#### 45.12.1 The needle is driven by the NOTE, and driving it by the volume cancelled out
+
+`tui_vu_step` used to *rise instantly to `[tui_avol]` and fall two units a
+call*, and on a MOD that is not a meter — it is a readout of the **volume
+column**, which changes only when a volume command changes it. On a channel
+holding one value the two halves of the rule cancel **exactly**: the needle
+falls two, finds the volume above it again, and jumps straight back.
+
+Measured on the field module, from outside the guest, one sample every 0.7 s:
+
+| | channel 2 | channels 1, 3, 4 |
+|---|---|---|
+| `mp_chvol` | **30, constant** | 64, constant |
+| `tui_vu` | alternating **30 / 28** | 64 / 62 |
+| `ttx_vuc` (cells of ten) | **4, for the whole song** | 10 |
+
+30·10/64 and 28·10/64 both floor to 4, so the bar never moved while notes
+played through it — reported from the field as *"stuck at like 40% filled,
+even when the second column is playing things"*, with the mechanism named in
+the same breath: *"the decay and growth are exactly matching up."* The three
+channels pinned at 10/10 are the identical defect wearing a plausible face.
+
+So the needle is an **impulse and a decay**:
+
+- **`mp_trig` raises `[mp_hit]`** for its channel, on the success path only —
+  a trigger that falls through to `.dead` makes no sound and must light
+  nothing. It is the one place a note actually starts, so the initial
+  trigger, `EDx`'s delayed one and `E9x`'s retrigger are all covered by one
+  edit, each inside a loop that maintains `[mp_curc]`.
+- **The stamp carries it** (`MP_SP_HIT`, the four bytes at offset 12 that
+  `MP_ST_SIZE` = 16 already had spare), **read and cleared** by
+  `mp_stamp_at`, so a strike belongs to the row that made it and to no later
+  one — and so the meter moves when the note is **heard**, not when it is
+  mixed, which is §45.15's whole rule.
+- **`tui_sync` spends it** when a row *becomes audible*, gated on the stamp's
+  stream position: unique per row and monotonic, so the kick is idempotent
+  across the several drawers that call `tui_sync` in one frame and fires once
+  per row however many frames that row is on screen for.
+- **`tui_vu_step` only decays**, `TUI_VUFALL` (2) a call at ~18 calls a
+  second — full to empty in 1.8 s, about one cell of ten per row at the XT
+  default. One constant, one place, both surfaces.
+
+**What this gives up is a sustained note**, which now fades while it is still
+sounding. That is unavoidable rather than a compromise: the true amplitude is
+only knowable by measuring the mixer's output, and `mp_mixch_xt` is already
+half of a 4.77MHz machine (§53.5.1). Note energy is what the app can honestly
+show, and it is what a tracker's bars have always shown.
+
 ### 45.13 XT mode's fullscreen is an 80x25 TEXT screen — and the grid scrolls again
 
 `apps/tracker/trktxt.inc`, prefix `ttx_`. **While XT mode is on, F enters a

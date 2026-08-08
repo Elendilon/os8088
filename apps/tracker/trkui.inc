@@ -1569,6 +1569,20 @@ tui_sync:
     mov [tui_avol], ax
     mov ax, [si + MP_SP_VOL + 2]
     mov [tui_avol + 2], ax
+    mov ax, [si + MP_SP_POS]        ; a row BECOMING AUDIBLE kicks the needles
+    cmp ax, [tui_vlpos]             ; of the channels that struck in it
+    je .out                         ; (SPEC.md 45.12.1). The gate is the
+    mov [tui_vlpos], ax             ; stamp's stream position, which is unique
+    xor bx, bx                      ; per row and monotonic - so this is
+.kick:                              ; idempotent across the several drawers
+    cmp byte [si + MP_SP_HIT + bx], 0   ; that call tui_sync in one frame, and
+    je .kn                          ; it fires once per row however many
+    mov al, [tui_avol + bx]         ; frames that row is on screen for
+    mov [tui_vu + bx], al
+.kn:
+    inc bx
+    cmp bx, 4
+    jb .kick
     jmp short .out
 .live:
     mov al, [mp_songpos]
@@ -2204,27 +2218,42 @@ tui_row_lt:
 ; =============================================================================
 ; Volume bars (every worker frame) and the scope hit-test
 ; =============================================================================
-; tui_vu_step - one channel's needle: rise instantly to the live volume, fall
-;               two units a frame. in BX = channel 0..3; out AL = the level
-;               0..64, also stored. Every other register preserved.
+; tui_vu_step - one channel's needle: DECAY. in BX = channel 0..3; out AL =
+;               the level 0..64, also stored. Every other register preserved.
 ;
 ; Factored out because the SPEC.md 45.13 text bars need the same needle: the
 ; rule about how a level moves belongs in one place, or the two surfaces
 ; disagree about what the music is doing.
+;
+; IT USED TO RISE INSTANTLY TO [tui_avol] AND THAT WAS THE BUG (SPEC.md
+; 45.12.1). A MOD's volume column changes only when a volume command does, so
+; on a channel holding one value the rise and the fall cancelled EXACTLY: the
+; needle oscillated between the volume and two units under it, and both
+; quantized to the same cell. Measured on the field module, channel 2:
+; mp_chvol a constant 30, tui_vu alternating 30 and 28, 30*10/64 and 28*10/64
+; both flooring to 4 - a bar stuck at four tenths for the whole song while
+; notes played through it. The other three sat pinned at 10/10, which is the
+; same defect wearing a plausible face.
+;
+; So the needle is driven by the NOTE now and not by the volume: tui_sync
+; kicks it to the struck volume when a row that struck one becomes audible,
+; and this decays it the rest of the time. What that gives up is a sustained
+; note, which fades to nothing while it is still sounding - unavoidable,
+; because the true amplitude is only knowable by measuring the mixer's
+; output, and mp_mixch_xt is already half of a 4.77MHz machine (SPEC.md
+; 53.5.1). Note energy is what this can honestly show, and it is what a
+; tracker's bars have always shown.
+TUI_VUFALL equ 2                    ; units per call, ~18 calls a second: full
+                                    ; to empty in 1.8 s, and about one cell of
+                                    ; ten per row at the XT default
 tui_vu_step:
-    mov al, [tui_avol + bx]         ; 0..64, 0 while muted/silent
-    cmp al, [tui_vu + bx]
-    jbe .decay
-    mov [tui_vu + bx], al           ; jump up, fall slowly: a VU needle
-    ret
-.decay:
     mov al, [tui_vu + bx]
-    cmp al, 2
+    cmp al, TUI_VUFALL
     jae .sub
     xor al, al
     jmp short .st
 .sub:
-    sub al, 2
+    sub al, TUI_VUFALL
 .st:
     mov [tui_vu + bx], al
     ret
@@ -2941,6 +2970,9 @@ tui_ab5:     db 'Any key closes', 0
     TRKB tui_lspd
     TRKBUF tui_lmute, 4
     TRKBUF tui_vu, 4                ; decaying VU levels
+    TRKW tui_vlpos                  ; the stamp position the needles were last
+                                    ; kicked on (SPEC.md 45.12.1) - the row
+                                    ; gate, not a display value
     TRKBUF tui_vupx, 8              ; last-drawn bar widths, px (SPEC.md
                                     ; 45.12 - the delta-draw baseline)
     TRKB tui_lcvr                   ; last-drawn view row (the scroll path's
