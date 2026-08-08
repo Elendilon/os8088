@@ -5224,6 +5224,7 @@ mc_draw_exp:
     push dx
     push si
     push di
+    mov byte [mc_egone], 0          ; SPEC.md 48.24: ONE erase a frame
     xor si, si
 .each:
     mov di, si
@@ -5275,6 +5276,9 @@ mc_draw_exp:
     call mc_blob
     jmp .next
 .gone:
+    cmp byte [mc_egone], 0          ; a burst already left this frame: this one
+    jne .next                       ; waits, and stays 0FFh to be found again
+    mov byte [mc_egone], 1
     mov byte [mc_ea + si], 0
     mov al, MC_BG
     call mc_setcol
@@ -5310,12 +5314,6 @@ mc_draw_exp:
     inc si
     cmp si, MC_MAXEXP
     jb .each
-    cmp byte [mc_ehole], 0          ; a burst that died bit into a live one:
-    je .done                        ; go round again and put it back. One
-    mov byte [mc_ehole], 0          ; extra pass at most - .gone cleared its
-    xor si, si                      ; own mc_ea, so nothing can mark again
-    jmp .each
-.done:
     pop di
     pop si
     pop dx
@@ -5370,8 +5368,9 @@ mc_exp_hole:
 .yp:
     cmp cx, bx
     ja .next
-    mov byte [mc_er + si], 0        ; "not drawn": mc_draw_exp's second pass
-    mov byte [mc_ehole], 1          ; puts it back at its target radius
+    mov byte [mc_er + si], 0        ; "not drawn", which is all it takes: the
+                                    ; NEXT frame's mc_draw_exp finds target !=
+                                    ; drawn and puts it back (SPEC.md 48.24)
 .next:
     inc si
     cmp si, MC_MAXEXP
@@ -7525,8 +7524,8 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBUF  mc_ey,     MC_MAXEXP * 2
     MBUF  mc_et,     MC_MAXEXP      ; frame, 0..[mc_expfr]-1
     MBUF  mc_er,     MC_MAXEXP      ; the radius it is DRAWN at
-    MBYTE mc_ehole                  ; a dying burst bit into a live one and
-                                    ; mc_draw_exp owes a second pass (48.22)
+    MBYTE mc_egone                  ; a burst has already been erased this
+                                    ; frame; the rest wait (SPEC.md 48.24)
     MWORD mc_ehx                    ; ...and the disc of background it laid
     MWORD mc_ehy
     MWORD mc_ehr

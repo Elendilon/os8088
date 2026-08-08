@@ -20103,6 +20103,63 @@ things about the shape of the fix:
 - **`mc_exp_restore` runs after it**, so a burst standing over the dead city
   is put back — the same reason it runs after the ground and the bases.
 
+### 48.24 The jerk is a burst LEAVING, not arriving
+
+Reported as a jump *a frame or two after an explosion draws*. Measured with
+breakpoints on every `call` in `mc_rbody` — one stop per stage per frame,
+cycle-exact, nothing in the guest — over 259 frames under scripted fire, the
+answer is one stage and one condition:
+
+| stage, mean ms | no burst dying (n=231) | a burst dying (n=28) |
+|---|---|---|
+| **`mc_draw_exp`** | **2.47** | **26.70** |
+| `mc_drn_run` | 7.23 | 11.14 |
+| terrain group | 0.31 | 4.97 |
+| `mc_move_trails` | 11.70 | 12.60 |
+| **whole frame** | **53.64** | **73.39** |
+
+`mc_draw_exp` is 10x itself on the frame a burst dies, and on the worst frames
+it is **49.2 ms on its own** — most of a 55 ms tick in one stage. It is not the
+disc being *drawn*: that is one `mc_blob` on one frame in thirteen and it does
+not show. It is `.gone`, and the currency is whole blobs — at r = 13 a
+`mc_blob` is nine fills over 27 rows, `9 x 756us + 27 x 177us` = **11.6 ms**,
+so a 26.7 ms mean is 2.3 of them and 49.2 ms is four.
+
+**Two bounded fixes. Measured, they are worth about a fifth of that stage and
+they do not remove the overrun** — `mc_draw_exp` on a dying frame goes
+**26.70 → 22.06 / 20.28 ms** across two runs, and the whole dying frame
+**73.39 → 72.64 / 62.52** against a 55 ms tick. Both are strictly less work
+per frame and both are kept; neither is a fix for the jerk, and saying so is
+the point of writing the numbers down.
+
+- **§48.22's repair moves to the NEXT frame.** Clearing a neighbour's `mc_er`
+  is *already* the whole fix — it is `mc_draw_exp`'s own word for "not drawn",
+  so the following frame finds target != drawn and redraws it without being
+  asked. The second pass only bought the repair one frame earlier, and paid
+  for it by piling every repair onto the one frame that was already the most
+  expensive in the game. A fireball holed for a single 55 ms frame is not
+  visible; a stutter is.
+- **One erase a frame.** `[mc_egone]` lets exactly one `.gone` run per frame
+  and leaves the rest at `0FFh` to be found next time — §48.15's rule for
+  trails applied to bursts. Deaths cluster hard (a cluster kill detonates
+  together and so expires together), and nothing anywhere needs a burst to
+  vanish on the exact frame its timer runs out.
+
+Neither changes what is on screen at rest, and both are the same shape as the
+drain: *the work is owed, not urgent*.
+
+**What is left, and the lever nobody has pulled.** A dying frame still runs
+62–73 ms: `mc_draw_exp` ~20, `mc_move_trails` ~11, `mc_drn_run` ~9, the
+terrain group ~3. The erase is one `mc_blob` and that is 11.6 ms of it, so the
+only way further down is to stop paying for a *blob* — and there is an
+asymmetry here that the drawn disc does not have. **An erase may over-cover
+freely**: background written over background is invisible, so unlike §48.4's
+"the erase must be the SAME shape that was drawn", the erase only has to
+CONTAIN what was drawn. A single rect over the whole disc is one fill and 27
+rows — **5.5 ms against 11.6** — at the price of taking every trail pixel and
+neighbour inside its bounding box, which is more `mc_exp_hole` repairs. That
+trade has not been measured and should not be guessed at.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
