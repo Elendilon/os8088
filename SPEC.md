@@ -20026,6 +20026,44 @@ repaired this frame is not restored. That is the same shape of bug in
 `mc_exp_restore`'s gate rather than in `.gone`'s erase, and it is left open
 rather than guessed at.
 
+### 48.23 A destroyed city is never erased
+
+`mc_draw_ground` repaints the band from **`[mc_groundy]` downwards**, and a
+city's towers stand `[mc_objh]` **above** it. `mc_draw_cities` skipped a dead
+city rather than clearing it, and `mc_gdclear` only resets the damage span —
+it draws nothing. So when a city died its towers stayed on the screen, and
+what removed them was whatever happened to cover them next: usually the burst
+that killed it, which is why the residue is intermittent and why it always
+shows within a city's height of the ground line.
+
+§48.9.1 again, and this one is the *original* optimisation's blind spot rather
+than a later one: the terrain repair used to be the whole band plus all six
+cities and all three bases, and a wholesale repaint of that region cleared a
+dead city for free. §48.9 replaced it with a span and a band that starts at
+`[mc_groundy]`, and the towers fell outside the new band.
+
+Measured on MartyPC's Hercules by letting ICBMs through until a city died,
+then freezing and diffing against a forced `[mc_full]` repaint: the dead
+city's own rect held **274 lit pixels** on the incremental screen against
+**124** after the repaint — about a hundred and fifty pixels of a city that no
+longer exists.
+
+`mc_draw_cities` now fills a dead city's rect in background instead of
+skipping it, from `[mc_groundy] - [mc_objh]` down to `[mc_groundy] - 1`. Four
+things about the shape of the fix:
+
+- **The `mc_spanhit` gate comes first**, exactly as it did for a living city,
+  so a dead city outside the damaged span still costs nothing. It moved above
+  the aliveness test rather than being duplicated.
+- **It is idempotent and needs no new state.** A city dies *because* something
+  exploded on it, and `mc_city_kill` arms that city's own span, so the repair
+  runs there and the rect is cleared; running again later clears nothing that
+  is not already clear.
+- **It stops at `[mc_groundy] - 1`**, because `mc_draw_ground` owns everything
+  from `[mc_groundy]` down and has already filled it this frame.
+- **`mc_exp_restore` runs after it**, so a burst standing over the dead city
+  is put back — the same reason it runs after the ground and the bases.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason

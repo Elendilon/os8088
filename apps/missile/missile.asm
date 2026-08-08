@@ -3782,8 +3782,6 @@ mc_draw_cities:
     call mc_setcol
     xor si, si
 .each:
-    cmp byte [mc_calive + si], 0
-    je .next
     mov di, si
     add di, di
     mov ax, [mc_cityx + di]
@@ -3795,8 +3793,25 @@ mc_draw_cities:
     dec cx
     call mc_spanhit                 ; a city clear of the damage keeps its
     jc .next                        ; pixels, and costs nothing
+    cmp byte [mc_calive + si], 0
+    je .dead
     mov [mc_dtmp], ax
     call mc_city_shape
+    jmp short .next
+.dead:                              ; SPEC.md 48.23: a DEAD city has to be
+    push ax                         ; erased, and nothing else does it - the
+    push cx                         ; band mc_draw_ground repaints starts AT
+    mov bx, [mc_groundy]            ; [mc_groundy] and a city's towers stand
+    mov dx, bx                      ; [mc_objh] ABOVE it
+    dec dx
+    sub bx, [mc_objh]
+    mov al, MC_BG
+    call mc_setcol
+    call mc_fillc
+    mov al, [mc_ccity]              ; the pen back for the cities after it
+    call mc_setcol
+    pop cx
+    pop ax
 .next:
     inc si
     cmp si, MC_NCITY
