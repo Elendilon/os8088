@@ -276,14 +276,17 @@ SYSAPPS := $(BUILD)/taskmgr.o88
 # README.TXT: the user manual, in the root of the system disk, so the machine
 # explains itself with no second disk and no host computer to read it on.
 #
-# Two constraints shape the source file and neither is arbitrary. It is
-# wrapped to 28 columns because Note Pad's default window fits 29 characters
-# per line (260px frame, less the border, the 8px margin and the 14px scroll
-# bar, over an 8px cell) - and a line that wraps in the one editor on the
-# disks is a line the reader has to reassemble. And it stays under 16KB
-# because that is Note Pad's own ceiling (NP_MAXKB): a byte over and it
-# refuses the file outright with 'Too big'. tools/checkreadme.py holds both,
-# and runs before the file is used.
+# Two constraints shape the source file and neither is arbitrary. Note Pad
+# wraps by WORD (SPEC.md 27.11), so PROSE is written as one long line per
+# paragraph and re-flows to whatever width the window is dragged to. What
+# cannot re-flow is everything whose SHAPE is the meaning - the rules under a
+# heading, the two-column key tables, the contents list - so those are
+# hand-wrapped to 28 columns, one under the 29 that Note Pad's default window
+# fits (260px frame, less the border, the 8px margin and the 14px scroll bar,
+# over an 8px cell). And the whole file stays under 16KB because that is Note
+# Pad's own ceiling (NP_MAXKB): a byte over and it refuses the file outright
+# with 'Too big'. tools/checkreadme.py holds both, and runs before the file
+# is used.
 #
 # CRLF is applied HERE rather than committed, so the repository copy stays a
 # plain LF text file that diffs and merges normally, and the disk gets the

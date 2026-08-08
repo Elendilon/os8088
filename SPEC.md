@@ -10244,11 +10244,28 @@ was still two cells. **The optimisation below was verified by counting walk
 iterations, not by trusting that 500** — which is the right way round, and the
 reason the conclusion survived the cycle figure turning out to be soft.
 
-Wrapping is a **left-to-right automaton with no lookahead** — a cell that
+Wrapping was a **left-to-right automaton with no lookahead** — a cell that
 would cross `[np_rgt]` moves to the next row, a newline resets the pen — so
-the pen state at index k depends only on the characters before it. An edit at
-the caret therefore cannot change the layout of anything ahead of the caret,
-and the walk may **resume at the start of the caret's row**.
+the pen state at index k depended only on the characters before it. An edit at
+the caret therefore could not change the layout of anything ahead of the
+caret, and the walk **resumed at the start of the caret's row**.
+
+**§27.11's word wrap took that property away, and the resume had to widen with
+it.** The break in *front* of a row is now decided by the length of the word
+*behind* it, so an edit inside the caret's row can move the break that put the
+row where it is. `np_seedck` seeds **one row earlier** than the caret's, and
+walks back further still while a row begins mid-word — a row split by the cell
+rule was placed by a word-fit test taken at that word's first character, which
+may be several rows up. Rows above *that* are genuinely independent of the
+edit, because their breaks were decided by words that end before it.
+
+The ordinary case is one extra row: an ordinary row begins after a space, so
+the walk back runs a single iteration. §27.4's measured 35 iterations a
+keystroke become roughly one row more, against the 404 it replaced. The
+fallback when `np_rows` runs out is not caution but the only right answer:
+the table describes *visible* rows only, so row 0 of a **scrolled** view was
+placed by a break above the view and nothing there can redo it — that
+keystroke walks the note.
 
 The start of a row is `(index, row)` alone: the pen's x is always `[np_tx]`
 there, and its y is always `[np_ty] + 8·row`, because every row advance moves
@@ -10343,6 +10360,63 @@ window** on the seeded build and the full-walk build — except for one cell,
 where the full-walk build left a **stale caret** overdrawing a character and
 the seeded one did not. The incremental screen is also pixel-identical to a
 from-scratch `W_PAINT` repaint of the same state.
+
+### 27.11 Wrapping is by WORD, and one hanging space is what makes it look it
+
+`np_walk` broke a row at the last cell that fitted, wherever that fell — so a
+paragraph written as one long line came out with words cut in half, `operatin`
+above `g system`. Word wrap is `np_wordfit`, the only lookahead in the module:
+asked before the first character of a word, it answers "break this row first"
+and the existing wrap path does the rest.
+
+It is asked at a word's **first character and nowhere else**, and that is what
+keeps it one scan per word rather than one per character: what is left of a
+word only gets shorter as the pen advances through it, so a word that fitted
+at its first cell still fits at its second. `[np_wstart]` is that "this index
+begins a word" byte, maintained by the walk — set at its start, by a space and
+by a line break, cleared by every other character. It is maintained rather than
+derived because a *seeded* walk (§27.4/§27.5) cannot always read the character
+before the one in hand.
+
+**Two thresholds, and the second is what stops it spinning.** R is what is left
+of this row; a word ending inside it needs no break. `[np_rcols]` is a whole
+row, and a word longer than *that* can never be helped by breaking — it has to
+be split by the cell rule wherever it stands, and forcing a wrap for it would
+put the pen at the left margin and ask the same question again, forever. A word
+already at the left margin is the same guard doing second duty and needs no
+test of its own: there R equals `[np_rcols]`, so "longer than R" and "longer
+than a row" are one question and the answer is always no.
+
+**The break test comes before the cell count in both scans**, and getting that
+order wrong is the bug this shipped with for one build: a word that exactly
+fills the space left ends on the cell *after* the last one it occupies, so
+counting first calls that an overflow and breaks a row one word early. It is
+invisible at 29 columns and constant at 9 — found by dragging the window
+narrow, which is the only way to make an exact fit common.
+
+**A trailing space hangs past the margin** (`np_hangsp`). Word wrap ends a row
+after the last word that fits, and the space following that word then has
+nowhere to go: the cell rule sends it to the next row, where it is an indent
+nobody typed — one row in `[np_rcols]`, often enough in a narrow window to look
+like a mistake. It is allowed one cell past the right edge instead, which costs
+nothing because that cell is beyond `[np_rcols]` and so is dropped by the row
+buffer's own bound rather than drawn; a space paints nothing anyway. The
+overshoot is capped at that one cell, which is what keeps a run of spaces from
+walking the pen out of the window and out of a 16-bit `DI`.
+
+What this does **not** change: the document. Wrapping is display-only, so a
+file saved after the change is byte-identical to one saved before it, and a
+note reflows when the window is resized exactly as it always did.
+
+**§27.4 is the part that had to move with it** — the resume optimisation was
+licensed by "wrapping has no lookahead", which is now false. See there.
+
+Verified on MartyPC by A/B against a from-scratch repaint: type into a
+paragraph, backspace inside a word, forward-delete across a break, then
+minimize and restore to force a full `W_PAINT` at the same position, and diff
+the content rect — **0 differing pixels** for all three, at the default width
+and again in a window dragged narrow enough that every row carries a wrap
+decision and `compatibles.` is longer than a row.
 
 ### 27.6 The note is a heap claim, and it grows
 
