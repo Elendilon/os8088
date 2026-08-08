@@ -778,26 +778,37 @@ mouse_unhook:
 ;
 ; An application that wants arrow keys on a mouseless machine cannot have
 ; them while this is on, and that is the right default - without a pointer it
-; could not have been launched. ScrollLock is the escape hatch: while it is on
+; could not have been launched. ScrollLock is one escape hatch: while it is on
 ; nothing here intercepts anything, so Arkanoid can be played and Note Pad's
 ; caret moved on a machine with no mouse. It is READ, not watched for - see
-; kbm_slock.
+; kbm_slock - and it is the ONLY one, which SPEC.md 9.6.2 records the reason
+; for: the way back to typing can never be a key you would want to type, and a
+; '.' latch lasted a day for exactly that reason. ScrollLock costs no
+; keystroke at all, and on a keyboard with the lamp it shows its own state.
+; kbm_ui watches its EDGE and raises the window under the pointer on the way
+; in, because keys go to wm_top.
 ;
 ; ---------------------------------------------------------------------------
 ; WHAT THIS COSTS, AND WHEN TO TAKE IT OUT AGAIN
 ;
-; 406 bytes of .text, which is one 512-byte step of KERN_BUDGET: the spare
-; went 4,096 -> 3,584. It was decided on when the budget was at its OLD
-; ceiling and that step was half the slack rather than an eighth of it, on the
-; grounds that this is the difference between a usable machine and an unusable
-; one at exactly the moment the mouse fails.
+; 520 bytes of .text, which is two 512-byte steps of KERN_BUDGET: the spare
+; went 4,096 -> 3,584 -> 3,072. The first was decided on when the budget was
+; at its OLD ceiling and that step was half the slack rather than an eighth of
+; it, on the grounds that this is the difference between a usable machine and
+; an unusable one at exactly the moment the mouse fails. The second bought
+; 9.6.1 and 9.6.2, and it is 114 bytes of code for a whole step: the image
+; rung had ONE byte of slack (.text + .bss = 49,151 against a 49,152
+; ceiling), so any addition at all cost the same 512 and trimming could not
+; have avoided it. That is the guard working, not this being dear - and the
+; next byte added to .text anywhere pays 512 too.
 ;
 ; IF FOOTPRINT EVER BECOMES THE HIGHER PRIORITY, THIS IS A FIRST CANDIDATE TO
 ; REMOVE - dropped outright, or built only into the testing and benchmark
 ; kernels, where the harness drives the mouse over QMP and never needs it.
-; Nothing else depends on it: this module plus four call sites (ui_task's key
-; poll, and the kbm_poll in menu_track / ui_drag / ui_grow). Recommend it to
-; whoever is spending the budget rather than removing it unasked.
+; Nothing else depends on it: this module plus six call sites (ui_task's key
+; poll and its deferred ladder, the kbm_poll in menu_track / ui_drag /
+; ui_grow, and osapi_mouse). Recommend it to whoever is spending the budget
+; rather than removing it unasked.
 ; docs/KERNEL-MEMORY.md carries the same note beside the numbers.
 ; =============================================================================
 KBM_MIN     equ 3               ; px a press moves when the keys are tapped...
@@ -832,21 +843,18 @@ kbm_key:
     jne kbm_pass                ; a real mouse has spoken: never intercept
     call kbm_slock              ; ...or ScrollLock is on and the user has asked
     jnz kbm_pass                ; for the keys back
+    cmp al, ' '                 ; Space: the button, for a hand already on the
+    je kbm_btn                  ; arrows. Tested above the ASCII gate because it
+                                ; carries a byte - and it is the one printable
+                                ; key this takes, which is what makes the hatch
+                                ; below have to be a key that carries none
     or al, al
     jnz kbm_pass                ; ASCII - NumLock is on and these are digits,
                                 ; which belong to whatever is running
-    cmp ah, 0x52                ; Ins, the big key: a CLICK - press and release
-    je kbm_click                ; together, which is what an icon, a button or
-                                ; a close box wants, and what a double-click
-                                ; is two of
-    cmp ah, 0x4C                ; the keypad's centre: HOLD - press, then
-    je kbm_hold                 ; release on the next one. A keyboard cannot
-                                ; hold a key down in any way int 16h can see,
-                                ; and a menu, a window drag and the grow box
-                                ; all end on a LEVEL poll of mouse_btn, so
-                                ; without a key that latches they are
-                                ; unreachable. Press over the bar, arrow down
-                                ; to the item, press again to choose it
+    cmp ah, 0x52                ; the keypad's 0 (Ins)...
+    je kbm_btn
+    cmp ah, 0x4C                ; ...and its centre 5: the button, both of them
+    je kbm_btn
     cmp ah, 0x53                ; Del: the right button (SPEC.md 12.4)
     je kbm_rclick
 
@@ -965,6 +973,13 @@ kbm_accel:
 ; the cursor refcount-visible, otherwise leave it to the next unlock. IF is 0
 ; across the move because cur_move is not re-entrant against the ISR - and on
 ; a machine with a modem on the other port that ISR is still live.
+;
+; It saves SI/DI/BP/ES around cur_move, which clobbers all four (SPEC.md
+; 7.1.4.1 - a routine reached from the drawing paths inherits THEIR register
+; contract). AX and BX were enough while ui_task was the only caller and both
+; of the others were kernel loops; osapi_mouse calls kbm_poll now, so this is
+; reached from inside a package's own tracking loop, where kbm_key's stated
+; 'all registers preserved' is the whole contract and not a courtesy.
 kbm_paint:
     push ax
     push bx
@@ -975,9 +990,17 @@ kbm_paint:
     mov al, [cur_level]
     or  al, al
     js .dirty
+    push si
+    push di
+    push bp
+    push es
     mov ax, [mouse_x]
     mov bx, [mouse_y]
     call cur_move
+    pop es
+    pop bp
+    pop di
+    pop si
     mov byte [cur_dirty], 0
     jmp short .out
 .dirty:
@@ -988,19 +1011,36 @@ kbm_paint:
     pop ax
     ret
 
-; --- the buttons: the same records the ISR pushes, at the same position ------
-kbm_click:                      ; press and release together. mouse_btn is NOT
-    push ax                     ; touched: nothing tracks a click, and a level
-    mov ax, EVT_MDOWN           ; poll must never find a button held by a key
-    call kbm_post               ; that has already come back up
-    mov ax, EVT_MUP
-    call kbm_post
-    pop ax
-    stc
-    ret
-
-kbm_hold:                       ; ...and the latching one, which is what makes
-    push ax                     ; press-drag-release reachable
+; --- the button: press = down, press again = up ------------------------------
+; ONE key action, and there used to be two - a click (Ins) that pressed and
+; released together, and a hold (keypad 5) that latched. They were the wrong
+; pair. Nothing tracks a click, so the click key could never open a menu:
+; menu_track drew the pull-down and its very next instruction polled a button
+; that was already up, which is a menu that flashes and will not stay open -
+; reported off a Compaq Portable III, and the same for a window drag and the
+; grow box. The hold key opened them and read as broken everywhere else,
+; because a button that stays down is not what an icon or a close box wants.
+;
+; So: a press LATCHES mouse_btn and posts EVT_MDOWN, and kbm_relax releases it
+; the moment the ui_task pass that dispatched that down is over. Anything that
+; dispatches and returns therefore gets a CLICK - the release lands before
+; anything can poll a level. menu_track, ui_drag, ui_grow and a package's own
+; tracking loop do NOT return until the button comes up, so for those the same
+; press holds, and the next press releases it: press-drag-release on a
+; keyboard (SPEC.md 9.6.1).
+;
+; A REPEAT IS NOT A PRESS. Typematic arrives ~1.8 ticks apart and a deliberate
+; second press is 4+ - the same split KBM_GAP already makes for the ramp - so
+; without this a press held a moment too long opened a menu and closed it
+; again on its own repeat, which is the other way the Compaq's symptom is
+; produced. The stamp moves on an ignored repeat too, so a key held down stays
+; held rather than firing again once the repeats have drifted KBM_GAP apart.
+kbm_btn:
+    push ax
+    mov ax, [ticks]
+    sub ax, [kbm_btick]         ; wrap-safe, like every other tick compare here
+    cmp ax, KBM_GAP
+    jb .held
     xor byte [mouse_btn], 0x01
     mov ax, EVT_MUP
     test byte [mouse_btn], 0x01
@@ -1008,6 +1048,9 @@ kbm_hold:                       ; ...and the latching one, which is what makes
     mov ax, EVT_MDOWN
 .post:
     call kbm_post
+.held:
+    mov ax, [ticks]
+    mov [kbm_btick], ax
     pop ax
     stc
     ret
@@ -1051,6 +1094,70 @@ kbm_poll:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; kbm_ui - the end of a ui_task pass: the ScrollLock edge, then the click latch
+;
+; Called once from ui_task's deferred ladder, where no lock is held. Two jobs,
+; both of which have to happen HERE rather than where the key was seen:
+;
+;   the raise   ScrollLock is a LEVEL and there is no keystroke to hang this
+;               off (see kbm_slock), so the edge is found by remembering it.
+;               And wm_front takes the gfx lock, which kbm_poll's callers
+;               hold - so even a keystroke could not have done it in place.
+;   the release kbm_btn latches the button so that menu_track, ui_drag,
+;               ui_grow and a package's tracking loop - none of which return
+;               to ui_task until it comes up - can see it held. Whatever
+;               consumed the mouse-down has finished by the time this runs, so
+;               a press that opened no tracking loop becomes a plain click.
+;
+; The release is gated on the pass having popped THAT mouse-down, because a
+; press arriving while an older event is still queued is dispatched a pass
+; later - and releasing the latch in between is the flashing menu again, from
+; the other end. An empty pop leaves [ui_ev] stale, which cannot matter: a
+; live latch always has its own EVT_MDOWN in the queue or already dispatched.
+;
+; out: nothing. CLOBBERS EVERYTHING on the raise path - wm_hit and wm_front
+;      spend AX/SI/DI/BP/ES - which is the contract every other step of that
+;      ladder already has (fdlg_reap, app_launch, loader_run, ui_cmd), and is
+;      stated rather than tightened because SPEC.md 7.1.4.1 is what a routine
+;      promising more than it keeps costs here.
+; -----------------------------------------------------------------------------
+kbm_ui:
+    cmp byte [mou_seen], 0
+    jne .out                    ; a machine with a mouse pays this compare
+    xor al, al                  ; AL = the ScrollLock level, 0 or 1. kbm_slock
+    call kbm_slock              ; preserves AX and answers in ZF, and the pops
+    jz .lvl                     ; inside it do not disturb it
+    inc al
+.lvl:
+    cmp al, [kbm_slast]
+    je .relax                   ; unchanged, which is nearly every pass
+    mov [kbm_slast], al         ; banked whichever way it went, so the next
+    or al, al                   ; pass sees no edge
+    jz .relax                   ; the FALLING edge raises nothing - the pointer
+                                ; is simply live again
+    call gfx_lock
+    mov cx, [mouse_x]
+    mov dx, [mouse_y]
+    call wm_hit                 ; BX = the window under the pointer, 0 = none
+    or bx, bx
+    jz .unlock
+    call wm_front               ; ...which activates it too, so the menu bar
+.unlock:                        ; and the keyboard end up on the same window
+    call gfx_unlock
+.relax:
+    cmp word [ui_ev + EV_TYPE], EVT_MDOWN
+    jne .out
+    test byte [mouse_btn], 0x01
+    jz .out
+    push ax
+    and byte [mouse_btn], 0xFE  ; bit 1 is the right button's own latch, and is
+    mov ax, EVT_MUP             ; released by its own key (SPEC.md 12.4)
+    call kbm_post
+    pop ax
+.out:
+    ret
+
 ; kbm_post - AX = event type, at the pointer, stamped now
 kbm_post:
     push si
@@ -1069,6 +1176,8 @@ kbm_post:
 kbm_step    db KBM_MIN          ; px the current run of repeats is worth
 kbm_lastk   db 0                ; ...and which direction it is a run OF
 kbm_last    dw 0                ; tick of the last movement key
+kbm_btick   dw 0                ; ...and of the last button key, for the repeat
+kbm_slast   db 0                ; the ScrollLock level kbm_ui last saw (9.6.2)
 kbm_ev      times 8 db 0        ; the record kbm_post fills for evq_push
 
 ; -----------------------------------------------------------------------------

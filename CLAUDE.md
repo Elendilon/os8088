@@ -1420,25 +1420,57 @@ arrow keys on a mouseless machine while this is on, which is the right default
 escape hatch**, READ as a level out of `KB_FLAG` bit 4 (`0040:0017`) rather
 than watched for as a key: it is a shift STATE, int 09h swallows it and int
 16h never reports one, so the first version's `cmp ah, 0x46` waited for a byte
-that never arrives. **Ins is a click** (MDOWN+MUP
-together, and `mouse_btn` deliberately untouched, because nothing tracks a
-click and a level poll must never find a button held by a key that has already
-come up); **keypad 5 LATCHES**, and that is what makes the machine reachable
-at all - a keyboard cannot hold a key down in any way int 16h can see, and a
-menu, a window drag and the grow box all end on a *level* poll of `mouse_btn`.
-The trap that falls straight out of it: **`menu_track`, `ui_drag` and
-`ui_grow` never return to `ui_task`**, so a latched button could never be
-released and the machine would sit inside a menu no key could close - each
-calls `kbm_poll` beside its existing `task_yield`, and `kbm_poll` PEEKS
-(int 16h AH=01h) and takes the key only if `kbm_key` claims it, because int
-16h has no way to put one back. A package with its own drag loop (Solitaire)
-is not reachable this way and is not expected to be. **The step accelerates
+that never arrives. **The button is ONE action on three keys - keypad 0 (Ins),
+keypad 5 and Space - and it is neither a click nor a hold** (SPEC.md 9.6.1).
+There used to be two, and they were the wrong pair: a *click* (MDOWN+MUP
+together, `mouse_btn` untouched) **can never open a menu**, because
+`menu_track` draws the pull-down and its next instruction polls a level that
+is already up - which reached the field as *a menu that flashes and will not
+stay open* on a Compaq Portable III - while a *hold* opened menus and read as
+broken on every icon and close box. Now a press latches the level and posts
+MDOWN, and **`kbm_ui` releases it once the ui_task pass that dispatched that
+mouse-down is over**: a press is a CLICK for anything that dispatches and
+returns, and a HOLD for anything that does not return until the button comes
+up. The release is gated on that pass having popped *that* MDOWN, or a press
+arriving behind an older event is released before it is dispatched - the
+flashing menu from the other end. **A repeat is not a press** (`KBM_GAP`
+again): typematic is ~1.8 ticks and a deliberate second press is 4+, and
+without the guard a press held a moment too long opened a menu and closed it
+on its own repeat. **Five loops spin on that level and the list used to name
+three**: `menu_track`, `ui_drag`, `ui_grow` call `kbm_poll` beside their
+`task_yield` (it PEEKS with int 16h AH=01h and takes the key only if
+`kbm_key` claims it, because int 16h cannot put one back); **`osapi_mouse`
+calls it too**, gated on `[mou_seen]`, which is the same loop by another name
+and is what makes a PACKAGE's drag reachable - Solitaire's `sol_drag`, Paint's
+`pt_wait`, Note Pad's selection - where this used to say they were not; and
+`fm_drag` is served by **not spinning at all** with no mouse, because it waits
+with the button down to tell a click from a drag and the button is latched for
+the whole dispatch, so a row click would cost two presses and a double-click
+four. File drag and drop wants a mouse, as it always did. **ScrollLock is the
+ONE latch, and the rule it encodes is that the way back to typing can never be
+a key you would want to type** (SPEC.md 9.6.2). A '.' was added as a second,
+friendlier hatch and was wrong within a day: '.' is wanted the moment anybody
+opens Note Pad, reserving the keypad's gives up Del, and letting a typed one
+latch but not un-latch leaves a full stop that works in one direction only.
+ScrollLock costs no keystroke at all - int 09h swallows it - and on a keyboard
+with the lamp the machine SAYS which mode it is in, a state indicator nobody
+had to draw. Space is the deliberate counter-example: printable and taken,
+because a hand on the arrows wants a button under its thumb, and it is only
+taken while the pointer is live. **It raises the window under the pointer on
+the way in** - a level has no keystroke to hang that off, so `kbm_ui` banks it
+in `[kbm_slast]` and finds the EDGE once per pass; a falling edge raises
+nothing. **The step accelerates
 and the ramp RESETS on a change of direction** - not a refinement: without it
 the correction travels at full speed too and a menu item sits unreachable
 between two 24px strides, which is exactly how the first version failed to
-pick one. **It costs 406 bytes and one 512-byte step of `KERN_BUDGET` (spare
-4,096 → 3,584), decided on when that step was half the slack rather than an
-eighth of it** - and it is
+pick one. **It costs 520 bytes and two 512-byte steps of `KERN_BUDGET` (spare
+4,096 → 3,584 → 3,072)**, the first decided on when that step was half the
+slack rather than an eighth of it, the second bought by 9.6.1/9.6.2 - **114
+bytes of code for a whole step, because the image rung had ONE byte of slack**
+(`.text` + `.bss` = 49,151 against a 49,152 ceiling), so any addition at all
+cost the same 512 and trimming the feature could not have avoided it. That is
+the guard working rather than the feature being dear, and it means the next
+byte added to `.text` anywhere pays 512 too. It is
 written down in docs/KERNEL-MEMORY.md and in the module as the FIRST candidate
 to remove (or move to test/bench-only kernels) if footprint ever outranks it.
 Recommend that; do not do it unasked.

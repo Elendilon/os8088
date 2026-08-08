@@ -2704,7 +2704,8 @@ An application that wants arrow keys on a mouseless machine cannot have them
 while this is on, and that is the right default — without a pointer it could
 not have been launched. **ScrollLock is the escape hatch**: while it is on
 nothing here intercepts anything, so Arkanoid can be played and Note Pad's
-caret moved.
+caret moved. **It is the only one** — §9.6.2 is why a printable key cannot be
+a second — and it now also raises the window under the pointer on the way in.
 
 **ScrollLock is READ, not watched for**, and that is worth stating because the
 first version got it wrong in a way that could never have worked. It is a
@@ -2719,24 +2720,117 @@ The keys:
 | key | scan | does |
 |---|---|---|
 | the eight keypad directions | 47/48/49/4B/4D/4F/50/51 | move, clamped to `[vid_wm1]`/`[vid_hm1]` exactly as the ISR clamps |
-| **Ins** | 52 | a **click** — `EVT_MDOWN` and `EVT_MUP` together. `mouse_btn` is *not* touched: nothing tracks a click, and a level poll must never find a button held by a key that has already come up |
-| **keypad 5** | 4C | **hold** — press, then release on the next one |
-| **Del** | 53 | the right button, latching the same way; press edge only (§9) |
+| **keypad 0 (Ins)**, **keypad 5**, **Space** | 52 / 4C / 39 | the **button** — one action, three keys (§9.6.1) |
+| **Del** | 53 | the right button, latching; press edge only (§9) |
+| **ScrollLock** | — | the **latch** — hand the whole keyboard to the window under the pointer (§9.6.2). Not a key here: a level (§9.6) |
 
-**The latching key is what makes the machine reachable at all.** A keyboard
-cannot hold a key down in any way int 16h can see, and a menu, a window drag
-and the grow box all end on a *level* poll of `mouse_btn`. Press over the bar,
-arrow down to the item, press again to choose it — which is press-drag-release.
+#### 9.6.1 The button is one action, and it is neither a click nor a hold
 
-That has one consequence, and it is the part that must not be forgotten:
-**`menu_track`, `ui_drag` and `ui_grow` spin on that poll and never return to
-`ui_task`**, so a latched button could never be released — the machine would
-sit inside a menu no key could close. Each of them calls **`kbm_poll`** beside
-the `task_yield` it already makes. `kbm_poll` *peeks* with int 16h AH=01h and
-takes the key only if `kbm_key` claims it, because int 16h has no way to put
-one back; anything else stays in the BIOS buffer and is dispatched normally
-once the loop ends. A package with a drag loop of its own (Solitaire's
-`sol_drag`) is not reachable this way and is not expected to be.
+There were **two** button keys and they were the wrong pair. Ins was a *click*
+— `EVT_MDOWN` and `EVT_MUP` posted together, `mouse_btn` deliberately
+untouched — and keypad 5 was a *hold* that latched the level until the next
+press. Each was wrong wherever the other was right, and the click was wrong in
+a way that reached the field: **a click can never open a menu.** `menu_track`
+draws the pull-down and its very next instruction polls a level that is
+already up, so the menu appears and vanishes in one frame — reported off a
+**Compaq Portable III** as a menu that flashes and will not stay open, and the
+same for a window drag and for the grow box. The hold key opened all three and
+read as broken everywhere else, because a button that stays down is not what
+an icon, a button or a close box wants.
+
+So there is one action, on all three keys:
+
+- a press **latches** `mouse_btn` bit 0 and posts `EVT_MDOWN`;
+- **`kbm_ui`** — called once from `ui_task`'s deferred ladder, where no lock
+  is held — releases it and posts `EVT_MUP` **once the pass that dispatched
+  that mouse-down is over**;
+- a press while it is latched releases it instead.
+
+That makes the press a **click** for anything that dispatches and returns (the
+release lands before anything can poll a level), and a **hold** for anything
+that does not return until the button comes up — which is press-drag-release
+on a keyboard: press over the bar, arrow down to the item, press again to
+choose it.
+
+**The release is gated on the pass having popped *that* mouse-down**
+(`[ui_ev + EV_TYPE] == EVT_MDOWN`), because a press arriving while an older
+event is still queued is dispatched a pass later, and releasing the latch in
+between is the flashing menu again from the other end. An empty pop leaves
+`[ui_ev]` stale, which cannot matter: a live latch always has its own
+`EVT_MDOWN` queued or already dispatched.
+
+**A repeat is not a press.** Typematic arrives ~1.8 ticks apart and a
+deliberate second press is 4+ — the same split `KBM_GAP` already makes for the
+movement ramp — so without a guard a press held a moment too long opened a
+menu and closed it again on its own repeat, which is the *other* way the
+Compaq's symptom is produced. `[kbm_btick]` is stamped on an ignored repeat
+too, so a key held down stays held rather than firing again once the repeats
+have drifted `KBM_GAP` apart. A double-click is therefore two presses more
+than 3 and less than 9 ticks apart — 165 ms to 500 ms, which is an ordinary
+double-click rhythm.
+
+**Every loop that spins on that level must service the keyboard**, or a
+latched button can never be released and the machine sits inside a menu no key
+can close. `kbm_poll` *peeks* with int 16h AH=01h and takes the key only if
+`kbm_key` claims it, because int 16h has no way to put one back; anything else
+stays in the BIOS buffer and is dispatched normally once the loop ends. There
+are **five** such loops and the list used to name three:
+
+| loop | how it is served |
+|---|---|
+| `menu_track` (bar and `menu_popup`), `ui_drag`, `ui_grow` | `kbm_poll` beside the `task_yield` each already makes |
+| a **package's** tracking loop — `sol_drag`, Paint's `pt_wait`, Note Pad's selection drag, Piano, Recorder | **`osapi_mouse` calls `kbm_poll`** (gated on `[mou_seen]`, so a machine with a mouse pays one compare). A package spins on this slot exactly as the kernel spins on the level, so it is the same loop by another name — and it is what makes Solitaire's card drag reachable, which this section used to say it was not |
+| `fm_drag` — the file manager's click-or-drag wait | **it does not spin at all with no mouse**: see below |
+
+`fm_drag` is the one that cannot be fixed by servicing it. It exists to
+disambiguate a click from a drag, and it waits with the button down to find
+out which — but the button is latched for the whole `W_ONCLICK` dispatch and
+the pointer *cannot move* until that dispatch returns, so the loop could only
+ever end on a **second** press: an ordinary row click would cost two presses
+and a double-click four, which is the difference between a Disk window you can
+open files from and one you cannot. With `[mou_seen]` = 0 it returns "an
+ordinary click" immediately. **File drag and drop wants a mouse**, exactly as
+it did before any of this existed.
+
+#### 9.6.2 The latch — ScrollLock, and why it must not be a printable key
+
+The arrows *are* the mouse, so an application cannot have them — until the
+application **is** the arrows. **ScrollLock is that switch, and it is the only
+one**, which is a decision worth recording because it was briefly two.
+
+A `.` — the keypad's and a typed one — was added as a second, friendlier
+hatch: a key beside the arrows the hand is already on. It was wrong, and the
+reason generalises. **The latch is the way back to typing, so it can never be
+a key you would want to type**, and `.` is wanted the moment anybody opens
+Note Pad. Every escape from that is worse than the disease: reserving the
+keypad's `.` alone gives up Del (§12.4's right button), and letting a typed
+`.` latch while refusing to un-latch — which is what was shipped for a day —
+leaves a machine where the full stop works only in one direction. ScrollLock
+has none of the problem: int 09h swallows it to toggle `KB_FLAG` and int 16h
+never reports a key for it (§9.6), so **it costs no keystroke at all**. On a
+keyboard with the lamp the machine also *says* which mode it is in, which is a
+state indicator no software of ours had to draw.
+
+Space is the counter-example that proves the rule and is kept deliberately: it
+is printable and it *is* taken, because a hand on the arrows wants a button
+under its thumb. It is only taken while the pointer is live — with ScrollLock
+on it is an ordinary space — which is exactly the shape `.` could not have.
+
+**It raises the window under the pointer on the way in.** Keys go to `wm_top`,
+so "latch to the window the cursor is over" has to be true of the window that
+then gets them. ScrollLock is a level with no keystroke to hang that off, so
+`kbm_ui` finds the **edge** by banking it in `[kbm_slast]` and comparing once
+per `ui_task` pass: a rising edge does `wm_hit` then `wm_front`, which
+activates it too so the menu bar and the keyboard end up on the same window.
+A falling edge raises nothing — the pointer is simply live again. Doing it
+here is not only convenient: `wm_front` takes the gfx lock, which `kbm_poll`'s
+callers hold, so even a keystroke could not have raised in place.
+
+Verified end to end on a mouseless QEMU boot: `KB_FLAG` bit 4 goes 0x00 → 0x10
+and 20 arrow presses move nothing; ScrollLock over a window whose app had lost
+the bar puts the bar back; off again and the arrows move 3px per tap; and two
+`.` presses change neither the pointer nor `mouse_btn`. Latch over Arkanoid,
+Space serves, the arrows drive the paddle.
 
 **The step accelerates, and the ramp resets on a change of direction.** A
 fixed step cannot be right: small enough to aim with is too small to cross a
@@ -2748,16 +2842,25 @@ press to `KBM_MAX`. The direction reset is not a refinement: without it the
 between two 24px strides. That is exactly how the first version failed to pick
 one.
 
-**Cost, and a standing recommendation.** 406 bytes of `.text`, which takes one
-512-byte step of `KERN_BUDGET` (§15.1) — spare 4,096 → 3,584, one step of the
-eight move 10 left. It was decided on when the budget was at its old ceiling
-and the same step was half the remaining slack, on the grounds that it is the
-difference between a usable machine and an unusable one at exactly the moment
-the mouse fails. **If footprint ever becomes the higher
-priority, this is a first candidate to remove** — either dropped entirely or
-built only into the testing and benchmark kernels, where the harness drives
-the mouse over QMP and never needs it. Nothing else in the kernel depends on
-it: four call sites and one module.
+**Cost, and a standing recommendation.** 406 bytes of `.text` to begin with,
+which took one 512-byte step of `KERN_BUDGET` (§15.1) — spare 4,096 → 3,584,
+one step of the eight move 10 left. It was decided on when the budget was at
+its old ceiling and the same step was half the remaining slack, on the grounds
+that it is the difference between a usable machine and an unusable one at
+exactly the moment the mouse fails. §9.6.1 and §9.6.2 added **114 bytes** and
+took a **second** step — spare 3,584 → 3,072 — and the arithmetic there is
+worth writing down, because it is the guard behaving as designed rather than
+the feature being expensive: the image rung had **one byte** of slack
+(`.text` + `.bss` = 49,151 against a 49,152 ceiling), so any addition at all
+cost the same 512 and trimming the feature could not have avoided it. Buying
+the step back needs 666 bytes moved out of `.text`, and `.cold` has 160 bytes
+of rung slack, so a cold move would only spend the same step over there.
+**If footprint ever becomes the higher priority, this is a first candidate to
+remove** — either dropped entirely or built only into the testing and
+benchmark kernels, where the harness drives the mouse over QMP and never needs
+it. What depends on it is one module plus **six** call sites: `ui_task`'s key
+poll and its deferred ladder, the `kbm_poll` in `menu_track` / `ui_drag` /
+`ui_grow`, and `osapi_mouse`.
 
 ## 10. events.inc
 

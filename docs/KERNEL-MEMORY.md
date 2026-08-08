@@ -134,8 +134,8 @@ would be the project quietly dropping the machines it was written for.
 
 ### The first thing to take out again, if space becomes the priority
 
-**The keyboard mouse (SPEC.md §9.6, `kernel/mouse.inc`) — 406 bytes of
-`.text`, one 512-byte step: the spare went 4,096 → 3,584.** It is recorded here at the owner's request,
+**The keyboard mouse (SPEC.md §9.6, `kernel/mouse.inc`) — 520 bytes of
+`.text`, two 512-byte steps: the spare went 4,096 → 3,584 → 3,072.** It is recorded here at the owner's request,
 because a size decision is one the next author should be able to *find*
 rather than rediscover, and this one was taken on grounds that are about
 priority rather than about a number.
@@ -152,8 +152,19 @@ regardless.
 If footprint ever outranks it, this is the first candidate: dropped outright,
 or built only into the testing and benchmark kernels, where the harness drives
 the mouse over QMP and never needs it. Nothing else depends on it — one module
-plus four call sites (`ui_task`'s key poll, and the `kbm_poll` in
-`menu_track`, `ui_drag` and `ui_grow`).
+plus six call sites (`ui_task`'s key poll and its deferred ladder, the
+`kbm_poll` in `menu_track`, `ui_drag` and `ui_grow`, and `osapi_mouse`).
+
+**The second step was SPEC.md §9.6.1/§9.6.2 — 114 bytes of code for a
+512-byte step**, and the arithmetic is worth keeping because it is what this
+guard is *for* rather than a sign the feature was expensive. The image rung
+had **one byte** of slack (`.text` + `.bss` = 49,151 against a 49,152
+ceiling), so any addition at all cost the same 512 and trimming the feature
+could not have avoided it — which also means the next author who adds one
+instruction anywhere in `.text` pays 512 and should expect to. Buying the step
+back needs 666 bytes out of `.text`, and `.cold` has 160 bytes of rung slack,
+so moving a module cold would only spend the same step over there. Measured
+with the bisect above, not inferred.
 
 **Recommend it; do not remove it unasked.** On a machine with no working
 mouse, taking it out means the desktop cannot be clicked at all.
