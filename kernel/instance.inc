@@ -518,6 +518,143 @@ inst_alloc:
     ret
 
 ; -----------------------------------------------------------------------------
+; inst_caller - which instance is asking? (SPEC.md 34.3's rule, generalised)
+; out:      DH = the requesting instance slot: the dispatched callback's stamp
+;           ([snd_inst], set at the I_CYC billing sites), else the running
+;           task's T_INST. 0xFF = the kernel itself.
+; clobbers: DH (the output), flags
+;
+; This body was snd_req_inst and is instance.inc's now, because the question
+; it answers - who is the kernel doing this on behalf of? - stopped being the
+; sound tier's alone when the file API needed it (SPEC.md 19.2.1).
+; snd_req_inst is a jump to it, so SPEC.md 34.3's contract is untouched.
+;
+; The stamp is only the answer for a caller running INSIDE that callback, and
+; the callback runs on one task. A worker that pre-empts it is a different
+; task, and honouring the stamp there would attribute its work to whichever
+; app happened to be dispatching. So the stamp carries the task that wrote it
+; and is spent only by that task; everyone else falls through to their own
+; T_INST.
+; -----------------------------------------------------------------------------
+inst_caller:
+    push bx
+    mov bx, [snd_inst]          ; BL = the stamped instance, BH = the task
+    cmp bh, [sch_cur]           ; that stamped it. A DIFFERENT task is running
+    jne .task                   ; now, so it pre-empted that callback and the
+    mov dh, bl                  ; callback's instance is not its to spend
+    cmp dh, 0xFF
+    jne .out
+.task:
+    mov bl, [sch_cur]           ; not our callback: the running task's
+    xor bh, bh                  ; instance (0xFF for the UI task)
+    shl bx, 1                   ; T_SIZE = 8
+    shl bx, 1
+    shl bx, 1
+    mov dh, [bx+sch_tasks+T_INST]
+.out:
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; inst_vol_enter - stand the machine in the CALLING instance's directory
+;                  (SPEC.md 19.2.1)
+; in:  nothing; UI-task context, no gfx lock held (the file API's own terms)
+; out: nothing at all - not even CF. All registers and the flags are
+;      preserved, because this sits underneath every file API entry and none
+;      of them has a register to spare
+;
+; The file API resolves a name in the current directory (SPEC.md 19.2), and
+; that is ONE pair of words for the whole machine. This is what stops that
+; being the same thing as "wherever the user last dragged a Disk window":
+; before an instance's file operation runs, the volume is put where THAT
+; instance believes it is standing.
+;
+; **The compare is what makes it free.** A machine with one app doing file
+; work never moves, so banked == current on every call and the cost is six
+; compares. A mount is paid only when something really did move the volume
+; underneath this app - which is exactly the case that used to write the
+; file into the wrong folder in silence.
+;
+; QUIET (SPEC.md 18.9), because a file operation reads no listing: the scan,
+; the sort and one icon-harvest read per file are all bought for nothing
+; here. The [dsk_lstale] debt it leaves is deliberately never collected, on
+; the same terms as drv_vol_back's and assoc_back's - every reader of the
+; global snapshot consults that flag, and the one that cannot (the modal
+; file dialog, SPEC.md 38.2) does a full dsk_chdir of its own on the way in
+; and on every navigation.
+;
+; A failure needs no reporting and gets none: dsk_chdir_q's failure path
+; leaves the volume at a root with [dsk_mntok] shut, so the operation about
+; to run refuses with FERR_NODISK - which is the truth, and is what the
+; caller would have been told anyway.
+; -----------------------------------------------------------------------------
+inst_vol_enter:
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call inst_caller            ; DH = the instance behind this call
+    cmp dh, INST_MAX
+    jae .out                    ; 0xFF: the kernel or a driver, which has no
+                                ; folder of its own and uses the machine's
+    mov bl, dh
+    xor bh, bh
+    mov dl, [inst_fdrv+bx]      ; dsk_chdir's arguments, loaded before the
+    shl bx, 1                   ; compare because they ARE the compare
+    mov ax, [inst_fcwd+bx]
+    cmp dl, [disk_drive]
+    jne .go
+    cmp ax, [dsk_cwd]
+    je .out                     ; already standing there: nothing to undo,
+.go:                            ; and the remount is the whole cost
+    call dsk_chdir_q
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; inst_vol_mark - record where the calling instance is now standing (19.2.1)
+; in:  the volume is where that instance should be left
+; out: nothing (all registers and the flags preserved)
+;
+; The other direction, for the two paths that MOVE an instance on purpose:
+; OSAPI_FILE_GOTO, and the dialog's own fdlg_home_dir. Everything else leaves
+; the volume where it found it, so nothing else has to call this.
+; -----------------------------------------------------------------------------
+inst_vol_mark:
+    pushf
+    push ax
+    push bx
+    push dx
+    call inst_caller
+    cmp dh, INST_MAX
+    jae .out
+    mov bl, dh
+    xor bh, bh
+    mov al, [disk_drive]
+    mov [inst_fdrv+bx], al
+    shl bx, 1
+    mov ax, [dsk_cwd]
+    mov [inst_fcwd+bx], ax
+.out:
+    pop dx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
 ; inst_fhome_idx - a record pointer to its per-instance file-home index
 ; in:  DI = a record inside inst_tab
 ; out: BX = the slot index (0..INST_MAX-1)
@@ -536,14 +673,21 @@ inst_fhome_idx:
     ret
 
 ; -----------------------------------------------------------------------------
-; inst_fhome_clr - forget a slot's Standard File location (SPEC.md 38.8)
+; inst_fhome_clr - seed a slot's own current directory (SPEC.md 19.2.1)
 ; in:  DI = the record being (re)allocated
 ; out: nothing (all registers preserved, flags included)
 ;
 ; Called from inst_alloc for I_CYC's reason: a reused record must not inherit
 ; a dead instance's folder, or the first Save from a freshly launched app
-; would open somewhere the user never took IT - it opens on the default
-; location instead (SPEC.md 38.10), which is what 0xFF selects.
+; would open somewhere the user never took IT.
+;
+; It SEEDS rather than blanks, and that is the whole difference between a
+; per-app folder and a per-app MEMORY of one: the new instance starts
+; standing where it was launched from, which for a package is the folder its
+; own file came out of. So there is no "this instance has no folder" state
+; for inst_vol_enter to have a policy about. Whether the USER has since
+; chosen one is the separate question [inst_fpick] answers, and only the
+; dialog's default (SPEC.md 38.10) reads it.
 ; -----------------------------------------------------------------------------
 inst_fhome_clr:
     pushf
@@ -552,10 +696,13 @@ inst_fhome_clr:
     push cx
     push si
     call inst_fhome_idx         ; BX = the slot
-    mov byte [inst_fdrv+bx], 0xFF   ; "has chosen no folder of its own"
+    mov al, [disk_drive]        ; where this app is being launched FROM
+    mov [inst_fdrv+bx], al
+    mov byte [inst_fpick+bx], 0 ; ...which the user has not CHOSEN
     mov si, bx
     shl si, 1
-    mov word [inst_fcwd+si], 0
+    mov ax, [dsk_cwd]
+    mov [inst_fcwd+si], ax
     mov al, bl
     mov cl, INST_FNSZ
     mul cl                      ; AX = slot * INST_FNSZ (AL is 0..11, so the
@@ -1430,17 +1577,35 @@ inst_tab:    resb 384           ; INST_MAX x I_RECSZ (12 x 32; literal per
                                 ; which is the MB_SEG trap of SPEC.md 12.2 for
                                 ; 384 bytes
 
-; The Standard File dialog's location and name, PER INSTANCE (SPEC.md 38.8).
-; A side table rather than three more record fields: I_RECSZ is 32, it is
+; THE INSTANCE'S OWN CURRENT DIRECTORY (SPEC.md 19.2.1), and the name it last
+; picked in the Standard File dialog (SPEC.md 38.10).
+;
+; A side table rather than four more record fields: I_RECSZ is 32, it is
 ; full (I_CYC's dword ends it), and index<<5 is what makes a record cheap to
-; reach - so widening the record to hold 16 bytes would cost every walk in
-; the kernel a multiply. Read and written only by fdlg.inc, which is COLD
-; code: these are ordinary DS-relative data, so no thunk is involved.
-inst_fdrv:   resb INST_MAX      ; the volume this instance last chose in the
-                                ; dialog; 0xFF = it has never used one, which
-                                ; is what makes the first open inherit the
-                                ; volume the user is looking at
-inst_fcwd:   resw INST_MAX      ; ...the directory inside that volume...
+; reach - so widening the record to hold 17 bytes would cost every walk in
+; the kernel a multiply. These are ordinary DS-relative data, so fdlg.inc
+; reaches them from COLD code with no thunk involved.
+;
+; [disk_drive]/[dsk_cwd] remain the ONE position the hardware is actually at -
+; there is one floppy in one drive and one mount snapshot describing it. What
+; these words hold is where each instance BELIEVES it is standing, and
+; inst_vol_enter is what makes the hardware agree, lazily, at the moment that
+; instance does a file operation. So a Disk window taking the volume to C:
+; moves the machine and moves nobody's idea of where their documents are.
+inst_fdrv:   resb INST_MAX      ; the volume this instance is standing in...
+inst_fcwd:   resw INST_MAX      ; ...and the directory inside it. Seeded at
+                                ; inst_alloc from wherever the app was
+                                ; LAUNCHED from, so an instance has a folder
+                                ; from its first breath and there is no "not
+                                ; set yet" case for a file operation to meet
+inst_fpick:  resb INST_MAX      ; 0 = the user has never chosen a folder for
+                                ; this app in a dialog, so the dialog opens on
+                                ; the default (MEDIA, SPEC.md 38.10) rather
+                                ; than on the launch folder above. A separate
+                                ; byte and not a sentinel inside inst_fdrv,
+                                ; because that word now always holds a real
+                                ; volume - it is the answer a file operation
+                                ; resolves against
 inst_fname:  resb INST_MAX * INST_FNSZ  ; ...and the name it picked there,
                                 ; NUL-terminated; an empty string = none
 
