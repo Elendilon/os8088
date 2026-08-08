@@ -248,3 +248,52 @@ overlays = [
     bus_type = "ISA"
     type = "CGA"
     clock_mode = "Dynamic"
+
+# ...and the calibration machine as it ACTUALLY is: a 5150 with a Hercules AND
+# a CGA in it, both permanent, each on its own monitor (docs/FIELD-MACHINES.md).
+# This is the configuration SPEC.md 39.11's adapter switching exists for, and
+# until it was added there was no way to see two rows in the Display page
+# without a VGA.
+#
+# THE CGA IS FIRST AND THAT IS NOT COSMETIC. With the MDA first the 1982 IBM
+# POST never finishes - the machine sits in the ROM at CS=F000 with both
+# framebuffers dark - so the order is what makes this boot at all.
+#
+# ONE THING IT CANNOT MODEL, and it matters before you believe a result from
+# it: MartyPC's MDA decodes the WHOLE 64KB at B0000-BFFFF regardless of
+# 3BFh's page-1 bit, so B8000 is the Hercules' second page here and the two
+# cards CONTEND for it. Measured: after switching to the CGA the card is
+# correctly in Mode6HiResGraphics and drawing, and B0000 and B8000 read back
+# byte-identical - one memory wearing two addresses, with the MDA winning. So
+# the CGA's rendered output stays black on this config and the picture does
+# not actually move. A real HGC with the page bit clear (which vid_setmode
+# leaves clear, SPEC.md 39.6) decodes B0000-B7FFF only and has no such
+# conflict. Two consequences: the CGA->Hercules direction is verifiable here
+# and the Hercules->CGA direction is not, and vid_cga_alias (SPEC.md 39.11.1)
+# is written for exactly the aliasing this config exhibits.
+[[machine]]
+name = "os8088_5150_both"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
