@@ -90,6 +90,11 @@ const MAX_STEP: u64 = 1_000_000;
 /// client does it for you.
 const MAX_READ: usize = 1 << 20;
 
+/// A flicker capture holds every frame's pixels in memory, so it is bounded.
+/// 600 frames is ten seconds of guest time on a 60Hz card, which is longer
+/// than any single redraw in this OS.
+const MAX_FRAMES: usize = 600;
+
 /// The standard IBM 16-colour palette, RGBA, for the cards that publish none.
 const IBM16: [[u8; 4]; 16] = [
     [0x00, 0x00, 0x00, 0xFF], [0x00, 0x00, 0xAA, 0xFF],
@@ -344,6 +349,7 @@ impl DebugServer {
             "screen" => screen(machine),
             "video" => video(machine),
             "fbuf" => fbuf(machine, &req),
+            "flicker" => flicker(machine, exec, &req),
             "key" => key(machine, &req),
             "mouse" => mouse(machine, &req),
             "history" => json!({"ok": true, "history": machine.cpu().dump_instruction_history_string()}),
@@ -713,12 +719,192 @@ fn video(machine: &mut Machine) -> Value {
 /// should not have to know which kind of buffer it came out of.
 fn fbuf(machine: &mut Machine, req: &Value) -> Value {
     let sel = req.get("aperture").and_then(Value::as_u64).unwrap_or(0) as usize;
+    match grab(machine, sel) {
+        Ok((w, h, data)) => json!({
+            "ok": true,
+            "w": w,
+            "h": h,
+            "format": "rgb24",
+            "data": hex_encode(&data),
+        }),
+        Err(e) => err(&e),
+    }
+}
+
+/// FLICKER, measured — one sample per DISPLAYED FRAME, and the analysis done
+/// here so the wire cost cannot collapse the sampling rate.
+///
+/// PERFORMANCE.md Part 1 names three visible defects, and for years said the
+/// second could not be observed anywhere but on somebody's desk. That was true
+/// of QEMU and is not true here, and the reason is worth stating precisely: a
+/// CRT shows whatever the raster read on its last pass, so *what a person saw*
+/// is exactly the sequence of completed frames. MartyPC rasterises into a
+/// front/back pair and `display_buf()` is the FRONT one — the last frame the
+/// card finished — so stepping the machine until `frame_count()` increments
+/// and grabbing that buffer samples the glass once per frame, no oftener and
+/// no seldomer than an eye does.
+///
+/// The metric is `transient`, and it needs no notion of "background":
+///
+///     transient(k) = |{ p : first[p] == last[p]  AND  frame_k[p] != first[p] }|
+///
+/// A pixel whose value before the operation and after it are the SAME, but
+/// which showed something else in between, was written twice for no reason and
+/// the user could see it. That is the double-draw flash, stated as arithmetic.
+/// It catches the erase-and-letter pair (the cell goes background, then back
+/// to the same glyph), the fill-under-an-icon, and `wm_grow_paint`'s square,
+/// and it does NOT fire on an honest change — a caret moving, a digit
+/// incrementing — because there `first[p] != last[p]` and the pixel is excluded.
+///
+/// `changed` is the ordinary frame-to-frame delta, and is what prices a
+/// VISIBLE REDRAW: the number of frames between the first change and the
+/// settled state, times the frame period, is how long the user watched it
+/// happen.
+///
+/// Two things about the method are load-bearing. The caller injects its input
+/// BEFORE calling this, while the machine is paused, so the action lands
+/// inside the capture window rather than racing it. And `settled` is reported
+/// rather than assumed: if the last frames are still changing then `last` is
+/// not a settled state, every `transient` count below is measured against a
+/// moving target, and the answer is to ask for more frames.
+fn flicker(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Value {
+    let n = req.get("frames").and_then(Value::as_u64).unwrap_or(60) as usize;
+    if n < 3 || n > MAX_FRAMES {
+        return err(&format!("frames must be 3..{}", MAX_FRAMES));
+    }
+    let sel = req.get("aperture").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let batch = ((machine.get_cpu_mhz() * 1_000_000.0) / 4000.0) as u32; // ~0.25ms
+    let c0 = machine.cpu_cycles();
+
+    let mut shots: Vec<Vec<u8>> = Vec::with_capacity(n);
+    let mut cycles: Vec<u64> = Vec::with_capacity(n);
+    let (mut w, mut h) = (0u32, 0u32);
+    let started = Instant::now();
+
+    for _ in 0..n {
+        // Run until the card finishes a frame. Bounded twice: by a wall clock
+        // and by a frame that never arrives (a guest that has switched the
+        // display off, or hung with the CRTC stopped).
+        let f0 = match machine.primary_videocard() {
+            Some(c) => c.frame_count(),
+            None => return err("no video card"),
+        };
+        exec.set_op(ExecutionOperation::Run);
+        exec.set_state(ExecutionState::Running);
+        loop {
+            machine.run(batch, exec);
+            let f = machine.primary_videocard().map(|c| c.frame_count()).unwrap_or(f0);
+            if f != f0 {
+                break;
+            }
+            if started.elapsed() > Duration::from_secs(120) {
+                return err("timed out waiting for a frame - is the display enabled?");
+            }
+        }
+        exec.set_op(ExecutionOperation::Pause);
+        exec.set_state(ExecutionState::Paused);
+        match grab(machine, sel) {
+            Ok((gw, gh, data)) => {
+                w = gw;
+                h = gh;
+                shots.push(data);
+                cycles.push(machine.cpu_cycles());
+            }
+            Err(e) => return err(&e),
+        }
+    }
+
+    let first = &shots[0];
+    let last = &shots[shots.len() - 1];
+    // The pixels the operation did not, in the end, change. Compared as whole
+    // rgb24 triples so a colour change counts once rather than up to three
+    // times.
+    let px = (w * h) as usize;
+    let stable: Vec<bool> = (0..px)
+        .map(|i| first[i * 3..i * 3 + 3] == last[i * 3..i * 3 + 3])
+        .collect();
+
+    let mut out = Vec::with_capacity(shots.len());
+    let mut worst = 0usize;
+    let mut flash_frames = 0usize;
+    let mut moved_frames = 0usize;
+    for (k, s) in shots.iter().enumerate() {
+        // A count with no location is not actionable - "40 pixels flashed"
+        // does not say which control did it - so the bounding box of the
+        // transient pixels comes back with the count.
+        let mut transient = 0usize;
+        let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+        for i in 0..px {
+            if stable[i] && s[i * 3..i * 3 + 3] != first[i * 3..i * 3 + 3] {
+                transient += 1;
+                let (x, y) = (i as u32 % w, i as u32 / w);
+                if x < x0 { x0 = x }
+                if y < y0 { y0 = y }
+                if x > x1 { x1 = x }
+                if y > y1 { y1 = y }
+            }
+        }
+        let bbox = if transient == 0 {
+            Value::Null
+        }
+        else {
+            json!([x0, y0, x1, y1])
+        };
+        let changed = if k == 0 {
+            0
+        }
+        else {
+            let prev = &shots[k - 1];
+            (0..px).filter(|&i| s[i * 3..i * 3 + 3] != prev[i * 3..i * 3 + 3]).count()
+        };
+        if transient > worst {
+            worst = transient;
+        }
+        if transient > 0 {
+            flash_frames += 1;
+        }
+        if changed > 0 {
+            moved_frames += 1;
+        }
+        out.push(json!({
+            "frame": k,
+            "cycles": cycles[k] - c0,
+            "changed": changed,
+            "transient": transient,
+            "bbox": bbox,
+        }));
+    }
+
+    // "Settled" means the tail is quiet: the last three frames are identical,
+    // so `last` really is the end state and every transient count above was
+    // measured against it.
+    let settled = shots.len() >= 3
+        && shots[shots.len() - 1] == shots[shots.len() - 2]
+        && shots[shots.len() - 2] == shots[shots.len() - 3];
+
+    json!({
+        "ok": true,
+        "w": w,
+        "h": h,
+        "frames": shots.len(),
+        "cycles": cycles[cycles.len() - 1] - c0,
+        "cpu_mhz": machine.get_cpu_mhz(),
+        "settled": settled,
+        "worst_transient": worst,
+        "flash_frames": flash_frames,
+        "moved_frames": moved_frames,
+        "per_frame": out,
+    })
+}
+
+/// One rendered frame, cropped to an aperture, as packed rgb24.
+fn grab(machine: &mut Machine, sel: usize) -> Result<(u32, u32, Vec<u8>), String> {
     match machine.primary_videocard() {
         Some(mut card) => {
             let apers = card.display_apertures();
             let a = match apers.get(sel) {
                 Some(a) => *a,
-                None => return err(&format!("aperture {} of {}", sel, apers.len())),
+                None => return Err(format!("aperture {} of {}", sel, apers.len())),
             };
             let bpp = match card.render_depth() {
                 RenderBpp::ThirtyTwo => 4,
@@ -734,20 +920,14 @@ fn fbuf(machine: &mut Machine, req: &Value) -> Value {
             let pal = card.palette().unwrap_or_else(|| IBM16.to_vec());
             let buf = card.display_buf();
             if bpp == 1 && pal.is_empty() {
-                return err("indexed framebuffer but the card published no palette");
+                return Err("indexed framebuffer but the card published no palette".to_string());
             }
             let stride = pitch * bpp;
             let need = (a.y + a.h - 1) as usize * stride + (a.x + a.w) as usize * bpp;
             if need > buf.len() {
-                return err(&format!(
+                return Err(format!(
                     "aperture {}x{}+{}+{} wants {} bytes of a {}-byte buffer at stride {}",
-                    a.w,
-                    a.h,
-                    a.x,
-                    a.y,
-                    need,
-                    buf.len(),
-                    stride
+                    a.w, a.h, a.x, a.y, need, buf.len(), stride
                 ));
             }
             let mut out = Vec::with_capacity((a.w * a.h) as usize * 3);
@@ -764,16 +944,9 @@ fn fbuf(machine: &mut Machine, req: &Value) -> Value {
                     }
                 }
             }
-            json!({
-                "ok": true,
-                "w": a.w,
-                "h": a.h,
-                "bpp": bpp,
-                "format": "rgb24",
-                "data": hex_encode(&out),
-            })
+            Ok((a.w, a.h, out))
         }
-        None => err("no video card"),
+        None => Err("no video card".to_string()),
     }
 }
 

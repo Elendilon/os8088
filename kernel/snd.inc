@@ -223,6 +223,13 @@ spk_pcm_run:
     inc byte [sch_lock]         ; the clip owns the CPU (SPEC.md 34.4/7)
     cld                         ; lodsb below runs forward
 
+    mov al, [sch_fast]          ; an fsx sub-tick (SPEC.md 53.2.1) divides
+    mov [snd_pcm_fast], al      ; ch0's period, and 65536 is the radix this
+    or al, al                   ; pacer's deadline arithmetic wraps on - so
+    jz .nofast                  ; park it for the clip and put it back at
+    call sch_fast_off           ; .out. sch_lock is up either way, so a finer
+.nofast:                        ; quantum buys nothing here to give up
+
     pushf                       ; ch2 -> mode 0 lobyte-only; gate + data
     cli                         ; high. 61h is RMW under IF=0 - the upper
     mov al, 0x90                ; bits belong to the XT's keyboard/parity
@@ -303,6 +310,15 @@ spk_pcm_run:
     mov al, 2                   ; aborted by the flag
     stc
 .out:
+    pushf                       ; re-arm the sub-tick. The bank is taken
+    push ax                     ; UNCONDITIONALLY - CF is this routine's
+    mov al, [snd_pcm_fast]      ; result and AL its abort code, and the test
+    or al, al                   ; of the parked byte would clobber CF before
+    jz .nore                    ; the branch that skips the restore
+    call sch_fast_on
+.nore:
+    pop ax
+    popf
     pop bp
     pop di
     pop si
@@ -1244,6 +1260,9 @@ snd_abort:     resb 1           ; set by snd_stop / snd_release_inst
 snd_pcm_busy:  resb 1           ; a PCM_EXCL clip is running (34.3)
 snd_pcm_inst:  resb 1           ;   the instance that owns it (0xFF kernel)
 snd_pcm_smp:   resb 1           ;   the sample parked across pacer polls
+snd_pcm_fast:  resb 1           ;   the fsx sub-tick parked across the clip
+                                ;   (SPEC.md 53.2.1); written before every
+                                ;   read, so an unzeroed .bss cannot bite
 snd_pcm_n:     resw 1           ;   the clip divisor N (74..255)
 snd_pcm_emitted: resw 1         ; debug counters (34.4), reset per clip:
 snd_pcm_resync:  resw 1         ;   pulses emitted / deadline resyncs
