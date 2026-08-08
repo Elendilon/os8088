@@ -255,7 +255,7 @@ $(BUILD)/hdd.bin: drivers/hdd/hdd.asm drivers/hdd/part.inc drivers/hdd/fmt.inc \
 $(BUILD)/hdd.drv: $(BUILD)/hdd.bin tools/os88drv.py
 	python3 tools/os88drv.py $(BUILD)/hdd.bin -o $@
 
-# DEBUG.DRV (SPEC.md 57) - the serial monitor. It SHIPS, and it costs a
+# DEBUG.DRV (SPEC.md 58) - the serial monitor. It SHIPS, and it costs a
 # machine that never asks for it one drv_tab row and a file on the floppy:
 # DRVR_WANT is 0 like every other row (SPEC.md 51.3), so nothing probes 2E8
 # and nothing hooks IRQ3 until the Drivers page is ticked. That is the whole
@@ -1115,7 +1115,7 @@ ifeq ($(NOCARD)$(ADLIB)$(SB16),)
 DEVCARD = -audiodev none,id=devsnd -device adlib,audiodev=devsnd
 endif
 
-# DBG=1 puts the serial monitor's UART in the machine (SPEC.md 57): a second
+# DBG=1 puts the serial monitor's UART in the machine (SPEC.md 58): a second
 # card at COM4 - 2E8, IRQ3, which is where 86Box and QEMU both put COM4 - with
 # a UNIX socket on the host end, so tools/os88dbg.py can drive it.
 #
@@ -1270,7 +1270,7 @@ xt-sound: $(IMG360) $(APPSIMG360)
 # The MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug server bolted
 # into MartyPC's headless frontend, giving memory, registers, breakpoints,
 # single-step and cycle counts on a running os8088 with NO code in the guest
-# at all. It is the other half of SPEC.md 57's DEBUG.DRV and not a replacement
+# at all. It is the other half of SPEC.md 58's DEBUG.DRV and not a replacement
 # for it - this one costs the guest nothing and answers on a frozen machine,
 # that one is the only one that works on real iron.
 #

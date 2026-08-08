@@ -30,7 +30,7 @@ and what was rejected.
 > **OUTCOME — both halves are built. Read this document for the reasoning and
 > the two others for what exists.**
 >
-> - **SPEC.md §57 / `drivers/debug/debug.asm`** — DEBUG.DRV, the serial
+> - **SPEC.md §58 / `drivers/debug/debug.asm`** — DEBUG.DRV, the serial
 >   monitor, built as a loadable driver rather than the `SERDBG=1` kernel this
 >   plan proposed. A knob kernel is a different binary, so the machine you
 >   debugged is not the machine that ships; a driver loads into the shipped
@@ -48,7 +48,7 @@ and what was rejected.
 >
 > Two things in the plan below were **not** built and the reasons are in the
 > outcome docs: the **disk data plane** of section 3 (it needs a `[sch_lock]`
-> entry point, which is kernel code — §57.4's divisor switch is the bulk path
+> entry point, which is kernel code — §58.4's divisor switch is the bulk path
 > instead), and **Stage 0's trace hook** into the benchmarks. Section 5's
 > rejection of "patch the emulator" was **wrong about MartyPC** and right
 > about 86Box: the objection was that patching means *building* a debugger and

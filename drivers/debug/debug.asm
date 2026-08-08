@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - DEBUG.DRV
 ;
-; The loadable debug monitor (SPEC.md 57): a serial command channel into a
+; The loadable debug monitor (SPEC.md 58): a serial command channel into a
 ; running machine, so a host-side tool can read and write memory, read and
 ; write I/O ports, and be told what the kernel thinks - on 86Box, which has
 ; no automation socket of any kind, and on real iron, which has no debugger
@@ -16,7 +16,7 @@
 ; default). It also costs the kernel no bytes of debug code at all - the
 ; whole of it is here, on the floppy, in a file the user can delete.
 ;
-; PORT OWNERSHIP, AND WHY IT IS COM4 (SPEC.md 57.2). os8088 owns BOTH the
+; PORT OWNERSHIP, AND WHY IT IS COM4 (SPEC.md 58.2). os8088 owns BOTH the
 ; ports it knows about: SPEC.md 9.5 probes 3F8 and 2F8, programs every UART
 ; that answers, hooks both IRQs and retires the loser only once the mouse has
 ; spoken. A monitor on 2F8 would therefore be fighting the mouse prober for
@@ -26,13 +26,15 @@
 ; driver can own outright, with IRQ3 free whenever no card answers at 2F8.
 ;
 ; That last clause is a real condition and not an assumption, so ATTACH
-; TESTS IT: the kernel publishes a pointer to mou_bases at 0060:0006
-; (SPEC.md 9.4.2), a nonzero second word means the mouse module has a UART at
+; TESTS IT, through SPEC.md 57's debug registry: 0060:000E names a list of
+; (tag, offset) pairs, 'MO' is the mouse instrument (SPEC.md 9.4.2), and its
+; block points at mou_bases - two words, one per probed port, ZERO where no
+; UART answered. A nonzero second word means the mouse module has a UART at
 ; 2F8 and has hooked IRQ3, and this driver REFUSES rather than stealing a
 ; vector out from under it. A machine that needs both wants the debug port
 ; moved, which is DBG_BASE/DBG_IRQ below and a rebuild.
 ;
-; THE SPLIT DIVISOR, WHICH IS THE WHOLE BANDWIDTH STORY (SPEC.md 57.4).
+; THE SPLIT DIVISOR, WHICH IS THE WHOLE BANDWIDTH STORY (SPEC.md 58.4).
 ; Receive is what caps the baud rate: an 8250 has no FIFO and an 8088's
 ; interrupt response is ~61 clocks - about 13us at 4.77MHz - so a byte time
 ; shorter than that is a guaranteed overrun and 115200 (8.7us) cannot be
@@ -175,7 +177,7 @@ dbg_attach:
     mov al, DRVE_BUSY           ; the UART is THERE and its line is not ours.
     stc                         ; 'No hardware found' would send the reader
     ret                         ; looking for a card that is sitting in the
-                                ; machine (SPEC.md 57.2)
+                                ; machine (SPEC.md 58.2)
 .no:
     mov al, DRVE_HW
     stc
@@ -239,44 +241,38 @@ dbg_detach:
 ; out: CF = 0 free, CF = 1 taken (or the published block did not check out)
 ; clobbers: AX, BX, SI
 ;
-; SPEC.md 9.4.2 publishes a pointer to mou_dbg_blk at 0060:0006, whose second
+; SPEC.md 57's registry names the 'MO' block (SPEC.md 9.4.2), whose second
 ; word points at mou_bases - two words, one per probed port, ZERO where no
-; UART answered. So "does the kernel have a live UART at 2F8" is two
+; UART answered. So "does the kernel have a live UART at 2F8" is three
 ; indirections and a compare, and it is exactly the question that decides
 ; whether IRQ3 is ours: mouse_init hooks a port's vector and unmasks its line
 ; only for a row whose base survived the probe.
 ;
-; The magic is checked first because a kernel too old to publish the block
-; has something else at that offset, and reading a pointer out of it would
-; send this at whatever the bytes happened to say.
+; It went through a FIXED WORD at 0060:0006 until the registry replaced it,
+; which is worth knowing because the two failure modes differ: a fixed word
+; that has been reassigned reads as a valid pointer to something else, and
+; the registry's tag check turns that into a clean "not published".
 ;
 ; It is READ-ONLY, deliberately. Zeroing that word would hand us the port -
 ; mou_pall no-ops on a zeroed row, mou_lockon skips it, mouse_unhook skips it
 ; - and it would also be a driver writing kernel state through a block
 ; published for reading. Refusing is honest and the port is movable.
 ; -----------------------------------------------------------------------------
-MOU_DBG_AT  equ 0x0006          ; 0060:0006 -> mou_dbg_blk
-MOU_DBG_MAG equ 0x4F4D          ; 'MO'
-MOU_DBG_BAS equ 2               ; ...+2 -> mou_bases
+DBG_REG_AT  equ 0x000E          ; 0060:000E -> the registry (SPEC.md 57)
+MOU_DBG_BAS equ 2               ; ...and +2 of the 'MO' block -> mou_bases
 
 dbg_irq_free:
-%if DBG_IRQ == 3
-    mov si, [es:MOU_DBG_AT]
-    or  si, si
-    jz .free                    ; no block: an older kernel, and nothing here
-    cmp word [es:si], MOU_DBG_MAG
-    jne .free                   ; not the block we know: do not guess
+%if DBG_IRQ == 3 || DBG_IRQ == 4
+    mov ax, DBG_TAG_MOUSE
+    call dbg_dbgfind            ; SI -> the mouse block, or CF = 1
+    jc .free                    ; not published: an older or smaller kernel,
+                                ; and nothing here to conflict with
     mov si, [es:si+MOU_DBG_BAS] ; -> mou_bases
+  %if DBG_IRQ == 3
     cmp word [es:si+2], 0       ; row 1 = 2F8, and 2F8 is IRQ3
-    jne .taken
-%elif DBG_IRQ == 4
-    mov si, [es:MOU_DBG_AT]
-    or  si, si
-    jz .free
-    cmp word [es:si], MOU_DBG_MAG
-    jne .free
-    mov si, [es:si+MOU_DBG_BAS]
+  %else
     cmp word [es:si], 0         ; row 0 = 3F8, and 3F8 is IRQ4
+  %endif
     jne .taken
 %endif
 .free:
@@ -287,6 +283,49 @@ dbg_irq_free:
     stc
     ret
 %endif
+
+; -----------------------------------------------------------------------------
+; dbg_dbgfind - look a block up in the debug registry (SPEC.md 57)
+; in:  AX = the DBG_TAG_* wanted, ES = KERNEL_SEG
+; out: CF = 0 and SI = the block's offset in KERNEL_SEG; CF = 1 = not published
+; clobbers: SI (and flags)
+;
+; `tests/sysbench`'s sb_dbgfind, in a driver. The two are deliberately the
+; same shape and neither is shared code: SPEC.md 57 rule 2 is that a reader
+; which cannot find its block says so and continues, and a dozen lines
+; duplicated is a cheaper price than a reader that cannot be dropped into a
+; kernel without one.
+;
+; The TAG CHECK at the end is the whole reason the format carries the tag
+; twice. This is a pointer read out of a hard-coded address in another
+; module's segment; verifying that it lands on something that names itself is
+; the only thing standing between "an older kernel" and executing a garbage
+; offset as a table.
+; -----------------------------------------------------------------------------
+dbg_dbgfind:
+    push bx
+    mov si, [es:DBG_REG_AT]
+    or  si, si
+    jz .none                    ; no registry: a kernel older than SPEC.md 57
+.scan:
+    mov bx, [es:si]
+    or  bx, bx
+    jz .none                    ; end of list
+    cmp bx, ax
+    je .hit
+    add si, 4
+    jmp short .scan
+.hit:
+    mov si, [es:si+2]
+    cmp [es:si], ax             ; ...and it must lead with the tag it claimed
+    jne .none
+    pop bx
+    clc
+    ret
+.none:
+    pop bx
+    stc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; dbg_probe - is there a UART at DBG_BASE?
@@ -413,7 +452,7 @@ dbg_unhook:
     ret
 
 ; =============================================================================
-; The ISR (SPEC.md 57.3)
+; The ISR (SPEC.md 58.3)
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
@@ -523,7 +562,7 @@ dbg_collect:
     ret
 
 ; =============================================================================
-; The command executor (SPEC.md 57.5)
+; The command executor (SPEC.md 58.5)
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
@@ -657,7 +696,7 @@ dbg_c_out:
     call dbg_putc
     jmp dbg_crlf
 
-; --- s DD: change the divisor (SPEC.md 57.4) ---------------------------------
+; --- s DD: change the divisor (SPEC.md 58.4) ---------------------------------
 ; The reply goes out BEFORE the line changes, at the rate the host is still
 ; listening at, and the last byte is drained off the shift register first -
 ; reprogramming the divisor with a byte still clocking out truncates it, and
@@ -1069,7 +1108,7 @@ dbg_up      db 0                ; attached, and therefore hooked
 dbg_busy    db 0                ; a command is running with interrupts on
 dbg_rdy     db 0                ; a complete line is waiting in dbg_buf
 dbg_len     db 0                ; bytes collected into it so far
-dbg_div     db DBG_DIV          ; the live divisor (SPEC.md 57.4)
+dbg_div     db DBG_DIV          ; the live divisor (SPEC.md 58.4)
 dbg_pane_x  dw 0
 dbg_nline   dw 0                ; lines received this session, for the page
 dbg_oldoff  dw 0                ; the vector we displaced

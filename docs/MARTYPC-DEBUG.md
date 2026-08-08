@@ -181,7 +181,7 @@ Breakpoints answer questions that previously needed a knob kernel: an `int`
 breakpoint on 13h counts disk calls on an **unmodified shipped kernel**, where
 SPEC.md §18.94 needs `make DISKCNT=1` and a test package on the floppy.
 
-**Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §57), and the
+**Not for:** the real 5150 — that is `DEBUG.DRV`'s job (SPEC.md §58), and the
 two are complementary rather than competing. Also not for VGA: MartyPC's VGA
 is in development and covers Mode 13h and Mode X, while os8088's whole VGA
 path is **mode 12h**, so the CGA and MDA/Hercules configs are what work here.

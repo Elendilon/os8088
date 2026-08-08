@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""os88dbg: drive DEBUG.DRV's serial monitor (SPEC.md 57).
+"""os88dbg: drive DEBUG.DRV's serial monitor (SPEC.md 58).
 
     make test DBG=1
     python3 tools/os88dbg.py build/dbg.sock m 60 0 20      # one command
@@ -18,7 +18,7 @@ differently and none of them is a superset of the others:
             serial device.
   real iron a serial port.  --baud matters here and ONLY here: the emulator
             transports are FIFOs with no line rate at all, which is what
-            makes SPEC.md 57.4's divisor switch free on them.
+            makes SPEC.md 58.4's divisor switch free on them.
 
 The importable half is the point as much as the CLI - a scripted check wants
 `Dbg(...).mem(0x60, 0, 16)` and an assert, not a transcript to eyeball:
@@ -286,7 +286,7 @@ class Dbg:
             raise DbgError(f"unexpected reply {reply!r}")
 
     def divisor(self, div):
-        """Change the line rate (SPEC.md 57.4). 1 = 115200, 12 = 9600.
+        """Change the line rate (SPEC.md 58.4). 1 = 115200, 12 = 9600.
 
         The reply comes back at the OLD rate and the guest drains its shift
         register before switching, so the only end that has to do anything is
@@ -372,7 +372,7 @@ def _load_listing(path):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Drive os8088's serial debug monitor (SPEC.md 57).")
+        description="Drive os8088's serial debug monitor (SPEC.md 58).")
     ap.add_argument("path", help="UNIX socket (QEMU), 86Box pipe prefix, "
                                  "or a serial device")
     ap.add_argument("args", nargs="*",

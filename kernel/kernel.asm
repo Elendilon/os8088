@@ -550,27 +550,22 @@ ovl_clk_init:       call clk_init
                     retf
 section .text
 
+; The debug registry's tags (SPEC.md 57). Two ASCII characters, and each one
+; is ALSO the first word of the block it names, so a reader can check that the
+; offset it followed landed where it meant to.
+DBG_TAG_MOUSE equ 0x4F4D          ; 'MO' - SPEC.md 9.4.2
+DBG_TAG_DISK  equ 0x4444          ; 'DD' - SPEC.md 18.94
+
 ; =============================================================================
 ; Fixed entry points
 ; =============================================================================
 cold_entry:
     jmp kmain
 
-    times 0x06 - ($ - $$) db 0
-mou_dbg_at:                     ; 0060:0006 - the mouse instrument (SPEC.md
-    dw mou_dbg_blk              ; 9.4.2). dsk_dbg_at's mechanism below, and
-                                ; UNCONDITIONAL rather than behind a knob:
-                                ; what it publishes is the port contest and
-                                ; the identify burst, whose whole question is
-                                ; what a REAL mouse on a REAL serial card
-                                ; does - so it has to be in the build the
-                                ; field machine is actually sent (a field disk
-                                ; is built with no knob set at all, by
-                                ; docs/FIELD-MACHINES.md's own rule). It costs
-                                ; two bytes here and six of descriptor; the
-                                ; state it names already existed
-
-    times 0x08 - ($ - $$) db 0
+    times 0x08 - ($ - $$) db 0   ; 0x03..0x07 are free again: the mouse
+                                ; instrument used to have a fixed word of its
+                                ; own at 0x0006 and is now an entry in the
+                                ; registry at 0x000E (SPEC.md 57)
     jmp near spl_tick           ; 0800:0008 - boot splash tick (SPEC.md 15)
 
     times 0x0C - ($ - $$) db 0
@@ -588,15 +583,15 @@ boot_ticks:                     ; 0060:000C - the boot timer (SPEC.md 15.4).
                                 ; like the two jumps above and the table below.
 
     times 0x0E - ($ - $$) db 0
-dsk_dbg_at:                     ; 0060:000E - the disk instrument, or 0
-%ifdef DISK_COUNTERS
-    dw dsk_dbg_blk              ; `make DISKCNT=1` only. A fixed offset for
-%else                           ; boot_ticks' reason: a TEST package has to
-    dw 0                        ; find it without an API slot, and a slot that
-%endif                          ; exists in one build and not another is an ABI
-                                ; that depends on a knob (SPEC.md 20.8). 0
-                                ; means "this kernel carries no instrument",
-                                ; which the package reports and skips.
+dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
+    dw dbg_reg                  ; A fixed word for boot_ticks' reason: a TEST
+                                ; package has to find kernel state without an
+                                ; API slot, and a slot that exists in one
+                                ; build and not another is an ABI that depends
+                                ; on a knob (SPEC.md 20.8). There was one word
+                                ; per instrument until the first paragraph
+                                ; filled up at two; this is the indirection
+                                ; that stops the third having nowhere to go.
 
     times 0x10 - ($ - $$) db 0  ; the table must land exactly at 0x0010
 
@@ -1041,6 +1036,39 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_LEN != 101 * 8
 %error "os8088 API jump table must be exactly 101 8-byte slots"
 %endif
+
+; =============================================================================
+; The debug registry (SPEC.md 57)
+;
+; How a TEST package reads kernel state that is not an API slot: one word at
+; the fixed offset 0060:000E names this list, and each entry is a (tag,
+; offset) pair naming a published block in KERNEL_SEG. Tag 0 ends it.
+;
+; It exists because the fixed-word mechanism does not scale. boot_ticks took
+; 0x000C, the mouse instrument took 0x0006 and the disk instrument 0x000E, and
+; at that point the first paragraph was full and the fourth had nowhere to go
+; - while the alternative, an API slot, is worse: half of these are knob-built
+; (`make DISKCNT=1`), and a slot that exists in one build and not another is
+; an ABI that depends on a knob (SPEC.md 20.8 rule 4).
+;
+; The TAG IS THE BLOCK'S OWN FIRST WORD, two ASCII characters, so a reader can
+; check that the offset it followed lands on what it asked for - and so a
+; human reading `xp` output over QMP can see 'MO' and 'DK' rather than count
+; words. Everything past that first word belongs to the section that owns the
+; block; this list says only where to look.
+;
+; A kernel that publishes nothing still has the word, reading 0. Anything a
+; reader cannot find, it reports and skips (tests/sysbench does both).
+; =============================================================================
+dbg_reg:
+    dw DBG_TAG_MOUSE, mou_dbg_blk   ; SPEC.md 9.4.2 - unconditional: the port
+                                    ; contest is a question about a REAL card,
+                                    ; so it has to be in the build the field
+                                    ; machine is actually sent
+%ifdef DISK_COUNTERS
+    dw DBG_TAG_DISK, dsk_dbg_blk    ; SPEC.md 18.94 - `make DISKCNT=1` only
+%endif
+    dw 0                            ; end of list
 
 ; The three snapshot cells above (0x0298..0x02A8) each fill a buffer the
 ; CALLER owns, and their layouts are ABI like the slot numbers themselves.

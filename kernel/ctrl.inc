@@ -2414,7 +2414,7 @@ CP_DSTDY  equ CP_PLDY + 9       ; 11: the reason line, one text row under the
                                 ; keeps them apart (cp_drv_line1)
 ; The hit bands are DERIVED from DRV_MAX rather than enumerated, and that is
 ; a fix rather than tidiness: they were three constants describing exactly two
-; rows (CP_DB0Y1/CP_DB0Y2/CP_DB1Y2), so the third driver row (SPEC.md 57)
+; rows (CP_DB0Y1/CP_DB0Y2/CP_DB1Y2), so the third driver row (SPEC.md 58)
 ; drew, said what it was doing, and could not be clicked - a control that
 ; looks live and is not, which is SPEC.md 47 rule 4's failure arriving where
 ; rule 4 does not look because no predicate refuses anything. One band per

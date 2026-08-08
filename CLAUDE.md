@@ -248,7 +248,7 @@ controller returns what its author believed the hardware returns; the hardware
 is under no such obligation. For anything with a disk in it the instrument is
 the 5150 and there is no substitute.
 
-**The other debugger is SPEC.md 57's `DEBUG.DRV`, and it is the one that works
+**The other debugger is SPEC.md 58's `DEBUG.DRV`, and it is the one that works
 on real iron.** A loadable driver - not a `SERDBG=` kernel, because a knob
 kernel is a different binary and the machine you debugged is then not the
 machine that ships - owning COM4 at 2E8, because os8088 hooks the IRQ of every
@@ -408,6 +408,21 @@ the sector has four spare bytes, so it is a knob, and it is what turns "it
 will not boot on that machine" into one boot instead of a bisect (0C = media
 type unidentified, 04 = sector not found, 09 = DMA page crossed, 80 = no
 answer).
+- **A TEST package reads kernel state through the debug registry (SPEC.md
+  §57), and shipped software never does.** One word at `0060:000E` names a
+  list of `(tag, offset)` pairs ended by tag 0; the tag is two ASCII
+  characters and is **also the block's own first word**, so a reader can check
+  that the offset it followed landed where it meant to and a human reading
+  `xp` over QMP sees `MO` and `DD` rather than counting words. It replaced a
+  fixed word per instrument, which is what the tree had until the first
+  paragraph filled up at three (`boot_ticks` 0x0C, mouse 0x06, disk 0x0E) and
+  the fourth had nowhere to go. An API slot is the wrong answer twice: half of
+  these are knob-built and a slot that exists in one build and not another is
+  an ABI that depends on a knob (§20.8 rule 4), and a slot is a permanent
+  promise where a debug block's whole value is that it changes with the code
+  it describes. A reader that cannot find its block **says so and continues** —
+  that is what lets one build of `sysbench` run on a plain kernel and a
+  `DISKCNT=1` one.
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4

@@ -2456,20 +2456,23 @@ dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
 the **threshold drop**. A real two-port machine (the Compaq Portable III,
 §9.5.2's) is the witness neither covers and is still owed.
 
-#### 9.4.2 The block a test package reads (`0060:0006`)
+#### 9.4.2 The block a test package reads (registry tag `'MO'`)
 
 §9.4.1's whole question — does a **real** mouse on a **real** serial card
 answer a DTR/RTS raise with `'M'` — is one neither emulator in
 docs/FIELD-MACHINES.md can settle, so the state has to be readable on the
-field machine, which has no debugger. `0060:0006` is a word pointing at
-`mou_dbg_blk`: the magic `'MO'` (0x4F4D), then a pointer to `mou_bases` (two
+field machine, which has no debugger. It is published through the **debug
+registry** (§57) under the tag `'MO'`, which is also `mou_dbg_blk`'s own first
+word: after it, a pointer to `mou_bases` (two
 words, 0 = the probe rejected that port), then a pointer to a **33-byte
 contiguous span** — `mou_run` +0, `mou_port` +4, `mou_need` +5, `mou_idn` +9,
 `mou_idb0` +13, `mou_idlast` +17, `mou_ident` +21, `mou_idany` +25,
 `mou_seen` +26, `mou_hpst` +27, `mou_hpt` +28, `mou_drain` +30,
 `mou_dstamp` +31.
 
-It is `dsk_dbg_at`'s mechanism (§18.94) and **deliberately not its knob**.
+It shares §18.94's mechanism and **deliberately not its knob** — it had a
+fixed word of its own at `0060:0006` until §57 replaced the per-instrument
+words with one registry, and that address is free again.
 That one is `make DISKCNT=1` because it counts something a normal kernel has
 no reason to carry; this one names state that already exists, and the build
 the field machine is sent has **no knob set at all** by
@@ -6122,13 +6125,10 @@ not forming the runs it believes it is, or something below it is taking them
 apart, and **sectors ÷ int 13h calls** distinguishes the two with no timing
 at all.
 
-**`0060:000E` is a word**: 0 on a kernel built without the knob, else the
-`KERNEL_SEG` offset of the block. A fixed offset for `boot_ticks`' reason
-(§15.4) — a package has to find it without an API slot, and a slot that
-exists in one build and not another is an ABI that depends on a knob (§20.8).
-A reader checks the magic before trusting anything else, and a package that
-finds 0 must **say so and skip**, which is what makes one build of the
-harness run on both kernels.
+**It is found through the debug registry** (§57): tag `'DD'`, which is also
+the block's own first word. It had a fixed word of its own at `0060:000E`
+until the registry took that address over — one word per instrument stopped
+scaling at the third.
 
 | offset | | |
 |---|---|---|
@@ -20869,8 +20869,88 @@ is a bound plus a peer comparison and not a field number; `tests/stackprobe`
 on real iron is still the only thing that settles the margin, because SeaBIOS
 hides a real BIOS's interrupt stack use (docs/TESTING.md).
 
+---
 
-## 57. debug.inc — DEBUG.DRV, the serial monitor (`drivers/debug/debug.asm`)
+## 57. The debug registry — how a test package reads kernel state
+
+**`0060:000E` is a word naming a list of published blocks. Nothing shipped may
+read it.** This is the mechanism for a *test* package — `tests/sysbench` and
+its kind — to see kernel internals that are not, and should not become, API
+slots.
+
+### 57.1 Why it is not an API slot, and not a fixed word either
+
+The obvious answer is a slot in the §20.3 table, and it is wrong twice. Half
+of what wants publishing is **knob-built** (`make DISKCNT=1`), and a slot that
+exists in one build and not another is an ABI that depends on a knob — §20.8
+rule 4 exists to forbid exactly that. And a slot is a *promise*: everything in
+that table keeps its contract forever, while a debug block is kernel internals
+whose whole value is that it can change the moment the code it describes does.
+
+The next answer is a fixed word per instrument, which is what this tree
+actually did: `boot_ticks` at `0060:000C` (§15.4), the mouse instrument at
+`0060:0006` (§9.4.2), the disk instrument at `0060:000E` (§18.94). It works
+and it does not scale — the first paragraph holds `jmp kmain`, `jmp spl_tick`
+and the API table's own start, so the third instrument filled it and the
+fourth had nowhere to go.
+
+So: **one fixed word, one level of indirection, and the list can grow.**
+
+### 57.2 The format
+
+```
+0060:000E   dw dbg_reg          ; or 0 - this kernel publishes nothing
+
+dbg_reg:    dw 'MO', mou_dbg_blk
+            dw 'DD', dsk_dbg_blk    ; only in a DISKCNT=1 build
+            dw 0                    ; end of list
+```
+
+| | |
+|---|---|
+| entry | `(tag, offset)`, both words, offset relative to `KERNEL_SEG` |
+| tag | **two ASCII characters**, and **also the block's own first word** |
+| end | tag 0 |
+| absent | the word at `0060:000E` is 0, or no entry carries the tag |
+
+**The tag is the block's first word as well as its key**, which does two
+things. A reader can check that the offset it followed lands on what it asked
+for — the only way to trust a pointer read out of a hard-coded address — and a
+human reading `xp` output over QMP sees `MO` and `DD` rather than counting
+words. `tests/sysbench`'s `sb_dbgfind` is the reference reader: tag in AX,
+CF=1 if this kernel does not publish it.
+
+Everything past that first word belongs to the section owning the block
+(§9.4.2, §18.94). The registry says only where to look, and imposes no shape.
+
+### 57.3 The rules
+
+1. **Shipped software may not read a block.** No `.o88` on either floppy does.
+   A block is internals with no compatibility promise; a package that depends
+   on one is a package that breaks when the kernel is tidied. The tags live in
+   `apps/os88api.inc` because a test package needs them, not as an invitation.
+2. **A reader that cannot find its block says so and continues.** Never
+   assume, never fail the run. `sysbench` prints `This kernel carries no disk
+   instrument - build DISKCNT=1.` and skips the block — which is what lets one
+   build of the harness run on both kernels, and what makes a knob-built
+   instrument affordable in the first place.
+3. **A block may change shape whenever its owner does**, as long as the tag
+   changes with it or the readers change with it. There is no version word and
+   deliberately so: the only readers are in this tree and `make` rebuilds them.
+4. **The cost must be zero for what it measures.** `dsk_dbg_raw` (§18.94) does
+   not count itself; a counter in a hot path is two instructions and lives
+   behind the knob.
+5. **A far entry is published as an offset in the block**, not as a slot, and
+   it is `retf`-terminated. §18.94's exists because a package *cannot* safely
+   issue `int 13h` itself — the BIOS runs its disk handler on whichever
+   256-byte task stack is current and `dsk_xfer` holds `sch_lock` across every
+   call (docs/FIELD-NOTES.md 10). Anything with that shape belongs here rather
+   than in the package.
+6. **Prefer publishing a POINTER to state that already exists** over copying
+   it. Both current blocks are three or four words of descriptor naming spans
+   the kernel already keeps; neither costs a byte of `.bss`.
+
+## 58. debug.inc — DEBUG.DRV, the serial monitor (`drivers/debug/debug.asm`)
 
 A host-side tool reads and writes the machine's memory and I/O ports over a
 serial line. It exists because **there is nowhere else to ask the question**:
@@ -20898,7 +20978,7 @@ never ticks it never probes 2E8, never hooks IRQ3 and never reads the file:
 the entire cost is one `drv_tab` row and 1,313 bytes on the floppy, and
 **no debug code enters the kernel at all**.
 
-### 57.1 What it deliberately cannot do
+### 58.1 What it deliberately cannot do
 
 There is no `call` verb and no disk payload channel, and both are refused for
 the same reason: `[sch_lock]` has no API slot. A far call into kernel code can
@@ -20907,13 +20987,13 @@ nesting on whichever 256-byte task stack is current (§8) — which is what hard
 froze the 5150 when `tests/sysbench` did it (docs/FIELD-NOTES.md 10) and why
 §18.94's `dsk_dbg_raw` is a kernel entry rather than a package's. Giving the
 driver either one means adding kernel code, so neither exists until somebody
-asks. §57.4's divisor switch is the bulk path instead, and it needs nothing.
+asks. §58.4's divisor switch is the bulk path instead, and it needs nothing.
 
 It also cannot answer with interrupts off, on a triple-faulted machine, or
 with the 8259 wedged — everything a guest-side monitor cannot reach by
 construction. Those are the emulator's questions, not this one's.
 
-### 57.2 The port is COM4, and attach tests that it may have it
+### 58.2 The port is COM4, and attach tests that it may have it
 
 os8088 owns both the ports it knows about: §9.5 probes 3F8 and 2F8, programs
 every UART that answers, hooks both IRQs and retires the loser only once the
@@ -20926,13 +21006,15 @@ surveys them precisely because a live UART there is invisible to os8088 — so
 0x2e8`, `COM4_IRQ 3`) is a port this driver can own outright.
 
 Its IRQ, though, is IRQ3, and IRQ3 is the mouse's whenever a card answers at
-2F8. That is a real condition and not an assumption, so **attach tests it**:
-§9.4.2 publishes a pointer to `mou_dbg_blk` at `0060:0006`, whose second word
-points at `mou_bases` — two words, **zero where no UART answered** — so a
-nonzero second word means the mouse module has hooked IRQ3, and the driver
-refuses with `DRVE_BUSY` rather than stealing the vector. The read is
-magic-checked first, because a kernel too old to publish the block has
-something else at that offset.
+2F8. That is a real condition and not an assumption, so **attach tests it**,
+through §57's debug registry: `0060:000E` names the `'MO'` block (§9.4.2),
+whose second word points at `mou_bases` — two words, **zero where no UART
+answered** — so a nonzero second word means the mouse module has hooked IRQ3,
+and the driver refuses with `DRVE_BUSY` rather than stealing the vector.
+`dbg_dbgfind` is `sysbench`'s `sb_dbgfind` in a driver, tag check included:
+this is a pointer read out of a hard-coded address in another module's
+segment, and §57's rule that a block leads with its own tag is the only thing
+between "an older kernel" and following a garbage offset.
 
 **It is READ-only, deliberately.** Zeroing that word would hand the driver the
 port for free — `mou_pall` no-ops on a zeroed row, `mou_lockon` skips it,
@@ -20940,7 +21022,7 @@ port for free — `mou_pall` no-ops on a zeroed row, `mou_lockon` skips it,
 through a block published for reading. Refusing is honest, and `DBG_BASE`/
 `DBG_IRQ` are two constants and a rebuild.
 
-### 57.3 The command runs in the ISR, with interrupts back on
+### 58.3 The command runs in the ISR, with interrupts back on
 
 No worker task, and `OSAPI_DRV_TASK` (§51.7) is deliberately unused: a worker
 needs a teardown handshake that cannot spin (the scheduler has a cooperative
@@ -20964,7 +21046,7 @@ ISR points int 0Bh at the old handler halfway through our own frame. The wait
 is a bounded spin and is safe in both scheduler modes, which a worker's
 teardown would not have been: what it waits for is an interrupt, not a task.
 
-### 57.4 Receive caps the baud rate; transmit does not
+### 58.4 Receive caps the baud rate; transmit does not
 
 An 8250 has no FIFO — one holding register, and the next byte overwrites it —
 and an 8086/8088 answers an interrupt in about 61 clocks, ~13 µs at 4.77MHz,
@@ -21000,7 +21082,7 @@ the emulated baud rate — 4KB clocks at the same ~119 KB/s at either divisor.
 It is a target-machine property, exactly like the three defects in
 docs/TESTING.md's "Modelling the old machine from a fast one".
 
-### 57.5 The protocol
+### 58.5 The protocol
 
 Line-at-a-time ASCII, CR-terminated, **one reply line per command including a
 refusal** (`?`) — so a host reading until a newline is never left waiting on a
@@ -21015,7 +21097,7 @@ byte costs one command rather than resynchronisation.
 | `M SSSS OOOO hh hh …` | write memory; answers how many bytes it took |
 | `i PPPP` | read an I/O port |
 | `o PPPP hh` | write one |
-| `s DD` | set the divisor (§57.4) |
+| `s DD` | set the divisor (§58.4) |
 
 `m` answers **the address back before the bytes**, so a captured transcript
 says what it is a picture of — docs/FIELD-MACHINES.md's third dump rule ("find
@@ -21036,7 +21118,7 @@ listing and **carries no table of its own**, because docs/FIELD-MACHINES.md's
 second dump rule is to re-derive every offset from a listing of the exact
 commit and a baked-in table is what that rule forbids.
 
-### 57.6 What it found on the way in
+### 58.6 What it found on the way in
 
 Three things, all older than it, and the first two are one bug each in the
 same page:

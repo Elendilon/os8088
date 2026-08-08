@@ -53,7 +53,7 @@ DRV_MAX     equ 3               ; rows in drv_tab. The settings word carries
 ; the first (SPEC.md 51.2.1).
 DRVC_SOUND  equ 1               ; fills the FM and STREAM tiers (SPEC.md 34)
 DRVC_DISK   equ 2               ; block volumes: hard disks (SPEC.md 51.8)
-DRVC_DEBUG  equ 3               ; the serial monitor (SPEC.md 57). It publishes
+DRVC_DEBUG  equ 3               ; the serial monitor (SPEC.md 58). It publishes
                                 ; no service the kernel dispatches - only a
                                 ; Control Panel page - so it needs a class for
                                 ; one reason: a class IS the publication slot,
@@ -92,7 +92,7 @@ DRVE_BUSY   equ 6               ; ...or found it and cannot have it, because
                                 ; for a card that is sitting right there, and
                                 ; the fix for the two is not the same one -
                                 ; DRVE_HW wants a card, this wants a jumper
-                                ; or a different port (SPEC.md 57.2)
+                                ; or a different port (SPEC.md 58.2)
 DRVE_NERR   equ 7               ; how many strings drv_errstr has
 
 ; --- .drv header: the .o88 header's shape with a different version -----------
@@ -377,7 +377,7 @@ drv_tab:
     db DRVE_OK
     db 0
 
-    dw PKG_DISP, 0              ; row 2: the serial debug monitor (SPEC.md 57)
+    dw PKG_DISP, 0              ; row 2: the serial debug monitor (SPEC.md 58)
     dw drv_f_debug, drv_t_debug
     dw 0, 0
     db DRVC_DEBUG
