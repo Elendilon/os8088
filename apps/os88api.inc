@@ -64,6 +64,14 @@
 ; position-independent: there are no relocations, and two instances of one
 ; package differ only in the segment they run in.
 KERNEL_SEG   equ 0x0060     ; where the kernel is, and what ES holds on entry.
+
+; The debug registry's tags (SPEC.md 57) - for a TEST package only. One word
+; at 0060:000E names a list of (tag, offset) pairs ended by tag 0; the tag is
+; also the block's own first word. Shipped software has no business here: a
+; block is kernel internals with no compatibility promise, which is exactly
+; why it is not an API slot.
+DBG_TAG_MOUSE equ 0x4F4D          ; 'MO' - SPEC.md 9.4.2, unconditional
+DBG_TAG_DISK  equ 0x4444          ; 'DD' - SPEC.md 18.94, `make DISKCNT=1`
                             ; It is baked into every OSAPI_* far call, so a
                             ; package built against a different value calls
                             ; into empty memory: rebuild EVERY .o88 (and the

@@ -2456,20 +2456,23 @@ dropped DTR on the first UI pass. MartyPC is two-port, so the win there is
 the **threshold drop**. A real two-port machine (the Compaq Portable III,
 §9.5.2's) is the witness neither covers and is still owed.
 
-#### 9.4.2 The block a test package reads (`0060:0006`)
+#### 9.4.2 The block a test package reads (registry tag `'MO'`)
 
 §9.4.1's whole question — does a **real** mouse on a **real** serial card
 answer a DTR/RTS raise with `'M'` — is one neither emulator in
 docs/FIELD-MACHINES.md can settle, so the state has to be readable on the
-field machine, which has no debugger. `0060:0006` is a word pointing at
-`mou_dbg_blk`: the magic `'MO'` (0x4F4D), then a pointer to `mou_bases` (two
+field machine, which has no debugger. It is published through the **debug
+registry** (§57) under the tag `'MO'`, which is also `mou_dbg_blk`'s own first
+word: after it, a pointer to `mou_bases` (two
 words, 0 = the probe rejected that port), then a pointer to a **33-byte
 contiguous span** — `mou_run` +0, `mou_port` +4, `mou_need` +5, `mou_idn` +9,
 `mou_idb0` +13, `mou_idlast` +17, `mou_ident` +21, `mou_idany` +25,
 `mou_seen` +26, `mou_hpst` +27, `mou_hpt` +28, `mou_drain` +30,
 `mou_dstamp` +31.
 
-It is `dsk_dbg_at`'s mechanism (§18.94) and **deliberately not its knob**.
+It shares §18.94's mechanism and **deliberately not its knob** — it had a
+fixed word of its own at `0060:0006` until §57 replaced the per-instrument
+words with one registry, and that address is free again.
 That one is `make DISKCNT=1` because it counts something a normal kernel has
 no reason to carry; this one names state that already exists, and the build
 the field machine is sent has **no knob set at all** by
@@ -2701,7 +2704,8 @@ An application that wants arrow keys on a mouseless machine cannot have them
 while this is on, and that is the right default — without a pointer it could
 not have been launched. **ScrollLock is the escape hatch**: while it is on
 nothing here intercepts anything, so Arkanoid can be played and Note Pad's
-caret moved.
+caret moved. **It is the only one** — §9.6.2 is why a printable key cannot be
+a second — and it now also raises the window under the pointer on the way in.
 
 **ScrollLock is READ, not watched for**, and that is worth stating because the
 first version got it wrong in a way that could never have worked. It is a
@@ -2716,24 +2720,117 @@ The keys:
 | key | scan | does |
 |---|---|---|
 | the eight keypad directions | 47/48/49/4B/4D/4F/50/51 | move, clamped to `[vid_wm1]`/`[vid_hm1]` exactly as the ISR clamps |
-| **Ins** | 52 | a **click** — `EVT_MDOWN` and `EVT_MUP` together. `mouse_btn` is *not* touched: nothing tracks a click, and a level poll must never find a button held by a key that has already come up |
-| **keypad 5** | 4C | **hold** — press, then release on the next one |
-| **Del** | 53 | the right button, latching the same way; press edge only (§9) |
+| **keypad 0 (Ins)**, **keypad 5**, **Space** | 52 / 4C / 39 | the **button** — one action, three keys (§9.6.1) |
+| **Del** | 53 | the right button, latching; press edge only (§9) |
+| **ScrollLock** | — | the **latch** — hand the whole keyboard to the window under the pointer (§9.6.2). Not a key here: a level (§9.6) |
 
-**The latching key is what makes the machine reachable at all.** A keyboard
-cannot hold a key down in any way int 16h can see, and a menu, a window drag
-and the grow box all end on a *level* poll of `mouse_btn`. Press over the bar,
-arrow down to the item, press again to choose it — which is press-drag-release.
+#### 9.6.1 The button is one action, and it is neither a click nor a hold
 
-That has one consequence, and it is the part that must not be forgotten:
-**`menu_track`, `ui_drag` and `ui_grow` spin on that poll and never return to
-`ui_task`**, so a latched button could never be released — the machine would
-sit inside a menu no key could close. Each of them calls **`kbm_poll`** beside
-the `task_yield` it already makes. `kbm_poll` *peeks* with int 16h AH=01h and
-takes the key only if `kbm_key` claims it, because int 16h has no way to put
-one back; anything else stays in the BIOS buffer and is dispatched normally
-once the loop ends. A package with a drag loop of its own (Solitaire's
-`sol_drag`) is not reachable this way and is not expected to be.
+There were **two** button keys and they were the wrong pair. Ins was a *click*
+— `EVT_MDOWN` and `EVT_MUP` posted together, `mouse_btn` deliberately
+untouched — and keypad 5 was a *hold* that latched the level until the next
+press. Each was wrong wherever the other was right, and the click was wrong in
+a way that reached the field: **a click can never open a menu.** `menu_track`
+draws the pull-down and its very next instruction polls a level that is
+already up, so the menu appears and vanishes in one frame — reported off a
+**Compaq Portable III** as a menu that flashes and will not stay open, and the
+same for a window drag and for the grow box. The hold key opened all three and
+read as broken everywhere else, because a button that stays down is not what
+an icon, a button or a close box wants.
+
+So there is one action, on all three keys:
+
+- a press **latches** `mouse_btn` bit 0 and posts `EVT_MDOWN`;
+- **`kbm_ui`** — called once from `ui_task`'s deferred ladder, where no lock
+  is held — releases it and posts `EVT_MUP` **once the pass that dispatched
+  that mouse-down is over**;
+- a press while it is latched releases it instead.
+
+That makes the press a **click** for anything that dispatches and returns (the
+release lands before anything can poll a level), and a **hold** for anything
+that does not return until the button comes up — which is press-drag-release
+on a keyboard: press over the bar, arrow down to the item, press again to
+choose it.
+
+**The release is gated on the pass having popped *that* mouse-down**
+(`[ui_ev + EV_TYPE] == EVT_MDOWN`), because a press arriving while an older
+event is still queued is dispatched a pass later, and releasing the latch in
+between is the flashing menu again from the other end. An empty pop leaves
+`[ui_ev]` stale, which cannot matter: a live latch always has its own
+`EVT_MDOWN` queued or already dispatched.
+
+**A repeat is not a press.** Typematic arrives ~1.8 ticks apart and a
+deliberate second press is 4+ — the same split `KBM_GAP` already makes for the
+movement ramp — so without a guard a press held a moment too long opened a
+menu and closed it again on its own repeat, which is the *other* way the
+Compaq's symptom is produced. `[kbm_btick]` is stamped on an ignored repeat
+too, so a key held down stays held rather than firing again once the repeats
+have drifted `KBM_GAP` apart. A double-click is therefore two presses more
+than 3 and less than 9 ticks apart — 165 ms to 500 ms, which is an ordinary
+double-click rhythm.
+
+**Every loop that spins on that level must service the keyboard**, or a
+latched button can never be released and the machine sits inside a menu no key
+can close. `kbm_poll` *peeks* with int 16h AH=01h and takes the key only if
+`kbm_key` claims it, because int 16h has no way to put one back; anything else
+stays in the BIOS buffer and is dispatched normally once the loop ends. There
+are **five** such loops and the list used to name three:
+
+| loop | how it is served |
+|---|---|
+| `menu_track` (bar and `menu_popup`), `ui_drag`, `ui_grow` | `kbm_poll` beside the `task_yield` each already makes |
+| a **package's** tracking loop — `sol_drag`, Paint's `pt_wait`, Note Pad's selection drag, Piano, Recorder | **`osapi_mouse` calls `kbm_poll`** (gated on `[mou_seen]`, so a machine with a mouse pays one compare). A package spins on this slot exactly as the kernel spins on the level, so it is the same loop by another name — and it is what makes Solitaire's card drag reachable, which this section used to say it was not |
+| `fm_drag` — the file manager's click-or-drag wait | **it does not spin at all with no mouse**: see below |
+
+`fm_drag` is the one that cannot be fixed by servicing it. It exists to
+disambiguate a click from a drag, and it waits with the button down to find
+out which — but the button is latched for the whole `W_ONCLICK` dispatch and
+the pointer *cannot move* until that dispatch returns, so the loop could only
+ever end on a **second** press: an ordinary row click would cost two presses
+and a double-click four, which is the difference between a Disk window you can
+open files from and one you cannot. With `[mou_seen]` = 0 it returns "an
+ordinary click" immediately. **File drag and drop wants a mouse**, exactly as
+it did before any of this existed.
+
+#### 9.6.2 The latch — ScrollLock, and why it must not be a printable key
+
+The arrows *are* the mouse, so an application cannot have them — until the
+application **is** the arrows. **ScrollLock is that switch, and it is the only
+one**, which is a decision worth recording because it was briefly two.
+
+A `.` — the keypad's and a typed one — was added as a second, friendlier
+hatch: a key beside the arrows the hand is already on. It was wrong, and the
+reason generalises. **The latch is the way back to typing, so it can never be
+a key you would want to type**, and `.` is wanted the moment anybody opens
+Note Pad. Every escape from that is worse than the disease: reserving the
+keypad's `.` alone gives up Del (§12.4's right button), and letting a typed
+`.` latch while refusing to un-latch — which is what was shipped for a day —
+leaves a machine where the full stop works only in one direction. ScrollLock
+has none of the problem: int 09h swallows it to toggle `KB_FLAG` and int 16h
+never reports a key for it (§9.6), so **it costs no keystroke at all**. On a
+keyboard with the lamp the machine also *says* which mode it is in, which is a
+state indicator no software of ours had to draw.
+
+Space is the counter-example that proves the rule and is kept deliberately: it
+is printable and it *is* taken, because a hand on the arrows wants a button
+under its thumb. It is only taken while the pointer is live — with ScrollLock
+on it is an ordinary space — which is exactly the shape `.` could not have.
+
+**It raises the window under the pointer on the way in.** Keys go to `wm_top`,
+so "latch to the window the cursor is over" has to be true of the window that
+then gets them. ScrollLock is a level with no keystroke to hang that off, so
+`kbm_ui` finds the **edge** by banking it in `[kbm_slast]` and comparing once
+per `ui_task` pass: a rising edge does `wm_hit` then `wm_front`, which
+activates it too so the menu bar and the keyboard end up on the same window.
+A falling edge raises nothing — the pointer is simply live again. Doing it
+here is not only convenient: `wm_front` takes the gfx lock, which `kbm_poll`'s
+callers hold, so even a keystroke could not have raised in place.
+
+Verified end to end on a mouseless QEMU boot: `KB_FLAG` bit 4 goes 0x00 → 0x10
+and 20 arrow presses move nothing; ScrollLock over a window whose app had lost
+the bar puts the bar back; off again and the arrows move 3px per tap; and two
+`.` presses change neither the pointer nor `mouse_btn`. Latch over Arkanoid,
+Space serves, the arrows drive the paddle.
 
 **The step accelerates, and the ramp resets on a change of direction.** A
 fixed step cannot be right: small enough to aim with is too small to cross a
@@ -2745,16 +2842,25 @@ press to `KBM_MAX`. The direction reset is not a refinement: without it the
 between two 24px strides. That is exactly how the first version failed to pick
 one.
 
-**Cost, and a standing recommendation.** 406 bytes of `.text`, which takes one
-512-byte step of `KERN_BUDGET` (§15.1) — spare 4,096 → 3,584, one step of the
-eight move 10 left. It was decided on when the budget was at its old ceiling
-and the same step was half the remaining slack, on the grounds that it is the
-difference between a usable machine and an unusable one at exactly the moment
-the mouse fails. **If footprint ever becomes the higher
-priority, this is a first candidate to remove** — either dropped entirely or
-built only into the testing and benchmark kernels, where the harness drives
-the mouse over QMP and never needs it. Nothing else in the kernel depends on
-it: four call sites and one module.
+**Cost, and a standing recommendation.** 406 bytes of `.text` to begin with,
+which took one 512-byte step of `KERN_BUDGET` (§15.1) — spare 4,096 → 3,584,
+one step of the eight move 10 left. It was decided on when the budget was at
+its old ceiling and the same step was half the remaining slack, on the grounds
+that it is the difference between a usable machine and an unusable one at
+exactly the moment the mouse fails. §9.6.1 and §9.6.2 added **114 bytes** and
+took a **second** step — spare 3,584 → 3,072 — and the arithmetic there is
+worth writing down, because it is the guard behaving as designed rather than
+the feature being expensive: the image rung had **one byte** of slack
+(`.text` + `.bss` = 49,151 against a 49,152 ceiling), so any addition at all
+cost the same 512 and trimming the feature could not have avoided it. Buying
+the step back needs 666 bytes moved out of `.text`, and `.cold` has 160 bytes
+of rung slack, so a cold move would only spend the same step over there.
+**If footprint ever becomes the higher priority, this is a first candidate to
+remove** — either dropped entirely or built only into the testing and
+benchmark kernels, where the harness drives the mouse over QMP and never needs
+it. What depends on it is one module plus **six** call sites: `ui_task`'s key
+poll and its deferred ladder, the `kbm_poll` in `menu_track` / `ui_drag` /
+`ui_grow`, and `osapi_mouse`.
 
 ## 10. events.inc
 
@@ -6177,6 +6283,11 @@ something in this area is in doubt.
 > revolution instead of one" is a claim about revolutions that this drive,
 > controller or media does not honour. Both emulators show the predicted gain
 > and neither models rotational latency, so neither can arbitrate. The
+> **§18.93's loop had the same bug and it is the whole boot**: 140 sectors at
+> a revolution each is 33 of the 40 seconds a 5150 spends starting up, and
+> `.done` there believed AL exactly as `dsk_xfer` did. Both read `CF` now,
+> under the one `DISKAL=1` knob.
+>
 > cause is now FOUND (Set 16) and it was never the transfer: the BIOS moved
 > all nine sectors and answered **`AL = 1`**, the short-count handling
 > believed it, and `dsk_xfer` re-asked for the other eight one at a time.
@@ -6253,6 +6364,39 @@ same two figures came back byte for byte before and after the table install,
 which is the check that the wider runs changed the number of commands and
 nothing else.
 
+### 18.4.3 `dskw_find` takes the entry while it has it
+
+Every name-resolving operation in `diskw.inc` used to read the directory
+sector **twice**: `dskw_find` walked the directory and recorded which sector
+and offset the entry was at, and `dskw_ent_load` then re-read that same sector
+to copy the 32 bytes out of it. Seven call sites did it, all of the shape
+`call dskw_find` / `jc` / `call dskw_ent_load`.
+
+On real hardware a re-read of a sector that has just gone past the head is a
+**whole revolution**. §18.94's trace of one 16 KB read showed it plainly —
+`5+1, 5+1, 254+7, …` — 199 ms of a 2,090 ms read, and a **third** of the cost
+of opening a small file, where the whole operation is three sectors.
+
+`dskw_find` copies the entry into `dskw_raw` on its success path instead. The
+buffer holds that very sector — it was read two instructions earlier — and
+every caller that succeeds wanted those bytes next.
+
+**Copying there rather than caching the buffer is what makes it safe.** A
+cache tag on `dsk_secbuf` would work and would need every writer of that
+buffer to invalidate it: §11.3's "a primitive not on that list is a hole",
+with file corruption as the failure mode instead of a clipped rectangle.
+Copying inside `dskw_find` leaves no window in which the buffer could be
+reused, so there is no invalidation for anyone to forget.
+
+`dskw_ent_load` stays, for the two callers that reach it *without* a
+preceding `dskw_find` (`dskw_rt_zap`, and the replace path in the write
+pipeline) and may legitimately find the buffer holding something else.
+
+Measured, one 16 KB `OSAPI_FILE_READ`: **6 int 13h calls → 5**, and a
+one-sector file **3 → 2**. `tests/filetest` passes all 25 checks and
+`tools/os88disk.py --verify` is clean, which is the gate this had to clear —
+the change touches create, replace, delete, rename and stat alike.
+
 ### 18.94 The transfer instrument, published at a fixed offset
 
 **`make DISKCNT=1` only, and never shipped.** The counters of
@@ -6269,13 +6413,10 @@ not forming the runs it believes it is, or something below it is taking them
 apart, and **sectors ÷ int 13h calls** distinguishes the two with no timing
 at all.
 
-**`0060:000E` is a word**: 0 on a kernel built without the knob, else the
-`KERNEL_SEG` offset of the block. A fixed offset for `boot_ticks`' reason
-(§15.4) — a package has to find it without an API slot, and a slot that
-exists in one build and not another is an ABI that depends on a knob (§20.8).
-A reader checks the magic before trusting anything else, and a package that
-finds 0 must **say so and skip**, which is what makes one build of the
-harness run on both kernels.
+**It is found through the debug registry** (§57): tag `'DD'`, which is also
+the block's own first word. It had a fixed word of its own at `0060:000E`
+until the registry took that address over — one word per instrument stopped
+scaling at the third.
 
 | offset | | |
 |---|---|---|
@@ -21154,3 +21295,276 @@ click dispatchers on task 0's 1,024-byte stack, not in the worker's tree. That
 is a bound plus a peer comparison and not a field number; `tests/stackprobe`
 on real iron is still the only thing that settles the margin, because SeaBIOS
 hides a real BIOS's interrupt stack use (docs/TESTING.md).
+
+---
+
+## 57. The debug registry — how a test package reads kernel state
+
+**`0060:000E` is a word naming a list of published blocks. Nothing shipped may
+read it.** This is the mechanism for a *test* package — `tests/sysbench` and
+its kind — to see kernel internals that are not, and should not become, API
+slots.
+
+### 57.1 Why it is not an API slot, and not a fixed word either
+
+The obvious answer is a slot in the §20.3 table, and it is wrong twice. Half
+of what wants publishing is **knob-built** (`make DISKCNT=1`), and a slot that
+exists in one build and not another is an ABI that depends on a knob — §20.8
+rule 4 exists to forbid exactly that. And a slot is a *promise*: everything in
+that table keeps its contract forever, while a debug block is kernel internals
+whose whole value is that it can change the moment the code it describes does.
+
+The next answer is a fixed word per instrument, which is what this tree
+actually did: `boot_ticks` at `0060:000C` (§15.4), the mouse instrument at
+`0060:0006` (§9.4.2), the disk instrument at `0060:000E` (§18.94). It works
+and it does not scale — the first paragraph holds `jmp kmain`, `jmp spl_tick`
+and the API table's own start, so the third instrument filled it and the
+fourth had nowhere to go.
+
+So: **one fixed word, one level of indirection, and the list can grow.**
+
+### 57.2 The format
+
+```
+0060:000E   dw dbg_reg          ; or 0 - this kernel publishes nothing
+
+dbg_reg:    dw 'MO', mou_dbg_blk
+            dw 'DD', dsk_dbg_blk    ; only in a DISKCNT=1 build
+            dw 0                    ; end of list
+```
+
+| | |
+|---|---|
+| entry | `(tag, offset)`, both words, offset relative to `KERNEL_SEG` |
+| tag | **two ASCII characters**, and **also the block's own first word** |
+| end | tag 0 |
+| absent | the word at `0060:000E` is 0, or no entry carries the tag |
+
+**The tag is the block's first word as well as its key**, which does two
+things. A reader can check that the offset it followed lands on what it asked
+for — the only way to trust a pointer read out of a hard-coded address — and a
+human reading `xp` output over QMP sees `MO` and `DD` rather than counting
+words. `tests/sysbench`'s `sb_dbgfind` is the reference reader: tag in AX,
+CF=1 if this kernel does not publish it.
+
+Everything past that first word belongs to the section owning the block
+(§9.4.2, §18.94). The registry says only where to look, and imposes no shape.
+
+### 57.3 The rules
+
+1. **Shipped software may not read a block.** No `.o88` on either floppy does.
+   A block is internals with no compatibility promise; a package that depends
+   on one is a package that breaks when the kernel is tidied. The tags live in
+   `apps/os88api.inc` because a test package needs them, not as an invitation.
+2. **A reader that cannot find its block says so and continues.** Never
+   assume, never fail the run. `sysbench` prints `This kernel carries no disk
+   instrument - build DISKCNT=1.` and skips the block — which is what lets one
+   build of the harness run on both kernels, and what makes a knob-built
+   instrument affordable in the first place.
+3. **A block may change shape whenever its owner does**, as long as the tag
+   changes with it or the readers change with it. There is no version word and
+   deliberately so: the only readers are in this tree and `make` rebuilds them.
+4. **The cost must be zero for what it measures.** `dsk_dbg_raw` (§18.94) does
+   not count itself; a counter in a hot path is two instructions and lives
+   behind the knob.
+5. **A far entry is published as an offset in the block**, not as a slot, and
+   it is `retf`-terminated. §18.94's exists because a package *cannot* safely
+   issue `int 13h` itself — the BIOS runs its disk handler on whichever
+   256-byte task stack is current and `dsk_xfer` holds `sch_lock` across every
+   call (docs/FIELD-NOTES.md 10). Anything with that shape belongs here rather
+   than in the package.
+6. **Prefer publishing a POINTER to state that already exists** over copying
+   it. Both current blocks are three or four words of descriptor naming spans
+   the kernel already keeps; neither costs a byte of `.bss`.
+
+## 58. debug.inc — DEBUG.DRV, the serial monitor (`drivers/debug/debug.asm`)
+
+A host-side tool reads and writes the machine's memory and I/O ports over a
+serial line. It exists because **there is nowhere else to ask the question**:
+86Box has no automation socket of any kind (no QMP, no monitor socket, no GDB
+stub — its `--testmode` entry point is one `pclog`), a real 5150 has no
+debugger at all, and until this the only route to "what does the kernel think"
+on a machine outside the container was to ask its owner to take a MartyPC dump
+by hand (docs/FIELD-MACHINES.md).
+
+**On an EMULATOR, reach for MartyPC instead** (docs/MARTYPC-DEBUG.md,
+docs/TESTING.md): it costs the guest no cycles, needs nothing installed,
+answers on a machine that has hard-frozen, and does what this cannot —
+breakpoints, single-step, register access. This exists for the machine on
+somebody's desk, which no emulator reaches, and the two are complementary
+rather than competing.
+
+**It is a DRIVER, and that is the whole of why it may ship.** The obvious
+build is a `SERDBG=1` kernel — §18.94's `DISKCNT=1` shape, and the plan in
+docs/DEBUG-PLAN.md said so. It has one fault that outweighs its
+convenience: a knob kernel is a *different binary*, so the machine you
+debugged is not the machine that ships. A driver loads into the shipped
+kernel, off the shipped disk, when the Control Panel's Drivers page is
+ticked. `DRVR_WANT` is 0 like every other row (§51.3), so a machine that
+never ticks it never probes 2E8, never hooks IRQ3 and never reads the file:
+the entire cost is one `drv_tab` row and 1,313 bytes on the floppy, and
+**no debug code enters the kernel at all**.
+
+### 58.1 What it deliberately cannot do
+
+There is no `call` verb and no disk payload channel, and both are refused for
+the same reason: `[sch_lock]` has no API slot. A far call into kernel code can
+land anywhere, and a raw `int 13h` runs the BIOS's disk handler and its IRQ
+nesting on whichever 256-byte task stack is current (§8) — which is what hard
+froze the 5150 when `tests/sysbench` did it (docs/FIELD-NOTES.md 10) and why
+§18.94's `dsk_dbg_raw` is a kernel entry rather than a package's. Giving the
+driver either one means adding kernel code, so neither exists until somebody
+asks. §58.4's divisor switch is the bulk path instead, and it needs nothing.
+
+It also cannot answer with interrupts off, on a triple-faulted machine, or
+with the 8259 wedged — everything a guest-side monitor cannot reach by
+construction. Those are the emulator's questions, not this one's.
+
+### 58.2 The port is COM4, and attach tests that it may have it
+
+os8088 owns both the ports it knows about: §9.5 probes 3F8 and 2F8, programs
+every UART that answers, hooks both IRQs and retires the loser only once the
+mouse has spoken. A monitor at 2F8 is therefore *competing with the mouse
+prober for its own port*, and losing in a way that reads as a mouse bug.
+
+**3E8 and 2E8 are the two the kernel has never probed** — `tests/comscan`
+surveys them precisely because a live UART there is invisible to os8088 — so
+2E8 (COM4 in the assignment 86Box's `serial.h` and QEMU both use: `COM4_ADDR
+0x2e8`, `COM4_IRQ 3`) is a port this driver can own outright.
+
+Its IRQ, though, is IRQ3, and IRQ3 is the mouse's whenever a card answers at
+2F8. That is a real condition and not an assumption, so **attach tests it**,
+through §57's debug registry: `0060:000E` names the `'MO'` block (§9.4.2),
+whose second word points at `mou_bases` — two words, **zero where no UART
+answered** — so a nonzero second word means the mouse module has hooked IRQ3,
+and the driver refuses with `DRVE_BUSY` rather than stealing the vector.
+`dbg_dbgfind` is `sysbench`'s `sb_dbgfind` in a driver, tag check included:
+this is a pointer read out of a hard-coded address in another module's
+segment, and §57's rule that a block leads with its own tag is the only thing
+between "an older kernel" and following a garbage offset.
+
+**It is READ-only, deliberately.** Zeroing that word would hand the driver the
+port for free — `mou_pall` no-ops on a zeroed row, `mou_lockon` skips it,
+`mouse_unhook` skips it — and it would also be a driver writing kernel state
+through a block published for reading. Refusing is honest, and `DBG_BASE`/
+`DBG_IRQ` are two constants and a rebuild.
+
+### 58.3 The command runs in the ISR, with interrupts back on
+
+No worker task, and `OSAPI_DRV_TASK` (§51.7) is deliberately unused: a worker
+needs a teardown handshake that cannot spin (the scheduler has a cooperative
+mode, §8.2) and cannot yield either, since `DRVV_DETACH` arrives from a
+Control Panel click with the gfx lock held.
+
+So IRQ3's handler has two halves with a seam between them. The first is an
+ordinary ISR: interrupts off, drain every byte the UART has into a line
+buffer, EOI. The second runs a whole command **with interrupts on** — a reply
+is a quarter of a second at 9600 baud and holding IF=0 for that long loses the
+tick, the mouse and any sound refill. One flag (`[dbg_busy]`) excludes
+re-entry: a byte arriving mid-reply is collected and returns without
+re-entering the executor.
+
+Being an interrupt rather than a task is also most of the point — it answers
+on a machine whose tasks have all stopped.
+
+Detach's ordering is its correctness: **mask the line, silence IER, wait out a
+reply in flight, and only then restore the vector.** Restoring it under a live
+ISR points int 0Bh at the old handler halfway through our own frame. The wait
+is a bounded spin and is safe in both scheduler modes, which a worker's
+teardown would not have been: what it waits for is an interrupt, not a task.
+
+### 58.4 Receive caps the baud rate; transmit does not
+
+An 8250 has no FIFO — one holding register, and the next byte overwrites it —
+and an 8086/8088 answers an interrupt in about 61 clocks, ~13 µs at 4.77MHz,
+before the handler's first instruction. So a byte time shorter than that
+overruns by construction:
+
+| baud | byte time | on a 4.77MHz 8088 |
+|---|---|---|
+| 115200 | 8.7 µs | **overruns** — shorter than interrupt latency |
+| 38400 | 26 µs | marginal: a nested tick or mouse IRQ eats it |
+| 19200 | 52 µs | workable |
+| 9600 | 104 µs | the default |
+
+**Transmit has no such limit, because it is polled**: the sender waits for
+THRE and a guest too slow to keep up simply goes slower. One divisor sets both
+directions, so the fix is to change it between them — `s` moves the line for a
+bulk reply and back afterwards.
+
+Two orderings in that command are load-bearing. The `ok` goes out **before**
+the divisor changes, at the rate the host is still listening at; and the
+transmitter is drained to **LSR bit 6** (shift register empty), not bit 5
+(holding register empty), because reprogramming with a byte still clocking out
+truncates it and the host then resynchronises on a partial line at a rate it
+does not yet know about. That is the one ordering here that cannot be got
+wrong twice, because the channel is how you would have debugged it.
+
+The host end usually pays nothing to follow: under 86Box's `pipe` chardev and
+QEMU's socket chardev the host side is a FIFO with **no line rate at all**.
+Only a real cable calls `termios`, and `tools/os88dbg.py` does.
+
+**None of this is measurable under QEMU**, which does not pace a chardev by
+the emulated baud rate — 4KB clocks at the same ~119 KB/s at either divisor.
+It is a target-machine property, exactly like the three defects in
+docs/TESTING.md's "Modelling the old machine from a fast one".
+
+### 58.5 The protocol
+
+Line-at-a-time ASCII, CR-terminated, **one reply line per command including a
+refusal** (`?`) — so a host reading until a newline is never left waiting on a
+typo. Deliberately not a binary framing: it is typeable by hand into a
+terminal, which is what you want on a machine that will not boot, and a lost
+byte costs one command rather than resynchronisation.
+
+| | |
+|---|---|
+| `v` | the banner, `os8088 debug 1` |
+| `m SSSS OOOO LL` | read memory; `LL` of 0 means 256 |
+| `M SSSS OOOO hh hh …` | write memory; answers how many bytes it took |
+| `i PPPP` | read an I/O port |
+| `o PPPP hh` | write one |
+| `s DD` | set the divisor (§58.4) |
+
+`m` answers **the address back before the bytes**, so a captured transcript
+says what it is a picture of — docs/FIELD-MACHINES.md's third dump rule ("find
+a value that pins the reading") at its cheapest. `M` writes each byte as it is
+parsed rather than staging them, so a malformed tail leaves the good prefix
+written, which is what you want from a command whose purpose is to change one
+thing and see what happens.
+
+A hex field is one to four digits and an **empty** field is an error rather
+than zero: `m 60 0` and `m 60 0 0` mean different things, and a parser that
+read a missing length as 0 would silently answer the second when asked the
+first.
+
+`tools/os88dbg.py` is the host end — a REPL, a one-shot CLI and an importable
+`Dbg` class, over three transports (a QEMU socket, 86Box's `.in`/`.out` FIFO
+pair or pty, or a real serial port). It resolves symbols out of a `nasm -l`
+listing and **carries no table of its own**, because docs/FIELD-MACHINES.md's
+second dump rule is to re-derive every offset from a listing of the exact
+commit and a baked-in table is what that rule forbids.
+
+### 58.6 What it found on the way in
+
+Three things, all older than it, and the first two are one bug each in the
+same page:
+
+- **The Drivers page was laid out for exactly two rows.** Its caption sat at
+  `CP_PCAPY` (74), which is *inside* the third row's glyph top (76), and
+  `cp_drv_cap` wipes a full-width line — so a third driver had the top of its
+  name and its checkbox erased on every paint. It read as the page being
+  clipped by the window rather than as two numbers colliding.
+- **...and its hit bands were three hand-written constants describing two
+  rows** (`CP_DB0Y1`/`CP_DB0Y2`/`CP_DB1Y2`), so the third row drew, reported
+  its state, and could not be clicked: a control that looks live and is not,
+  which is §47 rule 4's failure arriving where rule 4 does not look, because
+  no predicate refuses anything. Both are derived from `DRV_MAX` now and
+  `cp_drv_click` divides.
+- **`DRVE_BUSY`.** "No hardware found" for a card that is sitting in the
+  machine with its IRQ taken sends the reader looking for the wrong thing —
+  `DRVE_HW` means *fit a card*, this means *move a jumper*. A refusing
+  `DRVV_ATTACH` may now carry a `DRVE_*` in AL; anything outside the table,
+  `DRVE_OK` included, means `DRVE_HW`, so the verb's old CF-only contract
+  still holds unchanged. The two drivers that predate it set AL explicitly
+  rather than leaking whatever their last compare loaded.

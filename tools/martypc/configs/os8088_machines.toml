@@ -1,0 +1,74 @@
+# --- os8088's calibration machine, as close as MartyPC gets ------------------
+# docs/FIELD-MACHINES.md's IBM 5150: 8088 at 4.77MHz, 256K on the board plus an
+# AST SixPakPlus making 640K, and a CGA. (The real machine also carries a
+# Hercules, which MartyPC models as an MDA sub-mode rather than a card of its
+# own, so the two columns are two configs here rather than one probe.)
+[[machine]]
+name = "os8088_5150_cga"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+# ...and the same machine with the Hercules. MartyPC models Hercules as an MDA
+# sub-mode rather than a card of its own, so this is `MDA` here and the OS's
+# probe (SPEC.md 39.1) is what decides it is a Hercules.
+[[machine]]
+name = "os8088_5150_herc"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    clock_mode = "Dynamic"
+
+# The GLaBIOS twin, for when you want a machine that BOOTS FAST rather than one
+# that boots the way the calibration machine does. GLaBIOS is optimised in ways
+# the 1982 IBM ROM is not, so its POST and its int 13h are NOT period timings -
+# use it to iterate, never to take a number for PERFORMANCE.md.
+[[machine]]
+name = "os8088_5150_cga_gla"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"

@@ -1,0 +1,98 @@
+diff --git a/crates/binaries/martypc_headless/Cargo.toml b/crates/binaries/martypc_headless/Cargo.toml
+index ccfc2ba..e2819c3 100644
+--- a/crates/binaries/martypc_headless/Cargo.toml
++++ b/crates/binaries/martypc_headless/Cargo.toml
+@@ -12,7 +12,7 @@ path = "src/lib.rs"
+ crate-type = ["lib"]
+ 
+ [dependencies]
+-marty_core = { path = "../../marty_core" }
++marty_core = { path = "../../marty_core", features = ["sound", "opl"] }
+ marty_common = { path = "../../marty_common" }
+ marty_frontend_common =  { path = "../../lib/frontend/marty_frontend_common", default-features = false }
+ marty_display_common = { path = "../../lib/frontend/marty_display_common", default-features = false }
+diff --git a/crates/binaries/martypc_headless/src/lib.rs b/crates/binaries/martypc_headless/src/lib.rs
+index e1680ee..3f9c952 100644
+--- a/crates/binaries/martypc_headless/src/lib.rs
++++ b/crates/binaries/martypc_headless/src/lib.rs
+@@ -32,6 +32,7 @@
+ #![forbid(unsafe_code)]
+ 
+ mod cpu_test;
++mod debug_server;
+ mod emulator;
+ 
+ mod run_benchmark;
+@@ -740,9 +741,52 @@ pub fn run() {
+     // Start emulator
+     emu.start();
+ 
+-    // TODO: We don't have any backend to run an event loop. If we want to actually run the
+-    //       emulator now we need some way of controlling / stopping it.
+-    log::debug!("Headless operation not implemented. Exiting.");
++    // The debug server is the backend the TODO here always wanted: something
++    // that both DRIVES the machine and can STOP it. Without one there is
++    // nothing for a headless frontend to do but exit, which is what it used
++    // to do.
++    //
++    // It is opt-in through the environment rather than through
++    // ConfigFileParams on purpose, for now: it keeps this addition inside one
++    // crate and one module, and an address on the command line is what a test
++    // harness wants to vary per run anyway. A config key is the shape this
++    // should take if it is ever wanted permanently.
++    match std::env::var("MARTYPC_DEBUG_ADDR") {
++        Ok(addr) if !addr.is_empty() => match debug_server::DebugServer::bind(&addr) {
++            Ok(mut server) => {
++                // Honour --mount fd:N:path / [[emulator.media.floppy]]. The
++                // config has always been parsed; in a headless run nothing
++                // ever acted on it.
++                if let Some(floppies) = emu.config.emulator.media.floppy.as_ref() {
++                    let entries: Vec<(usize, String)> =
++                        floppies.iter().map(|f| (f.drive, f.filename.clone())).collect();
++                    for (drive, filename) in entries {
++                        if let Err(e) =
++                            debug_server::mount_floppy(&mut emu.machine, drive, std::path::Path::new(&filename))
++                        {
++                            log::error!("Could not mount floppy {}: {}", filename, e);
++                        }
++                    }
++                }
++                if let Ok(wav) = std::env::var("MARTYPC_WAV") {
++                    if !wav.is_empty() {
++                        server.capture_audio(&emu.machine, &wav);
++                    }
++                }
++                log::info!("Headless debug server on {}. Machine starts PAUSED.", addr);
++                server.run_loop(&mut emu.machine);
++                log::info!("Debug server exiting.");
++                std::process::exit(0);
++            }
++            Err(e) => {
++                log::error!("Could not bind debug server to {}: {}", addr, e);
++                std::process::exit(1);
++            }
++        },
++        _ => {}
++    }
++
++    log::debug!("Headless operation not implemented (set MARTYPC_DEBUG_ADDR). Exiting.");
+ 
+     std::process::exit(0);
+ }
+diff --git a/crates/marty_core/src/bus/memory.rs b/crates/marty_core/src/bus/memory.rs
+index 3b0f44c..d8ee082 100644
+--- a/crates/marty_core/src/bus/memory.rs
++++ b/crates/marty_core/src/bus/memory.rs
+@@ -289,7 +289,11 @@ impl BusInterface {
+     }
+ 
+     pub fn peek_range(&self, address: usize, len: usize) -> Result<&[u8], MemError> {
+-        if address + len < self.memory.len() {
++        // `<=`, not `<`: a range ENDING at the last byte of memory is in
++        // bounds. With `<`, peek_range(0xFFFF0, 16) - the reset vector
++        // paragraph, and the most-read 16 bytes in an 8088 machine - was
++        // refused, while 15 bytes at the same address succeeded.
++        if address + len <= self.memory.len() {
+             Ok(&self.memory[address..address + len])
+         }
+         else {

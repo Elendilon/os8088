@@ -86,6 +86,15 @@ endif
 # and answers AL = 1, so the old code re-read the other eight one at a time.
 ifneq ($(DISKAL),)
 VIDDEF += -DDISK_TRUST_AL
+BOOTDEF += -DDISK_TRUST_AL
+endif
+
+# BOOTDIAG=1 makes the boot sector print int 13h's STATUS as two hex digits
+# instead of 'os8088: disk error'. The sector has four spare bytes, so this
+# is a knob and not a default: the message is worth more on a machine that
+# boots and the status is worth more on one that does not.
+ifneq ($(BOOTDIAG),)
+BOOTDEF += -DBOOT_DIAG
 endif
 
 ifneq ($(FLOPPY1),)
@@ -134,7 +143,7 @@ KERNEL_INC := $(wildcard kernel/*.inc)
 
 .PHONY: all run run-640 run-720 debug test test-snd xt xt-640 xt-cga \
         xt-hercules 286 386sx 386 xt-sound 286-sound 386-sound \
-        bench field stackprobe trklog clean
+        bench field stackprobe trklog marty comscan clean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -218,7 +227,7 @@ $(BUILD)/boot360.bin: boot/boot.asm $(BUILD)/kernel.bin | $(BUILD)
 # program. Same file, different attributes - on the system disk it is
 # read-only (SPEC.md 19.6), on the apps disk it is an ordinary file, because
 # that disk is the user's.
-DRIVERS := $(BUILD)/sound.drv $(BUILD)/hdd.drv
+DRIVERS := $(BUILD)/sound.drv $(BUILD)/hdd.drv $(BUILD)/debug.drv
 SYSAPPS := $(BUILD)/taskmgr.o88
 
 $(BUILD)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc | $(BUILD)
@@ -245,6 +254,20 @@ $(BUILD)/hdd.bin: drivers/hdd/hdd.asm drivers/hdd/part.inc drivers/hdd/fmt.inc \
 
 $(BUILD)/hdd.drv: $(BUILD)/hdd.bin tools/os88drv.py
 	python3 tools/os88drv.py $(BUILD)/hdd.bin -o $@
+
+# DEBUG.DRV (SPEC.md 58) - the serial monitor. It SHIPS, and it costs a
+# machine that never asks for it one drv_tab row and a file on the floppy:
+# DRVR_WANT is 0 like every other row (SPEC.md 51.3), so nothing probes 2E8
+# and nothing hooks IRQ3 until the Drivers page is ticked. That is the whole
+# reason it is a driver rather than a SERDBG= kernel - a knob kernel is a
+# different binary, and the machine you debugged is then not the machine that
+# ships.
+$(BUILD)/debug.bin: drivers/debug/debug.asm drivers/os88drv.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/debug/ -I drivers/ -I apps/ -o $@ $<
+	@echo "debug:  $(call FILESIZE,$@) bytes"
+
+$(BUILD)/debug.drv: $(BUILD)/debug.bin tools/os88drv.py
+	python3 tools/os88drv.py $(BUILD)/debug.bin -o $@
 
 $(IMG): $(BUILD)/boot.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
@@ -765,9 +788,10 @@ FIELDBENCH := $(BENCHPKGS) $(BENCHDATA) $(BUILD)/bigfile.dat
 CGADIR     := $(BUILD)/cgak
 F1DIR      := $(BUILD)/f1k
 DBGDIR     := $(BUILD)/dbgk
+CQDIR      := $(BUILD)/cqk
 
 field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img \
-       $(BUILD)/dskdbg.img
+       $(BUILD)/dskdbg.img $(BUILD)/cqdiag.img
 
 $(BUILD)/herc.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) \
                    $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
@@ -842,6 +866,20 @@ $(BUILD)/dskdbg.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
 	@echo "field: $@ - DISKCNT=1. SYSBENCH here reports what dsk_xfer really"
 	@echo "       issues, and prices a raw int 13h safely (SPEC.md 18.94)"
+
+# ...and the DIAGNOSTIC disk, for a machine that will not boot. BOOTDIAG=1
+# trades the boot sector's 'os8088: disk error' for int 13h's STATUS as two
+# hex digits, which is the whole diagnosis in one boot instead of a bisect:
+# 0C is a media type the drive could not identify (a 360KB disk in a 1.2MB
+# drive), 04 a sector the FDC never found (EOT / the multi-track flip), 09 a
+# transfer that crossed a 64KB DMA page, 80 a drive that never answered.
+# The sector has four spare bytes, which is why this is a knob.
+$(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(CQDIR)/boot360.bin
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(CQDIR)/boot360.bin --kernel $(CQDIR)/kernel.bin \
+		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+	@echo "field: $@ - BOOTDIAG=1. A boot that fails prints int 13h's status"
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
 # inside: its worker 0xCC-fills its own slice, spins so every interrupt the
@@ -1077,6 +1115,27 @@ ifeq ($(NOCARD)$(ADLIB)$(SB16),)
 DEVCARD = -audiodev none,id=devsnd -device adlib,audiodev=devsnd
 endif
 
+# DBG=1 puts the serial monitor's UART in the machine (SPEC.md 58): a second
+# card at COM4 - 2E8, IRQ3, which is where 86Box and QEMU both put COM4 - with
+# a UNIX socket on the host end, so tools/os88dbg.py can drive it.
+#
+#   make test DBG=1
+#   python3 tools/os88dbg.py build/dbg.sock m 60 0 20
+#
+# 2E8 and NOT 2F8, because os8088 probes 3F8 and 2F8 and hooks the IRQ of
+# every UART that answers (SPEC.md 9.5) - the monitor would be fighting the
+# mouse for its own port. 3E8/2E8 are the two the kernel has never heard of.
+# The driver refuses to attach if a card DID answer at 2F8, because that is
+# the case where IRQ3 is already the kernel's; nothing here supplies one, and
+# MOUSEPORT=com2 deliberately does, which is the negative test.
+#
+# `server=on,wait=off` so the machine boots whether or not anybody is
+# listening, and the tool may attach and detach as often as it likes.
+ifneq ($(DBG),)
+DBGDEV = -chardev socket,id=dbg,path=$(BUILD)/dbg.sock,server=on,wait=off \
+         -device isa-serial,chardev=dbg,iobase=0x2e8,irq=3
+endif
+
 # TESTAPPS swaps the B: disk for a scratch image - the filetest/fmtest/sbtest
 # gates and the bench disk. It MUST be defined above the first target that
 # names it: prerequisites are expanded when the rule is READ, so a definition
@@ -1102,7 +1161,7 @@ test: $(IMG) $(TESTAPPS) $(HDDIMG)
 	$(QEMU) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
 		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 $(HDDDEV) \
 		-display none -qmp unix:build/qmp.sock,server,nowait -daemonize -pidfile build/qemu.pid \
-		$(CARDAUDIO) $(ADLIBDEV) $(SBDEV) $(DEVCARD)
+		$(CARDAUDIO) $(ADLIBDEV) $(SBDEV) $(DEVCARD) $(DBGDEV)
 
 # `make test` plus audio capture (SPEC.md 34): the PC speaker renders into
 # build/snd.wav, finalized when QMP `quit` stops QEMU. Verify with
@@ -1207,6 +1266,24 @@ xt-sound: $(IMG360) $(APPSIMG360)
 386-sound: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VM386SND)/86box.cfg
 	$(BOX) -P $(VM386SND) -N
+
+# The MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug server bolted
+# into MartyPC's headless frontend, giving memory, registers, breakpoints,
+# single-step and cycle counts on a running os8088 with NO code in the guest
+# at all. It is the other half of SPEC.md 58's DEBUG.DRV and not a replacement
+# for it - this one costs the guest nothing and answers on a frozen machine,
+# that one is the only one that works on real iron.
+#
+# Pinned to one upstream commit on purpose (tools/martypc/UPSTREAM): a debugger
+# that changes under you is one more variable in a session whose whole point is
+# removing them. Needs cargo, and on Linux libudev-dev + pkg-config.
+marty: $(IMG360)
+	tools/martypc/build.sh
+	@mkdir -p $(BUILD)/martypc/run/media/floppies
+	@cp $(IMG360) $(BUILD)/martypc/run/media/floppies/
+	@echo "marty: cd $(BUILD)/martypc/run && MARTYPC_DEBUG_ADDR=127.0.0.1:9001 \\"
+	@echo "         ./martypc_headless --mount fd:0:media/floppies/os8088-360.img &"
+	@echo "       python3 tools/os88marty.py 127.0.0.1:9001 verify"
 
 # NOTHING IN build/ IS TRACKED, and that is a decision rather than an accident.
 #

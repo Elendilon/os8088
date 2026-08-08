@@ -32,6 +32,44 @@ Two sentences carry the whole document:
 > defects it cannot show at all (Parts 1 and 3), the judgement is made on
 > hardware.
 
+### ...and MartyPC changes the first sentence, but not the third
+
+**`make marty` is now the first tool to reach for** when the thing under test
+runs on an 8088 with a CGA or a Hercules (docs/TESTING.md carries the
+ordering, docs/MARTYPC-DEBUG.md the recipe). It is **cycle-accurate**: Set 11
+put it within 0–4% of the 5150 on 45 of 47 `gfxbench` rows, which is the
+closest agreement any emulator has managed here, so on the CPU and on drawing
+you may finally *time* work rather than only count it. The debugger attached
+to it costs the guest no cycles at all, so measuring does not change the
+measurement.
+
+**It is cycle-accurate and it is NOT disk-accurate, and that distinction is
+load-bearing enough to sit at the top of this document rather than in Set 11
+where it was measured.** MartyPC models instruction timing, the prefetch queue
+and bus contention; it models no platter, no seek and no interleave:
+
+| | real 5150 | MartyPC |
+|---|---|---|
+| read 16 KB, cold motor | **8.07 s** | **0.27 s** — 30x fast |
+| boot | **38,886 ms** | **2,306 ms** — 17x fast |
+
+So **any figure with a disk in its path is wrong on MartyPC, by more than an
+order of magnitude and in the flattering direction** — and that reaches a lot
+that is not obviously about disks: a boot time, a package launch, a Tracker
+module load, a `SYSTEM.CFG` write, the Control Panel closing. Part 9's disk
+rows come off the 5150 and nowhere else.
+
+**Nor will it catch a disk CORRECTNESS bug**, which is how the last two disk
+optimisations came to measure *worse* than what they replaced. §18.91's `AL`
+bug is the case: the BIOS moved nine sectors and answered `AL = 1`, the kernel
+believed `AL`, and re-read the rest one sector at a time — 148 sectors in 34
+`int 13h` calls for a 32-sector file on the 5150, while **the same binary on
+the same image under QEMU moved 34 sectors in 6 calls**. Correct, fast, and
+silent. It took the field machine plus §18.94's counters to see it, the boot
+sector carried the identical bug for as long again, and no emulator here would
+ever have shown either. An emulator's floppy controller returns what its
+author believed the hardware returns.
+
 ---
 
 ## Part 1 — The vocabulary — say what you actually saw
@@ -229,6 +267,13 @@ Multiply and say that you did. "~500 cycles per iteration × 404 iterations
 
 Not "shows inaccurately" — **cannot show**.
 
+**MartyPC shows the first two**, and that is most of why it now comes first:
+a cycle-accurate 8088 spends a visible redraw's seconds, so a repaint that
+should not be happening is visible in the cycle count rather than only on
+somebody's desk. The third is still a person in front of a machine, and the
+fourth — a lost optimisation that kept its shape — is unchanged, because it
+is a failure of the *question*, not of the emulator.
+
 1. **Visible redraw.** A full window repaint is microseconds here and
    seconds there. Nothing in a screendump, a timing column or a QMP script
    distinguishes a window that repaints from one that does not.
@@ -273,6 +318,12 @@ The guest does the identical amount of work on both machines, and QEMU will
 report it precisely. So when the question is "is this slow because it does
 too much?", **instrument a counter and read it over QMP** — do not reach for
 86Box, and do not guess.
+
+**On MartyPC the counter is often unnecessary**: `step` returns real cycles,
+so work and time are the same question there and `tools/os88marty.py` reads
+any variable by name out of a `nasm -l` listing without one being added. The
+counter idiom below is still the QEMU answer, still correct, and still the
+only route when the thing you are counting is not on an 8088.
 
 ```nasm
 ; kernel/font.inc, in .text so the offset is fixed
@@ -2253,3 +2304,105 @@ on every kernel, and reads `data check, 32 sectors  OK`.
 **A guard that only runs on the build you are not shipping is not a guard.**
 The same shape as PERFORMANCE.md Part 6's rule about harness bugs, and it
 cost a round trip to a machine that is not in this room.
+
+### Set 18 — the boot is 4x, and a second real machine
+
+Two `sysbench` runs from the `b71f6ca` field build: the 5150 on `herc.img`,
+and the **Compaq Portable III** — a new machine, and the first AT-class one
+in the register whose numbers are worth keeping.
+
+#### The boot sector's half of Set 16
+
+| | before | after |
+|---|---|---|
+| **`boot ticks`** | **726** (39.88 s) | **181** (9.94 s) |
+| 16 KB read | 8.29 s | 2.09 s |
+| | | **4.0x on both** |
+
+`read_run`'s `.done` believed `int 13h`'s `AL` exactly as `dsk_xfer` did, and
+the boot is 140 sectors — at a revolution each that is **33 of the 40
+seconds**. Set 17 fixed one loop and reported the other unchanged; this is the
+other. **A cold boot of this OS on a 4.77 MHz 8088 is now ten seconds.**
+
+And `data check, 32 sectors  OK` on **both** machines — the guard that
+licenses trusting `CF` finally ran where it matters. Set 17 took its 4x with
+that check switched off by a scoping mistake; it is unconditional now and it
+passes on real hardware, on two different BIOSes and two different drives.
+
+#### Compaq Portable III — 286, CGA, 1.2 MB drive
+
+| | |
+|---|---|
+| `boot ticks` | **154** (8.46 s) |
+| 16 KB read, warm | **1.48 s — 11,047 B/s** |
+| 16 KB read, cold motor | 3.63 s |
+| `read 1 sector file` | 673 ms |
+| adapter | CGA 640x200 (the plasma panel) |
+
+**11,047 B/s is 1.48x the 5150's 7,457**, and the mechanism is the drive
+rather than the CPU: a 1.2 MB drive spins at **360 RPM**, so a revolution is
+166.7 ms against the 5150's 200, and the 32-sector read costs 46.3 ms a
+sector — **0.28 revolutions**. That is batching working properly, on media
+this drive is only nominally compatible with.
+
+The cold/warm gap is 2.4x here against the 5150's 1.05x, which is the AT
+BIOS's media-type detection: a 360 KB disk in a 1.2 MB drive has to be
+identified by trying data rates, and that cost is paid once.
+
+Its mouse rows read `mouse found 0`, and that is **not** a fault: there was
+no mouse plugged into it. The owner has one serial mouse and it was on the
+5150. It looks like §9.5.2's cross-wired IRQ and is the same category of
+misreading as taking `No volume at index 2` for a missing hard disk — ask
+what was connected.
+
+#### The disk error that would not reproduce
+
+The previous build refused to boot this machine — `os8088: disk error`, the
+boot sector's own message. `make BOOTDIAG=1` was built to name the int 13h
+status in one boot instead of a three-disk bisect, and the answer was **no
+error at all**: the same code on a freshly written disk booted and read
+correctly, and the data check passed.
+
+**No code change explains it**, and it is worth saying so rather than
+claiming the fix. The boot sector's `.done` change alters *how many* calls
+are issued, not whether they succeed, and on a BIOS that reports `AL`
+honestly both readings advance correctly. What is left is the disk: **360 KB
+media in a 1.2 MB drive is marginal by construction** — 48 tpi tracks under a
+96 tpi head — and a rewrite is the ordinary fix. The knob stays, because the
+next one may not be marginal media and one boot is cheaper than three.
+
+### The directory sector was read twice (SPEC.md §18.4.3)
+
+Set 18 left 1.55x on the table — 7,457 B/s against the BIOS's own 11,570 —
+and §18.94's trace says where a third of it went:
+
+```
+    5  1      5  1    254  7    255  6 ...
+```
+
+**LBA 5 twice.** `dskw_find` walked the directory and recorded where the
+entry was; `dskw_ent_load` then re-read the same sector to copy the 32 bytes
+out. Seven call sites, all `call dskw_find` / `jc` / `call dskw_ent_load`.
+
+A re-read of a sector that has just passed the head costs a **whole
+revolution** — 199 ms — which is 9.5% of a 16 KB read and **a third of the
+cost of opening a small file**, where the whole operation is three sectors.
+
+`dskw_find` copies the entry while the buffer still holds it. Measured under
+QEMU, which counts calls exactly even though it cannot time them:
+
+| | before | after |
+|---|---|---|
+| 16 KB `FILE_READ` | 34 sectors / **6 calls** | 33 / **5** |
+| one-sector `FILE_READ` | 3 / **3** | 2 / **2** |
+
+Predicted on the 5150 at 199 ms a call: the 16 KB read **2.09 s → ~1.89 s**
+(7,457 → ~8,670 B/s) and a small-file open **810 ms → ~540**, which is the
+larger win in practice — every `SYSTEM.CFG` read, every package header check
+and every double-click pays it.
+
+What is left after this is structural rather than a bug: the first data run
+is short whenever a file's first cluster is not track-aligned (5 sectors of a
+9-sector track in the trace above), and a run coalesces only to the track and
+the DMA page. Worth knowing before anyone goes looking for another factor of
+two — there is not one there.

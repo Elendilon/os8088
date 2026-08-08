@@ -13,3 +13,7 @@ vm/*/screenshots/
 vm/xt-sound/nvr/
 vm/286-sound/nvr/
 vm/386-sound/nvr/
+
+# Python bytecode from tools/ being imported as a module (os88dbg)
+__pycache__/
+*.pyc

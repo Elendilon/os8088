@@ -43,8 +43,10 @@ number does not replace a field one. PERFORMANCE.md also carries
 the standing budget every redraw path here has already been measured down
 to — so a change that reintroduces a full repaint is a regression against a
 documented number, not a neutral refactor — and how to count work with a
-counter read over QMP. docs/TESTING.md is where a test can *run*;
-PERFORMANCE.md is what the target machine *costs*.
+counter read over QMP. docs/TESTING.md is **which tool to reach for** and
+where a test can *run* — MartyPC first, and its ordering is a deliberate
+reversal of this tree's old QEMU-first habit; PERFORMANCE.md is what the
+target machine *costs*.
 
 **docs/FIELD-MACHINES.md is the third one: who has the hardware, what is in
 it, and what a run costs them.** The
@@ -202,8 +204,68 @@ make field    # ...and the FIELD disks: build/herc.img + build/cga.img, two
               # Hercules AND a CGA permanently, so the CGA needs a kernel
               # told to ignore the Hercules — built in build/cgak/, never in
               # build/, where it would boot the wrong card for everyone
+make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
+              # server bolted into MartyPC's headless frontend, pinned to one
+              # upstream commit in tools/martypc/. Memory, registers, I/O
+              # ports, breakpoints, single-step and cycle counts on a running
+              # os8088 with NO code in the guest at all - it costs the guest
+              # not one cycle and answers on a machine that has hard-frozen.
+              # Needs cargo, and on Linux libudev-dev + pkg-config.
+              #   python3 tools/os88marty.py 127.0.0.1:9001 verify
+              # dumps KERNEL_SEG and diffs it against build/kernel.bin, which
+              # is FIELD-MACHINES.md's self-validating dump as one command
 make clean
 ```
+
+**MARTYPC IS THE FIRST TOOL TO REACH FOR, NOT THE LAST, and that is a
+REVERSAL of how this tree has worked.** Everything here was QEMU-first for
+years, and QEMU is the emulator FURTHEST from the target: it runs the guest at
+host speed on a CPU that is not an 8088, through SeaBIOS rather than a period
+ROM, with no CGA and no Hercules card in it at all. It is exact about how much
+WORK the guest does and it is not a machine - nearly every entry in
+docs/FIELD-NOTES.md is something QEMU showed as fine. `make marty` is a
+cycle-accurate 5150 running the real 1982 IBM BIOS with a debugger attached,
+and it agrees with the field machine to 0-4% on 45 of 47 gfxbench rows.
+**Use it whenever the thing under test runs on an 8088 with a CGA or a
+Hercules**, which is most of this OS; fall back to QEMU for what it does not
+cover - VGA (its VGA is Mode 13h/Mode X, os8088's path is mode 12h), 286/386
+and sound - and to 86Box for a machine that is not an 8088. **Neither
+screenshots NOR scripted input are reasons to start QEMU any more.**
+`os88marty.py key` enters the emulator's keyboard buffer so the guest sees a
+keystroke through the 8255 and int 09h, and `mouse` builds a real Microsoft
+3-byte packet and clocks it into the serial controller so mou_isr decodes it
+- both drive MORE of the real path than a guest-side poke to [mouse_x] would,
+which is why no debug module was written for it. And: `os88marty.py shot out.png`
+reads the framebuffer out of VRAM and decodes SPEC.md 39.3's banked layout,
+verified against QEMU's CGA at 60.0% lit on both. CGA and Hercules only -
+they are 1bpp so the bytes are the pixels, where mode 12h is four planes
+behind the Graphics Controller and not flat-readable. docs/TESTING.md is the full ordering; docs/MARTYPC-DEBUG.md is the
+recipe.
+
+**MARTYPC IS CYCLE ACCURATE AND IT IS NOT DISK ACCURATE. If a disk is in the
+path, its timing is WRONG** - 30x fast on a 16KB read (0.27 s against the
+5150's 8.07) and 17x fast on a boot (PERFORMANCE.md Set 11) - and that catches
+plenty that is not obviously about disks: a boot time, a package launch, a
+Tracker module load, a `SYSTEM.CFG` save. **Nor will it catch a disk
+CORRECTNESS bug.** SPEC.md 18.91's `AL` bug is the worked example - the BIOS
+moved nine sectors and answered `AL = 1`, the kernel believed it and re-read
+the rest one at a time, and on the 5150 that was 148 sectors in 34 int 13h
+calls for a 32-sector file. **The same binary on the same image under QEMU
+moved 34 sectors in 6 calls**: correct, fast, and silent about the bug. The
+boot sector carried the identical bug for as long again. An emulator's floppy
+controller returns what its author believed the hardware returns; the hardware
+is under no such obligation. For anything with a disk in it the instrument is
+the 5150 and there is no substitute.
+
+**The other debugger is SPEC.md 58's `DEBUG.DRV`, and it is the one that works
+on real iron.** A loadable driver - not a `SERDBG=` kernel, because a knob
+kernel is a different binary and the machine you debugged is then not the
+machine that ships - owning COM4 at 2E8, because os8088 hooks the IRQ of every
+UART answering at 3F8/2F8 and a monitor on 2F8 fights the mouse prober for its
+own port. Not wanted by default, so a machine that never ticks it in the
+Control Panel pays one `drv_tab` row and a file on the floppy. The two are
+complementary: MartyPC costs the guest nothing and answers on a frozen
+machine, DEBUG.DRV goes where no emulator can.
 
 **Nothing in `build/` is tracked — never commit a binary.** `build/` is
 gitignored outright and no artifact inside it is force-added: not the kernel,
@@ -339,13 +401,46 @@ arithmetic, for nothing. `CF = 0` is the contract and `AL` is not, so
 behaviour), and `sysbench` verifies `BENCH.DAT`'s contents — every byte of
 sector *n* is *n* — because a floppy that got 5x faster and quietly wrong is
 the worst available outcome. **Measured on the iron: 8.29 s → 2.09 s for a
-16KB read, 1,912 → 7,457 bytes/second, 3.9x** (Set 17). Still 1.55x short of
-the BIOS's own 11,570, because a run coalesces only to the track and the DMA
-page and a file's first cluster is rarely track-aligned — worth a second on
-every large load, not chased yet. **And the verify row did not run in that
+16KB read, 1,912 → 7,457 bytes/second, 3.9x** (Set 17), and the BOOT **726
+ticks → 181 — 39.88 s to 9.94, 4.0x** once the boot sector took the same fix
+(Set 18). Still 1.55x short of
+the BIOS's own 11,570, and §18.94's trace found a third of it: **the
+directory sector was read TWICE**, `dskw_find` locating the entry and
+`dskw_ent_load` re-reading the same sector to copy it out, at seven call
+sites. A re-read of a sector that has just passed the head is a whole
+revolution. `dskw_find` takes the entry while the buffer still holds it
+(SPEC.md §18.4.3) — **6 int 13h calls → 5** on a 16KB read and **3 → 2** on a
+small file, which is the bigger win in practice. Copying there rather than
+tagging `dsk_secbuf` is what makes it safe: no window, so no invalidation
+anyone can forget. What is left is structural — a run coalesces only to the
+track and the DMA page, and a file's first cluster is rarely track-aligned. **And the verify row did not run in that
 set**, because it was written inside the `DISKCNT=1` block and the field
 boots the plain kernel: *a guard that only runs on the build you are not
-shipping is not a guard.* It is unconditional now.
+shipping is not a guard.* It is unconditional now. **The BOOT SECTOR had the
+same AL bug and was missed with it** — `read_run`'s `.done` believed AL too,
+which is why `boot ticks` did not move while the file read got 4x faster; 140
+sectors at a revolution each is 33 of the 40 seconds. Both loops read `CF`
+now, under the one `DISKAL=1` knob. And **`make BOOTDIAG=1`** trades the
+sector's `os8088: disk error` for int 13h's **status as two hex digits** —
+the sector has four spare bytes, so it is a knob, and it is what turns "it
+will not boot on that machine" into one boot instead of a bisect (0C = media
+type unidentified, 04 = sector not found, 09 = DMA page crossed, 80 = no
+answer).
+- **A TEST package reads kernel state through the debug registry (SPEC.md
+  §57), and shipped software never does.** One word at `0060:000E` names a
+  list of `(tag, offset)` pairs ended by tag 0; the tag is two ASCII
+  characters and is **also the block's own first word**, so a reader can check
+  that the offset it followed landed where it meant to and a human reading
+  `xp` over QMP sees `MO` and `DD` rather than counting words. It replaced a
+  fixed word per instrument, which is what the tree had until the first
+  paragraph filled up at three (`boot_ticks` 0x0C, mouse 0x06, disk 0x0E) and
+  the fourth had nowhere to go. An API slot is the wrong answer twice: half of
+  these are knob-built and a slot that exists in one build and not another is
+  an ABI that depends on a knob (§20.8 rule 4), and a slot is a permanent
+  promise where a debug block's whole value is that it changes with the code
+  it describes. A reader that cannot find its block **says so and continues** —
+  that is what lets one build of `sysbench` run on a plain kernel and a
+  `DISKCNT=1` one.
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4
@@ -395,15 +490,22 @@ call's own shell and kills it.
 
 Requires `nasm`, `qemu-system-i386`, `python3`. No linker anywhere — everything is `nasm -f bin` flat binaries (deliberately, to avoid Apple's Mach-O-only toolchain).
 
-There are no unit tests. Testing = boot `make test`, then drive it over QMP.
-**`docs/TESTING.md` is the matrix of what QEMU can and cannot do**, with a
-verified recipe per capability — read it before concluding anything is
-untestable here. Its **"Modelling the old machine from a fast one"** section is
-the part that has cost four bugs: this container is ~1000x a 4.77MHz 8088, so
-every constant sized while looking at it encodes the wrong range, and two
-things cannot be observed here at all — **flicker** and **input overrun**. The short version: all three video adapters and all three
-sound routes work under QEMU; 86Box is needed only for the video *detection
-probe*, the 6845 programming and period-correct timing.
+There are no unit tests. **`docs/TESTING.md` is the matrix of WHICH TOOL to
+reach for and what each can and cannot do**, with a verified recipe per
+capability — read it before concluding anything is untestable here, and read
+its ordering before defaulting to `make test`. The short version: **MartyPC
+first** (`make marty`) for anything on an 8088 with a CGA or Hercules, then
+QEMU for VGA, 286/386, sound and scripted input, then 86Box for a machine that
+is not an 8088, then the 5150 for **anything with a disk in it**. Testing
+under QEMU is boot `make test`, then drive it over QMP.
+
+Its **"Modelling the old machine from a fast one"** section is the part that
+has cost four bugs, and most of it is about QEMU: this container is ~1000x a
+4.77MHz 8088, so every constant sized while looking at it encodes the wrong
+range, and two things cannot be observed there at all — **flicker** and
+**input overrun**. MartyPC removes a good deal of that (a cycle-accurate 8088
+does not have a clock that tells you nothing) and removes **none** of it for
+the disk, where its error is 30x and flattering.
 
 ```
 python3 tools/mouse.py build/qmp.sock click 180 150      # absolute mouse click
@@ -1373,25 +1475,57 @@ arrow keys on a mouseless machine while this is on, which is the right default
 escape hatch**, READ as a level out of `KB_FLAG` bit 4 (`0040:0017`) rather
 than watched for as a key: it is a shift STATE, int 09h swallows it and int
 16h never reports one, so the first version's `cmp ah, 0x46` waited for a byte
-that never arrives. **Ins is a click** (MDOWN+MUP
-together, and `mouse_btn` deliberately untouched, because nothing tracks a
-click and a level poll must never find a button held by a key that has already
-come up); **keypad 5 LATCHES**, and that is what makes the machine reachable
-at all - a keyboard cannot hold a key down in any way int 16h can see, and a
-menu, a window drag and the grow box all end on a *level* poll of `mouse_btn`.
-The trap that falls straight out of it: **`menu_track`, `ui_drag` and
-`ui_grow` never return to `ui_task`**, so a latched button could never be
-released and the machine would sit inside a menu no key could close - each
-calls `kbm_poll` beside its existing `task_yield`, and `kbm_poll` PEEKS
-(int 16h AH=01h) and takes the key only if `kbm_key` claims it, because int
-16h has no way to put one back. A package with its own drag loop (Solitaire)
-is not reachable this way and is not expected to be. **The step accelerates
+that never arrives. **The button is ONE action on three keys - keypad 0 (Ins),
+keypad 5 and Space - and it is neither a click nor a hold** (SPEC.md 9.6.1).
+There used to be two, and they were the wrong pair: a *click* (MDOWN+MUP
+together, `mouse_btn` untouched) **can never open a menu**, because
+`menu_track` draws the pull-down and its next instruction polls a level that
+is already up - which reached the field as *a menu that flashes and will not
+stay open* on a Compaq Portable III - while a *hold* opened menus and read as
+broken on every icon and close box. Now a press latches the level and posts
+MDOWN, and **`kbm_ui` releases it once the ui_task pass that dispatched that
+mouse-down is over**: a press is a CLICK for anything that dispatches and
+returns, and a HOLD for anything that does not return until the button comes
+up. The release is gated on that pass having popped *that* MDOWN, or a press
+arriving behind an older event is released before it is dispatched - the
+flashing menu from the other end. **A repeat is not a press** (`KBM_GAP`
+again): typematic is ~1.8 ticks and a deliberate second press is 4+, and
+without the guard a press held a moment too long opened a menu and closed it
+on its own repeat. **Five loops spin on that level and the list used to name
+three**: `menu_track`, `ui_drag`, `ui_grow` call `kbm_poll` beside their
+`task_yield` (it PEEKS with int 16h AH=01h and takes the key only if
+`kbm_key` claims it, because int 16h cannot put one back); **`osapi_mouse`
+calls it too**, gated on `[mou_seen]`, which is the same loop by another name
+and is what makes a PACKAGE's drag reachable - Solitaire's `sol_drag`, Paint's
+`pt_wait`, Note Pad's selection - where this used to say they were not; and
+`fm_drag` is served by **not spinning at all** with no mouse, because it waits
+with the button down to tell a click from a drag and the button is latched for
+the whole dispatch, so a row click would cost two presses and a double-click
+four. File drag and drop wants a mouse, as it always did. **ScrollLock is the
+ONE latch, and the rule it encodes is that the way back to typing can never be
+a key you would want to type** (SPEC.md 9.6.2). A '.' was added as a second,
+friendlier hatch and was wrong within a day: '.' is wanted the moment anybody
+opens Note Pad, reserving the keypad's gives up Del, and letting a typed one
+latch but not un-latch leaves a full stop that works in one direction only.
+ScrollLock costs no keystroke at all - int 09h swallows it - and on a keyboard
+with the lamp the machine SAYS which mode it is in, a state indicator nobody
+had to draw. Space is the deliberate counter-example: printable and taken,
+because a hand on the arrows wants a button under its thumb, and it is only
+taken while the pointer is live. **It raises the window under the pointer on
+the way in** - a level has no keystroke to hang that off, so `kbm_ui` banks it
+in `[kbm_slast]` and finds the EDGE once per pass; a falling edge raises
+nothing. **The step accelerates
 and the ramp RESETS on a change of direction** - not a refinement: without it
 the correction travels at full speed too and a menu item sits unreachable
 between two 24px strides, which is exactly how the first version failed to
-pick one. **It costs 406 bytes and one 512-byte step of `KERN_BUDGET` (spare
-4,096 → 3,584), decided on when that step was half the slack rather than an
-eighth of it** - and it is
+pick one. **It costs 520 bytes and two 512-byte steps of `KERN_BUDGET` (spare
+4,096 → 3,584 → 3,072)**, the first decided on when that step was half the
+slack rather than an eighth of it, the second bought by 9.6.1/9.6.2 - **114
+bytes of code for a whole step, because the image rung had ONE byte of slack**
+(`.text` + `.bss` = 49,151 against a 49,152 ceiling), so any addition at all
+cost the same 512 and trimming the feature could not have avoided it. That is
+the guard working rather than the feature being dear, and it means the next
+byte added to `.text` anywhere pays 512 too. It is
 written down in docs/KERNEL-MEMORY.md and in the module as the FIRST candidate
 to remove (or move to test/bench-only kernels) if footprint ever outranks it.
 Recommend that; do not do it unasked.

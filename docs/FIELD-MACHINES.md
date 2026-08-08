@@ -219,6 +219,51 @@ It walls at the same **2,161 bytes/second** on the floppy as the 5150 does
 
 ---
 
+## The Compaq Portable III — `Elendilon`'s, and the fast floppy
+
+The third real machine, and the one that keeps the disk work honest: an
+AT-class BIOS and a **1.2 MB drive**, so every floppy assumption calibrated
+against the 5150's 360 KB Tandon gets a second reading from different
+hardware.
+
+| | |
+|---|---|
+| CPU | 80286 (tier 1) |
+| video | CGA 640x200 — the plasma panel, which the §39 probe finds as CGA |
+| floppy | **1.2 MB 5.25"**, and it reads the 360 KB field disks |
+| serial | **two ports**, 3F8 and 2F8 |
+
+What it has already been worth (PERFORMANCE.md Part 9 Set 18): **11,047 B/s**
+on a 16 KB read against the 5150's 7,457, because a 1.2 MB drive spins at
+**360 RPM** — a revolution is 166.7 ms, not 200 — so the same batched read
+costs 0.28 revolutions a sector. It is the second BIOS to confirm that
+trusting `CF` rather than `AL` reads the right bytes (`data check ... OK`),
+which one machine alone could not establish.
+
+Two things to know before running it.
+
+**360 KB media in a 1.2 MB drive is marginal by construction** — 48 tpi
+tracks written under a 96 tpi head — so a disk this machine refuses is a disk
+to rewrite before it is a bug. It refused one build with `os8088: disk error`
+and then booted the same code from a fresh disk with no error at all
+(Set 18). `make BOOTDIAG=1` builds a sector that prints int 13h's status
+instead of that message, which is one boot rather than a bisect.
+
+**Its cold read is 2.4x its warm one** (3.63 s against 1.48), where the
+5150's are within 5%. That is the AT BIOS identifying the media by trying
+data rates, and it is paid once — so a cold-motor row from this machine is
+not comparable to a cold-motor row from an XT.
+
+**Its mouse is UNTESTED, not broken.** `sysbench` reports `mouse found 0`
+with both ports probing present and no identify bytes on either — which looks
+exactly like §9.5.2's cross-wired IRQ, and is not: **there was no mouse
+plugged into it.** The owner has one serial mouse and it lives on the 5150.
+A `mouse found 0` from a machine with nothing attached is the correct answer,
+and reading it as a fault is the same error as reading `No volume at index 2`
+as a missing hard disk. Ask what was connected before diagnosing a mouse.
+
+---
+
 ## The Packard Bell Victory 286 — in the register, results discarded once
 
 | | |
@@ -347,15 +392,28 @@ must time a fixed, known quantity of work at each end and print it; Set 4's
 every other number in the set. If the two brackets disagree, the machine
 moved *underneath* the measurement and the rows between them are suspect.
 
-### It takes MEMORY DUMPS, and an agent should ask for one
+### It takes MEMORY DUMPS — and an agent can now take its own
 
-MartyPC's debugger will dump **the full 1MB** and **the code segment**, and
-that is a capability nothing else in this register has — the 5150 has no
-debugger, and QEMU's QMP `xp` reaches memory but only from inside the
-container, so it can never answer a question about the machine on someone
-else's desk. **Ask for a dump whenever the question is "what does the kernel
-think", rather than "how long did it take" or "what did it look like".** It
-costs the owner one menu click and it is worth many rounds of guessing.
+**This section has been overtaken in the best way.** `make marty`
+(docs/MARTYPC-DEBUG.md) runs MartyPC *in the container*, with a debug server
+attached, so a dump is a command rather than a favour:
+
+    python3 tools/os88marty.py 127.0.0.1:9001 verify
+
+which dumps `KERNEL_SEG`, diffs it against `build/kernel.bin`, and prints the
+differing runs. **Ask nobody for a dump of a build you can run yourself.**
+
+What still needs the owner is a dump of a machine *whose behaviour differs
+from the emulator's* — which, given everything in docs/FIELD-NOTES.md, is
+more often than it sounds, and always when a disk is involved. MartyPC's
+floppy is 30x fast and its BIOS returns what its author believed the hardware
+returns (PERFORMANCE.md, Set 11), so **a dump taken in the container proves
+what the code does and not what the 5150 does with it**.
+
+The rest of this section is unchanged and applies to both, because the rules
+are about dumps and not about who took them. MartyPC's own debugger will also
+dump the full 1MB and the code segment from its GUI, which is still the route
+when the owner is running it interactively.
 
 A dump is a strong instrument because it is **self-validating**. The kernel
 image lands at `KERNEL_SEG`, so linear `0x600` onward is `build/kernel.bin`

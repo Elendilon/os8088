@@ -983,6 +983,19 @@ on the ordinary kernel. Everything else in the report is unchanged to within
 a tick, and `read 1 sector file` is 810 ms both times because a one-sector
 read never had a run to lose.
 
+**The BOOT SECTOR had the same bug and it was never fixed with the kernel.**
+`read_run`'s `.done` believed `AL` too, which is why `boot ticks` did not
+move in Set 17 while the file read got 4x faster: 140 sectors at a revolution
+each is 33 of the 40 seconds. Both loops read `CF` now, under the one
+`DISKAL=1` knob. **Measured: 726 ticks to 181 — 39.88 s to 9.94, 4.0x**
+(Set 18). A cold boot of this OS on a 4.77 MHz 8088 is ten seconds.
+
+**And the data check passed on iron, on two machines.** Set 17 took its 4x
+with the guard switched off by a scoping mistake; it is unconditional now and
+reads `data check, 32 sectors  OK` on the 5150 and on a Compaq Portable III —
+two BIOSes, two drives, one of them 1.2 MB reading 360 KB media. Trusting
+`CF` reads the right bytes.
+
 **Still 1.55x short of the ceiling**, and the arithmetic says where: the
 BIOS's own whole-track-in-one-call is 11,570 B/s, 32 sectors in ~4 calls of
 ~400 ms is 1.6 s, and we measure 2.09 — about two extra calls. A run

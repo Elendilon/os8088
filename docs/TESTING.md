@@ -1,20 +1,79 @@
 # What can actually be tested, and where
 
-**Short answer: QEMU covers all three video adapters and all three sound
-routes.** 86Box is needed for exactly two things, and they are narrow.
+**Reach for MartyPC FIRST.** If what you are testing runs on an 8088 with a
+CGA or a Hercules — which is most of this OS, and all of the machine it is
+calibrated against — `make marty` gives you a cycle-accurate 5150 running the
+real 1982 IBM BIOS, with a debugger attached: memory, registers, I/O ports,
+breakpoints, single-step and cycle counts, none of it costing the guest a
+cycle (docs/MARTYPC-DEBUG.md). **Fall back to QEMU when MartyPC does not cover
+the thing** — VGA, 286/386 or sound. Go to 86Box for a
+machine that is not an 8088. **And for anything with a disk in its timing, go
+to the 5150 — no emulator here is disk-accurate, MartyPC included.**
 
-This document exists because the opposite keeps getting concluded. It has
-happened for Hercules — `docs/HERCULES-TESTING.md` opens by saying so, and
-that claim had sat in CLAUDE.md costing people time — and it keeps happening
-for sound, for a duller reason: the AdLib and Sound Blaster recipes are real,
-committed and mechanical, but they live in the middle of
+That ordering is a **reversal**, and it is written down because the old one
+cost a great deal. Everything in this tree was QEMU-first for years, and QEMU
+is the emulator that is *furthest* from the target: it runs the guest at host
+speed on a CPU that is not an 8088, through SeaBIOS rather than a period ROM,
+with no CGA and no Hercules card in it at all. It is excellent at counting
+work and it is not a machine. Nearly every entry in docs/FIELD-NOTES.md is
+something QEMU showed as fine.
+
+| reach for | when | why |
+|---|---|---|
+| **MartyPC** | 8088/XT, CGA or MDA/Hercules, and any question of the form *what is the machine doing* | cycle-accurate CPU, a real BIOS ROM, and a debugger that perturbs nothing |
+| **QEMU** | VGA (mode 12h), 286/386, sound | on an 8088, MartyPC now covers input AND screenshots too — `os88marty.py key` / `mouse` / `shot`. QMP and `tools/mouse.py` remain the harness everywhere else |
+| **86Box** | a machine that is **not an 8088** (the 286 and 386 targets), real sound cards on a period bus, a second opinion on the video probe | period-correct whole machines, and the widest hardware library |
+| **the 5150** | anything with a **disk** in it, and the three defects no emulator shows | docs/FIELD-MACHINES.md |
+
+## The one rule that outranks the table: no emulator here is disk-accurate
+
+**MartyPC is cycle-accurate on the CPU and it is not a floppy drive.** It
+models instruction timing, the prefetch queue and bus contention; it does not
+model a disk that spins at 300 rpm, a head that has to seek, or an interleave.
+PERFORMANCE.md Set 11 measured the gap on the same test and the same media:
+
+| | real 5150 | MartyPC |
+|---|---|---|
+| read 16 KB, cold motor | **8.07 s** | **0.27 s** — 30x fast |
+| boot | **38,886 ms** | **2,306 ms** — 17x fast |
+
+So **if a disk is in the path, MartyPC's number is wrong** and it is wrong by
+more than an order of magnitude. That includes anything that *contains* a
+disk read without being about one — a boot time, a package launch, a Tracker
+module load, a Control Panel save. PCem is no better and QEMU is worse. There
+is exactly one instrument for disk timing and it is the machine in
+docs/FIELD-MACHINES.md.
+
+**And it will not catch a disk CORRECTNESS bug either**, which is the sharper
+half. SPEC.md §18.91's `AL` bug is the worked example: `dsk_xfer` asked the
+BIOS for nine sectors, the BIOS moved nine and answered `AL = 1`, and the
+kernel believed `AL` and re-read the rest one sector at a time. On the 5150
+that was 148 sectors and 34 `int 13h` calls for a 32-sector file — 4.6x the
+traffic. **The same binary on the same image under QEMU moved 34 sectors in 6
+calls**: correct, fast, and completely silent about the bug. It took the real
+machine plus §18.94's counters to see it at all, and the boot sector carried
+the identical bug undiscovered for as long again. An emulator's BIOS returns
+what its author thought the hardware returns; the hardware is under no such
+obligation.
+
+The same caution applies to `int 1Eh`'s diskette parameter table, short
+`int 13h` reads, and interrupt stack depth — docs/FIELD-NOTES.md 5 and
+SPEC.md §8. All three are BIOS behaviours an emulator smooths over.
+
+---
+
+This document exists because the opposite keeps getting concluded about
+capability. It has happened for Hercules — `docs/HERCULES-TESTING.md` opens by
+saying so, and that claim had sat in CLAUDE.md costing people time — and it
+keeps happening for sound, for a duller reason: the AdLib and Sound Blaster
+recipes are real, committed and mechanical, but they live in the middle of
 `docs/SOUND-PLAN.md`, an 850-line *plan*, interleaved with phase history. A
 plan document is not where anyone looks to answer "can I test this?", so the
 answer people reach is "no".
 
-Every recipe below was run end to end on a stock QEMU 8.2.2 and the measured
-result is quoted with it. If one of them fails, that is a finding about the
-tree, not about the emulator.
+Every QEMU recipe below was run end to end on a stock QEMU 8.2.2 and the
+measured result is quoted with it. If one of them fails, that is a finding
+about the tree, not about the emulator.
 
 **This document answers *where a test can run*. [PERFORMANCE.md](../PERFORMANCE.md)
 answers *what the target machine costs* — the calibration numbers, the
@@ -27,30 +86,36 @@ below, is the short version of it.**
 
 ## The matrix
 
-| Capability | QEMU | How | Verified result |
-|---|---|---|---|
-| VGA 640x480x16 | ✅ | `make test` | boots to Locator; loads packages |
-| CGA 640x200 mono | ✅ | `make test VIDEO=cga` | renders; dumps 640x400 (line-doubled) |
-| Hercules 720x348 mono | ✅ | `make test VIDEO=herc HERCSEG=0x7000` | renders; 55.8% lit at the desktop |
-| PC speaker | ✅ | `make test-snd` (no card) | dominant 880.0 Hz |
-| AdLib / OPL2 | ✅ | `make test-snd ADLIB=1` | dominant 880.0 Hz from a keyed 440 |
-| Sound Blaster 16 | ✅ | `make test-snd SB16=1` | 2.00 s at 1000.0 Hz |
-| Scripted mouse / keys | ✅ | `tools/mouse.py`, `tools/qmp.py` | all adapters, incl. Hercules |
-| Mouse on COM2 (SPEC.md §9.5) | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |
-| A **cross-wired IRQ** (SPEC.md §9.5.2) | ✅ | `make test MOUSEPORT=com2irq4` | the Compaq Portable III: mouse at 2F8 driving IRQ4. Undetectable before the fix |
-| A **modem** on the other port | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
-| Performance benchmarks | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
-| Fullscreen exclusive (SPEC.md §53) | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
-| Boot-sector relocation (SPEC.md §2.7) | ✅ | `make test RAMKB=<n>` — see below | 105 boots, 104 prints `RAM` and never loads a byte |
-| A machine that reports a **small** `int 12h` to the KERNEL | ❌ | 86Box `mem_size` | `RAMKB=` moves the sector only; the heap still sees the real answer |
-| Video **detection probe** | ❌ | `make xt-cga` / `xt-hercules` | 86Box only |
-| 6845 programming | ❌ | `make xt-hercules` (and fsx id 4's real mode set) | 86Box only |
-| Period-correct timing | ❌ | `make xt` (4.77 MHz), `286`, `386` | 86Box only |
+The **MartyPC** column is "is this the right tool for it", not "does the
+emulator have the hardware": a ✅ means reach for it first.
+
+| Capability | MartyPC | QEMU | How (QEMU) | Verified result |
+|---|---|---|---|---|
+| VGA 640x480x16 | ❌ | ✅ | `make test` | boots to Locator; loads packages |
+| CGA 640x200 mono | ✅ | ✅ | `make test VIDEO=cga` | renders; dumps 640x400 (line-doubled) |
+| Hercules 720x348 mono | ✅ | ✅ | `make test VIDEO=herc HERCSEG=0x7000` | renders; 55.8% lit at the desktop |
+| PC speaker | ➖ | ✅ | `make test-snd` (no card) | dominant 880.0 Hz |
+| AdLib / OPL2 | ❌ | ✅ | `make test-snd ADLIB=1` | dominant 880.0 Hz from a keyed 440 |
+| Sound Blaster 16 | ❌ | ✅ | `make test-snd SB16=1` | 2.00 s at 1000.0 Hz |
+| Scripted mouse / keys | ✅ | ✅ | `os88marty.py key` / `mouse`, or `tools/mouse.py` | MartyPC drives the REAL devices: a Microsoft packet through the UART (`mou_seen` goes 0→1) and a keystroke through int 09h (SPEC.md §9.6's arrows moved `mouse_x` 320→350) |
+| **Screenshots** (CGA/Herc) | ✅ | ✅ | `os88marty.py shot`, or `tools/shot.py` / `hercshot.py` | MartyPC reads VRAM directly — 60.0% lit, matching QEMU's CGA on the same desktop |
+| Mouse on COM2 (SPEC.md §9.5) | ➖ | ✅ | `make test MOUSEPORT=com2` | both UARTs probe present, COM2 wins, COM1 retired |
+| A **cross-wired IRQ** (SPEC.md §9.5.2) | ➖ | ✅ | `make test MOUSEPORT=com2irq4` | the Compaq Portable III: mouse at 2F8 driving IRQ4. Undetectable before the fix |
+| A **modem** on the other port | ➖ | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
+| Performance benchmarks | ✅ | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
+| Fullscreen exclusive (SPEC.md §53) | ➖ | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
+| Boot-sector relocation (SPEC.md §2.7) | ✅ | ✅ | `make test RAMKB=<n>` — see below | 105 boots, 104 prints `RAM` and never loads a byte |
+| A machine that reports a **small** `int 12h` to the KERNEL | ✅ | ❌ | MartyPC `conventional.size`, or 86Box `mem_size` | `RAMKB=` moves the sector only; the heap still sees the real answer. MartyPC's real BIOS counts what the config says it has |
+| Video **detection probe** | ✅ | ❌ | `make marty`, or `make xt-cga` / `xt-hercules` | MartyPC has a modelled CGA and MDA/Hercules, so the probe genuinely runs — this stopped being 86Box-only |
+| 6845 programming | ✅ | ❌ | `make marty`, or `make xt-hercules` | modelled by both; MartyPC's `screen` reads the result back without a screenshot |
+| Period-correct **CPU** timing | ✅ | ❌ | `make marty` (8088 only), or `make xt` / `286` / `386` | MartyPC is cycle-accurate and agrees with the 5150 on 45 of 47 gfxbench rows. **Not the disk** — see the rule above. 286/386 are 86Box only |
 
 `VIDEO=` forces a code path; it does not exercise the probe that would have
-chosen it. That distinction is the whole of the ❌ column for video: QEMU
-emulates no CGA and no Hercules card, so what is untestable here is the
+chosen it. That distinction is the whole of QEMU's ❌ column for video: QEMU
+emulates no CGA and no Hercules card, so what is untestable *there* is the
 *choosing*, not the *drawing* — and the drawing is almost all of the code.
+**MartyPC has both cards**, so the probe is no longer 86Box-only; what is
+still 86Box's alone is a machine that is not an 8088.
 
 ---
 
@@ -823,6 +888,16 @@ Everything above is about *where* to run a test. This is about the systematic
 error in running it anywhere but the target, and it has now cost four bugs, so
 it is worth stating as a method rather than a warning.
 
+**Most of this section is about QEMU, and MartyPC removes a good deal of
+it** — a cycle-accurate 8088 does not have "a clock that tells you nothing",
+and a constant sized while watching one is sized against roughly the right
+machine. Read it anyway, for two reasons. It is the record of *how* these
+mistakes are made, and the shape recurs whatever the emulator: an
+optimisation that keeps its form and loses its substance still measures as a
+success. And **the part that MartyPC does not fix is the disk**, where its
+error is 30x and in the flattering direction — so every rule below applies to
+disk work on MartyPC exactly as written.
+
 **The container is roughly three orders of magnitude faster than a 4.77 MHz
 8088.** Every constant you size while looking at QEMU is sized against the
 wrong machine, and the failures are not proportional — they are structural,
@@ -879,10 +954,16 @@ to. Check a change against that table before concluding it is free.
 
 ### Count work, don't time it — QEMU is exact about the first and useless at the second
 
-The container's clock tells you nothing about a 4.77 MHz machine, but the
-*amount of work* the guest does is identical on both, and QEMU will report it
-exactly. So when the question is "is this slow because it does too much?",
-**instrument a counter and read it over QMP** rather than reaching for 86Box:
+**On MartyPC you can now do both**, which is the shortest statement of why it
+comes first: `step` returns real cycles, so "how much work" and "how long"
+are one question there — for the CPU. For a disk it is still neither, and no
+amount of cycle accuracy makes 0.27 s into 8.07 s.
+
+Under QEMU the split is absolute. The container's clock tells you nothing
+about a 4.77 MHz machine, but the *amount of work* the guest does is identical
+on both, and QEMU will report it exactly. So when the question is "is this
+slow because it does too much?", **instrument a counter and read it over QMP**
+rather than reaching for 86Box:
 
 ```nasm
 ; kernel/font.inc, in .text so the offset is fixed
@@ -1001,12 +1082,59 @@ target. That is how JPEG was ruled out (docs/PAINT-NOTES.md), and the
 AT-class 86Box targets (`make 286`, `make 386sx`, `make 386`) are the honest
 middle of that range.
 
+## MartyPC — the first thing to reach for
+
+`make marty`, and the whole recipe is docs/MARTYPC-DEBUG.md. What it gives
+that neither of the others does:
+
+- **A cycle-accurate 8088 running a real 1982 IBM BIOS**, agreeing with the
+  5150 on 45 of 47 `gfxbench` rows (PERFORMANCE.md Set 11). QEMU's guest runs
+  at host speed through SeaBIOS; 86Box is period-*correct* rather than
+  cycle-accurate.
+- **A debugger that costs the guest nothing.** Memory, registers, ports,
+  breakpoints, single-step, cycle counts, over a socket, with no driver and no
+  UART in the guest. `verify` dumps `KERNEL_SEG` and diffs it against
+  `build/kernel.bin` in one command, which is docs/FIELD-MACHINES.md's
+  self-validating dump automated.
+- **A modelled CGA and MDA/Hercules**, so the SPEC.md §39.1 detection probe
+  actually runs — the thing this document called 86Box-only for years.
+
+What it does **not** cover, and where to go instead: VGA (mode 12h — QEMU),
+286/386 (86Box), sound (QEMU or 86Box), and **anything with a disk in it**
+(the 5150, and nothing else).
+
+**Input is not on that list either, and no guest module was needed for it.**
+`os88marty.py key` enters the emulator's keyboard buffer, so the guest sees a
+keystroke through the 8255 and int 09h; `mouse` builds a real Microsoft
+3-byte packet and clocks it into the serial controller, so `mou_isr` decodes
+it. Both drive *more* of the real path than a memory poke would — a poke to
+`[mouse_x]` skips the UART, the decoder and SPEC.md §9.5's port contest — and
+more than QEMU's `msmouse`, which is not a UART-level device and ignores DTR.
+
+**Screenshots are NOT on that list.** `os88marty.py shot out.png` reads the
+framebuffer out of VRAM and decodes SPEC.md §39.3's banked layout — the same
+arithmetic `tools/hercshot.py` uses, verified against QEMU's CGA at 60.0% lit
+on both. Starting QEMU to look at a screen when MartyPC is already running
+costs minutes for something one command answers. CGA and Hercules only: they
+are 1bpp so the bytes are the pixels, where mode 12h is four planes behind
+the Graphics Controller and not flat-readable at all.
+
+An example worth copying, because it is the shape of question this is for.
+"How many `int 13h` calls does one file load issue?" used to need
+`make DISKCNT=1`, SPEC.md §18.94's published counter block, and a test package
+on the floppy. It is now an `int` breakpoint on 13h against an **unmodified
+shipped kernel** — but the *timing* of those calls still has to come off the
+5150, because MartyPC will happily tell you a nine-sector read took 0.27 s.
+
+---
+
 ## What 86Box is genuinely for
 
-Real period hardware: the video **detection probe**, the 6845 programming, a
-4.77 MHz 8088's actual timing, a real CGA or Hercules card, an SB 2.0 on an
-XT bus, and the 286/386 machines. `make xt`, `xt-640`, `xt-cga`,
-`xt-hercules`, `xt-sound`, `286`, `286-sound`, `386sx`, `386`, `386-sound`.
+Narrower than it was, now that MartyPC covers the 8088 probe and the 6845:
+**a machine that is not an 8088** (the 286 and 386 targets), **real sound
+cards on a period bus**, and a second opinion on the video probe. `make xt`,
+`xt-640`, `xt-cga`, `xt-hercules`, `xt-sound`, `286`, `286-sound`, `386sx`,
+`386`, `386-sound`.
 
 It is not installed in the web container and needs BIOS ROMs, so those
 targets do not run there. Nothing above them does.
