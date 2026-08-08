@@ -3147,6 +3147,7 @@ Frame drawing (paint-all does this before calling W_PAINT):
 | `wm_content`   | in BX = win ptr; out AX = content left, DX = content top. WF_FULL set → AX = W_X, DX = W_Y (no border, no title bar — §11.2). |
 | `wm_sizable`   | in BX = win ptr, AL = 0 clear / non-zero set WF_SIZABLE. No repaint (the grow box appears at the next paint). UI-task context only (entry procs and window callbacks qualify); safe with or without the gfx lock there — every W_FLAGS writer runs on the UI task or under the lock. API slot 0x0108 (§20.3). |
 | `wm_grow_paint`| in BX = win ptr (caller holds the gfx lock): draw the grow box **iff** BX is the frontmost visible window with WF_SIZABLE set and WF_FULL clear; a no-op otherwise, so it is always safe to call. wm_draw_win uses it after W_PAINT, and a resizable window's **self-initiated content repaint must end with it** — the white-fill idiom (§22) erases the corner, and without the call the box vanishes until the next full repaint while wm_hit still reports AL=4 there. Packages reach it through API slot 0x0118 (§20.3). |
+| `wm_maximize`  | in BX = win ptr (resizable and not fullscreen — the CALLER's check); **caller holds the gfx lock**. Gives the window the whole desktop band — full width, `MBAR_H` down to one pixel short of the dock — honouring `WF_SNAP`, asking `wm_ask_size` first, and drawing **nothing at all** if the window is already there. All registers preserved. Not `wm_fullscreen`: the window keeps its chrome and its place in the z-order. §11.95. |
 | `wm_fullscreen`| in AL = 1 enter (BX = win ptr) / AL = 0 exit; **caller holds the gfx lock** (the intended callers are W_ONKEY/W_ONCLICK handlers, which already do). See §11.2. Out CF=1 refused (enter while another window owns the screen), CF=0 done. API slot 0x0110 (§20.3). |
 | `wm_ptr2idx`   | in BX = win ptr (record-aligned); out AL = window index, AH = 0. Clobbers nothing else. The one public home of the `(ptr − wm_wins) / WIN_SIZE` idiom. |
 | `wm_obscured`  | in BX = win ptr; out CF=1 if any visible window above BX in z-order overlaps its frame rect. Result is only trustworthy while the caller holds the gfx lock — the UI task mutates `wm_zord`/window rects under it. Kept, but **no longer the right answer for a background painter**: it vetoes a whole frame for one covered pixel. Use `wm_clip_set` (§11.3). |
@@ -3745,6 +3746,14 @@ Four sites write `W_X` and all four go through `wm_snap_ax`:
   origin is already 0. That is why apps/tracker has had the fast path all
   along without any of this (§45.9).
 
+A fifth site, **`wm_maximize`** (§11.95), shares the *gate* and not the
+arithmetic: `wm_snap_ax` moves left and re-tests the window's current width,
+and a maximize is the one case where x wants to move **right** and the width
+is about to shrink by the same seven pixels to pay for it. The three tests are
+therefore `wm_snap_want` (BX = window; CF = 1 = this window wants an 8-aligned
+content origin right now), which `wm_snap_ax` calls too — one answer to the
+question, two ways of acting on it.
+
 Three consequences worth naming:
 
 - **A snapped window cannot sit flush against the left edge.** The smallest x
@@ -3826,6 +3835,89 @@ buy it about 3% (alignment alone removes `font_char`'s second-byte spill)
 while costing 8-pixel drag steps on the window users move most. Not every
 text-heavy window is a candidate; the question is whether it draws its text
 as *runs it erases behind*, and the Disk window does not.
+
+### 11.95 Double-clicking a title bar maximizes a resizable window
+
+**Two presses on the same title bar inside `UI_TDBLT` (9) ticks give that
+window the whole desktop band** — full screen width, from the row under the
+menu bar down to one pixel short of the dock. `wm_maximize` (BX = window,
+caller holds the gfx lock) is the operation; `ui_tdbl` in §13's click ladder
+is what decides a press is the second of a pair.
+
+**It is not `wm_fullscreen` and it is not an fsx bracket.** §11.2 takes the
+screen away from the window manager — no border, no title bar, no chrome, one
+window at a time, and an exit path that has to put the old rect back; §53
+takes the machine away from the kernel. This takes neither. The window keeps
+its border, its title bar, its close/minimize/grow boxes and its place in
+`wm_zord`; it is simply as large as `wm_fit` would ever have let it be. So
+there is nothing to restore, no `[wm_fs]` to arm, and every routine that reads
+a window rect keeps reading exactly what it read before. **Undoing it is the
+grow box and the title bar**, the same two controls that produced any other
+size.
+
+**Resizable only.** `WF_SIZABLE` is the gate, tested in ui.inc before
+`wm_maximize` is called, because a fixed-layout window (a dialog, the Control
+Panel, Minesweeper) lays out against constants and has nothing to maximize
+into. A double-click on one of those title bars is an ordinary pair of presses
+and drags exactly as it always did — no beep and no notice, because §47 rule 6
+applies: nothing on that window ever offered to maximize, so there is nothing
+to explain. A `WF_FULL` window cannot reach here at all: `wm_hit` reports every
+point on it as content (§11.2), so region 1 never comes back for one.
+
+**The rect is `wm_fit`'s clamp said forwards**, and the one pixel matters:
+
+```
+x = 0                             (7 for a WF_SNAP window on mono — below)
+y = MBAR_H
+w = [vid_w]                       (less that 7)
+h = [vid_dock_y0] − MBAR_H − 1
+```
+
+That last `− 1` is not rounding. A window's drop shadow is on row `y+h` and
+`wm_dock_clear` tests `y+h` with `jae`, so a frame flush against the strip is
+*on* the dock as far as §11.90 is concerned, and every window later shown over
+this one pays a `wm_dock_under` pass. A maximize is the one operation
+guaranteed to land on that boundary, so getting it wrong here would make the
+feature expensive for everything else on the screen rather than for itself.
+
+**`WF_SNAP` is honoured, and it is the one case where a snap moves RIGHT.**
+§11.94's `wm_snap_ax` moves a candidate x *left* and re-tests the window's
+**current** width against the right edge — and at full screen width x = 7
+always fails that test, so a snapped window put through it would maximize to
+x = 0 and silently lose the single-store fast path it asked for. So the gate
+alone is factored out as **`wm_snap_want`** (BX = window; CF = 1 if this
+window's content origin wants to be 8-aligned right now — `WF_SNAP` set,
+`WF_FULL` clear, `[vid_mono]` non-zero) and `wm_maximize` acts on it in the
+other direction: x = 7, and the width gives back exactly the seven pixels x
+took, so the right edge is unmoved. `wm_snap_ax` calls the same routine, so
+there is still one answer to the question and not two that can drift.
+
+**It asks the window.** `wm_ask_size` (§11.1) runs on the proposed size before
+anything is written, because this is a kernel-initiated resize and those always
+ask — apps/paint refusing a size that would crop artwork is the case that
+exists. In practice a maximize only grows and every negotiator accepts; the
+call costs one compare for every window that has none.
+
+**Already maximized draws nothing.** All four of `W_X`/`W_Y`/`W_W`/`W_H` are
+compared against the target before anything is committed, so a second
+double-click is free. That is `ui_drag`'s "a drag that did not move the window
+repaints nothing" rule, and it matters more here: the commit is `wm_resize`,
+which repaints the whole screen and cannot be asked not to.
+
+**The commit is `wm_resize` plus two stores.** `wm_resize` (§11.1) already
+carries both clamps, the `wm_snap_win` re-fit and the repaint — but it only
+ever clamps a frame back *down* onto the screen, and never moves one up or
+left. So `W_X` and `W_Y` are written first and `wm_resize` then finds them
+already legal and leaves them alone. `wm_paint_all` rather than
+`wm_paint_dmg` is the right cost here and not a concession: the damage union
+of "where it was" and "the whole desktop band" *is* the whole desktop band.
+
+**The press is consumed, and the button is still down.** `wm_maximize` returns
+without entering `ui_drag`, so nothing tracks the release; the `EVT_MUP` behind
+it is popped by the UI loop and ignored, which is what that loop already does
+with every mouse-up. On a machine with no mouse (§9.6) the same press is a
+latched level, and `kbm_ui`'s end-of-pass service releases it for exactly this
+case — a pass that dispatched a press and did not track it.
 
 ## 12. menu.inc
 
@@ -4519,7 +4611,15 @@ Loop forever:
      instance reaches too once it owns a §20.6 worker; an ownerless window
      degrades to plain `wm_hide`), gfx_unlock. Minimize box (AL=3) →
      gfx_lock, `inst_minimize` BX (§29 — sets the instance's minimized
-     flag and hides; the dock tile inverts), gfx_unlock. Title bar → if
+     flag and hides; the dock tile inverts), gfx_unlock. Title bar → ask
+     `ui_tdbl` whether this press is the **second on this same title bar
+     inside `UI_TDBLT` (9) ticks**; if it is and the window has
+     `WF_SIZABLE`, that is a **maximize** (§11.95) — gfx_lock,
+     `wm_maximize` BX, gfx_unlock, and no drag at all (the button is still
+     down; the `EVT_MUP` behind it is ignored by this loop like every other
+     mouse-up). `ui_tdbl` keys on the window as well as the tick, compares
+     the clicks' BIRTH ticks (EV_C) like §22/§26, and spends a completed
+     pair so a third press starts a fresh one. Otherwise: if
      not front, `wm_front`; then run
      the **drag loop**: gfx_lock; xor-draw the outline at the window rect
      (via `vga_xor_rect_vram`, §5/§32 — the outline is a transient overlay

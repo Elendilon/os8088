@@ -465,6 +465,87 @@ wm_resize:
     ret
 
 ; -----------------------------------------------------------------------------
+; wm_maximize - give a window the whole desktop band (SPEC.md 11.95)
+;
+; in:  BX = window ptr - resizable and not fullscreen, both the CALLER's to
+;      check (ui.inc's title-bar branch is the only one); caller HOLDS the
+;      gfx lock
+; out: nothing (all registers preserved); the record carries the new rect and
+;      the screen is repainted - unless the window is already there, in which
+;      case NOTHING is drawn at all
+;
+; NOT wm_fullscreen (SPEC.md 11.2) and not an fsx bracket (SPEC.md 53): the
+; window keeps its border, its title bar, its boxes and its place in the
+; z-order, and simply takes the largest rect a window is allowed to occupy.
+; So it needs no exit path, nothing has to be put back, and everything that
+; reads a window rect keeps reading the same thing it always did.
+;
+; The rect is wm_fit's clamp said forwards instead of backwards - full screen
+; width, from the menu bar down to ONE PIXEL SHORT of the dock. That pixel is
+; not a rounding choice: the drop shadow lives on row y+h and wm_dock_clear
+; tests y+h with `jae`, so a frame flush against the strip makes every window
+; later shown over this one pay a wm_dock_under pass (SPEC.md 11.90). A
+; maximize is the one operation guaranteed to land on that boundary, so
+; getting it wrong here would make the feature expensive for everything else
+; on the screen.
+;
+; Three things it borrows rather than repeats:
+;
+;   - wm_snap_want (SPEC.md 11.94) for the WF_SNAP question. wm_snap_ax
+;     itself cannot serve: it moves LEFT and re-tests the window's CURRENT
+;     width, and at full screen width x = 7 always fails that test - so a
+;     snapped window would maximize to x = 0 and lose the fast path it asked
+;     for. Here x moves RIGHT to 7 and the width gives back exactly the seven
+;     pixels x took, which is the one place a snap can be paid for.
+;   - wm_ask_size, because this is a KERNEL-initiated resize and those always
+;     ask (SPEC.md 11.1). It runs before anything is written, so a window
+;     that refuses an axis costs no repaint - apps/paint refusing to crop
+;     artwork is the case, and a maximize only grows, so in practice every
+;     negotiator accepts.
+;   - wm_resize for the commit, which is both clamps, the WF_SNAP re-fit and
+;     the repaint. The one thing it will not do is move a window UP or LEFT -
+;     it only ever clamps a frame back down onto the screen - so the origin
+;     is written here first and wm_resize then finds it already legal.
+; -----------------------------------------------------------------------------
+wm_maximize:
+    push ax
+    push cx
+    push dx
+    xor ax, ax                  ; x = the left edge...
+    mov cx, [vid_w]             ; ...and w = the whole live screen (SPEC 39.2)
+    call wm_snap_want
+    jnc .nosnap
+    mov ax, 7                   ; WF_SNAP: the leftmost frame x whose CONTENT
+    sub cx, ax                  ; origin is a multiple of 8, and the width
+                                ; hands back exactly what x took
+.nosnap:
+    mov dx, [vid_dock_y0]       ; h = the desktop band, one pixel short of the
+    sub dx, MBAR_H + 1          ; dock - wm_fit's clamp, for wm_fit's reason
+    call wm_ask_size            ; the window gets its say, exactly as it does
+                                ; on a grow-box release (SPEC.md 11.1)
+    cmp [bx+W_X], ax            ; already exactly there? Then this is the
+    jne .go                     ; second double-click of a session that never
+    cmp word [bx+W_Y], MBAR_H   ; moved the window, and it draws nothing -
+    jne .go                     ; ui_drag's rule, and the reason it matters
+    cmp [bx+W_W], cx            ; here is that wm_resize repaints the whole
+    jne .go                     ; screen and cannot be asked not to
+    cmp [bx+W_H], dx
+    je .out
+.go:
+    mov [bx+W_X], ax
+    mov word [bx+W_Y], MBAR_H   ; the top of the desktop band; wm_resize's own
+                                ; y clamp only ever pushes a window UP OFF the
+                                ; dock, never down off the bar, so this is the
+                                ; half it cannot do
+    call wm_resize              ; ...and this is the half it can: both clamps,
+                                ; wm_snap_win and the repaint
+.out:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; wm_destroy - free a window record and repaint everything
 ; in:  BX = window ptr (caller holds the gfx lock)
 ; out: nothing (all registers preserved)
@@ -940,12 +1021,16 @@ wm_snap_win:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_snap_ax - snap a candidate frame x for a WF_SNAP window
-; in:  AX = candidate x (the caller's clamps already applied), BX = window ptr
-; out: AX = the x to use; every other register preserved, flags clobbered
+; wm_snap_want - does this window's content origin want to be 8-aligned?
+; in:  BX = window ptr
+; out: CF = 1 yes, CF = 0 no; every register preserved
 ;
-; The whole of SPEC.md 11.94's mechanism, in one place because four sites
-; write W_X and every one of them has to agree.
+; SPEC.md 11.94's GATE, on its own, because two places ask the question and
+; only one of them can use wm_snap_ax to act on it: that routine moves a
+; candidate x LEFT and re-tests the CURRENT width against the right edge,
+; and wm_maximize (SPEC.md 11.95) is exactly the case where x wants to move
+; RIGHT and the width is about to shrink to pay for it. One answer, two
+; users, rather than a second copy of three tests that has to agree.
 ;
 ; MONO ONLY, and the gate is [vid_mono] rather than [bb_on] on purpose. The
 ; two say the same thing on Hercules and CGA, but [bb_on] is also 1 on a VGA
@@ -957,6 +1042,28 @@ wm_snap_win:
 ; WF_FULL is left alone: a fullscreen window is at x=0 with no border, so its
 ; content origin is 0 and already aligned (SPEC.md 11.2) - which is why the
 ; tracker has had the fast path all along without any of this.
+; -----------------------------------------------------------------------------
+wm_snap_want:
+    test word [bx+W_FLAGS], WF_SNAP
+    jz .no
+    test word [bx+W_FLAGS], WF_FULL
+    jnz .no
+    cmp byte [vid_mono], 0
+    je .no
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_snap_ax - snap a candidate frame x for a WF_SNAP window
+; in:  AX = candidate x (the caller's clamps already applied), BX = window ptr
+; out: AX = the x to use; every other register preserved, flags clobbered
+;
+; The whole of SPEC.md 11.94's ARITHMETIC, in one place because four sites
+; write W_X and every one of them has to agree; the gate above is the fifth
+; site's half of it.
 ;
 ; The arithmetic moves LEFT, to the nearest x with x+1 a multiple of 8. Left
 ; because the caller has already clamped against the right edge and moving
@@ -966,12 +1073,8 @@ wm_snap_win:
 ; edge. That is the visible cost of the feature and it is 7 pixels.
 ; -----------------------------------------------------------------------------
 wm_snap_ax:
-    test word [bx+W_FLAGS], WF_SNAP
-    jz .out
-    test word [bx+W_FLAGS], WF_FULL
-    jnz .out
-    cmp byte [vid_mono], 0
-    je .out
+    call wm_snap_want
+    jnc .out
     push cx
     mov cx, ax
     inc cx
