@@ -18582,6 +18582,90 @@ fill's is geometry, which is per **rect**. Shortening it is §5.7's own
 problem — diffuse, no hot spot, already worth 20% once — and it wants a
 dedicated pass with `tests/gfxbench` as the gate, not a new slot.
 
+### 48.19 The drain cut holes in the fireball, and waiting is the fix
+
+A missile dies **inside** the burst that killed it, so the far end of its
+trail is under the fireball; §48.15's drain then replays those pixels in
+background, a few a frame, from the launch point forward — and arrives there
+while the burst is still lit. §48.8 draws a burst only when its drawn radius
+changes, which §48.18's ramp does **once**, so the black line stays cut into
+the disc for the rest of its 15-frame life. It is §48.9.1's rule in its exact
+form, third instance: the erase was harmless while the disc was redrawn every
+frame, and the optimisation that stopped the redraw inherited it.
+
+**It heals itself most of the time, which is why it reads as intermittent.**
+`mc_exp_restore` repaints every live burst whose x-range overlaps the armed
+terrain span (§48.9) — and the span is a *column* range, so an ICBM biting the
+ground anywhere in the same columns repairs a burst high in the sky. In live
+play that happens constantly, so a cut disc survives only until the next
+terrain repair under it.
+
+Two things about reproducing it are worth keeping, because both cost time.
+**A keystroke is too slow to freeze on**: `p` goes through the BIOS buffer and
+the worker's int 16h poll, which is several frames at ~29 drained pixels each,
+and the drain had always finished and been healed before the freeze landed.
+Poking `[mc_mode]` = `M_PAUSE` over the debugger freezes within one round trip
+and catches it. **And a screenshot pair is not a controlled comparison while
+the pointer is on the target**: the first "reproduction" was 36 differing
+pixels in a **7x11 box** between an incremental frame and a forced `[mc_full]`
+repaint, which is the 8x12 **arrow** — the kernel draws it at `gfx_unlock` and
+erases it at `gfx_lock`, so whether `shot` catches it is a race, and a
+widening triangle over a white disc reads exactly like a wedge bitten out of
+one. Rendering the diff as a bitmap is what showed it; the bbox alone did not.
+
+Measured on MartyPC's Hercules, same seeded scenario both times — burst at
+content (260,63) radius 13, drain line (302,194) → (260,63):
+
+| | `LEFT` while frozen | black pixels inside the disc |
+|---|---|---|
+| before | 0 (ran to the end) | **5**, a line on the trail's own slope |
+| after | **stalls at 21** | **0** |
+
+and over live play, counting interior-black per lit burst clear of the window
+edges: **{0: 5, 2: 8, 3: 6} in 5,105 samples before, {0: 15} in 4,798 after**
+(plus one whole-disc 253, which is a burst read in the frame before it is
+drawn, not a hole).
+
+**The fix draws nothing.** Those pixels never needed erasing: the burst was
+drawn *over* them, and its own end-of-life pass takes the whole disc back to
+sky and takes them with it. So the entry **waits** — `mc_drn_hold` answers
+CF=1 and the frame's serve is skipped, budget unspent — until the burst goes
+out, after which replaying them writes background over background. Repainting
+the burst instead was the obvious fix and is the dear one: a `mc_blob` is 9
+fills, about 11 ms on the field machine, once or twice per kill.
+
+Three things hold it up:
+
+- **The walk block will not say where it has got to** (§5.6.7 — the layout is
+  not the caller's to read), so the point is carried beside it in
+  `MC_DRN_CX`/`MC_DRN_CY`. The **major** axis advances by exactly the pixel
+  count — that is what makes it the major axis — and the minor is derived
+  from it rather than accumulated, so an entry that takes twenty frames drifts
+  by nothing. One `imul`/`idiv` pair per serving entry per frame is the whole
+  cost, and the span is grown by two pixels to cover both the interpolation's
+  disagreement with Bresenham and the disc's own edge.
+- **That divide takes the SIGNED delta, not its magnitude**, and the first
+  version took the magnitude. The minor coordinate is `start + delta *
+  (major − major_start) / delta_major`: the numerator already carries the
+  direction, so dividing by `|delta_major|` reflects the point about the start
+  whenever the line runs left or up — on the worked case it answered x = 337
+  where the line is at x = 267. It is worth stating because of how it failed:
+  the hold still fired, just in the wrong place and a few frames late, so the
+  entry visibly stalled and the disc was cut anyway, which reads as the whole
+  idea not working rather than as one instruction being wrong.
+- **The point is committed only when the entry actually moves.** Advancing it
+  on a held frame would walk the test past the burst it is waiting for.
+- **A burst at `mc_er` = 0 does not hold anything**, and neither does one on
+  its way out. The first has drawn nothing to protect — the drain runs *before*
+  `mc_draw_exp`, so on the frame a burst first reaches its radius the erase
+  goes through and the burst is then drawn over it — and the second is about
+  to be erased whole.
+
+What it looks like is smoke hanging in the fireball until the fireball fades,
+which is better than what it replaces. In the common case it is not even
+visible: the burst sits at the trail's **end**, so what waits is the last
+dozen pixels and there is nothing beyond them to look detached.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason

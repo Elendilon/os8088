@@ -167,7 +167,13 @@ MC_DRN_GX   equ MC_WLK + 12         ; the terrain the LAST pixels uncover
 MC_DRN_BX   equ MC_WLK + 14         ; the launcher the FIRST ones do; both
                                     ; MC_NODMG for none, and BX doubles as
                                     ; "this entry has not been served yet"
-MC_DRN      equ 32                  ; the stride, rounded up to a shift again
+MC_DRN_CX   equ MC_WLK + 16         ; where the erase has REACHED (SPEC.md
+MC_DRN_CY   equ MC_WLK + 18         ; 48.19) - the walk block knows, and its
+                                    ; layout is not ours to read, so this is
+                                    ; carried alongside it
+MC_DRN      equ 36                  ; the stride. Not a shift any more, and
+                                    ; nothing shifted by it - every reader
+                                    ; adds
 MC_DRNRATE  equ 24                  ; ...and its floor: eight times the rate a
                                     ; trail is DRAWN at, so a spent one is
                                     ; gone in well under a second
@@ -4329,6 +4335,10 @@ mc_drn_push:
     mov [mc_drn + di + MC_DRN_GX], ax
     mov ax, [mc_drnbx]
     mov [mc_drn + di + MC_DRN_BX], ax
+    mov ax, [mc_drn + di + MC_DRN_X1]   ; the erase has reached the launch
+    mov [mc_drn + di + MC_DRN_CX], ax   ; point and no further
+    mov ax, [mc_drn + di + MC_DRN_Y1]
+    mov [mc_drn + di + MC_DRN_CY], ax
     mov [mc_drn + di + MC_DRN_LEFT], si
     inc word [mc_drnq]
     clc
@@ -4337,6 +4347,167 @@ mc_drn_push:
     stc
 .out:
     pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_drn_hold - are the next AX pixels of this entry inside a burst that is
+;               still lit? (SPEC.md 48.19)
+; in:  SI = entry offset, AX = pixels about to be stepped
+; out: CF=1 hold the entry this frame and step nothing; CF=0 go ahead, and
+;      MC_DRN_CX/CY have been advanced to where the step ends
+; preserves all registers
+;
+; A missile dies INSIDE the burst that killed it, so the far end of its trail
+; is under the fireball - and SPEC.md 48.8 draws a burst only when its radius
+; changes, which the shipped ramp does once. A background line replayed
+; through a standing burst therefore stays cut into it for the rest of its
+; life, which is 48.9.1's rule again: the erase used to be harmless because
+; the disc was redrawn every frame.
+;
+; Those pixels do not need erasing at all. The burst drew OVER them, and its
+; own end-of-life pass (mc_draw_exp's .gone) takes the whole disc back to sky
+; and takes them with it. So the entry WAITS rather than the burst being
+; repainted - no extra drawing anywhere, and what it reads as is smoke
+; hanging in the fireball until the fireball fades.
+;
+; The walk block will not say where it has got to, so the point is carried
+; alongside it: the MAJOR axis advances by exactly the pixel count (that is
+; what makes it the major axis) and the minor is derived from it, so nothing
+; drifts however many frames an entry takes.
+; -----------------------------------------------------------------------------
+mc_drn_hold:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [mc_dhent], si
+    mov [mc_dhn], ax                ; the step
+    mov ax, [mc_drn + si + MC_DRN_X2]
+    sub ax, [mc_drn + si + MC_DRN_X1]
+    mov [mc_dhdx], ax               ; dx and dy, signed
+    mov bx, [mc_drn + si + MC_DRN_Y2]
+    sub bx, [mc_drn + si + MC_DRN_Y1]
+    mov [mc_dhdy], bx
+    or ax, ax                       ; ...and their magnitudes, which is what
+    jns .adx                        ; decides the major axis. The DIVISIONS
+    neg ax                          ; below use the signed deltas, not these:
+.adx:                               ; the numerator carries the direction too,
+    or bx, bx                       ; so dividing by a magnitude puts the
+    jns .ady                        ; point on the wrong side of the start
+    neg bx                          ; whenever the line runs left or up
+.ady:
+    mov cx, [mc_drn + si + MC_DRN_CX]   ; where the erase has reached
+    mov dx, [mc_drn + si + MC_DRN_CY]
+    mov [mc_dhx0], cx
+    mov [mc_dhy0], dx
+    cmp ax, bx
+    jb .ymaj
+    or ax, ax                       ; both zero: one pixel, and it is already
+    jz .point                       ; where the step ends
+    mov ax, [mc_dhn]                ; x advances by exactly the step - that
+    cmp word [mc_dhdx], 0           ; is what makes it the major axis
+    jl .xneg
+    add cx, ax
+    jmp short .xd
+.xneg:
+    sub cx, ax
+.xd:
+    mov [mc_dhnx], cx               ; banked before the divide eats DX
+    mov ax, cx                      ; y = y1 + dy * (x - x1) / |dx|
+    sub ax, [mc_drn + si + MC_DRN_X1]
+    imul word [mc_dhdy]
+    idiv word [mc_dhdx]
+    add ax, [mc_drn + si + MC_DRN_Y1]
+    mov [mc_dhny], ax
+    jmp short .box
+.ymaj:
+    mov ax, [mc_dhn]
+    cmp word [mc_dhdy], 0
+    jl .yneg
+    add dx, ax
+    jmp short .yd
+.yneg:
+    sub dx, ax
+.yd:
+    mov [mc_dhny], dx
+    mov ax, dx                      ; x = x1 + dx * (y - y1) / |dy|
+    sub ax, [mc_drn + si + MC_DRN_Y1]
+    imul word [mc_dhdx]
+    idiv word [mc_dhdy]
+    add ax, [mc_drn + si + MC_DRN_X1]
+    mov [mc_dhnx], ax
+    jmp short .box
+.point:
+    mov [mc_dhnx], cx
+    mov [mc_dhny], dx
+.box:                               ; the span, grown by the pixel the
+    mov ax, [mc_dhx0]               ; interpolation and Bresenham can differ
+    mov bx, [mc_dhnx]               ; by, and one more for the disc's own edge
+    cmp ax, bx
+    jle .bx
+    xchg ax, bx
+.bx:
+    sub ax, 2
+    add bx, 2
+    mov [mc_dhx0], ax
+    mov [mc_dhx1], bx
+    mov ax, [mc_dhy0]
+    mov bx, [mc_dhny]
+    cmp ax, bx
+    jle .by
+    xchg ax, bx
+.by:
+    sub ax, 2
+    add bx, 2
+    mov [mc_dhy0], ax
+    mov [mc_dhy1], bx
+    xor si, si                      ; every burst that is LIT - one at mc_er
+.each:                              ; 0 has drawn nothing to protect, and one
+    cmp byte [mc_ea + si], 1        ; on its way out is erased whole anyway
+    jne .enext
+    mov bl, [mc_er + si]
+    mov bh, 0
+    or bx, bx
+    jz .enext
+    mov di, si
+    add di, di
+    mov ax, [mc_ex + di]
+    mov cx, ax
+    sub ax, bx
+    add cx, bx
+    cmp cx, [mc_dhx0]
+    jl .enext
+    cmp ax, [mc_dhx1]
+    jg .enext
+    mov ax, [mc_ey + di]
+    mov cx, ax
+    sub ax, bx
+    add cx, bx
+    cmp cx, [mc_dhy0]
+    jl .enext
+    cmp ax, [mc_dhy1]
+    jg .enext
+    stc                             ; in the way: the entry waits, and the
+    jmp short .out                  ; point is NOT committed
+.enext:
+    inc si
+    cmp si, MC_MAXEXP
+    jb .each
+    mov si, [mc_dhent]
+    mov ax, [mc_dhnx]
+    mov [mc_drn + si + MC_DRN_CX], ax
+    mov ax, [mc_dhny]
+    mov [mc_drn + si + MC_DRN_CY], ax
+    clc
+.out:                               ; pop leaves the flags alone, which is
+    pop di                          ; what carries CF out of here
     pop si
     pop dx
     pop cx
@@ -4397,6 +4568,8 @@ mc_drn_run:
     jbe .r2
     mov ax, [mc_drnbud]
 .r2:
+    call mc_drn_hold                ; SPEC.md 48.19: pixels under a lit burst
+    jc .next                        ; are that burst's to erase, not ours
     sub [mc_drnbud], ax
     sub [mc_drn + si + MC_DRN_LEFT], ax
     mov [mc_drncnt], ax
@@ -7107,6 +7280,18 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MWORD mc_drnbx                  ; which no register was left for
     MBUF  mc_dsc,    MC_DSCMAX * 4  ; the batch: `dw block, pixels` pairs
     MWORD mc_dscn
+    MWORD mc_dhent                  ; mc_drn_hold's workings (SPEC.md 48.19):
+    MWORD mc_dhn                    ; the entry, the step, the line's two
+    MWORD mc_dhdx                   ; deltas, and the span the step would
+    MWORD mc_dhdy                   ; erase. All of it is in memory because
+                                    ; the burst scan wants every register it
+                                    ; can get, and BP addresses SS
+    MWORD mc_dhnx
+    MWORD mc_dhny
+    MWORD mc_dhx0
+    MWORD mc_dhy0
+    MWORD mc_dhx1
+    MWORD mc_dhy1
 
 ; --- the explosions -------------------------------------------------------------
     MBUF  mc_ea,     MC_MAXEXP      ; 0 free / 1 burning / FF needs erasing
