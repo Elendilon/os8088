@@ -810,6 +810,13 @@ sch_isr:
     mov ax, KERNEL_SEG
     mov ds, ax
 
+    inc word [sch_subs]         ; EVERY entry, sub-ticks included: fsx_wait's
+                                ; frame clock waits on this (SPEC.md 53.5.1),
+                                ; and it must count the interrupts the PIT
+                                ; actually delivers rather than the ticks this
+                                ; routine chooses to publish. Above the
+                                ; sch_fast split for exactly that reason
+
     cmp byte [sch_fast], 0      ; the fsx sub-tick (SPEC.md 53.2.1). While it is
     je .full                    ; armed IRQ0 arrives N times a tick and only
     dec byte [sch_fcnt]         ; the Nth entry IS a tick: everything that
@@ -1033,6 +1040,15 @@ sch_cycles: resw MAX_TASKS * 2          ; per-task CPU time, PIT cycles, dword
 sch_pit_last: resw 2                    ; last timestamp: phase, then ticks
 sch_fast:   resb 1                      ; fsx sub-tick (SPEC.md 53.2.1): 0 off,
 sch_fcnt:   resb 1                      ; else N, with this counting down
+sch_subs:   resw 1                      ; free-running IRQ0 entries, SUB-TICKS
+                                        ; included (SPEC.md 53.5.1). The
+                                        ; finest clock a task can WAIT on:
+                                        ; [ticks] moves 18.2 times a second
+                                        ; whatever sch_fast is, and this moves
+                                        ; every time the PIT does. Compared
+                                        ; for CHANGE only, so the value it
+                                        ; starts at does not matter and the
+                                        ; wrap at 65536 is not a case
 sch_coop:   resb 1                      ; mode (SPEC.md 8.2): 0 pre-emptive,
                                         ; 1 cooperative; sched_mode_set/_get
 sch_hold:   resb 1                      ; ticks the running task has held the

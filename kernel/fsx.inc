@@ -34,6 +34,13 @@ FSXF_FASTTICK   equ 2           ; ...bit 1 (SPEC.md 53.2.1): IRQ0 three times a
                                 ; tick, so the round-robin quantum is 18 ms
                                 ; instead of 55. [ticks] does not change rate
 
+; --- fsx_wait's clock (SPEC.md 53.5; mirrored in apps/os88api.inc) -----------
+FSXW_TICK   equ 0               ; the next [ticks] change, hlt between polls
+FSXW_VSYNC  equ 1               ; vertical retrace, polled - SPINS (53.5.1)
+FSXW_FRAME  equ 2               ; the next IRQ0: the sub-tick while FASTTICK is
+                                ; armed, the tick otherwise - and it YIELDS,
+                                ; so a kept worker gets the time (53.5.1)
+
 ; --- the info block fsx_mode fills (SPEC.md 53.4) ----------------------------
 FSI_SEG    equ 0                ; word: framebuffer segment
 FSI_W      equ 2                ; word: width  - pixels; COLUMNS in text
@@ -450,11 +457,17 @@ fsx_xcrtc:                      ; Mode X CRTC retiming, index in the low byte
 ; -----------------------------------------------------------------------------
 ; fsx_wait - the frame clock, and the present (SPEC.md 53.5, 0x02D8)
 ;
-; in:       AL = 0 return at the next [ticks] change (hlt between polls);
-;           AL = 1 return in vertical retrace. Bracket-only, exclusive task
-;           only.
+; in:       AL = FSXW_TICK  (0) return at the next [ticks] change (hlt between
+;                              polls);
+;           AL = FSXW_VSYNC (1) return in vertical retrace;
+;           AL = FSXW_FRAME (2) return at the next IRQ0 - the SUB-TICK while
+;                              FSXF_FASTTICK is armed, the tick otherwise -
+;                              handing the machine to the kept worker in the
+;                              meantime (SPEC.md 53.5.1).
+;           Bracket-only, exclusive task only.
 ; out:      CF=0 (a timed-out retrace wait too - timing degrades, it does
-;           not fail); CF=1 outside a bracket. Every register preserved.
+;           not fail); CF=1 outside a bracket or on an unknown AL. Every
+;           register preserved.
 ;
 ; The present: while [bb_dbl] is armed and no mode switch has happened, the
 ; armed buffer is flushed BEFORE the wait - the bracket never calls
@@ -462,6 +475,33 @@ fsx_xcrtc:                      ; Mode X CRTC retiming, index in the low byte
 ; retrace poll is bounded by a [ticks] delta (SPEC.md 37.90's rule: the one
 ; way to hang is waiting forever for a bit that never changes on a machine
 ; where every read is 0FFh).
+;
+; WHY FSXW_FRAME EXISTS, AND WHY IT YIELDS (SPEC.md 53.5.1). The other two
+; wait by BURNING the CPU, and under a round-robin scheduler a busy-wait is
+; indistinguishable from work: the exclusive task takes its half of the
+; machine whether it needs it or not. That is affordable for a bracket that
+; is alone in the machine and it is not affordable for one with a
+; FSXF_KEEPWORKER, because the whole promise of that flag is that the worker
+; keeps running - and Tracker's worker is a MOD mixer that needs ~55% of a
+; 4.77MHz 8088 to hold 5,500 Hz. Measured under a cycle-accurate 8088:
+; fsx_insync + fsx_wait were 28.8% of the machine, the mixer got 35% where
+; windowed it gets 47%, and the card was fed 4,808 bytes a second against
+; the 5,533 it plays - so the ring's three-second cushion drained over the
+; first half-minute and every second after that dropped audio.
+;
+; So this one does not poll a port at all. It waits on [sch_subs], which the
+; PIT advances whether we are running or not, and between polls it calls
+; task_yield - which hands the CPU to the next ready whitelisted task rather
+; than to the next iteration of a loop. When a worker is ready that costs ONE
+; context switch per frame and gives it everything else; when nothing is
+; ready sch_switch resumes us and it degenerates to the spin the other two
+; paths always were, which is exactly right, because with nothing else
+; runnable there is nobody to starve.
+;
+; It is a frame clock rather than merely a cheaper wait: FSX_SUBTICK is 3, so
+; while FSXF_FASTTICK is armed this returns 54.6 times a second - faster than
+; a Hercules' 50 Hz retrace, within 10% of a CGA's 60, and evenly spaced by a
+; crystal instead of by whatever the drawing loop managed last tick.
 ; -----------------------------------------------------------------------------
 fsx_wait:
     push ax
@@ -472,12 +512,17 @@ fsx_wait:
     je .fail
     cmp ah, [sch_cur]
     jne .fail
+    cmp al, FSXW_FRAME          ; the argument is checked BEFORE the present,
+    ja .fail                    ; so an unknown clock never flushes and then
+                                ; refuses (SPEC.md 53.1's all-or-nothing)
     cmp byte [fsx_cur], 0xFF    ; the present clause: unswitched + armed
     jne .nopresent
     cmp byte [bb_dbl], 0
     je .nopresent
     call gfx_flush
 .nopresent:
+    cmp al, FSXW_FRAME
+    je .frame
     or al, al
     jnz .vsync
     mov bx, [ticks]             ; AL = 0: the next tick
@@ -485,6 +530,13 @@ fsx_wait:
     hlt                         ; IF=1 in callback context - the tick wakes it
     cmp bx, [ticks]
     je .tick
+    jmp short .ok
+.frame:
+    mov bx, [sch_subs]          ; AL = 2: the next IRQ0, however the divider
+.fw:                            ; is set - and the wait itself is the yield,
+    call task_yield             ; so the time we do not use is the worker's
+    cmp bx, [sch_subs]
+    je .fw
     jmp short .ok
 .vsync:
     mov dx, 0x3DA               ; the port by the CURRENT mode: on a Hercules

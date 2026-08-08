@@ -1108,7 +1108,7 @@ trk_fsx_main:
 .txok:
     mov byte [trk_tx], 1
     call ttx_draw_all
-    call ttx_clkprobe               ; the frame clock, measured (SPEC.md 45.16)
+    call ttx_clkpick                ; the frame clock (SPEC.md 45.16/53.5.1)
 .txloop:
     call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
     mov ah, 1
