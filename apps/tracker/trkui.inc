@@ -535,46 +535,130 @@ tui_dec3:
     ret
 
 ; -----------------------------------------------------------------------------
-; tui_rdout - ONE gated erase+text pair (the fr_status idiom, SPEC.md 11.3):
-;             clip-test the erase rect; covered in any part, skip BOTH.
-; in:  SI = NUL string, CX = x, DX = y (content), BX = erase width px,
-;      AH = erase colour index, AL = text colour index
+; tui_rdout - ONE readout field: the value, opaque, in its own rect.
+; in:  SI = NUL string, CX = x, DX = y (content), BX = field width px,
+;      AH = background colour index, AL = text colour index
 ; preserves all registers
+;
+; IT WAS AN ERASE-AND-LETTER PAIR AND THAT IS PERFORMANCE.md PART 1's
+; DOUBLE-DRAW FLASH. Every value readout in the windowed view goes through
+; here - Pos, Row, BPM, Spd, Ptn, Np, the song title, the status line - and
+; the pair left the field BLANK between the fill and the last glyph. On an
+; 8088 that gap is tens of milliseconds, and the Pos/Row line redraws about
+; seven times a second, so the field visibly strobes. Reported from the field
+; as "windowed mode is drawing flashing characters".
+;
+; On a mono adapter it is now ONE OSAPI_FONT_RUN (SPEC.md 6.1): the string is
+; space-padded to the field's width and a space paints background on the fast
+; path, so THE PADDING IS THE ERASE and every cell goes from its old contents
+; to its final contents in a single store. There is no moment at which the
+; field is empty.
+;
+; Two things earn that fast path and both are needed. The window is WF_SNAP
+; (SPEC.md 11.94), so [tui_ox] is a multiple of 8; and the field's x must be
+; too, which is what the round-down below is for - font_run's fallback is
+; literally the fill-then-letter pair this routine is escaping, so an
+; unaligned run would buy nothing. Rounding DOWN rather than moving the
+; callers is safe because the up-to-7 extra pixels are inside the field's own
+; background - a value sits in a box face with its label a cell or more to
+; the left - and it makes every caller aligned, including ones not yet
+; written. The one site where the pixels to the left are NOT this field's
+; background is the song title, whose x is 296 rather than 295 for exactly
+; this reason.
+;
+; On a colour adapter tui_runc has no fill (its callers there have already
+; filled the band), so this keeps the pair: VGA is unchanged, and VGA is not
+; where the flash was reported from.
+;
+; A string longer than the field is now TRUNCATED where it used to overflow
+; the erase rect and draw outside it. That is the better behaviour and no
+; shipped string reaches it - the widest field is the status line at ~51
+; cells and the longest message is far shorter.
 ; -----------------------------------------------------------------------------
+TUI_RDCELLS equ 56                  ; the widest field is [tui_cw]/8 and the
+                                    ; frame is TRK_WINW = 420, so 52 cells;
+                                    ; the clamp is a bound, not a budget
 tui_rdout:
     push ax
     push bx
     push cx
     push dx
     push si
+    push di
+    push es
     mov [tui_tcol], al
     mov [tui_ecol], ah
-    mov ax, bx
-    add ax, cx
-    dec ax                          ; x2
-    mov bx, dx                      ; y1
-    push dx                         ; text y
-    push cx                         ; text x
-    mov dx, bx
+    cmp byte [tui_mono], 0
+    je .keep
+    mov ax, cx                      ; mono: widen the field LEFT to the byte
+    and ax, 7                       ; boundary, so the run takes font_run's
+    sub cx, ax                      ; single-store path (see the header)
+    add bx, ax
+.keep:
+    mov [tui_rdw], bx
+    mov [tui_rdx], cx
+    mov [tui_rdy], dx
+    mov ax, cx                      ; the clip gate runs on the rect actually
+    mov bx, dx                      ; drawn, widened or not
+    mov cx, [tui_rdw]
+    add cx, ax
+    dec cx                          ; x2
     add dx, 7                       ; y2
-    xchg ax, cx                     ; AX = x1, CX = x2
     call tui_clipc
-    jc .skip
-    push ax
+    jc .out
+    cmp byte [tui_mono], 0
+    je .pair
+    push ds                         ; stosb writes through ES, and ES is
+    pop es                          ; KERNEL_SEG on entry to a callback
+    cld
+    mov ax, [tui_rdw]
+    mov cl, 3
+    shr ax, cl                      ; AX = cells the field spans
+    cmp ax, TUI_RDCELLS
+    jbe .cok
+    mov ax, TUI_RDCELLS
+.cok:
+    mov cx, ax
+    mov di, tui_rbuf
+.cp:
+    jcxz .cdone                     ; the value, then spaces to the field's
+    lodsb                           ; end - the pad is what erases what was
+    or al, al                       ; there before
+    jz .pad
+    stosb
+    dec cx
+    jmp short .cp
+.pad:
+    mov al, ' '
+    rep stosb
+.cdone:
+    mov byte [di], 0
+    mov si, tui_rbuf
+    mov cx, [tui_rdx]
+    mov dx, [tui_rdy]
+    mov al, [tui_tcol]
+    mov ah, [tui_ecol]
+    call tui_runc
+    jmp short .out
+.pair:
+    mov ax, [tui_rdx]               ; colour: the erase-and-letter pair, as
+    mov bx, [tui_rdy]               ; before - tui_runc does not fill there
+    mov cx, [tui_rdw]
+    add cx, ax
+    dec cx
+    mov dx, bx
+    add dx, 7
     mov al, [tui_ecol]
     call tui_setcol
-    pop ax
     call tui_fillc
     mov al, [tui_tcol]
     call tui_setcol
-    pop cx
-    pop dx
+    mov cx, [tui_rdx]
+    mov dx, [tui_rdy]
     call tui_textc
-    jmp .out
-.skip:
-    pop cx
-    pop dx
 .out:
+    pop es
+    pop di
     pop si
     pop dx
     pop cx
@@ -1122,7 +1206,9 @@ tui_el_scopes:
     test byte [tui_lay + TL_FLAGS], TLF_INSTR | TLF_CMPCT
     jnz .sync
     mov si, mp_title
-    mov cx, 295
+    mov cx, 296                     ; byte-aligned: tui_rdout rounds DOWN and
+                                    ; the 7 pixels left of 295 are the scope
+                                    ; row, not this field's background
     mov dx, 52
     mov bx, 176
     mov ah, TC_STATB
@@ -2980,6 +3066,12 @@ tui_ab5:     db 'Any key closes', 0
     TRKW tui_msgp                   ; status-line string, 0 = the key hint
     TRKB tui_tcol                   ; tui_rdout scratch
     TRKB tui_ecol
+    TRKW tui_rdw                    ; ...and the field it is drawing, banked
+    TRKW tui_rdx                    ; because the clip gate spends CX and DX
+    TRKW tui_rdy
+    TRKBUF tui_rbuf, TUI_RDCELLS + 1    ; the space-padded run (SPEC.md 6.1):
+                                        ; the padding is what erases the old
+                                        ; value, so there is no blank moment
     TRKW tui_t1                     ; shared scratch words (serial: every
     TRKW tui_t2                     ; drawer runs under the one gfx lock)
     TRKBUF tui_nbuf, 8              ; number/text compose buffers

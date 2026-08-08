@@ -17688,6 +17688,37 @@ difference — a rising bar fills its growth, a falling one erases its
 shrinkage, a steady one costs nothing; `tui_el_scopes` zeroes the four
 widths whenever it repaints the cells under them.
 
+**And every value readout is ONE OPAQUE RUN, not an erase and a letter.**
+`tui_rdout` is the single routine behind Pos, Row, BPM, Spd, Ptn, Np, the
+song title and the status line, and it was a `gfx_fill` of the field's rect
+followed by a `font_str` over it — Part 1's **double-draw flash**, with the
+field blank for the gap between them. On an 8088 that gap is tens of
+milliseconds and the Pos/Row line redraws about seven times a second, so it
+strobes; reported from the field as *"windowed mode is drawing flashing
+characters"*. On a mono adapter it is now one `OSAPI_FONT_RUN` with the
+string **space-padded to the field's width**, so the padding *is* the erase
+and every cell goes from its old contents to its final contents in one store
+(§6.1).
+
+Two things earn that, and the second is the one that is easy to leave out:
+the window is `WF_SNAP` (§11.94) so `[tui_ox]` is a multiple of 8, **and the
+field's own x must be too** — `font_run`'s fallback is literally the
+fill-then-letter pair being escaped, so an unaligned run buys nothing at all.
+`tui_rdout` rounds its x **down** to the byte boundary rather than moving its
+callers: the up-to-7 extra pixels are inside the field's own background (a
+value sits in a box face with its label a cell or more to its left), and
+doing it in the routine makes every caller aligned including ones not yet
+written. The song title is the one field whose left-hand neighbour is *not*
+its own background, so its x is 296 rather than 295.
+
+On a colour adapter `tui_runc` does not fill — its callers there have already
+filled the band — so `tui_rdout` keeps the pair on VGA and is unchanged
+there. Measured on CGA with `os88marty.py flicker`, 200 frames of the same
+windowed scene: the **worst single flash goes 278 px → 57 px**, and what is
+left is the instrument counting a hex digit that cycled back to a value it
+had held before, which is a counter doing its job rather than a field going
+blank.
+
 #### 45.12.1 The needle is driven by the NOTE, and driving it by the volume cancelled out
 
 `tui_vu_step` used to *rise instantly to `[tui_avol]` and fall two units a
