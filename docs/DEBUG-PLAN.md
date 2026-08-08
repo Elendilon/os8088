@@ -15,9 +15,13 @@ So: can 86Box be given a host-side interface — serial, parallel, or ethernet �
 that a debugging tool on the host talks to, to send commands, dump memory and
 take actions?
 
-**Short answer: yes, over serial, with no patch to 86Box and no new emulator.
-86Box already ships the host end of it.** The rest of this document is which
-facility, why that one, what it costs in the guest, and what was rejected.
+**Short answer: yes, with no patch to 86Box and no new emulator — and the
+channel should be TWO channels, split by direction.** Serial carries commands
+in and small replies out; **bulk output goes out through a raw disk image the
+host reads as a file**, because 9600 baud is what an 8088 can receive
+(section 2.1) and a whole-segment dump at 960 B/s is 68 seconds. The rest of
+this document is which facility, why that one, what it costs in the guest,
+and what was rejected.
 
 **Scope: `SERDBG=1` builds only.** The knob follows `DISKCNT=1` (SPEC.md
 §18.94) exactly — its own `BUILD=` directory, its own disk image, on the
@@ -242,7 +246,132 @@ ISR lands on whichever one is current).
 
 ---
 
-## 3. Recommended build, in three stages
+## 3. The data plane: a raw disk image the host reads as a file
+
+Serial is the wrong pipe for bulk, and section 2.1 says why in one number:
+the receive direction caps the divisor, one divisor sets both, and 9600 baud
+is 960 B/s. A 64 KB segment is 68 seconds and a megabyte is 18 minutes. But
+**the highest-value instrument this project has is exactly the thing serial
+cannot carry** — docs/FIELD-MACHINES.md on MartyPC: *"Ask for a dump whenever
+the question is 'what does the kernel think'"*, and *"a dump is
+self-validating"*, because linear `0x600` onward is `build/kernel.bin` byte
+for byte apart from writable state. Today that costs a human a menu click in
+a third emulator. A disk data plane makes it a command.
+
+So: the guest writes the payload to a disk, and the host reads the image
+file. Four facts make this work.
+
+### 3.1 86Box flushes every sector write to the host file
+
+`hdd_image_write` (`src/disk/hdd_image.c` ~L664):
+
+```c
+num_write          = fwrite(buffer, 512, count, hdd_images[id].file);
+hdd_images[id].pos = sector + num_write;
+fflush(hdd_images[id].file);
+```
+
+**The image must be RAW, not VHD.** The `HDD_IMAGE_VHD` branch above it goes
+through `mvhd_write_sectors` and has no `fflush` at all, so a VHD is not
+guaranteed to be readable underneath a running 86Box.
+
+The host reader must not cache either: `seek`+`read` per request against the
+page cache is coherent on Linux and macOS; a buffer held across requests is
+not.
+
+### 3.2 The guest end is `int 13h`, not the hard disk driver
+
+This is the decision that makes it cheap, and it goes against the obvious
+build. **Do not mount a volume, do not use `drivers/hdd`, do not write a
+file.** Three reasons:
+
+- **A debug channel must not depend on the filesystem**, which is the
+  subsystem it will most often be asked to debug. Writing a file means BPB
+  validation, the FAT window, `dskw_write`'s commit order, a driver attached
+  and a volume mounted — every one of them a thing that can be broken at the
+  moment you need the channel.
+- **On an XT it would not work anyway.** SPEC.md §52 gates the driver's
+  rung 1 (the IDE task file) on `CPU_286`, because an 8088's `in ax, dx` is
+  two 8-bit bus cycles at the same port and loses the high byte. Rung 0 on
+  an XT *is* the controller's option ROM, which is `int 13h`.
+- **The pattern and its one safety rule are already in the tree.**
+  `dsk_dbg_raw` (SPEC.md §18.94) is a far entry that issues a raw `int 13h`
+  **holding `sch_lock`**, and it exists because `tests/sysbench` calling
+  `int 13h` itself **hard froze the 5150**: a BIOS runs its disk handler and
+  its IRQ nesting on whichever 256-byte task stack is current (SPEC.md §8),
+  on top of the caller's own frames. The debug writer inherits that rule
+  verbatim.
+
+So the writer is `AH=03h, DL=81h, ES:BX, CHS`, `sch_lock` held, ~40 lines.
+The host reader is `f.seek(lba << 9); f.read(n << 9)`. No FAT parser on
+either side, no loop mount, and `tools/os88disk.py` is not involved.
+
+### 3.3 Give it a disk of its own, with no partition table
+
+Not the boot disk and not a partition on a shared one. SPEC.md §52.4 mounts
+**every** FAT partition it finds, and the allocator would then be free to
+write over a debug region living inside one. A second drive (`81h`) with a
+zeroed sector 0 has no valid type byte in any slot, so §52.4's walk mounts
+nothing and the region cannot collide with anything the OS does.
+
+It also keeps the failure modes apart: a debug disk that fills, tears or goes
+missing says nothing about the volume under test.
+
+### 3.4 The two planes must be sequenced, and serial is what sequences them
+
+Polling an image file for "is it written yet" is the whole difficulty of this
+design, and the fix is to not poll. The guest replies **over serial** when
+the write has returned:
+
+```
+host →  d 0060:0000 4000        ; dump 16KB from KERNEL_SEG:0
+guest →  ok 81 0000 0020 3f7a   ; drive 81h, LBA 0, 32 sectors, checksum
+host  →  (reads 16384 bytes at offset 0 of build/dbgdisk.img, verifies 3f7a)
+```
+
+The checksum is not ceremony — it is what separates a channel you can trust
+from one that silently hands back the previous run's bytes. It catches a
+torn read, a stale mapping, the wrong offset and the wrong image, all with a
+16-bit sum the guest computes from the same buffer it wrote.
+
+**Small replies stay on serial.** A 32-byte instance record is 33 ms over the
+wire; arranging a disk write for it is silly. The rule is a threshold — under
+~256 bytes the answer comes back inline, over it the `ok` line names where
+the payload is.
+
+### 3.5 What it costs, and where it does not work
+
+| | serial only | serial + disk |
+|---|---|---|
+| 64 KB segment | ~68 s | ~1–2 s |
+| targeted 32-byte read | 33 ms | 33 ms (unchanged) |
+| new hardware in `vm/*/86box.cfg` | none | a controller and an image |
+| works on the 5150 | **yes** | **no** |
+
+That last row is the one to weigh. docs/FIELD-MACHINES.md is explicit that the
+5150's C: is a real DOS 3.3 install and **nothing may format, partition,
+write or delete on it** — so the data plane is an emulator accelerator, not a
+field instrument, and the serial output path in Stage 0 stays exactly as
+important as it was. It is also why this does not replace serial output: it
+supplements it.
+
+**On the controller.** 86Box's `hdc_st506_xt.c` registers
+`st506_xt_st11_m` — the Seagate ST11M, which is *the controller the
+calibration machine has* (docs/FIELD-MACHINES.md), so the emulated path and
+the real machine's are the same option ROM. `xtide` is there too if a
+modern XT-IDE is preferred for the debug drive; on the 5150 it would be
+refused as non-period, but in 86Box nothing is at stake.
+
+**QEMU gets this for free**, which is worth knowing because it means the guest
+code can be developed under the fast emulator: `make test HDD=40` already
+attaches `build/hdd.img` as a raw IDE disk. Same `int 13h`, same host-side
+read. Verify QEMU's write visibility once — the default `cache=writeback`
+should make the data visible to another reader through the host page cache,
+but that is an assumption, not something checked here.
+
+---
+
+## 4. Recommended build, in three stages
 
 Each stage is independently useful and none of them blocks the next.
 
@@ -279,7 +408,8 @@ tree's own debugging has actually needed:
 
 | command | why it is in the list |
 |---|---|
-| `m <seg>:<off> <len>` | read memory — "what does the kernel think" |
+| `m <seg>:<off> <len>` | read memory inline — "what does the kernel think" |
+| `d <seg>:<off> <len>` | **the same, out through the data plane** (section 3) |
 | `M <seg>:<off> <bytes>` | write memory — flip a flag without a rebuild |
 | `i <port>` / `o <port> <val>` | read/write an I/O port — the 6845, the UART, the OPL2 |
 | `r` | the interrupted register frame |
@@ -287,7 +417,13 @@ tree's own debugging has actually needed:
 | `c <seg>:<off>` | far-call a kernel routine, `sch_lock` held |
 | `g` | resume |
 
-`m` is the load-bearing one and the rest are conveniences. Note that
+`m` and `d` are the same operation over the two planes, and **one threshold
+picks between them** so a caller never has to: under ~256 bytes the answer is
+hex on the wire, over it the guest writes sectors and replies with an `ok`
+line naming drive, LBA, count and checksum. Implement `m` first — `d` is
+Stage 1b and needs section 3's disk in the machine, which `m` does not.
+
+The rest are conveniences. Note that
 **os8088 already publishes fixed-offset diagnostic blocks for exactly this
 purpose** — `dsk_dbg_blk` at `0060:000E` with magic `0x4444` (SPEC.md
 §18.94) and `mou_dbg_blk` at `0060:0006` with magic `'MO'` (SPEC.md §9.4.2),
@@ -296,7 +432,8 @@ they exist: *"A test package reads these by offset, off a floppy, on a machine
 with no debugger."* A serial monitor reads them directly and the test package
 stops being needed to get at them.
 
-Host: `tools/os88dbg.py`, opening `<path>.out`/`<path>.in`, with a REPL and an
+Host: `tools/os88dbg.py`, opening `<path>.out`/`<path>.in` **and the debug
+image**, with a REPL and an
 importable API so a scripted run can assert on a value. It should resolve
 symbols from a NASM listing (`nasm … -l`) rather than hard-coded offsets —
 docs/FIELD-MACHINES.md's second dump rule is *"re-derive every offset from a
@@ -324,9 +461,15 @@ and a `vm/xt-debug/` config carries the `[Ports (COM & LPT)]` and
 `[Named Pipe (COM) #2]` sections. `make xt-debug` unprotects the floppies the
 way every other 86Box target does, creates the FIFOs if absent, and launches.
 
+The data plane adds `hdc = st506_xt_st11_m` and an `hdd_02_*` row for
+`build/dbgdisk.img` — a **raw** image (section 3.1), created blank and zeroed
+by the rule that builds it, on drive `81h` with no partition table (section
+3.3). It is scratch and stays untracked like everything else in `build/`;
+`rm -f build/dbgdisk.img` is the reset.
+
 ---
 
-## 4. What was rejected, and why
+## 5. What was rejected, and why
 
 ### Ethernet / NE2000 — no.
 
@@ -348,15 +491,18 @@ Four reasons not to:
    the emulator **and** on the iron is worth far more than a fast one that
    works on the emulator alone, and serial is the one that does both: a 5150
    has serial ports, and `make comscan` exists to survey them.
-3. **Bandwidth is not the constraint.** Section 2.1's arithmetic caps the useful rate
-   at the *guest's* ability to service a byte, not at the wire. The payloads
-   are tens to hundreds of bytes.
+3. **Its one real argument was bandwidth, and section 3 takes it away.** A
+   whole-memory dump *is* the case ethernet would have been for — and a raw
+   `int 13h` write to a disk the host reads as a file gets there in ~40 lines
+   of guest code, with no driver, no stack, no addressing and no host-side
+   network. Whatever an 8-bit NE1000 could do for a dump, a disk does with two
+   orders of magnitude less code.
 4. **It adds a whole class of failure** — DHCP, SLiRP's NAT, host firewalls,
    port forwarding for host→guest — between the agent and the answer, in a
    project where the debugging is hard enough already.
 
-Revisit only if a whole-memory dump on 86Box becomes a routine need, and even
-then compare against just asking for a MartyPC dump.
+There is no remaining case to revisit. If bulk transfer ever outgrows section
+3's disk, the next step is a bigger disk.
 
 ### Parallel port — no, but for a duller reason.
 
@@ -375,7 +521,7 @@ Everything above is stock 86Box and stock config keys.
 
 ---
 
-## 5. Risks, in the order they are likely to bite
+## 6. Risks, in the order they are likely to bite
 
 1. **86Box version.** Unix named-pipe passthrough is v6.0+. Check
    `86Box --version` before anything else. Below that, Stage 0's `file`
@@ -406,10 +552,22 @@ Everything above is stock 86Box and stock config keys.
    interrupt while any task holds any lock. It reads memory and ports; that
    is all `m`, `i` and `b` need. `c` (far-call) is the one command that can
    hang the machine, and it should be the last one implemented.
+7. **The data plane's `int 13h` runs on a 256-byte task stack.** This is not
+   a theoretical risk — it is docs/FIELD-NOTES.md 10, where `tests/sysbench`
+   calling `int 13h` itself hard froze the 5150. `sch_lock` held across the
+   call, and the buffer 512-byte aligned so no transfer straddles a 64 KB DMA
+   boundary (SPEC.md §2 asserts that ladder for the same reason).
+8. **A raw image, and no VHD.** Section 3.1: only the raw branch of
+   `hdd_image_write` calls `fflush`. A `.vhd` debug disk would appear to work
+   and hand back stale bytes.
+9. **A stale image read is silent.** The host must not hold a buffer across
+   requests, and the checksum in the `ok` line (section 3.4) is what catches
+   it when it does. Do not make the checksum optional "for speed" — the whole
+   value of a dump is that it is trusted evidence.
 
 ---
 
-## 6. Open questions for the field machine's owner
+## 7. Open questions for the field machine's owner
 
 Not answerable from here, and Stage 0's value on real iron depends on them
 (docs/FIELD-MACHINES.md's rule: ask, do not infer from what a machine
