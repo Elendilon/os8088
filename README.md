@@ -37,6 +37,10 @@ make 386sx    # 86Box: 386SX @ 16MHz, 2MB, VGA
 make 386      # 86Box: 386DX @ 25MHz, 2MB, VGA
 make test     # boot headless with a QMP socket for scripted testing
 make debug    # boot with QEMU halted, waiting for gdb on :1234
+make marty    # a cycle-accurate IBM 5150 (MartyPC) with a debugger attached -
+              # memory, registers, breakpoints, single-step, cycle counts,
+              # and no code in the guest. THE FIRST TOOL TO REACH FOR when
+              # what you are testing runs on an 8088 (docs/MARTYPC-DEBUG.md)
 make clean
 ```
 
@@ -212,8 +216,12 @@ PERFORMANCE.md       the target machine - a 4.77MHz 8088, ~1000x slower than
                      the emulator you are testing on. Calibration numbers,
                      the standing redraw budget, and the visible defects
                      QEMU cannot show - read this second
-docs/TESTING.md      what can be tested where, and how to model the old
-                     machine from a fast one
+docs/TESTING.md      WHICH TOOL to reach for and what each can test:
+                     MartyPC first, then QEMU, then 86Box, then the 5150 for
+                     anything with a disk in it
+docs/MARTYPC-DEBUG.md a cycle-accurate 5150 with a debugger attached, and the
+                     one boundary that matters - cycle accurate is NOT disk
+                     accurate
 docs/KERNEL-MEMORY.md what the kernel's byte budget is spent on, and the
                      measured RAM floor
 boot/boot.asm        512-byte boot sector: LBA->CHS, retrying reads

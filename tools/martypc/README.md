@@ -1,0 +1,29 @@
+# The MartyPC debugger
+
+**Full documentation: [docs/MARTYPC-DEBUG.md](../../docs/MARTYPC-DEBUG.md).**
+Build it with `make marty` (or `./build.sh`); drive it with
+`tools/os88marty.py`.
+
+This directory is the *whole* of os8088's changes to
+[MartyPC](https://github.com/dbalsom/martypc) — a debug server for its
+headless frontend, so a host process gets memory, registers, I/O ports,
+breakpoints, single-step and cycle counts on a running os8088 with **no code
+in the guest at all**.
+
+| | |
+|---|---|
+| `UPSTREAM` | the pinned commit. Editing it is a deliberate act, not maintenance |
+| `debug_server.rs` | the new module, copied in whole |
+| `patches/` | the two upstream files that had to change |
+| `configs/` | three IBM 5150 machine configs shaped after docs/FIELD-MACHINES.md |
+| `roms/` | the 27 OCT 82 IBM 5150 BIOS — the ROM the calibration machine has |
+| `build.sh` | clone at the pin, patch, stage a run tree, build |
+
+**Reach for this first** when what you are testing runs on an 8088 with a CGA
+or a Hercules. **It is cycle-accurate and it is not disk-accurate**: its
+floppy is 30x fast, so no figure with a disk in its path means anything here,
+and it would not have caught SPEC.md §18.91's `AL` bug any more than QEMU did.
+docs/MARTYPC-DEBUG.md has the long version of both.
+
+*The BIOS in `roms/` is IBM's, and is the one file in this tree not covered by
+the project's own licence.*

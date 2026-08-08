@@ -43,8 +43,10 @@ number does not replace a field one. PERFORMANCE.md also carries
 the standing budget every redraw path here has already been measured down
 to — so a change that reintroduces a full repaint is a regression against a
 documented number, not a neutral refactor — and how to count work with a
-counter read over QMP. docs/TESTING.md is where a test can *run*;
-PERFORMANCE.md is what the target machine *costs*.
+counter read over QMP. docs/TESTING.md is **which tool to reach for** and
+where a test can *run* — MartyPC first, and its ordering is a deliberate
+reversal of this tree's old QEMU-first habit; PERFORMANCE.md is what the
+target machine *costs*.
 
 **docs/FIELD-MACHINES.md is the third one: who has the hardware, what is in
 it, and what a run costs them.** The
@@ -202,8 +204,59 @@ make field    # ...and the FIELD disks: build/herc.img + build/cga.img, two
               # Hercules AND a CGA permanently, so the CGA needs a kernel
               # told to ignore the Hercules — built in build/cgak/, never in
               # build/, where it would boot the wrong card for everyone
+make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
+              # server bolted into MartyPC's headless frontend, pinned to one
+              # upstream commit in tools/martypc/. Memory, registers, I/O
+              # ports, breakpoints, single-step and cycle counts on a running
+              # os8088 with NO code in the guest at all - it costs the guest
+              # not one cycle and answers on a machine that has hard-frozen.
+              # Needs cargo, and on Linux libudev-dev + pkg-config.
+              #   python3 tools/os88marty.py 127.0.0.1:9001 verify
+              # dumps KERNEL_SEG and diffs it against build/kernel.bin, which
+              # is FIELD-MACHINES.md's self-validating dump as one command
 make clean
 ```
+
+**MARTYPC IS THE FIRST TOOL TO REACH FOR, NOT THE LAST, and that is a
+REVERSAL of how this tree has worked.** Everything here was QEMU-first for
+years, and QEMU is the emulator FURTHEST from the target: it runs the guest at
+host speed on a CPU that is not an 8088, through SeaBIOS rather than a period
+ROM, with no CGA and no Hercules card in it at all. It is exact about how much
+WORK the guest does and it is not a machine - nearly every entry in
+docs/FIELD-NOTES.md is something QEMU showed as fine. `make marty` is a
+cycle-accurate 5150 running the real 1982 IBM BIOS with a debugger attached,
+and it agrees with the field machine to 0-4% on 45 of 47 gfxbench rows.
+**Use it whenever the thing under test runs on an 8088 with a CGA or a
+Hercules**, which is most of this OS; fall back to QEMU for what it does not
+cover - VGA (its VGA is Mode 13h/Mode X, os8088's path is mode 12h), 286/386,
+sound, scripted mouse and screenshots - and to 86Box for a machine that is not
+an 8088. docs/TESTING.md is the full ordering; docs/MARTYPC-DEBUG.md is the
+recipe.
+
+**MARTYPC IS CYCLE ACCURATE AND IT IS NOT DISK ACCURATE. If a disk is in the
+path, its timing is WRONG** - 30x fast on a 16KB read (0.27 s against the
+5150's 8.07) and 17x fast on a boot (PERFORMANCE.md Set 11) - and that catches
+plenty that is not obviously about disks: a boot time, a package launch, a
+Tracker module load, a `SYSTEM.CFG` save. **Nor will it catch a disk
+CORRECTNESS bug.** SPEC.md 18.91's `AL` bug is the worked example - the BIOS
+moved nine sectors and answered `AL = 1`, the kernel believed it and re-read
+the rest one at a time, and on the 5150 that was 148 sectors in 34 int 13h
+calls for a 32-sector file. **The same binary on the same image under QEMU
+moved 34 sectors in 6 calls**: correct, fast, and silent about the bug. The
+boot sector carried the identical bug for as long again. An emulator's floppy
+controller returns what its author believed the hardware returns; the hardware
+is under no such obligation. For anything with a disk in it the instrument is
+the 5150 and there is no substitute.
+
+**The other debugger is SPEC.md 58's `DEBUG.DRV`, and it is the one that works
+on real iron.** A loadable driver - not a `SERDBG=` kernel, because a knob
+kernel is a different binary and the machine you debugged is then not the
+machine that ships - owning COM4 at 2E8, because os8088 hooks the IRQ of every
+UART answering at 3F8/2F8 and a monitor on 2F8 fights the mouse prober for its
+own port. Not wanted by default, so a machine that never ticks it in the
+Control Panel pays one `drv_tab` row and a file on the floppy. The two are
+complementary: MartyPC costs the guest nothing and answers on a frozen
+machine, DEBUG.DRV goes where no emulator can.
 
 **Nothing in `build/` is tracked — never commit a binary.** `build/` is
 gitignored outright and no artifact inside it is force-added: not the kernel,
@@ -419,15 +472,22 @@ call's own shell and kills it.
 
 Requires `nasm`, `qemu-system-i386`, `python3`. No linker anywhere — everything is `nasm -f bin` flat binaries (deliberately, to avoid Apple's Mach-O-only toolchain).
 
-There are no unit tests. Testing = boot `make test`, then drive it over QMP.
-**`docs/TESTING.md` is the matrix of what QEMU can and cannot do**, with a
-verified recipe per capability — read it before concluding anything is
-untestable here. Its **"Modelling the old machine from a fast one"** section is
-the part that has cost four bugs: this container is ~1000x a 4.77MHz 8088, so
-every constant sized while looking at it encodes the wrong range, and two
-things cannot be observed here at all — **flicker** and **input overrun**. The short version: all three video adapters and all three
-sound routes work under QEMU; 86Box is needed only for the video *detection
-probe*, the 6845 programming and period-correct timing.
+There are no unit tests. **`docs/TESTING.md` is the matrix of WHICH TOOL to
+reach for and what each can and cannot do**, with a verified recipe per
+capability — read it before concluding anything is untestable here, and read
+its ordering before defaulting to `make test`. The short version: **MartyPC
+first** (`make marty`) for anything on an 8088 with a CGA or Hercules, then
+QEMU for VGA, 286/386, sound and scripted input, then 86Box for a machine that
+is not an 8088, then the 5150 for **anything with a disk in it**. Testing
+under QEMU is boot `make test`, then drive it over QMP.
+
+Its **"Modelling the old machine from a fast one"** section is the part that
+has cost four bugs, and most of it is about QEMU: this container is ~1000x a
+4.77MHz 8088, so every constant sized while looking at it encodes the wrong
+range, and two things cannot be observed there at all — **flicker** and
+**input overrun**. MartyPC removes a good deal of that (a cycle-accurate 8088
+does not have a clock that tells you nothing) and removes **none** of it for
+the disk, where its error is 30x and flattering.
 
 ```
 python3 tools/mouse.py build/qmp.sock click 180 150      # absolute mouse click

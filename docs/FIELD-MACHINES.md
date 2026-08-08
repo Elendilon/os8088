@@ -347,15 +347,28 @@ must time a fixed, known quantity of work at each end and print it; Set 4's
 every other number in the set. If the two brackets disagree, the machine
 moved *underneath* the measurement and the rows between them are suspect.
 
-### It takes MEMORY DUMPS, and an agent should ask for one
+### It takes MEMORY DUMPS — and an agent can now take its own
 
-MartyPC's debugger will dump **the full 1MB** and **the code segment**, and
-that is a capability nothing else in this register has — the 5150 has no
-debugger, and QEMU's QMP `xp` reaches memory but only from inside the
-container, so it can never answer a question about the machine on someone
-else's desk. **Ask for a dump whenever the question is "what does the kernel
-think", rather than "how long did it take" or "what did it look like".** It
-costs the owner one menu click and it is worth many rounds of guessing.
+**This section has been overtaken in the best way.** `make marty`
+(docs/MARTYPC-DEBUG.md) runs MartyPC *in the container*, with a debug server
+attached, so a dump is a command rather than a favour:
+
+    python3 tools/os88marty.py 127.0.0.1:9001 verify
+
+which dumps `KERNEL_SEG`, diffs it against `build/kernel.bin`, and prints the
+differing runs. **Ask nobody for a dump of a build you can run yourself.**
+
+What still needs the owner is a dump of a machine *whose behaviour differs
+from the emulator's* — which, given everything in docs/FIELD-NOTES.md, is
+more often than it sounds, and always when a disk is involved. MartyPC's
+floppy is 30x fast and its BIOS returns what its author believed the hardware
+returns (PERFORMANCE.md, Set 11), so **a dump taken in the container proves
+what the code does and not what the 5150 does with it**.
+
+The rest of this section is unchanged and applies to both, because the rules
+are about dumps and not about who took them. MartyPC's own debugger will also
+dump the full 1MB and the code segment from its GUI, which is still the route
+when the owner is running it interactively.
 
 A dump is a strong instrument because it is **self-validating**. The kernel
 image lands at `KERNEL_SEG`, so linear `0x600` onward is `build/kernel.bin`
