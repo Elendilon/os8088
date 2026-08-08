@@ -416,7 +416,15 @@ def strip_cursor(r):
     That needs no listing offsets and survives a rebuild. Returns
     (changed, bbox, cell) with the cursor-only events zeroed.
     """
-    ch, bb = list(r["changed"]), r.get("bbox") or [None] * len(ch)
+    ch = list(r["changed"])                 # two statements, not one tuple
+    bb = r.get("bbox") or [None] * len(ch)  # assignment: the len(ch) in the
+                                            # fallback reads ch BEFORE the
+                                            # tuple binds it, so a server
+                                            # older than bbox - which is any
+                                            # martypc_headless built before
+                                            # the pin moved - crashed here
+                                            # with an UnboundLocalError
+                                            # instead of degrading
     small = {}
     for c, b in zip(ch, bb):
         if c and b and (b[2] - b[0]) < CUR_GW and (b[3] - b[1]) < CUR_GH:

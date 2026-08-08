@@ -1656,17 +1656,28 @@ tui_sync:
 ;   was smooth. The field capture is the proof rather than the theory: every
 ;   single-tick PLAY step in it is 0, 302 or 604 and nothing between.
 ;
-;   The screen redraws far more often than the tick - the same capture says
-;   1.81 frames a tick, 33 fps - so the frames THEMSELVES are the finer
-;   clock, and no other one is available: SPEC.md 34.1 reserves the ch0 latch
-;   and a package has no slot for it. So the frames of the PREVIOUS tick are
-;   counted and this tick is divided into that many equal steps. It cannot
-;   drift, because the sub-term is an offset ON TOP of the exact accumulator
-;   and is thrown away at every tick edge rather than added into it; it
-;   cannot go backwards, because the offset is capped one byte below a whole
-;   tick, so the edge that zeroes it also adds [tui_bpt]; and a machine that
-;   manages only one frame a tick divides by one and gets exactly the old
-;   behaviour back.
+;   The screen redraws far more often than the tick - on the SPEC.md 53.5.1
+;   frame clock, exactly FSX_SUBTICK times - so the frames THEMSELVES are the
+;   finer clock, and no other one is available: SPEC.md 34.1 reserves the ch0
+;   latch and a package has no slot for it. So the frames of the PREVIOUS
+;   tick are counted and this tick is divided into that many equal steps. It
+;   cannot drift, because the sub-term is an offset ON TOP of the exact
+;   accumulator and is thrown away at every tick edge rather than added into
+;   it; it cannot go backwards, because the offset is capped one byte below a
+;   whole tick, so the edge that zeroes it also adds [tui_bpt]; and a machine
+;   that manages only one frame a tick divides by one and gets exactly the
+;   old behaviour back.
+;
+;   THE DIVISOR IS [tui_fcnt] PLUS ONE, and the missing +1 was a stutter of
+;   its own (SPEC.md 45.15.2). [tui_fcnt] is reset AT the tick edge by the
+;   frame standing on it, so it ends the tick holding the number of frames
+;   INSIDE the tick - two of the three the frame clock delivers. Divided by
+;   two, a tick's three frames offered 0, bpt/2 and (capped) bpt/2 again:
+;   the estimate froze for the last third of every tick and then jumped half
+;   a tick, which is one row in six at the XT rate. Measured as [tui_fpt] = 2
+;   on a machine measured at three frames a tick - the two numbers
+;   disagreeing is the whole bug, and 0, bpt/3, 2*bpt/3 is what it should
+;   always have been.
 ; -----------------------------------------------------------------------------
 tui_playpos:
     push bx
@@ -1682,11 +1693,11 @@ tui_playpos:
     add [tui_lcons], ax             ; long elapsed to multiply (see the header)
 
     mov al, [tui_fcnt]              ; a new tick: last tick's frame count is
-    or al, al                       ; this tick's divisor, and 0 frames means
-    jnz .div                        ; the model IS the tick - divide by one
-    inc al
-.div:
-    mov [tui_fpt], al
+    inc al                          ; this tick's divisor - PLUS ONE, because
+    jnz .div                        ; [tui_fcnt] counts the frames INSIDE the
+    dec al                          ; tick and the frame standing on the edge
+.div:                               ; is a frame too (saturate, never wrap to
+    mov [tui_fpt], al               ; 0: a 0 divisor is a #DE below)
     mov byte [tui_fcnt], 0          ; the edge itself carries no offset: the
     mov word [tui_sub], 0           ; whole tick just landed in [tui_lcons]
     xor ah, ah

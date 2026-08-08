@@ -106,13 +106,12 @@ TTX_SHCHUNK equ 4                   ; rows formatted per frame while a
                                     ; clock: ~25 ms of the ~420 ms the whole
                                     ; shadow costs, against a view that moves
                                     ; 7.14 rows a SECOND
-TTX_SHCHUNKF equ 1                  ; ...and on the retrace clock, where a
+TTX_SHCHUNKF equ 1                  ; ...and on the FSXW_FRAME clock, where a
                                     ; frame is a third of the slot and 25 ms
                                     ; would not fit in it (SPEC.md 45.16).
                                     ; Same total work either way - the rebuild
                                     ; takes 1.5 s of a ~7.7 s pattern instead
                                     ; of 1.15, at a quarter of the peak
-TTX_PROBE  equ 8                    ; retrace waits the clock probe times
 TTX_NOPAT  equ 0xFF                 ; [ttx_shprev]/[ttx_shnext]: nothing plays
                                     ; that side, so the pad is blank. Never a
                                     ; real pattern - mp_load caps P at 126
@@ -205,10 +204,10 @@ ttx_begin:
     push si
     push di
     push es
-    mov byte [ttx_clk], 0           ; the tick clock until ttx_clkprobe says
+    mov byte [ttx_clk], FSXW_TICK   ; the tick clock until ttx_clkpick says
     mov al, TTX_SHCHUNK             ; otherwise (SPEC.md 45.16) - ttx_draw_all
-    mov [ttx_chunk], al             ; runs a whole shadow build before the
-    mov byte [ttx_fdiv], 1          ; probe does, and reads these
+    mov [ttx_chunk], al             ; runs a whole shadow build BEFORE the
+    mov byte [ttx_fdiv], 1          ; pick does, and reads these
     mov byte [ttx_fcnt], 1
     push ds
     pop es                          ; the FSI block is ours (the gfx_blit4
@@ -271,69 +270,46 @@ ttx_begin:
 ; =============================================================================
 
 ; =============================================================================
-; ttx_clkprobe - pick the frame clock, once per bracket (SPEC.md 45.16).
+; ttx_clkpick - pick the frame clock, once per bracket (SPEC.md 45.16).
 ;
-; fsx_wait takes a tick (18.2065 Hz) or a vertical retrace, and retrace is
-; 50 Hz on Hercules/MDA, 60 on CGA and 70 on VGA text - three to four times
-; the frames for work that does not triple, because everything expensive here
-; is change-driven: the blit runs at the ROW rate whatever the frame rate is.
-; What it buys is that the row lands when it is played rather than up to 55 ms
-; later, which at a 120 ms row period was an audible-looking stutter - draws
-; 110 ms apart with a 165 ms hiccup every sixth row - and, on a module faster
-; than 18.2 rows a second, rows that were never shown at all.
+; THIS USED TO BE A RETRACE PROBE AND THE PROBE WAS NOT THE PART THAT WAS
+; WRONG. fsx_wait's retrace path is a poll, so it was measured rather than
+; assumed - eight waits timed against the tick, the retrace clock taken only
+; between one and seven ticks, zero refused because eight real retraces
+; cannot fit in one tick. All of that was sound and all of it answered the
+; wrong question: not "is the retrace clock faster" (it is - 29.1 fps
+; measured in the field against 18.2) but "what does POLLING it cost the
+; worker". A busy-wait is indistinguishable from work to a round-robin
+; scheduler, so the drawing side took its half of the machine whether it
+; needed it or not. Measured on a cycle-accurate 8088: fsx_insync + fsx_wait
+; were 28.8% of the machine, the mixer got 35% against the 47% it gets
+; windowed, and the card was fed 4,808 bytes a second against the 5,533 it
+; plays - the ring's three-second cushion drained over the first half-minute
+; of fullscreen and every second after that dropped audio.
 ;
-; It is MEASURED rather than assumed, because fsx_wait's retrace path is a
-; poll with a 3-tick timeout: on a machine whose status port never toggles it
-; would be six frames a second, three times WORSE than the tick clock. So
-; TTX_PROBE waits are timed against the kernel's tick counter and the retrace
-; clock is taken only when it is genuinely faster - between one and seven
-; ticks for eight waits. Zero is refused too: eight real retraces cannot fit
-; inside one tick on any adapter, so it means the poll is not pacing at all.
+; FSXW_FRAME (SPEC.md 53.5.1) is faster AND free: FSXF_FASTTICK is armed by
+; trk_fs_enter, so IRQ0 arrives FSX_SUBTICK times a tick and this returns
+; 54.6 times a second - quicker than a Hercules' 50 Hz retrace, within 10% of
+; a CGA's 60 - and it waits by YIELDING, so the frame time we do not use goes
+; to the mixer instead of to a port poll. There is nothing left to measure:
+; the rate is a crystal divided by a constant, it cannot fail the way a
+; status port can, and it is EVENLY SPACED, which the old clock never was -
+; [tui_fpt] now divides every tick into exactly FSX_SUBTICK equal steps
+; instead of into however many frames the last tick happened to fit, which is
+; SPEC.md 45.15.2's sub-tick interpolation finally getting the even clock it
+; was written against.
 ;
-; The ratio it measures is kept: [ttx_fdiv] is frames per tick, which is what
-; keeps the VU needles falling at the rate they fell at before (tui_vu_step
-; decays per CALL) and what sizes a rebuild's per-frame chunk.
+; [ttx_fdiv] is still frames per tick, and it is now known rather than
+; estimated - which is what sizes a rebuild's per-frame chunk. The VU needles
+; hang off the system tick and not off this (SPEC.md 45.16.1).
 ; =============================================================================
-ttx_clkprobe:
+ttx_clkpick:
     push ax
-    push bx
-    push cx
-    push dx
-    call OSAPI_GET_TICKS
-    mov bx, ax
-    mov cx, TTX_PROBE
-.w:
-    mov al, 1
-    call OSAPI_FSX_WAIT
-    loop .w
-    call OSAPI_GET_TICKS
-    sub ax, bx                      ; ticks the probe took, and AH is 0 for
-    or ax, ax                       ; every value the two tests below pass
-    jz .out                         ; not pacing: keep the tick clock
-    cmp ax, TTX_PROBE
-    jae .out                        ; no faster than a tick: keep it too
-    mov cl, al                      ; frames per tick, rounded:
-    shr al, 1                       ;   (TTX_PROBE + ticks/2) / ticks
-    add al, TTX_PROBE               ; ...max 11, so AL cannot carry
-    xor ah, ah
-    div cl                          ; AL = quotient (CL >= 1: no #DE)
-    or al, al
-    jnz .clamp
-    mov al, 1
-.clamp:
-    cmp al, 4
-    jbe .set
-    mov al, 4
-.set:
-    mov [ttx_fdiv], al
-    mov [ttx_fcnt], al
-    mov byte [ttx_clk], 1           ; retrace-paced from here on
-    mov al, TTX_SHCHUNKF
-    mov [ttx_chunk], al
-.out:
-    pop dx
-    pop cx
-    pop bx
+    mov byte [ttx_clk], FSXW_FRAME  ; the PIT, not the CRTC (SPEC.md 53.5.1)
+    mov byte [ttx_fdiv], FSX_SUBTICK
+    mov byte [ttx_fcnt], FSX_SUBTICK
+    mov al, TTX_SHCHUNKF            ; one row a frame: TTX_SHCHUNK's four are
+    mov [ttx_chunk], al             ; ~25 ms and a frame's slot is now 18
     pop ax
     ret
 
@@ -1345,10 +1321,11 @@ ttx_s_mute:   db '   MUTE', 0
     TRKB ttx_sbudget                ; ...and this frame's share of them
     TRKB ttx_shbusy                 ; a spread rebuild is in progress
     TRKB ttx_chn                    ; shared small loop counter
-    TRKB ttx_clk                    ; fsx_wait's argument: 0 tick, 1 retrace
+    TRKB ttx_clk                    ; fsx_wait's argument: FSXW_TICK / _FRAME
     TRKB ttx_chunk                  ; ...and the rebuild rows a frame it buys
-    TRKB ttx_fdiv                   ; frames per tick, as the probe measured
-    TRKB ttx_fcnt                   ; it - reported, no longer relied upon
+    TRKB ttx_fdiv                   ; frames per tick - FSX_SUBTICK now that
+    TRKB ttx_fcnt                   ; the clock is the PIT's, so reported and
+                                    ; never inferred from a measurement
     TRKW ttx_vutick                 ; the tick the needles last decayed on
     TRKW ttx_lmsg                   ; the status string last drawn
     TRKBUF ttx_vuc, 4               ; last-drawn bar widths, CELLS (SPEC.md

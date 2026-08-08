@@ -18239,14 +18239,15 @@ a limp, and it is exactly what the field reported **after** the music itself
 was smooth and the boundary rewrite (§45.13.5) was fixed: *"the music is
 mostly smooth… the text is what is microstuttering."*
 
-The screen redraws far more often than the tick — the same capture says
-**1.81 frames a tick**, 33 fps, against a row every 2.5 — so the frames
+The screen redraws far more often than the tick — on §53.5.1's frame clock
+exactly `FSX_SUBTICK` times, and the field capture that priced this measured
+**1.81 frames a tick** on the clock that came before it — so the frames
 themselves are the finer clock, and **no other one is available**: §34.1
 reserves the ch0 latch to `sch_account` and its atomicity rule, and a package
 has no slot for it. So the frames of the **previous** tick are counted and the
 current one is divided into that many equal steps.
 
-Four properties make that safe rather than merely smoother:
+Five properties make that safe rather than merely smoother:
 
 - **The sub-term is an offset, never an addition.** `[tui_sub]` is added to
   `[tui_lcons]` on the way out and zeroed at every tick edge; the accumulator
@@ -18265,19 +18266,31 @@ Four properties make that safe rather than merely smoother:
   falls to 1 and stays there — the feature silently reverts to the staircase
   it was written to remove. The counter saturates at 255 and the *offset* is
   what stops at a whole tick.
+- **The divisor is `[tui_fcnt]` PLUS ONE**, and the missing `+1` was a
+  stutter of its own — half the one this whole section exists to remove,
+  hiding inside the fix for it. `[tui_fcnt]` is **reset at the tick edge by
+  the frame standing on that edge**, so what it holds at the next edge is the
+  number of frames *inside* the tick — two of the three the frame clock
+  delivers, not three. Divided by two, a tick's three frames offered
+  `0`, `bpt/2`, and then `bpt/2` again (the `jae` cap): **the estimate froze
+  for the last third of every tick and then jumped half a tick**, which at
+  the XT rate is a row in six landing late and the next one early. It
+  measured as `[tui_fpt]` = 2 on a machine measured at three frames a tick,
+  and the two numbers disagreeing is the whole bug; `0, bpt/3, 2*bpt/3` is
+  what it should always have been.
 
 A machine that manages one frame a tick divides by one and gets the old
-behaviour back exactly, which is what **QEMU** does: it refuses the retrace
-clock (§45.16), runs tick-paced at 0.86 frames a tick, and so tests the
-degenerate case and the arithmetic — `PLAY` never backwards, steps of 302 with
-occasional 312/340/378/406 where a tick did hold extra frames — while the
-field machine tests the case the feature exists for.
+behaviour back exactly — which is now the *degenerate* case rather than
+QEMU's normal one, since §53.5.1's clock is a PIT divider and answers
+`FSX_SUBTICK` frames a tick on any machine that can draw them. What QEMU
+still tests is the arithmetic: `PLAY` never backwards, and steps that are
+whole multiples of `bpf` inside a tick and `bpt` across one.
 
 ### 45.16 The text screen's frame clock is measured, not assumed
 
-`fsx_wait` takes a **tick** (18.2065 Hz) or a **vertical retrace** (§53.5), and
-retrace is 50 Hz on Hercules/MDA, 60 on CGA and 70 on VGA text — three to four
-times the frames. The text screen (§45.13) can afford them because everything
+`fsx_wait` takes a **tick** (18.2065 Hz), a **vertical retrace**, or the
+**sub-tick** (§53.5/§53.5.1), and the last two are three times the frames of
+the first. The text screen (§45.13) can afford them because everything
 expensive on it is change-driven: the 1,121-word blit runs at the **row** rate
 whatever the frame rate is, so tripling the clock triples only the poll, six
 byte compares and the needles. Priced against the field constants, the whole
@@ -18288,23 +18301,35 @@ What it buys is not smoothness in the abstract. At a 120 ms row period against
 a 54.9 ms frame, a row is drawn 110, 110, 110, **165**, 110 ms after the last
 one — an uneven scroll with a hiccup every sixth row; and a module faster than
 18.2 rows a second (speed 3 at BPM 150 is 20) has rows the display **never
-shows at all**. The retrace clock takes the jitter to ±18 ms and the dropped
+shows at all**. A 54.6 Hz clock takes the jitter to ±18 ms and the dropped
 rows to none.
 
-`ttx_clkprobe` decides once per bracket, and the measurement is the point:
-`fsx_wait`'s retrace path is a **poll with a 3-tick timeout**, so on a machine
-whose status port never toggles it is six frames a second — three times
-*worse* than the tick clock. `TTX_PROBE` (8) waits are timed against
-`OSAPI_GET_TICKS` and the retrace clock is taken only for a result between 1
-and 7 ticks. **Zero is refused too**: eight real retraces cannot fit inside one
-tick on any adapter, so zero means the poll is not pacing at all — which is
-exactly what QEMU's std VGA does, answering 3DAh with a dumb toggle. **So QEMU
-tests the refusal and the field machine tests the acceptance**; the accepted
-branch was exercised here by forcing it.
+**The clock is `FSXW_FRAME` (§53.5.1), and it used to be the retrace.** That
+history is worth the paragraph, because the retrace probe was careful and
+careful about the wrong quantity. `fsx_wait`'s retrace path is a **poll with a
+3-tick timeout**, so on a machine whose status port never toggles it is six
+frames a second — three times *worse* than the tick clock; `ttx_clkprobe`
+therefore timed `TTX_PROBE` (8) waits against `OSAPI_GET_TICKS` and took the
+retrace clock only for a result between 1 and 7 ticks, refusing **zero** as
+well, since eight real retraces cannot fit inside one tick on any adapter.
+All of that was sound, and none of it asked what **polling** the port costs
+the *worker*: a busy-wait is work as far as a round-robin scheduler is
+concerned, so the drawing side took its half of the machine whether it needed
+it or not, and §53.5.1 measures what that did to the audio — 28.8% of the
+machine in the poll, the mixer down from 47% to 35%, and 13% of the samples
+never reaching the card.
 
-The ratio the probe measures is kept as `[ttx_fdiv]`, frames per tick, because
-two things are per-FRAME and have to be re-tuned when frames get three times
-as common:
+`ttx_clkpick` replaces the probe and measures nothing, because there is
+nothing left to measure: `FSXF_FASTTICK` is armed by `trk_fs_enter`, so
+`FSXW_FRAME` is `FSX_SUBTICK` × 18.2065 = **54.6 Hz** — faster than a
+Hercules' retrace, within 10% of a CGA's, exactly known, and yielding rather
+than spinning. **QEMU's dumb 3DAh toggle stops being a case at all**, which
+is a small side benefit: the one adapter behaviour the probe existed to
+refuse is no longer consulted.
+
+`[ttx_fdiv]` is still frames per tick and is now a constant rather than an
+estimate, because two things are per-FRAME and have to be re-tuned when frames
+get three times as common:
 
 - **`ttx_shstep`'s chunk.** 4 rows is ~25 ms, which does not fit an 18 ms
   slot, so `TTX_SHCHUNKF` is 1 there. The total work is identical — a rebuild
@@ -21936,14 +21961,17 @@ cost 2,567 glyph cells a second in pixels.
 
 ### 53.5 `fsx_wait` — the frame clock, and the present
 
-`fsx_wait` (slot 0x02D8) — in AL: 0 = return at the next `[ticks]` change
-(`hlt` between polls — the tick wakes it); 1 = return in vertical retrace:
-3DAh bit 3 for the VGA/CGA family, 3BAh bit 7 for Hercules, the port
-chosen by the **current fsx mode**. Bracket-only, CF=1 outside one. Every
-wait is bounded by a `[ticks]` delta (§37.90's rule — the one way to hang
-is to wait forever for a bit that never changes on a machine where every
-read is 0FFh); a timed-out retrace wait returns CF=0 anyway, because
-timing degrades rather than fails. Retrace is what makes palette
+`fsx_wait` (slot 0x02D8) — in AL: `FSXW_TICK` (0) = return at the next
+`[ticks]` change (`hlt` between polls — the tick wakes it);
+`FSXW_VSYNC` (1) = return in vertical retrace: 3DAh bit 3 for the VGA/CGA
+family, 3BAh bit 7 for Hercules, the port chosen by the **current fsx
+mode**; `FSXW_FRAME` (2) = return at the next IRQ0, yielding while it
+waits (§53.5.1). Bracket-only, CF=1 outside one — and CF=1 on an unknown
+AL, tested **before** the present clause so a refused wait never flushes
+first. Every wait is bounded by a `[ticks]` delta (§37.90's rule — the one
+way to hang is to wait forever for a bit that never changes on a machine
+where every read is 0FFh); a timed-out retrace wait returns CF=0 anyway,
+because timing degrades rather than fails. Retrace is what makes palette
 animation and tear-free page flips possible, and on a real CGA in
 80-column text it is the snow window.
 
@@ -21955,6 +21983,73 @@ happened: draw into the buffer, `fsx_wait`, repeat — a complete frame
 loop in one slot. After a mode switch the clause is dead by construction
 (`fsx_mode` refused while the buffer was armed), and `fsx_wait` is pure
 clock.
+
+#### 53.5.1 `FSXW_FRAME` — the clock that does not spend the worker's machine
+
+The other two clocks wait by **burning the CPU**, and to a round-robin
+scheduler a busy-wait is indistinguishable from work: the exclusive task
+takes its half of the machine whether it needs it or not. For a bracket
+that is alone in the machine that costs nothing anybody can measure. For
+one with a `FSXF_KEEPWORKER` it is the direct contradiction of the flag —
+the whole promise being that the worker keeps running — and Tracker's
+worker is a MOD mixer that needs about **55% of a 4.77MHz 8088** to hold
+5,500 Hz.
+
+Measured on a cycle-accurate 8088, Tracker on the §45.13 text screen with
+`FSXW_VSYNC` as its clock, by sampling CS:IP from outside the guest:
+
+| | windowed | fullscreen, `FSXW_VSYNC` |
+|---|---|---|
+| `mp_mixch_xt` (the mixer) | 47.2% | **35.0%** |
+| `fsx_insync` + `fsx_wait` (the poll) | — | **28.8%** |
+| bytes/second reaching the card | **5,533** | **4,808** |
+| ring lead, halves of 2,048 | 7.0 min, 8.0 max | **1.0 min**, 4.9 mean |
+
+The last two rows are the bug as the listener hears it. 4,808 against the
+5,533 the card plays is **13% of the audio missing**, and the ring's eight
+halves are three seconds of cushion — so fullscreen sounds perfect for the
+first half-minute, spends the cushion, and then drops a fifth of a second
+of music every few seconds for as long as it is up. On the slower field
+machine the cushion goes sooner; the report that opened this was *"plays
+smoothly for the first 10–20 s of fullscreen, then has dropouts"*.
+
+`FSXW_FRAME` polls no port at all. It waits on **`[sch_subs]`** — a
+free-running word `sch_isr` bumps on **every** IRQ0 entry, sub-ticks
+included, which is the finest clock a task can wait on (`[ticks]` moves
+18.2065 times a second whatever `[sch_fast]` is, by §53.2.1's whole
+design) — and between polls it calls **`task_yield`**, which hands the CPU
+to the next ready whitelisted task rather than to the next iteration of a
+loop.
+
+Four things follow, and the third is the one that makes it a frame clock
+rather than merely a cheaper wait:
+
+- **With a worker ready it costs one context switch per frame.** The
+  yield hands over immediately, the worker runs until the next IRQ0, that
+  IRQ0 round-robins back to the exclusive task, which finds `[sch_subs]`
+  changed and draws. The drawing side gets exactly the time it uses and
+  the worker gets the rest.
+- **With nothing ready it degenerates to a spin**, because `sch_switch`
+  resumes the outgoing task when its scan finds nobody. That is exactly
+  right: with nothing else runnable there is nobody to starve, and it is
+  what the other two clocks always did.
+- **It is FASTER than the clock it replaces on the machines this is for.**
+  `FSX_SUBTICK` is 3, so with `FSXF_FASTTICK` armed it returns **54.6
+  times a second** — quicker than a Hercules' 50 Hz retrace, within 10% of
+  a CGA's 60 — and without `FSXF_FASTTICK` it is the tick, which is the
+  old fallback. There is no probe and nothing to measure: a crystal
+  divided by an integer cannot fail the way a status port can.
+- **And it is EVENLY SPACED**, which no drawing loop's own frames ever
+  were. §45.15.2 divides each tick into however many frames the *previous*
+  tick happened to fit; on this clock that count is exactly `FSX_SUBTICK`
+  and the steps are a hardware period apart.
+
+**What it gives up is raster sync**, and that is a real thing to give up:
+palette animation and tear-free page flips need `FSXW_VSYNC` and always
+will. The rule is therefore about the pairing rather than about the
+clocks — **a bracket with a kept worker must not pace itself on
+`FSXW_VSYNC`** — and an app that needs the raster *and* a worker has to
+buy the poll knowingly.
 
 ### 53.6 Restore — one path, ordered (binding)
 
