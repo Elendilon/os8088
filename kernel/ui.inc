@@ -240,15 +240,15 @@ ui_task:
 .title_bar:
     mov si, bx                  ; keep the hit window; wm_top returns in BX
     call ui_tdbl                ; the second press on THIS title bar inside
-    jnc .tb_raise               ; UI_TDBLT ticks maximizes it (SPEC.md 11.95)
+    jnc .tb_raise               ; UI_TDBLT ticks ZOOMS it (SPEC.md 11.95)
     test word [si+W_FLAGS], WF_SIZABLE
     jz .tb_raise                ; ...if it is resizable. A fixed-layout window
-                                ; has nothing to maximize into, so the press
-                                ; stays an ordinary one and drags as before
+                                ; has nothing to zoom into, so the press stays
+                                ; an ordinary one and drags as before
     mov bx, si
     call gfx_lock
-    call wm_maximize            ; fills the desktop band; draws nothing at all
-    call gfx_unlock             ; if the window is already there
+    call wm_zoom                ; out to the desktop band, or back to wherever
+    call gfx_unlock             ; it was when it left
     jmp short .yield            ; and no drag: the button is still down, but
                                 ; the EVT_MUP behind it is ignored by the
                                 ; loop above, which acts on EVT_MDOWN alone

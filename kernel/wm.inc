@@ -465,27 +465,55 @@ wm_resize:
     ret
 
 ; -----------------------------------------------------------------------------
-; wm_maximize - give a window the whole desktop band (SPEC.md 11.95)
+; The zoom bank: the rect a zoomed window goes back to (SPEC.md 11.95).
+; One entry per window SLOT, a side table rather than four more words in the
+; record, because WIN_SIZE is what wm_idx2ptr multiplies by and every reader
+; of a window pays for a wider record whether it zooms or not.
+;
+; ZR_W = 0 is "nothing banked", and it is a safe sentinel because a banked
+; width is a live window's, which WMIN_W floors at 96. .bss arrives zeroed
+; (the overlay note in kernel.asm), so a slot starts empty; wm_destroy clears
+; it again, or a reused slot would restore to a stranger's rect.
+; -----------------------------------------------------------------------------
+ZR_X    equ 0
+ZR_Y    equ 2
+ZR_W    equ 4                   ; ...and the "nothing banked" sentinel
+ZR_H    equ 6
+ZR_SIZE equ 8
+
+; -----------------------------------------------------------------------------
+; wm_zoom - the Macintosh zoom box, on a double-clicked title bar
+;           (SPEC.md 11.95)
 ;
 ; in:  BX = window ptr - resizable and not fullscreen, both the CALLER's to
 ;      check (ui.inc's title-bar branch is the only one); caller HOLDS the
 ;      gfx lock
 ; out: nothing (all registers preserved); the record carries the new rect and
-;      the screen is repainted - unless the window is already there, in which
-;      case NOTHING is drawn at all
+;      the screen is repainted
 ;
-; NOT wm_fullscreen (SPEC.md 11.2) and not an fsx bracket (SPEC.md 53): the
-; window keeps its border, its title bar, its boxes and its place in the
-; z-order, and simply takes the largest rect a window is allowed to occupy.
-; So it needs no exit path, nothing has to be put back, and everything that
-; reads a window rect keeps reading the same thing it always did.
+; A TOGGLE between the two states the Macintosh names: the STANDARD state,
+; which here is the whole desktop band, and the USER state, which is whatever
+; the window was before it went there. Not wm_fullscreen (SPEC.md 11.2) and
+; not an fsx bracket (SPEC.md 53) - the window keeps its border, its title
+; bar, its boxes and its place in the z-order, so nothing is taken away that
+; has to be given back, and everything that reads a window rect keeps reading
+; what it always did.
 ;
-; The rect is wm_fit's clamp said forwards instead of backwards - full screen
-; width, from the menu bar down to ONE PIXEL SHORT of the dock. That pixel is
-; not a rounding choice: the drop shadow lives on row y+h and wm_dock_clear
-; tests y+h with `jae`, so a frame flush against the strip makes every window
-; later shown over this one pay a wm_dock_under pass (SPEC.md 11.90). A
-; maximize is the one operation guaranteed to land on that boundary, so
+; **Which state it is in is DERIVED, never tracked.** The test is whether the
+; record already holds the standard rect; there is no "is zoomed" flag,
+; because a flag would have to be cleared by every one of the four sites that
+; write W_X and the several that write W_W/W_H, and a missed one is a window
+; that answers wrong about itself. Deriving it also makes a DRAG the natural
+; way to leave the standard state: a window moved off the band is simply not
+; in it any more, and the next double-click zooms afresh, banking where the
+; drag left it.
+;
+; The standard rect is wm_fit's clamp said forwards instead of backwards -
+; full screen width, from the menu bar down to ONE PIXEL SHORT of the dock.
+; That pixel is not a rounding choice: the drop shadow lives on row y+h and
+; wm_dock_clear tests y+h with `jae`, so a frame flush against the strip makes
+; every window later shown over this one pay a wm_dock_under pass (SPEC.md
+; 11.90). A zoom is the one operation guaranteed to land on that boundary, so
 ; getting it wrong here would make the feature expensive for everything else
 ; on the screen.
 ;
@@ -494,24 +522,28 @@ wm_resize:
 ;   - wm_snap_want (SPEC.md 11.94) for the WF_SNAP question. wm_snap_ax
 ;     itself cannot serve: it moves LEFT and re-tests the window's CURRENT
 ;     width, and at full screen width x = 7 always fails that test - so a
-;     snapped window would maximize to x = 0 and lose the fast path it asked
-;     for. Here x moves RIGHT to 7 and the width gives back exactly the seven
+;     snapped window would zoom to x = 0 and lose the fast path it asked for.
+;     Here x moves RIGHT to 7 and the width gives back exactly the seven
 ;     pixels x took, which is the one place a snap can be paid for.
 ;   - wm_ask_size, because this is a KERNEL-initiated resize and those always
-;     ask (SPEC.md 11.1). It runs before anything is written, so a window
-;     that refuses an axis costs no repaint - apps/paint refusing to crop
-;     artwork is the case, and a maximize only grows, so in practice every
-;     negotiator accepts.
+;     ask (SPEC.md 11.1) - ONCE for the state being tested and once more for
+;     the one being gone to. Growing, every negotiator accepts; SHRINKING
+;     back can be refused, and that refusal is the feature working: apps/paint
+;     will not crop artwork for a restore any more than it will for a drag of
+;     the grow box, and it says so in its own toast. A refusal leaves the
+;     window in the standard state with its bank intact, so the restore can be
+;     asked for again once there is nothing to lose.
 ;   - wm_resize for the commit, which is both clamps, the WF_SNAP re-fit and
 ;     the repaint. The one thing it will not do is move a window UP or LEFT -
-;     it only ever clamps a frame back down onto the screen - so the origin
-;     is written here first and wm_resize then finds it already legal.
+;     it only ever clamps a frame back down onto the screen - so the origin is
+;     written here first and wm_resize then finds it already legal.
 ; -----------------------------------------------------------------------------
-wm_maximize:
+wm_zoom:
     push ax
     push cx
     push dx
-    xor ax, ax                  ; x = the left edge...
+    push si
+    xor ax, ax                  ; the standard state: x = the left edge...
     mov cx, [vid_w]             ; ...and w = the whole live screen (SPEC 39.2)
     call wm_snap_want
     jnc .nosnap
@@ -521,27 +553,121 @@ wm_maximize:
 .nosnap:
     mov dx, [vid_dock_y0]       ; h = the desktop band, one pixel short of the
     sub dx, MBAR_H + 1          ; dock - wm_fit's clamp, for wm_fit's reason
-    call wm_ask_size            ; the window gets its say, exactly as it does
-                                ; on a grow-box release (SPEC.md 11.1)
-    cmp [bx+W_X], ax            ; already exactly there? Then this is the
-    jne .go                     ; second double-click of a session that never
-    cmp word [bx+W_Y], MBAR_H   ; moved the window, and it draws nothing -
-    jne .go                     ; ui_drag's rule, and the reason it matters
-    cmp [bx+W_W], cx            ; here is that wm_resize repaints the whole
-    jne .go                     ; screen and cannot be asked not to
+    call wm_ask_size            ; ...as the window will have it (SPEC.md 11.1),
+                                ; which is what makes the compare below hold
+                                ; for a negotiator with a quantum of its own
+    cmp [bx+W_X], ax            ; is the window already in the standard state?
+    jne .go
+    cmp word [bx+W_Y], MBAR_H
+    jne .go
+    cmp [bx+W_W], cx
+    jne .go
     cmp [bx+W_H], dx
-    je .out
-.go:
+    jne .go
+
+    ; --- it is: put the user state back --------------------------------------
+    ; NOT through wm_resize, and that is the one asymmetry in this routine.
+    ; wm_resize DERIVES a legal origin - it holds y + h to the dock row - which
+    ; is right for an app sizing itself and wrong for replaying a rect the
+    ; window manager itself last had, because ui_drag is deliberately looser:
+    ; a window may be dragged until only its title bar is on screen, and one
+    ; left more than half over the dock is left exactly there (SPEC.md 11.90).
+    ; Put back through wm_resize, such a window came home 39 rows too high.
+    ; The banked rect needs no clamping - every writer of it clamped already -
+    ; and the negotiator's answer is trusted the same way ui_grow trusts it:
+    ; the proposal was legal, so the reply is written as given.
+    call wm_zoom_slot           ; SI -> this window's bank
+    mov cx, [si+ZR_W]
+    jcxz .out                   ; nothing banked - the window was CREATED this
+                                ; size and has never been anywhere else, so
+                                ; there is nothing to go back to and nothing
+                                ; is drawn
+    mov ax, [si+ZR_X]
+    mov dx, [si+ZR_H]
+    call wm_ask_size            ; preserves SI, which is why the bank can still
+                                ; be read after it. The bank is NOT spent: a
+                                ; refused shrink has to be re-askable, and a
+                                ; zoom re-banks anyway
+    ; Refused OUTRIGHT? Then the restore did not happen, and NOTHING moves -
+    ; SPEC.md 11.1's rule that a refusal costs no repaint, plus the reason the
+    ; origin does not travel on its own: a window is not "partly back" because
+    ; it went three pixels down while keeping the size it was refused.
+    ;
+    ; The test is against what was ASKED and not against the record, and that
+    ; distinction is the whole of it: a window DRAGGED while it was zoomed
+    ; banks the standard SIZE with a different origin, so "the answer equals
+    ; the record" is also exactly what a perfectly accepted restore of that
+    ; window looks like. Asking the other question tells the two apart.
+    cmp cx, [si+ZR_W]
+    jne .rref
+    cmp dx, [si+ZR_H]
+    je .rgo                     ; we were given the size we asked for
+.rref:
+    cmp cx, [bx+W_W]            ; not that size - but if what came back is the
+    jne .rgo                    ; size it ALREADY has, on both axes, then
+    cmp dx, [bx+W_H]            ; nothing was given back at all. One axis is a
+    je .out                     ; partial restore, and it travels
+.rgo:
+    push dx                     ; x is replayed and then CLAMPED, because on
+    mov dx, [vid_w]             ; that partial path the size is not the one it
+    sub dx, cx                  ; was banked with - a negotiator refusing to
+    jns .rx                     ; shrink hands back the STANDARD width, and
+    xor dx, dx                  ; the banked x plus that runs off the right
+.rx:                            ; edge
+    cmp ax, dx
+    jle .rxc
+    mov ax, dx
+.rxc:
+    pop dx
+    mov [bx+W_W], cx
+    mov [bx+W_H], dx
     mov [bx+W_X], ax
-    mov word [bx+W_Y], MBAR_H   ; the top of the desktop band; wm_resize's own
-                                ; y clamp only ever pushes a window UP OFF the
-                                ; dock, never down off the bar, so this is the
-                                ; half it cannot do
-    call wm_resize              ; ...and this is the half it can: both clamps,
-                                ; wm_snap_win and the repaint
+    mov ax, [si+ZR_Y]           ; y is replayed and never clamped: what bounds
+    mov [bx+W_Y], ax            ; it is the TITLE BAR being on screen, which is
+                                ; independent of the height (SPEC.md 11.90)
+    call wm_snap_win            ; ...and back onto a byte boundary (11.94),
+                                ; which the x clamp above may have taken it off
+    call wm_paint_all           ; the band it is vacating is most of the
+    jmp short .out              ; screen, so this is wm_resize's repaint too
+.go:
+    ; --- it is not: bank where it stands, and go to the standard state -------
+    call wm_zoom_slot
+    push ax                     ; the standard x, which the bank writes over
+    mov ax, [bx+W_X]
+    mov [si+ZR_X], ax
+    mov ax, [bx+W_Y]
+    mov [si+ZR_Y], ax
+    mov ax, [bx+W_W]
+    mov [si+ZR_W], ax
+    mov ax, [bx+W_H]
+    mov [si+ZR_H], ax
+    pop ax
+    mov [bx+W_X], ax
+    mov word [bx+W_Y], MBAR_H   ; wm_resize's y clamp only ever pushes a window
+                                ; UP OFF the dock, never down off the bar, so
+                                ; this is the half it cannot do
+    call wm_resize              ; ...and this is the half it can
 .out:
+    pop si
     pop dx
     pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_zoom_slot - SI -> this window's entry in the zoom bank
+; in:  BX = window ptr
+; out: SI = wm_zoomr + index * ZR_SIZE; every other register preserved
+; clobbers: flags
+; -----------------------------------------------------------------------------
+wm_zoom_slot:
+    push ax
+    call wm_ptr2idx             ; AL = index, AH = 0
+    mov si, ax
+    shl si, 1
+    shl si, 1
+    shl si, 1                   ; x8: ZR_SIZE, and an 8086 has no shl by imm
+    add si, wm_zoomr
     pop ax
     ret
 
@@ -596,6 +722,12 @@ wm_destroy:
     shl si, 1                   ; ...and its About handler with it, or a
     mov word [wm_about+si], 0   ; reused slot inherits a stranger's (12.2)
     shr si, 1
+    shl si, 1                   ; ...and its zoom bank, for the same reason:
+    shl si, 1                   ; a reused slot must not restore to the rect
+    shl si, 1                   ; the last tenant was zoomed out of (11.95).
+    mov word [wm_zoomr+si+ZR_W], 0  ; the sentinel word is the whole of it
+                                ; (SI is dead from here - the z-order walk
+                                ; below reloads it)
     mov ch, 0
     mov cl, [wm_zn]
     jcxz .paint                 ; empty z-order: nothing to remove
@@ -1028,7 +1160,7 @@ wm_snap_win:
 ; SPEC.md 11.94's GATE, on its own, because two places ask the question and
 ; only one of them can use wm_snap_ax to act on it: that routine moves a
 ; candidate x LEFT and re-tests the CURRENT width against the right edge,
-; and wm_maximize (SPEC.md 11.95) is exactly the case where x wants to move
+; and wm_zoom (SPEC.md 11.95) is exactly the case where x wants to move
 ; RIGHT and the width is about to shrink to pay for it. One answer, two
 ; users, rather than a second copy of three tests that has to agree.
 ;
@@ -3248,6 +3380,11 @@ section .bss
 wm_wins:    resb MAX_WIN * WIN_SIZE ; 12 windows x WIN_SIZE bytes
 wm_zord:    resb MAX_WIN            ; window indices, [0] = backmost
 wm_zn:      resb 1                  ; entries in wm_zord
+wm_zoomr:   resb MAX_WIN * ZR_SIZE  ; per slot: the USER state a zoomed window
+                                    ; goes back to (SPEC.md 11.95). A side
+                                    ; table, not four more words in the record,
+                                    ; because WIN_SIZE is the stride every
+                                    ; reader of a window pays
 wm_about:   resw MAX_WIN            ; per-slot About handler offset, 0 = none
                                     ; (SPEC.md 12.2); inside wm_init's zero
                                     ; run, so a fresh slot has no About
