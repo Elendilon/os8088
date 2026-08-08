@@ -18,10 +18,19 @@ is that instrument as a command.
 that changes under you is one more variable in a session whose whole point is
 removing them; re-pinning is a deliberate act, not maintenance.
 
-**Reach for this FIRST** when the thing under test runs on an 8088 — which is
-most of this OS, and now includes **all three** of SPEC.md §39's adapters.
-docs/TESTING.md carries the full ordering; the short version is MartyPC, then
-QEMU for 286/386, then 86Box, then the 5150.
+**THIS IS WHAT YOU DEVELOP ON.** Anything that runs on an 8088 — which is
+the whole of this OS bar the 286/386 targets, and now includes **all three**
+of SPEC.md §39's adapters, input, screenshots and sound — is tested here.
+QEMU is a fallback with a three-item list (286/386, the hard-disk driver, and
+SPEC.md §9.5's COM2/cross-wired/modem mouse cases); docs/TESTING.md states it
+in full, and states it as a list on purpose, so that "a legitimate need" is
+something you can check rather than something you can argue yourself into.
+The 5150 remains the only instrument for anything with a disk in its timing.
+
+`make marty` builds from source with cargo, which costs a few minutes the
+first time in a fresh container — **build it at the start of a session rather
+than when you first need it**, because the moment you first need it is the
+moment the cost feels like a reason to type `make test` instead.
 
 ---
 
@@ -91,7 +100,7 @@ happened" is the one failure a debugger must not have.
 
 ---
 
-## The three machines
+## The machines
 
 `tools/martypc/configs/os8088_machines.toml` is appended to MartyPC's own
 `ibm5150.toml` by `build.sh`:
@@ -101,9 +110,20 @@ happened" is the one failure a debugger must not have.
 | `os8088_5150_cga` | the default: IBM 5150, 8088 at 4.77MHz, 640K, CGA, real 1982 IBM BIOS |
 | `os8088_5150_herc` | the same with MDA — MartyPC models Hercules as an MDA sub-mode, so SPEC.md §39.1's probe is what decides |
 | `os8088_5150_cga_gla` | the same with GLaBIOS |
+| `os8088_5150_sb` | the same with an AdLib **and** a Sound Blaster (DSP 2.01, 0x220, IRQ 7) |
+| `os8088_xt_vga` | an IBM 5160 XT with GLaBIOS and a VGA — SPEC.md §39's mode 12h |
 
-All three are shaped after docs/FIELD-MACHINES.md's calibration machine, as
-closely as MartyPC allows.
+The first four are shaped after docs/FIELD-MACHINES.md's calibration machine,
+as closely as MartyPC allows.
+
+**The VGA one is an XT and not a 5150, deliberately.** An 8-bit ISA VGA card
+in a 5160 is a machine people actually built; a VGA in a 5150 is not, and the
+first version of this config was one. Nothing is lost by moving — the 5160 is
+the same 4.77MHz 8088 on the same bus — and nothing was ever at stake, because
+**this config could never have been a timing instrument**: the calibration
+machine has a Hercules and a CGA in it and no VGA at all, so there is no field
+number for a VGA figure to be compared against. It is a correctness
+instrument, and GLaBIOS boots it faster.
 
 **Use the IBM ROM for anything you will quote.** GLaBIOS is a modern
 reimplementation and is optimised in ways the 1982 ROM is not, so its POST and
@@ -132,7 +152,8 @@ is the client — a CLI, a REPL and an importable `Marty` class.
 | `run` / `pause` / `step` / `reset` | execution |
 | `bp` | breakpoints: `exec`, `execseg`, `mem`, `memseg`, `int`, `io` |
 | `screen` | the video card's text, in text modes |
-| `video` | which card, and whether it is in a graphics mode |
+| `video` | which card, its raster geometry and its display apertures |
+| `fbuf` | the card's RENDERED framebuffer as rgb24 — the only route on VGA |
 | `key` | a keypress by MartyKey name — `KeyA`, `Enter`, `ArrowRight` |
 | `mouse` | one Microsoft packet: relative `dx`/`dy` and button state |
 | `history` / `callstack` | the CPU's own instruction history |
@@ -141,7 +162,12 @@ is the client — a CLI, a REPL and an importable `Marty` class.
 Three things about it are load-bearing:
 
 - **Reads do not perturb the machine.** Memory comes back through
-  `BusInterface::peek_range`, which costs no cycles and triggers no MMIO. That
+  `BusInterface::get_vec_at_ex`, which costs no cycles and only ever *peeks* a
+  mapped device. It is `get_vec_at_ex` and **not** `peek_range`, which is the
+  obvious choice and does not resolve MMIO at all: it slices the flat memory
+  vector, so a read of `0xB8000` returned whatever was in RAM under the video
+  card — a screen of zeroes on any machine whose card had never written
+  through, with no error to say so. That
   matters more than usual here: MartyPC is cycle-accurate, and an instrument
   that costs cycles cannot measure a machine whose cycles are the thing under
   test. **I/O ports are the exception and say so** — there is no peek for a

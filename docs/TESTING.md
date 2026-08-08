@@ -1,15 +1,33 @@
 # What can actually be tested, and where
 
-**Reach for MartyPC FIRST.** If what you are testing runs on an 8088 — which
-is most of this OS, and all of the machine it is calibrated against —
-`make marty` gives you a cycle-accurate 5150 running the real 1982 IBM BIOS,
-with a debugger attached: memory, registers, I/O ports, breakpoints,
-single-step and cycle counts, none of it costing the guest a cycle
-(docs/MARTYPC-DEBUG.md). It covers **all three** of SPEC.md §39's adapters,
-scripted input, screenshots and sound. **Fall back to QEMU for 286/386**, and
-go to 86Box for another machine that is not an 8088. **And for anything with
-a disk in its timing, go to the 5150 — no emulator here is disk-accurate,
+**DEVELOP ON MARTYPC. QEMU IS A FALLBACK WITH A SHORT LIST.** If what you
+are testing runs on an 8088 — which is the whole of this OS bar the 286/386
+targets — `make marty` gives you a cycle-accurate 4.77MHz 8088 running a real
+period BIOS, with a debugger attached: memory, registers, I/O ports,
+breakpoints, single-step and cycle counts, none of it costing the guest a
+cycle (docs/MARTYPC-DEBUG.md). It covers **all three** of SPEC.md §39's
+adapters, scripted input, screenshots and sound. **And for anything with a
+disk in its timing, go to the 5150 — no emulator here is disk-accurate,
 MartyPC included.**
+
+**Here is the whole of QEMU's remaining list**, stated as a list so that "a
+legitimate need" is something you can check rather than something you can
+argue yourself into:
+
+1. **286 and 386.** 86Box covers these too, and models the machine rather
+   than just the CPU — prefer it where the question is about the machine.
+2. **The hard-disk driver** (SPEC.md §52). QEMU has an ATA disk at 1F0h and
+   SeaBIOS hands it to int 13h, so both rungs of the transport ladder, the
+   partitioner, the formatter and the mount are testable end to end. No
+   MartyPC config here has a disk controller.
+3. **SPEC.md §9.5's awkward mouse cases** — a mouse on COM2, the cross-wired
+   IRQ4 card, and a modem chattering on the other port (`MOUSEPORT=com2`,
+   `com2irq4`, a socket chardev). MartyPC can put its mouse on either port,
+   but the cross-wired and modem cases are not built.
+
+That is the list. **"It is quicker to type" is not on it, and neither is
+"I already know the QMP commands."** If you find a fourth entry, add it here
+rather than treating the rule as advisory.
 
 That ordering is a **reversal**, and it is written down because the old one
 cost a great deal. Everything in this tree was QEMU-first for years, and QEMU
@@ -17,12 +35,15 @@ is the emulator that is *furthest* from the target: it runs the guest at host
 speed on a CPU that is not an 8088, through SeaBIOS rather than a period ROM,
 with no CGA and no Hercules card in it at all. It is excellent at counting
 work and it is not a machine. Nearly every entry in docs/FIELD-NOTES.md is
-something QEMU showed as fine.
+something QEMU showed as fine — and SPEC.md §18.91's `AL` bug is the sharper
+shape: QEMU ran the buggy binary *correctly and quickly* and reported
+nothing, while the real machine was moving 4.6x the sectors anyone asked for.
+A tool that is wrong in the flattering direction does not announce itself.
 
 | reach for | when | why |
 |---|---|---|
-| **MartyPC** | 8088/XT, CGA or MDA/Hercules, and any question of the form *what is the machine doing* | cycle-accurate CPU, a real BIOS ROM, and a debugger that perturbs nothing |
-| **QEMU** | 286/386, and a second opinion on VGA | on an 8088, MartyPC now covers all three adapters, input, screenshots and sound. QMP and `tools/mouse.py` remain the harness everywhere else |
+| **MartyPC** | **the default** — any 8088 machine, any of the three adapters, and any question of the form *what is the machine doing* | cycle-accurate CPU, a real BIOS ROM, real CGA/Hercules/VGA cards, and a debugger that perturbs nothing |
+| **QEMU** | the three-item fallback list above, and nothing else | on an 8088, MartyPC covers all three adapters, input, screenshots and sound. QMP and `tools/mouse.py` remain the harness for what is genuinely left |
 | **86Box** | a machine that is **not an 8088** (the 286 and 386 targets), real sound cards on a period bus, a second opinion on the video probe | period-correct whole machines, and the widest hardware library |
 | **the 5150** | anything with a **disk** in it, and the three defects no emulator shows | docs/FIELD-MACHINES.md |
 

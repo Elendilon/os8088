@@ -150,8 +150,48 @@ package. Read it before you spend a day re-deriving any of them.
 
 ## Commands
 
+**BEFORE YOU RUN ANY OF THESE: `make marty` IS THE DEFAULT TEST TARGET, AND
+`make test` IS THE FALLBACK.** This block used to start with the QEMU targets
+and put `make marty` twenty lines down, which is most of why sessions keep
+reaching for QEMU — a skim reads the list before it reads the rule. So the
+rule goes first:
+
+> **Develop on MartyPC.** Anything that runs on an 8088 — which is every
+> adapter, every package, the whole kernel, all three of SPEC.md §39's video
+> paths, input, screenshots and sound — is tested with `make marty`. It is a
+> **cycle-accurate 4.77MHz 8088 running a real period BIOS with real CGA,
+> Hercules and VGA cards in it**, and it agrees with the field machine to
+> 0–4% on 45 of 47 `gfxbench` rows.
+>
+> **Go to QEMU when you have a specific reason, and the list is short**:
+> 286/386 (86Box also does these, and better), the hard-disk driver
+> (SPEC.md §52 — `make test HDD=40`; no MartyPC config here has a disk
+> controller), and SPEC.md §9.5's COM2 / cross-wired-IRQ / modem mouse cases
+> (`MOUSEPORT=`, a socket chardev). "It is quicker to type" is not a reason;
+> neither is "I already know the QMP commands".
+>
+> **And for anything with a disk in its TIMING, neither one is the
+> instrument** — that is the 5150 (docs/FIELD-MACHINES.md), because no
+> emulator here is disk-accurate and MartyPC's error is 30x in the flattering
+> direction.
+>
+> Why this is a rule and not a preference: QEMU is the emulator **furthest
+> from the target**. It runs the guest at host speed, on a CPU that is not an
+> 8088, through SeaBIOS rather than a period ROM. Nearly every entry in
+> docs/FIELD-NOTES.md is something QEMU showed as fine — and SPEC.md §18.91's
+> `AL` bug is the worked example of the sharper failure: QEMU ran the buggy
+> binary *correctly and quickly* and said nothing, while the real machine was
+> issuing 4.6x the disk traffic.
+>
+> `make marty` builds from source with cargo and takes a few minutes the
+> first time in a container (`libudev-dev` + `pkg-config` on Linux). **Build
+> it at the start of a session, not when you first need it.**
+
+docs/TESTING.md is the full matrix; docs/MARTYPC-DEBUG.md is the recipe.
+
 ```
 make          # build all six floppy images into build/
+              # --- QEMU targets: the FALLBACK, per the rule above ---
 make run      # boot in QEMU with emulated serial mouse (1.44MB images)
 make run-640  # same, as a maxed-out 640KB machine (-m 1M; QEMU/SeaBIOS can't boot below 1MB, int 12h caps at 640K anyway; SeaBIOS's EBDA makes it 639K)
 make run-720  # same, off the 720KB pair (os8088-720.img + apps720.img)
@@ -220,33 +260,56 @@ make field    # ...and the FIELD disks: herc, cga, cga720, flop1 and cqdiag,
               # KIMG_PARA rung - same rung, exactly comparable - and never
               # fails the build, since growing is allowed and only has to be
               # known about
+              # --- THE DEFAULT. Everything above this line is the fallback ---
 make marty    # the MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug
               # server bolted into MartyPC's headless frontend, pinned to one
               # upstream commit in tools/martypc/. Memory, registers, I/O
               # ports, breakpoints, single-step and cycle counts on a running
               # os8088 with NO code in the guest at all - it costs the guest
               # not one cycle and answers on a machine that has hard-frozen.
-              # Needs cargo, and on Linux libudev-dev + pkg-config.
+              # Needs cargo, and on Linux libudev-dev + pkg-config; build it
+              # at the START of a session rather than when you first need it.
               #   python3 tools/os88marty.py 127.0.0.1:9001 verify
               # dumps KERNEL_SEG and diffs it against build/kernel.bin, which
               # is FIELD-MACHINES.md's self-validating dump as one command
+              # Machines: os8088_5150_cga (default), _5150_herc, _5150_cga_gla,
+              # _5150_sb (AdLib + Sound Blaster), _xt_vga (mode 12h). Add
+              # MARTYPC_WAV=/tmp/cap for one wav per sound source.
 make clean
 ```
 
-**MARTYPC IS THE FIRST TOOL TO REACH FOR, NOT THE LAST, and that is a
-REVERSAL of how this tree has worked.** Everything here was QEMU-first for
-years, and QEMU is the emulator FURTHEST from the target: it runs the guest at
-host speed on a CPU that is not an 8088, through SeaBIOS rather than a period
-ROM, with no CGA and no Hercules card in it at all. It is exact about how much
-WORK the guest does and it is not a machine - nearly every entry in
-docs/FIELD-NOTES.md is something QEMU showed as fine. `make marty` is a
-cycle-accurate 5150 running the real 1982 IBM BIOS with a debugger attached,
-and it agrees with the field machine to 0-4% on 45 of 47 gfxbench rows.
-**Use it whenever the thing under test runs on an 8088 with a CGA or a
-Hercules**, which is most of this OS; fall back to QEMU for what it does not
-cover - 286/386 - and to 86Box for a machine that is not an 8088.
-**Screenshots, scripted input, SOUND and VGA have all stopped being reasons
-to start QEMU.**
+**MARTYPC IS WHAT YOU DEVELOP ON. QEMU IS A FALLBACK WITH A SHORT LIST, and
+that is a REVERSAL of how this tree has worked.** Everything here was
+QEMU-first for years, and QEMU is the emulator FURTHEST from the target: it
+runs the guest at host speed on a CPU that is not an 8088, through SeaBIOS
+rather than a period ROM, with no CGA and no Hercules card in it at all. It
+is exact about how much WORK the guest does and it is not a machine - nearly
+every entry in docs/FIELD-NOTES.md is something QEMU showed as fine. `make
+marty` is a cycle-accurate 4.77MHz 8088 running a real period BIOS with a
+debugger attached, and it agrees with the field machine to 0-4% on 45 of 47
+gfxbench rows. **Use it for anything that runs on an 8088**, which is the
+whole of this OS bar the 286/386 targets. **Screenshots, scripted input,
+SOUND and VGA have all stopped being reasons to start QEMU** - each was one
+once, and each is now a MartyPC command.
+
+**The whole of QEMU's remaining list**, so that "a legitimate need" is a
+thing you can check rather than a thing you can argue: **286/386** (86Box
+covers these too and models the machine rather than just the CPU), the
+**hard-disk driver** (SPEC.md §52 - QEMU has an ATA disk at 1F0h and SeaBIOS
+gives it to int 13h; no MartyPC config here has a disk controller), and
+SPEC.md §9.5's **COM2 / cross-wired-IRQ / modem** mouse cases (`MOUSEPORT=`
+and a socket chardev - MartyPC can put its mouse on either port but the
+cross-wired and modem cases are not built). That is the list. Speed of
+typing is not on it, and neither is familiarity with QMP.
+
+**One live caveat, and it should be deleted once it stops being true.** VGA
+mode 12h on MartyPC is NEW - verified on the desktop, a Disk window and
+Minesweeper's 16 colours, and *not yet* on Paint's canvas, SPEC.md §32's
+back buffer, `gfx_line_runs`, or SPEC.md §53's Mode 13h/Mode X brackets. It
+is the default for VGA work all the same, because the alternative is a
+machine that is not an 8088 at all. But **a disagreement between MartyPC and
+QEMU about a VGA pixel is not yet automatically MartyPC's win** - go and find
+out which is right, and then delete this paragraph.
 `os88marty.py key` enters the emulator's keyboard buffer so the guest sees a
 keystroke through the 8255 and int 09h, and `mouse` builds a real Microsoft
 3-byte packet and clocks it into the serial controller so mou_isr decodes it
