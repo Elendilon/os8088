@@ -111,3 +111,47 @@ overlays = [
     io_base = 0x220
     irq = 7
     dsp_version = [2, 1]
+
+# ...and the VGA machine, for SPEC.md 39's first adapter - mode 12h, 640x480,
+# 16 colours, four planes.
+#
+# AN XT AND NOT A 5150, deliberately. An 8-bit ISA VGA card in a 5160 is a
+# machine people actually built; a VGA in a 5150 is not, and the first version
+# of this config was one. Nothing is lost by moving: the 5160 is the same
+# 4.77MHz 8088 on the same bus, and this config was never going to be a
+# TIMING instrument anyway - the machine the project is calibrated against
+# (docs/FIELD-MACHINES.md) has a Hercules and a CGA in it and no VGA at all,
+# so there is nothing to compare a VGA number to. It is a correctness
+# instrument, and GLaBIOS boots it faster than the 1982 ROM does.
+#
+# THE VGA WAS NEVER THE MISSING PIECE, which is worth writing down because
+# this tree's docs claimed for a while that it was. marty_core ships a
+# register-level VGA (crtc/sequencer/attribute_controller/graphics_controller)
+# whose `vga` feature is ON BY DEFAULT, and it rasterises 12h correctly. What
+# was missing was one line in the headless crate's Cargo.toml: without
+# `marty_frontend_common/vga` the arm of get_rom_requirements that asks for
+# `ibm_vga` is compiled out, so the machine came up with a VGA card and NO
+# VIDEO BIOS behind it and nothing said so.
+#
+# The BIOS is MartyPC's own bundled BOCHS-VGABIOS.bin (media/roms/VGA/, LGPL,
+# shipped with its licence) - no asset of ours, and nothing to fetch.
+[[machine]]
+name = "os8088_xt_vga"
+type = "Ibm5160"
+rom_set = "glabios_xt"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "VGA"
+    clock_mode = "Default"

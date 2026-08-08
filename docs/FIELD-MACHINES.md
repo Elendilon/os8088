@@ -591,6 +591,32 @@ sees; keep every question about work.**
 ### Handing over a build
 
 State the **commit**, and hand over the images rather than a branch name — a
-branch moves. Build them from a clean checkout of the commit you quote, with
-no `VIDEO=`/`RTC=`/`DISKCNT=` knob set, or the floppy holds something the
-source no longer says.
+branch moves. Build them from a clean checkout of the commit you quote with
+`make field`, and quote the knobs each image carries, or the floppy holds
+something the source no longer says.
+
+**Which knobs those are is now the Makefile's business, not yours.** Every
+field kernel is `DISKCNT=1` (SPEC.md §18.94.1) and three of the five carry a
+second knob of their own — `VIDEO=cga`, `FLOPPY1=1`, `BOOTDIAG=1`. That is a
+change from the rule this section used to state, which was "no knob at all",
+and it is why the knob banner now names `DISKCNT=1` as the expected one.
+
+**A benchmark kernel is not bound by `KERN_BUDGET`.** Every machine in this
+register has 640KB (the 5150 by way of its SixPakPlus), so the only ceiling
+on an instrument is the RAM in the box, and instruments may be compiled into
+these kernels freely. The thing to watch is not size but **parity**, and it
+costs nothing to watch because `make field` runs `tools/fieldsize.py`:
+
+- **`boot ticks` and every heap row are measurements of the kernel that is
+  running.** The kernel is read off the floppy a sector at a time and the
+  heap starts where it ends, so both move when the image does.
+- **Nothing else does** — drawing, CPU, RAM bandwidth and the floppy's own
+  bytes/second are all measured against the machine, not the kernel's extent.
+- **The unit is `KIMG_PARA`'s 512-byte rung**, not the byte. Two kernels in
+  the same rung have an identical memory map and an identical sector count,
+  so their rows compare *exactly*; today's field kernel and the shipped one
+  are both 72,199 bytes and both 142 sectors, which is why folding the disk
+  counters in cost the boot-tick series nothing.
+
+Growing past a rung is allowed. It just has to be **known about** rather than
+discovered later in a number that moved for no visible reason.

@@ -2479,12 +2479,18 @@ by accident and no reading of the source can supply.
 It shares §18.94's mechanism and **deliberately not its knob** — it had a
 fixed word of its own at `0060:0006` until §57 replaced the per-instrument
 words with one registry, and that address is free again.
-That one is `make DISKCNT=1` because it counts something a normal kernel has
-no reason to carry; this one names state that already exists, and the build
-the field machine is sent has **no knob set at all** by
-docs/FIELD-MACHINES.md's own handover rule — so behind a knob it would be
-absent from every disk that matters. It costs two bytes of header and six of
-descriptor.
+That one is `make DISKCNT=1` because it **counts** something; this one names
+state that already exists, which is §57's own split and the reason to hold it
+here. It costs two bytes of header and six of descriptor.
+
+The argument that first put it outside a knob was a different one and is
+worth marking as **spent**: the field machine used to be sent a kernel with no
+knob set at all, so behind a knob this would have been absent from every disk
+that mattered. §18.94.1 ended that — every field kernel is `DISKCNT=1` now —
+so a knob is no longer the same thing as absent. What replaces it is narrower
+and better: every knob is a way for the measured kernel to differ from the
+shipped one, so a block that needs no knob should not have one, and the two
+that need none are this and §37.92's.
 
 Three things hold it up:
 
@@ -6468,10 +6474,63 @@ the change touches create, replace, delete, rename and stat alike.
 
 ### 18.94 The transfer instrument, published at a fixed offset
 
-**`make DISKCNT=1` only, and never shipped.** The counters of
-docs/DISK-PERF-PLAN.md §2 have existed for a while and were read over QMP;
-this publishes them so a **test package** can read them, because the question
-they answer turned out to need a field machine rather than an emulator.
+**`make DISKCNT=1`, which is now every FIELD kernel and no shipped one.** The
+counters of docs/DISK-PERF-PLAN.md §2 have existed for a while and were read
+over QMP; this publishes them so a **test package** can read them, because the
+question they answer turned out to need a field machine rather than an
+emulator.
+
+#### 18.94.1 …and why it stopped being a disk of its own
+
+It was `build/dskdbg.img`, a sixth image built only for this, and the reason
+given for the separation was two things that have both since expired:
+
+- *"the counters are two instructions in the hot path of every transfer"* —
+  measured, they are about twelve instructions per int 13h **call**, not per
+  sector, against a sector that costs **238 ms** on the target machine. And
+  the image is **byte for byte the same size** either way, because the growth
+  lands inside the padding to `OVL_START`: 72,199 bytes with them and without,
+  the same 142-sector rung, so the memory ladder, the boot sector's read and
+  every heap figure are identical rather than merely close.
+- *"the published word is an ABI that depends on a knob"* — it **was**, while
+  it was a fixed word at `0060:000E`. §57's registry is precisely the fix for
+  that: the block is found by **tag**, and a reader that cannot find one says
+  so and continues. One build of `sysbench` already served both kernels.
+
+The second is the one worth noticing as a shape rather than a fact: a later
+change removed the reason, and nobody went back to re-ask the question it had
+settled. That is the same failure as PERFORMANCE.md's rule about re-measuring
+an optimisation whose case predates its neighbours' fixes, in the other
+direction — a *restriction* whose case had expired.
+
+What folding it in buys is a **disk swap**. The calibration machine has one
+floppy drive (docs/FIELD-MACHINES.md), so a second image is a swap and a
+reboot in the middle of every batch, and the counters answer a question you
+generally want to have asked about the run you already did.
+
+**Two things had to move with it, and the second was a real defect.** The
+Makefile's knob warning now fires on every field build, so it says which knobs
+and why rather than implying a mistake. And `benchlib`'s `BL_MAXROWS` was
+**190** while `sysbench`'s longest report was 190 — folding in this block and
+§37.92's clock block took it to **211**, so the very first run truncated. It
+printed `REPORT TRUNCATED`, which is the only reason that was caught here
+instead of being carried off a field machine in a photograph; the limits are
+240 rows and 11,500 arena bytes now, with headroom stated as headroom.
+
+**A benchmark kernel is not bound by `KERN_BUDGET`** — the field machines all
+carry 640KB and the only ceiling is the RAM in the box — so instruments may be
+compiled into these kernels freely. What that does **not** buy is measurement
+parity, and `tools/fieldsize.py` (run by `make field`) is the guard: two rows
+of a report are measurements **of the kernel that is running**, not of the
+machine. `boot ticks` moves because the kernel is read off the floppy a sector
+at a time, and every heap figure moves because the heap starts where the
+kernel ends. Everything else — the drawing primitives, the CPU rows, RAM
+bandwidth, the floppy's own bytes/second — is untouched. The unit is
+`KIMG_PARA`'s 512-byte rung and not the byte count, so two kernels in the same
+rung are comparable *exactly*; `fieldsize.py` says which case you are in and
+never fails the build, because growing past a rung is allowed and only has to
+be known about rather than discovered later in a number that moved for no
+visible reason.
 
 PERFORMANCE.md Part 9 Set 14 measured, on the calibration machine, that a raw
 `int 13h` reads a whole 9-sector track in **1.92 revolutions** when it is
@@ -21501,17 +21560,24 @@ So: **one fixed word, one level of indirection, and the list can grow.**
 
 dbg_reg:    dw 'MO', mou_dbg_blk
             dw 'CK', clk_dbg_blk
-            dw 'DD', dsk_dbg_blk    ; only in a DISKCNT=1 build
+            dw 'DD', dsk_dbg_blk    ; DISKCNT=1: every FIELD kernel (18.94.1),
             dw 0                    ; end of list
 ```
 
 Two of the three are unconditional and one is knob-built, and the split is
-the rule rather than an accident: `'MO'` (§9.4.2) and `'CK'` (§37.92) both
-describe **hardware nobody in this project owns twice** — a real serial card's
-answer to a DTR raise, a real MM58167's answer to a probe — so they have to
-be in the kernel the field machine is actually sent, which by
-docs/FIELD-MACHINES.md's handover rule carries no knob at all. `'DD'`
-(§18.94) counts something a normal kernel has no reason to carry.
+the rule rather than an accident: `'MO'` (§9.4.2) and `'CK'` (§37.92) **name
+state the kernel already keeps**, about hardware nobody in this project owns
+twice — a real serial card's answer to a DTR raise, a real MM58167's answer
+to a probe — while `'DD'` (§18.94) **counts**, which is work a kernel has no
+other reason to do.
+
+That is not the split the first two were written under. The argument then was
+that a field kernel carries no knob, so a knobbed block is absent from every
+disk that matters; §18.94.1 made every field kernel `DISKCNT=1` and retired
+it. The rule that survives is the narrower one above, plus the reason to keep
+knobs scarce at all: **each one is a way for the kernel you measured to
+differ from the kernel that ships**, and `tools/fieldsize.py` exists to say
+when a difference has grown big enough to move a number.
 
 | | |
 |---|---|

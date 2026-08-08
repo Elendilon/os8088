@@ -177,6 +177,9 @@ ifneq ($(VIDDEF),)
 	@echo "  *** BUILT WITH A KNOB - a forced probe and/or disk counters.   ***"
 	@echo "  *** It boots that way on every machine. Rebuild with a plain   ***"
 	@echo "  *** \`make\` before testing detection or cutting a release.      ***"
+	@echo "  *** DISKCNT=1 ALONE is expected: it is in every field kernel   ***"
+	@echo "  *** (SPEC.md 18.94.1) and costs the image 0 bytes. Any OTHER   ***"
+	@echo "  *** knob above is the one to be surprised by.                  ***"
 endif
 
 # The boot sector needs to know how many sectors to read, so we measure the
@@ -787,22 +790,43 @@ $(BUILD)/bench360.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 FIELDBENCH := $(BENCHPKGS) $(BENCHDATA) $(BUILD)/bigfile.dat
 CGADIR     := $(BUILD)/cgak
 F1DIR      := $(BUILD)/f1k
-DBGDIR     := $(BUILD)/dbgk
+HERCDIR    := $(BUILD)/herck
 CQDIR      := $(BUILD)/cqk
 
-field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img \
-       $(BUILD)/dskdbg.img $(BUILD)/cqdiag.img
+# EVERY field kernel is built DISKCNT=1, and there is no separate instrumented
+# disk any more. Both halves of the reason there used to be one have expired:
+#
+#   "the counters are two instructions in the hot path of every transfer" -
+#   measured, they are about twelve instructions per int 13h CALL (not per
+#   sector) against a 238 ms sector, and the image is BYTE FOR BYTE the same
+#   size either way because the growth lands inside the padding to OVL_START.
+#
+#   "the published word is an ABI that depends on a knob" - it was, when it
+#   was a fixed word at 0060:000E. SPEC.md 57's registry is exactly the fix
+#   for that: the block is found by TAG, and a reader that cannot find one
+#   says so and continues. One build of sysbench already serves both kernels.
+#
+# The second is the one worth noticing: a later change removed the reason and
+# nobody went back to re-ask the question. What it buys is a DISK SWAP - the
+# 5150 has one drive (docs/FIELD-MACHINES.md), so a second disk is a swap and
+# a reboot in the middle of every batch.
+FIELDKNOBS := DISKCNT=1
 
-$(BUILD)/herc.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) \
+field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img \
+       $(BUILD)/cqdiag.img
+
+$(BUILD)/herc.img: $(BUILD)/kernel.bin $(DRIVERS) \
                    $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+	@$(MAKE) BUILD=$(HERCDIR) $(FIELDKNOBS) $(HERCDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
-		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
+		--boot $(HERCDIR)/boot360.bin --kernel $(HERCDIR)/kernel.bin \
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
-	@echo "field: $@ - the shipped PROBE kernel; on a machine holding both"
-	@echo "       cards it finds the Hercules (SPEC.md 39.1)"
+	@python3 tools/fieldsize.py $(BUILD)/kernel.bin $(HERCDIR)/kernel.bin
+	@echo "field: $@ - the PROBE kernel; on a machine holding both cards it"
+	@echo "       finds the Hercules (SPEC.md 39.1)"
 
 $(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
-	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(CGADIR)/boot360.bin
+	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/kernel.bin \
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
@@ -820,7 +844,7 @@ $(BUILD)/cga.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 # rule with $(BUILD)/boot360.bin and $(BUILD)/kernel.bin - the probe build -
 # in place of $(CGADIR)'s, and nothing else.
 $(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
-	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(CGADIR)/boot360.bin
+	@$(MAKE) BUILD=$(CGADIR) VIDEO=cga $(FIELDKNOBS) $(CGADIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(CGADIR)/boot360.bin --kernel $(CGADIR)/kernel.bin \
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
@@ -841,32 +865,20 @@ $(BUILD)/cga720.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 # nothing to do with video, and its `boot ticks` row is a second, independent
 # reading of the same thing.
 $(BUILD)/flop1.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
-	@$(MAKE) BUILD=$(F1DIR) FLOPPY1=1 $(F1DIR)/boot360.bin
+	@$(MAKE) BUILD=$(F1DIR) FLOPPY1=1 $(FIELDKNOBS) $(F1DIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(F1DIR)/boot360.bin --kernel $(F1DIR)/kernel.bin \
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
 	@echo "field: $@ - FLOPPY1=1, one sector per int 13h. The A/B against"
 	@echo "       herc.img for docs/FIELD-NOTES.md 7 - run SYSBENCH on both"
 
-# ...and the INSTRUMENTED disk. DISKCNT=1 compiles in the transfer counters
-# and publishes them at 0060:000E (SPEC.md 18.94), which is what lets sysbench
-# report what os8088's own path actually issued for one 16KB read - sectors,
-# int 13h calls, the longest run and any controller resets - and time a raw
-# int 13h through the kernel instead of making the call itself, which hard
-# froze the 5150 (docs/FIELD-NOTES.md 10).
+# There is no INSTRUMENTED disk any more: DISKCNT=1 is in $(FIELDKNOBS) and so
+# in all five images above. SPEC.md 18.94's counters are therefore in whatever
+# disk the operator happens to have in the drive, which is the point - the
+# question they answer ("what did dsk_xfer actually issue?") is one you want
+# to have asked about the run you already did, not the run you have to go back
+# and do again on a different floppy.
 #
-# It is a SEPARATE disk rather than the default because the counters are two
-# instructions in the hot path of every transfer and the published word is an
-# ABI that depends on a knob. On a kernel without it sysbench says so and
-# skips the block, so one build of the package serves both.
-$(BUILD)/dskdbg.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
-	@$(MAKE) BUILD=$(DBGDIR) DISKCNT=1 $(DBGDIR)/boot360.bin
-	python3 tools/os88disk.py -o $@ --size 360 \
-		--boot $(DBGDIR)/boot360.bin --kernel $(DBGDIR)/kernel.bin \
-		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
-	@echo "field: $@ - DISKCNT=1. SYSBENCH here reports what dsk_xfer really"
-	@echo "       issues, and prices a raw int 13h safely (SPEC.md 18.94)"
-
 # ...and the DIAGNOSTIC disk, for a machine that will not boot. BOOTDIAG=1
 # trades the boot sector's 'os8088: disk error' for int 13h's STATUS as two
 # hex digits, which is the whole diagnosis in one boot instead of a bisect:
@@ -875,7 +887,7 @@ $(BUILD)/dskdbg.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 # transfer that crossed a 64KB DMA page, 80 a drive that never answered.
 # The sector has four spare bytes, which is why this is a knob.
 $(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
-	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(CQDIR)/boot360.bin
+	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(FIELDKNOBS) $(CQDIR)/boot360.bin
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(CQDIR)/boot360.bin --kernel $(CQDIR)/kernel.bin \
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
@@ -1285,8 +1297,8 @@ marty: $(IMG360)
 	@echo "         ./martypc_headless --mount fd:0:media/floppies/os8088-360.img &"
 	@echo "       python3 tools/os88marty.py 127.0.0.1:9001 verify"
 	@echo ""
-	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb"
-	@echo "       ...the last has an AdLib AND a Sound Blaster; add"
+	@echo "       machines: os8088_5150_cga (default), _herc, _cga_gla, _sb, _vga"
+	@echo "       ..._sb has an AdLib AND a Sound Blaster; add"
 	@echo "       MARTYPC_WAV=/tmp/cap for one wav per source (sndcheck.py reads them)"
 
 # NOTHING IN build/ IS TRACKED, and that is a decision rather than an accident.

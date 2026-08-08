@@ -107,8 +107,28 @@ class Marty:
         return self.cmd(cmd="screen")["rows"]
 
     def video(self):
-        """Which card, and whether it is in a graphics mode."""
+        """Which card, its raster geometry, and its display apertures.
+
+        `graphics` IS NOT TO BE TRUSTED ON VGA: the card's `mode_graphics`
+        field is initialised to false and never assigned, so it answers false
+        in mode 12h exactly as it does in mode 3. `field_w`/`field_h` are the
+        honest question - 800x524 is mode 12h's raster and a text mode's is
+        not.
+        """
         return self.cmd(cmd="video")
+
+    def fbuf(self, aperture=0):
+        """The card's RENDERED framebuffer as (width, height, rgb24 bytes).
+
+        The complement of `vram`, and the only route that works on VGA: mode
+        12h is four planes behind the Graphics Controller, so there is no flat
+        framebuffer in guest memory to read. This asks the CARD what it
+        rasterised, which is a different assertion - `vram` says the kernel
+        wrote the right bytes, this says the machine put them on a screen -
+        and it works on every adapter and in every mode.
+        """
+        r = self.cmd(cmd="fbuf", aperture=aperture)
+        return r["w"], r["h"], bytes.fromhex(r["data"])
 
     def vram(self, kind=None):
         """The 1bpp framebuffer as (width, height, rows-of-bits).
@@ -118,10 +138,11 @@ class Marty:
         to look at the screen. `kind` is 'cga' or 'herc'; None asks the
         machine which card it has.
 
-        VGA is deliberately absent. Mode 12h is four PLANES behind the
-        Graphics Controller's Read Map Select, so it is not readable as flat
-        memory at all - and MartyPC does not implement mode 12h anyway, so
-        the question does not arise on a machine this can run.
+        VGA is deliberately absent, and that is about the LAYOUT rather than
+        about MartyPC: mode 12h is four PLANES behind the Graphics
+        Controller's Read Map Select, so it is not readable as flat memory at
+        all. `fbuf` is the route there - it asks the card what it rasterised
+        instead of asking memory what is in it.
         """
         if kind is None:
             # ASK THE CARD. Sniffing memory does not work: an unmapped
@@ -249,10 +270,8 @@ class Marty:
         return self.cmd(cmd="quit")
 
 
-def write_png(path, w, h, rows):
-    """1bpp rows out as a greyscale PNG, no dependencies (hercshot.py's)."""
+def _png(path, w, h, raw, colour_type):
     import struct, zlib
-    raw = b"".join(b"\x00" + bytes(255 if b else 0 for b in row) for row in rows)
 
     def chunk(tag, data):
         c = tag + data
@@ -260,9 +279,21 @@ def write_png(path, w, h, rows):
 
     with open(path, "wb") as f:
         f.write(b"\x89PNG\r\n\x1a\n")
-        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 0, 0, 0, 0)))
+        f.write(chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, colour_type, 0, 0, 0)))
         f.write(chunk(b"IDAT", zlib.compress(raw, 9)))
         f.write(chunk(b"IEND", b""))
+
+
+def write_png(path, w, h, rows):
+    """1bpp rows out as a greyscale PNG, no dependencies (hercshot.py's)."""
+    raw = b"".join(b"\x00" + bytes(255 if b else 0 for b in row) for row in rows)
+    _png(path, w, h, raw, 0)
+
+
+def write_png_rgb(path, w, h, data):
+    """Packed rgb24 out as a truecolour PNG."""
+    raw = b"".join(b"\x00" + data[y * w * 3:(y + 1) * w * 3] for y in range(h))
+    _png(path, w, h, raw, 2)
 
 
 def parse_addr(text):
@@ -319,6 +350,11 @@ def main():
     p = sub.add_parser("shot", help="the framebuffer as a PNG - no QEMU needed")
     p.add_argument("out")
     p.add_argument("--kind", choices=("cga", "herc"), default=None)
+    p.add_argument("--rendered", action="store_true",
+                   help="ask the CARD what it rasterised (rgb24) instead of "
+                        "decoding guest VRAM. Automatic on VGA, where there "
+                        "is no flat framebuffer to decode.")
+    p.add_argument("--aperture", type=int, default=0)
 
     p = sub.add_parser("read"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
     p = sub.add_parser("dump"); p.add_argument("where"); p.add_argument("len", type=lambda x: int(x, 0))
@@ -378,11 +414,26 @@ def main():
                     m.click()
                 print("ok")
             elif a.op == "shot":
-                w, h, rows = m.vram(a.kind)
-                write_png(a.out, w, h, rows)
-                lit = sum(sum(r) for r in rows)
-                print("%s: %dx%d, %d lit of %d (%.1f%%)"
-                      % (a.out, w, h, lit, w * h, 100.0 * lit / (w * h)))
+                # VGA has no flat framebuffer to decode - mode 12h is four
+                # planes behind the Graphics Controller - so it takes the
+                # rendered route whether or not it was asked for. The 1bpp
+                # adapters keep the VRAM route by default, because that is the
+                # one whose output is byte-comparable with tools/hercshot.py
+                # and so with every "0 differing pixels" check in this tree.
+                rendered = a.rendered or (a.kind is None and m.video()["type"] == "vga")
+                if rendered:
+                    w, h, data = m.fbuf(a.aperture)
+                    write_png_rgb(a.out, w, h, data)
+                    lit = sum(1 for i in range(0, len(data), 3)
+                              if data[i:i + 3] != b"\x00\x00\x00")
+                    print("%s: %dx%d rendered, %d non-black of %d (%.1f%%)"
+                          % (a.out, w, h, lit, w * h, 100.0 * lit / (w * h)))
+                else:
+                    w, h, rows = m.vram(a.kind)
+                    write_png(a.out, w, h, rows)
+                    lit = sum(sum(r) for r in rows)
+                    print("%s: %dx%d, %d lit of %d (%.1f%%)"
+                          % (a.out, w, h, lit, w * h, 100.0 * lit / (w * h)))
             elif a.op == "screen":
                 for row in m.screen():
                     print(row.rstrip())

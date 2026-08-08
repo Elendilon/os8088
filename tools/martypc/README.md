@@ -15,12 +15,12 @@ in the guest at all**.
 | `UPSTREAM` | the pinned commit. Editing it is a deliberate act, not maintenance |
 | `debug_server.rs` | the new module, copied in whole |
 | `patches/` | everything else: the upstream files that had to change, plus `devices/sblaster.rs`, the Sound Blaster upstream does not have |
-| `configs/` | four IBM 5150 machine configs shaped after docs/FIELD-MACHINES.md |
+| `configs/` | five IBM 5150 machine configs shaped after docs/FIELD-MACHINES.md |
 | `roms/` | the 27 OCT 82 IBM 5150 BIOS — the ROM the calibration machine has |
 | `build.sh` | clone at the pin, patch, stage a run tree, build |
 
-**Reach for this first** when what you are testing runs on an 8088 with a CGA
-or a Hercules — screenshots included (`os88marty.py shot out.png` reads the
+**Reach for this first** when what you are testing runs on an 8088 — all
+three of SPEC.md §39's adapters, VGA mode 12h included — screenshots included (`os88marty.py shot out.png` reads the
 framebuffer out of VRAM, so there is no reason to start QEMU to look at a
 screen) and sound included (`MARTYPC_WAV=` captures one wav per source, and
 the `os8088_5150_sb` machine has a PC speaker, an OPL2 **and** a Sound
