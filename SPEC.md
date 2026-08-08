@@ -8922,6 +8922,18 @@ screen. `fm_stat_clear` answers **CF = 1 when it actually cleared
 something**, and the cheap path spends that on one `fm_status_only` -
 a click that clears a message costs two bands and one line, not a window.
 
+**Two causes, ONE question.** `[fm_wased]` ("an editor line was up and ending
+it rewrote the line") and a retired verdict say exactly the same thing about
+what has to be drawn, and each used to escalate its own path to a whole
+repaint - so a click on the row *already selected* cost a window whenever
+there was anything to retire, which is the bug this rule introduced and the
+correction that closes it. `fm_onclick` ORs both into `[fm_statowed]` at
+entry, and every exit spends it the same way: `.newsel` draws its two bands
+and then the line, `.quiet` draws the line alone, and a click with nothing to
+retire and nothing to move draws **nothing at all**. Measured, clicking a bad
+package's row a second time: 20 glyphs and 1 fill against a 91-glyph,
+40-fill repaint; a third click, 0 and 0.
+
 Three things fall out of the ordering. The clear runs BEFORE the handler, so
 an operation that fails still shows its own new verdict. `fm_edit_arm`'s
 existing `FS_FERR = 0` is the same rule arriving earlier and stays. And the
