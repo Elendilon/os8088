@@ -5274,6 +5274,11 @@ mc_draw_exp:
 .gdisc:
     call mc_disc
 .gdone:
+    mov bl, [mc_er + si]            ; SPEC.md 48.22: that erase was a DISC of
+    mov bh, 0                       ; background, and any other burst it
+    mov ax, [mc_ex + di]            ; overlapped has a bite out of it now
+    mov dx, [mc_ey + di]
+    call mc_exp_hole
     mov byte [mc_er + si], 0
     mov ax, [mc_ey + di]
     mov bl, [mc_erad + 13]          ; the scaled peak radius
@@ -5286,6 +5291,72 @@ mc_draw_exp:
     sub ax, bx
     add cx, bx
     call mc_gdmg
+.next:
+    inc si
+    cmp si, MC_MAXEXP
+    jb .each
+    cmp byte [mc_ehole], 0          ; a burst that died bit into a live one:
+    je .done                        ; go round again and put it back. One
+    mov byte [mc_ehole], 0          ; extra pass at most - .gone cleared its
+    xor si, si                      ; own mc_ea, so nothing can mark again
+    jmp .each
+.done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mc_exp_hole - a disc of background was just laid at AX,DX radius BX; forget
+;               the drawn radius of every LIT burst it overlapped
+; in:  AX/DX = centre, BX = radius; preserves all registers
+;
+; SPEC.md 48.22. Explosions overlap - one ABM kills a cluster and the bursts
+; sit on top of each other - and mc_draw_exp's .gone erases the WHOLE blob it
+; drew. SPEC.md 48.8 then never redraws the neighbour, because its radius has
+; not changed, so it stays holed for the rest of its life. Marking it here
+; costs one mc_blob and only when two bursts really did overlap.
+; -----------------------------------------------------------------------------
+mc_exp_hole:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [mc_ehx], ax
+    mov [mc_ehy], dx
+    mov [mc_ehr], bx
+    xor si, si
+.each:
+    cmp byte [mc_ea + si], 1
+    jne .next
+    mov bl, [mc_er + si]
+    mov bh, 0
+    or bx, bx
+    jz .next
+    add bx, [mc_ehr]                ; two discs overlap when their centres are
+    mov di, si                      ; closer than the sum of the radii, and
+    add di, di                      ; the SQUARE round that is the cheap test
+    mov ax, [mc_ex + di]            ; - generous, which is the safe direction:
+    sub ax, [mc_ehx]                ; a needless repaint against a hole that
+    jns .xp                         ; would stand for the burst's whole life
+    neg ax
+.xp:
+    cmp ax, bx
+    ja .next
+    mov cx, [mc_ey + di]
+    sub cx, [mc_ehy]
+    jns .yp
+    neg cx
+.yp:
+    cmp cx, bx
+    ja .next
+    mov byte [mc_er + si], 0        ; "not drawn": mc_draw_exp's second pass
+    mov byte [mc_ehole], 1          ; puts it back at its target radius
 .next:
     inc si
     cmp si, MC_MAXEXP
@@ -7439,6 +7510,11 @@ mc_coast:    db 0, 1, 2, 3, 2, 1, 0, 2, 4, 3, 1, 0, 1, 3, 2, 1
     MBUF  mc_ey,     MC_MAXEXP * 2
     MBUF  mc_et,     MC_MAXEXP      ; frame, 0..[mc_expfr]-1
     MBUF  mc_er,     MC_MAXEXP      ; the radius it is DRAWN at
+    MBYTE mc_ehole                  ; a dying burst bit into a live one and
+                                    ; mc_draw_exp owes a second pass (48.22)
+    MWORD mc_ehx                    ; ...and the disc of background it laid
+    MWORD mc_ehy
+    MWORD mc_ehr
 
 ; --- the satellite / bomber -----------------------------------------------------
     MBYTE mc_sata                   ; 0 none / 1 satellite / 2 bomber / FF gone

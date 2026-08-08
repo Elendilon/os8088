@@ -19968,6 +19968,64 @@ the screen. The ground, the cities and the explosions keep their classes,
 because those are **areas**, where a 50% dither is a grey and is exactly what
 §39.4 is for.
 
+### 48.22 A dying burst takes a bite out of the one next to it
+
+Explosions overlap — one ABM kills a cluster and the bursts sit on top of each
+other — and `mc_draw_exp`'s `.gone` erases the **whole blob it drew** back to
+sky. Any other burst that blob covered is now holed, and §48.8 never redraws
+it, because *its* radius has not changed. It stays holed for the rest of its
+life, and with two or three neighbours dying in turn the survivor can be
+erased **entirely**.
+
+§48.9.1's rule for the third time: an optimisation that stops something being
+redrawn every frame inherits every place that used to rely on that redraw.
+This one was there before §48.19 and invisible — a trail erased straight
+through where the fireball should have been and nothing looked wrong. §48.19
+is what exposed it: the drain now **stops** at a burst it believes is lit, so
+a cluster kill left a star of trail stubs converging on a patch of empty sky.
+That is what the field reported as *a few tails have lines sticking out*, and
+the tails were the symptom rather than the defect.
+
+Caught by watching one burst per frame at `mc_worker`'s breakpoint and
+counting lit pixels in its own box: a healthy burst holds ~562–614 lit for its
+whole life and drops to the leftover trail stubs when it dies. The broken one
+read `ea = 1`, `er = 13`, `et = 12` — perfectly consistent state — with **no
+disc on screen**, and forcing `[mc_full]` brought it straight back at 578
+pixels. State right, screen wrong, which is the signature of a lost erase
+rather than a lost update.
+
+`mc_exp_hole` marks it: after `.gone` lays its disc of background, every lit
+burst whose centre is closer than the **sum of the radii** has its `mc_er`
+cleared, which is `mc_draw_exp`'s own word for *not drawn*. `[mc_ehole]` then
+sends the loop round once more and the neighbour is redrawn at its target
+radius. Three things about it:
+
+- **One extra pass at most.** `.gone` clears its own `mc_ea` before any of
+  this, so the second pass cannot reach a `.gone` again and cannot mark
+  anything; there is no third pass to bound.
+- **The overlap test is the square round the sum, not the circle**, and being
+  generous is the safe direction here: the cost of a false positive is one
+  `mc_blob` that changed nothing, against a hole that would otherwise stand
+  for the burst's whole remaining life.
+- **It costs nothing when bursts do not overlap**, which is the common case —
+  a compare per lit burst, and no drawing at all.
+
+Measured by scanning **every lit burst on every game frame** at the frame
+breakpoint and counting lit pixels inside its own box — a solid disc is
+`πr²` ≈ 530 at r = 13, and anything under `2r²` is holed — with the same
+scripted cluster salvo in both arms: **18 holed samples of 137 with the
+repair off, 0 of 74 / 0 of 112 / 0 of 113 with it on.** The worst reading off
+was 24 lit of 530: a fireball almost entirely gone.
+
+**One residual is not covered and is a different path**: a single run showed a
+burst holed at the ground line (`lit` 67, centre one radius above
+`[mc_groundy]`) for ten consecutive frames. Terrain is drawn *after* the
+bursts and `mc_exp_restore` (§48.9) is what puts them back, but only over the
+span `[mc_gdx1]` armed — so a burst standing in ground that was **not**
+repaired this frame is not restored. That is the same shape of bug in
+`mc_exp_restore`'s gate rather than in `.gone`'s erase, and it is left open
+rather than guessed at.
+
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
 A four-direction, dual-faction containment matrix, contributed by **Jason
