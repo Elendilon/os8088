@@ -2464,28 +2464,43 @@ docs/FIELD-MACHINES.md can settle, so the state has to be readable on the
 field machine, which has no debugger. It is published through the **debug
 registry** (§57) under the tag `'MO'`, which is also `mou_dbg_blk`'s own first
 word: after it, a pointer to `mou_bases` (two
-words, 0 = the probe rejected that port), then a pointer to a **33-byte
+words, 0 = the probe rejected that port), then a pointer to a **34-byte
 contiguous span** — `mou_run` +0, `mou_port` +4, `mou_need` +5, `mou_idn` +9,
 `mou_idb0` +13, `mou_idlast` +17, `mou_ident` +21, `mou_idany` +25,
 `mou_seen` +26, `mou_hpst` +27, `mou_hpt` +28, `mou_drain` +30,
-`mou_dstamp` +31.
+`mou_dstamp` +31, `mou_line` +33.
+
+`mou_line` is the newest and is read **together with `mou_port`**: the row
+says which UART the mouse is on and the line says which wire it pulls, and
+§9.5.2.1 is the machine where those two disagree. `0x10` with row 2, or
+`0x08` with row 0, is a cross-wired card — a fact no emulator here produces
+by accident and no reading of the source can supply.
 
 It shares §18.94's mechanism and **deliberately not its knob** — it had a
 fixed word of its own at `0060:0006` until §57 replaced the per-instrument
 words with one registry, and that address is free again.
-That one is `make DISKCNT=1` because it counts something a normal kernel has
-no reason to carry; this one names state that already exists, and the build
-the field machine is sent has **no knob set at all** by
-docs/FIELD-MACHINES.md's own handover rule — so behind a knob it would be
-absent from every disk that matters. It costs two bytes of header and six of
-descriptor.
+That one is `make DISKCNT=1` because it **counts** something; this one names
+state that already exists, which is §57's own split and the reason to hold it
+here. It costs two bytes of header and six of descriptor.
+
+The argument that first put it outside a knob was a different one and is
+worth marking as **spent**: the field machine used to be sent a kernel with no
+knob set at all, so behind a knob this would have been absent from every disk
+that mattered. §18.94.1 ended that — every field kernel is `DISKCNT=1` now —
+so a knob is no longer the same thing as absent. What replaces it is narrower
+and better: every knob is a way for the measured kernel to differ from the
+shipped one, so a block that needs no knob should not have one, and the two
+that need none are this and §37.92's.
 
 Three things hold it up:
 
 - **The layout is asserted, not trusted to declaration order.** A reader is
   a separate program, on a floppy, on a machine with no debugger; a member
   that moved would be silently republished as a different quantity. `mouse.inc`
-  ends in `%error` guards on all twelve offsets.
+  ends in `%error` guards on all thirteen offsets — and they earned their
+  keep: `mou_line` was first declared *beside* `mou_port`, in the middle of
+  the span, which republished nine members as quantities they are not and
+  failed the build instead.
 - **`mou_evrec` was moved out of the middle of it.** ISR scratch is not state,
   and it sat between `mou_idany` and `mou_seen` splitting the span in two.
 - **What survives the operator matters more than what does not.** By the time
@@ -2671,6 +2686,51 @@ machine with no second UART, which is a worse trade than the case it buys.
 `tests/comscan` names the line, which is what makes that diagnosable rather
 than mysterious.
 
+#### 9.5.2.1 …and which line to RETIRE is the same question, asked backwards
+
+§9.5.2 fixed the ISR and left half the bug on the machine. The same Compaq
+Portable III came back with the mouse **detected, moved exactly once, and
+then frozen for the session** — which is not the old symptom (that one never
+moved at all) and is the same root cause seen from the other end.
+
+`mou_lockon` retires the losing ports: IER = 0, and the port's IRQ masked at
+the 8259. It took the mask from `[bx+mou_masks]`, the line the row's **base**
+says it drives — 0x3F8 → IRQ4. On this machine the mouse is at 0x2F8 and
+pulls IRQ4, so retiring the 3F8 row masked **the winner's own line**. The
+sequence is exactly what was reported: the mouse moves, eight clean packets
+settle `[mou_port]`, `mou_hotplug`'s stand-down path calls `mou_lockon` on
+the UI task's next pass, IRQ4 goes into OCW1, and nothing is ever heard
+again. One movement, then silence.
+
+**So the mask comes from the line, and only the ISR knows the line.** The two
+entry points stop being the same instruction: each stamps its own 8259 bit
+into `[mou_lfired]` before falling into the shared body, `mou_claim` banks
+that into `[mou_line]` in the same breath as `[mou_seen]`, and `mou_lockon`
+skips any row whose mask is the line the winning packets actually arrived on.
+
+Four things are worth stating:
+
+- **`IER = 0` is what silences a loser**, and it always was. The mask is
+  belt-and-braces on a line the kernel unmasked itself, and it is the only
+  half that ever needed to know which wire — which is why the fix costs a
+  compare and not a redesign.
+- **`[mou_lfired]` is stamped after `mov ds, ax` and not before.** The store
+  needs DS; the entry has only BX pushed by then, and BX is the one register
+  the push sequence does not spend.
+- **Both cross-wirings are covered, not just this one.** A mouse at 0x3F8
+  driving IRQ3 is the mirror image and was broken identically;
+  `make test MOUSEPORT=com1irq3` is that case and `com2irq4` is the Compaq.
+  Both are verified along with the two ordinary configurations, because the
+  ordinary ones are what a fix like this quietly breaks.
+- **Its absence was invisible in every ordinary case**, which is why §9.5.2
+  shipped without it. Where the base-to-IRQ convention holds, the line and
+  the base agree and the old code was right by coincidence; the new code is
+  right for a reason.
+
+`[mou_line]` is published in §9.4.2's block for the same reason the rest of
+it is: a cross-wired card is a fact about a machine that only the machine can
+report, and `winning row 2` beside `winning IRQ 10` says it in two numbers.
+
 #### 9.5.3 What it costs
 
 302 bytes of `.text`, and **nothing at all against `KERN_BUDGET`** (§15.1):
@@ -2678,6 +2738,15 @@ the kernel image is padded to `OVL_START` and the growth lands in that
 padding. The per-pass cost of `mou_hotplug` after the mouse is found is
 unchanged at two compares, and the ISR's per-packet cost grows by one compare
 and one branch.
+
+§9.5.2.1 adds two bytes of state and about twenty of code — one `jmp short`
+and a `mov` at the ISR entry, two instructions in `mou_claim`, four in
+`mou_lockon` — and that is what **exhausted** the padding: the image moved up
+one 512-byte rung, from 71,624 bytes to 72,136. The guards both still pass
+and `KERNEL.SYS` is the same 141 sectors, so nothing about the boot changed;
+it is recorded because the next author to say "it lands in the padding" needs
+to know the padding is spent. Nothing is added to the per-interrupt path
+except that one `mov`, and `mou_lockon` runs once in the life of a machine.
 
 ### 9.6 The keyboard mouse — the arrows, when there is no mouse
 
@@ -6247,10 +6316,63 @@ the change touches create, replace, delete, rename and stat alike.
 
 ### 18.94 The transfer instrument, published at a fixed offset
 
-**`make DISKCNT=1` only, and never shipped.** The counters of
-docs/DISK-PERF-PLAN.md §2 have existed for a while and were read over QMP;
-this publishes them so a **test package** can read them, because the question
-they answer turned out to need a field machine rather than an emulator.
+**`make DISKCNT=1`, which is now every FIELD kernel and no shipped one.** The
+counters of docs/DISK-PERF-PLAN.md §2 have existed for a while and were read
+over QMP; this publishes them so a **test package** can read them, because the
+question they answer turned out to need a field machine rather than an
+emulator.
+
+#### 18.94.1 …and why it stopped being a disk of its own
+
+It was `build/dskdbg.img`, a sixth image built only for this, and the reason
+given for the separation was two things that have both since expired:
+
+- *"the counters are two instructions in the hot path of every transfer"* —
+  measured, they are about twelve instructions per int 13h **call**, not per
+  sector, against a sector that costs **238 ms** on the target machine. And
+  the image is **byte for byte the same size** either way, because the growth
+  lands inside the padding to `OVL_START`: 72,199 bytes with them and without,
+  the same 142-sector rung, so the memory ladder, the boot sector's read and
+  every heap figure are identical rather than merely close.
+- *"the published word is an ABI that depends on a knob"* — it **was**, while
+  it was a fixed word at `0060:000E`. §57's registry is precisely the fix for
+  that: the block is found by **tag**, and a reader that cannot find one says
+  so and continues. One build of `sysbench` already served both kernels.
+
+The second is the one worth noticing as a shape rather than a fact: a later
+change removed the reason, and nobody went back to re-ask the question it had
+settled. That is the same failure as PERFORMANCE.md's rule about re-measuring
+an optimisation whose case predates its neighbours' fixes, in the other
+direction — a *restriction* whose case had expired.
+
+What folding it in buys is a **disk swap**. The calibration machine has one
+floppy drive (docs/FIELD-MACHINES.md), so a second image is a swap and a
+reboot in the middle of every batch, and the counters answer a question you
+generally want to have asked about the run you already did.
+
+**Two things had to move with it, and the second was a real defect.** The
+Makefile's knob warning now fires on every field build, so it says which knobs
+and why rather than implying a mistake. And `benchlib`'s `BL_MAXROWS` was
+**190** while `sysbench`'s longest report was 190 — folding in this block and
+§37.92's clock block took it to **211**, so the very first run truncated. It
+printed `REPORT TRUNCATED`, which is the only reason that was caught here
+instead of being carried off a field machine in a photograph; the limits are
+240 rows and 11,500 arena bytes now, with headroom stated as headroom.
+
+**A benchmark kernel is not bound by `KERN_BUDGET`** — the field machines all
+carry 640KB and the only ceiling is the RAM in the box — so instruments may be
+compiled into these kernels freely. What that does **not** buy is measurement
+parity, and `tools/fieldsize.py` (run by `make field`) is the guard: two rows
+of a report are measurements **of the kernel that is running**, not of the
+machine. `boot ticks` moves because the kernel is read off the floppy a sector
+at a time, and every heap figure moves because the heap starts where the
+kernel ends. Everything else — the drawing primitives, the CPU rows, RAM
+bandwidth, the floppy's own bytes/second — is untouched. The unit is
+`KIMG_PARA`'s 512-byte rung and not the byte count, so two kernels in the same
+rung are comparable *exactly*; `fieldsize.py` says which case you are in and
+never fails the build, because growing past a rung is allowed and only has to
+be known about rather than discovered later in a number that moved for no
+visible reason.
 
 PERFORMANCE.md Part 9 Set 14 measured, on the calibration machine, that a raw
 `int 13h` reads a whole 9-sector track in **1.92 revolutions** when it is
@@ -13194,6 +13316,64 @@ all perfectly correct, which reads as a year field that was never implemented
 rather than as a century byte that was believed. It is reproducible under
 QEMU by forcing `clk_rr+6` to 19h, and 86Box's 286 targets (`vm/286`,
 `vm/286-sound`) show it for real.
+
+### 37.92 The block a test package reads (registry tag `'CK'`)
+
+**Every failure of this ladder looks the same, and that is the problem it
+solves.** A rung that finds nothing, a rung that finds a chip and rejects it
+at the second of seven gates, and a machine with no clock card in it at all
+all produce one identical symptom: the 4 July 2026 fallback date. There is
+nowhere to look, because the only instrument that could tell them apart is
+the machine, and the machine is a 5150 with no debugger.
+
+Nor can the container help. QEMU has an **MC146818 and nothing else**, so
+rung 1 claims and rungs 3 and 4 never execute; `RTC=ns` forces the MM58167
+rung against a machine that has no MM58167, which exercises the **rejection**
+and never the acceptance. The AST SixPakPlus in docs/FIELD-MACHINES.md's
+5150 is the only place rung 4 has ever succeeded, anywhere, and this section
+exists because it stopped succeeding and nothing in the tree could say why.
+
+So the ladder publishes its verdict and its working through §57's registry
+under the tag `'CK'` — the block's own first word, the `'MO'` idiom — as a
+pointer to a **7-byte span**: `clk_dbg_tier` +0, `clk_dbg_ref` +1,
+`clk_dbg_step` +2, `clk_dbg_r00` +3, `clk_dbg_r08` +4, `clk_dbg_sig` +5,
+`clk_dbg_r08w` +6. Eleven bytes with the header, and the span is asserted at
+assembly time for §9.4.2's reason: a member that moved would be silently
+republished as a different quantity to a reader on a floppy.
+
+`clk_dbg_step` is the row that carries. **0** means `clk_ns_probe` never ran
+because an earlier rung claimed; **0FFh** means every gate passed; **1..7**
+names the gate that refused, in the order the routine tests them. The four
+raw bytes beside it are what separates the two answers a step alone cannot:
+all-`FF` is nothing answering at 2C0h, and a plausible byte with a late stop
+is a card that is there and a gate that is stricter than its silicon.
+`clk_dbg_sig` is the one the code's own comment already nominated —
+*"IF THE USER'S SIXPAKPLUS IS NEVER DETECTED, THIS IS THE FIRST LINE TO
+SUSPECT"* — where three sources say the absent nibble reads `0Ah` and
+GLaTICK's author's comment expects it might float to ones.
+
+Three things about it match §9.4.2 exactly, and one differs:
+
+- **Unconditional, not knob-built.** docs/FIELD-MACHINES.md's handover rule
+  sends the field machine a kernel with no knob set, so behind a knob this
+  would be absent from every disk that matters — which is the same argument
+  that keeps the mouse block out of `DISKCNT`'s company.
+- **`.text` with real initialisers**, because `-f bin` zeroes nothing and
+  "the probe never ran" has to be distinguishable from "gate 0 refused".
+- **Written from the boot overlay**, whose DS is `KERNEL_SEG` (§2.5), so
+  every store is an ordinary DS-relative move and none of it needs a shim.
+- **It is the one debug block that RECORDS rather than republishes.**
+  §9.4.2's members are all state the kernel keeps anyway; four of these seven
+  exist only to be read here. That is worth five bytes because the thing they
+  describe happens once, at boot, on hardware nobody has — and the
+  alternative is a bisect measured in field trips.
+
+Verified both ways it can be: QEMU's default answers `tier 1, stop 00` (rung
+1 claimed and the NS probe never ran), and `make test RTC=ns` answers
+`tier 0, stop 01, reg 00 = FF` — the ladder correctly refusing a chip that is
+not there, with the reason legible. `tests/sysbench`'s `sb_ladder` is the
+reference reader, and like the mouse block it emits no `bl_head`, because not
+one row of it is a measurement.
 
 ## 38. fdlg.inc — the Standard File dialog
 
@@ -21038,9 +21218,25 @@ So: **one fixed word, one level of indirection, and the list can grow.**
 0060:000E   dw dbg_reg          ; or 0 - this kernel publishes nothing
 
 dbg_reg:    dw 'MO', mou_dbg_blk
-            dw 'DD', dsk_dbg_blk    ; only in a DISKCNT=1 build
+            dw 'CK', clk_dbg_blk
+            dw 'DD', dsk_dbg_blk    ; DISKCNT=1: every FIELD kernel (18.94.1),
             dw 0                    ; end of list
 ```
+
+Two of the three are unconditional and one is knob-built, and the split is
+the rule rather than an accident: `'MO'` (§9.4.2) and `'CK'` (§37.92) **name
+state the kernel already keeps**, about hardware nobody in this project owns
+twice — a real serial card's answer to a DTR raise, a real MM58167's answer
+to a probe — while `'DD'` (§18.94) **counts**, which is work a kernel has no
+other reason to do.
+
+That is not the split the first two were written under. The argument then was
+that a field kernel carries no knob, so a knobbed block is absent from every
+disk that matters; §18.94.1 made every field kernel `DISKCNT=1` and retired
+it. The rule that survives is the narrower one above, plus the reason to keep
+knobs scarce at all: **each one is a way for the kernel you measured to
+differ from the kernel that ships**, and `tools/fieldsize.py` exists to say
+when a difference has grown big enough to move a number.
 
 | | |
 |---|---|

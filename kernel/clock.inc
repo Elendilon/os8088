@@ -156,6 +156,7 @@ clk_probe:
     call clk_bios_read          ; the reference, and rung 5's own answer
     jc .no_bios
     mov byte [clk_ref], 1
+    mov byte [clk_dbg_ref], 1   ; SPEC.md 37.92
     mov al, [clk_tb_h]          ; parked, because every rung below writes
     mov [clk_rf_h], al          ; its own answer into the same scratch
     mov al, [clk_tb_d]
@@ -202,6 +203,8 @@ clk_probe:
     ret
 .found:
     call clk_commit
+    mov al, [clk_tier]          ; SPEC.md 37.92: publish the verdict. .none
+    mov [clk_dbg_tier], al      ; leaves it 0, which is what CLK_T_NONE is
     pop ax
     clc
     ret
@@ -1012,12 +1015,17 @@ clk_ns_probe:
     call clk_xt_charge
     mov al, CLK_NS_MS
     call clk_ns_get
+    mov [clk_dbg_r00], al       ; SPEC.md 37.92: the raw byte, whatever the
+    mov byte [clk_dbg_step], 1  ; verdict - FF here means no card answered
     test al, 0x0F               ; no units digit exists at all...
     jnz .no
+    mov byte [clk_dbg_step], 2
     cmp al, 0x90                ; ...and the tens digit is a BCD 0..9
     ja .no
     mov al, CLK_NS_RMS
     call clk_ns_get
+    mov [clk_dbg_r08], al
+    mov byte [clk_dbg_step], 3
     test al, 0x0F               ; RAM 08h likewise has no low nibble
     jnz .no
     ; --- and a veto against the 4-bit part, before ANY write ---------------
@@ -1034,8 +1042,10 @@ clk_ns_probe:
     ; would refuse a genuine SixPakPlus three boots in four. A chip parked
     ; off page 0 is therefore left to the two half-register gates above and
     ; to the restore, which is where the residual risk sits.
+    mov byte [clk_dbg_step], 4
     call clk_rp_fields
     jnc .no
+    mov byte [clk_dbg_step], 5
     call clk_ns_scan            ; the counters, with the same rollover
     jc .no                      ; retries the read gets - a ripple caught
                                 ; mid-carry is not "no card"
@@ -1053,13 +1063,18 @@ clk_ns_probe:
     mov al, CLK_NS_SIG
     mov ah, 0xAA
     call clk_ns_half
+    mov [clk_dbg_sig], al       ; SPEC.md 37.92: the byte the comment above
+    mov byte [clk_dbg_step], 6  ; names as the first thing to suspect
     cmp al, 0x0A
     jne .no
     mov al, CLK_NS_RMS          ; 08h: no LOW nibble, so FFh reads back F0h.
     mov ah, 0xFF                ; A 4-bit part at the same address stores the
     call clk_ns_half            ; low nibble instead and fails here
+    mov [clk_dbg_r08w], al
+    mov byte [clk_dbg_step], 7
     test al, 0x0F
     jnz .no
+    mov byte [clk_dbg_step], 0xFF   ; every gate passed
     pop bx
     pop ax
     clc
@@ -2640,6 +2655,49 @@ clk_tobcd:
     or al, ah
     pop cx
     ret
+
+; =============================================================================
+; The block a test package reads (registry tag 'CK', SPEC.md 37.92)
+;
+; The ladder walks four rungs against silicon that is not in this container
+; and not in either emulator the project uses: QEMU has an MC146818 and
+; nothing else, and RTC=ns exercises only the REJECTION of an absent chip.
+; So when the 5150's SixPakPlus stops being detected there is no instrument
+; anywhere but the machine, and the symptom - the fallback date - is the same
+; one byte whichever of seven gates refused.
+;
+; It is unconditional and not knob-built, for SPEC.md 9.4.2's reason exactly:
+; the field machine is sent a kernel with no knob set, so behind a knob this
+; would be absent from every disk that matters. Eleven bytes.
+;
+; All of it is written from the boot overlay, whose DS is KERNEL_SEG, so these
+; are ordinary DS-relative stores; and all of it is in .text with real
+; initialisers, because -f bin zeroes nothing and 'the probe never ran' has
+; to be distinguishable from 'gate 0 refused'.
+; -----------------------------------------------------------------------------
+clk_dbg_blk:
+    dw DBG_TAG_CLOCK            ; 'CK' - the magic, and the block's own first
+    dw clk_dbg_span             ; word, so a reader can check where it landed
+
+clk_dbg_span:
+clk_dbg_tier db 0               ; CLK_T_*: the rung that answered. 0 = none,
+                                ; and the machine is on the fallback date
+clk_dbg_ref  db 0               ; int 1Ah answered, so rung 3 was eligible and
+                                ; rung 5 has an answer. 0 on an XT BIOS
+clk_dbg_step db 0               ; how far clk_ns_probe got: 0 = it never ran
+                                ; (an earlier rung claimed), 1..7 = the gate
+                                ; that refused, FF = it passed
+clk_dbg_r00  db 0               ; register 00h as found: the MM58167 has no
+                                ; units digit there, so the low nibble is 0
+clk_dbg_r08  db 0               ; RAM 08h as found: likewise no low nibble
+clk_dbg_sig  db 0               ; what 0Dh answered to AAh. 0A is the part;
+                                ; AA is GLaTICK's author's doubt come true
+clk_dbg_r08w db 0               ; what 08h answered to FFh. F0 is the part; a
+                                ; 4-bit chip stores the low nibble instead
+CLK_DBG_SPAN equ ($ - clk_dbg_span)
+%if CLK_DBG_SPAN != 7
+  %error "clock: SPEC.md 37.92 block - the published span is not 7 bytes"
+%endif
 
 ; -----------------------------------------------------------------------------
 section .bss

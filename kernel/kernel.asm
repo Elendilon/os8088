@@ -555,6 +555,7 @@ section .text
 ; offset it followed landed where it meant to.
 DBG_TAG_MOUSE equ 0x4F4D          ; 'MO' - SPEC.md 9.4.2
 DBG_TAG_DISK  equ 0x4444          ; 'DD' - SPEC.md 18.94
+DBG_TAG_CLOCK equ 0x4B43          ; 'CK' - SPEC.md 37.92
 
 ; =============================================================================
 ; Fixed entry points
@@ -1065,6 +1066,11 @@ dbg_reg:
                                     ; contest is a question about a REAL card,
                                     ; so it has to be in the build the field
                                     ; machine is actually sent
+    dw DBG_TAG_CLOCK, clk_dbg_blk   ; SPEC.md 37.92 - unconditional for the
+                                    ; same reason: an RTC ladder is a question
+                                    ; about silicon nobody here has, and the
+                                    ; one machine that has it is sent a
+                                    ; knob-free kernel by handover rule
 %ifdef DISK_COUNTERS
     dw DBG_TAG_DISK, dsk_dbg_blk    ; SPEC.md 18.94 - `make DISKCNT=1` only
 %endif
