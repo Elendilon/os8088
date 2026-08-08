@@ -444,18 +444,20 @@ VID_CGA    equ 2
                                  ; inside the same lock hold. Preserves
                                  ; every register.
 ; --- About, under the application's own name (SPEC.md 12.2) --------------------
-; Your name in the menu bar is a plain LABEL until you call this: register a
-; handler and the name becomes a real pull-down carrying one item,
-; 'About <Name>'. Picking it calls your handler exactly like W_ONCLICK - on
-; the UI task, UNDER THE GFX LOCK, billed to your instance - with SI = your
-; window and no selection to decode. Same rules, therefore: it may draw and
-; may call the file slots, it must never take the lock or block, and it must
-; repaint whatever it drew over.
+; Your name in the menu bar is ALWAYS a pull-down (SPEC.md 12.7) and its
+; bottom item is always 'Close', which the kernel answers itself - it is the
+; close box reached from the bar, and you neither see it nor can decline it.
+; What this slot adds is a SECOND item above it: register a handler and the
+; menu reads 'About <Name>' then 'Close'. Picking the About calls your
+; handler exactly like W_ONCLICK - on the UI task, UNDER THE GFX LOCK, billed
+; to your instance - with SI = your window and no selection to decode. Same
+; rules, therefore: it may draw and may call the file slots, it must never
+; take the lock or block, and it must repaint whatever it drew over.
 ;
 ; Call it from your entry proc, after OSAPI_WM_CREATE, like OSAPI_MENU_SET
 ; (whose flag-preserving contract it shares, so it is safe between wm_create
-; and the CF you owe the loader). An application that never calls it is
-; exactly as it was: a label, no cell, no menu.
+; and the CF you owe the loader). An application that never calls it gets the
+; one-item menu and needs no code at all for it.
 %define OSAPI_ABOUT_SET     KERNEL_SEG:0x01E0   ; BX = win ptr, SI = your About
                                  ; handler's offset (0 = none). Preserves every
                                  ; register and the flags

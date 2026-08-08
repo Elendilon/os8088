@@ -21,12 +21,12 @@
 ; application's own menu (SPEC.md 12.2) is a window callback reached
 ; through the bar, so its handler runs under the gfx lock and is billed to
 ; the owning instance exactly like W_ONCLICK.
-; A RIGHT mouse-down takes none of that ladder: ui_rdown swallows the bar,
-; the dock and the desktop, raises a background window without opening
-; anything, and pops a context menu (SPEC.md 12.4) only on the frontmost
-; file-manager window's content. It never stamps [ui_click_t], which is what
-; keeps a right-click from composing with the next left click into a
-; double-click.
+; A RIGHT mouse-down takes none of that ladder: ui_rdown swallows the bar
+; and the desktop, raises a background window without opening anything, and
+; pops a context menu (SPEC.md 12.4) on two things only - the frontmost
+; file-manager window's content, and a DOCK TILE, whose one item is Close
+; (SPEC.md 30.2). It never stamps [ui_click_t], which is what keeps a
+; right-click from composing with the next left click into a double-click.
 ; Mouse-downs on windows also hand the clicked window the menu bar
 ; (SPEC.md 12 - the raise paths repaint anyway, but a click on the window
 ; that is already frontmost never reaches wm_front), and QUIT (close box ->
@@ -373,14 +373,17 @@ ui_task:
 ;     user never opened. (fm_rclick keeps the other half of that rule: it
 ;     moves FS_SEL without touching FS_CLKT.)
 ;   - reach dock_click. A dock tile toggles minimize; a right-press must
-;     not. The bare desktop and desk_click are out for the same reason -
-;     there is nothing here a right button should mean.
+;     not. It reaches dock_rclick instead (SPEC.md 30.2), which is the right
+;     button's own, much smaller routine and shares only the hit test. The
+;     bare desktop and desk_click stay out altogether - there is nothing
+;     there a right button should mean, and activating Locator would move a
+;     focus the press did not have to.
 ;   - open anything on a background window. It raises it and stops: the
 ;     popup always belongs to the window you can already see.
 ;
-; The bar is skipped whole, clock cell included. Only a file-manager window
-; answers - the ones carrying fm_menus - so no package's window changes
-; behaviour and no shipped .o88 needs rebuilding.
+; The bar is skipped whole, clock cell included. Of the WINDOWS only a
+; file-manager one answers - the ones carrying fm_menus - so no package's
+; window changes behaviour and no shipped .o88 needs rebuilding.
 ; -----------------------------------------------------------------------------
 ui_rdown:
     mov cx, [ui_ev + EV_A]      ; CX = press x, DX = press y. NO [ui_click_t]
@@ -393,7 +396,8 @@ ui_rdown:
 .hit:
     call wm_hit                 ; BX = window hit (0 = none), AL = region
     or bx, bx
-    jz .ret                     ; desktop and dock: nothing at all
+    jz .strip                   ; no window: the dock gets the press, and the
+                                ; bare desktop gets nothing (SPEC.md 30.2)
 
     mov si, bx                  ; keep the hit window; wm_top returns in BX
     call wm_top                 ; AL, the region, survives it
@@ -440,6 +444,11 @@ ui_rdown:
     call gfx_unlock
 .ret:
     ret
+
+.strip:
+    call dock_rclick            ; CX/DX; CF = 1 = consumed (locks internally,
+    ret                         ; SPEC.md 30.2). CF is nobody's answer here -
+                                ; the desktop's case IS "do nothing"
 
 ; -----------------------------------------------------------------------------
 ; ui_drag - title-bar drag: XOR outline follows the mouse, window moves on
@@ -823,11 +832,16 @@ ui_dispatch:
     or ah, ah
     jz .kernel                  ; cell 0: the System menu
     mov word [ui_about], 0
-    mov bx, [menu_abcell]       ; the app-NAME cell (SPEC.md 12.2)? It is
+    mov bx, [menu_abcell]       ; the app-NAME cell (SPEC.md 12.7)? It is
     or bx, bx                   ; APPENDED after the app's own menus, so it
     jz .notab                   ; is tested before the set - and it is legal
     cmp bl, ah                  ; on a window that has no menu set at all,
     jne .notab                  ; which the test below would have dropped
+    cmp al, [menu_abclose]      ; its bottom item is Close and that one is the
+    je .appclose                ; KERNEL's, whatever the application is: it is
+                                ; answered here rather than handed on, so no
+                                ; package ever sees an item it was not written
+                                ; for (SPEC.md 12.7)
     mov word [ui_about], 1
     jmp .app
 .notab:
@@ -855,6 +869,26 @@ ui_dispatch:
     add ax, [ui_loc_base + bx]
     jmp ui_cmd
 .ret:
+    ret
+
+.appclose:
+    ; 'Close' from the app-name menu (SPEC.md 12.7): the close box of
+    ; SPEC.md 13 reached from the bar, and the same routine answers both.
+    ; It runs inline rather than through ui_post_cmd because ui_dispatch is
+    ; reached with NO lock held - menu_track's was released before the call -
+    ; which is exactly why .close_box can take its own lock too.
+    call gfx_lock
+    mov bx, [menu_win]          ; the lock dropped between menu_track and
+    or bx, bx                   ; here, so the window that owned the bar may
+    jz .apc_done                ; be gone: the same re-check .app makes below,
+    test word [bx + W_FLAGS], 2 ; and for the same reasons
+    jz .apc_done
+    call app_close_win          ; in: BX; lock held, UI task (SPEC.md 29.4).
+                                ; Unbilled, like the close box - and here it
+                                ; could not be billed anyway: the record the
+                                ; cycles would go to is the one being freed
+.apc_done:
+    call gfx_unlock
     ret
 
 .app:

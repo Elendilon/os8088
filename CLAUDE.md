@@ -1257,6 +1257,43 @@ their wait because an XOR outline is on screen and must stay lit, and `.wait`
 has drawn nothing, so a free lock lets the mouse ISR move the cursor and
 background tasks paint.
 
+**The app's NAME is a menu, in every application, and its bottom item is
+always `Close` (SPEC.md §12.7).** That cell used to exist only when a window
+had registered an About handler, so most applications had a bare label where
+their name is and no way at all to quit from the bar; now `[menu_win]` being
+non-zero is the whole condition and `wm_about_get` decides only whether the
+cell has one item or two (`About <Name>` above `Close`). `Close` is the
+close box reached from the bar — `app_close_win` on `[menu_win]`, run inline
+in `ui_dispatch` because that runs with **no lock held**. Three things hold
+it up. `menu_abstr` (`'About '` + the name) is built on every relayout now
+and not only in the About case, because the cell's *title* is
+`menu_abstr + MENU_ABPFX_LEN` — the same bytes from the name onward, which
+is what keeps both of the cell's strings kernel data and its `MB_SEG` 0
+under a package. **Which item is `Close` is RECORDED** (`[menu_abclose]`)
+and tested before the cell is routed to the application, because deriving it
+from the item count at dispatch time is a second place that has to agree
+with `menu_ab_cell` — and the failure is a package's About handler called
+with an item index it was never written for. And Locator gets no such cell
+at all: its About is the System menu's, its `Close Window` is already in its
+File menu, and a Disk window — which does get one, labelled `Locator` —
+closes that window, which is exactly what its close box does. No package
+changed and no `.o88` was invalidated.
+
+**A dock tile has a context menu, and its one item is the same `Close`
+(SPEC.md §30.2).** `ui_rdown` used to answer a right-press with no window
+under it by doing nothing at all; it reaches `dock_rclick` now — never
+`dock_click`, which toggles minimize — while the bare desktop still gets
+nothing, because activating Locator would move a focus the press did not
+have to. Two things in it are worth knowing. `dock_hit` is `dock_click`'s
+find lifted out whole and shared, so "which records have a tile" (§29.2
+rule 3) has one answer rather than two that can drift. And **a record
+pointer does not survive the tracker**: `menu_popup` holds the button and
+yields, so a package worker can reach `inst_task_die` and free the very
+record the menu is about — the SLOT is banked and re-resolved afterwards,
+which is safe because nothing can refill it while the UI task is standing
+inside `menu_drop`. The popup anchors at `[vid_dock_y0] - DOCK_CTX_H` rather
+than at the press, or it lands on the tile it is asking about.
+
 **Locator** is the kernel acting as an application (the Finder analogue): the desktop, the drive icons, the Disk browser (up to **four** windows, each on its own drive and folder) and the menus that launch everything else. It is not an instance — it is just the menu set the bar falls back to when no window owns it, and **clicking the bare desktop switches back to it** (the `.desk_icons` branch, before `desk_click`). `menu_loc_set` is an ordinary app menu set whose `AM_ONCMD` is 0, the one value reserved to mean *dispatched by the kernel*: `ui_dispatch` recognises it and rebuilds a `CMD_*` from `ui_loc_base` instead of calling through, which is how the old flat command dispatch survives intact behind the new (cell, item) return. `fm_kinit` points every Disk window at `fm_menus` — Locator's *second* set, same `AM_NAME` but a real `AM_ONCMD` — so the file browser reads as Locator's own window rather than an app called "Disk", and the bar carries File/Folder/View/Special while one of its windows is active.
 
 For an application, the whole interface is `OSAPI_MENU_SET` plus the `OS88_MENUSET`/`OS88_MENU`/`OS88_MENUSET_END` macros in `apps/os88api.inc`. The command handler is **a window callback reached through the bar**: called on the UI task under the gfx lock, billed to the instance, same rules as `W_ONCLICK` — it may draw and may call the file API, must never take the lock, and **must repaint itself**, because the kernel does not repaint after it returns.
