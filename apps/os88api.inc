@@ -813,27 +813,37 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; drawn at either size, so DO NOT draw in it -
                                  ; decide, return, and draw in the W_PAINT the
                                  ; kernel is about to make.
-%define OSAPI_FILE_HERE     KERNEL_SEG:0x0228   ; out DX = the current
-                                 ; directory's first cluster (0 = the root),
-                                 ; BL = the drive. No disk I/O.
+%define OSAPI_FILE_HERE     KERNEL_SEG:0x0228   ; out DX = YOUR instance's
+                                 ; current directory (0 = the root), BL = its
+                                 ; drive. No disk I/O.
 %define OSAPI_FILE_GOTO     KERNEL_SEG:0x0230   ; in DX = a cluster from
-                                 ; OSAPI_FILE_HERE, BL = its drive; out CF=1
-                                 ; it could not be listed and the volume is
-                                 ; back at the root with the write gate shut.
-                                 ; A REMOUNT: real floppy I/O, UI-task
-                                 ; context only, like the other file slots.
+                                 ; OSAPI_FILE_HERE, BL = its drive; moves YOUR
+                                 ; instance there. out CF=1 it could not be
+                                 ; listed and the volume is back at the root
+                                 ; with the write gate shut. A REMOUNT: real
+                                 ; floppy I/O, UI-task context only, like the
+                                 ; other file slots.
                                  ;
+                                 ; YOU DO NOT NEED THESE TO MAKE SAVE WORK,
+                                 ; and that is a change (SPEC.md 19.2.1).
                                  ; Every file name you pass the file API
-                                 ; resolves in the volume's CURRENT
-                                 ; directory, and that is ONE GLOBAL shared
-                                 ; with every Disk window and with the file
-                                 ; dialog. Right after the dialog closes it
-                                 ; still names the folder the user picked, so
-                                 ; your write lands there. Later it does not,
-                                 ; because anything else that navigated has
-                                 ; moved it. If your Save means "the same
-                                 ; place my Save As chose", store the pair
-                                 ; these two slots trade in beside the name.
+                                 ; resolves in YOUR INSTANCE's directory - the
+                                 ; folder you were launched from until the
+                                 ; user picks another in a dialog, and that
+                                 ; one afterwards. A Disk window opened on C:,
+                                 ; another app saving, a driver reading its
+                                 ; settings: none of them can move you. The
+                                 ; kernel banks and restores underneath every
+                                 ; file cell, so a Save that means "where my
+                                 ; Save As went" is just a Save.
+                                 ;
+                                 ; They are still here, and four packages
+                                 ; still call them, because a slot that has
+                                 ; shipped keeps its contract (SPEC.md 20.8
+                                 ; rule 4) - that code is now redundant rather
+                                 ; than wrong. Reach for them when you want to
+                                 ; visit a folder DELIBERATELY, not to defend
+                                 ; against the machine moving under you.
 %define OSAPI_MEM_REGROW    KERNEL_SEG:0x0238   ; DX = a claim YOU hold, AX =
                                  ; the new size in KB. out CF=0 and DX = the
                                  ; claim's base NOW - the SAME segment when it

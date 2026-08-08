@@ -558,6 +558,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_` |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
+| `kernel/fprog.inc`  | the file-operation progress widget (§12.8): a document icon and a progress bar in a line box at the right end of the menu bar, armed by the file-operation layer and stepped from inside `dsk_xfer`'s per-sector loop — prefix `fpg_`, all state in `.text` |
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
 | `kernel/apps.inc`   | built-in app kinds: About, Timer, Bounce — state pools, kinit procs, per-instance tasks |
 | `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19) |
@@ -4381,6 +4382,110 @@ kernel's. A package that wants a Quit item of its own may still have one —
 it is an ordinary item in an ordinary menu of its set, answered by
 `AM_ONCMD` (§12.2) — and the two do not collide, because the name cell is
 never routed to `AM_ONCMD` at all.
+### 12.8 The file-operation progress widget — `fprog.inc`
+
+A file operation freezes the machine. That is not a defect to be scheduled
+away — §18 keeps the disk on the UI task, `dsk_xfer` raises `[sch_lock]`
+across every `int 13h`, and the caller is a window callback that has been
+holding the gfx lock since before it started (§22). So the cursor stops, no
+window paints, and nothing moves for as long as the disk takes. On the field
+machine a sector is **238 ms** (PERFORMANCE.md Part 2) — a 116KB module is
+tens of seconds of a screen that looks hung.
+
+What was missing was not concurrency but **feedback**. The widget is a file
+icon and a progress bar in a line box, drawn at the right end of the menu
+bar immediately left of the clock cell, and stepped from inside the transfer
+loop — the one piece of code that still runs while everything else is
+stopped.
+
+```nasm
+FPG_ICO_W  equ 12               ; the document glyph's drawn width
+FPG_ICO_H  equ 14               ; rows FPG_ICO_Y..FPG_ICO_Y+13
+FPG_ICO_Y  equ 3
+FPG_ISP    equ 4                ; icon -> box gap
+FPG_BOX_W  equ 64               ; the line box, frame included
+FPG_BOX_H  equ 9                ; rows FPG_BOX_Y..FPG_BOX_Y+8
+FPG_BOX_Y  equ 5
+FPG_GAP    equ 8                ; box -> clock cell gap
+FPG_W      equ FPG_ICO_W + FPG_ISP + FPG_BOX_W + FPG_GAP    ; 88
+FPG_BAR_PX equ FPG_BOX_W - 2    ; 62: the trough, in pixels
+```
+
+The origin is `[vid_clk_hx] - FPG_W`, computed at arm time from the **live**
+geometry (§39.2) exactly as the clock is — never from `MENU_CLK_HX`, which is
+the VGA reference. Everything it draws is in §39.4's black/white class, no
+dither anywhere, because an 8x8 dithered glyph loses half its strokes on a
+1bpp adapter (§48's wave counter) and a 1px box frame would lose half of
+itself.
+
+| symbol      | contract                                                    |
+|-------------|---------------------------------------------------------------|
+| `fpg_begin` | in: AX = sectors this operation expects (0 is read as 1). Arms the widget and draws the **whole** of the expensive part — the white bed, the document icon and the box frame. Preserves all registers and the flags. |
+| `fpg_step`  | in: nothing. One sector done. Preserves **every register and the flags** — its caller is the middle of `dsk_xfer`'s per-sector loop, `spl_step`'s contract exactly. |
+| `fpg_end`   | in: nothing. Disarms and gives the bar back (`menu_force` + `menu_draw_bar`). Preserves all registers and the flags. |
+
+**The chrome is drawn once and the bar is the only thing that moves.** A
+`gfx_*` call costs ~756us of arriving whatever it draws (PERFORMANCE.md Part
+2), and the icon is a two-pass masked blit; paying that per sector would put
+drawing on the critical path of the very operation it is reporting. So
+`fpg_begin` spends it up front, and `fpg_step` draws **at most one
+`gfx_fill`** — the strip between the pixel column the bar had reached and the
+one it has reached now, because a bar that only grows is completely described
+by its current extent (`spl_bar`'s argument). A step whose pixel count did
+not change draws nothing at all, which is the common case: the trough is 62
+pixels and an operation is usually more sectors than that.
+
+Five things hold it up.
+
+- **`fpg_step` must not be able to cost anything when nothing is armed.**
+  It is `pushf` / `cmp byte [fpg_on], 0` / `je` on the disk path for the life
+  of the machine, the same ~13us against a 238 ms sector that `spl_step`
+  settled for (§15.3). All of its state is in `.text` with real
+  initialisers, **not `.bss`** — `-f bin` zeroes nothing, `drv_boot` reads
+  the disk before any init routine could run, and a garbage `[fpg_on]` would
+  have the widget drawing into the splash.
+- **It draws mid-lock, so it must flush itself.** With a back buffer armed
+  (§32) the `gfx_*` primitives render into RAM and only `gfx_unlock` pushes
+  them to VRAM — and the lock is not released until the file operation ends,
+  which is precisely the span the widget exists to report. Each of the three
+  entry points therefore ends in `gfx_flush`, as `menu_track` does for a
+  pull-down. On a mono adapter that is a compare and a return (`[bb_dbl]`,
+  not `[bb_on]` — §39).
+- **The arrow comes off before anything is drawn.** `gfx_lock` only
+  *promises* the hide (§7.1.4), so `fpg_begin` spends the promise with
+  `cur_unlazy`; it is one-way within a hold, so `fpg_step` inherits it for
+  free and never pays again.
+- **It refuses rather than draws wrong.** Already armed (an operation
+  nested inside another owns the widget, and the outer one is the honest
+  scale), `[spl_live]` set (boot — the splash owns the screen and the mode,
+  §15.3), a visible fullscreen window (`wm_fs_vis` — the bar is under it,
+  §11.2), or an origin that would collide with the System menu: any of
+  these and the whole feature is off for that operation, silently.
+- **The space is borrowed, not reserved.** `menu_relayout`'s limit
+  (`cmp dx, [vid_clk_hx]`) is untouched, so app menus keep every pixel they
+  have today and a machine that never touches the disk looks exactly as it
+  did. `fpg_begin` white-fills its bed over whatever was there and `fpg_end`
+  gives it back with `menu_force` + `menu_draw_bar`, which redraws the
+  field, the name, the titles and the clock in one pass. Reserving the 88
+  pixels instead would have cost them on every machine forever — and on CGA
+  the file manager's own titles have only ~108px of slack against that limit
+  to begin with.
+
+**Where it is armed** is the file-operation layer, because that is the only
+place a *total* exists: `dsk_xfer` knows one call's run and `dskw_rdata`
+coalesces many calls into one operation. The four sites are the three
+`diskw.inc` data pipelines, each immediately after `dskw_size32` has put the
+job's sector count in `[dskw_rem]` (§18.4), and `dsk_read_chain`, which takes
+its total in DX — between them, every multi-second transfer in the system:
+a package load, a document open, a Paint or Note Pad save, and each chunk of
+a file-manager copy. `fpg_end` sits in the matching `dskw_*_x` epilogue,
+where there is exactly one of it however many ways the body returned.
+
+Metadata sectors — the FAT flush, the directory commit — are outside
+`[dskw_rem]` and so are not counted, which is why the bar clamps at full
+rather than wrapping. The alternative was a total that had to be revised
+downward mid-operation, and a progress bar that goes backwards is worse than
+one that sits at 100% for a sector or two.
 
 ## 13. ui.inc — the UI task (task 0)
 
@@ -7047,6 +7152,85 @@ chain is corrupt fails the mount, which resets `[dsk_cwd]` to 0 and closes
 which is the same state a bad disk produces. A directory whose entries are
 garbage simply lists nothing. Neither can crash, because no LBA in either
 path is derived from an unvalidated field.
+
+### 19.2.1 …and the current directory belongs to the INSTANCE
+
+`[disk_drive]`/`[dsk_cwd]` are one pair for the whole machine, and §19.2's
+rule — every file name resolves in the current directory — meant that pair
+was also every *application's* idea of where its documents were. Anything
+that moved the volume moved all of them at once: a Disk window opened on C:,
+a package loading a module, a driver going to A: for `SYSTEM.CFG` (§51.5.1),
+a Disk window coming to the front and re-listing into its own folder (§22.8).
+
+The consequence was not a stale display, it was **a file written to the wrong
+folder in silence**. Note Pad's Save As commits into `B:\DOCS`; the user opens
+a Disk window on C:; Note Pad's next plain Save resolves `NOTES.TXT` in C:'s
+current directory and puts it there, with no error anywhere — the write
+succeeded, just not where the document came from.
+
+**So an instance owns a directory.** `inst_fdrv`/`inst_fcwd` (the side table
+in `instance.inc`, §38.10's) are that pair, per record, and
+`inst_vol_enter` stands the machine in the calling instance's folder before
+the file API resolves anything. The globals still mean what they always
+meant — there is one floppy in one drive and one mount snapshot describing
+it — but they are now *where the hardware is*, not *where anybody thinks
+they are*.
+
+Seven things hold it up:
+
+- **The switch is at the API cell and nowhere else.** Every package-facing
+  file slot resolves in the caller's folder — `FILE_WRITE`, `FILE_READ`,
+  `FILE_DELETE`, `FILE_RENAME` (both names) and `FILE_DFREE` — and the
+  kernel's own callers (`drv_cfg_*`, the copy engine, the file manager) call
+  `dskw_*` directly and are untouched, because they act for the machine
+  rather than for an app. `FDLG_OPEN` uses the same name-staging stub and is
+  deliberately **not** given the switch: `fdlg_home_go` is the routine that
+  decides where a *dialog* opens, and a volume switch underneath it would
+  pre-empt that decision.
+- **The compare is what makes it free.** `inst_vol_enter` loads the
+  instance's pair, compares it against the globals and returns — six
+  compares — when they agree, which on a machine with one app doing file
+  work is every call. A mount is paid only when something really did move
+  the volume underneath this app: exactly the case that used to lose the
+  file.
+- **It is a QUIET mount** (§18.9). A file operation reads no listing, so the
+  scan, the sort and one icon-harvest read per file would all be bought for
+  nothing. The `[dsk_lstale]` debt it leaves is deliberately never
+  collected, on the same terms as `drv_vol_back`'s and `assoc_back`'s: every
+  reader of the global snapshot consults that flag, and the one that cannot
+  — the modal file dialog (§38.2) — does a full `dsk_chdir` of its own on
+  the way in and on every navigation.
+- **A failure reports itself by being one.** `dsk_chdir_q`'s failure path
+  leaves the volume at a root with `[dsk_mntok]` shut, so the operation about
+  to run refuses with `FERR_NODISK` — the truth, and what the caller would
+  have been told anyway. So `inst_vol_enter` returns nothing at all, not even
+  CF, and preserves every register and the flags: it sits underneath every
+  file cell and none of them has a register to spare.
+- **The row is SEEDED at `inst_alloc`, not blanked.** A new instance starts
+  standing where it was launched from — for a package, the folder its own
+  file came out of — so there is no "this instance has no folder" state for
+  anything to have a policy about. That is the difference between a per-app
+  folder and a per-app *memory* of one.
+- **`inst_caller` answers who is asking**, and it is §34.3's rule generalised
+  rather than a second copy of it: the dispatched callback's stamp when the
+  stamping task is the one running, else that task's own `T_INST`, `0xFF` for
+  the kernel. `snd_req_inst` is a jump to it. Two copies of "who is asking?"
+  is the kind of pair that drifts silently.
+- **`OSAPI_FILE_HERE`/`GOTO` (§20.3) answer for the instance now**, and that
+  turns them from a requirement into a convenience. They exist because an app
+  that meant "where I saved last time" had to bank the pair and put it back,
+  and four packages duly did — Note Pad, Tracker, Paint and ArtfulType, each
+  with its own copy of the same six lines, each of them a bug waiting for the
+  fifth package not to write them. All four keep working unchanged: `here`
+  still answers the folder the dialog just committed to, and their `goto`
+  back to it is now a compare that finds the volume already there. Redundant,
+  not wrong — which is the only way to retire a duty a published slot handed
+  to applications.
+
+What this does **not** change: the file API is still UI-task context only, a
+name is still an 8.3 name with no path in it (§19.2), and a *navigation* is
+still a remount. The instance's folder is where names resolve, not a second
+naming scheme.
 
 ### 19.3 The system disk — a FAT12 volume, and the kernel is a file on it
 
@@ -14530,28 +14714,37 @@ the volume wherever it wrote; a Disk window coming to the front re-lists into
 *its* folder (§22.8). After any of those, the next Save As in an unrelated
 app opened somewhere the user had never taken it.
 
-So each instance carries its own. `inst_fdrv` / `inst_fcwd` / `inst_fname`
-are a side table in `instance.inc`, one row per record: the volume, the
-directory and the name that instance last chose.
+So each instance carries its own. `inst_fdrv` / `inst_fcwd` / `inst_fpick` /
+`inst_fname` are a side table in `instance.inc`, one row per record — and
+the first two are **the instance's actual current directory** (§19.2.1), the
+one its file operations resolve in, not a memory the dialog keeps on the
+side. This section is about which folder the *chooser* opens on; §19.2.1 is
+about where the app's names resolve. They are the same two words on purpose:
+a Save As does not merely aim the next dialog, it moves the application.
 
-**And an application that has not chosen anything yet opens on `MEDIA`.**
-`fdlg_home_go` has three answers, in this order:
+**And an application whose user has not chosen anything yet opens on
+`MEDIA`.** `fdlg_home_go` has three answers, in this order:
 
 | the app | opens on |
 |---|---|
-| has been somewhere (`inst_fdrv` ≠ `0xFF`) | back there |
-| has not | `MEDIA` in the **root of the drive the user is on** — or that root, if the volume has no `MEDIA` folder |
+| its user has chosen a folder (`inst_fpick`) | back there |
+| they have not | `MEDIA` in the **root of that instance's own drive** — or that root, if the volume has no `MEDIA` folder |
 | ...and the volume will not mount | the banked pair, which is the recovery |
 
-The middle row is the default location, and the thing it is careful about is
-**which globals it reads**. `[dsk_cwd]` is exactly what a background read
-moves — a package loading a module, `assoc_back` coming home from a document
-open (§54.9), a driver going to A: for `SYSTEM.CFG` (§51.5.1) — and nothing
-in that row reads it. Only `[disk_drive]` is taken, and only to say which
-volume's root to look in, so where a freshly launched app opens does not
-depend on what the machine has been doing behind the user's back. That is
-the half of the old "inherit the volume the user is on" behaviour worth
-keeping: a package launched off B: opens on `B:\MEDIA`, not on A:'s.
+**Nothing in the first two rows reads the globals at all.** The drive comes
+out of the instance's row and so does the folder, so a Disk window taken to
+C:, a package loading a module, `assoc_back` coming home from a document
+open (§54.9), a driver going to A: for `SYSTEM.CFG` (§51.5.1) — none of them
+can decide where this application's Open lands. The row is seeded at
+`inst_alloc` from wherever the app was launched, so even an app that has
+never opened a dialog has a drive of its own to resolve `MEDIA` on: a
+package launched off B: opens on `B:\MEDIA`, not on A:'s.
+
+`[inst_fpick]` is a question about the **user**, not about the data: the row
+always holds a real folder, and the flag asks whether the person ever chose
+it. Until they have, the default wins — so a second Note Pad launched from
+`B:\APPS` opens its dialog on `B:\MEDIA` while its *file operations* resolve
+in `B:\APPS`, which is exactly what each of those two things should mean.
 
 The shipped disks both carry the folder, and the system disk carries it
 **empty** (§28.3): a boot floppy has no media on it, and the folder still
@@ -14562,22 +14755,24 @@ nothing drifted into.
 It costs **two mounts instead of one** when `MEDIA` is there and one when it
 is not: the folder has to be listed before its first cluster is known, the
 same arithmetic §28.3 pays. That is charged only to the opens *before* the
-user has navigated anywhere; from the first navigation onward the first row
-of the table is taken and this never runs again for that instance.
+user has chosen anywhere; from the first navigation onward the first row of
+the table is taken and this never runs again for that instance.
 
 Seven things about it:
 
-- **A side table, not three more record fields.** `I_RECSZ` is 32, it is
+- **A side table, not four more record fields.** `I_RECSZ` is 32, it is
   full (`I_CYC`'s dword ends it), and index<<5 is what makes a record cheap
-  to reach everywhere else in the kernel — widening it to carry 16 more bytes
+  to reach everywhere else in the kernel — widening it to carry 17 more bytes
   would put a multiply in every walk. `inst_fhome_idx` owns the indexing so
   `instance.inc` and `fdlg.inc` cannot come to disagree about which row
   belongs to which record.
-- **Cleared in `inst_alloc`, for `I_CYC`'s reason.** A reused record must not
+- **SEEDED in `inst_alloc`, for `I_CYC`'s reason.** A reused record must not
   inherit a dead instance's folder, or the first Save from a freshly launched
-  app would open somewhere only its predecessor had been. `0xFF` in
-  `inst_fdrv` is what that clear writes, and it means "has chosen no folder
-  of its own" — the value that selects the default above.
+  app would open somewhere only its predecessor had been. It seeds rather
+  than blanks — the new instance starts standing where it was launched from
+  (§19.2.1) — so there is no "no folder" sentinel any more and `inst_fdrv`
+  always holds a real volume. `[inst_fpick]` is the separate byte that says
+  whether the user has *chosen* it, and only this section's default reads it.
 - **The FOLDER is written by the user NAVIGATING, and by nothing else.** All
   three ways to move inside the dialog — the folder dive, the drive button
   and diving into a folder just created — go through `fdlg_go`, and that is
@@ -14611,12 +14806,12 @@ Seven things about it:
   Re-reading the globals after a failed attempt would therefore not recover
   where the user is; `fdlg_home_go` banks the pair before it tries.
 
-What this does **not** change is where a *file operation* resolves. Names
-still resolve in the current directory (§19.2), and the dialog leaves the
-volume at the folder it just committed to, so the write an app performs
-inside its completion callback lands where the user chose. This section is
-about which folder the **chooser opens on**, which is the thing a background
-write was silently moving.
+A file operation resolves in the same two words (§19.2.1), which is what
+makes the whole thing hold together rather than being a display nicety: the
+folder the dialog commits to **is** the folder the app's later writes land
+in, without the app storing anything or calling anything. Names are still
+bare 8.3 names with no path in them (§19.2); what changed is whose current
+directory they resolve against.
 
 ## 39. viddet.inc — video adapters, runtime geometry, the mono renderer
 
@@ -15034,36 +15229,49 @@ chunky preview after a quarter of the work. `fr_rowcalc` computes one row
 into `fr_line` **with no lock held**; `fr_emit` then takes the lock for a
 run-coalesced band paint and releases it (rule 3 of §20.6).
 
-### 40.1 The pass-0 restore cache
+### 40.1 The restore cache
 
-**Why there is no frame buffer.** The canvas is 320×170. Raw at 4bpp that is
-27,200 bytes against the **19,968-byte package pool then shared by every resident
-package**; a run-length copy of a whole frame measures 11,712–13,928, most
-of the pool for one instance. A run-length copy of **pass 0 alone** is
-~3,300 bytes, and it is the right quarter of the work to keep, because pass 0
-already covers the whole canvas.
+**Why there is no frame buffer, and why the cache is not in bss.** The canvas
+is 320×170. Raw at 4bpp that is 27,200 bytes, and a run-length copy of a
+frame is 340 bytes for a deep zoom that is all interior, 15,366 worst case
+over the five types, five zooms and four palettes at their default centres,
+and 69,690 for a recentred deep zoom on the Burning Ship — measured with a C
+model of `frac_iter`, not estimated. So there is no size that is right: a
+fixed reservation is either too small for the view that wanted it or held
+against a machine that never asked for it. The cache is therefore a **heap
+claim that regrows** (§50.3) — 4KB at the first `fr_kick`, doubling whenever
+a row will not fit, ceiling 32KB because `fr_cn`, `fr_cpos` and `fr_cmax` are
+words. It was 4,000 bytes of bss when the package pool existed and image +
+bss had to fit a 7,168-byte slice of it; that pool is retired (§20.1), and
+what the old arrangement actually bought was a region twice the size on every
+machine and a cache that stopped at 25% on all of them.
+
+**It holds every pass, and that is the point.** Caching pass 0 alone meant
+the cache stopped growing after a quarter of the work, so every later repaint
+discarded three quarters of a computed frame and the percentage fell back to
+25 and climbed again. It now records every emitted row, so a repaint
+recomputes **nothing**.
 
 **Format.** One word per run: colour in bits 15..12, the run's last column in
 bits 11..0. A colour index is 0..15 and a column 0..319, so they cannot
 collide and the pack is an OR. Runs start at column 0 and each begins where
 the last ended, so the start column is implied and a row ends with the run
-whose last column is cw−1; the row is implied too, because pass 0 emits rows
-0, 4, 8 … in order. `fr_cache` is 4,000 bytes = 2,000 runs, and the ceiling
-is not that number — it is that image + bss must stay inside one 512-rounded
-7,168-byte region, because two Fractals plus Minesweeper plus Note Pad is
-19,456 of the pool and the next step up does not fit.
+whose last column is cw−1. The row is implied too — no longer by pass 0's
+0, 4, 8 … but by replaying the state machine: rows are appended in the order
+`fr_advance` produces them, so stepping once per stored row names every one
+of them. That is why the arithmetic is factored into **`fr_stepv`**, which
+takes its (pass, row) in registers and has three walkers over it — the
+render, the cache's frontier, and `fr_redraw`'s resume point. A second copy
+of it would be a second opinion about what the cache contains.
 
 **One lock hold owns "this row was consumed".** `fr_emit_body` does the cache
-append, the progress count *and* `fr_advance`, all behind its one restart
-check. None of them may live in the worker's loop, because the worker runs
-them with the lock released and `fr_redraw` publishes the (pass, row) to
-resume from: a stale `fr_advance` out there steps straight past that row, and
-then no pass ever paints it — pass 1 covers rows 2 mod 4 and pass 2 the odd
-ones — while `fr_crow` can never match `fr_row` again, freezing the cache for
-the rest of the frame. While `fr_restart` only ever meant "restart" this was
-harmless, because the worker's loop top rewrote pass and row anyway; the
-resume value 2 deliberately keeps them, which is exactly what makes the
-placement binding.
+append, the progress count, the replay cursor's step *and* `fr_advance`, all
+behind its one restart check. None of them may live in the worker's loop,
+because the worker runs them with the lock released and `fr_redraw` publishes
+the (pass, row) **and the cursor** to resume from: a stale step out there
+walks straight past them, and then no pass ever paints that row — pass 1
+covers rows 2 mod 4 and pass 2 the odd ones — while the frontier can never
+match again, freezing the cache for the rest of the frame.
 
 **Recording — `fr_cache_row`.** Called from `fr_emit_body`, under the gfx
 lock and *after* its restart check but *before* the visibility check. Under
@@ -15073,31 +15281,63 @@ one. Before the visibility check because a row that cannot be seen is still
 worth keeping — the cache is exactly what makes uncovering the window cheap.
 A row is committed **whole or not at all**; a partial row would desync every
 row after it, since each run's start column is implied by the previous run's
-end. On overflow the cache simply stops growing: `fr_crow` stays put, every
-later row fails its test, and the cached prefix stays replayable.
+end. Out of room it asks `fr_cache_grow` for more and lays the row down again
+from its rollback point — and **always takes the base back from `DX`**, since
+a grow that had to move leaves the old segment pointing at memory that is no
+longer ours. A grow is taken only when the heap's largest free run is at
+least twice the increment: this is an optimisation, not the app, and a
+fractal that swallows the last of the heap so nothing else will load has made
+the machine worse to use in order to make itself faster. When the heap says
+no the cache simply stops growing, the frontier stays put, every later row
+fails its test, and the cached prefix stays replayable.
 
-**Replay — `fr_redraw`.** `W_PAINT` no longer calls `fr_kick`. A repaint is
-not a view change: the content arrived white-filled but the view state is
-untouched, so `fr_redraw` replays the cached bands (`fr_replay` — the emit
-loop with the arithmetic removed) and then tells the worker to **resume**
-rather than restart. `fr_restart` therefore carries three values: 0 nothing
-pending, 1 restart from row 0, 2 resume with the pass and row the UI just
-set. The worker reads it with a read-and-clear `xchg`, not a test then a
-store, because with two values a separate test and clear could see the
-resume, have `fr_kick` overwrite it with a restart, and then clear the
-restart away.
+**A COMPUTED row's cursor follows the frontier.** `fr_emit_body` sets
+`fr_cpos` = `fr_cn` after an append. Without it the append pushes `fr_cn`
+past the cursor and the *next* `fr_take` replays the row just stored, onto
+the row after it.
 
-Resume lands at pass 0 row `fr_crow` if pass 0 was interrupted, or at pass 1
-row 2 if it completed — passes 1 and 2 are recomputed, which is why the
-percentage comes back at ~25% and climbs rather than at 0%. `fr_redraw` also
-compares the cached canvas size against the live one, because `fr_setup`
-re-reads W_W/W_H every time and `wm_fit` can clamp them (§39.7); a cache
-built for a different canvas would replay runs at the wrong columns.
+**Replay is split, and the split is the performance argument.** `W_PAINT`
+does not call `fr_kick`. `fr_redraw` replays the **pass-0 prefix inline**
+(`fr_replay` — the emit loop with the arithmetic removed), because that is
+the whole canvas at quarter vertical resolution and it is what "the picture
+is back" means, and hands the worker everything past it. The worker replays
+those rows one per lock hold through **`fr_take`**, which decodes a cached
+row into `fr_line` where `fr_rowcalc` would have computed one; nothing
+downstream knows the difference, so the band, the clip region and the
+visibility test are unchanged. A row is ~40 runs and a drawing call costs
+~756 µs on a 4.77MHz 8088 (PERFORMANCE.md Part 2), so replaying a finished
+170-row frame in one lock hold would be **seconds of frozen desktop**; the
+same drawing, paced the way it was rendered, freezes nothing — and is still
+an order of magnitude cheaper than recomputing rows at half a second each.
+
+`fr_restart` carries three values: 0 nothing pending, 1 restart from row 0,
+2 resume with the pass, row and cursor the UI just set. The worker reads it
+with a read-and-clear `xchg`, not a test then a store, because a separate
+test and clear could see the resume, have `fr_kick` overwrite it with a
+restart, and then clear the restart away.
+
+The resume point is one `fr_stepv` from the last cached pass-0 row, which
+handles both cases with no branch: pass 0 interrupted lands back in pass 0,
+pass 0 complete lands at the head of pass 1 (skipping a pass a degenerate
+canvas has no rows for). `fr_redraw` also compares the cached canvas size
+against the live one, because `fr_setup` re-reads W_W/W_H every time and
+`wm_fit` can clamp them (§39.7); a cache built for a different canvas would
+replay runs at the wrong columns.
+
+**`fr_prog` counts rows COMPUTED, never rows replayed**, and a repaint sets
+it to the cached row count. That is what the percentage is a percentage of,
+so a redraw no longer moves it — and when the cache overflowed the reduction
+is truthful, because those rows are about to be computed a second time and
+counted a second time. Either way the total is exactly `ch`.
 
 **Invalidation is one point.** `fr_kick` empties the cache, and every
 user-side view change — type, palette, centre, zoom, reset — funnels through
 it. There is nowhere else to get it wrong, and with the cache empty
-`fr_redraw` is exactly the old behaviour, spelled `fr_kick`.
+`fr_redraw` is exactly the old behaviour, spelled `fr_kick`. A **refused**
+claim degrades one rung further, to a repaint being a restart, which is where
+this package was before this section existed; the claim is retried on every
+kick, for `fr_hire`'s reason — a full heap is a transient fact, and the user
+who closes Paint should get the cache without relaunching.
 
 ### 40.2 Drawing while covered
 
@@ -15116,7 +15356,13 @@ not, and moving costs one replay because the cache survives the repaint.
 ### 40.3 Acceptance
 
 - Drag the window mid-render: the coarse image is back within one frame of
-  the drop and the percentage resumes rather than restarting at 0%.
+  the drop and **the percentage does not move at all** — not to 0%, and not
+  to the 25% a pass-0-only cache fell back to. The detail returns over the
+  next few seconds, from the cache, with the desktop live throughout.
+- Drag a **finished** frame: the same, and the screen that comes back is the
+  screen that went away. Gated by capture, drag, drag back, capture, diff —
+  0 differing pixels, which is what "replays rather than recomputes" has to
+  mean at the framebuffer.
 - Change type: the canvas clears and the render restarts at 0%.
 - Bury it behind another window: it keeps rendering the visible strips and
   paints nothing outside them; raise it and the whole picture is there.
@@ -18841,8 +19087,11 @@ were for. The update is 3.9 ms of that: the drawing was always the cost.
 **The erase cursor was then not worth building, and that is a measurement
 rather than a judgement.** It existed to cap a *five-tick* stall — an entire
 flight path erased in one frame at ~310 ms. `gfx_line` puts that frame at
-**59 ms**: one frame, 8% over budget, and `MC_LAGMAX` already absorbs four
-frames of lag before the worker re-anchors its deadline. Buying that 4 ms
+**59 ms**: one frame, 8% over budget, and §44.1's deadline scheme degrades
+smoothly across it — the period becomes the work rather than stepping to two
+ticks. (`MC_LAGMAX` was 4 when this was written and is 0 now, which does not
+touch the argument: what absorbs a single 59 ms frame is the deadline scheme,
+not the chase. §48.20.) Buying that 4 ms
 would mean keeping a dying missile's slot alive in an erasing state, with a
 cursor, a bounded spend per frame, and the `[mc_gdirty]` ground test moved
 to wherever the erase finishes — which is exactly the shape of change that
@@ -19602,6 +19851,44 @@ What it looks like is smoke hanging in the fireball until the fireball fades,
 which is better than what it replaces. In the common case it is not even
 visible: the burst sits at the trail's **end**, so what waits is the last
 dozen pixels and there is nothing beyond them to look detached.
+
+### 48.20 The catch-up frame IS the judder, and it was free to stop
+
+`MC_LAGMAX` is 0. §44.1's deadline scheme lets a worker that overran run the
+next frame immediately, so the *average* rate holds — and that recovery frame
+is exactly what the eye objects to, because **motion here is per-FRAME**: an
+ICBM steps a fixed distance every frame, so a frame delivered 29 ms after the
+last one moves everything at twice speed for that step. The rate was never the
+problem.
+
+Measured on MartyPC's Hercules with a breakpoint on `mc_worker`'s
+`call mc_render` — one stop per game frame, cycle-exact, no code in the guest —
+under a load pattern driven from the harness (fire every 10th frame) so both
+arms see the same one, 219 frame periods each:
+
+| | fps | sd | evenness | min | max | frames < 45 ms | > 65 ms |
+|---|---|---|---|---|---|---|---|
+| `MC_LAGMAX` 4 | 18.21 / 18.21 | 5.43 / 6.44 ms | 0.099 / 0.117 | 29.5 / 28.8 | 98.3 / 93.5 | 6 / 13 | 5 / 9 |
+| **`MC_LAGMAX` 0** | **18.21 / 18.21** | **4.43 / 4.76 ms** | **0.081 / 0.087** | **36.3 / 36.6** | **80.5 / 88.4** | 8 / 7 | 8 / 6 |
+
+**The frame rate is identical to four figures and the jitter is a quarter
+lower**, with the worst *short* frame going 29 → 36 ms and the worst long one
+98 → 81. It is faithful to §44.1's stated intent rather than against it —
+"absorb one slow frame, not run a backlog of them" — and 0 and 1 are the same
+build, because at `bx = 0` the re-anchor writes the value that is already
+there.
+
+Two things this does **not** claim. It does not remove the short frame, and
+cannot: `[ticks]` has 55 ms granularity, so a frame that runs late starts
+*mid*-tick and the next sleep still lands on the boundary — the residue is
+tick quantisation, and only sub-tick pacing (§53.2.1's `FSXF_FASTTICK`, which
+is bracket-scoped by design) could reach it. And it is not what makes the game
+smooth: **windowed Missile Command was already a metronome.** Measured at the
+same breakpoint with a wave descending and no input, 199 consecutive frames
+came in at **54.92 ms mean, sd 1.28 ms**, and — diffing the framebuffer at
+each frame boundary — **0 of 199 drew nothing**. 95% of frames land exactly on
+the tick even under sustained fire; the jitter is the ~5% that overrun, and
+the only lever left on those is the fill count §48.18 already worked.
 
 ## 49. TameGram — the thirteenth package (apps/tamegram/tamegram.asm)
 
