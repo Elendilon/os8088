@@ -542,7 +542,8 @@ inst_fhome_idx:
 ;
 ; Called from inst_alloc for I_CYC's reason: a reused record must not inherit
 ; a dead instance's folder, or the first Save from a freshly launched app
-; would open somewhere the user never took IT.
+; would open somewhere the user never took IT - it opens on the default
+; location instead (SPEC.md 38.10), which is what 0xFF selects.
 ; -----------------------------------------------------------------------------
 inst_fhome_clr:
     pushf
@@ -551,7 +552,7 @@ inst_fhome_clr:
     push cx
     push si
     call inst_fhome_idx         ; BX = the slot
-    mov byte [inst_fdrv+bx], 0xFF   ; "never used the dialog"
+    mov byte [inst_fdrv+bx], 0xFF   ; "has chosen no folder of its own"
     mov si, bx
     shl si, 1
     mov word [inst_fcwd+si], 0

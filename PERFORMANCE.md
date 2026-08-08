@@ -726,8 +726,62 @@ findings.
 - Everything Part 3.1 says about the **disk** applies unchanged: an animation
   that pauses for I/O has the wrong gap here by more than an order of
   magnitude.
-- It needs a rasterising card, so it is **CGA and VGA** — Part 3.1's Hercules
-  note applies, and a capture there times out rather than answering.
+- It needs a rasterising card — and **Hercules is one, which Part 3.1's note
+  said it was not.** MartyPC's MDA does rasterise HGC graphics: 250-frame
+  captures there run to completion and reproduce, and the rate they report
+  agrees with the guest's own frame counter to 1% (below). What is *not* true
+  on Hercules is that the rendered buffer is byte-exact — it disagrees with
+  the VRAM route on **2.8% of pixels on a paused machine**, spread evenly
+  across x mod 8 and x mod 9 and concentrated at horizontal edges, so it is a
+  raster alignment rather than a decode. That costs `pace` nothing, because it
+  compares rendered frames with rendered frames; it is why a **"0 differing
+  pixels" check on Hercules must stay on the VRAM route** (`shot --kind herc`).
+
+### Missile Command: what the exclusive bracket buys is evenness, not rate
+
+SPEC.md §48.13's same-mode bracket (§53.7) takes the `gfx_lock`/`gfx_unlock`
+pair out of every frame — Part 9 Set 4 priced that pair at **21.8% of a
+77-second session** with no pixel of the game in it. What that is worth was
+never measured on the axis the complaint was about. On MartyPC's Hercules at
+50.9 Hz (19.66 ms/frame), a wave descending with no player input, mode
+certified `M_PLAY` and the wave number unchanged across the capture, and both
+arms entered at the same point in the wave:
+
+| 250 frames | windowed | bracket (`F`) |
+|---|---|---|
+| paint-to-paint | 3.15 / 3.04 fr (62.0 / 59.7 ms) | 2.78 / 2.95 fr (54.7 / 58.1 ms) |
+| **jitter (sd)** | 1.17 / 1.20 fr (22.9 / 23.6 ms) | **0.41 / 0.90 fr (8.1 / 17.7 ms)** |
+| **evenness** | **0.37 / 0.40** | **0.15 / 0.30** |
+| histogram | `2fr x12 3fr x59 5fr x3 6fr x1 8fr x3` | `2fr x19 3fr x69` |
+| | `2fr x15 3fr x62 5fr x1 6fr x1 8fr x1 11fr x1` | `2fr x19 3fr x59 4fr x2 5fr x1 6fr x2 8fr x1` |
+
+**The rate is identical and the delivery is not.** Both are one frame per PIT
+tick; the bracket's best run is `2fr x19 3fr x69` **and nothing else**, which
+is not merely even but *exactly* at the floor — a 54.925 ms tick on a 19.66 ms
+display is 2.794 frames, so a metronome here **must** emit 2s and 3s in the
+ratio 0.206 : 0.794, giving sd 0.405 and **evenness 0.145**. Measured: 0.148.
+There is no smoothness left to win in that run. Windowed, the same 2/3 cadence
+carries a tail of 5, 6, 8 and 11-frame gaps that is not there in the bracket.
+
+Two things make the number trustworthy. **The game's own deadline counter is
+the ground truth**: `[mc_due]` advances once per `mc_worker` iteration, and
+sampled against MartyPC's cycle count it reads **18.19 and 18.37 fps** against
+a PIT tick of 18.2065 — so windowed Missile Command keeps its deadline exactly,
+and the jitter above is *delivery*, not dropped frames. (It reads 0 inside the
+bracket, correctly: `mc_fsx_main` has a loop of its own and never touches it.)
+
+**And `pace`'s own interval statistic had to be adapted, for a reason that
+generalises.** Tracker's grid arrives as one blit on an otherwise-static
+screen, so one changed frame is one update. Missile Command *paints* for
+1.5–2.0 displayed frames per game frame — a 4.77MHz machine cannot fill a
+615x171 content box inside 19.66 ms — so the card catches it mid-paint and one
+game frame contributes several consecutive changed frames. Counting gaps
+between changed frames then splits every frame in two and reports ~28
+updates/s for an 18.2 fps game. **Grouping consecutive changed frames into one
+paint** is the fix, and it is validated rather than assumed: it recovers
+16.1–16.7 fps against the counter's 18.2. The rule of thumb is that `pace`'s
+raw intervals mean what they say only while a paint fits inside one displayed
+frame.
 
 ---
 
