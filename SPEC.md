@@ -6025,6 +6025,11 @@ something in this area is in doubt.
 > revolution instead of one" is a claim about revolutions that this drive,
 > controller or media does not honour. Both emulators show the predicted gain
 > and neither models rotational latency, so neither can arbitrate. The
+> **§18.93's loop had the same bug and it is the whole boot**: 140 sectors at
+> a revolution each is 33 of the 40 seconds a 5150 spends starting up, and
+> `.done` there believed AL exactly as `dsk_xfer` did. Both read `CF` now,
+> under the one `DISKAL=1` knob.
+>
 > cause is now FOUND (Set 16) and it was never the transfer: the BIOS moved
 > all nine sectors and answered **`AL = 1`**, the short-count handling
 > believed it, and `dsk_xfer` re-asked for the other eight one at a time.

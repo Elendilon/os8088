@@ -86,6 +86,15 @@ endif
 # and answers AL = 1, so the old code re-read the other eight one at a time.
 ifneq ($(DISKAL),)
 VIDDEF += -DDISK_TRUST_AL
+BOOTDEF += -DDISK_TRUST_AL
+endif
+
+# BOOTDIAG=1 makes the boot sector print int 13h's STATUS as two hex digits
+# instead of 'os8088: disk error'. The sector has four spare bytes, so this
+# is a knob and not a default: the message is worth more on a machine that
+# boots and the status is worth more on one that does not.
+ifneq ($(BOOTDIAG),)
+BOOTDEF += -DBOOT_DIAG
 endif
 
 ifneq ($(FLOPPY1),)
@@ -765,9 +774,10 @@ FIELDBENCH := $(BENCHPKGS) $(BENCHDATA) $(BUILD)/bigfile.dat
 CGADIR     := $(BUILD)/cgak
 F1DIR      := $(BUILD)/f1k
 DBGDIR     := $(BUILD)/dbgk
+CQDIR      := $(BUILD)/cqk
 
 field: $(BUILD)/herc.img $(BUILD)/cga.img $(BUILD)/cga720.img $(BUILD)/flop1.img \
-       $(BUILD)/dskdbg.img
+       $(BUILD)/dskdbg.img $(BUILD)/cqdiag.img
 
 $(BUILD)/herc.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) \
                    $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
@@ -842,6 +852,20 @@ $(BUILD)/dskdbg.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
 		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
 	@echo "field: $@ - DISKCNT=1. SYSBENCH here reports what dsk_xfer really"
 	@echo "       issues, and prices a raw int 13h safely (SPEC.md 18.94)"
+
+# ...and the DIAGNOSTIC disk, for a machine that will not boot. BOOTDIAG=1
+# trades the boot sector's 'os8088: disk error' for int 13h's STATUS as two
+# hex digits, which is the whole diagnosis in one boot instead of a bisect:
+# 0C is a media type the drive could not identify (a 360KB disk in a 1.2MB
+# drive), 04 a sector the FDC never found (EOT / the multi-track flip), 09 a
+# transfer that crossed a 64KB DMA page, 80 a drive that never answered.
+# The sector has four spare bytes, which is why this is a knob.
+$(BUILD)/cqdiag.img: $(DRIVERS) $(SYSAPPS) $(FIELDBENCH) tools/os88disk.py
+	@$(MAKE) BUILD=$(CQDIR) BOOTDIAG=1 $(CQDIR)/boot360.bin
+	python3 tools/os88disk.py -o $@ --size 360 \
+		--boot $(CQDIR)/boot360.bin --kernel $(CQDIR)/kernel.bin \
+		$(DRIVERS) $(SYSAPPS) $(FIELDBENCH)
+	@echo "field: $@ - BOOTDIAG=1. A boot that fails prints int 13h's status"
 
 # STACKPROBE measures the 256-byte task-stack margin (SPEC.md 8) from the
 # inside: its worker 0xCC-fills its own slice, spins so every interrupt the

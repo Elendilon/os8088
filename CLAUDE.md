@@ -345,7 +345,16 @@ page and a file's first cluster is rarely track-aligned — worth a second on
 every large load, not chased yet. **And the verify row did not run in that
 set**, because it was written inside the `DISKCNT=1` block and the field
 boots the plain kernel: *a guard that only runs on the build you are not
-shipping is not a guard.* It is unconditional now.
+shipping is not a guard.* It is unconditional now. **The BOOT SECTOR had the
+same AL bug and was missed with it** — `read_run`'s `.done` believed AL too,
+which is why `boot ticks` did not move while the file read got 4x faster; 140
+sectors at a revolution each is 33 of the 40 seconds. Both loops read `CF`
+now, under the one `DISKAL=1` knob. And **`make BOOTDIAG=1`** trades the
+sector's `os8088: disk error` for int 13h's **status as two hex digits** —
+the sector has four spare bytes, so it is a knob, and it is what turns "it
+will not boot on that machine" into one boot instead of a bisect (0C = media
+type unidentified, 04 = sector not found, 09 = DMA page crossed, 80 = no
+answer).
 
 **A multi-sector floppy read is judged by the BIOS, not by the emulator.**
 int 1Eh is a far pointer to an 11-byte diskette parameter table whose byte 4

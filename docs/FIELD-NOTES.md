@@ -983,6 +983,13 @@ on the ordinary kernel. Everything else in the report is unchanged to within
 a tick, and `read 1 sector file` is 810 ms both times because a one-sector
 read never had a run to lose.
 
+**The BOOT SECTOR had the same bug and it was never fixed with the kernel.**
+`read_run`'s `.done` believed `AL` too, which is why `boot ticks` did not
+move in Set 17 while the file read got 4x faster: 140 sectors at a revolution
+each is 33 of the 40 seconds. Both loops read `CF` now, under the one
+`DISKAL=1` knob, and the boot should fall to roughly 12 s. Unconfirmed on
+iron at the time of writing.
+
 **Still 1.55x short of the ceiling**, and the arithmetic says where: the
 BIOS's own whole-track-in-one-call is 11,570 B/s, 32 sectors in ~4 calls of
 ~400 ms is 1.6 s, and we measure 2.09 — about two extra calls. A run
