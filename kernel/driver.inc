@@ -41,7 +41,7 @@
 ; happens.
 ; =============================================================================
 
-DRV_MAX     equ 2               ; rows in drv_tab. The settings word carries
+DRV_MAX     equ 3               ; rows in drv_tab. The settings word carries
                                 ; one bit per row, so this may grow to 16
                                 ; without touching the file format.
 
@@ -53,7 +53,14 @@ DRV_MAX     equ 2               ; rows in drv_tab. The settings word carries
 ; the first (SPEC.md 51.2.1).
 DRVC_SOUND  equ 1               ; fills the FM and STREAM tiers (SPEC.md 34)
 DRVC_DISK   equ 2               ; block volumes: hard disks (SPEC.md 51.8)
-DRVC_MAX    equ 2               ; classes, and so publication slots
+DRVC_DEBUG  equ 3               ; the serial monitor (SPEC.md 57). It publishes
+                                ; no service the kernel dispatches - only a
+                                ; Control Panel page - so it needs a class for
+                                ; one reason: a class IS the publication slot,
+                                ; and giving it somebody else's would
+                                ; disconnect a sound card or a hard disk the
+                                ; moment the user ticked it (SPEC.md 51.2.1)
+DRVC_MAX    equ 3               ; classes, and so publication slots
 
 ; --- driver table row, stride DRVR_SIZE --------------------------------------
 ; DRVR_DISP and DRVR_SEG are adjacent, in that order, ON PURPOSE: together
@@ -78,7 +85,15 @@ DRVE_NOENT  equ 2               ; it is not on that disk
 DRVE_BAD    equ 3               ; not a driver image
 DRVE_MEM    equ 4               ; the heap cannot fund it
 DRVE_HW     equ 5               ; it loaded and found no hardware
-DRVE_NERR   equ 6               ; how many strings drv_errstr has
+DRVE_BUSY   equ 6               ; ...or found it and cannot have it, because
+                                ; something the kernel owns is already using
+                                ; the line. DISTINCT from DRVE_HW on purpose:
+                                ; "no hardware found" sends the user looking
+                                ; for a card that is sitting right there, and
+                                ; the fix for the two is not the same one -
+                                ; DRVE_HW wants a card, this wants a jumper
+                                ; or a different port (SPEC.md 57.2)
+DRVE_NERR   equ 7               ; how many strings drv_errstr has
 
 ; --- .drv header: the .o88 header's shape with a different version -----------
 DRV_H_MAGIC equ 0               ; word: 0x384F ('O','8')
@@ -293,6 +308,8 @@ drv_f_sound: db 'SOUND.DRV', 0
 drv_t_sound: db 'Sound', 0
 drv_f_hdd:   db 'HDD.DRV', 0
 drv_t_hdd:   db 'Hard Drive', 0
+drv_f_debug: db 'DEBUG.DRV', 0
+drv_t_debug: db 'Debug', 0
 
 ; The published drivers' dispatchers, as FAR POINTERS - ONE PAIR PER CLASS.
 ; Adjacent and in this order because together they ARE the dword
@@ -317,6 +334,9 @@ drv_fptr:    dw PKG_DISP        ; class 1 (DRVC_SOUND)
 drv_fseg:    dw 0
 drv_fptr2:   dw PKG_DISP        ; class 2 (DRVC_DISK)
 drv_fseg2:   dw 0
+drv_fptr3:   dw PKG_DISP        ; class 3 (DRVC_DEBUG). drv_cls_fp indexes
+drv_fseg3:   dw 0               ; these contiguously, so a class is appended
+                                ; here and nowhere else
 
 drv_cfgname: db 'SYSTEM.CFG', 0
 drv_sysname: db 'KERNEL.SYS', 0 ; what makes a disk THE system disk (19.6): the
@@ -357,8 +377,22 @@ drv_tab:
     db DRVE_OK
     db 0
 
+    dw PKG_DISP, 0              ; row 2: the serial debug monitor (SPEC.md 57)
+    dw drv_f_debug, drv_t_debug
+    dw 0, 0
+    db DRVC_DEBUG
+    db 0                        ; NOT wanted by default, and this is the row
+                                ; where that rule matters most: it opens a
+                                ; channel that reads and writes any byte of
+                                ; the machine, so it exists only while
+                                ; somebody has ticked it and SYSTEM.CFG says
+                                ; so. On a machine that never does, the whole
+                                ; cost is this row and a file on the disk
+    db DRVE_OK
+    db 0
+
 drv_errstr:                     ; DRVE_* -> what the user is told
-    dw drv_e0, drv_e1, drv_e2, drv_e3, drv_e4, drv_e5
+    dw drv_e0, drv_e1, drv_e2, drv_e3, drv_e4, drv_e5, drv_e6
 drv_e0: db 'Loaded', 0
 drv_s_off: db 'Not loaded', 0   ; ...and what a row that never failed and is
                                 ; not up says instead (drv_status)
@@ -367,6 +401,7 @@ drv_e2: db 'Not on the system disk', 0
 drv_e3: db 'Not a valid driver', 0
 drv_e4: db 'Not enough memory', 0
 drv_e5: db 'No hardware found', 0
+drv_e6: db 'Port or IRQ in use', 0
 
 ; -----------------------------------------------------------------------------
 ; drv_init - the state the table cannot carry as initialised data
@@ -1197,7 +1232,7 @@ drv_load:
     jc .badfree
 
     call drv_attach             ; the far call into the driver itself
-    jc .nohw
+    jc .nohwal                  ; ...which may say WHY in AL (SPEC.md 51.2)
 
     mov byte [bx+DRVR_ERR], DRVE_OK
     clc
@@ -1227,6 +1262,18 @@ drv_load:
 .badfree:
     mov al, DRVE_BAD
     jmp short .failfree
+.nohwal:
+    ; A refusing attach MAY hand back a DRVE_* in AL, and most do not: the
+    ; verb's contract was CF alone for a long time, so anything outside the
+    ; table - DRVE_OK included, since a refusal is not OK - means "no
+    ; hardware" and the driver simply did not say. That is the whole
+    ; compatibility rule, and it is why the two drivers that predate this now
+    ; set AL explicitly rather than leaving it to whatever their last compare
+    ; happened to load.
+    cmp al, DRVE_OK
+    je .nohw
+    cmp al, DRVE_NERR
+    jb .failfree
 .nohw:
     mov al, DRVE_HW
 .failfree:
