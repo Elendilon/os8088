@@ -93,6 +93,12 @@ repaint its whole content where it used to repaint a band, that is this
 defect. It will look instantaneous in a screendump and it is the single
 most expensive mistake available in this codebase.
 
+**It is measurable now** — Part 3.1. A Disk window's full repaint
+(`fm_repaint`) is **11 frames, 183 ms** on CGA and 9 frames, 150 ms on VGA:
+the number of displayed frames between the first change and the settled
+state, times the frame period. That is not an estimate from a call count, it
+is the count of frames a person would have watched go by.
+
 ### Double-draw flash — the pixel written twice
 
 Anything that draws a region and then draws over it: the classic is the
@@ -102,12 +108,19 @@ is tens of milliseconds, several display frames. The area is smaller than a
 full redraw, so it reads as a flash rather than a wait — **but it is still
 very plainly visible**, on every keystroke, on every update.
 
-It is invisible in QEMU at any frame rate a screendump can sample, and — the
-part that matters — **no timing column reports it**, because the two methods
-take comparable *time* and differ only in what is on screen during it. §6.1
-is the fix (`font_run`, one store per cell, old content straight to final);
-§27.2 and §11.94 are the two consumers converted for the flash rather than
-for the 10.7%.
+It is invisible in QEMU at any frame rate a screendump can sample, and **no
+timing column reports it**, because the two methods take comparable *time* and
+differ only in what is on screen during it. §6.1 is the fix (`font_run`, one
+store per cell, old content straight to final); §27.2 and §11.94 are the two
+consumers converted for the flash rather than for the 10.7%.
+
+**There is a column for it now, and it is a count of pixels.** Part 3.1 is the
+method; the short version is that a frame-by-frame capture of the *rendered*
+framebuffer answers "which pixels ended up exactly as they started, but showed
+something else in between", and those pixels are this defect by definition.
+Measured: that same `fm_repaint` flashes **1,963 pixels for 10 frames — 166 ms**
+on CGA. A Note Pad keystroke flashes **nothing at all in the text**, which is
+§6.1 working, verified rather than asserted.
 
 The same defect wearing other clothes: a background fill under an icon that
 is then drawn; `wm_grow_paint` filling its 13×13 square before framing it,
@@ -124,7 +137,13 @@ exactly why the tracker stops animating its grid on a tier-0 machine
 (§45.9.1).
 
 Whether a human can outpace the redraw is a property of the real machine's
-speed against a real person's hands. It cannot be measured here at all.
+speed against a real person's hands, and *that* cannot be measured here. What
+can: **how long the machine is not answering**, which is the other half of it.
+Part 3.1's capture gives the span of any operation in milliseconds of guest
+time on a cycle-accurate 8088, so "this redraw takes 183 ms" is a number, and
+comparing it against the ~9-tick (500 ms) typematic delay or a 55 ms tick is
+arithmetic rather than a guess. The part still reserved for a person is
+whether *their* hands outpace it.
 
 ---
 
@@ -267,20 +286,25 @@ Multiply and say that you did. "~500 cycles per iteration × 404 iterations
 
 Not "shows inaccurately" — **cannot show**.
 
-**MartyPC shows the first two**, and that is most of why it now comes first:
-a cycle-accurate 8088 spends a visible redraw's seconds, so a repaint that
-should not be happening is visible in the cycle count rather than only on
-somebody's desk. The third is still a person in front of a machine, and the
-fourth — a lost optimisation that kept its shape — is unchanged, because it
-is a failure of the *question*, not of the emulator.
+**MartyPC shows the first two, and Part 3.1 is how.** That is most of why it
+now comes first. A cycle-accurate 8088 spends a visible redraw's seconds, so
+a repaint that should not be happening shows up in the cycle count rather than
+only on somebody's desk — and because the emulated card rasterises real
+frames, the *glass* can be sampled at the rate an eye samples it. The third is
+half a person and half a number now; the fourth — a lost optimisation that
+kept its shape — is unchanged, because it is a failure of the *question*, not
+of the emulator.
 
-1. **Visible redraw.** A full window repaint is microseconds here and
-   seconds there. Nothing in a screendump, a timing column or a QMP script
-   distinguishes a window that repaints from one that does not.
+1. **Visible redraw.** A full window repaint is microseconds under QEMU and
+   seconds on the target. Nothing in a screendump, a timing column or a QMP
+   script distinguishes a window that repaints from one that does not.
+   **MartyPC prices it in frames** (Part 3.1).
 2. **Double-draw flash.** Both methods take comparable time; they differ in
-   what is on the glass during it. There is no column for that.
-3. **Perceived latency and input overrun.** A property of the real machine
-   against a real person.
+   what is on the glass during it, and no timing column has a place to put
+   that. **MartyPC counts the pixels** (Part 3.1).
+3. **Perceived latency and input overrun.** How long the machine fails to
+   answer is measurable (Part 3.1's span). Whether a particular person's
+   hands outpace it is not.
 
 And one that is worse than invisible, because it looks like a *success*:
 
@@ -309,6 +333,160 @@ And one that is worse than invisible, because it looks like a *success*:
    calls) is **561 ms**. Twenty times, for the same pixels. So the cost of a
    blit is `runs × 0.5 ms`, the pixel count barely enters it, and *how flat
    the picture is* is the whole performance story.
+
+---
+
+## Part 3.1 — Measuring flicker: one sample per displayed frame
+
+This part of the document said for years that the double-draw flash could not
+be observed anywhere but on somebody's desk. That was true of QEMU and it is
+not true of MartyPC, and the reason is worth stating precisely rather than as
+a capability list.
+
+### Why frames are the unit
+
+**A CRT shows whatever the raster read on its last pass.** So "what a person
+saw" is not a continuous thing — it is a *sequence of completed frames*, and
+anything that happens entirely between two of them was never on the glass at
+all. MartyPC rasterises into a front/back pair, and `display_buf()` is the
+front one: the last frame the card actually finished. Step the machine until
+`frame_count()` increments, grab that buffer, repeat — and you have sampled
+the screen exactly as often as an eye does, no oftener and no seldomer.
+
+Measured frame periods, from the capture itself rather than from a datasheet:
+
+| adapter | cycles/frame | period | rate |
+|---|---|---|---|
+| CGA 640x200 | **79,574** | **16.67 ms** | 60.0 Hz |
+| VGA mode 12h | ~77,500 | **16.23 ms** | 61.6 Hz |
+
+Both are on a 4.77 MHz 8088, so a frame is **about 79,000 cycles** and any
+defect shorter than that is, by construction, invisible — to this instrument
+and to the user alike. That is a feature and it is also the boundary: this
+measures *visibility*, never *work*. Part 4's counters and `gfxbench` are what
+price work, and a change can be right on one and wrong on the other.
+
+### The metric
+
+    transient(k) = |{ p : first[p] == last[p]  AND  frame_k[p] != first[p] }|
+
+**A pixel whose value before the operation and after it are the same, but
+which showed something else in between, was written twice for no reason and
+the user could see it.** That is the double-draw flash stated as arithmetic,
+and three properties make it the right definition:
+
+- **It needs no notion of "background".** An erase-and-letter pair is caught
+  because the cell goes to the fill colour and comes back to the same glyph —
+  not because the fill colour is special.
+- **It cannot fire on an honest change.** A caret moving, a digit
+  incrementing, a window's contents genuinely changing: there
+  `first[p] != last[p]`, so the pixel is excluded before anything is counted.
+  Every pixel it counts is one the operation did not, in the end, need to
+  touch.
+- **It is conservative.** An operation that changes most of what it draws has
+  most of its pixels excluded, so the number that comes back is a floor.
+
+`changed` — the ordinary frame-to-frame delta — is the other half, and prices
+the **visible redraw**: frames between the first change and the settled state,
+times the frame period, is how long the user watched it happen.
+
+### The protocol
+
+```sh
+python3 tools/os88marty.py 127.0.0.1:9001 flicker -n 90 --click
+```
+
+or, driving it properly, in three steps that are all load-bearing:
+
+```python
+m.run(); pointer.goto(x, y)      # 1. get into position WITH THE MACHINE RUNNING
+m.pause(); m.mouse(0,0,l=True)   # 2. inject while PAUSED - the packet queues
+r = m.flicker(frames=90)         # 3. capture; the action lands inside the window
+```
+
+1. **Position first, with the machine running.** A mouse packet is decoded by
+   the guest's own ISR over several frames; moving during the capture measures
+   the move, not the click.
+2. **Inject while paused.** The packet or keystroke sits in the device queue
+   and is delivered as the capture runs, so the action is *inside* the window
+   rather than racing it.
+3. **Check `settled`.** It reports whether the last three frames are
+   identical. If they are not, `last` is not an end state, every `transient`
+   above was measured against a moving target, and the answer is more frames —
+   not a smaller number.
+
+### The anchors
+
+Measured on `os8088_5150_cga`, CGA, 640x200, one boot, reproducible to the
+pixel across repeats and in both directions:
+
+| operation | visible redraw | flash | worst frame | where |
+|---|---|---|---|---|
+| idle desktop | 0 frames | 0 frames | 0 px | — |
+| pointer move, no click | 0 frames | 0 frames | **0 px** | — |
+| Note Pad keystroke | 3 frames, 50 ms | 1 frame, 17 ms | 42 px | *the mouse pointer* |
+| Disk window repaint (`fm_repaint`) | 11 frames, **183 ms** | 10 frames, **166 ms** | **1,963 px** | the content rect |
+| ...the same on VGA mode 12h | 9 frames, 150 ms | 8 frames, 133 ms | 2,201 px | the content rect |
+
+Three of those five rows are the validation, and they are worth reading as
+such rather than as results:
+
+- **Idle is zero.** The instrument does not manufacture a defect out of a
+  quiet machine, a blinking caret or the menu-bar clock.
+- **A pointer move is zero**, which is an independent confirmation of SPEC.md
+  §7.1.2 from a different direction entirely. That change made a cursor move
+  write every byte exactly once, and was verified by diffing framebuffers
+  against a known-broken build; here a completely separate instrument, asking
+  a different question, agrees that nothing on the glass is ever disturbed.
+- **`fm_repaint` is large**, and it must be: §22.3 describes it as one big
+  fill plus ~40 `font_str`s, which is the erase-and-letter pair at window
+  scale. A metric that did not fire here would be measuring nothing.
+
+And the negative control is the sharpest of them. **A Note Pad keystroke
+flashes nothing in the text** — §6.1's `font_run` and §27.2's "the padding IS
+the erase" working, measured rather than asserted. The 42 pixels it does
+report are somewhere else entirely.
+
+### The trap: a count without a location misattributes
+
+Those 42 pixels were first read as "small, therefore the text still flashes a
+little". They are the **mouse pointer**, blinking off for one frame while the
+gfx lock is held (SPEC.md §7.1.4), and the way that was established is the
+lesson: the count barely moves when the pointer moves — 40 against 42 — because
+an arrow is the same size wherever it sits, and only the clipped edge differs.
+Comparing counts said "not the cursor" and was wrong. The **bounding box**
+settled it in one run:
+
+| pointer parked at | worst | bbox |
+|---|---|---|
+| (600, 190) | 40 px | `[600, 190, 606, 199]` |
+| (400, 150) | 42 px | `[400, 150, 406, 160]` |
+| (180, 111) | 42 px | `[180, 111, 186, 121]` |
+
+A 7x11 box at the pointer, three times. **Always ask where.** `flicker`
+returns a bbox per frame for exactly this reason, and a number quoted without
+one is a number that has not been attributed.
+
+### What it does not cover
+
+- **Hercules.** MartyPC's MDA does not rasterise Hercules graphics mode: the
+  rendered framebuffer is **0 lit pixels of 252,000** and never changes, and
+  `frame_count()` never advances, so a capture times out rather than
+  answering. Nothing said so, because `shot`'s VRAM route reads *guest memory*
+  and works perfectly there — which is why this went unnoticed until something
+  asked the card instead of the kernel. Measure the flash on **CGA** and reason
+  across: §39.5 is one parameterised 1bpp renderer for both adapters and the
+  drawing code is identical, so what differs is the geometry (1.9x the pixels)
+  and the frame rate, not whether a cell is blanked before it is lettered.
+- **Anything shorter than a frame**, as above. Correct by construction and
+  worth restating: a defect the raster never catches is a defect nobody saw.
+- **Work.** A change can cut the flash and cost more cycles, or the reverse.
+  Part 4 and Part 9 price work; this prices what the work looked like.
+- **The disk.** Unchanged and absolute — an operation with a disk in it has
+  the wrong *span* here by more than an order of magnitude, so `flicker`'s
+  millisecond figures are only meaningful for operations that touch no floppy.
+  The frame *counts* are still real; it is the wall time they represent that
+  is wrong.
 
 ---
 

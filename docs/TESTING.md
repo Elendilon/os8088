@@ -130,6 +130,7 @@ emulator have the hardware": a ✅ means reach for it first.
 | A **cross-wired IRQ** (SPEC.md §9.5.2) | ➖ | ✅ | `make test MOUSEPORT=com2irq4` | the Compaq Portable III: mouse at 2F8 driving IRQ4. Undetectable before the fix |
 | A **modem** on the other port | ➖ | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
 | Performance benchmarks | ✅ | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
+| **Flicker** — the double-draw flash | ✅ | ❌ | `os88marty.py flicker` (PERFORMANCE.md Part 3.1) | one sample per displayed frame. A Disk window repaint flashes 1,963 px for 166 ms; an idle desktop and a pointer move measure zero. CGA and VGA — MartyPC's MDA does not rasterise Hercules graphics mode |
 | Fullscreen exclusive (SPEC.md §53) | ➖ | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
 | Boot-sector relocation (SPEC.md §2.7) | ✅ | ✅ | `make test RAMKB=<n>` — see below | 105 boots, 104 prints `RAM` and never loads a byte |
 | A machine that reports a **small** `int 12h` to the KERNEL | ✅ | ❌ | MartyPC `conventional.size`, or 86Box `mem_size` | `RAMKB=` moves the sector only; the heap still sees the real answer. MartyPC's real BIOS counts what the config says it has |

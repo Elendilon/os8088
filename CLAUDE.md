@@ -634,10 +634,22 @@ boot `make test`, then drive it over QMP.
 Its **"Modelling the old machine from a fast one"** section is the part that
 has cost four bugs, and most of it is about QEMU: this container is ~1000x a
 4.77MHz 8088, so every constant sized while looking at it encodes the wrong
-range, and two things cannot be observed there at all — **flicker** and
-**input overrun**. MartyPC removes a good deal of that (a cycle-accurate 8088
-does not have a clock that tells you nothing) and removes **none** of it for
-the disk, where its error is 30x and flattering.
+range. MartyPC removes a good deal of that (a cycle-accurate 8088 does not
+have a clock that tells you nothing) and removes **none** of it for the disk,
+where its error is 30x and flattering. **FLICKER IS MEASURABLE NOW** and
+PERFORMANCE.md Part 3.1 is the method: `os88marty.py flicker` samples the
+card's RENDERED framebuffer once per displayed frame - which is exactly how
+often an eye samples it, a CRT showing whatever the raster last read - and
+counts the pixels whose value before an operation and after it are the SAME
+but which showed something else in between. That is the double-draw flash as
+arithmetic. A Disk window repaint flashes 1,963 pixels for 166 ms on CGA; an
+idle desktop and a bare pointer move measure zero, which is what says the
+instrument is not manufacturing defects. Three traps: inject the input while
+PAUSED, check `settled`, and always read the BBOX - a count alone
+misattributes, which is how 42 pixels of "text flash" turned out to be the
+mouse pointer blinking under the gfx lock. Not on Hercules: MartyPC's MDA
+does not rasterise graphics mode, so measure on CGA and reason across
+(SPEC.md 39.5 is one renderer for both).
 
 ```
 python3 tools/mouse.py build/qmp.sock click 180 150      # absolute mouse click
