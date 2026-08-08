@@ -498,7 +498,7 @@ ui_drag:
     jz .release                 ; (queue full) - the level still says so
     call ui_drag_xor            ; erase...
     call gfx_unlock             ; ...only then may the lock drop
-    call kbm_poll               ; the keyboard mouse drags too (SPEC.md 9.6)
+    call kbm_pollm              ; the keyboard mouse drags too (SPEC.md 9.6)
     call task_yield             ; background tasks stay live here
     call gfx_lock
     mov ax, [mouse_x]           ; outline pos = orig + (mouse - start)
@@ -666,7 +666,7 @@ ui_grow:
     jz .release
     call ui_drag_xor            ; erase...
     call gfx_unlock             ; ...only then may the lock drop
-    call kbm_poll               ; ...and resizes (SPEC.md 9.6)
+    call kbm_pollm              ; ...and resizes (SPEC.md 9.6)
     call task_yield
     call gfx_lock
     mov ax, [mouse_x]           ; tracked size = orig + (mouse - start),
