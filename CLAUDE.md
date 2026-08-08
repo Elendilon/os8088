@@ -1671,7 +1671,10 @@ case is accepted deliberately, since a full mount (every navigation) always
 re-validates. The three per-volume arrays are in `.text` with real
 initialisers, which is a **latent-bug fix**: `dsk_fatwc` was `.bss`, `-f bin`
 zeroes none, and `dsk_fatw_pick` reads it as a SEGMENT. Measured on the
-Control Panel case: 47 → 28 → **10 sectors**. That is what stops a copy reloading nine
+Control Panel case: 47 → 28 → **10 sectors**, and **9** once §18.4.3's
+`dskw_find` arrived from `elendilon` — different sectors (the FAT re-read at
+the switch against the directory re-read at the open), so the two compose
+rather than overlapping. That is what stops a copy reloading nine
 sectors on every switch: 45 mounts, 3 loads. A floppy gets none (its window
 is the whole FAT and never moves) and a refused claim just shares, as
 everything did before. Four traps: only a QUIET mount may reuse a banked

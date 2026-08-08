@@ -6074,11 +6074,17 @@ panel — §18.4's case, carried the rest of the way:
 | every write remounts | 3 | 47 | 21 |
 | §18.4's deferral | 2 | 28 | 12 |
 | **…and this window** | **2** | **10** | **10** |
+| …and 18.4.3's kept entry | 2 | **9** | **9** |
 
 47 → 10 sectors is **4.7x**, about **8.8 s of floppy** on the field machine
 at PERFORMANCE.md's 238 ms per sector. The two mounts are irreducible — they
 are the switch to A: and the switch back — and what is left of them is the
 boot sector, the directory and the commit.
+
+The last row is 18.4.3 arriving from `elendilon` and **composing**: this
+window removed the FAT re-read at the switch, `dskw_find` keeping its entry
+removed the directory re-read at the open, and they are different sectors, so
+the wins add rather than overlapping. Nothing here had to change for it.
 
 ### 18.9 A volume switch is not a mount
 
