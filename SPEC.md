@@ -20501,6 +20501,50 @@ never drawn.
 
 ---
 
+### 54.9 Coming back from a document open is a file operation, not a navigation
+
+`assoc_back` restores the volume the document lives on, so the launched app
+can **read that document**. A read resolves by NAME, through `dskw_find`'s
+directory walk (SPEC.md 19.2) - it never touches the global listing. So the
+scan, the sort and one icon-harvest read per file were bought for nothing,
+exactly as in 51.5.2's `drv_vol_back`: the volume moves, but nobody is going
+to LOOK at a listing there. It is `dsk_chdir_q`.
+
+Measured (`make DISKCNT=1`), opening `BEVERLY.MOD` from `APPS` with Tracker
+in the same folder - the case where the volume never actually changes:
+
+| | `disk_mount` | sectors | int 13h |
+|---|---|---|---|
+| full `dsk_chdir` | 3 | 295 | 35 |
+| **quiet** | 3 | **284** | **32** |
+
+11 sectors, about **2.6 s** of floppy on the field machine at
+PERFORMANCE.md's 238 ms per sector. The mount COUNT is unchanged because a
+quiet mount is still a mount - what changed is what it costs: ~12 sectors
+becomes ~1, the boot sector alone, with 18.8.2's FAT window supplying the
+rest.
+
+**The debt is deliberately left unpaid** (18.9's rule), and that is only safe
+because every reader of the global snapshot now consults `[dsk_lstale]`. The
+audit for this path, since it is the one that decides:
+
+- **`files_refresh`/`files_poster`**, which run immediately after, paint from
+  the WINDOW's cache and not the globals (22.1).
+- **`fdlg`** reads the snapshot directly (38.2) and is safe for a different
+  reason: `fdlg_home_go` ends in a full `dsk_chdir` on BOTH branches - the
+  remembered folder and the inherited one - so a dialog always re-lists.
+- **`fmv_sync`** is what a second double-click in that window goes through,
+  and it is the one that would fail silently: right folder, no listing, so a
+  (drive, cwd) compare says "already there" and the index resolves against
+  `disk_nfiles` = 0. It has the test (18.9).
+
+**What this does NOT reach** is the other two mounts of a document open,
+`fmv_sync`'s and `assoc_try`'s, which stay full. Both are full for one
+reason: `dsk_find_name` walks the LISTING, and it does so only because
+`ld_run_body` wants a directory INDEX. `dskw_stat` answers the same question
+off directory sectors. Breaking that link would take roughly 22 more sectors
+(~5.2 s) off every document open, and is the change 21.4 is reserved for.
+
 ## 55. clip.inc — the system clipboard
 
 **One text buffer for the whole machine.** `kernel/clip.inc` is three

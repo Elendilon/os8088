@@ -903,7 +903,12 @@ assoc_back:
     push dx
     mov ax, [assoc_dclus]
     mov dl, [assoc_ddrv]
-    call dsk_chdir
+    call dsk_chdir_q            ; QUIET (SPEC.md 18.9/54.9): this restores the
+                                ; volume so the app can READ ITS DOCUMENT, and
+                                ; a read resolves by NAME through dskw_find's
+                                ; directory walk - it never touches the global
+                                ; listing. The scan, the sort and one icon
+                                ; harvest per file were bought for nothing.
     pop dx
     pop ax
     ret

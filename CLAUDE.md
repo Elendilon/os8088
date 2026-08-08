@@ -1233,7 +1233,23 @@ trap is that a quiet mount leaves the global snapshot EMPTY and owed —
 `[dsk_lstale]` is the debt, which `dsk_relist` pays by tail-calling
 **`dskw_remount`, never `dskw_sync`** — `dskw_sync` defers when nothing on
 screen is drawn from the listing (§18.4), so that pair would clear the debt
-and then decline to pay it, which is a listing that is never rebuilt. **The
+and then decline to pay it, which is a listing that is never rebuilt.
+
+**Coming back from a document open is a file operation too** (SPEC.md §54.9):
+`assoc_back` restores the volume so the app can READ ITS DOCUMENT, and a read
+resolves by name through `dskw_find`'s directory walk, so it is
+`dsk_chdir_q` — measured, opening `BEVERLY.MOD` from `APPS` went 295 → **284
+sectors** (~2.6 s on the 5150), the mount COUNT unchanged because a quiet
+mount is still a mount and what changed is the ~12 sectors one costs becoming
+~1. Its debt is deliberately never collected, which is safe only because
+`files_refresh`/`files_poster` paint from the WINDOW's cache, `fdlg_home_go`
+ends in a full `dsk_chdir` on both branches, and `fmv_sync` has the test.
+**The other two mounts of a document open stay full** — `fmv_sync`'s and
+`assoc_try`'s — both only because `dsk_find_name` walks the LISTING, and it
+does so only because `ld_run_body` wants a directory INDEX where `dskw_stat`
+would answer off directory sectors; that is ~22 more sectors on the table.
+
+**The
 copy engine's paths back to the event loop must pay**, and it has two:
 `fcp_stop` and the replace question's pause. The pause is the
 sharp one — it is not an end, so nothing else would reconcile it. **The
