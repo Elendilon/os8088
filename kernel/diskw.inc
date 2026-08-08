@@ -169,6 +169,9 @@ dskw_write_x:
     mov [dskw_len], cx
     mov [dskw_lenhi], dx
     call dskw_wbody             ; out: CF + AX (pops do not touch flags)
+    call KERNEL_SEG:cw_fpg_end  ; the ONE place the widget is given back,
+                                ; however many ways the body returned - and it
+                                ; preserves CF and AX too (SPEC.md 12.8)
     mov byte [dskw_syswr], 0    ; one shot, cleared here so it can never
     pop es                      ; leak into the next caller's write
     pop bp
@@ -229,6 +232,7 @@ dskw_read_x:
     mov [dskw_cap], cx
     mov [dskw_caphi], dx
     call dskw_rbody             ; out: CF + DX:AX (pops touch neither)
+    call KERNEL_SEG:cw_fpg_end  ; ...and neither does this (SPEC.md 12.8)
     pop es
     pop bp
     pop di
@@ -1237,6 +1241,13 @@ dskw_wbody:
     ; a crash here costs nothing. The price is that a replace briefly needs
     ; room for both copies (SPEC.md 18.4).
 .data:
+    mov ax, [dskw_rem]          ; arm the progress widget HERE and not up at
+    call KERNEL_SEG:cw_fpg_begin    ; .sized, though the count is known there:
+                                ; dskw_find's directory scan sits between the
+                                ; two and its sectors are not part of the job
+                                ; the bar is measuring (SPEC.md 12.8).
+                                ; dskw_write_x ends it, whichever way this
+                                ; body returns
     call dskw_wdata
     jc .rollback
 
@@ -1597,6 +1608,9 @@ dskw_rbody:
     stc                         ; entry is hostile rather than merely large
     ret
 .secok:
+    mov ax, [dskw_rem]          ; the widget's scale (SPEC.md 12.8) - a 116KB
+    call KERNEL_SEG:cw_fpg_begin    ; module is 232 sectors and a minute of
+                                ; frozen screen; dskw_read_x ends it
     mov ax, [dskw_raw+DSK_R_CLUS]
     mov [dskw_cur], ax
     call dskw_rdata             ; walk the chain into the caller's buffer
@@ -2206,6 +2220,7 @@ dskw_append:
     mov [dskw_len], cx
     mov word [dskw_lenhi], 0    ; a chunk is 16-bit by contract, above
     call dskw_apbody
+    call KERNEL_SEG:cw_fpg_end  ; SPEC.md 12.8, as the other two pipelines
     pop es
     pop bp
     pop di
@@ -2239,6 +2254,8 @@ dskw_apbody:
     call dskw_norm              ; the source becomes seg:0..15 + a segment run
     call dskw_size32            ; size the job exactly as dskw_wbody does
     jc .badarg                  ; (unreachable: a chunk is one 16-bit count)
+    mov ax, [dskw_rem]          ; ...and arm the widget the same way, so a
+    call KERNEL_SEG:cw_fpg_begin    ; file-manager copy reports chunk by chunk
     mov word [dskw_zapnext], 0
 
     call dskw_wdata             ; the new sub-chain, allocated and written
