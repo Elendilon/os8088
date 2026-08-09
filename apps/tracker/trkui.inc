@@ -583,7 +583,9 @@ tui_dec3:
 ; 38 clears the splash at every geometry this window has (ch = 136 puts it at
 ; 98..105, against a keys line ending at 95) and still clears the status line.
 TUI_WPOSY   equ 38
-TUI_WPOSW   equ 17                  ; 'Pos xx/yy  Row zz'
+TUI_WPOSW   equ 9                   ; 'Pos xx/yy' - SPEC.md 45.16.6: the ROW is
+                                    ; NOT here, because windowed it cannot be
+                                    ; right and the position always is
 
 TUI_RDCELLS equ 56                  ; the widest field is [tui_cw]/8 and the
                                     ; frame is TRK_WINW = 420, so 52 cells;
@@ -702,7 +704,7 @@ tui_msg_draw:
     mov si, [tui_msgp]
     or si, si
     jnz .have
-    mov si, tui_s_hint
+    call tui_hintp
 .have:
     cmp byte [trk_fs], 0
     je .win
@@ -1110,7 +1112,7 @@ tui_el_status:
     mov si, [tui_msgp]
     or si, si
     jnz .have
-    mov si, tui_s_hint
+    call tui_hintp
 .have:
     TSETC TC_STATT
     mov cx, [tui_lay + TL_STX]
@@ -2597,6 +2599,10 @@ tui_draw_all:
     jmp .about
 .win:
     TSETC TC_WBG                    ; the windowed splash card
+    mov byte [tui_wdrawn], 0        ; ...which covers the readout, and the
+                                    ; position may not move again for nine
+                                    ; seconds, so the marker alone would leave
+                                    ; the line blank until it did
     xor ax, ax
     xor bx, bx
     mov cx, [tui_cw]
@@ -2840,16 +2846,21 @@ tui_draw_dyn:
 .win:
     cmp byte [mp_playing], 0        ; windowed: a live position line on the
     je .out                         ; splash while something plays
-%ifndef TRKLOG
-    mov al, [tui_arow]
-    cmp al, [tui_lrow]
-    jne .wupd
+    ; ONLY when it changes - and what changes is the POSITION alone, once every
+    ; 64 rows. It used to compare the row too, so this drew a 17-cell run seven
+    ; times a second on Beverly, a millisecond a cell (SPEC.md 6.1.1), for a
+    ; number that windowed cannot be right anyway (SPEC.md 45.16.5/45.16.6).
+    ; [tui_wdrawn] is the "is it on screen" half, because a repaint fills the
+    ; card and the position may not move again for nine seconds - the same trap
+    ; a zeroed bss marker sets, one step further along: here the marker is
+    ; correct and the PIXELS are gone.
+    cmp byte [tui_wdrawn], 0
+    je .wupd
     mov al, [tui_apos]
     cmp al, [tui_lpos]
     je .out
 .wupd:
-    mov al, [tui_arow]
-    mov [tui_lrow], al
+    mov byte [tui_wdrawn], 1
     mov al, [tui_apos]
     mov [tui_lpos], al
     mov di, tui_pbuf
@@ -2858,105 +2869,6 @@ tui_draw_dyn:
     mov byte [di], 0
     mov cx, 8
     call tui_wfld
-%else
-; --- the bench readout: a fixed LABEL and a BODY the hold takes over --------
-;
-;   LABEL  'PACE every  '          TLOG_PACEW cells at x = 8
-;   BODY   'Pos 01/04  Row 12'      TLOG_BODYW cells, beyond it
-;
-; The label is NEVER blanked and changes only when the mode does: it is the one
-; thing on the line that is not part of the experiment, and a label blinking
-; once a second competes with the animation it is labelling.
-;
-; The body is everything that is part of it - the position and the row - and
-; in a burst mode the hold REPLACES it, whole. That is the
-; point rather than a saving: a frozen row number beside a moving animation is
-; a frozen row number, so there is no number, and the animation is where the
-; numbers were rather than off to one side of them.
-;
-; [tlog_tkey] is what the body is currently SHOWING - 0 an animation, 0FFh the
-; text, 1..TLOG_REVN a `hide` reveal in progress - so it redraws only when its
-; own content moved.
-    cmp byte [tlog_pace], TLOG_PACE_BURST
-    jb .nob
-    call tlog_burst                 ; the burst grid: rewrites [tui_arow] and
-.nob:                               ; steps [tlog_sweep]/[tlog_rev]
-    mov al, [tlog_pace]             ; --- the LABEL, on a mode change alone ---
-    inc al                          ; ...stored PLUS ONE, because a package's
-    cmp al, [tlog_llbl]             ; bss arrives zeroed and mode 0 is a real
-    je .body                        ; mode: at 0 == 0 the label would match
-    mov [tlog_llbl], al             ; before it had ever been drawn and never
-    dec al                          ; be drawn at all
-    mov di, tui_pbuf
-    call tlog_pace_draw
-    mov byte [di], 0
-    mov bx, TLOG_PACEW * 8
-    mov cx, 8
-    call tui_wfld
-.body:
-    mov ah, 0xFF                    ; AH = the body state this frame wants
-    cmp byte [tlog_pace], TLOG_PACE_BURST
-    jb .tk
-    cmp byte [tlog_sweep], TLOG_NOBAR
-    jne .hold
-    cmp byte [tlog_pace], TLOG_PACE_HIDE
-    jne .tk                         ; the other four come straight back to the
-    mov al, [tlog_rev]              ; text; only `hide` reveals it
-    cmp al, TLOG_REVN
-    jae .tk
-    mov ah, al
-    inc ah                          ; 1..TLOG_REVN, never 0 (that is the
-    jmp short .tk                   ; animation)
-.hold:
-    xor ah, ah
-.tk:
-    mov [tlog_wtk], ah
-    cmp ah, [tlog_tkey]
-    jne .wupd                       ; the state moved
-    or ah, ah
-    jnz .ntext
-    mov al, [tlog_sweep]            ; an animation: redraw when its frame moved
-    cmp al, [tlog_lsweep]
-    jne .wupd
-    jmp .out
-.ntext:
-    mov al, [tui_arow]
-    cmp al, [tui_lrow]
-    jne .wupd
-    mov al, [tui_apos]
-    cmp al, [tui_lpos]
-    jne .wupd
-    jmp .out
-.wupd:
-    mov al, [tui_arow]
-    mov [tui_lrow], al
-    mov al, [tui_apos]
-    mov [tui_lpos], al
-    mov al, [tlog_sweep]
-    mov [tlog_lsweep], al
-    mov al, [tlog_wtk]
-    mov [tlog_tkey], al
-    mov di, tui_pbuf
-    or al, al
-    jnz .thave
-    call tlog_hold_draw             ; the hold owns the whole body
-    jmp short .tdraw
-.thave:
-    call tui_wpos
-    mov al, [tlog_tkey]
-    cmp al, 0xFF
-    je .tdraw
-    mov di, tui_pbuf                ; a `hide` reveal: star everything outside
-    mov cx, TLOG_BODYW              ; the middle, widening each frame
-    call tlog_mask
-.tdraw:
-    mov di, tui_pbuf
-    add di, TLOG_BODYW
-    mov byte [di], 0
-    mov bx, TLOG_BODYW * 8
-    mov cx, 8 + TLOG_PACEW * 8
-    call tui_wfld
-%endif
 .out:
     pop di
     pop si
@@ -2975,6 +2887,17 @@ tui_draw_dyn:
 ; that row and they redraw on different things - the text on a row change, the
 ; hold's animation on a frame - so neither may redraw for the other.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; tui_hintp - SI = the status legend this SURFACE should carry
+; -----------------------------------------------------------------------------
+tui_hintp:
+    mov si, tui_s_hint
+    cmp byte [trk_fs], 0
+    je .out
+    mov si, tui_s_hintf
+.out:
+    ret
+
 tui_wpos:
     push ax
     push si
@@ -2982,16 +2905,12 @@ tui_wpos:
     call tui_scpy
     mov al, [tui_apos]
     call tui_hexb
-    mov byte [di], '/'              ; ...OF the song's length, because a bare
-    inc di                          ; 'Pos 09' beside a row counter running at
-    mov al, [mp_songlen]            ; eight a second reads as a dead field -
-    call tui_hexb                   ; it steps once every 64 rows, which at
-    mov si, tui_s_rowl              ; Beverly's tempo is 8.9 SECONDS, and the
-    call tui_scpy                   ; denominator is what says so
-    mov al, [tui_arow]
-    call tui_hexb
-    pop si
-    pop ax
+    mov byte [di], '/'              ; ...OF the song's length. A bare 'Pos 09'
+    inc di                          ; steps once every 64 rows, which at
+    mov al, [mp_songlen]            ; Beverly's tempo is 8.9 SECONDS, and with
+    call tui_hexb                   ; no row counter beside it the denominator
+    pop si                          ; is the only thing saying the field is
+    pop ax                          ; alive rather than stuck
     ret
 
 tui_wfld:
@@ -3128,7 +3047,11 @@ tui_s_spdc:  db 'SPD:', 0
 tui_s_posc:  db 'POS:', 0
 tui_s_ptnc:  db 'PTN:', 0
 tui_s_posl:  db 'Pos ', 0
-tui_s_rowl:  db '  Row ', 0
+
+; "is the windowed readout on the glass" - .text, not bss, because it wants a
+; real initialiser and every launch reloads the image (SPEC.md 20.1), so a
+; fresh instance starts owing the line rather than believing it drew one.
+tui_wdrawn:  db 0
 
 ; the FT2 button stacks (decorative in v1; each names its key)
 tui_mbl:     dw tui_b_about, tui_b_mute, tui_b_scroll, tui_b_pos, tui_b_exit, 0
@@ -3149,18 +3072,26 @@ tui_b_full:  db 'Full F', 0
 tui_s_splash1: db 'T R A C K E R', 0
 tui_s_splash2: db 'A FastTracker II style MOD player', 0
 tui_s_none:    db 'No module loaded', 0
-tui_s_keys1:   db 'ENTER play  SPACE stop  P pattern', 0
+tui_s_keys1:   db 'ENTER play  SPACE stop  HOME top  P pattern', 0
 tui_s_keys2:   db 'ARROWS position  1-4 mute  L load  X xt', 0
 %ifdef TRKLOG                       ; the bench keys are on screen, because a
                                     ; key nothing names is a key nobody finds:
                                     ; this line said 'P pattern' one row above
                                     ; it and P was reached for as the pace
                                     ; cycler for a whole round of testing
-tui_s_anykey:  db 'F full  E pace ABCD  K rate  D log  W write  M mark', 0
+tui_s_anykey:  db 'F full  K rate  D log  W write  M mark', 0
 %else
 tui_s_anykey:  db 'Press F or click for fullscreen', 0
 %endif
-tui_s_hint:    db 'ENTER play  SPACE stop  L load', 0
+; Two status legends, because L IS REFUSED on the exclusive surface
+; (SPEC.md 53.7 - the file dialog's answer comes back through an event ladder a
+; bracket is not running) and offering a key that answers "not here" is worse
+; than not offering it. The refusal stays: a key the user presses anyway still
+; says WHY, which is SPEC.md 47 rule 3's shape - the greyed thing explains
+; itself and the unlisted thing has to.
+tui_s_hint:    db 'ENTER play  SPACE stop  HOME top  L load', 0
+tui_s_hintf:   db 'ENTER play  SPACE stop  F/ESC', 0
+
 
 ; the About panel
 tui_ablines:

@@ -131,10 +131,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; folder it created from the file dialog - the deepest mark left was 246 bytes
 ; on task 0's stack and 150 on a background task's.
 ; =============================================================================
-KERN_BUDGET equ 90112           ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 94208           ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
-                                ; It has moved twelve times, every raise asked
+                                ; It has moved fourteen times, every raise asked
                                 ; for and granted: 65,536 -> 71,680 for the
                                 ; SPEC.md 41 store and the two API surfaces
                                 ; that came with it (wm_geom, wm_about_set);
@@ -392,6 +392,52 @@ KERN_BUDGET equ 90112           ; the whole kernel's FOOTPRINT. Growing past
                                 ; rule stands unchanged: this is headroom for
                                 ; ordinary growth, not an invitation to spend
                                 ; 4KB without a conversation.
+                                ;
+                                ; The thirteenth move, 90,112 -> 92,160, is
+                                ; 2KB and the twelfth's story again: the
+                                ; spare hit EXACTLY ZERO, and this time from
+                                ; two directions at once - SPEC.md 52's
+                                ; hard-disk installer arriving on the
+                                ; integration branch, and 11.95.1's
+                                ; "a window that grew reveals nothing", which
+                                ; is 193 bytes of .text and 8 of .bss. Asked
+                                ; for and granted at 2KB rather than 4: the
+                                ; project is still in active development, so
+                                ; the answer is headroom, but half a step of
+                                ; it, which puts the guard back within reach
+                                ; of ordinary growth (four steps) without
+                                ; pre-authorising another feature's worth.
+                                ; The fifth move's rule stands, and so does
+                                ; the twelfth's note about kern_small: the
+                                ; day that second build exists, this figure
+                                ; is kern_big's and stops being the one that
+                                ; has to be defended.
+                                ;
+                                ; The fourteenth move, 92,160 -> 94,208, is
+                                ; 2KB granted in ADVANCE for SPEC.md 18.94.2's
+                                ; finding: a file operation spends over half
+                                ; its disk TIME on work the progress widget
+                                ; never shows, and the reason is that the
+                                ; kernel optimised for SECTORS where the media
+                                ; charges for REVOLUTIONS. Measured over one
+                                ; install, the payload streams at 5.78 sectors
+                                ; per int 13h call and every other phase - the
+                                ; BPB, the FAT window, the root scan, the
+                                ; subdirectory walks - runs at exactly 1.00,
+                                ; because dsk_dirw_next hands out one LBA at a
+                                ; time and every caller reads it with cx = 1
+                                ; into a single 512-byte buffer. The fixes are
+                                ; a per-volume banked BPB (so a fixed disk,
+                                ; which cannot be swapped, revalidates once
+                                ; ever) and coalescing the directory walks
+                                ; into runs, which needs somewhere bigger than
+                                ; dsk_secbuf to read into. Granted at 2KB on
+                                ; the thirteenth move's terms - headroom, half
+                                ; a step - with the batch bracket and its
+                                ; sector cache still to come; that one is a
+                                ; REFUSABLE heap claim by explicit decision,
+                                ; so it costs this figure nothing and a 128KB
+                                ; machine can still install, just slowly.
 KERN_CODE_MAX equ 65536         ; the kernel's own SEGMENT: .text + .bss are
                                 ; both addressed through KERNEL_SEG, so they
                                 ; must fit one 64KB window. Unlike KERN_BUDGET
@@ -1150,7 +1196,19 @@ osapi_table:
                                   ;         the gfx lock the caller is holding
                                   ;         and waits on workers that need to
                                   ;         be scheduled
-osapi_table_end:                  ; 0x0370
+    OSAPI_SLOT osapi_file_goto_q  ; 0x0370  DX = folder cluster, BL = volume.
+                                  ;         GOTO's quiet twin (SPEC.md 19.2.2):
+                                  ;         same volume = a word, another one =
+                                  ;         a quiet mount. For a caller about to
+                                  ;         read or write BY NAME rather than to
+                                  ;         list - which is every copy loop
+    OSAPI_SLOT wm_saveu           ; 0x0378 - BX = window, AL = 0 clear / non-0
+                                  ;          set. "My content does not change
+                                  ;          while I am not drawing", which
+                                  ;          lets the raise cache put its old
+                                  ;          pixels back instead of calling
+                                  ;          W_PAINT (SPEC.md 11.96.1)
+osapi_table_end:                  ; 0x0380
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -1158,8 +1216,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 108 * 8
-%error "os8088 API jump table must be exactly 108 8-byte slots"
+%if OSAPI_TABLE_LEN != 110 * 8
+%error "os8088 API jump table must be exactly 110 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -1797,6 +1855,72 @@ osapi_file_goto:
     pop ax
     ret
 
+; ---- osapi_file_goto_q - stand here to READ OR WRITE, not to list ------------
+; in:  DX = the folder's first cluster (0 = the root), BL = the volume
+; out: CF=0 moved; CF=1 and AX = FERR_*
+;
+; SPEC.md 19.2.2. The same two quiet paths fcp_goto has had since SPEC.md
+; 22.5, published because a COPY ENGINE OUTSIDE THE KERNEL needs them just as
+; much as the one inside it - the hard-disk installer was paying a full
+; dsk_chdir per file and per chunk, twice, and a full chdir is the BPB, the
+; FAT window, the directory scan, the sort and one icon harvest per file.
+;
+;   * A move INSIDE the current volume is a word. Nothing a caller can do
+;     between two of these reads the LISTING: dskw_* resolve names by walking
+;     [dsk_cwd]'s raw directory sectors, and so does dsk_find (SPEC.md
+;     19.7.1). The FAT window and every derived geometry belong to the
+;     VOLUME, which has not changed.
+;   * Crossing to another volume is dsk_chdir_q (SPEC.md 18.9), which keeps
+;     the BPB and the FAT window and skips the scan, the sort and the
+;     harvest - and SPEC.md 18.8.2's banked window means the FAT usually is
+;     not re-read at all.
+;
+; The cluster is range-checked HERE because the quiet path skips
+; disk_mount's own .cwd_lost validation - fcp_goto's reason, and the same
+; two compares.
+;
+; NOT a replacement for OSAPI_FILE_GOTO: this leaves the global listing empty
+; and [dsk_lstale] raised, so a caller that is going to SHOW a folder wants
+; the other one. The instance's folder is deliberately NOT moved either
+; (no inst_vol_mark): this is where the caller is standing to do a job, not
+; where the application now believes it lives.
+osapi_file_goto_q:
+    push dx
+    cmp bl, [disk_drive]
+    jne .full
+    or dx, dx
+    jz .quiet                   ; 0 is the root, always legal
+    cmp dx, 2
+    jb .bad
+    cmp dx, [dsk_maxclus]
+    ja .bad
+.quiet:
+    mov [dsk_cwd], dx
+    pop dx
+    xor ax, ax
+    clc
+    ret
+.bad:
+    mov ax, FERR_IO
+    pop dx
+    stc
+    ret
+.full:
+    push dx
+    mov dl, bl
+    pop ax                      ; AX = the cluster, DL = the volume
+    call dsk_chdir_q
+    jc .ferr
+    pop dx
+    xor ax, ax
+    clc
+    ret
+.ferr:
+    mov ax, FERR_NODISK
+    pop dx
+    stc
+    ret
+
 ; ---- osapi_video - the screen the program actually got (SPEC.md 39.2) --------
 ; out: AX = width, BX = height, CX = first row the dock owns (so the usable
 ;      desktop is rows MBAR_H..CX-1), DL = 0 VGA / 1 Hercules / 2 CGA,
@@ -2092,8 +2216,20 @@ cw_wm_hit:              call wm_hit
                     retf
 cw_wm_idx2ptr:          call wm_idx2ptr
                     retf
-cw_wm_obscured:         call wm_obscured
-                    retf
+cw_wm_obscured:         cmp bx, [wm_su_win]   ; "AM I COVERED?" IS A BACKGROUND
+                        jne .ask              ; PAINTER CLEARING ITS THROAT. On
+                        call wm_su_drop       ; CF = 0 it draws, and 11.3 lets
+.ask:                   call wm_obscured      ; it draw UNCLIPPED because it has
+                        retf                  ; just been told nothing is over
+                                              ; it - so it never reaches
+                                              ; wm_clip_set and never drops the
+                                              ; raise cache the way every other
+                                              ; painter does (SPEC.md 11.96).
+                                              ; Note Pad's worker takes exactly
+                                              ; this route. The compare goes
+                                              ; FIRST because it would destroy
+                                              ; wm_obscured's CF; wm_su_drop
+                                              ; preserves the flags either way
 cw_wm_paint_all:        call wm_paint_all
                     retf
 cw_wm_pkgcall:          call wm_pkgcall

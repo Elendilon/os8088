@@ -56,6 +56,12 @@ MAX_WIN  equ 12                 ; mirrored in apps/os88api.inc (SPEC.md 11)
 
 WF_SIZABLE equ 4                ; W_FLAGS bit2: resizable (SPEC.md 11.1)
 WF_FULL    equ 8                ; W_FLAGS bit3: fullscreen (SPEC.md 11.2)
+WF_SAVEU   equ 32               ; W_FLAGS bit5: this window PROMISES that its
+                                ; content does not change while it is not
+                                ; drawing, so the raise cache may put its old
+                                ; pixels back instead of asking for new ones
+                                ; (SPEC.md 11.96.1). Opt-in, and it has to be:
+                                ; only the application knows
 WF_SNAP    equ 16               ; W_FLAGS bit4: this window's CONTENT origin
                                 ; is kept on a multiple of 8 so its text can
                                 ; take font_run's single-store path
@@ -568,7 +574,17 @@ wm_rz_paint:
     cmp bx, si
     mov bx, si
     jne .dmg
+    push bp                     ; wm_draw_win takes "which window is FRONTMOST"
+    mov bp, bx                  ; in BP, and this path has just proved we are
+                                ; it. Without this the title bar is drawn with
+                                ; whatever BP the caller happened to hold, so a
+                                ; zoomed window came up with no pinstripes and
+                                ; NO CLOSE OR MINIMIZE BOX - which wm_hit still
+                                ; reports from geometry, so they were invisible
+                                ; and clickable. wm_paint_all and wm_raise set
+                                ; it; this was the one site that did not
     call wm_draw_win            ; then this window is the whole of it
+    pop bp                      ; ...and wm_rz_paint preserves every register
     call menu_draw_bar          ; (the chrome may still have changed owner)
     call dock_paint
     jmp short .out
@@ -844,6 +860,10 @@ wm_destroy:
     push dx
     push si
     push di
+    cmp bx, [wm_su_win]         ; the slot is about to be reusable, and a new
+    jne .nosu                   ; window in it would alias this pointer
+    call wm_su_drop
+.nosu:
     mov si, bx                  ; the rect it is vacating, banked before the
     call wm_win_rect            ; record is cleared out from under us
     test word [si+W_FLAGS], 2
@@ -990,7 +1010,8 @@ wm_destroy_seg:
 ; It survives it exactly: a window shown OVER a fullscreen one reveals
 ; nothing, like any other, and a fullscreen window shown over everything
 ; reveals nothing because it covers the screen. The chrome is the only part
-; that had to change, and wm_raise skips it (wm_fs_vis) rather than the
+; that had to change, and wm_raise calls the bar and the dock anyway and lets
+; each DECLINE for itself (wm_fs_vis, SPEC.md 30.3.2) rather than the
 ; caller repainting the world to avoid drawing it. Opening the Standard File
 ; dialog over a fullscreen player was a whole-screen repaint including that
 ; player's W_PAINT, twice - once to show the dialog and once to take it away.
@@ -1104,11 +1125,18 @@ wm_raise:
     push ax
     call menu_activate          ; BX owns the menu bar from here (SPEC.md 12)
     call wm_lift                ; ...and the top of the z-order
-    call wm_fs_vis              ; a fullscreen window is over the chrome, so
-    jc .nochrome                ; neither piece of it may be drawn at all
-    call menu_draw_bar
-    call wm_dock_under          ; the strip, and anything sitting on it
-.nochrome:
+
+    ; THE OUTGOING WINDOW IS DEALT WITH FIRST, and the bank is why. It used to
+    ; sit after the two chrome calls below, on the reading that nothing between
+    ; here and there draws a window - but wm_dock_under does, whenever a window
+    ; hangs over the dock strip (ui_grow's clamp allows it, wm_dock_clear
+    ; reports it): it runs wm_dmg_wins, which redraws every marked window WHOLE
+    ; and unclipped, and wm_lift has already made US the front one, so the
+    ; incoming window is drawn LAST - over the outgoing one. A bank taken
+    ; afterwards held the coverer's pixels inside the covered window's rect,
+    ; and wm_su_ck cannot see that: it compares four rect words, which still
+    ; agree. Taken here it is the outgoing window's own content, which is the
+    ; only thing SPEC.md 11.96 promises to put back.
     cmp bp, di
     je .self                    ; already the front window: no outgoing one
     or bp, bp
@@ -1118,9 +1146,21 @@ wm_raise:
                                 ; outgoing window's title bar is a strip drawn
                                 ; only to be painted over
     xchg bp, di                 ; DI = the outgoing front, BP = the incoming
+    call wm_su_take             ; banked while it is still the only thing on
+                                ; its own rect (SPEC.md 11.96)
     call wm_draw_title          ; DI != BP now, so it loses its stripes
     xchg bp, di
 .self:
+    call menu_draw_bar          ; BOTH guard themselves on wm_fs_vis, and that
+    call wm_dock_under          ; is the point: under a fullscreen window each
+                                ; draws nothing AND records that its pixels are
+                                ; being destroyed, which is the whole of how
+                                ; the strips come back when it goes (SPEC.md
+                                ; 30.3.2). This used to test wm_fs_vis HERE and
+                                ; skip them - so on the one path that matters,
+                                ; wm_fullscreen's own raise, neither module was
+                                ; ever told, and quitting a 11.2 app left its
+                                ; bar and a blank strip on screen for good
     mov bx, di
     mov bp, di                  ; we ARE the front window now
     pop ax
@@ -1195,6 +1235,14 @@ wm_hide:
     push cx
     push dx
     push si
+    cmp bx, [wm_su_win]         ; MINIMIZING IS NOT COVERING (SPEC.md 11.96.1).
+    jne .nosu                   ; A hidden window's background painter finds
+    call wm_su_drop             ; itself invisible and SKIPS drawing, so it
+.nosu:                          ; never reaches wm_clip_set and never drops the
+                                ; cache - while its state goes on changing. The
+                                ; promise in WF_SAVEU is about a window that is
+                                ; merely covered; nothing may assume it across
+                                ; a hide
     mov si, bx
     call wm_win_rect            ; AX,BX,CX,DX = the rect it is vacating
     test word [si+W_FLAGS], WF_FULL
@@ -1945,7 +1993,11 @@ wm_paint_dmg:
     call wm_fs_vis              ; bar - so none of those is drawn, and the
     jnc .clamp                  ; window pass is the whole of the work
     mov byte [wm_dmg_fs], 1
-
+    call dock_paint             ; ...drawn, but still TOLD: both early-out on
+    call menu_draw_bar          ; wm_fs_vis and mark themselves owed, so the
+                                ; repaint after the window goes puts them back
+                                ; (SPEC.md 30.3.2). All registers preserved, so
+                                ; the damage rect below is untouched
 .clamp:
     or ax, ax                   ; onto the live screen (SPEC.md 39.2)
     jns .cx1
@@ -1993,7 +2045,7 @@ wm_paint_dmg:
 .fy2:
     cmp bx, dx
     jg .zones
-    call gfx_fill_gray
+    call wm_dmg_gray            ; ...minus the windows about to cover it
 .zones:
     mov al, [wm_dmg_zn]
     call desk_paint_mask        ; the touched drive zones, whole
@@ -2279,6 +2331,10 @@ wm_paint_all:
     ; examining - and, before wm_covered existed, redrawing - every window
     ; parked behind it.
 .fswins:
+    call dock_paint             ; ...but both strips are still TOLD (SPEC.md
+    call menu_draw_bar          ; 30.3.2): each early-outs on wm_fs_vis without
+                                ; drawing and marks itself owed, so whatever
+                                ; repaints when the window goes puts it back
     call wm_top
     mov bp, bx                  ; BP = frontmost visible
     mov si, wm_zord
@@ -2531,6 +2587,8 @@ wm_dmg_dk   db 0                ; 1 = the dock strip really was drawn, so a
 wm_dmg_j    dw 0                ; the marking pass's inner index
 wm_hide_r   times 4 dw 0        ; wm_hide/wm_destroy: the vacated rect,
                                 ; banked across the record teardown
+wm_dg_r     times 4 dw 0        ; wm_dmg_gray's rect, banked across the
+                                ; region build that eats its registers
 
 wm_clipwin  dw 0                ; the window wm_clip_set was given, banked
                                 ; for cur_lazyck (SPEC.md 7.1.4)
@@ -2552,6 +2610,13 @@ wm_clip_set:
     push cx
     push dx
     push si
+    cmp bx, [wm_su_win]         ; THIS WINDOW IS ABOUT TO DRAW, so whatever the
+    jne .nosu                   ; raise cache holds for it is now a picture of
+    call wm_su_drop             ; the past (SPEC.md 11.96). Every background
+.nosu:                          ; painter comes through here - 11.3 makes it
+                                ; arm a region or paint over the window on top
+                                ; of it - so this one test covers every app at
+                                ; once, with no rule for an app to remember
     mov [wm_clipwin], bx        ; for cur_lazyck at .done (SPEC.md 7.1.4) -
     mov word [wm_clip_n], 0     ; BX does not survive the fragment loop
 
@@ -2726,6 +2791,123 @@ wm_covered:
 ; The three region builds below start here and then differ only in WHICH
 ; occluders they subtract, which is the whole of what separates them.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; wm_dmg_gray - the desktop dither, MINUS the windows about to cover it
+; in:  AX = x1, BX = y1, CX = x2, DX = y2 (inclusive, already clamped);
+;      caller holds the gfx lock
+; out: nothing (all registers preserved)
+;
+; **Ground a window is about to be drawn on does not need dithering first.**
+; wm_paint_dmg repaints the damage rect and then draws every window that
+; overlaps it - whole (SPEC.md 11.91) - so every pixel under one of those
+; windows was dithered and then painted over. That is PERFORMANCE.md Part 1's
+; double-draw, and on the two operations where the damage is mostly WINDOW it
+; is most of the cost: dragging a window (ui_drag passes the union of where it
+; was and where it is, and the second half is covered by the window itself)
+; and un-zooming one (SPEC.md 11.95.1).
+;
+; The region machinery already answers exactly this question. wm_clip_seed
+; takes the rect, wm_dmg_occl subtracts every visible window shadow and all,
+; and gfx_fill_gray is a CLIPPED primitive - so the fill is confined to what
+; is genuinely being uncovered, in one call, with no new drawing code.
+;
+; Three things are load-bearing.
+;
+;   - The dither's phase is a function of ABSOLUTE x+y (see gfx_fill_gray), so
+;     drawing it as fragments is pixel-identical to drawing it whole. A
+;     pattern phased from the fill's own origin could not be split this way.
+;   - Overflow degrades to dithering the WHOLE rect, which is the opposite of
+;     wm_clip_set's degradation and for the opposite reason: a fragment too
+;     many there means "skip, we might overdraw somebody", here it means
+;     "draw it all, or we leave stale pixels behind".
+;   - The hide is spent explicitly. GFXCLIP only calls cur_unlazy on its
+;     UNCLIPPED branch (SPEC.md 7.1.4), trusting wm_clip_set's cur_lazyck to
+;     have decided for an armed one - and there is no window here to decide
+;     about. cur_unlazy is what the unclipped fill did before, so this keeps
+;     the cursor behaviour exactly as it was.
+; -----------------------------------------------------------------------------
+wm_dmg_gray:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call cur_unlazy             ; ...as the unclipped fill did (see above)
+    mov [wm_dg_r + 0], ax       ; the region build eats registers and the
+    mov [wm_dg_r + 2], bx       ; fill needs its rect back afterwards
+    mov [wm_dg_r + 4], cx
+    mov [wm_dg_r + 6], dx
+    mov si, dx                  ; wm_clip_seed wants AX,DX,CX,SI
+    mov dx, bx
+    call wm_clip_seed
+    call wm_dmg_occl            ; every visible window, shadow included
+    jc .whole                   ; overflowed: dither the lot, as before
+    cmp word [wm_clip_n], 0
+    je .out                     ; wholly covered: not one pixel is revealed
+    jmp short .fill
+.whole:
+    mov word [wm_clip_n], 0
+.fill:
+    mov ax, [wm_dg_r + 0]
+    mov bx, [wm_dg_r + 2]
+    mov cx, [wm_dg_r + 4]
+    mov dx, [wm_dg_r + 6]
+    call gfx_fill_gray          ; clipped to what is really being revealed
+.out:
+    mov word [wm_clip_n], 0     ; ours for one call and no longer
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_dmg_occl - subtract EVERY visible window from the armed list
+; in:  the list holds at least one rect
+; out: CF = 1 the list overflowed; CF = 0 and [wm_clip_n] = 0 means the seed
+;      rect is entirely covered
+; clobbers: flags
+;
+; wm_clip_occl's walk without the "above us" part, because there is no `us`:
+; the seed is a damage rect rather than a window. Every visible window that
+; overlaps it is marked by wm_dmg_wins and redrawn WHOLE, so every one of them
+; is ground that does not need dithering; one that does not overlap subtracts
+; nothing and costs a compare.
+; -----------------------------------------------------------------------------
+wm_dmg_occl:
+    push ax
+    push bx
+    push cx
+    push si
+    mov ch, 0
+    mov cl, [wm_zn]
+    mov si, wm_zord
+    jcxz .done
+.scan:
+    mov al, [si]
+    inc si
+    call wm_idx2ptr             ; BX = the window (AX and CX preserved)
+    test word [bx+W_FLAGS], 2
+    jz .next
+    call wm_clip_subf           ; the FRAME rect: what will be REPAINTED, not
+    jc .over                    ; what is occupied - the shadow's two corners
+    cmp word [wm_clip_n], 0     ; are in the second and in neither
+    je .done                    ; nothing left: stop walking
+.next:
+    loop .scan
+.done:
+    clc
+    jmp short .out
+.over:
+    stc
+.out:
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 wm_clip_seed:
     mov [wm_clip_tab+WCR_X1], ax
     mov [wm_clip_tab+WCR_Y1], dx
@@ -2820,10 +3002,41 @@ wm_clip_clear:
 ; it covers the screen anyway and one row past the edge costs nothing:
 ; vga_rect_setup clips.
 ; -----------------------------------------------------------------------------
+; wm_clip_subf - the FRAME rect instead: what wm_draw_win actually REPAINTS.
+;
+; The difference is two pixels and they matter to exactly one caller. The
+; occupied rect above is the bounding box (x,y)..(x+w,y+h), so it includes the
+; drop shadow's row AND column - but the shadow wm_draw_win draws is an **L**,
+; starting at (+1,+1), so the top-right corner (x+w, y) and the bottom-left
+; (x, y+h) are inside that box and are never painted by anything.
+;
+; For OCCLUSION that over-counting is harmless and conservative: it says
+; "covered" about a pixel that is not, and a clipped primitive then declines to
+; draw there. For SPEC.md 11.91.1's dither it is the wrong direction - "do not
+; dither here, a window will cover it" about a pixel no window ever covers -
+; and it leaves that pixel stale. It cost exactly one: a round trip that must
+; come back byte for byte returned 1 differing pixel, at the restored window's
+; top-right shadow corner.
+;
+; So the dither subtracts the frame only, and the shadow's L is dithered and
+; then drawn over: a 1px double-draw down two edges, against a stale pixel.
+wm_clip_subf:
+    push ax
+    mov ax, [bx+W_X]
+    mov [wm_cl_ox1], ax
+    add ax, [bx+W_W]
+    dec ax
+    mov [wm_cl_ox2], ax
+    mov ax, [bx+W_Y]
+    mov [wm_cl_oy1], ax
+    add ax, [bx+W_H]
+    dec ax
+    mov [wm_cl_oy2], ax
+    pop ax
+    jmp short wm_clip_subr
+
 wm_clip_sub:
     push ax
-    push si
-    push di
     mov ax, [bx+W_X]
     mov [wm_cl_ox1], ax
     add ax, [bx+W_W]
@@ -2832,6 +3045,11 @@ wm_clip_sub:
     mov [wm_cl_oy1], ax
     add ax, [bx+W_H]
     mov [wm_cl_oy2], ax
+    pop ax
+wm_clip_subr:                   ; ...and the walk, from those four words
+    push ax
+    push si
+    push di
     mov si, wm_clip_tab
     xor di, di                  ; DI = index of the rect under test
 .rect:
@@ -3372,6 +3590,303 @@ wm_title_set:
 ; the paint is billed to the window's instance, not to the painting task
 ; (SPEC.md 8.1/28).
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; wm_saveu - API 0x0340: BX = window, AL = 0 clear / non-0 set
+; The window's promise that its content does not change while it is not
+; drawing (SPEC.md 11.96.1). Preserves the flags for wm_snap's reason: an
+; entry proc calls this after wm_create and the carry riding in is its own
+; return value.
+; -----------------------------------------------------------------------------
+wm_saveu:
+    pushf
+    or al, al
+    jz .clear
+    or word [bx+W_FLAGS], WF_SAVEU
+    popf
+    ret
+.clear:
+    and word [bx+W_FLAGS], ~WF_SAVEU & 0xFFFF
+    cmp bx, [wm_su_win]         ; ...and a promise withdrawn takes any cache
+    jne .out                    ; made under it with it
+    call wm_su_drop
+.out:
+    popf
+    ret
+
+; =============================================================================
+; THE RAISE CACHE (SPEC.md 11.96) - a window raised without repainting it
+;
+; Raising an obscured window was measured at 1,026 ms on a 4.77MHz 8088, and
+; 578 ms of that is W_PAINT lettering cells that were genuinely overwritten
+; while the window was covered (docs/NOTEPAD-NOTES.md 5.3). There is no faster
+; way to draw them; the only way under one typematic repeat is not to draw
+; them at all. So the content is BANKED when the window is covered and put
+; back when it is raised: ~10 ms of blit each way against 578 ms of glyphs.
+;
+; IT IS A PURGEABLE CLAIM (SPEC.md 50.6), which is what makes it affordable to
+; take speculatively: MEM_P_WSAVE, given back the instant anything else needs
+; the room, and mem_shed_one zeroes [wm_su_seg] on its way out so the test
+; below is the notice. A machine with no room for it behaves exactly as it did
+; before this existed.
+;
+; THERE IS NO OPT-IN AND THAT IS DELIBERATE. An API slot was the obvious shape
+; - WF_SIZABLE and WF_SNAP are both opted into that way - and it is the wrong
+; one here, because the only reason to opt OUT would be to stop a window
+; spending memory it does not need, and purgeable memory is not spent. The
+; kernel also knows everything the decision needs (the window's size, whether
+; the block fits) and the app knows nothing extra. So every window gets it.
+;
+; ONE CACHE FOR THE MACHINE, like the menu's save-under. It covers the case
+; that was reported - two windows alternating - and it bounds the memory at
+; one block rather than one per window.
+;
+; WHAT MAKES IT SAFE is that a covered window cannot change its pixels without
+; the kernel finding out. SPEC.md 11.3: a background painter arms a clip
+; region before it draws, because a covered window that draws without one
+; paints over the window on top of it - so it is already broken if it does
+; not. wm_clip_set therefore drops the cache, which covers every app at once
+; with no rule for an app to remember. The other two are free: wm_su_try
+; compares the banked RECT with the window's rect now, so a move, a resize, a
+; refit and an adapter change all invalidate by disagreeing, and wm_destroy
+; drops it because a reused slot would otherwise alias the pointer.
+; =============================================================================
+wm_su_seg: dw 0                 ; the banked content, 0 = none. In .text with a
+                                ; real initialiser: -f bin zeroes nothing and
+                                ; wm_su_try reads this before anything sets it
+wm_su_win: dw 0                 ; whose it is
+wm_su_x1:  dw 0                 ; ...and the rect it was taken over, compared
+wm_su_y1:  dw 0                 ; rather than trusted (see above)
+wm_su_x2:  dw 0
+wm_su_y2:  dw 0
+
+; wm_su_rect - DI = window -> AX/BX/CX/DX = its content rect, the same four
+; numbers wm_draw_win's white fill uses
+wm_su_rect:
+    mov ax, [di+W_X]
+    inc ax
+    mov bx, [di+W_Y]
+    add bx, TITLE_H
+    mov cx, [di+W_X]
+    add cx, [di+W_W]
+    sub cx, 2
+    mov dx, [di+W_Y]
+    add dx, [di+W_H]
+    sub dx, 2
+    ret
+
+; wm_su_drop - forget the cache and give the memory back
+; preserves every register and the flags
+wm_su_drop:
+    pushf
+    push ax
+    push bx
+    push dx
+    mov dx, [wm_su_seg]
+    or dx, dx
+    jz .out
+    mov word [wm_su_seg], 0
+    mov bx, MEM_P_WSAVE
+    call mem_free
+.out:
+    mov word [wm_su_win], 0
+    pop dx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; wm_su_ck - CF=0 if the cache describes window DI as it is right now
+wm_su_ck:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp word [wm_su_seg], 0
+    je .no
+    cmp [wm_su_win], di
+    jne .no
+    call wm_su_rect
+    cmp ax, [wm_su_x1]
+    jne .no
+    cmp bx, [wm_su_y1]
+    jne .no
+    cmp cx, [wm_su_x2]
+    jne .no
+    cmp dx, [wm_su_y2]
+    jne .no
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; wm_su_take - bank window DI's content, because it is about to be covered
+; preserves every register; a refusal anywhere just leaves no cache
+wm_su_take:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    test word [di+W_FLAGS], WF_SAVEU
+    jz .out                     ; it made no promise, so its pixels may be
+                                ; stale by the time it is raised (11.96.1)
+    test word [di+W_FLAGS], 2   ; not visible: there are no pixels to bank
+    jz .out
+    test word [di+W_FLAGS], WF_FULL
+    jnz .out                    ; a fullscreen window is not usefully covered
+                                ; by what is being raised over it, and it is
+                                ; the biggest block there is
+    mov si, di                  ; bank the WINDOW: DI is gfx_save's buffer
+    call wm_su_drop             ; one cache for the machine
+    call wm_su_rect             ; DI is still the window for this
+    cmp ax, cx
+    ja .out                     ; degenerate content: nothing to bank
+    cmp bx, dx
+    ja .out
+    mov [wm_su_x1], ax
+    mov [wm_su_y1], bx
+    mov [wm_su_x2], cx
+    mov [wm_su_y2], dx
+    call wm_su_kb               ; AX = KB for the rect just recorded
+    jc .out                     ; ...or a rect gfx_save cannot address at all
+    mov bx, MEM_P_WSAVE
+    call mem_claim              ; DX = segment
+    jc .out                     ; refused: no cache, and the raise repaints -
+                                ; which is what it did before this existed
+    mov es, dx
+    xor di, di
+    mov ax, [wm_su_x1]
+    mov bx, [wm_su_y1]
+    mov cx, [wm_su_x2]
+    mov dx, [wm_su_y2]
+    call gfx_save
+    mov ax, es
+    mov [wm_su_seg], ax
+    mov [wm_su_win], si         ; PUBLISHED LAST, so a cache that was only
+                                ; half taken can never be tried
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; wm_su_kb - KB for the banked rect, menu_save_kb's arithmetic
+; in:  the four wm_su_* rect words
+; out: CF = 0 and AX = KB (never 0); CF = 1 = this rect cannot be banked
+;
+; IT IS menu_save_kb's ARITHMETIC WITHOUT menu_save_kb's CLAMPS, and that is
+; the whole of the difference. There, "every factor is clamped (MENU_MAXW,
+; MENU_POPMAX, [vid_popmax]), so the multiplies cannot leave 16 bits - the
+; assert is the proof of that". A WINDOW rect has no such bound: a zoomed Note
+; Pad on VGA is 81 byte-columns x ~398 rows x 4 planes = 128,952 bytes, and the
+; second `mul` discards DX, so the old code asked mem_claim for 62KB and then
+; let gfx_save write 128,952 bytes into it.
+;
+; So the multiplies are checked, and 64KB is a REFUSAL rather than a bigger
+; claim: gfx_save advances DI contiguously across the whole buffer (see
+; vga12.inc) and DI is 16 bits, so a save that size does not exist to be asked
+; for at any price. A refusal here is the path that was already there - the
+; raise repaints, exactly as it did before the cache existed (SPEC.md 11.96).
+wm_su_kb:
+    push bx
+    push cx
+    push dx
+    mov ax, [wm_su_x2]
+    mov cl, 3
+    shr ax, cl
+    mov bx, [wm_su_x1]
+    shr bx, cl
+    sub ax, bx
+    add ax, 2                   ; span -> count, plus the misalignment byte
+    mov bx, [wm_su_y2]
+    sub bx, [wm_su_y1]
+    inc bx
+    mul bx                      ; DX:AX = bytes for one plane
+    or dx, dx
+    jnz .big
+    mov bx, [vid_planes_w]      ; 4 on VGA, 1 on the mono adapters - the _w
+    mul bx                      ; twin, for menu_save_kb's reason
+    or dx, dx
+    jnz .big                    ; 64KB or more: gfx_save's DI cannot reach it
+    add ax, 1023                ; ...as KB, rounded UP - in 32 bits, because
+    adc dx, 0                   ; the round-up itself can be the carry
+    mov cl, 10
+    shr ax, cl
+    mov cl, 6
+    shl dx, cl                  ; DX is 0 or 1 here, so this is 0 or 64
+    or ax, dx
+    jnz .out
+    inc ax                      ; a 0 KB claim is refused, and a rect this
+                                ; small still needs somewhere to go
+.out:
+    clc
+    pop dx
+    pop cx
+    pop bx
+    ret
+.big:
+    stc
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; wm_su_try - put window DI's content back from the cache
+; out: CF = 0 the content is on screen and W_PAINT must NOT run; CF = 1 draw
+;      it the ordinary way. Preserves every register.
+wm_su_try:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call wm_su_ck
+    jc .no
+    mov es, [wm_su_seg]         ; ES:SI, and the SI is the whole of it: this is
+    xor si, si                  ; the ONE place the two primitives disagree -
+                                ; gfx_save takes ES:DI and gfx_restore takes
+                                ; ES:SI (vga12.inc, and bb_restore the same on
+                                ; the mono adapters). wm_su_take's idiom copied
+                                ; into here zeroed DI and left SI holding the
+                                ; WINDOW POINTER, so every cache hit blitted
+                                ; the heap tens of KB past the buffer onto the
+                                ; glass - and returned CF = 0, so wm_draw_win
+                                ; skipped the white fill and W_PAINT and left
+                                ; it there. menu.inc's restore is the model
+    mov ax, [wm_su_x1]
+    mov bx, [wm_su_y1]
+    mov cx, [wm_su_x2]
+    mov dx, [wm_su_y2]
+    call gfx_restore
+    call wm_su_drop             ; SPENT: the pixels are on screen and this
+    clc                         ; window is about to be the front one, so the
+    jmp short .out              ; next thing it does is change them
+.no:
+    stc
+.out:
+    pop es                      ; a pop touches no flag, so CF survives
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 wm_draw_win:
     push ax
     push bx
@@ -3424,6 +3939,13 @@ wm_draw_win:
 
     call wm_draw_title          ; the title bar, active or not (BP decides)
 
+    call wm_su_try              ; THE RAISE CACHE (SPEC.md 11.96): if the
+    jnc .growbox                ; content was banked when this window was
+                                ; covered, it is already back on screen - so
+                                ; neither the white fill nor W_PAINT runs, and
+                                ; the 578 ms of glyphs they cost is not spent.
+                                ; The chrome above is drawn either way: it is
+                                ; cheap, and a raise changes the pinstripes
 .content:
     mov byte [gfx_color], CWHITE
     mov ax, [di+W_X]            ; content area, filled white before W_PAINT

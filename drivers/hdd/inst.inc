@@ -912,6 +912,22 @@ hd_inst_sys:
                                     ; every partition we could not see
     call hd_ibuf_get            ; the buffer FIRST: a format we cannot follow
     jc .nomem                   ; with a copy is a wiped partition
+    cmp word [hd_ibufkb], HIW_KMAXKB    ; ...and BIG ENOUGH, which is the half
+    jb .small                           ; that line stopped short of. KERNEL.SYS
+                                        ; is written whole - it must land at
+                                        ; cluster 2 (SPEC.md 52.10.2), so the
+                                        ; chunk shape cannot carry it - and
+                                        ; hd_ibuf_get's fall back to
+                                        ; HIW_CHUNKKB is SILENT. Learning that
+                                        ; in hd_icopy_one's .toobig is learning
+                                        ; it after hd_inst_fmt has written the
+                                        ; partition entry, the FAT and the
+                                        ; root: the disk the user pointed at is
+                                        ; wiped, the install fails, and every
+                                        ; retry wipes it again. hd_inst_apps
+                                        ; keeps the fallback and needs it -
+                                        ; every file it copies is an ordinary
+                                        ; one and chunks
     mov word [hd_imsg], hd_s_iwork
     call hd_imsg_draw           ; say so BEFORE the writes - a 32MB format is
                                 ; hundreds of sectors and the user should not
@@ -940,6 +956,11 @@ hd_inst_sys:
 .nomem:
     mov word [hd_imsg], hd_s_inomem
     stc
+    jmp short .out
+.small:
+    call hd_ibuf_put            ; nothing has been written yet, so the machine
+    mov word [hd_imsg], hd_s_ibig   ; keeps its partition and hears the same
+    stc                             ; sentence it would have heard afterwards
     jmp short .out
 .failed:
     call hd_ivol_back
@@ -979,9 +1000,9 @@ hd_inst_apps:
     jc .failed
     call hd_ivol_back
     call hd_inst_vbr            ; the volume boot record...
-    jc .failed2
+    jc .nboot
     call hd_inst_mbr            ; ...and the MBR LAST: it is the commit
-    jc .failed2
+    jc .nboot
     call hd_ibuf_put
     clc
     jmp short .out
@@ -993,6 +1014,11 @@ hd_inst_apps:
     call hd_ivol_back
 .failed2:
     call hd_ibuf_put
+    stc
+    jmp short .out
+.nboot:                         ; the FILES are all there and the disk simply
+    mov word [hd_imsg], hd_s_inboot ; will not boot - a different sentence to
+    call hd_ibuf_put            ; the user and a different half to debug
     stc
 .out:
     pop di
@@ -1243,13 +1269,39 @@ hd_iapps_find:
 ; there. Each is a REMOUNT, which is why the copy is structured to make as
 ; few of them as it can - one per file, not one per chunk.
 ; -----------------------------------------------------------------------------
+; ALL FOUR TAKE THE QUIET GOTO (SPEC.md 19.2.2), and the reason they may is
+; that nothing in this file ever SHOWS a folder: it reads and writes by name,
+; and OSAPI_FILE_FIND walks raw directory sectors (dsk_find) rather than the
+; mount listing. So the directory scan, the sort and the icon harvest a full
+; dsk_chdir pays for are all bought for nothing here - twice per file and
+; twice per CHUNK. The write gate survives, which is the thing that could
+; have made this fail confusingly: dsk_chdir_q sets [dsk_quiet] and calls the
+; REAL dsk_chdir, so [dsk_mntok] is set exactly as before and only the
+; listing publish is skipped.
+;
+; Measured over one whole install (make DISKCNT=1, SPEC.md 18.94, both disks,
+; 22 files onto a pristine 31M partition), together with hd_icopy_one's
+; dropped terminating pass: 128 mounts -> 76, 1,372 sectors -> 971, 638
+; int 13h calls -> 354. Same 22 files at the same clusters, BEVERLY.MOD
+; byte-identical, FAT1 == FAT2, no orphans and no cross-links.
+;
+; It was once tried and reverted, and that is worth keeping because the
+; diagnosis was WRONG: the copy failed at the end, the quiet goto was blamed,
+; and reverting it changed nothing at all. What actually broke was
+; dskw_read_at refusing the very call that should have answered "finished".
+;
+; THE BOUNDARY KEEPS THE FULL GOTO, and that is the rule rather than an
+; omission: hd_ivol_back hands the machine back to the user, and a quiet
+; mount there would leave the global listing empty with [dsk_lstale] owed for
+; whatever they do next. Quiet inside the loop, full at the boundary.
+; hd_iapps_find's probe keeps it too - it runs once, so it buys nothing.
 hd_isrc:
     push ax
     push bx
     push dx
     mov bl, [hd_isrcdrv]        ; the source is where the user was: A: on a
     xor dx, dx                  ; one-floppy machine, at its ROOT
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
     pop dx
     pop bx
     pop ax
@@ -1261,7 +1313,7 @@ hd_isrc_sub:
     push dx
     mov bl, [hd_isrcdrv]
     mov dx, [hd_isubc]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
     pop dx
     pop bx
     pop ax
@@ -1273,7 +1325,7 @@ hd_idst:
     push dx
     mov bl, [hd_idrv]
     xor dx, dx
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
     pop dx
     pop bx
     pop ax
@@ -1285,7 +1337,7 @@ hd_idst_sub:
     push dx
     mov bl, [hd_idrv]
     mov dx, [hd_idsubc]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_Q      ; QUIET (SPEC.md 19.2.2)
     pop dx
     pop bx
     pop ax
@@ -1341,7 +1393,7 @@ hd_icopy_tree:
                                 ; walking a chain
     mov si, hd_ient
     call hd_icopy_one
-    jc .fail
+    jc .failm                   ; it named the FILE; do not talk over it
     jmp short .entry
 .folder:
     mov ax, [hd_ient+16]
@@ -1353,7 +1405,7 @@ hd_icopy_tree:
     jc .mkchk
 .mkok:
     call hd_icopy_sub
-    jc .fail
+    jc .failm                   ; ...and so may this, one level down
     jmp short .entry
 .mkchk:
     cmp ax, FERR_EXIST          ; a re-install finds its own folders: that is
@@ -1361,6 +1413,22 @@ hd_icopy_tree:
     jmp short .fail
 .done:
     clc
+    jmp short .out
+    ; A copy that stops names the FILE it stopped on (hd_icopy_one) or says
+    ; nothing more than this.
+    ;
+    ; `.failm` IS THE HALF THAT WAS MISSING, and its absence is most of why
+    ; SPEC.md 52.10.7 stayed open. Every path came here, so the generic
+    ; sentence was written over hd_icopy_one's careful "NAME THE FILE" on the
+    ; way out - the comment above claimed the file was named and the code
+    ; guaranteed it never was. The user saw `Disk error` for a fault that had
+    ; already identified itself as BEVERLY.MOD, and the session that went
+    ; looking for it reached for abort-markers because the message it
+    ; already had said nothing. A failure that arrives from a callee which
+    ; sets [hd_imsg] keeps that message; only the paths that have nothing
+    ; better to say fall into `.fail`.
+.failm:
+    stc
     jmp short .out
 .fail:
     mov word [hd_imsg], hd_s_ierr
@@ -1393,7 +1461,7 @@ hd_icopy_sub:
     mov [hd_isord], cx
 .entry:
     call hd_isrc_sub
-    jc .fail
+    jc .failg                   ; a mount, with no file to blame
     mov cx, [hd_isord]
     push es
     push cs
@@ -1403,17 +1471,16 @@ hd_icopy_sub:
     pop es
     jc .done
     mov [hd_isord], cx
-    mov ax, [hd_ient+14]        ; FILES only one level down - see the header -
-    cmp ax, OSAPI_FT_DIR        ; and a FILE is "not a folder and not '..'",
-    je .entry                   ; NEVER "type 1". Type 1 is a PACKAGE: dsk_synth
-    cmp ax, OSAPI_FT_UP         ; gives it only to an .O88 whose size fits a
-    je .entry                   ; word and whose first cluster is in range, and
-                                ; every other plain file is type 0 (SPEC.md
-                                ; 19.7.1). Testing for 1 copied the packages out
-                                ; of APPS and GAMES and silently left BEVERLY.MOD
-                                ; behind, which is how an installed machine got
-                                ; an empty MEDIA folder - and would have left
-                                ; behind any document a user had put in one
+    mov ax, [hd_ient+14]
+    cmp ax, OSAPI_FT_DIR
+    jae .entry                  ; a FOLDER (this walk is one level deep) or the
+                                ; synthesized '..'; everything below FT_DIR is
+                                ; a file, package or not (SPEC.md 19.7.1). This
+                                ; read `cmp ax, OSAPI_FT_PKG / jne`, which is
+                                ; type 1 - PACKAGE - so one level down only
+                                ; *.O88 was copied and MEDIA/BEVERLY.MOD was
+                                ; silently left behind. The root loop in
+                                ; hd_icopy_tree always had it right
     mov byte [hd_iinsub], 1
     mov si, hd_ient
     call hd_icopy_one
@@ -1423,6 +1490,8 @@ hd_icopy_sub:
 .done:
     clc
     jmp short .out
+.failg:                         ; nothing better to say than the generic line;
+    mov word [hd_imsg], hd_s_ierr   ; hd_icopy_one's failure keeps its own
 .fail:
     mov byte [hd_iinsub], 0
     stc
@@ -1518,7 +1587,14 @@ hd_icopy_one:
     mov ax, [hd_itake]          ; the offset advances by what was TAKEN, and
     add [hd_ioff], ax           ; the next read starts exactly there
     adc word [hd_ioff+2], 0
-    jmp short .chunk
+
+    mov ax, [hd_ioff+2]         ; ...and STOP when that is the whole file,
+    cmp ax, [hd_isize+2]        ; instead of going round to be told so. The
+    jb .chunk                   ; extra pass costs a source remount and a
+    ja .ok                      ; directory walk to answer 0 bytes, which
+    mov ax, [hd_ioff]           ; hd_istat already told us at the top - the
+    cmp ax, [hd_isize]          ; loop knows it is finished the moment the
+    jb .chunk                   ; offset reaches the size (SPEC.md 52.10.7)
 .ok:
     clc
     jmp short .out
@@ -1527,8 +1603,10 @@ hd_icopy_one:
     stc
     jmp short .out
 .fail:
-    mov word [hd_imsg], hd_s_ierr
-    stc
+    mov word [hd_imsg], hd_iname    ; NAME THE FILE. A copy that stops has one
+    stc                             ; useful thing to say and it is which file
+                                    ; it stopped on - "Disk error" sent this
+                                    ; session hunting the wrong half twice
 .out:
     pop di
     pop si
@@ -2187,6 +2265,7 @@ hd_itab:      dw hd_s_iready, hd_s_ismall, hd_s_ialien, hd_s_inone
     HIMSG hd_s_ifmt, 'Could not format that partition'
     HIMSG hd_s_imnt, 'Formatted, but it would not mount'
     HIMSG hd_s_ierr, 'Disk error - the install stopped'
+    HIMSG hd_s_inboot, 'Copied, but it will not boot'
     HIMSG hd_s_ibig, 'A file is too big for this machine'
 
 hd_iwin:      dw 0              ; .text with a real initialiser: -f bin zeroes

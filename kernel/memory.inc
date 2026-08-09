@@ -86,6 +86,32 @@ MEM_K_CLIP equ 0xFF07           ; the system clipboard's text (SPEC.md 55) -
                                 ; so closing the app that copied does not take
                                 ; the clipboard down with it
 
+; --- PURGEABLE claims (SPEC.md 50.6) -----------------------------------------
+; A cache the kernel can take back the instant anything else needs the room.
+; The Macintosh Memory Manager's purgeable handle, which is where the name
+; comes from and this OS is that machine's homage.
+;
+; IT IS ENCODED IN THE OWNER, and that is what makes it cost nothing. The
+; owner word already carries a namespace - 0..INST_MAX-1 an instance slot,
+; 0xFFxx a kernel tag - so 0xFExx is "a kernel tag, and purgeable". Three
+; things fall out of that with no new field anywhere:
+;
+;   the RECORD does not grow, so mem_tab is the size it was;
+;   osapi_claim_snapshot (20.9) is unchanged, so no .o88 is invalidated and
+;     the Task Manager can pick the class out of what it already reads;
+;   mem_claim cannot be asked for a purgeable claim and place it as an
+;     ordinary one, because the tag IS the request.
+;
+; TO BE PURGEABLE A CLAIM MUST HAVE EXACTLY ONE KERNEL WORD NAMING IT, and a
+; zero in that word must ALREADY mean "no buffer, do it the slow way". That is
+; the whole contract, and it is what lets the shed skip a notification
+; protocol entirely: mem_shed_one zeroes the word through mem_pg_own before it
+; frees the block, so the consumer's existing refusal path is the notice.
+; menu_drop's `or ax, ax / jz .nosave` is the shape - every purgeable consumer
+; has to already have one.
+MEM_PG_HI  equ 0xFE             ; the owner's high byte: purgeable kernel tag
+MEM_P_WSAVE equ 0xFE01          ; a window's raise cache (SPEC.md 11.96)
+
 MEM_PARA_KB equ 64              ; paragraphs per KB
 
 ; --- osapi_claim_snapshot's buffer, API slot 0x02A0 (SPEC.md 20.9) ----------------
@@ -251,9 +277,37 @@ mem_claim:
     push di
     xor si, si
     xor di, di
+    cmp bh, MEM_PG_HI           ; a purgeable tag places ITSELF (SPEC.md
+    jne .go                     ; 50.5.1): top down like a region, but under
+    inc di                      ; a ceiling that keeps it out of the region
+                                ; arena. The tag is the request, so there is
+                                ; no third entry point to call by mistake
 .go:
+    call mem_claim_1            ; SHED AND RETRY (SPEC.md 50.6.2). A cache
+    jnc .out                    ; loses to anything that is not one, and a
+    call mem_shed_one           ; package load loses to nothing - so this is
+    jnc .go                     ; on mem_claim_hi's path too. It terminates
+                                ; because each shed removes a record and
+                                ; mem_shed_one refuses when there are none
+.out:
+    pop di
+    pop si
+    ret
+
+; the scan-and-publish itself; mem_claim above is the retry loop around it
+mem_claim_1:
     push ax
     push cx
+    push si                     ; THE STAGED PARAMETERS, and they are staged in
+    push di                     ; REGISTERS on purpose (see the cli below), so
+                                ; the retry above re-reads them from here. The
+                                ; scan owns both - DI walks mem_tab, SI counts
+                                ; this owner then walks it again - so without
+                                ; this a shed-and-retry restages a mem_tab
+                                ; OFFSET as [mem_dma] and a non-zero [mem_dir]:
+                                ; a phantom DMA head measured in KB, and a
+                                ; bottom-up data claim placed top down, in the
+                                ; region arena mem_pg_ceil exists to keep whole
     pushf
     cli                         ; the whole scan-and-publish, one window -
     mov [mem_dma], si           ; the operation's PARAMETERS included. The
@@ -262,6 +316,15 @@ mem_claim:
                                 ; task's to overwrite in the gap: a worker's
                                 ; DMA head silently dropped, or a region
                                 ; claim allocating from the wrong end
+
+    push ax                     ; THE CEILING the scan may not pass. It is
+    mov ax, [mem_top]           ; [mem_top] for everything except a purgeable
+    cmp bh, MEM_PG_HI           ; claim, which stops below the lowest REGION
+    jne .ceilok                 ; so that it can never split the arena a
+    call mem_pg_ceil            ; package has to load into (SPEC.md 50.6.1)
+.ceilok:
+    mov [mem_ceil], ax
+    pop ax
 
     or ax, ax
     jz .fail
@@ -301,7 +364,7 @@ mem_claim:
     mov dx, [mem_base]          ; DX = candidate base
     jmp short .retry
 .hi:
-    mov dx, [mem_top]           ; the highest base that still fits
+    mov dx, [mem_ceil]          ; the highest base that still fits
     sub dx, ax
     jc .fail
     cmp dx, [mem_base]
@@ -330,7 +393,7 @@ mem_claim:
     mov cx, dx
     add cx, ax                  ; CX = candidate end
     jc .fail                    ; wrapped past 0xFFFF
-    cmp cx, [mem_top]
+    cmp cx, [mem_ceil]
     ja .fail
 
     mov si, mem_tab             ; overlap scan: CX is the candidate end and
@@ -377,10 +440,178 @@ mem_claim:
     xor dx, dx
     stc
 .out:
-    pop cx
-    pop ax
     pop di
     pop si
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_pg_ceil - the lowest REGION base, or [mem_top] when there is none
+; out: AX = the ceiling a purgeable claim may not pass; preserves everything
+;      else
+;
+; SPEC.md 50.6.1. A purgeable block placed among the regions is
+; indistinguishable from a region to the scan while it is live, so it splits
+; exactly the run a package needs - and shed-and-retry does not save it,
+; because that only fires on a REFUSAL and a region that merely fits WORSE has
+; been fragmented with nothing noticing. So purgeable is highest-fit inside
+; the DATA arena: the region arena keeps 50.3's property that everything in it
+; is a region, and the block still sits against the free middle, which is the
+; one run both arenas grow toward and the only one worth enlarging.
+;
+; AN INSTANCE SLOT IN MC_OWN IS NOT A REGION, and reading it as one made this
+; whole feature dead on the commonest desktop there is. 50.3's rule is that a
+; PACKAGE's region is owned by the instance slot and a PACKAGE's data claims by
+; its segment - it says nothing about a BUILT-IN, whose data claims are stamped
+; with its slot as well, and mem_free_rec forty lines below is where that is
+; written down ("a built-in's claims are stamped with its instance slot (the
+; Disk window's cache)"). So "below INST_MAX" also matches a Disk window's
+; 3KB listing cache (SPEC.md 22.1), which is a data claim placed BOTTOM UP and
+; therefore sits at the very floor of the heap. Measured, with README.TXT open
+; from a Disk window: the ceiling came back as that cache's base, 0x17C0
+; against a heap floor of 0x1680 - and the FAT window already filled every
+; paragraph between them, so every raise-cache claim was refused on a machine
+; with 505KB free and SPEC.md 11.96 never once fired.
+;
+; A region is what a package's image IS: I_SPTR of a KIND_PKG instance. That is
+; the test, and it is two compares on the few records that get that far.
+; -----------------------------------------------------------------------------
+mem_pg_ceil:
+    push bx
+    push cx
+    push si
+    push di
+    mov ax, [mem_top]
+    mov bx, mem_tab
+    mov cx, MEM_MAX
+.scan:
+    cmp word [ss:bx+MC_SEG], 0
+    je .next
+    cmp [ss:bx+MC_SEG], ax
+    jae .next                   ; at or above the lowest region found so far:
+                                ; it cannot lower the ceiling whatever it is
+    mov di, [ss:bx+MC_OWN]
+    cmp di, INST_MAX
+    jae .next                   ; a kernel tag, or a package's own segment -
+                                ; either way a data claim
+    mov si, di                  ; si = di*I_RECSZ, without CL: the loop counter
+    shl si, 1                   ; is in CX and the 8086 has no shl reg, imm
+    shl si, 1
+    shl si, 1
+    shl si, 1
+    shl si, 1
+    add si, inst_tab
+    test byte [si+I_KIND], KIND_PKG
+    jz .next                    ; a built-in stamps its DATA claims with its
+                                ; slot too - see the header
+    mov di, [ss:bx+MC_SEG]
+    cmp di, [si+I_SPTR]
+    jne .next                   ; ...and a package's region is the one claim
+    mov ax, di                  ; whose base is its I_SPTR
+.next:
+    add bx, MC_SIZE
+    loop .scan
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_pg_own - tag -> the ONE kernel word that names that purgeable block
+;
+; The whole notification protocol (SPEC.md 50.6). Zeroing this word IS the
+; notice, because a purgeable consumer's contract is that zero there already
+; means "no buffer, do it the slow way" - a path it must already have and
+; already test. A tag missing from this table simply keeps its block until it
+; is freed properly, which is safe and is why the list ends in a 0 rather than
+; an assertion.
+; -----------------------------------------------------------------------------
+mem_pg_own:
+    dw MEM_P_WSAVE, wm_su_seg
+    dw 0
+
+; -----------------------------------------------------------------------------
+; mem_shed_one - give up one purgeable block
+; out: CF = 0 one was shed, CF = 1 there was nothing to shed
+; clobbers: flags
+;
+; ONE CALLER, AND THAT IS LOAD-BEARING - it is mem_claim's retry, above, and
+; nothing else in the tree sheds. "Zeroing the word IS the notice" holds only
+; while that word is the ONLY reference to the block, and there are two spans
+; where it is not: wm_su_take publishes [wm_su_seg] LAST, so the word is still
+; 0 for the whole of gfx_save, and wm_su_try holds the segment in ES across
+; gfx_restore. A shed inside either would be written into, or read out of,
+; memory another owner already holds - tens of milliseconds each, with IF = 1.
+;
+; What makes that unreachable is not the gfx lock (a task_yield spin mutex
+; excludes other DRAWING, not preemption). It is that EVERY mem_claim in the
+; tree is either a UI-task action or made under the gfx lock, and a raise is a
+; UI-task action under that same lock - so no second task is inside mem_claim
+; while the first is inside gfx_save. A package worker that claims memory
+; directly would break it. That is the rule to keep, and it is why a worker
+; grows through OSAPI_MEM_REGROW (which never sheds) rather than claim-copy-
+; free: SPEC.md 50.6's contract rests on it.
+; -----------------------------------------------------------------------------
+mem_shed_one:
+    push ax
+    push bx
+    push cx
+    push si
+    pushf
+    cli
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.scan:
+    cmp word [ss:si+MC_SEG], 0
+    je .next
+    cmp byte [ss:si+MC_OWN+1], MEM_PG_HI
+    jne .next
+    mov bx, [ss:si+MC_OWN]
+    call mem_pg_forget          ; the owner is told BEFORE the block goes, so
+                                ; there is no window in which the word names
+                                ; memory somebody else already holds
+    mov word [ss:si+MC_SEG], 0
+    popf
+    clc
+    jmp short .out
+.next:
+    add si, MC_SIZE
+    loop .scan
+    popf
+    stc
+.out:
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; mem_pg_forget - zero the word mem_pg_own names for tag BX
+; preserves every register and the flags
+mem_pg_forget:
+    pushf
+    push ax
+    push bx
+    push si
+    mov si, mem_pg_own
+.lp:
+    mov ax, [si]
+    or ax, ax
+    jz .out
+    cmp ax, bx
+    je .hit
+    add si, 4
+    jmp short .lp
+.hit:
+    mov bx, [si+2]
+    mov word [bx], 0
+.out:
+    pop si
+    pop bx
+    pop ax
+    popf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -899,7 +1130,7 @@ mem_run:
     ret
 
 ; -----------------------------------------------------------------------------
-; mem_claim_get - read one claim record by index (SPEC.md 50.5)
+; mem_claim_get - read one claim record by index (SPEC.md 50.6)
 ; in:  AX = record index (0..MEM_MAX-1)
 ; out: CF = 0 and DX = base segment, CX = paragraphs, BX = owner word;
 ;      CF = 1 if that record is free
@@ -943,7 +1174,7 @@ mem_claim_get:
     ret
 
 ; -----------------------------------------------------------------------------
-; mem_owned_kb - how many KB does one owner hold? (SPEC.md 50.5)
+; mem_owned_kb - how many KB does one owner hold? (SPEC.md 50.6)
 ; in:  BX = owner word
 ; out: AX = KB claimed by that owner (0 if none)
 ; clobbers: nothing else (flags)
@@ -1004,6 +1235,12 @@ mem_sum_kb:
 .scan:
     cmp word [ss:si+MC_SEG], 0
     je .next
+    cmp byte [ss:si+MC_OWN+1], MEM_PG_HI  ; PURGEABLE is in nobody's total, not
+    je .next                        ; even System's (SPEC.md 50.6.3). It is not
+                                    ; memory anyone can run out of - the next
+                                    ; claim that needs it takes it - so
+                                    ; counting it as used would be the
+                                    ; misleading answer, not the honest one
     or bx, bx
     jz .take
     cmp byte [ss:si+MC_OWN+1], 0xFF    ; the kernel tags are 0xFFxx; an instance
@@ -1392,6 +1629,10 @@ mem_tab:  resb MEM_MAX * MC_SIZE  ; the claim map (layout above)
 section .bss
 
 
+mem_ceil: resw 1                  ; the highest paragraph the scan may reach:
+                                  ; [mem_top], or the lowest region base for a
+                                  ; purgeable claim (SPEC.md 50.6.1). Staged
+                                  ; inside the cli window with the other two
 mem_dir:  resw 1                  ; 0 = mem_claim (bottom up), 1 = mem_claim_hi
                                   ; (top down, a package's region). A word so
                                   ; the entries can stage it in a register and

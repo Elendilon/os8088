@@ -1148,6 +1148,8 @@ list to check yourself against.
 | Raise an already-frontmost window | a screen | **no window at all** | §11.90 |
 | Click a background window's title bar | two full screen redraws (raise + drag release) | two title bars | §11.90, `ui_drag` |
 | Hide / destroy / drag a window | a screen | the damage rect, and only the windows in it | §11.91 |
+| The desktop dither inside a damage rect | the WHOLE rect, and then every window overlapping it drawn on top — so every pixel under a window was dithered and then painted over. Measured on CGA: dragging a window flashes **4,819 px** worst, dragging it back **5,222** | `wm_dmg_gray` — the rect minus every visible window, through the region machinery `wm_clip_set` already had, so `gfx_fill_gray`'s one clipped call paints only what is genuinely uncovered: **609** and **1,413** | §11.91.1 |
+| Double-click a title bar to zoom | `wm_paint_all` both ways: a screen's dither, every drive zone, both strips, every window's `W_PAINT`. Worst transient **23,842 px**, 445 ms of flashing | out: nothing is revealed, so `wm_draw_win` and the chrome — **1,540 px**. Back: the union through `wm_paint_dmg`, with the dither clipped — **1,161 px**, a 20x drop | §11.95.1, §11.91.1 |
 | Retitle a window | full frame repaint | one `TITLE_H` strip | §11.92 |
 | Mount / unmount a volume | `wm_paint_all` | the zone grid — measured **371 glyphs → 182** | §26.3 |
 | Select a covered drive icon | **two** whole-screen repaints per click | one XOR strip, zero repaints; byte-identical output | §26.2 |
@@ -3183,7 +3185,7 @@ better-interleaved disk is 2.03x. **A single calibration machine can flatter
 a latency bug**, because how much a fixed delay costs depends on how fast the
 thing you are delaying would otherwise have gone.
 
-### Set 20 — Tracker's mixer is 45% of the machine, and it is BUS-bound
+### Set 20 — Tracker's mixer was 45% of the machine, and it is BUS-bound
 
 **How it was found, and the instrument is worth as much as the answer.**
 MartyPC's `status` returns `flat_ip`, so sampling it from the host and
@@ -3234,15 +3236,68 @@ data bytes together — not its instruction count and not its "complexity".
 **What is actually removable is 3.5 of those 21 bytes.** `adc si, imm16`
 patched in place instead of a loop-invariant memory read is −2; unrolling 4x
 amortises `loop` to −1.5. That is 84 → 70 clocks, **38.7% → 32.3%** — about
-**6 points of the whole machine**, given back to everything, forever.
+**6 points of the whole machine**, given back to everything, forever. That
+was the PREDICTION; the next paragraph is what the machine actually did.
+
+**Measured after: 45.2% → 29.6%, which is 16 points and not 6.** Same
+machine, same module, same windowed XT mode, 60-second samples:
+
+| | before | after |
+|---|---|---|
+| the add-pass inner loop | `.addl` **31.7%** | `.addq1` **20.2%** + `.addl` 0.5% |
+| the store-pass inner loop | `.stl` **13.5%** | `.stq` **8.9%** + `.stl` ~0 |
+| the rest of `mp_mixch_xt` | 6.3% | 4.7% + `mp_stepi_set` 0.9% |
+| outside the package (kernel, BIOS, **idle**) | 42% | **49%** |
+
+The last row is the one that says it is real: nothing else changed, so the
+machine got its time back as idle.
+
+**The byte model under-predicted by 10 points, and the reason is worth
+keeping.** It priced only bus traffic, which is the right first-order model
+on an 8-bit bus and is not the whole cost: `adc si, [disp16]` also pays an
+effective-address calculation and the 8086's memory-operand penalty, and
+`loop` is 17 clocks *taken* where the model charged it 2 bytes = 8. Both of
+those are execution clocks the fetch model cannot see. **A byte-traffic model
+is a floor, not an estimate** — when it says an optimisation is worth 6
+points, the machine may hand back more, and it will not hand back less.
+
+**Two bugs on the way, both of which measured as successes.** The first is
+CLAUDE.md's own warning arriving in person: a stale `cmp byte [mp_first], 0 /
+je .addl` left from the pre-unrolled structure sent the **add pass** — 70% of
+the work — straight past the unrolled loop to the one-sample-at-a-time
+remainder. It assembled, it ran, the output was correct, an amplitude-envelope
+comparison against the old build matched on 90.2% of 876 windows, and the
+build was 241 bytes bigger for nothing. **Only the profile could see it**, as
+`.addl` 25.2% with `.addq1` at zero — the optimisation had kept its shape and
+lost its substance. The second: `mp_stepi_set` as a table walk over
+`mp_steppatch` profiled at **3.1% of the whole machine** on its own, because
+it runs once per channel per chunk. Straight-line `mov [imm16], ax` — the
+accumulator-direct form, 3 instruction bytes and a 2-byte write, and no
+register but AX, so the three pushes go too — is 200 clocks against ~480, and
+it profiles at 0.9%.
+
+**Verified on the running binary rather than by reading it**, because the only
+new failure mode an unrolled run split has is dropping or duplicating a
+sample. Breakpoints at `mp_mixch_xt` and its `.fin`, walked in alternation:
+**58 of 58 calls advanced DI by exactly `[mp_chunk]`**, 15 of them the store
+pass and 43 the add pass. And the self-modifying half: **20 of 20 mixes had
+all ten patched immediates equal to `[mp_cstepi]`**.
 
 **And that is the honest ceiling: it does not fix windowed Beverly.** 5.8
 frames a second becomes roughly 7, against 7.14 rows — better everywhere and
 still not enough for a display that has to show every row. The only large
 lever left is the SAMPLE RATE, because the work is `channels × rate` and
-nothing else: 5,500 → 4,000 Hz is 27% fewer channel-samples and takes the
-mixer to 23.5% with the loop fix. That is a trade against audio quality, and
-it is a decision rather than an optimisation.
+nothing else: 5,500 → 4,000 Hz is 27% fewer channel-samples. That is a trade
+against audio quality, and it is a decision rather than an optimisation.
+
+**That decision has been taken, and the answer is NO.** 4,000 Hz was built
+onto the bench build's `K` key and listened to on the field owner's hardware:
+*"4,000 Hz sounds terrible."* The option is **closed** — not deferred — so
+nothing downstream should re-propose it, and the arithmetic above is kept
+only to say what was on offer and what it would have cost. 5,500 Hz is XT
+mode's rate and stays. The windowed display's answer is not a cheaper mixer
+at all: it is **drawing less**, which is §45.16.6 — the readout is the
+position alone, which the machine can always keep up with.
 
 **Three things NOT worth doing, costed and rejected.** Moving the sample to
 `DS` to drop the `26` override needs `es: xlat` instead, which is the same

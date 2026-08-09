@@ -709,6 +709,35 @@ drive zone does not fit above the dock on a 200-line screen and wraps into a
 second column to the left (SPEC.md §26.1) — which is invisible on VGA and
 therefore exactly the kind of thing that ships broken.
 
+## Host-side tools live in `tools/`, and a set of them goes in a FOLDER
+
+`tests/` is guest code; `tools/` is the host side — the Python that drives an
+emulator, builds an image or checks a document. Most of it is one file doing
+one job and belongs at the top level, which is where `os88marty.py`,
+`os88disk.py`, `mouse.py` and the rest are.
+
+**A tool that grows into several files gets a directory, and the directory is
+named for WHAT IT DRIVES**, not for what it does:
+
+- **an application** → the app's name, as the user sees it in the dock and
+  the Task Manager: `tools/notepad/`, and a Paint one would be `tools/paint/`.
+- **a driver** → its Control Panel checkbox label (SPEC.md §31.9), because
+  that is the name the machine itself puts on it and it is the one a bug
+  report will use.
+- **anything else** → the subsystem it belongs to, chosen the way a module
+  prefix is: `tools/martypc/` is the emulator, and that is the pattern.
+
+The point is that the folder answers "what is this for" before the reader
+opens anything. A folder named for the technique — `tools/tracer/`,
+`tools/bench/` — stops doing that the moment a second one exists.
+
+Give the folder a `README.md` saying what the tool answers, what the OTHER
+instrument for the same subject is and when to prefer it, and the ways it has
+already lied. `tools/notepad/README.md` is the worked example: it exists
+alongside `tests/npbench.inc`, and the two measure Note Pad from outside and
+inside respectively, so the first thing its README does is say which question
+each one answers.
+
 ## Everything not shipped lives in `tests/`
 
 `tests/` holds every package that is not shipping software, and it is **not**
@@ -764,8 +793,13 @@ make test SB16=1 TESTAPPS=build/trklog.img   # builds the disk on demand
 #      992/959 Hz, then ~1753/1290/1257/1213, then ~2117/1555/1510/1455.
 # D    arm the log       -> the status line counts 'LOG nnnn /0512'
 # F    fullscreen; let it run through a few pattern boundaries (~9 s each)
-# Esc  back to windowed  (W is refused in a bracket - the file API is
-#                         UI-callback-only, SPEC.md 53.7)
+# F    ...and back to windowed - the key that entered leaves (SPEC.md 45.17)
+# Esc  also back to windowed  (W is refused in a bracket - the file API is
+#                         UI-callback-only, SPEC.md 53.7; L likewise, which is
+#                         why it is off the fullscreen legend)
+# SPACE stop, ENTER RESUME where it stopped, HOME restart from the top
+#      (SPEC.md 45.17 - Enter used to restart, which threw away the row
+#       trk_play_stop had just parked)
 # W    write TRKLOG.TXT to B:  -> 'Wrote TRKLOG.TXT'
 #
 # M    at ANY point, windowed or fullscreen: stamp FL bit 10h into the
@@ -784,45 +818,15 @@ make test SB16=1 TESTAPPS=build/trklog.img   # builds the disk on demand
 #      sets the clock back, so pressing it inside fullscreen changes nothing
 #      until the next F. Press it, then F.
 #
-# E    the WINDOWED pacing experiment, seven modes (SPEC.md 45.16.3/45.16.4).
-#      Windowed-only - the bracket has a 54.6 Hz clock of its own and nothing
-#      to fix. The live mode is named on screen ('PACE C bar'), because what
-#      is being judged is what the line does over a minute and the key's own
-#      message has gone by then.
-#        every  the shipped cadence - an irregular 110/165
-#        out    burst, then stars OUT from the centre to the edges
-#        hide   burst, ALL stars for the whole wait, then the letters
-#               revealed from the centre once the display is back in step
-#      (bar, sweep and in were built, judged and dropped; so was the beat
-#      ruler, which made the animation sixteen cells wider than it needed to
-#      be - see SPEC.md 45.16.4.)
-#      In every mode but the first the BODY - the position, the row and the
-#      ruler - is REPLACED by the animation for the whole hold. A frozen row
-#      number beside a moving animation is a frozen row number, which is what
-#      the first two builds got wrong. The LABEL is never blanked, for the
-#      other half of the same reason: it is not part of the experiment, and
-#      one blinking once a second competes with what it is labelling.
-#      (The every-other-frame grid was here as 'B' and is GONE - measurably
-#      the widest spread of the lot, and it read as the worst.)
-#
-#          PACE every  Pos 01/04  Row 02
-#          BURST out   Pos 01/04       *         <- the hold, in place of them
-#
-#      'Pos xx/yy' is the ORDER POSITION out of the song's length - which
-#      entry of the arrangement is playing, not a row. It steps once every 64
-#      rows, which is 8 s on CLICK.MOD and 8.9 on BEVERLY.MOD, so beside a row
-#      counter running at eight a second it looks dead; the denominator is
-#      there to say that it is a different kind of number.
-#
-#      A number answers "which row" and the question here is "are the rows
-#      EVENLY spaced", which only a moving marker answers. Even walk plus a
-#      click on the wrap is the whole of "smooth and in time".
-#
-#      JUDGE THESE ON CLICK.MOD, NOT ON BEVERLY.MOD (SPEC.md 45.16.5). The
-#      mixer eats the drawing: windowed on a 4.77MHz machine CLICK.MOD gets
-#      16.8 frames/s against 8.00 rows/s, and BEVERLY.MOD gets 6.0 against
-#      7.14 - so on a real module the display cannot show every row at all,
-#      C and D never complete a burst, and there is no bang or sweep to see.
+# E    GONE. The windowed pacing experiment (SPEC.md 45.16.3/45.16.4) - seven
+#      cadences for a windowed ROW counter - is concluded, and its key, its
+#      three surviving modes, both hold animations and the reveal have been
+#      removed from tests/trklog.inc. SPEC.md 45.16.6 is the outcome: the
+#      windowed readout is 'Pos xx/yy' and there is no row on it, so there
+#      is no cadence left to pace. Judging it needed CLICK.MOD, because on a
+#      real module the mixer eats the drawing (BEVERLY.MOD gets 6.0 frames/s
+#      against 7.14 rows/s) - which is what the experiment found and why it
+#      ended in not drawing the field rather than in a better cadence.
 #
 # K    XT mode's SAMPLE RATE - 4,000 / 5,500 / 11,000 Hz - WITHOUT leaving XT
 #      mode (docs/FIELD-NOTES.md 16). Windowed-only, takes effect at the next
@@ -1378,8 +1382,50 @@ middle of that range.
 >
 > **One connection at a time.** The debug server accepts a single client, so a
 > script that wants both the mouse driver and the framebuffer must share one:
-> build the `Mouse` and use its `.m`, never a second `Marty`. Opening a second
-> one does not error — it *hangs* until the read times out.
+> `Mouse(marty=m)`, never a second `Marty`. Opening a second one does not
+> error — it *hangs* until the read times out.
+
+> **And start the emulator with `os88marty.launch`, wait with `settle`, and
+> name a kernel flag with `m.sym`.** Every scripted session used to hand-roll
+> the same twenty lines, and essentially all of this harness's lost time is in
+> them.
+>
+> ```python
+> with os88marty.launch("build/os8088-360.img", apps="build/apps360.img") as m:
+>     mo = Mouse(marty=m)
+>     mo.dblclick(608, 105)
+>     os88marty.settle(m)              # ...instead of time.sleep(4)
+> ```
+>
+> `launch` kills survivors **by PID out of /proc** and waits for the port —
+> a survivor keeps 9001, the new emulator cannot bind and says so only in its
+> log, and the client then drives the *stale* machine. `pkill -f
+> martypc_headless` and `pgrep -f` both match the calling shell's own command
+> line, so the first can kill the caller and the second makes `until ! pgrep`
+> loop forever. It copies each floppy into the run directory (the guest WRITES
+> to a mounted image), asserts `cycles == 0`, and owns the process so nothing
+> leaks onto the next session.
+>
+> `settle(m)` is two identical rendered frames a second apart, which an os8088
+> screen only is between events. The **boot** needs a gate on top, and the two
+> obvious gates are both wrong: stillness alone returns during the BIOS POST,
+> which sits perfectly still for seconds before the floppy is touched
+> (measured — an 8.3 s "boot" showing a quarter of the desktop's lit pixels),
+> and "has the card left text mode" hangs the full timeout on Hercules, whose
+> MDA reports text mode in every mode. The gate is the **menu bar's white
+> field**, read through `vram` on the 1bpp cards and `fbuf` on VGA. CGA 17.5 s,
+> Hercules 16.1 s, VGA 7.1 s, against the 26 s fixed sleep it replaces.
+>
+> `m.sym("fpg_on")` — or `python3 tools/os88sym.py --all` — is where a kernel
+> symbol lives. **Never take one from `nasm -l`.** For anything in `.bss` the
+> listing's address column *and* its bracketed operand bytes are
+> section-relative and fixed up afterwards: `menu_bovr` reads there as `0x0879`
+> and is at `0xCBA4`. That is a plausible small number pointing into `.text`,
+> so reading a byte from it succeeds and means nothing — two sessions have lost
+> time to it, one concluding a feature was broken from a flag that was never
+> the flag. `os88sym` uses nasm's `[map]` on a temporary copy of `kernel.asm`
+> and asserts byte-identity with `build/kernel.bin`, so a map describing a
+> different kernel is an error rather than a wrong answer.
 
 `make marty`, and the whole recipe is docs/MARTYPC-DEBUG.md. What it gives
 that neither of the others does:
