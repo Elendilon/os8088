@@ -25,16 +25,29 @@
 ; Raising a window, showing one, dragging one - each of those repaints the
 ; chrome because the chrome MIGHT have changed, and most of the time the only
 ; thing that did is which tile wears the active mark. So each tile carries a
-; key (dock_key: its icon, mixed with live/minimized/active) and a tile whose
-; key still matches what was drawn is left alone. A focus change costs two
-; tiles; nothing changing costs no pixels at all, and dock_paint says so in
-; CF, which is what lets wm_dock_under skip putting the windows back.
+; key (dock_key: its icon in the high bits, live/minimized/active in bits
+; 0..2) and a tile whose key still matches what was drawn is left alone. A
+; focus change costs two tiles; nothing changing costs no pixels at all, and
+; dock_paint says so in CF, which is what lets wm_dock_under skip putting the
+; windows back.
+;
+; **And a tile whose MARK moved is not redrawn either** (SPEC.md 30.3). A
+; focus change is the commonest thing that happens here and it used to erase
+; two tiles to white and rebuild them - fill, frame, masked icon blit, marks -
+; to move one 1px rectangle, which on a 4.77MHz machine is the double-draw
+; flash of PERFORMANCE.md Part 1 in the strip the user is looking at while
+; they switch applications. Both marks are their own inverse, so old XOR new
+; says what moved and the answer is one gfx_xor_rect or one gfx_xor_fill. The
+; ICON IS NEVER TOUCHED unless the icon changed.
 ;
 ; The strip's own rule and white field are only redrawn when [dock_full] says
 ; so, and the one thing that sets it is somebody having drawn OVER the strip:
 ; wm_paint_all's dither, and wm_paint_dmg's when the damage reaches it - which
-; is how "a window that was covering the dock moved away" gets its full
-; redraw. The per-tile keys are cleared with it, because the tiles went too.
+; is how "a window that was covering the dock moved away" gets its redraw.
+; That restore is bounded to the DAMAGED SPAN (dock_force_x), and so is the
+; clearing of the keys: a window closing in one corner used to repaint 640px
+; of rule and field - nearly all of it white over white, where nothing had
+; changed and nothing could have - and rebuild every tile on the strip.
 ; =============================================================================
 
 ; --- geometry (SPEC.md 30) ----------------------------------------------------
@@ -50,6 +63,30 @@ DOCK_TILE_H equ 20
 DOCK_X0     equ 8               ; first tile's left edge
 DOCK_STEP   equ 28              ; tile + 4px gap; 8 + 12*28 = 344 < 640
 
+; --- the tile key's low three bits (SPEC.md 30.3) ----------------------------
+; The MARKS live here and nothing else does, so old XOR new says exactly what
+; moved: a key whose difference is confined to these bits is a tile whose
+; ICON did not change, and the marks are both their own inverse.
+DOCK_K_LIVE equ 1               ; ...so a live tile's key is never 0
+DOCK_K_MINI equ 2               ; the interior inverts
+DOCK_K_ACT  equ 4               ; the border doubles
+DOCK_K_MARKS equ DOCK_K_MINI | DOCK_K_ACT
+DOCK_K_ID   equ 0FFFFh & ~DOCK_K_MARKS  ; everything that is NOT a mark
+
+DOCK_CTX_N  equ 1               ; items in dock_ctx_items (SPEC.md 30.2)
+DOCK_CTX_H  equ DOCK_CTX_N * MENU_ITEM_H + 2
+                                ; ...and the height menu_popup will give them:
+                                ; count*16 plus the two frame rows. A copy of
+                                ; that arithmetic, and a deliberately cheap
+                                ; one - it decides only where the menu is
+                                ; ANCHORED, and menu_popup shifts and floors
+                                ; the result anyway (SPEC.md 12.4), so drift
+                                ; costs a few pixels of placement and can
+                                ; never put a menu off the screen. Anchoring
+                                ; at the press point instead would drop the
+                                ; menu ON the strip, over the very tile it is
+                                ; asking about
+
 ; -----------------------------------------------------------------------------
 ; dock_init - reset module scratch
 ; in:  nothing
@@ -59,8 +96,9 @@ dock_init:
     push cx
     push di
     mov byte [dock_gcol], 0
-    mov byte [dock_full], 1     ; .bss is not zeroed at boot (-f bin), and
-    mov di, dock_ck             ; the first paint owes the whole strip
+    mov byte [dock_full], 0     ; .bss is not zeroed at boot (-f bin), and
+    call dock_force             ; the first paint owes the whole strip
+    mov di, dock_ck
     mov cx, INST_MAX
 .z:
     mov word [di], 0
@@ -72,16 +110,60 @@ dock_init:
     ret
 
 ; -----------------------------------------------------------------------------
-; dock_force - the whole strip must be redrawn, tiles and all
-; in:  nothing
+; dock_force   - the WHOLE strip was painted over
+; dock_force_x - ...only x AX..CX of it was (inclusive)
+; in:  nothing / AX = x1, CX = x2
 ; out: nothing (all registers preserved)
 ;
 ; Called by whoever is about to draw, or has just drawn, over the strip. The
 ; per-tile keys go with it: a tile whose pixels were painted over is not
-; "unchanged" however much its state still matches.
+; "unchanged" however much its state still matches - but only the tiles the
+; damage actually REACHED, and only that span of rule and white field.
+;
+; The span exists because wm_paint_dmg (SPEC.md 11.91) forced the whole strip
+; for any damage that touched it: a window closing at x 300 repainted 640px of
+; rule and field and rebuilt every tile, nearly all of it white over white
+; with a tile flashing wherever it was not. wm_paint_all still asks for the
+; whole width and means it - its dither runs from MBAR_H to the last row, so
+; the strip really is gone.
+;
+; Repeated calls UNION, because several things can damage the strip between
+; two dock_paints.
 ; -----------------------------------------------------------------------------
 dock_force:
+    push ax
+    push cx
+    xor ax, ax
+    mov cx, [vid_wm1]
+    call dock_force_x
+    pop cx
+    pop ax
+    ret
+
+dock_force_x:
+    push ax
+    push cx
+%ifdef REDRAWFULL
+    xor ax, ax                  ; REFERENCE BUILD: every damage is the whole
+    mov cx, [vid_wm1]           ; strip, the behaviour this replaced
+%endif
+    cmp byte [dock_full], 0
+    jne .union
     mov byte [dock_full], 1
+    mov [dock_dx1], ax
+    mov [dock_dx2], cx
+    jmp short .out
+.union:
+    cmp ax, [dock_dx1]
+    jae .u2
+    mov [dock_dx1], ax
+.u2:
+    cmp cx, [dock_dx2]
+    jbe .out
+    mov [dock_dx2], cx
+.out:
+    pop cx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -94,12 +176,15 @@ dock_force:
 dock_paint:
     call wm_fs_vis              ; a visible fullscreen window is OVER the strip
     jnc .go                     ; (SPEC.md 11.2). Same reasoning as
-    clc                         ; menu_draw_bar's guard: whether the dock is on
-    ret                         ; screen is a fact about the screen. CF = 0,
-                                ; "nothing was drawn", which is exactly what
-                                ; wm_dock_under needs to hear. [dock_full] and
-                                ; the per-tile keys are left alone, so the
-                                ; strip is still owed its redraw afterwards
+    call dock_force             ; menu_draw_bar's guard: whether the dock is on
+    clc                         ; screen is a fact about the screen - and while
+    ret                         ; one is up our pixels are being destroyed, so
+                                ; the whole strip is owed when it goes. That is
+                                ; how wm_paint_all stopped needing dock_force:
+                                ; its dither no longer reaches us (SPEC 30.3.2)
+                                ; and this is the only other thing that can.
+                                ; CF = 0, "nothing was drawn", which is what
+                                ; wm_dock_under needs to hear
 .go:
     push ax
     push bx
@@ -119,29 +204,38 @@ dock_paint:
     mov [dock_act], di
 
 .full:
-    cmp byte [dock_full], 0     ; somebody drew over us: rule, field and every
-    je .scan                    ; tile, and the keys are worthless
+    cmp byte [dock_full], 0     ; somebody drew over us: the rule and field
+    je .scan                    ; they covered, and the tiles they reached
     mov byte [dock_full], 0
     mov byte [dock_drew], 1
 
     mov byte [gfx_color], CBLACK
-    xor ax, ax                  ; the rule: full-width hline at the top of
-    mov bx, [vid_wm1]           ; the strip
+    mov ax, [dock_dx1]          ; the rule, over the damaged span only
+    mov bx, [dock_dx2]
     mov dx, [vid_dock_y0]
     call gfx_hline
 
     mov byte [gfx_color], CWHITE
-    xor ax, ax                  ; the strip: white, down to the last row
+    mov ax, [dock_dx1]          ; ...and the white field under it, down to
+    mov cx, [dock_dx2]          ; the last row
     mov bx, [vid_dock_y0]
     inc bx
-    mov cx, [vid_wm1]
     mov dx, [vid_hm1]
     call gfx_fill
 
-    mov di, dock_ck             ; ...and nothing on it survived
-    mov cx, INST_MAX
+    mov ax, DOCK_X0             ; ...and the tiles it actually covered: a
+    mov di, dock_ck             ; tile outside the damage still has its
+    mov cx, INST_MAX            ; pixels, so its key is still the truth
 .zap:
+    mov bx, ax
+    add bx, DOCK_TILE_W-1
+    cmp bx, [dock_dx1]
+    jb .znext                   ; wholly left of the damage
+    cmp ax, [dock_dx2]
+    ja .znext                   ; wholly right of it
     mov word [di], 0
+.znext:
+    add ax, DOCK_STEP
     inc di
     inc di
     loop .zap
@@ -153,13 +247,33 @@ dock_paint:
     call dock_key               ; AX = what this tile should look like, or 0
     mov bx, cx                  ; for no tile at all (SPEC.md 29.2 rule 3)
     shl bx, 1
-    cmp ax, [dock_ck+bx]
+    mov dx, [dock_ck+bx]
+    cmp ax, dx
     je .next                    ; already drawn that way
     mov [dock_ck+bx], ax
     mov byte [dock_drew], 1
+
+    xor dx, ax                  ; DX = what MOVED (SPEC.md 30.3)
+%ifdef REDRAWFULL
+    jmp short .rebuild          ; REFERENCE BUILD: erase and rebuild any tile
+%endif                          ; that changed at all, the behaviour this
+                                ; replaced
+    test dx, DOCK_K_ID
+    jnz .rebuild                ; the icon changed, or the tile came or went
+
+    test dl, DOCK_K_ACT         ; --- only the marks moved: the ICON IS NOT
+    jz .mini                    ; TOUCHED, and neither is the frame or the
+    call dock_xor_ring          ; white around them. Both marks are their own
+.mini:                          ; inverse, so putting one on and taking it off
+    test dl, DOCK_K_MINI        ; are the same operation - which is the whole
+    jz .next                    ; reason the erase existed
+    call dock_xor_body
+    jmp short .next
+
+.rebuild:
     push ax
-    call dock_erase_tile        ; the old tile's marks are not a subset of the
-    pop ax                      ; new one's, so start from white either way
+    call dock_erase_tile        ; a new icon is not a superset of the old one,
+    pop ax                      ; so this one does start from white
     or ax, ax
     jz .next                    ; the tile went away: erased is all it needed
     call dock_draw_tile         ; in: CX = index, DI = record
@@ -191,13 +305,22 @@ dock_paint:
 ; out: AX = the key, 0 = this slot has no tile
 ; clobbers: nothing else (flags)
 ;
-; Everything dock_draw_tile reads: the icon it blits, and the three bits that
+; Everything dock_draw_tile reads: the icon it blits, and the two bits that
 ; decide the marks around it. The icon pointer is rotated rather than added so
-; that its high bits reach the bits the marks use - two different apps in the
+; that its high bits reach the low end of the word - two different apps in the
 ; same slot must not key alike, and a slot can be freed and refilled between
 ; two paints.
+;
+; **The marks own bits 0..2 and the identity owns the rest** (SPEC.md 30.3).
+; The rotation used to XOR the icon's top three bits straight into the mark
+; bits, which is fine for "did anything change" and useless for "what
+; changed" - so those three are FOLDED into the high byte instead of landing
+; on top of the marks. Nothing is lost and one thing is gained: old XOR new
+; now names the difference, and a key of 0 means 'no tile' by construction
+; rather than by the bump this used to need.
 ; -----------------------------------------------------------------------------
 dock_key:
+    push bx
     push cx
     xor ax, ax
     cmp byte [di+I_STATE], 1    ; live only - dying and free records have no
@@ -205,20 +328,21 @@ dock_key:
     mov ax, [di+I_ICON]
     mov cl, 3
     rol ax, cl
-    xor al, 1                   ; live
+    mov bl, al
+    and bl, DOCK_K_MARKS | DOCK_K_LIVE
+    xor ah, bl                  ; ...into the high byte, not onto the marks
+    and al, DOCK_K_ID & 0FFh
+    or al, DOCK_K_LIVE
     test byte [di+I_FLAGS], 1
     jz .nomini
-    xor al, 2                   ; minimized: the interior inverts
+    or al, DOCK_K_MINI          ; minimized: the interior inverts
 .nomini:
     cmp di, [dock_act]
-    jne .noact
-    xor al, 4                   ; active: the border doubles
-.noact:
-    or ax, ax                   ; 0 is spoken for
-    jnz .out
-    inc ax
+    jne .out
+    or al, DOCK_K_ACT           ; active: the border doubles
 .out:
     pop cx
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -264,6 +388,61 @@ dock_erase_tile:
     ret
 
 ; -----------------------------------------------------------------------------
+; dock_xor_ring - toggle tile CX's ACTIVE mark   (the inner frame)
+; dock_xor_body - toggle tile CX's MINIMIZED mark (the whole interior)
+; in:  CX = instance index; gfx lock held by the caller
+; out: nothing (all registers preserved)
+;
+; Both are exactly the rect dock_draw_tile draws that mark in, and both are
+; XOR, so they compose in either order and each undoes itself (SPEC.md 30.3).
+;
+; The ring is sound because the inner frame's four edges never touch the icon
+; - the body is 16x16 at +4,+2 inside a 24x20 tile, clearing the frame by 2px
+; and 1px - so every pixel it writes is plain background, white normally and
+; black under an inverted interior. XOR is right in both cases, which is why
+; the minimized state needs no branch here.
+; -----------------------------------------------------------------------------
+dock_xor_ring:
+    push ax
+    push bx
+    push cx
+    push dx
+    call dock_mark_rect
+    call gfx_xor_rect
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+dock_xor_body:
+    push ax
+    push bx
+    push cx
+    push dx
+    call dock_mark_rect
+    call gfx_xor_fill
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; dock_mark_rect - the tile interior both marks live in
+; in:  CX = instance index
+; out: AX = x1, BX = y1, CX = x2, DX = y2
+dock_mark_rect:
+    call dock_tile_x            ; AX = tile left (clobbers BX)
+    mov cx, ax
+    add cx, DOCK_TILE_W-2
+    inc ax
+    mov bx, [vid_dock_ty0]
+    inc bx
+    mov dx, [vid_dock_ty0]
+    add dx, DOCK_TILE_H-2
+    ret
+
+; -----------------------------------------------------------------------------
 ; dock_draw_tile - one tile: frame + icon (+ XOR invert when minimized)
 ; in:  CX = instance index, DI = instance record (I_STATE = 1); gfx lock
 ;      held by the caller
@@ -293,9 +472,8 @@ dock_draw_tile:
     mov dx, [vid_dock_ty0]
     add dx, 2
     push si
-    mov si, [di+I_ICON]
-    or si, si
-    jnz .icon
+    call inst_icon_ptr          ; SI -> 64 bytes in OUR segment, staged if
+    jnc .icon                   ; this instance's body lives in LOW_SEG
     mov si, ico_app16 + 2       ; generic fallback: skip the library
 .icon:                          ; record's 2-byte header (SPEC.md 25/30)
     call icon_draw16
@@ -336,6 +514,49 @@ dock_draw_tile:
     ret
 
 ; -----------------------------------------------------------------------------
+; dock_hit - which tile is under a point? (SPEC.md 30/30.2)
+; in:  CX = x, DX = y (absolute)
+; out: CF = 1 the point is not in the strip at all;
+;      CF = 0 the strip owns it, and DI = the LIVE instance record under the
+;      pointer with AL = its slot - or DI = 0 for the bare strip, the gap
+;      between two tiles, a slot past the last, and an empty or dying one.
+; clobbers: AX, DI (the outputs)
+;
+; Lifted whole out of dock_click when the right button wanted the same find
+; (SPEC.md 30.2). Factored rather than copied because "which records have a
+; tile" is one question - SPEC.md 29.2 rule 3 - and a second copy of the
+; answer is a second place for a dying record to be offered a menu.
+; -----------------------------------------------------------------------------
+dock_hit:
+    push bx
+    cmp dx, [vid_dock_y0]       ; above the rule: not ours at all
+    jl .miss
+
+    xor di, di                  ; in the strip, no tile yet
+    cmp cx, DOCK_X0             ; left of the first tile
+    jl .in
+    mov ax, cx
+    sub ax, DOCK_X0
+    mov bl, DOCK_STEP           ; slot = (x - DOCK_X0) / DOCK_STEP
+    div bl                      ; AL = slot, AH = within-slot x
+    cmp ah, DOCK_TILE_W         ; in the gap between tiles?
+    jae .in
+    cmp al, INST_MAX            ; past the last slot?
+    jae .in
+    call inst_ptr               ; DI = record (in: AL = index; AX survives)
+    cmp byte [di+I_STATE], 1
+    je .in                      ; live: DI is the answer
+    xor di, di                  ; empty or dying: no tile here
+.in:
+    clc
+    pop bx
+    ret
+.miss:
+    stc
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; dock_click - hit-test a click against the strip (SPEC.md 30)
 ; in:  CX = x, DX = y (absolute); NO lock held (takes it internally)
 ; out: CF = 1 the click was consumed (anywhere in the strip, tile or not),
@@ -350,23 +571,10 @@ dock_click:
     push cx
     push di
 
-    cmp dx, [vid_dock_y0]       ; below the rule?
-    jl .miss
-
-    cmp cx, DOCK_X0             ; left of the first tile: consumed no-op
-    jl .consumed
-    sub cx, DOCK_X0
-    mov ax, cx
-    mov bl, DOCK_STEP           ; slot = (x - DOCK_X0) / DOCK_STEP
-    div bl                      ; AL = slot, AH = within-slot x
-    cmp ah, DOCK_TILE_W         ; in the gap between tiles?
-    jae .consumed
-    cmp al, INST_MAX            ; past the last slot?
-    jae .consumed
-
-    call inst_ptr               ; DI = record (in: AL = index)
-    cmp byte [di+I_STATE], 1    ; empty/dying slot: consumed no-op
-    jne .consumed
+    call dock_hit               ; DI = the live instance under the pointer
+    jc .miss
+    or di, di
+    jz .consumed                ; bare strip, gap or dead slot: consumed no-op
 
     test byte [di+I_FLAGS], 1
     jz .front
@@ -394,14 +602,100 @@ dock_click:
     ret
 
 ; -----------------------------------------------------------------------------
+; dock_rclick - right-press on the strip: a tile's context menu (SPEC.md 30.2)
+; in:  CX = x, DX = y (absolute); NO lock held (takes it internally)
+; out: CF = 1 the press was consumed (anywhere in the strip, tile or not),
+;      CF = 0 not in the dock. All registers preserved.
+;
+; One item, 'Close': the close box of SPEC.md 13 reached from the dock, which
+; is the only way to quit an application without first restoring its window
+; off the strip. It is anchored at the press x and JUST ABOVE the strip
+; (DOCK_CTX_H), so it does not land on the tile it is asking about - the one
+; place this departs from fm_rclick, which anchors on the press outright
+; because a Disk window's rows are nowhere near a screen edge. The strip's
+; own background is
+; consumed and drops NOTHING - a press there is neither a tile nor the
+; desktop, and a menu about no application would be a menu with nothing in it.
+;
+; **The record pointer does not survive the tracker; the slot does.**
+; menu_popup holds the button and yields (SPEC.md 12.4), so a package worker
+; can reach inst_task_die and free the very record this menu is about. So the
+; SLOT is banked, re-resolved afterwards, and re-tested for I_STATE = 1
+; before anything is done to it. Nothing can refill the slot in that window -
+; inst_alloc runs on the UI task, which is standing inside menu_drop - so the
+; state test is sufficient and the I_WIN test after it is insurance.
+;
+; Unbilled, exactly like menu_track and fm_rclick (SPEC.md 13): a held
+; button's dwell time is nobody's CPU cost, and the command that follows
+; destroys the very record it would be charged to.
+; -----------------------------------------------------------------------------
+dock_rclick:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+
+    call dock_hit               ; DI = the live instance under the pointer
+    jc .miss
+    or di, di
+    jz .consumed                ; bare strip: consumed, and no menu
+
+    mov [dock_rslot], al        ; AL = its slot - see above
+    call gfx_lock
+    mov dx, [vid_dock_y0]       ; the menu sits ABOVE the strip rather than on
+    sub dx, DOCK_CTX_H          ; it: CX, the press x, is still the anchor
+    mov bx, dock_ctx_items
+    mov ax, DOCK_CTX_N
+    call menu_popup             ; CF = 1 nothing chosen; else AL = the item,
+    jc .rdone                   ; and 'Close' is the only one there is
+
+    mov al, [dock_rslot]        ; the tracker yielded: find the record again
+    call inst_ptr               ; and take it only if it is still live
+    cmp byte [di+I_STATE], 1
+    jne .rdone
+    mov bx, [di+I_WIN]
+    or bx, bx
+    jz .rdone
+    call app_close_win          ; in: BX; lock held, UI task (SPEC.md 29.4)
+.rdone:
+    call gfx_unlock
+
+.consumed:
+    stc
+    jmp .out
+.miss:
+    clc
+.out:
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; The whole descriptor (SPEC.md 12.4/30.2): one near pointer to a NUL string,
+; and the string is menu.inc's - the same bytes the app-name menu's own Close
+; item draws (SPEC.md 12.7), so the two can never come to say different
+; things. Kernel data, so menu_popup's [menu_dseg] = 0 is right for it.
+dock_ctx_items:
+    dw menu_s_appclose
+
+; -----------------------------------------------------------------------------
 section .bss
 
 dock_gcol:  resb 1              ; dock_paint's [gfx_color] save
-dock_full:  resb 1              ; the rule and the white field are owed
+dock_full:  resb 1              ; the rule and the white field are owed...
+dock_dx1:   resw 1              ; ...over this x span, and no wider: the union
+dock_dx2:   resw 1              ; of what has been drawn over us since the
+                                ; last dock_paint (SPEC.md 30.3)
 dock_drew:  resb 1              ; ...and dock_paint's CF: did anything move?
 dock_act:   resw 1              ; the instance record owning the frontmost
                                 ; visible window, 0 = none. Read per tile, so
                                 ; it is resolved once per dock_paint
+dock_rslot: resb 1              ; the SLOT dock_rclick's popup is about - a
+                                ; record pointer cannot survive the tracker's
+                                ; yields (SPEC.md 30.2)
 dock_ck:    resw INST_MAX       ; what each tile was last DRAWN as (dock_key)
 
 section .text

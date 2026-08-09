@@ -96,6 +96,7 @@ vid_tab:
 ; --- derived from the live block by vid_apply (SPEC.md 39.2) -----------------
 ; Precomputed because the sites that want them are inner loops or single
 ; instructions that have no register to spare for the arithmetic.
+vid_bankmask dw 0              ; gfx_prevrow: DI's bank bits, (nbanks-1)<<13
 vid_wm1     dw SCREEN_W-1       ; last legal x
 vid_hm1     dw SCREEN_H-1       ; last legal y
 vid_wm8     dw SCREEN_W-8       ; font_char's whole-cell clip, and the menu
@@ -113,7 +114,12 @@ vid_rpara   dw BB_PLANE_PARA    ; paragraphs from one plane to the next.
 vid_rend    dw 0                ; that loop's exclusive end
 vid_dock_y0 dw SCREEN_H-24      ; dock strip top row (DOCK_H, dock.inc)
 vid_dock_ty0 dw SCREEN_H-24+3   ; dock tile top row
-vid_clk_hx  dw SCREEN_W-206     ; menu bar clock cell: hit band left edge
+vid_clk_hx  dw (SCREEN_W-206) & 0FFF8h  ; menu bar clock cell: hit band left
+                                ; edge, and the left edge of the clock's own
+                                ; SEGMENT (SPEC.md 12.1) - on a GLYPH CELL
+                                ; boundary, which is what lets the bar's three
+                                ; segments be whole numbers of 8px cells and
+                                ; font_run's single-pass path reach them
 vid_ymax    dw SCREEN_H-18      ; lowest y a title bar may be dragged to
 vid_popmax  dw 16               ; pull-down items that fit under the bar
 vid_desk_zx dw SCREEN_W-56      ; desktop drive column: hit zone left, and
@@ -147,6 +153,14 @@ vid_6845    db 0x35, 0x2D, 0x2E, 0x07, 0x5B, 0x02
 gfx_inktab:
     db 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
     db 0x01, 0x01, 0x01, 0x01, 0xFF, 0x01, 0xFF, 0xFF
+
+; The bank number's byte offset, indexed by the bank itself. `shl bx, 13` is
+; 8 clocks plus 4 per bit on an 8088 - 60 for a shift of a value that has
+; four possible answers, and gfx_rowbase is on the fixed cost of EVERY
+; drawing call (PERFORMANCE.md Part 2). Four banks is the maximum the 0x2000
+; window assertion at the bottom of this file allows.
+vid_banktab:
+    dw 0x0000, 0x2000, 0x4000, 0x6000
 
 ; -----------------------------------------------------------------------------
 ; vid_detect - decide which adapter is installed (SPEC.md 39.1)
@@ -251,7 +265,8 @@ vid_apply:
     mov [vid_wm1], ax
     sub ax, 7
     mov [vid_wm8], ax
-    sub ax, 198                 ; w - 8 - MENU_CLK_W - 6
+    sub ax, 198                 ; w - 8 - MENU_CLK_W - 6, floored to a glyph
+    and ax, 0FFF8h              ; cell: the bar's segments are cell ranges
     mov [vid_clk_hx], ax
 
     mov ax, [vid_h]             ; --- heights
@@ -270,6 +285,11 @@ vid_apply:
     mov ax, [vid_stride]
     dec ax
     mov [vid_strm1], ax
+
+    mov ax, [vid_bmask]         ; gfx_prevrow's test: the bank number lives in
+    mov cl, 13                  ; DI's bits 13..14, so the address mask is the
+    shl ax, cl                  ; y mask shifted up to meet it. 0 on VGA,
+    mov [vid_bankmask], ax      ; which is what makes prevrow a bare subtract
 
     mov ax, [vid_w]             ; --- the desktop's drive column, right-hung
     sub ax, 56
@@ -339,6 +359,27 @@ vid_apply:
 ; is ours to do; bb_init's ordering and the first desktop paint both assume a
 ; cleared framebuffer. The explicit `cld` matters: on the splash path this
 ; runs on the boot sector's flags, and spl_tick never issues one.
+;
+; THE HERCULES SEQUENCE BLANKS FIRST AND UNBLANKS LAST, and that ordering is
+; the whole point of the routine rather than a tidiness (SPEC.md 39.6). The
+; obvious order - configure, program the 6845, enable video, then clear - has
+; the card DISPLAYING for the whole length of the clear, and what it displays
+; is 32KB nobody has written: the BIOS's MDA text page reinterpreted as a
+; bitmap, and above it the card's own DRAM as it powered up. That is a bright,
+; roughly half-lit 720x348 field, and the clear is a `rep stosw` of 16,384
+; words on a 4.77MHz 8088 - tens of milliseconds, several whole frames at
+; 50Hz. On an IBM 5151 the step from a mostly-black text page to a half-lit
+; screen and back is a beam-current swing the flyback answers with an audible
+; pop, and the eye reads as a garbled flash immediately before the progress
+; bar. Blanked, the same 32KB is cleared with the tube dark and the first
+; thing the monitor is ever shown in graphics mode is black.
+;
+; Clearing 3B8h bit 3 gates the VIDEO signal only - the 6845 keeps running and
+; both syncs keep coming out - so blanking costs the monitor nothing. The
+; sync transient while R0..R11 are half-written is unavoidable on a 6845 (its
+; registers are not double-buffered; every mode set in the machine's history
+; has one), but it is a single mistimed frame with the drive never stopping,
+; and behind the blank it is invisible.
 ; -----------------------------------------------------------------------------
 vid_setmode:
     push ax
@@ -354,14 +395,48 @@ vid_setmode:
     mov ax, 0x0012              ; VGA: 640x480x16 planar
     cmp byte [vid_kind], VID_CGA
     jne .bios
+    call vid_cga_equip          ; ...and see there: on a mono-primary machine
+
+    ; --- ZERO B800 WHILE THE CARD IS STILL IN TEXT MODE ---------------------
+    ; The Hercules path below blanks the tube for its whole mode change and
+    ; this one cannot: int 10h owns the CGA's mode control register, so there
+    ; is no window we can hold the card dark across. What there IS is the
+    ; buffer, and it is the same buffer either way - B8000 is the text screen
+    ; now and the bitmap in a moment.
+    ;
+    ; So the garbage is removed rather than hidden. Whatever the ROM's order
+    ; is - and every BIOS has its own - the bytes it switches the card onto
+    ; are already zero, so there is no frame in which the previous TEXT screen
+    ; is displayed as a 640x200 bitmap. That frame is what "the graphics
+    ; memory shows garbage just before the progress bar" is: mode 3's clear
+    ; leaves 0x0720 per cell, which as pixels is a regular field of dots, and
+    ; a hard-disk boot leaves the POST's own text, which is not regular at
+    ; all. NO EMULATOR HERE CAN SHOW IT - they clear instantly - and on a
+    ; 4.77MHz machine the ROM's own 16KB clear is tens of milliseconds.
+    mov ax, 0xB800
+    mov es, ax
+    xor di, di
+    xor ax, ax
+    mov cx, 8192
+    cld
+    rep stosw
+
     mov ax, 0x0006              ; CGA: 640x200 monochrome
 .bios:
     int 0x10
     jmp short .done
 .herc:
-    mov dx, 0x3BF               ; configuration: graphics allowed, both pages
-    mov al, 3
-    out dx, al
+    mov dx, 0x3BF               ; configuration: graphics allowed. Bit 1 - the
+    mov al, 1                   ; second 32KB page - is deliberately NOT set:
+    out dx, al                  ; that page is at B8000, where a CGA in the
+                                ; same machine lives, and this 5150 has both
+                                ; cards in it. We only ever address page 0
+                                ; (max offset 7E96h), so enabling the second
+                                ; decode buys nothing and puts two cards on
+                                ; the bus for the same addresses.
+    mov dx, 0x3B8               ; graphics + page 0, video DISABLED (bit 3
+    mov al, 0x02                ; clear). From here to the last write of this
+    out dx, al                  ; routine the tube is dark - see the header.
     mov si, vid_6845
     mov dx, 0x3B4
     xor ah, ah                  ; AH = CRTC register index
@@ -375,16 +450,16 @@ vid_setmode:
     inc ah
     cmp ah, 12
     jb .crtc
-    mov dx, 0x3B8               ; graphics, video enabled, display page 0
-    mov al, 0x0A
-    out dx, al
-    mov ax, [vid_seg]           ; 32KB clear - nobody else will do it
-    mov es, ax
-    xor di, di
+    mov ax, [vid_seg]           ; 32KB clear - nobody else will do it, and it
+    mov es, ax                  ; happens BEHIND the blank, so the powered-up
+    xor di, di                  ; contents of the card's DRAM are never shown
     xor ax, ax
     mov cx, 0x4000
     cld
     rep stosw
+    mov dx, 0x3B8               ; graphics, page 0, video ON - last, onto a
+    mov al, 0x0A                ; framebuffer that is already black
+    out dx, al
 .done:
     pop es
     pop bp
@@ -397,6 +472,53 @@ vid_setmode:
     ret
 
 ; -----------------------------------------------------------------------------
+; vid_cga_equip - tell the BIOS this is a colour machine, if it thinks it is not
+;
+; in:       -
+; out:      -
+; clobbers: flags
+;
+; THE PC/XT BIOS's MODE SET IS EQUIPMENT-DRIVEN, NOT MODE-DRIVEN. It reads bits
+; 5:4 of the equipment flag at 40:10 and, when they say 11b (a monochrome card
+; at B000), forces mode 7 and the 3B4h CRTC whatever mode was asked for. So on
+; a machine with BOTH cards and its motherboard switches set to mono - which is
+; every machine a `VIDEO=cga` build exists for, since the reason to force CGA is
+; that the probe found the Hercules first - `int 10h AX=0006h` programs the MDA
+; into 80x25 TEXT and never touches the CGA at all.
+;
+; The symptom is exact and was field-reported: the mono monitor shows a cleared
+; text page with a blinking cursor (that IS the mode 7 set), the colour monitor
+; shows nothing at all (its card was never programmed, so it has no sync), and
+; the machine is otherwise perfectly alive - it finishes the boot read and
+; answers Ctrl-Alt-Del. os8088 then draws into a B8000 nobody initialised.
+;
+; Setting the flag to colour first is what DOS's MODE CO80 does and is the only
+; way to reach the second card. Only when it says mono: a machine that already
+; knows it has a CGA is left exactly as it was, which is every auto-detected
+; machine by construction - vid_detect only answers VID_CGA when these two bits
+; are NOT 11b, so on the probe path this routine reads them and returns.
+;
+; The flag is left colour afterwards on purpose. From here on the CGA is the
+; machine's display, and CMD_REBOOT's vid_text (int 10h AX=0003h) has to land
+; on the same card the user has been looking at.
+; -----------------------------------------------------------------------------
+vid_cga_equip:
+    push ax
+    push ds
+    mov ax, 0x0040              ; the BIOS data area
+    mov ds, ax
+    mov al, [0x0010]            ; equipment flag, bits 5:4 = the display
+    and al, 0x30
+    cmp al, 0x30                ; 11b = monochrome at B000
+    jne .out
+    and byte [0x0010], 0xCF
+    or byte [0x0010], 0x20      ; 10b = 80x25 colour
+.out:
+    pop ds
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; vid_init - the whole boot-time video bring-up: probe, publish, set the mode
 ;
 ; in:       -
@@ -404,13 +526,24 @@ vid_setmode:
 ; clobbers: flags
 ;
 ; Idempotent, and deliberately re-run by kmain after the splash already did
-; it - exactly as kmain's mode set has always re-run the splash's own,
-; which is what wipes the loading screen.
+; it - but the MODE SET is now skipped while the splash is still on screen.
+; It used to run unconditionally, and re-setting a mode that is already set
+; is what wiped the loading screen: kmain then spent several more seconds
+; mounting A:, reading SYSTEM.CFG and painting the desktop with the user
+; looking at a blank screen and a progress bar that had been erased at 100%.
+; The splash owns the mode from its first tick until spl_finish, which is the
+; line immediately before the first wm_paint_all (SPEC.md 15.3/39.1).
+;
+; The probe and the publish still re-run, and must: everything between here
+; and that paint reads [vid_w]/[vid_h]/[vid_stride] out of them.
 ; -----------------------------------------------------------------------------
 vid_init:
     call vid_detect
     call vid_apply
+    cmp byte [spl_live], 0      ; the splash set THIS mode on its first tick
+    jne .keep                   ; and is still drawing on it
     call vid_setmode
+.keep:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -430,9 +563,11 @@ vid_text:
     push es
     cmp byte [vid_kind], VID_HERC
     jne .colour
-    mov dx, 0x3BF               ; lock graphics back out, then 80x25 mono
-    xor al, al
-    out dx, al
+    xor al, al                  ; blank before anything else moves, for the
+    mov dx, 0x3B8               ; same reason vid_setmode does: the BIOS mode
+    out dx, al                  ; 7 set below reprograms the 6845 with video
+    mov dx, 0x3BF               ; live otherwise. Then lock graphics back out
+    out dx, al                  ; (AL is still 0) and let mode 7 re-enable.
     mov ax, 0x0007
     jmp short .go
 .colour:
@@ -465,9 +600,9 @@ gfx_rowbase:
     push bx
     mov bx, ax
     and bx, [cs:vid_bmask]      ; BX = bank number
-    mov cl, 13
-    shl bx, cl                  ; BX = bank * 0x2000
-    mov cl, [cs:vid_bshift]
+    shl bx, 1
+    mov bx, [cs:bx + vid_banktab]   ; BX = bank * 0x2000, without the 13-bit
+    mov cl, [cs:vid_bshift]         ; shift an 8088 charges 60 clocks for
     shr ax, cl                  ; AX = row within the bank
     mul word [cs:vid_stride]    ; DX:AX; DX is always 0 (86*90 at worst)
     add ax, bx
@@ -501,6 +636,31 @@ gfx_nextrow:
     jz .r
     add di, [cs:vid_wrapfix]
 .r:
+    ret
+
+; -----------------------------------------------------------------------------
+; gfx_prevrow - the mirror: DI on row y becomes DI on row y-1
+;
+; in/out/clobbers: exactly gfx_nextrow's, DI and flags and nothing else.
+;
+; It exists for SPEC.md 5.6.7's resumable walk, which runs in the CALLER's
+; direction rather than gfx_line's normalised downward one - a missile trail
+; is drawn from the launcher outward and an ABM launches upward, so half of
+; them step y the other way. Everything else in this kernel walks down.
+;
+; The test is on the bank field BEFORE the subtract, which is where this
+; differs from its mirror: nextrow can see its own overflow in the result,
+; and a borrow out of bank 0 is only visible in the operand. bankmask is
+; (nbanks-1) << 13, so it is 0 on VGA and `test di,0` sets ZF - the wrapfix
+; there is 0 too, so the whole thing is `sub di,stride` with no adapter test,
+; exactly as nextrow is an unconditional add.
+; -----------------------------------------------------------------------------
+gfx_prevrow:
+    test di, [cs:vid_bankmask]  ; already in bank 0? then this step borrows
+    jnz .p
+    sub di, [cs:vid_wrapfix]    ; ...so undo the wrap nextrow would have added
+.p:
+    sub di, [cs:vid_rowadd]
     ret
 
 ; The banked addressing above only works while a bank's rows cannot reach
