@@ -129,8 +129,13 @@ cp_wdirty:  db 0                ; 1 = a setting changed and SYSTEM.CFG is owed
                                 ; RECORD of it waits.
                                 ; .text and not .bss, like everything else
                                 ; here: nothing zeroes .bss (-f bin)
-cp_dsave:   db 0                ; 1 = the last SYSTEM.CFG write failed, and
-                                ; the Drivers page's caption says so (51.5)
+cp_dsave:   db 0                ; the last SYSTEM.CFG write: 0 = fine, 1 =
+                                ; wrong disk in A:, 2 = the write failed. Said
+                                ; as a TOAST at the moment it happens (SPEC.md
+                                ; 60.6) rather than carried to a page caption
+                                ; to be found next session; what is left of
+                                ; its old job is telling cp_flush_close_x
+                                ; whether to keep [cp_wdirty] and retry
 
 ; Selected item, index into cp_items. Inline .text data for the same reason;
 ; 0 = Scheduler is the boot selection, so the panel opens on it.
@@ -260,16 +265,49 @@ cp_s_vact:  db 'Activate Mode', 0
 cp_s_vcap:  db 'Switches now, and is kept', 0
 cp_s_vnow:  db 'This adapter is running', 0
 
+%ifdef KERN_BIG
+; The DESKTOP line (SPEC.md 31.10.2): one row of three radios under the button.
+; ONE choice and not two controls - a single display has no layout, so a
+; checkbox plus a direction would carry a fourth state that means nothing.
+;
+; It is not drawn at all on a machine vid_dual_ok refuses, which is SPEC.md
+; 31.10.1's own answer one level down: that page stopped being drawn on a
+; single-adapter machine rather than carrying a caption apologising for
+; itself, and a permanently greyed control here would have to displace the
+; Activate button's say-why-not on the one page where that button is the
+; main control.
+cp_s_vsing: db 'Single', 0
+cp_s_vrgt:  db 'Right', 0
+cp_s_vblw:  db 'Below', 0
+cp_vmodnam: dw cp_s_vsing, cp_s_vrgt, cp_s_vblw
+%endif
+
 ; Display page geometry, PANE-relative. The Sound page's tighter 16px row
-; pitch rather than the two-row pages' 20, because three rows plus a button
-; plus a caption have to fit CP_CH.
+; pitch rather than the two-row pages' 20, because three adapter rows, a
+; button, SPEC.md 31.10.2's desktop row and a caption all have to fit CP_CH -
+; and the two %if guards below are what say so rather than a comment claiming
+; it. 121 rows: adapters at 20/36/52, button 72..89, desktop row 96..107,
+; caption 112..119.
 CPV_R0Y   equ 20                ; row 0 glyph top
 CPV_ROWH  equ 16                ; row pitch: rows at 20, 36, 52
 CPV_BTNX  equ CP_PMX            ; the Activate button, under the rows
 CPV_BTNY  equ 72
 CPV_BTNW  equ 116               ; 'Activate Mode' is 13 glyphs = 104px
 CPV_BTNH  equ 18
-CPV_CAPY  equ 96                ; caption row, below the button
+CPV_MY    equ 96                ; SPEC.md 31.10.2's desktop row: glyph top
+CPV_MSTEP equ 74                ; ...and its radio pitch, so the hit test is
+                                ; one divide like the adapter rows'. Glyphs at
+                                ; 4/78/152, labels at 22/96/170, and the last
+                                ; label ends at 210 inside a CP_PRGT of 221
+CPV_CAPY  equ 112               ; caption row, LAST as it is on every page -
+                                ; which is why the new control went above it
+                                ; rather than below (it was 96)
+%if CPV_CAPY + 8 > CP_CH
+%error "ctrl: the Display page's caption runs past the pane (SPEC.md 31.10.2)"
+%endif
+%if CP_PLX + 2*CPV_MSTEP + 5*8 > CP_PRGT
+%error "ctrl: the Display page's desktop radios run past the pane"
+%endif
 ; Row hit bands: generous and contiguous, like every other page's (31.2). The
 ; bands are laid out for THREE rows whatever the machine has - a row that is
 ; not drawn is refused by cp_vid_row, not by the geometry.
@@ -279,6 +317,14 @@ CPV_B2Y2  equ CPV_R0Y + 2*CPV_ROWH + CP_GW - 1   ; 63: row 2 bottom
 ; ...and the button's, which must start below them
 CPV_BB1   equ CPV_BTNY - 4
 CPV_BB2   equ CPV_BTNY + CPV_BTNH + 3
+; ...and the desktop row's, which must start below THAT: generous and
+; contiguous like every other band on the page (SPEC.md 31.2), so a press
+; between two radios lands on one of them rather than on nothing.
+CPV_MB1   equ CPV_BB2 + 1
+CPV_MB2   equ CPV_MY + CP_GW + 3
+%if CPV_MB1 > CPV_MY
+%error "ctrl: the Display page's desktop band starts below its own glyphs"
+%endif
 
 ; --- Date/Time page (SPEC.md 31.5/37) ----------------------------------------
 cp_s_time:  db 'Date/Time', 0   ; list name AND the page heading
@@ -295,9 +341,30 @@ cp_s_drv:   db 'Drivers', 0     ; list name AND the page heading
 ; string these replace was THIRTY, and painted through the window's right
 ; border into the desktop - invisibly, because until cp_drv_cap existed the
 ; caption was only ever drawn by a driver tick.
-cp_s_dsave: db 'Needs the system disk in '
-cp_s_dsave_l: db 'A:', 0        ; the letter, stamped (SPEC.md 52.10.3)
-cp_s_dserr: db 'Could not save the settings', 0
+; SUBJECT, OUTCOME, CAUSE - in that order, and one string per CAUSE. A
+; message that says only that something failed sends the reader looking, and
+; the two causes here want opposite things done about them: one is the user's
+; disk and one is the disk's own answer. The bar has room for both - the
+; menus segment is 50 cells on the narrowest adapter (640px: ([vid_clk_hx] -
+; MENU_TXT_X0) / 8) and 60 on Hercules, against 38 cells for the longest of
+; these - so terseness buys nothing here and costs the reason.
+cp_s_dsok:  db 'Settings Saved', 0
+cp_s_dsdsk: db 'Settings not saved: wrong disk in '
+cp_s_dsdrv: db 'A:', 0          ; the letter, stamped (SPEC.md 52.10.3): the
+                                ; system volume is not A: on a machine booted
+                                ; from a hard disk, and a message that names
+                                ; the wrong drive is worse than one that names
+                                ; none. This is the only string in the kernel
+                                ; that needs it, and dsk_ltrtab's third entry
+                                ; exists for it
+cp_s_dserr: db 'Settings not saved: disk error', 0
+; Indexed by [cp_dsave] + 1, so slot 0 keeps toast_say's "nothing to say" and
+; SUCCESS gets a message of its own - a save is a thing the user asked for and
+; waited seconds of floppy for, so silence is the wrong report. It only fires
+; when [cp_wdirty] was set, because that is what cp_flush_close_x gates on:
+; closing a panel nobody changed says nothing.
+cp_savetab: dw 0, cp_s_dsok, cp_s_dsdsk, cp_s_dserr
+CP_NSAVE  equ 4
 
 ; --- Sound page (SPEC.md 31.7/34.8) ------------------------------------------
 ; The three row labels are FIXED and name TIERS, not whatever a driver called
@@ -1515,6 +1582,92 @@ cp_vid_rows:
     pop ax
     ret
 
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; cp_vid_msel - which of the three desktop radios is on (module internal)
+; in:  nothing
+; out: AL = 0 Single, 1 Right, 2 Below
+; clobbers: AL, flags
+;
+; DERIVED from SPEC.md 39.19's two bytes every time it is asked - there is no
+; page-local copy of the choice, the way the Scheduler page has none of the
+; scheduler mode. A page that kept one would be a second opinion about a
+; setting the kernel already holds.
+; -----------------------------------------------------------------------------
+cp_vid_msel:
+    mov al, [vid_dmode]
+    or al, al
+    jz .out                     ; Single: no layout, and radio 0
+    mov al, [vid_dlay]
+    inc al
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_vid_mode - the desktop row: Single / Right / Below (SPEC.md 31.10.2)
+; in:  DI = pane left, BP = pane top; gfx lock held
+; out: nothing (all registers preserved; leaves [gfx_color] = CBLACK)
+;
+; Drawn only where there is a choice - see the strings above. cp_vid_rows'
+; label-before-glyph order, for its reason: both want SI, and cp_glyph fills
+; its own box white first so nothing is left half-erased between the two.
+; -----------------------------------------------------------------------------
+cp_vid_mode:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call KERNEL_SEG:cw_vid_dual_ok
+    jc .done
+    call cp_vid_msel
+    mov bh, al                  ; BH = the radio that is on
+    xor bl, bl                  ; BL = the radio being drawn
+.r:
+    mov al, bl                  ; --- SI = this radio's name, BEFORE AX becomes
+    xor ah, ah                  ; the x offset: both want it
+    shl ax, 1
+    mov si, ax
+    mov si, [si + cp_vmodnam]
+
+    mov al, bl                  ; AX = this radio's x offset within the pane
+    mov cl, CPV_MSTEP
+    mul cl                      ; mul r/m8: AX = AL * op
+
+    mov cx, di                  ; --- the label
+    add cx, CP_PLX
+    add cx, ax
+    mov dx, bp
+    add dx, CPV_MY + CP_PLDY
+    mov byte [gfx_color], CBLACK
+    push ax
+    call KERNEL_SEG:cw_font_str
+    pop ax
+
+    mov si, cp_radio_off        ; --- the glyph
+    cmp bl, bh
+    jne .g
+    mov si, cp_radio_on
+.g:
+    mov cx, di
+    add cx, CP_PGX
+    add cx, ax
+    mov dx, bp
+    add dx, CPV_MY
+    call cp_glyph
+
+    inc bl
+    cmp bl, 3
+    jb .r
+.done:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; cp_vid_btn - the Activate button, greyed when there is nothing to activate
 ; in:  DI = pane left, BP = pane top; gfx lock held
@@ -1634,6 +1787,9 @@ cp_vid_paint:
 
     call cp_vid_rows
     call cp_vid_btn
+%ifdef KERN_BIG
+    call cp_vid_mode
+%endif
     call cp_vid_cap
 
     pop si
@@ -1669,7 +1825,8 @@ cp_vid_click:
     cmp dx, CPV_BB1             ; --- the Activate button ---
     jl .rows
     cmp dx, CPV_BB2
-    jg .done
+    jg .mode                    ; ...and BELOW it is the desktop row now, not
+                                ; the bottom of the page
     cmp cx, CPV_BTNX
     jl .done
     cmp cx, CPV_BTNX + CPV_BTNW - 1
@@ -1681,6 +1838,46 @@ cp_vid_click:
     jc .done                    ; refused: the adapter went away under us
     mov byte [cp_wdirty], 1     ; ...remembered on close (SPEC.md 31.8)
     mov byte [cp_dirty], 1      ; ...and the whole screen is a new shape
+    jmp short .done
+
+.mode:                          ; --- the desktop row (SPEC.md 31.10.2) ---
+%ifdef KERN_BIG
+    cmp dx, CPV_MB1
+    jl .done
+    cmp dx, CPV_MB2
+    jg .done
+    call KERNEL_SEG:cw_vid_dual_ok
+    jc .done                    ; not drawn on this machine, so not clickable
+    mov ax, cx                  ; AH = 0: cx is pane-relative and CP_PRGT is
+    sub ax, CP_PGX              ; 221, so this cannot carry
+    jl .done
+    mov cl, CPV_MSTEP
+    div cl                      ; AL = which radio, AH = the remainder
+    cmp al, 3
+    jae .done
+    mov ah, al                  ; ...and is it the one already on?
+    call cp_vid_msel
+    cmp al, ah
+    je .done                    ; draw nothing, exactly like the rows above
+
+    mov al, ah                  ; SPEC.md 39.19's two bytes, from the three
+    or al, al                   ; arrangements: Single has no layout
+    jz .msing
+    dec al
+    mov [vid_dlay], al
+    mov byte [vid_dmode], 1
+    jmp short .mgo
+.msing:
+    mov byte [vid_dmode], 0
+.mgo:
+    ; ...and it takes effect NOW, with only the record of it waiting for the
+    ; close (SPEC.md 31.8). NOTHING IS REDRAWN, for the Activate button's
+    ; reason one screen up: vid_disp_init moves the desktop and re-fits every
+    ; window, so DI/BP describe a rectangle that may no longer exist.
+    call KERNEL_SEG:cw_vid_disp_relay
+    mov byte [cp_wdirty], 1
+    mov byte [cp_dirty], 1
+%endif
     jmp short .done
 
 .rows:                          ; --- the radio rows ---
@@ -2355,25 +2552,42 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in
 ; flushing on the two ways the panel can go away, teardown and reboot, rather
 ; than on the one obvious one.
 ;
-; [cp_dsave] carries a failed write to the Drivers page's caption, the only
-; page with room to say it. It now says so the NEXT time the panel is opened,
-; because by the time the write happens the page is gone - and cp_flush_close_x
-; leaves [cp_wdirty] set on failure, so the next close retries rather than
-; silently dropping it.
+; **A FAILED WRITE IS SAID AS A TOAST** (SPEC.md 60.6). It used to be carried
+; in [cp_dsave] to the Drivers page's caption - the only page with room for it
+; - and reported the NEXT time the panel was opened, because by the time the
+; write happens the page is gone. That is a verdict stored to be found later,
+; which is exactly what a toast replaces: it says so WHEN IT HAPPENS, on the
+; bar, which no window can cover and which is still there after this one is
+; destroyed. [cp_dsave] survives for its other job - cp_flush_close_x leaves
+; [cp_wdirty] set on failure, so the next close retries rather than silently
+; dropping the settings.
+;
+; It is said AFTER the write and not before, which is not a style choice:
+; drv_cfg_save arms SPEC.md 12.8's file-activity widget, and fpg_begin retires
+; a live toast because the two cannot share those pixels (SPEC.md 60.3).
 ; -----------------------------------------------------------------------------
 cp_flush_x:
     push ax
+    push bx
+    push cx
     call KERNEL_SEG:cw_drv_cfg_save
     mov byte [cp_dsave], 0
-    jnc .out
+    jnc .say
     mov byte [cp_dsave], 2      ; the write itself failed: full, protected, I/O
     cmp ax, FERR_NODISK         ; ...as against no disk in A: at all, or a disk
     je .wrongdisk               ; that is not the SYSTEM one (SPEC.md 51.5.1),
     cmp ax, FERR_NOENT          ; which is one thing the user can act on and so
-    jne .out                    ; earns a caption that says what to do
+    jne .say                    ; earns a message that says what to do
 .wrongdisk:
     mov byte [cp_dsave], 1
-.out:
+.say:
+    mov al, [cp_dsave]
+    inc al                      ; slot 0 stays toast_say's "nothing to say"
+    mov bx, cp_savetab
+    mov cx, CP_NSAVE
+    call KERNEL_SEG:cw_toast_say
+    pop cx
+    pop bx
     pop ax
     ret
 
@@ -2846,11 +3060,11 @@ cp_drv_paint:
     cmp bx, DRV_MAX
     jb .row
 
-    call cp_drv_boxes               ; every checkbox, from the live state
-    call cp_drv_cap                 ; ...and a failed save, which is reported
-                                    ; the next time the panel is OPENED
-                                    ; (SPEC.md 31.8): the write happens at the
-                                    ; close, when this page no longer exists
+    call cp_drv_boxes               ; every checkbox, from the live state.
+                                    ; NO save caption: a failed write is said
+                                    ; as a toast at the moment it fails
+                                    ; (SPEC.md 60.6), so this page has nothing
+                                    ; left to report from a previous session
     pop si
     pop dx
     pop cx
@@ -2886,12 +3100,6 @@ CP_DSTDY  equ CP_PLDY + 9       ; 11: the reason line, one text row under the
 CP_DBY1   equ CP_DR0Y - 4                       ; the first band's top
 CP_DBYN   equ CP_DBY1 + CP_DROWH * DRV_MAX      ; ...and one past the last
 
-; ...and so is the caption, for the same reason and a sharper symptom: it sat
-; at CP_PCAPY (74), which was below two rows and INSIDE the third. cp_drv_cap
-; wipes a full-width line, so a third driver had the top of its name and
-; checkbox erased on every paint - it read as the page being clipped by the
-; window rather than as two numbers colliding.
-CP_DCAPY  equ CP_DBYN + 2
 
 cp_drv_rowy:
     push ax
@@ -3109,49 +3317,6 @@ cp_drv_line1:
     pop dx
     pop cx
     pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; cp_drv_cap - the save caption, and only a failed save speaks here
-; in:  DI = pane left, BP = pane top; gfx lock held
-; out: nothing (all registers preserved)
-;
-; **cp_drv_paint's, and ONLY cp_drv_paint's.** It used to be inline in the
-; click path's status-line redraw, so the report only ever appeared if the user
-; happened to tick something after a failed save, in the same session. The
-; page's own paint drew everything else and not this, and SPEC.md 31.8 has
-; always said the opposite: by the time the write happens the page is gone, so
-; the failure is reported the NEXT time the panel is opened. That is now true.
-;
-; The click path does not call it at all, and must not: only cp_flush_x writes
-; [cp_dsave] and that runs at the close, so the caption cannot change while the
-; page is on screen and a wipe-and-letter of it per click is the erase-and-
-; letter pair PERFORMANCE.md Part 1 is about, spent on unchanged text.
-; -----------------------------------------------------------------------------
-cp_drv_cap:
-    push ax
-    push cx
-    push dx
-    push si
-    mov dx, bp
-    add dx, CP_DCAPY            ; BELOW every driver row, derived from DRV_MAX
-    mov ax, CP_PMX              ; the caption owns the pane's full width
-    call cp_drv_wipe            ; ...which leaves the pen CBLACK
-    cmp byte [cp_dsave], 0
-    je .out
-    mov si, cp_s_dsave
-    cmp byte [cp_dsave], 1
-    je .say
-    mov si, cp_s_dserr
-.say:
-    mov cx, di
-    add cx, CP_PMX
-    call KERNEL_SEG:cw_font_str
-.out:
-    pop si
-    pop dx
-    pop cx
     pop ax
     ret
 

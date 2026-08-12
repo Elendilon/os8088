@@ -425,6 +425,11 @@ gfx_scroll:
     push dx
     push si
     push di
+    GFXDENTER                   ; a blit cannot take a sub-rect (SPEC.md 11.3),
+    GFXDORG cx, dx              ; so it goes onto the display holding its top
+                                ; left - and the two edge tests below then
+                                ; REFUSE a rect that reaches past that display,
+                                ; which is 39.14.2's straddle rule for free
     test ax, 7                  ; byte-column granularity on every adapter
     jnz .no
     mov di, cx
@@ -435,9 +440,9 @@ gfx_scroll:
     ja .no
     cmp bx, dx
     ja .no
-    cmp cx, [vid_w]
+    cmp cx, [vid_cw]
     jae .no                     ; also catches a "negative" x1 via x1 <= x2
-    cmp dx, [vid_h]
+    cmp dx, [vid_ch]
     jae .no
     or si, si
     jz .no
@@ -512,7 +517,8 @@ gfx_scroll:
 .no:
     stc
 .out:
-    pop di
+    GFXDLEAVE                   ; ...and it banks CF, which is this routine's
+    pop di                      ; whole answer
     pop si
     pop dx
     pop cx

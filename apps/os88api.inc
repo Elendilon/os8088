@@ -73,6 +73,7 @@ KERNEL_SEG   equ 0x0060     ; where the kernel is, and what ES holds on entry.
 DBG_TAG_MOUSE equ 0x4F4D          ; 'MO' - SPEC.md 9.4.2, unconditional
 DBG_TAG_DISK  equ 0x4444          ; 'DD' - SPEC.md 18.94, `make DISKCNT=1`
 DBG_TAG_CLOCK equ 0x4B43          ; 'CK' - SPEC.md 37.92, unconditional
+DBG_TAG_VIDEO equ 0x4456          ; 'VD' - SPEC.md 57.4, unconditional
                             ; It is baked into every OSAPI_* far call, so a
                             ; package built against a different value calls
                             ; into empty memory: rebuild EVERY .o88 (and the
@@ -154,6 +155,17 @@ CWHITE    equ 15
 %define OSAPI_WM_CREATE     KERNEL_SEG:0x0078   ; SI=template; out BX = win ptr, CF on full
 %define OSAPI_WM_SHOW       KERNEL_SEG:0x0080   ; BX=win ptr
 %define OSAPI_WM_HIDE       KERNEL_SEG:0x0088   ; BX=win ptr
+%define OSAPI_WM_DESTROY    KERNEL_SEG:0x0398   ; BX = a window of YOURS; the gfx
+                                 ; lock is held, as OSAPI_WM_HIDE wants it. Frees
+                                 ; the RECORD - hide only takes the pixels down,
+                                 ; and the slot stays used with your segment in
+                                 ; its W_SEG. That is fine for a window you keep
+                                 ; and fatal for one you close while your IMAGE
+                                 ; is about to be unloaded, which is the unowned
+                                 ; species (SPEC.md 38.1): a driver's windows,
+                                 ; and a package's second one. An app's own
+                                 ; window needs neither - closing it tears the
+                                 ; instance down and the kernel frees the record
 %define OSAPI_WM_FRONT      KERNEL_SEG:0x0090   ; BX=win ptr
 %define OSAPI_WM_CONTENT    KERNEL_SEG:0x0098   ; BX=win ptr; out AX=content left, DX=top
 %define OSAPI_WM_OBSCURED   KERNEL_SEG:0x00A0   ; BX=win ptr; out CF=1 if covered
@@ -630,7 +642,10 @@ CPU_386             equ 2        ; tier 2: the above, plus unreal mode
                                  ; defaults (SPEC.md 51.5). A WRITE NEVER
                                  ; TOUCHES THE DISK: the bytes ride the next
                                  ; Control Panel flush, which is the panel's
-                                 ; close or Special > Restart and nothing else
+                                 ; close or the System menu's Restart and
+                                 ; nothing else (Restart moved off Locator's
+                                 ; own bar to cell 0 of every application,
+                                 ; SPEC.md 12.3.1)
                                  ; (SPEC.md 31.8). The old verb 2, "write the
                                  ; file NOW", is retired and reads as 1
 
@@ -984,8 +999,16 @@ AMENU_TITLE equ 0           ; word: NUL menu title (the bar cell's text)
 AMENU_ITEMS equ 2           ; word: array of near ptrs to NUL item strings
 AMENU_NITEM equ 4           ; word: item count
 AMENU_ENTSZ equ 6
-MENU_APPMAX equ 4           ; menus the bar can host per app; extras are
-                            ; silently dropped by the kernel's layout pass
+MENU_APPMAX equ 5           ; menus the bar can host per app; extras are
+                            ; silently dropped by the kernel's layout pass.
+                            ; It was 4 until SPEC.md 22.12 gave the Disk
+                            ; window an Edit menu - a WIDENING, so a package
+                            ; built against 4 is unaffected and nothing here
+                            ; renumbered. What still bounds you is the BAR,
+                            ; not this: menu_relayout stops at the first
+                            ; title that would reach the clock's band, so
+                            ; five SHORT titles fit where four long ones may
+                            ; not (SPEC.md 12.2)
 MENU_MAXCH  equ 24          ; glyphs of item text a pull-down shows; longer
                             ; items are TRUNCATED, not wrapped
 MENU_DIS    equ 1           ; an item string that BEGINS with this byte is
@@ -1215,7 +1238,7 @@ WT_SIZE    equ 16
 %macro OS88_MENUSET_END 1
 %1 %+ _end:
     %if (%1 %+ _end - %1 %+ _list) / AMENU_ENTSZ > MENU_APPMAX
-        %error "OS88_MENUSET: at most MENU_APPMAX (4) menus fit in the bar"
+        %error "OS88_MENUSET: at most MENU_APPMAX (5) menus fit in the bar"
     %endif
 %endmacro
 
@@ -1247,7 +1270,7 @@ OS88_IMAGE_SIZE equ os88_image_end - $$
 OS88_BSS_SIZE equ 0
     %endif
     %if (OS88_IMAGE_SIZE + OS88_BSS_SIZE) > APP_MAX_SIZE
-        %error "package too big: image + bss must fit in APP_MAX_SIZE (0x4E00)"
+        %error "package too big: image + bss must fit in APP_MAX_SIZE"
     %endif
 %endmacro
 
@@ -1612,6 +1635,25 @@ GLS_SZ    equ 14                 ; the walk state, in YOUR bss
                                                  ; 11.96.1). Costs nothing if
                                                  ; refused; wrong if the
                                                  ; promise is
+%define OSAPI_TOAST         KERNEL_SEG:0x0380   ; ES:SI = a NUL line, CX =
+                                 ; ticks to live (0 = ~3s at 18.2 Hz). Says it
+                                 ; as an inverse-video strip at the right end
+                                 ; of the MENU BAR and takes it down on its
+                                 ; own (SPEC.md 60) - so it costs your window
+                                 ; no pixels, survives a repaint without your
+                                 ; help, and cannot leave your incremental
+                                 ; drawing disagreeing with your W_PAINT.
+                                 ; An EMPTY string retires whatever is up, so
+                                 ; taking a message down early is one call and
+                                 ; needs no flag of your own. ES:SI rather
+                                 ; than your DS, for OSAPI_CLIP_PUT's reason:
+                                 ; the text is often in a heap claim. The
+                                 ; string is COPIED, so it may be scratch and
+                                 ; your app may close while it is still up.
+                                 ; Context: ANY - it stages and returns, and
+                                 ; the UI task draws. So a worker may call it,
+                                 ; and so may a callback holding the gfx lock.
+                                 ; CF = 1 refused. Preserves all but the flags
 %define OSAPI_EVQ_PENDING   KERNEL_SEG:0x0338   ; out AX = events still queued
                                  ; behind the one being dispatched (SPEC.md
                                  ; 13.4). "Am I about to be asked to do this
@@ -1655,6 +1697,20 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
 ; and no cursor, so you may write between two reads. That is the point - the
 ; loop this exists for is read -> write -> read, and the write walks
 ; directories and the FAT.
+; --- SPEC.md 18.9.3: the batch bracket ---------------------------------------
+; "The interface is frozen and the disk is the same disk." Between these two,
+; a FLOPPY may reuse its banked BPB instead of re-reading LBA 0 at every volume
+; switch - which on a copy or an install is one call and one revolution per
+; switch, and was 41 of one install's 199 (SPEC.md 18.94.2).
+;
+; It NESTS, and it does not have to be closed: any gfx_unlock ends it, which is
+; every way out of a locked run of kernel code. So a caller cannot leave one
+; open across a moment when the user could reach the drive - and equally, a
+; caller that unlocks in the middle of its own operation gets no benefit from
+; the half after, which is the trade that makes the rule checkable.
+%define OSAPI_BATCH_BEGIN   KERNEL_SEG:0x0388   ; no arguments, no answer
+%define OSAPI_BATCH_END     KERNEL_SEG:0x0390   ; ...and the other end
+
 %define OSAPI_FILE_APPEND   KERNEL_SEG:0x0350   ; SI = NUL 8.3 name, ES:BX =
                                  ; bytes, CX = count (>= 1); out CF=0 AX=0,
                                  ; else AX = FERR_*. The file must already

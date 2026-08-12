@@ -131,8 +131,9 @@ emulator have the hardware": a ✅ means reach for it first.
 | A **cross-wired IRQ** (SPEC.md §9.5.2) | ➖ | ✅ | `make test MOUSEPORT=com2irq4` | the Compaq Portable III: mouse at 2F8 driving IRQ4. Undetectable before the fix |
 | A **modem** on the other port | ➖ | ✅ | a socket chardev at 3F8 — see below | eight result codes claim nothing, move nothing, click nothing |
 | Performance benchmarks | ✅ | ✅ | `make bench` (from `tests/`, not in `all`) | numbers are always in flux — see below |
-| **Flicker** — the double-draw flash | ✅ | ❌ | `os88marty.py flicker` (PERFORMANCE.md Part 3.1) | one sample per displayed frame. A Disk window repaint flashes 1,963 px for 166 ms; an idle desktop and a pointer move measure zero. CGA and VGA — MartyPC's MDA does not rasterise Hercules graphics mode |
+| **Flicker** — the double-draw flash | ✅ | ❌ | `os88marty.py flicker` (PERFORMANCE.md Part 3.1) | one sample per displayed frame. A Disk window repaint flashes 1,963 px for 166 ms; an idle desktop and a pointer move measure zero. CGA, Hercules and VGA — the MDA's rasterisation of Hercules graphics was measured working at the pinned build (docs/MARTYPC-DEBUG.md); this row used to exclude it |
 | Fullscreen exclusive (SPEC.md §53) | ➖ | ✅ | `make test TESTAPPS=build/fsxtest.img` | every FSXM mode the adapter owns sets, draws and restores — the desktop screendump below the bar is byte-identical after a full sweep; Mode X dumps 640x480 (line-doubled 320x240) |
+| **What the guest WROTE to a floppy** | ✅ | ⚠️ | `tools/os88flush.py diff 0` (docs/MARTYPC-DEBUG.md); on QEMU the mounted `.img` is written in place, so `os88disk.py --verify` it after `quit` | the only route to os8088's write path that is not os8088's read path. A Control Panel close adds `SYSTEM.CFG` and moves sectors 1, 3, 5, 268 — both FATs, the root, the data cluster: SPEC.md §18.4's commit order, seen from outside. QEMU's ⚠️ is that its writeback is all-or-nothing at exit, so there is no *mid-session* snapshot and no per-drive control |
 | Boot-sector relocation (SPEC.md §2.7) | ✅ | ✅ | `make test RAMKB=<n>` — see below | 105 boots, 104 prints `RAM` and never loads a byte |
 | A machine that reports a **small** `int 12h` to the KERNEL | ✅ | ❌ | MartyPC `conventional.size`, or 86Box `mem_size` | `RAMKB=` moves the sector only; the heap still sees the real answer. MartyPC's real BIOS counts what the config says it has |
 | Video **detection probe** | ✅ | ❌ | `make marty`, or `make xt-cga` / `xt-hercules` | MartyPC has a modelled CGA and MDA/Hercules, so the probe genuinely runs — this stopped being 86Box-only |
@@ -683,7 +684,7 @@ teardown (SPEC.md 31.8), so a persistence run is: mount, type a geometry,
 be on the desktop with no clicks at all. A run that quits with the panel still
 open reboots with the probe's numbers back and nothing mounted, which reads
 exactly like the blob not persisting and is the test being wrong. **Minimizing
-is not closing**, and neither is a hard reset from outside; Special > Restart
+is not closing**, and neither is a hard reset from outside; the System menu's Restart
 is the other way that does flush.
 
 Worth testing once as a pair, because it is the property the blob exists for:
@@ -715,6 +716,15 @@ therefore exactly the kind of thing that ships broken.
 emulator, builds an image or checks a document. Most of it is one file doing
 one job and belongs at the top level, which is where `os88marty.py`,
 `os88disk.py`, `mouse.py` and the rest are.
+
+A few of them are **gates in their own right**, and are run the same way the
+`tests/` packages are — `python3 tools/<x>.py [machine]` against a built tree:
+`sucheck.py` (the raise cache, SPEC.md §11.96 — see "Prefer a self-checking
+harness" below for the way it once passed without testing anything) and
+`tools/notepad/pixcheck.py` (Note Pad's incremental redraw against a forced
+full repaint). `tests/dualcheck.py` is the same species living on the other
+side of the line, because what it drives is a machine rather than a program
+(two adapters in one box, §39.11.1).
 
 **A tool that grows into several files gets a directory, and the directory is
 named for WHAT IT DRIVES**, not for what it does:
@@ -1387,6 +1397,25 @@ time, two rows whose relative sizes are known in advance, a ratio you can
 recompute by hand from the columns next to it. A harness that reports one
 number per run is one you have to trust.
 
+**And the sharper form of the same rule: a gate must not be able to pass by
+doing nothing.** `tools/sucheck.py` — the raise cache's gate (SPEC.md §11.96)
+— covered Solitaire by clicking a hard-coded (300, 40) on the Disk window's
+title bar, and on the geometry it actually produces that point is **inside
+Solitaire's own rect**. So the click went to the window that was already
+frontmost, nothing was raised, nothing was covered, `wm_su_take` was never
+entered — and the run reported *78 differing bytes of 128,000* and PASS,
+because comparing the screen with itself is the best possible score. A healthy
+run reports 124. **The vacuous figure was better than the real one**, which is
+the failure mode to design against: a number in the right range is not
+evidence that the thing under test ran. Two fixes, and it wants both — the
+click point is now computed from the window rects read out of the guest and
+asserts that an uncovered strip exists, and the claim map is an assertion
+rather than a note, so "the cache was never taken" fails instead of
+explaining itself away. It cost a session's worth of counters in `wm_su_take`
+to find, and the counters were only reached for because the claim map was
+empty; had the cache been small enough to miss, the gate would still be
+green and still be testing nothing.
+
 ### What the emulator cannot show at all
 
 Not "shows inaccurately" — cannot show. **Do not call all of these
@@ -1526,9 +1555,13 @@ middle of that range.
 > which sits perfectly still for seconds before the floppy is touched
 > (measured — an 8.3 s "boot" showing a quarter of the desktop's lit pixels),
 > and "has the card left text mode" hangs the full timeout on Hercules, whose
-> MDA reports text mode in every mode. The gate is the **menu bar's white
-> field**, read through `vram` on the 1bpp cards and `fbuf` on VGA. CGA 17.5 s,
-> Hercules 16.1 s, VGA 7.1 s, against the 26 s fixed sleep it replaces.
+> MDA reports text mode in every mode. The gate is the **desktop** — the menu
+> bar's white field, the 1px black rule under it and the dock strip, three
+> facts from ONE read of the screen, because a gate and a stillness test that
+> read it separately can answer about a state that never existed on an
+> emulator running the guest faster than real time (docs/MARTYPC-DEBUG.md).
+> Read through `vram` on the 1bpp cards and `fbuf` on VGA. CGA 4.6 s,
+> Hercules 4.7 s, VGA 7.1 s, against the 26 s fixed sleep it replaces.
 >
 > `m.sym("fpg_on")` — or `python3 tools/os88sym.py --all` — is where a kernel
 > symbol lives. **Never take one from `nasm -l`.** For anything in `.bss` the
@@ -1563,8 +1596,20 @@ that neither of the others does:
   driver takes the classic `0x48`+`0x1C` auto-init path rather than QEMU's
   SB16 one. `tests/sbtest` gives the same 2.00 s at 1000.0 Hz on both.
 
+- **The floppy the guest has been writing to, back on the host.**
+  `tools/os88flush.py` (docs/MARTYPC-DEBUG.md): `diff` says what changed since
+  the mount, `ls -R` and `get` read the volume with no kernel code involved,
+  `verify` hands it to `os88disk.py`'s structural fsck. It is the only route
+  to os8088's write path that is not also os8088's read path — and it shows
+  the hidden and system files (SPEC.md §19.6) that are invisible from inside
+  the OS by design. **Its `writes` counter is not a dirty flag**; `dirty()`
+  compares content, and the reason is an upstream bug worth knowing about
+  (docs/MARTYPC-DEBUG.md).
+
 What it does **not** cover, and where to go instead: 286/386 (86Box), and
-**anything with a disk in it** (the 5150, and nothing else).
+**anything with a disk in it** (the 5150, and nothing else) — noting that
+"a disk in it" is about **timing**. What the guest *wrote* is checkable here,
+per the bullet above; how long it took is not.
 
 **Input is not on that list either, and no guest module was needed for it.**
 `os88marty.py key` enters the emulator's keyboard buffer, so the guest sees a

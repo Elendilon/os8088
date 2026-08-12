@@ -93,7 +93,23 @@ DRVE_BUSY   equ 6               ; ...or found it and cannot have it, because
                                 ; the fix for the two is not the same one -
                                 ; DRVE_HW wants a card, this wants a jumper
                                 ; or a different port (SPEC.md 58.2)
-DRVE_NERR   equ 7               ; how many strings drv_errstr has
+DRVE_TWICE  equ 7               ; a driver was asked to attach while it was
+                                ; already attached. THE ONLY CODE HERE THAT
+                                ; BLAMES THE SOFTWARE: every other value is a
+                                ; fact about the machine the user might act on,
+                                ; and this one says the machine is fine and the
+                                ; code is wrong. It exists because that bug is
+                                ; otherwise SILENT and expensive - snd_entry
+                                ; let DRVV_READY fall into its attach body and
+                                ; re-attached on every single load, which
+                                ; succeeded (the hardware is still there and
+                                ; answers the second probe) while orphaning a
+                                ; 12KB DMA claim, so the only symptom was a
+                                ; heap 12KB short. A second attach now refuses
+                                ; and SAYS SO, on the Drivers page and in the
+                                ; boot notice, next to the driver's own name
+                                ; (SPEC.md 51.2.2)
+DRVE_NERR   equ 8               ; how many strings drv_errstr has
 
 ; --- .drv header: the .o88 header's shape with a different version -----------
 DRV_H_MAGIC equ 0               ; word: 0x384F ('O','8')
@@ -179,7 +195,21 @@ DSV_CPPAINT equ 20              ; dw: near proc, that page's paint - in
                                 ; DI = pane left, DX = pane top, lock held
 DSV_CPCLICK equ 22              ; dw: near proc, that page's click - in
                                 ; DI/DX as above, CX/BX = pane-relative x/y
-DSV_SIZE    equ 24
+DSV_CPCLOSE equ 24              ; dw: near proc, "the Control Panel has been
+                                ; closed" - no arguments, no answer, and the
+                                ; gfx lock is HELD (app_close_win's contract),
+                                ; so a driver may draw and may destroy its own
+                                ; windows here. 0 = do not tell me.
+                                ;
+                                ; For page-only state that is worth holding
+                                ; while the panel is up and not after it:
+                                ; HDD.DRV frees the 11KB disk-tool image here
+                                ; (SPEC.md 52.11.4). It is NOT a detach and
+                                ; must not be treated as one - the driver is
+                                ; still loaded, its volumes are still mounted,
+                                ; and the panel may be opened again in a
+                                ; second
+DSV_SIZE    equ 26
 
 ; --- SYSTEM.CFG: a KEYED record file (SPEC.md 51.5) --------------------------
 ; It is the whole Control Panel's file, not just the driver list: every
@@ -248,7 +278,13 @@ CFG_VID     equ 7               ; db: the display adapter (SPEC.md 39.11.3) -
                                 ; has that card - which is what stops a disk
                                 ; carried from a machine with a Hercules in it
                                 ; booting this one to a dead monitor
-CFG_DBLOB   equ 8               ; DRV_BLOB_SZ bytes: A DRIVER'S OWN SETTINGS,
+CFG_VDM     equ 8               ; db: [vid_dmode], Single or Extend (39.19)
+CFG_VDL     equ 9               ; db: [vid_dlay], where display 1 sits. Both
+                                ; range-checked before they are stored, on
+                                ; CFG_SCH's terms: a byte from a future
+                                ; version leaves the default alone rather
+                                ; than selecting nonsense
+CFG_DBLOB   equ 10              ; DRV_BLOB_SZ bytes: A DRIVER'S OWN SETTINGS,
                                 ; and the kernel does not know what is in
                                 ; them (SPEC.md 51.9). It knows the NAME and
                                 ; the LENGTH, carries them to disk and back,
@@ -279,8 +315,14 @@ drv_cfg_keys:
     db 1, 1, CFG_SCH
     dw 'BB'                     ; Back Buffer
     db 1, 1, CFG_BB
-    dw 'VM'                     ; Video Mode - which adapter (SPEC.md 39.11.3)
-    db 1, 1, CFG_VID
+    dw 'VM'                     ; Video Mode - which adapter, then SPEC.md
+    db 2, 3, CFG_VID            ; 39.19's two arrangement bytes. ver 2 because
+                                ; it WAS one byte: an old record's VM stops
+                                ; matching and the defaults stand, which is
+                                ; this table's whole compatibility story used
+                                ; as written - and every other key in the file
+                                ; still loads, keys being matched by name one
+                                ; at a time
     dw 'HD'                     ; Hard Disk - the DRIVER's own blob (51.9)
     db 1, DRV_BLOB_SZ, CFG_DBLOB
 CFG_NKEY    equ 8
@@ -403,7 +445,7 @@ drv_tab:
     db 0
 
 drv_errstr:                     ; DRVE_* -> what the user is told
-    dw drv_e0, drv_e1, drv_e2, drv_e3, drv_e4, drv_e5, drv_e6
+    dw drv_e0, drv_e1, drv_e2, drv_e3, drv_e4, drv_e5, drv_e6, drv_e7
 drv_e0: db 'Loaded', 0
 drv_s_off: db 'Not loaded', 0   ; ...and what a row that never failed and is
                                 ; not up says instead (drv_status)
@@ -417,6 +459,8 @@ drv_e3: db 'Not a valid driver', 0
 drv_e4: db 'Not enough memory', 0
 drv_e5: db 'No hardware found', 0
 drv_e6: db 'Port or IRQ in use', 0
+drv_e7: db 'Attached twice (bug)', 0    ; 20 chars, drv_e1's width - the widest
+                                ; the Drivers page caption takes
 
 ; -----------------------------------------------------------------------------
 ; drv_init - the state the table cannot carry as initialised data
@@ -578,6 +622,25 @@ drv_pub_seg:
 
 drv_owns_seg:
     push ax
+    push bx                     ; BX is banked because the second pass BELOW
+    push cx                     ; rewrites it, and this is an input-only
+    push si                     ; register to every caller
+    call drv_seg_scan
+    jnc .out
+    call mem_owner_of           ; SPEC.md 52.11.6: not a driver image itself -
+    jc .out                     ; is it a claim OWNED by one? A driver's SECOND
+    call drv_seg_scan           ; image (52.11) is exactly that, and it is not
+.out:                           ; in drv_tab by design. ONE level, like
+    pop si                      ; mem_own_drv's
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; drv_seg_scan - the drv_tab walk itself. in BX = segment; out CF=0 if a
+; loaded row's image starts there. Clobbers flags.
+drv_seg_scan:
+    push ax
     push cx
     push si
     mov si, drv_tab
@@ -615,25 +678,25 @@ drv_owns_seg:
 ; -----------------------------------------------------------------------------
 drv_status:
     push ax
+    mov al, [bx+DRVR_ERR]       ; A REPORTED REASON OUTRANKS 'Loaded', which is
+    cmp al, DRVE_OK             ; the one thing that changed here: a driver can
+    je .noerr                   ; now be up AND have said something went wrong
+    cmp al, DRVE_NERR           ; (DRVE_TWICE, banked by drv_attach off the
+    jae .noerr                  ; DRVV_READY call), and 'Loaded' would be true
+    mov ah, 0                   ; and useless. Nothing else reaches that state
+    shl ax, 1                   ; - every success path stores DRVE_OK - so no
+    mov si, ax                  ; existing row's caption moves. A code from a
+    mov si, [si+drv_errstr]     ; future version still says nothing rather than
+    pop ax                      ; indexing past the table
+    ret
+.noerr:
     cmp word [bx+DRVR_SEG], 0
     jne .loaded
-    mov al, [bx+DRVR_ERR]
-    cmp al, DRVE_OK
-    je .off
-    cmp al, DRVE_NERR
-    jae .off                    ; a code from a future version: say nothing
-    mov ah, 0                   ; rather than index past the table
-    shl ax, 1
-    mov si, ax
-    mov si, [si+drv_errstr]
+    mov si, drv_s_off
     pop ax
     ret
 .loaded:
     mov si, drv_e0
-    pop ax
-    ret
-.off:
-    mov si, drv_s_off
     pop ax
     ret
 
@@ -781,6 +844,55 @@ drv_cp_call:
 .out:
     pop di
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_cp_closed - tell every loaded driver the Control Panel has closed
+; in:  nothing; the gfx lock is HELD and this is the UI task
+; out: nothing (all registers preserved)
+;
+; One call, from the panel instance's own teardown (SPEC.md 31.9.1). It walks
+; the classes rather than the selected page, because "the panel is gone" is
+; true for every driver that has one and not only for the row on screen.
+;
+; A class with no driver has a zeroed table, so the published-or-not test is
+; the cell itself and there is no second thing to keep in step.
+;
+; It is deliberately NOT sent on the reboot path, which is the other way
+; cp_flush_close is reached: drv_shutdown detaches every driver a few
+; instructions later, and a detach frees strictly more than this does.
+; -----------------------------------------------------------------------------
+drv_cp_closed:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov cl, 1                   ; classes are 1..DRVC_MAX
+.cls:
+    mov al, cl
+    call drv_cls_svc            ; DI = that class's copied table
+    jc .next
+    mov bp, [di+DSV_CPCLOSE]
+    or bp, bp
+    jz .next                    ; no driver, or one that does not want telling
+    mov al, cl
+    xor di, di                  ; the page ABI's pane origin means nothing
+    xor dx, dx                  ; here, and a driver must not read it
+    call drv_cp_call
+.next:
+    inc cl
+    cmp cl, DRVC_MAX
+    jbe .cls
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1270,10 +1382,17 @@ drv_load:
     call drv_check              ; the header, against the image that arrived
     jc .badfree
 
+    mov byte [bx+DRVR_ERR], DRVE_OK ; the previous attempt's code is cleared
+                                ; BEFORE the attach and not after it, because
+                                ; drv_attach may BANK one of its own off the
+                                ; DRVV_READY call (DRVE_TWICE) - stamped
+                                ; afterwards, this line wiped it and the row
+                                ; read 'Loaded' about a driver that had just
+                                ; reported a bug. Every earlier failure path
+                                ; returns before here with its own code, and
+                                ; .nohwal below still overwrites this one
     call drv_attach             ; the far call into the driver itself
     jc .nohwal                  ; ...which may say WHY in AL (SPEC.md 51.2)
-
-    mov byte [bx+DRVR_ERR], DRVE_OK
     clc
     jmp short .out
 
@@ -1409,9 +1528,19 @@ drv_attach:
     call drv_call               ; driver so (SPEC.md 51.2.2). This is where a
                                 ; disk driver re-mounts what its settings say
                                 ; it had mounted last time
-    clc                         ; A refusal is not a failed attach: the driver
-                                ; is up at whatever tier it could reach, and
-                                ; the Sound page shows which
+    jnc .rdy                    ; ...and if it complained, BANK WHAT IT SAID.
+    mov [bx+DRVR_ERR], al       ; This answer used to be dropped on the floor,
+                                ; which is fine for "I could not re-mount" and
+                                ; useless for DRVE_TWICE: a driver reporting
+                                ; that it was attached twice would have been
+                                ; told nobody, and the row would read 'Loaded'
+                                ; because it IS loaded. drv_status prefers a
+                                ; reported reason over 'Loaded' now, so the
+                                ; sentence arrives beside the driver's name
+.rdy:
+    clc                         ; A refusal is STILL not a failed attach: the
+                                ; driver is up at whatever tier it could reach,
+                                ; and the Sound page shows which
 .out:
     pop es
     pop bp
@@ -1671,11 +1800,30 @@ drv_release:
                                 ; longer, and [cp_sel] must not name it
                                 ; (SPEC.md 31.9)
 .norow:
+    cmp byte [bx+DRVR_CLASS], DRVC_DISK
+    jne .novol                  ; A VOLUME BELONGS TO THE DISK CLASS, and this
+                                ; test is what says so. dsk_vol_drop_drv drops
+                                ; EVERY driver-backed row - it has no argument
+                                ; and wants none, because every kind-1 volume
+                                ; belongs to the one published DRVC_DISK
+                                ; driver (SPEC.md 51.2.1, dsk_vtab's DV_PAD) -
+                                ; so unqualified it was correct for the disk
+                                ; driver and pure damage for any other. On a
+                                ; machine with a sound card AND a hard disk,
+                                ; unticking SOUND in the Drivers page unmounted
+                                ; every hard-disk partition: the zones went off
+                                ; the desktop, C:'s FAT window was freed, and
+                                ; the disk driver stayed loaded and published
+                                ; the whole time, so nothing on screen pointed
+                                ; anywhere near the cause. The sibling of the
+                                ; bug 51.2.1's per-class publication fixed, in
+                                ; the one place that was still class-blind
     call dsk_vol_drop_drv       ; every volume this driver registered goes
                                 ; BEFORE its claims do (SPEC.md 51.8): a
                                 ; mounted volume whose transport has been
                                 ; freed is a read into whatever claims that
                                 ; memory next
+.novol:
     mov word [bx+DRVR_SEG], 0   ; ...and drv_call is disarmed the same way
     mov word [bx+DRVR_KB], 0
     push bx                     ; anything the DRIVER itself claimed is owned
@@ -1839,6 +1987,12 @@ drv_cfg_pack:
                                 ; exactly what vid_detect chose - so the file
                                 ; records the probe's answer and a first save
                                 ; changes nothing about the next boot
+%ifdef KERN_BIG
+    mov al, [vid_dmode]         ; ...and SPEC.md 39.19's arrangement with it
+    mov [drv_cfg+CFG_VDM], al
+    mov al, [vid_dlay]
+    mov [drv_cfg+CFG_VDL], al
+%endif
     pop di
     pop si
     pop cx
@@ -2451,11 +2605,48 @@ drv_boot:
     ; least possible loading screen to put back, and spl_chrome puts that back
     ; immediately. vid_switch refuses a card this machine does not have, which
     ; is the whole safety story for a settings disk carried between machines.
+%ifdef KERN_BIG
+    ; SPEC.md 39.19's two bytes go in FIRST and survive a refused switch:
+    ; vid_switch calls vid_disp_init, so a switch that takes carries them for
+    ; free - and one that does not still has to honour them, which is what the
+    ; .vnosw path below is. Both are range-checked on CFG_SCH's terms.
+    mov al, [drv_cfg+CFG_VDM]
+    cmp al, 1
+    ja .vdone
+    mov [vid_dmode], al
+.vdone:
+    mov al, [drv_cfg+CFG_VDL]
+    cmp al, VID_L_BELOW
+    ja .vdone2
+    mov [vid_dlay], al
+.vdone2:
+%endif
+    ; THE ADAPTER, AND THEN WHATEVER THE SWITCH DID NOT DO. vid_switch answers
+    ; CF = 0 both for a switch that HAPPENED and for one that was not needed,
+    ; and only the first re-runs vid_disp_init - so [vid_kind] is banked and
+    ; compared afterwards, which asks the machine what changed instead of
+    ; predicting it. A second copy of vid_switch's own "am I already that
+    ; adapter" test here could only ever disagree with it; this cannot.
     mov al, [drv_cfg+CFG_VID]
+%ifdef KERN_BIG
+    mov ah, [vid_kind]
+%endif
     call vid_switch
-    jc .load                    ; no such adapter here: stay on the probe's
-    call spl_reset              ; answer. Otherwise redraw the loading screen
-                                ; onto the framebuffer the mode set just wiped
+    jc .vnosw                   ; no such adapter here: stay on the probe's
+%ifdef KERN_BIG                 ; answer
+    cmp ah, [vid_kind]
+    je .vnosw                   ; already that adapter: nothing was cleared
+%endif
+    call spl_reset              ; ...otherwise redraw the loading screen onto
+    jmp short .load             ; the framebuffer the mode set just wiped
+.vnosw:
+%ifdef KERN_BIG
+    ; ...and SPEC.md 39.19's ARRANGEMENT, which nothing else on this path
+    ; applies: the adapter was already right, or was refused, and neither is a
+    ; statement about the desktop. No spl_reset - the primary's card is never
+    ; re-programmed here, so the loading screen is untouched.
+    call vid_disp_init
+%endif
 .load:
     xor cl, cl
 .next:

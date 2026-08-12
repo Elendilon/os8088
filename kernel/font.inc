@@ -1,9 +1,13 @@
 ; =============================================================================
 ; font.inc - 8x8 text for mode 12h (SPEC.md 6)
 ;
-; No font bytes are hard-coded: font_init asks the VGA BIOS for its ROM 8x8
-; character set (int 10h AX=1130h BH=03h) and copies the printable range,
-; glyphs 32..126, into a kernel buffer. Drawing uses Set/Reset with the Bit
+; No font bytes are hard-coded unless the BUILD asks for some: font_init asks
+; the VGA BIOS for its ROM 8x8 character set (int 10h AX=1130h BH=03h) and
+; copies the printable range, glyphs 32..126, into a kernel buffer -- and
+; `make FONT=<name>` replaces that whole path with a typeface carried in the
+; boot overlay instead (SPEC.md 6.2, ovl_font_init at the foot of this file).
+;
+; Drawing uses Set/Reset with the Bit
 ; Mask so the background stays untouched (transparent): the glyph row is
 ; widened to a 16-bit window and shifted right by x&7, giving the masks for
 ; the one or two VRAM bytes the row lands on. A read of each byte loads the
@@ -14,12 +18,19 @@ FONT_FIRST  equ 32              ; first glyph kept from the ROM set
 FONT_LAST   equ 126             ; last  glyph kept
 FONT_BYTES  equ (FONT_LAST - FONT_FIRST + 1) * 8    ; 95 glyphs x 8 rows = 760
 
+%ifndef BAKED_FONT
 ; -----------------------------------------------------------------------------
 ; font_init - copy the ROM 8x8 font's printable range into RAM
 ;
 ; in:       nothing (must run after vid_init; uses int 10h)
 ; out:      nothing
 ; clobbers: nothing
+;
+; NOT ASSEMBLED under BAKED_FONT (SPEC.md 6.2), where ovl_font_init at the
+; foot of this file does the same job out of the boot overlay. The two are
+; alternatives rather than a fallback pair on purpose: a probe kept behind a
+; baked table would be dead code on every machine that ever runs it, and a
+; baked table kept behind a probe would never be the thing being tested.
 ; -----------------------------------------------------------------------------
 font_init:
     push ax
@@ -72,6 +83,7 @@ font_init:
     pop bx
     pop ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; font_char - draw one 8x8 glyph, transparent background
@@ -98,14 +110,17 @@ font_char:
     push si
     push di
     push es
+    GFXDENTERCD                 ; the cell goes WHOLE onto the display holding
+                                ; its top-left corner (SPEC.md 39.14.2), and
+                                ; the two edge tests below are that display's
 
     cmp al, FONT_FIRST          ; unprintable -> space -> nothing to draw
     jb .done
     cmp al, FONT_LAST
     ja .done
-    cmp cx, [vid_wm8]           ; unsigned: negative x fails this too
+    cmp cx, [vid_cwm8]          ; unsigned: negative x fails this too
     ja .done
-    cmp dx, [vid_hm8]
+    cmp dx, [vid_chm8]
     ja .done
     cmp word [wm_clip_n], 0     ; the cell whole against the clip region too
     je .noclip                  ; (SPEC.md 11.3)
@@ -194,6 +209,7 @@ font_char:
     mov ax, 0xFF08
     out dx, ax                  ; GC8 Bit Mask = FF (default)
 .done:
+    GFXDLEAVE
     pop es
     pop di
     pop si
@@ -517,6 +533,9 @@ font_run_x:
     push dx
     push si
     push di
+    GFXDENTERCD                 ; ...and a run with it - its .slow path is
+                                ; gfx_fill + font_str, which the nesting count
+                                ; keeps from translating a second time
 
     mov [font_rn_fg], al
     mov [font_rn_bg], ah
@@ -604,6 +623,7 @@ font_run_x:
     add cx, 8
     jmp short .cells
 .out:
+    GFXDLEAVE
     pop di
     pop si
     pop dx
@@ -632,9 +652,9 @@ font_run_cell:
     push di
     push es
 
-    cmp cx, [vid_wm8]           ; the same whole-cell clipping font_char does,
+    cmp cx, [vid_cwm8]          ; the same whole-cell clipping font_char does,
     ja .out                     ; screen edge and clip region alike - so a run
-    cmp dx, [vid_hm8]           ; clips exactly as its glyphs would, and its
+    cmp dx, [vid_chm8]          ; clips exactly as its glyphs would, and its
     ja .out                     ; background with them
     cmp word [wm_clip_n], 0
     je .noclip
@@ -861,4 +881,66 @@ font_dith:      resb 1          ; 1 = this glyph is disabled text on a mono
                                 ; adapter (SPEC.md 47); font_ink decides it
                                 ; per glyph and writes it on every path
 font_dmask:     resb 1          ; ...and the row's half of the checkerboard
+
+%ifdef BAKED_FONT
+; =============================================================================
+; The baked typeface (SPEC.md 6.2), in the BOOT OVERLAY (SPEC.md 2.5).
+;
+; 760 bytes that cost neither guard anything: .ovl lands in the FAT window and
+; is written over by drv_boot's first mount, which is the last thing kmain
+; does - and this runs well before it, beside ovl_clk_init and drv_snd_sniff.
+; So the whole price of carrying our own font is ONE floppy sector at boot.
+;
+; It is an overlay ENTRY rather than a table .text reaches into, and that is
+; the section's own contract rather than taste: `.ovl` has a vstart of its own
+; and DS is KERNEL_SEG throughout it, so overlay data is reachable only
+; through CS - which is what this does, and what kernel.asm's section header
+; says anything added here would have to. tools/os88ovlchk.py cannot see a
+; data reference across that boundary, only a call, so the rule is worth
+; keeping to rather than working around.
+; =============================================================================
+section .ovl
+; -----------------------------------------------------------------------------
+; ovl_font_init - copy the baked typeface into font_glyphs
+;
+; in:       nothing (CS = FAT_SEG, DS = KERNEL_SEG, SS = LOW_SEG)
+; out:      nothing
+; clobbers: nothing - it is called once, from kmain, exactly where the ROM
+;           probe used to be called, and owes the same contract
+; -----------------------------------------------------------------------------
+ovl_font_init:
+    push ax
+    push cx
+    push si
+    push di
+    push ds
+    push es
+
+    push cs                     ; the glyphs are our OWN data: DS has to leave
+    pop ds                      ; KERNEL_SEG to reach them, and comes back below
+    mov si, ovl_font_bits
+    mov ax, LOW_SEG             ; the table is in .lowbss (SPEC.md 2.1), so the
+    mov es, ax                  ; copy runs segment to segment and touches
+    mov di, font_glyphs         ; neither one's own
+    mov cx, FONT_BYTES / 2
+    cld
+    rep movsw
+
+    mov cx, 4                   ; ...and the blank cell beside it, which
+    mov di, font_zero           ; nothing else zeroes: .lowbss is nobits. ES is
+    xor ax, ax                  ; still LOW_SEG from the copy above, which is
+    rep stosw                   ; what stosw needs
+
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    pop ax
+    retf                        ; FAR: kmain reaches this as FAT_SEG:ovl_...
+
+ovl_font_bits:
+%include "font8x8.inc"          ; GENERATED by tools/os88font.py from the
+                                ; fonts/*.f8 that FONT= named (-I build/)
+%endif
 section .text

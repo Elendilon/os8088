@@ -103,14 +103,55 @@ MEM_K_CLIP equ 0xFF07           ; the system clipboard's text (SPEC.md 55) -
 ;     ordinary one, because the tag IS the request.
 ;
 ; TO BE PURGEABLE A CLAIM MUST HAVE EXACTLY ONE KERNEL WORD NAMING IT, and a
-; zero in that word must ALREADY mean "no buffer, do it the slow way". That is
+; zero in that word must ALREADY mean "no buffer, do it the slow way" - "one
+; word" being per BLOCK, not per tag: a tag may name an ARRAY of them and add
+; an ordinal to itself, which is how there is one raise cache per window
+; rather than one for the machine (SPEC.md 11.96.3). That is
 ; the whole contract, and it is what lets the shed skip a notification
 ; protocol entirely: mem_shed_one zeroes the word through mem_pg_own before it
 ; frees the block, so the consumer's existing refusal path is the notice.
 ; menu_drop's `or ax, ax / jz .nosave` is the shape - every purgeable consumer
 ; has to already have one.
-MEM_PG_HI  equ 0xFE             ; the owner's high byte: purgeable kernel tag
-MEM_P_WSAVE equ 0xFE01          ; a window's raise cache (SPEC.md 11.96)
+; THE HIGH BYTE IS THE PRIORITY, and higher means harder to take (SPEC.md
+; 50.6.4). It was one value meaning "purgeable", which made every cache worth
+; the same as every other - so a WINDOW RAISE CACHE, whose loss is one
+; redraw, could evict the DIRECTORY READ-AHEAD WINDOW, whose loss triples an
+; install's metadata I/O. Both were "a cache"; they are not the same thing to
+; the person waiting.
+;
+; The scale runs up to the ordinary claim, which is what makes the test one
+; compare: a record is takeable by a claimant of level L when its high byte
+; is >= MEM_PG_MIN (so it is a cache at all) and < L. An ordinary claim ranks
+; MEM_LVL_TOP and so takes any cache; a cache ranks itself and so takes only
+; cheaper ones; and NOTHING takes a claim that is not a cache, because 0xFF
+; and every instance slot fall outside the range by construction.
+MEM_PG_TRIV equ 0xFB            ; losing it costs a redraw or a recompute
+MEM_PG_LOW  equ 0xFC            ; ...a little I/O, or a visible pause
+MEM_PG_MED  equ 0xFD            ; ...seconds of work the user waits through
+MEM_PG_HIGH equ 0xFE            ; ...a long operation getting much longer
+MEM_PG_MIN  equ MEM_PG_TRIV     ; the range, for the two-compare test
+MEM_PG_MAX  equ MEM_PG_HIGH
+MEM_LVL_TOP equ 0xFF            ; an ordinary claim: UNPURGEABLE, the default,
+                                ; and the only rank that outranks every cache
+
+MEM_P_WSAVE equ MEM_PG_TRIV<<8 | 0x10   ; a window's raise cache (SPEC.md
+                                ; 11.96): TRIVIAL, because what it costs to
+                                ; lose is one window redrawing itself, which
+                                ; is what every window did before it existed.
+                                ; IT IS A RANGE, not a tag - the window's slot
+                                ; is added to it, so there is one cache per
+                                ; window and 0x10..0x1F is reserved for them
+                                ; (SPEC.md 11.96.3). Low bytes are per-rank,
+                                ; so a future TRIVIAL tag must avoid that
+                                ; block; the ranks below are free of it
+MEM_P_DIRW  equ MEM_PG_HIGH<<8 | 0x02   ; the directory read-ahead window:
+                                ; HIGH, because it is the difference between
+                                ; 316 int 13h calls and 114 on an install
+                                ; (SPEC.md 18.95), which on the target machine
+                                ; is measured in seconds the user watches
+                                ; (SPEC.md 19.2.3) - its zero already means
+                                ; "read one sector at a time", which is what
+                                ; every directory walk did before it existed
 
 MEM_PARA_KB equ 64              ; paragraphs per KB
 
@@ -277,11 +318,13 @@ mem_claim:
     push di
     xor si, si
     xor di, di
-    cmp bh, MEM_PG_HI           ; a purgeable tag places ITSELF (SPEC.md
-    jne .go                     ; 50.5.1): top down like a region, but under
-    inc di                      ; a ceiling that keeps it out of the region
-                                ; arena. The tag is the request, so there is
-                                ; no third entry point to call by mistake
+    cmp bh, MEM_PG_MIN          ; a purgeable tag places ITSELF (SPEC.md
+    jb .go                      ; 50.5.1): top down like a region, but under
+    cmp bh, MEM_PG_MAX          ; a ceiling that keeps it out of the region
+    ja .go                      ; arena. The tag is the request, so there is
+    inc di                      ; no third entry point to call by mistake -
+                                ; and the tag is now a RANGE, because the high
+                                ; byte carries the priority too (50.6.4)
 .go:
     call mem_claim_1            ; SHED AND RETRY (SPEC.md 50.6.2). A cache
     jnc .out                    ; loses to anything that is not one, and a
@@ -295,19 +338,22 @@ mem_claim:
     ret
 
 ; the scan-and-publish itself; mem_claim above is the retry loop around it
+;
+; SI AND DI ARE PARAMETERS AND ARE PRESERVED, which they were not: both are
+; staged into the globals below and then reused as scan scratch, and the
+; epilogue restored only AX and CX. That is invisible on the first call and
+; wrong on the SECOND - mem_claim's shed-and-retry re-enters with whatever the
+; failed scan left, so the retry stages a record pointer as [mem_dir] (it
+; allocates top-down instead of bottom-up) and another as [mem_dma] (it
+; invents a 64KB-page constraint nobody asked for). The one path that needs
+; the shed most is the one that could not use it: measured on a 256KB
+; machine, a 75KB claim failed, shed the 63KB read-ahead window, and failed
+; again against 95.5KB of contiguous free heap (SPEC.md 50.6.2).
 mem_claim_1:
     push ax
     push cx
-    push si                     ; THE STAGED PARAMETERS, and they are staged in
-    push di                     ; REGISTERS on purpose (see the cli below), so
-                                ; the retry above re-reads them from here. The
-                                ; scan owns both - DI walks mem_tab, SI counts
-                                ; this owner then walks it again - so without
-                                ; this a shed-and-retry restages a mem_tab
-                                ; OFFSET as [mem_dma] and a non-zero [mem_dir]:
-                                ; a phantom DMA head measured in KB, and a
-                                ; bottom-up data claim placed top down, in the
-                                ; region arena mem_pg_ceil exists to keep whole
+    push si
+    push di
     pushf
     cli                         ; the whole scan-and-publish, one window -
     mov [mem_dma], si           ; the operation's PARAMETERS included. The
@@ -319,9 +365,11 @@ mem_claim_1:
 
     push ax                     ; THE CEILING the scan may not pass. It is
     mov ax, [mem_top]           ; [mem_top] for everything except a purgeable
-    cmp bh, MEM_PG_HI           ; claim, which stops below the lowest REGION
-    jne .ceilok                 ; so that it can never split the arena a
-    call mem_pg_ceil            ; package has to load into (SPEC.md 50.6.1)
+    cmp bh, MEM_PG_MIN          ; claim, which stops below the lowest REGION
+    jb .ceilok                  ; so that it can never split the arena a
+    cmp bh, MEM_PG_MAX          ; package has to load into (SPEC.md 50.6.1)
+    ja .ceilok
+    call mem_pg_ceil
 .ceilok:
     mov [mem_ceil], ax
     pop ax
@@ -440,9 +488,9 @@ mem_claim_1:
     xor dx, dx
     stc
 .out:
-    pop di
-    pop si
-    pop cx
+    pop di                      ; the parameters, so a RETRY re-enters with
+    pop si                      ; the same ones (pop touches no flag, and CF
+    pop cx                      ; is this routine's answer)
     pop ax
     ret
 
@@ -519,96 +567,139 @@ mem_pg_ceil:
     ret
 
 ; -----------------------------------------------------------------------------
-; mem_pg_own - tag -> the ONE kernel word that names that purgeable block
+; mem_pg_own - owner -> the ONE kernel word that names that purgeable block
 ;
 ; The whole notification protocol (SPEC.md 50.6). Zeroing this word IS the
 ; notice, because a purgeable consumer's contract is that zero there already
 ; means "no buffer, do it the slow way" - a path it must already have and
-; already test. A tag missing from this table simply keeps its block until it
+; already test. An owner matching no row here simply keeps its block until it
 ; is freed properly, which is safe and is why the list ends in a 0 rather than
 ; an assertion.
+;
+; A ROW IS A RANGE, and that is what makes one cache per WINDOW possible
+; (SPEC.md 11.96.3): the tag is a base, the consumer adds an ordinal to it,
+; and the words it names are an array of that many. The lookup is therefore
+; `d = owner - tag; if d < count then word = base + d*2` rather than an
+; equality - unsigned, so a row whose tag is ABOVE the owner wraps high and
+; fails the compare rather than matching backwards into somebody else's array.
+;
+; The stride is not a column because there is nothing for it to be: every
+; purgeable owner word is a WORD, by the contract above.
 ; -----------------------------------------------------------------------------
+PGO_TAG   equ 0                 ; word: the first owner this row answers for
+PGO_BASE  equ 2                 ; word: -> its array of naming words
+PGO_CNT   equ 4                 ; word: how many (1 = a plain tag)
+PGO_SIZE  equ 6
+
 mem_pg_own:
-    dw MEM_P_WSAVE, wm_su_seg
+    dw MEM_P_WSAVE, wm_su_segs,  MAX_WIN
+    dw MEM_P_DIRW,  dsk_rah_seg, 1
     dw 0
 
 ; -----------------------------------------------------------------------------
-; mem_shed_one - give up one purgeable block
-; out: CF = 0 one was shed, CF = 1 there was nothing to shed
+; mem_shed_one - give up the CHEAPEST purgeable block this claimant outranks
+; in:  BX = the owner being claimed FOR (mem_claim holds it across the retry)
+; out: CF = 0 one was shed, CF = 1 there was nothing it may take
 ; clobbers: flags
 ;
-; ONE CALLER, AND THAT IS LOAD-BEARING - it is mem_claim's retry, above, and
-; nothing else in the tree sheds. "Zeroing the word IS the notice" holds only
-; while that word is the ONLY reference to the block, and there are two spans
-; where it is not: wm_su_take publishes [wm_su_seg] LAST, so the word is still
-; 0 for the whole of gfx_save, and wm_su_try holds the segment in ES across
-; gfx_restore. A shed inside either would be written into, or read out of,
-; memory another owner already holds - tens of milliseconds each, with IF = 1.
+; SPEC.md 50.6.4. It used to shed the first purgeable record in table order,
+; which is two wrong answers at once: it could take a block MORE valuable than
+; the thing being claimed - a window raise cache evicting the directory
+; read-ahead window - and, given the choice, it took whichever happened to sit
+; lower in mem_tab rather than whichever costs least to lose.
 ;
-; What makes that unreachable is not the gfx lock (a task_yield spin mutex
-; excludes other DRAWING, not preemption). It is that EVERY mem_claim in the
-; tree is either a UI-task action or made under the gfx lock, and a raise is a
-; UI-task action under that same lock - so no second task is inside mem_claim
-; while the first is inside gfx_save. A package worker that claims memory
-; directly would break it. That is the rule to keep, and it is why a worker
-; grows through OSAPI_MEM_REGROW (which never sheds) rather than claim-copy-
-; free: SPEC.md 50.6's contract rests on it.
+; So: one pass, remembering the lowest-priority record strictly below the
+; claimant's own rank, and shed that. The rank comes out of BX because the tag
+; IS the request (see the constants) - an ordinary claim's high byte is not in
+; the purgeable range, so it ranks MEM_LVL_TOP and outranks every cache.
+;
+; A cache taking a cheaper cache cannot thrash in any way that matters, and
+; that is a property of the LEVELS being honest rather than of this routine:
+; whatever it takes is by definition cheaper to rebuild than what it is
+; taken for.
 ; -----------------------------------------------------------------------------
 mem_shed_one:
     push ax
     push bx
     push cx
+    push dx
     push si
+    push di
     pushf
     cli
-    mov si, mem_tab
+    mov ah, MEM_LVL_TOP         ; AH = the claimant's rank: its own high byte
+    cmp bh, MEM_PG_MIN          ; when it is a cache, MEM_LVL_TOP when it is
+    jb .rank                    ; an ordinary claim (which is every high byte
+    cmp bh, MEM_PG_MAX          ; outside the range, 0xFF and instance slots
+    ja .rank                    ; alike)
+    mov ah, bh
+.rank:
+    xor di, di                  ; DI = the best candidate so far, 0 = none
+    mov al, ah                  ; AL = its level, seeded at the claimant's own
+    mov si, mem_tab             ; so that only STRICTLY cheaper records win
     mov cx, MEM_MAX
 .scan:
     cmp word [ss:si+MC_SEG], 0
     je .next
-    cmp byte [ss:si+MC_OWN+1], MEM_PG_HI
-    jne .next
-    mov bx, [ss:si+MC_OWN]
-    call mem_pg_forget          ; the owner is told BEFORE the block goes, so
-                                ; there is no window in which the word names
-                                ; memory somebody else already holds
-    mov word [ss:si+MC_SEG], 0
-    popf
-    clc
-    jmp short .out
+    mov dl, [ss:si+MC_OWN+1]
+    cmp dl, MEM_PG_MIN          ; not a cache at all: never takeable
+    jb .next
+    cmp dl, al                  ; at or above the best so far (which starts at
+    jae .next                   ; the claimant's rank): leave it
+    mov al, dl                  ; a new cheapest
+    mov di, si
 .next:
     add si, MC_SIZE
     loop .scan
+    or di, di
+    jz .none
+    mov bx, [ss:di+MC_OWN]
+    call mem_pg_forget          ; the owner is told BEFORE the block goes, so
+                                ; there is no window in which the word names
+                                ; memory somebody else already holds
+    mov word [ss:di+MC_SEG], 0
+    popf
+    clc
+    jmp short .out
+.none:
     popf
     stc
 .out:
+    pop di
+    pop dx
     pop si
     pop cx
     pop bx
     pop ax
     ret
 
-; mem_pg_forget - zero the word mem_pg_own names for tag BX
+; mem_pg_forget - zero the word mem_pg_own names for owner BX
 ; preserves every register and the flags
 mem_pg_forget:
     pushf
     push ax
     push bx
+    push cx
     push si
     mov si, mem_pg_own
 .lp:
-    mov ax, [si]
+    mov ax, [si+PGO_TAG]
     or ax, ax
     jz .out
-    cmp ax, bx
-    je .hit
-    add si, 4
+    mov cx, bx
+    sub cx, ax                  ; d = owner - tag, UNSIGNED: a row above the
+    cmp cx, [si+PGO_CNT]        ; owner wraps high and fails this compare
+    jb .hit
+    add si, PGO_SIZE
     jmp short .lp
 .hit:
-    mov bx, [si+2]
-    mov word [bx], 0
+    shl cx, 1                   ; a word per entry (see the header: there is
+    add cx, [si+PGO_BASE]       ; no stride column because there is nothing
+    mov si, cx                  ; for it to be)
+    mov word [si], 0
 .out:
     pop si
+    pop cx
     pop bx
     pop ax
     popf
@@ -1038,14 +1129,29 @@ mem_free_rec:
 ; claim's end), measure the distance to the nearest claim that starts above
 ; it. O(MEM_MAX^2) with MEM_MAX = 32 - around a thousand cycles, called at
 ; app startup.
+;
+; **PURGEABLE claims are counted as FREE, in both answers** (SPEC.md 50.6.3).
+; They were counted as occupied, which made this routine answer a different
+; question from the one mem_claim answers: a cache yields to any claim, so it
+; is not in the way of one. With a 63KB directory read-ahead window resident
+; that is not a rounding error - measured on a 256KB machine, this said 21.5KB
+; while a caller went on to fund an 18KB claim AND a 16KB one out of the same
+; heap. Every consumer sizes itself DOWN from this number (Paint's canvas,
+; Tracker's module, ArtfulType's document, the recorder's tiers), so
+; under-reporting is a feature silently lost, not a safe error.
 ; -----------------------------------------------------------------------------
 mem_avail:
+    mov al, MEM_LVL_TOP         ; an ORDINARY claim's rank: every cache counts
+mem_avail_lvl:                  ; as free, because mem_claim sheds them all.
+                                ; AL = the caller's own level otherwise, and
+                                ; only caches BELOW it count (SPEC.md 50.6.4)
     push cx
     push dx
     push si
     push di
     pushf
     cli
+    mov [mem_av_pg], al         ; inside the window, with the other three
     mov dx, [mem_base]          ; candidate 0: the bottom of the heap
     call mem_run
     mov ax, cx                  ; AX = largest run, paragraphs
@@ -1066,13 +1172,19 @@ mem_avail:
     cmp di, mem_tab + MEM_MAX*MC_SIZE
     jb .cand
 
-    mov si, mem_tab             ; total free = heap - sum of claims
-    mov bx, [mem_top]
-    sub bx, [mem_base]
-    mov cx, MEM_MAX
-.tot:
-    cmp word [ss:si+MC_SEG], 0
+    mov si, mem_tab             ; total free = heap - sum of claims, and a
+    mov bx, [mem_top]           ; PURGEABLE claim is only one of them when it
+    sub bx, [mem_base]          ; OUTRANKS the caller - a total that disagreed
+    mov cx, MEM_MAX             ; with the run scan above would be the same lie
+.tot:                           ; in the other register. DL, not AL: AX is
+    cmp word [ss:si+MC_SEG], 0  ; carrying the largest run by now
     je .tnext
+    mov dl, [ss:si+MC_OWN+1]
+    cmp dl, MEM_PG_MIN
+    jb .tsolid
+    cmp dl, [mem_av_pg]
+    jb .tnext
+.tsolid:
     sub bx, [ss:si+MC_PARA]
 .tnext:
     add si, MC_SIZE
@@ -1093,6 +1205,13 @@ mem_avail:
 ; in:  DX = candidate base segment
 ; out: CX = free paragraphs from DX up to the next claim (or mem_top)
 ; clobbers: nothing else (flags)
+;
+; A PURGEABLE claim does not block (SPEC.md 50.6.3). This is mem_avail's
+; helper and nobody else's - the allocator's own scan is mem_runfree - so
+; "free" here means "free to a caller who is willing to shed", and every
+; caller is: mem_claim_1 has exactly one caller, mem_claim's unconditional
+; shed-and-retry loop. Counting a cache as occupied made mem_avail answer a
+; different question from the one mem_claim answers.
 ; -----------------------------------------------------------------------------
 mem_run:
     push ax
@@ -1104,6 +1223,12 @@ mem_run:
 .scan:
     cmp word [ss:si+MC_SEG], 0
     je .next
+    mov al, [ss:si+MC_OWN+1]    ; a cache CHEAPER than the caller is not in
+    cmp al, MEM_PG_MIN          ; the way of it - it would be shed (50.6.4).
+    jb .solid                   ; Two compares, and the second subsumes the
+    cmp al, [mem_av_pg]         ; range's top: 0xFF is never below a level
+    jb .next                    ; and neither is an instance slot
+.solid:
     mov ax, [ss:si+MC_SEG]
     cmp ax, dx
     jb .below
@@ -1235,11 +1360,13 @@ mem_sum_kb:
 .scan:
     cmp word [ss:si+MC_SEG], 0
     je .next
-    cmp byte [ss:si+MC_OWN+1], MEM_PG_HI  ; PURGEABLE is in nobody's total, not
-    je .next                        ; even System's (SPEC.md 50.6.3). It is not
-                                    ; memory anyone can run out of - the next
-                                    ; claim that needs it takes it - so
-                                    ; counting it as used would be the
+    cmp byte [ss:si+MC_OWN+1], MEM_PG_MIN  ; PURGEABLE is in nobody's total,
+    jb .notpg                       ; not even System's (SPEC.md 50.6.3) - and
+    cmp byte [ss:si+MC_OWN+1], MEM_PG_MAX  ; it is a RANGE now, because the
+    jbe .next                       ; high byte carries the priority (50.6.4).
+.notpg:                             ; It is not memory anyone can run out of -
+                                    ; the next claim that needs it takes it -
+                                    ; so counting it as used would be the
                                     ; misleading answer, not the honest one
     or bx, bx
     jz .take
@@ -1503,6 +1630,86 @@ mem_own:
                                      ; buffers its own SDK tells it to claim -
                                      ; it has no instance, so the test above
                                      ; can never say yes about it
+    push dx                          ; ...or by a SEGMENT that is itself a
+    mov dx, [ss:si+MC_OWN]           ; driver image: SPEC.md 52.11.4's second
+    call mem_own_drv                 ; image, one level and no further. DX is
+    pop dx                           ; banked because osapi_mem_free passes the
+    jnc .yes                         ; segment to free in it, and `pop` leaves
+                                     ; the flags alone
+.next:
+    add si, MC_SIZE
+    loop .scan
+    pop si
+    pop cx
+    stc
+    ret
+.yes:
+    pop si
+    pop cx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_owner_of - who owns the claim based at BX?
+; in:  BX = a base segment
+; out: CF = 0 and BX = that claim's owner word; CF = 1 = no claim starts there
+; clobbers: BX (the output), flags
+;
+; SPEC.md 52.11.6. The kernel has two fences that ask "is this segment one I
+; handed out" - mem_own for a claim and drv_owns_seg for a driver image - and
+; a driver's SECOND image (SPEC.md 52.11) answers no to both, because it is
+; neither an instance, nor MEM_K_DRV, nor a row in drv_tab. Both need the same
+; one step: take the owner of the claim the caller is running in and ask about
+; THAT. This is the step; each fence decides for itself what a valid answer is.
+; -----------------------------------------------------------------------------
+mem_owner_of:
+    push cx
+    push si
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.scan:
+    cmp [ss:si+MC_SEG], bx
+    je .hit
+    add si, MC_SIZE
+    loop .scan
+    pop si
+    pop cx
+    stc
+    ret
+.hit:
+    mov bx, [ss:si+MC_OWN]
+    pop si
+    pop cx
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; mem_own_drv - is DX the segment of a DRIVER's image? (module internal)
+; in:  DX = a candidate segment
+; out: CF = 0 yes, CF = 1 no
+; clobbers: flags
+;
+; SPEC.md 52.11.4. A driver may load a SECOND IMAGE of its own - HDD.DRV reads
+; HDDTOOL.DRV when the user clicks Format or Install - and it claims that
+; image through OSAPI_MEM_CLAIM like any other buffer, so the claim's owner is
+; the RESIDENT's segment. The tool then runs in a segment mem_own had never
+; heard of: not an instance, not MEM_K_DRV, so every claim it made was refused
+; whatever its size. This is the one level of indirection that says otherwise.
+;
+; ONE LEVEL, deliberately: an image loaded by an image loaded by a driver is
+; not a shape anything here has, and a walk that followed the chain could be
+; made to loop by a table it does not own.
+; -----------------------------------------------------------------------------
+mem_own_drv:
+    push cx
+    push si
+    mov si, mem_tab
+    mov cx, MEM_MAX
+.scan:
+    cmp [ss:si+MC_SEG], dx
+    jne .next
+    cmp word [ss:si+MC_OWN], MEM_K_DRV
+    je .yes
 .next:
     add si, MC_SIZE
     loop .scan
@@ -1643,6 +1850,13 @@ mem_dma:  resw 1                  ; ...and mem_claim_dma's head, in paragraphs,
                                   ; for the same reason: 0 = no page constraint
 mem_base: resw 1                  ; first heap paragraph = HEAP_SEG
 mem_skip:   resw 1              ; mem_runfree: a record to ignore, 0 = none
+mem_av_pg:  resb 1              ; mem_avail's RANK: a purgeable claim below it
+                                ; counts as free, because a claim at that rank
+                                ; would shed it (SPEC.md 50.6.4). Staged
+                                ; inside mem_avail's own cli window, like the
+                                ; three above, so it is never a parameter
+                                ; channel another task can overwrite in the gap
+mem_av_pad: resb 1              ; ...and a byte to keep the words aligned
 mem_top:  resw 1                  ; one past the last, from int 12h
 
 section .text

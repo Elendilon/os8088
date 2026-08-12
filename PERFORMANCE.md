@@ -3307,3 +3307,220 @@ channels' worth of position, step and table pointer cannot live in an 8086's
 registers, so it buys one byte and spends four reloading state. And filling
 the buffer with 0x80 to make every channel an add pass costs a whole extra
 `rep stosb` pass to save the store pass's two bytes.
+
+### Set 21 — what the sound buffers actually need, sampled from outside the guest
+
+MartyPC, `os8088_5150_sb` (cycle-accurate 4.77MHz 8088, DSP 2.01, CGA), with
+the driver's own counters read over the debug connection — **no code in the
+guest**, so the measurement costs the machine nothing. `lead = [sbl_total] -
+[sbl_consumed]` is the ring lead in bytes; the driver's segment comes out of
+`drv_tab` row 0 and its variable offsets out of a `nasm -l` of the driver.
+
+Beverly Hills Cop, XT mode (5,500 Hz), ~1,500 samples over 40 s each:
+
+| Tracker build | ring | top-up target | lead min | median | max | underruns |
+|---|---|---|---|---|---|---|
+| shipped, windowed | 16KB (8 halves) | 7 | **6.00** | 7.00 | 8.00 | 0 |
+| shipped, fullscreen (§53) | 16KB | 7 | **6.00** | 7.00 | 8.00 | 0 |
+| `TRK_RING` 8KB, `TRK_PREROLL` 3 | 8KB (4 halves) | 3 | **3.00** | 3.00 | 4.00 | 0 |
+
+Three things follow.
+
+**The steady state needs four halves, not eight.** The worker tops the ring
+up to `TRK_RING - TRK_HALF` and the card takes one half per block IRQ, so the
+lead simply oscillates about the target; the deepest drain below it in either
+mode was **one half**. Fullscreen measuring identical to windowed is
+§53.5.1's `FSXW_FRAME` fix holding — that table's `1.0 min` was the bug.
+
+**What sizes the ring is `TRK_PREROLL`, not the lead.** Six halves are staged
+before the open, and the open refuses a ring smaller than what is staged
+(`cmp cx, ax` / `.e7`), so a straight `TRK_RING` 8192 does not play at all —
+it reports *Sound open failed*. Six halves came from a field report of a
+hitch ~744 ms into the first play after a load (the old pre-roll of two), so
+the 16KB grant is **a field bug fix expressed as a buffer size**, not slack.
+The 8KB row above only exists because the pre-roll was given back to get it.
+
+**And the harness cannot price the case the cushion is for.** MartyPC is
+cycle-accurate and 30x fast on disk (Set 11), and the transient a ring
+absorbs is mostly floppy: one ~12-sector mount at the 5150's ~65 ms/sector is
+**~780 ms ≈ 2.1 halves** at the XT rate. Against a 7-half target that is
+comfortable and against a 3-half one it is not. So *do not* read the third
+row as a licence to shrink the ring — that is a number this instrument is not
+entitled to give, and the 5150 is where it would have to come from.
+
+**ModPlug is the divergence SPEC.md §56.1 predicted.** Same 16KB ring, same
+2,048-byte halves, and a pre-roll of **two** halves — exactly what Tracker
+had before the field report. Unmeasured here, and worth a run on the iron
+before anything is concluded about it.
+
+#### Set 21.1 — XT mode confirmed, and where Tracker's grant actually fails
+
+Set 21 asserted "XT mode" from the source. Read off the card instead
+(`[sbl_tc]`, the DSP time constant, `TC = 256 - 1e6/rate`): **0x4B → 5,524
+Hz** on every 5150 run above, windowed and fullscreen. XT mode is armed by
+`OSAPI_CPU_INFO` returning tier 0, so it is a claim about the **CPU**, not
+the RAM — every 8088 gets it, the 640KB field machine included.
+
+**A 128KB machine cannot run Tracker at all.** Its region alone is **48KB**
+(measured off the claim map, not the 16,480-byte image), against a 36.5KB
+heap — the launch fails with *Out of memory* before a window exists. So
+"XT mode is every 128KB machine" is true of the *rate* and empty of
+Tracker: the smallest machine that runs it is 256KB.
+
+The claim map on `os8088_5150_sb_256k` (164.5KB of heap), with a 75KB module
+loaded, is where the interesting failure lives:
+
+```
+CLAIM   8.0 KB  the SB DMA buffer (§34.6.1)
+CLAIM  75.0 KB  the module
+free   11.5 KB  <-- everything the ring grant can come out of
+CLAIM  48.0 KB  Tracker's region
+CLAIM   6.0 KB  SOUND.DRV's image
+```
+
+**The module loads and then Play refuses.** `TRK_RING` is a flat 16,384, the
+pool tiers to 8KB out of 11.5, `sbl_grant_alloc` answers err 7, and Tracker
+says *Out of memory* over a module whose title is on screen. Reproduced
+deliberately: a 2.6KB module plays (largest run 63.5KB), a 98KB one is
+honestly refused at load (*Too big for free memory*, ceiling ~86.5KB), and
+**67–86KB is the band that loads and cannot play**.
+
+Two fixes, and they are not alternatives:
+
+- **Reserve before sizing.** `trk_needk` is checked against
+  `OSAPI_MEM_AVAIL` with nothing held back for the ring, so the load
+  succeeds into memory the Play needs. Checking against
+  `avail - TRK_RING - a pool floor` moves the refusal to the load, where it
+  is honest and cheap. No trade, no field risk.
+- **Tier the ring.** 16,384 → 8,192 → 4,096, with `TRK_PREROLL` scaled to
+  `ring/half - 1`. This is the one that widens the range rather than just
+  reporting it, and it costs the **pre-roll**: 6 halves is 2.23 s at the XT
+  rate, 3 halves is 1.12 s, and the field hitch that raised it from 2 landed
+  at **744 ms**. 1.12 s is 1.5x a figure known to be too short, which is a
+  judgement the iron has to make, not this harness.
+
+And the units are XT mode's own argument for the small ring: 8KB at 5,500 Hz
+is **1.49 s**, exactly what 16KB buys at 11,000. A tier-0 machine's rate is
+half, so its ring may be half for the same seconds of cushion.
+
+### Set 22 — the disk round on the iron: 10x on a read, and the install measured
+
+One `sysbench` run and one install on the 5150 (`herc.img`, Hercules,
+`DISKCNT=1`), after §18.9.2/§18.9.3/§18.95/§18.95.4 and §18.4.3.
+
+#### The read is 10x, and it has passed the BIOS
+
+| 16 KB `FILE_READ` | Set 15 | Set 17 | **now** |
+|---|---|---|---|
+| cold motor | 8.29 s | 2.09 s | **1.21 s** |
+| warm | 8.35 s | 2.20 s | **0.82 s** |
+| throughput | 1,912 B/s | 7,457 B/s | **19,883 B/s** |
+
+**2.7x on this round and 10.4x since Set 15** — and the number that matters
+more than the ratio: **19,883 B/s against the BIOS's own best**, a whole track
+in one `int 13h`, of **11,984**. os8088 now reads its own files 1.66x faster
+than the fastest thing the ROM can do with this drive, because §18.95's cache
+answers a repeat without a revolution. Set 17's "1.55x still on the table
+against 11,570" is spent and then some.
+
+The counter block says how: **one 16 KB read is 18 sectors in 2 `int 13h`**,
+both runs of 9, no mounts, no resets — against Set 15's **148 sectors in 34
+calls** for the same file. Fourteen of the file's 32 sectors were already in
+the cache from the rows above it, which is the feature working rather than a
+measurement artefact; the two 9-sector runs are what is left.
+
+**The calibration is unchanged, which is what licenses the comparison.** Raw
+`int 13h`: one sector **199 ms** (one 300 RPM revolution exactly), a whole
+track in one call **384 ms** = 1.92 revolutions = 11,984 B/s, the same nine
+sectors in nine calls **2.005 s**. Set 14 measured 384 ms and 11,985 B/s on
+the same machine. The drive, the controller and the interleave have not moved.
+
+**The boot has not moved either** — 180 ticks / 9.886 s against Set 18's 181 /
+9.94 s — and should not have: the boot sector's read happens before the kernel
+exists, so nothing in this round can reach it.
+
+#### §18.95.2's cursor, priced on the machine it is for
+
+`int 13h` **in a whole 8-entry directory walk: 0**. That is §18.95.2's entire
+argument, measured on the iron rather than simulated: there are no revolutions
+there for a cursor to save. What is left is CPU, and the field puts it at
+**112.01 us per entry skipped** — against MartyPC's 60.11, so the emulator
+under-states this by 1.9x and a decision taken on its figure alone would have
+been taken on half the real cost. Even so: an 8-entry walk is 37.0 ms and a
+perfect cursor 29.3, so the cursor is worth **7.8 ms**, and **55.6 ms** at 32
+entries. The recommendation stands.
+
+(The walk row carries `!` — one iteration close to the 55 ms wrap — so read
+37 ms as approximate. The slope, taken from two short rows, is not affected.)
+
+#### §18.95.4's capacity is LOWER on the iron: 8, not 12
+
+The cliff is at 10 chunks on the 5150 and at 14 on MartyPC, so the widest
+working set kept free is **8** where the emulator said 12. Same compiled
+`DSK_RAH_RUNS` = 14, different volume: the field disk's root has 12 entries
+against the bench floppy's 7, so resolving `BIGFILE.DAT` by name walks more
+directory sectors and those take more slots. The row is documented as a lower
+bound on the constant and it behaves like one — **and the gap between the two
+machines is the walk's metadata, which is a property of the DISK and not of
+the cache.**
+
+#### The install: 46.2 s, and three quarters of it is the floppy
+
+**IT WORKED.** The ST-225 was partitioned, formatted and written by os8088,
+and the machine then **booted from it and ran**. That is the first end-to-end
+hard-disk install on the hardware SPEC.md §52 was written for, and it is worth
+recording separately from the timings: every figure below is measured on an
+install whose output is a working system, not on one that merely ran to
+completion. It also retires the §52.11.4/§52.11.5/§52.11.6 round — those three
+fences were found on an emulator, and the machine agrees.
+
+`INSTBNCH.TXT` off the machine, onto a pristine ST-225 partition:
+
+| | fC | fS | dC | dS | tk |
+|---|---:|---:|---:|---:|---:|
+| `fmt` | 0 | 0 | 118 | 118 | 43 |
+| `sys` | 82 | 715 | 209 | 818 | **768** |
+| `app` | 5 | 33 | 6 | 6 | 30 |
+| `TOT` | 87 | 748 | 333 | 942 | **841** |
+
+841 ticks is **46.2 s**. Priced against this machine's own measured 384 ms for
+a track in one call, `sys`'s **82 floppy calls are ~31.5 s of its 42.2** —
+about three quarters — leaving ~10.7 s for 209 device commands, ~51 ms each,
+which is what an ST-225 seek-and-write costs.
+
+**The floppy side is already at the ceiling per call**: 715 sectors in 82
+calls is **8.72 sectors a call**, within 3% of the nine a track holds. There
+is nothing left in coalescing.
+
+**What is left is the sector COUNT**: the files that arrived on C: are about
+**290 sectors** of payload and the install read **715**. That is 2.5x, which is
+Set 15's shape in a new place — and unlike Set 15 it is not a contract being
+misread, because the calls are properly batched. It is the next thing to look
+at.
+
+**`fmt` writes one sector per command** — 118 for 118 — which is `hd_fmt`'s
+own loop handing `hd_bios_xfer` a sector at a time. On this drive that is 43
+ticks, **2.4 s**, so it is real and it is small; it would be the obvious win
+on a slower drive and is not the one to spend effort on here.
+
+**`app` did nothing**, and that is the harness rather than the OS: a field disk
+carries the benchmarks in its root and has no `APPS` folder, which is what
+§52.10.5 keys "this is the apps disk" on. The install is the system disk's
+alone, and its 46.2 s is a floor, not the whole job.
+
+#### The correction, and how it was caught
+
+**This set claimed a 2.5x surplus in the install's reads and there is none.**
+The error was not in the measurement but in the denominator: a payload guessed
+from what lands on C: rather than read off the disk being copied. The lesson
+is the one Part 4 keeps restating in other words — *a ratio is only as good as
+the quantity underneath it*, and the quantity here was available from one
+`os88disk` line that the write-up did not go and look at.
+
+What caught it was §18.94.3's trace, on MartyPC, at no cost to anyone's
+morning: the same install there gives **118 calls / 946 sectors** against the
+field's **87 / 748** — the emulator copies a second floppy the field run had
+no `APPS` folder for — and the distinct-sector count is what settles the
+question. That division of labour is worth stating on its own: **counts and
+traces on MartyPC, seconds on the 5150**, and a claim that needs both should
+not be made from either alone.

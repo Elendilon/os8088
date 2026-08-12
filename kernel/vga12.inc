@@ -50,6 +50,10 @@ gfx_pat         dw 0            ; gfx_fill_pat: near ptr to 8 row bytes,
 gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); 0 = free.
                                 ; Initialized data, NOT .bss: nothing zeroes
                                 ; .bss at boot, and this byte must start clear.
+gfx_lock_own    db 0xFF         ; ...and WHICH task holds it ([sch_cur] at the
+                                ; take, 0xFF = nobody). toast_now's whole test
+                                ; (SPEC.md 60.4): the flag alone says somebody
+                                ; holds it, never that the CALLER does.
 
 ; -----------------------------------------------------------------------------
 ; GFXCLIP - the clip hook, at a public rect entry (SPEC.md 11.3)
@@ -78,6 +82,257 @@ gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); 0 = free.
 %endmacro
 
 ; -----------------------------------------------------------------------------
+; GFXDISP - the display hook, immediately BELOW a rect entry's GFXCLIP
+;           (SPEC.md 39.14.1)
+;
+;   gfx_fill:        GFXCLIP gfx_fill_d       ; clip, in VIRTUAL space
+;   gfx_fill_d:      GFXDISP gfx_fill_raw     ; split by display, then translate
+;   gfx_fill_raw:    ...
+;
+; BELOW GFXCLIP AND NOT ABOVE IT, which is the correctness argument rather
+; than a preference: wm_clip_tab holds VIRTUAL rects, so the clip has to be
+; applied before anything is translated. Above, gfx_clip_run would be handed
+; display-local coordinates to compare against virtual fragments - which is
+; right on display 0, where the two are the same numbers, and silently wrong
+; everywhere else. The dual-display plan said "above"; it was written before
+; the clip's coordinate space had been thought about.
+;
+; ONE DISPLAY COSTS A COMPARE AND A TAKEN BRANCH, then falls straight through
+; into the body - the bargain [bb_on] and [wm_clip_n] already make. On
+; kern_small it expands to nothing at all.
+;
+; [gfx_dnest] is what lets this compose with 39.14.2's whole-shape hooks: a
+; font_run that has already translated falls back to gfx_fill + font_str, and
+; a translated caller reaching a hooked callee would translate twice.
+; -----------------------------------------------------------------------------
+%macro GFXDISP 1
+%ifdef KERN_BIG
+    cmp byte [vid_ndisp], 1
+    jbe %%one                   ; one display: the rect is already local
+    cmp byte [gfx_dnest], 0
+    jne %%one                   ; ...or an outer hook already translated it
+    push di
+    mov di, %1
+    call gfx_disp_run
+    pop di
+    ret
+%%one:
+%endif
+%endmacro
+
+%ifdef KERN_BIG
+; .text with real initialisers: -f bin zeroes nothing, and every drawing call
+; in the machine reads these - including the first, before anything has run.
+gfx_dnest   db 0                ; whole-shape hooks in effect (SPEC.md 39.14.2)
+gfx_dr      times 4 dw 0        ; gfx_disp_run's banked virtual rect
+gfx_dfn     dw 0                ; ...and the raw body it is re-entering
+
+; -----------------------------------------------------------------------------
+; gfx_disp_run - internal: run a rect primitive once per DISPLAY it touches
+; in:       AX = x1, BX = y1, CX = x2, DX = y2 in VIRTUAL coordinates,
+;           DI = near ptr to the raw body (the entry below that primitive's
+;           GFXDISP); more than one display exists and no hook is nested
+; out:      -
+; clobbers: flags
+;
+; gfx_clip_run's shape, with a GEOMETRY attached to each rect instead of only
+; a rect: intersect with the display, translate the survivor into the
+; display's own coordinates, activate it, draw. A fragment landing in no
+; display is drawn by nobody and there is no test for it anywhere - which is
+; the whole reason the DEAD ZONE (SPEC.md 39.2.1) costs nothing.
+;
+; The state is module scratch for gfx_clip_run's reason: the raw bodies
+; preserve everything, there is nothing left to spare, and this only ever runs
+; with the gfx lock held.
+;
+; IT DOES NOT RESTORE THE DISPLAY (SPEC.md 39.14.3): the last one drawn on
+; stays current until gfx_unlock, so a window's repaint pays ONE swap and not
+; two per primitive. That is safe because the cursor brackets itself (39.15.2)
+; - cur_unlazy runs at the top of GFXCLIP, above all of this, and would
+; otherwise erase the arrow through whatever display happened to be live.
+; -----------------------------------------------------------------------------
+gfx_disp_run:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [gfx_dr+0], ax
+    mov [gfx_dr+2], bx
+    mov [gfx_dr+4], cx
+    mov [gfx_dr+6], dx
+    mov [gfx_dfn], di
+    xor si, si                  ; SI = the display being drawn
+.disp:
+    mov ax, si
+    call vid_ctx_ptr            ; DI = its record; AX preserved
+    mov ax, [di+VID_CTX_VX]     ; x1 = max(rect's, this display's)
+    cmp ax, [gfx_dr+0]
+    jge .x1
+    mov ax, [gfx_dr+0]
+.x1:
+    mov cx, [di+VID_CTX_VX]     ; x2 = min(rect's, its last column)
+    add cx, [di+VID_CTX_CW]
+    dec cx
+    cmp cx, [gfx_dr+4]
+    jle .x2
+    mov cx, [gfx_dr+4]
+.x2:
+    cmp ax, cx
+    jg .next                    ; no columns here - and if no display claims
+                                ; the fragment, nobody draws it (39.2.1)
+    mov bx, [di+VID_CTX_VY]
+    cmp bx, [gfx_dr+2]
+    jge .y1
+    mov bx, [gfx_dr+2]
+.y1:
+    mov dx, [di+VID_CTX_VY]
+    add dx, [di+VID_CTX_CH]
+    dec dx
+    cmp dx, [gfx_dr+6]
+    jle .y2
+    mov dx, [gfx_dr+6]
+.y2:
+    cmp bx, dx
+    jg .next
+    push si                     ; ...into the display's own coordinates, while
+    mov si, [di+VID_CTX_VX]     ; the record is still in hand: vid_ctx_act is
+    sub ax, si                  ; about to move the live words under us
+    sub cx, si
+    mov si, [di+VID_CTX_VY]
+    sub bx, si
+    sub dx, si
+    pop si
+    push ax                     ; AL is the display's, x1 is the rect's
+    mov ax, si
+    call vid_ctx_act
+    pop ax
+    call word [gfx_dfn]         ; the body - it preserves every register
+.next:
+    inc si
+    mov al, [vid_ndisp]
+    mov ah, 0
+    cmp si, ax
+    jb .disp                    ; ...and the LAST display drawn on stays
+    pop di                      ; current; gfx_unlock is what puts 0 back
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; gfx_disp_enter / gfx_disp_leave - the WHOLE-SHAPE hook (SPEC.md 39.14.2)
+;
+; in:       AX = x, BX = y - the shape's ANCHOR, in virtual coordinates
+; out:      that display is current; AX/BX are its own coordinates;
+;           [vid_ox]/[vid_oy] is the origin subtracted, for a caller with more
+;           coordinates of its own to move
+; clobbers: flags (the GFXDLEAVE macro banks them, because a leave sits at the
+;           end of routines whose answer is in CF).
+;
+; For font_char, font_run, ico_core, gfx_scroll, gfx_save/restore and
+; gfx_line, none of which can be cut into rect fragments: they clip per whole
+; cell, per whole shape or per pixel. So the shape goes ENTIRELY onto the
+; display holding its anchor and is cut at that display's edge exactly as it
+; is cut at a screen edge today - 39.14.2's decision, and 39.14.3's rule for
+; the cursor applied to everything else with the same shape.
+;
+; THE NESTING COUNT IS WHAT MAKES IT COMPOSE. font_run's fallback path is
+; gfx_fill + font_str and gfx_line's axis-aligned cases are gfx_hline/vline:
+; a translated caller reaching a hooked callee would translate twice. It is a
+; COUNT and not a flag because gfx_disp_leave has to know which call owes the
+; restore.
+; -----------------------------------------------------------------------------
+gfx_disp_enter:
+    inc byte [gfx_dnest]
+    cmp byte [gfx_dnest], 1
+    jne .out                    ; nested: an outer hook owns the translation
+    push ax                     ; vid_disp_of ANSWERS in AL, so x is banked
+    call vid_disp_of            ; AL = the display holding (AX, BX); it cannot
+    call vid_ctx_act            ; fail - the dead zone answers with the primary
+    pop ax
+    sub ax, [vid_ox]
+    sub bx, [vid_oy]
+.out:
+    ret
+
+gfx_disp_enter_cd:
+    push ax                     ; the same, with the anchor in CX/DX - and
+    push bx                     ; nested it writes back what it was handed,
+    mov ax, cx                  ; because gfx_disp_enter left AX/BX alone
+    mov bx, dx
+    call gfx_disp_enter
+    mov cx, ax
+    mov dx, bx
+    pop bx
+    pop ax
+    ret
+
+%endif
+
+; GFXDENTER / GFXDLEAVE - the two above, with their one-display test inlined
+; so a single-card machine pays a compare rather than a near call. font_char
+; is the reason: SPEC.md 6.1.1 prices a glyph cell at ~1ms on the target and
+; a call/ret at ~11us, which is 1.2% of every character in the system for a
+; branch that is never taken on any machine but one.
+%macro GFXDENTER 0
+%ifdef KERN_BIG
+    cmp byte [vid_ndisp], 1
+    jbe %%one
+    call gfx_disp_enter
+%%one:
+%endif
+%endmacro
+
+; ...and the CX/DX spelling, for font_char and font_run_x - where AL is the
+; character and AX cannot be touched - and for the icon wrappers.
+%macro GFXDENTERCD 0
+%ifdef KERN_BIG
+    cmp byte [vid_ndisp], 1
+    jbe %%one
+    call gfx_disp_enter_cd
+%%one:
+%endif
+%endmacro
+
+; GFXDORG - move two more of the caller's coordinates into the display the
+; enter above chose. For a routine holding a RECT rather than a point: the
+; enter translated the anchor, this translates the far corner.
+;
+; Gated on the nest count being exactly 1, not on it being non-zero: nested,
+; an OUTER hook did the translation and [vid_ox] is that hook's origin, so
+; subtracting it again would move the shape twice.
+%macro GFXDORG 2
+%ifdef KERN_BIG
+    cmp byte [gfx_dnest], 1
+    jne %%skip
+    sub %1, [vid_ox]
+    sub %2, [vid_oy]
+%%skip:
+%endif
+%endmacro
+
+; ...and GFXDLEAVE is only the count coming down, because NOTHING RESTORES
+; THE DISPLAY any more (SPEC.md 39.14.3): the last one drawn on stays current
+; until gfx_unlock, so a burst of primitives in one place pays one swap
+; instead of one per call. It banks the FLAGS, because more than one of these
+; routines answers in CF and a leave is the last thing before its `ret`, and
+; `dec` sets them.
+%macro GFXDLEAVE 0
+%ifdef KERN_BIG
+    pushf
+    cmp byte [vid_ndisp], 1
+    jbe %%one
+    dec byte [gfx_dnest]
+%%one:
+    popf
+%endif
+%endmacro
+
+; -----------------------------------------------------------------------------
 ; gfx_clip_run - internal: run a rect primitive once per visible fragment
 ; in:       AX = x1, BX = y1, CX = x2, DX = y2, DI = near ptr to the raw body
 ;           (the entry just below that primitive's GFXCLIP); clip is armed
@@ -96,6 +351,15 @@ gfx_clip_run:
     push dx
     push si
     push di
+%ifdef KERN_BIG
+    cmp byte [gfx_dnest], 0     ; SPEC.md 39.14.4: a nested call from inside a
+    je .virt                    ; whole-shape hook arrives in DISPLAY
+    add ax, [vid_ox]            ; coordinates, and wm_clip_tab is virtual. The
+    add cx, [vid_ox]            ; fragments go back below, one subtraction
+    add bx, [vid_oy]            ; each, because the raw body wants them local
+    add dx, [vid_oy]
+.virt:
+%endif
     mov [gfx_cl_x1], ax
     mov [gfx_cl_y1], bx
     mov [gfx_cl_x2], cx
@@ -128,6 +392,15 @@ gfx_clip_run:
 .y2:
     cmp bx, dx
     jg .next
+%ifdef KERN_BIG
+    cmp byte [gfx_dnest], 0     ; ...and the fragment back into the display the
+    je .lv                      ; body is going to draw on. The loop re-reads
+    sub ax, [vid_ox]            ; gfx_cl_* below, which stayed virtual, so
+    sub cx, [vid_ox]            ; there is nothing to undo
+    sub bx, [vid_oy]
+    sub dx, [vid_oy]
+.lv:
+%endif
     call word [gfx_cl_fn]
 .next:
     add si, WCR_SZ
@@ -225,9 +498,9 @@ vga_rect_setup:
     jns .y1ok
     xor bx, bx
 .y1ok:
-    cmp dx, [vid_h]             ; y2 past the last row -> the last row
+    cmp dx, [vid_ch]            ; y2 past the last row -> the last row
     jl .y2ok
-    mov dx, [vid_hm1]
+    mov dx, [vid_chm1]
 .y2ok:
     cmp dx, bx
     jl .empty
@@ -235,9 +508,9 @@ vga_rect_setup:
     jns .x1ok
     xor ax, ax
 .x1ok:
-    cmp cx, [vid_w]             ; x2 past the last column -> the last column
+    cmp cx, [vid_cw]            ; x2 past the last column -> the last column
     jl .x2ok
-    mov cx, [vid_wm1]
+    mov cx, [vid_cwm1]
 .x2ok:
     cmp cx, ax
     jl .empty
@@ -709,9 +982,9 @@ gfx_ls_box:
     xor ax, ax
     mov [gfx_ls_bx1], ax
     mov [gfx_ls_by1], ax
-    mov ax, [vid_wm1]
+    mov ax, [vid_cwm1]
     mov [gfx_ls_bx2], ax
-    mov ax, [vid_hm1]
+    mov ax, [vid_chm1]
     mov [gfx_ls_by2], ax
     jmp short .out
 .armed:
@@ -780,6 +1053,13 @@ gfx_line:
     push di
     push bp                     ; 5.6.6's three-column walk uses it as a plain
     push es                     ; register - never as an address base
+    GFXDENTER                   ; the walk goes onto the display holding the
+    GFXDORG cx, dx              ; FIRST endpoint and is cut at that display's
+                                ; edge, exactly as it is cut at a screen edge
+                                ; (SPEC.md 39.14.2). Above the axis-aligned
+                                ; dispatch, so .hline/.vline reach gfx_fill
+                                ; with LOCAL coordinates and the nesting count
+                                ; stops it translating them again
     cmp bx, dx                  ; an axis-aligned pair belongs in the AREA
     je .hline                   ; primitive, whoever asked for a line - and
     cmp ax, cx                  ; it needs no dilation either, its segments
@@ -848,9 +1128,9 @@ gfx_line:
     xor ax, ax                  ; would move the lattice and the erase would
     mov [gfx_ln_cx1], ax        ; then miss; disarmed, one pass at the screen
     mov [gfx_ln_cy1], ax        ; edge, which is also where this gets its
-    mov ax, [vid_wm1]           ; screen clipping
+    mov ax, [vid_cwm1]          ; screen clipping
     mov [gfx_ln_cx2], ax
-    mov ax, [vid_hm1]
+    mov ax, [vid_chm1]
     mov [gfx_ln_cy2], ax
     call gfx_line_raw
     jmp short .nextpass
@@ -859,13 +1139,22 @@ gfx_line:
     mov di, [wm_clip_n]
 .frag:
     mov ax, [si+WCR_X1]         ; the rects are disjoint, so no pixel of the
-    mov [gfx_ln_cx1], ax        ; line is ever written twice
-    mov ax, [si+WCR_Y1]
-    mov [gfx_ln_cy1], ax
-    mov ax, [si+WCR_X2]
-    mov [gfx_ln_cx2], ax
-    mov ax, [si+WCR_Y2]
-    mov [gfx_ln_cy2], ax
+    mov bx, [si+WCR_Y1]         ; line is ever written twice
+    mov cx, [si+WCR_X2]
+    mov dx, [si+WCR_Y2]
+%ifdef KERN_BIG
+    cmp byte [gfx_dnest], 0     ; the fragments are VIRTUAL and the endpoints
+    je .fv                      ; went display-local at GFXDORG, so each
+    sub ax, [vid_ox]            ; fragment follows them onto the display -
+    sub cx, [vid_ox]            ; gfx_clip_run's own idiom, which this loop
+    sub bx, [vid_oy]            ; replicated WITHOUT the translation: a local
+    sub dx, [vid_oy]            ; line clipped against virtual rects meets
+.fv:                            ; none of them on display 1 and vanishes
+%endif
+    mov [gfx_ln_cx1], ax
+    mov [gfx_ln_cy1], bx
+    mov [gfx_ln_cx2], cx
+    mov [gfx_ln_cy2], dx
     push si
     push di
     call gfx_line_raw
@@ -885,6 +1174,7 @@ gfx_line:
     add [gfx_ln_y2], ax
     jmp .passes
 .out:
+    GFXDLEAVE
     pop es
     pop bp
     pop di
@@ -1465,7 +1755,9 @@ gfx_vline:
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 gfx_fill:
-    GFXCLIP gfx_fill_raw
+    GFXCLIP gfx_fill_d
+gfx_fill_d:
+    GFXDISP gfx_fill_raw
 gfx_fill_raw:
     call bb_mono_chk            ; colour tracking runs in BOTH modes: double
                                 ; buffering can be switched on later, and the
@@ -1583,7 +1875,9 @@ gfx_frame:
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 gfx_fill_gray:
-    GFXCLIP gfx_fill_gray_raw
+    GFXCLIP gfx_fill_gray_d
+gfx_fill_gray_d:
+    GFXDISP gfx_fill_gray_raw
 gfx_fill_gray_raw:
     cmp byte [bb_on], 0         ; double-buffered? (SPEC.md 32)
     jne bb_fill_gray
@@ -1724,7 +2018,9 @@ osapi_gfx_fill_pat:
     ret
 
 gfx_fill_pat:
-    GFXCLIP gfx_fill_pat_raw
+    GFXCLIP gfx_fill_pat_d
+gfx_fill_pat_d:
+    GFXDISP gfx_fill_pat_raw
 gfx_fill_pat_raw:
     cmp byte [bb_on], 0         ; double-buffered? (SPEC.md 32)
     jne bb_fill_pat
@@ -2040,7 +2336,9 @@ gfx_xor_rect_clip:
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 gfx_xor_fill:
-    GFXCLIP gfx_xor_fill_raw
+    GFXCLIP gfx_xor_fill_d
+gfx_xor_fill_d:
+    GFXDISP gfx_xor_fill_raw
 gfx_xor_fill_raw:
     cmp byte [bb_on], 0         ; double-buffered? (SPEC.md 32)
     jne bb_xor_fill
@@ -2310,6 +2608,10 @@ gfx_lock:
     jmp .retry
 .take:
     mov byte [gfx_lock_flag], 1
+    push ax
+    mov al, [sch_cur]           ; the owner is stamped inside the cli window,
+    mov [gfx_lock_own], al      ; so flag and owner can never disagree
+    pop ax
     sti
     mov byte [cur_lazy], 1      ; PROMISE the hide (SPEC.md 7.1.4) - the ISR
     ret                         ; will not move the arrow while the flag is
@@ -2328,7 +2630,8 @@ gfx_lock:
 ; The clip region dies here too (SPEC.md 11.3 rule 1). Making it die with
 ; the lock hold is what stops a leaked region from silently truncating the
 ; next painter - and it is what keeps the drag outline and the menu
-; highlights unclipped without any of them knowing the region exists.
+; highlights unclipped without any of them knowing the region exists. The
+; DISPLAY CONTEXT dies with it, for the same reason (SPEC.md 39.14.3).
 ; in:       -
 ; out:      -
 ; clobbers: flags
@@ -2339,6 +2642,16 @@ gfx_unlock:
                                 ; clip region's reason (SPEC.md 11.3/47): a
                                 ; site that forgets gfx_pen_live cannot leak
                                 ; dithered text into whatever draws next
+%ifdef KERN_BIG
+    push ax                     ; ...and so does the DISPLAY CONTEXT (SPEC.md
+    xor al, al                  ; 39.14.3). Nothing in 39.14 restores it any
+    call vid_ctx_act            ; more - the last display drawn on stays
+    pop ax                      ; current, so a repaint pays one swap instead
+                                ; of two per primitive - and this is what
+                                ; bounds that to one lock hold, exactly as the
+                                ; two stores above bound theirs. It is a
+                                ; compare and a branch when nothing moved
+%endif
     call gfx_flush
     cmp byte [cur_lazy], 0      ; was the hide ever spent? (SPEC.md 7.1.4)
     jne .never                  ; no: the arrow never left the screen, so
@@ -2347,7 +2660,19 @@ gfx_unlock:
 .never:
     call cur_lazyend            ; ...but the ISR could not move it all hold
 .rel:
+    mov byte [gfx_lock_own], 0xFF   ; owner first: a task switch between the
+                                    ; two stores must not show flag-free with
+                                    ; a stale owner still named
     mov byte [gfx_lock_flag], 0
+    mov byte [dsk_batch], 0     ; ANY UNLOCKING OF THE USER INTERFACE ENDS A
+                                ; BATCH (SPEC.md 18.9.3). One store, and it is
+                                ; the whole safety argument: a caller cannot
+                                ; leave a bracket open across a moment when the
+                                ; user could reach the drive, because every way
+                                ; out of a locked run of kernel code - return,
+                                ; failure, a question, a swap prompt - comes
+                                ; through here. mov leaves the flags alone,
+                                ; which this routine's contract requires
     ret
 
 ; -----------------------------------------------------------------------------

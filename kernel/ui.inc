@@ -125,14 +125,25 @@ ui_task:
                                 ; menu bar must die as firmly as one on
                                 ; another window
 
-    cmp word [wm_fs], 0         ; a fullscreen window (SPEC.md 11.2) sits
-    jne .on_desktop             ; over the bar: route rows 0..19 to wm_hit
-                                ; like any other point
+    call wm_fs_vis              ; a fullscreen window (SPEC.md 11.2) sits
+    jc .on_desktop              ; over the bar: route rows 0..19 to wm_hit
+                                ; like any other point. The PREDICATE and not
+                                ; the latch (SPEC.md 39.17.1): one covering
+                                ; the second monitor covers no bar, and
+                                ; testing [wm_fs] would make a bar that is
+                                ; plainly on screen unclickable
     cmp dx, MBAR_H              ; in the menu bar?
     jae .on_desktop
     cmp cx, [vid_clk_hx]        ; the clock cell at the right end (SPEC 12.1)?
     jae .clock_cell             ; tested BEFORE menu_track: it is not a title
     call ui_loc_gate            ; ...and Locator's own items go grey or live
+%ifndef KERN_SMALL
+    call fm_bar_gate            ; ...as does a Disk window's Format (22.12),
+                                ; whose owner is a WINDOW rather than the
+                                ; desktop but whose timing problem is the
+                                ; identical one. kern_big only - kern_small
+                                ; has no Format item to point anywhere
+%endif
     call gfx_lock               ; before it can draw them (SPEC.md 47 rule 5)
     call menu_track             ; in: CX = mousedown x; out: AX = CMD_* or 0
     call gfx_unlock
@@ -340,11 +351,18 @@ ui_task:
     call gfx_unlock
 .chk_zones:
     cmp byte [desk_zdirty], 0   ; a volume was mounted or unmounted (26.2),
-    je .chk_clk                 ; posted for the same reason and drained in
+    je .chk_toast               ; posted for the same reason and drained in
     mov byte [desk_zdirty], 0   ; the same pass - but it costs the drive-zone
     call gfx_lock               ; grid and the windows over it, not the screen
     call desk_zones_paint
     call gfx_unlock
+.chk_toast:
+    call toast_pass             ; put a staged toast up, or take an expired
+                                ; one down (SPEC.md 60). One compare per pass
+                                ; when nothing is up, and the ONE place
+                                ; either edge is drawn - toast_show is
+                                ; reachable from a lock-holding callback, a
+                                ; worker holding nothing, and kernel code
 .chk_clk:
     cmp byte [clk_dirty], 0     ; the clock was set from the Date/Time page
     je .clock                   ; (SPEC.md 31.5): the hardware RTC is written
@@ -364,9 +382,9 @@ ui_task:
     mov bl, al                  ; text changed
     or al, al
     jz .idle
-    cmp word [wm_fs], 0         ; fullscreen (SPEC.md 11.2): the bar and any
-    jne .idle                   ; Date/Time page are covered - time is kept,
-                                ; nothing is drawn
+    call wm_fs_vis              ; fullscreen (SPEC.md 11.2): the bar and any
+    jc .idle                    ; Date/Time page are covered - time is kept,
+                                ; nothing is drawn. The predicate, 39.17.1
     test al, 2
     jnz .clk_lock
     call cp_tick_due            ; CF = 1: a live Date/Time page is showing
@@ -417,8 +435,8 @@ ui_rdown:
     mov cx, [ui_ev + EV_A]      ; CX = press x, DX = press y. NO [ui_click_t]
     mov dx, [ui_ev + EV_B]      ; store - see above.
 
-    cmp word [wm_fs], 0         ; a fullscreen window (SPEC.md 11.2) owns the
-    jne .hit                    ; bar's rows like any other point
+    call wm_fs_vis              ; a fullscreen window (SPEC.md 11.2) owns the
+    jc .hit                     ; bar's rows like any other point (39.17.1)
     cmp dx, MBAR_H
     jb .ret                     ; the menu bar has no right-button behaviour
 .hit:
@@ -641,6 +659,10 @@ ui_drag:
 .y_same:
     mov [bx + W_Y], ax
 
+%ifdef KERN_BIG
+    call ui_drag_dead           ; ...and the title bar has to land somewhere a
+                                ; person can reach (SPEC.md 39.16.1)
+%endif
     call wm_dock_snap           ; barely over the dock? then back above it,
     jnc .nosnap                 ; if it still fits (SPEC.md 11.90)
     inc di                      ; ...and it moved after all
@@ -704,6 +726,51 @@ ui_drag_xor:
 ;
 ; Reuses ui_drag's statics - one tracker runs at a time on the single UI
 ; task: ui_curx/ui_cury hold the FIXED outline origin (W_X/W_Y),
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; ui_drag_dead - pull a dragged window's origin out of the DEAD ZONE
+;                (SPEC.md 39.16.1)
+; in:       BX = the window, W_X/W_Y just written by the clamps above
+; out:      an origin inside some display
+; clobbers: flags
+;
+; The two clamps above are per-AXIS, and the virtual desktop is a union
+; (SPEC.md 39.2.1) - so between two displays of different heights they can
+; agree on a point no display covers, and a title bar dropped there is one
+; nobody can grab back. It is mou_clamp's problem one layer up, and it takes
+; the same two routines.
+;
+; INTO THE POINTER'S DISPLAY, because during a drag the title bar is under the
+; hand and [cur_disp] is where the hand is - and 39.15.4 guarantees the
+; pointer itself is inside a display, so there is no second dead zone to fall
+; into. Clamping into the display the window CAME from would be the smaller
+; move, and the record no longer holds that origin by the time this runs.
+; -----------------------------------------------------------------------------
+ui_drag_dead:
+    cmp byte [vid_ndisp], 1
+    jbe .out
+    push ax
+    push bx
+    push cx
+    push si
+    mov si, bx                  ; SI, because vid_disp_find wants BX = y and
+    mov ax, [si+W_X]            ; an 8086 addresses through BX/BP/SI/DI only
+    mov bx, [si+W_Y]
+    call vid_disp_find
+    jnc .done                   ; on a display already: nothing to correct
+    mov cl, [cur_disp]
+    call vid_pt_clamp
+    mov [si+W_X], ax
+    mov [si+W_Y], bx
+.done:
+    pop si
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+%endif
+
 ; ui_origx/ui_origy the frame size at mousedown, ui_dragw/ui_dragh the
 ; tracked size ui_drag_xor draws. The low clamp applies every pass (the
 ; XOR rect must stay well-formed); the screen-edge clamp applies at
@@ -886,7 +953,9 @@ ui_loc_gate:
     jnz .set
     mov ax, menu_s_closex       ; ...or its MENU_DIS twin
 .set:
-    mov [menu_items_file + 3*2], ax
+    mov [menu_items_file], ax   ; Close Window is item 0 now: Locator's File
+                                ; menu is that item and nothing else, the
+                                ; builtins having moved to Builtins (12.3.1)
     pop bx
     pop ax
     ret
@@ -1028,9 +1097,9 @@ ui_dispatch:
     ret
 
 ; the base CMD_* of each kernel-dispatched bar cell (SPEC.md 12.3): the
-; System menu, then Locator's File and Special
+; System menu, then Locator's File and Builtins (SPEC.md 12.3.1)
 ui_loc_base:
-    dw CMD_ABOUT, CMD_TIMER, CMD_REBOOT
+    dw CMD_ABOUT, CMD_CLOSE, CMD_TIMER
 
 ; -----------------------------------------------------------------------------
 ; ui_post_cmd - defer one of the kernel's own menu commands (SPEC.md 13)

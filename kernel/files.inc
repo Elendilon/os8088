@@ -113,17 +113,20 @@ FS_DRV      equ 10              ; byte: the drive it shows
 FS_MOK      equ 11              ; byte: 1 = that listing came from a good mount
 FS_VIEW     equ 12              ; byte: 0 = list, 1 = icon grid
 FS_EDIT     equ 13              ; byte: the status-line editor is armed here
-FS_FERR     equ 14              ; byte: FERR_* of the last file operation IN
-                                ; THIS WINDOW, 0 = none
-FS_LDST     equ 15              ; byte: LD_* of the last load THIS window
-                                ; posted. Per window for the reason FS_FERR
-                                ; is: a status line is a report about what
-                                ; the user did HERE, and [ld_status] is one
-                                ; global, so a failed load put 'Bad package'
-                                ; on every open Disk window at once - two
-                                ; windows both claiming to have been asked.
-                                ; Offset 15 was the padding hole in front of
-                                ; the word below, so FS_SIZE is unchanged
+                                ; +14 and +15 are FREE: FS_FERR and FS_LDST,
+                                ; the FERR_* of the last file operation in
+                                ; this window and the LD_* of the last load it
+                                ; posted. Both were per window because a
+                                ; status line is a report about what the user
+                                ; did HERE, and [ld_status] is one global - so
+                                ; a failed load put 'Bad package' on every
+                                ; open Disk window at once, two of them each
+                                ; claiming to have been asked. A verdict is a
+                                ; TOAST now (SPEC.md 60.5) and belongs to no
+                                ; window at all, which DISSOLVES that question
+                                ; rather than answering it. The offsets are
+                                ; left as a hole deliberately: every one below
+                                ; is hand-written, and FS_SIZE is unchanged.
 FS_VSEG     equ 16              ; word: this window's listing-cache claim
                                 ; (SPEC.md 50.2), 0 = none - fm_kinit claims
                                 ; VIEW_KB and the instance's teardown frees
@@ -248,8 +251,6 @@ fm_kinit_x:
     mov word [di+FS_N], 0           ; reopened window never resumes one
     mov byte [di+FS_VIEW], 0
     mov byte [di+FS_EDIT], 0
-    mov byte [di+FS_FERR], 0
-    mov byte [di+FS_LDST], 0
     mov byte [di+FS_DIRTY], 0   ; a KD_POOL block is REUSED (SPEC.md 29.3):
                                 ; a window closed while it still owed a
                                 ; refresh must not hand that debt to the next
@@ -606,7 +607,6 @@ fmv_load:
     mov [di+FS_N], ax
     mov word [di+FS_SEL], 0xFFFF    ; every index into the old listing is
     mov word [di+FS_SCRL], 0        ; meaningless now
-    mov byte [di+FS_FERR], 0
     call fmv_store
     call fm_measure             ; the free/size line is about the listing we
                                 ; just took, so it is read here and nowhere
@@ -1096,6 +1096,11 @@ fm_s_ldfail:  db 'Load failed', 0
 fm_s_nomem:   db 'Out of memory', 0
 fm_stattab:   dw fm_s_empty, fm_s_dskerr, fm_s_badpkg, fm_s_toobig, fm_s_ldfail
               dw fm_s_nomem
+LD_NSTAT      equ 6             ; LD_OK .. LD_ENOMEM. The bound toast_say
+                                ; tests, and it is DERIVED FROM THE TABLE
+                                ; rather than typed beside the enum, because
+                                ; the table is what an out-of-range code walks
+                                ; off the end of (SPEC.md 22.9's silent ladder)
 
 ; --- FERR_* -> status line (SPEC.md 22) --------------------------------------
 ; Every dskw_* failure has to say something. Without this table a refused
@@ -1142,6 +1147,15 @@ fm_s_repk:    db 'Enter=yes  A=all  Esc=stop', 0  ; three answers are 45
                                     ; long as it is up
 fm_s_delpr:   db 'Delete ', 0
 fm_s_delq:    db '? Enter=yes Esc=no', 0
+%ifndef KERN_SMALL
+fm_s_fmtpr:   db 'Format ', 0       ; 'Format A: as 360K? Enter=yes Esc=no',
+fm_s_fmtas:   db ': as ', 0         ; which is 35 characters at its longest
+fm_s_fmtq:    db 'K? Enter=yes Esc=no', 0    ; and so inside FM_HDRMAX
+fm_s_fmtok:   db 'Formatted ', 0    ; ...and the verdict, SPEC.md 60.6's own
+                                    ; reasoning: a format is seconds of floppy
+                                    ; the user waited for, so success speaks
+                                    ; rather than only failure
+%endif
 fm_s_delq2:   db ' +contents? Enter=yes Esc=no', 0   ; ...for a folder
 fm_s_size:    db 'Size ', 0         ; ...and the resting status line, which
 fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
@@ -1166,9 +1180,13 @@ fm_s_folder:  db 'Folder', 0    ; ...and in a folder we arrived at from
 ; in this paragraph.)
 ; -----------------------------------------------------------------------------
 fm_s_mfile:   db 'File', 0
+fm_s_medit:   db 'Edit', 0
 fm_s_mfold:   db 'Folder', 0
 fm_s_mview:   db 'View', 0
-fm_s_mspec:   db 'Special', 0
+fm_s_mbuilt:  db 'Builtins', 0   ; the SAME menu as Locator's, with the
+                                ; same items in the same order (SPEC.md
+                                ; 12.3.1) - which is the whole point of
+                                ; the rename
 
 fm_s_open:    db 'Open', 0
 fm_s_mkdir:   db 'New Folder...', 0
@@ -1178,6 +1196,24 @@ fm_s_cut:     db 'Cut', 0
 fm_s_copy:    db 'Copy', 0
 fm_s_paste:   db 'Paste', 0
 fm_s_pastin:  db 'Paste Into', 0
+
+; The rule between Delete and Format, and the item it separates (SPEC.md
+; 22.12). A rule is a MENU_DIS item and nothing cleverer: menu_hover never
+; lands on one, which is exactly what a separator wants, and it costs the
+; menu system no new concept. It is as wide as the widest item in the menu
+; so it reads as a rule rather than as a short dash.
+;
+; Format has a MENU_DIS twin because whether a disk can be formatted is a
+; stable, cheap fact - this window's mount failed and this volume is a
+; floppy - which SPEC.md 47 rule 5 says to GREY rather than to refuse.
+; fm_bar_gate does the swap on the press that opens the bar, exactly as
+; ui_loc_gate does for Close Window and for its reason: nothing relays the
+; bar out when a mount verdict changes.
+%ifndef KERN_SMALL              ; kern_big only (SPEC.md 18.96's foot)
+fm_s_fsep:    db MENU_DIS, '--------------', 0
+fm_s_format:  db 'Format Disk...', 0
+fm_s_formatx: db MENU_DIS, 'Format Disk...', 0
+%endif
 fm_s_refr:    db 'Refresh', 0
 fm_s_up:      db 'Up One Folder', 0
 fm_s_rootf:   db 'Root Folder', 0
@@ -1190,21 +1226,31 @@ fm_s_opennew: db 'Open in New Window', 0
 
 fm_items_file:
     dw fm_s_open, fm_s_mkdir, fm_s_rename, fm_s_delete
+%ifndef KERN_SMALL
+    dw fm_s_fsep, fm_s_format   ; fm_bar_gate rewrites this last word
+FM_IFMT     equ 5               ; ...at this item index, which is also
+                                ; FMC_FORMAT - FMC_OPEN, and is written down
+                                ; once rather than being counted at the store
+FM_NFILE    equ 6               ; items in the File menu
+%else
+FM_NFILE    equ 4               ; kern_small: no rule and no Format
+%endif
+fm_items_edit:
     dw fm_s_cut, fm_s_copy, fm_s_paste
 fm_items_fold:
     dw fm_s_newwin, fm_s_opennew
     dw fm_s_refr, fm_s_up, fm_s_rootf, fm_s_drva, fm_s_drvb
 fm_items_view:
     dw fm_s_aslist, fm_s_asicon
-fm_items_spec:
-    dw menu_s_timer, menu_s_bounce, menu_s_restart
+fm_items_built:
+    dw menu_s_timer, menu_s_bounce, menu_s_disk
 
 fm_menus:
     dw menu_loc_name            ; AM_NAME: still 'Locator' (SPEC.md 12.3)
     dw fm_oncmd                 ; AM_ONCMD: our own handler - the resident
                                 ; thunk, like fm_tpl's three above
-    dw 4                        ; AM_COUNT (= MENU_APPMAX, used exactly)
-    dw fm_s_mfile, fm_items_file, 7     ; 'Close Window' retired: the app-name
+    dw 5                        ; AM_COUNT (= MENU_APPMAX, used exactly)
+    dw fm_s_mfile, fm_items_file, FM_NFILE  ; 'Close Window' retired: the app-name
                                         ; cell carries Close now (SPEC.md
                                         ; 12.7), and a Disk window OWNS that
                                         ; cell - unlike the bare desktop,
@@ -1212,9 +1258,15 @@ fm_menus:
                                         ; exists and Locator's own File menu
                                         ; keeps its Close Window as the only
                                         ; way to close from the bar
+    dw fm_s_medit, fm_items_edit, 3      ; Cut/Copy/Paste were File's until
+                                        ; SPEC.md 22.12 needed a sixth item
+                                        ; there. Their own menu is where
+                                        ; every other application in this
+                                        ; tree - and the system this one is
+                                        ; modelled on - has always put them
     dw fm_s_mfold, fm_items_fold, 7
     dw fm_s_mview, fm_items_view, 2
-    dw fm_s_mspec, fm_items_spec, 3
+    dw fm_s_mbuilt, fm_items_built, 3
 section .cold                   ; ...and back to cold code
 
 
@@ -1409,6 +1461,57 @@ fm_front_win:
     pop cx
     pop ax
     ret
+
+%ifndef KERN_SMALL              ; kern_big only (SPEC.md 18.96's foot)
+; -----------------------------------------------------------------------------
+; fm_bar_gate - point Format Disk... at its live or disabled string, just
+;               before the bar can drop a menu (SPEC.md 22.12, 47 rule 5)
+; in:  nothing; [menu_win] names whoever owns the bar
+; out: nothing (all registers preserved)
+;
+; ui_loc_gate's twin, called from the same place and for exactly its reason:
+; nothing relays the bar out when a window's mount verdict changes -
+; menu_check hands OWNERSHIP over, but a set's item list is static and would
+; keep whatever it last held. So the swap happens on the press that opens the
+; bar, where one window is relevant and the answer is two compares.
+;
+; It runs on every application's press, not only a Disk window's, and that is
+; deliberate rather than sloppy: the default is the DISABLED string, so a bar
+; owned by anything else leaves the item greyed, which is what fm_items_file
+; should carry when no Disk window is looking at an unformatted disk. Getting
+; here with the live string left over from a window that has since closed is
+; the failure this ordering exists to make impossible.
+;
+; NOT called before a context menu (SPEC.md 12.4): Format is not on one. If
+; it ever is, this is the routine to call there too - and the descriptor note
+; above fm_ctx_file is the argument for why that is allowed.
+; -----------------------------------------------------------------------------
+fm_bar_gate_x:
+    push ax
+    push bx
+    push di
+    mov ax, fm_s_formatx        ; greyed unless every test below passes
+    mov bx, [menu_win]
+    or bx, bx
+    jz .set                     ; Locator owns the bar: no window, no disk
+    cmp word [bx+W_MENUS], fm_menus
+    jne .set                    ; not a Disk window (fm_front_win's test, and
+                                ; exact for its reason - fm_kinit is the only
+                                ; thing that ever stores fm_menus)
+    call KERNEL_SEG:cw_inst_win_owner   ; DI = its instance record
+    or di, di
+    jz .set
+    mov di, [di+I_SPTR]
+    call fm_fmt_ok
+    jc .set
+    mov ax, fm_s_format
+.set:
+    mov [fm_items_file + FM_IFMT*2], ax
+    pop di
+    pop bx
+    pop ax
+    ret
+%endif                          ; KERN_SMALL: no formatter
 
 ; -----------------------------------------------------------------------------
 ; fm_seed - park a target directory for the next fm_kinit (SPEC.md 22.1)
@@ -1608,10 +1711,6 @@ fm_layout:
     mov [fm_ldrv], al
     mov al, [di+FS_EDIT]
     mov [fm_ledit], al
-    mov al, [di+FS_FERR]
-    mov [fm_lferr], al
-    mov al, [di+FS_LDST]
-    mov [fm_lldst], al
     mov ax, [di+FS_N]
     mov [fm_lnf], ax
     mov ax, [di+FS_SCRL]
@@ -1832,15 +1931,12 @@ fm_onclick_x:
     mov [fm_wased], al          ; only thing besides the two selection bands a
                                 ; row click can change (SPEC.md 22.2)
     call fm_edit_end            ; clicking away abandons a half-typed name
-    call fm_stat_clear          ; ...and retires the last verdict (22.9)
-    mov al, 0
-    jnc .noclr
-    inc al
-.noclr:
-    or al, [fm_wased]           ; ONE question, two causes: a retired verdict
-    mov [fm_statowed], al       ; and an ended editor line both rewrite the
-                                ; status LINE and change nothing else on this
-                                ; window. The cheap paths below draw no text
+    mov al, [fm_wased]          ; an ended editor line rewrites the status
+    mov [fm_statowed], al       ; LINE and changes nothing else on this
+                                ; window. It used to be ONE question with TWO
+                                ; causes, the other being a retired verdict,
+                                ; and verdicts are toasts now (SPEC.md 60.5).
+                                ; The cheap paths below draw no text
                                 ; at all, so they pay one fm_status_only for
                                 ; it - where each used to escalate to a whole
                                 ; repaint instead, which is what made clicking
@@ -2110,14 +2206,12 @@ fm_onkey_x:
     jne .editing                ; naming: nothing below is reachable - and the
                                 ; prompt already owns the line, so there is no
                                 ; verdict on it to retire
-    call fm_stat_clear          ; ...otherwise this keystroke retires it
-    mov byte [fm_statowed], 0   ; (22.9), and the line is owed a redraw. Every
-    adc byte [fm_statowed], 0   ; path below used to draw it one way or
-                                ; another; the scroll keys do not any more
-                                ; (22.11), so the debt has to be recorded -
-                                ; the same byte, and the same question, that
-                                ; fm_onclick banks it in. MOV leaves CF alone,
-                                ; so the ADC is fm_stat_clear's answer
+    mov byte [fm_statowed], 0   ; no editor line was up, so this keystroke
+                                ; owes the status line nothing. It used to owe
+                                ; one whenever it retired a verdict, and the
+                                ; debt had to be RECORDED because the scroll
+                                ; keys stopped drawing the line (22.11).
+                                ; Verdicts are toasts now (SPEC.md 60.5)
 
     cmp al, 13
     je .enter
@@ -2303,7 +2397,6 @@ fm_open_sel:
     inc ax                      ; index + 1: ui.inc runs the loader once the
     mov [ld_pending], ax        ; lock drops (SPEC.md 21)
     mov [ld_pwin], di           ; ...resolved against THIS window (22.1)
-    mov byte [di+FS_LDST], 0    ; ...whose last verdict is not this one's
     jmp short .out
 .folder:
     call fm_stage_name          ; fm_name = the folder's display name, out
@@ -2514,43 +2607,52 @@ section .text                   ; DATA, so back to the kernel segment: cold code
 ; Contiguous WITHIN a menu, which is what makes fm_oncmd's base + item
 ; arithmetic work. They are internal constants with no on-disk or cross-
 ; module meaning, so a menu that gains an item simply renumbers what follows.
+; SPEC.md 22.12 renumbered every one of these, which the paragraph above is
+; the licence for: File gained a separator and Format, and Cut/Copy/Paste
+; moved to an Edit menu of their own. FMC_CLOSEW went with the renumber - it
+; had been kept at 7 only so that the ids below it would not shift, and that
+; is not a reason when they are all shifting anyway.
 FMC_OPEN    equ 0               ; File
 FMC_MKDIR   equ 1
 FMC_RENAME  equ 2
 FMC_DELETE  equ 3
-FMC_CUT     equ 4
-FMC_COPY    equ 5
-FMC_PASTE   equ 6
-FMC_CLOSEW  equ 7               ; RETIRED (SPEC.md 12.7): the item is gone
-                                ; from fm_items_file and this id is no longer
-                                ; reachable - fm_oncmd builds it as base +
-                                ; item and File now stops at 6. The NUMBER
-                                ; stays so that FMC_NEWWIN and everything
-                                ; after it do not shift, which is the same
-                                ; reasoning 20.8 rule 4 applies to API slots
-FMC_NEWWIN  equ 8               ; Folder
-FMC_OPENNEW equ 9
-FMC_REFRESH equ 10
-FMC_UP      equ 11
-FMC_ROOT    equ 12
-FMC_DRVA    equ 13
-FMC_DRVB    equ 14
-FMC_LIST    equ 15              ; View
-FMC_ICONS   equ 16
-FMC_TIMER   equ 17              ; Special
-FMC_BOUNCE  equ 18
-FMC_RESTART equ 19
-FMC_PASTEIN equ 20              ; no menu CELL of its own: the context menu's
+FMC_FMTSEP  equ 4               ; the RULE between Delete and Format. It is a
+                                ; MENU_DIS item, so menu_hover can never land
+                                ; on it and this id can never be dispatched -
+                                ; but it occupies an item index, so it needs
+                                ; an id and a fm_jmp entry all the same, and
+                                ; that entry is a bare `ret` because a body
+                                ; may not assume which surface picked it
+FMC_FORMAT  equ 5
+FMC_CUT     equ 6               ; Edit
+FMC_COPY    equ 7
+FMC_PASTE   equ 8
+FMC_NEWWIN  equ 9               ; Folder
+FMC_OPENNEW equ 10
+FMC_REFRESH equ 11
+FMC_UP      equ 12
+FMC_ROOT    equ 13
+FMC_DRVA    equ 14
+FMC_DRVB    equ 15
+FMC_LIST    equ 16              ; View
+FMC_ICONS   equ 17
+FMC_TIMER   equ 18              ; Builtins (SPEC.md 12.3.1) - the same three
+FMC_BOUNCE  equ 19              ; commands Locator's own Builtins menu has,
+FMC_DISK    equ 20              ; in the same order. Restart is NOT among them
+                                ; any more: it moved to the System menu, which
+                                ; is cell 0 of every application, so a Disk
+                                ; window reaches it there like everything else
+FMC_PASTEIN equ 21              ; no menu CELL of its own: the context menu's
                                 ; "paste into the folder under the pointer"
                                 ; (SPEC.md 22.3), which the bar cannot offer
                                 ; because the bar has no pointer. It sits
                                 ; PAST every menu's range so no base + item
                                 ; sum can reach it by accident.
-FMC_COUNT   equ 21
+FMC_COUNT   equ 22
 
-FM_NMENUS   equ 4               ; = fm_menus' AM_COUNT = MENU_APPMAX
+FM_NMENUS   equ 5               ; = fm_menus' AM_COUNT = MENU_APPMAX
 fm_menu_base:
-    db FMC_OPEN, FMC_NEWWIN, FMC_LIST, FMC_TIMER
+    db FMC_OPEN, FMC_CUT, FMC_NEWWIN, FMC_LIST, FMC_TIMER
 
 ; The jump table. Every entry records WHICH SIDE OF THE GFX LOCK it is on,
 ; because fm_oncmd runs under that lock and the lock is a non-recursive spin
@@ -2566,14 +2668,27 @@ fm_jmp:
     dw fm_c_rename              ; inline (arms it; the disk is touched at
                                 ;         Enter, not here)
     dw fm_c_delete              ; inline (arms the CONFIRM line; likewise)
+    dw fm_c_nop                 ; the separator - unreachable through the bar
+                                ; (MENU_DIS), and a `ret` rather than a hole
+                                ; because fm_docmd's bound is FMC_COUNT and
+                                ; every id below it must land somewhere
+%ifndef KERN_SMALL
+    dw fm_c_format              ; inline (probes the disk under the lock, like
+                                ;         Refresh; arms the CONFIRM line, and
+                                ;         the disk is WRITTEN at Enter -
+                                ;         SPEC.md 22.12)
+%else
+    dw fm_c_nop                 ; kern_small has no formatter, and the ID
+                                ; STAYS so that every FMC_* below keeps its
+                                ; number in both builds - the two kernels
+                                ; differ by two menu items, not by a
+                                ; renumbering nobody can see
+%endif
     dw fm_c_cut                 ; inline (the clipboard is a memory write)
     dw fm_c_copy                ; inline (ditto)
     dw fm_c_paste               ; inline (disk I/O under the lock, like
                                 ;         Refresh and navigation already are;
                                 ;         SPEC.md 22.3)
-    dw fm_c_closew              ; RETIRED with FMC_CLOSEW above - unreachable,
-                                ; and kept only so the entries below keep
-                                ; their indices
     dw fm_c_newwin              ; POSTED - app_launch takes the lock (29.4)
     dw fm_c_opennew             ; POSTED - ditto
     dw fm_c_refresh             ; inline (fmv_load, like the button)
@@ -2585,7 +2700,7 @@ fm_jmp:
     dw fm_c_icons               ; inline (FS_VIEW = 1)
     dw fm_c_timer               ; POSTED - app_launch takes the lock
     dw fm_c_bounce              ; POSTED - app_launch takes the lock
-    dw fm_c_restart             ; POSTED - ui_cmd takes the lock
+    dw fm_c_disk                ; POSTED - ui_cmd takes the lock
     dw fm_c_pastein             ; inline (fm_c_paste with another target), forever
 section .cold                   ; ...and back to cold code
 
@@ -2656,8 +2771,6 @@ fm_docmd:
     jae .out
     shl bx, 1
     mov byte [fm_cmdline], 0    ; assume the whole window until a body says
-    call fm_stat_clear          ; a command retires the last verdict (22.9),
-                                ; BEFORE the body runs so its own survives
     call [fm_jmp+bx]            ; otherwise. CALL r/m16 near-indirect: 8086
     mov si, [fm_cmdwin]
     cmp byte [fm_cmdline], 0
@@ -2712,6 +2825,77 @@ fm_arm_sel:
 .none:
     pop ax                      ; nothing selected: a no-op, like File > Open
     ret
+
+%ifndef KERN_SMALL              ; kern_big only (SPEC.md 18.96's foot)
+; -----------------------------------------------------------------------------
+; fm_fmt_ok - may the window whose block is in DI be formatted? (SPEC.md 22.12)
+; in:  DI = a state block
+; out: CF = 0 yes, CF = 1 no. All registers preserved.
+;
+; Two stable, cheap facts and nothing that touches a disk, which is what
+; makes this SPEC.md 47 rule 5's case - a GREYED item rather than a live one
+; that refuses. It is the whole predicate: fm_bar_gate greys from it and
+; fm_c_format re-asks it, so the thing that is offered and the thing that
+; happens cannot drift (rule 2).
+;
+; What is deliberately NOT here is whether the medium can be READ. That is
+; rule 3's case - the only test is doing the thing - so fm_c_format probes on
+; the spot and reports, and an unreadable disk gets a toast rather than a
+; greyed menu that cannot say why.
+; -----------------------------------------------------------------------------
+fm_fmt_ok:
+    push ax
+    push bx
+    cmp byte [di+FS_MOK], 0
+    jne .no                     ; it MOUNTED: there is nothing here to format,
+                                ; and "erase this perfectly good disk" is a
+                                ; different feature with a different question
+    mov bl, [di+FS_DRV]
+    call KERNEL_SEG:cw_dsk_vol_row
+    jc .no
+    cmp byte [bx+DV_KIND], DVK_BIOS
+    jne .no                     ; a driver-backed volume: its own driver owns
+    test byte [bx+DV_UNIT], 0x80    ; formatting it (SPEC.md 52.2), and this
+    jnz .no                     ; module cannot reach its geometry at all
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop bx
+    pop ax
+    stc
+    ret
+
+fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
+    mov di, [fm_vp]
+    call fm_fmt_ok              ; the greying is the primary answer; this is
+    jc .no                      ; the belt, because a body may not assume
+                                ; which surface picked it
+    call fmv_sync_x             ; stand on THIS window's volume. The mount
+                                ; fails - that IS the premise - and what it
+                                ; leaves behind is the thing we need:
+                                ; disk_mount sets [disk_drive] before it
+                                ; validates anything and its failure path
+                                ; does not undo it (SPEC.md 18.3)
+    call dskw_fmt_probe         ; AL = the format this medium can take, or
+    jc .bad                     ; CF=1 with AX = FERR_*. READS ONLY, so a
+                                ; refusal here has changed nothing at all
+    mov [fm_fmtrow], al
+    mov di, [fm_vp]
+    mov al, 5                   ; ...and ask, with the size in the question
+    jmp fm_edit_arm
+.bad:
+    push bx                     ; an unreadable medium is a verdict about what
+    push cx                     ; just happened, so it is a toast (60.5) - and
+    mov bx, fm_errtab           ; nothing is armed, so the window is left
+    mov cx, FM_NERR             ; exactly as it was
+    call KERNEL_SEG:cw_toast_say
+    pop cx
+    pop bx
+.no:
+    ret
+%endif                          ; KERN_SMALL: no formatter
 
 fm_c_cut:                       ; File > Cut - the selection, onto the
     mov al, FCP_CUT             ; clipboard (SPEC.md 22.3)
@@ -2809,22 +2993,20 @@ fm_nw_full:
 fm_nw_none:
     ret
 
-fm_c_closew:                    ; File > Close Window
-    mov ax, CMD_CLOSE
-    call KERNEL_SEG:cw_ui_post_cmd ; NOT ui_cmd: it takes the lock we hold
+fm_c_nop:                       ; the File menu's separator (SPEC.md 22.12)
+    ret                         ; - MENU_DIS, so nothing can select it
+
+fm_c_disk:                      ; Builtins > Disk - CMD_FILES, exactly what
+    mov ax, CMD_FILES           ; Locator's own Builtins menu posts, so the
+    call KERNEL_SEG:cw_ui_post_cmd  ; item does the same thing from either bar
     ret
 
-fm_c_restart:                   ; Special > Restart
-    mov ax, CMD_REBOOT
-    call KERNEL_SEG:cw_ui_post_cmd
-    ret
-
-fm_c_timer:                     ; Special > Timer
+fm_c_timer:                     ; Builtins > Timer
     mov al, KIND_TIMER
     call KERNEL_SEG:cw_inst_launch_post ; NOT app_launch: it takes the lock
     ret                             ; (29.4)
 
-fm_c_bounce:                    ; Special > Bounce
+fm_c_bounce:                    ; Builtins > Bounce
     mov al, KIND_BOUNCE
     call KERNEL_SEG:cw_inst_launch_post
     ret
@@ -3108,6 +3290,13 @@ fm_editkey:
     mov di, [fm_vp]
     cmp byte [di+FS_EDIT], 4
     je .replace
+%ifndef KERN_SMALL
+    cmp byte [di+FS_EDIT], 5
+    je .confirm                 ; Format (SPEC.md 22.12) takes mode 3's
+                                ; asymmetry unchanged, and wants it more:
+                                ; there is no undo, and the operation is not
+                                ; one file but every one of them
+%endif
     cmp byte [di+FS_EDIT], 3
     je .confirm
     cmp al, 13
@@ -3256,7 +3445,7 @@ fm_hasdot:
 ; -----------------------------------------------------------------------------
 ; fm_edit_commit - Enter in the editor: do whatever was armed (SPEC.md 22)
 ; in:  [fm_vp] published; gfx lock held, UI task - dskw_*'s required context
-; out: nothing (all registers preserved); the verdict lands in FS_FERR
+; out: nothing (all registers preserved); the verdict is said as a toast
 ;
 ; Every dskw_* resolves its name in [dsk_cwd], which is whichever window last
 ; navigated - so the sync is not a nicety: without it a New Folder typed in
@@ -3281,6 +3470,10 @@ fm_edit_commit:
     push di
     mov di, [fm_vp]
     mov al, [di+FS_EDIT]
+%ifndef KERN_SMALL
+    cmp al, 5
+    je .fmt
+%endif
     cmp al, 3
     je .del
     cmp byte [fm_elen], 0
@@ -3300,6 +3493,62 @@ fm_edit_commit:
     mov di, fm_ebuf             ; ...new name; the eleven name bytes and
     call dskw_rename_x          ; nothing else move (SPEC.md 18.4)
     jmp short .verdict
+%ifndef KERN_SMALL
+    ; Format (SPEC.md 22.12). The row is the one the PROMPT was built from,
+    ; not one re-derived now, for the reason Rename and Delete work from
+    ; fm_onam rather than from FS_SEL: what the line asked about has to be
+    ; what happens.
+    ;
+    ; No fmv_sync here and none wanted - fm_c_format did it when it armed the
+    ; mode, the volume cannot have moved since (the UI task has been inside
+    ; this window's keystrokes throughout), and a sync now would cost a
+    ; doomed mount of the very disk we are about to replace.
+.fmt:
+    mov al, [fm_fmtrow]
+    call dskw_format
+    jc .bad
+    mov di, [fm_vp]             ; the volume is a different one now, so the
+    mov al, [di+FS_DRV]         ; window is re-listed at its ROOT rather than
+    xor dx, dx                  ; at the folder it was pretending to be in
+    call fmv_load
+    push si
+    xor si, si                  ; ...and the caption follows it: 'Disk' is
+    call fm_settitle            ; the one name fm_settitle can always derive
+    pop si
+
+    ; 'Formatted B:' in the menu bar (SPEC.md 22.12.1). SPEC.md 60.6's
+    ; reasoning where it is strongest: a format is seconds of floppy the user
+    ; waited for, so the success is worth saying and not only the failure -
+    ; and the window behind it is no substitute, because 'Drive B: 0 files'
+    ; is a fact about the volume rather than a report of what just happened.
+    ;
+    ; INLINE, and only because it has one call site: fm_edit_commit has
+    ; already saved AX, SI and DI, so a proc here would spend ten bytes of
+    ; `.cold` re-saving them - and the cold rung had 51 bytes in it.
+    ;
+    ; It is said AFTER fmv_load, not before: a mount can arm SPEC.md 12.8's
+    ; file-activity widget, which owns these pixels and which toast_show
+    ; refuses while it is up - 60.6's own ordering.
+    mov al, [di+FS_DRV]
+    add al, 'A'
+    mov ah, al                  ; banked: fm_scat spends AL and not AH
+    mov di, fm_hdrbuf           ; borrowed - toast_show COPIES into toast_buf,
+    mov si, fm_s_fmtok          ; and the painter stages this afresh later
+    call fm_scat
+    mov [di], ah
+    mov byte [di+1], ':'
+    mov byte [di+2], 0
+    push cx
+    push es
+    mov ax, KERNEL_SEG          ; NOT `push cs`: this is `.cold` (SPEC.md
+    mov es, ax                  ; 2.6), so CS here is COLD_SEG, and both
+    mov si, fm_hdrbuf           ; fm_hdrbuf and the string are KERNEL_SEG
+    xor cx, cx                  ; TOAST_TICKS, the default life
+    call KERNEL_SEG:cw_toast_show
+    pop es
+    pop cx
+    jmp short .bcast
+%endif
 .del:
     call fmv_sync_x
     mov si, fm_onam
@@ -3313,13 +3562,20 @@ fm_edit_commit:
 .delfile:
     call dskw_delete_x
 .verdict:
-    mov di, [fm_vp]             ; .ren left DI on the new name (mov: no flags)
     jc .bad
-    mov byte [di+FS_FERR], 0
+.bcast:
     call fmv_bcast              ; the new listing reaches every window that
     jmp short .done             ; is showing this folder
 .bad:
-    mov [di+FS_FERR], al        ; every failure gets visible text (22)
+    push bx                     ; every failure gets visible text (22) - as a
+    push cx                     ; TOAST now (SPEC.md 60.5): a verdict is a
+    mov bx, fm_errtab           ; report about what just happened, not a fact
+    mov cx, FM_NERR             ; about this window, so it wants no per-window
+    call KERNEL_SEG:cw_toast_say ; byte, no status-line rung, and no later
+    pop cx                      ; interaction to come along and retire it.
+    pop bx                      ; BX/CX are pushed because this routine
+                                ; promises to preserve every register and
+                                ; saves only AX, SI and DI
 .done:
     call fm_edit_end
     pop di
@@ -3605,14 +3861,12 @@ fm_paste_res:
     je .ask
     call fm_edit_end            ; whatever was armed is spent
     call fmv_reload_all         ; the coherence pass this operation owes
-    mov di, [fm_vp]
     cmp al, FCPS_ERR
-    je .err
-    mov byte [di+FS_FERR], 0
-    jmp short .all
-.err:
+    jne .all
     mov al, [fcp_err]
-    mov [di+FS_FERR], al
+    mov bx, fm_errtab           ; SPEC.md 60
+    mov cx, FM_NERR
+    call KERNEL_SEG:cw_toast_say
 .all:
     call fmv_repaint_all        ; fmv_reload_all moved every window's CACHE;
     jmp short .out              ; their PIXELS are still the old listing, and
@@ -3851,36 +4105,6 @@ fm_stage_onam:
     ret
 
 ; -----------------------------------------------------------------------------
-; fm_stat_clear - a new interaction retires this window's verdicts (22.9)
-; in:  [fm_vp] published
-; out: CF = 1 if something was actually cleared (the LINE changed, so a
-;      caller drawing nothing else still owes it); all registers preserved
-;
-; A status message is a report about what the user did here, and it must not
-; outlive the doing of it: 'Bad package' used to sit under the listing through
-; every scroll, click and navigation that followed. Called at the TOP of the
-; three interaction entry points, before the handler runs - so an operation
-; that fails still publishes its own verdict straight after.
-; -----------------------------------------------------------------------------
-fm_stat_clear:
-    push di
-    mov di, [fm_vp]
-    cmp byte [di+FS_FERR], 0
-    jne .clr
-    cmp byte [di+FS_LDST], 0
-    je .none
-.clr:
-    mov byte [di+FS_FERR], 0
-    mov byte [di+FS_LDST], 0
-    pop di
-    stc
-    ret
-.none:
-    pop di
-    clc
-    ret
-
-; -----------------------------------------------------------------------------
 ; fm_edit_arm - hand the status-line editor to one window (SPEC.md 22)
 ; in:  DI = state block, AL = mode (1 = new folder, 2 = rename, 3 = delete)
 ; out: nothing (all registers preserved)
@@ -3894,7 +4118,6 @@ fm_stat_clear:
 fm_edit_arm:
     call fm_edit_end
     mov [di+FS_EDIT], al
-    mov byte [di+FS_FERR], 0    ; the prompt replaces the old verdict
     mov byte [fm_cmdline], 1    ; ...and the prompt IS the whole change: no
                                 ; row moves, the selection stays where it is,
                                 ; and the header, the icons and the buttons
@@ -5152,23 +5375,31 @@ fm_draw_status:
     push si
     push di
     ; --- status line at (6, staty): the precedence is binding (SPEC.md 22),
-    ;     because every one of these can be true at the same moment. Rungs
-    ;     1..4 are NOTIFICATIONS and hold the line while they have something
-    ;     to say; rung 5 is what it says the rest of the time (SPEC.md 22.7),
-    ;     which is why nothing needs a rule for putting it back. The header
-    ;     buffer is free by now, so every branch stages into it and one
-    ;     truncation serves them all.
+    ;     because every one of these can be true at the same moment. There
+    ;     used to be five rungs and two of them were VERDICTS - the FERR_* of
+    ;     the last file operation and the LD_* of the last load - which took
+    ;     the line until some later interaction retired it. Those are toasts
+    ;     now (SPEC.md 60.5): a verdict is a report about what just happened,
+    ;     so it belongs to the moment rather than to a window, and it goes
+    ;     away on its own. What is left is what the line is FOR - one thing
+    ;     that is true now (a load pending), one being typed, and one that
+    ;     describes the folder. The header buffer is free by now, so every
+    ;     branch stages into it and one truncation serves them all.
     mov di, fm_hdrbuf
     mov si, fm_s_loading        ; 1. a pending load trumps everything
     cmp word [ld_pending], 0
     jne .fs_stat
     mov al, [fm_ledit]          ; 2. the input line, prompt and all - the
     or al, al                   ;    editor IS the status line (SPEC.md 22)
-    jz .fs_st_err
+    jz .fs_st_space
     cmp al, 3
     je .fs_st_del
     cmp al, 4
     je .fs_st_rep
+%ifndef KERN_SMALL
+    cmp al, 5
+    je .fs_st_fmt
+%endif
     mov si, fm_s_newfld
     cmp al, 1
     je .fs_st_prompt
@@ -5196,6 +5427,29 @@ fm_draw_status:
     mov di, fm_hdrbuf           ; ...and line two, the answers, where every
     mov si, fm_s_repk           ; other status line goes
     jmp short .fs_stat
+%ifndef KERN_SMALL
+    ; "Format A: as 360K? Enter=yes Esc=no" (SPEC.md 22.12). The SIZE is the
+    ; point of naming it: dskw_fmt_probe cannot always tell 360K media from
+    ; 720K in a 1.2MB drive, and this line is the one place the user can
+    ; catch that before it costs them anything.
+.fs_st_fmt:
+    push bx
+    mov si, fm_s_fmtpr
+    call fm_scat
+    mov al, [fm_ldrv]
+    add al, 'A'
+    mov [di], al
+    inc di
+    mov si, fm_s_fmtas
+    call fm_scat
+    mov al, [fm_fmtrow]
+    call dskw_fmt_row           ; SI = the row it is about to write
+    mov ax, [si+DFMT_KB]
+    call fm_utoa
+    pop bx
+    mov si, fm_s_fmtq
+    jmp short .fs_stat
+%endif
 .fs_st_del:
     mov si, fm_s_delpr          ; "Delete NAME? Enter=yes Esc=no", or
     call fm_scat                ; "Delete NAME +contents? ..." for a folder
@@ -5206,45 +5460,13 @@ fm_draw_status:
     je .fs_stat
     mov si, fm_s_delq2
     jmp short .fs_stat
-.fs_st_err:
-    mov al, [fm_lferr]          ; 3. this window's own last word: the FERR_*
-    or al, al                   ;    text that keeps no dskw_* failure silent
-    jz .fs_st_load
-    mov bx, fm_errtab
-    jmp short .fs_st_tab
-.fs_st_load:
-    mov al, [fm_lldst]          ; 4. and finally the loader's - THIS window's
-    or al, al
-    jz .fs_st_space             ; ...and when even that has nothing to say,
-    mov bx, fm_stattab          ; the line belongs to the free/size figures
-    cmp al, 5
-    ja .fs_done                ; out-of-range status: draw nothing
-.fs_st_tab:
-    cmp al, FM_NERR
-    jae .fs_done
-    xor ah, ah
-    shl ax, 1
-    add bx, ax
-    mov si, [bx]
-    jmp short .fs_stat          ; DRAW it. This said .fs_st_tab - a jump to
-                                ; its own head - and the loop terminated
-                                ; rather than hanging only because `shl ax, 1`
-                                ; doubles the code every pass: LD_EBAD walked
-                                ; 2, 4, 8, 16, failed the FM_NERR bound and
-                                ; fell out at .fs_done, which draws NOTHING.
-                                ; So every rung of this ladder went silent -
-                                ; 'Bad package' on a corrupt .o88, and every
-                                ; FERR_* the table exists to keep from being
-                                ; silent. It fell through to .fs_stat until
-                                ; .fs_st_space was inserted below it and
-                                ; needed a jump added; the jump went to the
-                                ; wrong label
-
-    ; --- 5. the resting state: this folder's size and the volume's free
-    ;     space (SPEC.md 22.7). Every rung above is a NOTIFICATION and takes
-    ;     the line for as long as it has something to say; this one is what
-    ;     the line says the rest of the time, so it needs no clearing rule of
-    ;     its own - the notification going away restores it.
+    ; --- 3. the resting state: this folder's size and the volume's free
+    ;     space (SPEC.md 22.7). The two rungs that used to sit between here
+    ;     and the editor walked a word table by index, and a code past the end
+    ;     of it is what once made this whole ladder go SILENT - LD_EBAD
+    ;     doubled through 2, 4, 8, 16, failed the bound and fell out of a
+    ;     branch that draws nothing. toast_say carries that bound now, in one
+    ;     place, for both tables.
 .fs_st_space:
     push bx
     mov bx, [fm_vp]
@@ -5501,7 +5723,6 @@ fm_lview:   resb 1              ; FS_VIEW
 fm_lmok:    resb 1              ; FS_MOK
 fm_ldrv:    resb 1              ; FS_DRV
 fm_ledit:   resb 1              ; FS_EDIT
-fm_lferr:   resb 1              ; FS_FERR
 fm_wased:   resb 1              ; NOT a mirror: FS_EDIT as it stood BEFORE
                                 ; fm_onclick's fm_edit_end cleared it. A row
                                 ; click changes two selection bands and, if an
@@ -5512,7 +5733,6 @@ fm_wased:   resb 1              ; NOT a mirror: FS_EDIT as it stood BEFORE
 fm_lnf:     resw 1              ; FS_N
 fm_lscr:    resw 1              ; FS_SCRL
 fm_lsel:    resw 1              ; FS_SEL
-fm_lldst:   resb 1              ; FS_LDST
 fm_statowed: resb 1             ; 1 = this click or keystroke retired a
                                 ; verdict, so the status line owes a redraw
                                 ; that the cheap paths do not provide - the
@@ -5520,6 +5740,16 @@ fm_statowed: resb 1             ; 1 = this click or keystroke retired a
                                 ; a scroll, which draws no text at all (22.11)
 fm_cmdline: resb 1              ; 1 = the FMC_* just run changed the status
                                 ; LINE and nothing else on the window
+%ifndef KERN_SMALL
+fm_fmtrow:  resb 1              ; the dskw_fmt_tab row the FORMAT confirmation
+                                ; (SPEC.md 22.12) was built from, banked when
+                                ; the mode was armed. Not per-window, because
+                                ; fm_edit_arm clears every OTHER block's
+                                ; FS_EDIT - at most one confirmation exists in
+                                ; the machine at a time, which is the same
+                                ; thing that lets fm_onam and fm_ebuf be
+                                ; single copies
+%endif
 
 fm_pressx:  resw 1              ; fm_onclick's press point, ABSOLUTE - the
 fm_pressy:  resw 1              ; drag tracks in screen coordinates (22.4)
@@ -5587,6 +5817,10 @@ section .cold                   ; far entries (SPEC.md 2.6): the resident
                                 ; routine here keeps its ordinary near `ret`
 fmf_files_init:         call files_init_x
                     retf
+%ifndef KERN_SMALL
+fmf_fm_bar_gate:        call fm_bar_gate_x
+                    retf
+%endif
 fmf_files_open:         call files_open_x
                     retf
 fmf_files_open_drive:   call files_open_drive_x

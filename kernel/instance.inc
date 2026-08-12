@@ -1102,8 +1102,23 @@ app_close_win:
     cmp byte [di+I_TASK], 0xFF
     jne .tasked
     mov byte [di+I_STATE], 2    ; dying: lock-held readers skip it from here
+    call toast_owner_gone       ; ITS OLD MESSAGE GOES FIRST, before anything
+                                ; below can raise a NEW one (SPEC.md 60.6).
+                                ; cp_flush_close writes SYSTEM.CFG and says
+                                ; whether that worked - the panel's last act
+                                ; is a report about the panel - so a kill
+                                ; ordered after it would take that report
+                                ; with it, and the ordering is what makes
+                                ; that impossible rather than a claim about
+                                ; whose slot inst_caller answers with
     cmp byte [di+I_KIND], KIND_CTRL
     jne .noflush                ; the Control Panel defers its settings write
+    call drv_cp_closed          ; ...and tell the drivers, which is where the
+                                ; hard disk's tool image goes back (SPEC.md
+                                ; 31.9.1). BEFORE the settings write, so a
+                                ; driver that stages something on the way out
+                                ; is staging it into the blob that is about to
+                                ; be written rather than the one after
     call cp_flush_close         ; to here (SPEC.md 31.8): one floppy write per
                                 ; session instead of one per click. Only the
                                 ; TASK-LESS branch needs it - the panel owns
@@ -1173,6 +1188,7 @@ inst_restore:
 inst_task_die:
     call snd_release_rec        ; free every sound grant before the record
                                 ; goes (SPEC.md 29.4/34.3)
+    call toast_owner_gone       ; ...and its message (SPEC.md 60)
     call gfx_lock
     mov bx, [di+I_WIN]
     call wm_destroy             ; frees the wm slot + wm_owner, repaints -
