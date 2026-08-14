@@ -59,11 +59,25 @@ DRVC_DEBUG   equ 3              ; the serial monitor (SPEC.md 58): no service
                                 ; page - but a class of its own, because a
                                 ; class is the publication slot and sharing
                                 ; one disconnects the driver already in it
-DRVC_OVL     equ 4              ; NOT A KERNEL CLASS. A driver's own loadable
+DRVC_FILE    equ 5              ; a volume served by somebody ANSWERING
+                                ; QUESTIONS ABOUT FILES rather than about
+                                ; sectors (SPEC.md 62.9). Its verbs are a
+                                ; table of their own, reached through DSV_FS
+                                ; below, because DSV_* is full
+DRVC_NET     equ 4              ; the parallel link (docs/NET-PLAN.md): a
+                                ; SECOND block-serving class beside DRVC_DISK,
+                                ; which is what dsk_vtab's DV_CLASS exists for
+DRVC_OVL     equ 0x40           ; NOT A KERNEL CLASS. A driver's own loadable
                                 ; half (OS88_OVERLAY below): the kernel never
                                 ; loads one and drv_check would refuse it, and
                                 ; the number is here so that saying so is a
-                                ; property of the file rather than a comment
+                                ; property of the file rather than a comment.
+                                ; It WAS 4 and moved when DRVC_NET took that
+                                ; number: a real class costs a publication
+                                ; slot (42 bytes) and burning one to leave a
+                                ; hole would have been the dearer half of the
+                                ; choice. Well clear of DRVC_MAX, so
+                                ; drv_cls_idx refuses it by range alone
 
 ; --- the capability bits a sound driver may ADD (SPEC.md 34.2) ---------------
 ; os88api.inc publishes the two the resident kernel already has (TONE and
@@ -202,7 +216,109 @@ DSV_CPCLOSE  equ 24             ; near proc: "the Control Panel has been
                                 ; published, and the panel may be back in a
                                 ; second - so free what the PAGE was using, not
                                 ; what you are
-DSV_SIZE     equ 26
+DSV_FS       equ 26             ; dw: DRVC_FILE only - the FSV_* verb table,
+                                ; an offset in YOUR OWN segment (SPEC.md
+                                ; 62.9.1). A pointer rather than thirteen more
+                                ; cells here, because DSV_* is copied per
+                                ; class into the kernel's .bss and thirteen
+                                ; would be charged to every machine including
+                                ; the ones with no driver at all
+DSV_SIZE     equ 28
+
+; --- DSV_FS: the file redirector's verbs (SPEC.md 62.9) ----------------------
+; A DRVC_FILE volume has NO SECTORS - no BPB, no FAT, no directory to walk -
+; and dsk_xfer refuses one outright. What the kernel asks instead is these,
+; and the staged SPEC.md 19.1 entry's first-cluster word at offset 18 becomes
+; AN OPAQUE HANDLE YOU ASSIGN: only dsk_chdir and the loader ever interpret
+; it, and both are already redirect points.
+;
+; THE KERNEL STILL SORTS (19.4) AND STILL SYNTHESIZES `..` (19.5). Do neither
+; - two places deciding a listing's order is how a display index stops meaning
+; what the hit-test thinks it means.
+;
+; YOU OWE THE PROGRESS BAR (SPEC.md 12.8.1). The kernel arms 12.8's file
+; activity widget from FSV_STAT's size and is then ONE FAR CALL DEEP inside
+; your FSV_READ, blind, until you return - where a floppy is stepped from
+; dsk_xfer's own per-sector loop. So call OSAPI_FS_PROG as the bytes move, AX
+; = HOW MANY SINCE YOUR LAST REPORT (a running total advances the bar by the
+; whole file every call). Unarmed it is a compare and a return, so call it
+; unconditionally and never test; a short count is ordinary and the remainder
+; below 512 bytes is carried, not rounded. Skip it and the bar sits at 0 for
+; the length of the transfer, which is worse than the nothing it showed before
+; the widget learned to count in bytes.
+FSV_LIST     equ 0              ; APPEND this folder's entries, one at a time,
+                                ; through OSAPI_FS_ENT. You do not stage them
+                                ; and you cannot: dsk_put_dir knows whether
+                                ; this volume's listing is the kernel's floor
+                                ; or a claim YOU donated, and the count is
+                                ; disk_nfiles'
+FSV_CHDIR    equ 2              ; AX = a handle out of an entry, 0 = the root.
+                                ; out CF=1 refuses; CF=0 and DX = THE PARENT'S
+                                ; HANDLE - the kernel synthesizes `..` itself
+                                ; and has no directory sector to read one out
+                                ; of, and only you know what your handles mean.
+                                ; Answered HERE and not by a verb of its own
+                                ; because this is the only call that ever moves
+                                ; the current folder
+FSV_STAT     equ 4              ; SI = name -> exists, size, attributes
+FSV_READ     equ 6              ; SI = name, DX:BX = buffer (NOT ES:BX: ES is
+FSV_WRITE    equ 8              ; KERNEL_SEG on entry to everything the kernel
+                                ; far-calls into you, so it cannot also be the
+                                ; buffer's segment - DSV_BLK's rule, SPEC.md
+                                ; 51.8, and `mov es, dx` is yours to do)
+FSV_APPEND   equ 10             ; the chunked pair (18.4.4), so a copy streams
+FSV_READAT   equ 12             ; ...and its read half
+FSV_DELETE   equ 14             ; SI = name
+FSV_RENAME   equ 16             ; SI = old, DI = new
+FSV_MKDIR    equ 18             ; SI = name
+FSV_RMDIR    equ 20             ; SI = name
+FSV_DFREE    equ 22             ; -> DX:AX = free BYTES, BX = the granule
+FSV_ENUM     equ 24             ; AX = a folder's handle (0 = the root),
+                                ; CX = the ORDINAL, DX:BX = a 32-byte buffer.
+                                ; out CF=0 and the buffer is a SPEC.md 19.1
+                                ; staged entry (the same one FSV_LIST hands
+                                ; to OSAPI_FS_ENT); CF=1 with AX = 0 past the
+                                ; end, or AX = FERR_IO.
+                                ; ONE ENTRY, into the CALLER's buffer - not
+                                ; FSV_LIST, which appends into the kernel's
+                                ; single global listing and is legal only
+                                ; during a mount. This is what a folder COPY
+                                ; walks with, and the folder it walks is not
+                                ; the one on screen.
+                                ; THE ORDINAL IS DENSE AND MUST BE STABLE:
+                                ; 0,1,2,... over the entries you would list,
+                                ; and the same (handle, ordinal) naming the
+                                ; same entry for as long as that folder is
+                                ; unmodified. The copy engine RE-WALKS to it
+                                ; on every call, and between two of them it
+                                ; will have written a file on another volume
+                                ; and been through the event loop. Enumerate
+                                ; a live structure with a cursor of its own
+                                ; and the copy silently skips or duplicates
+FSV_COPY     equ 26             ; AX = source folder, DX = destination folder,
+                                ; SI = the name (both ends), in KERNEL_SEG.
+                                ; out CF=0; CF=1 and AX = FERR_*
+                                ;
+                                ; BOTH FOLDERS ARE YOURS, so the file need not
+                                ; cross the transport at all (SPEC.md 62.9.8).
+                                ; The kernel asks only when both ends are the
+                                ; same volume, and PUBLISHING IT IS OPTIONAL:
+                                ; leave the row 0 and the copy engine streams
+                                ; through FSV_READAT and FSV_WRITE as before,
+                                ; which is what makes this an optimisation
+                                ; rather than a duty. Implement it when the
+                                ; far side can copy faster than the wire can
+                                ; carry - which for anything with a real disk
+                                ; behind it, it can
+FSV_SIZE     equ 28
+
+; PUT A `%if` ON YOUR TABLE'S OWN LENGTH. A trailing backslash in a NASM
+; comment is a LINE CONTINUATION, so an ASCII-art brace drawn down the right
+; of a table of `dw 0` rows silently swallows the row below it: the table
+; assembles one word short under -w+error, every verb past the gap is read
+; from the wrong cell, and `call bp` in your dispatcher jumps into whatever
+; follows. drivers/ramdisk shipped that and it presented as an unrelated
+; window refusing to open (SPEC.md 62.9.4).
 
 ; --- DSV_BLK: one driver-backed volume's sectors (SPEC.md 51.8) -------------
 ;   in   AL = 0 read / 1 write
@@ -262,9 +378,10 @@ DSV_SIZE     equ 26
 
 ; --- volumes a DRVC_DISK driver mounts (SPEC.md 18.7/51.8) -------------------
 ; A volume is a small INDEX - 0 = A:, 1 = B:, 2 = C: - and the desktop zone,
-; the drive letter and the file manager all fall out of it. The fence on all
-; three is the same identity test OSAPI_DRV_TASK uses: your segment must be
-; the segment of the driver whose DISK services are published.
+; the drive letter and the file manager all fall out of it. The fence on the
+; ones that CHANGE something is the same identity test OSAPI_DRV_TASK uses:
+; your segment must be the segment of the driver whose DISK services are
+; published.
 ;
 ;   OSAPI_VOL_ADD    in  AL = your own volume handle (whatever you like: it
 ;                            comes back in DSV_BLK's AH)
@@ -283,7 +400,19 @@ DSV_SIZE     equ 26
 ;   OSAPI_VOL_PAINT  repaint the desktop's drive zones. It takes the gfx lock
 ;                        ITSELF, so never call it from a page click - defer it
 ;                        the way the Control Panel defers its own repaints
-; The four slots themselves are published by os88api.inc, which this file
+;   OSAPI_VOL_AT     in  DL = an int 13h drive number, BX:CX = a partition's
+;                            32-bit base LBA (BX = the high word)
+;                    out CF = 0 and AL = the volume index ALREADY covering it
+;                        ASK IT BEFORE EVERY OSAPI_VOL_ADD. On a machine
+;                        installed to its hard disk the kernel adopted the
+;                        partition it booted from before you were loaded - it
+;                        had to, your image being a file on that volume
+;                        (SPEC.md 52.10.3) - and nothing in your own table
+;                        says so, so mounting it again puts a second drive
+;                        icon on the same sectors. Unfenced, changing nothing;
+;                        it answers about BIOS-transport volumes alone,
+;                        yours being yours to recognise
+; The five slots themselves are published by os88api.inc, which this file
 ; includes: a slot number belongs in one place (SPEC.md 20.8).
 
 ; The listing claim a mounted volume wants (SPEC.md 22.6): DSK_VENT entries of

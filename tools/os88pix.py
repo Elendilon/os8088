@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""os88pix: build a .PIX picture archive for Frotz (SPEC.md 59.7).
+"""os88pix: build a .PIX picture archive for Frotz (SPEC.md 61.7).
 
     python3 tools/os88pix.py -o OUT.PIX 1=cover.png 5=map.jpg
     python3 tools/os88pix.py -o OUT.PIX --blorb Bronze.zblorb

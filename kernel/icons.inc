@@ -183,7 +183,7 @@ ico_core:
     mov ch, 8
     sub ch, cl                  ; CH = 8 - shift
 
-    cmp byte [bb_on], 0         ; double-buffered? (SPEC.md 32) - the bb
+    cmp byte [vid_mono], 0      ; 1bpp? (SPEC.md 39.5) - the software
     jne ico_core_bb             ; twin returns straight to the wrapper
 
     mov ax, VGA_SEG
@@ -288,7 +288,7 @@ ico_pass:
     ret
 
 ; -----------------------------------------------------------------------------
-; ico_core_bb - back-buffer icon renderer (SPEC.md 32): the white underlay
+; ico_core_bb - the software renderer's icon body (SPEC.md 32/39.5): the white underlay
 ;               ORs the shifted mask-row bits into all four planes, the
 ;               black pass AND-NOTs the data-row bits out of them - color
 ;               15 under the mask, 0 under the data, like the VRAM passes.
@@ -308,14 +308,6 @@ ico_core_bb:
     jb .rok
     mov bx, [vid_strm1]
 .rok:
-    push cx                     ; CL/CH shift pair survives bb_dirty setup
-    mov cx, [ico_y]
-    mov dx, cx
-    add dx, [ico_rows]
-    dec dx
-    call bb_dirty               ; AX is STILL the left byte column here - do
-    pop cx                      ; not borrow it before this call
-
     mov al, [vid_strm1]         ; the three right-edge limits ico_pass_bb
     mov [ico_lim1], al          ; needs as BYTES - see the compares there
     dec al
@@ -333,7 +325,7 @@ ico_core_bb:
     ret
 
 ; -----------------------------------------------------------------------------
-; ico_pass_bb - one masked pass over all four back-buffer planes: the same
+; ico_pass_bb - one masked pass over every renderer plane: the same
 ;               3-byte shifted window and edge clipping as ico_pass, with
 ;               [ico_bbop] picking OR (0) or AND-NOT (1) per byte.
 ; in:       SI -> word rows, DI = row offset, CL = shift, CH = 8-shift,
@@ -486,6 +478,74 @@ ico_disk32:
     dw 0x2400, 0x0024           ; 29  ..#..#....................#..#..
     dw 0x2400, 0x0024           ; 30  ..#..#....................#..#..
     dw 0x3FFF, 0xFFFC           ; 31  ..############################..
+
+; -----------------------------------------------------------------------------
+; ico_disk14 - the same diskette, 32 wide by 14 ROWS (SPEC.md 26.4)
+;
+; The CGA's pixels are 2.4:1 TALL - 640x200 on a 4:3 tube - so ico_disk32
+; above renders 32 wide by about 77 high there: a stretched column, not a
+; diskette. 14 rows is 33.6 real units against 32, which is square to within
+; 5% and is also what a 3.5" diskette actually is (90 x 94mm).
+;
+; It is drawn and not squashed. Halving ico_disk32 by OR-ing row pairs was
+; the cheap option and it thickens every 1px feature into 2 - the shutter
+; window, the label box and the two vertical rules are all single lines, so
+; what comes out is a blob with the diskette's outline. Selecting alternate
+; rows loses them instead. The shutter keeps 3 rows of window and the label
+; box 5 of interior, which is the proportion the 32-row icon has.
+; -----------------------------------------------------------------------------
+ico_disk14:
+    db 2, 14                    ; wwords, height
+
+    ; --- mask: solid silhouette x=2..29, as the tall one ---------------------
+    times 14 dw 0x3FFF, 0xFFFC
+
+    ; --- data ----------------------------------------------------------------
+    dw 0x3FFF, 0xFFFC           ;  0  ..############################..
+    dw 0x2040, 0x0204           ;  1  ..#......#............#......#..
+    dw 0x204F, 0x0204           ;  2  ..#......#..####......#......#..
+    dw 0x204F, 0x0204           ;  3  ..#......#..####......#......#..
+    dw 0x204F, 0x0204           ;  4  ..#......#..####......#......#..
+    dw 0x207F, 0xFE04           ;  5  ..#......##############......#..
+    dw 0x2000, 0x0004           ;  6  ..#..........................#..
+    dw 0x27FF, 0xFFE4           ;  7  ..#..######################..#..
+    dw 0x2400, 0x0024           ;  8  ..#..#....................#..#..
+    dw 0x2400, 0x0024           ;  9  ..#..#....................#..#..
+    dw 0x2400, 0x0024           ; 10  ..#..#....................#..#..
+    dw 0x2400, 0x0024           ; 11  ..#..#....................#..#..
+    dw 0x2400, 0x0024           ; 12  ..#..#....................#..#..
+    dw 0x3FFF, 0xFFFC           ; 13  ..############################..
+
+; -----------------------------------------------------------------------------
+; ico_hdd14 - the hard disk at the same 32 x 14 (SPEC.md 26.4)
+;
+; ico_hdd32's three stacked sections - platter, bays, feet - in the rows
+; there are for them: one platter with its hub, one row of three bays, and
+; the two feet that make it sit on a desk rather than float.
+; -----------------------------------------------------------------------------
+ico_hdd14:
+    db 2, 14                    ; wwords, height
+
+    ; --- mask: the case is solid, the feet are not ---------------------------
+    dw 0x0000, 0x0000           ;  0
+    times 12 dw 0x3FFF, 0xFFFC  ;  1..12  the case
+    dw 0x0C00, 0x0030           ; 13      the feet
+
+    ; --- data ----------------------------------------------------------------
+    dw 0x0000, 0x0000           ;  0  ................................
+    dw 0x3FFF, 0xFFFC           ;  1  ..############################..
+    dw 0x2000, 0x0004           ;  2  ..#..........................#..
+    dw 0x23FF, 0xFFC4           ;  3  ..#...####################...#..
+    dw 0x2400, 0x0024           ;  4  ..#..#....................#..#..
+    dw 0x241F, 0xF824           ;  5  ..#..#.....##########.....#..#..
+    dw 0x2400, 0x0024           ;  6  ..#..#....................#..#..
+    dw 0x23FF, 0xFFC4           ;  7  ..#...####################...#..
+    dw 0x3FFF, 0xFFFC           ;  8  ..############################..
+    dw 0x2000, 0x0004           ;  9  ..#..........................#..
+    dw 0x27E7, 0xE7E4           ; 10  ..#..######..######..######..#..
+    dw 0x27E7, 0xE7E4           ; 11  ..#..######..######..######..#..
+    dw 0x3FFF, 0xFFFC           ; 12  ..############################..
+    dw 0x0C00, 0x0030           ; 13  ....##....................##....
 
 ; -----------------------------------------------------------------------------
 ; ico_app16 - 16x16 generic application: a diamond outline with a filled

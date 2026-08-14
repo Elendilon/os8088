@@ -191,13 +191,19 @@ vid_probe_avail:
     ; ...and one adapter is not a CHOICE, so the Control Panel does not offer
     ; a page about it (SPEC.md 31.10.1). Here because this is the only routine
     ; that can answer the question and it answers it once - [vid_avail] is
-    ; fixed for the life of the machine, so [cp_nst] is written once too.
+    ; fixed for the life of the machine, so both bytes below are written once.
     mov al, [vid_avail]
     dec al
     and al, [vid_avail]         ; x & (x-1) == 0: exactly one bit set
     jnz .done
-    dec byte [cp_nst]           ; the Display item is LAST, so the list simply
-.done:                          ; stops one row short of it (SPEC.md 31.10.1)
+    dec byte [cp_nst]           ; one row fewer on screen...
+    or byte [cp_hide], 1 << CP_IVID     ; ...and WHICH one. The count alone
+                                ; could only shorten the list, which is why
+                                ; this page had to be the last row in
+                                ; cp_items; the bit says which record is
+                                ; missing, so cp_v2r can skip it wherever it
+                                ; sits and the ordering is free
+.done:
     pop cx
     pop ax
     ret
@@ -457,14 +463,7 @@ vid_blank:
 ;
 ; Order is binding, and every step is somebody else's invariant:
 ;
-;   1. The back buffer belongs to the OLD adapter. Its 150KB claim is sized
-;      for four 640x480 planes and its flush targets that framebuffer, so it
-;      is dropped while the old geometry still describes it. bb_init below
-;      then re-answers whether the NEW adapter can have one at all - on mono
-;      it cannot (SPEC.md 39.5), and leaving [bb_avail] set would let the
-;      Buffer page offer a buffer that bb_set would refuse.
-;
-;   2. Spend the deferred cursor hide (SPEC.md 7.1.4) while the old geometry
+;   1. Spend the deferred cursor hide (SPEC.md 7.1.4) while the old geometry
 ;      still describes the save-under. gfx_lock only PROMISES the hide, so
 ;      under the Control Panel's lock the arrow is typically still on screen
 ;      with 24 bytes of background banked against the old stride. Change the
@@ -472,11 +471,11 @@ vid_blank:
 ;      addressing, which smears the arrow across the screen permanently. It
 ;      is a no-op on the boot path, where no promise is outstanding.
 ;
-;   3. vid_apply republishes all nine live words and everything derived from
+;   2. vid_apply republishes all nine live words and everything derived from
 ;      them, and homes the mouse into the new screen - which is load-bearing
 ;      rather than tidy, for the reason in SPEC.md 39.2.
 ;
-;   4. desk_rowcalc, because how many drive zones fit in a column is computed
+;   3. desk_rowcalc, because how many drive zones fit in a column is computed
 ;      from [vid_dock_y0] and is 7 on VGA, 4 on Hercules and 2 on CGA - and
 ;      wm_refit, because every window's frame was clamped onto the OLD screen
 ;      and a 640x480 window is off the bottom of a 640x200 one.
@@ -487,28 +486,29 @@ vid_switch:
     call vid_avail_test
     jc .refuse
 
-    push ax
-    xor al, al                  ; 1. the buffer is the old adapter's
-    call bb_set
-    pop ax
-    call cur_unlazy             ; 2. ...and so is the cursor's save-under
-    call vid_blank              ; ...and the tube we are walking away from
+    call cur_unlazy             ; 1. the cursor's save-under is the old
+    call vid_blank              ; geometry's - and so is the tube we are
+    call wm_su_drop_all         ; walking away from, and so is every raise
+                                ; cache (SPEC.md 39.14.8.1): wm_su_ck compares
+                                ; RECTS, and a window small enough to fit both
+                                ; geometries does not move while the pixels
+                                ; behind it change card, stride and possibly
+                                ; plane count
 
-    mov [vid_kind], al          ; 3. republish the geometry
+    mov [vid_kind], al          ; 2. republish the geometry
     call vid_equip
     call vid_apply
-    call bb_init
     call vid_setmode
 
 %ifdef KERN_BIG
-    call vid_disp_init          ; 4. ...and the OTHER card follows the switch:
+    call vid_disp_init          ; 3. ...and the OTHER card follows the switch:
                                 ; the records, the chrome's extent and the
                                 ; desktop union all describe the arrangement
                                 ; before it until this re-runs (SPEC.md
                                 ; 39.13/39.16). Before desk_rowcalc and
                                 ; wm_refit, which read what it publishes
 %endif
-    call desk_rowcalc           ; 5. the two things vid_apply does not own
+    call desk_rowcalc           ; 4. the two things vid_apply does not own
     call wm_refit
     call menu_force             ; ...and the two the CHROME does not: setmode
     call dock_force             ; cleared the framebuffer, so the bar's logo
@@ -552,6 +552,174 @@ vid_switch:
 ; 756 us per-call floor is under a tenth of one primitive - paid only when the
 ; display actually changes, which spatial coherence makes rare.
 ; =============================================================================
+
+; -----------------------------------------------------------------------------
+; vid_blank_kind / vid_unblank_kind - dark a card and bring it back
+;                                     (SPEC.md 39.18.1, 64.3)
+;
+; in:       AL = the VID_* kind whose card to blank/unblank
+; out:      -
+; clobbers: flags
+;
+; vid_blank (39.11.4) is written for a SWITCH - it takes the kind being moved
+; TO and reads [vid_kind] for the one being left. An fsx bracket blanks a card
+; that nobody is switching away from, so it needs the question asked directly,
+; and SPEC.md 64's idle blanker asks it of every card the machine has.
+;
+; OUTSIDE THE DUAL-DISPLAY FENCE BELOW, which is where these two used to live.
+; They were reachable only from vid_fsx_enter/vid_fsx_unblank, so kern_big was
+; the only build that had a way to dark a card at all - and the idle blanker is
+; not a dual-display feature. A 128KB machine has a monitor to protect too, and
+; on the class of hardware kern_small exists for it is the older monitor.
+;
+; ALL THREE ADAPTERS, and the VGA arm is the one that had to be written. Both
+; bodies used to test only for Hercules and send everything else to the CGA
+; branch, which writes 3D8h - a register a VGA does not implement, so the OUT
+; was swallowed by the bus and did nothing at all. vid_blank's own header
+; records the resulting hole as accepted ("a VGA-plus-Hercules machine keeps
+; its VGA lit"), which is affordable for a pairing nobody built and is not
+; affordable for a blanker: silently declining to blank on one adapter in three
+; is exactly the class of failure this tree keeps paying for. So the VGA gets
+; its own arm - Sequencer register 1 (Clocking Mode) bit 5, Screen Off.
+;
+; All three gate the video SIGNAL and nothing else: the CRTC keeps running and
+; both syncs keep coming out, so the tube stays locked, the monitor is never
+; asked to re-acquire, and what the card holds in memory is untouched. That is
+; the property the whole feature rests on - vid_setmode's own blank-first
+; sequence (39.6) says the same thing from the other end - and it is why
+; blanking may be done to a card that a background task is drawing on.
+;
+; THE HERCULES ARM WRITES 0x02 AND NOT 0, WHICH IS A FIX. Zero clears bit 3,
+; the video enable - and it clears bit 1, the GRAPHICS bit, with it, so the
+; card was not being blanked at all: it was being put into MDA TEXT mode, with
+; a 6845 still carrying 720x348 timings and the graphics framebuffer under it
+; being drawn as character cells. On real iron bit 3 is down so nothing of that
+; reaches the tube and it merely looks like a blank; on a machine whose mono
+; card models the mode bit and not the enable bit it is plainly visible, and
+; that is how it was found (MartyPC: 136,377 lit pixels before, 138,046 after
+; a "blank"). 0x02 is what vid_setmode itself writes to blank the card across
+; its own mode change - graphics, page 0, video off - so the two agree now, and
+; a blank changes exactly one bit and leaves the mode alone. 3BFh is left
+; alone for the same reason: the old pair also locked graphics back out, which
+; is a second piece of state for the unblank to put back and buys nothing when
+; the video signal is already gated.
+;
+; UNBLANKING IS NOT vid_setmode. Re-running the mode set on a card whose mode
+; never changed buys a 32KB clear nobody asked for and a 6845 sync transient
+; somebody might see. The inverses are exact instead: the Hercules' two are
+; the two vid_setmode itself writes (3BFh graphics allowed, then 3B8h graphics
+; + page 0 + video), the CGA's comes out of the BIOS's own shadow of 3D8h
+; at 40:65h - which is write-only on the card, so there is nothing to read
+; back and the ROM's record is the only honest source - and the VGA's is the
+; same SR01 with bit 5 put back down.
+; -----------------------------------------------------------------------------
+vid_blank_kind:
+    push ax
+    push dx
+    push es
+    cmp al, VID_HERC
+    je .mono
+    cmp al, VID_VGA
+    je .vga
+    mov ax, 0x0040
+    mov es, ax
+    mov al, [es:0x0065]         ; the BIOS's shadow of 3D8h...
+    and al, ~8                  ; ...minus the video-enable bit
+    mov dx, 0x3D8
+    out dx, al
+    jmp short .out
+.mono:
+    mov dx, 0x3B8               ; graphics + page 0, video OFF (bit 3 clear) -
+    mov al, 0x02                ; byte for byte the value vid_setmode's own
+    out dx, al                  ; blank-first sequence writes (SPEC.md 39.6)
+    jmp short .out
+.vga:
+    mov al, 0x20                ; SR01 bit 5 up: Screen Off
+    call vid_seq1_blank
+.out:
+    pop es
+    pop dx
+    pop ax
+    ret
+
+vid_unblank_kind:
+    push ax
+    push dx
+    push es
+    cmp al, VID_HERC
+    je .mono
+    cmp al, VID_VGA
+    je .vga
+    mov ax, 0x0040
+    mov es, ax
+    mov al, [es:0x0065]         ; ...exactly what the ROM's mode set left
+    mov dx, 0x3D8
+    out dx, al
+    jmp short .out
+.mono:
+    mov dx, 0x3BF               ; the order vid_setmode uses: allow graphics
+    mov al, 1                   ; first, then turn the video on
+    out dx, al
+    mov dx, 0x3B8
+    mov al, 0x0A
+    out dx, al
+    jmp short .out
+.vga:
+    xor al, al                  ; SR01 bit 5 down again
+    call vid_seq1_blank
+.out:
+    pop es
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; vid_seq1_blank - internal: write bit 5 of the VGA's Sequencer register 1
+;
+; in:       AL = 0x20 to dark the screen, 0 to light it
+; out:      -
+; clobbers: flags (AL is consumed)
+;
+; IT RUNS WITH IF=0, AND THAT IS THE ONLY INTERESTING THING ABOUT IT. SR01's
+; other bits are the dot clock and the character width; they belong to whatever
+; mode the card is in and cannot be guessed, so the register has to be READ -
+; which makes this an index write, a read and a data write, three instructions
+; with two gaps in them.
+;
+; Every other Sequencer access in the kernel is a single `out dx, ax`, index
+; and data in one instruction, which is atomic by construction and needs
+; nothing. This one cannot be, and the gap is reachable: vga12.inc's plane
+; loops leave the Sequencer INDEX at 2 (Map Mask) for the whole of a plane's
+; rep movsb, and every drawing task can be pre-empted mid-row. A switch landing
+; between the index write and the read below would read the Map Mask and then
+; write the screen-off bit INTO it - a card blanked by having one plane's write
+; mask corrupted, which is neither of the two things this routine can be asked
+; for. pushf/cli ... popf, never cli/sti (SPEC.md 1).
+;
+; Leaving the index at 1 afterwards costs nothing, for the same reason: every
+; reader re-selects with its own word OUT.
+; -----------------------------------------------------------------------------
+vid_seq1_blank:
+    push ax
+    push bx
+    push dx
+    mov bl, al                  ; the wanted state of bit 5
+    pushf
+    cli
+    mov dx, VGA_SEQ
+    mov al, 1                   ; SR01, Clocking Mode
+    out dx, al
+    inc dx
+    in al, dx
+    and al, ~0x20               ; ...with bit 5 replaced and the dot clock,
+    or al, bl                   ; the character width and the rest untouched
+    out dx, al
+    popf
+    pop dx
+    pop bx
+    pop ax
+    ret
+
 %ifdef KERN_BIG
 
 VID_NDISP_MAX equ 2             ; the machine this is for holds two cards
@@ -642,12 +810,12 @@ vid_ctx_ptr:
 ; out:      -
 ; clobbers: flags
 ;
-; CALLED AFTER ANYTHING THAT CHANGES THE LIVE GEOMETRY OUTSIDE A SWAP, and the
-; list is short but not empty: vid_apply (a mode or adapter change) and bb_set,
-; which writes [vid_rseg] when a back buffer is armed or dropped and is inside
-; this run. Miss one and the display's record describes a geometry that has
-; moved on - which shows up as drawing through the wrong segment the next time
-; that display is activated, a long way from the cause.
+; CALLED AFTER ANYTHING THAT CHANGES THE LIVE GEOMETRY OUTSIDE A SWAP. That
+; is vid_apply - a mode or adapter change - and, since SPEC.md 32 went, only
+; vid_apply: sw_set used to write [vid_rseg] from inside this run and was the
+; one other entry on the list. Miss one and the display's record describes a
+; geometry that has moved on - which shows up as drawing through the wrong
+; segment the next time that display is activated, a long way from the cause.
 ; -----------------------------------------------------------------------------
 vid_ctx_capture:
     push ax
@@ -763,76 +931,6 @@ vid_ctx_init:
     pop es
     pop di
     pop cx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; vid_blank_kind / vid_unblank_kind - dark a card and bring it back
-;                                     (SPEC.md 39.18.1)
-;
-; in:       AL = the VID_* kind whose card to blank/unblank
-; out:      -
-; clobbers: flags
-;
-; vid_blank (39.11.4) is written for a SWITCH - it takes the kind being moved
-; TO and reads [vid_kind] for the one being left. An fsx bracket blanks a card
-; that nobody is switching away from, so it needs the question asked directly.
-;
-; UNBLANKING IS NOT vid_setmode. Re-running the mode set on a card whose mode
-; never changed buys a 32KB clear nobody asked for and a 6845 sync transient
-; somebody might see. The inverses are exact instead: the Hercules' two are
-; the two vid_setmode itself writes (3BFh graphics allowed, then 3B8h graphics
-; + page 0 + video), and the CGA's comes out of the BIOS's own shadow of 3D8h
-; at 40:65h - which is write-only on the card, so there is nothing to read
-; back and the ROM's record is the only honest source.
-; -----------------------------------------------------------------------------
-vid_blank_kind:
-    push ax
-    push dx
-    push es
-    cmp al, VID_HERC
-    jne .colour
-    mov dx, 0x3B8               ; video off, and 3BF back to "graphics not
-    xor al, al                  ; allowed" - vid_blank's own pair
-    out dx, al
-    mov dx, 0x3BF
-    out dx, al
-    jmp short .out
-.colour:
-    mov ax, 0x0040
-    mov es, ax
-    mov al, [es:0x0065]         ; the BIOS's shadow of 3D8h...
-    and al, ~8                  ; ...minus the video-enable bit
-    mov dx, 0x3D8
-    out dx, al
-.out:
-    pop es
-    pop dx
-    pop ax
-    ret
-
-vid_unblank_kind:
-    push ax
-    push dx
-    push es
-    cmp al, VID_HERC
-    jne .colour
-    mov dx, 0x3BF               ; the order vid_setmode uses: allow graphics
-    mov al, 1                   ; first, then turn the video on
-    out dx, al
-    mov dx, 0x3B8
-    mov al, 0x0A
-    out dx, al
-    jmp short .out
-.colour:
-    mov ax, 0x0040
-    mov es, ax
-    mov al, [es:0x0065]         ; ...exactly what the ROM's mode set left
-    mov dx, 0x3D8
-    out dx, al
-.out:
-    pop es
-    pop dx
     pop ax
     ret
 
@@ -1302,6 +1400,21 @@ vid_disp_init:
     je .below
     mov ax, [vid_cw]
     mov [di+VID_CTX_VX], ax
+    mov word [di+VID_CTX_VY], MBAR_H  ; ...AND ITS TOP ROW IS THE DESKTOP'S,
+                                      ; not the screen's (SPEC.md 39.19.3).
+                                      ; The second monitor carries no menu
+                                      ; bar, so aligning its row 0 with the
+                                      ; primary's row 0 spends the first
+                                      ; MBAR_H of it on a band no straddling
+                                      ; window may enter - 20 of a CGA's 200
+                                      ; rows, 10%. Aligning it with the
+                                      ; DESKTOP BAND instead gives those rows
+                                      ; back and costs nothing: the dead zone
+                                      ; moves from below the card to above it
+                                      ; and does not grow, mou_clamp is
+                                      ; written against the union rather than
+                                      ; against a rectangle (39.15.4), and
+                                      ; ui_ylow already reads this very word
     jmp short .placed
 .below:
     mov ax, [vid_ch]
@@ -1314,6 +1427,58 @@ vid_disp_init:
 .out:
     pop di
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; vid_span_one - is this whole rect inside ONE display? (SPEC.md 39.14.6)
+;
+; in:       AX = x1, BX = y1, CX = x2, DX = y2, all VIRTUAL and inclusive
+; out:      CF = 0 the rect lies wholly inside one display, CF = 1 it does not
+;           (it crosses a seam, or reaches into the dead zone)
+; clobbers: flags
+;
+; The question a WHOLE-SHAPE primitive has to ask before it treats itself as
+; one shape. font_char never asks it - an 8x8 cell that crossed would be four
+; pixels on the wrong card and the rule that a cell goes whole is worth more
+; than that - but a RUN is up to a window wide and a BLIT up to a canvas, and
+; for those the answer changes what they do.
+;
+; Resolving the top-left and testing the far corner against THAT display is
+; the whole of it: displays do not overlap (SPEC.md 39.19.2 places them edge
+; to edge), so a rect inside one of them is inside the one holding its origin.
+; -----------------------------------------------------------------------------
+vid_span_one:
+    push ax
+    push bx
+    push si
+    push di
+    mov si, ax                  ; SI = x1; vid_disp_of ANSWERS in AL
+    call vid_disp_of            ; AL = the display holding (x1, y1)...
+    call vid_ctx_ptr            ; DI = its record
+    mov ax, [di+VID_CTX_VX]
+    cmp si, ax
+    jb .no                      ; ...and these two are what catch the DEAD
+    cmp bx, [di+VID_CTX_VY]     ; ZONE: vid_disp_of falls back to the primary
+    jb .no                      ; for a point no display covers, and the
+    add ax, [di+VID_CTX_CW]     ; origin then fails its own display's bounds
+    cmp cx, ax
+    jae .no                     ; x2 past this display's right edge
+    mov ax, [di+VID_CTX_VY]
+    add ax, [di+VID_CTX_CH]
+    cmp dx, ax
+    jae .no                     ; ...or y2 past its bottom
+    pop di
+    pop si
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop bx
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------

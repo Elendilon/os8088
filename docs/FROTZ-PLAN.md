@@ -4,8 +4,8 @@ The design record for `apps/frotz/`, the fifteenth shipped package: an
 interpreter for Infocom's Z-machine, windowed, with sound and pictures, and
 its own story floppy in drive B:.
 
-SPEC.md §59 is the binding contract; this file is the reasoning behind it and
-the log of what the design had to give up. Read §59 first if you only want to
+SPEC.md 61 is the binding contract; this file is the reasoning behind it and
+the log of what the design had to give up. Read §61 first if you only want to
 know what the code promises.
 
 ## 1. What this is, and what it is not
@@ -372,7 +372,7 @@ where a backwards branch reached further back than SI had walked — which is
 every loop whose body contains a call, because `@ret` goes through `zm_seek`
 and `zm_seek` leaves SI in 0..15. Adventure's `help` is one of them.
 
-SPEC.md §59.12 has the whole account, including the part worth keeping: a
+SPEC.md 61.12 has the whole account, including the part worth keeping: a
 guard firing says an invariant was broken, not which one. Three rounds went
 into hunting a register-discipline bug because the guard that caught it had
 been written to catch register-discipline bugs.
@@ -388,7 +388,7 @@ tree and worth using:
 - **`dfrotz`** is a reference interpreter. Feeding it and Frotz the same input
   gives two transcripts to diff, which turns "does the object tree work" from
   an opinion into a test.
-- The guest side **is built and is `make zh`** (SPEC.md §59.13): `apps/frotz`
+- The guest side **is built and is `make zh`** (SPEC.md 61.13): `apps/frotz`
   assembled with `-DZHARNESS`, which gives the interpreter a teletype on COM4 —
   story text out a byte at a time, keys back in, and four markers saying where
   it is. `tools/zharness.py` plays a story to a script over it and diffs the
@@ -398,7 +398,7 @@ tree and worth using:
   It streams rather than writing the transcript to B: as this section first
   planned, and the reason is the failing case: a transcript on a floppy is only
   readable after the machine stops, so a story that hangs or halts leaves
-  nothing to read — which is exactly the run worth reading. §59.12 was found on
+  nothing to read — which is exactly the run worth reading. §61.12 was found on
   the third command of a scripted Adventure, with the whole transcript that led
   to it.
 

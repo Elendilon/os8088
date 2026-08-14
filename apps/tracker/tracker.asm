@@ -266,11 +266,14 @@ trk_entry:
     jc .out
     mov [trk_win], bx
     mov al, 1                       ; keep our CONTENT ORIGIN 8-aligned
-    call OSAPI_WM_SNAP              ; (SPEC.md 11.94): mono-only, a no-op on
-                                    ; VGA, and it is what lets every text run
-                                    ; we draw take font_run's single-store
+    call OSAPI_WM_SNAP              ; (SPEC.md 11.94): EVERY adapter - it was
+                                    ; mono-only and VGA turned out to gain
+                                    ; more - and it is what lets every text
+                                    ; run we draw take font_run's single-store
                                     ; path instead of the erase-and-letter
-                                    ; fallback. wm_snap preserves FLAGS, so
+                                    ; fallback (on VGA, the fallback's own
+                                    ; glyphs are the ones that come out
+                                    ; aligned). wm_snap preserves FLAGS, so
                                     ; the loader's CF still survives to .out
     call trk_rate_menu              ; ...and this ends in MENU_SET. It has to
                                     ; run before the first paint: the three
@@ -522,10 +525,6 @@ trk_onkey:
     je .rcyc
     cmp bl, 'R'
     je .rcyc
-    cmp bl, 's'
-    je .smooth
-    cmp bl, 'S'
-    je .smooth
 %ifdef TRKLOG
     cmp bl, 'd'
     je .diag
@@ -576,9 +575,6 @@ trk_onkey:
     xor al, al
 .rset:
     call trk_rate_set
-    jmp .out
-.smooth:
-    call trk_smooth_toggle          ; S (SPEC.md 45.11 - fullscreen reach)
     jmp .out
 %ifdef TRKLOG
 .diag:
@@ -691,11 +687,7 @@ trk_oncmd:
     cmp bh, 1
     jne .out
     or bl, bl                       ; View > Fullscreen: toggle
-    jz .vfull
-    cmp bl, 1                       ; View > Smooth (SPEC.md 45.11)
-    jne .out
-    call trk_smooth_toggle
-    jmp .out
+    jnz .out
 .vfull:
     cmp byte [trk_fs], 0
     je .enter
@@ -793,10 +785,12 @@ trk_do_open:
 ; in:  [trk_modseg] = the claim, [mp_bloblen_hi]:[mp_bloblen_lo] = bytes read
 ; out: [trk_modseg] / [trk_capk] updated; preserves every register
 ;
-; The claim is sized BEFORE the file's size is known - the dialog's completion
-; proc is handed a name, not a directory entry - so it is min(largest run,
-; 128KB) and a 5.6KB module would sit on 128KB of heap until the next load or
-; teardown. One call gives the difference back.
+; This exists for the path where the claim is sized BEFORE the file's size is
+; known - SPEC.md 38.6 gave the completion proc a size and the ordinary load
+; now claims exactly it, but a dialog with no size for the pick still falls
+; back to min(largest run, 128KB), where a 5.6KB module would sit on 128KB of
+; heap until the next load or teardown. One call gives the difference back.
+; On the sized path it finds nothing to give and costs a compare.
 ;
 ; This is a call and not a redesign because OSAPI_MEM_REGROW SHRINKS IN PLACE
 ; (SPEC.md 50.3.1): the record's length changes and nothing moves. Claim-copy-
@@ -822,8 +816,12 @@ trk_trim:
     shr ax, cl                      ; the claim
     mov bx, dx
     mov cl, 6
-    shl bx, cl                      ; DX:AX >> 10 = (DX << 6) + (AX >> 10),
-    or ax, bx                       ; and the 128KB cap keeps it under 129
+    shl bx, cl                      ; DX:AX >> 10 = (DX << 6) + (AX >> 10).
+    or ax, bx                       ; What was READ cannot exceed the capacity
+                                    ; the claim was made at, and trk_fdone's
+                                    ; ~64MB domain guard bounds that, so the
+                                    ; DX<<6 here fits a word for the same
+                                    ; reason it does there
     jnz .go
     inc ax                          ; 0 KB is a refusal, not a claim
 .go:
@@ -847,7 +845,8 @@ trk_trim:
 ;             for this call only - so it is copied out FIRST.
 ;
 ; The load path: stop playback, free the previous module grant, size a new
-; grant from OSAPI_MEM_AVAIL (capped at 128KB), read the
+; grant from the size the dialog reported - or, when it had none, from
+; OSAPI_MEM_AVAIL capped at 128KB (SPEC.md 45.3.1) - read the
 ; whole file with OSAPI_FILE_READ (ES:BX = the grant, DX:CX = its capacity in
 ; bytes - the read walks its destination by SEGMENT, SPEC.md 18.4.1, which is
 ; the only reason a 116KB module fits in one call at all), then
@@ -931,6 +930,69 @@ trk_is_mod:
     stc
     ret
 
+; -----------------------------------------------------------------------------
+; trk_sizeof - the size of [trk_fname] in the CURRENT directory
+;
+; in:  [trk_fname] = a NUL-terminated 8.3 display name
+; out: CF = 0 and DX:AX = its size in bytes; CF = 1 = no such file here.
+;      Preserves BX, CX, SI, DI, ES.
+;
+; The dialog reports a size (SPEC.md 38.6) and an ASSOCIATION launch does not -
+; it hands over a name, a cluster and a drive (SPEC.md 54.5) - so a module
+; double-clicked on the desktop reached trk_fdone as "size unknown" and took
+; the speculative claim, which is capped. A 300KB module then gets a 128KB
+; claim it does not fit, and OSAPI_FILE_READ REFUSES it: dskw_rbody compares
+; the directory size against the capacity before any data I/O and answers
+; FERR_BIG, which .rderr maps to the same 'File too big'. So this route was
+; refusing the file too, by a different door. (It is NOT a short read - that
+; was this comment's first draft and SPEC.md 45.3.1 keeps the correction.)
+; OSAPI_FILE_FIND answers all 32 bits out of the directory, so both routes
+; size the claim the same way and the cap is left to the one case that still
+; cannot know (SPEC.md 45.3.1).
+;
+; It costs one directory walk, on a path that is about to read the whole file.
+; -----------------------------------------------------------------------------
+trk_sizeof:
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es                          ; ES:DI = our own record buffer
+    xor cx, cx                      ; ordinal 0 starts the walk
+.next:
+    mov di, trk_find
+    call OSAPI_FILE_FIND            ; CF=1 AX=FERR_NOENT ends it; CX = the
+    jc .no                          ; ordinal to ask for next
+    cmp word [trk_find + 14], OSAPI_FT_DIR
+    jae .next                       ; a folder or the synthesized '..'
+    mov si, trk_fname
+    mov di, trk_find                ; +0 is the same 8.3 display form
+.chr:
+    mov al, [si]
+    cmp al, [di]
+    jne .next
+    or al, al
+    jz .hit
+    inc si
+    inc di
+    jmp short .chr
+.hit:
+    mov ax, [trk_find + 18]         ; +18 = the size, all 32 bits
+    mov dx, [trk_find + 20]
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
 trk_fdone:
     push ax
     push bx
@@ -963,25 +1025,35 @@ trk_fdone:
     ; the name AND the size, so both answers are free.
     call trk_is_mod
     jc .notmod
+    mov word [trk_needk], 0         ; "unknown" has to be written, not assumed:
+                                    ; this word survives the LAST load, so a
+                                    ; file whose size nothing can answer would
+                                    ; otherwise claim the previous module's
     mov ax, [trk_fsize]             ; DX:AX = the size, and it is genuinely
-    mov dx, [trk_fsize+2]           ; 32-bit: a 116KB MOD has a high word of
-    cmp dx, 2                       ; 1, which an "any high word is too big"
-    jae .toobig2                    ; test rejects. >= 128KB is the real cap
+    mov dx, [trk_fsize+2]           ; 32-bit: a 116KB MOD has a high word of 1
     mov bx, ax
     or bx, dx
-    jz .sizeok                      ; 0 = the dialog had no size for it (a
-                                    ; typed name): fall through and let the
-                                    ; file API answer as it always did
+    jnz .havesz
+    call trk_sizeof                 ; 0 = the dialog had no size for it (an
+    jc .sizeok                      ; association launch, or a name typed for
+    mov bx, ax                      ; something not in the listing), so ask
+    or bx, dx                       ; the directory. Still nothing -> leave it
+    jz .sizeok                      ; unknown and let the file API answer as
+.havesz:                            ; it always did
+    cmp dx, 1023                    ; the ONLY ceiling here is the domain of
+    jae .toobig2                    ; the conversion below (SPEC.md 45.3.1):
+                                    ; it composes DX<<6 into a word, so ~64MB
+                                    ; is where the arithmetic stops being
+                                    ; true. Everything under it is the HEAP's
+                                    ; question, asked three lines down
     add ax, 1023                    ; bytes -> KB, rounded up, across 32 bits
-    adc dx, 0
-    mov cl, 10
+    adc dx, 0                       ; (DX <= 1022 above, so <= 1023 here and
+    mov cl, 10                      ; DX<<6 still fits)
     shr ax, cl
     mov cl, 6
     shl dx, cl
     or ax, dx                       ; AX = KB needed
     mov [trk_needk], ax
-    cmp ax, 128                     ; the same cap the claim used to apply
-    ja .toobig2
     push ax
     call OSAPI_MEM_AVAIL            ; AX = LARGEST contiguous run in KB
     pop bx
@@ -1011,9 +1083,15 @@ trk_fdone:
     call OSAPI_MEM_AVAIL            ; AX = LARGEST contiguous run in KB, and
     or ax, ax                       ; BX = the total (KB, not
     jz .nomem                       ; paragraphs - SPEC.md 50.3)
-    cmp ax, 128                     ; cap the grant at 128KB - bigger than any
-    jbe .sized                      ; sane 4-channel MOD
-    mov ax, 128
+    cmp ax, 128                     ; cap the SPECULATIVE grant at 128KB. This
+    jbe .sized                      ; is the original cap and it is the only
+    mov ax, 128                     ; one with a reason left (SPEC.md 45.3.1):
+                                    ; the size is unknown here, so the claim
+                                    ; is a guess, and trk_ring_probe has to
+                                    ; fund a ring out of whatever this leaves.
+                                    ; It is a POLITENESS bound on an over-
+                                    ; claim, never a verdict on a file - the
+                                    ; refusals above no longer borrow it
 .sized:
     mov [trk_capk], ax
     call OSAPI_MEM_CLAIM            ; AX = KB -> DX = base segment, CF=1
@@ -1177,13 +1255,6 @@ trk_fs_enter:
     call OSAPI_FSX_RUN              ; blocks until trk_fsx_main returns; the
                                     ; kernel then repaints the desktop whole
     mov byte [trk_fs], 0            ; back to the windowed splash
-    cmp byte [trk_txbb], 0          ; ...and the user's own back-buffer setting
-    je .out                         ; if the text screen (SPEC.md 45.13) had to
-    mov byte [trk_txbb], 0          ; turn it off to get a foreign mode set.
-    mov al, 1                       ; AFTER the run, not inside it: the desktop
-    call OSAPI_GFX_DBUF             ; mode and its pixels are both back, so
-                                    ; bb_set's seed-from-VRAM reads the screen
-                                    ; the user is actually looking at
 .out:
     pop cx
     pop bx
@@ -1206,7 +1277,6 @@ trk_fs_exit:
 ;
 ; The worker's drawing moved HERE: the bracket is the one drawer (lock held
 ; throughout), input is polled (no events are dispatched in a bracket), the
-; Smooth back buffer is presented through OSAPI_FSX_WAIT - the bracket never
 ; unlocks, so that flush is the only one a buffered frame gets (SPEC.md
 ; 53.5/45.11). The worker keeps feeding audio and nothing else.
 ; -----------------------------------------------------------------------------
@@ -1219,22 +1289,9 @@ trk_fsx_main:
     push di
     cmp byte [mp_xt], 0             ; XT mode's fullscreen is an 80x25 TEXT
     je .gfx                         ; screen (SPEC.md 45.13) - see trktxt.inc
-    xor al, al                      ; for the arithmetic. fsx_mode refuses
-    call OSAPI_GFX_DBUF             ; while a back buffer is armed (it
-    jc .txmode                      ; describes DESKTOP geometry), so park the
-    or al, al                       ; user's setting first and note the debt;
-    jz .txmode                      ; trk_fs_enter pays it after the restore
-    mov byte [trk_txbb], 1
-.txmode:
-    call ttx_begin                  ; CF=1: refused, and nothing was changed -
-    jnc .txok                       ; fsx_mode either sets the mode or touches
-    cmp byte [trk_txbb], 0          ; nothing at all. Put the buffer back
-    je .gfx                         ; before the graphics bracket takes over,
-    mov byte [trk_txbb], 0          ; or Smooth's own banking and ours would
-    mov al, 1                       ; both be holding the user's setting
-    call OSAPI_GFX_DBUF
-    jmp short .gfx
-.txok:
+    call ttx_begin                  ; for the arithmetic. CF=1: refused, and
+    jc .gfx                         ; nothing was changed - fsx_mode either
+.txok:                              ; sets the mode or touches nothing at all
     mov byte [trk_tx], 1
     call ttx_draw_all
     call ttx_clkpick                ; the frame clock (SPEC.md 45.16/53.5.1)
@@ -1271,17 +1328,7 @@ trk_fsx_main:
     call trk_legend
     jmp .out
 .gfx:
-    cmp byte [trk_smooth], 0        ; Smooth (SPEC.md 45.11): arm the 32 back
-    je .drawall                     ; buffer, and OSAPI_FSX_WAIT presents it
-    cmp byte [trk_bbheld], 0        ; (already borrowed if smooth was toggled
-    jne .drawall                    ; on before entry - it never is, but the
-    mov al, 1                       ; guard keeps this and trk_smooth_toggle
-    call OSAPI_GFX_DBUF             ; agreeing on one [trk_bbheld])
-    jc .drawall                     ; mono / no RAM: draw straight to VRAM
-    mov [trk_bbprev], al
-    mov byte [trk_bbheld], 1
-.drawall:
-    call tui_draw_all               ; the whole FT2 screen, into bb or VRAM
+    call tui_draw_all               ; the whole FT2 screen
 .loop:
     call trk_reap                   ; F00 / watchdog stream cleanup, UI ctx
     mov ah, 1                       ; poll the keyboard - this IS the UI task
@@ -1300,7 +1347,7 @@ trk_fsx_main:
     call tui_draw_dyn               ; the animated frame (no clip: we own the
                                     ; screen, nothing is on top)
     xor al, al                      ; one frame per tick - the worker's pace,
-    call OSAPI_FSX_WAIT             ; and the back-buffer present with it
+    call OSAPI_FSX_WAIT             ; the frame clock (SPEC.md 53.5)
     jmp .loop
 .done:
     mov byte [trk_fs], 0            ; BEFORE the return: fsx_restore repaints
@@ -1315,11 +1362,6 @@ trk_fsx_main:
                                     ; leaving; trk_fs_enter's clear covers the
                                     ; fsx_run-refused path where we never ran)
     call trk_legend                 ; ...and the legend follows the surface
-    cmp byte [trk_bbheld], 0        ; hand the buffer back BEFORE the return,
-    je .out                         ; so the kernel's desktop repaint takes
-    mov al, [trk_bbprev]            ; the mode the user actually chose
-    call OSAPI_GFX_DBUF
-    mov byte [trk_bbheld], 0
 .out:
     pop di
     pop si
@@ -1377,10 +1419,6 @@ trk_fsx_key:
     je .rcyc
     cmp al, 'R'
     je .rcyc
-    cmp al, 's'
-    je .smooth
-    cmp al, 'S'
-    je .smooth
 %ifdef TRKLOG
     cmp al, 'd'
     je .diag
@@ -1476,20 +1514,10 @@ trk_fsx_key:
 .rset:
     call trk_rate_set
     jmp .out
-.smooth:
-    cmp byte [trk_tx], 0            ; Smooth is the SPEC.md 32 back buffer,
-    jne .txsm                       ; which describes the DESKTOP's geometry -
-    call trk_smooth_toggle          ; there is nothing to double in a text mode
-    jmp .out                        ; and fsx_mode refused it on the way in.
-                                    ; Graphics: it arms / disarms live, and
-                                    ; OSAPI_FSX_WAIT's present follows [bb_dbl]
 .txxt:
     mov si, trk_s_txxt
     call tui_msg
     jmp short .out
-.txsm:
-    mov si, trk_s_txsm
-    call tui_msg
 .out:
     pop di
     pop si
@@ -2007,59 +2035,6 @@ trk_transport:
     ret
 
 ; -----------------------------------------------------------------------------
-; trk_smooth_toggle - flip Smooth (SPEC.md 45.11). UI context, lock held
-; (key S or View > Smooth). While fullscreen the change applies live:
-; arming borrows the SPEC.md 32 back buffer (previous state banked for the
-; exit hand-back), disarming returns the user's mode now. Windowed it just
-; decides what the next fullscreen entry does.
-; -----------------------------------------------------------------------------
-trk_smooth_toggle:
-    push ax
-    push bx
-    push si
-    mov al, [trk_smooth]
-    xor al, 1
-    mov [trk_smooth], al
-    cmp byte [trk_fs], 0
-    je .menu
-    or al, al
-    jz .disarm
-    cmp byte [trk_bbheld], 0        ; arm live (unless already borrowed)
-    jne .menu
-    mov al, 1
-    call OSAPI_GFX_DBUF
-    jc .menu                        ; mono/small: nothing to smooth
-    mov [trk_bbprev], al
-    mov byte [trk_bbheld], 1
-    jmp .menu
-.disarm:
-    cmp byte [trk_bbheld], 0
-    je .menu
-    mov al, [trk_bbprev]
-    call OSAPI_GFX_DBUF
-    mov byte [trk_bbheld], 0
-.menu:
-    mov si, trk_s_smoff             ; relabel + MENU_SET (the kernel holds
-    cmp byte [trk_smooth], 0        ; a COPY of the set, SPEC.md 12.2)
-    je .lab
-    mov si, trk_s_smon
-.lab:
-    mov [trk_mi_view + 2], si
-    mov bx, [trk_win]
-    mov si, trk_menus
-    call OSAPI_MENU_SET
-    mov si, trk_s_smmoff
-    cmp byte [trk_smooth], 0
-    je .msg
-    mov si, trk_s_smmon
-.msg:
-    call tui_msg
-    pop si
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; trk_rate_set - pick the Rate menu's sample rate (AL = 0/1/2 = 11/22/44
 ; kHz; SPEC.md 45.10). UI context, lock held (key R or the Rate menu).
 ; Playing stops first, like the XT toggle; the pick lands at the next Play.
@@ -2478,7 +2453,7 @@ trk_tpl:
 ; --- app menu set (SPEC.md 12.2) -----------------------------------------------
     OS88_MENUSET trk_menus, trk_m_name, trk_oncmd
         OS88_MENU trk_m_file, trk_mi_file, 2
-        OS88_MENU trk_m_view, trk_mi_view, 2
+        OS88_MENU trk_m_view, trk_mi_view, 1
         OS88_MENU trk_m_rate, trk_mi_rate, 3
     OS88_MENUSET_END trk_menus
 
@@ -2491,11 +2466,8 @@ trk_s_open:  db 'Open...', 0
 trk_s_xtoff: db 'XT Mode: Off', 0
 trk_s_xton:  db 'XT Mode: On', 0
 trk_m_view:  db 'View', 0
-trk_mi_view: dw trk_s_fullm, trk_s_smoff ; item 1 repointed by
-                                        ; trk_smooth_toggle (SPEC.md 45.11)
+trk_mi_view: dw trk_s_fullm
 trk_s_fullm: db 'Fullscreen', 0
-trk_s_smon:  db 'Smooth: On', 0
-trk_s_smoff: db 'Smooth: Off', 0
 trk_m_rate:  db 'Rate', 0
 trk_mi_rate: dw trk_ritem0, trk_ritem1, trk_ritem2  ; COMPOSED, by
                                         ; trk_rate_menu (SPEC.md 45.17.1)
@@ -2536,10 +2508,7 @@ trk_s_xtmoff: db 'XT mode off - Enter plays', 0
 trk_s_norate: db '44 kHz needs a DSP 4.x card', 0
 trk_s_ratext: db 'Xt mode sets the rate - X first', 0
 trk_s_buffer: db 'Buffering...', 0
-trk_s_smmon:  db 'Smooth on', 0
-trk_s_smmoff: db 'Smooth off', 0
 trk_s_txxt:   db 'XT off is windowed: Esc first', 0
-trk_s_txsm:   db 'Smooth is a graphics mode only', 0
 
 ; =============================================================================
 ; The rest of the package: the replayer, and the two renderers of one screen -
@@ -2575,9 +2544,6 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
                                     ; foreign mode: every kernel drawing slot
                                     ; is off-limits until the bracket returns
                                     ; (SPEC.md 53.1). Implies [trk_fs]
-    TRKB trk_txbb                   ; ...and we turned the user's back buffer
-                                    ; off to get that mode set, so we owe them
-                                    ; one re-arm after the restore
     TRKB trk_hired                  ; the worker exists
     TRKB trk_abon                   ; the About panel is up; worker frames drop
     TRKB trk_pmode                  ; 0 = song, 1 = pattern loop, 2 = resume
@@ -2605,6 +2571,8 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
     TRKBUF trk_argclus, 2
     TRKBUF trk_fname, 13            ; the chosen 8.3 name, copied out of the
                                     ; kernel's buffer during the completion call
+    TRKBUF trk_find, OSAPI_FIND_SZ  ; trk_sizeof's directory record, for the
+                                    ; loads that arrive with no size (45.3.1)
 
 ; --- the ring stream (SPEC.md 34.5 ring mode) ----------------------------------
     TRKB trk_ghave                  ; the pool grant exists
@@ -2631,10 +2599,6 @@ trk_s_txsm:   db 'Smooth is a graphics mode only', 0
     TRKB trk_rsel                   ; the Rate menu's pick (SPEC.md 45.10):
                                     ; 0/1/2 = 11/22/44 kHz; bss zeroes to
                                     ; the 11 kHz default
-    TRKB trk_smooth                 ; Smooth (SPEC.md 45.11) - bss zeroes:
-                                    ; the default is OFF
-    TRKB trk_bbprev                 ; ...the user's back-buffer state, banked
-    TRKB trk_bbheld                 ; ...1 = we borrowed it (hand back at exit)
     TRKB trk_mixing                 ; the worker is inside a trk_feed pass -
                                     ; trk_stream_close drains it before any
                                     ; UI-task touch of mp_* state or the blob

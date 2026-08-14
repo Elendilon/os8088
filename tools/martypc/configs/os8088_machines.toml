@@ -1,3 +1,27 @@
+# --- a note about INTERLEAVE, and why no machine here sets one ---------------
+# A drive's `interleave` (our patch 04, default 1) is the physical sector order
+# on the platter. A raw sector image records the LOGICAL order and says nothing
+# about where the sectors sit, so no emulator can derive it from the file - it
+# is a property of the disk the machine is being asked to model, and it is a
+# knob for exactly that reason.
+#
+# **Every machine below is 1:1, and that is a MEASUREMENT.** This file used to
+# carry an `os8088_2_360k_floppies` overlay putting 2:1 media in the IBM-ROM
+# machines, because PERFORMANCE.md read the field's `int 13h track, 1 call` -
+# 398 ms, 2.00 revolutions where a 1:1 track is 1.00 - as a 2:1 platter. It is
+# not: the missing revolution is the BIOS's own head-settle wait, 25 ms of
+# diskette-parameter-table asked for and ~52 ms of `LOOP $` at F000:EEB8
+# delivered, once per `int 13h`. With 1:1 media and that wait modelled by
+# simply running the ROM, `tests/sysbench` on this emulator reproduces the
+# field machine's whole raw floppy block to the measurement quantum -
+# `int 13h 1 sector` and all five short seek rows EXACTLY (PERFORMANCE.md
+# Part 9 Set 37). With 2:1 it did not, and the boot was 27% slow.
+#
+# That also retired a caveat: GLaBIOS abandons a floppy operation after
+# ~250 ms and a 2:1 track read takes up to 400 ms, so the GLaBIOS machines had
+# to be given different media from the IBM ones. At 1:1 they need no exception
+# and every machine here carries the same disks.
+
 # --- os8088's calibration machine, as close as MartyPC gets ------------------
 # docs/FIELD-MACHINES.md's IBM 5150: 8088 at 4.77MHz, 256K on the board plus an
 # AST SixPakPlus making 640K, and a CGA. (The real machine also carries a
@@ -273,6 +297,56 @@ overlays = [
 #   cp build/martypc/run/media/hdds/default_xtide.vhd /tmp/scratch.vhd
 #   ./martypc_headless --machine-config-name os8088_xt_hdd \
 #       --mount fd:0:media/floppies/os8088-360.img --mount hd:0:/tmp/scratch.vhd
+#
+# IT HAS A PARALLEL PORT TOO, and that is not a stray: it makes this the only
+# machine here where TWO drivers publish a Control Panel page at once (SPEC.md
+# 31.9 - the hard disk's and the network link's), which is what exercises
+# drv_cp_class's ordinal-to-class walk rather than just asserting it. On a
+# machine with one page an off-by-one there is invisible. It costs the machine
+# nothing otherwise: no driver touches 0x378 unless NET.DRV is ticked, and no
+# row is wanted by default (SPEC.md 51.3).
+# ...and the same disk on a 5150 WITH THE PERIOD ROM, which is the shape a
+# field report arrives in: docs/FIELD-MACHINES.md's machine is a 5150 with an
+# ST-225 on an ST11M, and a controller with its own option ROM is rung 0 there
+# exactly as XT-IDE is here. Every other hard-disk machine in this file is an
+# Ibm5160 on GLaBIOS, so until this existed there was NO way to run a hard disk
+# behind the IBM ROM - and this tree already has one defect (SPEC.md 18.91's
+# `AL`) that only the period ROM exposes, so "a hard disk" and "the ROM the
+# reporter runs" were two axes that could never be crossed.
+#
+# It needs the ROM this tree cannot ship (romdef `ibm5150_82_v4`, md5
+# f453eb2df6daf21ec644d33663d85434 at media/roms/), so a container without one
+# runs the GLaBIOS twins only - the same standing caveat every IBM-ROM machine
+# here carries.
+[[machine]]
+name = "os8088_5150_cga_hdd"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.hdc]
+    bus_type = "ISA"
+    type = "XtIde"
+
+        [[machine.hdc.drive]]
+        format = "Mfm"
+        vhd = "default_xtide.vhd"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
 [[machine]]
 name = "os8088_xt_hdd"
 type = "Ibm5160"
@@ -283,6 +357,7 @@ overlays = [
     "pcxt_2_serial_ports",
     "us_modelf_keyboard",
     "microsoft_serial_mouse_com1",
+    "parallel_port",
 ]
 
     [machine.memory]
@@ -549,3 +624,313 @@ overlays = [
     io_base = 0x220
     irq = 7
     dsp_version = [2, 1]
+
+# --- SPEC.md 18.97's case: ONE drive, which is what the field 5150 has -------
+# The probe exists because the int 11h equipment word is a CLAIM. MartyPC has
+# no DIP override, so it derives the word from the drive list - which means
+# this machine reports ONE and the probe correctly declines to run on it. That
+# makes it the REGRESSION half of the test (an uncontested machine must be
+# untouched); the ABSENT half is this machine with a scratch kernel whose
+# count gate is forced, so that unit 1 is really not there when it is asked
+# about. docs/TESTING.md has the recipe.
+[[machine]]
+name = "os8088_5150_cga_1fd"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_1_360k_floppy",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+# ...and the one-drive overlay itself, which upstream does not carry: every
+# stock profile is a two-floppy machine.
+[[overlay]]
+name = "pcxt_1_360k_floppy"
+    [overlay.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+        [[overlay.fdc.drive]]
+        type  = "360k"
+
+# --- WHY THERE IS NO MONO-PRIMARY TWO-CARD MACHINE HERE ------------------
+#
+# The field 5150 boots on its HERCULES, because SW1-5/6 say 11b = 80x25 mono
+# and vid_detect's last rung is int 11h bits 5:4 (SPEC.md 39.1). None of the
+# two-card machines above does, and it CANNOT BE FIXED FROM THIS FILE:
+# measured, os8088_5150_both_gla reports bits 5:4 = 0x20 (80x25 colour), and
+# so does the same machine with the MDA listed FIRST - MartyPC derives the
+# 5150's display switches from whether a CGA is in the config at all, not
+# from card order, and exposes no DIP override. Listing the MDA first only
+# moves MARTYPC's primary to it, which os8088 then does not drive (the DIP
+# still says colour), so the boot gate watches a blank card and `launch`
+# times out. os8088_5150_herc_gla reads 0x30 only because it has no CGA.
+#
+# The consequence is worth stating rather than rediscovering: SPEC.md
+# 39.11.1's vid_cga_alias runs ONLY when the mono card is primary, and that
+# is still exactly the direction no emulator here can produce - which is the
+# same reason its bug survived in the first place. It is a 5150 question.
+
+# --- the two-card 5150 WITH ITS DISPLAY SWITCHES SET THE WAY THE FIELD ONE'S
+# --- ARE (SPEC.md 39.1, docs/FIELD-MACHINES.md)
+#
+# `video_dip` is OURS - patches/03 - and it exists because SW1-5/6 is a
+# SETTING and not a description of what is installed. Upstream derives those
+# bits from the card list ("any CGA present -> CGA hires"), which cannot
+# express a machine that holds BOTH cards with the switches set to mono, and
+# that is exactly the arrangement the calibration 5150 has: os8088 boots on
+# its Hercules there and on the CGA in every emulated two-card machine.
+#
+# It is the direction that MATTERS rather than a curiosity: SPEC.md 39.11.1's
+# vid_cga_alias runs ONLY when the mono card is primary, which is precisely
+# why its bug survived - "the direction the old emulator could reproduce was
+# CGA-primary, where the routine never runs". This machine reproduces it.
+[[machine]]
+name = "os8088_5150_both_gla_mono"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+video_dip = "mda"
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    # THE MDA IS LISTED FIRST, and that is about the HARNESS rather than the
+    # guest: MartyPC's own primary card is the first in this list, `fbuf` and
+    # the os88marty boot gate read the primary, and os8088 is driving the MDA
+    # here - so with the CGA first the gate watches an unprogrammed card,
+    # never sees a desktop, and `launch` times out on a machine that booted
+    # perfectly. The DIP above is what decides which card the GUEST picks;
+    # this order is what decides which one the TOOLING looks at, and on this
+    # machine they have to agree.
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+# ...and the machine SPEC.md 18.96.2's size override exists for: the field
+# 5150's own 27 Oct 82 ROM with an 80-CYLINDER drive as B. That ROM answers no
+# AH=08h for a floppy, so dskw_fmt_probe reads a 360KB machine and offers 360K
+# for a disk that could hold 720K - which is exactly what the confirmation's
+# Space key is for, and exactly what nothing here could exercise before.
+#
+# The floppy overlay is dropped rather than listed, because the drives ARE the
+# point: upstream's pcxt_2_360k_floppies is two 360k drives and the FDC takes a
+# maximum of four (its pcxt_4_360k_floppies is the other one worth knowing
+# about). Drive 0 stays 360k so the boot is the shipped 360KB system disk.
+[[machine]]
+name = "os8088_5150_cga_720b"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+
+        [[machine.fdc.drive]]
+        type = "360k"
+
+        [[machine.fdc.drive]]
+        type = "720k"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+# ...and the FOUR-drive 5150: two internal and the pair on the 5.25" adapter's
+# external 37-pin connector (SPEC.md 18.97). Upstream's own overlay, because
+# the FDC takes four and this is what four looks like. Drives 2 and 3 carry no
+# image, which is the honest case - a drive that is present and empty, whose
+# mount fails like any other (18.3).
+#
+# What it exists to answer is whether the equipment word can be believed: the
+# 1982 ROM copies SW1 into 0040:0010 and its bits 6-7 are the drive COUNT, so
+# this machine must report 4 where os8088_5150_cga reports 2.
+[[machine]]
+name = "os8088_5150_cga_4fdd"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_4_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+# ...and THE configuration SPEC.md 18.98 exists for: the field 5150's own
+# drives plus an IBM 4865 on the 5.25" adapter's external 37-pin connector.
+# Two internal 360k and an 80-CYLINDER 720k as unit 2, which is the only place
+# 18.96.2's size override is offered and the only drive that can pass its
+# reach test. Unit 3 is a 360k, so one machine carries both answers: the
+# toggle stands on C: and falls back on D:.
+[[machine]]
+name = "os8088_5150_cga_ext720"
+type = "Ibm5150v256K"
+rom_set = "ibm5150_82_v4"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+
+        [[machine.fdc.drive]]
+        type = "360k"
+
+        [[machine.fdc.drive]]
+        type = "360k"
+
+        [[machine.fdc.drive]]
+        type = "720k"
+
+        [[machine.fdc.drive]]
+        type = "360k"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+# THE PARALLEL-PORT MACHINE (SPEC.md 51, docs/NET-PLAN.md 1.4). The CGA
+# GLaBIOS 5150 with a Centronics card at 0x378, which is the ONLY os8088
+# machine that has one - every other config here leaves the port range
+# unpopulated, so NET.DRV's latch probe correctly finds nothing and refuses
+# to attach. That is the right answer and it is not the one you want to be
+# testing against (the ADLIB= reasoning exactly), because a driver that never
+# attaches never publishes, so its Control Panel page never exists and the
+# whole of SPEC.md 31.9's path is unreachable.
+#
+# WHAT IT CAN AND CANNOT ANSWER. MartyPC's ParallelPort has a readable data
+# register and a writable status register, so `lp_latch` succeeds and the scan
+# finds 0x378 - which is the whole attach path, the publication, the page and
+# the desktop zone. It has NO PARTNER on the other end and there is no way to
+# give it one: the status lines read a constant, so `mst_hello` times out and
+# the page says `No partner`, which is docs/NET-PLAN.md 1.4.4's own
+# distinction being drawn by the machine rather than by an argument. The WIRE
+# is the 5150's question and `tests/lptlink` is how it is asked.
+#
+# GLaBIOS on purpose, unlike most of the file: nothing here is a TIMING
+# question - the wire is bit-banged and the BIOS never sees it - so this is
+# one of the machines that runs in a container with no IBM ROM in it.
+[[machine]]
+name = "os8088_5150_cga_lpt"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_360k_floppies",
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+    "parallel_port",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "CGA"
+    clock_mode = "Dynamic"
+
+# --- THE 1.44MB MACHINE, and it is an ANACHRONISM ON PURPOSE ----------------
+# `make combo144` builds a 1.44MB disk and nothing in this file could read one:
+# every machine above takes `pcxt_2_360k_floppies`, so a 1.44MB image could be
+# built here and never booted here, which is the shape this tree keeps paying
+# for (a deliverable no harness can exercise).
+#
+# What it is NOT is a machine anybody had. A 1.44MB disk needs 500 kbps off the
+# controller and the IBM XT's 8-bit card runs 250, so no stock XT reads one -
+# it took a third-party 8-bit HD controller and a driver, and the 5150's own
+# ROM tops out at 360KB whatever is plugged into it. MartyPC models the DRIVE
+# (FloppyDriveType::Floppy144M, `1.44m`) but its FDC is the one `IbmNec` type,
+# so what this proves is that OUR boot sector and OUR FAT12 code handle 18 spt
+# on an 8088 - not that the media is period. Take no PERFORMANCE.md number off
+# it and put no 1.44MB disk in the calibration 5150 (docs/FIELD-MACHINES.md).
+#
+# GLaBIOS rather than the IBM ROM for the ordinary reason - the IBM ROM is not
+# in this container - and Hercules because that is the adapter the drag-cache
+# work is driven on. The fdc is INLINE rather than an overlay so that no file
+# of upstream's has to be patched: build.sh copies install/ wholesale and only
+# ever APPENDS this file.
+[[machine]]
+name = "os8088_5150_herc_gla_144"
+type = "Ibm5150v256K"
+rom_set = "glabios_pc"
+speaker = true
+overlays = [
+    "pcxt_2_serial_ports",
+    "us_modelf_keyboard",
+    "microsoft_serial_mouse_com1",
+]
+
+    [machine.memory]
+    conventional.size = 0xA0000
+    conventional.wait_states = 0
+
+    [machine.fdc]
+    bus_type = "ISA"
+    type = "IbmNec"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+        [[machine.fdc.drive]]
+        type = "1.44m"
+
+    [[machine.video]]
+    bus_type = "ISA"
+    type = "MDA"
+    subtype = "Hercules"
+    clock_mode = "Dynamic"

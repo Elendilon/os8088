@@ -176,41 +176,9 @@ sol_entry:
     mov [sol_dock], cx
     mov [sol_bpp], dh
 
-    mov si, sol_met_big             ; Hercules' 348 rows still take the big
-    cmp bx, 300                     ; cards; only CGA's 200 do not
-    jae .metric
-    mov si, sol_met_sml
-.metric:
-    mov di, sol_cw                  ; the record is copied wholesale, so the
-    mov cx, SOL_NMET                ; bss words must stay in its order - see
-.mcopy:                             ; the note over sol_cw below
-    mov ax, [si]
-    mov [di], ax
-    add si, 2
-    add di, 2
-    loop .mcopy
-
-    mov ax, [sol_cw]                ; column pitch
-    add ax, [sol_gap]
-    mov [sol_pitch], ax
-    mov ax, [sol_topy]              ; the tableau clears the top row by two
-    add ax, [sol_ch]                ; gaps
-    add ax, [sol_gap]
-    add ax, [sol_gap]
-    mov [sol_taby], ax
-    mov ax, [sol_cw]                ; the waste fans right by a third of a
-    mov bl, 3                       ; card, into the empty column the layout
-    div bl                          ; leaves between it and the foundations
-    mov ah, 0
-    mov [sol_wstep], ax
-
-    mov ax, [sol_pitch]             ; content width = 2 margins + 7 columns
-    mov bx, 7
-    mul bx
-    add ax, [sol_marg]
-    add ax, [sol_marg]
-    sub ax, [sol_gap]
-    mov [sol_cwid], ax
+    call sol_metrics            ; the card metrics this screen wants, and
+                                ; everything derived from them - re-run by
+                                ; sol_onresize (SPEC.md 11.98)
     add ax, 2                       ; ...plus the 1px frame either side
     mov [sol_tpl + WT_W], ax
 
@@ -272,6 +240,9 @@ sol_entry:
     mov si, sol_tpl
     call OSAPI_WM_CREATE            ; BX = window ptr, CF on table full
     jc .full
+    mov ax, sol_onresize            ; the card metrics are picked from the
+    call OSAPI_WM_ONRESIZE          ; SCREEN, so an adapter change invalidates
+                                    ; them (SPEC.md 11.98)
     mov si, sol_menus
     call OSAPI_MENU_SET             ; draws nothing, and preserves the flags
     mov al, 1                       ; ...and it PROMISES its content stands
@@ -282,6 +253,21 @@ sol_entry:
                                     ; and geometry is what wm_su_ck already
                                     ; invalidates on, so skipping it costs
                                     ; nothing
+    mov al, 1                       ; ...AND IT OWNS ITS BACKGROUND (SPEC.md
+    call OSAPI_WM_OWNBG             ; 11.90.1/43.9.1): sol_drawall's first act
+                                    ; is a felt fill of the WHOLE content and
+                                    ; sol_pinv in front of it keeps no sliver,
+                                    ; so every pixel is written by us. The
+                                    ; kernel's white fill was therefore the
+                                    ; first layer of a double draw - and the
+                                    ; felt is CGREEN, which reduces to BLACK
+                                    ; on both mono adapters (39.4), so on the
+                                    ; machines this game is for it was the
+                                    ; window going WHITE and then black in
+                                    ; front of a 681 ms repaint. Neither this
+                                    ; nor the promise above touches the flags,
+                                    ; so wm_create's CF still rides out to the
+                                    ; loader
     mov si, sol_about
     call OSAPI_ABOUT_SET            ; 'About Solitaire' under our name in the
                                     ; bar (SPEC.md 12.2) - same contract, and
@@ -303,6 +289,88 @@ sol_entry:
 ; here rather than relied on, because a card back blitted earlier in the same
 ; callback left it pointing at our own segment and never put it back
 ; (SPEC.md 20.1 says it may).
+; -----------------------------------------------------------------------------
+; sol_metrics - the card metric record this screen wants, and what it implies
+; in:  BX = the screen HEIGHT
+; out: sol_cw.. filled, sol_pitch / sol_taby / sol_wstep / sol_cwid derived
+; clobbers: AX, BX, CX, SI, DI
+; -----------------------------------------------------------------------------
+sol_metrics:
+    mov si, sol_met_big             ; Hercules' 348 rows still take the big
+    cmp bx, 300                     ; cards; only CGA's 200 do not
+    jae .metric
+    mov si, sol_met_sml
+.metric:
+    mov di, sol_cw                  ; the record is copied wholesale, so the
+    mov cx, SOL_NMET                ; bss words must stay in its order - see
+.mcopy:                             ; the note over sol_cw below
+    mov ax, [si]
+    mov [di], ax
+    add si, 2
+    add di, 2
+    loop .mcopy
+
+    mov ax, [sol_cw]                ; column pitch
+    add ax, [sol_gap]
+    mov [sol_pitch], ax
+    mov ax, [sol_topy]              ; the tableau clears the top row by two
+    add ax, [sol_ch]                ; gaps
+    add ax, [sol_gap]
+    add ax, [sol_gap]
+    mov [sol_taby], ax
+    mov ax, [sol_cw]                ; the waste fans right by a third of a
+    mov bl, 3                       ; card, into the empty column the layout
+    div bl                          ; leaves between it and the foundations
+    mov ah, 0
+    mov [sol_wstep], ax
+
+    mov ax, [sol_pitch]             ; content width = 2 margins + 7 columns
+    mov bx, 7
+    mul bx
+    add ax, [sol_marg]
+    add ax, [sol_marg]
+    sub ax, [sol_gap]
+    mov [sol_cwid], ax
+    ret
+
+; -----------------------------------------------------------------------------
+; sol_onresize - the adapter changed under us (SPEC.md 11.98)
+;
+; in:  SI = our window, CX/DX = the new content size; the gfx lock is HELD and
+;      this may not draw
+; out: nothing (all registers preserved)
+;
+; sol_track already reads the live box, so the table's EXTENT follows a resize
+; on its own. The card METRICS do not: sol_cw / sol_ch and the gaps and fans
+; around them are picked once from the screen height, so a 480-row VGA taken to
+; its 200-row CGA keeps dealing big cards into 137 rows of content.
+;
+; NO GAME STATE MOVES, and it does not need to - which is the whole difference
+; from apps/arkanoid's handler. Every card's position here is DERIVED at draw
+; time from sol_pitch, sol_taby and the fan steps; a pile is a list, not a set
+; of coordinates. So re-deriving the metrics is the entire operation and the
+; repaint that follows puts the same game down in the new size.
+; -----------------------------------------------------------------------------
+sol_onresize:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call OSAPI_VIDEO                ; AX=w, BX=h, CX=dock top row, DH=bpp - the
+    mov [sol_scrw], ax              ; bpp banked again too, a switch being
+    mov [sol_dock], cx              ; exactly when it stops being true
+    mov [sol_bpp], dh
+    call sol_metrics
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 sol_track:
     push ax
@@ -386,12 +454,27 @@ sol_drawall:
     mov dx, [sol_chgt]
     dec dx
     call sol_fillc
+    mov byte [sol_felt], 1          ; THE GROUND IS ALREADY FELT (SPEC.md
+                                    ; 43.9.2): the fill above covered every
+                                    ; pile rect, and pile rects are DISJOINT -
+                                    ; a column is one card wide at its own
+                                    ; pitch, the waste's is widened by the two
+                                    ; fan steps its cards use, and the top row
+                                    ; ends above [sol_taby] - so no pile drawn
+                                    ; earlier in this loop has put a pixel
+                                    ; inside a later one's. Each wipe below is
+                                    ; therefore a second fill of pixels that
+                                    ; are already that colour
     xor al, al
 .pile:
     call sol_drawpile
     inc al
     cmp al, SOL_NPILE
     jb .pile
+    mov byte [sol_felt], 0          ; ...and it stops being true here: the
+                                    ; plaque and the panel below draw on the
+                                    ; felt, and every later sol_drawpile is
+                                    ; a move repainting two piles in place
     cmp byte [sol_won], 0
     je .about
     call sol_banner
@@ -428,7 +511,11 @@ sol_drawpile:
     call sol_count                  ; CL = cards in the pile
     mov [sol_dpn], cl
     call sol_plan                   ; how much of a tableau column is already
-    call sol_covers                 ; right on the screen (0 for the others)
+                                    ; right on the screen (0 for the others)
+    cmp byte [sol_felt], 0          ; ...and whether anything needs erasing at
+    jne .nowipe                     ; all: sol_drawall has just felt-filled the
+                                    ; whole content, so this rect is already
+    call sol_covers                 ; the colour the wipe would make it
     jc .nowipe                      ; the card is about to cover every pixel
     mov al, SOL_TABLE               ; of this rect: erasing it first is a
     call OSAPI_SET_COLOR            ; second fill of the same pixels
@@ -485,7 +572,6 @@ sol_drawpile:
     mov al, [sol_dpi]
     cmp al, [sol_dpn]
     jb .tab
-    call sol_prec                   ; remember what the slivers look like now
     jmp .out
 
     ; --- the stock: one card back, or the turn-over-again ring --------------
@@ -559,6 +645,10 @@ sol_drawpile:
 .slot:
     call sol_slot
 .out:
+    call sol_prec                   ; ...and record what is on the glass now.
+                                    ; ONE site, at the single exit, so a pile
+                                    ; kind added later cannot forget it; it is
+                                    ; sol_prec that refuses a non-tableau pile
     pop di
     pop si
     pop dx
@@ -568,62 +658,82 @@ sol_drawpile:
     ret
 
 ; =============================================================================
-; Keeping the buried backs (SPEC.md 43.7)
+; The shadow - what is on the glass, per tableau column (SPEC.md 43.10)
 ;
-; A tableau column redrew every card whenever any of them changed, and the
-; cards at the bottom of it are face-DOWN - the one drawing in this program
-; that is genuinely expensive, because the back is a lattice and gfx_blit4
-; emits one gfx_fill per run of equal pixels (41 runs for a fanned sliver, 634
-; for a whole back). A column with five buried cards therefore paid ~205 runs
-; to redraw pixels that had not changed, on every single move that touched it.
-; A run is a drawing call and a drawing call on this machine has a ~756us
-; floor (PERFORMANCE.md Part 2), so those 205 runs are about a TENTH OF A
-; SECOND of visible redraw per move - not a rounding error, which is the whole
-; reason this section exists.
+; A tableau column redrew every card whenever any of them changed, and a card
+; is expensive: measured on a cycle-accurate 5150, a face averages ~41 drawing
+; calls and a drawing call has a ~756us floor (PERFORMANCE.md Part 2). A back
+; is worse - a lattice does not coalesce, and gfx_blit4 emits one gfx_fill per
+; run of equal pixels (41 runs for a fanned sliver, 634 for a whole back).
 ;
-; What makes skipping them safe is that **face-down cards are
-; indistinguishable**: every back is the same image, so the question is never
-; "is it still the same card" but only "is it still drawn in the same place at
-; the same size". Two numbers settle that, cached per column by sol_prec:
+; Nearly none of that redrawing is wanted. Cards leave and arrive at the TOP
+; of a column, so the ones below the change do not move at all - same card,
+; same offset, same visible height, already on the screen and already right.
+; Measured on Hercules: one card dragged off a six-card run onto another
+; column drew ELEVEN faces for 481 drawing calls and 332.5ms, eight of the
+; eleven pixel-identical to what was already there. It is 3 faces, 210 calls
+; and 171.2ms now.
 ;
-;   [sol_pfa+p]  the face-down fan step it was drawn at, and
-;   [sol_pslv+p] how many leading cards were drawn as slivers of exactly that
-;                height.
+; So this keeps a SHADOW of what was drawn - one row per column, sol_shw:
 ;
-; A leading card's offset is index * step, so an unchanged step means an
-; unchanged position. sol_keep takes the smaller of what is wanted now and
-; what was drawn then, and sol_plan turns that into the row the erase starts
-; at - because an erase that reached higher would wipe the very slivers being
-; kept.
+;   +SHW_N     how many cards were drawn
+;   +SHW_CFA   the face-down fan they were drawn at
+;   +SHW_CFU   ...and the face-up one
+;   +SHW_CARD  the card bytes themselves, as drawn
 ;
-; The cache is invalidated - sol_pinv - wherever something else may have
-; painted over a column: a full repaint (which fills the content with felt
-; first), the win plaque (which lands on the felt between the piles), and a
-; change of content origin, which is what a window move looks like from here.
+; and sol_keep is the diff: the leading run whose card bytes still match, at a
+; fan that has not moved. sol_plan turns that count into the row the erase
+; STARTS at, which is the load-bearing half - an erase reaching any higher
+; would wipe the very cards being kept.
+;
+; Three things make the comparison sufficient, and all three are about a card
+; being drawn from (byte, x, y, visible height) and nothing else:
+;
+;  - **x is the column's**, which a keep does not move.
+;  - **y is sol_yoff(i)**, a pure function of the index, [sol_cfd] and the two
+;    fan steps. The fan is compared outright; [sol_cfd] cannot differ over a
+;    matched prefix, because it IS the count of leading face-down cards and
+;    those bytes are equal. (Either both counts run past the prefix - and then
+;    every kept offset is index*cfa on both sides - or the first face-up card
+;    is inside it and the two agree exactly.)
+;  - **the visible height** is what the NEXT card leaves showing, except for
+;    the last card, which is drawn whole and carries a bottom edge no buried
+;    card has. So the last card of EITHER drawing is never kept: the bound is
+;    min(now, then) - 1, which is also what catches the card that was on top
+;    and now has one fanned over it, and the one uncovered by a card leaving.
+;
+; A face-down card needs no special argument any more - every back is the same
+; image, so identical bytes are identical pixels, and SPEC.md 43.7's
+; "indistinguishable" reasoning falls out of the byte compare instead of
+; standing beside it. The shadow costs 29 bytes a column in the package's own
+; region (SPEC.md 20.1 - a package's memory is a heap claim), against the two
+; words a column the sliver cache cost.
+;
+; It is invalidated - sol_pinv - wherever something else may have painted over
+; a column: a full repaint (which fills the content with felt first), the win
+; plaque (which lands on the felt between the piles), and a change of content
+; origin, which is what a window move looks like from here.
 ; =============================================================================
 
+SHW_N       equ 0                   ; cards drawn; 0 = nothing here to trust
+SHW_CFA     equ 1                   ; the face-down fan they were drawn at
+SHW_CFU     equ 3                   ; ...and the face-up one
+SHW_CARD    equ 5                   ; the card bytes, as drawn
+SOL_SHW     equ SHW_CARD + PILE_CAP ; ...one row per tableau column
+
 ; -----------------------------------------------------------------------------
-; sol_slv - how many leading cards of this column are drawn as face-down
-;           slivers of exactly [sol_cfa] height
-; in:  [sol_dpn], [sol_cfd]; out: AX; preserves all other registers
-;
-; All of the face-down run when something covers it. When the column is ALL
-; face-down - which only happens mid-deal - the last one is drawn at its full
-; height instead, so it is not a sliver and does not count.
+; sol_shwbase - a column's shadow row
+; in:  AL = tableau pile; out: SI = the row; preserves all registers but SI
 ; -----------------------------------------------------------------------------
-sol_slv:
-    push cx
-    mov cl, [sol_dpn]
-    mov ch, 0
-    mov ax, [sol_cfd]
-    cmp cx, ax
-    ja .out
-    mov ax, cx
-    or ax, ax
-    jz .out
-    dec ax
-.out:
-    pop cx
+sol_shwbase:
+    push ax
+    push dx
+    mov dl, SOL_SHW
+    mul dl                          ; AX = pile * SOL_SHW (6*29 = 174, one byte)
+    mov si, ax
+    add si, sol_shw
+    pop dx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -632,58 +742,112 @@ sol_slv:
 ; out: AX; preserves all other registers
 ; -----------------------------------------------------------------------------
 sol_keep:
+%ifdef SOLNOKEEP
+    xor ax, ax                      ; `make SOLNOKEEP=1`: keep nothing, so every
+    ret                             ; column is erased and redrawn whole. The
+                                    ; reference build the shadow is diffed
+                                    ; against - see the Makefile
+%endif
     push bx
+    push cx
+    push dx
     push si
+    xor cx, cx                      ; CH = kept so far, and the answer
     mov al, [sol_dpp]
+    call sol_shwbase                ; SI = this column's shadow
+    mov dl, [si + SHW_N]
+    or dl, dl
+    jz .stop                        ; nothing was drawn from this shadow
+    mov ax, [sol_cfa]
+    cmp ax, [si + SHW_CFA]
+    jne .stop                       ; a re-fan moved every card in the column
+    mov ax, [sol_cfu]
+    cmp ax, [si + SHW_CFU]
+    jne .stop
+    mov cl, [sol_dpn]               ; the bound: the LAST card of either
+    cmp cl, dl                      ; drawing is drawn whole and is never kept
+    jbe .bound
+    mov cl, dl
+.bound:
+    or cl, cl
+    jz .stop
+    dec cl
+    jz .stop
+    mov al, [sol_dpp]
+    call sol_pilebase               ; BX = the live pile
+    add si, SHW_CARD
+.walk:
+    mov al, [bx]
+    cmp al, [si]
+    jne .stop                       ; the first card that differs ends the run
+    inc bx
+    inc si
+    inc ch
+    dec cl
+    jnz .walk
+.stop:
+    mov al, ch                      ; banked before CX is popped
     mov ah, 0
-    mov si, ax
-    add si, si
-    call sol_slv                    ; AX = what this draw wants to skip
-    mov bx, [sol_cfa]
-    cmp bx, [sol_pfa+si]            ; ...drawn at the same step as last time?
-    jne .none
-    cmp ax, [sol_pslv+si]           ; ...and no more than were drawn then?
-    jbe .out
-    mov ax, [sol_pslv+si]
-    jmp .out
-.none:
-    xor ax, ax
-.out:
     pop si
+    pop dx
+    pop cx
     pop bx
     ret
 
 ; -----------------------------------------------------------------------------
-; sol_prec - record what this column's slivers now look like
+; sol_prec - record what this column now looks like on the screen
 ; in:  [sol_dpp], [sol_dpn], sol_colfan already run; preserves all registers
+;
+; Called from sol_drawpile's single exit, and refuses anything that is not a
+; tableau column there rather than at the call site: the stock, the waste and
+; the foundations all leave through it too, and sol_shw has seven rows.
 ; -----------------------------------------------------------------------------
 sol_prec:
     push ax
+    push bx
+    push cx
     push si
     mov al, [sol_dpp]
-    mov ah, 0
-    mov si, ax
-    add si, si
-    mov ax, [sol_cfa]
-    mov [sol_pfa+si], ax
-    call sol_slv
-    mov [sol_pslv+si], ax
+    cmp al, P_TABN
+    jae .out
+    call sol_shwbase                ; SI = this column's shadow
+    mov al, [sol_dpn]
+    mov [si + SHW_N], al
+    mov ax, [sol_cfa]               ; sol_colfan has run for any column with a
+    mov [si + SHW_CFA], ax          ; card in it; an empty one records 0 cards
+    mov ax, [sol_cfu]               ; and sol_keep never reads the rest
+    mov [si + SHW_CFU], ax
+    mov cl, [sol_dpn]
+    mov ch, 0
+    jcxz .out
+    mov al, [sol_dpp]
+    call sol_pilebase               ; BX = the pile
+    add si, SHW_CARD
+.copy:
+    mov al, [bx]
+    mov [si], al
+    inc bx
+    inc si
+    loop .copy
+.out:
     pop si
+    pop cx
+    pop bx
     pop ax
     ret
 
 ; -----------------------------------------------------------------------------
-; sol_pinv - forget every column's cache; the next draw of each redraws whole
+; sol_pinv - forget every column's shadow; the next draw of each redraws whole
 ; preserves all registers
 ; -----------------------------------------------------------------------------
 sol_pinv:
     push cx
     push si
-    xor si, si
+    mov si, sol_shw
     mov cx, P_TABN
 .each:
-    mov word [sol_pslv+si], 0       ; 0 kept: sol_keep's min can only be 0
-    add si, 2
+    mov byte [si + SHW_N], 0        ; 0 drawn: sol_keep's bound can only be 0
+    add si, SOL_SHW
     loop .each
     pop si
     pop cx
@@ -2790,7 +2954,7 @@ sol_drag:
 ; -----------------------------------------------------------------------------
 ; sol_linger - yield until the timer tick changes, gfx lock HELD throughout
 ; sol_pace   - the same wait with the lock RELEASED across it, so what was
-;              just drawn reaches the glass (with double buffering on it only
+;              just drawn reaches the glass (it only
 ;              does so at gfx_unlock's flush, SPEC.md 32) and other tasks run
 ; in:  nothing; out: nothing; both preserve every register
 ; -----------------------------------------------------------------------------
@@ -3365,6 +3529,13 @@ sol_ic_ring:
     SBYTE sol_bkcol                 ; the card back's field colour
 
 ; --- sol_drawpile's loop -----------------------------------------------------
+    SBYTE sol_felt                  ; 1 = sol_drawall has just filled the whole
+                                    ; content with felt and nothing has drawn
+                                    ; over this pile's rect since, so its own
+                                    ; wipe is a second fill (SPEC.md 43.9.2).
+                                    ; Set only inside that loop; bss arrives
+                                    ; zeroed, which is the safe value for the
+                                    ; one-pile-at-a-time callers
     SBYTE sol_dpp                   ; the pile being drawn
     SBYTE sol_dpn                   ; its card count
     SBYTE sol_dpi                   ; card index
@@ -3400,10 +3571,9 @@ sol_ic_ring:
     SWORD sol_cfu                   ; ...and the face-up one
     SBYTE sol_cfp                   ; the column being measured
     SWORD sol_keepn                 ; leading cards this draw may skip
-    SWORD sol_lastox                ; the origin the cache below belongs to
+    SWORD sol_lastox                ; the origin the shadow below belongs to
     SWORD sol_lastoy
-    SBUF  sol_pfa, P_TABN*2         ; per column: the fan its slivers were
-    SBUF  sol_pslv, P_TABN*2        ; drawn at, and how many of them
+    SBUF  sol_shw, P_TABN*SOL_SHW   ; what is on the glass, per column (43.10)
 
 ; --- sol_move / sol_domove / sol_tofnd ---------------------------------------
     SBYTE sol_mvs

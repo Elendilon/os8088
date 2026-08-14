@@ -97,11 +97,22 @@ HIS_OK       equ 0
 HIS_SMALL    equ 1
 HIS_ALIEN    equ 2
 HIS_NONE     equ 3
+HIS_LIVE     equ 4              ; the volume THIS MACHINE BOOTED FROM, which is
+                                ; a perfectly good partition and the one target
+                                ; an install must never take (SPEC.md 52.10.4.1)
 
 ; Both floppies are 720KB between them, and a system volume wants room to work
 ; in afterwards. Below this an install would fit and leave nothing over, so it
 ; is refused with a reason rather than allowed to produce a full disk.
 HIW_MINSEC   equ 4096           ; 2MB in sectors
+
+; How far hd_iapps_scan walks the volume table looking for the apps disk. It
+; is a BOUND and not a shared constant: the SDK publishes no volume count, and
+; an index past the kernel's own DVOL_MAX is refused by OSAPI_VOL_KIND with no
+; I/O at all - so this is deliberately generous, because too small silently
+; misses a drive (SPEC.md 18.98 letters a floppy as far out as E:) and too
+; large costs a compare.
+HIA_VMAX     equ 16
 
 HII_IDLE     equ 0
 HII_ARMED    equ 1
@@ -112,10 +123,16 @@ HIW_CHUNKKB  equ 32             ; the copy buffer, KB. A cluster multiple on
                                 ; every geometry here (SPEC.md 18.4.4's rule),
                                 ; and small enough that a 128KB machine can
                                 ; still find it
-HIW_KMAXKB   equ 96             ; ...and the ceiling on KERNEL.SYS, which is
-                                ; written WHOLE (18.4.4: append refuses a
-                                ; protected file, and one write is also the
-                                ; strongest guarantee of contiguity)
+; ...and what it ASKS for first, so KERNEL.SYS - the biggest file the install
+; carries - goes down in one write. That is a SPEED choice since SPEC.md
+; 18.4.4 grew OSAPI_FILE_APPEND_SYS; before it, a machine that could not fund
+; this was a machine that could not install os8088. `make INSTCHUNK=1` builds
+; it at the fallback size, which is how the chunked path gets exercised on a
+; machine with plenty of heap - and the chunked path is the ONE that carries
+; a system file across three writes, so it is not a path to leave untested.
+%ifndef HIW_KMAXKB
+HIW_KMAXKB   equ 96
+%endif
 
 hd_itpl:    dw 70, 70, HIW_W, HIW_H, hd_s_ititle, hd_iw_paint, 0, hd_iw_click
 
@@ -136,6 +153,15 @@ hd_iw_open:
                                 ; hd_istate/hd_isecs below describe THIS device
     call hd_iw_scan             ; a fresh table every time, tool.inc's reason:
                                 ; the disk can be swapped between two clicks
+    mov bl, [hd_isel]           ; ...and if what it landed on is the volume we
+    xor bh, bh                  ; are RUNNING FROM, say so here rather than
+    cmp byte [bx+hd_istate], HIS_LIVE   ; leaving 'Pick a partition' up over a
+    jne .win                            ; list with nothing pickable in it. The
+    mov word [hd_imsg], hd_s_ilboot     ; scan does not set captions - the
+                                        ; stage machine owns [hd_imsg] and a
+                                        ; side effect in there would fight it
+                                        ; (SPEC.md 52.10.4.1)
+.win:
     cmp word [hd_iwin], 0
     jne .show
     mov si, hd_itpl
@@ -145,9 +171,11 @@ hd_iw_open:
     mov al, 1                   ; WF_SNAP (SPEC.md 11.94): the content origin
     call OSAPI_WM_SNAP          ; stays on a multiple of 8, so every run in
                                 ; here takes SPEC.md 6.1's single-store path
-                                ; on the two mono adapters. It costs 8px drag
-                                ; steps, which for a dialog nobody drags twice
-                                ; is not a cost at all
+                                ; on the two mono adapters - and on VGA every
+                                ; glyph of the fallback comes out aligned,
+                                ; which is worth more (SPEC.md 11.94). It
+                                ; costs 8px drag steps, which for a dialog
+                                ; nobody drags twice is not a cost at all
 .show:
     mov bx, [hd_iwin]
     call OSAPI_WM_SHOW
@@ -232,6 +260,18 @@ hd_iw_scan:
     cmp ax, HIW_MINSEC
     jb .small
     mov byte [bx+hd_istate], HIS_OK
+    call hd_part_used           ; ...UNLESS IT IS THE ONE WE ARE RUNNING FROM
+    jc .next                    ; (SPEC.md 52.10.4.1). A slot with no ENTRY is
+                                ; asked nothing: what SI points at is zeroed,
+                                ; the extent above came from hd_slot_extent
+                                ; instead, and a base of 0 is not this slot's
+                                ; to be compared
+    push ax                     ; Last of the tests, because it is the only one
+    mov al, [hd_idev]           ; that costs a call out of the image, and every
+    call hd_kvol                ; earlier verdict already refuses the slot
+    pop ax
+    jc .next
+    mov byte [bx+hd_istate], HIS_LIVE
     jmp short .next
 .small:
     mov byte [bx+hd_istate], HIS_SMALL
@@ -336,8 +376,9 @@ hd_iw_button:
     push si
     push di
     mov [hd_ibx], ax
-    mov [hd_ibw], bx
-    mov [hd_ibl], si
+    mov [hd_ibw], bx            ; latched across the predicate call; SI is not
+                                ; any more - os88ui_btn takes the label there,
+                                ; so hd_ibl went with the drawing
     cmp cl, 1
     je .live
     ja .rest
@@ -349,28 +390,23 @@ hd_iw_button:
 .live:
     clc
 .pen:
-    call OSAPI_GFX_PEN          ; CF IS the argument (SPEC.md 47 rule 1)
-    mov ax, di
+    mov cx, 0                   ; CF -> the shared control's DIS flag. `mov`
+    adc cx, 0                   ; does not touch flags, so the carry the
+                                ; predicate answered in survives into the adc
+    mov ax, di                  ; ...and the rect, in screen coordinates
     add ax, [hd_ibx]
-    mov bx, bp
-    add bx, HIW_BY
-    mov cx, ax
-    add cx, [hd_ibw]
-    dec cx
-    mov dx, bx
-    add dx, HIW_BH - 1
-    call OSAPI_GFX_FRAME
-    mov si, [hd_ibl]
-    call OSAPI_FONT_WIDTH       ; AX = its pixels, for centring
-    mov cx, [hd_ibw]
-    sub cx, ax
-    shr cx, 1
-    add cx, di
-    add cx, [hd_ibx]
-    mov dx, bp
-    add dx, HIW_BY + 4
-    mov si, [hd_ibl]
-    call OSAPI_FONT_STR
+    mov [hd_ibrect+0], ax
+    add ax, [hd_ibw]
+    dec ax
+    mov [hd_ibrect+4], ax
+    mov ax, bp
+    add ax, HIW_BY
+    mov [hd_ibrect+2], ax
+    add ax, HIW_BH - 1
+    mov [hd_ibrect+6], ax
+    mov di, cx
+    mov bx, hd_ibrect           ; no OS88UI_FILL: hd_ibtns_draw white-fills
+    call os88ui_btn             ; the whole 16px band before re-emitting
     pop di
     pop si
     pop dx
@@ -378,6 +414,8 @@ hd_iw_button:
     pop bx
     pop ax
     ret
+
+hd_ibrect:  dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
 
 ; =============================================================================
 ; Drawing the face a piece at a time (SPEC.md 52.10.6)
@@ -817,6 +855,7 @@ hd_s_bhdr:  db 'os8088 install, SPEC.md 52.10.9', 13, 10
             ; ...the ROW's own columns: 3 for the label, then five 5-wide
             ; fields. The window's legend is 5 spaces in and this is 3,
             ; because the caption is drawn at its own x and this is not
+hd_s_bbuf:  db 'copy buffer KB', 0
 hd_bbuf:    times 256 db 0
             ; the caption is with the other HIMSGs, where the macro exists
 
@@ -1043,6 +1082,15 @@ hd_bn_save:
     mov di, hd_bbuf
     mov si, hd_s_bhdr               ; a header, so a photograph of the file
     call hd_scat                    ; says what its columns are
+    mov [hd_bp], di
+    mov si, hd_s_bbuf               ; ...and WHAT BUFFER the copy got, because
+    call hd_scat                    ; hd_ibuf_get's fallback is invisible from
+    mov [hd_lineptr], di            ; the outside and changes how every big
+    mov ax, [hd_ibufkb]             ; file is written (SPEC.md 52.10.11). A
+    call hd_utoa4                   ; field report that does not say which of
+    mov di, [hd_lineptr]            ; the two sizes was in play cannot settle
+    mov word [di], 0x0A0D           ; an argument about the heap - and one has
+    add di, 2                       ; already had to be settled by guessing
     mov [hd_bp], di                 ; ...our OWN cursor: hd_bn_rowtext builds
     mov byte [hd_irow], 0           ; into hd_line and resets [hd_lineptr]
 .row:
@@ -1301,24 +1349,32 @@ hd_inst_sys:
     cmp byte [hd_mbrok], HMB_BAD    ; hd_mbr is a fabrication, not this disk's
     je .notable                     ; table: an Install that commits it wipes
                                     ; every partition we could not see
+    mov byte [hd_iphase], 0         ; the SYSTEM phase: the system files are
+                                    ; exactly what it is here for (52.10.12)
     call hd_ibuf_get            ; the buffer FIRST: a format we cannot follow
     jc .nomem                   ; with a copy is a wiped partition
-    cmp word [hd_ibufkb], HIW_KMAXKB    ; ...and BIG ENOUGH, which is the half
-    jb .small                           ; that line stopped short of. KERNEL.SYS
-                                        ; is written whole - it must land at
-                                        ; cluster 2 (SPEC.md 52.10.2), so the
-                                        ; chunk shape cannot carry it - and
-                                        ; hd_ibuf_get's fall back to
-                                        ; HIW_CHUNKKB is SILENT. Learning that
-                                        ; in hd_icopy_one's .toobig is learning
-                                        ; it after hd_inst_fmt has written the
-                                        ; partition entry, the FAT and the
-                                        ; root: the disk the user pointed at is
-                                        ; wiped, the install fails, and every
-                                        ; retry wipes it again. hd_inst_apps
-                                        ; keeps the fallback and needs it -
-                                        ; every file it copies is an ordinary
-                                        ; one and chunks
+                                ; ...and NO size gate on top of it, which is a
+                                ; deliberate difference from the branch this
+                                ; routine was last reviewed on. That gate read
+                                ; `cmp word [hd_ibufkb], HIW_KMAXKB / jb
+                                ; .small` and refused the install outright on a
+                                ; buffer under HIW_KMAXKB, because KERNEL.SYS
+                                ; was written whole and a system file could not
+                                ; be appended to. Both halves of that reason
+                                ; have expired: OSAPI_FILE_APPEND_SYS is the
+                                ; door (SPEC.md 19.6.1), hd_icopy_one's species
+                                ; test went with it, and the whole/chunked
+                                ; choice below is now a plain 32-bit "does it
+                                ; fit" - so a small buffer COPIES, slower, and
+                                ; hd_ibuf_get's size is a speed choice. Putting
+                                ; the gate back would refuse a machine short of
+                                ; heap - the field 5150's class - about a file
+                                ; the disk it booted from is carrying, which is
+                                ; the bug the species test was removed to fix.
+                                ; The wiped-partition failure it was written
+                                ; against cannot arise here: the small-buffer
+                                ; case succeeds instead of failing after the
+                                ; format
     mov word [hd_imsg], hd_s_iwork
     call hd_imsg_draw           ; say so BEFORE the writes - a 32MB format is
                                 ; hundreds of sectors and the user should not
@@ -1334,6 +1390,10 @@ hd_inst_sys:
                                 ; floppy (SPEC.md 18.9.3). Nothing closes it:
                                 ; the unlock that ends this callback does, and
                                 ; that is true of the failure paths too
+    call hd_isrc_ck             ; ...and IS THERE A SYSTEM DISK TO COPY? Asked
+    jc .nosys                   ; here, one line above the format, because
+                                ; every answer below this point is given with
+                                ; the destination already erased (52.10.8.1)
 %ifdef INSTBENCH
     call hd_bn_bank             ; SPEC.md 52.10.9: the format on its own, which
 %endif                          ; is the phase with no file in it at all
@@ -1384,16 +1444,13 @@ hd_inst_sys:
     mov word [hd_imsg], hd_s_inomem
     stc
     jmp short .out
-.small:
-    call hd_ibuf_put            ; nothing has been written yet, so the machine
-    mov word [hd_imsg], hd_s_ibig   ; keeps its partition and hears the same
-    stc                             ; sentence it would have heard afterwards
-    jmp short .out
 .nboot:                         ; the FILES are all there and the disk simply
     mov word [hd_imsg], hd_s_inboot ; will not boot - a different sentence to
     call hd_ibuf_put            ; the user and a different half to debug. The
     stc                         ; volume is already back (SPEC.md 52.10.10 put
     jmp short .out              ; the commit AFTER hd_ivol_back)
+.nosys:                         ; NOTHING HAS BEEN ERASED on this path, which
+    mov word [hd_imsg], hd_s_inosys ; is the only reason it is worth having
 .failed:
     call hd_ivol_back
     call hd_ibuf_put
@@ -1417,6 +1474,15 @@ hd_inst_apps:
     push dx
     push si
     push di
+    mov byte [hd_iphase], 1     ; ...and this one adds SOFTWARE to a machine
+                                ; that already boots, so nothing hidden and
+                                ; system on the source is its business
+                                ; (SPEC.md 52.10.12). It is set HERE and not
+                                ; cleared at the end: hd_inst_sys sets its own
+                                ; on the way in, which is the ordering that
+                                ; survives a failed apps phase leaving the
+                                ; stage machine at HII_IDLE for a fresh
+                                ; Install click
     call hd_ibuf_get
     jc .nomem
     mov word [hd_imsg], hd_s_iwork
@@ -1431,10 +1497,29 @@ hd_inst_apps:
                                 ; was found and this runs on from hd_inst_sys
     mov al, [hd_iautod]         ; an auto-detected apps disk overrides THAT one
     cmp al, 0xFF                ; and never hd_ivdrv, or the restore below puts
-    je .src                     ; the user on a drive they were never on
+    je .look                    ; the user on a drive they were never on
     mov [hd_isrcdrv], al
     mov byte [hd_iautod], 0xFF  ; spent: a second install asks afresh
-.src:
+    jmp short .src
+.look:
+    ; NO PRE-SWAP ANSWER, SO ASK AGAIN NOW (SPEC.md 52.10.5.1). The banked
+    ; volume is where the user was BROWSING when they started the install, and
+    ; it was never a statement about where the apps disk is - it is stage 1
+    ; that reads the disk the user was standing on, and even stage 1 has to
+    ; correct for it (hd_isrc_ck). What has happened since the probe refused
+    ; is exactly the thing that changes the answer: the user was asked to swap
+    ; disks and did. So this asks the machine the same question stage 1's
+    ; probe asks, and SKIPS NOTHING - the drive the probe ruled out held a
+    ; system disk a moment ago and holds the apps disk now.
+    mov al, 0xFF
+    call hd_iapps_scan
+    jc .src                     ; NOT FOUND: the banked volume stands, exactly
+    mov [hd_isrcdrv], al        ; as it did before any of this existed. The
+.src:                           ; three tests define OUR apps disk, and a
+                                ; hand-made floppy carrying only GAMES fails
+                                ; all three while being precisely what the user
+                                ; meant to copy - so a miss may not become a
+                                ; refusal. The scan can only IMPROVE the guess
     call hd_icopy_tree
     jc .failed
     call hd_ivol_back           ; NO commit here: the system phase already
@@ -1479,33 +1564,43 @@ hd_inst_apps:
 ; A heap claim rather than bss, for SPEC.md 50's reason: it is HIW_KMAXKB at
 ; its largest and the driver's image would carry that on every machine, hard
 ; disk or not. Refusal is a normal path - the caller says so and stops.
+;
+; IT WALKS A LADDER, and that is SPEC.md 52.10.11's other half. It used to ask
+; twice - 96KB, then 32 - so a machine that could spare 64 was copied at 32,
+; three times the int 13h calls for no reason at all. Two sizes is a CLIFF and
+; the heap is a continuum; the table is descending, the first that answers
+; wins, and the size taken is recorded because it is the only way anyone
+; outside can tell which rung a machine landed on (52.10.9's report prints it).
+;
+; THE SIZE GOES IN AX AND THE SEGMENT COMES BACK IN DX (SPEC.md 50.3). This
+; asked in CX and read the answer out of AX, so the buffer segment was
+; whatever AX happened to hold - 0x0047 on the machine that found it, which is
+; BELOW KERNEL_SEG. Reading 76KB of KERNEL.SYS there writes over the interrupt
+; vector table, the BIOS data area and the bottom of the kernel, which is why
+; it presented first as a crash to CS=0000:IP=0000 and then as an endless loop
+; through damaged kernel code. A claim can never be below the heap base, so
+; the value alone was the tell.
 ; -----------------------------------------------------------------------------
 hd_ibuf_get:
     push ax
     push cx
     push dx
-    mov ax, HIW_KMAXKB          ; THE SIZE GOES IN AX AND THE SEGMENT COMES
-    call OSAPI_MEM_CLAIM        ; BACK IN DX (SPEC.md 50.3). This asked in CX
-    jnc .got                    ; and read the answer out of AX, so the buffer
-                                ; segment was whatever AX happened to hold -
-                                ; 0x0047 on the machine that found it, which
-                                ; is BELOW KERNEL_SEG. Reading 76KB of
-                                ; KERNEL.SYS there writes over the interrupt
-                                ; vector table, the BIOS data area and the
-                                ; bottom of the kernel, which is why this
-                                ; presented first as a crash to CS=0000:IP=0000
-                                ; and then as an endless loop through damaged
-                                ; kernel code. A claim can never be below the
-                                ; heap base, so the value alone was the tell
-    mov ax, HIW_CHUNKKB         ; not enough for the kernel in one piece: take
-    call OSAPI_MEM_CLAIM        ; the chunk size and let hd_icopy_one refuse
-    jc .no                      ; the one file that needs more
-    mov word [hd_ibufkb], HIW_CHUNKKB
-    jmp short .have
+    push si
+    mov si, hd_ibufsz
+.try:
+    mov ax, [si]
+    or ax, ax
+    jz .no                      ; the ladder ran out: not even the smallest
+    call OSAPI_MEM_CLAIM
+    jnc .got
+    add si, 2
+    jmp short .try
 .got:
-    mov word [hd_ibufkb], HIW_KMAXKB
+    mov ax, [si]
+    mov [hd_ibufkb], ax
 .have:
     mov [hd_ibufseg], dx
+    pop si
     pop dx
     pop cx
     pop ax
@@ -1513,11 +1608,19 @@ hd_ibuf_get:
     ret
 .no:
     mov word [hd_ibufseg], 0
+    mov word [hd_ibufkb], 0
+    pop si
     pop dx
     pop cx
     pop ax
     stc
     ret
+
+; The ladder, descending, ending in a 0. Every rung is a whole number of KB
+; and so a cluster multiple on every geometry this kernel mounts (SPEC.md
+; 18.4.4's rule at both ends), and the top one is HIW_KMAXKB so that
+; KERNEL.SYS goes down in one write where the heap allows it.
+hd_ibufsz:  dw HIW_KMAXKB, 64, 48, HIW_CHUNKKB, 16, 8, 0
 
 ; -----------------------------------------------------------------------------
 ; hd_ibufbytes - the buffer's capacity in BYTES, 32-bit (module internal)
@@ -1549,9 +1652,21 @@ hd_ibuf_put:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_ivol_bank / hd_ivol_back - the user's volume (SPEC.md 51.5.2)
+; hd_ivol_bank / hd_ivol_bankv / hd_ivol_back - the user's volume (SPEC.md
+; 51.5.2)
 ; BOTH PRESERVE THE FLAGS: each caller's result is in CF and a failed restore
 ; must not read as a failed install.
+;
+; TWO ENTRIES BECAUSE THEY ARE TWO STATEMENTS. `hd_ivol_bank` says "remember
+; where the user was AND read the files from there", which is what a phase
+; wants on the way in; `hd_ivol_bankv` says only the first half, which is what
+; a routine that is merely standing somewhere for a moment wants. hd_iksecs
+; was the second kind through the first door, and that cost SPEC.md 52.10.5.1
+; a whole round: it runs from hd_inst_vbr at the END of the system phase, so
+; it quietly put [hd_isrcdrv] back to the user's volume - overwriting
+; hd_isrc_ck's A: fallback - and the apps probe then skipped the wrong drive.
+; Invisible until something read that byte after the copy, which is exactly
+; what the probe now does.
 ; -----------------------------------------------------------------------------
 hd_ivol_bank:
     pushf
@@ -1559,10 +1674,18 @@ hd_ivol_bank:
     push bx
     push dx
     call OSAPI_FILE_HERE        ; DX = the directory, BL = the drive
-    mov [hd_ivcwd], dx
-    mov [hd_ivdrv], bl
     mov [hd_isrcdrv], bl        ; the copy reads from there too, unless the
                                 ; caller overrides it after this returns
+    jmp short hd_ivol_bank_v2
+hd_ivol_bankv:
+    pushf
+    push ax
+    push bx
+    push dx
+    call OSAPI_FILE_HERE
+hd_ivol_bank_v2:
+    mov [hd_ivcwd], dx
+    mov [hd_ivdrv], bl
     pop dx
     pop bx
     pop ax
@@ -1584,17 +1707,93 @@ hd_ivol_back:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_iapps_find - is the apps disk already in the OTHER floppy drive?
-; in:  the volume is wherever hd_inst_sys left it (the user's, restored)
-; out: CF = 0 and AL = that drive; CF = 1 = ask the user to swap
-; clobbers: AX, flags. The volume is put back on EVERY path.
+; hd_ifdd2 - has this machine a SECOND floppy drive? (module internal)
+; out: CF = 0 = yes; CF = 1 = one drive, or none
+; clobbers: flags
 ;
-; A one-drive machine has to be asked to swap disks and a two-drive machine
-; usually does not, because the disk is already sitting in B:. int 11h is the
-; only honest source for how many drives there are - bits 7:6 are the count
-; less one, and the kernel's volume table is no help at all, since A: and B:
-; are unconditional rows in it and on a one-drive PC the BIOS aliases unit 1
-; onto the same physical drive.
+; int 11h is the only honest source, bits 7:6 being the count less one, and
+; the kernel's volume table is no help AT THIS ONE QUESTION: rows 0 and 1 are
+; live on every machine (SPEC.md 18.98's `.zloop` takes the ZONE away and
+; keeps the row, because [disk_drive] may still name it and a mount of an
+; absent drive is an ordinary failed mount), so B: answers VK_REMOVABLE on a
+; one-drive PC exactly as it does on a two-drive one - where the BIOS aliases
+; unit 1 onto the same physical drive, so a probe of B: reads the disk that is
+; in A: and answers a question nobody asked.
+;
+; UNITS 2 AND 3 NEED NO TEST OF THEIR OWN: SPEC.md 18.98 only MAKES those rows
+; when the machine claims the drives, so the row existing is already the
+; answer and hd_iapps_cand's OSAPI_VOL_KIND is the whole of it.
+; -----------------------------------------------------------------------------
+hd_ifdd2:
+    push ax
+    push bx                     ; int 11h answers in AX and says nothing about
+    push cx                     ; the rest; BX is the scan's cursor
+    int 0x11                    ; the equipment word
+    test al, 1                  ; ...any floppy drive at all
+    jz .no
+    mov cl, 6
+    shr al, cl                  ; bits 7:6 = drives - 1
+    or al, al
+    jz .no
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_iapps_cand - is this volume worth asking about? (module internal)
+; in:  BL = a volume index, BH = one to skip (0xFF = none)
+; out: CF = 0 = ask it; CF = 1 = skip it
+; clobbers: flags. No I/O of any kind: this is what keeps a scan of eight
+;           volumes down to the two or three drives a machine really has.
+;
+; A REMOVABLE volume and nothing else (SPEC.md 18.7.2): the apps disk is a
+; floppy, so a hard-disk partition - the destination included - and a
+; redirected network volume (SPEC.md 62.9) are out by their KIND rather than
+; by their index, which is what makes this right on a machine whose floppies
+; are lettered A:, B:, D: and E: (SPEC.md 18.98).
+; -----------------------------------------------------------------------------
+hd_iapps_cand:
+    push ax
+    cmp bl, bh
+    je .no                      ; the drive we already know the answer for
+    cmp bl, 1
+    jne .kind
+    call hd_ifdd2               ; B: ON A ONE-DRIVE MACHINE IS A:
+    jc .no
+.kind:
+    mov al, bl
+    call OSAPI_VOL_KIND
+    jc .no                      ; no such volume
+    cmp al, VK_REMOVABLE
+    jne .no                     ; a hard disk is not where the apps disk is
+    pop ax
+    clc
+    ret
+.no:
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_iapps_at - is the disk in THIS drive the apps disk? (module internal)
+; in:  BL = a volume index
+; out: CF = 0 = yes; CF = 1 = no
+; clobbers: flags
+;
+; IT LEAVES THE VOLUME ON THE CANDIDATE, deliberately: hd_iapps_scan restores
+; once at the end instead of once per drive, which is a whole remount saved
+; for every candidate that answers no. Both gotos are QUIET (SPEC.md 19.2.2)
+; for hd_isrc's reason - nothing here SHOWS a folder, OSAPI_FILE_FIND walking
+; raw directory sectors - and the restore at the boundary is the full one,
+; which is what pays the [dsk_lstale] debt they leave.
 ;
 ; The test for the disk itself is an APPS FOLDER in its root, which is what
 ; makes it the apps disk (SPEC.md 19.2) and what the system disk does not
@@ -1602,27 +1801,17 @@ hd_ivol_back:
 ; a data disk, no disk at all - this refuses and the swap prompt happens
 ; exactly as it did before.
 ; -----------------------------------------------------------------------------
-hd_iapps_find:
+hd_iapps_at:
+    push ax
     push bx
     push cx
     push dx
     push si
     push di
     mov byte [hd_iafound], 0
-    int 0x11                    ; the equipment word
-    test al, 1                  ; ...any floppy drive at all
-    jz .refuse
-    mov cl, 6
-    shr al, cl                  ; bits 7:6 = drives - 1
-    or al, al
-    jz .refuse                  ; one drive: there is nowhere else to look
-    mov bl, [hd_ivdrv]          ; the drive stage 1 read from
-    cmp bl, 2
-    jae .refuse                 ; not a floppy at all: "the other one" has no
-    xor bl, 1                   ; meaning, so ask
     push bx
     xor dx, dx                  ; its ROOT
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_Q
     pop bx
     jc .refuse                  ; no disk in it, or one we cannot read
     xor cx, cx
@@ -1671,7 +1860,7 @@ hd_iapps_find:
     ; is about to move.
     push bx
     mov dx, [hd_iappsc]
-    call OSAPI_FILE_GOTO
+    call OSAPI_FILE_GOTO_Q
     pop bx
     jc .refuse
     xor cx, cx
@@ -1689,13 +1878,9 @@ hd_iapps_find:
     mov si, hd_ifind
     call hd_io88
     jnc .pscan
-
-    call hd_ivol_back           ; found it - and the volume goes back either
-    mov al, bl                  ; way, because hd_inst_apps banks afresh
     clc
     jmp short .out
 .refuse:
-    call hd_ivol_back
     stc
 .out:
     pop di
@@ -1703,7 +1888,65 @@ hd_iapps_find:
     pop dx
     pop cx
     pop bx
+    pop ax                      ; ...and a pop leaves CF alone
     ret
+
+; -----------------------------------------------------------------------------
+; hd_iapps_scan - WHICH drive has the apps disk in it? (SPEC.md 52.10.5)
+; in:  AL = a volume to skip (0xFF = none)
+; out: CF = 0 and AL = that volume; CF = 1 = it is not in the machine
+; clobbers: AX, flags. The volume is put back on EVERY path, including the
+;           ones that stood on a candidate to look at it - the caller has
+;           already restored the user's volume by then (SPEC.md 51.5.2) and a
+;           probe that moved it would be a navigation nobody asked for.
+;
+; LOWEST INDEX FIRST, so A: is asked before B: and before SPEC.md 18.98's
+; external pair. That is the order the user was told to use - the prompt says
+; to insert the apps disk, and the drive they take the system disk out of is
+; the one they put it back into - and on a machine where it is wrong the disk
+; is found one drive later at the cost of a mount.
+; -----------------------------------------------------------------------------
+hd_iapps_scan:
+    push bx
+    mov bh, al                  ; the one to skip, held in BH because BL walks
+    xor bl, bl                  ; the volumes and both survive every call below
+.next:
+    call hd_iapps_cand
+    jc .step
+    call hd_iapps_at
+    jnc .found
+.step:
+    inc bl
+    cmp bl, HIA_VMAX
+    jb .next
+    call hd_ivol_back
+    stc
+    jmp short .out
+.found:
+    call hd_ivol_back           ; ...which preserves the flags AND AX, so the
+    mov al, bl                  ; answer is taken after it either way
+    clc
+.out:
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_iapps_find - is the apps disk already in the machine? (SPEC.md 52.10.5)
+; in:  the volume is wherever hd_inst_sys left it (the user's, restored)
+; out: CF = 0 and AL = that drive; CF = 1 = ask the user to swap
+; clobbers: AX, flags. The volume is put back on EVERY path.
+;
+; THE DRIVE IT SKIPS IS THE ONE STAGE 1 READ, and not the one the user is
+; standing on. That disk is a system disk, which hd_iapps_at's KERNEL.SYS test
+; would refuse anyway, so skipping it saves a mount rather than deciding
+; anything - where skipping [hd_ivdrv] decided a great deal and decided it
+; wrong: it is where the user was BROWSING, so a user who had opened a Disk
+; window on the drive holding the apps disk was asked to swap in a disk that
+; was already in the machine.
+; -----------------------------------------------------------------------------
+hd_iapps_find:
+    mov al, [hd_isrcdrv]
+    jmp short hd_iapps_scan
 
 ; -----------------------------------------------------------------------------
 ; hd_isrc / hd_isrc_sub / hd_idst / hd_idst_sub - stand somewhere (internal)
@@ -1959,11 +2202,14 @@ hd_icopy_sub:
 ; on every geometry this kernel mounts - the rule that has to hold at BOTH
 ; ends, since the destination's cluster size need not equal the source's.
 ;
-; A SYSTEM file goes through OSAPI_FILE_WRITE_SYS (SPEC.md 19.6.1) so it lands
-; hidden and system exactly as it is on the floppy. That path cannot chunk -
-; append refuses a protected file - so a system file has to fit the buffer,
-; which is why hd_ibuf_get asks for HIW_KMAXKB first and KERNEL.SYS is the one
-; file that could ever need it.
+; A SYSTEM file goes through the _SYS twin of whichever verb the shape needs
+; (SPEC.md 19.6.1) so it lands hidden and system exactly as it is on the
+; floppy. BOTH shapes have one now, which is what removed this routine's only
+; refusal: append used to meet the two bits the create had stamped, so a
+; system file had to fit the buffer WHOLE, and the largest file the installer
+; carries - KERNEL.SYS - is a system file. hd_ibuf_get's HIW_KMAXKB is a speed
+; choice today; it was a capability one, and on a machine that took the 32KB
+; fallback the answer was that the disk you booted from cannot be installed.
 ; -----------------------------------------------------------------------------
 hd_icopy_one:
     push ax
@@ -1992,6 +2238,29 @@ hd_icopy_one:
     call hd_istat
     jc .fail
 
+    ; --- and WHOSE file is it? (SPEC.md 52.10.12) ----------------------------
+    ; The APPS phase never writes a system file. The machine it is adding to
+    ; already boots, and everything hidden + system on it - KERNEL.SYS, every
+    ; *.DRV, SYSTEM.CFG, ASSOC.DAT - was put there by the system phase and
+    ; belongs to the volume rather than to the disk in the drive. Copying the
+    ; source's over them is at best pointless and at worst a stale driver on
+    ; top of a fresh one, or a floppy's association cache (54.7, whose rows
+    ; carry SOURCE cluster numbers) on a hard disk.
+    ;
+    ; It is a SPECIES test and not a name list, so it needs no maintenance as
+    ; files are added, and it is the same two bits every other boundary in
+    ; this system reads (19.6). hd_icopy_tree's KERNEL.SYS test stays - that
+    ; one is about the SYSTEM phase not copying, in its tree walk, the file it
+    ; has already written first and alone (52.10.2).
+    ;
+    ; Skipping is CF = 0: a system file on the apps disk is not a failure, it
+    ; is a file that is not the apps disk's business.
+    cmp byte [hd_iphase], 0
+    je .mine
+    cmp byte [hd_isys], 0
+    jne .notmine
+.mine:
+
     ; Does it fit the buffer whole? A 32-BIT compare, and it has to be: the
     ; buffer is up to HIW_KMAXKB and `kb << 10` overflows a word at 64KB, so
     ; the 16-bit version made every file of 64KB or more take the chunked path
@@ -2018,9 +2287,17 @@ hd_icopy_one:
     jmp short .ok
 
     ; --- and the chunked one (SPEC.md 18.4.4) --------------------------------
+    ; No species test HERE any more, and its absence is the fix rather than a
+    ; simplification. It read `cmp byte [hd_isys], 0 / jne .toobig` - "a system
+    ; file cannot be appended to" - which was true of the kernel it was written
+    ; against and made the whole install rest on hd_ibuf_get winning its
+    ; HIW_KMAXKB claim, because KERNEL.SYS is the biggest file here and a
+    ; system one. A machine short of heap took the 32KB fallback and was then
+    ; told `A file is too big for this machine` about a file the disk it booted
+    ; from is carrying, and a kernel that grew past 96KB would have got the
+    ; same answer on every machine. OSAPI_FILE_APPEND_SYS is the door
+    ; (SPEC.md 19.6.1); hd_ibuf_get's size is a speed choice now.
 .chunked:
-    cmp byte [hd_isys], 0
-    jne .toobig                 ; a system file cannot be appended to
 .chunk:
     HDBSTEP 6
     call hd_isrc_here
@@ -2048,12 +2325,9 @@ hd_icopy_one:
     mov ax, [hd_ioff]           ; hd_istat already told us at the top - the
     cmp ax, [hd_isize]          ; loop knows it is finished the moment the
     jb .chunk                   ; offset reaches the size (SPEC.md 52.10.7)
+.notmine:                       ; SPEC.md 52.10.12: not the apps phase's
 .ok:
     clc
-    jmp short .out
-.toobig:
-    mov word [hd_imsg], hd_s_ibig
-    stc
     jmp short .out
 .fail:
 %ifdef INSTBENCH
@@ -2189,12 +2463,8 @@ hd_iread_chunk:
     mov es, [hd_ibufseg]
     xor bx, bx
     mov si, hd_iname
-    call hd_ibufbytes           ; DX:AX = the capacity...
-    mov cx, ax                  ; ...and CX is what READ_AT takes, a cluster
-                                ; multiple by construction (SPEC.md 18.4.4).
-                                ; The chunk path only runs for buffers under
-                                ; 64KB, so the high half is 0 here by the same
-                                ; construction that makes HIW_CHUNKKB 32
+    call hd_ichunk              ; AX = the take, and it is CAPPED - see there
+    mov cx, ax
     mov ax, [hd_ioff]
     mov dx, [hd_ioff+2]
     call OSAPI_FILE_READ_AT     ; out DX:AX = the bytes, 0 at the end
@@ -2206,7 +2476,45 @@ hd_iread_chunk:
     ret
 
 ; -----------------------------------------------------------------------------
+; hd_ichunk - how many bytes one take moves (module internal)
+; out: AX; every other register preserved
+;
+; The buffer's capacity, CAPPED AT 32,768, and the cap is not tidiness:
+; OSAPI_FILE_READ_AT takes its count in CX, so a 64KB buffer asks for 65,536,
+; which truncates to **zero** - and a zero-length take is exactly what
+; hd_icopy_one reads as "the file is finished", so the destination would be
+; left holding whatever had been written so far and the copy would report
+; success. A silently truncated KERNEL.SYS is the worst outcome this module
+; has, and nothing downstream could catch it.
+;
+; This routine's predecessor was a `mov cx, ax` on the low half with a comment
+; saying the chunk path never ran above 64KB - untrue since HIW_KMAXKB became
+; 96 (which lands on 0x8000 and worked by luck), and fatal the moment
+; hd_ibufsz gained a 64KB rung.
+;
+; 32,768 is a power of two and so a whole number of clusters on every geometry
+; this kernel mounts, which is SPEC.md 18.4.4's precondition at both ends.
+; -----------------------------------------------------------------------------
+hd_ichunk:
+    push dx
+    call hd_ibufbytes           ; DX:AX = the buffer's capacity, 32-bit
+    or dx, dx
+    jnz .cap                    ; 64KB or more: the low half is a lie
+    cmp ax, 32768
+    jbe .out
+.cap:
+    mov ax, 32768
+.out:
+    pop dx
+    ret
+
+; -----------------------------------------------------------------------------
 ; hd_iwrite_chunk - the first take CREATES, every later one APPENDS
+;
+; A SYSTEM file takes the _SYS twin of each verb (SPEC.md 19.6.1), so it is
+; created hidden + system and then extended past those bits - which is the
+; whole reason a big system file can be copied at all, and why this path has
+; no size limit left in it (SPEC.md 18.4.4).
 ; -----------------------------------------------------------------------------
 hd_iwrite_chunk:
     push ax
@@ -2223,10 +2531,20 @@ hd_iwrite_chunk:
     or ax, [hd_ioff+2]
     jnz .append
     xor dx, dx
+    cmp byte [hd_isys], 0
+    jne .cresys
     call OSAPI_FILE_WRITE       ; offset 0: create (or replace, on a re-run)
     jmp short .out
+.cresys:
+    call OSAPI_FILE_WRITE_SYS   ; ...hidden + system, as it is on the floppy
+    jmp short .out
 .append:
+    cmp byte [hd_isys], 0
+    jne .appsys
     call OSAPI_FILE_APPEND      ; every later chunk, SPEC.md 18.4.4
+    jmp short .out
+.appsys:
+    call OSAPI_FILE_APPEND_SYS  ; ...past the two bits the create stamped
 .out:
     pop es
     pop si
@@ -2234,6 +2552,69 @@ hd_iwrite_chunk:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_isrc_ck - is the source really the SYSTEM DISK? (SPEC.md 52.10.8.1)
+; out: CF = 0 and [hd_isrcdrv] names a volume with KERNEL.SYS in its root;
+;      CF = 1 = there is no system disk to install FROM
+; clobbers: flags
+;
+; **It runs BEFORE the format, and that is the whole of what it is for.** The
+; source is wherever the user was standing (§51.5.2's bank), which is right on
+; the machine this was written for - one floppy, and the disk it booted from
+; still in it - and is a guess everywhere else: a Disk window left open on B:,
+; a RAM disk, a network volume, or the hard-disk partition §52.10.8.1 is about.
+; Every one of those reaches `hd_icopy_one` with the destination ALREADY
+; ERASED, which turns "I picked the wrong source" into a partition that is
+; gone. Asked here it is a refusal that costs one quiet mount and a directory
+; walk.
+;
+; The test is KERNEL.SYS in the root - the same marker `drv_cfg_save` uses to
+; find the system volume (§51.5.1) and `hd_iapps_find` uses to rule one OUT,
+; so there is one answer in this system to "which disk is that" rather than
+; three that can drift.
+;
+; **A: is the fallback and it is not a guess either**: the machine booted off
+; a floppy (§52.10.4.1 refuses the other case outright), `drv_boot` mounts A:
+; to read this very driver, and §51.5.1 already treats A: as where the system
+; disk is. Falling back is silent because the user asked to install os8088 and
+; not to install whatever they were last looking at - the volume they were on
+; is put back afterwards either way ([hd_ivdrv] is untouched here).
+; -----------------------------------------------------------------------------
+hd_isrc_ck:
+    push ax
+    push si
+    call hd_isrc_ck_one         ; where the bank left us...
+    jnc .ok
+    cmp byte [hd_isrcdrv], 0
+    je .no                      ; ...which WAS A:, so there is nowhere else
+    mov byte [hd_isrcdrv], 0
+    call hd_isrc_ck_one
+    jc .no
+.ok:
+    pop si
+    pop ax
+    clc
+    ret
+.no:
+    pop si
+    pop ax
+    stc
+    ret
+
+; hd_isrc_ck_one - KERNEL.SYS in [hd_isrcdrv]'s root? (module internal)
+; The root, always: [hd_iinsub] belongs to the tree walk and nothing has set
+; it yet, but saying so costs nothing and this must not follow it if it ever
+; does.
+hd_isrc_ck_one:
+    push si
+    call hd_isrc                ; the ROOT of the source volume
+    jc .out
+    mov si, hd_s_kernel
+    call hd_istat               ; CF = 1 = not there, and it is not our disk
+.out:
+    pop si
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2427,8 +2808,8 @@ hd_inst_fmt:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_iunmount_dst - the destination cannot be mounted while we erase it
-;                   (SPEC.md 52.10.8)
+; hd_iunmount_dst - NOTHING ON THE DESTINATION DRIVE may be mounted while we
+;                   install to it (SPEC.md 52.10.8, 52.10.8.1)
 ; out: nothing; every register preserved
 ;
 ; **This is what "Install stops on KERNEL.SYS" was.** Arriving at Install with
@@ -2452,26 +2833,47 @@ hd_inst_fmt:
 ; put back to A: when the volume that goes is the one they named -
 ; `[hd_isrcdrv]` especially, because that is where KERNEL.SYS is read FROM
 ; and a dead volume there fails the copy just as thoroughly.
+;
+; **IT IS THE WHOLE DRIVE AND NOT THE DESTINATION SLOT, and that is
+; §52.10.8.1.** The slot-only version fixed the case it was written against -
+; install to the partition you had mounted - and left the sibling untouched:
+; MOUNT is per DEVICE (`hd_mount` walks all four slots), the volume that ends
+; up CURRENT is the last one it mounted, and installing to any OTHER slot
+; unmounted a partition nobody was standing on while `[hd_isrcdrv]` went on
+; naming one that was still there. The copy then read the system files off a
+; hard-disk partition - on the machine that reported it, a data volume with
+; MOD files and no KERNEL.SYS in it at all. One click of Mount is the whole
+; difference between `Done` and `KERNEL.SYS`, on the same disk and the same
+; slot, which is what says the destination was never the question: what has
+; to be true is that the install is not standing on the drive it is about to
+; write.
 ; -----------------------------------------------------------------------------
 hd_iunmount_dst:
     push ax
-    mov al, [hd_isel]
+    push cx
+    xor cl, cl                  ; EVERY slot, because one partition of this
+.slot:                          ; drive being mounted is enough - it need not
+    mov al, cl                  ; be the one being installed to
     mov ah, [hd_idev]
     call hd_tw_unmount_slot     ; -> [hd_tdrop], [hd_tdropv]
     cmp byte [hd_tdrop], 0
-    je .out
+    je .next
     mov al, [hd_tdropv]
     cmp al, 0xFF
-    je .out
+    je .next
     cmp al, [hd_ivdrv]
     jne .src
     mov byte [hd_ivdrv], 0      ; nowhere to go back to: the system disk
     mov word [hd_ivcwd], 0
 .src:
     cmp al, [hd_isrcdrv]
-    jne .out
+    jne .next
     mov byte [hd_isrcdrv], 0    ; ...and nowhere to read the files from
-.out:
+.next:                          ; per SLOT, because [hd_tdropv] names the last
+    inc cl                      ; volume THIS call dropped and the next call
+    cmp cl, 4                   ; overwrites it
+    jb .slot
+    pop cx
     pop ax
     ret
 
@@ -2622,7 +3024,10 @@ hd_iksecs:
     push cx
     push dx
     push si
-    call hd_ivol_bank
+    call hd_ivol_bankv          ; the VOLUME only: this is standing on the
+                                ; destination to read one size, not setting up
+                                ; a copy, and [hd_isrcdrv] is hd_isrc_ck's
+                                ; answer by the time anything gets here
     call hd_idst
     jc .fail
     mov si, hd_s_kernel
@@ -2739,7 +3144,11 @@ hd_s_iready:  db 'Ready', 0
 hd_s_ismall:  db 'Too Small', 0
 hd_s_ialien:  db 'Unusable', 0
 hd_s_inone:   db 'No Room', 0
-hd_itab:      dw hd_s_iready, hd_s_ismall, hd_s_ialien, hd_s_inone
+hd_s_ilive:   db 'Booted From', 0   ; SPEC.md 52.10.4.1, and it SAYS WHY NOT
+                                    ; rather than whether (SPEC.md 47 rule 7):
+                                    ; the slot is fine, the machine is standing
+                                    ; on it
+hd_itab:      dw hd_s_iready, hd_s_ismall, hd_s_ialien, hd_s_inone, hd_s_ilive
 
 ; Every line below is one CAPTION, and the macro is what stops one growing
 ; past the band: HIW_CELLS is the run's width and a longer string is silently
@@ -2759,13 +3168,14 @@ hd_itab:      dw hd_s_iready, hd_s_ismall, hd_s_ialien, hd_s_inone
     HIMSG hd_s_iswap, 'Insert the APPS disk, then Install'
     HIMSG hd_s_idone, 'Done - remove the floppy, Restart'
     HIMSG hd_s_ibad, 'That partition cannot be used'
+    HIMSG hd_s_ilboot, 'Boot from a floppy to replace it'
     HIMSG hd_s_inomem, 'Not enough memory to copy'
     HIMSG hd_s_inomb, 'Cannot read the partition table'
+    HIMSG hd_s_inosys, 'No system disk in A: - nothing done'
     HIMSG hd_s_ifmt, 'Could not format that partition'
     HIMSG hd_s_imnt, 'Formatted, but it would not mount'
     HIMSG hd_s_ierr, 'Disk error - the install stopped'
     HIMSG hd_s_inboot, 'Copied, but it will not boot'
-    HIMSG hd_s_ibig, 'A file is too big for this machine'
 %ifdef INSTBENCH
     HIMSG hd_s_bdone, '     fC   fS   dC   dS   tk  done'
 %endif
@@ -2783,7 +3193,6 @@ hd_iclx:      dw 0
 hd_icly:      dw 0
 hd_ibx:       dw 0
 hd_ibw:       dw 0
-hd_ibl:       dw 0
 hd_ibufseg:   dw 0
 hd_ibufkb:    dw 0
 hd_idrv:      db 0              ; the destination's kernel volume index
@@ -2807,6 +3216,13 @@ hd_isord:     dw 0              ; ...and the sub-folder walk's
 hd_isubc:     dw 0              ; the source folder's cluster
 hd_idsubc:    dw 0              ; ...and the destination folder's
 hd_iinsub:    db 0              ; 1 = the file being copied is in a folder
+hd_iphase:    db 0              ; 0 = the SYSTEM phase, 1 = the APPS phase.
+                                ; Only hd_icopy_one reads it, and only to
+                                ; refuse a hidden+system source file in phase
+                                ; 1 (SPEC.md 52.10.12). .text with a real
+                                ; initialiser like every byte here: -f bin
+                                ; zeroes nothing, and garbage would put the
+                                ; system phase on the wrong side of that test
 hd_ient:      times OSAPI_FIND_SZ db 0
 hd_ifind:     times OSAPI_FIND_SZ db 0
 hd_iname:     times 14 db 0

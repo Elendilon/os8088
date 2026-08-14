@@ -118,10 +118,10 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
     dw app_tpl_bounce, app_bounce_task, app_ball_pool, 8,   app_bounce_kinit, app_ttl_bounce
     dw inst_ico_bounce
     db 10, 0                    ; Bounce: 10 x 8-byte ball state, one task each
-    dw fm_tpl,         0,               fm_pool,       24,  fm_kinit,         fm_ttl
+    dw fm_tpl,         0,               fm_pool,       FS_SIZE,  fm_kinit,     fm_ttl
     dw inst_ico_disk
     db VIEW_SLOTS, WF_SIZABLE   ; Disk: FOUR windows, each with its own
-                                ; 24-byte state block and its own claimed
+                                ; FS_SIZE-byte state block and its own claimed
                                 ; listing cache; resizable (SPEC.md 22/22.1).
                                 ; The cap, VIEW_SLOTS and fm_pool's size are
                                 ; one number wearing three hats.
@@ -535,6 +535,15 @@ inst_alloc:
 ; app happened to be dispatching. So the stamp carries the task that wrote it
 ; and is spent only by that task; everyone else falls through to their own
 ; T_INST.
+;
+; THE PACKAGE ENTRY PROC IS A STAMPED DISPATCH TOO (SPEC.md 41.5.1), and for
+; a while it was the one that was not. It runs on the UI task, whose T_INST is
+; 0xFF, so before loader_run step 8 bracketed it this routine answered KERNEL
+; for everything an app asked while starting up - a sound grant that was never
+; released, a block above 1MB stranded for the session, a toast that outlived
+; its app, and the file API answering with the machine's directory instead of
+; the instance's. It is the FIRST thing a package runs and the natural place
+; to size itself, which is what made it worth the four instructions.
 ; -----------------------------------------------------------------------------
 inst_caller:
     push bx
@@ -1103,7 +1112,7 @@ app_close_win:
     jne .tasked
     mov byte [di+I_STATE], 2    ; dying: lock-held readers skip it from here
     call toast_owner_gone       ; ITS OLD MESSAGE GOES FIRST, before anything
-                                ; below can raise a NEW one (SPEC.md 60.6).
+                                ; below can raise a NEW one (SPEC.md 59.6).
                                 ; cp_flush_close writes SYSTEM.CFG and says
                                 ; whether that worked - the panel's last act
                                 ; is a report about the panel - so a kill
@@ -1128,6 +1137,13 @@ app_close_win:
 .noflush:
     call snd_release_rec        ; free every sound grant before the record
                                 ; goes (SPEC.md 29.4/34.3)
+    call xm_release_rec         ; ...and every extended-memory block with it
+                                ; (SPEC.md 41.5). It may run BEFORE the windows
+                                ; where mem_free_rec may not, and the reason is
+                                ; the rule below read exactly: a freed REGION
+                                ; makes a survivor's procs a wild call, and
+                                ; nothing up there is ever code (SPEC.md 20.8
+                                ; rule 1) or even addressable in real mode
     call wm_destroy             ; frees the wm slot + wm_owner, repaints -
     mov word [di+I_WIN], 0      ; and the windows go BEFORE the claims: the
     cmp word [di+I_SIZE], 0     ; repaint inside a destroy far-calls every
@@ -1188,7 +1204,8 @@ inst_restore:
 inst_task_die:
     call snd_release_rec        ; free every sound grant before the record
                                 ; goes (SPEC.md 29.4/34.3)
-    call toast_owner_gone       ; ...and its message (SPEC.md 60)
+    call xm_release_rec         ; ...and every extended-memory block (41.5)
+    call toast_owner_gone       ; ...and its message (SPEC.md 59)
     call gfx_lock
     mov bx, [di+I_WIN]
     call wm_destroy             ; frees the wm slot + wm_owner, repaints -
@@ -1399,11 +1416,14 @@ inst_pkg_alive:
                                 ; would zero the cold-entry jmp at 0800:0000
     jmp inst_task_die           ; never returns
 .winless:
-    call snd_release_rec        ; the inst_task_die order, minus the BOUND
-    cmp word [di+I_SIZE], 0     ; window - but a package can have made
-    je .nwin                    ; windows it never bound to the record, and
-    call gfx_lock               ; they must not outlive the region either
-    mov ax, [di+I_SPTR]         ; (SPEC.md 20.2)
+    call snd_release_rec        ; the same two releases inst_task_die makes,
+    call xm_release_rec         ; in the same order (SPEC.md 29.4/34.3/41.5) -
+                                ; this leg differs only in having no BOUND
+                                ; window to destroy
+    cmp word [di+I_SIZE], 0     ; ...but a package can have made windows it
+    je .nwin                    ; never bound to the record, and they must not
+    call gfx_lock               ; outlive the region either (SPEC.md 20.2)
+    mov ax, [di+I_SPTR]
     call wm_destroy_seg
     call gfx_unlock
 .nwin:

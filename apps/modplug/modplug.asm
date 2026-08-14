@@ -234,6 +234,52 @@ mpp_entry:
 ; The player window's callbacks
 ; =============================================================================
 
+; =============================================================================
+; MPPDBG - the breadcrumb (build with `make modplugdbg`, ships nowhere)
+;
+; A reported hard freeze on the 'L' key that no emulator here reproduces: it
+; needs a hard disk MOUNTED, ModPlug rather than any other loader, and a
+; pristine post-boot heap (File > Open first, and 'L' stops freezing). So the
+; instrument has to run on the REPORTER's machine, survive a machine that has
+; stopped, and need no tooling at the other end - which means the screen.
+;
+; MPPDBG n paints a black bar n cells long on the bare desktop at the LEFT
+; edge, under the menu bar. It is drawn from x = 0 every time, so a longer bar
+; simply overwrites a shorter one and the picture is always "the highest step
+; reached". Read it by counting 8-pixel blocks in a photograph.
+;
+; The band is chosen so that nothing on this path can erase it: ModPlug's own
+; frame starts at x = 111 on a 640px screen and the Standard File dialog at
+; x = 87, so x = 0..79 is desktop that neither covers, and the row is below
+; MBAR_H so the menu bar cannot reach it either.
+;
+; It draws through OSAPI_GFX_FILL, which is legal here for the reason the
+; whole path is: every one of these sites runs inside a window callback with
+; the gfx lock already held (SPEC.md 20.3 rule 7).
+; =============================================================================
+MPPDBG_Y    equ MBAR_H + 4          ; the first desktop row nothing here uses
+MPPDBG_H    equ 8
+
+%macro MPPDBG 1
+%ifdef MPPDEBUG
+    push ax
+    push bx
+    push cx
+    push dx
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    xor ax, ax                      ; x1 = 0: always from the left edge, so a
+    mov bx, MPPDBG_Y                ; later step simply covers an earlier one
+    mov cx, (%1) * 8 - 1
+    mov dx, MPPDBG_Y + MPPDBG_H - 1
+    call OSAPI_GFX_FILL
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+%endif
+%endmacro
+
 ; -----------------------------------------------------------------------------
 ; mpp_paint - W_PAINT: layout (once), worker hire (retried), full redraw
 ; in:  SI = window ptr; caller holds the gfx lock
@@ -300,9 +346,14 @@ mpp_onkey:
     push si
     push di
     mov bx, ax                      ; BL = ascii, BH = scan
+    MPPDBG 1                        ; 1: W_ONKEY was dispatched at all
     call mpp_reap
+    MPPDBG 2                        ; 2: mpp_reap returned (the .drain spin in
+                                    ;    mpp_stream_close is the one unbounded
+                                    ;    wait in this package)
     call mpp_abdismiss              ; any key takes the About panel down and
     jc .done                        ; is spent doing it
+    MPPDBG 3                        ; 3: past the About dismissal
     or bl, bl                       ; the SPEC.md 44.2 keypad gate: the numeric
     jnz .ascii                      ; keypad sends digits with ARROW scan
                                     ; codes, so ascii is tested before any
@@ -403,7 +454,9 @@ mpp_onkey:
     call mpp_stop
     jmp .redraw
 .open:
+    MPPDBG 4                        ; 4: 'l' decoded and dispatched to Open
     call mpp_do_open
+    MPPDBG 9                        ; 9: the whole thing came back
     jmp .done
 .plist:
     call mppl_toggle
@@ -750,13 +803,19 @@ mpp_do_open:
     push bx
     push si
     push di
+    MPPDBG 5                        ; 5: inside mpp_do_open
     mov byte [mpp_addpl], 0         ; a plain Open replaces what is playing
     call mpp_pl_walk_reset
+    MPPDBG 6                        ; 6: past the playlist reset
     mov al, FDLG_OPEN
     mov bx, [mpp_win]
     mov di, mpp_fdone
     xor si, si
+    MPPDBG 7                        ; 7: about to cross into the KERNEL. A bar
+                                    ;    that stops here is the kernel's dialog
+                                    ;    open; one that stops earlier is ours
     call OSAPI_FILE_DLG
+    MPPDBG 8                        ; 8: OSAPI_FILE_DLG returned
     pop di
     pop si
     pop bx
@@ -818,11 +877,71 @@ mpp_fdone:
     ret
 
 ; -----------------------------------------------------------------------------
+; mpp_sizeof - the size of [mpp_fname] in the CURRENT directory
+;
+; in:  [mpp_fname] = a NUL-terminated 8.3 display name
+; out: CF = 0 and DX:CX = its size in bytes (mpp_load_name's own convention),
+;      CF = 1 = no such file here. Clobbers AX; preserves BX, SI, DI, ES.
+;
+; The dialog reports a size (SPEC.md 38.6) and a PLAYLIST ADVANCE does not -
+; mpp_pl_play calls mpp_load_name with the banked figure already read-and-
+; cleared - so every track after the first arrived as "size unknown" and took
+; the speculative claim, which is capped. A module past that cap then gets a
+; claim it does not fit, and OSAPI_FILE_READ REFUSES it (dskw_rbody checks the
+; directory size against the capacity before any data I/O), so an oversized
+; track STOPPED the list with 'File too big'. OSAPI_FILE_FIND answers all 32
+; bits out of the directory, so the dialog and the playlist size the claim the
+; same way and the cap is left to the one case that still cannot know.
+;
+; It costs one directory walk, on a path that is about to read the whole file.
+; -----------------------------------------------------------------------------
+mpp_sizeof:
+    push bx
+    push si
+    push di
+    push es
+    push ds
+    pop es                          ; ES:DI = our own record buffer
+    xor cx, cx                      ; ordinal 0 starts the walk
+.next:
+    mov di, mpp_find
+    call OSAPI_FILE_FIND            ; CF=1 AX=FERR_NOENT ends it; CX = the
+    jc .no                          ; ordinal to ask for next
+    cmp word [mpp_find + 14], OSAPI_FT_DIR
+    jae .next                       ; a folder or the synthesized '..'
+    mov si, mpp_fname
+    mov di, mpp_find                ; +0 is the same 8.3 display form
+.chr:
+    mov al, [si]
+    cmp al, [di]
+    jne .next
+    or al, al
+    jz .hit
+    inc si
+    inc di
+    jmp short .chr
+.hit:
+    mov cx, [mpp_find + 18]         ; +18 = the size, all 32 bits
+    mov dx, [mpp_find + 20]
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop es
+    pop di
+    pop si
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; mpp_load_name - load [mpp_fname] and start it
 ; in:  gfx lock held; out: CF=1 on any failure (the message is already set)
 ;
-; Stop playback, free the previous module claim, size a new one from
-; OSAPI_MEM_AVAIL (capped at 128KB), read the WHOLE file in one
+; Stop playback, free the previous module claim, size a new one from the
+; file's real size - the dialog's, or mpp_sizeof's for a playlist advance, and
+; only a name in no directory falls back to OSAPI_MEM_AVAIL capped at 128KB
+; (SPEC.md 56.14) - read the WHOLE file in one
 ; OSAPI_FILE_READ - the destination advances by SEGMENT (SPEC.md 18.4.1),
 ; which is the only reason a 116KB module fits in one call - then trim the
 ; claim to what the file needed and let mpm_load validate it.
@@ -854,8 +973,13 @@ mpp_load_name:
     mov [mpp_fszh], ax
     mov ax, cx
     or ax, dx
-    jz .blind                       ; 0 = size unknown: the old behaviour
-
+    jnz .havesz
+    call mpp_sizeof                 ; 0 = no dialog size, which here means a
+    jc .blind                       ; PLAYLIST ADVANCE: ask the directory
+    mov ax, cx                      ; (SPEC.md 56.14). Still nothing -> the
+    or ax, dx                       ; old speculative claim
+    jz .blind
+.havesz:
     ; The size is known, so REFUSE BEFORE THE READ rather than after it. On the
     ; 5150 a 116KB module is seconds of motor (PERFORMANCE.md), and a machine
     ; that reads all of it to then say 'File too big' looks exactly like one
@@ -863,16 +987,16 @@ mpp_load_name:
     ; mount snapshot already in RAM - and it also lets the claim be EXACTLY
     ; what the file needs instead of the largest run in the heap, which is
     ; what mpp_trim below was invented to undo.
-    cmp dx, 2                       ; > 128KB: bigger than any sane 4-channel
-    ja .toobig                      ; MOD, and the same cap the blind path
-    jb .kb                          ; takes
-    or cx, cx
-    jnz .toobig
-.kb:
+    cmp dx, 1023                    ; the ONLY ceiling here is the domain of
+    jae .toobig                     ; the conversion below (SPEC.md 56.14): it
+                                    ; composes DX<<6 into a word, so ~64MB is
+                                    ; where the arithmetic stops being true.
+                                    ; Everything under it is the HEAP's
+                                    ; question, asked eight lines down
     add cx, 1023                    ; KB = ceil(bytes / 1024) across 32 bits:
     adc dx, 0                       ; the +1023 can carry out of CX, and DX is
-    mov ax, cx                      ; at most 2 past the cap above, so the
-    mov cl, 10                      ; >> 10 always lands inside one word
+    mov ax, cx                      ; at most 1023 after it, so the DX<<6
+    mov cl, 10                      ; below still lands inside one word
     shr ax, cl                      ; (CX is dead the moment AX has it)
     mov cl, 6
     shl dx, cl
@@ -890,9 +1014,14 @@ mpp_load_name:
     call OSAPI_MEM_AVAIL            ; AX = the LARGEST contiguous run, in KB
     or ax, ax
     jz .nomem
-    cmp ax, 128                     ; cap at 128KB: bigger than any sane
-    jbe .sized                      ; 4-channel MOD
-    mov ax, 128
+    cmp ax, 128                     ; cap the SPECULATIVE claim at 128KB. This
+    jbe .sized                      ; is the original cap and the only one with
+    mov ax, 128                     ; a reason left (SPEC.md 56.14): the size
+                                    ; is unknown here, so the claim is a guess
+                                    ; and mpp_trim gives the surplus back. It
+                                    ; is a POLITENESS bound on an over-claim,
+                                    ; never a verdict on a file - the refusal
+                                    ; above no longer borrows it
 .sized:
     mov [mpp_capk], ax
     call OSAPI_MEM_CLAIM            ; AX = KB -> DX = base segment, CF on refusal
@@ -976,13 +1105,14 @@ mpp_load_name:
 ; mpp_trim - hand back the part of the claim the file did not need
 ; in:  [mpp_modseg], [mpm_bloblen_*]; preserves every register
 ;
-; This exists for the loads whose size is NOT known up front - a playlist
-; advance, which had no dialog - where the claim is the largest run in the heap
-; and a 5.6KB module would otherwise sit on 128KB of it. A load that came
-; through the dialog claims the file's exact size (mpp_load_name), so the trim
-; finds nothing to give back and costs one compare; it is kept rather than
-; being made conditional because the two paths must not disagree about who
-; owns the tail of a claim.
+; This exists for the loads whose size is NOT known up front, where the claim
+; is the largest run in the heap and a 5.6KB module would otherwise sit on
+; 128KB of it. That used to be every playlist advance; since SPEC.md 56.14's
+; mpp_sizeof it is only a name the directory cannot answer for. A load whose
+; size IS known claims the file's exact size, so the trim finds nothing to
+; give back and costs one compare; it is kept rather than being made
+; conditional because the two paths must not disagree about who owns the tail
+; of a claim.
 ;
 ; OSAPI_MEM_REGROW shrinks IN PLACE (SPEC.md 50.3.1): the record's length
 ; changes and nothing moves. Called before mpm_load, so no sample pointer
@@ -1992,6 +2122,8 @@ mpp_ab7: db 'Not libopenmpt - see SPEC.md 56.1.', 0
     MPPW mpp_capk                   ; ...its size in KB
     MPPBUF mpp_fname, 13            ; the chosen 8.3 name, copied out of the
                                     ; kernel's buffer during the completion call
+    MPPBUF mpp_find, OSAPI_FIND_SZ  ; mpp_sizeof's directory record, for the
+                                    ; loads that arrive with no size (56.14)
     MPPW mpp_fszl                   ; ...and that file's size, banked the same
     MPPW mpp_fszh                   ; way. 0 = unknown, which is every load
                                     ; that did not come from the dialog - a

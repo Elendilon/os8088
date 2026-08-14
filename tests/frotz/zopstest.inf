@@ -1,7 +1,7 @@
 ! =============================================================================
 ! os8088 - tests/frotz/zopstest.inf
 !
-! The Frotz capability gate (SPEC.md 59), and it is a STORY rather than a .o88
+! The Frotz capability gate (SPEC.md 61), and it is a STORY rather than a .o88
 ! package because the thing under test is an interpreter: the only way to ask
 ! whether @div rounds toward zero is to make a Z-machine execute @div.
 !

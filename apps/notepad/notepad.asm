@@ -130,10 +130,27 @@ NP_MAXKB     equ 16             ; ...and its ceiling, which is now a real
                                 ; means teaching that loop to cross a segment
                                 ; and making its count 32-bit
 NP_STGMIN    equ 1              ; the save's transient staging claim, KB
-NP_MAXCOL    equ 91             ; cells a row can hold: 720/8 is the widest
-                                ; screen this runs on, plus one for the NUL.
+NP_MAXCOL    equ 171            ; cells a row can hold, plus one for the NUL.
                                 ; A row is accumulated into a buffer and drawn
                                 ; as ONE opaque font_run (SPEC.md 6.1/27.2)
+                                ;
+                                ; 1360/8 AND NOT 720/8. It was the widest
+                                ; SCREEN, and a window on an extended desktop
+                                ; is not bounded by one: straddling the seam
+                                ; it may be the whole VIRTUAL desktop wide,
+                                ; which is 1360 px with a 720 Hercules beside
+                                ; a 640 CGA or VGA (SPEC.md 39.19.2). Past the
+                                ; clamp np_rflush DROPS the cell - the guard
+                                ; at .nocell even names the clamp as the case
+                                ; where that happens - so the tail of every
+                                ; row went unwritten AND unerased: text, then
+                                ; a gap, then whatever those cells held
+                                ; before. Reported from the field with a photo
+                                ; of exactly that, and "a redraw shows the
+                                ; same gap without the fragments" is the same
+                                ; fact seen twice, the white fill clearing the
+                                ; stale pixels and the clamp still stopping
+                                ; the text short.
 %define NP_MAXROWS 60           ; signature slots, one per row the content can
                                 ; A %define and not an equ, because the bss
                                 ; block at the foot of this file is laid out
@@ -300,6 +317,30 @@ NP_FP_ROW    equ 12             ; the panel's row pitch: an 8px line plus 4
 NP_FP_PAD    equ 2              ; ...and the border above and below it
 NP_FP_LBL    equ 44             ; the 'Find:'/'Repl:' label column
 NP_FP_BTNH   equ 11             ; button height
+
+; THE PANEL'S HEIGHT IS A MULTIPLE OF 4, and that is SPEC.md 27.10.3 rather
+; than a layout preference. Opening or closing it is one OSAPI_GFX_SCROLL of
+; the whole text band (27.10.2), and the delta that blit is given is exactly
+; this height - so it is the height that decides which of gfx_scroll's two
+; paths runs. SPEC.md 5.5.1's constant-delta path derives the destination row
+; address ONCE and steps it, and on a banked adapter it is gated on
+; `dy & [vid_bmask] == 0`: bmask is 3 on Hercules and 1 on the CGA, so an ODD
+; height misses it on both and every row of the blit pays a gfx_rowbase walk.
+;
+; 2*ROW + 2*PAD + 1 is ODD for every value of ROW and PAD - 2*anything is even
+; and the separating rule adds one - so no choice of those two can fix it and
+; the correction has to be explicit. Rounding UP rather than down, because
+; down would have to take a pixel off something that is using it.
+NP_FP_RAW    equ NP_FP_ROW*2 + NP_FP_PAD*2 + 1     ; 29: two rows, the border
+                                                   ; above and below, and the
+                                                   ; 1px rule under it all
+NP_FP_SLACK  equ (-NP_FP_RAW) & 3                  ; 3, to the next multiple
+NP_FP_H      equ NP_FP_RAW + NP_FP_SLACK           ; 32 - and 44 with Replace,
+                                                   ; which needs NP_FP_ROW to
+                                                   ; be a multiple of 4 too:
+%if (NP_FP_ROW & 3) != 0
+  %error "NP_FP_ROW must be a multiple of 4, or the Replace row's +ROW breaks the alignment NP_FP_SLACK just bought"
+%endif
 NP_FPAN_NONE equ 0              ; [np_fpan]: closed / find / find + replace
 NP_FPAN_FIND equ 1
 NP_FPAN_REPL equ 2
@@ -354,7 +395,12 @@ np_entry:
     pop ax                          ; every keystroke redraws a row of text and
                                     ; an aligned cell writes ONE framebuffer
                                     ; byte where an unaligned one writes two.
-                                    ; A no-op on VGA, so it is unconditional
+                                    ; TRUE ON VGA TOO - mode 12h is 8 pixels
+                                    ; to a byte per plane - and measured, this
+                                    ; window was the worked example: it used
+                                    ; to open at content x = 61 there, skew 5,
+                                    ; which typebench prices at 9.4% of every
+                                    ; keystroke (SPEC.md 11.94)
     push si
     mov si, np_menus                ; BX is still the window: hand it our
     call OSAPI_MENU_SET             ; menus (draws nothing, takes no lock)
@@ -2271,8 +2317,10 @@ np_fold1:
 ;     different amounts of work wearing one number.
 ;  4. It needs [np_tx] on a multiple of 8, because OSAPI_GFX_SCROLL is
 ;     byte-column granular on every adapter. OSAPI_WM_SNAP guarantees that on
-;     the two mono adapters (SPEC.md 11.94) - which are the ones a 4.77MHz
-;     machine has - and on VGA it is a coin flip, so there the break simply
+;     EVERY adapter now (SPEC.md 11.94 - it was mono-only, and VGA turned out
+;     to gain more from alignment than mono does), so the coin flip this note
+;     used to describe on VGA is gone and rule 2's CPU test is the only gate
+;     left. On a window too wide to snap the alignment still fails, the break
 ;     does not engage and the reflow is what happens. That is a FACT the code
 ;     can test, not a guess (SPEC.md 47 rule 3).
 ; =============================================================================
@@ -2679,9 +2727,19 @@ np_worker:
     call np_reconcile
 .height:
     ; Count the note's rows, which no other walk does any more (SPEC.md 27.7),
-    ; and move the thumb if that changed it. NOT gated on the window being
-    ; visible: this is arithmetic, np_sbcheck draws only when a number moved,
-    ; and a covered window's bar is redrawn by W_PAINT anyway.
+    ; and move the thumb if that changed it. THE COUNT is not gated on the
+    ; window being visible - it is arithmetic, and a covered or hidden window's
+    ; height is owed the moment it comes back - and THE DRAW is gated by the
+    ; call below it, like the other three in this routine.
+    ;
+    ; That distinction was written here as one sentence and the drawing half
+    ; was wrong (SPEC.md 11.3.1): "np_sbcheck draws only when a number moved"
+    ; was offered as the reason it was safe, and a number moving is exactly
+    ; what a chunked count does on a window nobody can see - NP_HCHUNK rows a
+    ; pass, each raising [np_drows]. wm_obscured answered only "is anything on
+    ; TOP of me", so after the close box hid this window the bar was drawn onto
+    ; the bare desktop. It answers about a hidden window now, which is what the
+    ; four calls here have always meant by it.
     cmp byte [np_hdirty], 0
     je .count
     call np_bounds                  ; the walk reads [np_ty]/[np_rgt], and the
@@ -2834,7 +2892,7 @@ np_selmark:
 ; the text and was in no row's signature, so the keystroke that retired one
 ; had to erase it the only way this module could, by painting the whole
 ; content again. The toast is the kernel's now and is in the menu bar
-; (SPEC.md 60), so it is in nothing this routine describes.
+; (SPEC.md 59), so it is in nothing this routine describes.
 ; -----------------------------------------------------------------------------
 np_sigsame:
     push ax
@@ -4873,7 +4931,7 @@ np_onkey:
     call np_hmove
 
 .edited:                        ; the toast is the kernel's and expires on
-                                ; its own (SPEC.md 60), so a keystroke owes it
+                                ; its own (SPEC.md 59), so a keystroke owes it
                                 ; nothing at all - this used to be a store on
                                 ; the hot path AND the reason np_sigsame threw
                                 ; the fast path away on the key after a save
@@ -5617,7 +5675,7 @@ np_new:
     mov word [np_cur], 0
     mov ax, np_s_nul            ; retire the toast: 'Loaded NOTES.TXT' over an
     call np_saymsg              ; empty note is a lie. An EMPTY string is how
-    call np_clamp               ; SPEC.md 60.3 spells that, so no flag of ours
+    call np_clamp               ; SPEC.md 59.3 spells that, so no flag of ours
                ; a no-op on the caret, which is already 0 -
                                 ; it is here for the invalidation np_clamp
                                 ; carries (SPEC.md 27.4/27.5)
@@ -7306,7 +7364,10 @@ np_rx_ch:
     jne .notdot
     cmp al, 13                  ; '.' stops at a line break, which is what
     je .no                      ; makes '.*' mean "the rest of this line"
-    jmp short .yes
+    jmp .yes                    ; NOT `short`: NP_MAXCOL - 1 stopped fitting a
+                                ; sign-extended imm8 at 171, so every compare
+                                ; against it grew a byte and this went out of
+                                ; range
 .notdot:
     cmp bl, '['
     je .class
@@ -8612,7 +8673,7 @@ np_absw:
 np_fph:
     cmp byte [np_fpan], NP_FPAN_NONE
     je .none
-    mov ax, NP_FP_ROW*2 + NP_FP_PAD*2 + 1
+    mov ax, NP_FP_H             ; a multiple of 4 - see the constant
     cmp byte [np_fpan], NP_FPAN_REPL
     jne .out
     add ax, NP_FP_ROW
@@ -9071,6 +9132,16 @@ np_pdrawn:
 ; np_pbutton - draw button BX with label SI
 ; in:  BX = 0..3, SI = its NUL label; np_fpgeom run, lock held
 ; out: nothing; preserves all registers
+;
+; The drawing is os88ui_btn's (apps/os88ui.inc); this turns np_fpgeom's
+; parallel x/width arrays into the 4-word rect the shared control takes. A
+; zero width or a zero x still means "this button is not shown" and returns
+; before anything is drawn.
+;
+; ONE PIXEL MOVED, and deliberately: the label's y was the literal +2 in an
+; NP_FP_BTNH = 11 box, and the shared control centres at (11-8)/2 = 1, so
+; every caption in the panel sits one row higher. That is the arithmetic the
+; literal was standing in for.
 ; -----------------------------------------------------------------------------
 np_pbutton:
     push ax
@@ -9079,48 +9150,28 @@ np_pbutton:
     push dx
     push si
     push di
-    push bp
     shl bx, 1
     mov cx, [bx+np_pbw]
     jcxz .out
     mov di, [bx+np_pbx]
     or di, di
     jz .out
-    mov bp, cx                  ; BP = the width, as a VALUE: SS is not DS in
-                                ; a package, so it may never address anything
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, di
-    mov bx, [np_pbtny]
-    mov cx, di
-    add cx, bp
-    dec cx
-    mov dx, bx
-    add dx, NP_FP_BTNH - 1
-    call OSAPI_GFX_FILL
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di
-    mov bx, [np_pbtny]
-    mov cx, di
-    add cx, bp
-    dec cx
-    mov dx, bx
-    add dx, NP_FP_BTNH - 1
-    call OSAPI_GFX_FRAME
-    call OSAPI_FONT_WIDTH       ; SI is still the label; out AX = its width
-    mov cx, bp
-    sub cx, ax
-    jns .c
-    xor cx, cx                  ; a label wider than its button: start at the
-.c:                             ; left edge and let it run, which is visible
-    shr cx, 1                   ; and therefore fixable
-    add cx, di
-    mov dx, [np_pbtny]
-    add dx, 2
-    call OSAPI_FONT_STR
+    mov [np_brect+0], di
+    add di, cx
+    dec di                      ; ...x2 inclusive
+    mov [np_brect+4], di
+    mov ax, [np_pbtny]
+    mov [np_brect+2], ax
+    add ax, NP_FP_BTNH - 1
+    mov [np_brect+6], ax
+    mov bx, np_brect
+    mov di, OS88UI_FILL         ; np_fpaint fills the panel band before the
+                                ; first button, but a button REDRAWN in place
+                                ; would or its caption onto the old one
+                                ; (os88ui.inc's own note), and this is the
+                                ; cheapest way for that never to become true
+    call os88ui_btn
 .out:
-    pop bp
     pop di
     pop si
     pop dx
@@ -9128,6 +9179,8 @@ np_pbutton:
     pop bx
     pop ax
     ret
+
+np_brect:   dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
 
 ; -----------------------------------------------------------------------------
 ; np_fpaint - draw the whole panel
@@ -9829,7 +9882,7 @@ np_redrawall:
 ; Small change (SPEC.md 27.8/27.10)
 ; =============================================================================
 
-; np_saymsg - AX = a NUL string -> the system toast (SPEC.md 60).
+; np_saymsg - AX = a NUL string -> the system toast (SPEC.md 59).
 ; Preserves all registers AND the flags: two callers are error paths that
 ; carry their answer in CF.
 ;
@@ -9840,7 +9893,7 @@ np_redrawall:
 ; repaint without help, it cannot be carried off its frame by a scroll blit,
 ; and it cannot leave the incremental path disagreeing with W_PAINT - which
 ; is what forced a FULL content repaint on the first keystroke after every
-; save and every load (SPEC.md 60.1).
+; save and every load (SPEC.md 59.1).
 np_saymsg:
     push ax
     push cx
@@ -9988,7 +10041,7 @@ np_m_saved:   db 'Saved ', 0
 np_m_loaded:  db 'Loaded ', 0
 np_m_trunc:   db 'Truncated', 0
 np_s_nul:     db 0              ; an EMPTY string retires whatever is up
-                                ; (SPEC.md 60.3) - one call, and this app
+                                ; (SPEC.md 59.3) - one call, and this app
                                 ; never has to know whether one was
 
 ; FERR_* (SPEC.md 18.4) -> string, indexed by the code itself
@@ -10261,6 +10314,14 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
                             ; 4 as well, and adjacent rows they do not measure)
                             ; can never inherit an Up's bound
 
+    NPVAR np_rbuf, NP_MAXCOL + 1  ; the row being accumulated, space-filled
+    NPVAR np_prow, NP_MAXCOL      ; ...and what was last DRAWN on the cached
+                                  ; row, so the next keystroke draws the delta.
+                                  ; THE ONLY TWO FIELDS SIZED BY NP_MAXCOL,
+                                  ; which is why they are here rather than in
+                                  ; the hand-numbered block above (see the hole
+                                  ; at +238 there)
+
 %ifdef NPBENCH
 ; --- the walk bench (tests/npbench.inc), in the -DNPBENCH build only ---------
     NPVAR npb_buf, 640      ; the report, composed here and then copied into
@@ -10271,6 +10332,9 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
 %endif
 
 %assign NP_BSS_TOTAL NPB
+
+; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
+%include "os88ui.inc"
 
     OS88_BSS NP_BSS_TOTAL
     OS88_IMAGE_END
@@ -10285,7 +10349,7 @@ np_rgt      equ os88_image_end + 4   ; word: content right, inclusive
 np_bot      equ os88_image_end + 6   ; word: content bottom, inclusive
                                        ; +8..+17 FREE: [np_msg] and the four
                                        ; toast-box words. The toast is the
-                                       ; kernel's now (SPEC.md 60) and is in
+                                       ; kernel's now (SPEC.md 59) and is in
                                        ; the menu bar, so this app holds no
                                        ; state about it at all. The offsets
                                        ; below are unchanged deliberately -
@@ -10358,11 +10422,21 @@ np_rby      equ os88_image_end + 234    ; word: y of the row being
                                        ; time it is flushed
 np_rcx      equ os88_image_end + 236    ; word: the caret's x on that
                                        ; row, 0xFFFF = it is not on this one
-np_rbuf     equ os88_image_end + 238    ; NP_MAXCOL+1 bytes: the row
-                                       ; being accumulated, space-filled
-np_prow     equ os88_image_end + 330    ; NP_MAXCOL bytes: what was
-                                       ; last DRAWN on the cached row, so the
-                                       ; next keystroke can draw the delta
+                                       ; np_rbuf and np_prow USED TO BE HERE,
+                                       ; at +238 and +330, and they are in the
+                                       ; NPVAR block at the foot of this file
+                                       ; now - because they are the only two
+                                       ; fields sized by NP_MAXCOL, and that
+                                       ; constant had to grow 91 -> 171 for a
+                                       ; window straddling a display seam.
+                                       ; Every offset in THIS block is written
+                                       ; down by hand, so growing a field in
+                                       ; the middle of it means renumbering
+                                       ; thirty-five of them and getting all
+                                       ; thirty-five right; the counter block
+                                       ; sizes itself. The 183 bytes they left
+                                       ; are a hole, and reclaimable by any
+                                       ; field that wants them.
 np_prowi    equ os88_image_end + 421    ; word: which row that is,
                                        ; 0xFFFF = the cache holds nothing
 np_prcc     equ os88_image_end + 423    ; word: and where its caret
@@ -10397,7 +10471,7 @@ np_cap      equ os88_image_end + 437    ; word: ...and in bytes, kept in step
                                        ; np_tbuf, so the POINTER could not
                                        ; tell "Saved X" from "Loaded X" -
                                        ; a distinction the kernel's copy
-                                       ; makes for itself (SPEC.md 60.3)
+                                       ; makes for itself (SPEC.md 59.3)
 np_stgseg   equ os88_image_end + 439    ; word: the save's CR/LF staging
                                        ; claim, 0 = not held. A SECOND claim,
                                        ; sized from [np_len] and taken only

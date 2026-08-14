@@ -3,7 +3,7 @@
 ;
 ; Input, the request handshake, and saved games. This is the seam between the
 ; two tasks Frotz runs on, and the only file in the package that knows both
-; sides of it (docs/FROTZ-PLAN.md 4.1, SPEC.md 59.7).
+; sides of it (docs/FROTZ-PLAN.md 4.1, SPEC.md 61.7).
 ;
 ; THE TASK SPLIT IS THE WHOLE DESIGN. The VM is a worker (SPEC.md 20.6), and a
 ; worker may not call a file slot, may not call OSAPI_FILE_DLG, and may not
@@ -455,7 +455,7 @@ zi_service:
 
     ; @restart. No dialog: the story is the one already open, and the only
     ; thing that has to happen is that dynamic memory goes back to how it was
-    ; on disk. There is no resident pristine copy (SPEC.md 59.4), so this is a
+    ; on disk. There is no resident pristine copy (SPEC.md 61.4), so this is a
     ; re-read - which is a FILE slot, which is why it is here on the UI task
     ; and not in the worker that executed the opcode.
     ;
@@ -820,7 +820,7 @@ zi_load:
     ; THE PICTURES. Last of the claims and after the window is drawn, for two
     ; reasons: it is the only one whose failure costs nothing - @picture_data
     ; is required to be able to answer "unavailable" and stories handle it
-    ; (SPEC.md 59.7) - so it must not be able to take the story down with it;
+    ; (SPEC.md 61.7) - so it must not be able to take the story down with it;
     ; and zp_reason may have something to say, which needs a window to say it
     ; in. It has to happen BEFORE zf_hire: the worker can execute
     ; @picture_data on its first instruction, and an answer of "none" given
@@ -2370,7 +2370,7 @@ zi_m_scrfull: db 'Transcript full - it stops here.', 0
 ;
 ; The association path (SPEC.md 54.7) hands over a name and a LOCATOR, while
 ; the file dialog hands over a name AND the size - and the size is what
-; SPEC.md 59.4's refusal is decided from, before any disk I/O. So this looks
+; SPEC.md 61.4's refusal is decided from, before any disk I/O. So this looks
 ; the size up the only way a package can: OSAPI_FILE_FIND walks the mount
 ; snapshot, which is in RAM, so the walk costs no motor time either.
 ;

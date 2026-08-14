@@ -141,7 +141,7 @@ MANIFEST = [
     # RUN. Anchorhead was here and came out again on the second count: 508KB
     # of story plus a 41KB save buffer needs 565KB resident, and the largest
     # claim a 640KB machine can offer is about 501KB once the kernel and the
-    # interpreter have taken theirs (SPEC.md 59.4). No real-mode machine has
+    # interpreter have taken theirs (SPEC.md 61.4). No real-mode machine has
     # the memory, so shipping it would have shipped a file that only ever
     # produces a refusal. getstories.py can still fetch it for you --
     # `--only ANCHOR.Z8` is gone with the entry, so use STORIES= with your

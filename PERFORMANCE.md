@@ -43,32 +43,45 @@ you may finally *time* work rather than only count it. The debugger attached
 to it costs the guest no cycles at all, so measuring does not change the
 measurement.
 
-**It is cycle-accurate and it is NOT disk-accurate, and that distinction is
-load-bearing enough to sit at the top of this document rather than in Set 11
-where it was measured.** MartyPC models instruction timing, the prefetch queue
-and bus contention; it models no platter, no seek and no interleave:
+**It was cycle-accurate and NOT disk-accurate, and that half has now been
+fixed — read Set 35 before quoting the old ratio.** MartyPC models instruction
+timing, the prefetch queue and bus contention; upstream it modelled **no
+platter, no seek and no interleave at all**, which is where these came from:
 
-| | real 5150 | MartyPC |
+| | real 5150 | MartyPC, upstream |
 |---|---|---|
 | read 16 KB, cold motor | **8.07 s** | **0.27 s** — 30x fast |
 | boot | **38,886 ms** | **2,306 ms** — 17x fast |
 
-So **any figure with a disk in its path is wrong on MartyPC, by more than an
-order of magnitude and in the flattering direction** — and that reaches a lot
-that is not obviously about disks: a boot time, a package launch, a Tracker
-module load, a `SYSTEM.CFG` write, the Control Panel closing. Part 9's disk
-rows come off the 5150 and nowhere else.
+`tools/martypc/patches/04-floppy-disk-timing.patch` gives the drive a platter,
+a data rate, a seek and a configurable interleave (Set 35, docs/MARTYPC-DEBUG.md),
+and Set 37 then found the one number that had been *assumed* — that the field
+machine's 360KB media was 2:1, which it never was — and the doubled head
+settle sitting behind it. On the IBM ROM the boot is **188 ticks against the
+field's 205**, and `tests/sysbench`'s whole raw floppy block reproduces the
+field machine's own report to the measurement quantum, seven of thirteen
+rows exactly. The error went **4.4x fast → 1.17x slow → 0.92x**, and every change
+of sign on that road was worth as much as the size. So the rule is now:
 
-**Nor will it catch a disk CORRECTNESS bug**, which is how the last two disk
-optimisations came to measure *worse* than what they replaced. §18.91's `AL`
-bug is the case: the BIOS moved nine sectors and answered `AL = 1`, the kernel
-believed `AL`, and re-read the rest one sector at a time — 148 sectors in 34
-`int 13h` calls for a 32-sector file on the 5150, while **the same binary on
-the same image under QEMU moved 34 sectors in 6 calls**. Correct, fast, and
-silent. It took the field machine plus §18.94's counters to see it, the boot
-sector carried the identical bug for as long again, and no emulator here would
-ever have shown either. An emulator's floppy controller returns what its
-author believed the hardware returns.
+> **A disk TIMING figure from MartyPC is worth having, and is still checked on
+> the 5150 before it lands here.** Part 9's disk rows come off the 5150.
+>
+> **A disk CORRECTNESS question moved half way**: what the *ROM* does is
+> MartyPC's, because MartyPC runs the ROM — §18.91's `AL` bug reproduces
+> there (Set 35). What the *chip and the drive* do is still the emulator
+> author's belief, and still the 5150's question.
+
+**The correctness half is the one that changed, and this document said the
+opposite for two sets.** §18.91's `AL` bug is the case: the BIOS moved nine
+sectors and answered `AL = 1`, the kernel believed `AL`, and re-read the rest
+one sector at a time — 148 sectors in 34 `int 13h` calls for a 32-sector file
+on the 5150, while **the same binary on the same image under QEMU moved 34
+sectors in 6 calls**. Correct, fast, and silent. QEMU missed it because
+SeaBIOS is a different BIOS, not because emulation cannot see it: `make
+DISKAL=1` on `os8088_5150_herc` boots in **893 ticks against 188** and shows
+**870 sectors in 183 reads against 183 in 24** — 4.75x the traffic, against
+the field's measured 4.6x. What no emulator here invents is what a real 765
+puts in ST1, or whether a real drive ever returns short.
 
 ---
 
@@ -279,10 +292,16 @@ row setup.
 | Framebuffer vs. RAM, read-modify-write | 1.09× (CGA 1.11×) |
 | An ISA status-port `in` | 8.7 us |
 | The kernel's own tick + mouse + scheduler | **1–3%** of a busy CPU |
-| Floppy throughput | **7,457 bytes/second** (was 2,100 before Set 17) |
-| Floppy, per `int 13h` CALL | **~400 ms — about 2 of the 200 ms revolutions**, whether it moves 1 sector or 9. THIS is the unit to estimate a disk change in |
-| Floppy, per 512-byte sector | **65 ms** inside a well-coalesced run (was 238 — see below) |
-| Floppy, open and read a one-sector file | 810 ms |
+| Floppy throughput, os8088's own `FILE_READ` | **21,307 bytes/second** warm (**Set 24**; Set 22 says 19,883 on the same machine, and it was 7,457 at Set 17 and 2,100 before it) |
+| …cold motor | **12,969 B/s** (16 KB in 1.263 s — Set 24) |
+| The BIOS's own best: a whole track in one `int 13h` | **11,570 B/s** (Set 24; 11,984 at Set 14) — **os8088 is now 1.84x THIS**, see below |
+| Floppy, raw `int 13h`, ONE sector | **199 ms** — one 300 RPM revolution exactly (Set 22) |
+| Floppy, raw `int 13h`, a 9-sector TRACK | **384 ms** — 1.92 revolutions (Sets 14/22). A call costs 1–2 revolutions near enough whatever it moves, so **calls are the unit to estimate a disk change in** |
+| Floppy, per 512 bytes DELIVERED by `FILE_READ` | **24 ms** (Set 24) — and read the note below before using it |
+| **Floppy WRITE throughput** | **7,020 bytes/second** — 32 KB created in 4.67 s (Set 24). **A write is 3.0x dearer than a read** and the tree carried one "floppy throughput" row for both until Set 24 split them; price a save with THIS |
+| Floppy, per 512 bytes WRITTEN | **73 ms** (Set 24) |
+| Floppy, the same bytes appended in 8 KB chunks | **2.36x** the one-call create (Set 24) — each chunk is a whole §18.4 commit |
+| Floppy, open and read a one-sector file | 796–810 ms — **Set 17, and NOT re-measured since §18.95's cache landed.** Treat as an upper bound |
 | System tick | 18.2065 Hz; **65,536 PIT counts, measured exactly** |
 | Serial mouse | 1200 baud |
 
@@ -291,8 +310,43 @@ row setup.
 rest is five 8088 instructions. The figure was low, and it was attributed to
 the wrong thing.
 
-**The floppy rows above carried the SAME kind of error for longer, and it
-was the bug rather than the measurement.** `238 ms per sector` and
+**AND THE FLOPPY ROWS WENT STALE A SECOND TIME, IN THIS TABLE, UNDER THE
+PARAGRAPH THAT WARNS ABOUT IT.** They read `7,457 B/s / 65 ms a sector` — Set
+17's — for the whole of Sets 22 and 24, which took the same read to 19,883 and
+then 21,307 B/s. Nothing was wrong with any measurement; the summary table
+simply was not edited when Part 9 moved, and every consumer of it inherited a
+figure **2.9x too pessimistic**. It reached docs/FIELD-MACHINES.md's machine
+register, `sysbench`'s own report text, `trklog.inc`, and a whole plan document
+(docs/NET-PLAN.md) that concluded a parallel cable would be *faster* than the
+floppy partly on the strength of it.
+
+**So every row in the table above now names the Set it came from**, and that
+is the rule rather than a tidy-up: a figure with no provenance cannot be
+checked for staleness by reading, only by re-deriving it, and nobody
+re-derives a number that looks settled. **When Part 9 gains a set that moves a
+row, the row moves in the same commit.** Part 6 rule 8 says every figure
+carries its machine; this is the same rule pointed at time instead of hardware.
+
+The two big consequences of the correction, because they invert conclusions
+this document had drawn:
+
+- **os8088 is no longer slower than the BIOS — it is 1.84x faster.** Set 17's
+  standing residual, *"1.55x still on the table against the ROM's 11,570"*,
+  is spent and reversed: a `dsk_xfer` run spans the track boundary with the
+  multi-track bit set, so it gets more than one track's sectors per
+  revolution where the ROM's single call stops at EOT, and §18.95's cache
+  answers a repeat with no revolution at all. Any text still framing the
+  floppy as *approaching* the BIOS figure is pre-Set-22.
+- **The sector has stopped being a meaningful unit**, which is the older
+  lesson taken one step further. §18.95's cache means some of a file's
+  sectors are not read at all — Set 22 measured a 16 KB read as **18 sectors
+  in 2 `int 13h`** where the file is 32 sectors — so "per sector" now
+  measures a mixture of a transfer and a cache hit. The 24 ms row above is
+  bytes DELIVERED, not sectors moved, and the honest units are the two raw
+  `int 13h` rows and the throughput.
+
+**The first time these rows went stale it was the bug rather than the
+measurement.** `238 ms per sector` and
 `2,100 bytes/second` were measured honestly and then outlived their cause:
 they are SPEC.md §18.91's `AL` bug, where the BIOS moved nine sectors,
 answered `AL = 1`, and the kernel re-asked for the other eight one at a time
@@ -326,15 +380,24 @@ the ACCESS SHAPE:
 
 | shape | cost | how known |
 |---|---|---|
-| a sector **inside a coalesced run** | **65 ms** (5150), 46 ms (Compaq III) | measured, Sets 17/18 |
-| an **`int 13h` call** in such a run | **~400 ms**, 1–2 revolutions, near enough whatever it moves | measured, Sets 14/17 |
+| 512 bytes **delivered by a warm `FILE_READ`** | **24 ms** (5150) | measured, **Set 24**. NOT a sector transferred — §18.95's cache means some are never read |
+| a sector **inside a coalesced run**, pre-cache | 65 ms (5150), 46 ms (Compaq III) | measured, Sets 17/18 — **superseded by the row above for any estimate made today**, and kept because pre-Set-22 reasoning all over this tree is derived from it |
+| an **`int 13h` call** in such a run | **199 ms** for one sector, **384 ms** for a 9-sector track — 1 to 1.92 revolutions, near enough whatever it moves | measured, Sets 14/22 |
 | an **isolated single-sector access** — a boot sector at LBA 0, a lone directory sector | **~150–200 ms once the motor is up**, and most of a second if it is not | **MODELLED, NOT MEASURED** (docs/ASSOC-PLAN.md): ~100 ms average rotational latency + ~80 ms average seek across 40 tracks at a 6 ms step + ~15 ms settle |
 
-The third row is the one that keeps getting confused with the first, and it
-is the one that matters for anything re-reading track 0: **an isolated
-first-sector read is not a 65 ms sector, because it is a seek**. A read of
-LBA 0 from wherever the heads were is up to a full 39-track stroke, so the
-~80 ms in that model is an *average* and the worst case is dearer.
+**A fourth quantity has since split off the first**, which is why the table
+grew a row rather than having one edited: §18.95's cache made *bytes
+delivered* and *sectors transferred* different things, and the throughput row
+in the summary table measures the first. A change that saves REVOLUTIONS is
+costed with the `int 13h` rows; a change that saves BYTES is costed with the
+24 ms row; and a change that saves cache MISSES is costed with neither until
+somebody measures it.
+
+The isolated-access row is the one that keeps getting confused with the
+others, and it is the one that matters for anything re-reading track 0: **an
+isolated first-sector read is not a streamed 24 ms, because it is a seek**. A
+read of LBA 0 from wherever the heads were is up to a full 39-track stroke, so
+the ~80 ms in that model is an *average* and the worst case is dearer.
 
 **`238 ms` is none of the three.** It is the AL bug — a revolution burned per
 sector because the kernel re-asked for eight of every nine — and it happened
@@ -382,8 +445,6 @@ count is an 8086 count.
 |---|---|---|
 | `repe scasb` run scan | ~15 clocks/byte | `kernel/vga12.inc` |
 | Naive per-pixel decode (shift by CL) | 75–90 clocks/pixel | ibid — the pre-coalescer `gfx_blit4`, Part 3 |
-| Back-buffer flush vs. its RAM render | ~24× | §32 — **VGA only**, and the field machine has none |
-| 4-plane flush vs. 1-plane (`bb_mono`) | ~3.7× | ibid |
 | Note Pad layout walk iteration | ~500 8086 cycles | §27.4 |
 | ArtfulType `at_getb` | ~32 clocks/character | `apps/artful/atdoc.inc` — 9 bytes of instruction, so ≥39 by the floor |
 
@@ -1202,7 +1263,7 @@ list to check yourself against.
 | The pointer during a window refresh | `gfx_lock` erased the cursor for the **whole** hold, so a Task Manager refresh — twice a second, and a visible span on a 4.77 MHz machine — blinked the pointer off and on every time, most obviously with the mouse sitting still | the hide is **deferred** and `wm_clip_set` spends it only if the cursor is reachable: **30 of 31 refreshes kept it on screen**, 0 cell violations across menus, drags and a Control Panel | §7.1.4 |
 | A press-and-hold on a file row | `fm_drag`'s `.wait` poll, unpaced: `gfx_unlock`/`task_yield`/`gfx_lock` as fast as the CPU allows, drawing **nothing**. **20,761 lock/unlock pairs a second** under `-icount`; on the field machine each costs ~1.9 ms, so it is the whole machine for as long as the button is down, and the pointer blinks continuously | one pair a tick, like the three sibling loops that already lingered: **21** | §7.1.3 |
 | Moving the cursor | erase-then-draw, two walks, so every byte where the old and new cells overlap is written **twice** — and the value in between is the background, `ffff` on all twelve rows inside a window. ~6.5% of a 20 ms Hercules frame, on every mouse packet | each byte written **once**: pass 1 skips what pass 2 will write, pass 2 sources its background from the save buffer. No gate, no union walk, and the pair unmoved at 544 counts against 541 | §7.1.2, docs/FIELD-NOTES.md 6 |
-| A renderer row step | `call gfx_nextrow`: a near call plus two CS-overridden memory reads, **three times per scan line** | three register instructions, parameters hoisted out of the loop | §39.3, §32 |
+| A renderer row step | `call gfx_nextrow`: a near call plus two CS-overridden memory reads, **three times per scan line** | three register instructions, parameters hoisted out of the loop | §39.3 |
 | `gfx_lock` + `gfx_unlock` — the pair every drawing burst pays | the mouse cursor over a 16x16 cell it never fills: a save, a white pass and a black pass, three walks over the same bytes, plus a restore — **17.82** guest-instruction counts a pair on Hercules, ~6.4 ms of the field machine, 11.6% of a 55 ms frame | the arrow's real 8x12 cell, no third byte, and on 1bpp **one** fused read-bank-paint-write pass: **5.41**, ~1.94 ms, 3.5% — **3.29x**, output byte-identical on all three adapters | §7.1, Part 9 Set 7 |
 
 Two entries in that table are load-bearing beyond their own numbers.
@@ -1353,7 +1414,6 @@ was ruled out (tens of seconds per 448×280 frame before the dither).
 | `WF_SNAP`, and the keystroke priced | SPEC.md §11.94 |
 | Note Pad's redraw optimisations, seven of them | SPEC.md §27.2 – §27.7.2 |
 | The Task Manager's chunks | SPEC.md §28.2 |
-| Double buffering, and the flush's 24× | SPEC.md §32 |
 | The mono renderer's inner loop | SPEC.md §39.3, §39.5 |
 | The fractal's restore cache | SPEC.md §40.1; [REDRAW-SPEC.md](REDRAW-SPEC.md) |
 | Solitaire's incremental repaint | SPEC.md §43.7 |
@@ -1364,8 +1424,75 @@ was ruled out (tens of seconds per 448×280 frame before the dither).
 | Paint's design notes and what it cost | [docs/PAINT-NOTES.md](docs/PAINT-NOTES.md) |
 | Per-device cycle budgets on the floor machine | [docs/SOUND-PLAN.md](docs/SOUND-PLAN.md) |
 | Memory, and why there is no growth room | [docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md) |
+| `sysbench`'s three CPU books, and the tier that picks one | Part 8.1, below |
 | The benchmarks themselves | `tests/fontbench/`, `tests/typebench/`, `tests/gfxbench/`, `tests/sysbench/` (`make bench`) |
 | The field measurements they produced | Part 9, below |
+
+---
+
+## Part 8.1 — `sysbench`'s CPU rows carry THREE books, and pick by tier
+
+`tests/sysbench`'s CPU block measures each instruction and prints the
+**book** figure beside it, so the ratio column says how far the machine is
+from the manual. That book was Intel's **8086** table, unconditionally, on
+every machine — which is right on the target and wrong on everything else,
+and the Packard Bell Victory 286 (docs/FIELD-MACHINES.md) is where it showed:
+
+```
+est CPU MHz x100 MUL    8879        <- an 8879 on a 16MHz 286
+est CPU MHz x100 DIV    9759
+shl clk/bit x100 ~400     28
+```
+
+**None of those three is a measurement error.** `est CPU MHz` inverts
+`MHz = 4.7727 x nominal / measured`, which is exact — with the *right*
+nominal. A 286 does `mul r16` in 21 clocks and an 8086 in 125, so quoting the
+8086's figure inflates the answer by exactly that ratio. Re-derived against
+the 286 book, from the same report's own measured column:
+
+| | measured x100 | 8086 book | est MHz | 286 book | est MHz |
+|---|---|---|---|---|---|
+| `mov ax,i + mul r16` | 693 | 12900 | **88.79** | 2300 | **15.83** |
+| `xor+mov+div r16` | 782 | 16000 | **97.59** | 2600 | **15.86** |
+
+Two independent rows landing on 15.83 and 15.86 for a machine the register
+calls a **16 MHz** AMD 286 — agreeing with each other to 0.2% — is the
+cross-check `sb_mhz` was written to provide, working for the first time on a
+machine that is not an 8088.
+
+**One row per instruction, three book columns, `sb_nomof` picks.** The
+alternative is a table per CPU, which is three places that must agree about
+what row 12 is. `sb_entof` owns the stride for the same reason: it was 8
+bytes with four sites open-coding `shl bx, 3`, and an open-coded stride is a
+silently wrong row rather than a build error.
+
+**The ratio column reads differently on a fast machine and that is not a
+defect.** It is measured-in-4.77MHz-units over book, so on a 16MHz machine
+every execution-bound row lands near **477/1584 = 30**. The Packard Bell's
+register rows duly cluster at 26–30 with the 286 book, where the 8086 book
+scattered them from 4 to 29 — and the rows that do *not* join the cluster are
+the interesting ones: its memory rows sit at 61–81, which is real bus cost
+the 286's zero-wait-state book does not carry.
+
+**`shl clk/bit` had to change currency, not just books.** It is a slope — the
+two `shl r16,cl` rows nine bits apart, subtracted — and it was reported in
+4.77MHz clock periods, so a 286's one-clock-per-bit shift measured **0.28 of
+one**: true, and unreadable against any book. It is scaled by the MUL
+estimate into the machine's own clocks now (`x100 * MHzx100 / 477`), which on
+a 4.77MHz machine is a factor of 1 **by construction**, so tier 0's published
+figure does not move. The Packard Bell reads **92** against the 286 book's
+100. The book row beside it is derived from the same two table rows the
+measurement subtracts — `(nom13 - nom4) / 9`, giving 400 / 100 / **0** — and
+the 386's zero is the barrel shifter, which is the whole reason this row
+stopped meaning anything past tier 0.
+
+**What is validated and what is not.** The 286 column is confirmed against
+field data, above. The 386 column is **book figures that have not yet met
+hardware** — and its MUL and DIV are *early-out* on that part, data-dependent
+in a way the 286's are not, so treat a 386 `est CPU MHz` as approximate until
+a 386 report lands in Part 9. What is verified for it is the mechanism: a
+tier-2 run prints `against the 80386 book` with the 386 column beside every
+row and `shl clk/bit book` at 0.
 
 ---
 
@@ -1422,7 +1549,7 @@ worth taking:
 | `sysbench: boot ticks` / `boot ms` | **how long the machine takes to boot** (§15.4) — the one thing this project could never measure, because it is over before a package can run. On a floppy machine it is mostly the 125-sector kernel read, and Sets 17/18 took it from 39.88 s to **9.94 s** by fixing §18.91's `AL` bug in both transfer loops - so 238 ms a sector is the number this row was written against and NOT the one to expect now | a number at last. Resolution is one tick, 54.925 ms, which on a boot measured in seconds is quantisation rather than noise |
 | `gfxbench: GFX_LSTEP x8` vs **`GFX_LSTEPV x8`** | **§5.6.8's batching, which was argued from §5.7's floor and never measured.** The two rows draw the identical eight pixels and differ only in arriving eight times or once | it already contradicted its own prediction: **118** in instructions, not the ~800 the floor implies, because `gfx_lstep` is not a rect primitive and its arrival is a far-call cell rather than `vga_rect_setup`. Expect higher than 118 on iron — far-call cells are 46.7 µs for ~7 instructions — but §5.6.8's own field figures imply **356**, and nothing reconciles that yet. **This is the row most likely to find something** |
 | `gfxbench:` the four **`GFX_LINE`** rows | **§5.6.6's dilated-line optimisation, in microseconds.** The instruction answer is already in (below); this is the duration. The two geometries are the same line transposed, 128 pixels each, so the pair checks itself | the two **thin** rows to match; `line shal fat/thin` near **300** (three walks, the control); `line steep fat/thin` near **156**, which is the claim |
-| `sysbench:` the **hard-disk block** | **§52's driver on real spinning MFM, which has never been measured** — and the first hard-disk twin of the floppy rows. Read-only by construction: it mounts, walks the FAT, reads one file and puts the volume back, because the disk it will run against is somebody's DOS 3.3 install (docs/FIELD-MACHINES.md) | anything at all. The floppy is **7,457 bytes/second** post-Set-17 (2,100 before it, and that older pair is quoted all over this tree's history - check which side of the `AL` fix a figure comes from before comparing anything to it); whatever `hdd bytes/sec` says is the first number on the other side of that. `HDD FILE_DFREE` is the one to watch — the 9-sector FAT window (§18.8) has to page across a 41-sector FAT, which is what §18.8.1 was written against |
+| `sysbench:` the **hard-disk block** | **§52's driver on real spinning MFM, which has never been measured** — and the first hard-disk twin of the floppy rows. Read-only by construction: it mounts, walks the FAT, reads one file and puts the volume back, because the disk it will run against is somebody's DOS 3.3 install (docs/FIELD-MACHINES.md) | anything at all — **and it has since been measured: 74,553 B/s against the floppy's 21,307, 3.5x** (Set 24). The floppy figure moved twice while this row said 7,457: check which side of Set 17 (the `AL` fix) AND of Sets 22/24 (§18.95's cache) a figure comes from before comparing anything to it. `HDD FILE_DFREE` is the one to watch — the 9-sector FAT window (§18.8) has to page across a 41-sector FAT, which is what §18.8.1 was written against |
 
 None of them says anything on an emulator, and two say so loudly: under
 `-icount` both shift rows measure identically and the derived per-bit line
@@ -1455,11 +1582,13 @@ with two rows to recompute, not a set to retake. If `R_B > R_A` the equations
 have no positive solution and the answer is the floored one: arrival 0, pixel
 `R_B / 8`.
 
-**Reading the fullscreen pairs has one trap, and it is a VGA one.**
-`[bb_mono]` (§32) is one-way, and `bb_mono_chk` is five instructions cheaper
-once it has retired — so if anything drawn between the two passes used a
-colour that is not 0 or 15, every fullscreen row comes in slightly under its
-twin for a reason that has nothing to do with fullscreen. It shows as a flat
+**Reading the fullscreen pairs had one trap, and §32's removal retired it.**
+`[bb_mono]` was one-way and `bb_mono_chk` five instructions cheaper once it
+had retired — so if anything drawn between the two passes used a colour that
+is not 0 or 15, every fullscreen row came in slightly under its twin for a
+reason that had nothing to do with fullscreen. Neither the flag nor the call
+exists now; the paragraph is kept because the *shape* recurs, and because the
+figures below were taken while it did. It shows as a flat
 few instructions per drawing call rather than a proportional gap, and it is
 visible in the QEMU sighting run: the VGA `GFX_PIXEL` pair read 408 against
 389 while the **CGA pair read 456 against 456**. On the two 1bpp adapters
@@ -1733,7 +1862,7 @@ FAT walking for a "free" call and is worth a look.
 | | |
 |---|---|
 | machine | as Set 1 |
-| adapter | **CGA (640x200)**, `VIDEO=cga` forced — the probe finds the Hercules first |
+| adapter | **CGA (640x200)**, `VIDEO=cga` forced — this machine's SW1-5/6 say mono, so §39.1's `int 11h` rung boots it on the Hercules and the set needed a kernel told otherwise. Since §39.11 that forcing is unnecessary: the Display page switches the card at run time |
 | build | `62c4172` (so it carries Set 1's two bad rows too) |
 | reports | `GFXCGA.TXT`, a second `SYSBENCH.TXT` |
 
@@ -1909,8 +2038,8 @@ the first thing done here was to count it rather than guess (rule 4). One
 `gfx_pixel` on the 1bpp renderer is **196 guest instructions**, and the
 static path agrees: they are spread over eleven routines with no hot spot
 anywhere — the API far-call cell, `gfx_pixel`'s rect marshalling, §11.3's
-clip test, `bb_mono_chk`, the `[bb_on]` dispatch, `vga_rect_setup`,
-`gfx_rowbase`, `bb_dirty_rect`, `bb_ink`, `bb_plane_op`, `bb_col`. **About a
+clip test, `bb_mono_chk`, the `[bb_on]` dispatch, `vga_rect_setup`,   <!-- pre-§32-removal -->
+`gfx_rowbase`, `bb_dirty_rect`, `sw_ink`, `sw_plane_op`, `sw_col`. **About a
 third of it was register discipline and call structure** — 13 push/pop pairs
 at Part 2's measured 29.7 clocks and ~10 near call/rets at 52.1 — and none
 of it was drawing. SPEC.md §5.7 lists the seven changes and why each is a
@@ -1939,7 +2068,7 @@ and `one full-width row` of text (2,220 → 2,219) are the three drawing paths
 none of these changes touch, and all three sat still. A harness that had
 moved them would have been measuring itself.
 
-The same suite on **VGA**, where the planar VRAM bodies run and `bb_col`
+The same suite on **VGA**, where the planar VRAM bodies run and `sw_col`
 never does, so only the shared coordinate core changed: `GFX_PIXEL` 424 →
 404 (−4.7%), `GFX_FILL 8x8` 338 → 317 (−6.2%), `GFX_BLIT4 4px runs` 13,110
 → 12,192 (−7.0%), `GFX_FILL 64x64` and `GFX_SCROLL` unmoved. Nothing on
@@ -1965,8 +2094,8 @@ Rendering was verified byte-for-byte rather than by eye, on all three
 adapters and both renderers, over a fixture of desktop dither, window
 frames, a file listing, an XOR selection band, a pull-down menu and its
 save-under restore: **CGA pixel-identical** bar the menu-bar clock's last
-glyph cell, **VGA pixel-identical** with the §32 back buffer both off and
-on, and **Hercules** differing by 10 pixels of menu bar — against 17 between
+glyph cell, **VGA pixel-identical**, and
+**Hercules** differing by 10 pixels of menu bar — against 17 between
 two boots of the *same* kernel, so below that fixture's own reproducibility.
 
 #### What is left, and what it would cost
@@ -1976,7 +2105,7 @@ Priced from the same teardown, for whoever comes next:
 | still on the floor | worth | why it was not taken |
 |---|---|---|
 | `gfx_rowbase`'s `mul` by the stride | ~145 clocks, 4% | a per-row table is 2 bytes x `[vid_h]` — 960 on VGA, and `KERN_BUDGET` has 1,536 left |
-| `bb_rect`'s eight push/pop pairs | ~240 clocks, 7% | it is `gfx_fill`'s "clobbers flags" contract, which every caller in the tree leans on |
+| `sw_rect`'s eight push/pop pairs | ~240 clocks, 7% | it is `gfx_fill`'s "clobbers flags" contract, which every caller in the tree leans on |
 | the API far-call cell | ~223 clocks, 6% | the package ABI (§20.1) |
 | a dedicated 1-row body for `gfx_hline`/`gfx_pixel` | maybe 25% of what remains | a second implementation of the same pixels, ~100 bytes, and Part 3 item 4's exact failure mode |
 | a one-entry memo on `gfx_rowbase` | ~4% of a text row (78 cells share a y) | it is a *loss* on the single-call case this section is about — the wrong trade for the headline number, the right one for text |
@@ -2371,10 +2500,10 @@ blobs and nothing else. §48.18 is the three changes that cut the count.
 #### The negative result: a vector gfx_fill recovers ~4%
 
 Costed before building, against this run's floor. A batch removes the API
-cell, the `GFXCLIP` test, the `bb_mono_chk` call and the `bb_on` dispatch —
+cell, the `GFXCLIP` test, the `bb_mono_chk` call and the `bb_on` dispatch —   <!-- pre-§32-removal -->
 about **170 of ~4,381 clocks**. It cannot remove eight push/pop pairs,
 `vga_rect_setup`'s twenty-odd memory accesses, `gfx_rowbase`, the dirty-rect
-and mode round-trips, the plane loop or `bb_ink`, because those are per
+and mode round-trips, the plane loop or `sw_ink`, because those are per
 *rect* and not per *call*.
 
 That is the difference from §5.6.8, which did pay: a walk step's fixed cost
@@ -2415,6 +2544,12 @@ gives them. The machine itself is in docs/FIELD-MACHINES.md; what it needs
 before it is worth running again is a **VGA** field disk, which does not exist.
 
 #### MartyPC is the real thing on the CPU and not on the disk
+
+> **The disk half of that heading expired at Set 37.** The `read 16K, cold
+> motor` row below — 0.27 s against the 5150's 8.07 — is upstream MartyPC
+> with no platter in it. Sets 35 and 37 gave it one; the same row now reads
+> 1.15–1.65 s against the field's 1.59 (Set 38, and it is an N = 1 row). The
+> CPU half stands unchanged.
 
 Against 11a, row for row, **MartyPC lands within 0–4% on 45 of 47 gfxbench
 rows** — the closest agreement any emulator has managed here, and enough that
@@ -2760,6 +2895,13 @@ number of them. Read in order:
   **2:1 interleaved** (4,608 bytes in two turns is 11,520 B/s and we measured
   11,985), and the drive, the controller and the BIOS **stream perfectly
   well** when asked for nine sectors at once.
+
+  > **The interleave half of that is WRONG — see Set 37.** The media is 1:1
+  > and the missing revolution is the IBM ROM's own head-settle delay loop,
+  > 52.5 ms of `LOOP $` once per `int 13h`. The B/s agreement that seemed to
+  > confirm 2:1 is bytes over the *whole call*, overhead included, so it
+  > cannot tell the two apart. The rest of the bullet stands: nine sectors in
+  > one command does stream.
 - **The same nine sectors as nine calls costs 10.02 revolutions**, one per
   sector, because control returns to the caller and the next sector has gone
   past by the time the command is reissued.
@@ -2881,6 +3023,13 @@ copied out to the ST-225 between passes).
 
 Three independent numbers within 16% of each other, and the media is 2:1
 interleaved. **11.5–13.4 KB/s is what this drive does**; that is the target.
+
+> **Set 37 overturns the interleave line and keeps the target.** 11,570
+> against 11,520 is bytes over the *whole* `int 13h` call, and a quarter of
+> that call is the ROM's head-settle delay loop — so 1:1 media plus 52.5 ms
+> of BIOS produces the identical figure. The media is 1:1. What the drive
+> does is unchanged: 11.5–13.4 KB/s is still the target, because it is
+> measured rather than derived.
 
 #### The raw rows repeat, which is what makes them a measurement
 
@@ -3156,6 +3305,16 @@ interleaved where the 5150's is 2:1. os8088 gets 11,047 against 8,062, only
 1.37x. So **the faster disk is the one os8088 wastes more of**: 2.03x off its
 ceiling against 1.49x.
 
+> **Set 37 changes the CAUSE and not the finding.** Both machines' media is
+> 1:1; what differs is the per-call BIOS overhead. Read the two track rows as
+> 1.00 revolution of transfer plus the rest: the 5150 spends **0.99 rev** of
+> overhead and latency, the Compaq **0.24**. That is what a 52.5 ms delay
+> loop on a 4.77 MHz 8088 looks like against the same nominal 25 ms wait on a
+> Compaq ROM and a 12 MHz 286 — big enough to overshoot sector 1 and cost a
+> whole turn on one machine, small enough to fit the slack on the other. The
+> 1.87x, the 1.37x and "the faster disk is the one os8088 wastes more of" are
+> all measurements and all stand. The `interleave that implies` row does not.
+
 The mechanism is per-call rotational latency, and both machines pay about the
 same number of *milliseconds* for it. A 33-sector read is 5 `int 13h` calls
 (1, 6, 9, 9, 8 — identical on both machines, as the trace confirms), and
@@ -3340,10 +3499,12 @@ hitch ~744 ms into the first play after a load (the old pre-roll of two), so
 the 16KB grant is **a field bug fix expressed as a buffer size**, not slack.
 The 8KB row above only exists because the pre-roll was given back to get it.
 
-**And the harness cannot price the case the cushion is for.** MartyPC is
-cycle-accurate and 30x fast on disk (Set 11), and the transient a ring
-absorbs is mostly floppy: one ~12-sector mount at the 5150's ~65 ms/sector is
-**~780 ms ≈ 2.1 halves** at the XT rate. Against a 7-half target that is
+**And the harness could not price the case the cushion is for.** MartyPC was
+cycle-accurate and 30x fast on disk when this was written (Set 11), and the
+transient a ring absorbs is mostly floppy: one ~12-sector mount at the 5150's
+~65 ms/sector is **~780 ms ≈ 2.1 halves** at the XT rate. *Set 37 changed
+that half of it* — the floppy turns now and a mount costs real guest time, so
+this IS reachable on an IBM-ROM machine, and re-measuring it is open work. Against a 7-half target that is
 comfortable and against a 3-half one it is not. So *do not* read the third
 row as a licence to shrink the ring — that is a number this instrument is not
 entitled to give, and the 5150 is where it would have to come from.
@@ -3524,3 +3685,2869 @@ no `APPS` folder for — and the distinct-sector count is what settles the
 question. That division of labour is worth stating on its own: **counts and
 traces on MartyPC, seconds on the 5150**, and a claim that needs both should
 not be made from either alone.
+
+### Set 23 — the interior row walk stops banking DI (SPEC.md §5.7.1)
+
+`tests/gfxbench` on MartyPC, all three adapters, the same kernel before and
+after the change and nothing else different. Reported by a **forum reader**
+(`raphlinus`) reading `gfx_fill`'s `.irow` on GitHub — the loop banked DI
+around a `rep stosb` that had already advanced it — which §5.7's own pass had
+walked past three times.
+
+| `GFX_*` row, counts | CGA | Hercules | VGA (12h) |
+|---|---|---|---|
+| `GFX_FILL 64x64` | **−3.26%** | **−4.02%** | **−10.75%** |
+| `GFX_FILL 64x64 clipped` | −3.08% | −3.79% | −9.22% |
+| `GFX_FILL 256x128` | −2.57% | −2.98% | −5.21% |
+| `GFX_FILL_GRAY 64x64` | −3.27% | −4.02% | **−14.75%** |
+| `GFX_FILL_PAT 64x64` | −1.76% | −2.24% | −9.04% |
+| `GFX_XOR_FILL 64x64` | −3.95% | −4.17% | −5.73% |
+| `GFX_FILL 8x8` | **+0.00%** | +0.00% | +0.00% |
+| `GFX_FILL 256x1` (ONE row) | −0.09% | −0.78% | +0.00% |
+| `fill ns per row` | 187,091 → **182,109** | — | — |
+
+**The last two rows are the result, as much as the first one.** A one-row
+fill does not move, because what this removes is per scan LINE and §5.7's
+~756 µs floor is per CALL — so the lever is exactly where §11.90/§11.91 said
+the money is not, and it is worth having only because a fill is usually tall.
+VGA gains 2–4x what the mono adapters do: its interior `rep` covers four
+planes at once through Set/Reset, so the loop is short and its overhead a
+larger share, where `sw_plane_op` walks a plane with `stosw` and does more
+work per turn.
+
+**Two rows moved the wrong way and neither is a regression**, which is worth
+recording because both look alarming and both are the instrument. `GFX_BLIT4
+4px runs` (+0.99%) and `one full-width row` (+6.67%) are exact multiples of
+65,536 and carry gfxbench's own `w` flag — *an iteration LAPPED the counter,
+so that row is tick-timed and coarse* — so they moved by one tick, which is
+their resolution. And `GFX_UNLOCK+LOCK pair` read −3.27% on CGA and −3.20% on
+Hercules against untouched code: **the same kernel measured twice moves it
++3.31%**, because it is the one row whose span cannot be interrupt-free
+(`gfx_lock` ends with `sti` by contract). Every other finely-measured row
+repeats inside 0.5%, which is what makes the fill column above mean anything.
+
+**Correctness is the byte-identity, not the picture.** A seven-step scripted
+session — desktop, a menu HELD open over its save-under, the item picked, a
+Disk window, an XOR selection band, that band moved, and a window dragged —
+captured through `vram` on the two 1bpp cards (one value per pixel, banks
+resolved) and `fbuf` on VGA: **21 of 21 steps, 0 differing pixels.** The
+apparatus needed one correction first, and it is Part 4's rule again: a
+capture taken mid-repaint reported 31 differing pixels on Hercules, and the
+OLD kernel diffed against ITSELF reported the identical 31 in the identical
+box. `settle` before each grab; the control is what said which of the two
+kernels was lying, and the answer was neither.
+
+**Two more apparatus traps, both found re-running this at the merge onto
+`elendilon`, and both worth knowing before trusting any framebuffer diff
+here.** `vram` hands back **one value per pixel** with the banks already
+resolved — it is not packed — so a bbox computed as though it were reports
+an x scaled by 8 and a y eight times too large, which put a menu-bar
+difference in the middle of the desktop and sent the first reading of it
+looking at the wrong subsystem entirely. And **the menu bar CLOCK is a
+difference the kernel is right to make**: with no RTC the fallback starts at
+`Jul 04 2026 00:00`, a VGA session runs about 50 s of guest time, and a run
+that crosses the minute shows `00:01` against the other's `00:00` — 93
+pixels in one 8x8 cell at (624,6), reproducing exactly because it is
+systematic rather than random, which is precisely what a real defect looks
+like. Crop the cell and read it before believing it.
+
+Cost: `.text` +13 bytes (the per-row saving is 2–4 bytes, the once-per-call
+setup 2–9), no rung crossed, `KERN_SIZE` unchanged.
+
+### Set 24 — the WRITE priced on both drives, and the append penalty is real
+
+`REPORTS9`: two `sysbench` runs on the 5150, one with `A:` current and one
+with `C:` current, both booted from the **ST-225**. Same binary, same session,
+so the two write columns differ only in the medium under them. Set 22's
+`bl_usfield` wrap is gone from this build — the whole-microsecond field is
+nine digits and the append row reads 11.04 s rather than 1.04.
+
+**The boot is 59 ticks / 3,240 ms from the ST-225**, against 181 / 9,941 from
+the floppy in the previous round: **3.07x**, and the first figure this project
+has for what a hard disk is worth at boot on the target machine.
+
+| | floppy `A:` | ST-225 `C:` |
+|---|---|---|
+| 16KB read, warm | 768,960 us — **21,307 B/s** | 219,703 us — **74,553 B/s** |
+| 16KB read, cold motor | 1,263,292 us | 329,554 us |
+| BIOS's own track, 1 call | 398,211 us — 11,570 B/s | (floppy row) |
+| one cluster written | 1,263,292 us | 329,554 us |
+| create | **32KB** in 4,668,686 us | **128KB** in 1,428,069 us |
+| …as sectors / `int 13h` | 73 / 12 (6.08 a call) | 261 / 22 (11.86 a call) |
+| replace | skipped: needs 2x free | 1,537,920 us, 265 / 25 |
+| append, 8KB chunks | 11,040,070 us, 100 / 33 | 5,437,646 us, 366 / 126 |
+| append ÷ create | **2.36x** | **3.81x** |
+
+**A 16KB read is now 1.84x the BIOS's own one-call track read** (21,307 B/s
+against 11,570), which is not a paradox and is worth saying plainly: a
+`dsk_xfer` run spans the track boundary with the multi-track bit set, so it
+gets more than one track's sectors per revolution, where the ROM's single
+call stops at EOT. The figure that used to bound us is behind us.
+
+**The append penalty is the whole finding.** The same bytes written as a run
+of 8KB chunks instead of one call cost 2.36x on the floppy and 3.81x on the
+hard disk, and the split says why: sectors go 73 → 100 (1.37x) and 261 → 366
+(1.40x), while `int 13h` calls go 12 → 33 (**2.75x**) and 22 → 126 (**5.7x**).
+The extra sectors are the FAT and the directory; the extra *calls* are that
+each chunk is a whole §18.4 commit — allocate, flush the FAT, link, flush
+again, write the directory sector — and a commit is four small, scattered
+transfers that no coalescer can join to anything.
+
+So the lever is **commit once per file, not once per chunk**: hold the FAT
+dirty across the run and write the directory entry at the end, which is what
+`dskw_write` already does for a whole-file write and what `dskw_append` cannot
+do because each call is a complete operation by contract. Nothing here is
+implemented; this set is the measurement that says what it would be worth —
+**2.4x to 3.8x on every chunked write in the system**, which is the file
+manager's copy (§22.5), the installer's big files (§52.10.11) and any package
+saving something larger than its buffer.
+
+**The ST-225's own numbers, for the record**: `FILE_DFREE` 315,823 us, a mount
+and back 302,091 us, one cluster 329,554 us. And `COMMAND.COM` answers
+`FERR_NOENT` — the DOS 3.3 install docs/FIELD-MACHINES.md used to warn about
+is gone, overwritten by an os8088 install, so that row measures nothing now
+and should be pointed at a file this OS puts there.
+### Set 25 — the typeface priced: tallx against the IBM ROM face (SPEC.md §6.2)
+
+`tests/gfxbench` on MartyPC, CGA, a **cycle-accurate 4.77MHz 8088 running the
+real IBM 5150 BIOS** (`BIOS_IBM5150_27OCT82_1501476_U33.BIN`, md5
+`f453eb2d…`, the ROM MartyPC knows as `ibm5150_82_v4`). Asked because tallx
+looks sparser than the ROM face and a blank glyph row is the one thing
+`font_char` skips whole — so the question was whether the baked typeface costs
+the machine anything.
+
+**Both faces were BAKED for the A/B.** Comparing tallx against a stock kernel
+would compare two different binaries — the ROM probe is assembled in one and
+not the other — so the ROM face was extracted from the U33 image at
+`F000:FA6E` and built as a `.f8` too. The two kernels are **85,384 bytes each
+and differ in 395 bytes, all of them inside the 760-byte glyph table**; the
+guest's live `font_glyphs` confirms it (the ROM build reads **760/760
+identical to the ROM**, the tallx build 365/760). Every non-text `gfxbench`
+row agrees to ±10 counts in ~200,000 — 0.005%, which is the noise floor and
+also the proof that nothing but the glyphs moved.
+
+| `gfxbench` row | IBM ROM | tallx | delta |
+|---|---|---|---|
+| `FONT_CHAR one cell` (`'W'`) | 895.46 µs | 880.17 µs | **−1.71%** |
+| `FONT_STR 10 aligned` | 8,403.00 µs | 8,297.39 µs | **−1.26%** |
+| `PAIR 10 aligned` | 10,152.95 µs | 10,047.35 µs | −1.04% |
+| **`FONT_RUN 10 aligned`** | 8,879.66 µs | 8,880.01 µs | **+0.00%** (+5 counts) |
+| `PAIR 10 skewed 5` | 10,659.09 µs | 10,433.22 µs | −2.12% |
+| `FONT_RUN 10 skewed` | 10,840.54 µs | 10,618.65 µs | −2.05% |
+| `FONT_WIDTH 10` | 217.91 µs | 217.91 µs | +0.00% |
+| `boot ticks` / `kernel span KB` | 60 / 94 | 60 / 94 | **identical** |
+
+**tallx is the CHEAPER face, and the direction was the surprise** — it has
+**32.0% blank rows against the ROM's 25.3%**. It is **rows and never
+columns**: `or ah, ah / jz` is the renderer's only content-dependent branch,
+and a row is a whole byte whatever is in it.
+
+**`FONT_RUN` aligned at +0.00% is the result, as much as the first row.** The
+fast path (SPEC.md §6.1, mono, `x & 7 == 0`) is branch-free — the cell owns
+its framebuffer byte, so it *stores* every row whether the glyph set any bits
+or not. A face's ink costs exactly nothing there, and that is the path every
+hot incremental redraw in the tree was moved to (§12.9's menu bar, §22.11's
+scroll, §27.2's Note Pad row, §11.94's `WF_SNAP` consumers). **Skewed, there
+is no fast path** — `font_run` falls back to the pair — so it becomes
+content-dependent again *and* picks up a second term: the low `x & 7` bits of
+a row spill into a second byte, which is the one place a face's COLUMNS cost
+anything and is what §6.1.4's blank column 7 is about. Predicted −0.62 spill
+writes a cell at `x & 7 = 5`, measured as the skewed delta being twice the
+aligned one.
+
+**The model predicts the measurement from the glyphs alone**, which is what
+makes `tools/os88fontcost.py` worth having: the bench string `'C-2 01 A0F'`
+differs by 7 drawn rows, ×81.0 clocks (Part 9's five-instruction step) = 118.8
+µs predicted against **105.61 µs measured**; `'W'` differs by one row, 17.0 µs
+predicted against **15.29 µs**. Inverted, the measurement prices **one drawn
+row at 15.09 µs** on this CGA — the same number from the other end, the gap
+being that a *skipped* row still pays its own load, test and branch.
+
+**And the honest figure for a session is HALF the bench's.** `'C-2 01 A0F'`
+is uppercase-and-digit heavy, which is exactly where tallx wins: its capitals
+are **6 rows against the ROM's 7**, and so are its digits. **Lowercase is a
+wash** — 5.77 rows against 5.81 — because tallx spends on a 5-row x-height
+what it saves on cap height. Weighted by os8088's own 29,082 characters of UI
+text, which is mostly lowercase, the face is **4.557 rows/glyph against 4.815,
+so −0.46% of an 840 µs cell**. Against a 2.50 s page of text that is 11 ms.
+
+**Nothing else moved.** Identical `boot ticks`, identical `kernel span`,
+identical `KERNEL.SYS` sector count — the glyph table is 760 bytes either way,
+so a face costs the same disk, the same RAM and the same boot on any machine.
+
+**What could NOT be measured, and it is worth knowing why.** An end-to-end UI
+operation cannot see this at all: opening a Disk window (~40 `font_str` calls)
+measured **18.29 s and 20.97 s on two trials of the SAME kernel**, a 15%
+spread against a 0.5% effect — the floppy mount dominates it, and at the time
+MartyPC was not disk-accurate either (Set 11; it is, since Set 37 — but a
+mount dominating a 0.5% effect is a fact about the operation, not the
+instrument, so the conclusion is unchanged). A per-primitive harness with the interrupts off
+is the only instrument with the resolution, which is what `gfxbench` is for.
+
+### Set 26 — `font_run`'s compose, and the blank-row skip that does not transfer (SPEC.md §6.1.5)
+
+Asked directly, after Set 25: `font_char` skips a blank glyph row, so can
+`font_run`?
+
+**No, and the reason is what `font_run` IS.** It is *opaque* — the cell owns
+its framebuffer byte, so a blank glyph row is still **painted**, with the
+background. There is no write to skip. What could be skipped is the compose
+arithmetic, guarded by `or al, al` + `jz`: four bytes on every row to save
+eleven on the ~30% of rows that are blank, plus a taken branch's prefetch
+flush, on the innermost loop of every string the slow machines draw.
+Break-even at best.
+
+**The compose itself was the thing to fix, and §6.1 had already noticed it
+without the code taking it** — "which on mono reduces to the glyph or its
+complement". `(glyph & ink) | (~glyph & background)` is
+`(glyph & (ink ^ background)) ^ background`, both terms constant per plane; in
+CL and CH a row becomes a load, an `and`, an `xor` and a store.
+
+| `gfxbench` row, CGA | baseline | hoisted | delta |
+|---|---|---|---|
+| **`FONT_RUN` 10 aligned** | 8,879.59 µs | 7,898.60 µs | **−11.05%** |
+| `FONT_CHAR` one cell | 895.44 | 895.27 | −0.02% |
+| `FONT_STR` 10 aligned | 8,402.93 | 8,401.88 | −0.01% |
+| `PAIR` 10 aligned | 10,152.88 | 10,151.83 | −0.01% |
+| `FONT_RUN` 10 skewed 5 | 10,839.77 | 10,840.26 | +0.00% |
+| `PAIR` 10 skewed 5 | 10,658.81 | 10,659.02 | +0.00% |
+| `GFX_PIXEL` · `GFX_FILL 64x64` · `GFX_FILL 8x8` | — | — | +0.00% |
+
+**The unmoved rows are the result as much as the first one.** Skewed is
++0.00% because an unaligned run never reaches `font_run_cell` at all (§6.1's
+gate), and `FONT_CHAR`/`FONT_STR` are untouched code — so the change landed
+exactly where it was aimed and nowhere else. Cost: `.text` **−12** bytes,
+`.bss` **−2**, no rung crossed.
+
+**Byte-for-byte on both mono adapters**, a scripted desktop → chip menu →
+Disk-window session through each kernel: **Hercules 0 differing pixels of
+250,560 on all three screens**, CGA 0 on two.
+
+**The third CGA screen reported 31 differing pixels and is Set 23's trap, not
+a defect.** The bbox was x 624..630, y 6..12 — *one 8x8 cell*, which is the
+menu bar clock: with no RTC the fallback starts at `Jul 04 2026 00:00` and a
+run crossing the minute reads `00:01`. Cropped and read as pixels rather than
+believed, the baseline's last digit is `0` and the other's is `1`. Masking
+that field, every screen is 0 of 128,000. **A systematic, reproducible
+difference in one cell looks exactly like a real bug** — read it before
+reporting it.
+
+**What is left is bigger than what was taken, and it is NOT measured.**
+`font_run_cell` runs the whole prologue **per cell** — two edge compares, the
+clip test, the glyph address, `gfx_rowbase`, `font_ink` *twice* (each a
+further near call) and the plane setup — and across a run those all produce
+the same answers, because a run shares its y and both its colours and differs
+only by one byte of DI per cell. Priced against this measurement: a cell of an
+aligned run is ~888 µs of which the eight-row loop is ~270, so **~70% of
+`FONT_RUN` is a prologue a run could pay once**. Near `call`+`ret` alone is
+11.0–11.5 µs before any body (Part 9's table), so the ceiling is real — but so
+is the restructuring, and this figure is inferred rather than measured.
+
+### Set 27 — the run pays once: `FONT_RUN` is 1.86x (SPEC.md §6.1.6)
+
+Set 26 ended by naming what it had not taken: `font_run_cell` ran the whole
+prologue **per cell**, for values a RUN shares. This is that, measured.
+
+A run is ONE y, ONE pair of colours and a column that advances by one byte a
+cell — and the cell body was calling **`gfx_rowbase`**, whose 16-bit `MUL` an
+8088 charges ~120 clocks for, and **`font_ink` twice**, per cell. Ten cells
+paid ten row bases and twenty ink reductions to draw one word. All of it moved
+up into `font_run_x`; `DI` then holds the run's first byte and the cell loop
+does `inc di`.
+
+**The plane loop went with it** — it walked `[vid_planes]`, 4 or 1, but the
+path is gated on `[vid_mono]` three instructions above the cell loop, so the
+4-plane walk could never execute. With one plane there is nothing to restart,
+which retires `[font_rn_si]`, `[font_rn_di]`, `[font_rn_fs]` and
+`[font_rn_bs]` as well.
+
+| `gfxbench` row, CGA | original | §6.1.5 | §6.1.6 | vs original |
+|---|---|---|---|---|
+| **`FONT_RUN` 10 aligned** | 8,879.59 µs | 7,898.60 | **4,785.69** | **−46.10%, 1.86x** |
+| `FONT_CHAR` one cell | 895.44 | 895.27 | 895.50 | +0.01% |
+| `FONT_STR` 10 aligned | 8,402.93 | 8,401.88 | 8,402.93 | +0.00% |
+| `PAIR` 10 aligned | 10,152.88 | 10,151.83 | 10,152.88 | +0.00% |
+| `FONT_RUN` 10 skewed 5 | 10,839.77 | 10,840.26 | 10,840.47 | +0.01% |
+| `PAIR` 10 skewed 5 | 10,658.81 | 10,659.02 | 10,659.02 | +0.00% |
+| `GFX_PIXEL` · `GFX_FILL` 8x8 / 64x64 · `GFX_SCROLL` | — | — | — | ±0.01% |
+
+Cost across both changes: `.text` 54,597 → **54,540 (−57)**, `.bss` 4,736 →
+**4,730 (−6)**. No rung crossed. **Byte-for-byte identical to the ORIGINAL
+kernel** — the pre-§6.1.5 one, not the intermediate — over a scripted
+desktop → chip-menu → Disk-window session: CGA 0 differing pixels of 128,000
+on all three screens, Hercules 0 of 250,560 on all three. (The Disk window's
+31-pixel clock cell is Set 26's documented trap again.)
+
+**One real hole was found and closed before it shipped, and it is the reason
+to distrust a lockstep.** `DI` tracks x by `inc di`, and `(x+8)>>3 ==
+(x>>3)+1` holds for every x **except across the 16-bit wrap** — so a run at a
+NEGATIVE x (0xFFF0 = −16, which is byte-aligned and therefore takes the fast
+path) skips two cells on the unsigned edge test, wraps to x = 0, and then
+draws at `DI` = 0x2000 past where it belongs: a word rendered 8KB into the
+framebuffer. The old code recomputed `DI` per cell and could not have it. The
+guard is one compare per run — a run STARTING off screen goes per cell
+(§6.1.2's path, which recomputes both) — and it costs 9.85 µs on a ten-cell
+run, 0.2%. **It was found by arithmetic, not by a test**: every screen in the
+pixel gate passed before and after, because nothing in this tree draws text at
+a negative x today.
+
+**What is left, and it is NOT measured.** The row loop is now ~70% of a cell,
+and **44% of the row body is the banked-row advance** — `add di,
+[cs:vid_rowadd]` + `test di, [cs:vid_wrapbit]` + `jz`, 12 of 27 bytes, paid 8
+times per CELL. A run's cells are contiguous bytes *within* a row, so a
+ROW-MAJOR walk would pay it 8 times per RUN instead, and would open `rep
+stosb` for repeated glyphs — which §27.2's space-padding idiom makes common,
+since there the padding IS the erase. It needs a per-run array of glyph
+pointers (80 cells × 2 bytes of `.bss`) or 8x the glyph-address lookups, so it
+is a real trade rather than a free one.
+
+**docs/LAST-DROP.md carries the rejected one in full** — the patch, the
+figures, the price and what would have to change for the answer to flip — so
+the next session that has this idea can read it instead of building it.
+
+### Set 28 — the run is drawn a ROW at a time: `FONT_RUN` is 2.84x (SPEC.md §6.1.7)
+
+Set 27 named what it had left: the row body was 27 bytes of which **12 were the
+banked-row advance**, paid eight times per CELL. But the cells of an aligned run
+are consecutive bytes *within a row*, so that advance belongs to the row.
+
+`font_run_x` is two passes now. Pass 1 walks the string once into
+`font_rn_tab` — a glyph pointer per cell, stopping at the first cell past
+`[vid_cwm8]`, so the drawn cells are a *prefix* and therefore contiguous. Pass
+2 runs eight times, once per glyph row, each a `lodsw`/`stosb` walk of the whole
+run with `gfx_nextrow` paid **once at the end of it**.
+
+**The table is what frees `ES`**, which is the part that is not obvious: `ES`
+holds the caller's *string* right up to the end of pass 1 (`font_run` is an X
+stub — the string is in the package's segment), so a cell-major loop has to
+reload it per cell to reach the framebuffer. Once the string has been read,
+`ES:DI` is the framebuffer for the whole run and the masks sit in `DX` for all
+eight passes.
+
+| `gfxbench` row, CGA | original | §6.1.6 | §6.1.7 | vs §6.1.6 | vs original |
+|---|---|---|---|---|---|
+| **`FONT_RUN` 10 aligned** | 8,879.59 µs | 4,785.69 | **3,126.81** | **−34.66%** | **−64.79%, 2.84x** |
+| `FONT_CHAR` one cell | 895.44 | 895.50 | 895.27 | −0.03% | −0.02% |
+| `FONT_STR` 10 aligned | 8,402.93 | 8,402.93 | 8,402.93 | +0.00% | +0.00% |
+| `PAIR` 10 aligned | 10,152.88 | 10,152.88 | 10,151.83 | −0.01% | −0.01% |
+| `FONT_RUN` 10 skewed 5 | 10,839.77 | 10,840.47 | 10,843.40 | +0.03% | +0.03% |
+| `GFX_PIXEL` · `GFX_FILL` · `GFX_SCROLL` | — | — | — | +0.00% | ±0.00% |
+
+**Cost, and this one is NOT free.** `.text` **+137** and `.bss` **+176** against
+the pre-§6.1.5 baseline — the 180-byte table plus its count — and **the image
+rung CROSSED**: `KERN_SIZE` 95,744 → 96,256, spare 2,560 → **2,048, four
+steps**, which is the standard this tree keeps. That was authorised in advance
+for this path specifically. The three changes together are net **+137 `.text`**
+for **2.84x**.
+
+**Three bounds hold it up and each is a correctness argument.** A **clip
+region** makes cells individually refusable and one rejected in the middle
+breaks the run into pieces `stosb` cannot walk — so an armed region costs one
+`wm_clip_test` over the whole run and a **cut** run goes per cell (§6.1.2's
+path). **Table overflow** cannot happen while `FONT_RN_MAX` = 90 covers
+`vid_w / 8`, and falls back anyway. And **`BP` carries the glyph row**, so
+`font_run_x` saves it — §7.1.4.1 is what forgetting costs.
+
+**Verified against the ORIGINAL kernel**, three screens on each mono adapter,
+with a partly-occluded Task Manager behind the Disk window so the clip-region
+fallback is exercised too: **0 differing pixels** on four of six screens, and
+on the other two the difference is **8 pixels in one cell — and it is TRUE.**
+The Disk window reads `Free 248K` where the old kernel read `Free 249K`,
+because a kernel 512 bytes bigger takes one more 1 KB cluster: read out of the
+two images' FATs independently, 249 free clusters against 248. Set 26's clock
+cell was the same lesson and this is the second instance — **a systematic
+difference in one glyph cell is what BOTH a real defect and a correctly
+reported fact look like.** Read the cell.
+
+**What is left.** The inner loop is 14 bytes — `lodsw`, `xchg`, `add bx,bp`,
+`mov al,[ss:bx]`, `and`, `xor`, `stosb`, `loop`. Unrolling the eight row passes
+would make the row a disp8 on the glyph fetch and retire `BP` and the `add`,
+taking it to ~12; it costs ~240 bytes of `.text`, which is another rung, and at
+that point the fetch is nearly all of it. A `rep stosb` for a run of identical
+glyph rows (a span of spaces, which §27.2's padding makes common) is the other
+candidate and needs a compare per cell to find the span.
+
+### Set 29 — Set 28's two candidates, measured: one rejected, one kept
+
+Set 28 named two and measured neither. Both were built against the same kernel
+and run on the same machine — and **`gfxbench` had to grow two rows first**,
+because the existing one could not have answered the second question:
+`C-2 01 A0F` has no adjacent repeat, so a span optimisation measures as exactly
+nothing on it, while the text this system actually draws is padded on purpose.
+`FONT_RUN 20 text` and `FONT_RUN 20 padded` are the same LENGTH and differ only
+in content.
+
+**The baseline decomposes, which is what makes the rest readable**: 10 cells at
+3,131.77 µs and 20 at 5,394.84 µs, so **~872 µs is fixed per run and ~226 µs is
+per cell**. And `20 text` against `20 padded` is **0.02%** — content was free
+before any of this.
+
+| `gfxbench` row, CGA | baseline | A unrolled | B span |
+|---|---|---|---|
+| `FONT_RUN 10 aligned` | 3,131.77 µs | **−4.74%** | +1.44% |
+| `FONT_RUN 20 text` | 5,394.84 | **−4.44%** | +0.84% |
+| `FONT_RUN 20 padded` | 5,393.73 | −4.44% | **−31.33%** |
+| `FONT_CHAR` · `FONT_STR` · `PAIR` · skewed · every `GFX_*` | — | ±0.01% | ±0.03% |
+
+**A — unrolling the eight row passes: REJECTED.** The bar it was given was 5%
+and it returns **4.74%**, for **+267 bytes of `.text`** (against the ~240
+estimated) and a CROSSED rung — spare 2,048 → 1,536, three steps, under the
+four this tree keeps. Two things make it a clearer no than the headline
+suggests. The disp8 saves **one** byte a cell-row, not two: `mov al,[ss:bx+r]`
+is 4 bytes where `add bx,bp` + `mov al,[ss:bx]` is 5. And **it gets worse as
+runs get longer**, which is the direction real text goes — solving the two rows
+gives a **fixed** saving of 57.5 µs (the row counter, once a run) and **9.1 µs
+a cell**, so the percentage falls as the per-cell term dominates.
+
+**B — the trailing span as one `rep stosb`: KEPT.** +138 bytes of `.text`, +4
+of `.bss`, **no rung crossed**. It is a trade and both halves are real: −31.3%
+on a padded run, **+1.4% on a run with no span**, which is the fixed cost of
+deciding. Framebuffer **byte-identical** to the shipped kernel on both mono
+adapters.
+
+**The first version cost +3.06% on unpadded runs and the fix is the general
+lesson**: it tested for a span *per row*, and a span is a property of the RUN —
+so every unpadded run answered the same question eight times. Moving the branch
+to `.rm` took it to +1.50%. A second refinement, gating the backward search on
+the last two entries matching, took it only to +1.44% — **the diagnosis there
+was wrong**: what remains is not the search but the ~45 µs of *deciding at all*,
+and that is why the first fix was worth 1.5 points and the second 0.06.
+
+**How much of a real session HAS a span, measured rather than argued.** Four
+counters in a scratch kernel, two scripted sessions: **34%** of the cells
+`font_run` drew were inside a span (42 of 124), and **28%** in the other (53 of
+187); half the runs had one.
+
+**The probe also produced a claim that was WRONG, and correcting it is worth
+more than the original number.** In a 40-second session with the Task Manager
+open, unoccluded and refreshing, `font_run` was called **four times** — from
+which this entry first concluded that `FONT_RUN` is a burst cost that an idle
+system barely pays. **That generalises from the single most change-gated
+consumer in the tree.** §28 is the app that had `tm_rowok`, `tm_chunksum` and
+the per-chunk cell walk built for it precisely so that a refresh which changes
+nothing draws nothing; measuring text frequency with it is measuring how well
+§28 was optimised, not how often os8088 draws text.
+
+**The survey says the opposite.** Of fifteen shipped packages, **nine call
+`OSAPI_FONT_STR` and never `FONT_RUN` at all** — Paint, ArtfulType, Solitaire,
+Arkanoid, Fractal, Recorder, Piano, Minesweeper, Tamegram — so most of the
+system's text does not reach this path yet, and the apps that *have* converted
+are the ones that draw **long runs continuously while the user works**: Note
+Pad's `np_rflush` letters a row space-padded to the whole band (§27.2),
+Tracker's `tui_str` draws the FT2 screen, ModPlug composes four LCD lines an
+18 Hz frame (§56.12).
+
+So the right reading of Sets 25–28 is the reverse of the first one: **the 2.84x
+lands on the paths that are least gated and longest-running**, and §6.1.8's
+span is worth having for the same reason — a padded Note Pad row is exactly the
+shape it collapses. The Task Manager is the one consumer that had already
+solved the problem a different way.
+
+### Set 30 — the raise cache's restore, and the sub-rect that halves it (SPEC.md §5.8/§11.96.6)
+
+REDRAW-SPEC Part 3 left one instruction for whoever picked it up: *do not spend
+the sub-rect work on the strength of the 644 → 215 ms figure — that is the
+cache's win and it is already banked. Measure the restore itself first.* So this
+set starts there, and the measurement is three exec breakpoints inside one
+`wm_draw_win` on a cycle-accurate 5150/CGA, with `cycles` read at each.
+
+A 318×136 Disk window content, raised with its cache live:
+
+| span | cycles | ms |
+|---|---|---|
+| `wm_draw_win` → `wm_su_try` (all the chrome: frame, shadow, title bar) | 233,108 | 48.84 |
+| `wm_su_try` → `gfx_restore` (`wm_su_ck` + `wm_su_edge`, the edge merge) | 86,962 | **18.22** |
+| `gfx_restore` → `wm_grow_paint` (the blit) | 141,465 | **29.64** |
+
+So the restore is **47.86 ms** against 48.84 for everything around it — the
+blit is not a rounding error on a raise, and the **edge merge is 38% of it**,
+which nothing had priced before.
+
+**What the sub-rect is worth, on the case it is for.** Two Disk windows, the
+front one dragged clear and then dragged *away* so it genuinely uncovers an L
+(dragged the other way, §11.91.2 marks nothing at all and the whole question
+does not arise). Same session, same machine, breakpoints on `gfx_restore` and
+`gfx_sub_off`, which bracket the blit:
+
+| build | rect restored | cycles | ms |
+|---|---|---|---|
+| whole content | (111,38,428,173) — 41 B/row × 136 | 146,212 | 30.63 |
+| sub-rect | (216,80,428,173) — 27 B/row × 94 | 72,860 | **15.27** |
+
+**2.01x**, against 2.20x predicted by the byte counts — the difference is the
+per-row overhead the narrower band still pays 94 times.
+
+**The dock strip cost 1.4x of that on its own, and finding out was the whole
+lesson.** The first version folded the strip into the shared painted rect
+whenever `dock_paint` had drawn, and the strip is *full width*, so every
+window's owed rect became full width — including a window nowhere near the
+dock. Measured: 21.28 ms rather than 15.27, a 41-byte row where 27 would do.
+The marking pass one screen up had already got this right (`.mnodock` tests
+each window's own `y+h`), and `wm_su_owed` follows it. **A term that is only
+true of some windows does not belong in a rect they all share** — §26.3's
+phantom drive-zone columns are the same mistake, and this is the second time
+the answer has been "ask per window".
+
+**What is NOT measured here, and should be next**: the 18.22 ms edge merge is
+still done over the *whole* banked rect's rows even when the restore is a
+94-row band, because `wm_su_edge` walks the buffer with one stride and bounding
+it to the sub-rect's rows needs the two-level walk the plane skip implies. That
+is the larger of the two remaining halves — bigger than what the blit has left
+to give. **Set 31 is that, done.**
+
+### Set 31 — the edge merge bounded to the rect being restored (SPEC.md §11.96.8)
+
+Set 30 halved the blit and named what it had left alone: `wm_su_edge`, walking
+the whole banked rect however small a strip the restore put back. Same machine
+(cycle-accurate 5150/CGA), same session, same drag — the two Disk windows with
+the front one dragged *away* so it genuinely uncovers — and the span is
+`wm_su_try` → `gfx_restore`, which is `wm_su_ck` plus the merge:
+
+| build | cycles | ms |
+|---|---|---|
+| the whole banked rect (136 rows, both columns) | 88,736 | 18.59 |
+| bounded to the restored rect | 38,596 | **8.09** |
+
+**2.30x**, and the blit beside it is unchanged at 15.27 ms, which is the check
+that the two halves are independent. So one restore on this drag:
+
+| | edge | blit | restore |
+|---|---|---|---|
+| before the round | 18.59 | 30.63 | 49.22 ms |
+| after §11.96.6 | 18.59 | 15.27 | 33.86 ms |
+| after §11.96.8 | **8.09** | 15.27 | **23.36 ms** |
+
+**2.11x on the restore**, from two changes that are each provably the same
+pixels.
+
+**Two things in the 2.30x are not the row count**, and they are worth separating
+because the second is free where the first is not. The rows walked drop 136 → 94
+(a 1.45x), and the **left edge column is not merged at all**: this restore's
+`x1` is 216, which is byte column 27 against the banked rect's 13, so there is
+no overhang on that side to repair — those pixels are the window's own content,
+which the pass did not paint, so the cache and the screen already agree. A
+sub-rect in the middle of a window does *no* edge work whatever its height. That
+is the half of the win the row bound alone would not have found, and it is why
+the figure beats the 1.45x the geometry suggests.
+
+**What is left of the restore is now the blit again**, 15.27 against 8.09 — and
+there is no obvious next cut in it: it is `rep movsb` over exactly the bytes that
+changed, at 27 bytes a row for 94 rows, and the per-row overhead is the row loop
+the two renderers already share with the cursor.
+
+### Set 32 — Paint's repaint with a PICTURE in it: blank was the very cheap case
+
+Set 30's Paint figures were taken on a **blank** canvas, and that turns out to
+be the wrong end of a 41x range. Same machine (cycle-accurate 5150/CGA), same
+window, same cover-and-raise — the only difference is what is in the canvas. The
+picture arrives by **double-clicking it**: `assoc.inc` ships `BMP` → PAINT, so
+§54.5's launch-with-a-document path loads it with no file dialog to drive.
+
+| canvas | runs/row | the canvas blit |
+|---|---|---|
+| blank (one run a row) | 1 | **211 ms** |
+| a textured 492×133 16-colour BMP | 84.9 | **8,670 ms** |
+
+**8.7 seconds**, and the model holds: 11,298 runs at ~0.77 ms each against
+`pt_blit`'s own quoted ~0.5 ms per `gfx_hline`, the balance being the 4bpp source
+scan. A picture with ~30 runs a row — an ordinary drawing rather than this
+deliberately noisy one — lands near the three seconds the field reports.
+
+**What this settles about `WF_SAVEU` for Paint, which is the opposite of the
+guess on record.** "Paint is already drawing a blit, so a restore cannot be
+faster" is false by two orders of magnitude, because the two are not the same
+kind of operation: `gfx_blit4` costs **per RUN** (a `gfx_hline` per run, ~756 µs
+of arriving each, §5.7), while `gfx_restore` is a flat `rep movsb` with no
+per-run cost at all. Priced per byte off Set 30 and this set:
+
+| | bytes moved | ms | per byte |
+|---|---|---|---|
+| `gfx_restore`, whole content (Set 30) | 5,576 | 30.63 | **5.5 µs** |
+| `gfx_blit4`, textured canvas | ~35,600 | 8,670 | **244 µs** |
+
+So a raise cache over Paint's content would be ~9 KB and ~50 ms on a 1bpp
+adapter against 8,670 — **170x** — and ~36 KB and ~200 ms on VGA, 43x.
+
+**The objection that survives is memory, and it is adapter-shaped.** `wm_su_kb`'s
+`(bpr + 2) × rows × planes`: Paint's stock content on CGA/Hercules is ~9 KB, on
+VGA ~36 KB, and a window grown to most of a 640×480 screen is ~150 KB. Paint
+itself already holds canvas + undo + clipboard, ~127 KB at stock size — so on a
+**256 KB machine** (heap ≈ 160 KB after the kernel) there is no room for the VGA
+figure and only just room for the 1bpp one, and the claim being purgeable
+(§50.6) means it is simply refused rather than damaging. The cache is therefore
+a **640 KB-machine** optimisation on VGA and a marginal one on the machines this
+project is calibrated against.
+
+**Which is why drawing LESS of the canvas beats caching it, and composes with
+everything.** The blit is linear in the runs it covers, so a repaint that owes
+10% of the canvas costs ~10% of 8,670 ms — about **0.9 s** — at **no memory cost
+at all**, on every adapter and every machine size. That is a bigger win than the
+cache can give on a 256 KB machine and it stacks with the cache where the cache
+fits. §11.90's unconditional white fill is what stands in front of it.
+
+**And two smaller things this run recorded**: the repaint issues **two**
+`wm_draw_win` passes for Paint's window (a 376 ms one that draws no canvas, then
+the 8,670 ms one), which is the `[pt_apend]` deferred-resize path calling
+`OSAPI_WM_FRONT` from inside `W_PAINT` and is worth its own look — **and that is
+WRONG, see Set 40**: it is one pass, and the two hits were `pt_growbox` and
+`wm_draw_win`'s own `.growbox`, the 376 ms in front of the first being the
+palette, strip and divider this very table names; and the
+~376 ms of palette, colour strip and divider is **small in area** — a narrow
+left-hand column — so it is the part a cache would hold for about 1 KB.
+
+### Set 33 — the white fill measured as a PICTURE, not as work (SPEC.md §11.90.1)
+
+`wm_draw_win`'s fill is one `gfx_fill` — ~24 ms on a Disk-window-sized content —
+so as *work* there is nothing here. As a *picture* it is PERFORMANCE.md Part 1's
+double draw in its purest form, and the gap between its two layers is however
+long `W_PAINT` takes. Sampled on a cycle-accurate 5150/CGA over a Paint raise
+with Set 32's textured bitmap, an interior box of the canvas:
+
+| | the sample box |
+|---|---|
+| the kernel fills (before) | **fully white from +350 ms to +2,967 ms — 2,617 ms** |
+| `WF_OWNBG` (after) | **never blank**: peak whiteness 0.818, never uniform |
+
+**The 2,617 ms is the BOX's figure and not the window's.** `pt_blit` works down
+the canvas in bands, so a given row is white from the fill until the blit reaches
+it: the box sampled here is in the upper middle and clears at 2.6 s, and the
+bottom rows stay white for the whole 8,670 ms. Which is the shape of the defect —
+the user watches their picture vanish and then wipe back down the screen.
+
+**So the flag's value is not the 24 ms and quoting it that way would be
+misleading.** It is that a repaint stops being visible as a blank-then-fill. The
+same argument applies to every window whose `W_PAINT` is slow, and to none whose
+`W_PAINT` is fast — which is why it is opt-in per window rather than a default
+(§11.90.1).
+
+Verified against a build that still gets the fill: **0 differing pixels** on CGA,
+Hercules and VGA mode 12h across cover / raise / drag-across / re-raise
+(`tools/ptcheck.py`). The gate uses a **textured** BMP deliberately: a blank
+canvas is uniform white, which is precisely the colour the fill would have left,
+so it is the one picture that cannot tell a kept promise from a broken one.
+
+### Set 34 — Paint told which rect it owes (SPEC.md §11.90.2)
+
+§11.90.1 stopped the kernel whitening Paint's content; this hands Paint
+§11.96.6's accumulated damage so it blits only the part it owes. Measured on a
+cycle-accurate 5150/CGA with Set 32's textured bitmap, the Disk window dragged
+**off** Paint by (+70, +45) — a `wm_dmg_wins` pass, which is where a damage rect
+exists at all:
+
+| | Paint's `W_PAINT` | its canvas blit |
+|---|---|---|
+| the whole content | 9,024.5 ms | 8,669.8 ms |
+| the damage rect | **7,114.1 ms** | **6,758.8 ms** |
+
+**1.28x, and it is exactly proportional rather than surprising**: the damage
+covered 73% of Paint's content width and the blit came in at 78% of the whole.
+That is the feature working as designed — the blit is linear in the runs it
+covers — and it is also the honest ceiling, because two things bound how small
+the rect can get.
+
+**A drag's damage is at least the MOVER's own rect.** `ui_drag` passes the union
+of where the window was and where it is, so the saving is bounded by how much
+smaller the moving window is than the one underneath: a Disk window 320 wide
+dragged over a Paint 536 wide can only ever uncover so little of it, and 1.28x is
+what that geometry allows. A small window dragged across a full-screen Paint
+saves nearly everything; that is the same arithmetic, not a different feature.
+
+**And a RAISE still repaints whole**, which is the bigger of the two gaps and the
+obvious next step. `wm_raise` arms no damage rect — there is none to arm — so
+`wm_damage` answers "whole", correctly. But what a raised window actually owes is
+the part that **was covered**, which is computable: it is the complement of
+§11.3's visible region taken *before* `wm_lift`. That is the case where "only 10%
+of the canvas was visible" turns 8.7 s into ~0.9 s, and nothing in this set
+reaches it. (**Set 35 built it and that last sentence is backwards** — 10%
+visible is 90% covered and costs 7.8 s; the 0.9 s case is 10% *covered*.)
+
+Verified with `tools/ptcheck.py` against a build that asks for nothing: **0
+differing pixels** on CGA, Hercules and VGA mode 12h.
+
+**A harness correction came out of it, and it is the second time this round that
+the arrow has cost a run.** `subcheck`'s docstring argued the mouse arrow needed
+no masking because both runs drive the pointer to the same derived coordinates.
+True of its POSITION and silent about whether it is DRAWN — the cursor is erased
+under the gfx lock and put back at the unlock (§7.1.4), so whether a capture
+catches it depends on where `settle` lands relative to the last one. Measured:
+**the same build captured twice differed by 45 arrow-shaped pixels** over a dock
+tile. Both gates now blank a 16x16 box at the published cursor position. A gate
+that fails at random is worse than no gate.
+
+### Set 35 — MartyPC's floppy is given a platter
+
+Not a field report: a change to the **instrument**, measured against the field
+reports that already exist. `tools/martypc/patches/04-floppy-disk-timing.patch`
+(`03-` when this was written; renumbered when elendilon's video-DIP patch landed),
+docs/MARTYPC-DEBUG.md.
+
+#### What was actually there
+
+Upstream MartyPC models no floppy mechanism whatever, and the source says so
+plainly once you look: `operation_read_data` calls the drive once and streams
+the whole run to DMA as fast as the CPU turns; `command_seek_head` returns
+`CommandComplete` in the same breath it is issued, so **a seek is free**;
+`FloppyDriveMechanicalState`, with its `MotorSpinningUp` and `HeadSeeking`
+arms, is an enum **nothing in the tree references**; and `media_geom`'s
+sectors-per-track is hardcoded `0`, because until now no code wanted it. Set
+11's 30x was not a calibration error. There was nothing to calibrate.
+
+#### One mechanism, three rows
+
+The patch models rotation (a head angle per drive), the MFM data rate (32 us a
+byte at 250 kbit/s, so a 512-byte sector's data field is 16.384 ms), the
+physical **interleave**, and a per-cylinder seek. Sets 14 and 22's three raw
+`int 13h` rows then fall out of it together, which is the point — they were
+never three facts:
+
+| | field, IBM 5150 | model, 2:1 |
+|---|---|---|
+| one sector, re-read | 199.1 ms = **1.00 rev** | **199.106 ms = 1.00 rev** |
+| a 9-sector track, one call | 384.5 ms = **1.92 rev** | **590.5 ms = 2.95 rev** |
+| the same nine as nine calls | 2,004.8 ms = **10.02 rev** | **2,197.0 ms = 10.99 rev** |
+
+**The middle row is a MISS and the right column is measured, not modelled.**
+An earlier draft of this set put 1.86 rev there, which was this document's
+author working the mechanism out on paper rather than reading it off the
+machine — `sysbench` on MartyPC says 2.95. The single-sector row is exact to
+four digits and the nine-call row is within 10%, so the per-sector arithmetic
+is right; what the track row exposes is a **quantization boundary**. The model
+finishes the ninth sector 28 ms before sector 1 comes round again, and its
+turnaround — the real IBM ROM returning from `int 13h` and being re-entered,
+which is cycle-accurate — does not fit in 28 ms, so every iteration waits a
+further whole revolution. The 5150 catches that same sector. **So the media
+model is sound and the miss is one of tens of milliseconds at a
+revolution-sized cliff**, which is precisely the shape that makes the boot
+17% slow rather than 3x, and precisely why a rotational model has to be
+checked against a rotational measurement instead of against its own algebra.
+
+**Also measured and NOT the cause**: the platter was being turned during a
+transfer's byte-streaming phase as well as by the transfer's own per-sector
+walk, which double-counts. Fixing it is right — the operation owns the angle —
+and it is worth **2%**, not the miss above. It measured as nothing against a
+7,980 ms boot transfer total and is recorded here so the next reader does not
+re-derive it as the explanation.
+
+**The interleave cannot come from the image and does not.** A raw sector image
+records the LOGICAL order and says nothing about the platter, so 2:1 is a
+statement in the machine config — the 5150's media is 2:1 (Set 14), the Compaq
+Portable III's ~1:1 (Set 19), and that difference is exactly why the Compaq
+streams a track in 1.24 revolutions where the 5150 needs 1.92.
+
+> **The first sentence stands and the rest is wrong — Set 37.** Interleave is
+> indeed a config statement and cannot be derived from an image. Neither
+> machine's media is interleaved: both are 1:1, the config sets none, and what
+> separates 1.24 revolutions from 1.92 is per-call BIOS overhead. Read this
+> whole set with that substituted — including the `model, 2:1` column above,
+> whose 2.95-revolution miss is the doubled turnaround and not a quantization
+> cliff the model was entitled to.
+
+#### Measured end to end
+
+`boot ticks`, 360KB image, os8088's own counter:
+
+| machine | media | before | after | field (Set 22) |
+|---|---|---|---|---|
+| `os8088_5150_cga_gla` (GLaBIOS) | 1:1 | 41 (2.25 s) | **130 (7.14 s)** | — |
+| `os8088_5150_cga` (IBM ROM) | 2:1 | — | **210 (11.53 s)** | 180 (9.886 s) |
+| `os8088_5150_herc` (IBM ROM) | 2:1 | — | **211 (11.59 s)** | **180 (9.886 s)** |
+
+The last row is the like-for-like — the field's 180 is a Hercules boot off
+`herc.img` — and **4.4x fast becomes 1.17x SLOW**. The sign matters as much as
+the magnitude: the old error flattered every disk decision taken on it, and
+this one costs a little instead.
+
+**The residual is attributed rather than assumed.** Instrumenting the charge
+puts the boot at **7.2 s of rotation and transfer over 161 sector waits against
+0.62 s over 14 seeks** — so the seek model, the one part no row in this
+document pins, is 8% of disk time and cannot be the 17%. The sector average is
+44.9 ms against the 42.7 that this document's own 384 ms/9 implies, and that
+5% is physical: a short run pays a full rotational latency for its first
+sector and only a whole-track read amortises one. The rest is not disk.
+One caveat on the comparison: the field boots a `make field` disk and this
+boots the shipped one (167 sectors), so `tools/fieldsize.py`'s rung check is
+what licenses putting the two side by side.
+
+#### Two things it found
+
+**GLaBIOS abandons a floppy operation after ~250 ms.** Measured three times
+running, at 250.2 / 245.8 / 245.8 ms, after which it resets the controller and
+the boot sector prints `os8088: disk error` — status **80**, read off the
+screen with `make BOOTDIAG=1`, which is precisely the boot this knob exists
+for. A 6-sector 2:1 run takes 305 ms, so under that BIOS it can never
+complete. It is the BIOS and not the model, on three counts: the FDC presents
+a correctly BUSY status register throughout, **seeks of 329 ms complete fine in
+the same boot**, and **the IBM ROM boots the identical 2:1 configuration** —
+which was a prediction when this was written and is now the 211 above. So 2:1
+goes only on the `ibm5150_82_v4` machines, and the GLaBIOS twins keep 1:1.
+
+> **The BIOS limit is real and the exception it forced is gone — Set 37.** No
+> machine carries 2:1 any more, because the field machine's media never did,
+> so no config has to distinguish the two ROMs and `os8088_5150_cga_gla`
+> boots `combo.img` in 175 ticks. The ~250 ms abandon is still a fact about
+> GLaBIOS and still the reason not to take a disk number off it.
+
+**And a run must be paced per SECTOR, not charged as one lump.** The first
+version delayed a whole multi-sector run in one silent block, which is not what
+a drive does — a controller starts DRQing as the first sector arrives and
+pauses only over the inter-sector gaps. Per-sector pacing reads out of the
+trace as `82.8 ms, 44.4, 44.4, …`: the first sector's rotational latency, then
+two slots of 2:1 gap apiece. It did not rescue GLaBIOS, whose limit is on the
+whole operation rather than on silence, but it is the honest model and the
+totals are identical by construction.
+
+#### What it does not touch
+
+The patch changes what a disk **costs** and never what it **says**. §18.91's
+`AL` bug is a claim about what a real ROM returns; an emulator returns what its
+author believed, and this one still does. Correctness questions — short reads,
+`int 1Eh`'s EOT, BIOS interrupt stack depth — remain the 5150's, exactly as
+before. Motor spin-up, the PCjr PIO paths and Format Track are unmodelled or
+uncalibrated, and the seek figures are the BIOS's own SPECIFY request rather
+than anything measured: the field's three rows all read one track and never
+seek, so nothing in Part 9 pins them. **Hard disks are untouched.**
+
+#### The `AL` bug reproduces here, and that was not expected
+
+Set 35 shipped saying MartyPC "will still not catch a disk CORRECTNESS bug".
+**That is wrong, and it is wrong in the useful direction.** With the IBM ROM in
+`tools/martypc/roms/`, MartyPC does not *model* the BIOS — it **executes** it,
+so a bug in IBM's `int 13h` is present by construction. Same image, same
+machine (`os8088_5150_herc`), shipped kernel against `make DISKAL=1`:
+
+| | shipped (trusts `CF`) | `DISKAL=1` (trusts `AL`) |
+|---|---|---|
+| int 13h-level reads | 23 | **177** |
+| sectors moved | 177 | **846** — 4.8x |
+| **longest run** | **9** | **9** |
+| `boot_ticks` | 211 | **1152** |
+
+`longest_run` = 9 in both is Set 16's finding restated by the emulator: the
+kernel asks for nine sectors, is given nine, and asks again. The 4.8x traffic
+is Set 15's 4.6x. **QEMU missed this because SeaBIOS is a different BIOS**, not
+because emulation cannot see it — and that distinction was never drawn here,
+which is why MartyPC inherited a blindness it does not have.
+
+The counters are the CONTROLLER's, read over the debug socket
+(`os88marty.py`'s `m.disk()`), so the guest needs no `DISKCNT=1` kernel and no
+test package: **§18.94's block, on a shipped image, from outside**.
+
+So the boundary is now between the ROM and the chip. **BIOS-level** behaviour —
+what `int 13h` returns, `int 1Eh`'s EOT, the ROM's own arithmetic — is
+reproduced because it is IBM's code. **Controller-level** behaviour — what a
+real 765 puts in ST1 on a CRC error, whether a real drive ever returns short —
+remains the emulator author's belief, and remains the 5150's question.
+
+#### Set 35.1 — the seek and the spin-up get an instrument
+
+The model's two untested numbers now have `sysbench` blocks
+(docs/TESTING.md, `make field`). Run here on `cga.img` under the IBM ROM with
+2:1 media, so this is **what the model predicts, not what the drive does** —
+the 5150 is what turns it into a measurement.
+
+**The seek rows come out as a staircase, which is the design and not an
+accident.** A read ends at a fixed angular position, so the seek hides inside
+the wait for sector 1 to come round and the rows can only step in whole
+revolutions:
+
+| row | us/op (a pair of reads) | revolutions per read |
+|---|---:|---:|
+| `seek 0 cyl (baseline)` | 398,211 | **1.00** |
+| `seek 1 cyl, pair` | 398,211 | 1.00 |
+| `seek 5 cyl, pair` | 398,211 | 1.00 |
+| `seek 10 cyl, pair` | 398,211 | 1.00 |
+| `seek 20 cyl, pair` | 810,154 | **2.03** |
+| `seek 39 cyl, pair` | 1,194,634 | **2.99** |
+
+The baseline is 1.00 revolution per read to three digits, which is what says
+the instrument is sound — it is the same check `int 13h 1 sector` has always
+been. **The break falls between 10 and 20 cylinders**, and that is the whole
+datum: at the DPT's `00CF` (SRT = 12, so 8 ms a cylinder at 250 kbit/s) plus a
+25 ms settle, a 20-cylinder seek is 185 ms against the ~184 ms of rotational
+slack a 1-sector read leaves — so it steps up *just*, exactly where the model
+says. **If the 5150's break falls lower, its drive steps slower than the BIOS
+asked for; if there is no break at all, it steps faster than 5.1 ms and the
+model is overcharging every seek in the system.**
+
+**The spin-up rows read INVERTED here, and that is the correct answer for this
+machine**: cold 164,777 us against warm 219,702, with `motor status 40:3F` =
+`0000` so the drive really had stopped. MartyPC models no spin-up — the header
+says a cold row not slower than the warm one means none is being paid — and
+the two rows are one revolution apart in either direction because N = 1 and
+each catches the platter wherever it was. On the 5150 the cold row should be
+**about a second longer**, that being what the DPT asks for, and the size of
+the gap over and above it is the platter itself.
+
+**One thing to check on the iron while it is running.** MartyPC's ROM reports
+`DPT motor start /8 s` = **4** — half a second — where Set 14 read **8** on the
+field machine off the same 27 OCT 82 ROM. One of those two readings is wrong
+and the report prints the byte, so the next field run settles it.
+
+#### ...and the report is one round from its own ceiling
+
+`SYSBENCH.TXT` is **337 rows of 380 and 14,806 arena bytes of 16,000** — 7%
+spare. That ceiling has never been visible: `bl_full` says a report
+*truncated* and nothing said how close one that did not had come, which is why
+the ROW ceiling was raised three times after the fact and the arena's never
+was. Both figures are printed in the trailer now.
+
+**And it cannot simply be raised.** `bl_out` is `BL_ARENA`-sized too, so every
+byte costs two, and sysbench's image plus bss is already within ~5KB of the
+64KB **segment** a package gets (SPEC.md §20.1): +3,456 overflows it, and the
+failure is a wall of `word data exceeds bounds` at unrelated lines rather than
+anything naming the constant. The next round wants a row dropped or the suite
+split, and now that decision can be taken from the report rather than from a
+truncated one coming back off a machine nobody can re-run cheaply.
+
+### Set 36 — the seek measured on the iron: the model's one guess was right
+
+One `sysbench` run on the IBM 5150 off `combo.img` built `DISKCNT=1`, Hercules
+primary. The build is identified rather than assumed — `kernel span KB 97` and
+`kernel image KB 83` match that build's 97.0 / 83.4, `free on it, KB 45` is its
+309-of-354 clusters, and the MM58167 answering at tier 2 with
+`adapters avail 0006` is docs/FIELD-MACHINES.md's machine and no emulator.
+
+#### The head step, which nothing had ever measured
+
+Set 35's model took its step rate from what the BIOS asks for through SPECIFY
+(`00CF` → SRT 12 → 8 ms a cylinder at 250 kbit/s) and its settle from the DPT,
+both on trust, because every raw row in this document reads one track and
+never moves the head. In revolutions per read, against the model:
+
+| cylinders | **5150** | MartyPC |
+|---:|---:|---:|
+| 0 (baseline) | **1.000** | 1.000 |
+| 1 | **1.000** | 1.000 |
+| 5 | **1.034** | 1.000 |
+| 10 | **1.000** | 1.000 |
+| 20 | **2.000** | 2.034 |
+| 39 | **2.138** | 3.000 |
+
+**The break falls between 10 and 20 cylinders, which is exactly where the
+model puts it** — 10 cylinders is 105 ms and fits inside the ~184 ms of
+rotational slack a 1-sector read leaves; 20 is 185 ms and does not. Read as a
+slope instead, 10 → 39 cylinders costs the 5150 **7.81 ms a cylinder** against
+the model's 8.00. **The guess was right to 2%, and it is no longer a guess.**
+
+#### ...and the same rows locate what is still wrong
+
+> **Set 37 answers this whole subsection, and the answer is not the one it
+> guesses at below.** The turnaround was not too long: 2:1 media the machine
+> never had was making every read too long, and the drive was being charged a
+> 25 ms head settle the BIOS already spends in software. With both fixed,
+> every row of the ladder below is exact except the 39-cylinder one, which is
+> one tick short.
+
+MartyPC's 39-cylinder row is **3.000 revolutions against the field's 2.138**,
+a slope of 13.7 ms a cylinder against 7.8 — and the model is *not* using 13.7,
+it is using 8. What that gap measures is the same defect Set 35.1 found in the
+track row: **MartyPC's per-call turnaround is too long, so a read that should
+just catch sector 1 misses it and waits another whole revolution.** The field's
+2.138 is not a whole number and MartyPC's 3.000 is, which is the tell. One
+cause, two symptoms, and it is the residual behind the boot as well.
+
+**Boot, on the identical disk**: 205 ticks on the 5150, **222 on MartyPC** —
+**1.08x**, against the 1.17x Set 35 reported off a different pair of images.
+
+#### The spin-up rows did not answer, and say so
+
+`1 sector, motor COLD` is **164,777 us** and warm **219,702** — cold *faster*,
+with `motor status 40:3F` reading `0000`. Both are exact tick multiples (3 and
+4), so at N = 1 the ±1 revolution of rotational luck is larger than the effect.
+
+But the row is not merely noisy, it is **impossible as stated**: a read that
+completes in 165 ms is **under one revolution**, and no platter starts from
+rest inside one. So either the drive was still turning, or no motor-start wait
+is paid on this path — and `0040:003F` is the **BIOS's belief**, not the
+hardware: the DOR at 0x3F2 is write-only, so a package cannot confirm it.
+That is a limit of the instrument and is recorded rather than worked around.
+Raising N does not fix it either: the wait for the motor to stop would land
+inside the timed region.
+
+#### Two smaller things this settles
+
+**`DPT motor start /8 s` is 8** on the machine — one full second, as Set 14
+read. MartyPC's ROM reports **4**. Same 27 OCT 82 dump, different answer, so
+something between the ROM and `int 1Eh` differs in the emulator; it is worth
+knowing and it is not what the boot gap is made of.
+
+**One 16 KB `FILE_READ` is 27 sectors in 3 `int 13h`**, runs of 9 at
+contiguous LBAs 594/603/612, **no mounts and no resets** — 5 of the file's 32
+sectors served from §18.95's cache, and the repeat read identical. And the
+report came back at **343 rows of 380 and 14,867 arena bytes of 16,000**, 7%
+spare, which is Set 35's warning arriving on the machine it was about.
+
+### Set 37 — the media was never 2:1, and the whole floppy block now matches
+
+Set 36 left one thing wrong and named it: MartyPC's 39-cylinder seek row read
+**3.000 revolutions against the field's 2.138**, and its track read 590 ms
+against 384/398 — "one cause, two symptoms, and it is the residual behind the
+boot as well." That diagnosis was right about there being one cause and wrong
+about what it was. The cause is **this document**, and specifically Set 14's
+conclusion that the calibration 5150's 360KB media is 2:1 interleaved.
+
+It is not. It is 1:1, like every other 360KB floppy an IBM machine ever
+formatted.
+
+#### How a wrong inference got made, and what would have caught it
+
+Set 14 measured a whole 9-sector track in one `int 13h` at **398,211 µs** and
+read it as revolutions: a 1:1 track is one revolution (200 ms) and this was
+two, therefore the platter costs two turns to give up nine sectors, therefore
+2:1. The corroborating number was **11,570 bytes/second**, against 11,520 for
+2:1 by arithmetic — a 0.4% match, and `tests/sysbench` prints that arithmetic
+in its own header.
+
+Both numbers are real. Both have a second explanation that fits them exactly,
+and it is the right one: **1:1 media plus a quarter-revolution of BIOS overhead
+per `int 13h` call**, which locks the measured total to the same two
+revolutions and the same 11,520 B/s. The B/s figure cannot discriminate at all
+— it is bytes divided by the *whole call*, overhead included — and the
+revolution count only discriminates if you already know the overhead is small.
+
+Nobody had measured the overhead. It is not small.
+
+#### The overhead, measured in the ROM
+
+Sampling the guest's `CS:IP` through the debug server across the disk phase of
+a boot puts **8.8%** of it at `F000:EEBF`, which disassembles to
+
+```
+EEB8  mov cx, 0x226        ; 550
+EEBB  or  ah, ah
+EEBD  jz  eec5
+EEBF  loop eebf            ; <- 8.8% of the whole disk phase
+EEC1  dec ah
+EEC3  jmp short eeb8
+```
+
+— IBM's millisecond delay, called with `AH` = the diskette parameter table's
+head-settle byte. The ROM's own table (`F000:EFC7`,
+`CF 02 25 02 08 2A FF 50 F6 19 04`) asks for **25 ms**, and the field machine's
+`sysbench` reports the same 25. What it actually costs is another matter: 550
+iterations of `LOOP $` on an 8088 is ~18 clocks apiece, so IBM's "1 ms" is
+**2.1 ms** and the settle is **52.5 ms**. Tracing every FDC port access
+confirms it end to end — the gap between the last SENSE INTERRUPT result byte
+and the first READ DATA command byte is **52.48 ms with three MSR reads in
+it**, so the guest is not waiting on the controller, it is counting.
+
+That is a quarter of a revolution, once per `int 13h`, on both machines. It is
+the missing turn.
+
+#### What the correction is worth
+
+`interleave` set to 1 on every machine, and the drive's own `FDC_HEAD_SETTLE_US`
+taken to **zero** — the settle is the BIOS's and modelling it a second time in
+the drive is the same wait counted twice, which at 39 cylinders costs a whole
+extra revolution. Then `tests/sysbench` on `os8088_5150_herc`, against the
+field machine's own report from the identical `combo.img`:
+
+| row | 5150 | MartyPC | quanta |
+|---|---:|---:|---:|
+| `int 13h 1 sector` | 199,106 | **199,106** | **0** |
+| `int 13h track, 1 call` | 398,211 | 384,480 | −1 |
+| `int 13h track, 9 calls` | 1,991,057 | 2,004,789 | +1 |
+| `seek 0 cyl (baseline)` | 398,211 | **398,211** | **0** |
+| `seek 1 cyl, pair` | 398,211 | **398,211** | **0** |
+| `seek 5 cyl, pair` | 411,943 | **411,943** | **0** |
+| `seek 10 cyl, pair` | 398,211 | **398,211** | **0** |
+| `seek 20 cyl, pair` | 796,423 | **796,423** | **0** |
+| `seek 39 cyl, pair` | 851,349 | 796,423 | −4 |
+| `read 16K, warm` | 1,208,366 | 1,153,440 | −4 |
+| `read 16K, cold motor` | 1,592,846 | 1,647,772 | +4 |
+| `WRITE, create` | 4,668,686 | **4,668,686** | **0** |
+| `WRITE, append in chunks` | 11,259,773 | 11,040,070 | −16 |
+
+A quantum is 13,731 µs — one tick over the row's four iterations, which is
+`bl_run`'s resolution and not a property of either machine. **Seven of the
+thirteen are exact**, including every short seek and the one-sector read, and
+two more are one quantum out. The `track, 1 call` row is the sharpest case of
+what a quantum means: 384,480 is not merely close to the field's 398,211, it
+is *the number the field itself reported* for that row in Set 14 — the row sits
+on a quantum boundary and flips between runs.
+
+The 39-cylinder row is the one still worth a sentence: 4 quanta (one tick)
+short, where before this change it was **26 quanta** (1,208,366 against
+851,349). The residual is the step-rate slope, which Set 36 put at 7.81 ms a
+cylinder against the model's 8.00 and which nothing here has re-measured.
+
+Every CPU, memory, PIT and scheduler row in the same report matches to a count
+or two, as they already did.
+
+#### Boot, and what the honest sequence was
+
+`boot ticks` on `combo.img`, `os8088_5150_herc`, against the field's 205:
+
+| | ticks | vs field |
+|---|---:|---:|
+| Set 36's build (2:1, frozen platter) | 222 | 1.08x |
+| the platter turning, still 2:1 | **260** | 1.27x |
+| 1:1 and no doubled settle | **188** | **0.92x** |
+
+The middle row is the one to keep. Set 36's 222 was a *frozen* platter — the
+angle only advanced during a transfer, so every read found its sector exactly
+where the last one left it and no turnaround ever cost a revolution. Making
+the rotation unconditional is plainly correct and made the headline number
+**worse**, which is what said the error was somewhere the frozen platter had
+been flattering. Two more revolutions per track is not a number a plausible
+fix moves by 10%; it is a whole missing turn, and that is what sent this at
+the media.
+
+#### The rule this is an instance of
+
+**A ratio that matches an arithmetic prediction is not evidence unless
+everything the ratio divides by has been measured.** 11,570 against 11,520 is
+a 0.4% agreement and it identified the wrong mechanism, because the divisor
+was the whole `int 13h` call and a quarter of that call is a BIOS delay loop
+nobody had looked at. The instrument that settled it was not a better
+benchmark — it was `CS:IP` sampling plus the ROM's own disassembly, which is
+to say: go and find out what the machine is *doing*, not just how long it took.
+
+#### Two things it retired
+
+**The GLaBIOS exception.** Set 35 gave 2:1 media only to the IBM-ROM machines,
+because GLaBIOS abandons a floppy operation after ~250 ms and a 2:1 track read
+takes up to 400. At 1:1 no machine needs the exception and every config here
+carries the same disks; `os8088_5150_cga_gla` boots `combo.img` in 175 ticks.
+
+**"MartyPC's floppy is 1.17x slow."** It is 0.92x, and the sign changed twice
+on the way — 4.4x fast before Set 35, 1.17x slow after it, 1.27x slow once the
+platter really turned, and 0.92x now. `make marty` remains the place to *find*
+a disk regression and the 5150 remains the place a number lands, but the gap
+between them on this bench is now one measurement quantum on most rows.
+
+### Set 38 — no machine here is "the calibration", and the drive proves it
+
+Set 37's whole result was taken on `os8088_5150_herc`, which invites two wrong
+readings: that Hercules is where the disk measures right, and that the other
+seventeen machines are uncalibrated. Both were worth checking rather than
+answering, because the drive being modelled is one **Tandon TM100-2** and its
+behaviour cannot depend on which video card is in the slot next to it.
+
+#### The controller's own traffic, all eighteen machines, one image
+
+`combo.img` booted on every machine, with `m.disk()` read from outside the
+guest afterwards — the FDC's own counters, so no guest code is involved and
+the workload is identical by construction. Grouped by traffic:
+
+| reads | sectors | run | seeks/cyl | seek ms | resets | machines |
+|---:|---:|---:|---:|---:|---:|---|
+| 24 | 186 | 9 | 29/54 | 432.0 | 3 | **`_cga`, `_herc`, `_both`, `_sbonly`, `_cga_720b`, `_cga_4fdd`** |
+| 26 | 199 | 9 | 31/80 | 640.0 | 3 | `_sb`, `_sb_256k` (a sound driver loads — §51.3.1) |
+| 31 | 195 | 9 | 36/80 | 640.0 | 3 | `_sb_128k` (128 KB: the OS does more disk work) |
+| 26 | 201 | 9 | 26/241 | 1928.0 | 6 | `_cga_gla`, `_both_gla`, `_xt_hdd` |
+| 25 | 195 | 9 | 25/241 | 1928.0 | 5 | `_herc_gla`, `_both_gla_mono`, `_xt_vga` |
+| 26 | 201 | 9 | 21/131 | 1048.0 | 6 | `_cga_1fd` (one drive: no B: to probe) |
+| 27/28 | 208/214 | 9 | 27–28/267 | 2136.0 | 5/6 | `_xt_vga_sb`, `_xt_hdd_sb` |
+
+**Six machines are bit-identical** — the same reads, the same sectors, the
+same longest run, the same seeks, the same cylinders crossed and the same
+432.0 ms of seek — across CGA, Hercules, a two-card machine, a Sound Blaster
+with no OPL, a 720 KB drive as B: and a four-drive machine. **The Tandon does
+not change across 5150s**, and that is now a measurement rather than an
+argument from the source.
+
+What *does* move inside that group is `transfer_ms`: 4,111.0 on CGA, 4,243.0
+on Hercules, 4,228.2 on the four-drive machine — a **3.2%** spread. That is
+rotational latency, not the drive: the counts are identical, so the same
+sectors were asked for in the same order, and what differed is how long the
+guest took between calls. A Hercules boot draws a different splash.
+
+Everything below the first group is the **BIOS or the OS**, never the drive.
+The `_sb` rows are §51.3.1's boot probe finding an OPL and loading a driver;
+`_sb_128k` is os8088 working harder in 128 KB; the GLaBIOS rows are a
+different ROM entirely, and the 241 cylinders against 54 is the tell.
+
+#### `tests/sysbench`'s raw block, five machines against the iron
+
+Same `combo.img`, driven through the UI, `int 13h` called with no kernel code
+in the way:
+
+| row | 5150 | `_cga` | `_herc` | `_sb_256k` | `_cga_gla` | `_xt_hdd` |
+|---|---:|---:|---:|---:|---:|---:|
+| `int 13h 1 sector` | 199,106 | **199,106** | **199,106** | 205,971 | **199,106** | **199,106** |
+| `track, 1 call` | 398,211 | **398,211** | 384,480 | 384,480 | 247,166 | 247,166 |
+| `track, 9 calls` | 1,991,057 | **1,991,057** | 2,004,789 | 2,004,789 | 247,166 | 247,166 |
+| `seek 0 cyl` | 398,211 | **398,211** | **398,211** | **398,211** | **398,211** | **398,211** |
+| `seek 1 cyl` | 398,211 | **398,211** | **398,211** | **398,211** | **398,211** | **398,211** |
+| `seek 5 cyl` | 411,943 | 398,211 | **411,943** | 398,211 | 398,211 | 398,211 |
+| `seek 10 cyl` | 398,211 | **398,211** | **398,211** | **398,211** | **398,211** | **398,211** |
+| `seek 20 cyl` | 796,423 | 810,154 | **796,423** | **796,423** | 810,154 | 810,154 |
+| `seek 39 cyl` | 851,349 | 796,423 | 796,423 | 796,423 | 796,423 | 796,423 |
+| `1 sector, motor COLD` | 164,777 | **164,777** | **164,777** | **164,777** | 219,703 | **164,777** |
+| `1 sector, motor warm` | 219,703 | **219,703** | 164,777 | **219,703** | 164,777 | 164,777 |
+| | **exact / within 1q** | **8 / 10** | 7 / 9 | 6 / 10 | 4 / 6 | 5 / 7 |
+
+**Which rows land exactly SHUFFLES between the three IBM machines**, and that
+is the finding. `_cga` nails both track rows and misses `seek 5`; `_herc`
+nails `seek 5` and misses both track rows; `_sb_256k` nails `seek 20` and
+`motor warm`. Nine or ten of eleven are inside one quantum on all three. So
+**the residual is phase, not model** — a row sitting on a 13,731 µs boundary
+falls whichever side the guest's turnaround happens to put it — and *no single
+machine is the calibration*. The right unit is the **class**: an IBM-ROM 5150,
+whichever card is in it.
+
+`_sb_256k`'s `int 13h 1 sector` at 205,971 is the one row outside that: half a
+quantum, and it is the only machine of the three with a **sound driver
+loaded**, so its worker is taking turns the others' do not.
+
+#### GLaBIOS is a different instrument, and by how much is now known
+
+`track, 1 call` is **247,166 against the IBM ROM's 398,211 — 1.61x lighter**,
+and `track, 9 calls` is *the same 247,166*, which looks impossible and is not.
+On 1:1 media sector *n+1* follows sector *n* immediately, so nine separate
+one-sector reads cost one revolution **if the BIOS can turn a call around
+inside one sector time (22 ms)**. GLaBIOS can; the IBM ROM cannot, because its
+head-settle loop alone is 52.5 ms (Set 37) — so it misses every time and pays
+ten revolutions for the same nine sectors. One number, both rows, and it is
+the same 52.5 ms that made the media look 2:1.
+
+That has a consequence for two figures already in SPEC.md. §18.95.3's cache
+table was measured on `os8088_5150_cga_gla` and §52.10's install counts on
+`os8088_xt_hdd` — **both GLaBIOS**. Their *call counts* are unaffected, a call
+being a call on any BIOS, and both sections say counts are the claim. A
+*timing* taken on either would be 1.61x light, and neither section says that.
+Both now do.
+
+#### So: should the other machines be "calibrated"?
+
+**No, and there is nothing to calibrate.** The drive is one model in
+`marty_core` and the first table proves it produces identical traffic wherever
+it is installed; there is no per-machine constant to tune and adding one would
+be inventing a difference the hardware does not have. What was actually
+missing was a **statement of which machines a disk number may come off**, and
+that is now in docs/MARTYPC-DEBUG.md's machine table:
+
+- **IBM-ROM 5150** (`_cga`, `_herc`, `_both`, `_sb`, `_sbonly`, `_sb_128k`,
+  `_sb_256k`, `_cga_720b`, `_cga_4fdd`) — field-comparable, ±1 quantum.
+- **GLaBIOS** (`_cga_gla`, `_herc_gla`, `_both_gla`, `_both_gla_mono`,
+  `_cga_1fd`, `_xt_vga`, `_xt_vga_sb`, `_xt_hdd`, `_xt_hdd_sb`) — the drive is
+  the same and the BIOS is not. Counts yes, seconds no.
+
+The 5150 is still where a number LANDS. What changed is that the gap is one
+measurement quantum on a machine of the right class, and 1.61x on a machine of
+the wrong one — and the second of those was invisible until it was measured.
+
+### Set 39 — the parallel cable measured, and 90% of it was arriving
+
+`tests/lptlink` between the **5150** (Hercules GB101's LPT at **03BC**) and
+the DOS machine (**DIO-500 at 0378**), a LapLink nibble cable between them.
+Two runs, the master role swapped between them. **docs/NET-PLAN.md step 1.**
+
+**Neither end is os8088**, which is the point: no kernel byte is involved, so
+a result here is a fact about the cable and the protocol and cannot be
+anything else.
+
+#### The link, and what it does
+
+16,128 bytes each way per run, **zero errors in all four transfers**, and the
+scan found the two machines at different addresses without being told either.
+
+| | first build | after the fix |
+|---|---|---|
+| 5150 **sending** | 1,536 B/s | **3,741 B/s** |
+| 5150 **receiving** | 1,595 B/s | **3,538 B/s** |
+| per nibble, sending | 325 us | **133.7 us** |
+
+**2.44x**, and the asymmetry is the confirming detail rather than noise: which
+direction is faster follows **the 5150's role, not who is master**. Swapping
+the master swapped the labels and left the numbers where they were, and the
+receiving direction reproduced to the *exact tick* in both runs — 83, and 83.
+`lp_rnib` does about six instructions more than `lp_snib` (three `shr`s, the
+mask, the `[lp_lastop]` store, the reversal branch); isolated that is ~12.7 us
+at Part 2's instruction-byte floor, measured it is **7.7**, and the difference
+is that the two ends run concurrently so some of the receiver's extra work
+happens while the sender is already waiting.
+
+#### Why the first build was 4.2x slower than its own model
+
+The model said 77 us a nibble and the machine said 325. **The model was not
+wrong about the wire — it was wrong about everything around it.** Counted
+against this Part's own constants (4.34 clocks per instruction byte, 4.77 MHz)
+the prediction is **360 us, within 11% of the measurement**:
+
+| per nibble, on the 5150 | us |
+|---|---|
+| `lp_wfar`, four calls | **289** |
+| …of which `ticks()`, four reads | **94** |
+| `lp_rnib`'s own body and frame | 71 |
+| **the wire** — two `in`s and three `out`s | **~30** |
+
+**Nine tenths of it was arriving, not working**, and the single worst item was
+reading the BIOS tick counter to build a deadline **that is almost never
+reached**. That deadline is *correct* — it had just replaced a poll-count
+timeout that broke between machines of different speeds — and what was wrong
+was paying for it on the fast path.
+
+This is §5.7's finding in a new place, and the third time this document has
+recorded it: one `gfx_pixel` was 196 guest instructions of generic rect
+machinery across eleven routines with no hot spot anywhere; a walk step's
+arrival, a one-pixel block and a marginal pixel were three quantities the tree
+had as one; and now a nibble's transport is 30 us of wire under 300 us of
+call frames. **When a measurement comes in several times its model, count the
+arriving before re-examining the work.**
+
+Four changes, none touching the protocol: the deadline is **lazy** (`ticks` is
+not read until a whole `LP_SPIN` of polls has gone unanswered, which on a
+working link never happens), the wait is a **macro rather than a called proc**,
+the poll body is 9 bytes rather than 16 (the level is a branch, not a compare
+against a variable), and `DX` walks between the two ports with `inc`/`dec`
+instead of being reloaded from memory.
+
+#### What is left, and why it was not spent
+
+Predicted after the fix was 93 us; measured is 134. The residual is the
+layering *above* the nibble — `lp_sbyte`'s frame and the benchmark's own byte
+loop, ~28 us a nibble by the same count — plus the far end's response latency.
+
+**The remaining lever is the handshake itself**: two phases instead of four
+halves both the waits and the `out`s per nibble, and NET-PLAN §1.1.1 records
+that it is safe *only* with the turnaround guard that four phases made
+unnecessary. That is worth perhaps another 1.5x and it is **not** being spent
+here, because the transport's home is a driver, where the code above it is
+real file I/O rather than a benchmark loop. Tune it there, against a file
+operation, or the harness gets optimised instead of the feature.
+
+#### For the record, against this machine's own disk
+
+| | bytes/second |
+|---|---|
+| floppy `FILE_READ`, warm (Set 24) | 21,307 |
+| **the cable** | **3,741** |
+| ST-225 (Set 24) | 74,553 |
+
+**The cable is 5.7x slower than the machine's own floppy** — and the case for
+it was never the rate. A 360 KB image crosses it in **99 seconds**; the same
+image reaches this machine any other way via the seven-step path in
+docs/FIELD-MACHINES.md.
+
+### Set 40 — the network drive works, and a third of it is turnaround
+
+**docs/NET-PLAN.md step 2, on the iron**: the 5150 (GB101's LPT at **03BC**)
+against the DOS machine (DIO-500 at **0378**), NET.DRV loaded and
+`OS88NET.COM` serving a 720KB image. The Control Panel reads **Linked, 1440
+sectors** — the image's exact size — a Disk window lists `APPS`, `MEDIA` and
+`NETTEST.TXT`, and **double-clicking the text file launched Note Pad and
+opened it**: the file association resolved, the package loaded and the
+document arrived, all across the cable. **Everything above `dsk_xfer` worked
+unchanged**, which was the whole bet of doing block mode first.
+
+**The document open took about ten seconds**, and the first decomposition of
+it published here was WRONG — it is corrected below, and the correction is
+worth as much as the number.
+
+**`NOTEPAD.O88` DID NOT CROSS THE CABLE.** It was charged to the wire at 32
+sectors on the reasoning that the network volume's own `APPS` folder held a
+copy, so §54.4.2's rung 3 would find it there. It never got that far:
+`disk_mount` calls `asc_use` on every FULL mount, which reads that volume's
+`ASSOC.DAT` and stamps `assoc_drv`/`assoc_clus` for **every program it
+names** — so booting from the combo disk seeded Note Pad's hint to `A:\APPS`
+before the cable was touched at all, and **rung 1 is that hint**, tried first.
+The 15,904 bytes came off the floppy at 21,307 B/s, in about 0.75 s. The
+machine's owner spotted it from the drive light; the code says the same.
+
+So what actually crossed for that open is the **document** (809 bytes, 2
+sectors) and `assoc_back`'s **quiet mount** of the network volume — §18.9's
+BPB + FAT window + cwd, no listing and no harvest, so ~11 sectors. Call it 13:
+
+| | sectors | cost |
+|---|---:|---:|
+| **data**, at Set 39's 3,741 B/s | ~13 | **~1.8 s** |
+| **turnaround**, 2 x 54.9 ms per SECTOR | ~13 | **~1.4 s** |
+| `NOTEPAD.O88` off the FLOPPY | 32 | ~0.75 s |
+| the floppy's own mounts, and the volume switched twice | | the rest |
+
+**The turnaround conclusion survives the correction and the size of it does
+not.** `lp_turn` spends one whole system tick per direction reversal —
+deliberately, and Set 39's own header says why: a spin count cannot be made
+to hold between a 5150 and an unknown far end, and a reversal was expected to
+be *"a handful per run"*. In block mode it is **two per sector**, because
+`net_blk` sent a count of **1** every time even though the protocol carries a
+count byte and `dsk_xfer` hands it an already-coalesced run. Batching is worth
+**~1.4 s of this open**, not the 3.7 s first claimed — and much more on
+anything that actually streams off the wire, which this did not.
+
+That is still SPEC.md §18.91's floppy batching in a new place: **a cost model
+built for streaming, met by a caller that does not stream.**
+
+**And a package launched off the wire remains UNTESTED**, which is the other
+thing the correction says. The association hint makes a program on the
+network volume lose to the boot disk's copy of it — which is *right*, it is
+5.7x faster — so opening a document can never be the test for it. Launching
+`MINES.O88` from the network Disk window is, because that is `loader_run` on
+a row of that window rather than `assoc_locate`.
+
+**The measurement that would have settled it in one glance**: `OS88NET.COM`
+prints a dot per sector served, and 34 dots against 13 is not a subtle
+difference. Read the DOS side's screen, not the arithmetic.
+
+#### The write path, checked from OUTSIDE os8088
+
+A file copied onto the network volume and the image carried back to the host.
+This is the check that cannot be made from inside: the writer and the reader
+are the same FAT12 code, so **both halves agreeing on the same wrong thing**
+is exactly the failure a self-consistent volume hides (docs/FIELD-NOTES.md 4
+is what that costs).
+
+| check | result |
+|---|---|
+| `os88disk.py --verify` | **OK** — FAT12, 713 clusters, 6 files, 24 in use |
+| sectors changed against the image that was sent out | **4** |
+| …which ones | FAT1, FAT2, the root directory sector, data cluster 25 |
+| the volume walked from the host, no os8088 code involved | clean; every pre-existing file unmoved, same clusters |
+| `BENCHSML.DAT` against the source it was copied from | **byte-identical**, md5 `ad4c06ff458c1c57df65d7fe63df735a` |
+
+Four sectors and no others: both FAT copies updated **symmetrically**, one
+directory entry, one data cluster, and nothing written anywhere else on a
+713-cluster volume. The commit ORDER (§18.4 rule 1 — data, FAT, then the
+directory entry) cannot be seen in a finished image, but its result can, and
+the result is coherent.
+
+**This was the pre-batching build.** The framing changed with Set 40's
+batching (one command per run, a fixed 512-byte frame per sector whatever the
+status), so the write path is verified for the protocol as it was and owes a
+second run on the protocol as it is.
+
+### Set 41 — a RAISE puts back only what was covered (SPEC.md §11.96.10)
+
+Set 34's own last paragraph names this as the gap it could not reach: `wm_raise`
+armed no rect, so both consumers — the raise cache's restore and §11.90.2's
+`OSAPI_WM_DAMAGE` — answered *whole* however little of the window had been
+covered. `wm_cov_rect` computes the covered box before `wm_lift`, and
+`tools/os88span.py`'s `raise` and its new `paintraise` price the two ends of what
+that is worth. Cycle-accurate 5150/CGA, `pttest.img`'s textured 492×133 BMP:
+
+| span | before | after | |
+|---|---|---|---|
+| **a covered Disk window raised** (`raise`) | | | |
+| `wm_su_try` → `gfx_restore` (the edge merge) | 18.57 | **9.46** | 1.96x |
+| `gfx_restore` → `wm_grow_paint` (the blit) | 30.72 | **29.44** | 1.04x |
+| the whole `wm_draw_win` | 98.17 ms | **87.77 ms** | **1.12x** |
+| **Paint raised from under a Disk window** (`paintraise`) | | | |
+| the canvas blit | 8,668.7 | **5,526.2** | 1.57x |
+| the whole `wm_draw_win` | 9,090.1 ms | **5,947.8 ms** | **1.53x** |
+
+**Both rows are their own geometry and neither is a surprise, which is what says
+the feature does what it claims.** `sc_raise`'s two Disk windows cascade 16 px
+apart, so the covering window takes **95% of the raised one's content width and
+all of its rows**: a restore is `rep movsb` per row, 95% of the bytes is 95% of
+the cost, and 30.72 → 29.44 is exactly that. The merge halves for §11.96.8's
+reason rather than a proportional one — *an edge column the restore does not
+reach is not merged at all*, and this sub-rect's left edge is inside the window,
+so one column is merged instead of two.
+
+`paintraise` is the case the work was granted for: a 536-wide canvas with a
+320-wide Disk window over part of it. The covered box is **321 of 536 columns,
+59.9%**, and the blit comes in at **63.7%** of whole, `pt_blit` being linear in
+the runs it covers.
+
+**And the estimate this was costed against was the wrong way round.** Set 34 and
+REDRAW-SPEC Part 3 both quote *"only 10% of the canvas was visible turns 8.7 s
+into ~0.9 s"* — but 10% visible is 90% **covered**, and what a raise owes is the
+covered part, so that case is 7.8 s and the one worth 0.9 s is 10% covered. The
+mechanism was right and the arithmetic in front of it was not. **The win is
+proportional to how much was covered and there is no single number for it**: a
+window with a corner under something gains nearly everything, a window almost
+entirely buried gains almost nothing. Both rows above are quoted for that reason.
+
+**One thing the run appeared to confirm, and Set 42 took back.** Both
+`paintraise` traces show two `wm_grow_paint` hits for Paint's window — one at
++402 ms with no canvas in front of it, then the real one — which this Set read
+as REDRAW-SPEC Part 3's open item, `[pt_apend]`'s deferred resize re-entering
+the raise. **It is not**: armed properly, there is one `wm_draw_win`, one
+`W_PAINT` and no `wm_front` at all, and the two hits are `pt_growbox` and
+`wm_draw_win`'s own `.growbox`. The 402 ms is the palette, the strip and the
+divider. Set 42 has the trace; this paragraph is left standing because a
+retracted claim is worth more than a deleted one.
+
+Verified at **0 differing pixels** on CGA, Hercules and VGA mode 12h against
+`make REDRAWFULL=1`, over all three gates — `subcheck` (11 steps), `ptcheck`
+(5, the two raises among them) and `callfront` (11).
+
+**A harness rule the run cost itself once: do not edit the tree while a capture
+is running.** `os88sym` asserts its map against `build/kernel.bin` and refuses
+rather than answering with a plausible wrong address, so an edit made during a
+sequence of captures fails every one after it — at the first symbol lookup, which
+is before any window is opened, so the run leaves nothing to look at.
+
+**And the gate found a defect in Paint that was nowhere near it** — SPEC.md
+§42.10. `ptcheck` came back with 2,218 differing pixels on VGA (655 on Hercules)
+in a region **outside** the covered box entirely: 41 columns of desktop dither
+inside Paint's own content, the full height of the colour strip. `pt_wfix`
+rewrites `W_W`/`W_H` from `pt_track`, which runs at the *top* of `W_PAINT` after
+`pt_org` has already derived `[pt_contw]`, so a window that grew laid out the
+rest of that paint at the width it used to be — and under `WF_OWNBG` nobody
+fills the band. **It repaired itself on any later WHOLE repaint, which is why it
+had never been seen; §11.96.10 stopped raises being whole and it stopped
+repairing.** The steps before the raise show it in *both* builds at 0 differing
+pixels, which is what proves it pre-dates the change. One `pt_org` after
+`pt_wfix` is the fix, and all three adapters then read 0.
+
+### Set 42 — the chrome flash under a drag, and a bug that was not there
+
+Two of the three open items in docs/HANDOFF-REDRAW.md, on a cycle-accurate
+5150/CGA. One was real and is fixed; one was a misreading of a trace and is
+retired.
+
+#### The flash — SPEC.md §11.97
+
+Reported from the field: *dragging a window, the one underneath shows its frame
+and drop shadow for a frame or two before being painted over.* Priced with Part
+3.1's instrument (`tools/chromeflick.py`) over one drag of a Disk window across
+another, the release captured at 50 frames of 16.4 ms, **three runs of each
+build**:
+
+| | before | after | |
+|---|---|---|---|
+| visible redraw | 19–21 frames, 317–344 ms | 20 frames, 327–332 ms | — |
+| frames with transient pixels | 17–18 | 18–21 | — |
+| **total transient pixels** | 14,509 / 14,614 / 13,637 | 10,953 / 10,353 / 10,688 | **1.34x** |
+| worst transient frame | 2,205 / 2,339 / 2,072 | 1,612 / 1,601 / 1,625 | **1.37x** |
+
+**Two statistics agreeing at ~1.35x, and neither of the other two columns
+moving — which is the honest shape of it.** The same frames still change the
+same pixels; what changed is how many are written and then immediately
+overwritten. What is removed is the lower window's outline and drop shadow
+inside the mover's new frame: 1px black lines on a grey dither, which is the
+most visible thing a redraw can flash.
+
+**Quote the SUM, not the worst frame, and read the tool's docstring before
+either.** A once-per-frame sampler catches whichever intermediate states happen
+to fall on a frame boundary, so one frame's peak is partly a coin toss — here
+the two statistics happen to agree because the session is stable, and that is
+worth checking rather than assuming.
+
+**What is left (10,665 of it) is the content restore and the title bar**, and
+both are different pieces of work. `wm_su_try` puts back ONE rect (§5.8) where
+the visible region is a list, so bounding it means one `gfx_restore` per
+fragment, each paying §5.7's per-call floor and §11.96.2's edge merge — a real
+trade rather than a free win. The title bar is §11.97.1's per-cell problem.
+
+**And the first version of this measurement was of the wrong operation**, which
+is the finding worth more than the number. SPEC.md §11.91.2 marks the window
+underneath on the rect the mover **vacated**, so a drag has to leave ground
+inside that window *and* still cover part of it afterwards. Dragged the other
+way, `wm_dmg_wins` redraws **the mover alone** — a trace with `wm_draw_win`
+armed says so in one line — and the flash then measured is a residue of the
+desktop dither, which is small and almost entirely sampling phase: the same
+binary returned worst-frame 891, 280 and 902 in three consecutive runs, and the
+first before/after pair off it read as a 3.97x win that did not exist. The
+corrected session is stable to ±3% on the sum and ±1% on the worst frame.
+**A flicker number is only as good as the assertion that the session performs
+the operation** — arm the symbol and count the calls.
+
+#### The bug that was not there — Paint's `W_PAINT` does NOT run twice
+
+Sets 32 and 34 both recorded *"the repaint issues two `wm_draw_win` passes for
+Paint's window, a ~376 ms one that draws no canvas and then the 8,670 ms one"*,
+and attributed it to `[pt_apend]`'s deferred resize calling `OSAPI_WM_FRONT`
+from inside `W_PAINT`. Traced with `wm_draw_win`, `wm_front`, `wm_raise`,
+`wm_paint_all`, `wm_paint_dmg`, `wm_grow_paint` and `gfx_blit4` all armed, on
+both the raise and the drag-off:
+
+```
+wm_raise      1 / 1              wm_paint_dmg   -    / -
+wm_draw_win     75.58   1 / 1    wm_draw_win     18.55   12 / 1
+wm_grow_paint  403.72   - / 1    wm_grow_paint  384.24    - / 1
+gfx_blit4       17.92   - / -    gfx_blit4        5.17    - / -
+wm_grow_paint 5527.13   1 / 1    wm_grow_paint 6758.76    1 / 1
+                                 wm_draw_win      0.89   12 / 0
+                                 wm_grow_paint  204.51    0 / 0
+```
+
+**One `wm_draw_win` for Paint, one `W_PAINT`, and no re-entry of any kind.** The
+two `wm_grow_paint` hits inside it are two different callers: `pt_draw_strip`
+ends in `pt_growbox` → `OSAPI_WM_GROW` (SPEC.md §11.1 — the strip's white bed
+erases the box, so every path that repaints the strip owes it), and
+`wm_draw_win`'s own `.growbox` runs after `W_PAINT`. The 403 ms in front of the
+first is not a pass, it is the palette, the colour strip and the divider — which
+is exactly what Set 32's own table calls it. **The prose turned two hits of one
+symbol into two passes, and four Sets carried it.**
+
+`os88span.py`'s `paint` and `paintraise` scenarios arm three symbols, which is
+what let this stand: `wm_grow_paint` was the last mark in both, so a second hit
+of it read as a second pass. **When a trace implies a control-flow shape, arm
+the symbol that shape would go through** — here `wm_draw_win` and `wm_front`,
+neither of which fires.
+
+### Set 43 — a blit run goes straight into the framebuffer (SPEC.md §5.4.1)
+
+docs/HANDOFF-REDRAW.md's item B, and the largest single drawing cost in the
+system. `gfx_blit4` coalesces runs of equal pixels and emits one `gfx_hline`
+per run — which is one `gfx_fill`, which is §5.7's per-call floor of clip test,
+display hook, adapter dispatch, `vga_rect_setup` and row-base arithmetic before
+a byte is written. On a 1bpp adapter `sw_blit_span` writes the run itself
+instead: the row base and the dither phase are worked out once a **row**, the
+§39.4 reduction is one table read, and what is left is two masked bytes and a
+`rep stosb`.
+
+Cycle-accurate 5150/CGA, Paint raised from under a Disk window (so §11.96.10's
+damage rect, ~65% of the canvas width), `tools/os88span.py paintraise`:
+
+| the canvas | runs/row | before | after | |
+|---|---|---|---|---|
+| `TEXTURE.BMP`, runs of 3–8 px | 84.9 | 5,526.2 ms | **2,430.7 ms** | **2.27x** |
+| `FINE.BMP`, runs of 1–2 px | 308.0 | 18,777.3 ms | **8,364.9 ms** | **2.25x** |
+
+**The two ratios agreeing is the result, not a coincidence**: what the change
+removes is a fixed cost *per run*, so it scales with the run count and the art
+does not matter. Per run: ~740 µs → ~326 µs on the textured canvas and ~702 →
+~313 on the fine one, so about **400 µs of arriving** goes and about **315 µs of
+per-run work** stays.
+
+The whole Paint raise is 5,947.8 → **2,851.5 ms** on the textured canvas, and
+against the figure this round started from — before §11.96.10 gave a raise a
+damage rect at all — **9,090.1 → 2,851.5, 3.19x**.
+
+**Flat art gets faster too, which the plan doubted.** docs/PAINT-NOTES.md's
+sketch was a plane-parallel decoder that "would beat this on detailed pictures
+and lose to it on flat ones"; this is not that. It keeps the run scan, so a
+solid row is still ONE run — it just costs less. Measured on `mkbmp`'s `flat`
+art (one run a row) with the same damage rect: **132.1 ms**, which with the
+84.9-runs figure fits a two-term model of the whole path —
+
+```
+run path, µs a row = 830 + 371 x runs      (830 = the scan and the row setup)
+```
+
+— reproducing all three measured densities within 3% (flat 132.1 against 132.1,
+textured 2,352 against 2,430.7, fine 8,292 against 8,364.9). **That 830 µs is
+the term the "45x" estimate forgot**, and it is what decides whether the byte
+decoder needs a hybrid; docs/HANDOFF-REDRAW.md item B2 has the working.
+
+**Merging the two routines was worth 11%** — 2,698.1 → 2,430.7 ms — and that is
+the 8088 lesson rather than a tidy-up. Written as a `gfx_blit_span` that worked
+out the pattern plus an `sw_span` that wrote it, the pair spent **24 stack slots
+and a near call/ret** on prologue alone: about 400 of the ~1,900 clocks a run
+cost. On this machine the instruction COUNT is the price and there is no work in
+a push.
+
+**What is left, and what it would take.** ~315 µs a run is ~1,500 clocks: the
+run scan's three 4-bit shifts (24 clocks each on an 8088), the `repe scasb`
+setup, the tail nibble decode, and `sw_blit_span`'s own forty-odd instructions.
+Removing it means not working per run at all — a decoder that walks the
+destination BYTE by byte, gathering eight pixels' bits regardless of runs, at
+roughly 44 clocks a pixel. On `FINE.BMP`'s damage rect that is ~394 ms against
+8,365, another 20x; on a flat row it is 4.5 ms against 0.3, fifteen times WORSE.
+So the end state is a hybrid keyed on the row's run density, and this change is
+the half of it that is unconditionally right.
+
+**And VGA followed**, `vga_blit_span`: the four planes take their data from
+Set/Reset rather than from the CPU byte, so a run is one `out` for the colour
+and then the same masked-byte shape the 1bpp writer has — which is why its
+interior can be a `rep stosb` of a byte whose *value* is irrelevant, exactly as
+`gfx_fill`'s own interior is. Enable Set/Reset is armed **once a call** and
+cleared at the end, because it is the half that does not change between runs.
+
+| the canvas, on `os8088_xt_vga` | runs/row | before | after | |
+|---|---|---|---|---|
+| `TEXTURE.BMP` | 84.9 | 4,226.2 ms | **2,163.5 ms** | **1.95x** |
+| `FINE.BMP` | 308.0 | 14,401.6 ms | **7,151.1 ms** | **2.01x** |
+
+Slightly under the 1bpp figure and for the obvious reason: a run costs two to
+four `out`s here against none there, and an ISA `out` is not free.
+
+Verified **0 differing pixels** on CGA, Hercules and VGA mode 12h with
+`tools/ptcheck.py` (5 steps) and `tools/subcheck.py` (11), and separately with
+`PTROW=1` on CGA and on VGA — `FINE.BMP`'s 1–2 pixel runs, where every run sits
+inside ONE framebuffer byte and touches neither edge of it, which is the
+narrowest case §5.4.1 has and the one a picture barely exercises.
+
+**One 25-pixel `subcheck` difference is NOT a defect and is worth knowing
+about**, because it will recur on every kernel-size change that crosses a
+cluster: the drive-A Disk window shows `Free ...` for the SYSTEM disk, which
+carries `KERNEL.SYS`, so this commit's 174 → 175 sectors is 139 → 140 clusters
+used and one kilobyte less free. It appears in exactly the five steps where that
+window's status line is on screen and in none of the others, which is what
+identifies it; `make`'s own `N/354 clusters` line confirms it in one command.
+
+### Set 44 — the blit stops working per run (SPEC.md §5.4.1.1)
+
+docs/HANDOFF-REDRAW.md item B2, built without its hybrid. Same session, same
+damage rect, cycle-accurate 5150/CGA, three run densities:
+
+| Paint's canvas | runs/row | pre-§5.4.1 | span writer | **decoder** |
+|---|---|---|---|---|
+| `FLAT.BMP` | 1.0 | — | 132.1 ms | **517.6 ms** |
+| `TEXTURE.BMP` | 84.9 | 5,526.2 ms | 2,430.7 ms | **516.6 ms** |
+| `FINE.BMP` | 308.0 | 18,777.3 ms | 8,364.9 ms | **517.6 ms** |
+
+**516.6 / 517.6 / 517.6 — a 0.2% spread across a 3.6x range of run density.**
+That is the result: a blit now has ONE cost, and "never price a blit on flat
+art" (Set 32) stops being a rule anyone has to remember. Against the span
+writer it is **4.7x** on a picture and **16.2x** on detailed art; against the
+run path this round started from, 10.7x and 36.3x. The price is the flat row:
+132.1 → 517.6, **3.9x worse**, on the one operation nobody waits for.
+
+**Three things this measurement corrects, and the first is a rule.**
+
+**The estimate was 2.9x optimistic because it counted clocks and not BYTES.**
+Item B2 predicted 4.71 µs a pixel from a textbook instruction timing; measured
+it is **9.56 µs**. §5.7's own floor says why — **4.34 clocks per instruction
+byte on an 8088** — and the loop is ~20 instruction bytes a pair, which is 10
+a pixel, which is 43 clocks, which is 9.0 µs. The 8-bit bus starves the
+prefetch queue, so on this machine **the size of a loop IS its speed** and a
+clock-count estimate of a tight loop will always read low. *Count bytes.*
+
+**So the crossover is ~10 runs a row, not 1.84** — still far below anything
+with content in it (textured art is 55 a row over the damage rect, fine art
+201), and still above flat.
+
+**And the next step is visible in the same arithmetic**: the per-pair count
+test is 8 of the 20 bytes. An unrolled four-pairs-a-byte loop, legal whenever
+`x` is even, would be about twice as fast again — ~260 ms — at the price of a
+second loop body for odd `x`.
+
+**One bug, caught by the gate and worth naming**: the dither bit is
+`parity XOR 1`, not `parity`. `sw_parity`'s `0xAA` has its bit SET at x = 0 of
+an even row and bit 7 is the leftmost pixel. Inverted, it changes every
+dithered pixel and nothing else — 20,532 differing pixels, which reads like a
+far deeper defect than a single `xor al, 1`.
+
+Verified **0 differing pixels** with `tools/ptcheck.py` on CGA, Hercules and
+VGA mode 12h, and on CGA with `PTROW=1` (`FINE.BMP`'s 1–2 pixel runs). The
+`subcheck` 25-pixel difference is Set 43's known one — `KERNEL.SYS` grew a
+cluster and the drive-A window reports one kilobyte less free.
+
+**Cost: `.text` +169, `.bss` +513, and it lands exactly ON `KERN_BUDGET`.**
+`KERN_BUDGET`'s eighteenth move is one step to keep the tree buildable, and it
+is an **ask** rather than a grant — the constant's own comment carries the two
+ways to hand it back, both costed.
+
+### Set 45 — the aligned bodies, and the parity nobody had looked at (SPEC.md §5.4.1.2)
+
+Set 44's own closing arithmetic, built. The per-pair count test is 8 of the 19
+instruction bytes a pair costs to fetch, and the boundary it looks for arrives
+every *fourth* pair — so once the first destination byte is stored and the
+phase is fixed, four pairs are one whole byte and the accounting is not needed
+at all. Same Paint raise, same damage rect, cycle-accurate 5150/CGA:
+
+| canvas x | phase | §5.4.1.1 | **§5.4.1.2** | |
+|---|---|---|---|---|
+| **74** | even, nothing pending | 516.6 ms | **259.1 ms** | 1.99x |
+| **95** | odd, one bit pending | 508.3 ms | **299.0 ms** | 1.70x |
+
+…and the "one cost" property survives: **259.1 ms at 85 runs a row against
+260.2 at 308**, 0.4%. Against the run path this round started from, **21.3x**
+on a picture and **72.4x** on detailed art. Predicted 2.05x from the byte
+count and measured 1.99 — Set 44's *count bytes* rule holding on the first
+estimate made under it.
+
+**The finding is the second row, and it was invisible until it was looked
+for.** The even body is reachable only at an even destination x, Paint's
+template lands its canvas on one, and every gate and every measurement in this
+whole round had therefore priced *one half of the routine* — with the other
+half a **one-pixel drag away**. `PTNUDGE` (an odd sideways drag before the
+cover/raise) is now an argument to both `tools/ptcheck.py` and
+`tools/os88span.py`, and it is what showed the cliff: the same picture, the
+same window, one pixel over, **508.3 ms against 259.1**. The odd body is 52
+bytes per eight pixels against the even one's 37, the carry epilogue being the
+whole difference, and it takes the spread down to 15%.
+
+**The crossover moved with it, and docs/LAST-DROP.md 3 is re-costed**: the run
+path is still `830 + 371 x runs` µs a row and the decoder is now 1,948, so the
+hybrid's band is **~3 runs a row** rather than Set 44's ~10, and what it buys
+on flat art is 1.96x rather than 3.9x. Same verdict, less of it.
+
+**A harness rule falls out of it.** *A gate that never moves the thing it
+tests proves the alignment it happened to start at.* This is the second time
+this round — Set 42's chrome flash measured a drag that vacated nothing — and
+both had the same shape: a scripted session that reads as thorough because it
+has many steps, all of them at one phase of the thing under test.
+
+**One trap in the layout, and NASM catches it**: `loop .pair` is a short jump
+and cannot reach over 90 bytes of unrolled body, so the two bodies live past
+the routine's `ret` and the three "no pairs left" exits trampoline through one
+`.nomore`. The first attempt put them inline, which is `short jump is out of
+range` and not a silent wrong answer — the one class of layout mistake in this
+tree that fails loudly.
+
+Verified **0 differing pixels** with `tools/ptcheck.py` at **both phases** on
+CGA and Hercules (`PTNUDGE=21` against a reference build of the same commit
+without the change), at the even phase on VGA mode 12h and on CGA with
+`PTROW=1`, and with `tools/subcheck.py` on CGA — 11 steps, 0 pixels, so Set
+42's known 25-pixel free-space difference is gone with the cluster count back
+where it was.
+
+**Cost: `.text` +148.** `kern_big` crosses no rung and is left with **63 bytes**
+in its image rung against 211, so the next byte added to `.text` anywhere buys
+a whole 512-byte step; `kern_small` crossed one (1,536 → 1,024 spare, two
+steps, still inside its own budget). `KERN_BUDGET`'s nineteenth move (+2,048,
+granted with the eighteenth as one piece of work) is what that slack is drawn
+from.
+
+### Set 46 — Paint's palette stops being drawn (SPEC.md §11.96.11)
+
+docs/HANDOFF-REDRAW.md item C, in the half that fits. **Paint has no raise
+cache at all and the reason is memory** — over its whole content that is ~9 KB
+on 1bpp, ~36 KB on VGA and ~150 KB grown, on top of the ~127 KB it already
+holds — while its repaint is the most expensive in the tree.
+
+**The measurement that decided the design** breakpointed the primitives
+between `wm_draw_win` and the canvas blit and bucketed each by the rect it was
+handed, so no package symbols were needed. Cycle-accurate 5150/CGA, Paint
+covered by a Disk window and raised:
+
+| region | `gfx_fill` | `hline` | `vline` | `frame` | `font_char` | total |
+|---|---:|---:|---:|---:|---:|---:|
+| **tool palette** | 225 | 184 | 23 | 12 | 7 | **451** |
+| bottom strip | 64 | 27 | 26 | 13 | 1 | 131 |
+| everything else | 10 | 2 | 4 | 1 | 5 | 22 |
+
+**604 drawing calls, 421.8 ms — and 75% of it is a 44-pixel column** of eight
+wells, eight 16×16 icons and the size boxes, none of which has changed since
+the window opened. That is what said a BAND is enough and a general kept region
+is not worth its code (§11.96.11.1): the strip is the other 99 ms.
+
+So a window names one band on one edge, the cache banks that alone, and
+`wm_damage` hands the app the content minus it:
+
+| | before | after | |
+|---|---:|---:|---|
+| chrome, up to the canvas blit | 421.8 ms | **191.9 ms** | 2.19x |
+| the canvas blit | 259.1 ms | 259.1 ms | — (same damage rect) |
+| **the whole Paint raise** | **680.9 ms** | **451.0 ms** | **1.51x** |
+
+Paint's cache is ~1 KB on 1bpp and ~13 KB on VGA, and **Paint needed no drawing
+change at all** — `pt_draw_pal` and `pt_fsbed`'s bed for it were already gated
+on §11.90.2's damage rect. Its side of this is nine instructions: name the band,
+and promise `WF_SAVEU` only if the band was taken.
+
+**One bug, and the gate is what found it — which is the transferable part.**
+Two routines destroy `wm_su_son` and its four rect words on the way through a
+restore, and **both are right to**: `wm_su_srect` spends the one-shot per window
+so a skipped window cannot pass its rect to the next, and `wm_su_edge` reuses
+the four words as scratch *on the explicit reasoning that the one-shot has
+already been spent*. Restoring only the flag left `wm_damage` intersecting the
+app's half against the BAND's rect, which is empty — so Paint was told it owed
+nothing and correctly drew nothing: **19,696 differing pixels, the canvas never
+repainted.** A span measurement had already shown it as a *win* (the whole raise
+"190.8 ms" with no `gfx_blit4` in it at all), which is exactly what a
+performance number looks like when the work has gone missing rather than got
+cheaper. **A timing that improves by more than the change can explain is a
+correctness question, not a result.**
+
+Verified **0 differing pixels** with `tools/ptcheck.py` on CGA, Hercules and
+VGA mode 12h against `make REDRAWFULL=1` (which refuses the band, so Paint
+declines the promise and the reference is exactly today's behaviour), and with
+`tools/subcheck.py` on CGA — 6 pixels, one digit of drive A's free space, the
+kernel having grown a cluster.
+
+**Cost: `.text` +417, and it is the last of the small kernel's.** `kern_big`
+crosses one image rung and stands at 1,024 spare (two steps); **`kern_small` is
+at 0 spare, exactly on `KERN_BUDGET`** — it builds, and there is not one byte
+left for the next feature. That is a decision to take with whoever asks for the
+next one, not a build fix.
+
+### Set 47 — item D measured, and not built (SPEC.md §11.91.3)
+
+docs/HANDOFF-REDRAW.md item D: key §11.91's marking on each window's **redrawn
+region** instead of its rect. **A negative result, and the measurement is the
+deliverable** — it costs one guest run and it stops the next session spending a
+budget step on it.
+
+**It can only ever spare a window marked TRANSITIVELY**, one that does not
+overlap the damage rect but does overlap a marked window below. So the question
+is how often that arises, and the session was built to favour it: three windows
+(Drive A, Drive B, Note Pad), Note Pad parked over the *interior* of a Disk
+window and clear of its frame, then dragged off. Cycle-accurate 5150/CGA, the
+damage rect read out of the guest at the `wm_dmg_wins` breakpoint:
+
+```
+damage         (127,60)-(427,199)
+win 0  Disk    (110,20) 320x155   overlaps the damage
+win 1  Disk    (126,20) 320x155   overlaps the damage
+win 2  NotePad (127,60) 260x155   the mover - marked unconditionally
+```
+
+**Three windows drawn, zero transitive marks.** A two-window drag draws two, of
+which one is again the mover. The reason is structural rather than lucky: a
+drag's damage rect is the union of where the mover WAS and where it IS, so
+every window it uncovered overlaps it *by construction*.
+
+Two more things stand in the way even where the case does arise. `wm_draw_win`
+writes the outline, the drop shadow and the title bar **whole** whatever the
+cache did, so a transitively-marked window is genuinely damaged unless it sits
+strictly inside the lower window's interior — and windows here cascade 16px and
+overlap at their edges. And **the fix cannot be a bounding box**: the outline's
+bbox IS the whole window rect, so no accumulation of rects comes out smaller
+than today's. It needs a rect LIST with union and intersection, in the routine
+where a wrong answer leaves STALE pixels rather than extra ones.
+
+**The other half of item D is the same conclusion by another route.**
+§11.96.6's accumulated bounding box means the second window drawn restores the
+first window's whole rect as well as the damage — the taper its own text names.
+Computed on the measured geometry: window 1 restores rows 38..173 where the
+ideal is 60..173, **136 against 114 — 19% of one restore**, about 4 ms of a pass
+costing over 100. Same region, same reason, same answer.
+
+**What would flip it**: a UI with small windows floating over large ones — a
+palette, a tool window, an inspector — where the transitive case is the common
+one rather than the absent one. os8088 has none.
+
+**Cost of finding out: 0 bytes and four guest runs**, against several hundred
+bytes and the riskiest routine in the window manager. That ratio is the argument
+for measuring the case before building the mechanism, and it is the third time
+this round has paid off (§19.2.3.1 and §48.18.1 are the others in this file).
+
+### Set 48 — the cache holds four fragments, and Paint's chrome is 4.7x (SPEC.md §11.96.11.1)
+
+Set 46 gave a window ONE band on one edge and took Paint's tool column out of
+its repaint. This gives it four, so the bottom strip goes too. Same Paint
+raise, same cycle-accurate 5150/CGA:
+
+| | before the round | one band (Set 46) | **four (Set 48)** |
+|---|---:|---:|---:|
+| chrome, up to the canvas blit | 421.8 ms | 191.9 ms | **90.6 ms** |
+| the canvas blit | 259.1 ms | 259.1 ms | 259.1 ms |
+| **the whole Paint raise** | **680.9 ms** | 451.0 ms | **350.8 ms** |
+
+**4.7x on the chrome and 1.94x on the raise.** Paint's cache is ~3 KB on 1bpp
+against ~9 KB for its whole content, which is why it could not have one at all
+before Set 44. Its side of this is two `OSAPI_WM_BAND` calls: the tool column at
+launch, and the strip from `pt_bands` on every paint, because the strip's height
+is `content − canvas` and the size boxes move it without moving the window.
+
+**Three bugs, and all three are the same mistake in three places**: *a routine
+that was right about "the buffer" is wrong about "a fragment of it".*
+
+- **`gfx_save` writes `span+1` bytes a row, not `span+3`.** The +3 in the old
+  size arithmetic is the image *plus* §11.96.2's two edge-scratch columns.
+  Charged per fragment it put every later fragment's offset past its own
+  pixels — 2,943 differing pixels, read as a stripe down Paint's tool column.
+- **The edge scratch has to be SHARED and past every fragment.** Derived inside
+  `wm_su_edge` as "past this rect's image" it is the same address while there is
+  one fragment and lands inside the next one's pixels when there are four.
+- **`wm_su_edge` patches at the FRAGMENT's base, not `WSU_IMG`.** Two symptoms
+  at once and they looked unrelated: the left band's overhang column came back
+  stale — a one-pixel line down the *outside* of the window, 100 px — while the
+  bottom strip was corrupted where the misdirected merge landed, 326 px.
+
+**And the second and third only showed on Hercules.** CGA passed the first fix
+clean and Hercules did not, on the same binary: the covered rect on the CGA
+session reaches the left band and on the Hercules one does not, so the two
+adapters restore a different set of fragments. *Three adapters is not
+belt-and-braces here; it is the only way this class of bug appears at all.*
+
+Verified **0 differing pixels** with `tools/ptcheck.py` on CGA, Hercules and VGA
+mode 12h against `make REDRAWFULL=1`, and with `tools/subcheck.py` on CGA — 11
+steps, 0 pixels, which is also the proof that a window naming NO band takes
+exactly the path it always did (fragment 0 is then the whole content).
+
+**Cost: `.text` +559 over Set 44.** Both kernels cross one image rung and stand
+at **512 spare, one step** — `KERN_SMALL_BUDGET`'s twentieth move is what paid
+for it, and it is spent.
+
+
+### Set 49 — Solitaire fills nothing twice (SPEC.md §43.9)
+
+The question asked was whether §11.96.11's `wm_band` is worth anything to
+Solitaire. **It is not, and measuring that is what found what is.** Solitaire
+has promised `WF_SAVEU` since it was written and its content banks in ~3.7 KB
+on 1bpp, so the raise cache already answers every partial case — a raise from
+under another window **97.5 ms**, a window dragged off it **78.7 ms**, an
+un-minimize **172.1 ms**, and `W_PAINT` running in none of them. A band is for
+a window whose whole-content cache is unaffordable; this one's is affordable
+and installed, and Klondike has no static furniture at an edge to name.
+
+`gfx_blit4` is what makes those three claims checkable rather than inferred:
+card backs are the only thing in this window that blits (§43.3), so a capture
+with none in it is a capture in which `sol_drawall` did not run.
+
+**What is expensive is the full repaint — a New Game, a Restart, a launch,
+every `wm_paint_all` — and two of its fills were the same pixels twice.**
+Cycle-accurate 5150/CGA, 220x136 content, the *same deal in both builds*
+(`[osapi_seed]` written from the harness, because `sol_newgame` takes its
+entropy from `OSAPI_RAND` and nowhere else — two runs of one binary otherwise
+deal differently and no pixel or call count is comparable):
+
+| | before | after |
+|---|---:|---:|
+| New Game — the app drawing itself | 789 calls, **664.2 ms** | 777 calls, **562.6 ms** |
+| a window MOVE — through `wm_draw_win` | 978 calls, **934.6 ms** | 965 calls, **809.0 ms** |
+
+**Exactly 12 fills and exactly 13**, which is the shape that says the change did
+what it claims and nothing else: twelve pile wipes on both, plus the kernel's
+white fill on the one that goes through `wm_draw_win`.
+
+- **§43.9.2, the twelve wipes.** `sol_drawall` fills the whole content with felt
+  and then `sol_drawpile` fills *each pile's rect* with felt again, except where
+  `sol_covers` already declined. Per call: the whole-content fill **26.45 ms**,
+  seven tableau column wipes at **11.85–12.93** (a column's rect is the full
+  content height), five waste/empty-foundation wipes at **3.93–4.06** —
+  **102.9 ms of 681.3, 15.1%**, for pixels that were already that colour.
+  Measured after: **101.6 ms**.
+- **§43.9.1, `WF_OWNBG`.** Solitaire predates §11.90.1 and is its second
+  consumer. One fill of **~25 ms**, and as a *picture* it is Part 1's double
+  draw at maximum contrast — the felt is `CGREEN`, which §39.4 reduces to
+  **black** on both mono adapters, so every kernel-driven repaint was the window
+  going white, then black, then filling with cards over two-thirds of a second.
+
+**The repaint is ~91% floor and the call count is the only lever**, which is why
+both of these are worth their size: 816 calls x PERFORMANCE.md Part 2's ~756us
+is 617 ms of the 681. Nothing inside those calls was touched. This is §48.18's
+finding in another package.
+
+Verified **0 differing pixels** on CGA, Hercules and VGA mode 12h — three
+captures each (the deal, the same board after a MOVE, and a Restart in place)
+against a build of `HEAD`'s `solitaire.asm`, by `tools/solcheck.py`. The move is
+in the session because `WF_OWNBG`'s failure mode is a pixel the app does not
+write showing *what was there before*, which is only another window's content
+once something has moved.
+
+**Cost: the kernel is untouched.** `solitair.o88` 5,799 -> 5,823 bytes, which is
+heap while the game is open and nothing when it is closed.
+
+### Set 50 — Solitaire's drop redraws the cards that MOVED (SPEC.md §43.10)
+
+Set 49 priced Solitaire's FULL repaint and left §43.7's incremental path alone
+on the strength of its own reasoning: a move touches two piles, so it costs two
+`sol_drawpile` calls and never a whole content. That is true, and it is not the
+same claim as *a drop is cheap*.
+
+**Measured on a cycle-accurate 5150 with a Hercules card, one card dragged off
+a six-card run onto another column** — the commonest move in Klondike, driven
+through the UART with the drawing primitives breakpointed and the board poked
+to a chosen position so the case measured is the case chosen:
+
+| | before | after |
+|---|---:|---:|
+| card faces drawn | 11 | 3 |
+| drawing calls | 481 | 210 |
+| guest time | **332.5 ms** | **171.2 ms** |
+
+**Eight of those eleven faces were pixel-identical to what was already on the
+screen.** Cards leave and arrive at the *top* of a column, so the ones
+underneath do not move — and `sol_drawpile` erased and redrew them anyway,
+because §43.7's keep stopped at the face-down run. The fan was `(cfd 2, cfa 5,
+cfu 14)` before the move and after it, so nothing below the change had moved by
+so much as a pixel.
+
+**The two ratios differ — 2.3x the calls, 1.94x the time — because the faces
+that survive are the expensive ones**: 41 calls per face on average before, 66
+after. A buried card is a sliver that skips its centre pip and its bottom edge
+(§43.3), and slivers are exactly what a keep keeps; what is left to draw is the
+full-height card at the bottom of the column and the one that just arrived.
+
+**A re-fan is the case where there is nothing to win, and it is not rare.**
+`sol_colfan` tightens a column that would run past the content bottom, so on
+CGA's 136-row desktop a column growing from 7 cards to 10 takes the face-up
+step from 12px to 10px and *every* card in it really does move. Measured, that
+same drop is **309 calls before and 309 after** — the shadow keeps nothing and
+is right not to. The win is on the adapters with the room for long columns,
+which is Hercules and VGA, and on the field machine that is the primary card.
+
+**What it cost: nothing the kernel can see.** `solitair.o88` 5,823 -> 5,889
+bytes of image and 1,276 -> 1,451 of bss — 203 bytes of shadow against the 28
+the sliver cache used — all of it inside the package's own region, which is a
+heap claim (§20.1). No kernel file changed.
+
+**And §11.96's raise cache was asked whether it covers any of this. It does
+not, and it is not idle either** (§43.10.1). The question arrived as *"a drag
+and drop did not seem to use this buffer — maybe this is a global issue?"*,
+which is the same words §11.96.4 was written for, so it was re-asked with the
+instrument rather than answered from the document. Two scenarios added to
+`tools/os88span.py`, cycle-accurate 5150/Hercules:
+
+| | | |
+|---|---|---:|
+| `solraise` | Solitaire covered, then called to the front | `wm_su_try` → `gfx_restore` **15.24 ms** |
+| `sol` | a Disk window dragged **off** Solitaire | `wm_su_try` → `gfx_restore` **32.76 ms** |
+| `dragoff` | ...and the same for two Disk windows, as a control | `wm_su_try` → `gfx_restore` **10.84 ms** |
+
+**Zero `gfx_blit4` in any of them**, so `sol_drawall` ran in none — against
+§43.9's 681 ms full repaint. The buffer works, for this package and generally.
+What it cannot do is a card drop: §11.96.4's bank **drops the front window's
+cache and takes everybody else's**, and the window a card is being dropped on
+is by definition the front one. The two mechanisms compose — the cache for
+what another window covered, the shadow for what the app moved itself — and
+after this change they compose over an incremental drawing that is exact.
+
+**One measurement here was wrong before it was right, and the reason is in
+`os88span.py`'s own docstring.** A first pass with a hand-rolled probe reported
+`wm_su_try` firing **zero** times on a Solitaire raise whose picture came back
+perfect, which reads as "the cache is being bypassed" — the very claim under
+test. It was the harness: the probe sent its press and release as back-to-back
+raw packets, which the 1200-baud UART drops (`subcheck.pclick` exists for
+exactly this), and armed the breakpoints before driving the input instead of
+after. **Drive the input before arming and send only the last packet**, which
+is what the scenarios above do and what that file has said since Set 30.
+
+**Verified by comparison, not by argument.** `tools/solcheck.py` grew a PLAY
+phase for this: fourteen real drags chosen from the guest's own board (so both
+builds play the same game off the same seeded deal), including a six-card run,
+a three-card run, waste plays, a foundation play that empties a column outright,
+and Auto Finish — capturing after every one. The gate is that the incrementally
+drawn content equals **the same position forced through a full `W_PAINT`**:
+**0 differing pixels on Hercules and 0 on CGA**. That comparison needs no second
+build, which is what makes it the strong one — a wrong keep is a card left
+standing where a card no longer is, a real picture rather than a broken-looking
+one, so nothing about the screen would say so.
+
+**`make SOLNOKEEP=1` is the second build, and it found something that is not
+this change.** It stubs `sol_keep` to 0, so every column is erased and redrawn
+whole — strictly more drawing than either §43.7 or §43.10 — and its own content
+then differs from *its own* full repaint by **12 pixels**: one column, one pixel
+wide, twelve rows tall, at a tableau column that the move in question neither
+redraws nor keeps. Two independent runs of it are byte-identical to each other
+and both carry it, so it is deterministic rather than a timing or cursor
+artifact; it appears at one identifiable step — a six-card drag whose outline
+crosses four columns — and survives every later move, which is what a stray
+pixel in a column nothing repaints does.
+
+**It is unexplained and it is not safely a property of the knob**, because
+`keep = 0` is a state the shipped build reaches too: on the first draw after
+`sol_pinv`, and after any re-fan. What is established is the paragraph above —
+the shipped build's own output is exact against a full repaint on both 1bpp
+adapters — and not a clean cross-build diff, which this did not produce (15 of
+19 captures identical, 4 differing by those same 12 pixels, with the reference
+the build that disagrees with ground truth). Worth an investigation of its own;
+the trace to start from is which drawing call touches that column during that
+step, since neither pile being redrawn owns it.
+
+Three things the harness had to be taught first, and each of them made a broken
+build look like a passing one:
+
+- **The listing has to be of the build that is there.** A package's bss names
+  are `equ`s over `os88_image_end` with no map, so the offsets are walked out of
+  the source and checked against an instruction in the listing — and the listing
+  was being assembled without the knob's `-D`, so it described the other build.
+  It was caught only because the two images happen to differ in size.
+- **The crop has to be in guest coordinates.** `solcheck` cropped the card's
+  rasterised frame, which on Hercules is 720x350 for a 720x348 screen at
+  dx = -16 (`sucheck.fb` has said so for as long as it has existed). Both builds
+  are offset the same way so a cross-build diff survived it; a comparison across
+  a window MOVE does not.
+- **Blanking the mouse cell is not enough when the two captures are different
+  steps.** The pointer is somewhere else at each, so one image gets a black box
+  where the other has cards — 321 pixels of difference, in BOTH builds, which is
+  what said it was the harness. The arrow is parked clear of the window now and
+  the blanking is belt and braces.
+
+### Set 51 — a window MOVED replays its content (SPEC.md §11.96.12)
+
+Set 50's question came back one level up: *"drag the whole Solitaire window by
+its title and it redraws its entire screen card by card, instead of from its
+last full window shadow buffer — I'm not sure if this is global or not."*
+
+**It was global**, and `tools/winmove.py` was written to price it. Cycle-accurate
+5150/Hercules, each window dragged by its own title bar:
+
+| | drawing calls | guest time | the tell |
+|---|---:|---:|---|
+| a Disk window | 207 | **236.6 ms** | 71 `font_char` — the listing re-lettered |
+| Solitaire | 1,016 | **914.7 ms** | 22 `gfx_blit4` — every card back again |
+
+`wm_su_try` appeared in both traces and `gfx_restore` in neither: the dragged
+window is FRONT, so §11.96.4 had dropped its cache, and `wm_su_ck` compares the
+absolute content rect, which a move changes in all four numbers.
+
+**The fix is a relabel, not a mechanism.** `wm_dc_take` banks through
+`wm_su_take` at the old position and moves the claim's header by the drag's own
+delta; `wm_su_ck` then agrees and the raise cache's own restore — fragments,
+`wm_su_edge`, free — does the rest. The same drag through both builds
+(`make DRAGCACHE=0` is the A/B), Solitaire, (231,20) → (167,20):
+
+| | drawing calls | guest time | its cards |
+|---|---:|---:|---|
+| `DRAGCACHE=0` | 981 | **954.3 ms** | 22 `gfx_blit4` |
+| with the cache | 210 | **462.4 ms** | **0** — one `gfx_restore` |
+
+**4.7x the calls, 2.06x the time.** What remains is honest: the window
+*underneath* is genuinely revealed and must be redrawn, which is most of the
+462 ms.
+
+**Cost: `.text` +174 bytes — and what that costs the MACHINE depends on the
+base it lands on, which is worth stating because both numbers are real.** On
+the branch it was written against it crossed no rung and the footprint moved
+**+0**. Merged onto `elendilon`, where §2.6's cold-segment round had left the
+image rung with under 200 bytes of slack, the same 174 bytes cross it:
+`KERN_SIZE` 102,912 → **103,424**, `KERN_BUDGET` spare 2,048 → **1,536
+(3 steps)**. That is
+docs/KERNEL-MEMORY.md's accounting rule working as written — a change that
+crosses no rung is not free, it has spent slack that belonged to the next
+feature, and here the next feature was the merge itself.
+
+The other half of that round is the good news: `.text+.bss` is **51,787 of
+65,536** afterwards, so **13,749** are left against the ceiling that cannot be
+raised — where this change's own branch had 228.
+
+**Verified: 0 differing pixels of 250,560 on Hercules and of 128,000 on CGA**,
+whole screen, against the reference build — and `gfx_restore` fires for
+**Fractal**, which promises no `WF_SAVEU` and has a live worker, which is what
+says every window is eligible rather than only the ones §11.96.1 marked.
+
+Four things this cost, and every one of them made a working build look broken
+or a broken one look fine:
+
+- **The collector ate the first hit.** `burst` opened with `run`, and the guest
+  is already stopped at the *first* symbol of the operation when it is entered —
+  which is precisely the routine under test. `wm_dc_take` was executing all
+  along and simply never appeared, which read as "the new code never runs".
+- **The first honest trace then showed the bank succeeding and the restore
+  refusing**, and the reason was real rather than a slip: the test drag moved
+  the window's bottom *below the screen* (content `y2` 361 on a 348-row
+  Hercules), which `wm_su_try` correctly refuses. `wm_dc_take` asks that
+  question up front now, so the ~4 ms of claim and save is not spent on a
+  window that will be drawn in full anyway.
+- **782 differing pixels that were two different card games.** Solitaire seeds
+  from `GET_TICKS`; the gate now pins `[osapi_seed]` and presses N, which
+  `tools/solcheck.py` documents in capitals.
+- **`os88sym` refused to run against the knob build at all** — correctly, since
+  a map of a different kernel is a wrong answer rather than a missing one. It
+  reads `$OS88_DEFINES` now, so every tool layered above it (`os88geom.word`,
+  `sucheck.fb`, `Marty.sym`) can drive an A/B build without threading defines
+  through each one. That trap is named in `os88span.py`'s docstring and had no
+  remedy until now.
+
+### Set 52 — VGA wants the byte boundary MORE than mono does (SPEC.md §11.94)
+
+`WF_SNAP` was gated on `[vid_mono]` for most of its life, on the premise that
+what snapping buys is `font_run`'s single-store cell path — which is genuinely
+1bpp-only — and therefore that on VGA the flag is a no-op costing 8px drag
+steps for nothing. **The premise measures false, and the refutation was already
+printed in SPEC.md §11.94**: its `-icount` table said 2.1% on Hercules against
+5.8% on VGA, sitting directly above the paragraph explaining that the flag does
+nothing there. The number had been filed as a fact about `font_run` rather than
+about *alignment*.
+
+**Mode 12h is eight pixels to a byte** — four planes of one bit each — so an
+unaligned 8x8 cell spills into a second framebuffer byte on VGA exactly as on a
+Hercules, and `font_char`'s planar `.vram` path pays for the spill with a second
+`GC8 Bit Mask` `out` and a second latched read-modify-write, once per row per
+cell. Its `.no_second` early-out is taken only when `x & 7 == 0`.
+
+Measured, `tests/typebench` (40 keystrokes, whole 40-cell line redrawn after
+each — what `np_redraw` does to its dirty band), cycle-accurate 4.77MHz 8088;
+Hercules on `os8088_5150_herc` with the period IBM ROM, VGA on `os8088_xt_vga`:
+
+| adapter | CHAR aligned | CHAR skewed 5 | one `font_run` | alignment is worth |
+|---|---:|---:|---:|---:|
+| Hercules | 1424 ms | 1472 ms | 316 ms | **3.4%** |
+| VGA | 1013 ms | 1108 ms | 996 ms | **9.4%** |
+
+**The adapter the gate excluded gains 2.8x the one it was written for.** The
+`font_run` column is the other half of the story and is why the premise was
+believable: on Hercules the run is **4.5x** the CHAR pair (the single-store
+path), and on VGA it is level with it (ratio 101) because a run there falls back
+to `gfx_fill` + `font_str`. The fallback's *glyphs* are what come out aligned,
+and that is where the 9.4% lives.
+
+`tests/gfxbench` on `os8088_xt_vga` prices the primitive the same way:
+
+| row | µs |
+|---|---:|
+| `PAIR 10 aligned` | 6984.93 |
+| `PAIR 10 skewed 5` | 7855.51 |
+| `FONT_RUN 10 aligned` | 7192.01 |
+| `FONT_RUN 10 skewed` | 8051.55 |
+
+**12.5%** and **12.0%** — and the report's own derived `skewPAIR/RUN x100` row
+reads 109.
+
+**The real consumer was paying it.** Note Pad on VGA opened with its content
+origin at **x = 61**, which is skew 5 — the exact column typebench's skewed row
+measures — read both out of the guest (`W_X` 60) and off the framebuffer. With
+the gate removed it opens at 56. Timer lands at 328 and the Task Manager at 248,
+both aligned, both verified by reading `wm_wins` rather than by looking.
+
+Two things worth keeping:
+
+- **Removing it is a no-op on mono by construction** — the deleted instructions
+  are a `cmp`/`je` whose branch was never taken there — and that was checked
+  rather than claimed: identical 7-step scripted sessions (boot, Disk window,
+  folder, launch Note Pad, type, drag, type again) against a reference kernel
+  with the gate restored are **0 differing framebuffer bytes** on Hercules and
+  on CGA. The only bytes that ever differed were a **20-byte 6x6 box at
+  x = w−16, y = 6..11** on both adapters — the menu bar clock's last glyph
+  cell, `00:01` against `00:02`, which advances with wall time and landed on a
+  different step on each adapter. A diff that lands in the same relative
+  6x6 box on two different geometries is a clock, not a regression.
+- **It made the kernel smaller**: `.text` −18, `.cold` −4, no rung crossed,
+  footprint unchanged. Removing a gate removes code.
+
+The cost is real and it is the one the old comment named: **8-pixel horizontal
+drag steps on VGA**, on every window carrying the flag. Verified from `W_X` 55 —
+a 3px and a 5px drag land back on 55, 9px steps to 63, 14px to 71, every landing
+with an aligned content origin.
+
+### Set 53 — alignment becomes the default, and a stamp that never worked
+
+Set 52 removed `WF_SNAP`'s `[vid_mono]` gate. This inverts the flag: `WF_NOSNAP`
+(SPEC.md §11.94.1), so **every window keeps its content origin on a multiple of
+8 unless it opts out**, and `wm_create`'s `mov word [bx+W_FLAGS], 1` is the whole
+mechanism — no template word, nothing to remember where a window is made, and a
+reused record snapped again by construction.
+
+**The published slot did not change contract**, which is what kept the cost at
+zero: `OSAPI_WM_SNAP` still means "AL non-zero = keep me aligned", so every
+historical `AL = 1` caller now asks for something it already has and no `.o88`
+was invalidated. What moved is only what a window that never calls gets.
+
+**Measured, all three adapters, cycle-accurate 8088.** Windows that had never
+asked and are now aligned:
+
+| window | content origin before | after |
+|---|---:|---:|
+| Disk window (VGA) | 111 (≡ 7) | 104 |
+| Disk window (Hercules) | — | 104 |
+| Control Panel (Hercules) | — | 160 |
+| About box (Hercules) | — | 168 |
+| Note Pad (VGA) | 61 (≡ 5) | 56 |
+
+**The Disk window is the case that justifies the inversion, and the scroll path
+is the thing to check.** §22.11's `fm_scrollpaint` rounds its blit span INWARD
+because a row's icon starts at `fm_cx + 4`, and the strip it cannot move is
+`(8 − ((k+4) mod 8)) mod 8` px for a content origin `≡ k (mod 8)` — so aligned,
+`k` is always 0 and the strip is always 4px, where unaligned `k = 4` came up one
+position in eight and cost nothing. §22.11.1's strip pass therefore now always
+runs. Against that: the ~40 `font_str`s at `fm_cx + 24` all land aligned.
+Verified — three arrow-clicks of scroll, then the same state forced through a
+full repaint (drag out 40px and back, which a snapped window returns from
+exactly): **0 differing framebuffer bytes on VGA and on CGA**, the only diff
+being the menu bar clock's last glyph cell.
+
+**And it found a Makefile bug that has been live for most of this tree's life.**
+`$(VIDSTAMP)` exists so that changing a knob rebuilds the kernel — the trap
+CLAUDE.md names for `VIDEO=`, where booting the previous adapter "reads exactly
+like the probe being broken". Its `rm -f` list covered `kernel.bin`, and
+`kernel.bin` **is not assembled from source**: `os88mod.py` splits it, `ctrl.drv`
+and `format.drv` out of `kernel-full.bin` (SPEC.md §2.8), and `kernel-full.bin`
+depends on the sources alone. A knob changes the command line and no source — so
+deleting only `kernel.bin` re-ran the split on the PREVIOUS knob's
+`kernel-full.bin`, and `make VIDEO=cga` after a plain build shipped a
+`KERNEL.SYS` and two `.drv` files with no CGA in them. Silently.
+
+Found by accident and measured both ways: an incremental plain rebuild after
+`make SNAPAUDIT=1` produced an image **39,504 bytes** different from a clean one;
+with `kernel-full.bin`, `ctrl.drv` and `format.drv` added to the stamp's list it
+is **0**. Every VIDDEF knob was affected — `VIDEO=`, `RTC=`, `DISKCNT=`,
+`REDRAWFULL=`, `DRAGCACHE=`, `NOSPLIT=`, `FONT=`, `RAMKB=`. **Any A/B in this
+tree taken by flipping a knob without `make clean` in between is suspect**, and
+that includes ones whose numbers are already in this file.
+
+**`make SNAPAUDIT=1` is the new instrument** (SPEC.md §11.94.2): a histogram of
+every glyph's `x & 7`, split four ways by `wm_pkgcall`'s stacked `snap_cur` so
+what a window draws inside its own callback is counted apart from the chrome
+around it, and filterable to ONE window from the host. It only means anything
+now that alignment is the default — with the origin on a multiple of 8, a
+glyph's screen `x & 7` IS its content-relative one, so a non-zero bucket is the
+app's own offset. §11.94.3 is what it and the constants together found.
+**It has an unexplained artifact**: a constant 4 glyphs in bucket 7 per window
+per forced repaint, so counts under about ten say nothing.
+
+### Set 54 — snapping in Y buys nothing, and the scroll recomputes what it could add
+
+The Y question was left open by Set 53 and `docs/SNAP-PLAN.md` §6. It is
+answered: **a `WF_SNAP` in Y would gain nothing on any adapter**, and the
+investigation redirects to something that does.
+
+**Why text has exactly zero y-dependence.** The vertical layout is SPEC.md
+§39.3's banked framebuffer — VGA 1 bank (`bmask` 0, `rowadd` +80), Hercules 4
+(`bmask` 3, `rowadd` +0x2000, `wrapfix` +0x805A), CGA 2 (`bmask` 1, `wrapfix`
++0xC050) — and `gfx_nextrow` pays one extra `add` only on the step that carries
+out of the last bank. **A glyph is 8 rows and 8 is a whole multiple of both 2
+and 4**, so among the 8 advances an 8x8 cell makes, the number that wrap is
+exactly 8/banks wherever the cell starts: among any 8 consecutive rows, exactly
+4 have `y & 1 == 1` and exactly 2 have `y & 3 == 3`. Not approximately — there
+is nothing to recover. On VGA there are no banks at all. This is the opposite
+of the x case, where §6.1.4's arithmetic showed an unaligned cell spans two
+framebuffer bytes and must read-merge-write both; there is no vertical
+equivalent, because a row is a row whatever y it is.
+
+**Fills already solved the row-step problem, and note HOW.** `sw_plane_op`
+holds `gfx_nextrow`'s two parameters in registers so a row step is three
+register instructions (§5.7) — by holding the increment, not by constraining y.
+Measured confirmation, and it is a pleasing one: **a breakpoint on
+`gfx_nextrow` during a Hercules desktop paint never fires**, because every row
+loop that matters has inlined it.
+
+**What the investigation found instead.** `gfx_scroll`'s two backends compute a
+full row address PER ROW for an address that advances by a constant —
+`vgas_lincopy` two `mul word [vid_stride]`, `vgas_bankcopy` two `gfx_rowbase`
+calls, each a `mul` plus a variable `shr` plus a bank-table lookup plus
+call/ret. Measured, cycle-accurate 4.77MHz 8088, Hercules:
+
+| | measured |
+|---|---:|
+| `gfx_rowbase`, one call | **11 instructions, 319 cycles = 66.84 µs** |
+| `GFX_SCROLL 256x128` | **51,229 µs** = 400 µs/row for 32 bytes |
+| `GFX_FILL 256x128`, same bytes, register row step | 24,338 µs = ~185 µs/row |
+| `GFX_SCROLL 256x128` on VGA | 29,096 µs = 227 µs/row |
+
+The `gfx_rowbase` figure is a breakpoint-and-step measurement, not a model: two
+of them are **134 µs of the mono scroll's 400 µs per row, a third of it**, and
+the fill doing comparable per-row work costs less than half as much per row.
+Estimated **~1.45x on mono** (51,229 → ~35,000 µs) and ~1.3x on VGA if the
+scroll adopts the fill's shape. Cost it against §48.18.1 before building — that
+one recovered 4% and was dropped — but this is per-row rather than per-call, so
+it scales with the band's height.
+
+**And this is where a vertical quantum finally earns something — `nbanks`, not
+8, on the scroll DELTA rather than a window origin.** The constant-delta trick
+needs `rowbase(y+dy) − rowbase(y)` equal for every row. On VGA that is
+unconditional (linear: `dy × stride` for any `dy`), so the VGA backend can drop
+its per-row multiplies today with no precondition at all. On the banked
+adapters it holds iff **`dy ≡ 0 (mod nbanks)`** — a multiple of 2 on CGA, 4 on
+Hercules. The tree's deltas already qualify (Note Pad's 32px row step, the Disk
+window's 16px `FM_ROW_H`); the one exception is Note Pad's find panel, whose
+29/41px shift §27.10.2 chose deliberately. Even unaligned, the general path can
+halve its arithmetic by walking the destination with the register step and
+paying `gfx_rowbase` for the source alone.
+
+**So the lever is the increment, not the origin** — which is the same shape as
+§5.7's answer and as `sw_plane_op`'s: on this machine you win by not
+recomputing, not by constraining where things sit. An 8px vertical drag quantum
+would have been the visible price of the wrong answer, and a dearer one than
+the horizontal quantum: a window steps more noticeably on a 348-row screen than
+on a 720-column one.
+
+### Set 55 — the drag cache's phase snap is now a no-op, and that is the win
+
+§11.96.13 added `ui_drag_phase` because the drag cache can only replay pixels at
+a `dx` whose low three bits are 0, and a hand drops a window on an arbitrary
+pixel — so seven drags in eight refused and redrew in full. It bought that with
+up to 7px of horizontal drop precision "paid by every window on every adapter".
+
+**Set 53's inversion has since made it free, and the two pieces of work were
+done independently.** Alignment is the default now, so `wm_snap_ax` puts `W_X`
+on `≡ 7 (mod 8)` before `ui_drag_phase` runs and `ui_origx` is on it too: every
+legal x a drag moves between is one phase, so `dx` is a multiple of 8 **by
+construction**. Measured at the routine's own entry with a breakpoint, a
+13-pixel drag of a Disk window:
+
+| window | `W_X` | `ui_origx` | `dx` | `dx & 7` | phase snap |
+|---|---:|---:|---:|---:|---|
+| default (snapped) | 111 | 103 | +8 | **0** | **moves nothing** |
+| `WF_NOSNAP` poked in | 124 | 111 | +13 | 5 | moves it 5px |
+
+Identical on `os8088_5150_herc` and `os8088_xt_vga`. The counterfactual is the
+half that makes it evidence rather than a coincidence: the flag was written into
+the live window record from outside the guest, and the same drag then behaved
+exactly as §11.96.13 described the whole tree behaving.
+
+So the drag cache reaches its fast path **structurally** rather than by
+correcting each drop, §11.96.13's 7px is a cost no window in the tree pays, and
+the routine is now the fallback for the two cases `wm_snap_ax` declines — an
+opted-out window, and one too wide for the snap to fit. **Keep it**: in both,
+the phase really is a coin toss. And keep `ui_drag`'s ordering, because
+`ui_drag_phase` above `wm_snap_ax` would bring the coin toss back.
+
+**Two gates, and only one of them is an alignment question.** §11.96.13 is a
+horizontal byte phase and generalized snapping subsumes it. §11.96.14 — a
+window's vertical extent running off the screen — has no quantum in it at all:
+there is no sub-row unit vertically (Set 54), so no snapping in x, y or
+otherwise moves it, and a Solitaire whose 303 rows do not fit a 305-row band is
+not made to fit by aligning anything. Clipping was the only answer. Conflating
+the two is easy enough that both sections now say which they are at the top.
+
+### Set 56 — the scroll stops recomputing its row address: 1.49x and 1.52x
+
+Set 54 found `gfx_scroll` computing a full row address for both ends of every
+row when the address advances by a constant, and priced the waste with a
+breakpoint: `gfx_rowbase` is 11 instructions and **319 cycles = 66.84 µs** on a
+Hercules, so two calls were 134 µs of a 400 µs row. Built (SPEC.md §5.5.1).
+
+| `GFX_SCROLL 256x128` | before | after | |
+|---|---:|---:|---:|
+| Hercules | 51,229.07 µs | **34,471.99 µs** | **1.49x** |
+| VGA | 29,095.95 µs | **19,194.37 µs** | **1.52x** |
+
+400 → 269 µs a row on Hercules against the 134 µs the change removes, so the
+saving landed where the measurement pointed. **VGA beat its own estimate** —
+~1.3x predicted, 1.52x measured — because the two `mul`s were a bigger share of
+a shorter per-row cost there, and the rewrite also took `cld` and two adds out
+of the loop.
+
+**`GFX_FILL 256x128` reports byte-identical counts in both runs** — 174,235 on
+Hercules, 100,611 on VGA — which is the control that makes the comparison mean
+anything: the fill was not touched, so two runs agreeing on it are two runs that
+can be compared on the scroll.
+
+**`make SCROLLROW=1` is the reference build, and it reproduces the previous
+kernel's image byte for byte** (md5 47074a3c…, the same image shipped at
+9abacfa) — which is how the A/B proves the reference arm really is the old code
+rather than something that merely resembles it.
+
+**A scroll is a COPY, so byte identity is the whole claim**: a wrong delta shows
+the wrong pixels, not no pixels, and "it looks right" is exactly what a wrong
+offset also looks like. Verified against `SCROLLROW=1` on identical scripted
+sessions:
+
+| adapter | what it drives | steps | result |
+|---|---|---:|---|
+| VGA | Note Pad caret scroll, both directions + page jumps | 6 | **0 differing bytes** |
+| Hercules | the same | 6 | identical md5 at every step |
+| CGA (2 banks, not 4) | Disk window row scroll + page jumps | 5 | identical md5 at every step |
+| Hercules | Note Pad's find panel — `dy` 29 then 41, **UNALIGNED** | 4 | identical but for the clock's last glyph cell |
+
+That last row is the one that matters most for the banked fast path: it is the
+tree's only scroll whose `dy` is not a whole number of banks, so it proves the
+dispatch still falls to the general form instead of taking a constant delta that
+does not exist there.
+
+**One bug, and it is SPEC.md §5.7.1's rule arriving from the other side.** The
+first version stepped the destination with `add di, stride` and was wrong on
+every adapter — **`rep movsb` has already advanced DI by the row's byte count**,
+and the reference form never had to care because it recomputed DI from scratch
+each row. 14,580 differing bytes on the very first VGA capture. The fix is free
+on the linear path (fold `-nb` into the increment, which is computed once) and
+one `sub di, [vgas_nb]` on the banked one, where `gfx_nextrow` is
+column-preserving and so has to start from the column it is preserving. **The
+A/B is what caught it**: the pixels were plausible, the window looked like a
+window, and nothing errored.
+
+**Cost: `.text` +116, no rung crossed — but the image rung is down to 48 bytes
+of slack** (164 before). The next addition to `.text` anywhere buys a whole
+sector, which is the guard working rather than this change being dear.
+
+### Set 57 — the audit's "artifact" was a window CAPTION, and the tool was right
+
+`make SNAPAUDIT=1` carried a documented unexplained artifact: every window's
+callback reported a **constant 4 glyphs in bucket 7** whatever the app, which
+made any count under about ten worthless and left Piano, Arkanoid and Missile
+Command unresolved in `docs/SNAP-PLAN.md`.
+
+**It was `wm_draw_title`.** A caption's pen is **centred in the title bar by the
+kernel** and no application can influence it, and it was being attributed to
+whichever `wm_pkgcall` bracket happened to be open. The constant 4 was the
+**`'APPS'` caption of the Disk window sitting behind every app under test** —
+four characters, identical in every run, which is exactly why it read as an
+instrument fault rather than as data. `wm_draw_title` suspends the attribution
+now, keying on who *chose* the pen rather than on who is on the stack.
+
+Measured after: the audited window reports **nothing** of its own and
+`snap_kchar` grows by exactly the two captions — 151 → 165, gaining `[3:10, 7:4]`
+for `'ArtfulType'` and `'APPS'`.
+
+**What made it findable was logging the CHARACTER**, and two ways of reading a
+stack produced confident nonsense on the way there:
+
+- The caller's `AX` is at `[ss:sp+2]`, not `[ss:sp]` — the latter is the saved
+  `BX`, which is **constant inside `font_str_x`'s loop** and therefore looks
+  exactly like a real answer. Every logged character came out `'R'`.
+- A return address must be resolved in **`KERNEL_SEG` only**: `.cold` code
+  cannot near-call `font_char`, it goes through a far `cw_` shim (SPEC.md §2.6),
+  so resolving against `.cold` too picks a nearer symbol by accident — it named
+  `dskw_rbody.fatname`, a *disk* routine, as the thing that drew a glyph.
+
+Both are the same shape as this session's other traps: **a wrong reading that is
+stable is indistinguishable from a right one**, and only a value that had to
+vary — the characters spelling `APPS` and `ArtfulType` — could tell them apart.
+
+**Three corrections to §11.94.3's list fall out**, and they are corrections in
+the direction of less work rather than more:
+
+- **Hello is not a defect at all.** `hl_line` centres every string —
+  `(HL_CONT_W - width)/2 + content_left` — so it is §3's category 2. Its earlier
+  "≡ 3 for 5 of its 35 glyphs" was its caption plus that centring.
+- **ArtfulType's "≡ 3 (measured)" was its own caption**, ten centred glyphs the
+  kernel drew. Its literal 14 stands; re-audit before moving anything.
+- **Fractal is confirmed and is the worst in the tree**: 2,801 glyphs in one
+  launch, **16% aligned, 2,323 of them at bucket 2** — the status row redrawn per
+  progress tick, at the `FR_X_*` constants the static pass had already named.
+
+**And a note for whoever finishes the list: a drag no longer forces a repaint.**
+§11.96.12's cache replays the content instead of calling `W_PAINT`, so a dragged
+window reports nothing — which is what the first version of this survey
+measured. Reset with no filter and then LAUNCH the app.
+
+**Cost: nothing.** All of it is inside `%ifdef SNAPAUDIT`, and a plain build is
+**0 differing bytes** against the same commit before this work.
+
+### Set 58 — the Disk window and Fractal go on the grid, and one of them was not an alignment problem
+
+Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_cga` /
+`os8088_5150_herc` / `os8088_xt_vga`. Two items off docs/SNAP-PLAN.md's list,
+and the second is the interesting one.
+
+**The Disk window (SPEC.md §22.11.1.1/§22.11.2, seven constants + two): 0 bytes.**
+`.text`, `.bss`, `.cold`, `.lowbss`, `.ovl` all **+0**, no rung crossed,
+`KERN_BUDGET` spare unchanged at 3,072 — every one of the nine is an
+`add`/`sub reg, imm8` at both the old value and the new. What moved: the header
+pen and the status line's 6 → 8 (with their truncation constants 14 → 16 and
+12 → 14), the row icon 4 → 8, the row name 24 → 32, the name budget
+`(cw-88)/8` → `(cw-96)/8`, `fm_scrollpaint`'s strip test 4 → 8, `FMI_CELL_W`
+78 → 80 and the grid icon `fm_cellx + 31` → `+ 32`.
+
+**Two things the numbers could not see, and one of them was in this tree's own
+notes.** docs/SNAP-PLAN.md said an aligned content origin makes
+`fm_scrollpaint`'s left strip *always* 4px wide, so §22.11.1's strip pass runs on
+every scroll; that is backwards — `fm_bx1 = align_up(fm_cx)` and an aligned
+`fm_cx` already is a multiple of 8, so the strip is **empty** and §11.94.1's
+default had retired that pass already (it used to fire on three window positions
+in eight, not one). What 4 → 8 actually buys is that `ico_pass` lands each
+16-pixel icon row in a **three**-byte window at a shift of `x & 7` and at shift 0
+the third byte is always zero and skipped — two latched read-modify-writes a row
+instead of three, on both the mask and the data pass — plus the pass becomes
+unreachable at *every* window position rather than only the aligned ones. In the
+grid that argument is worth more: the columns started at 0, 78, 156 = **0, 6, 4
+mod 8** and the icon's own centre was 31 = **7 mod 8**, the worst phase there is.
+
+And moving the icon to +8 with the name still at +24 put the 16px icon cell's
+right edge **exactly on the name's first letter** — `ARTFUL.O88`'s A against the
+app diamond. Both numbers are multiples of 8, the kernel is 0 bytes bigger, and a
+four-row scroll stayed byte-identical to a full repaint on all three adapters:
+**nothing in the verification recipe could see it.** A 5x crop could. That is now
+a rule in docs/SNAP-PLAN.md §5 — look at the pixels that moved, every item.
+
+**Fractal (SPEC.md §40.2.1): 2,557 glyph cells → 565, 4.5x — and it was not an
+alignment item.** Set 57 put it first of what was left (2,542 glyphs sampled,
+12.5% aligned, 2,222 in bucket 2). The reason those glyphs existed is that
+`fr_status_maybe` runs up to a hundred times a render and called the FULL strip
+painter each time: a white fill plus five re-lettered fields, to move one digit.
+Nothing but the percentage can change while a render runs — type, zoom and
+palette all go through `fr_kick` — so a tick now draws ONE field as one opaque
+`font_run` padded to `FR_PCT_CELLS`, and the five pens became multiples of 8
+(`FR_X_NAME` 8, `FR_X_ZOOM` 128, `FR_X_ZNUM` 168, `FR_X_PCT` 200, `FR_X_PAL`
+248).
+
+Measured with `make SNAPAUDIT=1`, **one byte-identical kernel and two apps
+images** so the package is the only variable, over one `View ▸ Redraw` render:
+
+| | `font_char` calls | `font_run` calls | glyph **cells** | aligned |
+|---|---|---|---|---|
+| before | 2,542 | 3 | **2,557** | 12.5% |
+| after | 50 | 103 | **565** | **100%** |
+
+The cells column prices a `font_run` at its width (5) rather than at one call,
+because the raw totals would flatter the new build by counting a five-cell run as
+a single glyph. Off-grid glyphs 2,222 → **0** — not aligned, *gone*, which is the
+better of the two outcomes. ~100 `gfx_fill`s a render go with them. Package
++79 bytes of heap; **0 bytes of kernel**.
+
+**The two halves are one change.** `font_run`'s single-store cell path needs
+`[vid_mono]` *and* `x & 7 == 0` (§6.1), so on the adapters this app is slowest on
+the aligned pen is what makes the opaque run pay — and `snap_hrun` reported all
+103 runs in bucket 0, which is what says the fast path was reached rather than
+merely permitted.
+
+**These are COUNTS, under `-icount`-equivalent conditions on a cycle-accurate
+8088 — not microseconds on iron.** Part 2's ~1ms per glyph cell puts 2,557 cells
+at ~2.6 s of drawing per render against ~0.57 s, and ~100 fills at ~756us each at
+another ~76 ms; treat those as arithmetic from measured constants, not as field
+figures. The 5150 is where they would land.
+
+**Two harness traps, both of which produced a confident wrong answer:**
+
+- **`m.advance()` runs a bounded amount of guest time and STOPS.** A poll loop
+  that ends in one leaves the machine paused, and a paused guest processes no
+  UART packets — so every later `os88mouse` call fails with "stuck at" its
+  starting position, which reads exactly like a broken hit-test. One `m.run()`
+  between the loop and the first click.
+- **A stash-for-reference build leaves `build/` holding the REFERENCE.** Two
+  scratch images copied after `git stash pop` but before the rebuild were the old
+  package, and the run reported `image 3138` — the ref's size — while claiming to
+  test the new one. Related and worse: `cp file backup` run twice, the second
+  time after the file was already modified, captured the change the restore was
+  meant to undo, which is how b3c5219 shipped half of the grid change
+  undocumented. **Rebuild after the pop; never reuse a backup path.**
+
+### Set 59 — Note Pad's panel goes on the bank quantum; Tracker is measured and left alone
+
+Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_cga` /
+`os8088_5150_herc` / `os8088_xt_vga`. Two more items off docs/SNAP-PLAN.md, and
+the second is a **negative result** — the more useful of the two.
+
+**Note Pad's find panel (SPEC.md §27.10.3): 0 bytes.** §27.10.2 makes opening or
+closing it one `OSAPI_GFX_SCROLL` of the whole text band, and the delta that blit
+is handed *is* the panel's height — so the height decides which of `gfx_scroll`'s
+two paths runs. Set 56's constant-delta path is gated on
+`dy & [vid_bmask] == 0`, and `bmask` is **3 on Hercules and 1 on the CGA**, so 29
+and 41 missed it on both. `NP_FP_H` is 32 now, 44 with Replace.
+
+SNAP-PLAN called this "one character" and it is not: `2*NP_FP_ROW +
+2*NP_FP_PAD + 1` is odd for **every** value of either constant, so the correction
+has to be explicit (`NP_FP_SLACK = (-NP_FP_RAW) & 3`). Verified 0 differing
+pixels against a forced full repaint on CGA and Hercules.
+
+**Tracker (SPEC.md §45.19): measured, and NOT changed.** §11.94.3 had it as the
+worst offender in the tree and SNAP-PLAN ranked it near the top. `make
+SNAPAUDIT=1`, one forced full repaint, histogram **filtered to Tracker's own
+record**:
+
+| adapter | glyph cells | aligned | off-grid buckets |
+|---|---:|---|---|
+| Hercules | 237 | 26.2% | 1:16, **5:159** |
+| VGA 12h | 354 | 39.3% | 1:16, 4:40, **5:159** |
+
+Four things the literal-pen sample could not see. Every value the playing view
+updates goes through `tui_rdout`, which **already rounds its pen down to a byte
+boundary when `[tui_mono]` is set** — so the frequently-drawn text is on
+`font_run`'s single-store path whatever the caller's constant says.
+`tui_top_cga`'s labels are already at 0/64/136/200/288. What is left is
+`tui_draw_all` — **event-driven**, where this plan claimed the app "redraws
+continuously while playing"; `tui_draw_dyn` draws only what changed against a
+`tui_l*` shadow. And 159 of the off-grid cells are `tui_s_logo` at 149, which is
+exactly `112 + (179-104)/2` — the centring of `'T R A C K E R'` in its
+112..290 box, a protected kind.
+
+Priced: alignment shaves a cell rather than removing it — Set 52's 3.4% on
+Hercules, 9.4% on VGA — so all 175 off-grid Hercules cells are worth **~6 ms of a
+~237 ms repaint, on an event**. Against Fractal (Set 58): 2,557 cells a hundred
+times a render, where the fix *removed* 78% of the glyphs. **Two orders of
+magnitude apart, and that is the whole decision.**
+
+What the measurement does point at is costed in §45.19 and not taken:
+`tui_rdout` deliberately keeps the erase-and-letter pair on colour, so VGA's
+per-frame values are drawn unaligned on the adapter where alignment is worth
+2.8x more — but fixing it is a refactor of that routine, not a constant.
+
+**THE MEASUREMENT ITSELF WAS WRONG TWICE, both in the flattering direction.**
+`os88snap.reset(m)` with no argument aims the filter at **every** window, so the
+first census read 487 cells that included the About panel being used to force the
+repaint and the Disk window behind it — an unknown share of a number reported as
+Tracker's. And the caller log's first 24 glyphs spelled `'os8088 1.0'`, which is
+not on the FT2 face at all: a **windowed** Tracker shows its splash card, and the
+pens §11.94.3 lists are on the fullscreen face. Filtering to Tracker's own record
+(`wm_wins - 0x600 + slot*28`) gave the numbers above.
+
+**And the row-index trap cost four runs in one session**, which is enough to call
+it a rule: a fixed number of `ArrowDown`s plus a fixed row opens a *different
+package on every adapter*, because `[fm_fit]` is ~5 rows on a 200-line CGA and 8
+on Hercules. It opened ArtfulType for Fractal, row 7 for piano, MODPLUG for Note
+Pad and PAINT for Tracker — each time silently, each time looking like the app
+under test was broken. Read `[fm_lscr]` and `[fm_fit]` out of the kernel and take
+the row the wanted directory index is actually on.
+
+**One more pointer fault, same family as Set 58's.** The find-panel check
+reported 80 differing pixels and "MISMATCH": they were the mouse arrow in two
+places — `mo.menu` releases it in the menu bar, the About close box is inside the
+window — and the union of those two cells is exactly the bbox reported, which
+reads precisely like a blit that moved a band of text. The reference build scored
+83 in the *identical* bbox, and that is what proved it was the instrument.
+
+### Set 60 — Tamegram's HUD goes on the grid; Paint was already there
+
+Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_herc`. docs/SNAP-PLAN.md
+listed these as "one constant table each". One of them was one constant table.
+The other needed nothing at all.
+
+**Tamegram (SPEC.md §49.5.1): 0% → 100% aligned, 0 bytes.** Its HUD columns were
+4, 60, 108, 164, 116, 180 and 210 — **six of the seven at 4 mod 8**, the most
+uniformly off-grid face in the tree and the cheapest to correct. They are named
+constants now (`TG_HC_*`), with one `%error` that `OR`s all seven and checks a
+single bit pattern, so a column added later cannot quietly miss the boundary
+(proved to fire at 118).
+
+Measured over **900 frames = 17.7 s of real play**, histogram filtered to
+Tamegram's own window record:
+
+| | glyph cells | aligned |
+|---|---:|---|
+| before | 109 | **0.0%** (all in bucket 4) |
+| after | 109 | **100.0%** |
+
+Same cell count, same span — only the phase moved, which is what an alignment
+change should look like. **The worth is small and is stated as such**: ~6 cells a
+second is 0.6% of the machine at Part 2's ~1ms a cell, and alignment saves 3.4%
+of that (Set 52). Taken because it is free, because it puts the face on the same
+8px margin as the rest of the tree, and because leaving the last
+uniformly-fixable entry on the survey invites the next reader to re-derive the
+census. §49.5 is why the time is not the reason: a PLAY frame draws **no text at
+all** (four cells erased, four drawn), and the HUD is redrawn only when
+`[tg_full]` is raised — measured at about once every eleven seconds at the
+opening fall speed.
+
+`LOCK` moved 210 → **208**, left by 2 rather than right by 6: right would have
+ended row 1 at exactly `TG_HUD_W`, leaving the minimum-width case with no margin.
+The widest row is 240 of 248 now, where it was 242. Verified by crop rather than
+by count, because `tg_str` **drops** a string that would leave the content box
+rather than clipping it — so a column moved too far right fails by a field being
+*absent*, which a diff reports as "fewer pixels changed".
+
+**Paint (SPEC.md §42.12): nothing to do.** Measured, a full repaint draws **62
+glyph cells, 100% aligned**. `PT_PAL_X0` = 1 is not a text pen at all — it is the
+tool palette's left column, and a palette is fills, frames and blitted icons, so
+this plan's "drawn on every tool change" costs no glyph. The off-grid pens in the
+source are real but fire only on paths a repaint does not take: `pt_draw_dims`'
+`.plain` fallback (a window too short for the size boxes) and `pt_szdraw` (typing
+into the canvas-size boxes).
+
+**And that field's pen cannot be aligned — geometry, not oversight.** `PT_SEPX`
+is 43, so the label and the framed field share 43 pixels; an 8px `W`/`H` label
+plus `PT_SZ_BW` = 32 is 40 of them, fixing the label at 0..7 and the frame at
+8..39, and the pen is 2px inside the frame by construction — 10, which is 2 mod
+8. A multiple of 8 needs `PT_SZ_BX` ≡ 6, and the nearest value clearing an 8px
+label is 14, whose frame ends at 45, past the rule. Moving the pen deeper inside
+the frame costs the caret its column.
+
+**One harness note.** `settle()` cannot be used past Tamegram's launch — it is a
+falling-block game with a worker, so the screen never stops changing and settle
+raises after its limit. `m.advance(frames=N)` is both the fix and the better
+instrument: what matters is not one repaint but how much text the game draws per
+second, and a fixed frame span answers exactly that. And `os88sym` refused a stale
+map when `build/kernel.bin` had been rebuilt without the knob — the guard working
+as designed, and the reason to `make SNAPAUDIT=1` immediately before an audit run.
+
+### Set 61 — the survey's tail, walked in one batch: one change, six reasons not to
+
+Emulator: MartyPC, cycle-accurate 4.77MHz 8088, `os8088_5150_herc`. The last
+entries in docs/SNAP-PLAN.md §2 — the Task Manager, Recorder, Minesweeper, the two
+HDD pages, Piano, Arkanoid, Missile Command. **One change came out of them**, and
+the reasons the others did not are the useful part.
+
+**Task Manager (SPEC.md §28.5): four pens, 0 bytes — and the plan said five.**
+Three of the "five literal `+6` sites" are `add ax, 6` on **frame rects** — the CPU
+graph's frame, the bar's, the RAM map's — and a rect has no glyph phase. The four
+that are text pens are the memory page's XMS line and the heap page's
+TOTAL/SPLIT/FRAG summaries, one `font_str` each from `tm_str`, each gated by
+`tm_elchk`. They sat at 6 while `TM_PEN` is 8 and `TM_MPEN` is 16, giving this
+window a third inset of its own; they are at `TM_PEN` now. `tm_rowfill` still
+erases the band from `rowx+6`, and those two calls plus the `font_str` are the
+only operations on it, so **what moves is two erased columns nobody letters**.
+
+**Minesweeper: its off-grid text is CENTRING, and it is the app's densest.** The
+number on every revealed cell is `add cx, 4` — an 8px glyph in a 16px cell, which
+is `(16-8)/2` exactly. Aligning it would sit every number on the grid 4px
+off-centre in its square. The mode text is `MN_BOARD_W/2`. A two-glyph mine
+counter is all that is genuinely off-grid.
+
+**Piano: largely not a constant.** `PN_MSG_X` is 112, already aligned. The key
+letter is `key_x + 5`, and since §11.98.1 `key_x` comes from `pn_metrics` scaling
+the keyboard into whatever content height the window has — so **no constant can
+align it on any adapter**, and the +5 centres the glyph in a key whose width is
+derived. One label at `cx, 2` on a full repaint is the whole of that row, which
+means SNAP-PLAN's "Piano | 2" was stale the moment §11.98.1 landed.
+
+**Arkanoid: four of six sites are `OSAPI_FONT_WIDTH`-centred**, a fifth is a
+letter centred in a power-up body. The sixth is the score at `cx, 2`.
+
+**Recorder** is two strings in `rc_draw_status`, whose only caller is
+`rc_draw_all` — repaint-only. **The HDD pages** draw on open and on a click.
+**Missile Command** computes every pen, and Set 46's `mc_srun` already reduced its
+status strip to the span between the first and last differing cell.
+
+**WHAT THE WHOLE SURVEY TURNED OUT TO BE**, across Sets 52–61. Three entries
+mattered:
+
+| item | what it really was | measured |
+|---|---|---|
+| Fractal (§40.2.1) | a **redraw defect wearing an alignment costume** | 2,557 cells → 565, **4.5x** |
+| Disk window (§22.11.1.1/.2) | genuinely alignment — the ~40 rows that dominate `fm_repaint` | 0 bytes, 9 constants |
+| Tamegram (§49.5.1) | genuinely alignment, uniformly — 6 of 7 pens at ≡ 4 | 0% → **100%** aligned |
+
+Every other entry was one of four things, and **a literal-pen grep cannot tell any
+of them from a defect**: *centring* (protected — Hello, Minesweeper's cell
+numbers, Arkanoid's four, Tracker's logo, Tamegram's banner, Paint's About card),
+*not a text pen at all* (three of the Task Manager's five; Paint's `PT_PAL_X0`),
+*geometry derived at run time* (Piano's keys), or *a handful of cells on an event*
+(Recorder, the HDD pages, Paint's size box, Tracker's whole face). That is 11 of
+14 entries, and each one had to be censused to know which.
+
+**The two rules the survey earned**, both of which cost a round before they were
+written down. *Ask how often a pen is drawn before moving it* — Fractal's 78%
+saving came from not drawing, not from aligning, and Tracker's 237 event-driven
+cells looked identical to it in a grep. And *look at a zoomed crop*: a 0-byte,
+byte-identical, fully-aligned change still made a window worse when the Disk
+window's icon landed on its own label.
+
+**One harness note.** The Task Manager cannot be driven with the pointer — it
+refreshes twice a second and holds the gfx lock, so 1200-baud packets never
+converge (measured: stuck 139px short, the same failure Fractal's worker
+produces). Its pages cycle on a click in the content, so `[tm_view]` was written
+from outside the guest instead, with the offset taken from nasm's own `[map]` via
+`tests/dispapps.py` rather than counted by hand. That poke skips `tm_click`'s
+erase fill, so the capture shows the outgoing page underneath — the summary lines
+themselves are the evidence, and the two-pixel claim rests on `tm_rowfill`'s span
+rather than on the picture.

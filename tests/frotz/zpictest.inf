@@ -2,7 +2,7 @@
 ! os8088 - tests/frotz/zpictest.inf
 !
 ! THE PICTURE FIXTURE, and it exists because nothing that ships exercises the
-! drawing path. SPEC.md 59.7 puts Bronze on the library disk so that a real
+! drawing path. SPEC.md 61.7 puts Bronze on the library disk so that a real
 ! game's Blorb cover goes through tools/os88pix.py and @picture_data - but
 ! Bronze is v8, and @draw_picture is a v6 opcode, so no story anywhere in this
 ! project has ever asked the interpreter to put a picture on the glass. SPEC.md
@@ -15,7 +15,7 @@
 !   1. asks @picture_data 0 how many pictures there are, and prints the answer.
 !      A story LAYS ITSELF OUT around this reply, so a wrong count is not a
 !      cosmetic defect - it is an interface built around space that is not
-!      there (SPEC.md 59.7);
+!      there (SPEC.md 61.7);
 !   2. asks @picture_data n for each one's size and checks it against what
 !      tools/zpicgen.py put in the archive. Every number is printed whether it
 !      passed or not, in zopstest.inf's PASS/FAIL shape, so the transcript is a

@@ -5,14 +5,15 @@
 ; the package pool, handed out in KB-granular, segment-aligned blocks to
 ; whoever asks - a package through the API slots, or the kernel itself for
 ; the things it uses speculatively (the menu save-under, a Disk window's
-; listing cache, the double-buffer back buffer).
+; listing cache, the clipboard).
 ;
 ; Why this exists. Before it, memory outside the pool was carved up by
 ; CONSTANTS - SND_SEG, SAVE_SEG, VIEW_SEG, BB_SEG - each claimed whole from
 ; boot whether or not a byte of it was ever written, and a package that
 ; wanted more than its 19.5KB region had no way to ask: apps/paint simply
 ; took linear 0x66000 and hoped, reading a kernel policy constant to guess
-; whether the back buffer would ever want it (docs/PAINT-NOTES.md records
+; whether SPEC.md 32's then-live back buffer would ever want it
+; (docs/PAINT-NOTES.md records
 ; that as the least defensible thing in the file). One map, owned by the
 ; kernel, retires the whole class: two packages cannot pick the same
 ; address, an app cannot outlive its claim, and the Task Manager can bill
@@ -70,7 +71,6 @@ MC_DMA   equ 6                  ; word: the 64KB-page-safe HEAD in paragraphs,
 MC_SIZE  equ 8
 
 MEM_K_SAVE equ 0xFF01           ; kernel tags (SPEC.md 50.2): menu save-under
-MEM_K_BB   equ 0xFF02           ; the double-buffer back buffer
 MEM_K_DRV  equ 0xFF03           ; a loaded driver's image (SPEC.md 51.3)
 MEM_K_COPY equ 0xFF04           ; the file manager's copy buffer (22.3): held
                                 ; for exactly one Cut/Copy/Paste operation,
@@ -80,6 +80,11 @@ MEM_K_ASC  equ 0xFF06           ; one volume's ASSOC.DAT cache (SPEC.md
                                 ; 54.7) - shared, reloaded on a volume switch
 MEM_K_FATW equ 0xFF05           ; one volume's private FAT window (18.8.1),
                                 ; held for as long as that volume is mounted
+MEM_K_MOD  equ 0xFF08           ; an on-demand kernel module's image (SPEC.md
+                                ; 2.8) - claimed top-down like a driver's,
+                                ; because its base IS its CS and so it can
+                                ; never move, and freed by the feature that
+                                ; asked for it rather than by a teardown
 MEM_K_CLIP equ 0xFF07           ; the system clipboard's text (SPEC.md 55) -
                                 ; sized to what is in it, freed when it is
                                 ; emptied, and deliberately NOT an instance's,
@@ -179,10 +184,15 @@ SK_BUF     equ 12               ; word: FAT + stacks + disk buffers together,
                                 ; the part of the kernel that is scratch
                                 ; rather than program
 SK_HEAP    equ 14               ; word: the claim heap's size
-SK_CLAIM   equ 16               ; word: claimed out of it, every owner
+SK_CLAIM   equ 16               ; word: claimed out of it, every owner, and
+                                ; never a purgeable claim (SPEC.md 50.6.3)
 SK_KCLAIM  equ 18               ; word: ...of which the kernel's own tags
 SK_XMS     equ 20               ; word: the pool above 1MB, 0 on tier 0 (41)
 SYSKB_SIZE equ 22
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
+                                ; segment of its own. DS is still KERNEL_SEG,
+                                ; so the DATA stays in .text at every toggle
+
 
 ; -----------------------------------------------------------------------------
 ; mem_init - size the heap and clear the map (kmain, before anything claims)
@@ -199,7 +209,7 @@ SYSKB_SIZE equ 22
 ; Runs on task 0 before any other task exists, so it needs no critical
 ; section (SPEC.md 7's only-the-UI-task-calls-BIOS rule holds here).
 ; -----------------------------------------------------------------------------
-mem_init:
+mem_init_x:
     push ax
     push cx
     push di
@@ -294,7 +304,7 @@ mem_init:
 ; rather than bumping, which can refuse where a legal base exists (rare,
 ; conservative, never wrong memory).
 ; -----------------------------------------------------------------------------
-mem_claim_dma:
+mem_claim_dma_x:
     push si
     push di
     push cx
@@ -306,14 +316,14 @@ mem_claim_dma:
     mov si, 0xFFFF              ; a head past 1MB: let the page test refuse it
 .set:                           ; rather than wrap into a plausible small one
     xor di, di
-    jmp short mem_claim.go
-mem_claim_hi:
+    jmp short mem_claim_x.go
+mem_claim_hi_x:
     push si
     push di
     xor si, si
     mov di, 1
-    jmp short mem_claim.go
-mem_claim:
+    jmp short mem_claim_x.go
+mem_claim_x:
     push si
     push di
     xor si, si
@@ -590,11 +600,18 @@ PGO_TAG   equ 0                 ; word: the first owner this row answers for
 PGO_BASE  equ 2                 ; word: -> its array of naming words
 PGO_CNT   equ 4                 ; word: how many (1 = a plain tag)
 PGO_SIZE  equ 6
+section .text                   ; DATA, so back to the kernel segment
+                                ; (SPEC.md 2.6 rule 1)
+
 
 mem_pg_own:
     dw MEM_P_WSAVE, wm_su_segs,  MAX_WIN
     dw MEM_P_DIRW,  dsk_rah_seg, 1
     dw 0
+section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
+                                ; segment of its own. DS is still KERNEL_SEG,
+                                ; so the DATA stays in .text at every toggle
+
 
 ; -----------------------------------------------------------------------------
 ; mem_shed_one - give up the CHEAPEST purgeable block this claimant outranks
@@ -918,7 +935,7 @@ mem_bcopy:
 ;
 ; WHAT IT IS NOT. It does not compact the heap by sliding OTHER claims down,
 ; and it cannot: a claim's base lives in its holder's own bss - a package's
-; [pt_base], the kernel's [bb_seg] - and nothing here can reach in and
+; [pt_base], the kernel's [sw_seg] - and nothing here can reach in and
 ; rewrite those. Moving somebody else's block hands them a pointer into
 ; memory that is no longer theirs. Real compaction needs a relocation
 ; callback every holder implements; until there is one, the fix is to stop
@@ -1030,10 +1047,10 @@ mem_regrow:
 ; out:      CF = 0 released; CF = 1 no such claim, or not this owner's
 ; clobbers: nothing else (flags)
 ;
-; The owner test is what stops a package freeing the kernel's back buffer,
+; The owner test is what stops a package freeing the kernel's own claims,
 ; or another instance's canvas, with one wrong word.
 ; -----------------------------------------------------------------------------
-mem_free:
+mem_free_x:
     push cx
     push si
     pushf
@@ -1071,7 +1088,7 @@ mem_free:
 ; snd_release_rec, so a closed package can no more leak a quarter of a
 ; megabyte than it can leave a tone droning.
 ; -----------------------------------------------------------------------------
-mem_free_owner:
+mem_free_owner_x:
     push cx
     push si
     pushf
@@ -1097,7 +1114,7 @@ mem_free_owner:
 ; in:  DI = instance record ptr
 ; out: nothing (all registers preserved) - the snd_release_rec twin
 ; -----------------------------------------------------------------------------
-mem_free_rec:
+mem_free_rec_x:
     push ax
     push bx
     push cx
@@ -1106,11 +1123,11 @@ mem_free_rec:
     mov cl, 5                   ; I_RECSZ = 32
     shr ax, cl
     mov bx, ax                  ; a built-in's claims are stamped with its
-    call mem_free_owner         ; instance slot (the Disk window's cache)
+    call mem_free_owner_x         ; instance slot (the Disk window's cache)
     test byte [di+I_KIND], KIND_PKG
     jz .done
     mov bx, [di+I_SPTR]         ; ...and a package's with its segment, which
-    call mem_free_owner         ; is what it could name itself by
+    call mem_free_owner_x         ; is what it could name itself by
 .done:
     pop cx
     pop bx
@@ -1140,9 +1157,9 @@ mem_free_rec:
 ; Tracker's module, ArtfulType's document, the recorder's tiers), so
 ; under-reporting is a feature silently lost, not a safe error.
 ; -----------------------------------------------------------------------------
-mem_avail:
+mem_avail_x:
     mov al, MEM_LVL_TOP         ; an ORDINARY claim's rank: every cache counts
-mem_avail_lvl:                  ; as free, because mem_claim sheds them all.
+mem_avail_lvl_x:                  ; as free, because mem_claim sheds them all.
                                 ; AL = the caller's own level otherwise, and
                                 ; only caches BELOW it count (SPEC.md 50.6.4)
     push cx
@@ -1304,7 +1321,7 @@ mem_claim_get:
 ; out: AX = KB claimed by that owner (0 if none)
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
-mem_owned_kb:
+mem_owned_kb_x:
     push cx
     push si
     xor ax, ax
@@ -1334,6 +1351,11 @@ mem_owned_kb:
 ;
 ; ADD-style rather than plain readers because both call sites are building a
 ; sum in AX and have no spare register to hold a partial total in.
+;
+; Neither counts a PURGEABLE claim, because mem_sum_kb does not (SPEC.md
+; 50.6.3): SK_CLAIM and SK_KCLAIM are the same question asked of two owner
+; sets, so "of which the kernel's own" is only honest if both draw the line
+; in the same place.
 ; -----------------------------------------------------------------------------
 mem_claimed_kb:
     push bx
@@ -1374,7 +1396,7 @@ mem_sum_kb:
     je .take                        ; slot is 0..INST_MAX-1
     push bx                         ; ...and a LOADED DRIVER's own buffers,
     mov bx, [ss:si+MC_OWN]             ; which name themselves by the segment the
-    call drv_owns_seg               ; driver runs in and so match neither test
+    call drv_owns_seg_x               ; driver runs in and so match neither test
     pop bx                          ; above. They belong under System, where
     jc .next                        ; the driver's image already is (51.3) -
                                     ; without this they were in the totals and
@@ -1397,26 +1419,31 @@ mem_sum_kb:
 ; in:  nothing
 ; out: AX = claimed KB, BX = heap size KB
 ; clobbers: nothing else (flags)
+;
+; **A PURGEABLE claim is not spoken for** (SPEC.md 50.6.3/28.4.1). This had a
+; record walk of its own that counted every live record, which made SK_CLAIM
+; the one figure in the module answering a different question from the rest:
+; mem_avail counts a cache as free, mem_sum_kb leaves it out of every total,
+; every per-row column omits it - and this put it back into the one number
+; the Task Manager builds its RAM figure from. Measured on the field machine,
+; that was `RAM 195/384K` over rows accounting for 132: the missing 63 being
+; SPEC.md 18.95's DirRead window, which no row shows because it belongs to no
+; instance. 28.4.1 fixed the HEAP half of that line by subtracting the
+; purgeables in the VIEW and left the RAM half reading this.
+;
+; So the walk is gone and mem_sum_kb answers instead: ONE routine decides
+; what is in a total, which is what stops the two drifting again. That is
+; also mem_claimed_kb's first caller - it was written for this and never
+; wired up, which is why the duplicate walk survived being noticed.
 ; -----------------------------------------------------------------------------
 mem_total_kb:
     push cx
-    push si
     xor ax, ax
-    mov si, mem_tab
-    mov cx, MEM_MAX
-.scan:
-    cmp word [ss:si+MC_SEG], 0
-    je .next
-    add ax, [ss:si+MC_PARA]
-.next:
-    add si, MC_SIZE
-    loop .scan
+    call mem_claimed_kb         ; AX = claimed KB, every owner, no cache
     mov bx, [mem_top]
     sub bx, [mem_base]
     mov cl, 6
-    shr ax, cl
     shr bx, cl
-    pop si
     pop cx
     ret
 
@@ -1439,10 +1466,10 @@ mem_total_kb:
 ; body rather than repeating it - and it has to bank CX, which is the head
 ; parameter there and one of the registers this slot promises to preserve.
 ; -----------------------------------------------------------------------------
-osapi_mem_claim:
+osapi_mem_claim_x:
     push cx
     xor cx, cx                  ; no head: no 64KB page constraint
-    call osapi_mem_claim_dma
+    call osapi_mem_claim_dma_x
     pop cx                      ; pop leaves CF alone, and so does ret
     ret
 
@@ -1455,11 +1482,11 @@ osapi_mem_claim:
 ; through the same slot table as everything else: mem_own accepts a driver's
 ; image segment as an owner exactly as it accepts a package's region.
 ; -----------------------------------------------------------------------------
-osapi_mem_claim_dma:
+osapi_mem_claim_dma_x:
     push bx
     call mem_own                ; BX = owner word = the calling segment
     jc .fail
-    call mem_claim_dma
+    call mem_claim_dma_x
     jmp short .out
 .fail:
     xor dx, dx
@@ -1472,11 +1499,11 @@ osapi_mem_claim_dma:
 ; osapi_mem_free - in: DX = segment, ES = the caller's segment
 ;                  out: CF = 0 released, CF = 1 refused (not yours)
 ; -----------------------------------------------------------------------------
-osapi_mem_free:
+osapi_mem_free_x:
     push bx
     call mem_own
     jc .out                     ; CF = 1 already
-    call mem_free
+    call mem_free_x
 .out:
     pop bx
     ret
@@ -1498,7 +1525,7 @@ osapi_mem_free:
 ; the refusal is indistinguishable from an honest "no room", which is exactly
 ; what the caller reports and the user believes.
 ; -----------------------------------------------------------------------------
-osapi_mem_regrow:
+osapi_mem_regrow_x:
     push bx
     call mem_own                ; BX = the owner ES names (CF=1 = not a
     jc .out                     ; region or driver image we know)
@@ -1510,8 +1537,8 @@ osapi_mem_regrow:
 ; -----------------------------------------------------------------------------
 ; osapi_mem_avail - in: nothing; out: AX = largest free KB, BX = total free KB
 ; -----------------------------------------------------------------------------
-osapi_mem_avail:
-    jmp mem_avail
+osapi_mem_avail_x:
+    jmp mem_avail_x
 
 ; -----------------------------------------------------------------------------
 ; osapi_cm_alloc / osapi_cm_free / osapi_cm_caps - main's v3 arena slots
@@ -1525,7 +1552,7 @@ osapi_mem_avail:
 ; A package built against main's SDK runs on this kernel unchanged; one built
 ; against this SDK uses the KB slots directly (SPEC.md 50.3).
 ; -----------------------------------------------------------------------------
-osapi_cm_alloc:
+osapi_cm_alloc_x:
     push cx
     push dx
     add ax, 63                  ; paragraphs -> KB, rounded up; 0 asks for
@@ -1536,7 +1563,7 @@ osapi_cm_alloc:
     jnz .ask
     inc ax
 .ask:
-    call osapi_mem_claim        ; CF/DX by the heap's rules, ES the identity
+    call osapi_mem_claim_x        ; CF/DX by the heap's rules, ES the identity
     jc .refuse
     mov ax, dx                  ; main's contract: AX = the base segment
     pop dx
@@ -1554,18 +1581,18 @@ osapi_cm_alloc:
     stc
     ret
 
-osapi_cm_free:
+osapi_cm_free_x:
     push dx                     ; in: AX = the base segment; out: CF, with
     mov dx, ax                  ; AX preserved - main's contract, so the
-    call osapi_mem_free         ; heap's DX-in shape is hidden here
+    call osapi_mem_free_x         ; heap's DX-in shape is hidden here
     pop dx
     ret
 
-osapi_cm_caps:
+osapi_cm_caps_x:
     push cx
     push si
     mov ch, bh                  ; BH survives in CH (CX itself is banked)
-    call mem_avail              ; AX = largest free KB, BX = total free KB
+    call mem_avail_x              ; AX = largest free KB, BX = total free KB
     mov dx, bx
     mov cl, 6
     shl ax, cl                  ; KB -> paragraphs: a 640KB heap is 0xA000
@@ -1662,7 +1689,7 @@ mem_own:
 ; one step: take the owner of the claim the caller is running in and ask about
 ; THAT. This is the step; each fence decides for itself what a valid answer is.
 ; -----------------------------------------------------------------------------
-mem_owner_of:
+mem_owner_of_x:
     push cx
     push si
     mov si, mem_tab
@@ -1741,7 +1768,7 @@ mem_own_drv:
 ; band wrong for half a second - which is not what osapi_sys_snapshot's window is
 ; guarding against and does not deserve the same price.
 ; =============================================================================
-osapi_claim_snapshot:
+osapi_claim_snapshot_x:
     push cx
     push dx
     push si
@@ -1796,7 +1823,7 @@ SK_STK_KB  equ ((MAX_TASKS-1) * SCH_STACK + 1023) / 1024
 SK_STK0_KB equ (STK0_SIZE + 1023) / 1024
 SK_FAT_KB  equ (FAT_PARA * 16 + 1023) / 1024
 
-osapi_sys_kb:
+osapi_sys_kb_x:
     push ax
     push bx
     push di
@@ -1817,12 +1844,69 @@ osapi_sys_kb:
     call mem_kernel_kb          ; AX += the kernel's own tagged claims
     pop di
     mov [es:di+SK_KCLAIM], ax
+%ifdef KERN_BIG
     mov ax, [xm_kb]             ; the pool above 1MB, 0 on tier 0 (SPEC.md 41)
+%else
+    xor ax, ax                  ; kern_small has no store above 1MB at all
+                                ; (SPEC.md 41.11), so SK_XMS is the 0 that
+                                ; tier 0 reports and the Task Manager's line
+                                ; reads 'XMS 0/0K' - the same words on the
+                                ; same build for the same reason
+%endif
     mov [es:di+SK_XMS], ax
     pop di
     pop bx
     pop ax
     ret
+
+; =============================================================================
+; Far entries (SPEC.md 2.6): the resident thunks in kernel.asm far-call these,
+; and these near-call the bodies above, so every routine here keeps its
+; ordinary near `ret`.
+; =============================================================================
+mmf_mem_avail:            call mem_avail_x
+                      retf
+mmf_mem_avail_lvl:        call mem_avail_lvl_x
+                      retf
+mmf_mem_claim:            call mem_claim_x
+                      retf
+mmf_mem_claim_dma:        call mem_claim_dma_x
+                      retf
+mmf_mem_claim_hi:         call mem_claim_hi_x
+                      retf
+mmf_mem_free:             call mem_free_x
+                      retf
+mmf_mem_free_owner:       call mem_free_owner_x
+                      retf
+mmf_mem_free_rec:         call mem_free_rec_x
+                      retf
+mmf_mem_init:             call mem_init_x
+                      retf
+mmf_mem_owned_kb:         call mem_owned_kb_x
+                      retf
+mmf_mem_owner_of:         call mem_owner_of_x
+                      retf
+mmf_osapi_claim_snapshot: call osapi_claim_snapshot_x
+                      retf
+mmf_osapi_cm_alloc:       call osapi_cm_alloc_x
+                      retf
+mmf_osapi_cm_caps:        call osapi_cm_caps_x
+                      retf
+mmf_osapi_cm_free:        call osapi_cm_free_x
+                      retf
+mmf_osapi_mem_avail:      call osapi_mem_avail_x
+                      retf
+mmf_osapi_mem_claim:      call osapi_mem_claim_x
+                      retf
+mmf_osapi_mem_claim_dma:  call osapi_mem_claim_dma_x
+                      retf
+mmf_osapi_mem_free:       call osapi_mem_free_x
+                      retf
+mmf_osapi_mem_regrow:     call osapi_mem_regrow_x
+                      retf
+mmf_osapi_sys_kb:         call osapi_sys_kb_x
+                      retf
+
 
 ; -----------------------------------------------------------------------------
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1). The claim map is

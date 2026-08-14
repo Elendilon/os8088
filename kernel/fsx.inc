@@ -297,6 +297,23 @@ fsx_restore:
                                 ; blanked on and lighting it first shows that
                                 ; one (SPEC.md 39.18.1)
 %endif
+    call blk_wake               ; the idle clock restarts here (SPEC.md 64.4).
+                                ; The UI task does not run inside a bracket
+                                ; (53.1), so nothing spends that clock while
+                                ; one is up and nothing may - the app owns the
+                                ; video mode, and blanking a card the kernel
+                                ; is not driving is the one thing this feature
+                                ; must never do. What that leaves is the
+                                ; arithmetic on the way out: somebody plays a
+                                ; game or a module for as long as they like,
+                                ; and an hour of it comes back to a
+                                ; [ticks] - [blk_t0] that has not only passed
+                                ; BLK_IDLE but wrapped, so the very first pass
+                                ; after this would dark the screen on a
+                                ; machine somebody is sitting in front of.
+                                ; The bracket WAS the user. CF is not read:
+                                ; the screen cannot be dark here, because
+                                ; entering a bracket took the input that lit it
     pop di
     pop ax
     ret
@@ -307,10 +324,8 @@ fsx_restore:
 ; in:       AL = FSXM_* id, ES:DI = an FSI_SIZE buffer (ES is the caller's
 ;           own, the gfx_blit4 idiom). Bracket-only, exclusive task only.
 ; out:      CF=0 mode set, buffer filled. CF=1 refused: no bracket, wrong
-;           task, id out of range, not on this adapter (fsx_caps' own bit),
-;           or the back buffer is armed - it describes desktop geometry and
-;           nothing else, so osapi_gfx_dbuf off comes first (SPEC.md 53.5).
-;           Every register preserved.
+;           task, id out of range, or not on this adapter (fsx_caps' own
+;           bit). Every register preserved.
 ; -----------------------------------------------------------------------------
 fsx_mode:
     push ax
@@ -323,8 +338,6 @@ fsx_mode:
     cmp ah, 0xFF
     je .fail
     cmp ah, [sch_cur]
-    jne .fail
-    cmp byte [bb_dbl], 0
     jne .fail
     cmp al, FSXM_COUNT
     jae .fail
@@ -510,10 +523,7 @@ fsx_xcrtc:                      ; Mode X CRTC retiming, index in the low byte
 ;           not fail); CF=1 outside a bracket or on an unknown AL. Every
 ;           register preserved.
 ;
-; The present: while [bb_dbl] is armed and no mode switch has happened, the
-; armed buffer is flushed BEFORE the wait - the bracket never calls
-; gfx_unlock, so this is the only flush a buffered renderer gets. Every
-; retrace poll is bounded by a [ticks] delta (SPEC.md 37.90's rule: the one
+; Every retrace poll is bounded by a [ticks] delta (SPEC.md 37.90's rule: the one
 ; way to hang is waiting forever for a bit that never changes on a machine
 ; where every read is 0FFh).
 ;
@@ -556,12 +566,6 @@ fsx_wait:
     cmp al, FSXW_FRAME          ; the argument is checked BEFORE the present,
     ja .fail                    ; so an unknown clock never flushes and then
                                 ; refuses (SPEC.md 53.1's all-or-nothing)
-    cmp byte [fsx_cur], 0xFF    ; the present clause: unswitched + armed
-    jne .nopresent
-    cmp byte [bb_dbl], 0
-    je .nopresent
-    call gfx_flush
-.nopresent:
     cmp al, FSXW_FRAME
     je .frame
     or al, al

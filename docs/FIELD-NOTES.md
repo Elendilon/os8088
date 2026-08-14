@@ -458,7 +458,7 @@ base is its CS and can never move (§50.3).
 
 **A related honesty bug worth fixing at the same time:** the splash says only
 `Out of memory`. It should say which figure failed and how short it was —
-`bb_avail`'s pattern (§47: say *why* not).
+§31.3's three-layer refusal pattern (§47: say *why* not).
 
 ---
 
@@ -922,7 +922,14 @@ every one landing on a whole number of the 200 ms revolution:
 So the media is **2:1 interleaved** — a whole track in one command takes two
 turns, 11,520 B/s by arithmetic against 11,985 measured — and **the drive,
 the controller and the BIOS all stream perfectly when asked for nine sectors
-at once**. `int 13h track, 1 call` *is* our batched read done right, and it
+at once**.
+
+> **The interleave sentence is wrong and PERFORMANCE.md Set 37 is the
+> correction.** The media is 1:1; the second turn is the IBM ROM's own
+> head-settle wait, 25 ms asked for and 52.5 ms of `LOOP $` delivered, once
+> per `int 13h`. The 11,520 agreement cannot discriminate, being bytes over
+> the whole call. Everything else in this note stands, including the
+> conclusion it exists for. `int 13h track, 1 call` *is* our batched read done right, and it
 is **6.3x faster than what `dsk_xfer` achieves**.
 
 The decisive comparison is the last two rows against each other. os8088 costs
@@ -1040,7 +1047,8 @@ the single 170 KB file off the same disk runs at **~13,390 B/s** (about 15
 seconds, 2 of them not spinning, stopping three times for a 64 KB buffer),
 the BIOS's own one-call track read is **11,570**, and 2:1 interleave by
 arithmetic is 11,520. Three independent figures within 16%. **11.5-13.4 KB/s
-is what this drive does.**
+is what this drive does.** (The third figure agrees by coincidence — see the
+correction above — and the target is the two measured ones.)
 
 ---
 
@@ -1085,9 +1093,11 @@ That is the only row where the 5150 and MartyPC disagree at all; the other 45
 gfxbench rows agree within 0–4%. So the 5150 is doing *different work* in
 this pair, not the same work more slowly.
 
-**What the pair can vary by.** With no back buffer (both mono adapters,
-`[bb_dbl]` = 0) `gfx_flush` returns before it can spend the deferred hide, so
-`gfx_unlock` takes `.never` → `cur_lazyend` every iteration. That path is a
+**What the pair can vary by.** Nothing in `gfx_unlock` spends the deferred
+hide before `cur_lazyend`, so it takes `.never` → `cur_lazyend` every
+iteration. (This was measured while SPEC.md §32's `gfx_flush` still stood at
+the top of `gfx_unlock`; it returned without spending the hide on a mono
+adapter, so the path measured is the one that runs today.) That path is a
 few compares **unless `[mouse_x]`/`[mouse_y]` differ from
 `[cur_drawn_x]`/`[cur_drawn_y]`**, in which case it is a full `cur_move` —
 which is about the right size to explain 2 ms on a 4.77 MHz machine.
@@ -1651,3 +1661,663 @@ size.** And "exactly three rows" being almost exactly one DMA block at the XT
 rate (2.99) was a **coincidence**, and a persuasive one — it survived a
 capture, a plausible mechanism and a designed experiment before the experiment
 killed it.
+
+## 17. Four reports off the first `combo.img` field run (OPEN, three queued, one reproduced)
+
+The 5150 run that confirmed SPEC.md §18.97's probe on real hardware — `ST3
+0021` twice, `probe stop 03`, `verdict 0`, and drive B gone — also brought
+back four things about the formatter. They are queued rather than fixed, and
+one of them is already root-caused.
+
+**The probe's other half is NOT one of them.** The report reads
+`drives int 11h claims 2`, and §18.98's loop over units 2 and 3 starts at
+`cl = 2` against that count, so it correctly never runs: SW1 says two drives,
+which is units 0 and 1, and there is no third to ask about. The removal of
+unit 1 then sets the count to 1. **To exercise units 2 and 3 the switches have
+to claim three or four drives** — which is also the only way the external pair
+can appear at all (§18.98). Nothing is wrong here; it is worth writing down
+because "the probe for drive 2 did not run" and "the probe for drive 2 is
+broken" look identical in the report.
+
+**One gap it did expose, now FIXED**: `fdd_dbg_*` (§57.5) was a single set of
+bytes while §18.98 probes up to three units, so the block described the LAST
+one asked — on a machine claiming four drives the operator saw unit 3 and had
+no visibility into units 1 and 2. That is a diagnostic going blank on exactly
+the configuration it exists for, an internal drive plus a 4865 on the 37-pin
+connector. It is **one five-byte row per unit** now, with `probe ran` a bitmap
+(bit n = unit n was asked) and a unit printed only if its bit is set — so a
+correctly-switched two-drive machine still reads five short rows and not
+twenty. Ten bytes of `.text`, sixteen of `.ovl`, no rung crossed. Verified on
+`os8088_5150_cga_ext720`: `claimed 4`, `probe ran 0E`, three rows whose `ST3`
+reads `79`, `7A`, `7B` — the low two bits being the unit, which is what says
+each row is about the drive it names.
+
+**And `sysbench`'s own reader had two equs on one word**, found while
+rewriting it: `sb_fdstate` and `sb_skcyl` were both `os88_image_end + 240`.
+It worked only because `sb_disk` runs before `sb_fdd` and `sb_fdd` reads that
+word in the same breath it writes it — neither of which anything enforces,
+and the comment above `sb_fdstate` is *about* the last time this happened.
+Moved past every scalar, with `SB_O_SYSKB` raised to match.
+
+### 17.1 The format prompt does not clear on Escape (FIXED, verified on Hercules and CGA)
+
+Two of the four reports — "the size/format prompt doesn't clear after
+formatting" and "there is some corruption over the size prompt" — are **one
+bug**, and it is a regression from §26.4.
+
+`Format Disk…` armed, then **Escape**: line two is correctly replaced by the
+resting `Size ? Free ?`, and line one — `Format B: as 360K?` — **stays on
+screen**, sitting over the row above the status line. That is what reads as
+corruption; there is nothing corrupt about it, it is a line nobody erased.
+
+The cause is that §22.12's prompt became **two lines** at §26.4 (one line is
+44 characters and `fm_stat_line` truncates at 38, losing `Esc=no`), and the
+cancel path did not follow: `.cancel` calls `fm_edit_end` and falls into
+`.lineonly`, which is CF = 0 — "the status line is all that moved" — so
+`fm_status_only` repaints **one** line. It was right for every other mode,
+because modes 1, 2 and 3 are one-line prompts, and mode 4's two-line replace
+question never reaches `.cancel` at all (it is handled at `.replace`).
+
+**Reproduced on Hercules and on CGA**, drive B, with the shipped kernel: arm
+the prompt and press Escape. It does NOT show on the Enter path, because the
+format's own `fmv_load` repaints the whole window — which is why the harness
+missed it: every test here pressed Enter.
+
+**Fixed**: mode 5's cancel takes the full-repaint exit (`.out`, CF = 1)
+instead of `.lineonly`. Verified by re-running the repro on both adapters —
+the prompt clears whole.
+
+### 17.2 Format Disk stays greyed on a disk it just made (FIXED)
+
+Reported as "after formatting a disk, Format Disk becomes greyed out for the
+newly formatted disk forever". That was §22.12's predicate working as written:
+the item was live only while `FS_MOK == 0`, and a disk that formatted now
+mounts. The comment there said why — *"it MOUNTED: there is nothing here to
+format, and 'erase this perfectly good disk' is a different feature with a
+different question"*.
+
+**The plainest form of it is that os8088 could format any disk except one of
+its own**, which is what settled the design question: the second feature
+should exist, and declining to ask a question is not the same as protecting
+anybody from its answer. The `FS_MOK` test is gone from `fm_fmt_ok`, and the
+different question is *asked* — a mountable volume gets
+`ERASE and format A: as 360K?` where an unreadable one gets
+`Format A: as 360K?`. Enter still means yes and every other key no, which is
+already the strongest confirmation in the system (§22.12).
+
+Three pieces of fallout, all of which existed only because the greying had
+made them unreachable:
+
+- **`dskw_fmt_probe` forced 9/2 on the way out.** Its own comment justified
+  that with *"this routine is only ever called with a failed mount behind
+  it"*, which is exactly the premise that was just removed — so a **cancelled**
+  confirmation on a mounted 1.2MB or 1.44MB volume would have left the machine
+  believing that volume had 9 sectors a track. It banks the caller's
+  `[disk_spt]`/`[disk_heads]`/`[dsk_totsec]` and puts those back instead.
+  Like the routine's own note about why it restores anything at all, this
+  **closes a trap rather than fixing an observed bug**: on a 9-sector volume
+  the constant was accidentally right, and every drive in this harness — and
+  on the field machine — is 9-sector, so the case cannot be exhibited here.
+  What is gated is the round trip: the three words read identically before
+  the confirmation, while it is up, and after Escape cancels it.
+- **A sibling Disk window could be showing a folder on the disk being
+  replaced.** It could not before, because a window on an unmountable volume
+  is always at the root (§19.2). `fm_fmt_home` sends every other window on
+  that drive back to the root, with a caption to match and §22.8's deferred
+  re-list rather than three mounts paid at once.
+- **§18.96.2's fallback leaned on the greying** — a failed 720K reach test
+  re-formats as 360K rather than stopping, and the stated reason was that
+  stopping would leave a mountable, lying 720KB volume with Format Disk…
+  disabled. The behaviour is kept and the reason is restated: the user asked
+  for a formatted disk, and the useful answer is the one the drive *can* make
+  plus a toast saying why. §18.96.2 still runs, because a disk that silently
+  loses whatever is written past cylinder 39 is not a thing to ship on the
+  grounds that it can be reformatted afterwards.
+
+Verified on a cycle-accurate 5150/CGA with B: a copy of the shipped apps disk
+— four folders on a perfectly good FAT12 volume, which is exactly the disk the
+old predicate refused: the confirmation reads `ERASE and format B: as 360K?`,
+Enter makes an empty 360KB volume that the HOST's own fsck accepts
+(`os88disk.py --verify`: 354 clusters, 0 files), and with two windows open —
+one left inside `B:\APPS` — the sibling's `FS_CWD` goes 2 → 0 with the
+re-list debt set, its caption comes back as `Disk`, and raising it lists the
+new root. The 720K/360K gate (§18.96.2) still passes both legs.
+
+Cost: `.text` +24, `.cold` +152, **no rung crossed** and footprint unchanged
+— but `kern_big`'s cold rung has 107 bytes left in it afterwards, so the next
+cold addition buys a whole 512. `kern_small` is untouched: the formatter is
+`kern_big` only (§18.96).
+
+### 17.3 720K on the field machine came back 360K (NOT A BUG — the reach test)
+
+Reported as "switching to 720k formatted the disk in drive A; result was a
+360k formatted disk, claiming 354k free". That is §18.96.2 working: the Tandon
+TM100-2 is a 40-cylinder drive, the marker written to the volume's last sector
+did not come back, and the fallback re-made the disk as 360KB. **354K free on
+a 360KB volume is correct** — 354 clusters of 1KB after the boot sector, two
+FATs and the root directory.
+
+What the operator should have seen is the toast saying so —
+`Drive cannot reach 720K - made 360K` — and §17.1 is a good reason they may
+not have: with a stale prompt line on screen the window was not saying what it
+looked like it was saying.
+
+### 17.4 Do not offer the size toggle on units 0 and 1 (DONE)
+
+Asked for directly: the internal drives are the machine's own and their
+geometry is not in question, so the `Spc=size` key should only appear for
+units **2 and 3** — the external pair, which is exactly where an 80-cylinder
+3.5" drive can turn up and where the BIOS can say nothing about it (§18.98).
+
+It is a narrowing of §18.96.2 rather than a removal: the toggle exists because
+`AH=08h` is refused and the drive cannot be asked, and that ignorance is only
+*actionable* on a drive the operator may have changed. The row is already in
+`dsk_vtab` with its `DV_UNIT`, so the test is available where the prompt is
+composed.
+
+**Done**, as `fm_fmt_sizeable` — one predicate serving both the line and the
+key. Verified with a scratch disk on unit 2 (`--mount fd:2:`): on B: the
+second line reads `Enter=yes  Esc=no` and Space leaves the row at 3, on C: it
+reads `Spc=size  Enter=yes  Esc=no` and Space moves it 3 → 2.
+
+**And a third thing came out of setting the switches up for it**, which is in
+§18.98 rather than here because it is not what the field reported: §18.97's
+removal set the drive COUNT to 1 as well as freeing row 1, which truncates
+§18.98's loop — so a machine claiming three or four drives with no unit 1
+would never have asked about the external pair. That is the field machine with
+a 4865 plugged in, i.e. the exact configuration this round exists to serve, and
+it would have cost the next field run for nothing.
+
+## 18. The switches were flipped and no external drive appeared (NOT A BUG — the count is the highest UNIT plus one)
+
+Reported off the second `combo.img` run: the operator set SW1 for the external
+4865 and no third drive showed up. The report is unambiguous about where the
+fault is not.
+
+```
+drives int 11h claims         2
+probe ran bitmap hex  0002
+--- unit 1   ST3 0021 / 0021   ST0 0071   probe stop 03 (ABSENT)   verdict 0
+```
+
+**The kernel is exonerated by the first row.** `desk_init` is
+`((AX >> 6) & 3) + 1` straight off `int 11h` with no clamp — the clamp to 2 is
+what §18.98 removed — so `claims 2` *is* the BIOS equipment word's bits 7:6.
+And §18.97's probe is demonstrably working in the same block: unit 1 answers
+`ST3 = 21` twice, `ST0 = 71`, stop 03, verdict 0, which is that section's exact
+documented signature, and drive B is correctly gone.
+
+**Nor were the switches set backwards**, and that is worth stating because it
+is the first thing anybody checks. Bits 7:6 carry exactly one encoding per
+count, so moving *either* switch necessarily changes the number: backwards
+would have read 1 or 4. Reading the same 2 as the previous run means those two
+bits did not move at all — a mechanical question (SW1 versus SW2, counting from
+the wrong end of an 8-way block, or a 40-year-old rocker that travels without
+making contact), not a polarity one.
+
+**And then the operator supplied the fact that settles it**: the switches
+*were* moved, and the previous run — the one that reported `claims 2` and had
+drive B taken away by the probe — was taken with the DIPs set to **one drive**.
+So two different physical settings both produced bits 7:6 = `01`. Those bits
+are not tracking the switches at all, which is a stuck line or a wiring
+question rather than anything about the encoding, and it retires the "did you
+cold boot" and "which end of the block" questions together.
+
+It also explains something that had been read as os8088 being wrong: **drive B
+appeared on this machine before §18.97's probe existed**, on a machine with one
+floppy, because the equipment word claims two whatever the switches say. The
+probe removing it is not a workaround for a mis-set switch — it is the only
+thing on that machine that can answer the question at all. And it is why DOS
+never needed the switches either: `DRIVER.SYS` assigns a logical drive to a
+physical unit without consulting the equipment word, which is what "it just
+claimed it with the command line command" was.
+
+**And the likely misunderstanding is arithmetic, not electrical.** J1's first
+external drive is physical **#2**, so one internal drive plus one external is
+**three** claimed drives — units 0, 1 and 2, with nothing at unit 1 — not two.
+At a claim of two the word says "units 0 and 1" and §18.98's loop over the
+external pair correctly never runs. SPEC.md §18.98 now says so where the count
+is described.
+
+**What changed as a result**: `sysbench` prints the **raw equipment word** in
+hex beside the derived count, because the count alone cannot say *which* switch
+moved and a run that reads the expected number for an unexpected reason is the
+one that costs a second trip. Bits 7-6 drives-1, 5-4 display, 3-2 planar RAM,
+1 the 8087, 0 "there is a diskette drive at all" — so one hex word is very
+nearly SW1 itself, and flipping SW1-1 or SW1-2 by miscounting the block is
+visible rather than silent. It is read from the BIOS rather than from the
+kernel's banked byte, so the two disagreeing would itself be news. Verified on
+`os8088_5150_cga_ext720`: `equip word hex 04EF` beside `claims 4`, which is
+§18.98's own measured figure for a four-drive machine.
+
+**And SW1 itself**, read off the 8255's port A rather than out of the POST
+snapshot, because on this machine the interesting question is no longer "what
+did the BIOS latch" but "did the switches ever reach the chip". Equal to the
+equipment word's low byte ⇒ the BIOS is faithful and the fault is in the
+switches or their wiring; different ⇒ something rewrote `0040:0010` after
+POST, which a machine with an ST11M and a SixPakPlus in it can do and which
+`int 11h` can never reveal. IBM PC only, gated on the model byte at
+`F000:FFFE`: port B bit 7 moves port A onto the switch block on a 5150, and on
+a 5160 the same bit clears the keyboard while SW1 sits on port C. Port B is
+banked and restored byte for byte inside an `IF = 0` window. Verified on
+`os8088_5150_cga_ext720`, where the switches *do* reach the chip:
+`equip word hex 04EF` and `SW1 direct hex 00EF`, the same byte.
+
+**Paying for it emptied the package's last slack.** `sysbench` is at its
+ceiling — `image + bss` must fit `APP_MAX_SIZE`, which is the 60KB *segment*
+and unraisable, so with `bss` at 38,452 the image may not cross 22,528. Both
+obvious sources of relief are refused by their own comments: `BL_MAXROWS` and
+`BL_ARENA` each record a report that TRUNCATED in the field. The two rows were
+bought by merging two pairs of header lines instead, and the file now says so
+where the `align` is. **9 bytes left**, after §57.6's build row took the rest.
+
+## 19. The 765 cannot see the external drive that DOS reads fine (OPEN — routed around)
+
+The field 5150's IBM 4865 on the 5.25" adapter's 37-pin connector is powered,
+cabled and **works**: with a disk in it, os8088 mounts it, the file manager
+lists it, and `sysbench` reads a file off it. Every one of those goes through
+`int 13h` with `DL = 2`.
+
+`dsk_fdd_probe`, which drives the FDC directly, cannot see it at all:
+
+```
+  --- unit 2
+  ST3 motor off hex     0022      bit 4 (TRK0) CLEAR
+  ST3 after seek hex    0022      ...and still clear after a RECALIBRATE
+  ST0 drained hex       0072      IC 01, SE, EC - the 765's Equipment Check
+  probe stop hex        0003      ABSENT
+```
+
+The unit-select bits in both answers (`ST3` low two bits = 10, `ST0` low two
+= 10) say the commands really did address unit 2, and `ST0`'s EC is the
+controller reporting that it issued the step pulses and never saw track 0.
+So the command reached the chip and the chip found nothing on the far end.
+
+**Media has been ruled out**, which is what makes this interesting rather than
+merely inconvenient. §18.97's whole premise is that TRK0 is a position sensor
+that answers with or without a disk; the obvious explanation was that this
+drive gates it on media. It does not — the capture above was taken **with a
+formatted disk in the drive, in the same boot that mounted and read it**.
+
+Ruled out so far: the drive (DOS and os8088 both use it), power (it has its
+own — J1 supplies none), the cable and the select jumper (`int 13h DL=2`
+reaches it), and media.
+
+Still open: why the ROM's own select sequence reaches unit 2 and ours does
+not. The next step is to disassemble the 27 Oct 82 ROM's motor-on/select/seek
+and diff it against `dsk_fdd_probe`'s — the ROM image is the one thing about
+this machine that is already in hand. Candidates worth carrying into that
+read: whether the IBM adapter decodes DOR bits 4–7 as motor enables for units
+2 and 3 the way a stock FDC does, and whether the drive's status outputs need
+something we are not asserting before it will drive TRK0.
+
+**It is routed around rather than fixed** (SPEC.md §18.98.1): units 2 and 3
+trust the equipment word, so the drive appears and works. The probe still runs
+for the published state above, which is the only reason any of this could be
+diagnosed at all. Unit 1 is unaffected and still contested.
+
+## 20. A window dragged from BEHIND another lands at the covered rect's corner (FIXED, SPEC.md 11.96.10.1)
+
+**Found by `tests/dispsave.py` failing after the `elendilon` merge**, and it is
+not what that test is about — the raise cache it gates works. The failure is
+that the window the test drops over another lands somewhere else, so its raise
+click hits the covering window instead of the covered one and ~4,300 pixels are
+legitimately still covered.
+
+**Narrowed to one number.** Reading `ui_drag`'s own words out of the guest
+straight after the drop:
+
+```
+the harness grabbed at          (1020,129)   = the title bar's centre
+ui_startx / ui_starty            990, 175    <-- 30 LEFT and 46 DOWN of that
+ui_origx  / ui_origy             860, 120    = the window, correctly
+mouse_x   / mouse_y              890,  69    = the pointer, where asked
+ui_curx = orig + (mouse - start)  760,  14   ...clamped up to y = 20
+the window lands at              760,  20
+```
+
+So the arithmetic is right and **the mousedown point it was handed is wrong**.
+`ui_drag` takes it from the EVT_MDOWN's `EV_X`/`EV_Y`, which `mou_isr` fills
+from `[mouse_x]` when it posts — so at the moment the press was decoded the
+pointer was still at (990,175), one convergence step short of where
+`os88mouse.to()` had already PROVED it to be by reading that same word.
+
+**`ui_drag` itself is not the bug.** Two isolated drags on the second display,
+one down-right and one up-left, land pixel-exact:
+
+```
+grab (840,29) -> (710,89)   window (680,20) -> (550,80)   exact
+grab (710,89) -> (580,29)   window (550,80) -> (420,20)   exact
+```
+
+**What has been ruled out:**
+
+- **The clamps.** `ui_curx`/`ui_cury` already hold the wrong answer before
+  them; the y clamp only turns 14 into 20.
+- **A release race.** `ui_drag` samples `[mouse_x]` once per tick (§7.1.3's
+  linger) and drops the window at the last position it SAMPLED, so a release
+  arriving between samples would land it behind the pointer — but holding the
+  release for two guest ticks after the pointer arrives changes nothing, and
+  the arithmetic above says the error is in `start`, not in `cur`.
+- **Single-display drags.** `tools/subcheck.py` drags on one card across 11
+  steps and matches its reference at **0 differing pixels**, positions
+  included.
+- **The raise cache.** `wm_su_segs[slot]` is non-zero after the cover on both
+  trees; §39.14.8.1's fix is orthogonal to this.
+
+**It is timing, which is why it looks like a branch difference.** The same
+scripted session lands the window correctly on `origin/elendilon` and on this
+tree built `REDRAWFULL=1`, and wrongly on the shipped build — the redraw round
+changed how long the guest spends between packets, not what it does with them.
+So this is a race that a faster or slower kernel moves either side of, and
+**the bug is that a press can be decoded before the move that precedes it has
+been applied**, on a serial line where they cannot overtake.
+
+**`mou_isr` is not the bug either, and reading it is what leaves one
+hypothesis standing.** The decoder applies the packet's delta to
+`mouse_x`/`mouse_y` and *then* fills the event from those same words, so a
+press can only ever be posted at the position after itself. And the error is
+exactly one convergence step: (990,175) − (1020,129) = **(−30, +46)**, the
+negation of the correction `os88mouse.to()` sent last.
+
+**So the press `ui_drag` acted on is not the press the harness sent — it is an
+OLDER one, still queued.** `ui_dispatch` pops events in order, and an EVT_MDOWN
+that nothing dispatched at the time it was posted keeps its own coordinates for
+as long as it sits there. Whether one lingers depends on how busy the UI task
+was, which is precisely what a redraw optimisation changes — and that is why
+the same scripted session lands correctly on `origin/elendilon` and on this
+tree built `REDRAWFULL=1`, and wrongly on the shipped build.
+
+**The queue was empty, and that killed the last hypothesis.** Read inside
+`dispsave`'s own session, immediately before the press: `count = 0`, and after
+it `head`/`tail` advanced by exactly one record. So the event `ui_drag` acted
+on **was** the press just sent, the pointer was proved at (1020,129) before and
+after it, and `mou_isr` filled the record from `[mouse_x]` — which said
+(1020,129). The event could not have carried (990,175). Something between the
+push and `ui_drag` was changing `CX`/`DX`.
+
+### The answer: `wm_raise` ate two registers that were not its to eat
+
+`ui_dispatch` holds the mousedown point in `CX`/`DX` and hands it to `ui_drag`.
+Between the two it calls **`wm_front`** — but only when the clicked window is
+not already frontmost. `wm_front` saves `AX`/`BX`/`BP`/`DI`, which is exactly
+what `wm_raise`'s contract says it clobbers, and §11.96.10's arming site loads
+a rect into `AX`/`BX`/`CX`/`DX` for `wm_su_sub`.
+
+**(990,175) is `wm_cov_x2`/`wm_cov_y2`** — the bottom-right corner of the box
+the covering window was sitting on. Two `push`es fix it; SPEC.md §11.96.10.1 is
+the write-up, and `tests/dispsave.py` passes.
+
+**Why it hid for a whole round of work.** It needs a window that is NOT already
+frontmost, so every scripted drag that had one window, or grabbed the front
+one, landed pixel-exact — `tools/subcheck.py` drags across 11 steps and never
+touched it. And on a 16px cascade the wrong answer and the right one are a few
+pixels apart, which reads as drag imprecision; the two-display arrangement
+pulled them 130 px apart and made it obvious. The gate that caught it was
+measuring the raise cache, which was working. If the
+queue is empty, the press really is being posted at a superseded position and
+the search moves back to the ISR; if it is not, the question becomes *why* a
+press outlives its dispatch — `ui_drag`'s own `.track` drains the queue looking
+for the MUP and discards everything else, which is the first place to suspect
+of leaving one behind.
+
+## 21. No Drive B on the Packard Bell 286, and a 1.2MB drive sitting right there (FIXED, SPEC.md 18.97.2 — CONFIRMED on the machine)
+
+**Reported:** the Packard Bell Victory 286 (docs/FIELD-MACHINES.md) comes up
+with **no Drive B on the desktop**. The machine has a 1.44MB drive A and a
+**1.2MB 5.25" drive B**, and the report came with the right second guess
+attached — *or alternatively we don't support 1.2MB 5.25 drives*.
+
+**It is not the media, and that half was settled by reading.** §18.2's BPB
+rule 11 whitelists **15** sectors per track explicitly, rule 12 takes 2 heads,
+and rule 13's `spt*heads*80` is 2,400 sectors — which is a 1.2MB disk exactly.
+A 1.2MB FAT12 volume mounts. It could never have been the symptom either: a
+media problem shows as a drive icon that fails to open, and what was missing
+was **the icon**.
+
+**It is §18.97's probe, and the tree already held the demonstration.** The one
+path that removes a drive fires when ST3's TRK0 reads clear *before and after*
+a RECALIBRATE. Note 19 above is a **present, powered, DOS-readable** IBM 4865
+answering exactly that — `ST3 = 22` twice, `ST0 = 72`, `probe stop 03` — with
+media in it, mounting and being read through `int 13h` at the same moment.
+So "TRK0 never came up" already had a known second meaning, and §18.98.1
+routed the external pair around it while **unit 1 was left standing on it**.
+
+**The fix is about the CLAIM, not the drive** (SPEC.md §18.97.2). §18.97
+contests unit 1 because on a 5150 the equipment word is the **SW1 DIP
+switches** — two drives is the factory position and is wrong on most 5150s, so
+it is a default worth disproving. An AT-class machine takes the identical
+count out of **CMOS setup**, which is somebody's decision, and §18.98.1 had
+already ruled that a deliberate assertion is trusted. The rule was right and
+was applied to the wrong axis: it is not *how many* drives are claimed that
+decides whether a claim is evidence, it is **where the number came from**. So
+the probe still runs everywhere and still publishes what it found, and the row
+is retired **on tier 0 only** (`[cpu_tier]`, §41.1).
+
+**Verified, and the A/B is one binary on two CPUs.** No emulator here can
+produce a real absent verdict — MartyPC synthesizes `ST3 = 0x79` (TRK0 **set**)
+for a drive its own config does not have, and QEMU's FDC returns
+`0x28 | (track==0 ? 0x10 : 0)` off a `track` that is 0 for an absent drive, so
+both answer *present* unconditionally (measured: QEMU reads `ST3 = 0x39`,
+`probe stop 01`). `make FDDABSENT=1` forces the verdict without touching a
+port, which makes the DECISION testable while leaving the FDC conversation the
+5150's question:
+
+| | MartyPC 5150 (8088) | QEMU (386) |
+|---|---|---|
+| `cpu_tier` | 00 | 02 |
+| claimed / ran | 02 / 02 | 02 / 02 |
+| ST3 / ST3B / ST0 | 21 / 21 / 71 | 21 / 21 / 71 |
+| `probe stop` | 03 (absent) | 03 (absent) |
+| `verdict` | **0 — retired** | **1 — kept** |
+| `dsk_vtab` row 1 | KIND FF, flags 0 | KIND 00, flags 1 |
+| desktop | `A:` alone | `A:` **and** `B:` |
+
+The shipped (no-knob) kernel is **0 differing framebuffer bytes of 384,000**
+against the build before the change, on a machine where the probe finds a
+drive — the new branch is behind a `jnz` no emulator reaches.
+
+**What is still open is the Packard Bell's ST3 itself**, and this fixes the
+kernel's response to it rather than explaining it. It is note 19's question on
+a second machine and a second controller. One candidate is the µPD765's
+**77-step RECALIBRATE limit** against an **80-cylinder** drive — which both
+the 1.2MB 5.25" and the 4865 are, and which is why real drivers issue the
+command twice — but it does not survive on its own: a head parked past
+cylinder 77 is walked to within 3 of track 0 by the failed attempt, so the
+*next* boot would succeed and the fault would not repeat. **Ask for a
+`sysbench` run** (`make combo`): §57.5's `FD` block reports `claimed`,
+`probe ran`, both ST3 reads, the drained ST0, `probe stop` and `verdict` per
+unit, and it separates the three live possibilities in one line —
+`claimed 1` (the drive count never reached us at all, which on a machine with
+a potted DS1287 whose battery is 30 years old is worth ruling out first),
+`claimed 2` + `probe stop 03` (this bug, now fixed), or `probe stop 04` (the
+controller refused, which keeps the drive and was never the symptom).
+
+**Confirmed on the machine.** A 1.44MB `combo` disk was built for it — the
+Packard Bell has no 360KB drive, which is the first time the register's
+default ask has not fitted a machine in it — and **drive B is back on the
+desktop**. That is the reported symptom, gone, on the hardware that reported
+it.
+
+**What that confirms and what it does not.** It confirms the diagnosis was in
+the right routine and that §18.97.2's tier test is what the machine needed:
+the equipment word DID claim two drives (so the `claimed 1` branch — a dead
+DS1287 — is ruled out), and the probe DID reach its removing path, because
+nothing else on that machine had changed. It does **not** explain the FDC:
+no `sysbench` report has come back yet, so the ST3/ST0 bytes this machine
+actually answers are still unread, and note 19's question — why a present
+drive reports TRK0 clear through a recalibrate, on two different controllers
+now — stays open. §57.5's block is on the disk that is over there; the run is
+still worth asking for, and it is now the only thing that could ever explain
+this rather than route around it.
+
+**The `sysbench` came back, and it diagnoses the controller** (SPEC.md
+§18.97.3). Unit 1 on the Packard Bell, whose drive is present and works:
+
+```
+drives int 11h claims    2      ST3 motor off hex    0021
+probe ran bitmap hex  0002      ST3 after seek hex   0021
+probe stop hex        0003      ST0 drained hex      0021
+```
+
+`claimed 2` closes the last alternative — the count did reach us, so the
+DS1287 is fine and the probe really did reach its removing path. And set
+against §18.97.1's 5150, whose drive B genuinely is not there, the two bytes
+say opposite things:
+
+| | ST3, twice | ST0 | truth |
+|---|---|---|---|
+| Packard Bell, unit 1 | **`21`** | `21` — IC 00, SE, **EC clear** | present |
+| 5150, unit 1 | **`21`** | `71` — IC 01, SE, **EC set** | absent |
+
+**ST3 is the same byte for a present drive and an absent one.** Not similar —
+identical, on both reads, on two machines with opposite ground truth. That
+retires the last hope that §18.97's discriminator could be made to work by
+being read more carefully.
+
+**ST0 separates them outright**, and it says something specific: interrupt
+code **00, normal termination**, seek end set, no Equipment Check is the
+controller reporting *the recalibrate completed and the head reached track
+0*. So the drive is there, the head is where the FDC says it is, and only
+TRK0's path to ST3 bit 4 is missing. That is a fact about a **controller**,
+not about a drive — which is the shape note 19 has been missing, and the
+first real progress on it.
+
+**So ST0 is now consulted before anything is removed, and only ever to change
+the answer to *keep*** (`FDD_S_SEEKST0`, step 05). EC clear proves presence;
+EC **set proves nothing**, because the 4865 above is present and sets it.
+That asymmetry is the whole design and it is why this cannot make the probe
+remove a drive it would not already have removed.
+
+**It is a second guard, not a replacement for §18.97.2**, and they cover
+different machines: the tier test declines a 5150-shaped correction on a
+machine whose count came from CMOS, and this one saves a **tier 0** machine
+with a drive of this kind — which the tier test by construction cannot. The
+Packard Bell needed the first. The next XT with a 1.2MB drive needs this.
+Measured, all four cells (`make FDDABSENT=1` / `=2`, MartyPC 5150 and QEMU):
+the only one that removes a drive is an absent drive on tier 0.
+
+**Two things in that report are NOT faults and should not be chased.**
+`mouse found 0` with both ports present and no identify bytes is what a
+machine with nothing plugged into either port says — ask before diagnosing
+it (docs/FIELD-MACHINES.md's rule, learned on the 5150). And `est CPU MHz
+x100` reading **8879** on a 16MHz 286 is the known 8088-only derived row,
+still outstanding in the register: it is computed against instruction timings
+a 286 does not have, and it should say so rather than print a number.
+
+---
+
+## 22. Tracker "hardlocks" at the end of a large module (CLOSED — NOT A DEFECT, the module says stop)
+
+> **Reported**: a 297KB module (`banana split`, by Dizzy / CNCD '93) loaded
+> into Tracker in **XT mode, fullscreen**, played to `Pos 30/30` and then
+> "hardlocked the system".
+>
+> **It is not a lock.** The module ends with an explicit `F00` and the FT2
+> text screen then legitimately has nothing left to draw. Reproduced on a
+> cycle-accurate 4.77MHz 8088 with 640KB, CGA and a Sound Blaster DSP 2.01:
+> the song runs 00 → 30, `mp_playing` goes 0, the grid stops moving, the
+> BIOS tick counter keeps advancing, `CS:IP` keeps wandering through the
+> kernel's idle, and **Esc exits the bracket back to the desktop**. The
+> reporter's Esc did nothing because the emulator did not have keyboard
+> focus. Nothing in os8088 is at fault and nothing was changed.
+
+**Three things made it read as a crash, and they are worth knowing because
+the next large module will do the same.**
+
+**The module really does stop.** Pattern 5 is order 48, the last one, and row
+0x39 channel 0 carries `F00` — ProTracker's "speed 0 = stop" — immediately
+after a `C00` fade to silence on all four channels. `mp_readrow`'s `.fF` arm
+sets `mp_playing = 0` and does nothing else. To an ear it ends abruptly and
+does not *sound* finished, which is a property of the music rather than of
+the player.
+
+**Almost every other module loops, and that is the DEFAULT rather than a
+command.** Running off the end of the order list wraps to the restart byte
+(header offset 951, forced to 0 when it is >= songlen), so a module with no
+end-of-song effect at all loops for ever — `beverly.mod` is that case, with
+zero `Bxx`, zero `Dxx` and zero `F00`. A module that wants to loop
+*somewhere else* says so with `Bxx`: `elysium.mod` ends order 28 with `B09`
+and jumps back to order 9, which is the classic play-the-intro-once shape
+(verified live: `pos=1C` → `pos=09`). So there are three outcomes and all
+three are the file's choice — wrap (default), `Bxx` (chosen target), `F00`
+(stop). `banana split` is the only one of the three that stops.
+
+**A finished song in the fullscreen bracket looks exactly like a dead
+machine.** Inside SPEC.md §53's bracket the kernel does not run, so there is
+no clock, no cursor and no chrome to reassure anybody; the app draws
+change-driven (§45.13), so once the song stops the screen is *correctly*
+static; and the only keys that do anything are ENTER, F and Esc. The status
+line does say `Stopped  ENTER play  F/ESC exits`, in one small row above a
+frozen grid. **That is the whole diagnostic surface.** If this is ever
+reported again, the first question is whether Esc exits, and the second is
+whether the module's last pattern has an `F00`.
+
+**Which screen the report came from was the fastest clue and cost nothing.**
+`Pos 30/30` cannot come from the windowed splash: `tui_wpos` prints
+`mp_songlen` and would have said `30/31`. Only `trktxt.inc` prints
+`songlen - 1` ("FT2's own reading"), so the `/30` pinned the report to the
+XT-mode fullscreen text screen before anything was run. **A readout that is
+formatted differently in two places is a locator** — worth remembering the
+next time a field report quotes a number back.
+
+### 22.1 `BPM 125` on every module is correct, and it was verified against a control
+
+Asked in the same round: every module reads `BPM 125`, which looks like a
+stuck field. It is not. A MOD header carries no tempo at all — 125 BPM and
+speed 6 are ProTracker's defaults, and the only thing that moves the tempo is
+`Fxx` with `xx >= 0x20`. Scanned across the patterns each song actually
+plays: `beverly.mod` **0** tempo commands, `banana split` **0** (54 *speed*
+commands, `F02`–`F07`, which is what makes it feel fast), `elysium.mod`
+**0**. All three are honestly 125 for their whole length.
+
+**The readout was proved live rather than argued to be**, because "all three
+agree" is equally what a hardcoded constant looks like. `TEMPO.MOD` — one
+pattern, `F96` at row 0 and `F3C` at row 32 — reads **BPM 150** for rows
+0..31 and **BPM 60** for 32..63, tracking the effect exactly. A negative
+result across three files is not evidence about a field until one file
+disagrees with it.
+
+---
+
+## 23. A black dash on the desktop after mounting a hard drive (FIXED, SPEC.md 51.2.4)
+
+Reported off a PCem 286/VGA machine with a screenshot: one 16-pixel black run
+on a single scan line of the bare desktop, well below the Control Panel
+window, appearing when a hard drive was mounted or unmounted. Two things in
+the report were worth more than the picture. **"On at least vga"** — the
+reporter had only seen it there. And, in the second message, **"I've been
+seeing this on and off; after a reboot mount/unmount is not recreating it,
+but during the boot when it happened each mount/unmount would redraw it."**
+
+That pair is the whole diagnosis in advance: *deterministic within a boot,
+different between boots* is memory nobody initialised, and *one adapter only*
+is an address that lands somewhere harmless on the other two.
+
+**QEMU could not show it, and the reason is worth keeping.** `make test`
+reproduces nothing here because QEMU hands the guest **zeroed RAM**, and the
+value being written was 0. `.bss` is not the variable either — `-f bin`
+zeroes nothing, but `.cold`'s `start=COLD_START` makes nasm pad the file with
+zeros across the whole `.bss` range and the boot sector's single read lands
+that padding on it, so kernel scratch arrives zeroed by accident on every
+machine. **The heap does not**, and that is what differs from boot to boot on
+iron. `make DIRTYRAM=1` was written for this: it fills the claim heap with
+0xAA before anything can claim from it, and with that one knob the defect
+reproduced under QEMU on the first try, in the same shape, at a different
+position.
+
+**Finding it from there took one watchpoint.** `qmp.py … 'gdbserver tcp::1234'`
+on the running machine, `gdb` with a hardware watchpoint on the framebuffer
+byte the artifact sits in (`0xA0000 + row*80 + x/8`), then the click. It
+stopped on `pop word [snd_inst]` in `drv_call` with `CS = COLD_SEG` and
+**`DS = 0x9B00`, a heap segment** — the driver's own — so the restore was
+writing 0xD5F9 bytes past the driver's base, which on a 640KB machine is past
+the top of the heap and inside VGA memory. Two bytes, one scan line, sixteen
+pixels. On Hercules and CGA the same address is the unused hole below B000,
+which is the whole of "at least vga".
+
+The fix and both defects are SPEC.md §51.2.4. What it says generally:
+**anything banked in kernel memory across a call that changes `DS` is pushed
+before `DS` and popped after it is back** — `loader.inc` had it right, the two
+driver dispatchers did not, and `wm_pkgcall`'s `SNAPAUDIT` bracket had the
+same shape.

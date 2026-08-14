@@ -577,7 +577,7 @@ zt_screen:
 ; in:  AL = a byte in 32..126, or 13 for a new-line
 ; out: nothing; preserves all registers
 ;
-; v6 replaces the whole window model rather than varying it (SPEC.md 59), so
+; v6 replaces the whole window model rather than varying it (SPEC.md 61), so
 ; the choice is made here once instead of inside every caller.
 ; -----------------------------------------------------------------------------
 zt_screen1:

@@ -338,6 +338,13 @@ fdlg_home_go:
     push bx
     push dx
     push si                     ; the MEDIA lookup below stages an entry
+%ifdef KERN_BIG
+    mov bx, fdlg_path           ; the dialog is being PLACED, so it has walked
+    call pth_clear              ; nowhere yet (docs/TITLE-PLAN.md 5). Cleared
+                                ; here rather than in fdlg_open_x because this
+                                ; is what MOVES it, and .bss arrives holding
+                                ; whatever the last dialog left
+%endif
     mov al, [disk_drive]        ; the RECOVERY only: where the machine is now,
     mov [fdlg_hdrv], al         ; for the case where this instance's own
     mov ax, [dsk_cwd]           ; volume cannot be mounted at all
@@ -350,12 +357,12 @@ fdlg_home_go:
     je .media                   ; the user has chosen no folder for this app
     shl bx, 1                   ; ...otherwise the one they chose
     mov ax, [inst_fcwd+bx]
-    call KERNEL_SEG:cw_dsk_chdir
+    call dsk_chdir_x
     jnc .done
 .cur:
     mov dl, [fdlg_hdrv]
     mov ax, [fdlg_hcwd]
-    call KERNEL_SEG:cw_dsk_chdir
+    call dsk_chdir_x
     jmp short .done
 
     ; --- the default: MEDIA in the root of this instance's drive ---
@@ -365,21 +372,26 @@ fdlg_home_go:
 .media:
     mov [fdlg_idrv], dl         ; banked: the two chdirs below both need it
     xor ax, ax                  ; the root, whose listing names its folders
-    call KERNEL_SEG:cw_dsk_chdir
+    call dsk_chdir_x
     jc .cur                     ; the volume itself will not mount
     mov si, fdlg_s_media
-    call KERNEL_SEG:cw_dsk_find_name ; AX = its index; no I/O - the snapshot
+    call dsk_find_name_x ; AX = its index; no I/O - the snapshot
     jc .done                    ; no MEDIA here: this root IS the answer, and
                                 ; it is still an answer nothing drifted into
-    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged entry (SPEC.md 19)
+    call dsk_get_dir_x ; SI -> the staged entry (SPEC.md 19)
     cmp word [si+16], 2         ; a folder, not a FILE called MEDIA
     jb .done
     mov ax, [si+18]             ; its first cluster
     or ax, ax
     jz .done                    ; 0 is the root: not a folder to enter
     mov dl, [fdlg_idrv]
-    call KERNEL_SEG:cw_dsk_chdir
+    call dsk_chdir_x
     jc .cur
+%ifdef KERN_BIG
+    mov bx, fdlg_path           ; the ONE default that can be named: the
+    mov si, fdlg_s_media        ; dialog really did walk into MEDIA, and BX
+    call pth_push               ; and SI are both saved by the prologue above
+%endif
 .done:
     pop si
     pop dx
@@ -909,7 +921,7 @@ fdlg_stage:
     push bx
     push cx
     push si
-    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged 32-byte entry (SPEC.md 19)
+    call dsk_get_dir_x ; SI -> the staged 32-byte entry (SPEC.md 19)
     mov bx, fdlg_row
     mov cx, 16
 .copy:
@@ -995,10 +1007,19 @@ fdlg_nextvol:
 ; -----------------------------------------------------------------------------
 fdlg_go:
     push ax
-    call KERNEL_SEG:cw_dsk_chdir
+    call dsk_chdir_x
     jc .moved                   ; a FAILED mount lands at the root of the
     call fdlg_home_dir          ; drive it tried with the gate shut - not a
 .moved:                         ; folder to bring an app back to
+%ifdef KERN_BIG
+    cmp word [dsk_cwd], 0       ; AT A ROOT - asked for, or fallen back to -
+    jne .haspath                ; so the dialog is in nothing it walked into.
+    push bx                     ; files.inc's rule in the other module: the
+    mov bx, fdlg_path           ; ONE clear site, so a new way of ending at a
+    call pth_clear              ; root cannot forget to
+    pop bx
+.haspath:
+%endif
     mov word [fdlg_sel], 0xFFFF
     mov word [fdlg_scrl], 0
     call fdlg_unfold            ; a folder name half typed here would be made
@@ -1166,7 +1187,7 @@ fdlg_icon:
     push si
     add cx, [fdlg_cx]           ; content-relative -> absolute
     add dx, [fdlg_cy]
-    call KERNEL_SEG:cw_dsk_get_icon ; SI -> the staged 64-byte body
+    call dsk_get_icon_x ; SI -> the staged 64-byte body
     mov bx, si
     push cx
     xor ax, ax
@@ -1232,10 +1253,26 @@ fdlg_actok:
     stc
     ret
 
+; =============================================================================
+; The STANDARD CONTROL, shared with every package (apps/os88ui.inc).
+;
+; One source, two worlds: OS88UI_KERNEL turns its primitive calls into the
+; cold-to-text shims below, and a package assembling the identical text gets
+; OSAPI_* far calls instead. A feature added to the button lands here, in the
+; Control Panel, in the Timer and in every package at once - which is the
+; whole reason it is one file rather than ten that agree by hand.
+;
+; It goes in fdlg.inc because this is the biggest consumer and the file is
+; cold in its entirety; ctrl.inc is cold too and calls it directly, and
+; apps.inc is .text and reaches it through os88ui_btn_f.
+; =============================================================================
+%define OS88UI_KERNEL
+%include "os88ui.inc"
+
 ; -----------------------------------------------------------------------------
 ; fdlg_defbtn - draw the default button (Open / Save) in the right pen
 ; in:  the layout cache; gfx lock held
-; out: nothing (all registers preserved); leaves the disabled pen set
+; out: nothing (all registers preserved); the pen is left LIVE by os88ui_btn
 ; -----------------------------------------------------------------------------
 fdlg_defbtn:
     push ax
@@ -1250,16 +1287,24 @@ fdlg_defbtn:
     mov al, 0
     adc al, 0                   ; AL = 1 refused, 0 live - and note ADC WRITES
     mov [fdlg_actl], al         ; CF, so the carry the gate answered in is
-    or al, al                   ; gone by here. Passing it to gfx_pen_cf drew
-    jz .live                    ; the button live every time, which is exactly
-    call KERNEL_SEG:cw_gfx_pen_dis ; the "looks available and refuses" failure
-    jmp short .pen              ; rule 4 exists to prevent
-.live:
-    call KERNEL_SEG:cw_gfx_pen_live
-.pen:
+    mov ah, al                  ; gone by here, which is why the answer is
+                                ; carried as a VALUE from here on rather than
+                                ; re-read from the flag (it used to be passed
+                                ; to gfx_pen_cf and drew the button live every
+                                ; time - the "looks available and refuses"
+                                ; failure rule 4 exists to prevent)
     mov bx, FD_BY0
-    mov al, 1                   ; the default button carries the outer frame
-    call fdlg_btn
+    mov al, OS88UI_DEF | OS88UI_FILL
+                                ; the outer ring - and the FILL, because this
+                                ; is the one button in the kernel REDRAWN IN
+                                ; PLACE (fdlg_draw_name, on the edge where
+                                ; fdlg_actok moves). font_char is transparent,
+                                ; so without an erase a checkerboard caption
+                                ; is OR'd onto the solid one already there and
+                                ; the greyed label comes out pixel-identical
+                                ; to the live one - SPEC.md 47 rule 1 defeated
+                                ; downstream of a mechanism that works
+    call fdlg_btn               ; ...and AH carries the greying (SPEC.md 47 r1)
     pop si
     pop bx
     pop ax
@@ -1267,9 +1312,26 @@ fdlg_defbtn:
 
 ; -----------------------------------------------------------------------------
 ; fdlg_btn - one button of the right-hand column (internal)
-; in:  BX = its top (content-relative), SI = label, AL non-zero = the
-;      default button (a second frame 2px out)
-; out: nothing (all registers preserved)
+; in:  BX = its top (content-relative), SI = label, AL = OS88UI_* flags
+;      (DEF and/or FILL), AH non-zero = disabled
+; out: nothing (all registers preserved); the pen is left LIVE
+;
+; The drawing is os88ui_btn's now - the shared control, one source with every
+; package (apps/os88ui.inc). What is left here is the adapter: the column's
+; fixed x, this button's y, and the window origin, turned into the screen rect
+; the shared routine takes. AL is the shared routine's OWN flag word rather
+; than a private encoding, so adding one is not two edits.
+;
+; The DISABLED state moved from the caller's pen to a flag, which is SPEC.md
+; 47 rule 1 arriving properly: it used to be "set the pen, then call me", so
+; the colour and [gfx_dis] were the caller's to get right and the label and
+; the frame could disagree. Now one flag drives both and the pen comes back
+; live by itself.
+;
+; Only the DEFAULT button passes FILL. Cancel, Drive and New Folder are drawn
+; once, by fdlg_paint, onto a pane wm_paint_all has already whited - and
+; nothing can change what they say - so an erase there is a gfx_fill nobody
+; needs. The default button is the exception because its state moves.
 ; -----------------------------------------------------------------------------
 fdlg_btn:
     push ax
@@ -1277,39 +1339,28 @@ fdlg_btn:
     push cx
     push dx
     push si
-    push bp
-    mov [fdlg_bdef], al         ; AL is about to become a rect corner
-    mov bp, bx                  ; BP = the button top (a value, never an
-                                ; address: SS is not DS, SPEC.md 1)
-                                ; The pen is the CALLER'S - it used to force
-                                ; CBLACK here, which is fine for three of the
-                                ; four buttons and wrong for the one that can
-                                ; be disabled (SPEC.md 47 rule 2: the frame
-                                ; greys with the label, and on a mono adapter
-                                ; the frame is the half that shows)
+    push di
+    mov di, ax                  ; DI = the two flag bytes; AX is about to be a
+                                ; rect corner
     mov ax, FD_BX1
-    mov bx, bp
     mov cx, FD_BX2
-    mov dx, bp
+    mov dx, bx
     add dx, FD_BH
-    call fdlg_off
-    call KERNEL_SEG:cw_gfx_frame
-    cmp byte [fdlg_bdef], 0
-    je .label
-    mov ax, FD_BX1-2
-    mov bx, bp
-    dec bx
-    dec bx
-    mov cx, FD_BX2+2
-    mov dx, bp
-    add dx, FD_BH+2
-    call fdlg_off
-    call KERNEL_SEG:cw_gfx_frame
-.label:
-    mov dx, bp
-    add dx, 3
-    call fdlg_blabel
-    pop bp
+    call fdlg_off               ; AX..DX = the inclusive SCREEN rect
+    mov [os88ui_krect+0], ax
+    mov [os88ui_krect+2], bx
+    mov [os88ui_krect+4], cx
+    mov [os88ui_krect+6], dx
+    mov ax, di
+    or ah, ah                   ; AL is already the flag word; the greying is
+    jz .live                    ; the one bit that arrived separately
+    or al, OS88UI_DIS
+.live:
+    xor ah, ah
+    mov di, ax
+    mov bx, os88ui_krect
+    call os88ui_btn
+    pop di
     pop si
     pop dx
     pop cx
@@ -1415,8 +1466,16 @@ fdlg_paint_x:
     mov si, fdlg_s_root
     cmp word [dsk_cwd], 0
     je .place
-    mov si, fdlg_s_sub
-.place:
+%ifdef KERN_BIG
+    push bx                     ; the folder's own name, when the dialog
+    mov bx, fdlg_path           ; walked here (docs/TITLE-PLAN.md 5). The pen
+    call pth_leaf               ; is x=30 and the list frame starts at
+    pop bx                      ; FD_LX2=213, so 22 cells are free and the
+    or si, si                   ; longest 8.3 name needs 12 - measured before
+    jnz .place                  ; it was allowed here, not after
+%endif
+    mov si, fdlg_s_sub          ; ...and a folder it was PLACED in still reads
+.place:                         ; 'Folder', which is what it always read
     cmp byte [dsk_mntok], 0     ; a failed mount says so rather than showing
     jne .hdr                    ; an empty folder that is not empty
     mov si, fdlg_s_nodisk
@@ -1437,14 +1496,13 @@ fdlg_paint_x:
 
     ; --- the button column ---
     call fdlg_defbtn            ; Open / Save, greyed when it would refuse
-    call KERNEL_SEG:cw_gfx_pen_live
     mov si, fdlg_s_cancel
     mov bx, FD_BY1
-    xor al, al
+    xor ax, ax
     call fdlg_btn
     mov si, fdlg_s_drive
     mov bx, FD_BY2
-    xor al, al
+    xor ax, ax
     call fdlg_btn
     cmp byte [fdlg_mode], 0     ; New Folder is a SAVE-mode button: opening a
     je .nonewf                  ; file has no use for one, and the fourth
@@ -2061,7 +2119,7 @@ fdlg_findname:
     push cx
     push bx
     mov ax, bx
-    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged entry: name, then the type
+    call dsk_get_dir_x ; SI -> the staged entry: name, then the type
     cmp word [si+16], 2         ; word at +16 and the first cluster at +18
     jne .next                   ; (SPEC.md 19) - only a folder can match
     mov di, si
@@ -2071,7 +2129,7 @@ fdlg_findname:
     pop bx
     pop cx
     mov ax, bx
-    call KERNEL_SEG:cw_dsk_get_dir
+    call dsk_get_dir_x
     mov ax, [si+18]
     clc
     jmp short .out
@@ -2134,8 +2192,22 @@ fdlg_dive:
     push dx
     push si
     mov ax, [fdlg_sel]
-    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the staged entry
+    call dsk_get_dir_x ; SI -> the staged entry
     mov ax, [si+18]             ; its first cluster (SPEC.md 19)
+%ifdef KERN_BIG
+    push ax                     ; ...and the NAME, while the staged entry is
+    push bx                     ; still there: fdlg_go below remounts, and a
+    mov bx, fdlg_path           ; mount rebuilds dsk_ent - the same trap
+    cmp word [si+16], 3         ; fm_open_sel banks its own two values against
+    je .updir                   ; 3 = the parent link (19.5): the way UP
+    call pth_push               ; SI -> the entry's 16-byte name field
+    jmp short .pdone
+.updir:
+    call pth_pop                ; ...which is where the name comes BACK from
+.pdone:
+    pop bx
+    pop ax
+%endif
     pop si
     mov dl, [disk_drive]
     call fdlg_go
@@ -2653,6 +2725,18 @@ fdlg_idrv:  resb 1              ; ...and the INSTANCE's drive, banked across
                                 ; the MEDIA lookup, which needs it for the
                                 ; chdir to the root and again for the chdir
                                 ; into the folder that root named
+%ifdef KERN_BIG
+fdlg_path:  resb PTH_SIZE       ; the folders this dialog was walked down
+                                ; through (docs/TITLE-PLAN.md 5), the PTH_*
+                                ; block files.inc defines. ONE of them, not
+                                ; one per window: the dialog is MODAL, so it
+                                ; can only ever be in one place at a time -
+                                ; the same fact that lets it read the global
+                                ; mount snapshot instead of a view cache
+                                ; (SPEC.md 38.2). .bss is safe because
+                                ; fdlg_home_go clears it on every open, which
+                                ; is what the reused KD_POOL block needs too
+%endif
 fdlg_rqcb:  resw 1              ; ...its near completion proc...
 fdlg_rqrec: resw 1              ; ...its instance record...
 fdlg_rqsp:  resw 1              ; ...and that record's I_SPTR: the staleness

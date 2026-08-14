@@ -144,10 +144,10 @@ THEMES = (
      ("mouse.inc", "clock.inc", "driver.inc", "snd.inc", "cpudet.inc",
       "xmem.inc")),
     ("drawing: adapters, primitives, glyphs, icons",
-     ("vga12.inc", "vgabb.inc", "font.inc", "icons.inc", "viddet.inc",
+     ("vga12.inc", "softgfx.inc", "font.inc", "icons.inc", "viddet.inc",
       "vidsel.inc", "splash.inc")),
     ("the kernel proper: API table, heap, scheduler, events",
-     (RESIDUAL, "memory.inc", "sched.inc", "events.inc")),
+     (RESIDUAL, "memory.inc", "sched.inc", "events.inc", "mod.inc")),
     ("the Control Panel", ("ctrl.inc",)),
     ("the three built-in kinds", ("apps.inc",)),
 )
@@ -165,6 +165,7 @@ def measure(nasm_args=()):
     try:
         cmd = ["nasm", "-f", "bin", "-w+error", "-w-error=user", "-DKERNSIZE",
                "-I", os.path.join(ROOT, "kernel") + os.sep,
+               "-I", os.path.join(ROOT, "apps") + os.sep,
                "-I", BUILDDIR + os.sep,
                *nasm_args, "-o", out_path, KERNEL]
         r = subprocess.run(cmd, capture_output=True, text=True)
@@ -230,6 +231,7 @@ def _nasm(path, out_path, nasm_args=()):
     return subprocess.run(
         ["nasm", "-f", "bin", "-w+error", "-w-error=user",
          "-I", os.path.join(ROOT, "kernel") + os.sep,
+         "-I", os.path.join(ROOT, "apps") + os.sep,
          "-I", BUILDDIR + os.sep,
          *nasm_args, "-o", out_path, path],
         capture_output=True, text=True)

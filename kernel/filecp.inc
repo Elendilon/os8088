@@ -188,6 +188,8 @@ fcp_goto:
     push dx
     cmp al, [disk_drive]
     jne .full
+    cmp byte [dsk_vkind], DVK_FILE
+    je .fsgo                    ; a REDIRECTED volume: below
     or bx, bx
     jz .quiet                   ; 0 is the root, always legal
     cmp bx, 2
@@ -204,10 +206,31 @@ fcp_goto:
     pop dx
     stc
     ret
+
+    ; --- a REDIRECTED volume: TELL THE DRIVER, do not just store the word ---
+    ; The quiet path above exists precisely to avoid a mount for a move inside
+    ; one volume - and a mount is the only thing that would have called
+    ; FSV_CHDIR. A DRVC_FILE driver keeps its own idea of where it is standing
+    ; (it has to: FSV_STAT resolves a name in the CURRENT folder), so writing
+    ; [dsk_cwd] behind its back leaves the two disagreeing and every name the
+    ; copy then asks about is looked up in the folder it came FROM. It
+    ; presented as FERR_NOENT for a file that is plainly listed.
+    ;
+    ; The range checks go with it: that word is an OPAQUE HANDLE (SPEC.md
+    ; 62.9.1), `>= 2` rejects the first folder such a driver ever hands out,
+    ; and [dsk_maxclus] belongs to the last FAT volume mounted.
+.fsgo:
+    push bp
+    mov ax, bx                  ; the handle, or 0 for the root
+    mov bp, FSV_CHDIR
+    call drv_fs_call
+    pop bp
+    jc .bad
+    jmp short .quiet
 .full:
     mov dl, al
     mov ax, bx
-    call KERNEL_SEG:cw_dsk_chdir_q
+    call dsk_chdir_q_x
     jc .ferr
     pop dx
     clc
@@ -376,7 +399,7 @@ fcp_selfchk:
     je .bad                     ; the destination IS the source, or is under
     or ax, ax                   ; it: either way the copy would eat itself
     jz .ok                      ; reached the root without meeting it
-    call KERNEL_SEG:cw_dsk_dotdot
+    call dsk_dotdot_x
     jc .ok
     mov [dsk_cwd], ax
     loop .up
@@ -519,7 +542,7 @@ fcp_bufget:
     push cx
     push dx
     call fcp_floor              ; CX = the smallest buffer that can work here
-    call KERNEL_SEG:cw_mem_avail              ; AX = largest free run in KB
+    call mem_avail_x              ; AX = largest free run in KB
     cmp ax, cx
     jb .no
     cmp ax, FCP_MAXKB
@@ -537,10 +560,10 @@ fcp_bufget:
                                 ; the heap happened to be holding. Aligned, a
                                 ; chunk smaller than the buffer never reaches
                                 ; the boundary at all
-    call KERNEL_SEG:cw_mem_claim_dma
+    call mem_claim_dma_x
     pop cx
     jnc .claimed
-    call KERNEL_SEG:cw_mem_claim              ; ...and a heap with no page-aligned run
+    call mem_claim_x              ; ...and a heap with no page-aligned run
     jc .no                      ; still copies, exactly as it did before
 .claimed:                       ; CF=1 refused; the segment comes back in DX,
                                 ; NOT in AX - AX still holds the KB asked for
@@ -589,7 +612,7 @@ fcp_bufput:
     or dx, dx
     jz .out
     mov bx, MEM_K_COPY          ; mem_free takes the owner word too, and
-    call KERNEL_SEG:cw_mem_free ; refuses a base that is not this owner's
+    call mem_free_x ; refuses a base that is not this owner's
     mov word [fcp_raw], 0
     mov word [fcp_seg], 0
 .out:
@@ -608,7 +631,7 @@ fcp_stop:
     call fcp_bufput
     mov byte [fcp_busy], 0
     mov byte [dskw_batch], 0    ; the deferred remount is spent by the caller
-    call KERNEL_SEG:cw_dsk_relist ; the volume switches were quiet (SPEC.md
+    call dsk_relist_x ; the volume switches were quiet (SPEC.md
                                 ; 18.9), so the global snapshot may be this
                                 ; operation's debt - and the world is about to
                                 ; repaint. AFTER dskw_batch, which gates the
@@ -670,7 +693,7 @@ fcp_answer:
 fcp_step:
     mov byte [dskw_batch], 1    ; one remount for the whole operation, spent
                                 ; by the caller (SPEC.md 18.4 rule 3)
-    call KERNEL_SEG:cw_dsk_batch_begin  ; ...and one BPB validation per volume
+    call dsk_batch_begin_x  ; ...and one BPB validation per volume
                                 ; for as long as the interface stays frozen
                                 ; (SPEC.md 18.9.3). One slice is one batch: a
                                 ; question or a finish unlocks, which ends it,
@@ -753,7 +776,7 @@ fcp_step:
                                 ; where anything else that writes must behave
                                 ; normally; fcp_step raises it again on the
                                 ; way back in
-    call KERNEL_SEG:cw_dsk_relist ; ...and where the listing must be this
+    call dsk_relist_x ; ...and where the listing must be this
                                 ; volume's again (SPEC.md 18.9), for the same
                                 ; reason and at the same moment
     mov al, FCPS_ASK            ; the buffer and the frames stay claimed:
@@ -809,6 +832,20 @@ fcp_relink:
     mov bx, [fcp_cwd]
     call fcp_goto
     jc .no
+    cmp byte [dsk_vkind], DVK_FILE
+    je .no                      ; A REDIRECTED VOLUME DECLINES THIS WHOLE
+                                ; PATH (SPEC.md 62.9.7). Everything below is
+                                ; raw directory SLOTS - dskw_ent_store into
+                                ; [dskw_fsec]/[dskw_foff], the 0x00
+                                ; terminator, fcp_rlup rewriting the moved
+                                ; folder's own on-disk '..' - and there are
+                                ; none. It costs nothing to refuse: this is
+                                ; a fast path with a fallback, so AX = 0
+                                ; "not attempted" sends the caller into the
+                                ; copy engine, which is entirely built here.
+                                ; The '..' is moot too - FSV_CHDIR answers
+                                ; the parent handle, so there is no on-disk
+                                ; link to go stale
     mov si, fcp_name
     call dskw_stat_x            ; dskw_raw = its 32 bytes, BX = first cluster
     jc .no
@@ -906,12 +943,12 @@ fcp_rlup:
     mov ax, LOW_SEG
     mov es, ax
     mov ax, [fcp_rlclus]
-    call KERNEL_SEG:cw_dsk_clus2lba ; AX = the folder's first sector
+    call dsk_clus2lba_x ; AX = the folder's first sector
     jc .out
     push ax
     mov cx, 1
     mov bx, dsk_secbuf
-    call KERNEL_SEG:cw_disk_read
+    call disk_read_x
     pop ax
     jc .out
     cmp byte [es:dsk_secbuf+32], '.'
@@ -923,7 +960,7 @@ fcp_rlup:
     push ax
     mov cx, 1
     mov bx, dsk_secbuf
-    call KERNEL_SEG:cw_disk_write
+    call disk_write_x
     pop ax
 .out:
     pop es
@@ -1014,8 +1051,37 @@ fcp_scan:
     mov bx, [di+FCP_FSRC]
     call fcp_goto
     jc .ioerr
+    cmp byte [dsk_vkind], DVK_FILE
+    jne .fatwalk
+
+    ; --- a REDIRECTED volume: one FSV_ENUM, BY ORDINAL (SPEC.md 62.9.7) -----
+    ; There are no directory sectors to walk, no raw 32 bytes to filter and no
+    ; dsk_synth to run - so the driver is asked for the Nth entry of this
+    ; folder and answers with the same staged entry dsk_synth would have
+    ; built. That is why this joins the FAT path at .stage instead of
+    ; repeating its tail: one copy of "what does the engine take from an
+    ; entry", not two that can drift.
+    mov ax, [di+FCP_FSRC]       ; the folder's handle...
+    mov cx, [di+FCP_FPOS]       ; ...and how far into it we already are
+    mov dx, ds                  ; DX:BX, not ES:BX (SPEC.md 51.8) - and DS
+    mov bx, dsk_ent             ; because dsk_ent is .bss, which is where the
+    push bp                     ; shared tail reads it from (ES is LOW_SEG
+    mov bp, FSV_ENUM            ; here, for the raw sectors this path has not
+    call drv_fs_call            ; got)
+    pop bp
+    jc .fsdone
+    inc word [di+FCP_FPOS]      ; consumed. THIS ordinal is dense where the
+    jmp .stage                  ; FAT one counts raw slots, and both are
+.fsdone:                        ; opaque to every caller above
+    or ax, ax
+    jnz .fsio                   ; (near jumps: .end and .ioerr are both out
+    jmp .end                    ; of a conditional's short range from here)
+.fsio:
+    jmp .ioerr
+
+.fatwalk:
     mov ax, [di+FCP_FSRC]
-    call KERNEL_SEG:cw_dsk_dirw_start
+    call dsk_dirw_start_x
     mov ax, [di+FCP_FPOS]       ; the ordinal splits into a sector and a slot
     mov cl, 4
     shr ax, cl
@@ -1026,12 +1092,12 @@ fcp_scan:
 .skipsec:
     cmp word [fcp_ssec], 0      ; dsk_dirw_next only computes LBAs - skipping
     je .readsec                 ; whole sectors reads nothing
-    call KERNEL_SEG:cw_dsk_dirw_next
+    call dsk_dirw_next_x
     jc .end
     dec word [fcp_ssec]
     jmp short .skipsec
 .readsec:
-    call KERNEL_SEG:cw_dsk_dirw_get ; dsk_secbuf = the sector holding the
+    call dsk_dirw_get_x ; dsk_secbuf = the sector holding the
     jnc .secok                  ; ordinal (SPEC.md 19.2.3)
     or ax, ax
     jz .end
@@ -1064,8 +1130,9 @@ fcp_scan:
     jnz .next                   ; the volume label
     test ah, 0x06
     jnz .next                   ; hidden or system, exactly as the listing
-    call KERNEL_SEG:cw_dsk_synth              ; ES:SI -> dsk_ent (SPEC.md 19): the display
+    call dsk_synth_x              ; ES:SI -> dsk_ent (SPEC.md 19): the display
                                 ; name, the type word, the cluster, the size
+.stage:                         ; ...and FSV_ENUM's answer arrives here too
     push si
     push di
     mov si, dsk_ent
@@ -1127,6 +1194,24 @@ fcp_mkroot:
     call fcp_srcclus            ; BX = the source folder's own cluster
     jc .err
     mov [fcp_csrc], bx
+
+    ; --- CAN this source be walked at all? (SPEC.md 62.9.7) ---------------
+    ; fcp_srcclus left the SOURCE volume standing, which is the only place
+    ; this question can be asked: a redirected source whose driver publishes
+    ; no FSV_ENUM answers every fcp_scan with CF=1 and AX=0, and that is
+    ; letter for letter what the END of a folder answers - so the walk would
+    ; build the top folder, find it empty and report FCPS_DONE over a copy
+    ; that moved nothing. Asked HERE and not in fcp_scan because it is one
+    ; probe per paste instead of one per entry, and because it comes before
+    ; the destination folder is made rather than after.
+    cmp byte [dsk_vkind], DVK_FILE
+    jne .dest
+    push bp
+    mov bp, FSV_ENUM
+    call drv_fs_has
+    pop bp
+    jc .noenum
+.dest:
     mov al, [fcp_ddrv]
     mov bx, [fcp_dcwd]
     call fcp_goto
@@ -1138,6 +1223,9 @@ fcp_mkroot:
     pop cx
     clc
     ret
+.noenum:
+    mov ax, FERR_PROT           ; the same honest refusal dskw_rmbody gives
+                                ; for the same absence (SPEC.md 62.10.4.5)
 .err:
     pop si
     pop cx
@@ -1349,9 +1437,11 @@ fcp_rdopen:
     push dx
     call dskw_stat_x            ; BX = first cluster, DX:CX = size
     jc .out
-    mov [fcp_rclus], bx
-    mov [fcp_rsz], cx
+    mov [fcp_rclus], bx         ; ...or, on a redirected volume, THE HANDLE
+    mov [fcp_rsz], cx           ; dskw_stat answered (SPEC.md 62.9.1)
     mov [fcp_rszh], dx
+    mov word [fcp_roff], 0      ; such a read walks an OFFSET, not a chain
+    mov word [fcp_roff+2], 0
     clc
 .out:
     pop dx
@@ -1413,6 +1503,35 @@ fcp_rdnext:
     or ax, ax
     jz .done                    ; the file is finished: 0 bytes says so
     mov [fcp_rgot], ax
+    cmp byte [dsk_vkind], DVK_FILE
+    jne .fatread
+
+    ; --- a REDIRECTED volume: one FSV_READAT at the running offset ----------
+    ; No chain to step and no [dsk_maxclus] to range-check against - that word
+    ; belongs to the last FAT volume mounted. The offset walks instead, which
+    ; is also what makes this resumable without [dsk_chain_end].
+    push bp
+    mov cx, ax                  ; the take is also the capacity
+    mov dx, es                  ; DX:BX = the destination (SPEC.md 51.8)
+    xor bx, bx
+    mov si, [fcp_roff]
+    mov di, [fcp_roff+2]
+    mov ax, [fcp_rclus]         ; the handle
+    mov bp, FSV_READAT
+    call drv_fs_call
+    pop bp
+    jc .jio
+    mov cx, [fcp_rgot]
+    add [fcp_roff], cx
+    adc word [fcp_roff+2], 0
+    sub [fcp_rsz], cx
+    sbb word [fcp_rszh], 0
+    jmp short .done
+.jio:
+    jmp .io
+
+.fatread:
+    mov ax, [fcp_rgot]
     add ax, 511                 ; sectors = ceil(take / 512). take is at most
     mov cl, 9                   ; FCP_MAXCH, so the +511 cannot carry out
     shr ax, cl
@@ -1423,13 +1542,13 @@ fcp_rdnext:
     cmp ax, [dsk_maxclus]
     ja .io
     xor bx, bx
-    call KERNEL_SEG:cw_dsk_read_chain ; AX = first cluster, DX = sectors, ES:BX
+    call dsk_read_chain_x ; AX = first cluster, DX = sectors, ES:BX
     jc .io
     mov cx, [fcp_rgot]
     sub [fcp_rsz], cx
     sbb word [fcp_rszh], 0
     mov ax, [dsk_chain_end]     ; resume past the last cluster it touched
-    call KERNEL_SEG:cw_dsk_next_clus
+    call dsk_next_clus_x
     jc .stop
     mov [fcp_rclus], ax
     jmp short .done
@@ -1525,6 +1644,34 @@ fcp_xfer:
     mov bx, [fcp_fsclus]        ; chunk: we are here, and the alternative is
     call fcp_goto               ; coming back for it
     jc .err
+
+    ; --- BOTH ENDS ON ONE REDIRECTED VOLUME: let the far side do it -------
+    ; A remote-to-remote copy streamed every byte across the cable and back
+    ; again, which at PERFORMANCE.md Set 39's 3,741 B/s is visible on a large
+    ; file and is entirely wasted: the far side has both the source and the
+    ; destination. FSV_COPY hands it the pair and it copies with its own
+    ; int 21h, at its own disk's speed.
+    ;
+    ; The test is after fcp_goto, not before, because [dsk_vkind] describes
+    ; the volume we are STANDING ON - and standing on the source is what the
+    ; line above just arranged. A driver that publishes no FSV_COPY is
+    ; refused by drv_fs_call exactly as it is for any absent verb, so the
+    ; fall-through below is the whole error path and this can never be worse
+    ; than not trying (SPEC.md 62.9.8).
+    cmp byte [dsk_vkind], DVK_FILE
+    jne .stream
+    mov al, [fcp_fsdrv]
+    cmp al, [fcp_fddrv]
+    jne .stream
+    push bp
+    mov ax, [fcp_fsclus]        ; the two FOLDERS, and one name: fcp_xfer
+    mov dx, [fcp_fdclus]        ; copies under the same name at both ends
+    mov si, fcp_fname
+    mov bp, FSV_COPY
+    call drv_fs_call
+    pop bp
+    jnc .fin
+.stream:
     mov si, fcp_fname
     call fcp_rdopen
     jc .err
@@ -1649,7 +1796,11 @@ fcp_chunk:  resw 1              ; ...and the bytes one pass moves
 
 fcp_rlclus: resw 1              ; fcp_relink: the moved entry's first cluster
 
-fcp_rclus:  resw 1              ; the streaming read: the next cluster...
+fcp_rclus:  resw 1              ; the streaming read: the next cluster, or on
+                                ; a redirected volume THE HANDLE, which does
+                                ; not move...
+fcp_roff:   resd 1              ; ...and where that read has got to, which is
+                                ; what replaces stepping a chain there...
 fcp_rsz:    resw 1              ; ...the bytes of the file still to come,
 fcp_rszh:   resw 1              ; low and high...
 fcp_rgot:   resw 1              ; ...and what this chunk has taken so far

@@ -294,7 +294,7 @@ zm_pw:
 ; =============================================================================
 ; zm_addr sets ES:SI to an address WITHOUT claiming it is the program counter.
 ; Walking a Quetzal chunk or checksumming the image needs the arithmetic and
-; must not disturb the PC (SPEC.md 59.3).
+; must not disturb the PC (SPEC.md 61.3).
 zm_addr:
     push ax
     push cx
@@ -315,7 +315,7 @@ zm_addr:
 
 ; zm_seek IS the PC mover, and it writes [zf_pcseg]/[zf_pcoff] as well as the
 ; registers. That memory pair is the AUTHORITY on where the program counter is
-; (SPEC.md 59.3): ES is reloaded from it before every instruction, so a handler
+; (SPEC.md 61.3): ES is reloaded from it before every instruction, so a handler
 ; that clobbers ES - and every OSAPI call is free to, because the X stub hands
 ; the callee the caller's DS in ES - can no longer lose the program counter.
 zm_seek:

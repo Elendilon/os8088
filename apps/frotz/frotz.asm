@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/frotz/frotz.asm
 ;
-; FROTZ, the fifteenth shipped package (SPEC.md 59): an interpreter for
+; FROTZ, the fifteenth shipped package (SPEC.md 61): an interpreter for
 ; Infocom's Z-machine, windowed, with its own story floppy in drive B:.
 ;
 ; It is NOT a port of David Griffith's Frotz. That is C, and this tree has no
@@ -132,7 +132,7 @@ ZF_SBW      equ 14                  ; scroll bar width, matching Note Pad
 ; int 16h scan codes, the same set Note Pad names (apps/notepad/notepad.asm).
 ; PgUp and PgDn belong to the INTERPRETER at all times and are taken before
 ; the ring, so a story that is reading a character cannot swallow the
-; scrollback (SPEC.md 59.5).
+; scrollback (SPEC.md 61.5).
 KEY_PGUP    equ 0x49
 KEY_PGDN    equ 0x51
 KEY_UP      equ 0x48
@@ -148,7 +148,7 @@ KEY_DEL     equ 0x53
 ; =============================================================================
 ; Order matters only for NASM's one-pass-per-section forward references, and
 ; every module is written to be included in this order. Each owns exactly one
-; subject and none of them reaches into another's bss (SPEC.md 59.1).
+; subject and none of them reaches into another's bss (SPEC.md 61.1).
 %include "zmem.inc"                 ; story memory, the header, big-endian words
 %include "ztext.inc"                ; Z-string decode, ZSCII, the output stream
 %include "zobj.inc"                 ; the object tree, attributes, properties
@@ -673,7 +673,7 @@ ZREQ_SAVE   equ 1
 ZREQ_RESTORE equ 2
 ZREQ_RESTART equ 3                  ; @restart: dynamic memory is re-read off
                                     ; the floppy, and a file slot is the UI
-                                    ; task's (SPEC.md 59.4/59.6)
+                                    ; task's (SPEC.md 61.4/59.6)
 
     OS88_BSS ZF_BSS_TOTAL
     OS88_IMAGE_END

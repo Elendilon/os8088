@@ -70,6 +70,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 import os88marty                                            # noqa: E402
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
+import os88geom                                             # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dispcp                                             # noqa: E402
 
@@ -210,8 +211,15 @@ def main(argv):
                             "framebuffer" % (d, ctx[d][11]))
         if (ctx[0][18], ctx[0][19]) != (0, 0):
             fail.append("display 0 is not at the virtual origin")
-        if (ctx[1][18], ctx[1][19]) != (ctx[0][7], 0):
-            fail.append("display 1 is not immediately right of display 0")
+        # ...and its top row is the DESKTOP's, not the screen's (SPEC.md
+        # 39.19.3). This wanted 0, which was right until that landed and has
+        # failed ever since - the same staleness dispsave.py's own comment
+        # records fixing on its side ("y used to be taken raw").
+        if (ctx[1][18], ctx[1][19]) != (ctx[0][7], os88geom.MBAR_H):
+            fail.append("display 1 is not immediately right of display 0, at "
+                        "the desktop band's top row (SPEC.md 39.19.3): it is "
+                        "at (%d,%d) and display 0 is %d wide"
+                        % (ctx[1][18], ctx[1][19], ctx[0][7]))
         live = [u16(m.read(S("vid_seg"), 36), i * 2) for i in range(18)]
         if live != ctx[0][:18]:
             fail.append("the live block is not display 0's record")
@@ -439,11 +447,15 @@ def main(argv):
         mo.to(*home)
         mo.menu(12, 8, 12, 30)                  # chip menu -> About
         os88marty.settle(m, card=gate_card)
-        wins = m.read(S("wm_wins"), 12 * 26)
-        WIN = 26
+        # The stride is os88geom's, checked against wm.inc at import. It was
+        # a bare 26 here, which wm.inc stopped agreeing with at SPEC.md 13.7 -
+        # so this walked the table wrong AND the WF_FULL poke below wrote into
+        # the middle of a neighbouring record.
+        WIN = os88geom.WIN_SIZE
+        wins = m.read(S("wm_wins"), os88geom.MAX_WIN * WIN)
         found = None
-        for i in range(12):
-            fl = u16(wins, i * WIN + 0)
+        for i in range(os88geom.MAX_WIN):
+            fl = u16(wins, i * WIN + os88geom.W_FLAGS)
             if fl & 3 == 3:                     # used and visible
                 found = i
         if found is None:
@@ -470,8 +482,9 @@ def main(argv):
                 cx0, cy0 = mo.where()[:2]
             mo.m.mouse(0, 0)                    # release
             os88marty.settle(m, card=gate_card)
-            wins = m.read(S("wm_wins"), 12 * 26)
-            nx, ny = (u16(wins, found * WIN + 2), u16(wins, found * WIN + 4))
+            wins = m.read(S("wm_wins"), os88geom.MAX_WIN * WIN)
+            nx, ny = (u16(wins, found * WIN + os88geom.W_X),
+                      u16(wins, found * WIN + os88geom.W_Y))
             say("dragged to (%d,%d)" % (nx, ny))
             d = 0
             for c in ctx:

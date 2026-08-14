@@ -128,7 +128,7 @@ zo_ent16:
     ret
 
 ; =============================================================================
-; zo_addr - the public form of the above (SPEC.md 59.3)
+; zo_addr - the public form of the above (SPEC.md 61.3)
 ; in:  AX = object number
 ; out: DX:AX = the entry's story address, or 0 if there is no such object
 ;

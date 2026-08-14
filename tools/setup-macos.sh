@@ -21,7 +21,7 @@
 # graphics gate compares against, and is the one tool in tools/ that is not
 # stdlib-only - additionally needs `pip3 install pyte`. None of them is on the
 # path of `make`, `make run` or any gate that runs by default: the goldens are
-# committed precisely so that `make zgfx` stays stdlib + qemu (SPEC.md 59.14).
+# committed precisely so that `make zgfx` stays stdlib + qemu (SPEC.md 61.14).
 #
 # Usage:
 #   tools/setup-macos.sh                 install everything, ask before big steps

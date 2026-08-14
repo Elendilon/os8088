@@ -14,8 +14,8 @@ letter with a hole in it is obvious in `.` and `#` and invisible in `0x6C`.
 2.4:1 tall, so a face that is balanced on VGA can be spindly there, and that
 is the adapter it will be read on.
 
-    python3 tools/os88font.py fonts/os8088.f8 -o build/font8x8.inc
-    python3 tools/os88font.py fonts/os8088.f8 --preview /tmp/sheet.png
+    python3 tools/os88font.py fonts/tallx.f8 -o build/font8x8.inc
+    python3 tools/os88font.py fonts/tallx.f8 --preview /tmp/sheet.png
 
 The `.f8` format, all of it:
 
@@ -126,7 +126,9 @@ def check(glyphs, quiet=False):
     if blank < BLANK_ROW_FLOOR * total:
         warn.append("only %d of %d glyph rows are blank (%.0f%%, the ROM font "
                     "is 25%%) - a blank row is the one the renderer skips "
-                    "whole, so this face costs more per cell"
+                    "whole, so this face costs more per cell. "
+                    "tools/os88fontcost.py prices it in microseconds, and "
+                    "says which renderer that even applies to"
                     % (blank, total, 100.0 * blank / total))
     if not quiet:
         for w in warn:

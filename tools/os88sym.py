@@ -133,7 +133,39 @@ def segment_of(name, defines=(), check=True):
     return equ[nm]
 
 
+def _modcut(blob):
+    """Where the on-demand modules begin, out of the image's own trailer.
+
+    SPEC.md 2.8: the kernel assembles whole and tools/os88mod.py splits it, so
+    an assembly done here is longer than the shipped build/kernel.bin by
+    however much module code the tree currently carries.  Returns len(blob)
+    when there is no trailer, so a kernel built before this existed - or one
+    built with the sections empty - still compares whole.
+    """
+    if len(blob) < 16 or int.from_bytes(blob[-2:], "little") != 0x384F:
+        return len(blob)
+    off = int.from_bytes(blob[-6:-2], "little")
+    if off + 6 > len(blob) or blob[off:off + 4] != b"O8MM":
+        return len(blob)
+    n = blob[off + 4]
+    if n == 0:
+        return off
+    return int.from_bytes(blob[off + 6:off + 10], "little")
+
+
 def _load(defines=(), check=True):
+    # $OS88_DEFINES is how a tool that never asked for a knob still finds the
+    # right map. Every helper here takes `defines`, and the ones layered above
+    # it - os88geom.word, sucheck.fb, Marty.sym - do not thread it through, so
+    # driving a knob-built kernel meant the byte-identity check below refusing
+    # and the whole session dying at the first symbol. The check is RIGHT (a
+    # map of a different kernel is a wrong answer, not a missing one); what was
+    # missing was a way to tell it. Comma or space separated, e.g.
+    #   OS88_DEFINES=NODRAGCACHE python3 tools/winmove.py sol
+    env = os.environ.get("OS88_DEFINES", "")
+    if env:
+        defines = tuple(defines) + tuple(
+            d for d in env.replace(",", " ").split() if d)
     key = tuple(defines)
     if key in _cache:
         return _cache[key]
@@ -151,6 +183,7 @@ def _load(defines=(), check=True):
 
     cmd = ["nasm", "-f", "bin", "-w+error",
            "-I", os.path.join(ROOT, "kernel") + os.sep,
+           "-I", os.path.join(ROOT, "apps") + os.sep,
            "-I", os.path.join(ROOT, "build") + os.sep]
     for d in defines:
         cmd += ["-D" + d]
@@ -161,7 +194,14 @@ def _load(defines=(), check=True):
 
     built = os.path.join(ROOT, "build", "kernel.bin")
     if check and os.path.exists(built):
-        if open(binf, "rb").read() != open(built, "rb").read():
+        # build/kernel.bin is the assembled image with the on-demand modules
+        # CUT OFF (SPEC.md 2.8), so compare against the same prefix rather
+        # than the whole thing.  The trailer os88mod.py reads is what says
+        # where that cut falls, and reusing it here is what stops this file
+        # growing a second opinion about the layout.
+        mine = open(binf, "rb").read()
+        mine = mine[:_modcut(mine)]
+        if mine != open(built, "rb").read():
             raise RuntimeError(
                 "the map describes a DIFFERENT kernel from build/kernel.bin: "
                 "run `make` (or pass the knob's --define) before trusting any "

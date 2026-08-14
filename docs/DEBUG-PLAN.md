@@ -42,9 +42,14 @@ and what was rejected.
 >   emulator it supersedes the driver entirely.
 >
 > **And MartyPC is now the FIRST tool to reach for, not the last**
-> (docs/TESTING.md carries the ordering). The one boundary that matters:
-> **cycle-accurate is not disk-accurate** — its floppy is 30x fast and it
-> would not have caught SPEC.md §18.91's `AL` bug any more than QEMU did.
+> (docs/TESTING.md carries the ordering). The boundary this paragraph used to
+> draw has moved twice and is now somewhere else entirely: its floppy was 30x
+> fast and is within a measurement quantum of the field machine (Sets 35/37),
+> and it *does* catch SPEC.md §18.91's `AL` bug, because MartyPC runs the IBM
+> ROM and the bug is the ROM's. What is left to the 5150 is the CHIP — what a
+> real 765 puts in ST1, whether a real drive returns short — and anything
+> taken off a GLaBIOS machine, whose `int 13h` is 1.61x lighter than the
+> period ROM's (Set 38).
 >
 > Two things in the plan below were **not** built and the reasons are in the
 > outcome docs: the **disk data plane** of section 3 (it needs a `[sch_lock]`
@@ -420,8 +425,9 @@ host tails a file. No protocol, no host tool, no ISR.
 it fixes three things about how this tree reports results today:
 
 - `gfxbench` and `sysbench` write their reports to a **file on the floppy**.
-  A floppy write is ~65 ms/sector in a run on the calibration machine (it was
-  238 before SPEC.md §18.91's `AL` fix) — the harness is
+  A floppy WRITE is ~73 ms/sector on the calibration machine — writes are 3.0x
+  dearer than reads and Set 24 is where the two were finally split (this said
+  65, a READ figure, and from Set 17 at that) — the harness is
   paying, in the same units it is measuring, for the privilege of reporting.
   Serial costs the guest a polled `out` per byte and no disk at all.
 - A run that hangs before it writes its report loses **everything**. Streamed,

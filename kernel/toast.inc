@@ -1,5 +1,5 @@
 ; =============================================================================
-; os8088 - toast.inc (SPEC.md 60)
+; os8088 - toast.inc (SPEC.md 59)
 ;
 ; THE TRANSIENT ONE-LINE MESSAGE, for the whole machine: `Saved NOTES.TXT`,
 ; `Opened SUNSET.BMP`. One routine, one look, one lifetime - where five
@@ -12,10 +12,9 @@
 ; acknowledge - so it says its piece and goes away on its own. A notice you
 ; can miss is not a notice; a toast you have to dismiss is a dialog.
 ;
-; **IT LIVES IN THE MENU BAR, at the right end of the menus segment**, on the
-; file-activity widget's precedent (SPEC.md 12.8) - and that placement is the
-; whole design rather than a decoration. Two properties of that strip of
-; screen do all the work:
+; **IT LIVES IN THE MENU BAR, IN THE CLOCK'S FIELD** (SPEC.md 59.8) - and
+; that placement is the whole design rather than a decoration. Two properties
+; of that strip of screen do all the work:
 ;
 ;   - **the bar can never be covered.** Windows clamp to y >= MBAR_H. So
 ;     there is no clip region here, no occlusion test, no interaction with
@@ -32,11 +31,31 @@
 ;     and repainting the whole content on the next keystroke - a full
 ;     np_paint, tens of milliseconds, after every save and every load.
 ;
-; And the ERASE is already written. SPEC.md 12.9's composer holds menu_bcell,
-; one byte per glyph cell, which is BOTH the composition buffer AND the record
-; of what is on the glass - so composing IS the diff, and one font_run puts
-; back exactly the cells that moved. A toast expiring is `stop composing it`.
-; There is no fill in this file, no menu_inval, and no second drawing routine.
+; **IT TAKES THE CLOCK'S FIELD AND NOT THE MENUS'** (SPEC.md 59.8), and that
+; is a correction rather than the original design. The strip borrowed the
+; right end of the MENUS segment, where menu_bput's clamp dropped whatever it
+; covered - so a message long enough took the frontmost application's own
+; menu titles off the bar with it, which reads as the application breaking
+; rather than as a message arriving. The clock is the right neighbour to
+; displace for a reason that is about KIND and not about room: it is the one
+; thing on the bar that is not a control, it says the same thing again a
+; second later, and a menu title is the user's way into the program. So the
+; layering is now settled in the geometry - there is no message this can
+; write that reaches a menu - rather than by keeping every string short
+; enough to hope.
+;
+; **AND IT HIDES ONLY THE CELLS IT COVERS.** The strip is as wide as its
+; message plus one inverted space at each end and no wider, it takes the LEFT
+; end of the field, and menu_draw_clock stages the clock into the whole field
+; before laying the strip over it - so a short message lands entirely in the
+; time's leading spaces and hides nothing at all, and a long one costs the
+; DATE, which is the end worth losing. The clock is never suppressed while a
+; message is up: it is simply not what those particular cells say.
+;
+; And the ERASE is written by the same painter (SPEC.md 12.9's rule at the
+; other end of the bar), so a toast expiring lets the time straight back and
+; nothing here has to remember to restore anything. There is no fill in this
+; file, no menu_inval, and no drawing routine at all.
 ;
 ; TWO ENTRY POINTS FOR CALLERS and they are on opposite sides of a lock:
 ; toast_show STAGES and never draws, toast_pass (the UI task's idle pass)
@@ -63,18 +82,25 @@
 
 section .text
 
-TOAST_MAX   equ 40              ; characters. The narrowest segment is a
-                                ; 640-wide screen's, ([vid_clk_hx] -
-                                ; MENU_TXT_X0) / 8 = (432-32)/8 = 50 cells,
-                                ; so 40 + the two padding cells always fits
-                                ; and the clamp in toast_room is belt and
-                                ; braces rather than a live path
+TOAST_MAX   equ 24              ; characters, AND IT IS THE TIGHT ONE (SPEC.md
+                                ; 59.8). The clock's field is ([vid_wm8] -
+                                ; [vid_clk_hx]) / 8 = 200/8 = 25 cells on
+                                ; every screen this runs on - 640 and 720 both
+                                ; subtract the same 206 and round to the same
+                                ; 8 - and the strip spends ONE of them on the
+                                ; gap that keeps its bed off SPEC.md 12.8's
+                                ; widget (59.8.1), so 24 is what is left. It
+                                ; was 23 while both ends cost a whole cell. It was
+                                ; 40 while this borrowed the menus segment's
+                                ; 50, and shortening it is what made the move
+                                ; safe: every message in the tree was revised
+                                ; to fit rather than left to truncate
 TOAST_TICKS equ 55              ; ~3.0 s at 18.2 Hz: long enough to read eight
                                 ; words on a 4.77MHz machine, short enough
                                 ; that it is gone before it becomes furniture
 TOAST_SCAN  equ 256             ; bytes of the caller's string examined before
                                 ; the copy gives up. Generous against any real
-                                ; message (the buffer keeps 40) and the whole
+                                ; message (the buffer keeps 23) and the whole
                                 ; of the defence: the scan runs interrupts-off
                                 ; through a package-supplied pointer, and
                                 ; without a byte bound a segment holding no
@@ -89,11 +115,22 @@ toast_dirty: db 0               ; the composition changed and nobody has
 toast_inst:  db 0FFh            ; the raiser's instance slot (0FFh = kernel)
 toast_die:   dw 0               ; the tick it expires at
 toast_ttl:   dw TOAST_TICKS     ; ...and how long it was asked for
+toast_scell: dw 0               ; the strip's first cell in the MENUS segment,
+toast_scn:   dw 0               ; and how many cells it takes there - 0 meaning
+                                ; the CLOCK's field has it instead (SPEC.md
+                                ; 59.9). In .text with real initialisers for
+                                ; [toast_on]'s reason: menu_draw_clock reads
+                                ; [toast_scn] to decide whether its own field
+                                ; owes a strip, and menu_draw_bar runs during
+                                ; drv_boot, before any init routine of ours
 
 ; -----------------------------------------------------------------------------
 ; toast_show - say one line in the menu bar for a few seconds (API 0x0380)
 ; in:       ES:SI = a NUL string, CX = ticks to live (0 = TOAST_TICKS)
-; out:      CF = 0 taken, CF = 1 refused
+; out:      CF = 0 taken, CF = 1 refused - and NOTHING refuses today, the
+;           widget interlock below having been the only one. The flag stays in
+;           the published contract because a refusal that has to be added
+;           later must not be an ABI change (SPEC.md 20.8)
 ; clobbers: nothing but the flags
 ;
 ; ES:SI and not an X stub, for clip_put's reason (SPEC.md 55): the text an
@@ -106,14 +143,26 @@ toast_ttl:   dw TOAST_TICKS     ; ...and how long it was asked for
 ; an app that wants to take its message down early has one call to make and
 ; does not have to know whether one is up.
 ;
-; Refused while the file-activity widget is armed - it owns these pixels and
-; is saying something more urgent about the same conversation. In practice
-; unreachable, because fpg_end runs inside the disk pipeline before the file
-; API returns to the app that will raise the toast.
+; **IT NO LONGER DEFERS TO THE FILE-ACTIVITY WIDGET** (SPEC.md 12.8), and
+; that is still right, but NOT for the reason this paragraph used to give. It
+; used to refuse outright while [fpg_on] was set, and fpg_begin retired
+; whatever was up - both of which were about PIXELS, the widget sitting at
+; [vid_clk_hx] - FPG_W and the strip reaching left into the same cells.
+; Dropping them is the point rather than a tidy-up: a refusal here loses the
+; message for good, silently, and the widget is armed by exactly the mounts
+; and reads that the messages worth saying are about.
+;
+; What replaced them was the claim that the strip lives in the clock's field,
+; wholly RIGHT of the widget's right edge, "so the two cannot touch". SPEC.md
+; 59.9 then gave the strip a second home - the gap the menus leave - and that
+; gap's right end is precisely where the widget is drawn, so they touched
+; again and nobody re-read this. They are kept apart by GEOMETRY now
+; (toast_place reserves the widget's cells, SPEC.md 59.9.2) rather than by a
+; property of where the strip happens to live.
 ;
 ; The stage runs with interrupts off: a worker task and the UI task can both
-; raise, and a half-copied buffer would letter as garbage. 40 bytes of
-; rep-less movsb is ~825 clocks, ~173 us against a 55 ms tick.
+; raise, and a half-copied buffer would letter as garbage. 23 bytes of
+; rep-less movsb is ~475 clocks, ~100 us against a 55 ms tick.
 ; -----------------------------------------------------------------------------
 toast_show:
     push ax
@@ -123,8 +172,6 @@ toast_show:
     push di
     pushf
     cli
-    cmp byte [fpg_on], 0
-    jne .no
     or cx, cx
     jnz .ttl
     mov cx, TOAST_TICKS
@@ -148,9 +195,9 @@ toast_show:
                                 ; package is hostile - would spin this loop
                                 ; around its segment forever, interrupts off
     cmp al, ' '                 ; a control character would letter as a glyph
-    jb .cp                      ; and bit 7 is the inversion flag rather than
-    cmp al, 0x7F                ; a character (see toast_compose), so only
-    jae .cp                     ; printable ASCII is taken
+    jb .cp                      ; rather than doing anything, and every byte
+    cmp al, 0x7F                ; from a package is hostile, so only printable
+    jae .cp                     ; ASCII is taken
     mov [di], al
     inc di
     loop .cp
@@ -164,15 +211,11 @@ toast_show:
     popf
     call toast_now              ; ...and if the caller can be shown to hold
     clc                         ; the lock, it reaches the glass NOW rather
-    jmp short .out              ; than on the next idle pass (SPEC.md 60.4)
+    jmp short .out              ; than on the next idle pass (SPEC.md 59.4)
 .kill:
     call toast_kill             ; preserves the flags, so the popf below is
     popf                        ; still the caller's
     clc
-    jmp short .out
-.no:
-    popf
-    stc
 .out:
     pop di
     pop si
@@ -227,7 +270,7 @@ toast_say:
 
 ; -----------------------------------------------------------------------------
 ; toast_now - draw a staged toast on the spot, IF the caller provably holds
-;             the gfx lock (SPEC.md 60.4)
+;             the gfx lock (SPEC.md 59.4)
 ; in:       a toast staged; called from toast_show only
 ; out:      nothing (all registers preserved)
 ;
@@ -266,7 +309,6 @@ toast_now:
                                 ; composed, and no later pass would repair it
     call toast_arm
     call menu_draw_bar
-    call gfx_flush              ; we draw MID-lock, and the flush that would
                                 ; carry it to VRAM does not come until the
                                 ; operation this announces is over (SPEC.md
                                 ; 32) - fpg_begin's reasoning exactly
@@ -288,8 +330,206 @@ toast_arm:
     add ax, [toast_ttl]
     mov [toast_die], ax
     mov byte [toast_on], 1
+    mov byte [menu_bdirty], 1   ; **AND THE MENUS SEGMENT IS OWED A LOOK**
+                                ; (SPEC.md 59.9): the strip's first choice of
+                                ; home is the gap that segment's last menu
+                                ; leaves, and menu_bar_text - the only thing
+                                ; that composes there - runs on this flag
+                                ; alone. It is set on every edge and not only
+                                ; when the strip lands in the gap, because
+                                ; which home it takes is toast_place's answer
+                                ; and toast_place runs INSIDE the pass this
+                                ; asks for. The cost of being wrong is one
+                                ; composition that finds nothing differs and
+                                ; emits no pixels, which is what this segment
+                                ; answers most window operations with anyway
     mov byte [toast_dirty], 0   ; ...and this IS the draw, on the toast_now
-    mov byte [menu_bdirty], 1   ; path; toast_pass re-sets it and draws
+                                ; path; toast_pass re-sets it and draws.
+                                ; NOTHING is invalidated in the CLOCK's field:
+                                ; its painter composes what it is about to
+                                ; show and compares it against [menu_ckck]
+                                ; plus [menu_ckstrip], so it finds the
+                                ; difference by itself (SPEC.md 59.8)
+    ret
+
+; -----------------------------------------------------------------------------
+; toast_gapend - the gap's right edge as the EYE sees it: the cell the clock's
+;                first GLYPH lands in (SPEC.md 59.9.1)
+; in:       nothing
+; out:      AX = that cell, in the MENUS segment's coordinates - so it is
+;           [menu_bn] plus however many of the clock field's cells are the
+;           leading spaces menu_draw_clock right-aligns the line with
+; clobbers: nothing but AX (flags)
+;
+; The clock's field is a fixed 25 cells and the line in it is NOT: clk_fmt
+; answers 18..24 glyphs (12-hour mode drops the hour's leading zero, seconds
+; are a setting), which menu_draw_clock right-aligns by leading spaces. So the
+; field's left edge is where the clock's ROOM starts and up to seven cells of
+; white follow it before anything is drawn - and centring a strip on the room
+; puts it visibly left of centre, because the eye measures to the `J` of `Jul`.
+;
+; clk_fmt is cheap enough to ask twice per bar paint: clk_snapshot reads the
+; kernel's own RAM shadows of the clock (IRQ0 keeps those; SPEC.md 37), so
+; there is no port I/O and no chip access here at all.
+; -----------------------------------------------------------------------------
+toast_gapend:
+    push bx
+    push cx
+    push dx
+    push si
+    mov ax, [vid_wm8]           ; the field, in whole cells - menu_draw_clock's
+    sub ax, [vid_clk_hx]        ; own arithmetic, and clamped the same way
+    mov cl, 3
+    shr ax, cl
+    cmp ax, MENU_CLKC - 1
+    jbe .fw
+    mov ax, MENU_CLKC - 1
+.fw:
+    mov dx, ax                  ; DX = the field's cells
+    call clk_fmt                ; SI = the live line (all registers but SI)
+    xor cx, cx
+.l:
+    cmp byte [si], 0
+    je .ld
+    inc si
+    inc cx
+    jmp short .l
+.ld:
+    cmp cx, dx                  ; a line wider than its field cannot happen,
+    jbe .pad                    ; but a negative pad below would put the gap's
+    mov cx, dx                  ; end LEFT of the segment
+.pad:
+    mov ax, dx
+    sub ax, cx                  ; AX = the leading spaces = the cells of the
+    add ax, [menu_bn]           ; field that are blank before the first glyph
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; toast_place - decide where the strip goes: the GAP, or the clock's field
+;               (SPEC.md 59.9)
+; in:       nothing. Called from menu_bar_text after the menus are composed,
+;           so [menu_bend] is THIS bar's last menu and not the previous
+;           owner's
+; out:      [toast_scn]   = cells of strip the MENUS segment holds, 0 = none,
+;                           which is menu_draw_clock's cue to take it
+;           [toast_scell] = its first cell there (0 = x MENU_TXT_X0)
+; clobbers: nothing (flags only)
+;
+; **THE GAP FIRST, BECAUSE A STRIP THERE COVERS NOTHING AT ALL.** The bar's
+; menus end wherever the active application's last title ends, and everything
+; from there to the clock is blank white - so a message that fits between them
+; costs neither a menu title (SPEC.md 59.8's whole subject) nor a clock cell
+; (what 59.8 settled for). It is the one placement with no victim, and on an
+; ordinary desktop it is available: measured, Locator leaves a **24-cell** gap
+; on a 640px screen and **34** on a 720px one, so `Settings Saved` (16 cells)
+; and `Opened SUNSET.BMP` (19) both land in it with room either side.
+;
+; **CENTRED means the strip's MIDPOINT on the gap's midpoint**, not its left
+; edge at the gap's start - and the gap's right end is the clock's first GLYPH
+; rather than its field (toast_gapend, 59.9.1). Half the slack goes at each
+; end; `shr` floors, so an odd cell lands on the right. Left-aligned it reads
+; as a tail on the menus - another menu title, at the exact pen a fifth one
+; would have had - and right-aligned it reads as a prefix to the clock. Centred
+; it reads as neither, which is what a message that belongs to the machine
+; rather than to either neighbour should look like.
+;
+; **AND IT FALLS BACK TO THE CLOCK, NOT TO A TRUNCATION.** A message too wide
+; for the gap goes where 59.8 put it - the clock field's left end, eating the
+; date before the time - because the alternative that looks natural is worse
+; in both directions: shortening the message to fit whatever gap this
+; application happens to leave makes the text depend on the menu bar, and
+; letting it start in the gap and RUN ON into the clock straddles two
+; separately composed buffers with two separate check words, which is two
+; painters for one strip and exactly the divergence 59.1 exists to avoid.
+;
+; So the gap is a bonus and never a constraint: TOAST_MAX still measures
+; against the clock's field, every message in the tree still fits there, and
+; what this section adds is that the ones which fit the gap cost nothing.
+; -----------------------------------------------------------------------------
+toast_place:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov word [toast_scn], 0
+    cmp byte [toast_on], 0
+    je .out
+    mov bx, toast_buf           ; the strip's width in cells: the message, plus
+    xor cx, cx                  ; the one inverted space at each end
+.l:
+    cmp byte [bx], 0
+    je .ld
+    inc bx
+    inc cx
+    jmp short .l
+.ld:
+    jcxz .out                   ; nothing sayable. toast_show cannot stage that
+    inc cx                      ; (an empty string is a retire), but reading the
+                                ; buffer rather than trusting the flag is what
+                                ; keeps the two decs below off a negative count
+    mov dx, [menu_bn]           ; **DX = ONE PAST THE LAST CELL THE STRIP MAY
+    cmp byte [fpg_on], 0        ; TAKE**, which is the end of the segment
+    je .gap                     ; UNLESS SPEC.md 12.8's widget is armed
+    sub dx, FPG_W / 8           ; (59.9.2). The widget is drawn straight onto
+                                ; the segment's last cells and is composed
+                                ; into no buffer at all, so menu_bcell cannot
+                                ; see it and the diff cannot arbitrate: two
+                                ; painters, one strip of glass, which is
+                                ; exactly what 59.1 exists to prevent. It sits
+                                ; at [vid_clk_hx] - FPG_W and its right edge
+                                ; IS the segment's, so the cells it holds are
+                                ; the last FPG_W / 8 of them - derived here
+                                ; rather than published, because a second
+                                ; opinion about where the widget is, is a
+                                ; second thing to keep in step
+.gap:
+    mov ax, dx                  ; the GAP: the cells between the end of the last
+    sub ax, [menu_bend]         ; drawn menu and whatever is on our right
+    jbe .out                    ; the menus fill the segment: no gap at all
+    cmp ax, cx
+    jb .out                     ; will not fit - the clock's field takes it and
+                                ; costs the date, exactly as it did before this
+                                ; section existed (SPEC.md 59.8). That fallback
+                                ; is what makes the widget's reservation free:
+                                ; the field is wholly RIGHT of [vid_clk_hx] and
+                                ; the widget wholly left of it, so the message
+                                ; is still said in full and still covers neither
+                                ; a menu title nor the widget
+
+    call toast_gapend           ; --- and CENTRED on what the EYE sees, which
+    cmp byte [fpg_on], 0        ; is the clock's first GLYPH and not its field's
+    je .eye                     ; left edge (SPEC.md 59.9.1). gapend's answer is
+    cmp ax, dx                  ; [menu_bn] PLUS the leading spaces, so clamping
+    jbe .eye                    ; it to DX unconditionally would discard the
+    mov ax, dx                  ; whole correction on the ordinary bar and centre
+.eye:                           ; on the room again - the clamp belongs to the
+                                ; armed widget alone, which IS our right-hand
+                                ; neighbour then and sits left of the glyph
+                                ; (59.9.2)
+    sub ax, [menu_bend]
+    sub ax, cx                  ; AX = the slack, half of it each side
+    jns .half
+    xor ax, ax                  ; a clock so wide it reaches the menus: flush
+.half:                          ; left, and the clamp below is what keeps it in
+    shr ax, 1
+    add ax, [menu_bend]
+    mov bx, dx                  ; **THE ROOM IS THE SEGMENT'S EVEN THOUGH THE
+    sub bx, cx                  ; CENTRING IS THE EYE'S**: the strip is composed
+    cmp ax, bx                  ; into menu_bcell, where menu_bput DROPS a cell
+    jbe .set                    ; at or past [menu_bn] without advancing - so a
+    mov ax, bx                  ; centre computed past that boundary would
+.set:                           ; silently truncate the strip's right end
+    mov [toast_scell], ax
+    mov [toast_scn], cx
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -323,11 +563,18 @@ toast_pass:
     cmp byte [toast_dirty], 0
     je .out
     mov byte [toast_dirty], 0
-    mov byte [menu_bdirty], 1   ; the menus segment owes a recompose - which
-    call gfx_lock               ; IS the draw and IS the erase (SPEC.md 12.9)
-    call menu_draw_bar
-    call gfx_unlock
-.out:
+    mov byte [menu_bdirty], 1   ; the DOWN edges' half of toast_arm's flag
+                                ; (SPEC.md 59.9) - an expiry above, and
+                                ; toast_kill's deferred retire, both of which
+                                ; may have a strip to erase out of the menus
+                                ; segment and only menu_bar_text can do it
+    call gfx_lock               ; menu_draw_bar always ends in the clock's
+    call menu_draw_bar          ; field, which IS the draw and IS the erase
+    call gfx_unlock             ; (SPEC.md 12.9/59.8) - and going through the
+.out:                           ; bar rather than straight to the field is
+                                ; what keeps wm_fs_vis's guard in front of it:
+                                ; a fullscreen window is over these pixels and
+                                ; the message waits for it to end
     pop ax
     ret
 
@@ -393,100 +640,10 @@ toast_owner_gone:
     popf
     ret
 
-; -----------------------------------------------------------------------------
-; toast_room - take the strip's cells off the menus segment
-; in:       [menu_bn] = the live cell count; called from menu_bar_text
-; out:      [menu_bn] lowered to the strip's left edge, [toast_cells] = its
-;           width; all registers preserved
-;
-; The menus are then composed into a SHORTER segment and menu_bput's existing
-; clamp drops anything that will not fit - "past the segment: dropped,
-; exactly as menu_layout drops a cell that will not fit". So a toast covering
-; the rightmost menus needs no new code anywhere: composition stays strictly
-; left to right, and .tail's pad to [menu_bn] is what erases the menus the
-; strip is about to sit on.
-; -----------------------------------------------------------------------------
-toast_room:
-    push ax
-    push si
-    xor ax, ax
-    cmp byte [toast_on], 0
-    je .set
-    mov si, toast_buf
-.n:
-    cmp byte [si], 0
-    je .d
-    inc si
-    inc ax
-    jmp short .n
-.d:
-    add ax, 2                   ; one INVERTED space of padding at each end,
-                                ; so the strip reads as a strip and still
-                                ; ends flush against the clock - which is
-                                ; what keeps menu_bemit to at most two runs
-    cmp ax, [menu_bn]
-    jbe .set
-    mov ax, [menu_bn]           ; a segment narrower than the message: the
-.set:                           ; strip takes the lot and truncates
-    mov [toast_cells], ax
-    sub [menu_bn], ax
-    pop si
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
-; toast_compose - the strip itself, into the tail of menu_bcell
-; in:       DI = the cell index menu_bpadc left at the strip's left edge
-; out:      DI at the segment's end, [menu_bn] restored
-; clobbers: DI (as every composer here does)
-;
-; **BIT 7 IS THE INVERSION FLAG AND NOT A CHARACTER**, and it is in the cell
-; byte rather than a table of its own for one reason: menu_bcell is the
-; record of what is on the glass, so a cell whose CHARACTER did not change
-; but whose HIGHLIGHT did has to read as a difference to menu_bput - and a
-; space at the strip's edge is exactly that cell. Note Pad's selection hashes
-; with bit 15 set for the identical reason (SPEC.md 27.8). The bar's
-; characters are 7-bit by toast_show's filter, so the bit is free.
-; -----------------------------------------------------------------------------
-toast_compose:
-    push ax
-    push si
-    cmp word [toast_cells], 0
-    je .out
-    mov ax, [toast_cells]
-    add [menu_bn], ax           ; the strip may write to the segment's end
-    mov al, ' ' | 0x80
-    call menu_bput
-    mov si, toast_buf
-.n:
-    mov al, [si]
-    or al, al
-    jz .pad
-    inc si
-    or al, 0x80
-    call menu_bput
-    jmp short .n
-.pad:
-    cmp di, [menu_bn]
-    jae .out
-    mov al, ' ' | 0x80
-    call menu_bput
-    jmp short .pad
-.out:
-    pop si
-    pop ax
-    ret
-
 section .bss
 
 toast_buf:   resb TOAST_MAX + 1 ; the staged message. .bss because it is read
                                 ; only while [toast_on] is set, and .bss is
                                 ; off the image rung
-toast_cells: resw 1             ; the strip's width, one menu_bar_text call's
-                                ; scratch - written by toast_room and read by
-                                ; toast_compose and menu_bar_text's emit, so
-                                ; all three agree by construction rather than
-                                ; by three tests of [toast_on] that could
-                                ; disagree if it moved underneath them
 
 section .text

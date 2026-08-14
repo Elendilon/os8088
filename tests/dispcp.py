@@ -13,17 +13,25 @@ aimed - and a click aimed at where it used to be lands on the desktop, which
 switches the menu bar to Locator and looks exactly like a control that does
 not work.
 """
+import os
+import sys
 import time
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "tools"))
+import os88geom                                              # noqa: E402
 # menu.inc: the System cell is x 0..29 and a pull-down hangs from MBAR_H + 1
 # with MENU_ITEM_H per item. Item 1 is CMD_CTRL (About, Control Panel, Task
 # Manager, ...).
-MBAR_H, MENU_ITEM_H = 20, 16
+from os88geom import (MBAR_H, MENU_ITEM_H, TITLE_H, KERNEL_SEG,  # noqa: E402
+                      WIN_SIZE, MAX_WIN, W_FLAGS, W_X, W_Y, W_W, W_H, W_TITLE,
+                      DESK_ZY0, DESK_ZW, DESK_COLW,
+                      DV_KIND, DV_FLAGS, DV_SIZE, DVOL_MAX, DVK_FREE,
+                      FM_ROW_Y0, FM_ROW_H)
 SYS_X, SYS_Y = 12, 8
 
 # ctrl.inc's geometry, content-relative. The item list on the left, then the
 # pane, then SPEC.md 31.10.2's row inside it.
-TITLE_H = 18
 CP_IX, CP_I0Y, CP_IROWH = 6, 6, 14
 CP_RX, CP_PGX = 96, 4
 CPV_MY, CPV_MSTEP = 96, 74
@@ -38,17 +46,29 @@ def _u16(b, i=0):
 
 
 def _cp_win(m, S):
-    """(x, y) of the Control Panel's frame, or None. It is the window whose
-    W_TITLE is the panel's - found by rect instead, because the panel is the
-    only 320-wide window in the machine and a title compare would need the
-    string's address as well."""
-    wins = m.read(S("wm_wins"), 12 * 26)
-    for i in range(12):
-        f = _u16(wins, i * 26)
-        if f & 3 != 3:                      # used and visible
+    """(x, y) of the Control Panel's frame, or None. Matched on W_TITLE, which
+    is `cp_ttl` and nothing else in the machine.
+
+    IT USED TO MATCH ON `W_W == 320` - "the panel is the only 320-wide window,
+    and a title compare would need the string's address as well". The address
+    is one `os88sym` call, and the premise was false: a Disk window's template
+    is 320 wide too (`fm_tpl`), so any caller that opened one before the panel
+    got the DISK window's rect back and clicked its content instead. That is
+    silent - the clicks land on a real window, nothing errors, and the adapter
+    simply does not change - which is the same class of harness bug as the
+    bare 26 below, and cost a session the same way.
+
+    The stride is os88geom's. It was written out as a bare 26 here - in the
+    one file that already had WIN_SIZE = 28 forty lines further down - so this
+    walked the table wrong and finding the panel at all was luck."""
+    title = S("cp_ttl") - (KERNEL_SEG << 4)         # W_TITLE is a NEAR offset
+    wins = m.read(S("wm_wins"), MAX_WIN * WIN_SIZE)
+    for i in range(MAX_WIN):
+        b = i * WIN_SIZE
+        if _u16(wins, b + W_FLAGS) & 3 != 3:        # used and visible
             continue
-        if _u16(wins, i * 26 + 6) == 320:   # W_W
-            return _u16(wins, i * 26 + 2), _u16(wins, i * 26 + 4)
+        if _u16(wins, b + W_TITLE) == title:
+            return _u16(wins, b + W_X), _u16(wins, b + W_Y)
     return None
 
 
@@ -115,3 +135,138 @@ def set_primary(m, mo, S, settle, slot, card=None):
     wx, wy = _cp_win(m, S)              # RE-READ: see the module docstring
     mo.click(wx + 1 + CP_RX + CPV_BTNX + 40, wy + TITLE_H + 1 + CPV_BTNY + 9)
     settle(m, card=card)
+
+
+# --- the desktop's drive column (SPEC.md 26.1) -------------------------------
+#
+# EVERY NUMBER THAT CAN BE READ OUT OF THE GUEST IS READ OUT OF THE GUEST, and
+# that is not tidiness: this arithmetic was mirrored in two test scripts with
+# DESK_ZY0 = 24 / step 52 / width 60 baked in, and SPEC.md 26.4's square CGA
+# icon changed the pitch to 34 and the width to 32. Both scripts then
+# double-clicked bare desktop, one opened no Disk window and the other opened
+# one instead of two, and neither said anything about zones - they reported a
+# window that failed to appear. `desk_zstep`, `desk_zh1`, `desk_rows` and
+# `vid_desk_zx` are all live words, so only DESK_ZY0/DESK_ZW/DESK_COLW - which
+# are assembly-time constants with no published copy - need mirroring at all,
+# and os88geom is where they are mirrored, once, checked against desk.inc.
+
+
+def drive_ordinal(m, S, letter="B"):
+    """Which desktop ZONE does drive `letter` own? (SPEC.md 26.1)
+
+    NOT the drive number. A zone exists per volume with DV_FLAGS bit 0 set, and
+    the ordinal is that volume's POSITION among the shown ones - so a machine
+    whose B: was retired by SPEC.md 18.97's probe, or which mounts a hard disk,
+    numbers them differently. Walking dsk_vtab is the only way to be right, and
+    it turns "no window opened" into "B: has no zone", which is the difference
+    between a test that fails and a test that says why.
+    """
+    want = ord(letter.upper()) - ord("A")
+    t = m.read(S("dsk_vtab"), DVOL_MAX * DV_SIZE)
+    n = 0
+    for v in range(DVOL_MAX):
+        r = t[v * DV_SIZE:(v + 1) * DV_SIZE]
+        if r[DV_KIND] == DVK_FREE or not (r[DV_FLAGS] & 1):
+            continue
+        if v == want:
+            return n
+        n += 1
+    return None
+
+
+def drive_xy(m, S, ordinal):
+    """The centre of volume `ordinal`'s desktop zone, in VIRTUAL coordinates.
+
+    desk_ord_xy's arithmetic: zones fill a column downwards and wrap LEFT from
+    the drive column, so ordinal 1 is BELOW ordinal 0 until [desk_rows] runs
+    out - which is 2 on a CGA with the tall icon and 4 with the square one.
+    """
+    def w(name):
+        b = m.read(S(name), 2)
+        return b[0] | (b[1] << 8)
+
+    rows, step, zh1, zx = (w("desk_rows"), w("desk_zstep"), w("desk_zh1"),
+                           w("vid_desk_zx"))
+    col, row = divmod(ordinal, rows)
+    return (zx - col * DESK_COLW + DESK_ZW // 2,
+            DESK_ZY0 + row * step + zh1 // 2)
+
+
+def open_drive(m, mo, S, settle, letter="B", card=None):
+    """Double-click drive `letter`'s desktop zone and settle."""
+    if isinstance(letter, int):          # an ORDINAL was passed: no longer
+        ordinal = letter                 # supported, because it is not stable
+        raise TypeError("open_drive takes a DRIVE LETTER, not the ordinal %d "
+                        "- see drive_ordinal()" % ordinal)
+    ordinal = drive_ordinal(m, S, letter)
+    if ordinal is None:
+        raise RuntimeError("drive %s: has no desktop zone on this machine "
+                           "(dsk_vtab says it is free or hidden)" % letter)
+    x, y = drive_xy(m, S, ordinal)
+    mo.dblclick(x, y)
+    settle(m, card=card)
+    return x, y
+
+
+# --- a Disk window's rows (SPEC.md 22) ---------------------------------------
+#
+# The same discipline as drive_xy above, and for the same reason: FM_ROW_Y0
+# moved 26 -> 22 under two tests at once, and neither said "the row geometry
+# changed" - one reported that a package would not launch and the other that a
+# window had not opened. They come from os88geom, which checks them.
+FM_ROW_X = 60                   # the pen, and files.inc has no equ for it
+
+
+def row_xy(wx, wy, row=0):
+    """The centre of list row `row` in a Disk window at (wx, wy)."""
+    return (wx + 1 + FM_ROW_X,
+            wy + TITLE_H + 1 + FM_ROW_Y0 + row * FM_ROW_H + FM_ROW_H // 2)
+
+
+def open_row(m, mo, S, settle, wx, wy, row=0, card=None):
+    """Double-click a Disk window row and settle."""
+    x, y = row_xy(wx, wy, row)
+    mo.dblclick(x, y)
+    settle(m, card=card)
+    return x, y
+
+
+# --- the window record (SPEC.md 11) ------------------------------------------
+#
+# WIN_SIZE IS A STRIDE AND IT MOVES: 18 -> 20 -> ... -> 26 -> 28 over this
+# tree's life, once per field added to the record. A stale one does not fail,
+# it reads every window's rect out of the middle of its neighbour - so the
+# clicks derived from it land on bare desktop and the test reports whatever
+# did not happen next. That had cost three debugging sessions when this block
+# was written down HERE, and it went on costing them, because writing it down
+# in a second place is the same bug: `_cp_win` above kept a 26 of its own.
+# os88geom is the one copy now, and it checks itself against wm.inc at import.
+
+
+def win_rect(m, S, slot):
+    """(x, y, w, h) of window `slot`."""
+    r = m.read(S("wm_wins") + slot * WIN_SIZE, WIN_SIZE)
+    return (_u16(r, W_X), _u16(r, W_Y), _u16(r, W_W), _u16(r, W_H))
+
+
+def win_list(m, S, check=True):
+    """Every used+visible window slot, newest last.
+
+    `check` asserts the rects are PLAUSIBLE against the live desktop, which is
+    what catches a moved WIN_SIZE at the point it goes wrong instead of three
+    steps later.
+    """
+    t = m.read(S("wm_wins"), MAX_WIN * WIN_SIZE)
+    out = [i for i in range(MAX_WIN)
+           if _u16(t, i * WIN_SIZE + W_FLAGS) & 3 == 3]
+    if check and out:
+        vw = _u16(m.read(S("vid_w"), 2))
+        vh = _u16(m.read(S("vid_h"), 2))
+        for i in out:
+            x, y, w, h = win_rect(m, S, i)
+            if not (0 < w <= vw and 0 < h <= vh and x < vw and y < vh):
+                raise RuntimeError(
+                    "window %d reads (%d,%d) %dx%d on a %dx%d desktop - "
+                    "WIN_SIZE (%d here) has moved in kernel/wm.inc"
+                    % (i, x, y, w, h, vw, vh, WIN_SIZE))
+    return out

@@ -122,7 +122,7 @@ def capture(story, inputs, cols=REF_COLS, rows=REF_ROWS):
     def settle():
         """...and page through [MORE], because the guest does not.
 
-        THE HARNESS BUILD DOES NOT PAGE (SPEC.md 59.13): `[MORE]` waits on a
+        THE HARNESS BUILD DOES NOT PAGE (SPEC.md 61.13): `[MORE]` waits on a
         key and the harness's "person" is a script that types only when the
         story asks for a command, so leaving it in deadlocks the run. The
         consequence here is that a story whose opening is longer than one
@@ -255,7 +255,7 @@ def words(lines):
     The reference's own COMMENTARY goes too, for the reason tools/zharness.py
     drops dfrotz's: "Warning: get_child called with object 0" is frotz talking
     about Balances, not Balances talking to the player, and os8088 answers the
-    same 0 without editorialising (SPEC.md 59.11 - the object layer has no
+    same 0 without editorialising (SPEC.md 61.11 - the object layer has no
     error channel). It is a PARAGRAPH and not a line, because on a screen it
     wraps like anything else, so it is taken to the blank line that ends it.
     A halt is never commentary and is never dropped here or there.

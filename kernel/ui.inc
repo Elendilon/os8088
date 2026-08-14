@@ -53,6 +53,15 @@ UI_TDBLT    equ 9               ; title-bar double-click window, ticks - the
 ; -----------------------------------------------------------------------------
 ui_task:
 .loop:
+%ifdef KFZTRACE
+    inc word [khb_uipass]       ; ONE PASS OF THE UI TASK. The watchdog keyed
+                                ; on a HELD mutex and never fired in the field,
+                                ; which is itself the finding: the lock is
+                                ; taken and released over and over, so the
+                                ; machine is LIVELOCKED rather than halted and
+                                ; no lock-held counter can see it. What does
+                                ; not happen is this line.
+%endif
     ; --- 0. a posted restart, spent with NOTHING held (SPEC.md 20.10) --------
     cmp byte [ui_rebootq], 0
     je .keys
@@ -64,16 +73,33 @@ ui_task:
     mov ah, 0x01                ; any key pending?
     int 0x16
     jz .events
-    mov ah, 0x00                ; fetch it: AL = ascii, AH = scan
-    int 0x16
+    KFZ 1                       ; 1: a key is pending
+    call blk_wake               ; a key is USER INPUT whatever it turns out to
+                                ; be, so the idle clock restarts here (SPEC.md
+                                ; 64.2) and CF says whether this keystroke is
+                                ; the one that lit the screen
+    KFZ 2                       ; 2: blk_wake returned (SPEC.md 64)
+    mov ah, 0x00                ; fetch it: AL = ascii, AH = scan - the wake
+    pushf                       ; case still has to take the key OUT of the
+    int 0x16                    ; BIOS buffer, so only the DELIVERY differs.
+    popf                        ; The verdict is banked across the call: int
+                                ; 16h is a BIOS service and the flags it
+                                ; returns are its own business, not ours
+    KFZ 3                       ; 3: the key is out of the BIOS buffer
+    jc .events                  ; the screen was dark, so the user never saw
+                                ; the window this would have gone to: drop it
     call kbm_key                ; with no mouse on the machine, the arrows ARE
     jc .events                  ; the mouse (SPEC.md 9.6) and this key is not
                                 ; the application's. One compare per keystroke
                                 ; on a machine that has one
+    KFZ 4                       ; 4: kbm_key passed it through (SPEC.md 9.6)
     call gfx_lock               ; handler draws; it runs under the lock
+    KFZ 5                       ; 5: WE HAVE THE GFX LOCK. A bar that stops at
+                                ;    4 is a mutex nobody released
     call wm_top                 ; BX = frontmost visible window, 0 if none
     call fdlg_top               ; ...unless a modal file dialog is up, which
                                 ; takes every key (SPEC.md 38.2)
+    KFZ 6                       ; 6: the target window is resolved
     or bx, bx
     jz .key_done
     cmp word [bx + W_ONKEY], 0  ; window may not take keys
@@ -91,7 +117,9 @@ ui_task:
     push bx
     push bp
     mov bp, [si + W_ONKEY]      ; wm_pkgcall: record in SI (where the
+    KFZ 7                       ; 7: about to far-call the package
     call wm_pkgcall             ; contract already puts it), offset in BP
+    KFZ 8                       ; 8: the handler returned
     pop bp
     pop ax
     pop dx
@@ -102,15 +130,27 @@ ui_task:
     call inst_charge
 .key_done:
     call gfx_unlock
+    KFZ 9                       ; 9: a healthy keystroke, start to finish
 
     ; --- 2. events: pop one, act on EVT_MDOWN ---------------------------------
 .events:
+    call blk_pass               ; spend the mouse ISR's activity flag, and dark
+                                ; every monitor once the idle period is up
+                                ; (SPEC.md 64.1). AHEAD of evq_pop and not
+                                ; down in .yield: the press that woke the
+                                ; screen is still in the ring here, and this
+                                ; is what drains it rather than letting it be
+                                ; dispatched at a window nobody could see
     mov di, ui_ev
     call evq_pop
     jc .yield                   ; queue empty
     mov ax, [ui_ev + EV_TYPE]
     cmp ax, EVT_RDOWN           ; the right button goes its own, much
     je .rdown                   ; narrower way (SPEC.md 12.4/13)
+    cmp ax, EVT_MUP             ; a release SPENDS an armed chrome press
+    je .mup                     ; (SPEC.md 13.5), and is otherwise ignored -
+                                ; which is what this loop did with every
+                                ; mouse-up before that section existed
     cmp ax, EVT_MDOWN
     jne .yield                  ; only mouse-downs matter here
     mov cx, [ui_ev + EV_A]      ; CX = click x
@@ -134,6 +174,15 @@ ui_task:
                                 ; plainly on screen unclickable
     cmp dx, MBAR_H              ; in the menu bar?
     jae .on_desktop
+%ifdef KERN_BIG
+    cmp cx, [vid_pw]            ; ...on the display that HAS one (39.16.2).
+    jae .on_desktop             ; Display 0 is at the virtual origin, so this
+                                ; one compare is the whole test - and without
+                                ; it a window in the second monitor's top rows
+                                ; cannot be grabbed at all, because every
+                                ; press there is swallowed by a menu bar that
+                                ; is on another screen
+%endif
     cmp cx, [vid_clk_hx]        ; the clock cell at the right end (SPEC 12.1)?
     jae .clock_cell             ; tested BEFORE menu_track: it is not a title
     call ui_loc_gate            ; ...and Locator's own items go grey or live
@@ -152,11 +201,10 @@ ui_task:
 
 .clock_cell:                    ; open the Control Panel on its Date/Time
     mov byte [cp_sel], CP_ITIME ; page (SPEC.md 31.5); no lock held here, so
-    mov al, KIND_CTRL           ; app_launch is called directly like any
-    call app_launch             ; other menu command - and fronts + repaints
-    jnc .yield                  ; an already-open panel, which is what makes
-    call snd_beep               ; the page swap visible
-    jmp .yield
+    call cp_open                ; cp_open is app_launch with the module load
+    jnc .yield                  ; in front of it (SPEC.md 2.8.4) - and it owns
+    jmp .yield                  ; the refusal, beep or toast, so there is
+                                ; nothing left here to say
 
 .on_desktop:
     call wm_hit                 ; BX = window hit (0 = none), AL = region
@@ -193,35 +241,16 @@ ui_task:
     jmp .yield
 
 .content_front:
-    cmp word [si + W_ONCLICK], 0
-    je .yield                   ; window does not take clicks
+    mov bp, [si + W_ONCLICK]
+    or bp, bp
+    jz .yield                   ; window does not take clicks
     call gfx_lock               ; W_ONCLICK contract: CX=x, DX=y, SI=win
-    mov bx, si                  ; (CX/DX survived wm_hit/wm_top/gfx_lock)
-    call inst_win_owner         ; bill the handler to its instance (8.1)
-    push di
-    push word [snd_inst]        ; stamp the dispatched instance for sound
-    call snd_disp_set           ; grants made inside the handler (SPEC 34.3)
-    push cx                     ; the click point - task_cycles returns in
-    push dx                     ; DX:AX, so CX/DX have to step aside
-    call task_cycles            ; DX:AX = start stamp
-    mov bx, ax
-    mov ax, dx
-    pop dx                      ; click y
-    pop cx                      ; click x
-    push ax                     ; start stamp: hi, then lo
-    push bx
-    push bp
-    mov bp, [si + W_ONCLICK]    ; wm_pkgcall: record in SI, offset in BP
-    call wm_pkgcall
-    pop bp
-    pop ax
-    pop dx
-    pop word [snd_inst]         ; the outer dispatch's stamp, back
-    pop di
-    or di, di
-    jz .click_done
-    call inst_charge
-.click_done:
+    call ui_ptcall              ; (CX/DX survived wm_hit/wm_top/gfx_lock)
+    mov [ui_armw], si           ; ...and the RELEASE is owed to this window
+    mov byte [ui_armr], 0       ; (SPEC.md 13.7): region 0, armed only because
+                                ; W_ONCLICK actually ran. A press that merely
+                                ; raised a window, or that this window refused
+                                ; above, arms nothing
     call gfx_unlock
     jmp .yield
 
@@ -239,16 +268,87 @@ ui_task:
     call desk_click             ; CX/DX = click point, no lock held; select /
     jmp .yield                  ; double-click-open is desk.inc's business
 
+    ; --- the chrome boxes: the press only ARMS (SPEC.md 13.5) ----------------
+    ; Both boxes arm identically, so they are one body with two names rather
+    ; than two that have to be kept in step. wm_hit reports AL=2/AL=3 on the
+    ; FRONT window only, so there is no "which window" question here beyond
+    ; the one .mup asks again at the release.
+    ;
+    ; No lock is taken and nothing is drawn: the press is not the action any
+    ; more, and a pressed-state overlay is deliberately not part of this
+    ; (docs/MOUSEUP-PLAN.md 7 - arm-and-return never sees the pointer between
+    ; the two edges, so a static invert would stay lit while the user slid
+    ; off, which says the opposite of what is true).
 .close_box:                     ; wm_hit only reports AL=2 on the front window
-    call gfx_lock
-    call app_close_win          ; in: BX; quits the owning instance (or
-    call gfx_unlock             ; hides an ownerless window) - SPEC.md 29
+.min_box:                       ; ...and AL=3, likewise
+    mov [ui_armw], bx           ; BX = the window, AL = wm_hit's region
+    mov [ui_armr], al
     jmp .yield
 
-.min_box:                       ; wm_hit only reports AL=3 on the front window
+.mup:
+    ; The release. Two species, and they differ in exactly one way:
+    ;
+    ;   region 2/3 - the CHROME (SPEC.md 13.5). Fires only if wm_hit at THIS
+    ;                point still answers the same window AND the same region.
+    ;   region 0   - a PACKAGE's content release (SPEC.md 13.7). Delivered
+    ;                WHEREVER it landed, this window's own, because a package
+    ;                that is never told cannot un-draw a pressed state or
+    ;                decline to act. The kernel guarantees delivery; the
+    ;                package decides identity, having no widget layer to ask.
+    ;
+    ; The arm is spent either way.
+    cmp word [ui_armw], 0
+    je .yield                   ; nothing armed: one compare, and the release
+                                ; is ignored exactly as it always was
+    mov cx, [ui_ev + EV_A]      ; NO [ui_click_t] STORE HERE, and that is
+    mov dx, [ui_ev + EV_B]      ; binding: SPEC.md 22/26/38's four detectors
+                                ; compare PRESS birth ticks and the
+                                ; double-click stays on the down edge
+                                ; (SPEC.md 13.6). Stamping here would make
+                                ; double-click spacing release-to-release,
+                                ; silently - os88mouse.py's dblclick measures
+                                ; press-to-press and would keep passing
+    mov si, [ui_armw]
+    mov ah, [ui_armr]
+    mov word [ui_armw], 0       ; spent: every path below leaves it clear
+    or ah, ah
+    jz .mup_pkg                 ; region 0: no identity test at all
+    call wm_hit                 ; BX = window under the release, AL = region;
+                                ; AH survives it by wm_hit's own contract
+    cmp bx, si
+    jne .yield                  ; a different window - two windows' boxes can
+                                ; share a point, so this half is not optional
+    cmp al, ah
+    jne .yield                  ; ...or the other box on the same title bar
     call gfx_lock
+    test word [si + W_FLAGS], 2 ; the window can have gone between the two
+    jz .mup_done                ; passes - a package worker reaching
+                                ; inst_task_die, or a command off its own bar.
+                                ; wm_hit has answered already, so this is the
+                                ; belt to that braces; it costs a test, and
+                                ; what it guards is a dispatch through a freed
+                                ; record (the ui_dispatch guard, verbatim)
+    mov bx, si
+    cmp ah, 2
+    jne .mup_min
+    call app_close_win          ; in: BX; quits the owning instance (or
+    jmp short .mup_done         ; hides an ownerless window) - SPEC.md 29
+.mup_min:
     call inst_minimize          ; in: BX; flags the instance minimized and
-    call gfx_unlock             ; hides - its dock tile inverts (SPEC.md 30)
+.mup_done:                      ; hides - its dock tile inverts (SPEC.md 30)
+    call gfx_unlock
+    jmp .yield
+
+.mup_pkg:                       ; SPEC.md 13.7 - the package's release
+    call gfx_lock
+    test word [si + W_FLAGS], 2 ; ...unless the window went away between the
+    jz .mup_pdone               ; two passes, which a worker can do
+    mov bp, [si + W_ONMOUSEUP]
+    or bp, bp
+    jz .mup_pdone               ; the package never asked for releases, which
+    call ui_ptcall              ; is every shipped package today
+.mup_pdone:
+    call gfx_unlock
     jmp .yield
 
 .grow_box:
@@ -298,6 +398,8 @@ ui_task:
                                 ; that whatever this pass dispatched could
                                 ; track it, and if nothing did, this is where
                                 ; the press becomes a click
+    call ui_arm_chk             ; ...and a chrome press whose release was
+                                ; DROPPED must not stay armed (SPEC.md 13.5)
     call fdlg_reap              ; a file dialog cancelled by its close or
                                 ; minimize box is only HIDDEN by that route
                                 ; (SPEC.md 38.1) - collect it here rather
@@ -351,14 +453,23 @@ ui_task:
     call gfx_unlock
 .chk_zones:
     cmp byte [desk_zdirty], 0   ; a volume was mounted or unmounted (26.2),
-    je .chk_toast               ; posted for the same reason and drained in
+    je .chk_curs                ; posted for the same reason and drained in
     mov byte [desk_zdirty], 0   ; the same pass - but it costs the drive-zone
     call gfx_lock               ; grid and the windows over it, not the screen
     call desk_zones_paint
     call gfx_unlock
+.chk_curs:
+    call cur_shape_pass         ; which window is the pointer over, and does it
+                                ; want a different picture (SPEC.md 7.2)? One
+                                ; compare per pass when neither the pointer nor
+                                ; the z-order moved, which is nearly always -
+                                ; and it belongs HERE rather than in the mouse
+                                ; ISR because the UI task is the only mutator
+                                ; of wm_zord and the window rects, so wm_hit
+                                ; answers from it with no lock and no race
 .chk_toast:
     call toast_pass             ; put a staged toast up, or take an expired
-                                ; one down (SPEC.md 60). One compare per pass
+                                ; one down (SPEC.md 59). One compare per pass
                                 ; when nothing is up, and the ONE place
                                 ; either edge is drawn - toast_show is
                                 ; reachable from a lock-holding callback, a
@@ -404,6 +515,90 @@ ui_task:
     jmp .loop
 
 ; -----------------------------------------------------------------------------
+; ui_ptcall - dispatch a POINT callback on a window, billed (SPEC.md 8.1/34.3)
+; in:  SI = window, BP = the handler's offset in that window's segment,
+;      CX = x, DX = y; the caller holds the gfx lock
+; out: nothing; CX/DX preserved across the call so the caller may reuse them
+; clobbers: AX, BX, DI (and whatever the handler clobbers)
+;
+; W_ONCLICK and W_ONMOUSEUP have the identical contract and the identical
+; environment - UI task, gfx lock held, billed to the owning instance, with
+; the dispatched instance stamped for sound grants (SPEC.md 34.3) - so this is
+; the one body rather than two that have to be kept in step. It was factored
+; out of .content_front when W_ONMOUSEUP arrived; before that there was only
+; one caller and no reason.
+;
+; The caller checks the handler is non-zero. BP is the offset because that is
+; what wm_pkgcall wants and what the record already holds.
+; -----------------------------------------------------------------------------
+ui_ptcall:
+    mov bx, si
+    call inst_win_owner         ; DI = the owning record, 0 = unowned window
+    push di
+    push word [snd_inst]        ; stamp the dispatched instance for sound
+    call snd_disp_set           ; grants made inside the handler (SPEC 34.3)
+    push cx                     ; the point - task_cycles answers in DX:AX,
+    push dx                     ; so CX/DX have to step aside
+    call task_cycles            ; DX:AX = start stamp
+    mov bx, ax
+    mov ax, dx
+    pop dx                      ; y
+    pop cx                      ; x
+    push ax                     ; start stamp: hi, then lo
+    push bx
+    push bp
+    call wm_pkgcall             ; SI = window, BP = the handler
+    pop bp
+    pop ax
+    pop dx
+    pop word [snd_inst]         ; the outer dispatch's stamp, back
+    pop di
+    or di, di
+    jz .out
+    call inst_charge
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; ui_arm_chk - drop a chrome arm whose release will never arrive (SPEC.md 13.5)
+; in:  nothing
+; out: nothing (all registers preserved; flags clobbered)
+;
+; evq_push DROPS silently when the ring is full (16 records), and ui_drag,
+; ui_grow and fm_drag each carry the same fallback in as many words - "the
+; EVT_MUP was dropped (queue full) - the level still says so". Here the failure
+; is worse than a stuck drag: an arm nobody spends would be fired by the NEXT
+; unrelated release, on whatever window happened to be under it.
+;
+; THE QUEUE TEST IS NOT DECORATION, and it is the whole reason this routine can
+; sit anywhere in the ladder. Without it:
+;
+;   - the keyboard mouse could never close a window. kbm_ui posts the EVT_MUP
+;     at the end of the very pass that armed (SPEC.md 9.6.1), so a level-only
+;     check running after it sees bit 0 already clear and throws the arm away
+;     before the release it just queued can be popped.
+;   - a real mouse would lose the release intermittently: anything queued ahead
+;     of it means this runs with the button already up and the EVT_MUP still in
+;     the ring.
+;
+; With it, the case that would depend on ordering is exactly the case the queue
+; is non-empty in - so ui_arm_chk before or after kbm_ui is the same routine.
+; It is placed after only because that is the order the two were written in.
+;
+; One compare per pass when nothing is armed, which is nearly always.
+; -----------------------------------------------------------------------------
+ui_arm_chk:
+    cmp word [ui_armw], 0
+    je .out                     ; nothing armed - the common case
+    test byte [mouse_btn], 1
+    jnz .out                    ; still held: the release is yet to come
+    cmp word [evq_count], 0
+    jne .out                    ; ...or it is queued behind something else
+    mov word [ui_armw], 0       ; the button is up and nothing is pending, so
+.out:                           ; the release is never going to arrive
+    ret
+
+; -----------------------------------------------------------------------------
 ; ui_rdown - act on one EVT_RDOWN: the context-menu path (SPEC.md 12.4/13)
 ; in:  [ui_ev] holds the record
 ; out: nothing
@@ -438,7 +633,14 @@ ui_rdown:
     call wm_fs_vis              ; a fullscreen window (SPEC.md 11.2) owns the
     jc .hit                     ; bar's rows like any other point (39.17.1)
     cmp dx, MBAR_H
-    jb .ret                     ; the menu bar has no right-button behaviour
+    jb .rbar                    ; the menu bar has no right-button behaviour
+    jmp short .hit
+.rbar:
+%ifdef KERN_BIG
+    cmp cx, [vid_pw]            ; ...but only where there IS a bar (39.16.2)
+    jae .hit
+%endif
+    jmp .ret
 .hit:
     call wm_hit                 ; BX = window hit (0 = none), AL = region
     or bx, bx
@@ -649,9 +851,16 @@ ui_drag:
     jle .y_high_ok
     mov ax, [vid_ymax]
 .y_high_ok:
+%ifdef KERN_BIG
+    call ui_ylow                ; SPEC.md 39.16.2: MBAR_H is the PRIMARY's
+    cmp ax, si                  ; floor, and no other card has a menu bar
+    jge .y_low_ok
+    mov ax, si
+%else
     cmp ax, MBAR_H
     jge .y_low_ok
     mov ax, MBAR_H
+%endif
 .y_low_ok:
     cmp [bx + W_Y], ax
     je .y_same
@@ -671,6 +880,42 @@ ui_drag:
     or di, di                   ; a click that only raised the window (above)
     jz .done                    ; leaves the screen already correct
 
+%ifndef NODRAGCACHE
+    mov bx, [ui_dragwin]
+    call ui_drag_phase          ; ...onto a multiple of 8 FIRST (SPEC.md
+                                ; 11.96.13): the cache can only replay the
+                                ; pixels at a dx whose low three bits are 0,
+                                ; and a hand drops a window on an arbitrary
+                                ; one - so seven drags in eight were refused
+                                ; and redrew in full. This is where that is
+                                ; paid, in up to 7px of drop precision
+    mov bx, [ui_dragwin]        ; THE DRAG CACHE (SPEC.md 11.96.12): bank the
+    call wm_dc_take             ; content while it is still on the glass at the
+                                ; old place, so wm_draw_win below replays it at
+                                ; the new one instead of ordering a W_PAINT.
+                                ; HERE and not after the move: two lines down
+                                ; wm_paint_dmg paints the desktop over exactly
+                                ; the pixels this is saving
+%endif
+
+    mov bx, [ui_dragwin]        ; A DRAG IS ALLOWED TO CROSS THE SEAM (SPEC.md
+%ifdef KERN_BIG                 ; 39.16.1) and this is what it costs when it
+    call wm_strad_fit           ; does: a frame reaching rows or columns only
+%endif                          ; one of the two displays has gives them back
+                                ; (39.16.3). BEFORE the bank, so what is
+                                ; remembered is what the record holds
+    call wm_nat_bank            ; where the user put it is where it goes back to
+                                ; when the adapter changes (SPEC.md 39.11.2.1)
+                                ; - and BELOW ui_drag_phase, not above it. That
+                                ; snap moves x by up to 7px (SPEC.md 11.96.13)
+                                ; and it is the LAST thing to touch the rect, so
+                                ; banking first records a rect the record does
+                                ; not hold and the window shifts by that much on
+                                ; the next adapter change. The two arrived from
+                                ; different branches and the merge of them
+                                ; assembled perfectly with the bank in the wrong
+                                ; place, which is what a merge is for catching
+
     ; It moved. Only two rects changed: the one it left and the one it now
     ; occupies - everything outside their union is still correct on screen,
     ; so this is wm_paint_dmg's case, not wm_paint_all's (SPEC.md 11.91). The
@@ -683,11 +928,67 @@ ui_drag:
     mov dx, bx
     add dx, [ui_dragh]
     mov si, [ui_dragwin]
+    call wm_dmg_vacate          ; WHERE IT WAS is the whole of what can have
+                                ; gone stale (SPEC.md 11.91.2) - recorded
+                                ; BEFORE the union below grows AX..DX past it.
+                                ; It is what makes dragging a window ACROSS
+                                ; another one cost the other one nothing
     call wm_dmg_union           ; ...grown to cover where it is now
     call wm_paint_dmg           ; caller-held lock, per the wm contract
+%ifndef NODRAGCACHE
+    call wm_dc_done             ; ...and the waiver is spent (SPEC.md 11.96.12)
+%endif
 .done:
     call gfx_unlock             ; NO second gfx_lock here - already held (§7)
     ret
+
+; -----------------------------------------------------------------------------
+; ui_drag_phase - put a dropped window's x where the drag cache can replay it
+;                 (SPEC.md 11.96.13)
+; in:  BX = the window, its W_X already clamped and snapped; ui_origx = the old
+; out: nothing; preserves every register
+;
+; 11.96.12's byte phase is not a bug and cannot be argued away: gfx_save lays
+; the buffer out from x1 rounded DOWN to a framebuffer byte, so the pixels can
+; be replayed at another x only where the content sits at the same offset
+; inside its byte. What was wrong was leaving that to CHANCE - a mouse drops a
+; window on an arbitrary pixel, so dx & 7 was 0 one time in eight and the other
+; seven redrew the window card by card. Measured on 5150/Hercules, Solitaire:
+; 210 calls at dx = -64 against 1,007 at dx = -60.
+;
+; So the drop is moved onto the phase instead, and the direction is the whole
+; safety argument: it always moves TOWARD ui_origx, never away. The window was
+; legal where it started and legal where the clamps left it, the legal x's are
+; an INTERVAL, so every point between the two is legal as well - which is why
+; this needs no clamp of its own and cannot fight wm_dock_snap, ui_drag_dead or
+; the dual-display bounds above. Rounding to the NEAREST multiple would be
+; half the error and is not worth re-deriving those bounds here.
+;
+; It is inside the caller's %ifndef NODRAGCACHE, and so is the body below, so a
+; DRAGCACHE=0 reference build drops the window exactly where it always did AND
+; carries not one byte of this - the A/B stays honest in both.
+; -----------------------------------------------------------------------------
+%ifndef NODRAGCACHE
+ui_drag_phase:
+    push ax
+    push bx
+    mov ax, [bx + W_X]
+    sub ax, [ui_origx]          ; AX = dx, signed
+    or ax, ax
+    jns .pos
+    neg ax                      ; TRUNCATE TOWARD ZERO, and the sign is why
+    and ax, 0xFFF8              ; this is done on the magnitude rather than in
+    neg ax                      ; place: `and ax, 0xFFF8` rounds toward MINUS
+    jmp short .set              ; INFINITY, so on a leftward drag it moves the
+.pos:                           ; window further from the origin - out of the
+    and ax, 0xFFF8              ; interval the safety argument above rests on
+.set:
+    add ax, [ui_origx]
+    mov [bx + W_X], ax
+    pop bx
+    pop ax
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ui_drag_xor - draw (or erase - XOR is its own inverse) the drag outline at
@@ -709,7 +1010,7 @@ ui_drag_xor:
                                 ; VRAM-direct (SPEC.md 32): the outline is a
                                 ; transient overlay like the cursor - it is
                                 ; always XOR-erased before the lock drops, so
-                                ; VRAM still equals the back buffer whenever
+                                ; the overlay is always erased before
                                 ; anyone else can draw. Going through the back
                                 ; buffer instead would dirty the whole window
                                 ; rect and flush it twice per pass.
@@ -746,6 +1047,42 @@ ui_drag_xor:
 ; into. Clamping into the display the window CAME from would be the smaller
 ; move, and the record no longer holds that origin by the time this runs.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; ui_ylow - the lowest y a title bar may take, where this window is
+;           (SPEC.md 39.16.2)
+;
+; in:       BX = the window; [ui_curx] = the x the drag is proposing
+; out:      SI = the floor
+; clobbers: SI, flags
+;
+; MBAR_H on display 0 and the display's own vy anywhere else - because the
+; menu bar is the primary's and nothing else has one. Asked with the drag's
+; PROPOSED x rather than the window's current one: the clamp runs before
+; W_X is stored on some passes, and a window being dragged onto the second
+; monitor must be floored by where it is GOING.
+; -----------------------------------------------------------------------------
+ui_ylow:
+    mov si, MBAR_H
+    cmp byte [vid_ndisp], 1
+    jbe .out
+    push ax
+    push bx
+    push di
+    mov ax, [ui_curx]
+    mov bx, MBAR_H              ; any row the primary's band contains, so a
+                                ; point on display 0 resolves to it
+    call vid_disp_of
+    or al, al
+    jz .done                    ; display 0 keeps the chrome's floor
+    call vid_ctx_ptr
+    mov si, [di+VID_CTX_VY]
+.done:
+    pop di
+    pop bx
+    pop ax
+.out:
+    ret
+
 ui_drag_dead:
     cmp byte [vid_ndisp], 1
     jbe .out
@@ -839,6 +1176,29 @@ ui_grow:
     call ui_drag_xor            ; erase; lock stays held to the end
     mov bx, [ui_dragwin]
 
+    ; Where it WAS is the whole of what a resize can have uncovered (SPEC.md
+    ; 11.91.2), and the origin is the one banked at mousedown - fixed for the
+    ; whole grow, even though wm_dock_snap may move it below. A window that
+    ; only GREW uncovers nothing at all, so its neighbours cost nothing.
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, bx
+    mov ax, [ui_curx]
+    mov cx, ax
+    add cx, [ui_origx]          ; x2 = x + w: the drop shadow's own column
+    mov bx, [ui_cury]
+    mov dx, bx
+    add dx, [ui_origy]
+    call wm_dmg_vacate
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+
     ; clamp w: WMIN_W <= w <= [vid_w] - W_X (high bound first, low wins)
     mov ax, [ui_dragw]
     mov dx, [vid_w]
@@ -881,6 +1241,21 @@ ui_grow:
     push ax
     call wm_dock_snap
     pop ax
+%ifdef KERN_BIG
+    call wm_strad_fit           ; a grow can push a frame across the seam too
+%endif                          ; (SPEC.md 39.16.3)
+    call wm_snap_win            ; ...and the ALIGNED x is a question about the
+                                ; WIDTH now (SPEC.md 11.95.2): a window shrunk
+                                ; off the screen's right edge stops being flush,
+                                ; so column 0 stops being an aligned content
+                                ; origin and 7 is the leftmost one again. Last,
+                                ; after both fits, for wm_fit's reason - the
+                                ; snap moves left and only stays legal once the
+                                ; right edge has been dealt with
+    call wm_nat_bank            ; the size the user chose, banked AFTER the snap
+                                ; because the snap may have moved the origin,
+                                ; and after the straddle fit for its reason
+                                ; (SPEC.md 39.11.2.1)
 
     ; Only the rect it had and the rect it has changed, so the repaint is
     ; their union: wm_paint_dmg's case, not wm_paint_all's (SPEC.md 11.91).
@@ -891,14 +1266,25 @@ ui_grow:
     jae .uh
     mov dx, ax                  ; ...or the old one, whichever is lower
 .uh:
-    mov ax, [bx + W_W]
-    cmp ax, [ui_origx]          ; width never moves its origin, so that axis
-    jge .uw                     ; is still just the larger of the two
-    mov ax, [ui_origx]
-.uw:
+    ; x is the union of BOTH rects, and it did not used to have to be: a width
+    ; change never moved this origin until wm_snap_win above started answering
+    ; a different x once the window stops spanning the screen (SPEC.md
+    ; 11.95.2). Taking the new rect alone leaves the seven columns the window
+    ; VACATED standing on the desktop. With the origin unmoved this is the
+    ; larger of the two widths off the one x, exactly as before.
+    mov cx, [ui_curx]           ; old x2 = old x + old w
+    add cx, [ui_origx]
+    mov ax, [bx + W_X]          ; ...against new x2 = x + w, the drop shadow's
+    add ax, [bx + W_W]          ; own column
+    cmp ax, cx
+    jbe .uw
     mov cx, ax
-    add cx, [bx + W_X]          ; x2 = x + w: the drop shadow's own column
-    mov ax, [bx + W_X]
+.uw:
+    mov ax, [bx + W_X]          ; x1 = the leftmost of the two
+    cmp ax, [ui_curx]
+    jbe .ux
+    mov ax, [ui_curx]
+.ux:
     mov bx, [bx + W_Y]          ; (the read completes before BX changes)
     call wm_paint_dmg           ; caller-held lock, per the wm contract
     call gfx_unlock             ; NO second gfx_lock here - already held (§7)
@@ -1517,8 +1903,9 @@ ui_cmd:
     mov al, KIND_ABOUT
     jmp .launch
 .ctrl:
-    mov al, KIND_CTRL
-    jmp .launch
+    call cp_open                ; NOT .launch: the panel's code is a file now
+    ret                         ; (SPEC.md 2.8.4), so opening it can fail for
+                                ; a reason app_launch knows nothing about
 .timer:
     mov al, KIND_TIMER
     jmp .launch
@@ -1614,6 +2001,15 @@ ui_click_t: resw 1              ; EV_C of the event being dispatched: the
 ui_tclkt:   resw 1              ; birth tick of the last title-bar press, and
 ui_tclkw:   resw 1              ; the window it landed on (0 = none recorded):
                                 ; ui_tdbl's pair, SPEC.md 11.95
+ui_armw:    resw 1              ; SPEC.md 13.5: the window a chrome press is
+                                ; ARMED on, 0 = nothing armed. A window pointer
+                                ; is never 0, so 0 is the sentinel and .bss
+                                ; arrives zeroed (kernel.asm) - ui_tclkw's
+                                ; convention exactly
+ui_armr:    resb 1              ; ...and which box: wm_hit's AL, 2 = close,
+                                ; 3 = minimize. Both halves are compared at the
+                                ; release, because the two boxes share a title
+                                ; bar and two windows' boxes can share a point
 ui_dragwin: resw 1              ; window being dragged
 ui_startx:  resw 1              ; mousedown position (drag origin)
 ui_starty:  resw 1

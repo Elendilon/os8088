@@ -114,15 +114,26 @@ ld_slot:
 ; I_SPTR, which step 9 has not written yet. Both owner words are known here
 ; anyway - the slot for the region, [ld_base] for whatever the entry proc
 ; claimed before it failed.
+;
+; THE BLOCKS ABOVE 1MB ARE SWEPT HERE TOO, and they have to be: since step 8
+; stamps the entry proc with this instance (SPEC.md 41.5.1), an entry that
+; claims extended memory and then returns CF=1 leaves blocks owned by a slot
+; that is about to be handed to somebody else - so the NEXT package to take
+; this slot would inherit them, and the one after that would have them freed
+; out from under it. That is a worse failure than the leak it replaces, and it
+; is the price of the stamp being right; it costs a table scan on a path that
+; only runs when a load has already failed.
 ; -----------------------------------------------------------------------------
 ld_unreserve:
     push bx
+    call KERNEL_SEG:cw_xm_release_rec   ; DI = the record, as this routine's
+                                        ; own contract already promises
     call ld_slot
-    call KERNEL_SEG:cw_mem_free_owner
+    call mem_free_owner_x
     mov bx, [ld_base]
     or bx, bx
     jz .out
-    call KERNEL_SEG:cw_mem_free_owner
+    call mem_free_owner_x
     mov word [ld_base], 0
 .out:
     pop bx
@@ -251,7 +262,7 @@ loader_run_x:
     mov byte [ld_painted], 0
     call ld_run_body_x          ; out: AL = LD_* status
     mov [ld_status], al
-    push bx                     ; ...and SAY it (SPEC.md 60). It used to be
+    push bx                     ; ...and SAY it (SPEC.md 59). It used to be
     push cx                     ; stamped on the window that asked, because
     mov bx, fm_stattab          ; one global put 'Bad package' on every open
     mov cx, LD_NSTAT            ; Disk window at once - a question a toast
@@ -259,12 +270,15 @@ loader_run_x:
     pop cx                      ; window at all and appears at the moment of
     pop bx                      ; the act (SPEC.md 22.9)
     cmp byte [ld_painted], 0
-    jne .painted                ; the success path published the status and
-                                ; drew the new window itself; all that is
-                                ; left is the poster's own status line, which
-                                ; still reads "Loading..."
+    jne .done                   ; the success path published the status, paid
+                                ; the poster's status line and THEN drew the
+                                ; new window over it (SPEC.md 22.17) - so
+                                ; nothing is owed here, and a second
+                                ; files_poster would only arm wm_clip_set on
+                                ; a window that is covered now and drop the
+                                ; cache wm_show took
     cmp al, LD_EABORT           ; ...and a FAILED load drew nothing AT ALL, so
-    jne .painted                ; it owes exactly the same one line - 'Bad
+    jne .poster                 ; it owes exactly the same one line - 'Bad
                                 ; package' where 'Loading...' is. This was an
                                 ; unconditional files_refresh, which is
                                 ; wm_paint_all: the desktop dither, the drive
@@ -275,9 +289,9 @@ loader_run_x:
                                 ; put pixels anywhere before it said no
     call files_refresh_x
     jmp short .done
-.painted:
-    call files_poster_x
-.done:
+.poster:                        ; (named for what it DOES: since the success
+    call files_poster_x         ; path pays its own poster above, everything
+.done:                          ; reaching here is a load that failed)
 
     pop es
     pop bp
@@ -380,7 +394,7 @@ ld_run_body_x:
     ; --- 1. validate the directory entry --------------------------------------
     cmp ax, [disk_nfiles]
     jae .bad1                   ; index out of range
-    call KERNEL_SEG:cw_dsk_get_dir ; SI -> the entry, staged out of LOW_SEG into
+    call dsk_get_dir_x ; SI -> the entry, staged out of LOW_SEG into
                                 ; the kernel segment (SPEC.md 2.1)
     cmp word [si+LD_DE_TYPE], 1
     jne .bad1                   ; not an application package
@@ -391,10 +405,18 @@ ld_run_body_x:
     ja .big1
     mov [ld_fsz], ax
     mov ax, [si+LD_DE_CLUS]     ; first cluster: re-check the range the
+    cmp byte [dsk_vkind], DVK_FILE  ; ...unless this word is AN OPAQUE HANDLE
+    je .clusok                      ; (SPEC.md 62.9.1), in which case the
+                                    ; kernel has no opinion to have about its
+                                    ; range - and [dsk_maxclus] is the LAST FAT
+                                    ; volume's, so the test is not merely
+                                    ; wrong here, it is answered by a number
+                                    ; belonging to another disk
     cmp ax, 2                   ; mount already validated (SPEC.md 21 step
     jb .bad1                    ; 1 - this check stands alone if the mount
     cmp ax, [dsk_maxclus]       ; code ever changes)
     ja .bad1
+.clusok:
     mov [ld_clus], ax
     jmp short .peek
 .bad1:
@@ -410,7 +432,28 @@ ld_run_body_x:
     ; LOW_SEG, so the sector lands there and only the 32 header bytes are
     ; staged back into the kernel segment for ld_check_hdr to read.
 .peek:
-    call KERNEL_SEG:cw_dsk_clus2lba ; AX: cluster -> its first LBA; the first
+    cmp byte [dsk_vkind], DVK_FILE
+    jne .peekfat
+
+    ; --- a REDIRECTED volume: the first 512 bytes, by handle (SPEC.md 62.9) --
+    ; The FAT path below turns a cluster into an LBA and reads a SECTOR, and
+    ; there are none here - dsk_xfer refuses such a volume outright, so
+    ; without this the peek fails and every package on a redirected volume is
+    ; "Bad package". FSV_READAT at offset 0 is exactly the same 512 bytes, and
+    ; it lands in the same dsk_secbuf so step 3 below is untouched.
+    push bp
+    mov dx, LOW_SEG             ; DX:BX, not ES:BX (SPEC.md 51.8) - AX is
+    mov bx, dsk_secbuf          ; still the handle and nothing here spends it
+    mov cx, 512
+    xor si, si                  ; DI:SI = offset 0: the head of the file
+    xor di, di
+    mov bp, FSV_READAT
+    call drv_fs_call
+    pop bp
+    jc .disk1                   ; a short file simply delivers less, and
+    jmp short .hdr              ; ld_check_hdr rejects what is not a package
+.peekfat:
+    call dsk_clus2lba_x  ; AX: cluster -> its first LBA; the first
     jc .bad1                    ; sector of the first cluster IS the file's
                                 ; first 512 bytes, so peek semantics are
                                 ; exact (SPEC.md 21 step 2)
@@ -418,14 +461,15 @@ ld_run_body_x:
     mov es, bx
     mov cx, 1
     mov bx, dsk_secbuf
-    call KERNEL_SEG:cw_disk_read              ; in: AX=LBA, CX=1, ES:BX
+    call disk_read_x              ; in: AX=LBA, CX=1, ES:BX
     jc .disk1
+.hdr:
 
     ; --- 3. validate the peeked header -----------------------------------------
     mov si, dsk_secbuf
     mov di, ld_hdr
     mov cx, LD_HDR_SIZE
-    call KERNEL_SEG:cw_dsk_copy_in ; LOW_SEG:dsk_secbuf -> KERNEL_SEG:ld_hdr
+    call dsk_copy_in_x ; LOW_SEG:dsk_secbuf -> KERNEL_SEG:ld_hdr
     mov si, ld_hdr
     call ld_check_hdr           ; fills ld_img/ld_bss/ld_ent;
     jc .ret1                    ; AL = LD_EBAD / LD_EBIG on failure
@@ -453,7 +497,7 @@ ld_run_body_x:
     shr ax, cl                  ; than to the 512 bytes int 13h needs - which
                                 ; mem_claim's own granularity then guarantees
     call ld_slot                ; BX = the owner word: this record's slot
-    call KERNEL_SEG:cw_mem_claim_hi ; from the TOP down, away from the data claims
+    call mem_claim_hi_x ; from the TOP down, away from the data claims
     jc .nomem                   ; growing up from the bottom (SPEC.md 50.3)
     mov [ld_base], dx
     mov cl, 10                  ; I_SIZE is bytes, and it is what the region
@@ -481,7 +525,7 @@ ld_run_body_x:
     mov ax, [ld_clus]
     mov es, [ld_base]           ; the package's OWN segment, offset 0
     xor bx, bx
-    call KERNEL_SEG:cw_dsk_read_chain ; in: AX=cluster, DX=sectors, ES:BX -> dest.
+    call dsk_read_chain_x ; in: AX=cluster, DX=sectors, ES:BX -> dest.
     jc .ret2                    ; on CF, AL is ALREADY the status: 1 =
                                 ; LD_EDISK (disk error), 2 = LD_EBAD (chain
                                 ; corrupt is bad data, not a disk error) -
@@ -526,6 +570,33 @@ ld_run_body_x:
     ; every other package callback is - through the dispatcher in its header
     ; (SPEC.md 20.1) - so an entry proc is an ordinary near proc ending in an
     ; ordinary `ret`, and returns BX = its window / CF set.
+    ;
+    ; AND IT IS STAMPED LIKE ONE (SPEC.md 34.3/41.5.1). Without this the entry
+    ; proc has NO INSTANCE IDENTITY: inst_caller answers with the dispatched
+    ; callback's stamp or else the RUNNING TASK's T_INST, and this runs on the
+    ; UI task, whose T_INST is 0xFF - so everything an entry proc asked the
+    ; kernel for came back attributed to the KERNEL. A sound grant was never
+    ; released at teardown, a block above 1MB was stamped XM_OWN_KERN and
+    ; stranded for the session, a toast outlived its app, and the file API
+    ; answered with the machine's directory instead of the instance's. The
+    ; entry proc is the FIRST thing a package runs and the natural place to
+    ; size itself, so it was the one dispatch that most needed identifying and
+    ; the only one that lacked it.
+    ;
+    ; The push/call/pop bracket is wm.inc's, exactly (SPEC.md 34.3): the outer
+    ; stamp is restored whatever the entry does, and it nests inside the
+    ; `push ds`/`pop ds` below rather than around it, so both unwind in order.
+    ; `pop` leaves the flags alone, so the entry's CF still reaches .abort.
+    ;
+    ; The record is UNPUBLISHED here (step 9 writes I_STATE), and that is fine:
+    ; the stamp is the slot INDEX, which is fixed the moment the record was
+    ; reserved. What it does mean is that an aborting entry's claims have to be
+    ; swept by ld_unreserve, which is where the XMS release joins the two heap
+    ; ones - the slot is about to be handed to somebody else.
+    push word [snd_inst]        ; the outer dispatch's stamp
+    mov di, [ld_rec]
+    call KERNEL_SEG:cw_snd_disp_set     ; DI = record: this instance is asking
+
     mov ax, [ld_base]
     mov [ld_fp+2], ax           ; a module-local far pointer: loader_run is
     mov word [ld_fp], PKG_DISP  ; UI-task-only and one load at a time
@@ -539,6 +610,7 @@ ld_run_body_x:
     mov ds, ax                  ; DS = the package's own segment - so the far
     call far [es:ld_fp]         ; pointer is read through ES, the only
     pop ds                      ; register still naming KERNEL_SEG here
+    pop word [snd_inst]         ; ...and the stamp comes off, CF untouched
     jc .abort
 
     ; --- 9. register + publish the instance, show the window ---------------------
@@ -576,6 +648,21 @@ ld_run_body_x:
     ; every successful launch, purely to correct one line of text.
     mov byte [ld_status], LD_OK
     mov byte [ld_painted], 1    ; ...and this pass IS the repaint
+    ; --- and the POSTER is paid BEFORE it is covered (SPEC.md 22.17) --------
+    ; The window that posted this load still has 'Loading...' on its status
+    ; line and [ld_pending] went to 0 in ui.inc before we were called, so the
+    ; line's final text has been known since the top of loader_run - it was
+    ; simply drawn after wm_show, which is one instruction too late. By then
+    ; the new window is on top, so files_poster's wm_clip_set drops the raise
+    ; cache wm_show has just taken (11.96) and there is no longer anything on
+    ; the glass to bank a new one from: the poster repainted in full on every
+    ; interaction for the rest of the session (11.96.9.1's remaining row).
+    ; Paid here it costs the same one font_run, on a window nothing is
+    ; covering, and what wm_show banks a moment later is the window as it
+    ; will actually look. fm_status_only reads the WINDOW's own state block
+    ; (FS_USED/FS_FREE), never the mounted volume, so nothing here depends on
+    ; assoc_back having put the user's disk back yet.
+    call files_poster_x         ; preserves BX, which is still the window
     call KERNEL_SEG:cw_gfx_lock
     call KERNEL_SEG:cw_wm_show  ; in: BX = window ptr; repaints all
     call KERNEL_SEG:cw_gfx_unlock

@@ -18,11 +18,13 @@ last time.
 ## The rule
 
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
-includes its buffers.** The budget is 88KB today; the span it holds currently
-runs 0x00600 through **0x157FF**, and the budget's ceiling is 0x16600 — so
-there are **seven 512-byte steps** left under it, which is move 12's granted
-headroom and not an invitation. `tools/kernsize.py`, below, is what says so,
-and `make` runs it on every build.
+includes its buffers.** The budget is 102.5KB today; the span it holds
+currently runs 0x00600 through **0x19DFF**, and the budget's ceiling is
+0x1A000 — so there is **ONE 512-byte step** left under it, against the
+four-step standard the moves below are granted on. That is a figure to raise
+deliberately or to spend down, not headroom to draw on.
+`tools/kernsize.py`, below, is what says so, and `make` runs it on every
+build.
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
 data, `.bss`, the cold segment, the FAT window, the directory and icon
@@ -136,6 +138,26 @@ because a 128KB machine and a 640KB machine stop wanting the same feature set
 long before they stop fitting the same image. Raising `MIN_RAM_KB` instead
 would be the project quietly dropping the machines it was written for.
 
+### `kern_small` does not fit today, and it is 512 bytes
+
+Measured on the integration branch, not inferred, and recorded here because
+`make small` is not part of `all` — so this fails only for whoever asks for it,
+and it does so with a `%error` that names this document:
+
+| | `KERN_SIZE` | `KERN_BUDGET` | spare |
+|---|---:|---:|---:|
+| `elendilon` before on-demand modules | 98,816 | 97,280 | **−1,536** |
+| ...with SPEC.md §2.8's two modules | 97,792 | 97,280 | **−512** |
+
+The twenty-first move landed this build **exactly** on the figure — 0 spare,
+which its own comment says was the guard doing its job — and everything added
+to `.text` or `.bss` since has therefore been an overrun. SPEC.md §2.8 took the
+Control Panel and the floppy formatter out of the image and closed 1,024 of it,
+which also gave the small build a formatter it had never had; the last 512 is
+a twenty-second move of 1KB, or a third module, and it is the owner's call
+which. **Do not route around it by re-guarding the formatter back out** — that
+undoes the feature the modules were built for and buys one rung.
+
 ### The first thing to take out again, if space becomes the priority
 
 **The keyboard mouse (SPEC.md §9.6, `kernel/mouse.inc`) — 520 bytes of
@@ -170,16 +192,47 @@ back needs 666 bytes out of `.text`, and `.cold` has 160 bytes of rung slack,
 so moving a module cold would only spend the same step over there. Measured
 with the bisect above, not inferred.
 
+**A third addition — SPEC.md §9.6.3/§9.6.4 — cost 300 bytes and NO step**,
+which is the same guard reporting the opposite answer and is worth recording
+beside the paragraph above for exactly that reason. §9.6.3's item-granular
+menu navigation is **+186** (`menu_kbnav` and one byte of `.text` state in
+`menu.inc`, plus the hook in `kbm_move`) and §9.6.4's int 09h peek for keypad
+5 is **+114** (`kbm_isr`, `kbm_p5spend`, a saved vector and the install). The
+image rung had 483 bytes of slack when they were written and has 183 after, so
+the footprint did not move at all and `KERN_SIZE` is unchanged.
+
+**Keypad 5's total is 125 bytes, and that figure is the one to quote if it is
+ever weighed again** — measured by building the kernel three times rather than
+by counting instructions, which is the only honest way to price a removal:
+`.text` is 48,858 as shipped, 48,744 with §9.6.4 taken out, and 48,733 with
+the key gone as a button key altogether. So the hook is 114 and the
+pre-existing `cmp ah, 0x4C` (which could only ever fire with NumLock on, and
+so in the mode where the keyboard mouse is switched off) is another 11. It
+survived that weighing on the grounds that 125 is well inside the slack and
+that Ins and Space, the other two keys of the same one action, are not
+affected either way. **Extending it from tier 0 to every tier cost −2**: the
+7-byte `[cpu_tier]` test came out and a 5-byte guard went into `kbm_btn`,
+which is what makes the hook a fallback on a BIOS that delivers the key
+rather than a second opinion that double-presses.
+Both are measured with `make`'s own report rather than inferred, and neither
+is a candidate for removal ahead of the feature they belong to: they are the
+difference between a keyboard mouse that can reach a menu item and one that
+takes six presses per item and shows nothing at all on a separator.
+
 **Recommend it; do not remove it unasked.** On a machine with no working
 mouse, taking it out means the desktop cannot be clicked at all.
 
-### The twelve moves
+### The seventeen moves
 
 `KERN_BUDGET` was 65,536 — the first 64KB above the BIOS data area, which is
-where the "one region" rule came from. It has moved twelve times; the raises
+where the "one region" rule came from. It has moved seventeen times; the raises
 were each asked for and granted, and moves 5 and 11 are the two downward.
 The constant's own comment in `kernel/kernel.asm` is the long form of every
 row below, and it is the copy to trust if the two ever disagree.
+
+**From move 15 the table is about TWO figures.** The guards split at
+docs/KERN-SPLIT-PLAN.md, so a row says which of them moved: 15 and 16 are
+`kern_big`'s alone, and 17 moves both by the same 2KB.
 
 | | budget | bought |
 |---|---:|---|
@@ -197,6 +250,51 @@ row below, and it is the copy to trust if the two ever disagree.
 | 12 | 86,016 → **90,112** | 4KB asked for and granted **in advance**, on move 7's terms: SPEC.md §39.11's adapter switching took the spare to EXACTLY ZERO — 6 bytes left in the image rung and 155 in the cold one — and what the headroom buys immediately is §39.11.4 (blanking the card the machine has just left, so a two-monitor 5150 does not sit with a frozen desktop on the tube nobody is using) and §31.10's hiding of a Display page with nothing to choose between. Granted WITHOUT the usual "hand back what the optimisation pass saves", because the 128KB floor is to be met by a SECOND BUILD of this kernel rather than by holding one build to a figure both machines can live with. Until that exists this is still the only guard there is, so move 5's rule stands: headroom for ordinary growth, not an invitation to spend it |
 | 13 | 90,112 → **92,160** | 2KB, and move 12's story again: the spare hit EXACTLY ZERO, this time from two directions at once — SPEC.md §52's hard-disk installer arriving on the integration branch, and §11.95.1's "a window that grew reveals nothing" (193 B of `.text`, 8 of `.bss`). Granted at 2KB rather than 4, which puts the guard back within reach of ordinary growth without pre-authorising another feature's worth |
 | 14 | 92,160 → **94,208** | 2KB granted **in advance** for SPEC.md §18.94.2's finding: a file operation spends over half its disk TIME on work the progress widget never shows, because the kernel optimised for SECTORS where the media charges for REVOLUTIONS. Measured over one install, the payload streams at **5.78 sectors per `int 13h` call and every other phase runs at exactly 1.00** — `dsk_dirw_next` hands out one LBA at a time and every caller reads it with `cx = 1` into a single 512-byte buffer. What it funds: a per-volume banked BPB (a fixed disk cannot be swapped, so it revalidates once ever) and coalescing the directory walks into runs, which needs somewhere bigger than `dsk_secbuf`. The batch bracket and its sector cache still to come cost this figure **nothing** — that one is a refusable heap claim by explicit decision, so a 128KB machine can still install, just slowly |
+| 15 | **big** 94,208 → **96,256** | 2KB for the rest of SPEC.md §39's dual display (docs/DUAL-DISPLAY-PLAN.md): estimated at 1,400–1,900 bytes against a spare that had fallen to 1,024. **The first move that is one build's alone** — `kern_small` stayed at 94,208, which is the whole reason the split exists |
+| 16 | **big** 96,256 → **98,304** | 2KB again, on move 15's terms, for §39.16's union and what follows it |
+| 17 | **both** big 98,304 → **100,352**, small 94,208 → **96,256** | 2KB each for **window drawing optimizations** — SPEC.md §5.8's partial restore, §11.96.6's cache restoring only what the pass painted, §11.96.8's bounded edge merge, §11.90.1's opt-out fill and §11.90.2's damage rect. One window restore went **49.22 → 23.36 ms (2.11x)**, a raise's white flash disappeared, and Paint's canvas 8,670 → 6,759 ms. **It moves BOTH guards, and that is the argument rather than a convenience**: a redraw optimisation is worth most on the slowest machine, and the machine that feels a 49 ms restore is the 4.77MHz one at the RAM floor — so this is not work `kern_small` may be kept out of, and move 15's "small should drift tighter" does not apply in this direction. What spent the PRIOR step is the same round: §11.96.9's fix (a partial draw may not re-bank — the field bug §11.96.6 introduced) crossed the rung the image had 15 bytes left of, taking the spare to ONE step against a standard of four. Granted at 2KB on move 13's terms, with the round's biggest item still to come — a raise restoring only what was **covered** (docs/HANDOFF-REDRAW.md item A), which is a `wm_raise` change and not a new mechanism. **On the integration branch it lands on top of §41.11's removal, which had just handed small two rungs of its own**, so small comes out at SEVEN steps and owes the conversation the "Where it goes" section below names — the raise was asked for and granted against a one-step figure, and that figure had moved underneath it |
+| 18 | **big** 100,352 → **102,400** | 2KB on move 13's terms — headroom, half a step — for SPEC.md §62's **network driver** (docs/NET-PLAN.md), `kern_big`'s alone. Stage 1's 175 bytes landed inside a rung the merge had already opened; what it is FOR is stage 2's file redirector |
+| 19 | **big** 102,400 → **102,912** | One step, and an **ASK rather than a grant**: SPEC.md §5.4.1.1's pair decoder landed the kernel EXACTLY on the guard, so without it the next byte anywhere failed to build. What the step buys is 512 bytes of **pair table** — a source byte is two pixels and maps to a two-bit destination pattern, so 2 × 256 entries make the blit's inner loop a read, an `xlat` and a shift. The constant's own comment carries two costed ways to hand it back |
+| 20 | **big** 102,912 → **104,960** | 2KB asked for and granted for the rest of that work, **"blit4 rendering speed"** — `gfx_blit4` is the largest single drawing cost in the system and it is under Paint's canvas, Solitaire's card backs and ArtfulType's keystroke. Measured: a Paint canvas 5,526 → 2,431 → 517 → **259 ms** and CONSTANT in the content (PERFORMANCE.md Sets 41–43). 148 of it went on §5.4.1.2's aligned bodies and 417 on §11.96.11's cache band — which is not blit work, and is charged here because this is the step that was open |
+| 21 | **small** 96,256 → **97,280** | 1KB asked for and granted, **allocated to window redraw improvements** — and this figure's FIRST move at the 1KB unit its own rule sets, `kern_big` having moved by 2KB throughout. SPEC.md §11.96.11 had landed the small build EXACTLY on the old figure, 0 spare and not one byte, so the next addition to `.text` or `.bss` anywhere would have failed to assemble there and only there. The ask was made with what the last of the old figure bought already measured (a Paint raise **680.9 → 451.0 ms**, PERFORMANCE.md Set 46). It is move 17's allocation continued rather than a new one, and what is left over is bound by move 5's rule: headroom for ordinary growth, not an invitation. **Moves 17 and 21 together are the tier named `window redraw`, and that tier is CLOSED** — 94,208 → 97,280, spent; the tier above it is not a continuation of it |
+| 22 | **small** 97,280 → **99,328** | **2KB asked for and granted, and a stated departure from this figure's own 1KB rule** — the owner's, made explicitly, recorded here rather than quietly taken, because a standing rule that can be stepped over without a note is not one. The rule is NOT withdrawn: the next move is 1KB again unless somebody says otherwise. **What it repairs first is a small build that had stopped assembling** — measured at the grant, `KERN_SIZE` 98,304, which is 1,024 OVER the old figure, and the tree had been in that state for some time without anyone seeing it because `all` never builds `kern_small`. 512 of the overshoot predates the drag-cache round and 512 arrived with it; neither was asked for. Against 99,328 the same build is 1,024 spare — two steps, the smallest honest landing place rather than a comfortable one. **What is in front of the rest** is the size-changed notification and its straddle rule (a window spanning two displays adopts the more restrictive size), which is kernel-side and lands on both guards. It is deliberately un-numbered here — it is not written yet, and a forward reference to a heading that does not exist is what `tools/checkdocs.py` catches. On move 10's terms: granted ahead of the work, and whatever that does not spend is handed back rather than kept |
+| 23 | **small** 99,328 → **102,400** | **3KB asked for and granted, allocated to performance and disk.** It repairs the same breakage move 22 did, and that repetition is the point: `make small` had stopped assembling again — `KERN_SIZE` measured at **100,864** by bisecting the guard, **1,536 over the old figure, three rungs** — and once again nobody saw it arrive, because `all` still never builds `kern_small` and nothing else does either. **Twice now this figure has been discovered broken rather than reported broken**, which is not the guard failing but the guard being the only thing watching, asked only when somebody happens to run the target. **Why 3KB and not the 1KB first asked for**: 1KB (100,352) does not clear 100,864 at all and would have failed on the next assemble, and the smallest figure that assembles is 100,864 exactly — 0 spare, handing the next byte added anywhere the same failure. 3KB lands **1,536 spare, three steps**, and keeps the whole-KB unit this figure's rule sets; move 22's 2KB landed two steps and called that the smallest honest landing place, and this is that judgement applied to an overshoot half again as large. The 1KB unit is NOT withdrawn — the next move is 1KB again unless somebody says otherwise |
+
+**Moves 18, 19 and 20 met in ONE MERGE and none of them cancels another.** The
+network driver's raise and the blit's were granted against the same 100,352
+base on different branches, so taking the larger of the two answers would have
+silently revoked one — the network driver's, whose spending is mostly still
+ahead of it. The figure is the base plus all three, and the numbering follows
+the integration branch's; the merged tree measures 102,400 against it, five
+steps.
+
+**And one place NOT to go looking for bytes.** §18.98's `DVOL_MAX` 6 → 8
+costs `.bss` 134, of which 128 are `dsk_bpbv` — a **64-byte banked BPB per
+volume**. Re-indexing it from volume 2 to reclaim those was proposed here and
+is **wrong**: the array is not fixed-disk-only, however its declaration used
+to read. A floppy banks there too, inside §18.9.3's batch bracket with
+`[dsk_bpbok] = 2`, and rows 0 and 1 are its heaviest users — that bracket is
+the whole of §18.9.3's measured win (an install's BPB reads 41 → 2, the floppy
+side 356 → 163 sectors). `dsk_bpbsg` beside it is the §18.8.2 disk-identity
+signature, banked with the head and read by `dsk_fatw_pick`. The split §18.9.2
+makes is between **permanent** (fixed, 1) and **batch-scoped** (floppy, 2),
+not between volumes that use the array and volumes that do not. The stale
+comment that said otherwise — future tense, written before §18.9.3 landed —
+is fixed at the declaration.
+
+**`kern_small` grows by 1KB, `kern_big` by 2KB.** A standing rule from here
+on rather than a property of any one move, and the asymmetry is the point of
+the split: small is the guard the 128KB machine lives under, so it is asked
+for in the smallest useful unit. Two 512-byte rungs is enough for ordinary
+growth to continue and not enough to pre-authorise a feature — which is also
+the direction move 15 said this figure should drift in.
+
+**Move 17's open question is part-answered**: it left small at SEVEN steps,
+three over the standard, because §41.11's removal handed it two rungs the
+raise had not counted on. The floppy round (§18.96.2's user-picked format
+size, §18.98's third and fourth drives with `DVOL_MAX` 6 → 8, and §26.4's CGA
+icon and caption) has since spent one of them. It still owes the rest of that
+decision.
 
 **`BOOT_RELOC` moved with the first five** — 0x0940 → 0x0AA0 → 0x0B80 →
 0x0C00 → **0x0D40** (linear 0x11000 → 0x12600 → 0x13400 → 0x13C00 →
@@ -360,38 +458,38 @@ Three things about it:
 ```json
 {
   "big": {
-    "bss": 4751,
-    "budget": 98304,
+    "bss": 5920,
+    "budget": 104960,
     "codemax": 65536,
-    "cold": 22739,
-    "coldpara": 1440,
+    "cold": 34954,
+    "coldpara": 2208,
     "fatpara": 288,
-    "imgpara": 3776,
-    "kend": 6176,
+    "imgpara": 3456,
+    "kend": 6624,
     "kseg": 96,
-    "ksize": 97280,
+    "ksize": 104448,
     "lowbss": 7762,
     "lowpara": 576,
-    "ovl": 2662,
+    "ovl": 2825,
     "stk0": 1024,
-    "text": 55215
+    "text": 49239
   },
   "small": {
-    "bss": 4666,
-    "budget": 94208,
+    "bss": 5649,
+    "budget": 102400,
     "codemax": 65536,
-    "cold": 21658,
-    "coldpara": 1376,
+    "cold": 34439,
+    "coldpara": 2176,
     "fatpara": 288,
-    "imgpara": 3616,
-    "kend": 5952,
+    "imgpara": 3264,
+    "kend": 6400,
     "kseg": 96,
-    "ksize": 93696,
+    "ksize": 100864,
     "lowbss": 7762,
     "lowpara": 576,
-    "ovl": 2662,
+    "ovl": 2796,
     "stk0": 1024,
-    "text": 52953
+    "text": 46397
   }
 }
 ```
@@ -406,25 +504,47 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 
 | region | size | what it is |
 |---|---:|---|
-| image (`.text` 55,194 + `.bss` 4,751) | 60,416 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
-| cold code | 23,040 B | 22,739 bytes with a CS of their own: the five file modules and the Control Panel, and since SPEC.md §53.6.1's removal nothing else at all |
+| image (`.text` 49,239 + `.bss` 5,920) | 55,296 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
+| cold code | 35,328 B | 34,954 bytes with a CS of their own: the Control Panel, the five file modules, and SPEC.md §2.6's second round — assoc, disk, driver, memory and desk |
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | `.lowbss` + task 0's stack | 9,216 B | 7,762 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
-| the boot overlay | 0 B | 2,662 bytes of code inside the FAT window, gone by the first mount |
-| **total** | **97,280 B** | of a 98,304-byte budget — **1,024 B spare, TWO steps** |
+| the boot overlay | 0 B | 2,825 bytes of code inside the FAT window, gone by the first mount |
+| **total** | **104,448 B** | of a 104,960-byte budget — **512 B spare, ONE step** |
+
+**This table is HAND-WRITTEN and the block above it is not**, which is how it
+came to disagree with the blessed JSON by 800 bytes before this was noticed.
+`--bless` regenerates the baseline, the module table and the theme table; it
+does not touch these six rows. Re-derive them from `kernsize`'s own
+`sections` and `rungs` lines when you bless, or the next reader gets a
+confident wrong answer about how much room is left.
 
 **These are `kern_big`'s figures**, which is to say the shipped kernel's
-(docs/KERN-SPLIT-PLAN.md). **The two builds have DIVERGED** — SPEC.md §18.96's
-floppy formatter is the first thing through the seam — so this table is big's
-alone and `make kernsplit` is what prices the difference. `kern_small` stands
-at **93,696 B of its own 94,208-byte budget, 512 B spare, one step**, which is
-exactly where it stood before the formatter landed: the whole of that feature
-is behind `%ifndef KERN_SMALL`, and the Edit-menu split that came with it
-(SPEC.md §22.12) fits in slack the small build already had.
+(docs/KERN-SPLIT-PLAN.md). **The two builds have DIVERGED** — in both
+directions now — so this table is big's alone and `make kernsplit` is what
+prices the difference. Things ADDED to big behind `%ifndef KERN_SMALL`:
+SPEC.md §18.96's floppy formatter, §39.11's dual display. Things REMOVED from
+small: SPEC.md §41.11's extended-memory store, the first of those and so far
+the only one.
+
+`kern_small` stands at **100,864 B of its own 102,400-byte budget, 1,536 B
+spare, THREE steps** — inside the four-step standard, and moves 21 and 22 are
+where the surplus went. It stood at seven steps then, three over the
+standard, which **owed a conversation rather than being headroom**: two things
+had arrived at the same figure from opposite directions and neither knew about
+the other:
+isolating the store took `.text` −1,035, `.bss` −124 and `.ovl` −386 off small,
+two whole 512-byte rungs, and move 17 then raised BOTH guards by 2KB for the
+window drawing work on the reasoning that a redraw optimisation is worth most
+on the slowest machine. Both are right on their own terms. The composition is
+what move 5 calls the guard switched off, so the options are move 11's — hand a
+step or two back now that a removal has paid for them — or to spend it on the
+round the raise was granted for; **what is not an option is leaving it
+unremarked**, which is how the fifth move's 2,048 became 512 without the
+constant being revisited.
 
 Each rung is its contents rounded up to a whole 512 bytes, and the remainders
-are the only slack anywhere in the ladder: **471 bytes on the image, 301 on
-the cold segment, 430 on `.lowbss`**. They are rounding artefacts, not
+are the only slack anywhere in the ladder: **137 bytes on the image, 374 on
+the cold segment, 430 on `.lowbss`** (big's; small's are 178, 377 and 430). They are rounding artefacts, not
 reservations — and per the accounting section above they are also the whole
 of what the next feature can spend without moving the machine's RAM.
 
@@ -435,8 +555,8 @@ has already saved AX, SI and DI, so a proc was spending ten bytes re-saving
 them — it is +51 and costs the machine **nothing**. Four bytes were the
 difference between free and 512.
 
-The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0F20,
-`FAT_SEG` 0x14C0, `LOW_SEG` 0x15E0, `HEAP_SEG` 0x1820. `tools/kernsize.py`
+The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0DE0,
+`FAT_SEG` 0x1680, `LOW_SEG` 0x17A0, `HEAP_SEG` 0x19E0. `tools/kernsize.py`
 prints that line, so it need never be derived by hand again.
 
 **Run `python3 tools/kernsize.py` rather than trusting the numbers in this
@@ -490,7 +610,7 @@ big the kernel below it is — with only the RAM column re-derived.
 | 103KB | 23KB | Note Pad runs. Paint loads and puts up its "Not enough memory" notice — the designed tier, not a crash |
 | 167KB | 87KB | Paint still gets the notice |
 | 183KB | 103KB | **Paint runs live**, full 448×280 canvas |
-| 639KB | 559KB | everything, including the 150KB back buffer |
+| 639KB | 559KB | everything, with room to spare |
 
 So the honest floor is **85KB to boot and browse, 88KB to run something**,
 and **~183KB for every shipped app at full function**. The often-quoted
@@ -874,56 +994,58 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 28,523 | 36.6% |
-| the window system and its furniture | 16,274 | 20.9% |
-| drawing: adapters, primitives, glyphs, icons | 11,378 | 14.6% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 9,848 | 12.6% |
-| the kernel proper: API table, heap, scheduler, events | 5,893 | 7.6% |
-| the Control Panel | 4,662 | 6.0% |
-| the three built-in kinds | 1,376 | 1.8% |
-| **total** | **77,954** | |
+| the file system, end to end | 30,957 | 36.8% |
+| the window system and its furniture | 21,250 | 25.2% |
+| drawing: adapters, primitives, glyphs, icons | 12,924 | 15.4% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 9,990 | 11.9% |
+| the kernel proper: API table, heap, scheduler, events | 6,726 | 8.0% |
+| the three built-in kinds | 1,376 | 1.6% |
+| the Control Panel | 846 | 1.0% |
+| **total** | **84,193** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` |
 |---|---:|---:|---:|---:|---:|
-| `files.inc` — the Disk window (§22) | 917 | 7,193 | **8,110** | 336 | — |
-| `wm.inc` — the window manager (§11) | 5,840 | — | **5,840** | 635 | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 5,518 | — | **5,518** | 758 | 3,584 |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 173 | 5,277 | **5,450** | 155 | — |
-| `ctrl.inc` — the Control Panel (§31) | 902 | 3,760 | **4,662** | — | — |
-| `vga12.inc` — the VGA planar primitives (§5) | 4,057 | — | **4,057** | 118 | — |
-| `fdlg.inc` — the Standard File dialog (§38) | 127 | 3,621 | **3,748** | 98 | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 3,185 | — | **3,185** | 145 | — |
-| `assoc.inc` — file type associations (§54) | 2,809 | — | **2,809** | 43 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 2,624 | — | **2,624** | 256 | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 2,561 | — | **2,561** | 194 | 98 |
-| `ui.inc` — the UI task and the event ladder (§13) | 2,403 | — | **2,403** | 37 | — |
-| `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,134 | **2,134** | 135 | — |
-| `memory.inc` — the claim heap (§50) | 1,966 | — | **1,966** | 14 | 256 |
-| `instance.inc` — instances and the built-in kinds (§29) | 1,828 | — | **1,828** | 673 | — |
+| `wm.inc` — the window manager (§11) | 9,690 | — | **9,690** | 789 | — |
+| `files.inc` — the Disk window (§22) | 1,078 | 8,158 | **9,236** | 471 | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 358 | 6,034 | **6,392** | 890 | 3,584 |
+| `vga12.inc` — the VGA planar primitives (§5) | 5,346 | — | **5,346** | 653 | — |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 5,025 | **5,204** | 155 | — |
+| `fdlg.inc` — the Standard File dialog (§38) | 223 | 3,950 | **4,173** | 139 | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,632 | — | **3,632** | 149 | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 3,019 | — | **3,019** | 197 | 98 |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 410 | 2,584 | **2,994** | 341 | — |
+| `assoc.inc` — file type associations (§54) | 517 | 2,327 | **2,844** | 43 | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 2,718 | — | **2,718** | 40 | — |
+| `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,306 | **2,306** | 139 | — |
+| `memory.inc` — the claim heap (§50) | 14 | 2,014 | **2,028** | 14 | 256 |
+| `instance.inc` — instances and the built-in kinds (§29) | 1,837 | — | **1,837** | 673 | — |
 | `clock.inc` — the clock ladder (§37) | 1,794 | — | **1,794** | 89 | — |
-| `vgabb.inc` — the software renderer / back buffer (§32, §39.5) | 1,687 | — | **1,687** | 27 | — |
+| `font.inc` — the 8x8 text renderers (§6) | 1,632 | — | **1,632** | 197 | 768 |
+| `icons.inc` — the icon renderer (§10) | 1,570 | — | **1,570** | 34 | — |
+| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,395 | — | **1,395** | 84 | — |
 | `apps.inc` — the three built-in kinds (§14) | 1,376 | — | **1,376** | 11 | 240 |
-| `icons.inc` — the icon renderer (§10) | 1,358 | — | **1,358** | 34 | — |
-| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,293 | — | **1,293** | 84 | — |
-| `font.inc` — the 8x8 text renderers (§6) | 1,201 | — | **1,201** | 17 | 768 |
+| `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,205 | — | **1,205** | 4 | — |
 | `snd.inc` — the sound layer (§34) | 1,195 | — | **1,195** | 300 | — |
 | `sched.inc` — pre-emptive scheduling (§7–8) | 1,088 | — | **1,088** | 168 | 2,816 |
-| `xmem.inc` — memory above 1MB (§41.4–41.5) | 1,040 | — | **1,040** | 124 | — |
+| `desk.inc` — the desktop and volume zones (§14/§26.1) | 15 | 1,052 | **1,067** | 18 | — |
 | `splash.inc` — the boot splash (§15) | 961 | — | **961** | — | — |
-| `fsx.inc` — fullscreen exclusive (§53) | 943 | — | **943** | 9 | — |
-| `desk.inc` — the desktop and volume zones (§14/§26.1) | 912 | — | **912** | 16 | — |
-| `viddet.inc` — adapter detection and geometry (§39) | 821 | — | **821** | — | — |
-| `dock.inc` — the dock (§30) | 777 | — | **777** | 34 | — |
-| `loader.inc` — the package loader (§21) | — | 754 | **754** | 58 | — |
-| `toast.inc` — **(undescribed)** | 438 | — | **438** | 43 | — |
-| `fprog.inc` — the file-operation progress widget (§12.8) | 379 | — | **379** | — | — |
+| `fsx.inc` — fullscreen exclusive (§53) | 919 | — | **919** | 9 | — |
+| `ctrl.inc` — the Control Panel (§31) | 652 | 194 | **846** | — | — |
+| `viddet.inc` — adapter detection and geometry (§39) | 815 | — | **815** | — | — |
+| `loader.inc` — the package loader (§21) | — | 802 | **802** | 58 | — |
+| `dock.inc` — the dock (§30) | 793 | — | **793** | 34 | — |
+| `toast.inc` — the menu bar's transient message (§59) | 547 | — | **547** | 25 | — |
+| `fprog.inc` — the file-operation progress widget (§12.8) | 467 | — | **467** | — | — |
+| `mod.inc` — on-demand kernel modules (§2.8) | 36 | 412 | **448** | 34 | — |
+| `xmem.inc` — memory above 1MB (§41.4–41.5) | 269 | 96 | **365** | 22 | — |
 | `clip.inc` — the system clipboard (§55) | 193 | — | **193** | 6 | — |
-| `events.inc` — the event ring (§10) | 138 | — | **138** | 134 | — |
+| `events.inc` — the event ring (§10) | 141 | — | **141** | 134 | — |
+| `blank.inc` — **(undescribed)** | 124 | — | **124** | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 10 | — | **10** | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 2,701 | — | **2,701** | — | — |
-| **total** | **55,215** | **22,739** | **77,954** | **4,751** | **7,762** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,021 | — | **3,021** | — | — |
+| **total** | **49,239** | **34,954** | **84,193** | **5,920** | **7,762** |
 <!-- END generated table -->
 
 ### Reading it
@@ -1073,13 +1195,11 @@ run-time cost** where the others do not, and it was checked rather than waved
 through. A segment override is one byte and 2 clocks on an 8088 — up to 4 if
 the four-byte prefetch queue is starved, which in these loops it will be. Per
 glyph the read runs eight times (once per row) on the mono adapters and in
-`font_char`'s VGA path, and 32 times in `font_char_bb` with the back buffer
-armed, because there the row loop sits inside the per-plane loop:
+`font_char`'s VGA path:
 
 | | clocks/glyph | of a ~4,770-clock cell |
 |---|---:|---:|
 | mono — the 8088 target | 16–32 | **0.34–0.67%** |
-| VGA, back buffer armed | 64–128 | 1.34–2.68% |
 
 The 1 ms a cell costs on a real 4.77 MHz XT with a Hercules card comes from
 `tests/fontbench` (SPEC.md §6.1.1). Two thirds of one percent on the machine
@@ -1111,7 +1231,7 @@ It works because of what the `FAT_SEG` window is doing at boot: nothing.
 `drv_boot` — the *last* thing `kmain` does before the first paint. So there
 is a 4,608-byte hole in the middle of the kernel's own ladder that is live
 for the whole of start-up and dead the instant the first volume mounts. The
-overlay is **2,504 bytes** of it, with 2,104 spare:
+overlay is **3,069 bytes** of it, with 1,539 spare:
 
 | | bytes | |
 |---|---:|---|
@@ -1119,8 +1239,31 @@ overlay is **2,504 bytes** of it, with 2,104 spare:
 | `cpudet.inc` minus `cpu_info` | 314 | the tier test and the whole A20 gate. `cpu_info` stays: it is API slot 0x0188 and answers all session long |
 | `xmem.inc` — `xm_init` | 123 | sizing the store is a once. `xm_arm` stays resident — `xm_copy` re-arms unreal mode inside the window that uses it — so it gets a shim |
 | `snd.inc` — `snd_init` | 107 | saving the boot 61h bits and publishing `snd_live`. `snd_unhook` is the shutdown path and stays |
-| `desk.inc` — `desk_init` | 97 | counting volumes and laying out their zones. `desk_ord` and `desk_zone_label` are called by the runtime painters and stay |
+| `disk.inc` — `dsk_fdd_probe` | 398 | asking the FDC whether a unit is really there (SPEC.md §18.97), retiring drive B's volume row if not, and filling that unit's row of §57.5's published block. `make FDDPROBE=0` takes it out |
+| `desk.inc` — `desk_init` | 122 | counting volumes and laying out their zones, and the 21 bytes that contest the count against the probe above. `desk_ord` and `desk_zone_label` are called by the runtime painters and stay |
 | `kernel.asm` — the entry stubs | 24 | |
+
+**The rows are hand-kept and the total is measured, so they do not sum** —
+they are short by ~158 bytes that predate this note. Trust the total and the
+spare; treat a row as "roughly what this module put here".
+
+**The number to watch is NOT the overlay's spare, it is the IMAGE's last
+sector.** `kernel.bin` is **88,115 bytes** and the boot sector reads
+`(size + 511) / 512` = **173** of them, which hold 88,576 — so there are
+**461 bytes** of slack in the file, and once that is gone the next thing added
+to `.ovl`, however small, costs a whole sector of boot read (~65 ms on the
+field machine). `tools/kernsize.py` reports the three *rungs* and not this,
+because the rungs are what the RAM ladder is built from; the file's tail is a
+separate question and this is where it is written down.
+
+It was under 100 bytes at four consecutive measurements of one round — 8
+before §18.97's probe, 5 after it, 5 again after `font_run` crossed an image
+rung underneath it, 3 after §18.97.1 — and then a rung boundary moved and it
+is 461. That swing is the point, and it is worth reading as a pattern rather
+than as a run of coincidences: **`.text` and `.ovl` land in the same file and round at
+different places**, so the tail's slack is not a budget anyone is steering
+and it can be spent to nearly nothing by a change that never touches the
+overlay at all. Re-measure it; do not carry a figure from a commit message.
 
 `.ovl` is declared `start=OVL_START vstart=0`, and both halves matter.
 `start=` is the *file* offset, so NASM emits the gap as zeros and the boot
@@ -1210,6 +1353,28 @@ leave it pay a shim. Growing the set makes what is already in it *cheaper*:
 `dskw_char` from a double crossing — cold, out to a resident thunk, back into
 cold — into near calls, and retired those three thunks.
 
+**A second round added five more, and the reason to record it is what it was
+steered by.** `.text` + `.bss` had reached **65,065 of 65,536** — 471 bytes
+under the guard that cannot be raised — so the question stopped being "what
+would be tidy cold" and became "what is genuinely cold, in cadence rather
+than in size". The answer was `assoc.inc` (a double-click), `disk.inc` (a
+mount, and everything in it bounded by a floppy at ~24 ms a sector),
+`driver.inc` (a boot and a Control Panel page), `memory.inc` (a claim) and
+`desk.inc` (a drive-zone click). **Segment headroom 471 → 12,698, at a cost
+of two 512-byte steps of `KERN_BUDGET`** — which is the trade §2.6 always
+makes, and the reason the spare in the table above is two steps rather than
+four.
+
+What it also produced is three new build refusals in `tools/os88ovlchk.py`,
+because three of the four rules below were broken during the round and every
+one of them assembled, booted, and failed somewhere else: a CS assumption
+cost a mount, seven colon-less data lines cost a freeze, and a tail call to a
+`cw_` shim cost another. **The deliberate non-candidates are worth as much as
+the list**: the drawing primitives and both ISRs are excluded on cadence, and
+`splash.inc` and `viddet.inc` are excluded structurally — they must be
+resident inside the image's opening sectors, and the cold segment lands after
+the image rung.
+
 Four rules hold it up, and every one of them describes something that
 assembles cleanly and runs wrong:
 
@@ -1247,6 +1412,55 @@ thunks rather than through the window record.
 `.cold` and `.ovl` relieve the segment. Nothing relieves the footprint any
 more except doing less. There is one precedent for doing less, and it is the
 Task Manager.
+
+> **A second lever exists now and the first thing has gone through it** —
+> SPEC.md §2.8, docs/ONDEMAND-PLAN.md. The **Control Panel** is a file
+> (`CTRL.DRV`, 3,185 bytes) read into a heap claim when it is opened and freed
+> when it closes: measured, `KERN_SIZE` **102,912 → 100,352, −2,560 bytes**,
+> five 512-byte steps, on both builds. What is left in the table below for
+> `ctrl.inc` is its DATA and the two routines that could not go
+> (`cp_tick_due`, `cp_drv_gone`) — 918 bytes against 3,876.
+>
+> **The floppy formatter went through next** (`FORMAT.DRV`, 802 bytes), and
+> its payoff is the other kind: it was `%ifndef KERN_SMALL`, a whole feature
+> compiled out, so **the 128KB machine now HAS a formatter it never had** —
+> and `kern_small` came out of the same round at **97,280 → 96,256 with 1,024
+> spare**, against the zero it stood at. `kern_big` is **102,912 → 99,840**.
+>
+> **Neither is free against the other guard, and that is the number to watch
+> now.** `.text` + `.bss` is **65,375 of 65,536 — 161 bytes left**. The
+> dispatch really is free (the `.text` thunks did not change), but the loader's
+> five `cw_*` shims, two thunks, the module table and — mostly — the four
+> refusal and prompt strings are `.text` all the same. **The next addition to
+> `.text` or `.bss` anywhere will need one of the levers in this document**,
+> and this is the guard nobody can raise.
+>
+> **On-demand kernel modules**, in the original note's words: It is this one without the
+> published ABI: `.cold` is already `vstart=0`, contains **zero data
+> directives**, runs with `DS = KERNEL_SEG` and calls out only through the 107
+> `cw_*` shims, so cold code is already position-independent at paragraph
+> granularity and could execute from a heap claim unchanged. Making the *cold*
+> thunk load-and-dispatch spends **no `.text`**, which is the guard with 438
+> bytes left.
+>
+> **What may go is decided by the user and not by the seam**, which is that
+> document's ONDEMAND-PLAN §1 and the thing to read first: a feature qualifies
+> only if the system disk is already required to use it, or can be required
+> without interrupting what the user was doing — on a one-floppy machine every
+> load is a disk swap. Two candidates survive it. The **Control Panel**, worth
+> **3,072 bytes on both builds**, whose precondition is one it already has
+> (`cp_flush_close` writes `SYSTEM.CFG` to that disk). And **Disk Format**,
+> which is not a saving at all: it is compiled out of `kern_small` by
+> `%ifndef KERN_SMALL`, so on demand **gives that build a feature it does not
+> have**, funded by the panel's 3,072. MS-DOS drew the same line — `COPY` in
+> `COMMAND.COM`, `FORMAT` external — and the file dialog and Cut/Copy/Paste
+> fail it for `COPY`'s reason.
+>
+> The passage above says the Control Panel is *"the window you want when a
+> driver will not attach"*, and it is right that this is the objection to
+> weigh; ONDEMAND-PLAN §2.2 weighs it and finds it survivable, because
+> `drv_notice` runs before `ui_task` starts and so before any disk can have
+> been swapped.
 
 A cold segment would have taken about 4,900 bytes off `KERN_CODE_MAX` and
 **nothing** off `KERN_BUDGET`. Making it a package on the system disk took
@@ -1317,7 +1531,18 @@ puts up a notice naming the reason.
 | raise 7 — file type associations (§54) and the disk path, costed in advance | 76.5 KB | 74.5 KB |
 | raise 8 — §54.4.1's notice, plus §18.92/§18.93/§18.4.2 | 78.5 KB | 76.5 KB |
 | raise 9 — the five file modules into `.cold` (§2.6) | **80.5 KB** | 78 KB |
-| ...the elendilon merge, and where it stands now | 80.5 KB | **78.5 KB** (80,384 B) |
+| ...the elendilon merge, and where it stood then | 80.5 KB | **78.5 KB** (80,384 B) |
+| moves 10–17 — see `KERN_BUDGET`'s own comment in `kernel/kernel.asm` | 80.5 → 98 KB | — |
+| raise 18 — SPEC.md §62's network driver, **`kern_big` only** | **100 KB** | 97.5 KB (99,840 B) |
+
+**Moves 10 through 17 are deliberately one row.** The table was written when
+there was one guard and the story fitted a line each; since the kern_big /
+kern_small split there are two figures per move and the reason for each is a
+paragraph, so the history that is maintained is `KERN_BUDGET`'s own comment in
+`kernel/kernel.asm` — which says, per move, what was asked for, what was
+granted, what spent the previous step and which guard moved. A summary table
+that has to be updated in a second place is a summary table that goes quietly
+wrong, and this one had: its last row read 78.5 KB against a kernel of 97.5.
 
 Every footprint from move 5 down was **measured at the commit where that
 raise took effect on `elendilon`**, by bisecting `KERN_BUDGET` in a throwaway

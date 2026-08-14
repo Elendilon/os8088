@@ -35,11 +35,11 @@ make test-snd # ...plus PC speaker capture to build/snd.wav (verify: tools/sndch
 make debug    # boot halted, waiting for gdb on :1234
 make bench    # build the tests/ apps — ON DEMAND ONLY; nothing under tests/ ships
 make zcheck   # play every Z-machine story to a script and diff it against
-              # dfrotz (§59.13). `make zh` builds the harness interpreter;
+              # dfrotz (§61.13). `make zh` builds the harness interpreter;
               # `tools/zharness.py <story> --repl` types at one by hand. This
               # is how a Frotz change is checked — a story is the only thing
               # that exercises an interpreter, and it is minutes by hand
-make zgfx     # ...and what the reader can SEE (§59.14): every row the
+make zgfx     # ...and what the reader can SEE (§61.14): every row the
               # interpreter claims against the pixels under it, the same
               # across a repaint, and each story's opening screen against the
               # real Frotz's. `make zpic` builds the v6 picture fixture it
@@ -71,7 +71,7 @@ exactly like the feature being broken.
 (MartyPC). `xt-multimon` is the **two-card** XT — a CGA and a Hercules, a
 monitor window each — and the only 86Box machine that can show §39.12–§39.19's
 extended desktop; it boots Single, and Control Panel → Display → Desktop is
-what extends it (§39.19.1). `xt-z` and `386-z` are the Frotz machines (§59.9)
+what extends it (§39.19.1). `xt-z` and `386-z` are the Frotz machines (§61.9)
 and the only ones that put a story floppy in B: instead of the apps disk —
 `make zdisk` builds it, and `tools/getstories.py` fetches the stories, which
 are never committed.
@@ -176,7 +176,7 @@ bug: a **visible redraw** (seconds on real hardware), a **double-draw flash**
 every one was found on hardware or by counting.
 
 That is the whole of it that applies to every change. Open PERFORMANCE.md
-itself for one of four reasons — it is 3,200 lines and over half is a log of
+itself for one of four reasons — it is 6,553 lines and over half is a log of
 field measurements:
 
 - **Part 5** before touching a redraw path — the standing budget names the

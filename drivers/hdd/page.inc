@@ -8,7 +8,7 @@
 ; anywhere: it falls out of the kernel clearing the DISK class's publication
 ; slot at detach (SPEC.md 31.9/51.2.1).
 ;
-; The pane is 221 x 121 px - 27 characters by 13 rows - and the panel is not
+; The pane is 221 x 132 px - 27 characters by 14 rows - and the panel is not
 ; resizable, so this page is a list, an editor and two buttons, and anything
 ; that needs more room is a window of its own. Format opens the disk tool
 ; (tool.inc), which is partitioning and formatting in one window because they
@@ -278,46 +278,40 @@ hd_page_button:
     push cx
     push dx
     push si
+    push di
     push ax
     push bx
     push si
     mov al, cl
     call hd_btn_ok              ; CF = 1 = this control is disabled, which is
-    call OSAPI_GFX_PEN          ; the shape the pen takes: one call, no test.
-                                ; It sets CDGRAY and [gfx_dis] together, and
-                                ; it colours the FRAME as well as the label -
-                                ; greying half a control is worse than not
-                                ; greying it, and on mono the flag is what
-                                ; stops the label being the half that is left
+    mov cx, 0                   ; the shape the shared control's flag takes:
+    adc cx, 0                   ; OS88UI_DIS is 1 and `mov` does not touch CF,
+                                ; so the flag IS the carry, with no test in
+                                ; between. It sets CDGRAY and [gfx_dis]
+                                ; together and colours the FRAME as well as
+                                ; the label - greying half a control is worse
+                                ; than not greying it, and on mono the flag is
+                                ; what stops the label being the half left
     pop si
     pop bx
     pop ax
-    add ax, di
-    mov cx, ax
-    add cx, bx
-    dec cx
-    mov bx, bp
-    add bx, HDP_BY
-    mov dx, bx
-    add dx, HDP_BH - 1
-    push ax
-    push bx
-    push cx
-    push dx
-    call OSAPI_GFX_FRAME
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    add ax, 4
-    mov cx, ax
-    mov dx, bx
-    add dx, 4
-    call OSAPI_FONT_STR
-    clc                         ; a button leaves the pen LIVE. The colour was
-    call OSAPI_GFX_PEN          ; put back by whatever drew next anyway; the
-                                ; FLAG is not, and a disabled Mount button
-                                ; would otherwise dither the caption under it
+    add ax, di                  ; ...and the rect, in screen coordinates
+    mov [hd_pbrect+0], ax
+    add ax, bx
+    dec ax
+    mov [hd_pbrect+4], ax
+    mov ax, bp
+    add ax, HDP_BY
+    mov [hd_pbrect+2], ax
+    add ax, HDP_BH - 1
+    mov [hd_pbrect+6], ax
+    mov di, cx
+    mov bx, hd_pbrect           ; no OS88UI_FILL: hd_page_repaint white-fills
+    call os88ui_btn             ; the pane before this ever runs twice - and
+                                ; the control leaves the pen live by itself,
+                                ; so the clc/GFX_PEN that used to close this
+                                ; routine is gone
+    pop di
     pop si
     pop dx
     pop cx
@@ -325,9 +319,20 @@ hd_page_button:
     pop ax
     ret
 
+hd_pbrect:  dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
+
 ; -----------------------------------------------------------------------------
 ; hd_page_pm - one of the two adjust buttons (module internal)
 ; in:  AX = x, SI = its label, DI/BP = the pane origin
+;
+; The Control Panel's Date/Time page has the same pair and draws it with the
+; same shared control (SPEC.md 31.2), which is the whole reason this one is
+; converted as well: two +/- pairs one page apart in the same window should
+; not be two different controls.
+;
+; ONE PIXEL: the glyph's y was the literal +3 in a 13-row box and the shared
+; control centres at (13-8)/2 = 2, so it sits one row higher. Horizontally it
+; already WAS centred - HDP_BTW/2 - 4 is (24-8)/2 - and never looked it.
 ; -----------------------------------------------------------------------------
 hd_page_pm:
     push ax
@@ -335,37 +340,21 @@ hd_page_pm:
     push cx
     push dx
     push si
+    push di
     add ax, di
-    mov cx, ax
-    add cx, HDP_BTW - 1
-    mov bx, bp
-    add bx, HDP_EY - 1
-    mov dx, bx
-    add dx, HDP_FH + 1
-    push ax
-    push bx
-    push cx
-    push dx
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    push ax
-    push bx
-    push cx
-    push dx
-    call OSAPI_GFX_FRAME
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    add ax, HDP_BTW/2 - 4
-    mov cx, ax
-    mov dx, bx
-    add dx, 3
-    call OSAPI_FONT_STR
+    mov [hd_pbrect+0], ax
+    add ax, HDP_BTW - 1
+    mov [hd_pbrect+4], ax
+    mov ax, bp
+    add ax, HDP_EY - 1
+    mov [hd_pbrect+2], ax
+    add ax, HDP_FH + 1
+    mov [hd_pbrect+6], ax
+    xor di, di                  ; always live, never the default, and the row
+                                ; behind it is erased by hd_page_repaint
+    mov bx, hd_pbrect
+    call os88ui_btn
+    pop di
     pop si
     pop dx
     pop cx
@@ -749,15 +738,22 @@ hd_page_click:
                                 ; pane repaint AFTER wm_show paints straight
                                 ; over the window it has just put up - which is
                                 ; what the Install dialog arrived doing.
+                                ; ...and a REFUSED open is the exception to
+                                ; that ordering, because there is no window to
+                                ; paint over: the caption it just set would
+                                ; otherwise sit undrawn until something else
+                                ; repainted the page (hdtool.inc)
 .dofmt:
     call hd_page_repaint
     mov al, HDT_FORMAT          ; the tool is a second image now, read off
     call hd_tool_open           ; the system volume on this click (52.11)
+    jc .repaint
     jmp short .done
 .doinst:                        ; Install stages nothing either, for the tool's
     call hd_page_repaint        ; reason: what it changes is a DISK, and about
     mov al, HDT_INSTALL         ; the machine's settings nothing at all
     call hd_tool_open
+    jc .repaint
     jmp short .done
 .refused:
     ; A greyed control explains itself (SPEC.md 47 rule 5), so the refusal
@@ -796,10 +792,10 @@ hd_page_repaint:
     mov ax, di
     mov bx, bp
     mov cx, di
-    add cx, 221
-    mov dx, bp
-    add dx, 120
-    call OSAPI_GFX_FILL
+    add cx, 221                 ; the pane: 221 x 132, and it GREW when a third
+    mov dx, bp                  ; driver published a page (ctrl.inc's CP_CH).
+    add dx, 131                 ; A short clear here leaves a stale strip at the
+    call OSAPI_GFX_FILL         ; bottom of a click-repaint, and nothing says so
     mov dx, bp
     call hd_page_paint
     pop dx
@@ -851,8 +847,23 @@ hd_mount:
     jne .big                    ; over 65,535 sectors: not a volume this
                                 ; kernel can carry (SPEC.md 18.7)
     call hd_already
-    jnc .next                   ; this one is already mounted
+    jnc .have                   ; this one is already mounted - by us...
+    mov al, [hd_sel]            ; ...or by the KERNEL, which adopted the
+    call hd_kvol                ; partition it booted from before we were
+    jnc .have                   ; loaded at all (SPEC.md 52.10.3). Mounting it
+                                ; again is a second icon on the same sectors.
+                                ; It is hdcom.inc's and takes the DEVICE as an
+                                ; argument, because the installer asks the
+                                ; same question of a device of its own
+                                ; (SPEC.md 52.10.4.1)
     call hd_mount_one
+    jmp short .next
+.have:
+    mov word [hd_msg], hd_s_mhave   ; and SAY so: the caption was still
+                                    ; 'No FAT partition on it' from the top of
+                                    ; the loop, which about a partition that is
+                                    ; mounted and on the desktop is the one
+                                    ; answer that is not true
     jmp short .next
 .big:
     mov word [hd_msg], hd_s_mbig    ; the tool calls this slot Unmountable and
@@ -1258,6 +1269,7 @@ hd_s_mounted: db 'Mounted ', 0
 hd_s_vol1:    db ' volume', 0
 hd_s_vols:    db ' volumes', 0
 hd_s_mnofat:  db 'No FAT partition on it', 0
+hd_s_mhave:   db 'Already mounted', 0
 hd_s_unmounted: db 'Unmounted', 0
 hd_s_mnotab:  db 'No partition table yet', 0
 hd_s_mfull:   db 'No free volume', 0

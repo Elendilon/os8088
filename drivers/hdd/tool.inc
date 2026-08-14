@@ -89,6 +89,12 @@ HTS_VOL      equ 2              ; a volume
 HTS_ALIEN    equ 3              ; foreign type, or over the 65,535-sector
                                 ; ceiling (SPEC.md 18.7) - either way this
                                 ; kernel will never mount it
+HTS_LIVE     equ 4              ; ...and the volume THIS MACHINE BOOTED FROM,
+                                ; which Format and Delete must both refuse
+                                ; (SPEC.md 52.10.4.1). It is a state and not a
+                                ; flag beside one because it is the most
+                                ; important thing about that slot and the row
+                                ; is where a user looks for it
 
 hd_ttpl:    dw 90, 90, HTW_W, HTW_H, hd_s_ttitle, hd_tw_paint, 0, hd_tw_click
 hd_s_ttitle: db 'Format', 0
@@ -168,6 +174,15 @@ hd_tw_scan:
     jnc .store
     mov al, HTS_RAW
 .store:
+    cmp al, HTS_FREE            ; ...unless it is the one we are RUNNING FROM
+    je .put                     ; (SPEC.md 52.10.4.1). Last, after every fact
+    push ax                     ; about the TABLE, and skipped for a free slot,
+    mov al, [hd_tdev]           ; which has no base to compare. The DEVICE is
+    call hd_kvol                ; hd_tdev and never [hd_sel]: the panel
+    pop ax                      ; underneath stays clickable while this window
+    jc .put                     ; is up, which is the same reason every write
+    mov al, HTS_LIVE            ; in here uses it
+.put:
     push bx
     xor bh, bh
     mov [bx+hd_tstate], al
@@ -257,29 +272,27 @@ hd_tw_paint:
     cmp cl, 4
     jb .row
 
-    mov al, CBLACK              ; the pen for the buttons and the caption:
-    call OSAPI_SET_COLOR        ; hd_tw_button cannot set it (AX is the x)
-    mov si, hd_s_tfmt
-    mov ax, HTW_B0X
-    mov bx, HTW_BW0
-    call hd_tw_button
+    mov si, hd_s_tfmt           ; the shared control takes the pen itself and
+    mov ax, HTW_B0X             ; leaves it live, so there is no CBLACK to set
+    mov bx, HTW_BW0             ; here and none to put back after Delete
+    call hd_tw_fmtok            ; ...and the same predicate/carry idiom Delete
+    mov cl, 0                   ; uses below (SPEC.md 47 rule 2): it greys the
+    adc cl, 0                   ; button here and refuses the click in
+    call hd_tw_button           ; hd_tw_format
     call hd_tw_delok            ; the ONE predicate (SPEC.md 47 rule 2): it
-    call OSAPI_GFX_PEN          ; greys the button here and refuses the click
-                                ; in hd_tw_delete, so a greyed Delete can never
+    mov cl, 0                   ; greys the button here and refuses the click
+    adc cl, 0                   ; in hd_tw_delete, so a greyed Delete can never
                                 ; be one that would have worked. CF is what
-                                ; both of them answer in, so the pen takes it
-                                ; with no test in between - and it carries
-                                ; [gfx_dis], so the label dithers on mono
-                                ; along with the frame (SPEC.md 47 rule 3)
+                                ; both answer in, and OS88UI_DIS is 1, so the
+                                ; flag IS the carry (`mov` does not touch it)
     mov si, hd_s_tdel
     mov ax, HTW_B1X
     mov bx, HTW_BW1
     call hd_tw_button
-    clc                         ; ...and back to the live pen for the rest:
-    call OSAPI_GFX_PEN          ; the flag would dither Close and the caption
     mov si, hd_s_close
     mov ax, HTW_B2X
     mov bx, HTW_BW2
+    xor cl, cl
     call hd_tw_button
 
     mov si, [hd_tmsg]
@@ -311,11 +324,17 @@ hd_tw_paint:
 ; button here with a predicate, and it is a fact rather than a guess: an empty
 ; slot has nothing to give back (SPEC.md 52.2.4).
 ;
-; **The pen is the CALLER's**, because AX is the x here and OSAPI_SET_COLOR
-; took its colour in AL: setting it inside drew both buttons at the same place,
-; one on top of the other. It is also what lets the caller grey one button and
-; not the others without this routine knowing any predicate - and what makes
-; the frame and the label share one pen, so on mono they dither together.
+; **The greying is a FLAG in CL now, not the caller's pen.** It used to be the
+; pen because AX is the x here and OSAPI_SET_COLOR took its colour in AL, so
+; setting it inside drew both buttons at the same place - which is a real
+; constraint that the shared control simply does not have, its rect arriving
+; as a pointer. The caller still owns the predicate, which is the half that
+; mattered: one predicate per control, shared with the click refusal.
+;
+; THE LABEL IS CENTRED NOW and it was flush left at x+4, so it moves - Format
+; and Delete (48px in 64) by 4px, Close (40px in 56) by 4px. Named because it
+; is visible: the labels were the only ones in the system not centred in their
+; buttons.
 ; -----------------------------------------------------------------------------
 hd_tw_button:
     push ax
@@ -323,34 +342,31 @@ hd_tw_button:
     push cx
     push dx
     push si
-    add ax, di                  ; AX = x1
-    mov cx, ax
-    add cx, bx
-    dec cx                      ; CX = x2
-    mov bx, bp
-    add bx, HTW_BY              ; BX = y1
-    mov dx, bx
-    add dx, HTW_BH - 1          ; DX = y2
-    push ax
-    push bx
-    push cx
-    push dx
-    call OSAPI_GFX_FRAME
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    add ax, 4                   ; the label, 4px in and centred vertically
-    mov cx, ax
-    mov dx, bx
-    add dx, 4
-    call OSAPI_FONT_STR
+    push di
+    add ax, di                  ; the rect, in screen coordinates
+    mov [hd_tbrect+0], ax
+    add ax, bx
+    dec ax
+    mov [hd_tbrect+4], ax
+    mov ax, bp
+    add ax, HTW_BY
+    mov [hd_tbrect+2], ax
+    add ax, HTW_BH - 1
+    mov [hd_tbrect+6], ax
+    mov dl, cl                  ; CL = the flag word; DI is about to be it
+    xor dh, dh
+    mov di, dx
+    mov bx, hd_tbrect           ; no OS88UI_FILL: hd_tw_repaint calls
+    call os88ui_btn             ; hd_win_erase before this ever runs twice
+    pop di
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
     ret
+
+hd_tbrect:  dw 0, 0, 0, 0       ; the button being drawn, screen coordinates
 
 ; -----------------------------------------------------------------------------
 ; hd_tw_rowtext - one slot's line, into hd_line (module internal)
@@ -395,10 +411,16 @@ hd_tw_rowtext:
     mov al, [bx+hd_tstate]
     cmp al, HTS_ALIEN
     je .alien
+    cmp al, HTS_LIVE
+    je .live
     cmp al, HTS_VOL
     je .vol
     mov si, hd_s_traw           ; free and partitioned-but-empty read the same
     call hd_scat                ; on purpose: both mean Format makes a volume
+    jmp short .done
+.live:
+    mov si, hd_s_tlive          ; NOT its FAT type: what matters about this one
+    call hd_scat                ; is that the machine is standing on it
     jmp short .done
 .alien:
     mov si, hd_s_talien
@@ -555,6 +577,12 @@ hd_tw_format:
     push si
     push di
 
+    call hd_tw_fmtok            ; the boot partition is refused here as well as
+    jnc .table                  ; greyed (SPEC.md 47 rule 2), and says nothing
+    jmp .out                    ; more than the greyed button already does
+                                ; (rule 5). NEAR, like the confirm's jump
+                                ; below: .out is well past 127 bytes
+.table:
     cmp byte [hd_mbrok], HMB_BAD    ; we could not read what this would
     je .notable                     ; replace: never commit a fabrication
 
@@ -757,6 +785,37 @@ hd_tw_delok:
     mov al, [bx+hd_tstate]
     cmp al, HTS_FREE
     je .no
+    cmp al, HTS_LIVE            ; taking the boot partition's entry away is the
+    je .no                      ; same act as formatting it, one indirection
+    pop bx                      ; further out: the volume is live, the kernel
+    pop ax                      ; is reading its own files off it, and next
+    clc                         ; boot there would be nothing to boot
+    ret
+.no:
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_tw_fmtok - may Format be clicked? (module internal)
+; out: CF = 0 yes / 1 no.  SPEC.md 47 rule 2's predicate for that button.
+;
+; Every slot is formattable - free, raw, alien or a volume - which is why this
+; button had no predicate at all until SPEC.md 52.10.4.1. There is exactly one
+; that is not: the partition this machine booted from, whose FAT and root the
+; format would rewrite under a kernel that is reading its own files out of
+; them, with a live FAT window (SPEC.md 18.8.1) and cached directory sectors
+; (19.2.3) describing a disk that stopped existing. It cannot be unmounted
+; first the way 52.10.8's destination is - it is where the kernel LIVES.
+; -----------------------------------------------------------------------------
+hd_tw_fmtok:
+    push ax
+    push bx
+    mov bl, [hd_tsel]
+    xor bh, bh
+    cmp byte [bx+hd_tstate], HTS_LIVE
+    je .no
     pop bx
     pop ax
     clc
@@ -884,6 +943,9 @@ hd_s_four:    db '     ', 0     ; slot digit -> size column
 hd_s_nosize:  db '     ', 0     ; ...and the size column when nothing claims it
 hd_s_traw:    db 'Not Formatted', 0
 hd_s_talien:  db 'Unmountable', 0
+hd_s_tlive:   db 'Booted From', 0   ; the installer's word for the same fact
+                                    ; (SPEC.md 52.10.4.1): two windows, one
+                                    ; thing to learn
 hd_s_tfmt:    db 'Format', 0
 hd_s_tdel:    db 'Delete', 0
 hd_s_tready:  db 'Pick a slot, then a button', 0

@@ -22,7 +22,7 @@ one that keeps it - so `--compare` is structurally blind to every defect that
 is about the screen rather than the words. BEAR.Z5 sat with a blank band at the
 top of its window matching dfrotz perfectly for as long as anyone had looked.
 
-Three checks, and only the third needs a reference (SPEC.md 59.14):
+Three checks, and only the third needs a reference (SPEC.md 61.14):
 
     model vs pixels   every row the interpreter says holds text is drawn, and
                       every row it says is blank is not. Read by UNIFORMITY, so
@@ -460,7 +460,7 @@ class Snapshot:
         """Every text row on screen, top to bottom.
 
         The v1-3 status line is NOT here: the interpreter draws it with its own
-        OSAPI_FONT_RUN and it belongs to neither window (SPEC.md 59.5), so the
+        OSAPI_FONT_RUN and it belongs to neither window (SPEC.md 61.5), so the
         model has no record of it to report.
         """
         return self.upper + self.lower
@@ -554,7 +554,7 @@ def check_pixels(snap, frame, label, repainted=False):
     bad = []
     # v1-3: the INTERPRETER owes a status line and draws it with its own
     # FONT_RUN, so it belongs to neither window and the model has no record of
-    # it to compare (SPEC.md 59.5). What can still be said is that it is there:
+    # it to compare (SPEC.md 61.5). What can still be said is that it is there:
     # the Standard requires the row, and a blank one is a defect whatever it
     # was going to say.
     for index in range(g.get("stat", 0)):
@@ -611,7 +611,7 @@ class Wire:
     def refused(self):
         """Has the interpreter said, on screen, that it will not run this story?
 
-        A refusal is a PASS (SPEC.md 59.4/47) and it arrives as a notice on the
+        A refusal is a PASS (SPEC.md 61.4/47) and it arrives as a notice on the
         wire, so waiting out the silence budget to infer it is both slow and
         backwards - BRONZE.Z8 spent five minutes proving something it had
         already said in words.
@@ -876,7 +876,7 @@ def check_opening(snap, story_path, stem):
                       f"is {snap.geom.get('cols')}x{snap.geom.get('rows')} - "
                       f"run `make zscreens`")
     # The reference's first row is the v1-3 status line, and ours is not in
-    # either window for the model to report (SPEC.md 59.5). Its PRESENCE is
+    # either window for the model to report (SPEC.md 61.5). Its PRESENCE is
     # checked against the pixels instead; its wording is the one thing on the
     # screen this comparison cannot reach, and saying so beats a heuristic that
     # tries to guess which words were the score.
@@ -1016,7 +1016,7 @@ class Graphics:
         # PICTURES FIRST, because they are the one check that does not need the
         # character-window model - and v6, which is the only version that has
         # @draw_picture, is the one version that does not have that model
-        # (SPEC.md 59.2: v6 replaces the whole thing with zwin6.inc).
+        # (SPEC.md 61.2: v6 replaces the whole thing with zwin6.inc).
         if self.expect and b"[[ZH:PIC" in w.last_seg:
             found, seen = check_pictures(w.last_seg, frame, self.expect, label)
             self.drew |= seen
@@ -1183,7 +1183,7 @@ def normalise(text):
     # or more spaces is the signature of something POSITIONED rather than
     # printed. Its own prose never has one: it wraps at -w and separates words
     # by one space. The harness keeps the upper window off the wire entirely
-    # (SPEC.md 59.13), so this is what makes the two sides the same text.
+    # (SPEC.md 61.13), so this is what makes the two sides the same text.
     #
     # It fails SAFE. A story that indents in the LOWER window loses those words
     # from the reference and keeps them here, which reports a divergence - the
@@ -1191,7 +1191,7 @@ def normalise(text):
     text = re.sub(r"^.*(?:\S[ ]{3,}\S|^[ ]{3,}\S).*$", "", text, flags=re.M)
     # dfrotz's own diagnostics, which are about the STORY and not about either
     # interpreter's answer - Balances calls @get_child on object 0 and says so
-    # every turn. os8088 answers the same 0 and does not editorialise (§59.11:
+    # every turn. os8088 answers the same 0 and does not editorialise (§61.11:
     # the object layer has no error channel), so this is a difference in
     # commentary. A halt is different and is never stripped: it is the answer.
     # A dfrotz warning is a PARAGRAPH, not a line: it wraps at -w like anything

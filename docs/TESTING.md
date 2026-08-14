@@ -7,8 +7,9 @@ period BIOS, with a debugger attached: memory, registers, I/O ports,
 breakpoints, single-step and cycle counts, none of it costing the guest a
 cycle (docs/MARTYPC-DEBUG.md). It covers **all three** of SPEC.md §39's
 adapters, scripted input, screenshots and sound. **And for anything with a
-disk in its timing, go to the 5150 — no emulator here is disk-accurate,
-MartyPC included.**
+disk in its timing, the 5150 is where the number LANDS — though MartyPC's
+floppy now turns (PERFORMANCE.md Sets 35/37) and agrees with the iron's raw
+`int 13h` rows to the measurement quantum.**
 
 **Here is the whole of QEMU's remaining list**, stated as a list so that "a
 legitimate need" is something you can check rather than something you can
@@ -51,40 +52,45 @@ A tool that is wrong in the flattering direction does not announce itself.
 | **86Box** | a machine that is **not an 8088** (the 286 and 386 targets), real sound cards on a period bus, a second opinion on the video probe | period-correct whole machines, and the widest hardware library |
 | **the 5150** | anything with a **disk** in it, and the three defects no emulator shows | docs/FIELD-MACHINES.md |
 
-## The one rule that outranks the table: no emulator here is disk-accurate
+## The one rule that outranks the table: a disk number lands on the 5150
 
-**MartyPC is cycle-accurate on the CPU and it is not a floppy drive.** It
-models instruction timing, the prefetch queue and bus contention; it does not
-model a disk that spins at 300 rpm, a head that has to seek, or an interleave.
-PERFORMANCE.md Set 11 measured the gap on the same test and the same media:
+**MartyPC's floppy used to be a fiction and now it is a model.** Upstream it
+modelled no platter at all — a seek completed in the breath it was issued and
+a sector arrived the instant it was asked for — which is where Set 11's 30x
+came from. `tools/martypc/patches/04-floppy-disk-timing.patch` gives it
+rotation, an MFM data rate, a per-cylinder seek and a configurable interleave
+(PERFORMANCE.md Sets 35/37, docs/MARTYPC-DEBUG.md):
 
-| | real 5150 | MartyPC |
-|---|---|---|
-| read 16 KB, cold motor | **8.07 s** | **0.27 s** — 30x fast |
-| boot | **38,886 ms** | **2,306 ms** — 17x fast |
+| `boot ticks`, 360KB `combo.img` | stock | Set 35 | **now** | real 5150 |
+|---|---|---|---|---|
+| `os8088_5150_cga_gla` (GLaBIOS) | 41 (2.25 s) | 130 (7.14 s) | **175** | — |
+| `os8088_5150_herc` (IBM ROM) | — | 222 | **188** | **205** |
 
-So **if a disk is in the path, MartyPC's number is wrong** and it is wrong by
-more than an order of magnitude. That includes anything that *contains* a
-disk read without being about one — a boot time, a package launch, a Tracker
-module load, a Control Panel save. PCem is no better and QEMU is worse. There
-is exactly one instrument for disk timing and it is the machine in
-docs/FIELD-MACHINES.md.
+`tests/sysbench`'s whole raw `int 13h` block matches the field machine's own
+report off that identical image to within one measurement quantum on nine of
+thirteen rows, seven of them exactly (Set 37). So the rule is now two rules and
+**both** have moved:
 
-**And it will not catch a disk CORRECTNESS bug either**, which is the sharper
-half. SPEC.md §18.91's `AL` bug is the worked example: `dsk_xfer` asked the
-BIOS for nine sectors, the BIOS moved nine and answered `AL = 1`, and the
-kernel believed `AL` and re-read the rest one sector at a time. On the 5150
-that was 148 sectors and 34 `int 13h` calls for a 32-sector file — 4.6x the
-traffic. **The same binary on the same image under QEMU moved 34 sectors in 6
-calls**: correct, fast, and completely silent about the bug. It took the real
-machine plus §18.94's counters to see it at all, and the boot sector carried
-the identical bug undiscovered for as long again. An emulator's BIOS returns
-what its author thought the hardware returns; the hardware is under no such
-obligation.
+- **TIMING**: MartyPC is worth asking. It still is not where a figure LANDS:
+  anything going into PERFORMANCE.md Part 9 comes off the 5150. PCem is no
+  better and QEMU models none of it.
+- **CORRECTNESS**: half of it moved. MartyPC runs the real IBM ROM, so what
+  the ROM does is reproduced — §18.91's `AL` bug shows here as **893 boot
+  ticks against 188** and 870 sectors in 183 reads against 183 in 24, the
+  field's own signature. What a real 765 puts in ST1, or whether a real drive
+  returns short, is still the emulator author's belief and still the 5150's
+  question, as are interrupt stack depth (SPEC.md §8) and anything QEMU's
+  SeaBIOS smooths over (docs/FIELD-NOTES.md 5).
 
-The same caution applies to `int 1Eh`'s diskette parameter table, short
-`int 13h` reads, and interrupt stack depth — docs/FIELD-NOTES.md 5 and
-SPEC.md §8. All three are BIOS behaviours an emulator smooths over.
+Two caveats. **A disk TIMING comes off an IBM-ROM 5150 and no other class**
+(Set 38): the drive is one model and six machines give bit-identical
+controller traffic, but GLaBIOS turns an `int 13h` around **1.61x** faster
+than the 1982 ROM — enough that nine one-sector reads cost the same as one
+whole track there and ten revolutions here. Counts are fine on any machine; a
+timing is not. docs/MARTYPC-DEBUG.md carries the per-machine table. And the
+`ibm5150_82_v4` machines need an IBM ROM this tree cannot ship, so a container
+without one in `tools/martypc/roms/` can run only the GLaBIOS twins — which
+is the class you must not take that timing from.
 
 ---
 
@@ -120,6 +126,7 @@ emulator have the hardware": a ✅ means reach for it first.
 | VGA 640x480x16 (mode 12h) | ✅ | ✅ | `make test`, or the `os8088_xt_vga` machine | boots to Locator; loads packages. MartyPC has a register-level VGA and rasterises 12h — `vid_w=640 vid_h=480 vid_planes=4`, raster 800x524, and Minesweeper renders in 8 distinct palette colours |
 | CGA 640x200 mono | ✅ | ✅ | `make test VIDEO=cga` | renders; dumps 640x400 (line-doubled) |
 | Hercules 720x348 mono | ✅ | ✅ | `make test VIDEO=herc HERCSEG=0x7000` | renders; 55.8% lit at the desktop |
+| The DOS end of the parallel link (SPEC.md §62) | ✅ | ➖ | `make dosstub`, then MartyPC `os8088_5150_cga_lpt` | **There is no DOS here and none this tree may ship**, so `OS88NET.COM` shipped to the field TWICE without one instruction of it executing - the second time it came back "returns to prompt instantly with nothing printed", which is a `.COM` whose entry is not at offset 0x100. `tests/dosstub` is a bootable floppy carrying an int 21h stub and the .COM inside its own image, on a real 4.77MHz 8088 with a real parallel port at 0x378: the banner, the default name, `/RO`, `/P:`, a filename, the cannot-open refusal, the sector arithmetic at all three of its outcomes and the latch probe are all verified there. What it CANNOT do is be a PARTNER - MartyPC's status lines read a constant, so the wire is still the 5150's question and `tests/lptlink` is how it is asked |
 | Adapter switching (SPEC.md §39.11) | ⚠️ | ➖ | the `os8088_xt_vga` / `_5150_both` / `_5150_herc` / `_5150_cga` machines | MartyPC is the instrument, and one direction is out of its reach. Verified: the page lists **Vga + Cga** on `_xt_vga`, **Hercules + Cga** on `_5150_both`, and exactly **one** row on the two single-card machines; the live switch works **both ways on `_xt_vga`** and **CGA → Hercules on `_5150_both`**; the choice survives a reboot through `SYSTEM.CFG`'s `VM` key; and a disk asking for a card the machine lacks is **refused**, staying on the probe's answer. NOT verifiable here: **Hercules → CGA on a dual-card machine**, because MartyPC's MDA decodes the whole 64KB at B0000–BFFFF whatever 3BFh's page bit says — measured, B0000 and B8000 read back byte-identical — so the two cards contend for B8000 and the CGA's rendered output stays black although the card is correctly in `Mode6HiResGraphics`. A real HGC with that bit clear (which `vid_setmode` leaves clear) decodes B0000–B7FFF only. **That direction wants a run on the 5150.** The same aliasing is what `vid_cga_alias` (§39.11.1) exists to reject, and it is why the Hercules-only machine stopped reporting a CGA that is not there. **Hiding the page** (§31.10.1) verified on both single-card 5150s — the list is Scheduler/Buffer/Date-Time/Drivers/Sound and no Display row — with the static/driver boundary checked on `os8088_xt_hdd`, where the hard-disk driver's own page lands at row 5 (the slot the hidden page vacated) and dispatches to the driver, not to Display. **Blanking the outgoing card** (§39.11.4) verified on `_5150_both` in both directions: CGA → Hercules takes the CGA card from `Mode6HiResGraphics` to `Mode1TextCo40` (3D8h video bit clear), and Hercules → CGA trips an I/O breakpoint on 3B8h — a port `vid_setmode`'s CGA path never touches, so that write is `vid_blank` and nothing else |
 | Two displays at once (SPEC.md §39.12–§39.19) | ✅ | ❌ | `tests/dualcheck.py` on the `os8088_5150_both` machine, or `make xt-multimon` | MartyPC is the instrument, because only it can read the guest's own answer back; 86Box is where the pair is two 6845s on a period bus. Verified on `xt-multimon` (an `ibmxt86`, 640KB, `gfxcard = cga` + `gfxcard_2 = hercules_plus`): the machine boots to the desktop on the **CGA**, the probe finds the mono card, and forcing `[vid_dmode]` to Extend grows the desktop onto "86Box Monitor #2" - §39.13's bring-up of a card the ROM never touched, on a second card that works. **`gfxcard_2 = hercules` is NOT found, and reads exactly like the feature being missing**: 86Box's plain Hercules answers only 4KB at B0000 while it is still in POST's text mode, so `vid_memchk`'s 0xAA at B000:1000 lands on its 0x55 at B000:0000 and the card is rejected as the text-only MDA that signature means (§39.11.1). The kernel is right and the model differs; the symptom is a Control Panel with **no Display page at all** (§31.10.1 hides it when `[vid_avail]` has one bit), which announces nothing about why. NOT verifiable here: **the extend as the user reaches it**. 86Box has no automation socket, the Desktop row is a mouse click (`tests/dispcp.py`'s coordinates, driven by hand), and macOS will not let a script synthesise one - so `[vid_dmode]` forced in a scratch build is how the machine was checked, and `dualcheck.py` is what says the geometry is right |
 | PC speaker | ✅ | ✅ | `make test-snd`, or `MARTYPC_WAV=` | dominant 880.0 Hz (891.0 on MartyPC, inside tolerance) |
@@ -231,6 +238,46 @@ knob-free:
 ```sh
 rm -f build/os8088.img build/os8088-720.img build/os8088-360.img && make
 ```
+
+**That stamp was BROKEN for every knob in the tree and is fixed — if you are
+reading an A/B taken before this, re-take it.** The stamp's job is to delete
+the artifacts a knob can change so they rebuild, and its list named
+`build/kernel.bin` — correct while that *was* the nasm output. The on-demand
+module split (SPEC.md §2.8) put **`build/kernel-full.bin`** in front of it,
+which is the file `$(VIDDEF)` is actually passed to, and left `kernel.bin` a
+DERIVED file that `os88mod.py` carves out of it. So switching a knob deleted
+the derived file, re-ran the carve over a `kernel-full.bin` nothing had
+rebuilt, and produced **the previous knob's kernel** with a fresh timestamp
+and no complaint. `make VIDEO=cga` after a plain `make` re-emitted the VGA
+kernel — the exact failure the paragraph above warns about, with the guard
+against it defeated by an unrelated later change. The two **carved modules**
+go on the list with it (`ctrl.drv`, `format.drv`): they are cut from the same
+assembly and are exactly as stale, so a knob build was shipping a `KERNEL.SYS`
+*and* two `.drv` files from the previous knob.
+
+**It was found twice, independently, from two symptoms that neither of them
+points at the stamp** — an incremental plain rebuild after `make SNAPAUDIT=1`
+differing from a clean one by 39,504 bytes, and `make FDDABSENT=1` producing a
+kernel with none of the knob's bytes in it while the knob's own A/B "passed"
+by comparing a build against itself. If a knob has ever surprised you by
+changing nothing, that was probably this.
+
+Two things made it invisible, and both are worth knowing as shapes.
+`kernsize.py` **re-assembles the kernel itself** with `$(VIDDEF)`, so it
+faithfully reports the sizes of a binary the build did not produce — a 65-byte
+knob was reported for a kernel that did not contain it. And a knob-only change
+touches no source, so nothing else in the dependency graph moves. The check
+that does not lie is to look for the knob's own bytes in the artifact:
+
+```sh
+rm -f build/.video-*        # the belt-and-braces version of the fix
+make FDDABSENT=1 && python3 -c "print(open('build/kernel.bin','rb').read().find(b'\xc6\x44\x01\x21'))"
+```
+
+`os88sym.py` is the other guard that works, because it asserts byte-identity
+between its own assembly and `build/kernel.bin` and **refuses** rather than
+answering — pass the knob with `OS88_DEFINES=FDD_FORCE_ABSENT` (comma or space
+separated) when driving a knob-built kernel.
 
 ---
 
@@ -578,6 +625,42 @@ carries no `SYSTEM.CFG`, so nothing asks for it), so the only thing that could
 have created a third volume row is `dsk_boot_from` adopting the partition the
 machine booted from (SPEC.md §52.10.3).
 
+#### ...and what it can do ONCE THE VOLUME CARRIES FILES
+
+`--file NAME=PATH` puts anything else in that volume's root, and it is what
+takes the fixture from "does the boot chain work" to "does the OS work on a
+machine installed to its disk". On an installed machine **every** file the
+boot reaches is on the hard disk — `SYSTEM.CFG`, the drivers, and since
+SPEC.md §2.8 the Control Panel itself — so a volume holding only `KERNEL.SYS`
+boots to a desktop where the chip menu's Control Panel silently does not
+open, and nothing on the machine can load a driver. That is not a bug and it
+reads exactly like one.
+
+The four that make the Hard Drive page reachable, which is the configuration
+SPEC.md §52.10.3.1's duplicate-icon bug lives in:
+
+```sh
+python3 tools/os88hdd.py \
+    --template build/martypc/run/media/hdds/default_xtide.vhd \
+    --out /tmp/boot.vhd --kernel build/kernel.bin \
+    --vbr build/boothd.bin --mbr build/mbr.bin \
+    --file CTRL.DRV=build/ctrl.drv --file FORMAT.DRV=build/format.drv \
+    --file HDD.DRV=build/hdd.drv --file HDDTOOL.DRV=build/hddtool.drv
+```
+
+Attributes follow SPEC.md §19.6 by extension — a `.DRV` lands read-only,
+hidden and system, exactly as the installer writes it — because a fixture
+that hides less than the installer does is a fixture for a volume nobody will
+ever have.
+
+**Then read `dsk_vtab`, do not count icons.** The volume table says which
+volume is which transport, on which unit, at which base; a screenshot says
+there are two hard-disk zones and leaves you guessing which one is the
+duplicate. Tick the driver on the Drivers page, select **Hard Drive**, click
+**Mount**, and the table must be unchanged — one hard-disk row, the
+`DVK_BIOS` one the boot left, and the caption must read `Already mounted`.
+Two zones for one partition is §52.10.3.1.
+
 Two things this cannot tell you, both of which want the 5150: whether the
 **timing** is tolerable (no emulator here is disk-accurate, and MartyPC's
 error is 30× in the flattering direction — see the rule at the top of this
@@ -768,6 +851,7 @@ checks referenced throughout this document:
 | `filetest` | the write path (§18.4) | `make test TESTAPPS=build/filetest.img` |
 | `fsxtest` | fullscreen exclusive (§53): keys 0–8 cycle every mode with an identifying pattern, `x` runs a same-mode bracket, `t` keys a duration-0 tone for the §53.3 legs; the window shows the `fsx_caps` mask (01EF/000F/0011 by adapter) and the last result (`K`/`R`/`F`/`S`) | `make test TESTAPPS=build/fsxtest.img` (also under `VIDEO=cga` / `VIDEO=herc`; `make test-snd` + two instances for the sound legs) |
 | `stackprobe` | the 256-byte task-stack margin (§8) | `make test TESTAPPS=build/stkprobe.img` |
+| `xmtest` | the extended-memory **teardown** (§41.5/§29.4): does a closed instance's blocks above 1MB get freed? Needs a machine with a store, so **QEMU on a 386** — the target machine can never have one. The assertion lives outside the package, in `tests/xmcheck.py`, which reads `xm_tab` over QMP around the close | `make test TESTAPPS=build/xmtest.img` then `python3 tests/xmcheck.py build/qmp.sock` |
 | `trklog` | not a gate — a **recorder**. Tracker itself, built with `-DTRKLOG`, logging one record per system tick and writing it to `TRKLOG.TXT` (SPEC.md §45.14) | `make test SB16=1 TESTAPPS=build/trklog.img` |
 
 `benchlib.inc` is the one shared source under `tests/` — the timing loop, the
@@ -881,7 +965,7 @@ no memory and cannot split the heap.
 
 ### Frotz: the story harness, which is `trklog`'s shape again
 
-`apps/frotz` built a second time with `-DZHARNESS` (SPEC.md §59.13), for the
+`apps/frotz` built a second time with `-DZHARNESS` (SPEC.md 61.13), for the
 same reason `trklog` exists: the thing measured is the shipped code and not a
 copy that can drift from it. Every hook is inside `%ifdef ZHARNESS` and the
 shipped `FROTZ.O88` is unchanged to the byte — which is checkable, by building
@@ -925,7 +1009,7 @@ own notices (`No room for undo; play continues.`) — and neither side's halt
 ever is.
 
 **`refused, with a reason` is a pass.** A story too big to be resident is
-turned down on purpose (§59.4/§47), so `BRONZE.Z8` reports `No room for the
+turned down on purpose (§61.4/§47), so `BRONZE.Z8` reports `No room for the
 scrollback.` on a 640KB machine and the gate counts that as correct. A gate
 that failed on it would be arguing with the design.
 
@@ -940,7 +1024,7 @@ There is no way to opt a story out of the diff, on purpose: an opt-out is a
 place for a real divergence to hide, and both of the ones this found are real.
 
 **`make zgfx` is the other half, and it asks what the transcript cannot**
-(SPEC.md §59.14). Every check above is about characters the story *printed*; a
+(SPEC.md 61.14). Every check above is about characters the story *printed*; a
 story that draws a quote box into the upper window and then loses it prints
 exactly the same characters as one that keeps it, so `zcheck` is structurally
 blind to a whole class of defect. `zgfx` compares the interpreter's own model
@@ -976,7 +1060,7 @@ sending `PgUp`/`PgDn` — which the interpreter takes before the story's input
 ring, so they cannot be mistaken for the story's own input. It nonetheless left
 `DREAMHLD.Z8` with no further prompt inside a seven-minute budget, every time,
 where the same run without it finished cleanly. That is worth chasing on its
-own (SPEC.md §59.14); it is not worth a gate that fails for two reasons at
+own (SPEC.md 61.14); it is not worth a gate that fails for two reasons at
 once. The check now rides on the repaints stories provoke themselves.
 
 **A `@random` story can diverge run to run in `zcheck`, and that is not a
@@ -990,7 +1074,7 @@ for.
 It found four defects on its first run over the library, and the two that
 matter most to a reader were both about the upper window — a quote box erased
 by the shrink that follows it, and a `Flags 1` bit that turned 905's clock into
-a move counter (SPEC.md §59.5). Neither changed one character of any
+a move counter (SPEC.md 61.5). Neither changed one character of any
 transcript, which is the argument for the gate in one sentence.
 
 `filetest` also has a fragmented-volume variant, `build/filetest-frag.img`,
@@ -1061,6 +1145,20 @@ rule. Two consequences that are easy to miss:
 are driven under an emulator here, where there are two drives; the moment one
 of them is wanted on the 5150 it needs the treatment above.
 
+**The disk to send is `make combo`.** `build/combo.img` is one 360KB bootable
+floppy carrying the system, every application, every game and all four
+benchmarks, and it is the default for a field or bench request — not the
+`herc.img`/`cga.img` pair, which is what this used to be. The pair existed
+because both cards live in the 5150 permanently and the §39.1 probe can only
+be asked one question at a time, so the adapter was a property of the
+**build**; since §39.11 it is not. The Control Panel's **Display** page
+switches the primary at run time, so one disk takes a set from both cards —
+run `GFXBENCH.O88`, switch the display, run it again, and it names each report
+after the adapter it *found*. `sysbench` runs once: none of its rows is a
+question about the adapter. `make field` still builds the narrow disks
+(docs/FIELD-MACHINES.md has the table: a 720KB geometry, two knob kernels, and
+a pinned adapter for comparing against an older set).
+
 ### `gfxbench` and `sysbench` — the two that write a file
 
 The first two benchmarks answer one question each and fit on a screen. These
@@ -1074,6 +1172,39 @@ pasted into [PERFORMANCE.md](../PERFORMANCE.md).
 |---|---|
 | `gfxbench` on VGA / Hercules / CGA | `GFXVGA.TXT` / `GFXHERC.TXT` / `GFXCGA.TXT` |
 | `sysbench` | `SYSBENCH.TXT` |
+
+**Driving one from a SCRIPT is four steps and three of them have a trap in
+them.** Written down because getting a benchmark to run unattended cost most
+of a session, and none of the failures says what it is:
+
+- **Reach the app through the Bench MENU, not a keystroke.** A scripted
+  `m.key("KeyR")` did not reach `sysbench` in a run measured here — the
+  splash was still up 150 s later — while `mo.menu(110, 8, 110, 26)` (its
+  first item, `Run`) started it every time. The app is frontmost and its
+  menu bar is drawn in both cases, so nothing on screen tells the two apart.
+- **Do NOT `settle()` after starting the run.** The machine is deliberately
+  FROZEN while a benchmark runs, so stillness means nothing, and a `settle`
+  after it never returned inside a 600 s limit here. Sleep a fixed generous
+  span instead — the app says ~40 s on a 4.77 MHz 8088 — and read the file.
+- **Read the FILE, not the screen**: the report self-saves when it finishes,
+  and the whole thing is forty-plus rows the screen pages through.
+  `os88flush.Flush(marty=m).volume(0).read("SYSBENCH.TXT")` is it, sharing
+  the one debug connection (a second `Marty` HANGS).
+- **Keep the driver script OUT of the session scratchpad.** One vanished
+  mid-session here and the run died with `can't open file` — which reads
+  exactly like a path typo. `/tmp/<something>/` of your own is fine.
+
+...and CLAUDE.md's `pgrep -f` warning applies to waiting for it, twice over:
+`pgrep -f runsb.py` matches the very shell running the `until` loop, so the
+loop never ends, and a `( ... ) &` nested inside a backgrounded tool call is
+reaped before it finishes. Wait on the tool call itself.
+
+**On an extended desktop the name is the card the SANDBOX is on**, not
+`[vid_kind]` — `gfxbench` resolves its own window's origin against §57.4's
+`VD` block, and the framebuffer segment, stride, bank count, status port and
+the raw VRAM rows' addressing all follow it. So two cards give two reports
+from one launch: run, drag the window onto the other monitor, run again.
+Check the new **`sandbox straddles`** row before comparing two of them.
 
 **The file goes to the CURRENT volume and directory** (SPEC.md §19.2), which
 right after launching a package off the bench disk is that disk's root — so
@@ -1129,6 +1260,27 @@ bandwidth, the clock ladder, the API's far-call floor, **what the kernel's
 own interrupts cost per second of ordinary work** (the same workload timed
 with interrupts off and then on), and the floppy — twice, because the first
 read pays the motor spin-up and quoting either figure alone misleads.
+
+**Two of its floppy blocks exist to pin the two numbers the MartyPC disk model
+has no measurement for** (PERFORMANCE.md Set 35, `tools/martypc/patches/04-*`).
+Both go through the kernel's `dsk_dbg_raw`, so both need a `DISKCNT=1` kernel
+and are silent on any other — which is what every `make field` disk is.
+
+- **The head step.** Every other raw row reads one track and never moves the
+  head, so the model's step rate is the BIOS's own SPECIFY request and its
+  settle is the DPT's, both on trust. `seek N cyl, pair` reads cylinder 0 and
+  then cylinder N, so an op holds two seeks of that distance. **Read the rows
+  as revolutions and expect whole ones**: a read ends at a fixed angular
+  position, so the seek happens inside the wait for sector 1 to come round and
+  is invisible until it is longer than that wait. What the block measures is
+  therefore *the distance at which the cost steps up*, not a slope — and the
+  `seek 0 cyl` row is the zero of that scale rather than something to trust.
+- **Spin-up.** `1 sector, motor COLD` waits for the BIOS's own motor countdown
+  at `0040:0040` to expire, checks `0040:003F` and prints it, then times one
+  sector; `1 sector, motor warm` is the same read with the platter already
+  turning. Both are N = 1 and must be — the event happens once. A `motor
+  status 40:3F` of anything but `00` means the drive never stopped and the
+  cold row is not cold, which is the one way this can lie and so is printed.
 
 Three things about reading their output:
 
@@ -1283,8 +1435,9 @@ because they are still quoted in old commit messages: a framebuffer
 read-modify-write is **79.6 clocks, not ~30**, and only about 7 of those are
 the bus; and the "add 20–40% for the 8088" rule of thumb was replaced by the
 instruction floor above. The back buffer's ~24× flush-to-render ratio was
-never measured on hardware and cannot be — double buffering is VGA-only
-(SPEC.md §32) and this machine has no VGA.
+never measured on hardware and never could be — double buffering was VGA-only
+and this machine has no VGA, which is a large part of why SPEC.md §32 removed
+the feature outright.
 
 The full table is [PERFORMANCE.md Part 2](../PERFORMANCE.md), together with the
 standing budget every redraw path in the tree has already been measured down
@@ -1398,6 +1551,21 @@ time, two rows whose relative sizes are known in advance, a ratio you can
 recompute by hand from the columns next to it. A harness that reports one
 number per run is one you have to trust.
 
+**A number can also contradict a DESIGN RULE, and that is the same bug with a
+longer fuse.** `WF_SNAP` was mono-only for most of its life because "what
+snapping buys is `font_run`'s single-store path, which is 1bpp-only" — and
+`typebench`'s own VGA row said alignment was worth **5.8%** there against
+**2.1%** on Hercules, printed in SPEC.md §11.94 directly above the paragraph
+explaining that the flag was a no-op on VGA. Nobody read the two as
+inconsistent, because the number was filed as a fact about `font_run` rather
+than about *alignment*, which is what the row actually measures. Re-measured on
+a cycle-accurate 8088 the gap is wider — 3.4% mono against **9.4%** VGA — and
+`typebench`'s own header was printing `snap:off` on VGA the whole time, three
+lines above the rows refuting it. **When a measurement and a design rule
+disagree inside one file, the measurement is not the thing to explain away**;
+and a harness that labels its own state (`snap:on`/`snap:off`) rather than
+assuming it is what makes such a disagreement visible at all.
+
 **And the sharper form of the same rule: a gate must not be able to pass by
 doing nothing.** `tools/sucheck.py` — the raise cache's gate (SPEC.md §11.96)
 — covered Solitaire by clicking a hard-coded (300, 40) on the Disk window's
@@ -1467,6 +1635,114 @@ And one the emulator reports as a **success**, which is worse:
   what a blit costs is decided by how *flat* the art is, not how big it is
   (SPEC.md §5.4, PERFORMANCE.md Part 9). The lesson above survives the
   correction intact. The numbers did not.
+
+**And one an emulator here cannot be configured into at all: a mono-primary
+two-card 5150.** The field machine boots on its Hercules because SW1-5/6 say
+`11b` = 80×25 mono and §39.1's last rung is `int 11h` bits 5:4. MartyPC's
+two-card machines report bits 5:4 = **`0x20`** (colour) and boot os8088 on the
+CGA — and that is not fixable from the machine config: measured, listing the
+MDA first changes nothing about the equipment word, because MartyPC derives
+the 5150's display switches from whether a CGA is present at all rather than
+from card order, and exposes no DIP override. (Listing it first only moves
+*MartyPC's* primary to the MDA, which os8088 then does not drive, so the boot
+gate watches a blank card and `launch` times out. `os8088_5150_herc_gla`
+reads `0x30` only because it has no CGA in it.)
+
+**That has since been fixed rather than lived with**, and the paragraph above
+is kept because it is the reasoning: `tools/martypc/patches/03-video-dip-config.patch`
+adds an optional `video_dip` to MartyPC's machine config, so SW1-5/6 can be
+*set* instead of derived from the card list. **`os8088_5150_both_gla_mono`**
+is the machine that uses it — both cards, switches mono, os8088 running
+Hercules with `avail = 0x06` — and it is the only one that reaches SPEC.md
+§39.11.1's `vid_cga_alias`, the routine whose bug survived because "the
+direction the old emulator could reproduce was CGA-primary, where the routine
+never runs". A dual-display change can be exercised here now; it is still
+worth a field run, but it is no longer *only* answerable there.
+docs/MARTYPC-DEBUG.md has the patch's reasoning and the one trap in the
+machine (its MDA is listed first, or the boot gate watches the wrong card).
+
+And one more that is not about time at all, and is the newest:
+
+- **A status line from hardware that is NOT THERE.** SPEC.md §18.97's floppy
+  probe decides whether drive B exists by reading TRK0 out of the uPD765 —
+  ST3 bit 4, and ST0's Equipment Check after a recalibrate. **MartyPC
+  answers both for a drive its own config does not have.** Measured: on
+  `os8088_5150_cga_1fd`, a one-drive machine, a forced probe of unit 1 reads
+  `ST3 = 0x79` — unit 1, ready, two-sided, **TRK0 set** — and a forced
+  recalibrate reads `ST0 = 0x29`, IC = 00, normal termination, seek end, no
+  EC. Both are the answers a *present* drive gives. The FDC synthesizes drive
+  status rather than modelling an unpopulated select line floating to
+  inactive, so **no emulator here can ever produce the absent verdict**, and
+  the removal path is field-only.
+
+  This is the safe direction and that is the only reason it is a note rather
+  than a defect: the probe fails towards *keep*, so every emulator sees the
+  pre-§18.97 behaviour exactly. What it means for testing is that **the two
+  paths split** — everything except the EC branch is verifiable here (below),
+  and the EC branch itself is verifiable only on the 5150 whose SW1 claims a
+  drive it does not have (docs/FIELD-MACHINES.md).
+
+  **QEMU is the same wall from the other side, and it is worth writing down
+  so nobody re-derives it**: `fdctrl_handle_sense_drive_status` answers
+  `0x28 | (track == 0 ? 0x10 : 0) | unit`, off a `track` that is 0 for a
+  drive that is not there — measured, `ST3 = 0x39`, `probe stop 01`. Both
+  emulators say *present* unconditionally, for different reasons.
+
+  **`make FDDABSENT=1` is what splits the two halves of that** (SPEC.md
+  §18.97.2). It forces the verdict to absent for unit 1 with no port touched,
+  filling §57.5's block with the field 5150's own bytes (`ST3 = 21` twice,
+  `ST0 = 71`, `probe stop 03`) — so the **decision** on top of the probe is
+  testable on any machine here, while the **conversation** stays the 5150's
+  question. That decision is what §18.97.2 changed and it needs both tiers:
+
+  ```sh
+  # tier 0 must RETIRE, tier 1+ must KEEP - one binary, two CPUs
+  make FDDABSENT=1
+  python3 - <<'PY'
+  import sys, os; sys.path.insert(0, "tools")
+  os.environ["OS88_DEFINES"] = "FDD_FORCE_ABSENT"
+  import os88marty as M
+  with M.launch("build/os8088-360.img", apps="build/apps360.img",
+                machine="os8088_5150_cga_gla") as m:
+      M.settle(m)
+      print("tier", m.read(m.sym("cpu_tier", ("FDD_FORCE_ABSENT",)), 1)[0],
+            "row1", m.read(m.sym("dsk_vtab", ("FDD_FORCE_ABSENT",)) + 16, 3))
+  PY
+  # -> tier 0, row1 (0xFF, 1, 0): retired, desktop shows A: alone
+  make test FDDABSENT=1   # QEMU is tier 2
+  # -> row1 (0x00, 1, 1): kept, desktop shows A: and B:
+  ```
+
+  Measured on both: `probe stop 03` either way, `verdict` 0 on tier 0 and 1
+  on tier 1+, and the shipped (no-knob) kernel is **0 differing framebuffer
+  bytes of 384,000** against the build before §18.97.2 — the new branch sits
+  behind a `jnz` no emulator reaches.
+
+**Testing §18.97, then, is three runs and a report:**
+
+```
+# 1. a two-drive machine must be UNTOUCHED - the byte-identity check
+#    (0 differing pixels of 128,000 on CGA and 250,560 on Hercules)
+make && cp build/os8088-360.img /tmp/a.img
+make FDDPROBE=0 && cp build/os8088-360.img /tmp/b.img && make
+#    ...boot each on os8088_5150_cga_gla / _herc_gla and diff m.vram()
+
+# 2. a ONE-drive machine must not probe at all: os8088_5150_cga_1fd reads
+#    eqp=01 ran=00, and dsk_vtab row 1 stays DVK_BIOS with its zone off -
+#    which is the pre-existing behaviour for an unclaimed drive
+python3 tools/os88marty.py 127.0.0.1:9001 ...   # read the 'FD' block
+
+# 3. the mechanism, with the count gate forced in a SCRATCH kernel: the
+#    recalibrate path must complete and decode, not hang the boot
+```
+
+Run 3 is the one worth spelling out, because it is the only way to reach
+`fdd_wseek` and the ST0 decode here at all: temporarily make `desk_init`'s
+`cmp ah, 2` a `cmp ah, 0` so the probe always runs, and `dsk_fdd_probe`'s
+`test al, 0x10` a `test al, 0x00` so step 1 always falls through. Rebuild,
+boot the one-drive machine, and the block must read `step=02` (`FDD_S_SEEKOK`)
+with a plausible ST0 — **not** a hang, and not `step=05` (`FDD_S_NOSEEK`).
+Revert both.
 
 For all of these, the emulator's role is to prove *correctness* before you
 burn a floppy. The judgement is made on hardware.
@@ -1664,7 +1940,7 @@ nothing. What 86Box adds is a real 6845 pair on a period bus; what it lacks
 is `dualcheck.py`'s reach into guest memory, so what it answers is *"does it
 look right"* rather than *"is it right"*.
 
-The last pair are the Frotz machines (SPEC.md 59.9) and are the only targets
+The last pair are the Frotz machines (SPEC.md 61.9) and are the only targets
 that put something other than the apps disk in B:. They also cover a drive
 geometry nothing else does — `xt-z` gives the XT a 720KB 3.5" DD drive as B:,
 because a 360KB disk does not hold a story library and DOS 3.2 supported one
