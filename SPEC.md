@@ -43613,3 +43613,705 @@ fullscreen bracket, and §64.4 already covers that.
 **No fade, no pattern, no bouncing anything.** Drawing a screen saver means
 running a task, holding the gfx lock and repainting the desktop underneath it
 on wake. Blanking the signal costs two `out`s and restores in zero.
+
+## 65. Microsoft Word — the word processor (`apps/word/word.asm`)
+
+A faithful native reimplementation of Microsoft Word for Windows 1.1a
+("Opus") as an os8088 package. The UI — the nine-menu bar, the ribbon, the
+ruler, the status line, the dialog contents, the keyboard map — follows the
+Computer History Museum source release of Opus verbatim (menu strings from
+`Opus/resource/menus.cmd`, ribbon/ruler layout from `Opus/ibdefs.h`, dialogs
+from `Opus/dlg/*.des`, keys from `Opus/resource/keys.cmd`). The reasoning and
+the full feature inventory are docs/WORD-PLAN.md; this section is the binding
+contract. The text engine is Note Pad's (§27), transplanted with prefix `wd_`.
+
+### 65.1 The mode is Draft view
+
+os8088 has one 8×8 fixed font and no styles in the renderer (§6), and Word
+1.1a shipped View > Draft for exactly that situation. Character formatting is
+synthesized per §61.5's precedent: bold = double-strike, italic = sheared
+glyphs pre-rendered into a 4bpp table and drawn one `gfx_blit4` per run,
+underline / word underline / double underline = drawn rules (cell rows 7,
+non-space spans, 6+7), small caps = case-mapped, hidden = omitted from
+layout. Center/right alignment render with the run offset rounded down to a
+multiple of 8 px (the byte-aligned fast path survives); justified records the
+attribute and renders as left — draft view's own simplification.
+
+The styled flush is Note Pad's row flush with runs: the accumulated row
+carries a parallel per-cell attribute array, split at draw time into runs of
+equal CHP — a plain run is one opaque `font_run`; bold adds a transparent
+second strike at x+1 (a cell whose OLD attribute could bleed a pixel into
+its right neighbour widens the delta span by one cell, so a style taken off
+never strands its bleed); an italic run is staged from the sheared table and
+lands as one `gfx_blit4` (bold-italic ANDs the staged row with itself
+shifted one pixel — ink is the 0 nibble, so AND is the OR of ink); underline
+rules are drawn after the run. The italic table is built at first use into a
+9KB claim from `OSAPI_FONT_GLYPHS`; if the heap refuses it, italic degrades
+to the plain glyph (plus the double-strike when bold) — grey the fact.
+
+**That claim carries the staging area too**, at `WD_STG4` past the 3,040-byte
+table. The staging area — one run's 4bpp image, `(WD_MAXCOL-1)*4*8` = 5,440
+bytes — used to be bss, which meant every machine reserved it whether a
+document ever showed an italic or not, and it was **55% of this package's
+entire bss**. A package's image + bss cannot reach 64KB (`APP_MAX_SIZE`, and
+that ceiling is the SEGMENT rather than a policy — §33's near model), so bss
+is the scarcest thing in a package and the heap is not. The two halves share
+one claim because they share a lifetime and a refusal: `wd_itinit`'s existing
+degrade-to-plain covers both, and no second failure path exists to get wrong.
+The cost is that every touch of the staged image carries an `ES` override, and
+`OSAPI_GFX_BLIT4` already takes `ES:SI`, so nothing below the app changed. The
+build runs on the UI task only: a WORKER draw pass that meets italic text
+before the table exists never claims (§20.6 forbids `OSAPI_MEM_*` there) —
+it letters the run plain for that frame and the next UI redraw builds the
+table. Small
+caps are case-mapped and hidden characters dropped at accumulate time (a
+hidden character occupies no cell; the word-wrap lookahead still counts it,
+a documented draft approximation). Show ¶ gives each paragraph mark a cell
+of its own, stamped from an 8×8 pilcrow image; the mark's cell and CHP byte
+fold into the row signature, so toggling Show ¶ dirties exactly the rows
+that carry a mark. Row signatures fold each character's CHP byte beside the
+character, so a formatting change dirties exactly the rows it touched, and
+the append fast path is taken only when the typing attribute is plain (all
+bits clear) — it patches the signature with the attribute's extra rotate.
+
+### 65.2 The chrome is drawn in the window
+
+`MENU_APPMAX` (§12.2) is five; Word's bar is nine menus, so the window draws
+its own chrome and registers no kernel menus: menu bar (14 px), ribbon
+(16 px), ruler (18 px), text area with its own scrollbar, status bar (12 px).
+The kernel bar carries an EMPTY menu set whose `AM_NAME` reads 'Microsoft
+Word', with the About handler (`OSAPI_ABOUT_SET`) opening the same box as
+Help > About… (three lines — 'Microsoft Word', 'Version 1.1a for os8088',
+the Computer History Museum credit — also on F1; Help > Index stays greyed
+because no help files exist on this platform). The os8088 TITLE BAR shows
+'Microsoft Word - <NAME>': the window template's title points at a bss
+buffer composed from the live document name, recomposed (and `OSAPI_WM_TITLE`
+told) on every name change — Save As, Open, a launch document — and the
+Window menu's item 1 carries the same live name. Ribbon, ruler and status
+bar toggle from the View menu; a toggle re-lays the text band with the
+band blit when only the band's top moved (the blit spans from the smaller
+of the old and new chrome tops) and repaints whole otherwise. Dropdown menus support both period gestures —
+press-drag-release with an XOR item highlight, and click-open ("sticky")
+with Esc / arrows / Enter / mnemonic keys, `Alt+mnemonic` opening from the
+keyboard — and close by repainting exactly what they covered: the strips
+they overlapped, and the text rows via one fill plus one clipped walk.
+Disabled items use the disabled pen (§47) — Print, Spelling, Macro and the
+rest of the platform-impossible commands are present and greyed as facts.
+The status line shows `Pg n  Sec 1  p/t  At nli  Ln n  Col n` live from the
+caret — status.h's field order: `p/t` is the page over the total pages (the
+total derived from `[wd_drows]`, a lower bound until the height count lands,
+never lowered), and At wears the `li` unit, the honest draft-view measure (a
+page is 54 lines, so At and Ln agree by construction; the text is
+delta-cached so a keystroke letters only the cells that changed). A window
+too narrow to show every cell DROPS the At field first — it duplicates Ln
+by construction, and losing it keeps Ln and Col, which the right-edge clamp
+would otherwise cut off; the lamps stand down whole when they would collide
+with the text. Four lamps
+at the right end, inverse-video when lit: EXT (F8 extend-selection mode:
+F8 arms it, plain caret motion then EXTENDS the selection, Esc or any edit
+disarms), CAPS and NUM from the BIOS keyboard flag byte at 0040:0017 (polled
+by the worker because a lock key alone emits no key event), and OVR —
+overtype, toggled by Ins: a typed printable REPLACES the character under the
+caret (recorded as delete + insert, so it undoes) except at a ¶ or the end,
+where it inserts. File > Close and Exit close the window: there is no
+self-close API slot, so the UI half hides the window and raises a flag, and
+the worker destroys the record and dies inside its next `OSAPI_TASK_ALIVE` —
+the kernel's own teardown path frees the task, region and claims. Both
+prompt first when the document is dirty (§65.4); the kernel close box
+CANNOT prompt — the kernel tears the instance down itself, a documented
+limitation.
+
+### 65.3 Document model: CHP bytes and PAP on the paragraph mark
+
+Three claims (§50.3): the text (¶ = byte 13, tab = 9, ceiling `WD_MAXKB` =
+30KB), one CHP attribute byte per character (bit 0 bold, 1 italic,
+2 underline, 3 word-ul, 4 double-ul, 5 small caps, 6 hidden, 7 **not free** —
+see below)
+mirroring every gap operation, and a 256-entry dictionary of unique paragraph
+formats (4 bytes: packed align/spacing/space-before, left, first (signed),
+right — indents in character cells, one cell = 1/10 inch). **Bit 7 is not a spare bit.** `WDAT_PIL` is 0x80 and it is the ROW BUFFER's
+'this cell is a pilcrow' flag, and an ordinary character's CHP byte is copied
+straight into `wd_abuf` — so a document byte with bit 7 set arrives at the
+flush as a pilcrow and letters as one. Nothing produces such a byte today
+(the readers build attributes from known bits only, and typing sets one of
+the six), which is exactly why this is worth writing down: the next person to
+want a seventh attribute will find bit 7 apparently free, and it is not.
+Taking it means giving the row buffer its own flag word first.
+
+**A paragraph
+mark's CHP byte is its paragraph's dictionary index** — paragraph formatting
+lives on the ¶ exactly as in Word, so deleting a ¶ merges into the following
+paragraph's format, and undo/cut/paste need only the text+CHP machinery.
+Dictionary entries are deduplicated and session-lived; a 257th unique format
+is refused with a toast.
+
+Typing inserts the current typing-attributes byte `[wd_chp]`; a caret move
+without a selection re-reads it from the character left of the caret (Word's
+rule). Applying an attribute over a selection follows Word's semantics — if
+any character in the span lacks it, set it on all, else clear it on all —
+and records ONE undo group. Undo blobs capture text AND CHP in two parallel
+arenas at identical offsets (`[wd_useg]`/`[wd_cuseg]`), so every arena
+operation — append, prepend, oldest-drop slide, restore — mirrors
+byte-for-byte and no offset arithmetic forks; a formatting-only change is an
+ordinary bulk record whose text half happens to be unchanged. The ribbon's
+B I K / U W D cells and Ctrl-B/U/W/D/K toggle the six synthesized formats on
+the selection or the typing attributes; the pressed state is the cell
+XOR-inverted, delta-cached against the caret's attribute byte (the
+selection's first character while one is up); the superscript/subscript pair
+stays greyed; the ¶ cell (and Ctrl-Shift-8's sibling in spirit) toggles
+Show-all. Ctrl-H/I/M collide with BS/Tab/CR in int 16h, so italic and hidden
+arrive through the Format Character dialog instead; Ctrl-Space resets to
+plain, detected by the BIOS ctrl flag at 0040:0017 bit 2 because int 16h
+folds Ctrl-Space into a plain Space. Format > Character is a modal dialog
+drawn centred over the content from a control descriptor (labels, check
+boxes, radios, greyed combos, buttons) that painter and hit test share; the
+seven check boxes are live ('Small Kaps' spelled as the authentic char.des
+string), Font/Points/Color/Position/Spacing are present and greyed, every
+key and click routes to it while open (Enter = OK, Esc = Cancel, a mnemonic
+letter toggles its box), and closing repaints what it covered through the
+dropdown's repair path. Toggling hidden re-lays the text (a hidden character
+occupies no cell), so it also drops the checkpoint and row tables.
+
+**Paragraph formatting is live** on top of the dictionary above. The 4-byte
+entry packs alignment (2 bits), line spacing (2 bits: 8/12/16 px advance)
+and space-before (1 bit: +8 px on the paragraph's first row) into byte 0,
+then left indent, first-line indent (SIGNED, relative to left) and right
+indent in cells — one cell = 8 px = 1/10" at pica pitch, the ruler's own
+scale. Entry 0 is Normal and pre-seeded; `wd_papfind` deduplicates and the
+dictionary never renumbers, so an undo blob's old index still names the old
+format. Splitting a paragraph (Enter) writes the SPLIT paragraph's index
+onto the new ¶ — never the typing attributes; deleting a ¶ merges the text
+into the following paragraph's format by construction; a pasted ¶ joins the
+paragraph it was pasted into; a plain-text load zeroes every index. Every
+door — Ctrl keys, the ruler's cells, the marker drags, the Format Paragraph
+dialog — funnels through ONE span modifier (`wd_modpap`): it rewrites the
+¶ marks the selection touches (each to the index of its own modified
+format) as ONE bulk text+CHP undo group; the tail paragraph's index lives
+in `[wd_pap_tail]` outside the buffers and is the one paragraph fact undo
+cannot restore. A ¶ mark's byte being an index also means `wd_chpsync`,
+the ribbon state, and every character-attribute sweep step OVER marks.
+
+**Tabs**: byte 9 is one selectable character occupying the cells to the
+next default stop — every `WD_TABSTOP` (5) cells from the row's own start
+pen; custom stops are out of scope and the ruler's tab-type cells are
+greyed to say so. A tab's cells wear its CHP dress (an underlined tab draws
+its rule), it ends a word like a space, and `[wd_hastab]` — set-only, like
+`[wd_hashid]` — stands the two column-arithmetic fast paths down.
+
+**The keyboard map goes fully authentic** (keys.cmd): Ctrl-X/C/V are
+ResetPara / CenterPara / (unbound), cut/copy/paste ride Shift+Del /
+Ctrl+Ins / Shift+Ins (decoded from the scan code plus the BIOS shift
+flags, so NumLock's '0' and '.' still type), Alt+BkSp is undo, and
+C-L/R/J/E/O/N/T/G carry the paragraph formats; C-M (UnIndent) is int 16h's
+Enter and rides the dialog and the markers instead. Deliberate deviations,
+each commented at the constant: Ctrl-A Select All, Ctrl-S Save, Ctrl-F/R
+Search/… as before Ctrl-R — Ctrl-R is RightPara now and Replace is the
+menu's.
+
+**The ruler is two rows, as Opus's own is.** `ibdefs.h`'s `ibdRuler2` puts
+every button at y=1 with height 12 and then `ibidCustomWnd(1,14,…)` —
+`idRulMark`, the scale — on a row of its own beneath them. Row 1 carries the
+Style combo, the four alignments, the three spacings, close/open and the four
+(greyed) tab types; **row 2 is the scale alone, and it is zeroed on the TEXT
+COLUMN and spans it.** That is the point of the second row: an indent marker
+at n cells then sits exactly over the column the text will indent to, and
+inch 1 is one inch of document. Sharing one row with the buttons had put the
+scale over the right-hand third of the window, starting at a fixed x, lined
+up with nothing — and in Page view (§65.11) it spans the sheet exactly,
+because the sheet IS the text column. `WD_RULER_H` is 34 and
+`WD_CHROME_TOP` is 64, still the multiple of 8 the blit paths want.
+
+**The ruler is live**: the alignment, spacing and open/close cells fire
+`wd_modpap` and their pressed state is delta-cached against the CARET's
+paragraph exactly as the ribbon's cells are against its attributes; a click
+in row 2 is a marker drag whatever its x, because the scale is a row now and
+no cell can be under it; the indent markers draw at the caret paragraph's
+indents on the inch scale and DRAG — an XOR guide over the text band, the release snapped to whole cells.
+Format > Paragraph reuses the modal framework with live radios (grouped)
+and live edit fields (inches; cells = tenths; click or Tab focuses, digits
+'.' '-' '"' type, BkSp deletes); the Keep/Border/Pattern/Style groups are
+omitted rather than greyed — with them the dialog cannot fit a CGA content
+box, and a Format command that refuses on one adapter of three is worse.
+
+### 65.4 File format and association
+
+**The file is a real Word file.** Not a private container with Opus's magic
+on it — the actual Word for Windows 1.x/2.x binary format, laid out from the
+Opus headers (`wordtech/file.h`, `wordtech/fkp.h`, `wordtech/doc.h`,
+`wordtech/prm.h`, `wordtech/props.h`, `wordwin.h`): a 314-byte FIB in a
+384-byte header page, the text, CHPX and PAPX **FKP** pages with their bin
+tables, a style sheet, a section table and a DOP. `wIdent` = 0xA59B,
+`nFib` = 33 (`nFibCurrent`), `nFibBack` = 25 (`nFibBackCurrent`).
+
+The pieces `wd_docsave` writes, in Opus's own file order (the table at the
+head of `wordtech/savefast.c`):
+
+| structure | contents |
+|---|---|
+| FIB | offsets 0..313, zero-filled to `cbFileHeader` = 384. `fcMin` = 384, `fcMac` = `cbMac` = the end of the last structure, `ccpText` = the text length; every `fc*`/`cb*` pair below is filled in as its structure lands, and the pairs of structures this port has nothing to say about are left 0/0, which is exactly what Opus's reader tests (`if (fib.cbSttbfffn)`, `if (fib.cbPlcfsed)`, …) |
+| text | at `fcMin`, ANSI, one `chReturn` (13) per paragraph mark and `chTab` (9) for a tab — the same bytes the document model already holds (§65.3), so no transcoding happens on either side |
+| CHPX FKPs | 512-byte pages: `rgfc[crun+1]` file offsets, then `crun` one-byte offsets **in words** (`b << 1`; 0 = default CHP), then the CHPXs (a `cb` byte and a grpprl), `crun` in byte 511 |
+| PAPX FKPs | the same page shape, but each PAPX is `cw` (a **word** count — `nFib` ≥ 25, `file.h` history entry 25), `stc`, a 6-byte `PHE` with `fUnk` set (we do not paginate, so the height is honestly marked unknown), then the grpprl, padded to a word |
+| STSH | `cstcStd` = 0, then the three style STTBs (name / CHPX / PAPX) and the `PLESTCP`. One style, `stcNormal`: the name STTB carries `Normal`, the rule STTBs carry the style-rule 255 ('no rule'), the PLESTCP one `ESTCP{stcNext 0, stcBase 0}` |
+| plcfsed | one section: two CPs and one `SED` whose `fcSepx` is `fcNil` — Opus reads that as 'this section is the default section', so no SEPX is written at all |
+| plcfbteChpx / plcfbtePapx | the bin tables: `n+1` FCs then `n` `BTE`s (a PN each), plus `pnChpFirst`/`pnPapFirst` and `cpnBteChp`/`cpnBtePap` in the FIB |
+| DOP | 66 bytes: US Letter (`xaPage` 12240, `yaPage` 15840), 1″ top and bottom, 1.25″ left and right, `dxaTab` 720, everything else zero |
+
+The character and paragraph properties are **sprms**, from `wordtech/prm.h`
+with the operand widths from `dnsprm` in `wordtech/prcsubs.c` (`cch` 2 = a
+byte operand, 3 = a word):
+
+| our attribute (§65.3) | sprm | operand |
+|---|---|---|
+| bold | `sprmCFBold` 60 | 1 |
+| italic | `sprmCFItalic` 61 | 1 |
+| underline / word / double | `sprmCKul` 69 | `kulSingle` 1 / `kulWord` 2 / `kulDouble` 3 |
+| small caps | `sprmCFSmallCaps` 65 | 1 |
+| hidden | `sprmCFVanish` 67 | 1 |
+| alignment | `sprmPJc` 5 | `jcLeft` 0 / `jcCenter` 1 / `jcRight` 2 / `jcBoth` 3 |
+| left indent | `sprmPDxaLeft` 17 | twips |
+| first-line indent | `sprmPDxaLeft1` 19 | twips, signed |
+| right indent | `sprmPDxaRight` 16 | twips |
+| line spacing | `sprmPDyaLine` 20 | 240 / 360 / 480 |
+| space before | `sprmPDyaBefore` 21 | 120 |
+
+One cell is 1/10″ = 144 twips (§65.3), so an indent converts by ×144 on the
+way out and ÷144 on the way in; a spacing that is not one of the three the
+renderer has rounds to the nearest of them on the way in.
+
+**Reading.** `wd_docload` reads the whole file into the staging claim, then
+sniffs: `wIdent` 0xA59B with `nFib` ≥ `nFibMinDoc` (18) is a Word file,
+`{\rtf` is RTF (§65.8), anything else is plain text (CRLF and lone LF fold
+to ¶, tabs kept, other controls dropped, CHP zeroed, every paragraph
+Normal). A Word file is validated field by field against the file size
+BEFORE anything is copied — every `fc`/`cb` pair must lie inside it, every
+FKP page number must address a whole page inside it, every plex length must
+divide — and a file that fails is refused with a toast, the document
+untouched.
+
+**The piece table is read** (§65.4.1), so a fast-saved file opens. CHPX and
+PAPX runs are walked through the bin tables and mapped back to the CHP byte
+and the PAP dictionary; sprms this port has no field for are skipped by
+their `dnsprm` width rather than guessed at, and a PAPX whose `stc` is not
+`stcNormal` still contributes its grpprl (the style's own properties are the
+one thing a port with no style sheet cannot honour, and that is a documented
+loss, not a wrong pixel). `chSect` (12) and every other control below 32
+except tab and ¶ are dropped on the way in, exactly as the plain-text path
+drops them.
+
+**Writing refuses rather than truncates.** The image is assembled in one
+staging claim and written with ONE `OSAPI_FILE_WRITE`, so its ceiling is the
+claim's: at `WD_MAXKB` = 30 the text and its header are 31,104 bytes and
+`WD_DOCCAP` (62KB) leaves ~30KB for the FKP pages and the tables, which is
+some 3,000 character runs and 1,500 paragraphs. A document that needs more
+pages than that is refused with 'Document too complex to save' and stays
+open and editable — §47's rule and PERFORMANCE.md's rule 6, at the file
+layer.
+
+Save always writes the Word format whatever the name's extension, as the
+real product's Save did — except `.RTF`, which §65.8 owns, because there the
+extension IS the format the user asked for. Save As through the kernel
+`FDLG_SAVE` appends `.DOC` to an extensionless typed name.
+
+The loaded PAP table becomes the session dictionary — indices never
+renumber — and `[wd_hasfmt]` is raised whenever more than Normal is in use.
+
+#### 65.4.1 The piece table
+
+A file whose FIB has `fComplex` set stores its text in pieces instead of one
+contiguous run, and `fcClx` points at the `CLX`: a sequence of `clxtPrc` (1)
+records — a byte, a word length, a grpprl — followed by one `clxtPlcpcd` (2)
+record, a byte, a word length, and a plex of `PCD`s. A `PCD` is 8 bytes:
+flags-and-`fn` word, the piece's file offset `fc`, and a `prm`. The plex's
+`n+1` CPs give each piece its length.
+
+The reader walks the pieces in CP order and copies each one's text out of
+the staging image, so a fast-saved document arrives as the same flat buffer
+a simple one does. The `prm`s are read for their single-sprm form (the
+`fComplex` bit clear: a sprm code and a value) and applied to the piece's
+paragraphs; the `clxtPrc` grpprls a complex `prm` indexes are skipped —
+naming them would need the whole PRC chain, and the properties they carry
+are the ones the FKPs already carry for a simple file.
+
+**Writing is simple, never complex** — which is what Word's own full save
+does (`FQuickSave` with `fCompleteSave`); complex is Fast Save's shape, and
+a port with one 30KB buffer has nothing to gain from it and a format to get
+wrong. So the pieces are read and not written, and that asymmetry is the
+point: it is the half that lets this app open other people's files.
+
+#### 65.4.2 Verifying it without Word
+
+There is no copy of Word here to open the output with, and 'it round-trips
+through the app that wrote it' proves only that the app is self-consistent.
+So the format has a **second, independent implementation**:
+`tools/wordfmt.py` parses a `.DOC` from the Opus structures — FIB, FKPs, bin
+tables, STSH, plcfsed, DOP, and the piece table — and dumps the text with
+its character and paragraph properties. `make wordcheck` builds the shipped
+`WELCOME.DOC`, parses it with that reader, and diffs the result against the
+markup it was generated from; `tools/os88doc.py` writes the same real format
+from the host side, so the tool that generates and the tool that verifies
+are separate code paths over one specification. What this does NOT establish
+is that a running Word 1.1a accepts the file, and no claim that it does
+belongs in this repo until someone runs one.
+
+**Dirty tracking**: every buffer or format mutation sets `[wd_dirty]`; a
+successful Save (and a load, and File > New) clears it. File > New / Open… /
+Close / Exit on a dirty document raise Word's own modal prompt — 'Do you
+want to save changes to <NAME>?' with Yes / No / Cancel (Y and N answer from
+the keyboard, Enter = Yes, Esc = Cancel): Yes saves and proceeds only if the
+save succeeded (a failed save's toast stands and the action aborts), No
+proceeds, Cancel aborts.
+
+The package's association block claims `DOC`; a desktop double-click arrives
+via `OSAPI_ARG_FILE`. The shipped `WELCOME.DOC` is generated
+deterministically (no timestamps) by `tools/os88doc.py` from
+`apps/word/welcome.wtx`, a minimal line-based markup — one line per
+paragraph, leading `.c/.r/.j/.sp15/.sp2/.open/.li n/.fi n/.ri n` directives
+for the PAP, `{b}…{/b}`-style spans for bold/italic/underline/word-ul/
+double-ul/small caps — so the disk ships a document that exercises the
+formatting the same engine renders.
+
+### 65.5 The dedicated disk and the two machines
+
+Frotz's precedent (§61.9), exactly: `WORD.O88` rides its own floppy, never
+the apps disks. `make worddisk` builds `build/word.img` / `word720.img` /
+`word360.img` — root holds `WORD.O88` + `WELCOME.DOC`, plus an empty `DOCS\`
+folder for the user's documents. On demand; `all` does not build them.
+
+`make xt-word`: an IBM XT at 4.77MHz with 640KB (the document claims are what
+the memory is for), booting the 360KB system floppy with the 720KB Word disk
+in B: (3.5" DD, xt-z's drive). No sound card — Word makes none. `make
+386-word`: a 386DX/25 with two 1.44MB drives, B: = `word.img`; AT-class, so
+the first boot wants its CMOS answered once. Both targets unprotect their
+cfg first — a `wp://` floppy turns every document save into FERR_WPROT.
+
+### 65.6 Performance posture
+
+Note Pad's architecture is kept whole: one layout walk answering paint /
+caret / hit-test / row queries, row signatures widening a damage range, one
+opaque `font_run` per plain span with styled overlays after it, blit
+scrolling with the row description shifted alongside, the append fast path,
+and the lazy worker paying wrap/height debts. Line spacing (8/12/16 px row
+advance, +8 before an open paragraph) adds a per-visible-row height array
+beside the row-start table — the one structural change. The standing budget
+is unchanged: a keystroke letters ~2 cells; nothing repaints more than it
+changed.
+
+The height array is `wd_ryb` — each visible row's GLYPH y, banked beside
+`wd_rows`/`wd_sig`, shifted (and value-adjusted) with them by the scroll's
+description shift. It carries four duties: a seeded walk resumes its y from
+the row above the seed (the rows the seed's licence already says stood
+still); pass 1 compares each row's computed y against it, so a row whose
+pixels MOVED without a character changing is dirty, and the band repaint
+first ERASES the union of the moved rows' old and new extents (a glyph run
+only self-erases at its own y); `wd_yrow` answers click-y → row from it; and
+a downward blit-scroll takes its pixel delta from it. While `[wd_hasfmt]`
+is clear — every document until a paragraph format is applied — none of
+this costs a memory reference beyond the bank itself and every path is the
+uniform 8 px engine unchanged. Formatted documents give three things back,
+each a documented degrade, never a wrong pixel: UPWARD blit-scrolls (the
+entering rows' heights are unknown) fall back to the full repaint, the
+View-toggle band blit likewise, and the visual break and append
+fast paths stand down (as they already did for hidden text). Entering a
+paragraph scans forward to its ¶ for the governing format — each walked
+byte is read at most twice, Word's own arrangement — and a centred or
+right-aligned row is dry-run once through the SAME wrap helpers to learn
+its width before its pen is offset. Caret geometry goes row-first: the walk
+banks `[wd_currow]` beside the pixel pair, `wd_vmove`/`wd_hmove`/`wd_move`
+ask for rows, and `wd_seecaret` scrolls by rows against `[wd_vfit]` — the
+rows GUARANTEED to fit (band/24 under formats, all of them while uniform).
+
+### 65.7 Search, Replace, Go To
+
+Word 1.1 had no regex, and neither does this port: Note Pad's regex engine
+and its docked find panel are GONE (the bytes reclaimed), replaced by the
+authentic modal dialogs on the §65.3 framework. **Edit > Search…** (Ctrl-F)
+is search.des: a Search For edit, Whole Word and Match Upper/Lowercase
+check boxes, Up/Down Direction radios, OK/Cancel. The engine is a literal
+scan: case folds BOTH sides when Match Upper/Lowercase is clear, Whole Word
+demands non-word neighbours (word characters are A-Z a-z 0-9), a search
+wraps around the document exactly once, a hit is selected and scrolled
+visible, a miss toasts 'Search text not found'. F4 / Shift-F4 repeat the
+last search down / up.
+
+**The pattern is Word's**, compiled by `wd_pcomp` from `SetSpecialMatch` in
+`Opus/search.c` with the escape letters from `Opus/inter.h`:
+
+| in the box | matches |
+|---|---|
+| `?` | any one character — **unless every character of the pattern is `?`**, in which case they are literal question marks. `search.c`'s own rule, and the reason a user can still search for `???` |
+| `^?` | a literal `?` |
+| `^^` | a literal `^` |
+| `^p` | a paragraph mark (13) |
+| `^t` | a tab (9) |
+| `^w` | white space: one or MORE of space or tab, greedily, counted as one pattern character |
+| `^`digits | the character with that decimal code |
+| `^`anything else | that character, literally — `search.c` treats `^x` as `x` |
+
+`^s` (non-breaking space), `^-` (optional hyphen), `^~` (non-breaking
+hyphen) and `^d` (section mark) name characters the 8×8 font and the
+document model have no room for (§6, §65.3); they compile to their literal
+letter under the `^x` = `x` rule above rather than to a character that can
+never occur, so a search for one fails honestly instead of silently never
+matching. The replacement string takes Word's two specials from `inter.h`
+as well: **`^m`** inserts the text that matched (`chUseMatched`) and
+**`^c`** the clipboard's contents (`chUseScrap`, refused with a toast when
+the clipboard is empty or larger than the buffer); `^^` is a literal caret
+and every other `^x` is `x`, the same rule as the pattern.
+
+**Edit > Replace…** is replace.des: Replace With and
+a Confirm Changes check box on top of the Search set. OK with Confirm clear
+sweeps the whole document as ONE bulk undo record and toasts 'n changes';
+with Confirm set each match is selected in turn under a small Yes / No /
+Cancel prompt pinned to the BOTTOM of the content (the dialog closes,
+repairs, and reopens per step so the selection is never lettered under it);
+each confirmed replacement is its own undo record. **Edit > Go To…** (F5)
+asks for a page number and puts the caret at the start of line
+(page−1) × 54, scrolling it to the top of the view. The dialog framework
+grew what these need: free-text edit fields (`WDDF_TXT`, printable 32..126,
+per-record capacity — a focused text edit consumes letters, so check-box
+mnemonics answer only while none is), per-dialog check-state initialisation,
+and a third button verb (No) beside OK and Cancel.
+
+### 65.8 RTF in and out
+
+Word's other portable format, and the one that is pure text transform:
+`Opus/RTFOUT.C` writes it and `Opus/RTFIN.C` reads it, neither touching
+Windows. Both directions live here.
+
+**Writing** (`wd_rtfsave`). The extension decides — Save or Save As onto a
+name ending `.RTF` writes RTF, everything else writes the Word format
+(§65.4) — because unlike a `.DOC`, a `.RTF` name is the user naming a
+format. The output is a single group, emitted straight into the staging
+claim:
+
+```
+{\rtf1\ansi\deff0{\fonttbl{\f0\fmodern Courier New;}}
+{\stylesheet{\snext0 Normal;}}
+\pard\plain\f0\fs20 …
+}
+```
+
+then, per paragraph, `\pard` followed by the PAP's own controls — `\qc`
+`\qr` `\qj` for the alignment (left is `\pard`'s default and emits
+nothing), `\li` `\fi` `\ri` in twips, `\sl240` / `\sl360` / `\sl480` for the
+three line spacings, `\sb120` for an open paragraph — and then the text as
+runs of equal CHP, each opened with the controls that turn its attributes on
+(`\b`, `\i`, `\ul`, `\ulw`, `\uldb`, `\scaps`, `\v`) and closed with their
+`0` forms. A tab is `\tab`, `{`, `}` and `\` are backslash-escaped, a
+character above 126 is `\'hh`, and a paragraph ends `\par`. A control word
+is terminated by exactly one space, which the reader eats — never two, so
+the file stays the size it needs to be.
+
+**Reading** (`wd_rtfload`). A file whose first bytes are `{\rtf` imports as
+RTF. The reader is Word's shape: a tokeniser over groups, control words
+(letters then an optional signed parameter then one optional space),
+control symbols, and text; a group stack that saves and restores the
+character properties on `{` and `}` so `\b`'s scope ends with its group; and
+a **destination** rule — `{\*\…}` and the known non-text destinations
+(`\fonttbl`, `\colortbl`, `\stylesheet`, `\info`, `\pict`, `\footnote`,
+`\header`, `\footer`) are skipped whole, to their matching `}`. Recognised:
+`\b \i \ul \ulw \uldb \ulnone \scaps \v \plain` and their `0` forms,
+`\pard \ql \qc \qr \qj \li \fi \ri \sl \sb`, `\par \line \tab \page`,
+`\'hh`, `\{ \} \\`, `\~` (a space) and `\-` (nothing). An unrecognised
+control word is ignored; an unrecognised control word introducing a group
+is ignored, not its group — `\*` is what says 'skip the group', and honouring
+that distinction is what stops an RTF file from arriving empty.
+
+The reader is bounded by the same ceilings as every other load: text past
+`WD_MAXKB`, a 257th paragraph format, or a group nesting deeper than
+`WD_RTFDEPTH` (16) stops the import with a toast and keeps what it had —
+Word's own reader truncates at its limits too, and a partial import that
+says so beats a refusal that loses the file.
+
+### 65.9 Utilities: Sort, Renumber, Table of Contents
+
+Three commands that are algorithms rather than screens, which is why they
+port: `Opus/sort.c`, `Opus/renum.c` and `Opus/toc.c` are all Windows-free.
+Each is the authentic dialog from its `.des` file on §65.3's framework, and
+each rewrites its span as ONE bulk undo record (`wd_urec_bulk`), so Alt+BkSp
+takes the whole operation back.
+
+All three operate on **the selection, or the whole document when there is
+none** — Word's own rule, and the reason Sort with nothing selected sorts
+everything. Each snaps the span out to whole paragraphs before it starts: a
+selection that ends mid-paragraph still sorts, renumbers or collects that
+paragraph whole, because a paragraph is the unit all three are defined over.
+
+**Utilities > Sort…** (sort.des). Sort Order Ascending / Descending; a Key
+Field group with Key Type (Alphanumeric / Numeric — Date is in the list and
+greyed, this port has no date parser), Separator Comma / Tab, and Field
+number; Sort Column Only and Case Sensitive check boxes — Sort Column Only
+greyed, because §65.1's draft view has no column selection to restrict to.
+The sort is **stable** (an insertion sort over an index array, so equal keys
+keep their document order, which is what makes a second sort on a second
+field a working two-level sort — Word's own idiom). Alphanumeric compares
+bytes, folding case unless Case Sensitive is set; Numeric parses a leading
+signed integer and compares values, and a field with no number sorts before
+every field that has one. The key is field N counting from 1 between
+separators within the paragraph; a paragraph with fewer fields than N keys
+on the empty string. Text and CHP move together, and each paragraph carries
+its own ¶ mark — and therefore its PAP index — with it.
+
+**Utilities > Renumber…** (renum.des). Renumber Paragraphs All / Numbered
+Only / Remove; Automatic / Manual with a Start at edit; a Format edit; a
+Show all levels check box (greyed — see below). Automatic numbers from 1,
+Manual from the Start at value. The Format string is Word's: the first
+digit-or-letter in it is the number's place and its KIND —
+`1` arabic, `I`/`i` roman, `A`/`a` alphabetic — and everything around it is
+kept verbatim, so `1.` gives `1.`, `(1)` gives `(1)` and `I.` gives `I.`.
+A number is separated from the paragraph's text by a tab, as Word's is.
+'Numbered Only' renumbers just the paragraphs that already begin with a
+number in that shape and leaves the rest alone; 'Remove' strips the number
+and its tab from every paragraph that has one. Show all levels is greyed
+because levels come from the style sheet (§65.4's documented loss) and there
+is none.
+
+**Insert > Table of Contents…** (toc.des). Use Heading Paragraphs / Use
+Table Entry Fields; All / From..To level edits. The collected entries are
+inserted at the caret as one bulk record, each as `text`, a tab, and the
+page number the entry's paragraph falls on (the caret's own Pg arithmetic,
+absolute line ÷ `WD_PGLINES`), with the entry indented one `WD_TABSTOP` per
+level below the first.
+
+Word takes an entry's level from the paragraph's **style code**
+(`toc.c`: `iLevel = stcLevLast - vpapFetch.stc + 1`), and this port has no
+style sheet. The two radios say what it does instead, and both are facts the
+document carries rather than guesses:
+
+* **Use Heading Paragraphs** — a paragraph whose FIRST character is bold is
+  a heading, and its level is `1 + left indent / WD_TABSTOP`, clamped to 9.
+  Bold-from-the-first-character is what a heading looks like in draft view
+  with one font, and the indent is the only paragraph-level rank the PAP
+  carries.
+* **Use Table Entry Fields** — a paragraph that begins with a HIDDEN `.C.`
+  run is an entry, the rest of the hidden run is its text, and the level is
+  the count of characters between the dots (`.C.` level 1, `.CC.` level 2 —
+  Word's own table-entry convention from before the field). Hidden text is
+  something this port really has (§65.1), so the marker is invisible in the
+  document exactly as Word's field is.
+
+Both radios are live; From..To filters by the level either rule produced,
+and a collection that found nothing toasts 'No table of contents entries'
+and inserts nothing.
+
+### 65.10 WORD.OVL — code that ships beside the package, not inside it
+
+A package's image + bss is capped at `APP_MAX_SIZE`, and that ceiling is not
+a budget anyone can raise: a package links at `org 0` and addresses itself
+with 16-bit offsets (§33), so image + bss can never reach 64KB whatever the
+heap has free. **A module has a segment of its own, so it does not spend the
+package's.** `WORD.OVL` is code that ships as a file beside `WORD.O88`, is
+read into a heap claim the first time one of its features is asked for, and
+is far-called through a dispatcher at its offset 0.
+
+The shape is the kernel's §2.8 on-demand module, not §52.11's self-contained
+driver, and the difference is the whole design: **the module keeps
+`DS` = the package's segment** and reaches the document, the claims and every
+`wd_*` variable through it exactly as resident code does. That is what makes
+moving a subsystem out a matter of moving its text rather than rewriting
+every data reference in it — the three candidate `.inc` files carry 375
+outgoing data references between them, and all 375 are free this way and
+would all break the other way.
+
+**It costs no kernel byte.** Loading is the sequence `drivers/hdd/hdtool.inc`
+already uses (§52.11): `OSAPI_FILE_HERE` / `_GOTO` to reach the folder the
+package was launched from, `OSAPI_MEM_CLAIM` for the image,
+`OSAPI_FILE_READ` to fill it, and a far call. Every one of those is a slot a
+package already has.
+
+Two rules follow from the module having a `CS` of its own, and they are the
+only tax on writing code out there:
+
+1. **A call from the module to resident code cannot be near.** It goes
+   through a vector — `call far [wd_v_*]`, a dword of (offset, segment) whose
+   offset is assembled in and whose segment `wd_ovbind` stamps at load. Each
+   vector points at a **shim**, never at the routine: every resident routine
+   is a near proc ending in `ret` (§20.1 — a package author never writes
+   `retf`), so far-calling one directly pops the offset, leaves the segment
+   on the stack and returns into nothing. The shim is the one place that
+   difference lives.
+2. **Nothing in the module may assume `CS`** beyond its own jump table, and
+   its data lives in `.text` with everything else.
+
+**The cut.** `.modc` is assembled WITH the package — one assembly, so every
+symbol the module names is the address the package itself uses — and
+`tools/os88ovl.py` splits it off afterwards. NASM coalesces every `.text`
+fragment before it, so `.modc` lands at the end of the image whatever order
+the source is in, and the cut point is the image size the package header
+already carries at +8, where `tools/os88pkg.py` and the loader both read it.
+The layout therefore lives in one place. `align=1` on the section is
+load-bearing: a bin section aligns to 4 by default, and the pad would land
+between the recorded image size and the section's real start, so the cut
+would take the pad with it and the dispatcher would not be at offset 0.
+
+**Refusal is an ordinary path** (§47). No heap, or a disk swapped for one
+without `WORD.OVL`, and the feature says which file is missing and the
+document is untouched. The load is UI-task only — it claims and it reads a
+floppy, both forbidden on a worker by §20.6 rule 7 — gated on `[wd_inwk]`,
+the same flag `wd_itinit` uses.
+
+**Status, stated plainly because the mechanism is in the tree before any
+feature rides on it.** Proven on the emulator: the file is found and read
+into a claim, the far call reaches the dispatcher at offset 0, the verb table
+dispatches, the `retf` returns, and a far call OUT to a shim that only
+returns works. **Not yet proven: a shim whose resident routine touches the
+UI** — calling `wd_saymsg` through one froze the app, and every static
+explanation was checked and cleared (the vector holds the shim's address, the
+segment is stamped, the string offset is the string, and the shim's near call
+lands exactly on `wd_saymsg` — its displacement wraps 64KB, which is legal
+and correct). The cause is dynamic and unknown. **No feature moves out of the
+resident image until that is understood**, because a subsystem that cannot
+report its own refusal is a subsystem that cannot ship.
+
+### 65.11 View > Page — the sheet
+
+Draft view (§65.1) wraps to the window, because the window is what the reader
+has. **Page view wraps to the SHEET**: a fixed `WD_PGCOLS` (60) cell column —
+480px, six inches at this port's scale of one cell to 1/10" — centred in the
+content, with its two edges drawn and a tick in the margin wherever a page
+begins. `View > Draft` and `View > Page` are a live pair and exactly one of
+them carries a check.
+
+**It is the text COLUMN and not the whole 8.5" sheet**, on every adapter. At
+this scale a full sheet is 680px wide, and of the three adapters only
+Hercules (720×348, §39) is wider than 640 — so a full sheet would be right on
+one adapter of three, and CLAUDE.md's rule is to look at a layout on a 1bpp
+adapter before calling it done. Six inches is US Letter less Word's own 1.25"
+margins, which is the part a reader is actually looking at.
+
+**The whole view is two numbers.** `wd_pgcol` runs inside `wd_bounds` at the
+point the column's RIGHT EDGE is decided, and moves `[wd_tx]` and that edge to
+the sheet's. Everything downstream — `[wd_rcols]`, `[wd_wrgt]`, the wrap
+decision, the row buffer's padding, the caret hit test, the ruler's scale
+(§65.2) — already derives from that pair, so every one of them is right for
+the sheet without knowing a sheet exists. Narrowing `[wd_rcols]` alone, which
+is where this started, left the WRAP at the window's width and merely
+truncated each row at the sheet's edge: the tail of every line vanished. A
+window too narrow to hold the sheet keeps its own width, so Page view never
+hides text Draft would have shown.
+
+**What it draws, and what it costs.** Two vertical rules and, per visible page
+boundary, two short ticks — all of them OUTSIDE the text column, in the margin
+either side. That is deliberate: a rule drawn inside the column would be
+erased by the next flush of the row under it, and putting it back would mean
+the row flush — the hottest path in the app (§65.6) — learning about pages.
+Outside, only a full fill or a band blit can take them, and both call
+`wd_sheet` again. Two `gfx` calls in the common case, ~1.5ms on the target,
+paid per full repaint and never per keystroke. **PERFORMANCE.md's standing
+budget is untouched: a keystroke still letters ~2 cells.**
+
+**What it does NOT draw, and why.** The inter-page WHITESPACE a real Page view
+shows — the gap between one sheet's last line and the next sheet's first — is
+not there. It would have to come out of the layout walk's row advance, which
+means the height model (`wd_ryb`, §65.6) and every path that maps a row to a
+y learning about pages; that is a change to the walk, not a change to the
+chrome, and it is deferred rather than approximated. Headers and footers are
+not there either, and cannot be until the document model grows the second
+text stream §65.4 records it does not have. The page a line falls on is still
+`WD_PGLINES`-based and so is the status bar's `Pg`.
+
+**Print Preview is not this.** It is greyed, and stays greyed, because there
+is no printing path in this OS to preview — no printer driver class in §51, no
+slot in the published API. §47's rule: the greyed item is telling the truth
+for nothing.

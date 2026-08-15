@@ -46,6 +46,12 @@ VMPENT := $(CURDIR)/vm/pentium
 VMXTZ := $(CURDIR)/vm/xt-z
 VM386Z := $(CURDIR)/vm/386-z
 
+# The two WORD machines (SPEC.md 65.5): the same pairing as the Frotz two -
+# an XT with the 720KB Word disk in B:, a 386 with the 1.44MB one - but no
+# sound card on either, because Word makes no sound.
+VMXTWORD := $(CURDIR)/vm/xt-word
+VM386WORD := $(CURDIR)/vm/386-word
+
 # VIDEO=cga|herc|vga forces the adapter instead of probing for it (SPEC.md
 # 39.1). The shipped images are always built without it, so they auto-detect;
 # this exists because QEMU emulates no CGA and no Hercules card, and forcing
@@ -555,6 +561,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc
         comscan lptlink \
         fonts fontsheets fontlist \
         stories zdisk ztest zh zhboot zcheck zgfx zpic zscreens xt-z 386-z \
+        worddisk wordcheck xt-word 386-word \
         checkdocs clean clean-marty distclean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
@@ -1522,6 +1529,78 @@ $(BUILD)/zork2.img: $(BUILD)/stories.stamp $(BUILD)/zcat/disk2/CATALOG.TXT \
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		$(BUILD)/zcat/disk2/CATALOG.TXT $(ZS_DISK2) \
 		ART:$(BUILD)/BRONZE.PIX --folder SAVES
+
+# =============================================================================
+# MICROSOFT WORD and its document floppy (SPEC.md 65) - ON DEMAND: `make worddisk`
+# =============================================================================
+# Word follows Frotz's precedent (SPEC.md 65.5) exactly: WORD.O88 does NOT
+# ride the shipped apps disks - it gets its own floppy in all three
+# geometries, each with an empty DOCS\ folder where the file dialog lands the
+# user's documents, and `all` does not build any of them. The xt-word and
+# 386-word machines below put this disk in B: instead of the apps disk.
+# WELCOME.DOC rides the root of all three: a native .DOC (SPEC.md 65.4)
+# generated DETERMINISTICALLY by tools/os88doc.py from apps/word/welcome.wtx
+# - a document that exercises the formatting the same engine renders, so the
+# disk demonstrates the product the moment it is double-clicked.
+# Every include is a prerequisite: the format modules are where the file
+# layout lives, and a stale word.bin reads exactly like the layout being wrong.
+WORDSRC := apps/word/word.asm apps/word/wddoc.inc apps/word/wdrtf.inc \
+           apps/word/wdutil.inc
+
+$(BUILD)/WELCOME.DOC: tools/os88doc.py apps/word/welcome.wtx | $(BUILD)
+	python3 tools/os88doc.py apps/word/welcome.wtx -o $@
+	@echo "welcome: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/word.bin: $(WORDSRC) apps/os88api.inc apps/os88ui.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/word/ -o $@ apps/word/word.asm
+	@echo "word:   $(call FILESIZE,$@) bytes"
+
+# WORD.OVL is cut off the assembled image before it is packaged (SPEC.md
+# 65.10): the module is assembled WITH the package so it can reach every wd_*
+# through DS, and only then split out, so what ships in WORD.O88 is the
+# resident half alone. The cut point is the image size the package header
+# already carries, so the layout does not live in two places.
+# ONE recipe makes all three, because they are one operation: a rule whose
+# only prerequisite was WORD.OVL and which had NO recipe of its own left make
+# free to decide word.o88 was up to date against the PREVIOUS word.trim.bin,
+# and it packaged a stale image while the cut silently succeeded. That reads
+# exactly like the feature under test being broken - it cost a debugging pass
+# on a ruler that was already correct.
+$(BUILD)/word.o88: $(BUILD)/word.bin tools/os88ovl.py tools/os88pkg.py
+	python3 tools/os88ovl.py $(BUILD)/word.bin -o $(BUILD)/WORD.OVL \
+		--trim $(BUILD)/word.trim.bin
+	python3 tools/os88pkg.py $(BUILD)/word.trim.bin -o $@
+
+$(BUILD)/WORD.OVL: $(BUILD)/word.o88 ;
+
+worddisk: $(BUILD)/word.img $(BUILD)/word720.img $(BUILD)/word360.img
+
+$(BUILD)/word.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+
+$(BUILD)/word720.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+
+$(BUILD)/word360.img: $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC --folder DOCS
+
+# --- the .DOC format gate (ON DEMAND: `make wordcheck`) ----------------------
+# There is no copy of Word here to open the output with, and "it round-trips
+# through the app that wrote it" proves only that the app is self-consistent.
+# So the format has a SECOND implementation: tools/os88doc.py writes it and
+# tools/wordfmt.py reads it, sharing no code, both from the Opus headers
+# (SPEC.md 65.4.2). This builds WELCOME.DOC, parses it back with the reader,
+# and diffs the result against the markup it was generated from - so a wrong
+# FIB offset, a wrong FKP offset scale or a wrong sprm width is a DIFF and
+# not a silently prettier document.
+#
+# What it does NOT establish is that a running Word 1.1a accepts the file.
+wordcheck: $(BUILD)/WELCOME.DOC
+	@python3 tools/wordfmt.py $(BUILD)/WELCOME.DOC
+	@grep -v '^;' apps/word/welcome.wtx | sed 's/^;;/;/' > $(BUILD)/word.src.wtx
+	@python3 tools/wordfmt.py $(BUILD)/WELCOME.DOC --wtx > $(BUILD)/word.rt.wtx
+	@diff $(BUILD)/word.src.wtx $(BUILD)/word.rt.wtx \
+		&& echo "wordcheck: the .DOC round-trips through an independent reader"
 
 # --- the Frotz gate (ON DEMAND: `make ztest`) --------------------------------
 # tests/frotz/zopstest.inf is a STORY, not a package, because the thing under
@@ -3087,6 +3166,36 @@ xt-z: $(IMG360) $(BUILD)/zork720.img
 386-z: $(IMG) $(BUILD)/zork.img $(BUILD)/zork2.img
 	@$(UNPROTECT) $(VM386Z)/86box.cfg
 	$(BOX) -P $(VM386Z) -N
+
+# The two WORD machines (SPEC.md 65.5), both with the Word document floppy in
+# B: instead of the apps disk - Frotz's precedent, for Frotz's reason: an app
+# whose documents live on its own disk is best launched from that disk.
+#
+#   xt-word   An IBM XT at 4.77MHz with the FULL 640KB - the document, CHP,
+#             save-staging and undo claims are what the memory is for
+#             (SPEC.md 65.5) - booting the 360KB system floppy with the
+#             720KB Word disk in B: (the 3.5" DD drive xt-z already
+#             established as period-plausible). NO sound card: Word makes no
+#             sound, so the plain-machine precedent applies rather than the
+#             sound-machine one.
+#
+#   386-word  The comfortable target the same code also has to be right on:
+#             a 386DX/25 with TWO 1.44MB drives, B: = build/word.img.
+#             AT-class, so the first launch stops at the BIOS setup wanting
+#             a CMOS - pick EXIT FOR BOOT once and 86Box writes
+#             vm/386-word/nvr/ for every later boot.
+#
+# Both call $(UNPROTECT) for the standing reason: 86Box re-adds wp:// to its
+# floppy paths on exit, which turns every guest write into FERR_WPROT - and
+# here that is every document save, reading as a Word bug rather than an
+# emulator setting.
+xt-word: $(IMG360) $(BUILD)/word720.img
+	@$(UNPROTECT) $(VMXTWORD)/86box.cfg
+	$(BOX) -P $(VMXTWORD) -N
+
+386-word: $(IMG) $(BUILD)/word.img
+	@$(UNPROTECT) $(VM386WORD)/86box.cfg
+	$(BOX) -P $(VM386WORD) -N
 
 # The MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug server bolted
 # into MartyPC's headless frontend, giving memory, registers, breakpoints,
