@@ -1515,12 +1515,26 @@ sbl_v_read:
                                 ; (SPEC.md 20.3/34.6; a package's DI is an
                                 ; offset in its OWN segment, never the
                                 ; kernel's)
-    mov ax, [sbl_poolseg]       ; the grant lives in the POOL claim
-    push ds
-    mov ds, ax                  ; DS:SI = the grant source
     cld
-    rep movsb                   ; pool:SI -> caller DI, interruptible
+.copy:                          ; IN CHUNKS, THE POOL SEGMENT RE-DERIVED PER
+    jcxz .ok                    ; CHUNK UNDER IF=0 (SPEC.md 66.5.5): the pool
+    mov ax, SBL_DCHUNK          ; is movable and this runs on the CALLER's
+    cmp cx, ax                  ; task, which the compactor's park handshake
+    jae .csz                    ; never asks - a worker preempted mid-copy
+    mov ax, cx                  ; would resume through a stale segment. A
+.csz:                           ; chunk cannot be preempted; between chunks
+    sub cx, ax                  ; the word is read again, and a compaction is
+    pushf                       ; atomic against this task (sch_lock)
+    cli
+    push cx
+    mov cx, ax
+    push ds
+    mov ds, [sbl_poolseg]       ; DS:SI = the grant source, in the POOL claim
+    rep movsb                   ; pool:SI -> caller DI
     pop ds
+    pop cx
+    popf
+    jmp .copy
 .ok:
     xor ax, ax
     clc
@@ -1567,14 +1581,28 @@ sbl_v_stage:
     call sbl_grant_chk
     pop si
     jc .e7
-    mov ax, [sbl_poolseg]       ; the grant lives in the POOL claim
-    mov es, ax
-    mov ax, bx                  ; the caller's segment (slot wrapper, BX):
-    cld                         ; the source pointer lives THERE since v3
+    cld
+.copy:                          ; chunked exactly as sbl_v_read: the pool is
+    jcxz .ok                    ; movable and this is the caller's task
+    mov ax, SBL_DCHUNK          ; (SPEC.md 66.5.5)
+    cmp cx, ax
+    jae .csz
+    mov ax, cx
+.csz:
+    sub cx, ax
+    pushf
+    cli
+    mov es, [sbl_poolseg]       ; ES:DI = the grant, in the POOL claim -
+                                ; re-derived per chunk, with DS still ours
+    push cx
+    mov cx, ax
     push ds
-    mov ds, ax
-    rep movsb                   ; callerseg:SI -> pool:DI, interruptible
-    pop ds
+    mov ds, bx                  ; the caller's segment (slot wrapper, BX):
+    rep movsb                   ; the source pointer lives THERE since v3
+    pop ds                      ; callerseg:SI -> pool:DI
+    pop cx
+    popf
+    jmp .copy
 .ok:
     xor ax, ax
     clc
@@ -1719,11 +1747,25 @@ sbl_fill_half:
     xor dx, dx                  ; and never a pad (SPEC.md 34.5 rule 1)
 .copy:
     cld
-    jcxz .pad
+.chunk:                         ; chunked like every other pool copy (SPEC.md
+    jcxz .pad                   ; 66.5.5): the pool is movable, and the
+    mov ax, SBL_DCHUNK          ; segment is re-derived per chunk under IF=0
+    cmp cx, ax
+    jae .csz
+    mov ax, cx
+.csz:
+    sub cx, ax
+    pushf
+    cli
+    push cx
+    mov cx, ax
     push ds
     mov ds, [sbl_poolseg]       ; DS = the POOL: the grant is there now, the
     rep movsb                   ; destination half is in the DMA claim (ES)
     pop ds
+    pop cx
+    popf
+    jmp .chunk
 .pad:
     mov cx, dx
     jcxz .done
@@ -1953,6 +1995,14 @@ sbl_refill:
 sbl_refill_task:
     mov byte [sbl_wtask], 1     ; detach waits on this (SPEC.md 51.7): our
 .loop:
+    call OSAPI_TASK_PARK        ; ...and the heap compactor waits on THIS
+                                ; (SPEC.md 66.5.5). Here, at the top of the
+                                ; outer loop, is the one point in this task
+                                ; that provably holds no pointer into the
+                                ; pool: sbl_refill loads [sbl_poolseg] itself
+                                ; and returns before we come back round.
+                                ; Without the call no claim this driver owns
+                                ; could ever be compacted
     cmp byte [sbl_str_act], 1   ; closed / torn down?
     jne .die
     mov al, [sbl_gen]           ; superseded by a newer stream?
@@ -2425,6 +2475,32 @@ sbl_dma_map:
 ; bigger than the pool we ended up with answers 7 through the same bound,
 ; which is the tier the caller should try next.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; sbl_reloc - THE HEAP COMPACTOR MOVED THE STAGING POOL (SPEC.md 66.2/66.5.5)
+; in:  BX = the base segment it WAS at, DX = the base it is at NOW.
+;      DS = CS = ours, ES = KERNEL_SEG. The bytes have already moved.
+; out: nothing; every register preserved
+;
+; ONE WORD, and that is a property of the design rather than luck. A grant is
+; an OFFSET into the pool, never a segment - sbl_grant_alloc hands out spans
+; and sbl_grant_chk bounds them - and no client ever sees the pool at all,
+; because the staging copy IS the v3 boundary (SPEC.md 20.3/34.6): a package's
+; DI is an offset in its OWN segment and the driver `rep movsb`s across. So
+; nothing outside this file derives anything from [sbl_poolseg], and nothing
+; inside it keeps a copy.
+;
+; The DMA double-buffer is a different claim and is PINNED by construction -
+; it carries MC_DMA, so mem_can_move refuses it whatever anyone declares
+; (SPEC.md 66.3), which is right twice over: the card may be mid-transfer, and
+; the 64KB page rule is a property of the address.
+; -----------------------------------------------------------------------------
+sbl_reloc:
+    cmp bx, [sbl_poolseg]
+    jne .out
+    mov [sbl_poolseg], dx
+.out:
+    ret
+
 sbl_pool_get:
     push ax
     push bx
@@ -2442,6 +2518,12 @@ sbl_pool_get:
     jmp short .fail
 .got:
     mov [sbl_poolseg], dx
+    push ax                     ; ...and it is MOVABLE (SPEC.md 66.5.5). This
+    mov ax, sbl_reloc           ; is the claim docs/FIELD-NOTES.md 2 named as
+    call OSAPI_MEM_MOVABLE      ; the fragmenting party: a LATE claim, taken on
+    pop ax                      ; the first stream grant, so it lands above
+                                ; whatever the app already holds and bounds the
+                                ; hole that app's next free leaves behind
     mov cl, 10                  ; KB -> bytes: the pool we ACTUALLY got, which
     shl ax, cl                  ; is what every bound below reads
     mov [sbl_poolsz], ax

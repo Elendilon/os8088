@@ -20,7 +20,7 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 | **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable — it is the matrix of what each emulator can and cannot do, with a recipe per capability |
 | **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory |
 | **[docs/HERCULES-TESTING.md](docs/HERCULES-TESTING.md)** | testing on Hercules — it *is* automatable, and all three ways of getting it wrong give you a black image rather than an error |
-| **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§67) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
+| **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§70) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
 
 ## Commands
 
@@ -51,18 +51,18 @@ make zgfx     # ...and what the reader can SEE (§61.14): every row the
               # zcheck cannot see a graphics defect — a story that draws a
               # quote box and loses it prints the same characters as one that
               # keeps it
-make cword      # the C toolchain (§67). `tools/setup-cc.sh` fetches and builds
+make cword      # the C toolchain (§70). `tools/setup-cc.sh` fetches and builds
 make cworddisk  #   SmallerC into build/cc/ first — nothing in `all` depends on
 make cc-smoke   #   it, and a tree without it builds every shipping floppy and
 make chello     #   prints one note. cc-smoke/chello are the two examples and
-make covl       #   covl is the OVERLAY gate (§67.14); cword is the
+make covl       #   covl is the OVERLAY gate (§70.14); cword is the
                 #   application — Word 1.1a again, in C, in two segments
-                #   (§67.12). `make clean` SPARES build/cc
+                #   (§70.12). `make clean` SPARES build/cc
                 #   (clean-cc removes it) — it is a pinned upstream instrument
 make allapps  # build/apps-all.img (§19.9): ONE 1.44MB floppy with every app
               #   on it, Frotz and both Words included, for a release page.
               #   Needs the C toolchain, so it is on demand like cworddisk —
-              #   it is the only target outside §67 that does
+              #   it is the only target outside §70 that does
 make clean
 ```
 
@@ -88,12 +88,12 @@ exactly like the feature being broken.
 86Box machine that can show §39.12–§39.19's extended desktop; it boots Single,
 and Control Panel → Display → Desktop is what extends it (§39.19.1). `xt-z`
 and `386-z` are the Frotz machines (§61.9), `xt-word`/`386-word` are the Word
-machines (§65.5) and `386-c-word` is the C word processor's (§67.12) — the
+machines (§68.5) and `386-c-word` is the C word processor's (§70.12) — the
 five that put a dedicated floppy in B: instead of the apps disk. `make zdisk`
 builds the story disk (`tools/getstories.py` fetches the stories, which are
 never committed), `make worddisk` the Word disk and `make cworddisk` the CWORD
 disk — which carries `WELCOME.RTF`, the same welcome document the Word disk
-carries as a `.DOC`, adapted to what cword's RTF can actually say (§67.12.3).
+carries as a `.DOC`, adapted to what cword's RTF can actually say (§70.12.3).
 `make allapps` collapses all of them onto one 1.44MB floppy (§19.9).
 
 **`RESET=` clears a machine's non-volatile state on the way in**, and it
@@ -153,13 +153,13 @@ cut by `.claude/skills/release-os8088`.
   `[bx+W_W]` — without the override a package reads its own image at that
   offset, which assembles cleanly and runs wrong.
 - **A C package that does not fit gets a second segment, not a bigger one**
-  (§67.14): a function named `ovl_*` has its CODE emitted into a module that
+  (§70.14): a function named `ovl_*` has its CODE emitted into a module that
   ships beside the package (`CWORD.OVL`) and is far-called both ways, while
   every global, literal and bss byte it names stays resident and DS-relative. Split by
   FREQUENCY — a keystroke's path stays in, a menu command's can go out — and
   never take the address of an overlay function.
 - **A C package obeys four extra rules, and `tools/cc8086.py` fails the build
-  on each** (§67, docs/C-TOOLCHAIN.md): **never take the address of an
+  on each** (§70, docs/C-TOOLCHAIN.md): **never take the address of an
   automatic** — SS ≠ DS, so `&local` is a stack offset dereferenced through the
   package segment, and every addressable object must be `static`; **no
   `movs`/`stos`/`scas`/`cmps`** — ES is the kernel's, so no struct assignment,
@@ -276,7 +276,7 @@ in docs/TESTING.md, per capability.
   `string.inc` and `gfx.inc` are dead — still in the tree, no longer included.
 - `apps/` — loadable packages; **everything here ships**. `os88api.inc` is the
   SDK, and each package's design notes are its SPEC.md section. `apps/cc/` is
-  the **C** SDK (§67): `os88.h`, the runtime `crt0.asm`/`os88thunk.asm`, the
+  the **C** SDK (§70): `os88.h`, the runtime `crt0.asm`/`os88thunk.asm`, the
   build rules, and `ccsmoke` as the worked example.
 - `drivers/` — loadable drivers (§51): same format, but `.DRV`, header version
   4, no instance record, bss shipped inside the image.
@@ -286,7 +286,7 @@ in docs/TESTING.md, per capability.
   `os88disk.py` (builds FAT12 images; `--verify` is a structural fsck),
   `checkdocs.py` (the doc gate every `make` runs), `qmp.py`/`mouse.py`/`shot.py`
   (test drivers), `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its
-  gate, §67).
+  gate, §70).
 - `docs/` — the maintained accounts. `*-PLAN.md` are design records for work
   that has landed; `FIELD-NOTES.md`/`FIELD-MACHINES.md` are what real hardware
   said.

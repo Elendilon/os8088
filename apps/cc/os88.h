@@ -1,7 +1,7 @@
 /* ============================================================================
  * os8088 - apps/cc/os88.h
  *
- * The C-callable surface of the os8088 API (SPEC.md 67). One header, included
+ * The C-callable surface of the os8088 API (SPEC.md 70). One header, included
  * by exactly one .c file, which becomes one .o88 package.
  *
  * WHAT THIS FILE IS. apps/os88api.inc is the SDK for an assembly package: it
@@ -19,7 +19,7 @@
  * the worked example of both, and are built by `make cc-smoke`.
  *
  * ---------------------------------------------------------------------------
- * THE FOUR RULES A C AUTHOR CANNOT SEE (SPEC.md 67.5, 67.5.1, 67.7, 67.8)
+ * THE FOUR RULES A C AUTHOR CANNOT SEE (SPEC.md 70.5, 67.5.1, 67.7, 67.8)
  * ---------------------------------------------------------------------------
  *
  * 1. TAKING THE ADDRESS OF AN AUTOMATIC IS A BUILD FAILURE, and it has to be,
@@ -92,7 +92,7 @@
  *    os88_disk_free_kb().
  *
  * ---------------------------------------------------------------------------
- * PERFORMANCE (PERFORMANCE.md; SPEC.md 67.11)
+ * PERFORMANCE (PERFORMANCE.md; SPEC.md 70.11)
  * ---------------------------------------------------------------------------
  * The numbers do not change because the source language did. Any gfx_* call
  * is ~756 us on the target 4.77 MHz 8088 whoever makes it, one of these
@@ -142,7 +142,7 @@
 #ifndef OS88_H
 #define OS88_H
 
-/* --- the poison (SPEC.md 67.7) -------------------------------------------
+/* --- the poison (SPEC.md 70.7) -------------------------------------------
  * These three are the only #defines here that are not a constant. They are
  * spelled as an error message because the compiler prints the token it could
  * not parse, so the diagnostic explains itself at the line that caused it.
@@ -163,7 +163,7 @@
 /* --- the shapes the API answers in ---------------------------------------
  * Every one of these is passed and returned BY POINTER, never by value: a
  * struct passed by value is copied through an address of an automatic, which
- * is rule 1 (SPEC.md 67.5). Point them at statics. */
+ * is rule 1 (SPEC.md 70.5). Point them at statics. */
 
 struct os88_pt   { int x, y; };
 struct os88_size { int w, h; };
@@ -208,7 +208,7 @@ struct os88_place {                              /* where your instance stands *
  * `const`, or it lands in .rodata and the patch is silent nonsense.
  *
  * The array is a fixed OS88_MENU_MAX because C has no flexible member here;
- * the unused entries cost six bytes each in .data (SPEC.md 67.9: bss is
+ * the unused entries cost six bytes each in .data (SPEC.md 70.9: bss is
  * cheap, .data is paid for twice). Declare fewer menus by declaring your own
  * struct with the same first three fields and a shorter array, and cast. */
 #define OS88_MENU_MAX  5                         /* = MENU_APPMAX */
@@ -312,7 +312,7 @@ static char os88__sz_find[sizeof(struct os88_find)    == 24 ? 1 : -1];
 #define OS88_FERR_BIG    10
 
 /* ==========================================================================
- * THE FUNCTIONS YOUR PACKAGE DEFINES (SPEC.md 67.4)
+ * THE FUNCTIONS YOUR PACKAGE DEFINES (SPEC.md 70.4)
  *
  * The kernel reaches a package by far-calling its dispatcher with BP = a near
  * offset, and the callback contracts pass their arguments in REGISTERS and
@@ -594,7 +594,7 @@ void os88_video(struct os88_video *v);           /* ASK THIS, do not assume
                                                   * 640x480: two adapters of
                                                   * three are something else */
 int  os88_cpu(void);                             /* OS88_CPU_* - a fact to
-                                                  * test, not a guess (67.11) */
+                                                  * test, not a guess (70.11) */
 void os88_srand(int seed);
 int  os88_rand(void);
 
@@ -725,7 +725,7 @@ int os88_clip_size(void);                            /* -1 = empty */
 int os88_toast(const char *text, int ticks);
 
 /* --- the runtime's own helpers -------------------------------------------
- * There is no C library here (SPEC.md 67.9: no printf family - it is
+ * There is no C library here (SPEC.md 70.9: no printf family - it is
  * thousands of bytes for the one conversion a program wanted). These six are
  * hand-written in apps/cc/os88thunk.asm, are DS-only - no string instruction
  * and therefore no ES - and are all a package has needed so far. */

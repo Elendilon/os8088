@@ -425,7 +425,7 @@ void cw_memmove(void *dst, const void *src, unsigned n) { memmove(dst, src, n); 
  * cw_prop clear, and a shift replaced by a lookup that answers differently
  * shows up as a cell in the wrong column. It proves NOTHING about a chosen
  * face - the band, the compose and the blit are all on the target - which is
- * why SPEC.md 67.12.2's own testing is on three adapters with a face on each.
+ * why SPEC.md 70.12.2's own testing is on three adapters with a face on each.
  *
  * cw_ty_scan() answering 0 is the honest model of a machine with no FONTS/
  * folder, and it is what keeps the Font list's refusal path exercised on every
@@ -929,7 +929,7 @@ int main(void)
          * `Copy All` on its Edit menu, and this is Word's Edit menu, where Cut
          * and Copy act on the selection and are greyed without one. F8 arms
          * extend-selection and the arrows extend it, which is the keyboard
-         * route a user actually has (SPEC.md 65.2). */
+         * route a user actually has (SPEC.md 68.2). */
         cw_cur = cw_len;                /* the previous step left it at 0,
                                          * and a selection that starts and
                                          * ends there copies nothing */
@@ -993,7 +993,7 @@ int main(void)
     /* 12. the About panel, and the repaint that takes it down.
      *
      * ESC AND NOT A CLICK, which is a behaviour change worth stating: the
-     * panel is a MODAL dialog now (it lives in the overlay, SPEC.md 67.14),
+     * panel is a MODAL dialog now (it lives in the overlay, SPEC.md 70.14),
      * so a click on its background goes nowhere - that is what modal means,
      * and it is what the product does. Dismissing it with a click was how the
      * demonstrator's About worked, and leaving that here did not fail HERE:

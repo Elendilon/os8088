@@ -367,7 +367,7 @@ sooner, so a C package is a small package. Everything else — the header, the
 loader, the disk format, the 60KB check — cannot tell a C package from an
 assembly one, which is the test of whether it was done right.
 **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** is the guide;
-[SPEC.md](SPEC.md) §67 is the contract.
+[SPEC.md](SPEC.md) §70 is the contract.
 
 ## Three geometries of everything
 

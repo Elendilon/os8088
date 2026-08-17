@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - apps/cc/os88thunk.asm
 ;
-; The bridge between the C ABI and the os8088 API (SPEC.md 67.3). Every
+; The bridge between the C ABI and the os8088 API (SPEC.md 70.3). Every
 ; prototype in apps/cc/os88.h lands here.
 ;
 ; %include'd by apps/cc/crt0.asm, which has already emitted the section
@@ -31,7 +31,7 @@
 ;            toolchain that writes a bp-relative operand on purpose - and it
 ;            is *reading a stack slot*, never taking its address.
 ;            tools/cc8086.py refuses a bp-relative `lea` in compiled code for
-;            precisely that distinction (67.5); nothing below ever needs one.
+;            precisely that distinction (70.5); nothing below ever needs one.
 ;
 ;   [si], [bx+N], [label]   THE PACKAGE'S OWN DATA - a string the C passed, a
 ;            struct it wants filled, the runtime's own bss. DS-relative, no
@@ -56,11 +56,11 @@
 ; in:   the cdecl frame. After the standard `push bp / mov bp, sp` the first
 ;       argument is at [bp+4] (near `call` return address at [bp+2], saved BP
 ;       at [bp+0]); further arguments follow at +6, +8, ... , pushed RIGHT TO
-;       LEFT by the caller. The CALLER cleans (SPEC.md 67.3).
+;       LEFT by the caller. The CALLER cleans (SPEC.md 70.3).
 ; out:  AX = the C return value. void functions return nothing and AX is junk.
 ;       A slot whose only answer is CF becomes `int`: 0 success, -1 refused.
 ; preserves: BP, DS, SS:SP and DF. NOTHING ELSE - SmallerC has no
-;       callee-saved register (67.3), so AX, BX, CX, DX, SI, DI, ES and FLAGS
+;       callee-saved register (70.3), so AX, BX, CX, DX, SI, DI, ES and FLAGS
 ;       are all fair game and the compiler expects them to be gone. Where a
 ;       routine below pushes SI or DI it is for its own convenience.
 ; DF:   every OSAPI slot leaves it clear and nothing here sets it, so the
@@ -655,7 +655,7 @@ _os88_win_visible:
 ; Each of these hands the kernel the address of a TRAMPOLINE in crt0.asm, so
 ; each is assembled only when the shim asked for that trampoline. A C package
 ; that calls one without the %define gets nasm's external-reference error
-; naming the function, which is the failure naming its own cause (67.1).
+; naming the function, which is the failure naming its own cause (70.1).
 ; -----------------------------------------------------------------------------
 
 %ifdef CC_HAS_MENUS
@@ -1047,7 +1047,7 @@ _os88_file_find:
     ret
 
 ; unsigned os88_disk_free_kb(void) - OSAPI_FILE_DFREE answers DX:AX bytes and
-; BX = SECTORS per cluster, with no disk I/O. C has no 32-bit type (67.7), so
+; BX = SECTORS per cluster, with no disk I/O. C has no 32-bit type (70.7), so
 ; the shift happens here: ten single-bit shifts through the carry, which is
 ; the 8086's only way to move a 32-bit value and is 20 instructions once.
 ; Saturates at 65,535 KB rather than wrapping - a 2GB partition really can
@@ -1413,10 +1413,10 @@ _os88_toast:
 ; =============================================================================
 ; THE RUNTIME'S OWN HELPERS
 ;
-; There is no C library on this floppy (SPEC.md 67.9: no printf family - it is
+; There is no C library on this floppy (SPEC.md 70.9: no printf family - it is
 ; thousands of bytes for the one conversion a program wanted). These six are
 ; the whole of it, and every one is DS-ONLY: not a single string instruction,
-; because movs/stos address ES:DI and ES is the kernel's (67.5.1). A byte at a
+; because movs/stos address ES:DI and ES is the kernel's (70.5.1). A byte at a
 ; time through [si]/[di] is slower than `rep movsb` and it is the version that
 ; cannot overwrite the operating system.
 ; =============================================================================
@@ -1515,7 +1515,7 @@ _os88_strcpy:
 ; The buffer needs 6 bytes: 65535 plus the NUL. The digits come off the
 ; division in reverse, so they go on the STACK and come back off in order -
 ; at most five words, which is the kind of frame the 256-byte worker stack can
-; afford (SPEC.md 67.8).
+; afford (SPEC.md 70.8).
 _os88_utoa:
     push bp
     mov bp, sp
@@ -1566,7 +1566,7 @@ _os88_itoa:
     push bx                         ; os88_utoa(ax, bx) - cdecl, right to left
     push ax
     call _os88_utoa
-    add sp, 4                       ; the CALLER cleans (SPEC.md 67.3)
+    add sp, 4                       ; the CALLER cleans (SPEC.md 70.3)
     pop ax                          ; the original destination
     pop si
     pop bp

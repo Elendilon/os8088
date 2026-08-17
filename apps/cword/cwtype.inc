@@ -1,6 +1,6 @@
 ; =============================================================================
 ; os8088 - apps/cword/cwtype.inc     apps/os88type.inc, wearing a C calling
-;                                    convention (SPEC.md 67.12.2)
+;                                    convention (SPEC.md 70.12.2)
 ;
 ; %included by apps/cword/cword.asm, after the compiled C and before
 ; CC_IMAGE_END. It is the second piece of assembly in this package and it
@@ -14,7 +14,7 @@
 ;
 ;   1. ES. The library takes a caller's text in ES:SI (SPEC.md 20.3's X stubs)
 ;      and a C program's strings are in DS - the package segment, because that
-;      is the only segment a C program can name at all (SPEC.md 67.5.1). So the
+;      is the only segment a C program can name at all (SPEC.md 70.5.1). So the
 ;      shims that pass text load ES = DS and PUT IT BACK: ES arrives as
 ;      KERNEL_SEG on every callback and the kernel's own code expects it that
 ;      way (SPEC.md 20.4). This is cwmove.inc's rule in a second place.
@@ -27,17 +27,17 @@
 ;
 ;   3. The CARRY. The library reports refusal in CF - no face slot, a bad file,
 ;      a blit the kernel does not carry (SPEC.md 6.5) - and C has no carry. The
-;      convention here is the one SPEC.md 67.14 already uses for the overlay's
+;      convention here is the one SPEC.md 70.14 already uses for the overlay's
 ;      doors: ZERO MEANS IT DID NOT HAPPEN. Nothing in the C tests a status
 ;      code, so nothing in the C can forget which way round it was.
 ;
 ; THE WHOLE LIBRARY IS RESIDENT, and that is a decision rather than an
 ; oversight. ty_putn, ty_flush and ty_advof ARE the redraw path, so they could
-; never have gone to CWORD.OVL (SPEC.md 67.14 splits by frequency); ty_scan and
+; never have gone to CWORD.OVL (SPEC.md 70.14 splits by frequency); ty_scan and
 ; ty_open could have, and moving them would have meant a `%ifdef` through
 ; apps/os88type.inc - a file apps/word and tests/facetest also include - to
 ; sort its own labels into two sections. The room came from this program's own
-; once-per-command code instead (SPEC.md 67.12.2), which is code this package
+; once-per-command code instead (SPEC.md 70.12.2), which is code this package
 ; owns, and the side effect is worth having: THE FONT LIST WORKS ON A DISK WITH
 ; NO CWORD.OVL ON IT.
 ; =============================================================================
@@ -78,7 +78,7 @@ _cw_ty_lead:
 ; int cw_ty_adv(int ch) - the advance of one character, in pixels
 ;
 ; THE HOTTEST CALL IN THIS FILE. The wrap sums it per character of every word
-; it measures and the row walk takes it per character drawn (SPEC.md 65.13), so
+; it measures and the row walk takes it per character drawn (SPEC.md 68.13), so
 ; it is six instructions and no frame beyond the one cdecl forces.
 ; -----------------------------------------------------------------------------
 _cw_ty_adv:
@@ -93,7 +93,7 @@ _cw_ty_adv:
 ; =============================================================================
 ; THE THREE PER-CHARACTER WALKS, WHICH ARE WHY THIS FILE IS NOT FOUR SHIMS
 ;
-; SPEC.md 67.11 is binding here and it is the reason these exist: "a C package
+; SPEC.md 70.11 is binding here and it is the reason these exist: "a C package
 ; composes and decides; anything that touches pixels, cells or bytes per
 ; iteration is a hand-written proc that C calls once." A proportional layout is
 ; exactly that shape - the wrap sums an advance per character of every word it
@@ -166,11 +166,11 @@ _cw_ty_hit:
 ;
 ; px[i] = the pen character i starts at, relative to the row's left edge, and
 ; px[n] = the pen AFTER the last one - one slot past the end, so that a span's
-; right edge is a lookup rather than a special case (SPEC.md 65.13). It is the
+; right edge is a lookup rather than a special case (SPEC.md 68.13). It is the
 ; only new per-row state a chosen face needs, and in the fixed face the C never
 ; reads it at all.
 ;
-; ONE CALL A ROW. This is the accumulate walk of SPEC.md 65.13 with the cell
+; ONE CALL A ROW. This is the accumulate walk of SPEC.md 68.13 with the cell
 ; index COUNTED rather than derived from the pen: there is no divisor in a
 ; proportional face, which is the one thing the fixed-pitch arithmetic could
 ; not be carried over.
@@ -364,7 +364,7 @@ _cw_ty_open:
 ; void cw_ty_name(int i, char *dst) - family i's display name into dst
 ;
 ; ty_famname ANSWERS IN SI, and the C wants bytes it can letter. Copying here
-; rather than handing the pointer back is deliberate, and it is SPEC.md 65.13's
+; rather than handing the pointer back is deliberate, and it is SPEC.md 68.13's
 ; own bug written down: the assembly port's first Font handler returned that
 ; pointer where a window record belonged and the machine followed it into a
 ; hard hang, reproducible on the pick and on nothing else. A pointer into the

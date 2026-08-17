@@ -1,7 +1,7 @@
 /* ============================================================================
  * os8088 - apps/cword/cwcmd.c     the commands, the keyboard map and the mouse
  *
- * #included by cword.c - one translation unit (SPEC.md 67.1).
+ * #included by cword.c - one translation unit (SPEC.md 70.1).
  *
  * The keyboard map is `Opus/resource/keys.cmd`'s, less the bindings that name
  * a feature this platform does not have. Three of Word's Ctrl keys cannot
@@ -103,7 +103,7 @@ static void ovl_paste(void *win)
  * The format is RTF, read and written by tables transcribed out of Opus's
  * RTFOUT.C and RTFIN.C - which is what makes this program a descendant of
  * Word by inheritance rather than by resemblance. Both directions live in the
- * OVERLAY (SPEC.md 67.14): they run once per command and they are the largest
+ * OVERLAY (SPEC.md 70.14): they run once per command and they are the largest
  * body of code in the package, which is exactly the trade that section exists
  * to make.
  * ========================================================================*/
@@ -328,7 +328,7 @@ static void cw_do(void *win, int act)
     case CWA_TOC:      ovl_util(win, 2); break;
 
     /* Draft and Page are a LIVE PAIR and exactly one of them carries a check
-     * (SPEC.md 67.12.1). Choosing the mode already in force is a no-op rather
+     * (SPEC.md 70.12.1). Choosing the mode already in force is a no-op rather
      * than a repaint: a full repaint is 1.8 seconds on the target machine and
      * clicking View > Draft in draft view must not cost it. */
     case CWA_DRAFT:
@@ -381,7 +381,7 @@ static int cw_text_hit(int mx, int my)
         return cw_len;
 
     n = cw_build_row(r);
-    /* THE CLICK'S HALF-CELL BECOMES A HALF-ADVANCE (SPEC.md 65.13). The fixed
+    /* THE CLICK'S HALF-CELL BECOMES A HALF-ADVANCE (SPEC.md 68.13). The fixed
      * arm is left exactly as it was - it truncates, so a click anywhere in a
      * cell lands at that cell's left edge - and the chosen face goes through
      * apps/os88type.inc's ty_hit, which splits each character at its own
@@ -413,7 +413,7 @@ static int cw_text_hit(int mx, int my)
  * callback it is reached from holds it - which blocks other painters for as
  * long as the user holds the button down; that is what a modal menu means, it
  * is what the assembly port does, and it is bounded by the user rather than by
- * a computation (SPEC.md 67.11 rule 1).
+ * a computation (SPEC.md 70.11 rule 1).
  *
  * out: the item chosen, or -1; the panel is still up either way. */
 static int cw_track_menu(void)
@@ -579,7 +579,7 @@ void os88_onmouseup(int x, int y, void *win)
  * Three fields and no array, which os88.h sanctions ("declare your own struct
  * with the same first three fields and a shorter array, and cast"): six bytes
  * of .data instead of struct os88_menuset's thirty-six, and .data is the one
- * kind of memory this program pays for twice (SPEC.md 67.9). NOT const -
+ * kind of memory this program pays for twice (SPEC.md 70.9). NOT const -
  * os88_menu_set() writes `oncmd`, because a C program cannot name the
  * assembly trampoline the kernel calls.
  * ========================================================================*/
@@ -652,7 +652,7 @@ void os88_onfile(int mode, const char *name, unsigned size_lo,
  *
  * There is no self-close API slot: os88_wm_destroy() is documented for a
  * SECOND window a package owns, and a package's own window closes with the
- * instance. So File > Close and File > Exit do what SPEC.md 65.2 describes -
+ * instance. So File > Close and File > Exit do what SPEC.md 68.2 describes -
  * the UI half hides the window and raises a flag, and the worker destroys the
  * record and dies inside its next os88_task_alive(), which is the kernel's own
  * teardown path and frees the task, the region and every claim including
@@ -662,7 +662,7 @@ void os88_onfile(int mode, const char *name, unsigned size_lo,
  * a command the user has already committed to and nothing at all otherwise. It
  * draws nothing and takes no lock, which is what keeps it clear of SPEC.md
  * 20.6's rules - and the overlay is closed to it by cc_iswk() regardless
- * (SPEC.md 67.14: overlay code is UI-task code).
+ * (SPEC.md 70.14: overlay code is UI-task code).
  * ========================================================================*/
 void os88_worker(void *win)
 {
@@ -901,7 +901,7 @@ void os88_onkey(int ascii, int scan, void *win)
         break;
     case CW_K_F8:
         /* extend-selection mode: F8 arms it, plain caret motion then EXTENDS
-         * the selection, and any edit or Esc disarms it (SPEC.md 65.2) */
+         * the selection, and any edit or Esc disarms it (SPEC.md 68.2) */
         cw_ext = !cw_ext;
         if (cw_ext && !cw_sel_on)
             cw_anchor = cw_cur;
