@@ -96,6 +96,9 @@ VM386WORD := $(CURDIR)/vm/386-word
 # checked the clock of.
 VM386CWORD := $(CURDIR)/vm/386-c-word
 
+# The RUNCPM machine (SPEC.md 71.5): the same 386, B: = build/runcpm.img.
+VM386RUNCPM := $(CURDIR)/vm/386-runcpm
+
 # VIDEO=cga|herc|vga forces the adapter instead of probing for it (SPEC.md
 # 39.1). The shipped images are always built without it, so they auto-detect;
 # this exists because QEMU emulates no CGA and no Hercules card, and forcing
@@ -641,8 +644,9 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc
         fonts fontsheets fontlist \
         stories zdisk ztest zh zhboot zcheck zgfx zpic zscreens xt-z 386-z \
         worddisk wordcheck xt-word 386-word \
-        cc-note chello covl cword cworddisk 386-c-word \
-        allapps \
+        cc-note chello covl cword cworddisk 386-c-word runcpm runcpmdisk \
+        runcpm-src rcz80test rcmemtest rczex 386-runcpm \
+        allapps rcbandbench \
         checkdocs clean clean-cc clean-marty distclean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
@@ -1901,6 +1905,159 @@ $(BUILD)/cword360.img: $(CWORDDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(CWORDDISK) --folder DOCS
 	@python3 tools/os88disk.py --verify $@
 
+# --- RUNCPM, RunCPM 6.9 as a C package (SPEC.md 71) --------------------------
+# The C toolchain's second application: a CP/M 2.2 emulator - a Z80 in a 64KB
+# claim, BIOS/BDOS in C, drives as folders, an 80x25 terminal in a window - a
+# reimplementation of Marcelo Dantas / Mockba the Borg's RunCPM (MIT). `make
+# runcpm` runs the host checks (apps/runcpm/build.sh - the terminal against a
+# model of the glass) and then builds the package; `make runcpmdisk` the
+# floppy. Nothing here is on the shipped apps disks, and nothing in `all`
+# reaches it: on demand like cword, through the same cc-toolchain guard.
+#
+# THE HOST CHECKS RUN FIRST AND STOP THE BUILD. They are an order-only-free
+# prerequisite of the .raw.asm through the stamp below: a check that fails
+# leaves no stamp, and the compile does not run.
+$(eval $(call CC_PACKAGE,runcpm,runcpm,RUNCPM.OVL))
+
+# THE REST OF THE TRANSLATION UNIT (SPEC.md 70.1): runcpm.c #includes the
+# parts, and the shim %includes the three hand-written pieces and the icon. Every one is a
+# written prerequisite because make cannot see through either kind of include
+# - and every file the port plan names is listed from wave 1, stubs included,
+# so no later wave adds a file the build does not know (docs/RUNCPM-PORT-PLAN.md).
+RUNCPMSRC := apps/runcpm/rcterm.c apps/runcpm/rccpm.c apps/runcpm/rcfs.c \
+             apps/runcpm/rcabout.c
+RUNCPMINC := apps/runcpm/rcz80.inc apps/runcpm/rcmem.inc apps/runcpm/rcband.inc
+RUNCPMHOST := apps/runcpm/build.sh apps/runcpm/hosttest/os88.h \
+              apps/runcpm/hosttest/rcuitest.c apps/runcpm/hosttest/rcfstest.c \
+              apps/runcpm/hosttest/rcmemtest.asm \
+              apps/runcpm/hosttest/rcmemtest.sh $(RUNCPMINC)
+$(BUILD)/runcpm.raw.asm: $(RUNCPMSRC) $(BUILD)/.runcpm-hostchecks
+$(BUILD)/runcpm.bin: $(RUNCPMINC) apps/runcpm/icon.inc
+
+# ($(RUNCPMINC) is in RUNCPMHOST because rcmemtest.asm %includes rcmem.inc and
+# rcz80.inc: an edit to a mover must re-run the mover harness, and make
+# cannot see through a %include - LESSONS.md 9.)
+$(BUILD)/.runcpm-hostchecks: apps/runcpm/runcpm.c $(RUNCPMSRC) $(RUNCPMHOST) | $(BUILD)
+	apps/runcpm/build.sh
+	@touch $@
+
+runcpm: $(BUILD)/runcpm.o88
+
+# THE MASTER DISK AND THE CCP ARE FETCHED, NEVER COMMITTED (CONTRIBUTING.md 6,
+# SPEC.md 71.5): tools/getruncpm.py takes RunCPM's CCP-DR.60K, LICENSE,
+# 1STREAD.ME and DISK/A0.zip at the pinned commit (the same hash the banner's
+# 'Built' line names), verifies every SHA-256, and unpacks the master disk
+# into build/runcpm-disk/A/0 minus the three files above 65,535 bytes (which
+# A/0/LEFT-OFF.TXT names). A stamp rather than a directory, as the story cache
+# is: make cannot depend on eighty files, and the script is idempotent -
+# nothing is downloaded twice. `make runcpm-src` alone fetches.
+RUNCPMDIR := $(BUILD)/runcpm-disk
+$(BUILD)/runcpm-src.stamp: tools/getruncpm.py | $(BUILD)
+	python3 tools/getruncpm.py -o $(RUNCPMDIR)
+	@touch $@
+
+runcpm-src: $(BUILD)/runcpm-src.stamp
+
+# HELLO.COM - the hand-assembled Z80 hello the wave-2 gate loads with the
+# debug key (docs/RUNCPM-PORT-PLAN.md): LD C,9 / LD DE,0109h / CALL 5 / RET,
+# then the string - 49 bytes: nine of Z80 and a 40-byte message; the RET
+# goes to the 0000 the loader put on the stack, so it also exercises the
+# warm-boot path (SPEC.md 71). Emitted here rather than assembled because
+# there is no Z80 assembler in this tree and nine bytes of code are not worth
+# adding one. It is a BUILD ARTIFACT of this tree, not master-disk
+# content, and it ships on NO image (SPEC.md 71.5 - wave 6's curation took
+# it off build/runcpm.img's root, where wave 2's gate had it: a released
+# disk carries RunCPM's files and nothing invented here, in A\0 or beside
+# it). It is still built, for a hand test of the loader's launch-folder
+# path: put it in the root of a SCRATCH copy of an image (tools/os88disk.py)
+# and Alt+L HELLO. tests/rczex.py needs no such row - RUNCPM.O88 is the
+# fifth listed row of the shipping root.
+$(BUILD)/HELLO.COM: | $(BUILD)
+	printf '\016\011\021\011\001\315\005\000\311Hello from the Z80 - RunCPM on os8088\r\n$$' > $@
+
+# THE THREE FLOPPIES (SPEC.md 71.5): the package in the root beside the CCP it
+# loads (before any folder move: the same rule as CWORD.OVL), RunCPM's LICENSE
+# and 1STREAD.ME, and drive A user 0 - the master disk as far as the geometry
+# holds it, chosen at recipe time by getruncpm.py --select (the texts and
+# submit files first, then the programs, then documentation, libraries and
+# sources; 720KB and 1.44MB carry all of it, 360KB the programs and texts), so
+# no manifest is checked in. A/0 holds 77 files on 1.44MB, past the Disk
+# window's 32-entry listing cap, which is a DISPLAY cap (SPEC.md 19): the file
+# API walks them all, and --deep-folders is os88disk.py's word for a folder
+# that is a data store rather than a place to browse. Each image is
+# --verify'd, and the verify is what catches a --select that overshot - but
+# --select is told what it is choosing beside: --reserve names the root files
+# (the package, an .OVL if one comes, the CCP, the texts) and prices them
+# in the geometry's own clusters, so the A/0
+# selection re-shapes itself as the package grows instead of the 360KB
+# build stopping at 'data over capacity'. The selection is a shell
+# substitution INSIDE the recipe, so a --select that fails (no A0.list, a
+# bad geometry) would otherwise print nothing and the image would build with
+# an empty A/0 and verify clean - which reads exactly like a working disk.
+# RUNCPMIMG therefore keeps its stderr and stops the recipe when the
+# selection is empty. $(3) is the geometry's extra root files, if any.
+RUNCPMDISK := $(BUILD)/runcpm.o88 $(BUILD)/RUNCPM.OVL $(RUNCPMDIR)/CCP-DR.60K \
+              $(RUNCPMDIR)/LICENSE $(RUNCPMDIR)/1STREAD.ME
+RUNCPMDEPS := $(BUILD)/runcpm.o88 $(BUILD)/RUNCPM.OVL $(BUILD)/runcpm-src.stamp \
+              tools/os88disk.py tools/getruncpm.py
+# A\0 SHIPS WITH SPARE DIRECTORY SLOTS (SPEC.md 71.3): the kernel does not
+# grow a directory (SPEC.md 18.5, FERR_DIRFULL), so a folder a CP/M session
+# saves into - MBASIC's SAVE, TE's write, PIP's copy, SUBMIT's $$$.SUB - must
+# have its room built in; os88disk.py's own sizing leaves ONE free slot after
+# the master disk's 77 files, and the second save failed 'Not saved: X'
+# (found on the glass in wave 4). 128 entries is the size of RUNCPM's
+# directory cache, so A\0 holds 126 files, and getruncpm.py --select prices
+# the same figure so the fill cannot overflow the disk.
+RUNCPMSLOTS := 128
+define RUNCPMIMG
+sel="$$(python3 tools/getruncpm.py -o $(RUNCPMDIR) --select $(2) --dir-slots $(RUNCPMSLOTS) --reserve $(RUNCPMDISK) $(3) | sed 's,^,A/0:,')"; \
+[ -n "$$sel" ] || { echo "runcpm: getruncpm.py --select $(2) chose nothing"; exit 1; }; \
+python3 tools/os88disk.py -o $(1) --size $(2) --deep-folders --dir-slots A/0=$(RUNCPMSLOTS) $(RUNCPMDISK) $(3) $$sel
+endef
+
+runcpmdisk: $(BUILD)/runcpm.img $(BUILD)/runcpm720.img $(BUILD)/runcpm360.img
+
+$(BUILD)/runcpm.img: $(RUNCPMDEPS)
+	$(call RUNCPMIMG,$@,1440)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/runcpm720.img: $(RUNCPMDEPS)
+	$(call RUNCPMIMG,$@,720)
+	@python3 tools/os88disk.py --verify $@
+
+$(BUILD)/runcpm360.img: $(RUNCPMDEPS)
+	$(call RUNCPMIMG,$@,360)
+	@python3 tools/os88disk.py --verify $@
+
+# THE CORE GATES (SPEC.md 71, docs/RUNCPM-PORT-PLAN.md wave 2). `make rczex`
+# is the plan's: boot build/runcpm.img in QEMU, launch RUNCPM, load ZEXDOC
+# through the debug key and read the terminal rows off screendumps until
+# 'Tests complete' (tests/rczex.py, an 8x8-glyph OCR in tests/rczex_ocr.py).
+# `make rcz80test` runs the SAME shipping core against the same ZEXDOC in raw
+# QEMU from a boot sector - and `make rcmemtest` runs the Z80-RAM movers there with SS != DS
+# and negative controls (apps/runcpm/hosttest/*.sh). None of the three is in
+# `all`: the first two need the fetched master disk.
+rcz80test: $(BUILD)/runcpm-src.stamp
+	apps/runcpm/hosttest/rcz80test.sh
+
+rcmemtest:
+	apps/runcpm/hosttest/rcmemtest.sh
+
+#
+# MEASURED (2026-08-17, wave 2, an Apple-silicon host running QEMU's TCG):
+# rcz80test 144 s alone (185 s beside another QEMU); rczex 146 s from Alt+L
+# to 'Tests complete', 67 of 67 groups OK (179 s before the review's slice
+# fixes) - the in-OS run costs about what the raw one does, the wake round
+# trip and the terminal being what is left. Re-measured after the second
+# review on a host at load ~2.3: rczex 175 / 211 / 193 s over three runs
+# with rcz80test at 155 s the same hour and a control build carrying the
+# previous adaptation at 178 s - the spread is the host's, not the code's,
+# and the figure to quote is the quiet-host one. (The first
+# in-OS runs were five times slower, and the reason is in SPEC.md 71: TCG's
+# price for a per-branch write into a page that also holds translated code.)
+rczex: $(BUILD)/runcpm.img
+	python3 tests/rczex.py $(BUILD)/runcpm.img
+
 # =============================================================================
 # FROTZ and its story floppy (SPEC.md 61) - ON DEMAND: `make zdisk`
 # =============================================================================
@@ -2601,6 +2758,25 @@ $(BUILD)/benchsml.dat: | $(BUILD)
 $(BUILD)/bigfile.dat: | $(BUILD)
 	python3 -c "import sys; sys.stdout.buffer.write(bytes((i>>9)&0xFF for i in range(104*1024)))" > $@
 
+# ...and RUNCPM's row composer on the same harness (SPEC.md 71.2): the package's
+# own apps/runcpm/rcband.inc timed against the 79-cell FONT_RUN it replaces,
+# with the first version of the loop kept in the harness for the record. Its
+# own disk, on demand, because it exists to answer one question once:
+#   make rcbandbench
+#   make test TESTAPPS=build/rcband.img QEMU="qemu-system-i386 -icount shift=3,sleep=off"
+rcbandbench: $(BUILD)/rcband.img
+
+$(BUILD)/rcbband.bin: tests/rcband/rcbandbench.asm apps/runcpm/rcband.inc tests/benchlib.inc apps/os88api.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/rcband/rcbandbench.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -o $@ tests/rcband/rcbandbench.asm
+	@echo "rcbband: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/rcbband.o88: $(BUILD)/rcbband.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/rcbband.bin -o $@
+
+$(BUILD)/rcband.img: $(BUILD)/rcbband.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/rcbband.o88
+
 $(BUILD)/bench.img: $(BENCHPKGS) $(BENCHDATA) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BENCHPKGS) $(BENCHDATA)
 
@@ -3248,9 +3424,9 @@ $(APPSIMG360): $(APPS) tools/os88disk.py
 # THE EVERYTHING DISK (ON DEMAND: `make allapps`) - SPEC.md 19.9
 # =============================================================================
 # build/apps-all.img: ONE 1.44MB floppy with every application this project
-# ships on it, including the three that have their own disks and therefore
+# ships on it, including the four that have their own disks and therefore
 # never appear on the shipped apps disk - FROTZ (SPEC.md 61), WORD (SPEC.md
-# 65) and CWORD (SPEC.md 70.12). It is a CONVENIENCE, offered beside the
+# 65), CWORD (SPEC.md 70.12) and RUNCPM (SPEC.md 71). It is a CONVENIENCE, offered beside the
 # shipped images on a release page for somebody who wants one disk rather
 # than four, and nothing in the tree boots it by default.
 #
@@ -3259,10 +3435,11 @@ $(APPSIMG360): $(APPS) tools/os88disk.py
 # (SPEC.md 70.1). A clone with nasm and python3 builds every SHIPPED floppy;
 # this one target is the exception, so it is on demand exactly like cworddisk.
 #
-# WHY 1.44MB AND ONLY 1.44MB. The contents are ~430KB. That is not a geometry
-# choice made to be generous - a 720KB or 360KB build of this list simply does
-# not fit, and the shipped disks already cover those machines. So there is one
-# size here and no --size variants to keep in step.
+# WHY 1.44MB AND ONLY 1.44MB. The contents are ~1,050KB with RUNCPM's drive
+# on it (~430KB before). That is not a geometry choice made to be generous - a
+# 720KB or 360KB build of this list simply does not fit, and the shipped disks
+# already cover those machines. So there is one size here and no --size
+# variants to keep in step.
 #
 # THE TREE: each Word gets a FOLDER OF ITS OWN rather than a place in APPS/,
 # and that is a correctness requirement and not tidiness. Both carry an
@@ -3275,11 +3452,37 @@ $(APPSIMG360): $(APPS) tools/os88disk.py
 # FROTZ ships without a story. The stories are fetched by tools/getstories.py
 # and are never committed (SPEC.md 61), so what rides here is the interpreter;
 # `make zdisk` is still where a story disk comes from.
+#
+# RUNCPM (SPEC.md 71.5) rides the same way the Words do - a folder of its own,
+# RUNCPM\, because it too has an .OVL resolved in the launching instance's
+# folder, and the CCP it loads and the CP/M drive A\0 below it are found the
+# same way - and, unlike FROTZ, WITH its disk: the master disk is fetched by
+# tools/getruncpm.py (never committed, the same rule as the stories) and this
+# target acquires the fetch as a prerequisite, which it can because it already
+# needs the C toolchain. The A\0 selection is the 1.44MB one - the whole
+# master disk minus the three files above 65,535 bytes, its LEFT-OFF.TXT
+# saying so - chosen at recipe time exactly as build/runcpm.img's is
+# (RUNCPMIMG's shell substitution and its empty-selection guard), and A\0
+# is a deep folder with the same 128 directory slots. --select is told what
+# it chooses beside: --reserve names EVERY FILE ON THIS DISK (ALLAPPSFILES,
+# the files behind ALLAPPSARGS - not the prerequisite list, which carries
+# tools and a stamp that never ride), and --folders the folder directories
+# the tree above has besides RUNCPM\A\0, one cluster each at 1.44MB's 16
+# entries a cluster - DERIVED from ALLAPPSARGS below (ALLAPPSDIRS: every
+# DIR: prefix, each one's parent, --folder DOCS, and RUNCPM\A, the
+# selection's own parent; ten today: APPS, GAMES, MEDIA, WORD, CWORD,
+# RUNCPM, RUNCPM\A, SYSTEM, SYSTEM\DOS, DOCS), so the budget is derived
+# here as it is for build/runcpm.img, and a folder added to the tree above
+# is priced without anyone remembering a constant. One parent level is
+# taken (the tree nests one deep); a DIR/SUB/SUB2: entry would need its
+# grandparent added by hand.
 ALLAPPSIMG := $(BUILD)/apps-all.img
 
-ALLAPPS := $(APPS) $(BUILD)/frotz.o88 \
-           $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC \
-           $(BUILD)/cword.o88 $(BUILD)/CWORD.OVL $(BUILD)/WELCOME.RTF
+ALLAPPSFILES := $(APPS) $(BUILD)/frotz.o88 \
+                $(BUILD)/word.o88 $(BUILD)/WORD.OVL $(BUILD)/WELCOME.DOC \
+                $(BUILD)/cword.o88 $(BUILD)/CWORD.OVL $(BUILD)/WELCOME.RTF \
+                $(RUNCPMDISK)
+ALLAPPS := $(ALLAPPSFILES) $(RUNCPMDEPS)
 
 ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(BUILD)/frotz.o88) \
                $(addprefix GAMES:,$(APPS_GAMES)) \
@@ -3288,13 +3491,21 @@ ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(BUILD)/frotz.o88) \
                                  $(BUILD)/WELCOME.DOC) \
                $(addprefix CWORD:,$(BUILD)/cword.o88 $(BUILD)/CWORD.OVL \
                                   $(BUILD)/WELCOME.RTF) \
+               $(addprefix RUNCPM:,$(RUNCPMDISK)) \
                $(SYSAPPSARGS) \
                $(addprefix SYSTEM/DOS:,$(APPS_DOS))
+ALLAPPSDIRS := $(sort $(foreach a,$(ALLAPPSARGS),$(firstword $(subst :, ,$a))) \
+                      DOCS RUNCPM/A)
+ALLAPPSDIRS := $(sort $(ALLAPPSDIRS) \
+                      $(patsubst %/,%,$(filter-out ./,$(dir $(ALLAPPSDIRS)))))
+ALLAPPSFOLDERS := $(words $(ALLAPPSDIRS))
 
 allapps: $(ALLAPPSIMG)
 
 $(ALLAPPSIMG): $(ALLAPPS) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(ALLAPPSARGS) --folder DOCS
+	sel="$$(python3 tools/getruncpm.py -o $(RUNCPMDIR) --select 1440 --dir-slots $(RUNCPMSLOTS) --folders $(ALLAPPSFOLDERS) --reserve $(ALLAPPSFILES) | sed 's,^,RUNCPM/A/0:,')"; \
+	[ -n "$$sel" ] || { echo "allapps: getruncpm.py --select 1440 chose nothing"; exit 1; }; \
+	python3 tools/os88disk.py -o $@ --size 1440 --deep-folders --dir-slots RUNCPM/A/0=$(RUNCPMSLOTS) --folder DOCS $(ALLAPPSARGS) $$sel
 	@python3 tools/os88disk.py --verify $@
 	@echo "allapps: $@ - every app on one 1.44MB floppy; boot the system"
 	@echo "         disk with it in B: (make run RUNAPPS=$@)"
@@ -3819,6 +4030,17 @@ xt-word: $(IMG360) $(BUILD)/word720.img
 386-c-word: $(IMG) $(BUILD)/cword.img
 	@$(UNPROTECT) $(VM386CWORD)/86box.cfg
 	$(BOX) -P $(VM386CWORD) -N
+
+# The RUNCPM machine (SPEC.md 71.5): vm/386-c-word with B: = build/runcpm.img
+# and the uuid changed and NOTHING else, for the same reason that one is a
+# copy of vm/386-word (above). The banner's 'Estimated Z80 clock speed' read
+# here is the number SPEC.md 71 records for the 386; the XT figure is taken
+# on vm/xt640 with fdd_02_fn hand-pointed at build/runcpm360.img for the
+# session (docs/RUNCPM-PORT-PLAN.md wave 2) - no xt-runcpm target until the
+# measurement says the port is usable there.
+386-runcpm: $(IMG) $(BUILD)/runcpm.img
+	@$(UNPROTECT) $(VM386RUNCPM)/86box.cfg
+	$(BOX) -P $(VM386RUNCPM) -N
 
 # The MARTYPC DEBUGGER (docs/MARTYPC-DEBUG.md): a remote debug server bolted
 # into MartyPC's headless frontend, giving memory, registers, breakpoints,
