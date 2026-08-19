@@ -20,7 +20,10 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 | **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable — it is the matrix of what each emulator can and cannot do, with a recipe per capability |
 | **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory |
 | **[docs/HERCULES-TESTING.md](docs/HERCULES-TESTING.md)** | testing on Hercules — it *is* automatable, and all three ways of getting it wrong give you a black image rather than an error |
-| **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§70) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
+| **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§73) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
+| **[docs/NET-STACK-PLAN.md](docs/NET-STACK-PLAN.md)** | anything on the wire (§72) — the stack's stages, what each layer refuses, and why TLS is not on this machine |
+| **[docs/BROWSER-PLAN.md](docs/BROWSER-PLAN.md)** | the browser (§71) — the renderer's steps, and `tools/htmsim.py` is its reference implementation |
+| **[docs/PROXY-PLAN.md](docs/PROXY-PLAN.md)** | the host-side proxy — it exists because an RSA-2048 private operation is *minutes* on a 4.77 MHz 8088, so TLS terminates off the machine |
 
 ## Commands
 
@@ -51,23 +54,23 @@ make zgfx     # ...and what the reader can SEE (§61.14): every row the
               # zcheck cannot see a graphics defect — a story that draws a
               # quote box and loses it prints the same characters as one that
               # keeps it
-make cword      # the C toolchain (§70). `tools/setup-cc.sh` fetches and builds
+make cword      # the C toolchain (§73). `tools/setup-cc.sh` fetches and builds
 make cworddisk  #   SmallerC into build/cc/ first — nothing in `all` depends on
 make cc-smoke   #   it, and a tree without it builds every shipping floppy and
 make chello     #   prints one note. cc-smoke/chello are the two examples and
-make covl       #   covl is the OVERLAY gate (§70.14); cword is the
+make covl       #   covl is the OVERLAY gate (§73.14); cword is the
                 #   application — Word 1.1a again, in C, in two segments
-                #   (§70.12). `make clean` SPARES build/cc
+                #   (§73.12). `make clean` SPARES build/cc
                 #   (clean-cc removes it) — it is a pinned upstream instrument
 make cpmsw      # the CP/M games and applications the RUNCPM floppies carry
-                #   beside RunCPM's master disk (§71.6) - LADDER, CATCHUM,
+                #   beside RunCPM's master disk (§74.6) - LADDER, CATCHUM,
                 #   Nemesis, GAINA, WordStar, Turbo Pascal - fetched by
                 #   tools/getcpmsw.py from the public RunCPM software
                 #   collection, every file pinned, nothing committed;
                 #   CPMSW='A/5:FILE' adds your own. The 1.44MB disk carries
                 #   the lot, the 720KB one the arcade area, the 360KB one
                 #   none (GAMES.TXT on each says which and why)
-make runcpm     # RUNCPM (§71), the second C application: RunCPM 6.9 as a
+make runcpm     # RUNCPM (§74), the second C application: RunCPM 6.9 as a
 make runcpmdisk #   windowed CP/M 2.2 emulator — the host checks, then the
                 #   package; then the three floppies, from RunCPM's CCP and
                 #   master disk that `tools/getruncpm.py` fetches at a pinned
@@ -76,11 +79,20 @@ make runcpmdisk #   windowed CP/M 2.2 emulator — the host checks, then the
                 #   OS / in raw QEMU), `make rcmemtest` the movers',
                 #   `make rcbandbench` the row composer's bench
                 #   (PERFORMANCE.md Set 65)
-make allapps  # build/apps-all.img (§19.9): ONE 1.44MB floppy with every app
+make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
+                #   asks for ETHER.DRV, so the card is up and DHCP has run
+                #   before the first paint and the test reads state instead of
+                #   clicking. `make ethertest && make browsertest && python3
+                #   tests/ethernet.py`. It boots QEMU and must: MartyPC has no
+                #   NIC of any kind, so `ETHER.DRV` cannot be hosted on it at
+                #   all, and tests/ethernet.py asserts behaviour and never
+                #   speed because the machine under it is not an 8088
+make browsertest # ...and the browser's page disk, for tests/br*.py
+make allapps  # build/apps-all.img (§19.10): ONE 1.44MB floppy with every app
               #   on it, Frotz, both Words and RunCPM (with its drive A)
               #   included, for a release page. Needs the C toolchain and
               #   the RunCPM fetch, so it is on demand like cworddisk —
-              #   it is the only target outside §70/§71 that does
+              #   it is the only target outside §73/§74 that does
 make clean
 ```
 
@@ -107,22 +119,22 @@ exactly like the feature being broken.
 86Box machine that can show §39.12–§39.19's extended desktop; it boots Single,
 and Control Panel → Display → Desktop is what extends it (§39.19.1). `xt-z`
 and `386-z` are the Frotz machines (§61.9), `xt-word`/`386-word` are the Word
-machines (§68.5), `386-c-word` is the C word processor's (§70.12) and
+machines (§68.5), `386-c-word` is the C word processor's (§73.12) and
 `xt-runcpm`/`286-runcpm`/`386-runcpm` the CP/M emulator's, one per floppy
 geometry because the three disks carry different software and the machines
-run at different speeds — which for a CP/M game IS the play speed (§71.5,
-§71.6) — the eight that put a dedicated
+run at different speeds — which for a CP/M game IS the play speed (§74.5,
+§74.6) — the eight that put a dedicated
 floppy in B: instead of the apps disk. `make zdisk` builds the story disk
 (`tools/getstories.py` fetches the stories, which are never committed), `make
 worddisk` the Word disk, `make cworddisk` the CWORD disk — which carries
 `WELCOME.RTF`, the same welcome document the Word disk carries as a `.DOC`,
-adapted to what cword's RTF can actually say (§70.12.3) — and `make
+adapted to what cword's RTF can actually say (§73.12.3) — and `make
 runcpmdisk` the RUNCPM disks (`tools/getruncpm.py` fetches RunCPM's CCP and
 master disk at a pinned commit and `tools/getcpmsw.py` the CP/M games and
-applications that ride beside it, §71.6 — never committed, either of them;
+applications that ride beside it, §74.6 — never committed, either of them;
 `make rczex` and `make rcz80test` are the Z80 core's ZEXDOC gates, in the OS
 and in raw QEMU).
-`make allapps` collapses all of them onto one 1.44MB floppy (§19.9).
+`make allapps` collapses all of them onto one 1.44MB floppy (§19.10).
 
 **`RESET=` clears a machine's non-volatile state on the way in**, and it
 reaches every one of those targets because they all launch through the same
@@ -188,14 +200,19 @@ binds both.
   **ES = KERNEL_SEG on entry to every callback**, so it is `[es:bx+W_W]`, never
   `[bx+W_W]` — without the override a package reads its own image at that
   offset, which assembles cleanly and runs wrong.
+- **A package reaches the network through a DRIVER, not through the kernel**
+  (§72): `ETHER.DRV` publishes the socket surface as `OSAPI_DRV_CALL` verbs, so
+  the kernel learns nothing about TCP and a machine with no card refuses at the
+  one fence. `apps/os88sock.inc` is that ABI written once; `apps/os88line.inc`
+  is the line discipline Telnet and the browser share.
 - **A C package that does not fit gets a second segment, not a bigger one**
-  (§70.14): a function named `ovl_*` has its CODE emitted into a module that
+  (§73.14): a function named `ovl_*` has its CODE emitted into a module that
   ships beside the package (`CWORD.OVL`) and is far-called both ways, while
   every global, literal and bss byte it names stays resident and DS-relative. Split by
   FREQUENCY — a keystroke's path stays in, a menu command's can go out — and
   never take the address of an overlay function.
 - **A C package obeys four extra rules, and `tools/cc8086.py` fails the build
-  on each** (§70, docs/C-TOOLCHAIN.md): **never take the address of an
+  on each** (§73, docs/C-TOOLCHAIN.md): **never take the address of an
   automatic** — SS ≠ DS, so `&local` is a stack offset dereferenced through the
   package segment, and every addressable object must be `static`; **no
   `movs`/`stos`/`scas`/`cmps`** — ES is the kernel's, so no struct assignment,
@@ -312,17 +329,21 @@ in docs/TESTING.md, per capability.
   `string.inc` and `gfx.inc` are dead — still in the tree, no longer included.
 - `apps/` — loadable packages; **everything here ships**. `os88api.inc` is the
   SDK, and each package's design notes are its SPEC.md section. `apps/cc/` is
-  the **C** SDK (§70): `os88.h`, the runtime `crt0.asm`/`os88thunk.asm`, the
+  the **C** SDK (§73): `os88.h`, the runtime `crt0.asm`/`os88thunk.asm`, the
   build rules, and `ccsmoke` as the worked example.
 - `drivers/` — loadable drivers (§51): same format, but `.DRV`, header version
-  4, no instance record, bss shipped inside the image.
+  4, no instance record, bss shipped inside the image. `drivers/ether/` is the NIC
+  and the TCP/IP stack (§72) — the largest of them, and QEMU-only to test.
 - `tests/` — every package that is **not** shipped software: capability gates
   (pass/fail) and benchmarks (how fast). Built only by their own targets.
+- `apps/browser/`, `apps/telnet/` — the network clients (§71, §70), over
+  `os88sock.inc`. `tools/os88proxy.py` is the host-side other end and
+  `os88proxygui.py` its desk-side front.
 - `tools/` — host-side Python: `os88pkg.py` (validates/stamps `.bin` → `.o88`),
   `os88disk.py` (builds FAT12 images; `--verify` is a structural fsck),
   `checkdocs.py` (the doc gate every `make` runs), `qmp.py`/`mouse.py`/`shot.py`
   (test drivers), `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its
-  gate, §70).
+  gate, §73).
 - `docs/` — the maintained accounts. `*-PLAN.md` are design records for work
   that has landed; `FIELD-NOTES.md`/`FIELD-MACHINES.md` are what real hardware
   said.
@@ -343,3 +364,10 @@ mounts — and every byte read off one is still treated as hostile.
 **Every image is built in three geometries** — 1.44MB and 720KB (QEMU), 360KB
 (86Box / a real XT). Changing the boot path, the FAT driver or the disk layout
 means checking all three.
+
+**Seven images, not six.** The system and apps disks in three geometries each,
+plus `build/media360.img` — `BEVERLY.MOD` is 114 of a 360KB disk's 354 clusters
+and is data rather than software, so at that geometry alone it rides a disk of
+its own (§24.4). The **core packages** ship on the system disk too, a second
+copy and never a move (§24.3), and an application's own state goes in
+`SYSTEM/APPDATA/` rather than beside the user's documents (§19.9).

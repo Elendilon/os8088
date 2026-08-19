@@ -125,7 +125,7 @@ inst_kinds:                     ; indexed by KIND_* * 16; caps are binding
                                 ; listing cache; resizable (SPEC.md 22/22.1).
                                 ; The cap, VIEW_SLOTS and fm_pool's size are
                                 ; one number wearing three hats.
-    dw cp_tpl,         0,               0,             0,   0,                cp_sname
+    dw cp_tpl,         0,               0,             0,   cp_kinit,         cp_sname
     dw inst_ico_ctrl
     db 1, 0                     ; Control Panel: stateless task-less singleton
 
