@@ -70,6 +70,7 @@ TP_TEXT_MIN   equ 48            ; six rows of source under the bar
 TP_MIN_W      equ TP_SPLIT_MIN + TP_PREV_MIN + 2
 TP_MIN_H      equ TP_BAR_H + TP_STAT_H + TP_TEXT_MIN + TITLE_H + 1
 TP_SB_W       equ 14            ; SPEC.md 13.10: the shared bar is 14 wide
+TP_WRAP_MARK  equ '>'           ; the last column of a row that CONTINUES
 TP_SB_STEP    equ 4             ; ...and an arrow cell steps FOUR rows. One is
                                 ; what the kernel's own bars do and it is four
                                 ; clicks a line of TeX here, where a row is an
@@ -1436,6 +1437,10 @@ tp_draw_about:
     call tp_about_line
     mov si, tp_s_a11
     call tp_about_line
+    mov si, tp_s_a12
+    call tp_about_line
+    mov si, tp_s_a13
+    call tp_about_line
     pop si
     pop dx
     pop cx
@@ -1603,8 +1608,6 @@ tp_draw_source:
     call tp_caret_show
     mov ax, [tp_vscroll]
     mov [tp_oldvs], ax
-    mov ax, [tp_hscroll]
-    mov [tp_oldhs], ax
 .out:
     pop es
     pop di
@@ -1615,100 +1618,330 @@ tp_draw_source:
     pop ax
     ret
 
-; AX = line index. CF=1 past end. SI=start, CX=len (no NL)
-tp_line_at:
+; =============================================================================
+; THE ROW ENGINE - what one line of the source pane shows (SPEC.md 69.10)
+;
+; THERE IS NO HORIZONTAL SCROLLING. A line longer than the pane WRAPS, broken
+; at the last space that fits - hard at the width when one word is longer than
+; the pane - and a row that continues carries TP_WRAP_MARK in its last column.
+; What that replaces is arrowing sideways to read a document, and the reason
+; is as much about drawing as about the reading: every row's text changes when
+; the view slides one column, so a horizontal scroll is a whole-pane repaint
+; on every keystroke and cannot be made cheap.
+;
+; A ROW is therefore the unit here. The caret, the selection, the scroll bar,
+; the page keys and every drawing path count in rows; a LINE exists inside
+; this section, in tp_cut_line, and in the file on disk.
+;
+; The walk starts at the top of the document, as the line walk it replaces
+; already did - a row cannot know where it begins without reading everything
+; before it. What makes that affordable is the one-entry CACHE below: every
+; drawing path asks for rows in order, so the second row of a repaint starts
+; where the first one ended and a pane repaint is ONE pass over the document
+; instead of forty-four.
+; =============================================================================
+
+; AX = the wrap width in cells: the pane's columns less the one the mark sits
+; in, and never less than one.
+tp_row_w:
+    mov ax, [tp_ecols]
+    or ax, ax
+    jz .one
+    dec ax
+    or ax, ax
+    jnz .o
+.one:
+    mov ax, 1
+.o:
+    ret
+
+; The cache is a guess about where a row starts, so the only way to be wrong
+; is to be stale: any edit, and any change of width.
+tp_row_inval:
+    mov word [tp_rc_row], 0xFFFF
+    ret
+
+; SI = a row's start offset, ES = tp_srcseg. Out: CX = its length in cells,
+; DI = where the NEXT row starts, [tp_rowcont] = 1 when the break is a WRAP
+; rather than a newline. CF = 1 when SI is past the end of the document.
+tp_row_ext:
     push ax
     push bx
     push dx
+    mov byte [tp_rowcont], 0
+    mov bx, [tp_srclen]
+    cmp si, bx
+    ja .none
+    call tp_row_w               ; AX = the width
+    xor cx, cx
+    mov di, si
+.scan:
+    cmp di, bx
+    jae .eol
+    mov dl, [es:di]
+    cmp dl, 10
+    je .eol
+    cmp dl, 13
+    je .eol
+    inc di
+    inc cx
+    cmp cx, ax
+    jbe .scan                   ; stop one PAST the width - that cell is the
+    jmp short .wrap             ; one that does not fit
+.eol:
+    mov cx, di
+    sub cx, si                  ; the row is the rest of the line
+    cmp di, bx
+    jb .nl
+    inc di                      ; at the END of the document the next row must
+    jmp short .o                ; not start where this one did, or the walk
+.nl:                            ; never terminates
+    mov dl, [es:di]
+    inc di
+    cmp dl, 13
+    jne .o
+    cmp di, bx
+    jae .o
+    cmp byte [es:di], 10
+    jne .o
+    inc di
+    jmp short .o
+.wrap:
+    mov byte [tp_rowcont], 1
+    mov di, si
+    add di, ax                  ; the first cell that did not fit
+.back:
+    cmp di, si
+    jbe .hard                   ; one word, longer than the pane
+    cmp byte [es:di], ' '
+    je .space
+    dec di
+    jmp short .back
+.space:
+    mov cx, di
+    sub cx, si                  ; the row ends BEFORE the space...
+    inc di                      ; ...and the next one starts after it
+    jmp short .o
+.hard:
+    mov cx, ax
+    mov di, si
+    add di, ax
+.o:
+    pop dx
+    pop bx
+    pop ax
+    clc
+    ret
+.none:
+    pop dx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; AX = a row index. Out: CF=1 past the end, else SI = its start, CX = its
+; length, [tp_rowcont] set. Every other register preserved.
+tp_row_at:
+    push ax
+    push bx
+    push dx
+    push di
+    push es
+    mov [tp_rc_want], ax
+    mov es, [tp_srcseg]
+    call tp_row_w
+    cmp ax, [tp_rc_w]
+    je .w
+    mov [tp_rc_w], ax           ; a resize is a different set of rows
+    call tp_row_inval
+.w:
+    mov ax, [tp_rc_want]
+    mov bx, [tp_rc_row]
+    cmp bx, 0xFFFF
+    je .top
+    cmp ax, bx
+    jb .top                     ; the cache is BELOW us: start over
+    mov si, [tp_rc_off]
+    mov dx, bx
+    jmp short .walk
+.top:
+    xor si, si
+    xor dx, dx
+.walk:
+    cmp dx, ax
+    je .here
+    call tp_row_ext
+    jc .miss
+    mov si, di
+    inc dx
+    jmp short .walk
+.here:
+    call tp_row_ext             ; the row's own length and continuation
+    jc .miss
+    mov [tp_rc_row], ax
+    mov [tp_rc_off], si
+    pop es
+    pop di
+    pop dx
+    pop bx
+    pop ax
+    clc
+    ret
+.miss:
+    pop es
+    pop di
+    pop dx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; AX = the row containing offset SI. Preserves everything else.
+;
+; It reads the same cache tp_row_at keeps, for the same reason: this runs on
+; every editing keystroke (tp_edmark) and the offset it is asked about is
+; almost always inside the pane, which is where the cache already points. A
+; walk from the top of an 8KB document is ~26ms on the target machine and it
+; would be paid per character typed.
+tp_row_of:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
     push es
     mov es, [tp_srcseg]
+    mov dx, si
     xor si, si
-    mov dx, ax
-    mov bx, [tp_srclen]
-.walk:
-    or dx, dx
-    jz .found
-    cmp si, bx
-    jae .miss
-    mov al, [es:si]
-    inc si
-    cmp al, 10
-    je .nl
-    cmp al, 13
-    jne .walk
-    cmp si, bx
-    jae .nl
-    cmp byte [es:si], 10
-    jne .nl
-    inc si
-.nl:
-    dec dx
-    jmp .walk
-.found:
-    cmp si, bx
-    ja .miss
-    push si
-.len:
-    cmp si, bx
-    jae .e
-    mov al, [es:si]
-    cmp al, 10
-    je .e
-    cmp al, 13
-    je .e
-    inc si
-    jmp .len
-.e:
-    mov cx, si
-    pop si
-    sub cx, si
-    clc
-    jmp .o
-.miss:
-    stc
+    xor ax, ax
+    mov bx, [tp_rc_row]
+    cmp bx, 0xFFFF
+    je .lp
+    mov cx, [tp_rc_off]
+    cmp cx, dx
+    ja .lp                      ; the cache is PAST the offset: start at the top
+    mov si, cx
+    mov ax, bx
+.lp:
+    call tp_row_ext
+    jc .o
+    cmp dx, di
+    jb .o                       ; the offset is inside this row
+    inc ax
+    mov si, di
+    jmp short .lp
 .o:
     pop es
+    pop di
+    pop si
     pop dx
+    pop cx
+    pop bx
+    ret
+
+; AX = how many rows START in [SI, DI). Preserves everything else.
+tp_rows_between:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov es, [tp_srcseg]
+    mov dx, di
+    xor ax, ax
+.lp:
+    cmp si, dx
+    jae .o
+    call tp_row_ext
+    jc .o
+    inc ax
+    mov si, di
+    jmp short .lp
+.o:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; SI = the start of the logical LINE containing SI (ES = tp_srcseg).
+tp_lstart:
+    push ax
+    push bx
+    mov bx, [tp_srclen]
+    cmp si, bx
+    jbe .ok
+    mov si, bx
+.ok:
+    or si, si
+    jz .o
+.lp:
+    dec si
+    mov al, [es:si]
+    cmp al, 10
+    je .aft
+    cmp al, 13
+    je .aft
+    or si, si
+    jnz .lp
+    jmp short .o
+.aft:
+    inc si
+.o:
     pop bx
     pop ax
     ret
 
-tp_count_lines:
+; SI = the start of the logical line AFTER the one containing SI, or the end
+; of the document (ES = tp_srcseg).
+tp_lnext:
+    push ax
     push bx
+    mov bx, [tp_srclen]
+.lp:
+    cmp si, bx
+    jae .o
+    mov al, [es:si]
+    inc si
+    cmp al, 10
+    je .o
+    cmp al, 13
+    jne .lp
+    cmp si, bx
+    jae .o
+    cmp byte [es:si], 10
+    jne .o
+    inc si
+.o:
+    pop bx
+    pop ax
+    ret
+
+; AX = how many ROWS the document has - the scroll bar's `total`.
+tp_count_rows:
     push cx
+    push dx
     push si
+    push di
     push es
     mov es, [tp_srcseg]
-    xor ax, ax
     xor si, si
-    mov bx, [tp_srclen]
-    or bx, bx
-    jz .o
+    xor ax, ax
+.lp:
+    call tp_row_ext
+    jc .o
     inc ax
-.w:
-    cmp si, bx
-    jae .o
-    mov cl, [es:si]
-    inc si
-    cmp cl, 10
-    je .nl
-    cmp cl, 13
-    jne .w
-    cmp si, bx
-    jae .nl
-    cmp byte [es:si], 10
-    jne .nl
-    inc si
-.nl:
-    cmp si, bx
-    jae .o
-    inc ax
-    jmp .w
+    mov si, di
+    jmp short .lp
 .o:
     pop es
+    pop di
     pop si
+    pop dx
     pop cx
-    pop bx
     ret
 
 ; caret -> tp_cxp/tp_cyp. CF=1 off screen
@@ -1727,8 +1960,6 @@ tp_caret_xy:
     cmp dx, [tp_erows]
     jae .off
     mov cx, bx
-    sub cx, [tp_hscroll]
-    js .off
     cmp cx, [tp_ecols]
     ja .off
     mov al, 8
@@ -1756,45 +1987,60 @@ tp_caret_xy:
     pop ax
     ret
 
-; out AX=line BX=col of cursor
+; out AX = the caret's ROW, BX = its column in that row.
+;
+; A caret at the offset where one row ends and the next begins belongs to the
+; EARLIER row when the break is a wrapped space - the space is at the end of
+; the first row and that is where the caret is drawn - and to the LATER row
+; when the break is hard, where the offset is the next row's first cell and
+; the earlier row has no column left to draw it in.
 tp_cur_lc:
     push cx
     push dx
     push si
+    push di
     push es
     mov es, [tp_srcseg]
-    xor ax, ax
-    xor bx, bx
-    xor si, si
     mov dx, [tp_cur]
     cmp dx, [tp_srclen]
-    jbe .w
+    jbe .ok
     mov dx, [tp_srclen]
-.w:
-    cmp si, dx
-    jae .o
-    mov cl, [es:si]
-    inc si
-    cmp cl, 10
-    je .nl
-    cmp cl, 13
-    jne .ch
-    cmp si, dx
-    jae .nl
-    cmp si, [tp_srclen]
-    jae .nl
-    cmp byte [es:si], 10
-    jne .nl
-    inc si
-.nl:
+.ok:
+    xor si, si
+    xor ax, ax
+    xor bx, bx
+    mov cx, [tp_rc_row]         ; the same cache, and this is the hottest
+    cmp cx, 0xFFFF              ; reader of it: the caret's row is asked for
+    je .lp                      ; on every keystroke and every repaint
+    mov bx, [tp_rc_off]
+    cmp bx, dx
+    ja .rst
+    mov si, bx
+    mov ax, cx
+.rst:
+    xor bx, bx
+.lp:
+    call tp_row_ext
+    jc .o
+    mov bx, si
+    add bx, cx                  ; BX = one past the row's last cell
+    cmp dx, bx
+    ja .next
+    jb .in
+    cmp di, bx
+    je .next                    ; a hard break: this offset opens the next row
+.in:
+    mov bx, dx
+    sub bx, si
+    jmp short .o
+.next:
+    mov si, di
     inc ax
     xor bx, bx
-    jmp .w
-.ch:
-    inc bx
-    jmp .w
+    jmp short .lp
 .o:
     pop es
+    pop di
     pop si
     pop dx
     pop cx
@@ -1860,7 +2106,7 @@ tp_src_metrics:
 ; Fill the 7-word source bar block (SPEC.md 13.10).
 tp_ssb_sync:
     push ax
-    call tp_count_lines
+    call tp_count_rows
     mov [tp_r_ssb+8], ax
     mov ax, [tp_erows]
     or ax, ax
@@ -1957,21 +2203,8 @@ tp_draw_srow:
     mov es, ax
     mov ax, [tp_vscroll]
     add ax, di
-    call tp_line_at
-    jc .o
-    mov ax, [tp_hscroll]
-    cmp cx, ax
-    ja .clip
-    xor cx, cx
-    jmp .copy
-.clip:
-    add si, ax
-    sub cx, ax
-.copy:
-    cmp cx, [tp_ecols]
-    jbe .okc
-    mov cx, [tp_ecols]
-.okc:
+    call tp_row_at              ; SI = its start, CX = its length, and a row
+    jc .o                       ; never needs clipping: it IS what fits
     push dx
     push di
     push es
@@ -2003,6 +2236,7 @@ tp_draw_srow:
     mov al, CBLACK
     mov ah, CWHITE
     call OSAPI_FONT_RUN
+    call tp_draw_mark           ; ...and the wrap mark, if this row continues
 .o:
     pop es
     pop di
@@ -2011,6 +2245,38 @@ tp_draw_srow:
     pop cx
     pop bx
     pop ax
+    ret
+
+; DI = a visible row, DX = its top. Letter TP_WRAP_MARK in the column kept
+; for it when [tp_rowcont] says the row is continued by the next one.
+;
+; It is a FONT_RUN of its own rather than a padded line, and that is the whole
+; point: padding the row out to the mark with spaces would letter forty cells
+; to draw one, at PERFORMANCE.md's ~900us each.
+tp_draw_mark:
+    cmp byte [tp_rowcont], 0
+    je .o
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call tp_row_w               ; AX = the width, which IS the mark's column
+    mov bl, 8
+    mul bl
+    add ax, [tp_ex1]
+    add ax, 3
+    mov cx, ax
+    mov si, tp_s_wrap
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.o:
     ret
 
 ; XOR the 8x8 cell at tp_cxp/tp_cyp.
@@ -2075,9 +2341,9 @@ tp_xor_span:
     jae .out
     mov ax, [tp_vscroll]
     add ax, di
-    call tp_line_at
+    call tp_row_at
     jc .out
-    mov bx, si                  ; line start
+    mov bx, si                  ; the row's start
     add si, cx
     mov dx, si                  ; line end
     mov ax, [tp_tmp]
@@ -2100,8 +2366,6 @@ tp_xor_span:
     jae .n
     sub ax, bx                  ; start col
     sub cx, bx                  ; end col
-    sub ax, [tp_hscroll]
-    sub cx, [tp_hscroll]
     cmp ax, 0
     jge .c0
     xor ax, ax
@@ -2405,9 +2669,6 @@ tp_src_scroll:
     push di
     call tp_src_metrics
     jc .full
-    mov ax, [tp_hscroll]
-    cmp ax, [tp_oldhs]
-    jne .full
     mov ax, [tp_vscroll]
     mov bx, [tp_oldvs]
     sub ax, bx                  ; AX = d rows (new - old)
@@ -2475,17 +2736,12 @@ tp_after_caret:
     push ax
     push bx
     mov ax, [tp_vscroll]
-    mov bx, [tp_hscroll]
     call tp_keep_caret
     cmp ax, [tp_vscroll]
     jne .sc
-    cmp bx, [tp_hscroll]
-    jne .full
     call tp_marks_sync
     jmp .o
 .sc:
-    cmp bx, [tp_hscroll]
-    jne .full
     call tp_src_scroll
     jmp .o
 .full:
@@ -2505,7 +2761,7 @@ tp_draw_tail:
     push si
     push di
     push es
-    mov [tp_tmp4], ax           ; start col (document)
+    mov [tp_tmp4], ax           ; the column the edit started at
     mov ax, di
     mov bl, 8
     mul bl
@@ -2513,10 +2769,6 @@ tp_draw_tail:
     add dx, [tp_ey1]
     add dx, 3
     mov ax, [tp_tmp4]
-    sub ax, [tp_hscroll]
-    jns .c0
-    xor ax, ax
-.c0:
     cmp ax, [tp_ecols]
     jae .o
     mov bl, 8
@@ -2542,7 +2794,7 @@ tp_draw_tail:
     push dx
     mov ax, [tp_vscroll]
     add ax, di
-    call tp_line_at
+    call tp_row_at
     pop dx
     jc .o
     mov ax, [tp_tmp4]
@@ -2554,18 +2806,6 @@ tp_draw_tail:
     add si, ax
     sub cx, ax
 .run:
-    mov ax, [tp_tmp4]
-    sub ax, [tp_hscroll]
-    jns .vis
-    xor ax, ax
-.vis:
-    mov bx, [tp_ecols]
-    sub bx, ax
-    jbe .o
-    cmp cx, bx
-    jbe .okc
-    mov cx, bx
-.okc:
     push dx
     push di
     push es
@@ -2592,10 +2832,6 @@ tp_draw_tail:
     pop di
     pop dx
     mov ax, [tp_tmp4]
-    sub ax, [tp_hscroll]
-    jns .xok
-    xor ax, ax
-.xok:
     mov bl, 8
     mul bl
     add ax, [tp_ex1]
@@ -2605,6 +2841,7 @@ tp_draw_tail:
     mov al, CBLACK
     mov ah, CWHITE
     call OSAPI_FONT_RUN
+    call tp_draw_mark           ; the fill above took the mark with it
 .o:
     pop es
     pop di
@@ -2612,6 +2849,98 @@ tp_draw_tail:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; tp_edmark - what the edit about to happen is, in ROWS
+;
+; Wrapping makes an edit's reach a question that cannot be answered after the
+; fact: typing one character can push a word onto a new row and move every row
+; below it, or pull one back and take a row away. So the shape is measured
+; HERE, before the edit, as a span of the document [tp_edls, tp_edtail) and
+; the number of rows it occupied; tp_after_edit measures the same span again
+; and the difference is how far everything below has moved.
+;
+; The span starts at the caret's own LINE - or the one before it, because a
+; Backspace at a line start joins the two - and ends two lines on, because a
+; Delete at a line's end joins the next one in.
+; -----------------------------------------------------------------------------
+tp_edmark:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    mov byte [tp_edkind], 0
+    mov byte [tp_edn], 0
+    mov es, [tp_srcseg]
+    mov si, [tp_cur]
+    call tp_lstart
+    cmp si, [tp_cur]
+    jne .ls
+    or si, si
+    jz .ls
+    dec si
+    call tp_lstart              ; a join takes the line above with it
+.ls:
+    mov [tp_edls], si
+    call tp_row_of
+    mov [tp_edrf], ax
+    mov si, [tp_cur]
+    call tp_lnext
+    call tp_lnext
+    mov [tp_edtail], si
+    mov di, si
+    mov si, [tp_edls]
+    call tp_rows_between
+    mov [tp_edkb], ax
+    mov ax, [tp_srclen]
+    mov [tp_edlen], ax
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; [tp_edka] = what that span spans NOW. Every offset after the edit moved by
+; the bytes the document gained, the tail included.
+tp_ed_ka:
+    push ax
+    push si
+    push di
+    mov ax, [tp_srclen]
+    sub ax, [tp_edlen]
+    add ax, [tp_edtail]
+    mov di, ax
+    mov si, [tp_edls]
+    call tp_rows_between
+    mov [tp_edka], ax
+    pop di
+    pop si
+    pop ax
+    ret
+
+; DI = the first visible row, CX = how many. Draw them, stopping at the pane.
+tp_rows_redraw:
+    push ax
+    push cx
+    push di
+.lp:
+    or cx, cx
+    jz .o
+    cmp di, [tp_erows]
+    jae .o
+    call tp_draw_srow
+    inc di
+    dec cx
+    jmp short .lp
+.o:
+    pop di
+    pop cx
     pop ax
     ret
 
@@ -2627,10 +2956,7 @@ tp_after_edit:
     call tp_caret_hide
     call tp_sel_hide
     mov ax, [tp_vscroll]
-    mov bx, [tp_hscroll]
     call tp_keep_caret
-    cmp bx, [tp_hscroll]
-    jne .full
     mov bx, [tp_vscroll]
     cmp ax, bx
     je .same
@@ -2650,35 +2976,24 @@ tp_after_edit:
     cmp bx, 1
     jne .full
     mov al, [tp_edkind]
-    cmp al, 1
-    je .sc1
-    cmp al, 2
-    je .sc1
-    cmp al, 3
-    jne .full
+    or al, al
+    jz .full
+    call tp_ed_ka               ; ...and the edit must not have RESHAPED the
+    mov ax, [tp_edka]           ; rows under it, or one blit cannot describe
+    cmp ax, [tp_edkb]           ; what moved (wrapping makes that ordinary:
+    jne .full                   ; one typed character can push a word down)
 .sc1:
     call tp_src_metrics
     jc .full
-    mov ax, [tp_hscroll]
-    cmp ax, [tp_oldhs]
-    jne .full
     mov si, 8                   ; the pane's content up one row
     xor ax, ax
     call tp_src_blit
     jc .full
-    mov di, [tp_erows]
-    or di, di
-    jz .full
-    dec di
-    cmp byte [tp_edkind], 2
-    jne .sc1last
-    or di, di
-    jz .sc1last
-    dec di                      ; the line the Return broke...
-    call tp_draw_srow
-    inc di
-.sc1last:
-    call tp_draw_srow           ; ...and the caret's own, in the vacated row
+    mov di, [tp_edrf]
+    sub di, [tp_vscroll]
+    js .full
+    mov cx, [tp_edka]
+    call tp_rows_redraw         ; the span, wherever the scroll left it
     mov ax, [tp_vscroll]
     mov [tp_oldvs], ax
     call tp_caret_show
@@ -2688,103 +3003,50 @@ tp_after_edit:
     call tp_redraw_src
     jmp .stat
 .same:
-    mov al, [tp_edkind]
-    cmp al, 1
-    je .ins
-    cmp al, 3
-    je .ins
-    cmp al, 2
-    je .nl
-    cmp al, 4
-    je .join
-    call tp_redraw_src
-    jmp .stat
-.ins:
-    ; Redraw the caret's line from the column the EDIT started at, which for
-    ; an insert is [tp_edn] cells to the LEFT of where the caret ended up -
-    ; one for a character, two for a Tab, none for a Delete. Starting at the
-    ; caret drew everything the typed character pushed right and not the
-    ; character itself, so a typed line came up missing exactly the letters
-    ; that had just been typed into it.
-    call tp_cur_lc              ; AX=line BX=col
-    sub ax, [tp_vscroll]
-    js .stat
-    cmp ax, [tp_erows]
-    jae .stat
-    mov di, ax
-    mov ax, bx
-    mov bl, [tp_edn]
-    xor bh, bh
-    sub ax, bx
-    jns .icol
-    xor ax, ax
-.icol:
-    call tp_draw_tail
-    call tp_caret_show
-    jmp .stat
-.nl:
-    call tp_cur_lc
-    sub ax, [tp_vscroll]
-    js .stat
-    cmp ax, [tp_erows]
-    jae .stat
-    mov di, ax
-    or di, di
-    jz .nltop
-    dec di                      ; the line we broke, now shorter
-    xor ax, ax
-    call tp_draw_tail           ; whole of the shortened line
-    inc di
-.nltop:
-    ; Push everything from the caret's row down by one. THE BLIT STARTS AT DI,
-    ; not below it: the line that was displayed there is the one after the
-    ; break, and it is moving to DI+1 like every line under it. Starting at
-    ; DI+1 left that line unmoved and its successor drawn twice - one line
-    ; lost, one doubled, until something forced a full repaint.
+    ; THE VIEW DID NOT MOVE, so what is on screen changed only where the edit
+    ; reached: the rows of the span tp_edmark measured, plus - if that span
+    ; now takes a different number of rows - everything below it, which moves
+    ; by the difference and is a BLIT rather than a repaint.
+    cmp byte [tp_edkind], 0
+    je .full                    ; an edit nobody measured (a selection went)
+    call tp_ed_ka
+    mov di, [tp_edrf]
+    sub di, [tp_vscroll]
+    js .full                    ; the span starts above the pane
+    cmp di, [tp_erows]
+    jae .stat                   ; ...or below it: nothing on screen moved
+    mov ax, [tp_edka]
+    cmp ax, [tp_edkb]
+    je .blk                     ; the rows below did not move
     mov ax, di
-    inc ax
+    add ax, [tp_edkb]           ; the first row below the span, on screen
     cmp ax, [tp_erows]
-    jae .nldraw                 ; nothing below to push
-    mov si, -8
-    mov ax, di
-    call tp_src_blit
-    jc .full
-.nldraw:
-    xor ax, ax
-    call tp_draw_tail           ; the new line, into the band the blit vacated
-    call tp_caret_show
-    jmp .stat
-.join:
-    call tp_cur_lc
-    sub ax, [tp_vscroll]
-    js .stat
-    cmp ax, [tp_erows]
-    jae .stat
-    mov di, ax
-    mov si, 8                   ; pull rows below up
-    mov ax, di
-    inc ax
-    cmp ax, [tp_erows]
-    jae .jdraw                  ; the joined line is the last visible row: there
-    call tp_src_blit            ; is nothing below it to pull up, and so no
-                                ; vacated row either
-    jc .full
-    xor ax, ax
-    call tp_draw_tail           ; the joined line
-    ; ...and the bottom row, which the blit vacated: it holds the row above it
-    ; a second time until the line pulled up from below the pane is lettered
-    ; there (SPEC.md 5.5 - the rows a scroll vacates are the caller's).
+    jae .blk                    ; nothing below it to move
+    mov si, [tp_edkb]
+    sub si, [tp_edka]           ; rows the tail moves UP...
+    shl si, 1
+    shl si, 1
+    shl si, 1                   ; ...times 8, which is gfx_scroll's dy
     push di
-    mov di, [tp_erows]
-    dec di
-    call tp_draw_srow
+    call tp_src_blit
     pop di
+    jc .full
+.blk:
+    mov cx, [tp_edka]
+    call tp_rows_redraw
+    mov ax, [tp_edkb]
+    cmp ax, [tp_edka]
+    jbe .caret
+    sub ax, [tp_edka]           ; the span SHRANK: the rows it gave back are
+    mov cx, ax                  ; stale at the bottom of the pane
+    mov di, [tp_erows]
+    sub di, cx
+    js .caret
+    call tp_rows_redraw
+.caret:
     call tp_caret_show
-    jmp short .stat
-.jdraw:
-    xor ax, ax
-    call tp_draw_tail
-    call tp_caret_show
+    call tp_ssb_move
+    jmp .strip
 .stat:
     ; A Return or a join changed the LINE COUNT, which is the scroll bar's
     ; `total`: the thumb is a different size and in a different place, and
@@ -3737,6 +3999,7 @@ tp_onkey:
     ; tp_sel_del leaves edkind 0 and CF=1 when there was nothing selected;
     ; claiming "one character into one line" over the top of it drew the
     ; caret's line and left every row a multi-line selection had moved.
+    call tp_edmark              ; where this lands, in rows, BEFORE it does
     call tp_sel_del
     mov al, bl
     jnc .kins
@@ -3746,6 +4009,7 @@ tp_onkey:
     call tp_ins
     jmp .etype
 .kbs:
+    call tp_edmark
     call tp_sel_del
     jc .kbs1
     mov byte [tp_edkind], 0
@@ -3754,6 +4018,7 @@ tp_onkey:
     call tp_backsp
     jmp .etype
 .kdel:
+    call tp_edmark
     call tp_sel_del
     jc .kdel1
     mov byte [tp_edkind], 0
@@ -3762,6 +4027,7 @@ tp_onkey:
     call tp_delete
     jmp .etype
 .knl:
+    call tp_edmark
     call tp_sel_del             ; ...and the same for a Return and a Tab
     mov al, 10
     jnc .knl1
@@ -3770,6 +4036,7 @@ tp_onkey:
     call tp_ins
     jmp .etype
 .ktab:
+    call tp_edmark
     call tp_sel_del
     mov al, ' '
     jnc .ktab1
@@ -4200,7 +4467,6 @@ tp_click_caret:
     mov bl, 8
     div bl
     xor ah, ah
-    add ax, [tp_hscroll]
     mov [tp_wantcol], ax
     mov ax, [tp_tline]
     call tp_goto_lc
@@ -4210,13 +4476,13 @@ tp_click_caret:
     pop ax
     ret
 
-; AX=line, tp_wantcol=col
+; AX = a ROW, [tp_wantcol] = a column in it -> tp_cur.
 tp_goto_lc:
     push ax
     push bx
     push cx
     push si
-    call tp_line_at
+    call tp_row_at
     jc .eof
     ; SI start CX len
     mov ax, [tp_wantcol]
@@ -4621,9 +4887,9 @@ tp_load:
 .ok:
     mov [tp_srclen], ax
     call tp_crlf_fix
+    call tp_row_inval
     mov word [tp_cur], 0
     mov word [tp_vscroll], 0
-    mov word [tp_hscroll], 0
     mov byte [tp_selon], 0      ; the selection is a pair of offsets into the
                                 ; document that just went (the same for the
                                 ; new document below, a cut and a paste)
@@ -4755,9 +5021,9 @@ tp_seed:
     jnz .cp
     dec di
     mov [tp_srclen], di
+    call tp_row_inval
     mov word [tp_cur], 0
     mov word [tp_vscroll], 0
-    mov word [tp_hscroll], 0
     mov byte [tp_selon], 0
     mov si, tp_s_untitled
     mov di, tp_fname
@@ -4925,32 +5191,16 @@ tp_cut_line:
     push si
     push di
     push es
-    call tp_cur_lc
-    ; AX=line
-    call tp_line_at
-    jc .o
-    ; SI start CX len; include following NL
-    mov bx, si
-    add si, cx
+    ; THE LOGICAL LINE, not the row: this is the Edit menu's 'Cut Line' and
+    ; what it takes out has to be a line of the FILE, newline and all.
     mov es, [tp_srcseg]
-    cmp si, [tp_srclen]
-    jae .cut
-    cmp byte [es:si], 13
-    jne .lf
-    inc si
-    inc cx
-    cmp si, [tp_srclen]
-    jae .cut
-.lf:
-    cmp byte [es:si], 10
-    jne .cut
-    inc cx
+    mov si, [tp_cur]
+    call tp_lstart
+    mov bx, si                  ; BX = where it starts
+    call tp_lnext               ; SI = where the next one does
+    mov cx, si
+    sub cx, bx                  ; CX = its length, the newline included
 .cut:
-    ; clipboard the line
-    mov es, [tp_srcseg]
-    push cx
-    mov cx, cx
-    pop cx
     push bx
     mov si, bx
     call OSAPI_CLIP_PUT
@@ -4971,7 +5221,8 @@ tp_cut_line:
 
 tp_del_range2:
     ; BX=off, [tp_tmp3]=count
-    push ax
+    call tp_row_inval           ; every row after this one starts somewhere
+    push ax                     ; else now
     push cx
     push si
     push di
@@ -5054,6 +5305,7 @@ tp_ins:
     mov [es:di], al
     inc word [tp_cur]
     inc word [tp_srclen]
+    call tp_row_inval
     mov byte [tp_dirty], 1
     mov byte [tp_needset], 1
     jmp .o
@@ -5196,66 +5448,18 @@ tp_sol:
     pop ax
     ret
 
+; A ROW up and a row down, not a line: on a wrapped line the two are not the
+; same move, and the row is the one the reader is looking at.
 tp_up:
     push ax
     push bx
-    push cx
-    push si
-    push es
     call tp_cur_lc
-    mov [tp_wantcol], bx
-    call tp_sol
-    or si, si
+    or ax, ax
     jz .o
-    dec si
-    ; land on previous line; skip CR of CRLF
-    mov es, [tp_srcseg]
-    cmp byte [es:si], 13
-    jne .back
-    or si, si
-    jz .back
-    dec si
-    cmp byte [es:si], 10
-    je .back
-    inc si
-.back:
-    ; walk back to start of previous line
-    or si, si
-    jz .at
-.w:
-    dec si
-    mov al, [es:si]
-    cmp al, 10
-    je .aft
-    cmp al, 13
-    je .aft
-    or si, si
-    jnz .w
-    jmp .at
-.aft:
-    inc si
-.at:
-    mov cx, [tp_wantcol]
-    mov bx, [tp_srclen]
-.fwd:
-    or cx, cx
-    jz .set
-    cmp si, bx
-    jae .set
-    mov al, [es:si]
-    cmp al, 10
-    je .set
-    cmp al, 13
-    je .set
-    inc si
-    dec cx
-    jmp .fwd
-.set:
-    mov [tp_cur], si
+    mov [tp_wantcol], bx
+    dec ax
+    call tp_goto_lc
 .o:
-    pop es
-    pop si
-    pop cx
     pop bx
     pop ax
     ret
@@ -5265,45 +5469,15 @@ tp_down:
     push bx
     push cx
     push si
-    push es
     call tp_cur_lc
     mov [tp_wantcol], bx
-    mov es, [tp_srcseg]
-    mov si, [tp_cur]
-    mov bx, [tp_srclen]
-.sk:
-    cmp si, bx
-    jae .o
-    mov al, [es:si]
-    inc si
-    cmp al, 10
-    je .at
-    cmp al, 13
-    jne .sk
-    cmp si, bx
-    jae .at
-    cmp byte [es:si], 10
-    jne .at
-    inc si
-.at:
-    mov cx, [tp_wantcol]
-.fwd:
-    or cx, cx
-    jz .set
-    cmp si, bx
-    jae .set
-    mov al, [es:si]
-    cmp al, 10
-    je .set
-    cmp al, 13
-    je .set
-    inc si
-    dec cx
-    jmp .fwd
-.set:
-    mov [tp_cur], si
+    inc ax
+    push ax
+    call tp_row_at              ; is there a row below at all?
+    pop ax
+    jc .o
+    call tp_goto_lc
 .o:
-    pop es
     pop si
     pop cx
     pop bx
@@ -5311,42 +5485,35 @@ tp_down:
     ret
 
 tp_home:
-    call tp_sol
-    mov [tp_cur], si
+    push ax
+    call tp_cur_lc
     mov word [tp_wantcol], 0
+    call tp_goto_lc
+    pop ax
     ret
 
 tp_end:
     push ax
-    push bx
+    push cx
     push si
-    push es
-    call tp_sol
-    mov es, [tp_srcseg]
-    mov bx, [tp_srclen]
-.lp:
-    cmp si, bx
-    jae .s
-    mov al, [es:si]
-    cmp al, 10
-    je .s
-    cmp al, 13
-    je .s
-    inc si
-    jmp .lp
-.s:
+    call tp_cur_lc
+    push ax
+    call tp_row_at
+    pop ax
+    jc .o
+    add si, cx
     mov [tp_cur], si
     mov word [tp_wantcol], 255
-    pop es
+.o:
     pop si
-    pop bx
+    pop cx
     pop ax
     ret
 
 tp_clamp_vs:
     push ax
     push bx
-    call tp_count_lines
+    call tp_count_rows
     mov bx, [tp_erows]
     or bx, bx
     jnz .e
@@ -5528,15 +5695,19 @@ tp_ssb_click:
     pop ax
     ret
 
+; The caret is on screen or the view moves to put it there. It is only ever
+; VERTICAL now: a row is the whole width of the pane by construction, so
+; there is nothing to scroll sideways and [tp_hscroll] is gone with the
+; horizontal arrowing it existed for.
 tp_keep_caret:
     push ax
     push bx
-    call tp_cur_lc
-    ; AX line BX col
+    push dx
+    call tp_cur_lc              ; AX = row
     cmp ax, [tp_vscroll]
     jae .dn
     mov [tp_vscroll], ax
-    jmp .h
+    jmp short .o
 .dn:
     mov dx, [tp_erows]
     or dx, dx
@@ -5545,38 +5716,18 @@ tp_keep_caret:
 .er:
     add dx, [tp_vscroll]
     or dx, dx
-    jz .h
+    jz .o
     dec dx
     cmp ax, dx
-    jbe .h
+    jbe .o
     sub ax, [tp_erows]
     inc ax
     jns .sv
     xor ax, ax
 .sv:
     mov [tp_vscroll], ax
-.h:
-    call tp_cur_lc
-    cmp bx, [tp_hscroll]
-    jae .hr
-    mov [tp_hscroll], bx
-    jmp .o
-.hr:
-    mov ax, [tp_hscroll]
-    add ax, [tp_ecols]
-    or ax, ax
-    jz .o
-    dec ax
-    cmp bx, ax
-    jbe .o
-    sub bx, [tp_ecols]
-    inc bx
-    jns .sh
-    xor bx, bx
-.sh:
-    mov [tp_hscroll], bx
 .o:
-    call tp_clamp_vs
+    pop dx
     pop bx
     pop ax
     ret
@@ -5796,6 +5947,7 @@ tp_s_pl:        db 'Pad+', 0
 tp_s_lt:        db '<', 0
 tp_s_gt:        db '>', 0
 tp_s_stale:     db '(edit)', 0
+tp_s_wrap:      db TP_WRAP_MARK, 0      ; the last column of a continued row
 tp_s_letter:    db 'Letter', 0
 tp_s_legal:     db 'Legal', 0
 tp_s_pt:        db 'pt', 0
@@ -5840,6 +5992,8 @@ tp_s_a8:        db 'the kernel 8x8 monofont. No math engine, no', 0
 tp_s_a9:        db 'figures, no colour - see SPEC.md 69.2.', 0
 tp_s_a10:       db 0
 tp_s_a11:       db 'F5 typesets.  File exports PDF 1.4 and PostScript.', 0
+tp_s_a12:       db 0
+tp_s_a13:       db 'Long lines WRAP; a row that continues is marked >', 0
 
 tp_seed_s:
     db '\documentclass[letterpaper,12pt]{article}', 10
@@ -5877,7 +6031,9 @@ tp_drv      equ os88_image_end + 20
 tp_cur      equ os88_image_end + 22
 tp_wantcol  equ os88_image_end + 24
 tp_vscroll  equ os88_image_end + 26
-tp_hscroll  equ os88_image_end + 28
+                                         ; 28 is FREE: it held tp_hscroll,
+                                         ; and there is no horizontal scroll
+                                         ; to hold any more (SPEC.md 69.10)
 tp_pscroll  equ os88_image_end + 30
 tp_ppage    equ os88_image_end + 32
 tp_npages   equ os88_image_end + 34
@@ -6031,7 +6187,7 @@ tp_ssbpos   equ os88_image_end + 12024
 tp_statcnt  equ os88_image_end + 12026   ; where the byte count starts inside
                                          ; tp_nbuf (tp_stat_touch)
 tp_oldvs    equ os88_image_end + 12028
-tp_oldhs    equ os88_image_end + 12030
+                                         ; 12030 is FREE: tp_oldhs, the same
 tp_oldps    equ os88_image_end + 12032
 tp_ssbtot   equ os88_image_end + 12034   ; total and fit the source bar on the
 tp_ssbfit   equ os88_image_end + 12036   ; glass was DRAWN from (tp_ssb_move)
@@ -6043,12 +6199,24 @@ tp_rgy2     equ os88_image_end + 12046
 tp_psbpos   equ os88_image_end + 12048   ; the preview bar's pos, total and fit
 tp_psbtot   equ os88_image_end + 12050   ; as DRAWN (tp_psb_move)
 tp_psbfit   equ os88_image_end + 12052
+tp_rowcont  equ os88_image_end + 12054   ; the row tp_row_ext just measured is
+                                         ; CONTINUED by the next one
+tp_rc_row   equ os88_image_end + 12056   ; the row cache: a row index, where it
+tp_rc_off   equ os88_image_end + 12058   ; starts, and the width both were
+tp_rc_w     equ os88_image_end + 12060   ; measured at
+tp_rc_want  equ os88_image_end + 12062
+tp_edls     equ os88_image_end + 12064   ; the span an edit reaches (tp_edmark)
+tp_edrf     equ os88_image_end + 12066
+tp_edtail   equ os88_image_end + 12068
+tp_edkb     equ os88_image_end + 12070
+tp_edka     equ os88_image_end + 12072
+tp_edlen    equ os88_image_end + 12074
 ; remainder to 12288. Every name above is a hand-computed offset and nothing
 ; checks them against each other, so a new field goes at the END and a field
 ; that grows moves everything under it - the assertion below is the only
 ; automatic part, and it catches overflowing the block, not overlapping inside
 ; it. TP_BSS_LAST is the high-water mark; keep it pointing at the last field.
-TP_BSS_LAST equ 12052 + 2
+TP_BSS_LAST equ 12074 + 2
 %if TP_BSS_LAST > TP_BSS_TOTAL
     %error "texpad bss map overflows OS88_BSS"
 %endif

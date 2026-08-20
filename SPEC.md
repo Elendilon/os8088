@@ -54444,6 +54444,51 @@ exports, so the PDF has the same loose word spacing the preview does — that is
 the monospaced cell being honest about itself, not a rounding bug to be fixed
 by moving the exports to a proportional face they were not measured for.
 
+### 69.10 The source pane WRAPS, and a row is the unit of everything
+
+**There is no horizontal scrolling.** A line longer than the pane is broken at
+the last space that fits — hard at the width when one word is longer than the
+pane — and the row that continues carries a `>` in the column kept for it, so
+a wrap is never mistaken for a line the file actually has. What that replaces
+is arrowing sideways to read a document, and the reason is as much about
+drawing as about reading: *every* row's text changes when the view slides one
+column, so a horizontal scroll is a whole-pane repaint on every keystroke and
+there is no version of it that is cheap on an 8088.
+
+**A ROW is therefore the unit.** The caret, the selection, the scroll bar's
+`total`, the page keys and every drawing path count in rows; a LINE exists
+inside the row engine, in `tp_cut_line` — the Edit menu's *Cut Line* is about
+what a line is in the FILE — and on disk. `tp_row_ext` is the whole of the
+wrapping rule and `tp_row_at` is the only way anything else asks about a row.
+
+**The walk is from the top of the document**, as the line walk it replaces
+already was: a row cannot know where it begins without reading everything
+before it. What makes that affordable is a ONE-ENTRY CACHE — a row index and
+the offset it starts at. Every drawing path asks for rows in order, so the
+second row of a repaint starts where the first ended and a pane repaint is one
+pass over the document instead of forty-four. It is invalidated by anything
+that moves an offset (every edit) and by a change of WIDTH, which is a
+different set of rows entirely.
+
+#### 69.10.1 An edit's reach is measured BEFORE it happens
+
+Wrapping makes "what did this keystroke change?" a question that cannot be
+answered afterwards: one typed character can push a word onto a new row and
+move every row below it, or pull one back and take a row away. So
+`tp_edmark` measures the span the edit can reach — the caret's own line, or
+the one before it when a Backspace is about to join them, out to two lines on
+because a Delete at a line's end joins the next one in — and records where it
+starts (`tp_edrf`, in rows) and how many rows it occupied.
+
+Afterwards the same span is measured again: every offset past the edit moved
+by the bytes the document gained, so the span's end is known exactly. The
+difference between the two counts is how far everything below has moved, and
+that is enough to draw the whole thing incrementally — the span's rows are
+re-lettered, and if the count changed, the rest of the pane is BLITTED by the
+difference and only the rows that fell out of the blit are drawn. An edit
+whose shape was never measured — a selection deleted, a paste — takes the
+whole pane, which is the honest answer rather than a guess.
+
 ## 70. Telnet — the terminal (`apps/telnet/telnet.asm`)
 
 docs/NET-STACK-PLAN.md stage C, and the first thing on this machine that is
