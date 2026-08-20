@@ -13,6 +13,12 @@ Hercules or CGA, picked at boot.
 This file is a map. Each document below is the authority on its subject and
 nothing here duplicates it — a second copy is a copy that goes stale.
 
+**"Working in this fork" at the end is BRANCH-SPECIFIC — read it before your
+first commit and before any `git` question about ancestry.** Six rules that
+are this fork's rather than the project's, kept in one section at the bottom
+so that a PR going upstream deletes them rather than hunting for them. The
+first of them fires in the first minute of a session.
+
 | document | read it before |
 |---|---|
 | **[SPEC.md](SPEC.md)** — the binding contract | touching any interface. Every symbol name, register contract, constant and layout is pinned there. **Update it *before* the change, not after.** A bare `§` anywhere in this repo means SPEC.md; §4 is the module-ownership table |
@@ -24,19 +30,33 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 | **[docs/NET-STACK-PLAN.md](docs/NET-STACK-PLAN.md)** | anything on the wire (§72) — the stack's stages, what each layer refuses, and why TLS is not on this machine |
 | **[docs/BROWSER-PLAN.md](docs/BROWSER-PLAN.md)** | the browser (§71) — the renderer's steps, and `tools/htmsim.py` is its reference implementation |
 | **[docs/PROXY-PLAN.md](docs/PROXY-PLAN.md)** | the host-side proxy — it exists because an RSA-2048 private operation is *minutes* on a 4.77 MHz 8088, so TLS terminates off the machine |
+| **[docs/MARTYPC-DEBUG.md](docs/MARTYPC-DEBUG.md)** | driving the emulator — `launch`/`settle`/`sym`, the debug server, reading the guest's floppy back on the host, and installing the deps in a fresh Ubuntu container |
+| **[docs/UPSTREAM.md](docs/UPSTREAM.md)** | any claim about what is ahead, behind, merged or unrelated. **Its Rule 0: a fresh clone is SHALLOW, and git answers ancestry questions confidently and wrongly on one** |
+| **[docs/FIELD-MACHINES.md](docs/FIELD-MACHINES.md)** | asking for a field run — who has the hardware, what is in it, what a run costs them, and the two rules that bind whoever reads a result |
+| **[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)** | a bug that reproduces on hardware and not here — open, reproduced, unfixed, with what has already been ruled out for each |
 
 ## Commands
 
-Needs `nasm`, `qemu-system-i386`, `python3`; `tools/setup-macos.sh` installs
-them on a Mac. No linker — everything is `nasm -f bin` flat binaries,
-deliberately, to keep Apple's Mach-O-only toolchain out of it.
+Needs `nasm`, `python3`, and **`cargo` for `make marty`** (plus `libudev-dev`
+and `pkg-config` on Linux). `qemu-system-i386` is for the short list in
+Testing and nothing else. `tools/setup-macos.sh` installs the Mac set but
+**not Rust**, so `make marty` there wants `cargo` in front of it. No linker —
+everything is `nasm -f bin` flat binaries, deliberately, to keep Apple's
+Mach-O-only toolchain out of it.
 
 ```
 make          # build every floppy image into build/ (also runs tools/checkdocs.py)
 make run      # boot in QEMU with an emulated serial mouse. RUNAPPS=<img>
               # swaps the B: floppy, so a disk built on demand can be LOOKED
               # at (`make bench && make run RUNAPPS=build/bench.img`)
-make test     # boot headless, QMP socket at build/qmp.sock — this is how you drive it
+make marty    # a cycle-accurate 4.77MHz 8088 with a real period BIOS and a
+              # debugger that costs the guest nothing — the default
+              # instrument (docs/MARTYPC-DEBUG.md). Needs cargo; build it at
+              # the START of a session, not when you first need it. A RUN
+              # PAST ~180s HAS FROZEN rather than slowed — the guest runs at
+              # over 4x real time, so the overrun is the finding: diagnose it
+              # rather than raising the timeout
+make test     # boot headless, QMP socket at build/qmp.sock — the fallback (see Testing)
 make test-snd # ...plus PC speaker capture to build/snd.wav (verify: tools/sndcheck.py)
 make debug    # boot halted, waiting for gdb on :1234
 make bench    # build the tests/ apps — ON DEMAND ONLY; nothing under tests/ ships
@@ -211,6 +231,12 @@ binds both.
   one 64KB window because offsets are 16 bits. They are relieved by different
   mechanisms. **Raising either is a decision to take with whoever asked for the
   feature, not a build fix.**
+- **A heap claim can MOVE, and the default is that it may not** (§66). A record
+  is born `MC_RLOC` = 0, PINNED; `OSAPI_MEM_MOVABLE` opts one in and takes a
+  relocation **proc**, not the address of the word naming the block — a holder
+  can have more than one such word, and segments derived from a base are
+  reached by no poke at all. Opting in and forgetting the proc is silent until
+  the next compaction, which by construction happens on a busy heap.
 - **The package boundary is solved once, not per call site** (§20): calling out
   is a far call through an API cell that switches DS; calling in goes through
   the three-byte dispatcher in the package header, so every callback is a near
@@ -318,7 +344,38 @@ rows are host-side invariant checks over what `make` just built, the build
 configurations `all` never builds, and whole scripted sessions driven through
 an emulator.
 
-Everything else is still boot `make test`, then drive it over QMP.
+**MartyPC is the default instrument; QEMU is a fallback with a closed list.**
+docs/TESTING.md's opening owns the rule and the reasoning. The list is
+repeated here on purpose — one you have to go and open is one you will argue
+past:
+
+1. 286 and 386
+2. rung 1 of the hard-disk driver (§52.1) — gated on `CPU_286`
+3. §9.5's awkward mouse cases — COM2, the cross-wired IRQ4 card, a modem
+4. the Ethernet card (§72) — MartyPC has no NIC of any kind
+
+**"It is quicker to type" is not on it, and neither is "I already know the QMP
+commands."** Everything else that runs on an 8088 — all three of §39's
+adapters, input, screenshots, sound — is `make marty`, which agrees with the
+field machine to 0–4% on 45 of 47 `gfxbench` rows.
+
+**Without MartyPC the list still binds**: QEMU does not become the answer in
+its absence. QEMU counts work exactly and cannot time it; 86Box has no
+debugger and no automation socket, so a session can start one and cannot read
+the result. That leaves the table above and arithmetic — which is precisely
+rule 5's blind spot. Say when a number is predicted rather than measured, and
+get it checked on the 5150 (docs/FIELD-MACHINES.md).
+
+Driving MartyPC — **`os88mouse.py`, never `os88marty.py mouse`**: it reads the
+cursor back instead of dead-reckoning, and `dblclick` is a verb of its own.
+
+```
+python3 tools/os88mouse.py 127.0.0.1:9001 click 445 153
+python3 tools/os88mouse.py 127.0.0.1:9001 dblclick 150 90   # NOT two clicks
+python3 tools/os88marty.py 127.0.0.1:9001 shot out.png --rendered
+```
+
+Driving QEMU, for the four cases above and for a host with no MartyPC:
 
 ```
 python3 tools/mouse.py build/qmp.sock click 180 150        # absolute click
@@ -409,3 +466,120 @@ and is data rather than software, so at that geometry alone it rides a disk of
 its own (§24.4). The **core packages** ship on the system disk too, a second
 copy and never a move (§24.3), and an application's own state goes in
 `SYSTEM/APPDATA/` rather than beside the user's documents (§19.9).
+
+## Working in this fork — BRANCH-SPECIFIC, and the section to lift
+
+**Everything under this heading is `Elendilon/os8088`'s and stops at its
+edge.** It is the fork owner's standing preference and the mechanics of this
+fork's integration branch — not a property of the project — so a session
+working in a different fork should not assume any of it, and a PR going
+upstream should take this whole section out. It is one section, with no
+branch-specific rule anywhere else in this file, precisely so that removing it
+is a deletion rather than a search — the one other thing to take with it is
+the pointer to it, five lines under the map sentence at the top.
+
+### 1. UNSHALLOW BEFORE YOU BELIEVE ANY ANSWER ABOUT ANCESTRY
+
+A fresh session gets a **shallow clone**, and on one `git merge-base`,
+`git log A..B` and `git merge-base --is-ancestor` do not error — they return
+*confidently wrong answers*, because the graft boundary is indistinguishable
+from a set of root commits. Before any claim about what is ahead, behind,
+merged or unrelated:
+
+```sh
+git rev-parse --is-shallow-repository     # true => every answer below is a lie
+git fetch --unshallow                     # ...so do this FIRST
+git rev-list --max-parents=0 <ref> | wc -l   # >1 root = SHALLOW, not unrelated
+```
+
+That last line is the tell, and it has been visible and ignored: **this
+repository has ONE root commit**, and a shallow clone shows six. A session
+once concluded from an empty `git merge-base` that `main` and `elendilon` had
+unrelated histories and PORTED three commits it could have merged; the real
+base was exactly where the branch was cut. If you find yourself explaining an
+implausible history shape, check the clone depth before you build anything on
+it. **docs/UPSTREAM.md carries this as its Rule 0** and everything else about
+the boundary.
+
+### 2. "Merge to elendilon" means the BRANCH, not the repository
+
+`elendilon` is the integration branch this work lands on — feature branches
+merge into it and it is what gets tested on the iron; `main` is behind it and
+is not the target. The name collides with the fork's (`Elendilon/os8088`) and
+with the owner's GitHub handle, which is exactly why it needs writing down: a
+session reading "push to elendilon" can plausibly hear "push to that person's
+repository", which is where the branch already lives, and do nothing.
+`git ls-remote --heads origin` settles it in one call.
+
+### 3. SEND the 360KB set after every commit, without being asked
+
+`build/os8088-360.img`, `build/apps360.img` and `build/media360.img` — all
+three, because `BEVERLY.MOD` is 114 of a 360KB disk's 354 clusters and comes
+off the apps disk at that geometry, so two images means the module is not on
+the machine at all.
+
+**"Send" means ATTACH THE FILES.** A path into the session's own `build/` or
+scratch directory is not a delivery: those live in a container the owner
+cannot reach, and the container is reclaimed when the session ends. Use
+whatever the harness offers for attaching a file — in Claude Code, the
+`SendUserFile` tool.
+
+### 4. Do NOT boot an image after building it
+
+Not on request, not after a commit. Build it, send it, say what is in it. The
+reasoning is the trade rather than a claim that booting is worthless: by the
+time an image is being built, the change it carries has almost always just
+been driven as part of the work, so a second cycle re-establishes what the
+first already did. When the owner wants one exercised harder, they will ask.
+
+It relaxes neither the testing that earns a commit nor rule 5 below.
+
+### 5. A merge onto the integration branch rebuilds and boots first — IF it could change a shipped byte
+
+A merge combines two trees nothing has run together, so no earlier test covers
+the result. That reason does not apply to a merge that cannot reach the
+images: documentation, notes, and harness code `make` never invokes are all in
+that class. Merge them and push — but run `python3 tools/checkdocs.py`, since
+a merge that leaves a §-number pointing at nothing fails `all` on the next
+person's machine rather than yours.
+
+**The test is "could this change a byte under `build/`", and it is NOT "is it
+under `tools/`".** Five tools write shipped bytes: `os88disk.py`,
+`os88pkg.py`, `os88drv.py`, and the two least obvious, which generate
+*prerequisites of the kernel* — `os88mini.py` and `buildnum.py`. Several
+others are build GATES (`os88ovlchk.py`, `checkdocs.py`, `checkreadme.py`), so
+a change there can turn a tree that built into one that does not: run `make`
+for those too, but not the boot.
+
+**`make test-full` is the pre-merge gate** — the project's now rather than
+this branch's, having gone upstream with the squash — and it covers the knob
+kernels, `kern_small` and a boot on both 1bpp adapters.
+
+When in doubt, build and `md5sum` the images against the ones you already had.
+**Do that comparison at ONE commit, though**: the About box's build number is
+the commit count (SPEC.md §14.2), so every commit moves three bytes of `.text`
+and every image with them — which makes the shortcut answer "yes, a byte
+moved" across any commit and useless between two.
+
+**Either way the merge commits nothing under `build/`**, which is gitignored
+outright.
+
+### 6. Upstream squash-merges, and the branch is disposable
+
+`jggonz/os8088` keeps a linear, one-commit-per-feature history: every commit
+on `main` since PR #14 is a squash. A squash carries the branch's *content*
+into a brand-new commit with no ancestry link to its *commits*, so the
+integration branch is cut from `main` at a squash, lived in for one round, and
+replaced by a fresh cut. The gap self-heals at the boundary and needs no
+maintenance merge in between; what is lost at a re-cut is anything that never
+made it into the PR. **That is the CYCLE, it is deliberate, and it is not to
+be "fixed".**
+
+What does *not* self-heal is `main` moving **mid-cycle** with work of its own.
+**docs/UPSTREAM.md is the playbook**: how to tell the branch's own work coming
+home from upstream work that has to be fetched, how to adapt an incoming
+package to a kernel the branch has moved on from (the branch's SDK is normally
+a SUPERSET, so nothing fails to assemble and *every difference is silent* —
+greying, glyph tables and worker stacks have all arrived broken this way), and
+how to resolve the merge without `--ours` quietly eating something only `main`
+has.
