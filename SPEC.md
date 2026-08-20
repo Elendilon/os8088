@@ -59469,8 +59469,15 @@ synthetic path.
 
 #### 77.16.1 The root is a PATH in the file and a (drive, cluster) in the session
 
-`FTPD.CFG`'s **`Root`** record carries text — `B:/APPS`, `/DOCS`, `DOCS`, or
-nothing. **A path with no drive letter starts at the current volume's ROOT**,
+`FTPD.CFG`'s **`Root`** record carries text — `B:/APPS`, `B:\APPS`, `/DOCS`,
+`DOCS`, or nothing. **Either separator is accepted, here and nowhere else in
+the server**: this is the one path in the system a *person* types at the
+machine, and the person is looking at a DOS box, so `A:\` is what they will
+write. An FTP path stays `/` alone — that is the protocol's rule and not ours.
+The Setup page carries the shape as its one help line, because a field whose
+format has to be guessed is a field that gets typed wrong once per user.
+
+**A path with no drive letter starts at the current volume's ROOT**,
 so `DOCS` and `/DOCS` are the same thing and there is no such thing as a root
 relative to wherever the instance happened to be standing — which is what makes
 re-resolving it idempotent, since the first resolve moves the instance into the
@@ -59482,16 +59489,31 @@ note), so the file may not carry one; and walking the path on every request
 would be a directory walk per command on a machine where that is a revolution
 of the platter.
 
-**A root that will not resolve is not a refusal to start.** The disk may have
-been swapped since the setting was made, and a server that will not run says
-less than one serving the folder it was launched from with a status line naming
-it. The fallback is §19.2.1's default: where the instance stands, which is
-where it was launched.
+**A root that will not resolve REFUSES to start**, and this shipped once
+falling back instead — to the folder the app was launched from, silently. The
+field reported it in one sentence: a typed `A:\` served `B:\APPS`, with
+nothing on screen saying the setting had not taken.
 
-**The fallback is where the walk STARTED, banked, and not the volume's root** —
-which it was, and which is a slow drift rather than a wrong answer: a failed
-resolve would move the instance out of its launch folder, and the *next* failed
-resolve would then fall back from there to somewhere further away again.
+The reasoning behind the fallback was that a disk may have been swapped since
+the setting was made, and that a server which will not run says less than one
+serving *something*. That is wrong, and the shape of why is worth keeping:
+**a server quietly handing out a different directory is a failure the user
+cannot see.** They asked for one folder, they are looking at a window that says
+`Listening`, and every file they can reach is the wrong one. A refusal costs a
+sentence on the status line — `No such Root folder` — and a person can act on
+it. So `fd_root_resolve` answers CF, `fd_start` shuts the listener it had
+already opened, and the state goes to `FD_ERR`.
+
+**The setting is still SAVED, not reverted.** A refused Start writes what the
+user typed, because the alternative is a field that empties itself when it is
+wrong — which teaches nothing and loses the typing.
+
+**And the walk goes back where it STARTED, banked** — which is not the volume's
+root, and which was a slow drift rather than a wrong answer while the fallback
+existed: a failed resolve would move the instance out of its launch folder, and
+the *next* failed resolve would then fall back from there to somewhere further
+away again. It still matters, because a refused Start must leave the instance
+exactly where it was.
 
 The empty setting is not a special case anywhere — `fd_goroot` reads
 `(fd_rdrv, fd_rclus)` either way, and `fd_root_resolve` seeds that pair from
@@ -59526,6 +59548,13 @@ Three things hold it up and each was a real edit:
   had nothing to come back to. That is the pair's whole job — the folder, the
   drive, and now the level — and adding the third member is what makes the
   choke point above safe.
+- **`fd_root_resolve` clears `[fd_mlevel]` before it walks.** Everything past
+  its whole-machine test stands in a real volume, and `fd_enter` routes a
+  component to a DRIVE while that byte is set — so turning whole-machine mode
+  off and setting a root in the same visit to the Setup page left the walk
+  asking for a volume called `DEEP` and refusing the root. The gate found it,
+  which is what an assertion that composes two features is for: each half had
+  been driven and passed on its own.
 - **A BARE name at the machine root is refused**, in `fd_split`'s `.bare`
   branch. There is no directory to resolve it in, and resolving it in whichever
   volume happened to be current last would serve a folder the client was never
@@ -59552,6 +59581,66 @@ nothing to walk.
 `fd_pathpush`, and both are already called on the machine-level paths — the
 ascent in `fd_up` roots it, the descent in `CWD`'s `.rec` pushes the drive
 letter — so `/`, `/A` and `/A/DOCS` fall out.
+
+### 77.17 A button, because a menu item is not a way in
+
+The Setup page was reachable only from `Server ▸ Setup...`, and a pull-down is
+a place a feature hides: nothing on the face pointed at it, so the settings
+this window exists to hold were findable only by someone who already knew they
+were there. There is a **Setup** button in the toolbar now, and a **Done**
+button on the page — in the same corner the Start button occupies, because
+that corner is where the primary action of whichever page you are looking at
+lives. The menu item stays and still works; assertion 12 of the gate is what
+keeps it working, since a pull-down nobody drives is one that breaks quietly.
+
+**The Setup button is right-aligned and floored.** Right-aligned rather than
+laid at a constant, because the window can be grown and the toolbar's two
+left-hand controls cannot — a button pinned at x = 182 leaves a widening gap on
+its right for the rest of the session. The floor is derived from the Read Only
+label's own right edge, so shrinking the window cannot drive the button
+underneath it.
+
+**Start is never greyed, and it used to be** — on `FD_ERR`, with a comment
+saying "no staging buffer, so there is nothing to start". The stage moved into
+this package's bss long before that comment was read again, so the fact it
+named had stopped existing while the greying stayed; and what it actually
+greyed was *every* error — no network driver, no link, port 21 in use, and now
+a Root that will not resolve. **Every one of those is transient**: plug the
+cable in, tick the driver, fix the Root. A greyed button there is a dead end
+with no way back, which is §48.5's rule (a permanent refusal and a transient
+one must not be coded alike) meeting §47 rule 3's (the only honest test is
+doing the thing). `FD_ERR` is a *stopped server with something to say*, and
+Start is what a user presses after fixing what it said.
+
+**The Setup button is drawn by `fd_draw_all` alone and has no dirty bit**,
+because its label never changes. That is the §12.9 discipline read the other way round: the mask
+exists for things that change, and adding a bit for something static is a bit
+that is spent unread on every pass.
+
+#### 77.17.1 Read Only became a SETTING, so it is on the page and in the file
+
+It was a live switch in the toolbar and nothing else — flip it, quit, and it
+was gone. It is an `O` record in `FTPD.CFG` now and it has a box on the Setup
+page beside `Serve every drive`. **Both boxes are the same `[fd_ro]`**, so
+there is no synchronisation to get wrong; what there is instead is a question
+about *when it reaches the disk*, and the answer is §31.8's.
+
+**Mark on click, write on close.** A `FTPD.CFG` write is a mount, a data
+sector, a FAT sector, a directory sector and a remount — seconds of frozen UI
+on the machine this is for, which is unaffordable on the click of a check box
+and entirely affordable once, on the way out. So a control sets `[fd_cdirty]`
+and returns, and the write happens at two moments: leaving the Setup page (as
+every other setting's already did) and `W_ONCLOSE` (§75.1), which is the one
+that makes a **toolbar** flip persist without the user ever opening Setup.
+
+The negotiator **never refuses**. There is nothing here a user could lose by
+closing the window — the log is a log, and a transfer in flight is the client's
+problem rather than a document — so an alert would be a question with no wrong
+answer.
+
+**The two flags write no record when they are off**, which is the rule
+`fd_cfg_putstr` already followed for an empty string: the absent key is the
+default, so a file carries only what was actually set.
 
 ### 77.13 Two things that are deliberately not locked
 

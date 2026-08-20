@@ -112,6 +112,9 @@ FD_H        equ 176
 FD_PAD      equ 4
 FD_BTNW     equ 72
 FD_BTNH     equ 14
+FD_ROLBL    equ 9                   ; 'Read Only' in cells, so the Setup
+                                    ; button's floor can be derived rather
+                                    ; than guessed at
 FD_TEXTX    equ 8                   ; **THE TEXT PEN, AND IT IS 8-ALIGNED.**
                                     ; WF_SNAP makes the content origin a
                                     ; multiple of 8 (SPEC.md 11.94), so a pen
@@ -274,6 +277,10 @@ fd_entry:
     mov ax, fd_wake
     call OSAPI_WM_ONWAKE            ; THE UI-TASK HALF. Everything this package
                                     ; does to a disk happens in there
+    mov bx, [fd_win]
+    mov ax, fd_onclose
+    call OSAPI_WM_ONCLOSE           ; ...and the last chance to write the
+                                    ; settings out (SPEC.md 77.17)
     push si
     mov si, fd_menus
     mov bx, [fd_win]
@@ -342,6 +349,33 @@ fd_layout:
     mov [fd_rob+2], ax
     add ax, 11
     mov [fd_rob+6], ax
+    ; --- the Setup button, RIGHT-ALIGNED in the same row -------------------
+    ; Right-aligned rather than laid at a constant, because the window can be
+    ; grown and the toolbar's two left-hand controls cannot: a button pinned
+    ; at x=182 leaves a widening gap on its right for the rest of the
+    ; session. The FLOOR is what keeps it off the Read Only label when the
+    ; window is dragged the other way - the label has nowhere else to go.
+    mov ax, [fd_ox]
+    add ax, [fd_cw]
+    sub ax, FD_PAD + 1
+    mov [fd_setb+4], ax
+    sub ax, FD_BTNW - 1
+    mov bx, [fd_rob+4]              ; the box's right edge...
+    add bx, 6 + FD_ROLBL*8 + 8      ; ...its label, and a gap
+    cmp ax, bx
+    jae .setbx
+    mov ax, bx
+.setbx:
+    mov [fd_setb], ax
+    add ax, FD_BTNW - 1
+    cmp ax, [fd_setb+4]             ; a floor may have pushed the right edge
+    jbe .setbw                      ; past where it was
+    mov [fd_setb+4], ax
+.setbw:
+    mov ax, [fd_btn+2]              ; the same row as Start, exactly
+    mov [fd_setb+2], ax
+    mov ax, [fd_btn+6]
+    mov [fd_setb+6], ax
     pop dx
     pop cx
     pop bx
@@ -475,6 +509,7 @@ fd_draw_all:
     call fd_clear_content
     call fd_draw_btn
     call fd_draw_ro
+    call fd_draw_setb
     call fd_draw_stat
     call fd_draw_log                ; ...which clears [fd_lognew]: a full paint
     mov byte [fd_dirty], 0          ; has just put every row on the glass
@@ -493,18 +528,44 @@ fd_draw_btn:
     mov si, fd_s_stop
 .have:
     mov bx, fd_btn
-    mov di, OS88UI_FILL
-    cmp byte [fd_st], FD_ERR
-    jne .draw
-    or di, OS88UI_DIS               ; no staging buffer, so there is nothing to
-                                    ; start - a FACT, which is what SPEC.md 47
-                                    ; rule 3 asks a greying to be
-.draw:
+    mov di, OS88UI_FILL             ; **NEVER GREYED, AND IT USED TO BE.** The
+                                    ; greying was on FD_ERR with a comment
+                                    ; saying "no staging buffer, so there is
+                                    ; nothing to start" - and the stage moved
+                                    ; into bss long before this, so that fact
+                                    ; stopped existing while the greying
+                                    ; stayed. What it actually greyed was
+                                    ; EVERY error: no network driver, no link,
+                                    ; port 21 in use, and now a Root that will
+                                    ; not resolve. Every one of those is
+                                    ; TRANSIENT - plug the cable in, tick the
+                                    ; driver, fix the Root - and a greyed
+                                    ; button is a dead end you cannot retry
+                                    ; from. SPEC.md 48.5's rule, and 47 rule 3
+                                    ; agrees: the only honest test is Start
     call os88ui_btn
     pop di
     pop si
     pop bx
     pop ax
+    ret
+
+; --- fd_draw_setb - the way IN, because a menu item is not a way in ----------
+; The Setup page was reachable only from Server > Setup..., which is a pull-
+; down nothing on the face points at. A button in the toolbar is the whole
+; fix, and it is drawn only by fd_draw_all: its label never changes, so there
+; is no dirty bit for it and nothing incremental to spend.
+fd_draw_setb:
+    push bx
+    push si
+    push di
+    mov si, fd_s_setup
+    mov bx, fd_setb
+    mov di, OS88UI_FILL
+    call os88ui_btn
+    pop di
+    pop si
+    pop bx
     ret
 
 fd_draw_ro:
@@ -2994,6 +3055,14 @@ fd_root_resolve:
                                     ; somewhere further away again
     cmp byte [fd_mach], 0
     jne .here                       ; whole machine: there is no root path
+    mov byte [fd_mlevel], 0         ; **AND WE ARE NO LONGER ABOVE A VOLUME.**
+                                    ; Everything below stands in a real one,
+                                    ; and fd_enter routes a component to a
+                                    ; DRIVE while this byte is set (SPEC.md
+                                    ; 77.16.2) - so turning whole-machine mode
+                                    ; off and setting a root in the same visit
+                                    ; to the page left the walk asking for a
+                                    ; volume called `DEEP` and refusing
     mov si, fd_roots
     cmp byte [si], 0
     je .here
@@ -3018,20 +3087,21 @@ fd_root_resolve:
     call OSAPI_FILE_GOTO
     jc .bad
 .walk:
-    cmp byte [si], '/'
-    jne .comp
-    inc si
-.comp:
-    cmp byte [si], 0
-    je .here
+    mov al, [si]
+    call fd_issep                   ; **'/' OR '\' HERE, AND ONLY HERE.** This
+    jc .comp                        ; is the one path in the system a PERSON
+    inc si                          ; types at the machine, and the person is
+.comp:                              ; looking at a DOS box: `A:\DOCS` is what
+    cmp byte [si], 0                ; they will write. An FTP path stays '/'
+    je .here                        ; alone - that is the protocol's, not ours
     mov di, fd_comp
     xor cx, cx
 .cc:
     mov al, [si]
     or al, al
     jz .cdone
-    cmp al, '/'
-    je .cdone
+    call fd_issep
+    jnc .cdone
     cmp cx, FD_NAMEMAX - 1
     jae .skip
     mov [di], al
@@ -3068,14 +3138,38 @@ fd_root_resolve:
     clc
     ret
 .bad:
-    ; A ROOT THAT WILL NOT RESOLVE IS NOT A REFUSAL TO START. The disk may have
-    ; been swapped since the setting was made, and a server that will not run
-    ; says less than one serving the folder it was launched from and a status
-    ; line that names it.
-    mov dx, [fd_rrclus]
-    mov bl, [fd_rrdrv]
-    call OSAPI_FILE_GOTO
-    jmp short .here
+    ; **A ROOT THAT WILL NOT RESOLVE IS A REFUSAL, and this used to fall back**
+    ; - to the folder the app was launched from, silently. That is the worst
+    ; available outcome and the field reported it in one sentence: a typed
+    ; `A:\` served `B:\APPS`, and nothing on screen said the setting had not
+    ; taken. A server that will not start says exactly what is wrong; a server
+    ; quietly handing out a DIFFERENT directory is one the user cannot even
+    ; tell has gone wrong (SPEC.md 77.16.1).
+    mov dx, [fd_rrclus]             ; ...and we go back where we started, so a
+    mov bl, [fd_rrdrv]              ; refused Start leaves the instance exactly
+    call OSAPI_FILE_GOTO            ; where it was - in a real volume, which is
+    mov byte [fd_mlevel], 0         ; what that byte has to agree with
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; --- fd_issep - AL. CF=0 = it is a path separator ---------------------------
+fd_issep:
+    cmp al, '/'
+    je .yes
+    cmp al, '\'
+    je .yes
+    stc
+    ret
+.yes:
+    clc
+    ret
 
 ; --- fd_upcase - AL ---------------------------------------------------------
 fd_upcase:
@@ -4347,11 +4441,22 @@ fd_start:
     call fd_root_resolve            ; THE ROOT IS WALKED ONCE, HERE - a path in
                                     ; the file, a (drive, cluster) for the
                                     ; session (SPEC.md 77.16.1)
+    jc .badroot                     ; ...and a root that will not walk STOPS
+                                    ; the server. The listener is already open
+                                    ; at this point, so it has to be shut
     call fd_pathroot
     mov si, fd_l_listen
     call fd_log
     call fd_hire
     jmp short .out
+.badroot:
+    mov al, [fd_lhnd]               ; the port is open and nothing is going to
+    mov bh, NET_CLASS               ; serve on it, so it goes back rather than
+    mov bl, NETV_CLOSE              ; being held for the session
+    call OSAPI_DRV_CALL
+    mov byte [fd_lhnd], 0
+    mov si, fd_e_root
+    jmp short .fail
 .nodrv:
     mov si, fd_e_nodrv
     jmp short .fail
@@ -4370,6 +4475,27 @@ fd_start:
     pop cx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_onclose - W_ONCLOSE: the settings' last chance to reach the disk
+;
+; **MARK ON CLICK, WRITE ON CLOSE** is SPEC.md 31.8's rule for the Control
+; Panel and this is the same trade: a FTPD.CFG write is a mount, a data
+; sector, a FAT sector, a directory sector and a remount, which on the machine
+; this is for is seconds of frozen UI - unaffordable on the click of a check
+; box and entirely affordable once, on the way out.
+;
+; It NEVER refuses. There is nothing here a user could lose by closing the
+; window - the log is a log and a transfer in flight is the client's problem,
+; not a document - so an alert would be a question with no wrong answer.
+; -----------------------------------------------------------------------------
+fd_onclose:
+    cmp byte [fd_cdirty], 0
+    je .out                         ; nothing changed, so no floppy is touched
+    call fd_cfg_save
+.out:
+    clc                             ; ...and the close happens either way
     ret
 
 ; --- fd_bye - the client has gone; go back to listening ----------------------
@@ -4471,12 +4597,11 @@ fd_onclick:
     mov bx, fd_btn
     call fd_inrect
     jc .ro
-    cmp byte [fd_st], FD_ERR
-    je .out                         ; greyed, and a greyed control explains
-                                    ; itself - a refused click says nothing
-                                    ; more (SPEC.md 47 rule 6)
     cmp byte [fd_st], FD_OFF
     je .go
+    cmp byte [fd_st], FD_ERR        ; an error is a STOPPED server that has
+    je .go                          ; something to say - Start is what a user
+                                    ; presses after fixing whatever it said
     call fd_stop
     jmp short .paint
 .go:
@@ -4485,10 +4610,19 @@ fd_onclick:
 .ro:
     mov bx, fd_rob
     call fd_inrect
-    jc .out
+    jc .setb
     xor byte [fd_ro], 1
+    mov byte [fd_cdirty], 1         ; a SETTING changed, so the file owes a
+                                    ; write - taken at the same two moments
+                                    ; every other setting's is (SPEC.md 77.17)
     or byte [fd_dirty], FDD_RO      ; ONE 12px box, and it used to redraw the
                                     ; button, the status line and ten log rows
+    jmp short .paint
+.setb:
+    mov bx, fd_setb
+    call fd_inrect
+    jc .out
+    call fd_setup_toggle
 .paint:
     mov si, [fd_win]
     call fd_layout
@@ -4617,7 +4751,9 @@ FD_ROOTMAX  equ 48                  ; a served-root path and its NUL
 FD_USERMAX  equ 17                  ; a user or a password and its NUL
 FD_SETX     equ FD_TEXTX            ; the labels' inset - ALIGNED, like every
                                     ; other pen on this window
-FD_SETY     equ 16                  ; the first row's top
+FD_SETY     equ 22                  ; the first row's top - BELOW the Done
+                                    ; button, which sits at FD_PAD and is
+                                    ; FD_BTNH tall, so 4+14 = 18 is the floor
 FD_SROW     equ 16                  ; ...and the pitch. LABEL AND FIELD SHARE A
                                     ; ROW rather than stacking, because the
                                     ; content box on CGA is ~117 rows once
@@ -4645,6 +4781,15 @@ FDF_SZ      equ 6
 ; sector, a FAT sector, a directory sector and a remount, which on the machine
 ; this is for is seconds of frozen UI - landing in the middle of typing an
 ; address, once per character.
+;
+; Three callers and they are three CONTROLS, not three code paths: the toolbar
+; Setup button on the way in, the Done button on the way out, and the menu
+; item either way (SPEC.md 77.17). The two buttons are in different corners
+; deliberately - Done sits where Start does, because that corner is the
+; primary action of whichever page is up - and the harness found the cost of
+; getting that wrong the expensive way: clicking the way-IN button to come
+; back out lands on empty desktop, the page never leaves, and since leaving is
+; what COMMITS, the setting is typed, visible on screen, and never saved.
 fd_setup_toggle:
     push si
     cmp byte [fd_page], FP_SETUP
@@ -4736,10 +4881,18 @@ fd_setup_commit:
     ; the other three are strings and are already in their buffers, edited in
     ; place by os88line - there is nothing to parse and nothing to validate
     call fd_cfg_save
+    mov byte [fd_cdirty], 0         ; spent: the close has nothing left to write
     cmp byte [fd_st], FD_CTRL       ; **NOT WHILE A CLIENT IS CONNECTED.** The
     je .nore                        ; root is where that session is standing,
     call fd_root_resolve            ; and re-walking it underneath them would
-.nore:                              ; move a client that asked for nothing.
+                                    ; move a client that asked for nothing.
+                                    ; ITS CF IS DROPPED ON PURPOSE: a root
+                                    ; that will not walk is a refusal to
+                                    ; START, said on the status line at the
+                                    ; moment it matters, and a page that
+                                    ; erased the typing on the way out would
+                                    ; teach nothing and lose the setting
+.nore:
                                     ; Idle or stopped, the new setting is live
                                     ; at once rather than at the next Start
     call fd_pasv_str
@@ -4861,10 +5014,24 @@ fd_setup_click:
                                     ; paint draws from, computed again here so
                                     ; the drawn control and the clickable one
                                     ; cannot part (SPEC.md 22's fm_hit rule)
-    mov bx, fd_mchk                 ; the check box first - it is not a field
+    mov bx, fd_btn                  ; Done, in the corner the way in was
+    call fd_inrect                  ; clicked from
+    jc .boxes
+    call fd_setup_toggle
+    jmp .out
+.boxes:
+    mov bx, fd_rchk                 ; the check boxes next - not fields
+    call fd_inrect
+    jc .mbox
+    xor byte [fd_ro], 1
+    jmp short .tick
+.mbox:
+    mov bx, fd_mchk
     call fd_inrect
     jc .fields
     xor byte [fd_mach], 1
+.tick:
+    mov byte [fd_cdirty], 1
     call fd_setup_defoc
     or byte [fd_dirty], FDD_PAGE
     jmp short .out
@@ -4903,7 +5070,7 @@ fd_setup_rects:
     inc bx
     cmp bx, FD_FN
     jb .f
-    call fd_mchk_rect
+    call fd_box_rects
     pop bx
     ret
 
@@ -4968,10 +5135,17 @@ fd_draw_setup:
     push si
     push di
     call fd_clear_content
+    ; --- the way OUT, in the same corner the way IN was clicked from --------
+    push di
+    mov si, fd_s_done
+    mov bx, fd_btn
+    mov di, OS88UI_FILL
+    call os88ui_btn
+    pop di
     mov cx, [fd_ox]
-    add cx, FD_SETX
+    add cx, FD_PAD + FD_BTNW + 8
     mov dx, [fd_oy]
-    add dx, FD_PAD
+    add dx, FD_PAD + 3
     mov si, fd_s_sethd
     mov al, CBLACK
     mov ah, CWHITE
@@ -4995,24 +5169,15 @@ fd_draw_setup:
     inc bx
     cmp bx, FD_FN
     jb .f
-    ; --- the whole-machine box, which is not a field ------------------------
-    mov cx, [fd_mchk]
-    mov dx, [fd_mchk+2]
-    mov al, OS88UI_GCHECK
-    cmp byte [fd_mach], 0
-    je .nz
-    or al, OS88UI_GON
-.nz:
-    xor ah, ah
-    call os88ui_glyph
-    mov cx, [fd_mchk+4]
-    add cx, 6
-    mov dx, [fd_mchk+2]
-    add dx, 2
+    ; --- the two check boxes, which are not fields --------------------------
+    mov bx, fd_rchk
+    mov si, fd_s_ro
+    mov al, [fd_ro]
+    call fd_setup_box
+    mov bx, fd_mchk
     mov si, fd_s_mach
-    mov al, CBLACK
-    mov ah, CWHITE
-    call OSAPI_FONT_RUN
+    mov al, [fd_mach]
+    call fd_setup_box
     mov cx, [fd_ox]
     add cx, FD_SETX
     mov dx, [fd_mchk+2]
@@ -5026,6 +5191,38 @@ fd_draw_setup:
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; --- fd_setup_box - BX = a rect, SI = its label, AL = its state -------------
+fd_setup_box:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    mov cx, [bx]                    ; the glyph takes a TOP-LEFT, not a rect -
+    mov dx, [bx+2]                  ; the rect is kept for the hit-test alone
+    or al, al                       ; the STATE, tested here...
+    mov al, OS88UI_GCHECK           ; ...and `mov` does not touch the flags, so
+    jz .nz                          ; this still branches on it
+    or al, OS88UI_GON
+.nz:
+    xor ah, ah
+    push bx
+    call os88ui_glyph
+    pop bx
+    mov cx, [bx+4]
+    add cx, 6
+    mov dx, [bx+2]
+    add dx, 2
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    pop di
+    pop si
+    pop dx
+    pop cx
     pop ax
     ret
 
@@ -5058,19 +5255,39 @@ fd_field_rect:
     pop ax
     ret
 
-; --- fd_mchk_rect - the whole-machine box's rect ----------------------------
-fd_mchk_rect:
+; --- fd_box_rects - the two check boxes, stacked under the fields -----------
+fd_box_rects:
     push ax
+    push bx
+    push cx
+    mov bx, fd_rchk
+    xor cx, cx
+    call fd_box_rect
+    mov bx, fd_mchk
+    mov cx, 1
+    call fd_box_rect
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- fd_box_rect - BX = the rect, CX = which row under the fields ------------
+fd_box_rect:
+    push ax
+    push dx
     mov ax, [fd_ox]
     add ax, FD_SETX
-    mov [fd_mchk], ax
+    mov [bx], ax
     add ax, OS88UI_GW - 1
-    mov [fd_mchk+4], ax
-    mov ax, [fd_oy]
+    mov [bx+4], ax
+    mov ax, FD_SROW
+    mul cx
+    add ax, [fd_oy]
     add ax, FD_SETY + FD_FN * FD_SROW + 4
-    mov [fd_mchk+2], ax
+    mov [bx+2], ax
     add ax, OS88UI_GW - 1
-    mov [fd_mchk+6], ax
+    mov [bx+6], ax
+    pop dx
     pop ax
     ret
 
@@ -5107,6 +5324,7 @@ FC_PASS     equ 'P'                 ; a password
                                     ; bounds them, so an empty string is an
                                     ; ABSENT record and never a 1-byte one
 FC_MACH     equ 'M'                 ; 1 byte: serve the WHOLE MACHINE
+FC_RO       equ 'O'                 ; 1 byte: refuse every write
 
 fd_cfg_name: db 'FTPD.CFG', 0
 fd_cfg_sig:  db 'O88FTPD', 0        ; 8 bytes, and compared as 8
@@ -5344,11 +5562,19 @@ fd_cfg_parse:
     jmp short .skip
 .k_mach:
     cmp al, FC_MACH
-    jne .skip
+    jne .kro
     or ah, ah
     jz .skip
     mov bl, [si]
     mov [fd_mach], bl
+    jmp short .skip
+.kro:
+    cmp al, FC_RO
+    jne .skip
+    or ah, ah
+    jz .skip
+    mov bl, [si]
+    mov [fd_ro], bl
 .skip:
     mov al, ah                      ; **SKIP BY THE LENGTH**, which is the whole
     xor ah, ah                      ; of what makes this format grow: a key
@@ -5361,6 +5587,19 @@ fd_cfg_parse:
     pop cx
     pop bx
     pop ax
+    ret
+
+; --- fd_cfg_putflag - AL = the key, AH = the value, appended at DI ----------
+; OFF writes no record at all, which is the same rule fd_cfg_putstr follows
+; for an empty string: the file carries only what was actually set.
+fd_cfg_putflag:
+    or ah, ah
+    jz .out
+    mov [di], al
+    mov byte [di+1], 1
+    mov [di+2], ah
+    add di, 3
+.out:
     ret
 
 ; --- fd_cfg_getstr - a record's payload into DI, CX = its capacity ----------
@@ -5469,13 +5708,12 @@ fd_cfg_save:
     mov al, FC_PASS
     mov si, fd_passs
     call fd_cfg_putstr
-    cmp byte [fd_mach], 0
-    je .fin
-    mov byte [di], FC_MACH
-    mov byte [di+1], 1
-    mov al, [fd_mach]
-    mov [di+2], al
-    add di, 3
+    mov al, FC_MACH                 ; ...and the two flags, each omitted when
+    mov ah, [fd_mach]               ; it is off - the absent key IS the default
+    call fd_cfg_putflag
+    mov al, FC_RO
+    mov ah, [fd_ro]
+    call fd_cfg_putflag
 .fin:
     mov byte [di], FC_END
     inc di
@@ -5576,6 +5814,8 @@ fd_s_noaddr: db '(no address)', 0
 fd_s_start: db 'Start', 0
 fd_s_stop:  db 'Stop', 0
 fd_s_ro:    db 'Read Only', 0
+fd_s_setup: db 'Setup', 0
+fd_s_done:  db 'Done', 0
 
 ; --- what the log says -------------------------------------------------------
 fd_l_ready: db 'Ready - press Start', 0
@@ -5588,6 +5828,7 @@ fd_l_stop:  db 'Stopped', 0
 fd_e_nodrv: db 'No network driver', 0
 fd_e_nolink: db 'No network', 0
 fd_e_noport: db 'Port 21 is in use', 0
+fd_e_root:  db 'No such Root folder', 0
 fd_e_lost:  db 'Link lost', 0
 
 ; --- the replies -------------------------------------------------------------
@@ -5643,9 +5884,9 @@ FD_ROWMAX   equ 80                  ; the longest row fd_list_row can emit: the
                                     ; 12 of name and a CRLF, with room over
 
 ; --- the Setup page ----------------------------------------------------------
-fd_s_sethd:  db 'Setup   (empty = the default)', 0
-fd_s_mach:   db 'Serve every drive', 0
-fd_s_sethelp: db 'Root and drive letters are ignored', 0
+fd_s_sethd:  db 'An empty field is the default', 0
+fd_s_mach:   db 'Serve every drive (ignores Root)', 0
+fd_s_sethelp: db 'Root:  A:/DOCS   /DOCS   or blank', 0
 fd_s_f0:     db 'PASV addr', 0
 fd_s_f1:     db 'Root', 0
 fd_s_f2:     db 'User', 0
@@ -5792,7 +6033,13 @@ fd_cfgb     equ fd_rclus + 2                    ; FD_CFGSZ: FTPD.CFG, whole
 fd_dbclus   equ fd_cfgb + FD_CFGSZ              ; word: the banked folder
 fd_dbdrv    equ fd_dbclus + 2                   ; byte: ...and its drive
 fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read
-fd_lognew   equ fd_cfgn + 2                     ; byte: rows appended since the
+fd_setb     equ fd_cfgn + 2                     ; 8: the Setup button's rect
+fd_rchk     equ fd_setb + 8                     ; 8: the Read Only box's, on
+                                     ; the SETUP page - fd_rob is the toolbar
+                                     ; copy of the same setting
+fd_cdirty   equ fd_rchk + 8                     ; byte: a setting changed and
+                                     ; the file owes a write (SPEC.md 77.17)
+fd_lognew   equ fd_cdirty + 1                   ; byte: rows appended since the
                                      ; glass last agreed with the ring
 fd_scrn     equ fd_lognew + 1                   ; word: ...as rows, banked
 fd_scry     equ fd_scrn + 2                     ; word: ...and as pixels

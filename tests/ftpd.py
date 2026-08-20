@@ -37,7 +37,7 @@ behaviour (tests/lptlink/partner.py's `NC_BYE` is the same lesson). Assertion
 7 now runs a client that trusts the 227, and assertion 8 runs ACTIVE mode,
 which nothing covered at all.
 
-ELEVEN ASSERTIONS, and they climb the same way stage E's did.
+TWELVE ASSERTIONS, and they climb the same way stage E's did.
 
 1. THE SERVER ANSWERS. A `220` greeting, and USER/PASS reach `230`. That is
    the port-21 listener, NETV_ACCEPT, and the control connection.
@@ -90,6 +90,14 @@ ELEVEN ASSERTIONS, and they climb the same way stage E's did.
     back up above every volume, a BARE name there is refused, and an absolute
     `/B/FTPHELLO.TXT` still reaches the file - which is the payoff of putting
     the branch in `fd_enter` rather than in each command.
+
+12. THE SETUP BUTTON, READ ONLY AS A SETTING, AND A BAD ROOT (SPEC.md 77.17).
+    The menu item still toggles the page; Read Only ticked on the SETUP page
+    refuses a STOR, which is what says the page's box and the toolbar's are
+    one setting; `B:\DEEP` reaches the same folder `B:/DEEP` does; and a Root
+    that does not resolve REFUSES to start with nothing left listening,
+    rather than quietly serving somewhere else - which is what the field
+    reported and the one failure a user cannot see.
 
 A STOR bigger than the staging buffer is deliberately included in 4: the whole
 design is a stage-and-commit loop (SPEC.md 77.1) and a file that fits in one
@@ -324,9 +332,21 @@ def ro_box(fx, fy):
 # from ftpd.asm. A label and its field SHARE a row (the content box on CGA is
 # ~117 rows once wm_fit has clamped the window), so the row pitch is one
 # FD_SROW and not two.
-FD_SETX, FD_SETY, FD_SROW = 8, 16, 16
+FD_SETX, FD_SETY, FD_SROW = 8, 22, 16
 FD_FLDX, FD_FLDW, FD_FN = 112, 160, 4
 F_PASV, F_ROOT, F_USER, F_PASS = 0, 1, 2, 3
+
+
+def setup_btn(fx, fy):
+    """The way IN, right-aligned in the toolbar (and Done, in Start's corner).
+
+    Right-aligned rather than at a constant, so this is derived the same way
+    fd_layout derives it: the content's right edge, less the pad, less the
+    button. FD_W - 2 is the content width.
+    """
+    x2 = fx + 1 + (FD_W - 2) - 1 - FD_PAD
+    return (x2 - FD_BTNW // 2,
+            fy + TITLE_H + FD_PAD + FD_BTNH // 2)
 
 
 def field_pt(fx, fy, idx):
@@ -334,9 +354,47 @@ def field_pt(fx, fy, idx):
             fy + TITLE_H + FD_SETY + idx * FD_SROW + 6)
 
 
-def mach_box(fx, fy):
+def _box_pt(fx, fy, row):
     return (fx + 1 + FD_SETX + 6,
-            fy + TITLE_H + FD_SETY + FD_FN * FD_SROW + 4 + 6)
+            fy + TITLE_H + FD_SETY + FD_FN * FD_SROW + 4 + row * FD_SROW + 6)
+
+
+def sro_box(fx, fy):
+    """Read Only, on the SETUP page - the same [fd_ro] as the toolbar's."""
+    return _box_pt(fx, fy, 0)
+
+
+def mach_box(fx, fy):
+    return _box_pt(fx, fy, 1)
+
+
+def restart(m, mo):
+    """Stop, then Start - the root is walked at START and nowhere else."""
+    fx, fy = ftp_win(m)
+    mo.click(*start_btn(fx, fy))
+    time.sleep(1.5)
+    mo.click(*start_btn(fx, fy))
+    time.sleep(2.5)
+
+
+# [fd_st], read out of the package's own bss. The o88 header carries the image
+# length at +8, and the bss follows it - dispcp gives the window's segment.
+FD_ST_OFF = 48          # fd_st equ os88_image_end + 48
+STATES = {0: "off", 1: "listening", 2: "serving", 3: "err"}
+
+
+def read_state(m):
+    for i in reversed(dispcp.win_list(m, S)):
+        x, y, w, h = dispcp.win_rect(m, S, i)
+        if w != FD_W:
+            continue
+        r = m.read(S("wm_wins") + i * dispcp.WIN_SIZE, dispcp.WIN_SIZE)
+        seg = dispcp._u16(r, 22)
+        o88 = open("build/ftpd.o88", "rb").read()
+        img = o88[8] | (o88[9] << 8)
+        v = m.readseg(seg, img + FD_ST_OFF, 1)[0]
+        return STATES.get(v, "?%d" % v)
+    raise RuntimeError("the FTP window is gone")
 
 
 def connect():
@@ -749,12 +807,109 @@ def run_gate(m, mo, fails):
         say("RETR /B/FTPHELLO.TXT is byte-exact through the machine root")
     f.quit()
 
+    # === 12. THE SETUP BUTTON, PERSISTED READ ONLY, AND A BAD ROOT ==========
+    # Assertions 7-11 already drove the page through the BUTTON, so what is
+    # left here is the three things they could not: that the menu item still
+    # works, that Read Only is a persisted setting now and not just a live
+    # switch, and that a root which will not resolve REFUSES rather than
+    # quietly serving somewhere else.
+    say("")
+    say("--- 12. the Setup button, Read Only as a setting, and a bad root ---")
+
+    # (a) THE MENU ITEM STILL WORKS. A pull-down nobody drives is one that
+    #     breaks quietly, and the button is now the way in for everything
+    #     above. Read Only is ticked and untoggled in two visits, so the
+    #     machine ends as it started.
+    setup(m, mo, readonly=True, use_menu=True)
+    setup(m, mo, readonly=True, use_menu=True)
+    say("the menu item still toggles the page")
+
+    # (b) READ ONLY SET ON THE SETUP PAGE GATES THE SERVER, which also proves
+    #     the page's box and the toolbar's are ONE setting.
+    setup(m, mo, readonly=True)
+    f = ftplib.FTP()
+    f.encoding = "latin-1"
+    f.trust_server_pasv_ipv4_address = True
+    f.connect(HOST, CTRL, timeout=30)
+    f.login("BOB", "s3cret")
+    try:
+        f.storbinary("STOR RO.DAT", io.BytesIO(b"x" * 16))
+        fails.append("Read Only ticked on the SETUP page did not refuse a "
+                     "STOR - the two boxes are not the same setting")
+    except ftplib.error_perm as e:
+        say("Read Only set on the Setup page refused STOR: %s"
+            % str(e).strip())
+    f.quit()
+    setup(m, mo, readonly=True)         # ...and off again
+
+    # (c) A DOS-SHAPED ROOT WORKS, because that is what a person standing at
+    #     this machine types. `B:\DEEP` must be the same folder `DEEP` was in
+    #     assertion 10 - the ROOT field takes either separator, while an FTP
+    #     path stays '/' alone.
+    setup(m, mo, fields=((F_ROOT, "B:\\DEEP"),), machine=True)
+    restart(m, mo)                      # the root is walked at START
+    f = ftplib.FTP()
+    f.encoding = "latin-1"
+    f.trust_server_pasv_ipv4_address = True
+    f.connect(HOST, CTRL, timeout=30)
+    f.login("BOB", "s3cret")
+    rows = []
+    f.retrlines("LIST", rows.append)
+    names = sorted(r.split()[-1] for r in rows if r.split())
+    say("rooted at B:\\DEEP, / holds %r" % names)
+    if names != ["FTPHELLO.TXT"]:
+        fails.append("a backslash root served %r - the Root field must take "
+                     "`B:\\DEEP` as well as `B:/DEEP`, because a DOS box is "
+                     "what the person typing it is looking at" % names)
+    f.quit()
+
+    # (d) A ROOT THAT WILL NOT RESOLVE REFUSES TO START. This is the one the
+    #     field reported: a typed root served a DIFFERENT folder and nothing
+    #     on screen said the setting had not taken. Serving somewhere else is
+    #     a failure the user cannot see, so the server stops and says so.
+    setup(m, mo, fields=((F_ROOT, "/NOSUCH"),))
+    restart(m, mo)
+    st = read_state(m)
+    say("with a bad Root, the server state is %r" % st)
+    if st != "err":
+        fails.append("a Root that does not resolve left the server in state "
+                     "%r - it must REFUSE to start (SPEC.md 77.16.1)" % st)
+        try:
+            g = ftplib.FTP()
+            g.encoding = "latin-1"
+            g.connect(HOST, CTRL, timeout=10)
+            g.login("BOB", "s3cret")
+            rows = []
+            g.retrlines("LIST", rows.append)
+            fails.append("...and it served %r instead"
+                         % [r.split()[-1] for r in rows if r.split()])
+            g.quit()
+        except Exception:
+            pass
+    else:
+        # ...and NOTHING is listening, which is the other half: a refused
+        # Start must not leave the port open on a server that will not serve.
+        try:
+            g = ftplib.FTP()
+            g.encoding = "latin-1"
+            g.connect(HOST, CTRL, timeout=8)
+            g.close()
+            fails.append("the server refused to start and something is still "
+                         "answering on port 21 - fd_start must close the "
+                         "listener it had already opened")
+        except (OSError, EOFError, ftplib.Error):
+            say("...and nothing is listening, so the port went back")
+
+    # The root is left as /NOSUCH ON PURPOSE: verify_cfg reads it back off the
+    # image, which is what says a refused Start still SAVED the setting the
+    # user typed rather than reverting it behind their back.
+
     # --- and the HOST reads the image, with no os8088 code in the way -------
     verify_host(fails, up)
     verify_cfg(fails)
 
 
-def setup(m, mo, fields=(), machine=None):
+def setup(m, mo, fields=(), machine=None, readonly=None, use_menu=False):
     """Drive the Setup page: menu, click each field, type, tick, menu again.
 
     THROUGH THE UI AND NOT BY POKING THE BSS, because what is under test is
@@ -766,21 +921,65 @@ def setup(m, mo, fields=(), machine=None):
     ever appended to - every caller here sets a field that was empty.
     """
     fx, fy = ftp_win(m)
-    menu_setup(m, mo, fx, fy)
+    enter(m, mo, fx, fy, use_menu)
     time.sleep(1.0)
     for idx, text in fields:
         mo.click(*field_pt(fx, fy, idx))
         time.sleep(0.6)
+        # CLEARED FIRST. os88line has no select-all, so a field is only ever
+        # appended to - and the Root field is set three times in this gate,
+        # which would otherwise give `/NOSUCHB:\DEEP`. End, then enough
+        # Backspaces for anything this file types.
+        subprocess.run(["python3", "tools/qmp.py", SOCK, "sendkey end"]
+                       + ["sendkey backspace", "sleep 0.05"] * 24,
+                       check=True, capture_output=True)
+        time.sleep(0.3)
         type_text(text)
         time.sleep(0.4)
+    if readonly is not None:
+        mo.click(*sro_box(fx, fy))
+        time.sleep(0.8)
     if machine is not None:
         mo.click(*mach_box(fx, fy))
         time.sleep(0.8)
-    menu_setup(m, mo, fx, fy)       # leaving is what commits and saves
+    leave(m, mo, fx, fy, use_menu)  # leaving is what commits and saves
     time.sleep(2.0)
-    say("Setup: %s%s"
-        % (", ".join("field %d = %r" % f for f in fields) or "nothing typed",
+    say("Setup%s: %s%s%s"
+        % (" (by menu)" if use_menu else "",
+           ", ".join("field %d = %r" % f for f in fields) or "nothing typed",
+           "" if readonly is None else ", Read Only toggled",
            "" if machine is None else ", whole-machine toggled"))
+
+
+def enter(m, mo, fx, fy, use_menu=False):
+    """INTO Setup - the toolbar's right-hand button, or the menu item.
+
+    The button is the way in now (SPEC.md 77.17); the menu item still works
+    and assertion 12 is what keeps it working, because a pull-down nobody
+    drives is a pull-down that breaks quietly.
+    """
+    if use_menu:
+        menu_setup(m, mo, fx, fy)
+    else:
+        mo.click(*setup_btn(fx, fy))
+        time.sleep(0.8)
+
+
+def leave(m, mo, fx, fy, use_menu=False):
+    """OUT of Setup - and it is a DIFFERENT button, in a different corner.
+
+    Done sits where Start does, top-left: that corner is the primary action of
+    whichever page you are looking at. Clicking the way-in button to come back
+    out lands on empty space, and the page never leaves - which is silent,
+    because leaving is what COMMITS, so the setting is typed, visible, and
+    never saved. That is exactly how this harness first read a working build
+    as a broken PASV override.
+    """
+    if use_menu:
+        menu_setup(m, mo, fx, fy)
+    else:
+        mo.click(*start_btn(fx, fy))
+        time.sleep(0.8)
 
 
 def set_pasv_override(m, mo, addr):
@@ -815,7 +1014,7 @@ def menu_setup(m, mo, fx, fy):
 # plausible wrong key, because a field that quietly received something else is
 # a failure that reads as the setting not working.
 QCHR = {".": "dot", "/": "slash", ":": "shift-semicolon", "-": "minus",
-        "_": "shift-minus"}
+        "_": "shift-minus", "\\": "backslash"}
 
 
 def type_text(text):
@@ -899,15 +1098,26 @@ def verify_cfg(fails):
     # terminator - its length byte is the bound - so an empty setting is an
     # ABSENT key rather than a one-byte one, which is why `R` is not here:
     # nothing typed a root.
-    want = {"U": b"bob", "P": b"s3cret", "M": bytes([1]), "R": b"DEEP"}
+    # WHAT THE SESSION ENDED ON, not what it passed through: assertion 12
+    # leaves the root at /NOSUCH deliberately (a refused Start must still
+    # save what the user typed rather than reverting it behind their back)
+    # and turns whole-machine and Read Only back off.
+    want = {"U": b"bob", "P": b"s3cret", "R": b"/NOSUCH"}
     for k, v in want.items():
         got = bytes(keys.get(k, []))
         if got != v:
             fails.append("FTPD.CFG's %r record is %r, wanted %r - the setting "
                          "worked all session and is gone on the next launch"
                          % (k, got, v))
-    say("FTPD.CFG persisted the root, the user, the password and "
-        "whole-machine mode")
+    # ...and a FLAG that is off writes no record at all, which is the same
+    # rule an empty string follows: the absent key IS the default.
+    for k, what in (("M", "whole-machine"), ("O", "Read Only")):
+        if k in keys:
+            fails.append("FTPD.CFG carries a %r record (%r) with %s turned "
+                         "OFF - an off flag must write NO record"
+                         % (k, keys[k], what))
+    say("FTPD.CFG persisted the root, the user and the password, and wrote "
+        "no record for the two flags that ended off")
 
 
 def extract(img, name11, path=()):
