@@ -1926,6 +1926,91 @@ fd_pasv_port:
     pop bx
     ret
 
+; =============================================================================
+; THE TRANSFER TIMER (SPEC.md 77.23)
+;
+; A field instrument, and the reason it exists is that every estimate in
+; SPEC.md 77.21 was arithmetic: seeks priced from a datasheet, multiplied by
+; an append count. The machine can measure it directly and the estimate
+; cannot argue with the measurement.
+;
+; `Got 129430 bytes in 31s (4175 B/s)` - the three numbers that decide
+; whether a chunk-size change did anything, on the only hardware where the
+; question is real.
+; =============================================================================
+fd_xstart:
+    push ax
+    call OSAPI_GET_TICKS
+    mov [fd_t0], ax
+    mov word [fd_xbytes], 0
+    mov word [fd_xbytes+2], 0
+    pop ax
+    ret
+
+; --- fd_log_rate - SI = 'Got ' or 'Sent ', and the clock since fd_xstart ----
+; Ticks are 18.2065 Hz, and seconds are `ticks * 4 / 73` - 18.25, which is
+; 0.24% off where a bare /18 is 1.1%, and both halves stay in 16 bits for any
+; transfer under a quarter of an hour. The subtraction is modular, so a
+; transfer spanning the tick counter's own wrap still measures right.
+fd_log_rate:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push si
+    mov di, fd_outb2
+    pop si
+    call fd_dcat
+    mov ax, [fd_xbytes]
+    mov dx, [fd_xbytes+2]
+    call fd_dnum32
+    mov si, fd_l_in
+    call fd_dcat
+    call OSAPI_GET_TICKS
+    sub ax, [fd_t0]
+    cmp ax, 16000                   ; past this `ticks * 4` leaves 16 bits, and
+    jb .ok                          ; a quarter-hour transfer has bigger
+    mov ax, 16000                   ; problems than a wrong rate
+.ok:
+    shl ax, 1
+    shl ax, 1
+    xor dx, dx
+    mov bx, 73
+    div bx                          ; AX = seconds
+    mov bx, ax
+    or bx, bx
+    jnz .sec
+    mov bx, 1                       ; under a second: call it one, so the
+.sec:                               ; divide below has a divisor
+    mov ax, bx
+    xor dx, dx
+    call fd_dnum32
+    mov si, fd_l_sec
+    call fd_dcat
+    ; --- and the rate: a 32-bit dividend over a 16-bit divisor -------------
+    mov ax, [fd_xbytes+2]           ; the two-step form, for the reason
+    xor dx, dx                      ; fd_dnum32's own comment gives: `div bx`
+    div bx                          ; on a 32-bit DX:AX traps whenever the
+    push ax                         ; quotient will not fit AX
+    mov ax, [fd_xbytes]
+    div bx
+    pop dx                          ; DX:AX = bytes per second
+    call fd_dnum32
+    mov si, fd_l_bps
+    call fd_dcat
+    mov byte [di], 0
+    mov si, fd_outb2
+    call fd_log
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; --- fd_log_pasv - the endpoint the 227 just named --------------------------
 ; `Data port 2048` in the window, at the moment it matters. A passive
 ; transfer needs the DATA port reachable as well as port 21, and behind a
@@ -1970,9 +2055,44 @@ fd_data_listen:
     clc
     ret
 .no:
-    pop cx
+    call fd_log_sockfail            ; **WHICH REFUSAL**, because 425 covers
+    pop cx                          ; several and only one of them is a leak
     pop bx
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_log_sockfail - AX = a NETE_*, and the log says which one it was
+;
+; `No data socket: err 4` - and 4 is NETE_FULL, all NET_SOCKS handles in use,
+; which is the only one of these that means something is being HELD. The
+; others are a missing driver, a dead link or a busy wire, and telling them
+; apart from the outside is impossible: the client sees `425 Cannot open a
+; data connection` for every one of them.
+;
+; A PASV transfer uses FOUR sockets at once - the port-21 listener, the
+; control connection, the passive data listener and the connection it
+; accepts - and NET_SOCKS is four. So NETE_FULL here is expected to be the
+; common answer when anything at all is left over from a previous session,
+; and distinguishing "expected" from "leaked" needs the number.
+; -----------------------------------------------------------------------------
+fd_log_sockfail:
+    push ax
+    push dx
+    push si
+    push di
+    mov di, fd_outb2
+    mov si, fd_l_nosock
+    call fd_dcat
+    xor dx, dx
+    call fd_dnum32
+    mov byte [di], 0
+    mov si, fd_outb2
+    call fd_log
+    pop di
+    pop si
+    pop dx
+    pop ax
     ret
 
 ; --- fd_c_pasv - 227, with our own address ----------------------------------
@@ -2459,9 +2579,11 @@ fd_wdog_check:
     push cx                         ; ...and BANK HOW FAR, because a stall that
     mov cx, ax                      ; says only "it stopped" sends the next
     sub cx, [fd_wprog]              ; person looking in the wrong place
-    add [fd_xbytes], cx
-    adc word [fd_xbytes+2], 0
-    pop cx
+    jbe .nocount                    ; **A COMMIT EMPTIES THE STAGE**, so this
+    add [fd_xbytes], cx             ; delta goes NEGATIVE every chunk - and an
+    adc word [fd_xbytes+2], 0       ; unsigned add of that is a 64K jump in the
+.nocount:                           ; total. Those bytes are already counted on
+    pop cx                          ; the way IN, so the fall is skipped
     call fd_wdog_stamp
 .ok:
     pop bx
@@ -2693,6 +2815,12 @@ fd_xrefuse:
 ; --- fd_xdone - a transfer finished cleanly ----------------------------------
 fd_xdone:
     push si
+    cmp byte [fd_xf], FX_STOR       ; ...BEFORE fd_reset_xfer, which is what
+    mov si, fd_l_got                ; clears both the counter and the state
+    je .say                         ; this is choosing between
+    mov si, fd_l_sent
+.say:
+    call fd_log_rate
     call fd_data_drop
     call fd_reset_xfer
     mov si, fd_r226
@@ -2784,6 +2912,7 @@ fd_list_go:
     mov si, fd_r150
     call fd_reply
     mov byte [fd_xf], FX_LIST
+    call fd_xstart              ; the clock (SPEC.md 77.23)
     mov al, FR_LIST
     call fd_post
 .out:
@@ -2841,6 +2970,7 @@ fd_c_stor:
     mov si, fd_r150
     call fd_reply
     mov byte [fd_xf], FX_STOR
+    call fd_xstart              ; the clock (SPEC.md 77.23)
     jmp short .out
 .noroom:
     mov si, fd_r452
@@ -4134,6 +4264,7 @@ fd_do_rdchk:
     mov si, fd_r150
     call fd_reply
     mov byte [fd_xf], FX_RETR
+    call fd_xstart              ; the clock (SPEC.md 77.23)
     mov byte [fd_lmore], 1          ; ...so the worker's first act is FR_READ
     jmp short .out
 .noroom:
@@ -6645,6 +6776,12 @@ fd_s_err:   db '', 0
 fd_s_onport: db ' port ', 0
 fd_s_at:    db ' at ', 0
 fd_l_dport: db 'Data port ', 0
+fd_l_nosock: db 'No data socket: err ', 0
+fd_l_got:   db 'Got ', 0
+fd_l_sent:  db 'Sent ', 0
+fd_l_in:    db ' bytes in ', 0
+fd_l_sec:   db 's (', 0
+fd_l_bps:   db ' B/s)', 0
 fd_l_prange: db 'Passive data ports 2048-2055', 0
 fd_s_noaddr: db '(no address)', 0
 fd_s_start: db 'Start', 0
@@ -6922,7 +7059,9 @@ fd_mext     equ fd_xbytes + 4                   ; 4: the extension fd_mangle83
                                      ; lifted out, while it rewrites the stem
                                      ; UNDER it - the two overlap in fd_leaf,
                                      ; so the ext cannot stay where it was
-fd_wdog     equ fd_mext + 4                     ; word: the tick the transfer
+fd_t0       equ fd_mext + 4                     ; word: the tick a transfer
+                                     ; STARTED, for the rate line
+fd_wdog     equ fd_t0 + 2                       ; word: the tick the transfer
                                      ; last MOVED A BYTE (SPEC.md 77.19)
 fd_wprog    equ fd_wdog + 2                     ; word: how far it had got when
                                      ; that was stamped, so "moved" is measured

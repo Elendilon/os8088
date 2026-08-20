@@ -59866,8 +59866,26 @@ a 126KB file is 18 seconds, and the client gave up at 15.
 **That overhead is per APPEND and does not shrink with the chunk**, which
 makes `FD_STGSZ` the divisor. At 32KB a 126KB upload is **four** appends
 instead of sixteen: the same data sectors, a quarter of the seeking. The
-estimate is ~2.5-3x, not 4x, because the data half does not change — enough
-to bring 126KB inside any client's default timeout, which is what matters.
+estimate was ~2.5-3x.
+
+> **THE FIELD MEASURED IT AND THE ESTIMATE WAS WRONG.** 8KB chunks moved
+> 106,496 bytes in 15s (7.10 KB/s); 32KB chunks moved 204,800 in 30s
+> (**6.83 KB/s**) — no improvement, and if anything a hair slower. So the
+> append overhead is NOT what bounds this, and the paragraph above is kept
+> as the reasoning that was tested rather than deleted as if it had never
+> been made. The cost is per BYTE, not per commit, and where it goes is
+> not yet known: mTCP's own FTP server reports 3-8 KB/s on the same
+> machine, so ~7 KB/s may simply be what an 8088 does through an NE2000,
+> in which case there is nothing here to win. §77.23's timer exists to
+> settle that on a transfer that COMPLETES, which neither of these did —
+> both numbers are rates measured across a truncated transfer.
+>
+> `FD_STGSZ` stays at 32768 provisionally, not because it was shown to
+> help but because nothing shows it hurts, and reverting it costs another
+> field round trip. It is 24KB of a 640KB machine's heap for no measured
+> gain, so if the timer confirms the rate is unchanged it should go back
+> to 8192 — PERFORMANCE.md rule 5's rule, that an optimisation whose
+> reason did not survive is not an optimisation.
 
 `FD_STGSZ` was 8192 and its comment recorded only the correctness constraint:
 a power of two at least a cluster wide, so `fd_setchunk` always leaves whole
@@ -59875,6 +59893,12 @@ clusters (§52.3 caps a cluster at 8KB). That constraint is real and 32768
 still satisfies it. **What the comment did not say is that the same number
 sets the seek count**, so nobody weighing it had the second reason in front
 of them. It does now.
+
+**At ~7 KB/s a client timeout is a FILE SIZE LIMIT.** 126KB needs 18
+seconds and 300KB needs 45, so a 30-second timeout cannot move the larger
+file however the server is tuned. Until the rate is understood, a client
+talking to this server wants its timeout set from the biggest file it will
+send, not from a default.
 
 **32768 is the ceiling, and not for a memory reason**: `[fd_sfill]` and
 `[fd_sout]` are words, and 65536 is zero in one. The package's image plus bss
@@ -59935,4 +59959,39 @@ setting it correctly while the data ports stay closed produces exactly this
 error. Active mode avoids the problem — the client listens and the server
 dials out — which is why the same machine could transfer in active mode and
 not in passive.
+
+### 77.23 The transfer timer, because every number in 77.21 was arithmetic
+
+`Got 129430 bytes in 31s (4175 B/s)`, in the window, at the end of every
+transfer.
+
+**§77.21's estimate was a datasheet seek time multiplied by an append count**,
+and it predicted 2.5-3x from a bigger staging buffer. That prediction cannot
+be checked here: QEMU is exact about how much work the guest does and useless
+about how long it takes (CLAUDE.md), and MartyPC — the instrument that agrees
+with the field machine to 0-4% — **has no NIC of any kind**, so an FTP
+transfer cannot be hosted on it at all. The only machine that can answer is
+the one in the field, so the server measures itself.
+
+Three numbers and no more: bytes, seconds, and the rate. That is what decides
+whether a chunk-size change did anything, and it is the same triple whether
+the answer is yes or no.
+
+**Seconds are `ticks * 4 / 73`.** The tick is 18.2065 Hz and 73/4 is 18.25 —
+0.24% high, where the obvious `/18` is 1.1% low — and both halves stay inside
+16 bits for any transfer under a quarter of an hour, which is the cap the
+routine applies rather than pretend about. The subtraction from `[fd_t0]` is
+modular, so a transfer spanning the counter's own wrap still measures right,
+the discipline §13.9 and `sch_isr` already use. The rate is a 32-bit dividend
+over a 16-bit divisor and therefore the two-step divide, for the reason
+`fd_dnum32` gives: `div bx` on a 32-bit `DX:AX` traps whenever the quotient
+will not fit `AX`.
+
+**It also fixed the counter it reports.** `[fd_xbytes]` was added in §77.19
+for the stall log and was wrong from the first commit: it accumulated the
+change in `[fd_sfill] + [fd_sout]`, and **a commit empties the stage**, so
+every chunk contributed a negative delta that an unsigned 32-bit add turned
+into a 64K jump. The bytes are counted on the way in, so the fall is now
+skipped. Nothing had read the number closely enough to notice — which is the
+argument for putting it on the glass where somebody will.
 
