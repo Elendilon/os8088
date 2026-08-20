@@ -29,9 +29,18 @@ argue yourself into:
    IRQ4 card, and a modem chattering on the other port (`MOUSEPORT=com2`,
    `com2irq4`, a socket chardev). MartyPC can put its mouse on either port,
    but the cross-wired and modem cases are not built.
+4. **The Ethernet card and the TCP/IP stack** (SPEC.md §72). MartyPC has no
+   NIC of **any** kind, so `ETHER.DRV` cannot be hosted on it at all — the
+   only harness there is is QEMU's `ne2k_isa` on `-netdev user`
+   (`make ethertest`, `tests/ethernet.py`). This entry was added by following
+   the instruction below: the matrix's own `ethernet` row already said the
+   gate "is on the short list beside the 286/386 targets and §52.1's IDE rung
+   1", and the list had three items. **Every assertion over that transport is
+   about behaviour and none about speed**, because the machine under it is
+   not an 8088.
 
 That is the list. **"It is quicker to type" is not on it, and neither is
-"I already know the QMP commands."** If you find a fourth entry, add it here
+"I already know the QMP commands."** If you find a fifth entry, add it here
 rather than treating the rule as advisory.
 
 That ordering is a **reversal**, and it is written down because the old one
@@ -48,8 +57,8 @@ A tool that is wrong in the flattering direction does not announce itself.
 | reach for | when | why |
 |---|---|---|
 | **MartyPC** | **the default** — any 8088 machine, any of the three adapters, and any question of the form *what is the machine doing* | cycle-accurate CPU, a real BIOS ROM, real CGA/Hercules/VGA cards, and a debugger that perturbs nothing |
-| **QEMU** | the three-item fallback list above, and nothing else | on an 8088, MartyPC covers all three adapters, input, screenshots and sound. QMP and `tools/mouse.py` remain the harness for what is genuinely left |
-| **86Box** | a machine that is **not an 8088** (the 286 and 386 targets), real sound cards on a period bus, a second opinion on the video probe | period-correct whole machines, and the widest hardware library |
+| **QEMU** | the four-item fallback list above, and nothing else | on an 8088, MartyPC covers all three adapters, input, screenshots and sound. QMP and `tools/mouse.py` remain the harness for what is genuinely left |
+| **86Box** | a machine that is **not an 8088** (the 286 and 386 targets), real sound cards on a period bus, a second opinion on the video probe — **and only where a person is watching**: no debugger and no automation socket, so a session can start one and cannot read the result. Do not plan a scripted check around it | period-correct whole machines, and the widest hardware library |
 | **the 5150** | anything with a **disk** in it, and the three defects no emulator shows | docs/FIELD-MACHINES.md |
 
 ## The one rule that outranks the table: a disk number lands on the 5150

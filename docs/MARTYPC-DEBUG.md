@@ -351,16 +351,54 @@ to `build/hello.o88`.
 Needs `cargo` (Rust) and, on Linux, `libudev-dev` + `pkg-config` — MartyPC
 depends on `serialport`, whose build script hard-fails without them.
 
-**In a fresh container, `apt-get update` FIRST.** The shipped index names
+### Installing the deps in a fresh Ubuntu container
+
+**This whole subsection is about ONE environment**: a fresh Ubuntu container,
+which is what an agent session gets. **A Mac has never had either problem** —
+`tools/setup-macos.sh` installs through Homebrew and neither of the two apt
+failures below exists there. (What the Mac script does *not* install is Rust,
+so `make marty` on a Mac wants `cargo` put in front of it by hand.)
+
+**`apt-get update` FIRST, before anything else.** The shipped index names
 `libudev-dev_255.4-1ubuntu8.14`, which has been superseded and removed from
 the pool, so installing it straight off 404s — and since this is the default
 test target, that 404 is the first thing a session hits. A refresh is the
 whole fix; it resolves to a version that exists (`…8.16` today) and installs.
-**Do not pin a version here.** CLAUDE.md's QEMU recipe pins one deliberately,
-for the opposite reason — there the `-updates` build is the broken one and an
-older version is wanted — and applying that shape to `libudev-dev` reinstates
-the same 404. Skipping the deps entirely does not fail at apt at all: it fails
-minutes later inside cargo, on `serialport`.
+
+```sh
+apt-get update                       # the shipped index is stale; this is slow
+apt-get install -y --no-install-recommends libudev-dev pkg-config
+```
+
+**Do not pin a version here.** Skipping the deps entirely does not fail at apt
+at all: it fails minutes later inside cargo, on `serialport`.
+
+**`qemu-system-x86` fails the same way and needs the OPPOSITE fix**, which is
+why the two are written down together — the shapes look identical and the
+cures are inverted. The index lists the `noble-updates` build, whose `.deb`
+404s on `archive.ubuntu.com` and then times out against
+`security.ubuntu.com`, so a plain install burns several minutes and fails.
+Pin all three packages to the **base** noble version:
+
+```sh
+V='1:8.2.2+ds-0ubuntu1'              # the BASE version, NOT -updates
+apt-get install -y --no-install-recommends \
+        "qemu-system-x86=$V" "qemu-system-common=$V" "qemu-system-data=$V"
+```
+
+`-t noble` is **not** enough — it still resolves to the `-updates` version.
+`--no-install-recommends` skips the gstreamer/libcaca display extras, which
+404 the same way and which a headless `-display none` run never touches.
+
+So: **`libudev-dev` wants the NEWER version a refreshed index names, because
+the stale entry has been superseded; QEMU wants an OLDER one than the index
+names, because the `-updates` build is the broken one.** Applying either
+cure to the other package reinstates exactly the 404 you are trying to
+escape. `pkg-config` installs normally either way.
+
+If a previous attempt is wedged, clear `/var/lib/dpkg/lock-frontend` and run
+`dpkg --configure -a` first — and **do not `pkill -f apt-get` from inside a
+Bash tool call**, because the pattern matches the calling shell and kills it.
 
 ```sh
 tools/martypc/build.sh              # clone at the pin, patch, stage, build
