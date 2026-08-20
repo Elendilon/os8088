@@ -59654,3 +59654,77 @@ far more than the defect.
 `fd_flush_glass` on the worker and `fd_wake`'s tail on the UI task, both after
 the socket work is done. A `NETV_RECV` is up to 274 ms on the cable and the
 cursor would stop dead for it (§20.6 rule 3).
+
+### 77.18 The controls are STANDARD ones — press, drag, release
+
+This window's controls were drawn by `os88ui_btn` from the first commit and
+behaved like nothing else in the system: every one of them **fired on the
+press**, out of a single `W_ONCLICK` that hit-tested with a local `fd_inrect`
+and acted on what it found. A mis-aimed press on `Stop` stopped the server,
+and there was no way to change your mind — which is exactly the defect §13.6
+names, and §13.8.3 had already fixed everywhere in the kernel's own UI.
+
+**Three edges now, and the library does the work.** `os88ui_bfind` finds the
+control, `os88ui_arm`/`os88ui_armed`/`os88ui_fire` carry the press across,
+and the gesture is Calculator's (§65.8) without a line of new mechanism:
+
+| edge | what it does |
+|---|---|
+| `W_ONCLICK` | arms the control under the pointer and draws it pressed. **It does not act.** |
+| `W_ONDRAG` | the pressed control follows the pointer — down over it, up off it, down again on the way back |
+| `W_ONMOUSEUP` | puts it up **first and unconditionally**, then re-finds; equal and non-zero fires, anything else is a cancel |
+
+`fd_inrect` is gone with it: it was a hand-rolled `os88ui_bhit`, and the rect
+tables it needed are what let the library be used instead.
+
+**The four Setup fields keep the press**, and are in neither table. §13.8.8's
+test is about the control and not the app — putting the caret in a field is
+*selecting*, which that table keeps the press for, and a caret that waited
+for the release would feel late under a drag-select.
+
+**Two tables, not one rebuilt per page.** The obvious economy is a single
+three-rect table refilled by whichever page is up, and it is wrong here for a
+reason that is not about memory: `fd_onclick` runs `fd_layout` unconditionally
+before it looks at the page, so a shared table would take the log page's
+coordinates on top of the Setup page's between that call and `fd_setup_rects`.
+Two tables of 24 bytes cost less than the ordering rule that would otherwise
+have to hold forever.
+
+**`W_ONDRAG` is `kern_big`'s alone and nothing here tests the carry.** On the
+128KB kernel `OSAPI_WM_ONDRAG` refuses (§13.8.2) and there is simply no drag
+edge: the control still goes down on the press and up on the release, which
+*is* the static down state that section asks a package to fall back to. What
+is lost is the slide-off preview, and losing it costs correctness nothing —
+the release re-finds the control either way and still refuses to fire if the
+pointer has moved off. A capability test would have bought a branch and
+changed no behaviour.
+
+#### 77.18.1 What the down state costs, and the two rules that pay for it
+
+A check box is 44 set bits and a button its frame plus a caption — one
+`gfx_*` call each at PERFORMANCE.md Part 2's ~756us fixed cost, so a control
+going down and another coming up is **~1.5ms** on the 5150 and a page redraw
+is not in the same units. Two rules keep it there:
+
+- **`[fd_down]` is what the PAINTERS read**, not an argument threaded from
+  the press. A `W_PAINT` arriving mid-gesture — the window dragged, another
+  window closing over it — then draws the pressed control pressed, and the
+  release puts it *up* rather than "back" to a state it was never in. This is
+  §13.8.2's first consequence and it is why `fd_draw_btn`, `fd_draw_setb` and
+  `fd_setup_box` each test the variable rather than taking a flag.
+- **`fd_setdown` is the ONE writer and it returns having drawn nothing if the
+  answer did not change**, against `[fd_dnb]` — what `os88ui_bfind` answered
+  at the last delivery. `W_ONDRAG` is delivered once per pointer *movement*,
+  so a handler that repainted every time would spend those two calls on every
+  mouse packet: the flicker the down state exists to prevent, arriving through
+  the other door.
+
+**The Setup page needed three painters it did not have.** Before this the only
+thing that drew that page was `fd_draw_setup`, which clears the content box
+and re-letters four labels, four fields and two ticks — forty-odd drawing
+calls, ~30ms, to move one 12px box. `fd_draw_done`, `fd_draw_rchk` and
+`fd_draw_mchk` are one call and a label each, and the two ticks call
+`fd_setup_box` — **the same body the full page draws with**, so a pressed tick
+and a repainted one cannot disagree about what a tick looks like. Which
+control a box is comes from the RECT it was handed rather than a second
+argument: there are exactly two on the page and the rect already names them.

@@ -278,6 +278,21 @@ fd_entry:
     call OSAPI_WM_ONWAKE            ; THE UI-TASK HALF. Everything this package
                                     ; does to a disk happens in there
     mov bx, [fd_win]
+    mov ax, fd_onup
+    call OSAPI_WM_ONMOUSEUP         ; SPEC.md 13.7: EVERY control here fires on
+                                    ; the RELEASE, over the one the press
+                                    ; landed on, so a mis-aimed press can be
+                                    ; slid off. W_ONMOUSEUP is inside the
+                                    ; 28-byte record, so it is on both kernels
+    mov ax, fd_ondrag
+    call OSAPI_WM_ONDRAG            ; ...and SPEC.md 13.8.2: the control it
+                                    ; landed on FOLLOWS the pointer between the
+                                    ; two edges. THE CARRY IS NOT TESTED - on
+                                    ; kern_small this refuses and there is no
+                                    ; drag edge, which leaves the static down
+                                    ; state that section asks for: down on the
+                                    ; press, up on the release, and the release
+                                    ; still re-finds the control before firing
     mov ax, fd_onclose
     call OSAPI_WM_ONCLOSE           ; ...and the last chance to write the
                                     ; settings out (SPEC.md 77.17)
@@ -543,6 +558,10 @@ fd_draw_btn:
                                     ; button is a dead end you cannot retry
                                     ; from. SPEC.md 48.5's rule, and 47 rule 3
                                     ; agrees: the only honest test is Start
+    cmp word [fd_down], FD_R_MAIN   ; ...and the PRESSED look comes from the
+    jne .draw                       ; VARIABLE, so a W_PAINT arriving mid-
+    or di, OS88UI_DOWN              ; gesture draws it the way it really is
+.draw:                              ; (SPEC.md 13.8.2)
     call os88ui_btn
     pop di
     pop si
@@ -562,6 +581,10 @@ fd_draw_setb:
     mov si, fd_s_setup
     mov bx, fd_setb
     mov di, OS88UI_FILL
+    cmp word [fd_down], FD_R_C2
+    jne .draw
+    or di, OS88UI_DOWN
+.draw:
     call os88ui_btn
     pop di
     pop si
@@ -582,6 +605,10 @@ fd_draw_ro:
     je .nz
     or al, OS88UI_GON
 .nz:
+    cmp word [fd_down], FD_R_C1
+    jne .nd
+    or al, OS88UI_GDOWN             ; the box black and the picture white -
+.nd:                                ; os88ui_btn's down state one widget over
     xor ah, ah
     call os88ui_glyph
     mov cx, [fd_rob+4]
@@ -596,6 +623,59 @@ fd_draw_ro:
     pop si
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_draw_done / fd_draw_rchk / fd_draw_mchk - the SETUP page's three
+;
+; They exist so that fd_setdown can repaint ONE control mid-gesture. Without
+; them the only painter for this page was fd_draw_setup, which clears the
+; whole content box and re-letters four labels, four fields and two ticks -
+; forty-odd drawing calls at PERFORMANCE.md Part 2's 756us apiece, per mouse
+; packet, to move one 12px box. Each of these is one call and the label it
+; needs.
+; -----------------------------------------------------------------------------
+fd_draw_done:
+    push bx
+    push si
+    push di
+    mov si, fd_s_done
+    mov bx, fd_done
+    mov di, OS88UI_FILL
+    cmp word [fd_down], FD_R_MAIN
+    jne .draw
+    or di, OS88UI_DOWN
+.draw:
+    call os88ui_btn
+    pop di
+    pop si
+    pop bx
+    ret
+
+fd_draw_rchk:
+    push ax
+    push bx
+    push si
+    mov bx, fd_rchk
+    mov si, fd_s_ro
+    mov al, [fd_ro]
+    call fd_setup_box               ; the SAME body the full page draws with,
+    pop si                          ; so a pressed tick and a repainted one
+    pop bx                          ; cannot disagree about what it looks like
+    pop ax
+    ret
+
+fd_draw_mchk:
+    push ax
+    push bx
+    push si
+    mov bx, fd_mchk
+    mov si, fd_s_mach
+    mov al, [fd_mach]
+    call fd_setup_box
+    pop si
     pop bx
     pop ax
     ret
@@ -4575,6 +4655,16 @@ fd_stop:
 ; =============================================================================
 
 ; --- fd_onclick - W_ONCLICK: SI = window, CX = x, DX = y, lock held ----------
+; -----------------------------------------------------------------------------
+; fd_onclick - W_ONCLICK: the PRESS. It arms and it draws; it does not act
+; in:  CX = x, DX = y (screen), SI = window; UI task, gfx lock held
+; out: nothing; preserves all registers
+;
+; Three things happen on a press and none of them is the command: the credits
+; come down if they are up, a field takes the caret if one was hit, and
+; otherwise the control under the pointer is armed and drawn pressed. What it
+; DOES waits for fd_onup.
+; -----------------------------------------------------------------------------
 fd_onclick:
     push ax
     push bx
@@ -4585,46 +4675,160 @@ fd_onclick:
     call fd_layout
     cmp byte [fd_page], FP_ABOUT
     jne .nab
-    mov byte [fd_page], FP_LOG      ; any click dismisses the credits, and
-    or byte [fd_dirty], FDD_PAGE    ; nothing under them is acted on
-    jmp short .paint
+    mov byte [fd_page], FP_LOG      ; any press dismisses the credits, and it
+    or byte [fd_dirty], FDD_PAGE    ; is SPENT doing that - nothing is armed,
+    call fd_spend                   ; so the release that follows fires
+    jmp short .out                  ; nothing (Calculator's cal_abdismiss)
 .nab:
     cmp byte [fd_page], FP_SETUP
-    jne .live
-    call fd_setup_click
+    jne .find
+    call fd_setup_rects             ; the fields' rects and the two ticks,
+    call fd_setup_press             ; DERIVED; then the fields, which keep the
+    jnc .out                        ; press (SPEC.md 13.8.8)
+.find:
+    call fd_ctlfind                 ; AX = the control under the pointer
+    call os88ui_arm
+    mov [fd_dnb], ax                ; ...and SEED the drag's comparand with it,
+                                    ; so the first delivery after a press that
+                                    ; has not moved off compares equal and
+                                    ; draws nothing
+    call fd_setdown                 ; ...and the pressed look, through the one
+.out:                               ; writer - 0 is a legal argument, so a
+    pop di                          ; press that lands on nothing needs no test
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret                             ; near: dispatched (SPEC.md 20.5)
+
+; -----------------------------------------------------------------------------
+; fd_ondrag - W_ONDRAG (SPEC.md 13.8.2): the pointer moved, the press is live
+; in:  CX = x, DX = y (screen, and possibly outside the window), SI = window
+; out: nothing; preserves all registers
+;
+; THE PRESSED CONTROL FOLLOWS THE POINTER: down while it is over the control
+; the press landed on, up the moment it is not, down again on the way back.
+; That is what says the gesture is CANCELLED before the user commits to it,
+; and it is the same two calls fd_onup makes at the release, one pass early,
+; so what is lit is exactly what would fire.
+;
+; os88ui_armed and not os88ui_fire: the arm has to survive this and still be
+; there for the release. Spending it here would leave the release with
+; nothing armed and no control in this window would ever act.
+; -----------------------------------------------------------------------------
+fd_ondrag:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call os88ui_armed               ; AX = what the press armed, still armed
+    or ax, ax
+    jz .out                         ; the press landed on nothing - or on a
+    mov di, ax                      ; field, which arms nothing: no repaint
+    call fd_layout                  ; the window can have been dragged since
+    cmp byte [fd_page], FP_SETUP    ; the press, so the rects are recomputed
+    jne .find                       ; rather than trusted
+    call fd_setup_rects
+.find:
+    call fd_ctlfind                 ; AX = what is under the pointer NOW
+    cmp ax, [fd_dnb]
+    je .out                         ; ...and it has not moved between controls
+    mov [fd_dnb], ax                ; since the last delivery: nothing owed
+    cmp ax, di
+    je .set                         ; back on it (or never left)
+    xor ax, ax                      ; off it: nothing down
+.set:
+    call fd_setdown                 ; ...which draws only if that CHANGED
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret                             ; near: dispatched (SPEC.md 20.5)
+
+; -----------------------------------------------------------------------------
+; fd_onup - W_ONMOUSEUP (SPEC.md 13.7): the control FIRES here
+; in:  CX = x, DX = y (screen, and possibly outside the window), SI = window
+; out: nothing; preserves all registers
+;
+; The armed control is put back up FIRST and unconditionally, before anything
+; decides whether the gesture fired, because every other way out of this
+; routine is a jmp to .out and a control left down is left down for the rest
+; of the session (SPEC.md 13.8.2's second consequence).
+; -----------------------------------------------------------------------------
+fd_onup:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call fd_layout
+    cmp byte [fd_page], FP_SETUP
+    jne .fire
+    call fd_setup_rects
+.fire:
+    call os88ui_fire                ; AX = what the press armed, and it is
+    mov word [fd_dnb], 0            ; CLEARED - one release per press
+    or ax, ax
+    jz .out
+    mov di, ax
+    push ax
+    xor ax, ax
+    call fd_setdown                 ; ...upright again, FIRST and whatever
+    pop ax                          ; happens next
+    push di
+    call fd_ctlfind                 ; AX = the control under the RELEASE
+    pop di
+    cmp ax, di
+    jne .out                        ; a different one, or none: cancelled
+    cmp byte [fd_page], FP_SETUP
+    je .setup
+    ; --- the LOG page ------------------------------------------------------
+    cmp ax, FD_R_MAIN
+    je .startstop
+    cmp ax, FD_R_C1
+    je .ro
+    call fd_setup_toggle            ; Setup: into the page
     jmp short .paint
-.live:
-    mov bx, fd_btn
-    call fd_inrect
-    jc .ro
+.startstop:
     cmp byte [fd_st], FD_OFF
     je .go
-    cmp byte [fd_st], FD_ERR        ; an error is a STOPPED server that has
-    je .go                          ; something to say - Start is what a user
-                                    ; presses after fixing whatever it said
+    cmp byte [fd_st], FD_ERR        ; an error is a state to RETRY out of, not
+    je .go                          ; a dead end (SPEC.md 48.5)
     call fd_stop
     jmp short .paint
 .go:
     call fd_start
     jmp short .paint
 .ro:
-    mov bx, fd_rob
-    call fd_inrect
-    jc .setb
     xor byte [fd_ro], 1
-    mov byte [fd_cdirty], 1         ; a SETTING changed, so the file owes a
-                                    ; write - taken at the same two moments
-                                    ; every other setting's is (SPEC.md 77.17)
-    or byte [fd_dirty], FDD_RO      ; ONE 12px box, and it used to redraw the
-                                    ; button, the status line and ten log rows
+    mov byte [fd_cdirty], 1         ; MARKED, not written (SPEC.md 77.17.1)
+    or byte [fd_dirty], FDD_RO      ; ONE 12px box
     jmp short .paint
-.setb:
-    mov bx, fd_setb
-    call fd_inrect
-    jc .out
+    ; --- the SETUP page ----------------------------------------------------
+.setup:
+    cmp ax, FD_R_MAIN
+    je .done
+    cmp ax, FD_R_C1
+    je .rtick
+    xor byte [fd_mach], 1
+    jmp short .tick
+.rtick:
+    xor byte [fd_ro], 1
+.tick:
+    mov byte [fd_cdirty], 1
+    call fd_setup_defoc
+    or byte [fd_dirty], FDD_PAGE
+    jmp short .paint
+.done:
     call fd_setup_toggle
 .paint:
-    mov si, [fd_win]
     call fd_layout
     call fd_spend
 .out:
@@ -4634,26 +4838,141 @@ fd_onclick:
     pop cx
     pop bx
     pop ax
+    ret                             ; near: dispatched (SPEC.md 20.5)
+
+; =============================================================================
+; THE PRESS/DRAG/RELEASE GESTURE (SPEC.md 13.7, 13.8.2, 77.18)
+;
+; Every control in this window is a STANDARD one now: os88ui_btn and
+; os88ui_glyph draw it, os88ui_bfind finds it, os88ui_arm/armed/fire carry the
+; press across the three edges, and it FIRES ON THE RELEASE over the control
+; the press landed on. That is SPEC.md 13.6's rule - a control with no safe
+; prefix action wants the release - and none of these has one: starting a
+; server, writing a setting and changing pages are all things a mis-aimed
+; press should be able to slide off.
+;
+; The four Setup FIELDS are the exception and keep the press, because
+; focusing a field is selecting and SPEC.md 13.8.8 keeps the press for
+; exactly that. They are not in either rect table.
+;
+; W_ONDRAG is kern_big's alone and answers CF = 1 on the 128KB kernel
+; (SPEC.md 13.8.2). NOTHING here tests that carry, and that is deliberate:
+; with no drag edge the control still goes down on the press and up on the
+; release, which is the static down state that section asks a package to fall
+; back to. The half that is lost is the slide-off preview, and losing it
+; costs correctness nothing - the release still re-finds the control and
+; still refuses to fire if the pointer has moved off it.
+; =============================================================================
+
+FD_R_MAIN   equ 1                   ; bfind's answers are index PLUS ONE, so
+FD_R_C1     equ 2                   ; these are the answers themselves and not
+FD_R_C2     equ 3                   ; the indices - there is no dec anywhere
+FD_NR       equ 3
+
+; -----------------------------------------------------------------------------
+; fd_rtab - the rect table for the page that is up
+; out: BX = the table, AX = FD_NR; preserves everything else
+;
+; The page cannot change mid-gesture: only a release on Setup/Done or a menu
+; item moves it, and neither can happen between a press and its release - the
+; kernel owns the pointer for the whole of a menu tracking pass (SPEC.md
+; 12.4). So the press, the drags and the release all read the same table.
+; -----------------------------------------------------------------------------
+fd_rtab:
+    mov bx, fd_rects
+    cmp byte [fd_page], FP_SETUP
+    jne .l
+    mov bx, fd_srects
+.l:
+    mov ax, FD_NR
     ret
 
-; --- fd_inrect - CX,DX against the rect at BX. CF=0 = inside -----------------
-fd_inrect:
-    push ax
-    mov ax, [bx]
-    cmp cx, ax
-    jb .no
-    mov ax, [bx+4]
-    cmp cx, ax
-    ja .no
-    mov ax, [bx+2]
-    cmp dx, ax
-    jb .no
-    mov ax, [bx+6]
-    cmp dx, ax
-    ja .no
-    pop ax
-    clc
+; -----------------------------------------------------------------------------
+; fd_ctlfind - which control is the SCREEN point CX,DX in?
+; in:  CX = x, DX = y (screen); out: AX = FD_R_* or 0; preserves everything else
+; -----------------------------------------------------------------------------
+fd_ctlfind:
+    push bx
+    call fd_rtab
+    call os88ui_bfind
+    pop bx
     ret
+
+; -----------------------------------------------------------------------------
+; fd_setdown - THE ONE WRITER OF [fd_down], and the only thing that draws it
+; in:  AX = the control to draw pressed (FD_R_* or 0 for none)
+; out: nothing; preserves all registers
+;
+; It redraws the control that was down and the one that is now down, one
+; call each, and IT RETURNS HAVING DRAWN NOTHING IF THE ANSWER DID NOT
+; CHANGE. That early-out is not an optimisation here: W_ONDRAG is delivered
+; once per pointer movement, so a handler that repainted every time would
+; spend two os88ui_btn calls - PERFORMANCE.md Part 2's 756us apiece, plus the
+; caption - on every mouse packet, which is the flicker the down state exists
+; to avoid arriving through the other door.
+;
+; Because [fd_down] is what the painters read, a W_PAINT landing mid-gesture
+; draws the pressed control pressed, and the release then puts it up rather
+; than "back" to a state it was never in (SPEC.md 13.8.2).
+; -----------------------------------------------------------------------------
+fd_setdown:
+    push ax
+    push bx
+    cmp ax, [fd_down]
+    je .out
+    mov bx, ax                      ; BX = the new one
+    xchg ax, [fd_down]              ; AX = the OLD one, and the variable is
+    call fd_drawctl                 ; already right for both of these draws
+    mov ax, bx
+    call fd_drawctl
+.out:
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_drawctl - draw ONE control in its current state. AX = FD_R_*, 0 = nothing
+; in:  the layout is current and the gfx lock is held
+; out: nothing; preserves all registers
+;
+; Six controls over two pages, and every one of them is drawn by the same
+; routine that draws it in a full repaint - there is no second painter that
+; could disagree with the first about what a pressed Start looks like.
+; -----------------------------------------------------------------------------
+fd_drawctl:
+    push ax
+    or ax, ax
+    jz .out
+    cmp byte [fd_page], FP_SETUP
+    je .setup
+    cmp ax, FD_R_MAIN
+    je .btn
+    cmp ax, FD_R_C1
+    je .ro
+    call fd_draw_setb
+    jmp short .out
+.btn:
+    call fd_draw_btn
+    jmp short .out
+.ro:
+    call fd_draw_ro
+    jmp short .out
+.setup:
+    cmp ax, FD_R_MAIN
+    je .done
+    cmp ax, FD_R_C1
+    je .rchk
+    call fd_draw_mchk
+    jmp short .out
+.done:
+    call fd_draw_done
+    jmp short .out
+.rchk:
+    call fd_draw_rchk
+.out:
+    pop ax
+    ret
+
 .no:
     pop ax
     stc
@@ -5006,36 +5325,26 @@ fd_pasv_str:
     ret
 
 ; --- fd_setup_click - CX,DX are the click. Lock held ------------------------
-fd_setup_click:
+; -----------------------------------------------------------------------------
+; fd_setup_press - the Setup page's PRESS half: the four fields, and only them
+; in:  CX = x, DX = y (screen); the rects are current
+; out: CF = 0 = a field took the press and nothing else may look at it
+;      CF = 1 = it was not on a field; preserves all registers
+;
+; THE FIELDS KEEP THE PRESS and the three buttons do not. SPEC.md 13.8.8's
+; test is about the control and not the app: putting the caret in a field is
+; SELECTING, which that table keeps the press for, and a caret that waited
+; for the release would feel late under a drag-select. The three that FIRE -
+; Done and the two ticks - have no safe prefix action and take the release,
+; through the rect table.
+;
+; A press on the page background is still a defocus, and it still returns
+; CF = 1, so the release path sees "no control" and does nothing.
+; -----------------------------------------------------------------------------
+fd_setup_press:
     push ax
     push bx
     push si
-    call fd_setup_rects             ; DERIVED, not trusted - the same rects the
-                                    ; paint draws from, computed again here so
-                                    ; the drawn control and the clickable one
-                                    ; cannot part (SPEC.md 22's fm_hit rule)
-    mov bx, fd_btn                  ; Done, in the corner the way in was
-    call fd_inrect                  ; clicked from
-    jc .boxes
-    call fd_setup_toggle
-    jmp .out
-.boxes:
-    mov bx, fd_rchk                 ; the check boxes next - not fields
-    call fd_inrect
-    jc .mbox
-    xor byte [fd_ro], 1
-    jmp short .tick
-.mbox:
-    mov bx, fd_mchk
-    call fd_inrect
-    jc .fields
-    xor byte [fd_mach], 1
-.tick:
-    mov byte [fd_cdirty], 1
-    call fd_setup_defoc
-    or byte [fd_dirty], FDD_PAGE
-    jmp short .out
-.fields:
     xor bx, bx
 .f:
     call fd_fblock
@@ -5044,9 +5353,20 @@ fd_setup_click:
     inc bx
     cmp bx, FD_FN
     jb .f
-    call fd_setup_defoc             ; a click on nothing takes the caret away
+    call fd_ctlfind                 ; not a field: a tick or Done takes the
+    or ax, ax                       ; release, and anything else is a press on
+    jnz .no                         ; the background, which takes the caret
+    cmp byte [fd_pfoc], 0           ; away - but only if something HAD it, or
+    je .no                          ; every stray press repaints the page
+    call fd_setup_defoc
     or byte [fd_dirty], FDD_PAGE
-    jmp short .out
+    call fd_spend
+.no:
+    pop si
+    pop bx
+    pop ax
+    stc
+    ret
 .got:
     call fd_setup_defoc
     mov al, bl
@@ -5055,15 +5375,29 @@ fd_setup_click:
     call fd_fblock
     mov byte [si + LN_FOCUS], 1
     or byte [fd_dirty], FDD_PAGE
-.out:
+    call fd_spend
     pop si
     pop bx
     pop ax
+    clc
     ret
 
 ; --- fd_setup_rects - every Setup rect, from the live content box ------------
 fd_setup_rects:
+    push ax
     push bx
+    push si
+    mov si, fd_btn                  ; Done stands exactly where Start does -
+    mov bx, fd_done                 ; the same corner is the primary action of
+    mov ax, [si]                    ; whichever page is up - but it gets its
+    mov [bx], ax                    ; OWN four words, because a table shared
+    mov ax, [si+2]                  ; between the pages would be a stale rect
+    mov [bx+2], ax                  ; waiting for an ordering change
+    mov ax, [si+4]
+    mov [bx+4], ax
+    mov ax, [si+6]
+    mov [bx+6], ax
+    pop si
     xor bx, bx
 .f:
     call fd_field_rect
@@ -5072,6 +5406,7 @@ fd_setup_rects:
     jb .f
     call fd_box_rects
     pop bx
+    pop ax
     ret
 
 ; --- fd_setup_defoc - take the caret off whichever field has it -------------
@@ -5137,10 +5472,8 @@ fd_draw_setup:
     call fd_clear_content
     ; --- the way OUT, in the same corner the way IN was clicked from --------
     push di
-    mov si, fd_s_done
-    mov bx, fd_btn
-    mov di, OS88UI_FILL
-    call os88ui_btn
+    call fd_setup_rects             ; Done's rect and the ticks', DERIVED from
+    call fd_draw_done               ; the live box before anything draws
     pop di
     mov cx, [fd_ox]
     add cx, FD_PAD + FD_BTNW + 8
@@ -5150,8 +5483,8 @@ fd_draw_setup:
     mov al, CBLACK
     mov ah, CWHITE
     call OSAPI_FONT_RUN
-    call fd_setup_rects             ; the blocks' rects, from the live box
-    xor bx, bx
+    xor bx, bx                      ; (the rects were derived above, with
+                                    ; Done's - one call for the whole page)
 .f:
     call fd_fblock
     push bx
@@ -5208,6 +5541,21 @@ fd_setup_box:
     jz .nz                          ; this still branches on it
     or al, OS88UI_GON
 .nz:
+    ; --- and the PRESSED look, from WHICH RECT this is ----------------------
+    ; The caller passes the rect and not the control's number: there are
+    ; exactly two boxes on this page and the rect already names them, so a
+    ; second argument would be a second thing to keep in step for nothing.
+    push cx
+    mov cx, FD_R_C1
+    cmp bx, fd_rchk
+    je .which
+    mov cx, FD_R_C2
+.which:
+    cmp cx, [fd_down]
+    pop cx
+    jne .nd
+    or al, OS88UI_GDOWN
+.nd:
     xor ah, ah
     push bx
     call os88ui_glyph
@@ -5978,8 +6326,17 @@ fd_pasvn    equ os88_image_end + 67  ; byte: the rotating passive port
 fd_page     equ os88_image_end + 68  ; byte: FP_* - which face is drawn
 fd_pfoc     equ os88_image_end + 69  ; byte: the Setup field has the caret
 fd_tmpb     equ os88_image_end + 70  ; byte: PORT's saw-a-digit flag
-fd_btn      equ os88_image_end + 72  ; 8: the Start button's rect
-fd_rob      equ os88_image_end + 80  ; 8: the Read Only box's rect
+fd_down     equ os88_image_end + 72  ; word: WHICH CONTROL IS DRAWN PRESSED,
+                                     ; as bfind's index+1 on the page that is
+                                     ; up, 0 = none. The PAINTER reads it, so
+                                     ; a W_PAINT arriving mid-gesture draws
+                                     ; the control the way it actually is
+                                     ; (SPEC.md 13.8.2's first consequence)
+fd_dnb      equ os88_image_end + 74  ; word: what os88ui_bfind answered last
+                                     ; time fd_ondrag ran - the drag handler
+                                     ; redraws ONLY on a change, and this is
+                                     ; what "a change" is measured against
+                                     ; (SPEC.md 13.8.2's third consequence)
 fd_verb     equ os88_image_end + 88  ; 4, space padded
 fd_pf       equ os88_image_end + 92  ; 6 words: PORT's fields
 fd_ip       equ os88_image_end + 104 ; 4: our own address
@@ -6015,8 +6372,7 @@ fd_passs    equ fd_users + FD_USERMAX           ; FD_USERMAX
 fd_userin   equ fd_passs + FD_USERMAX           ; FD_USERMAX: what THIS client
                                      ; sent, banked across USER -> PASS
 fd_lines    equ fd_userin + FD_USERMAX          ; FD_FN * OS88LINE_SZ
-fd_mchk     equ fd_lines + FD_FN*OS88LINE_SZ    ; 8: the whole-machine box
-fd_mach     equ fd_mchk + 8                     ; byte: serve every drive
+fd_mach     equ fd_lines + FD_FN*OS88LINE_SZ    ; byte: serve every drive
 fd_mlevel   equ fd_mach + 1                     ; byte: the session is AT the
                                      ; machine level, above any volume
 fd_rrclus   equ fd_mlevel + 1                   ; word: where fd_root_resolve
@@ -6033,10 +6389,30 @@ fd_cfgb     equ fd_rclus + 2                    ; FD_CFGSZ: FTPD.CFG, whole
 fd_dbclus   equ fd_cfgb + FD_CFGSZ              ; word: the banked folder
 fd_dbdrv    equ fd_dbclus + 2                   ; byte: ...and its drive
 fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read
-fd_setb     equ fd_cfgn + 2                     ; 8: the Setup button's rect
-fd_rchk     equ fd_setb + 8                     ; 8: the Read Only box's, on
-                                     ; the SETUP page - fd_rob is the toolbar
-                                     ; copy of the same setting
+; -----------------------------------------------------------------------------
+; THE TWO RECT TABLES - CONTIGUOUS, because os88ui_bfind strides an array
+;
+; One table per page, three 4-word rects each, laid out in the order
+; FD_R_* names. They are separate rather than one table rebuilt per page so
+; that no ORDER of layout calls can leave a stale rect behind: fd_onclick
+; runs fd_layout unconditionally, and a shared table would have the log
+; page's coordinates land on top of the Setup page's between that call and
+; fd_setup_rects.
+;
+; A control that is not in a table is one that does NOT fire on the release:
+; the four Setup fields keep the press, because focusing a field is
+; SELECTING and SPEC.md 13.8.8 keeps the press for exactly that.
+; -----------------------------------------------------------------------------
+fd_rects    equ fd_cfgn + 2                     ; 24: the LOG page's three
+fd_btn      equ fd_rects + 0                    ; ...Start/Stop
+fd_rob      equ fd_rects + 8                    ; ...the Read Only box
+fd_setb     equ fd_rects + 16                   ; ...and Setup
+fd_srects   equ fd_rects + 24                   ; 24: the SETUP page's three
+fd_done     equ fd_srects + 0                   ; ...Done, in Start's corner
+fd_rchk     equ fd_srects + 8                   ; ...the Read Only tick - the
+                                     ; same SETTING fd_rob shows, drawn twice
+                                     ; because it is reachable from two pages
+fd_mchk     equ fd_srects + 16                  ; ...and Serve every drive
 fd_cdirty   equ fd_rchk + 8                     ; byte: a setting changed and
                                      ; the file owes a write (SPEC.md 77.17)
 fd_lognew   equ fd_cdirty + 1                   ; byte: rows appended since the

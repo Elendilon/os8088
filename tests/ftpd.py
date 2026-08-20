@@ -383,6 +383,40 @@ FD_ST_OFF = 48          # fd_st equ os88_image_end + 48
 STATES = {0: "off", 1: "listening", 2: "serving", 3: "err"}
 
 
+FD_PAGE_OFF = 68        # fd_page equ os88_image_end + 68
+PAGES = {0: "log", 1: "setup", 2: "about"}
+
+
+def read_page(m):
+    """Which face the window has up, out of the package's own bss."""
+    for i in reversed(dispcp.win_list(m, S)):
+        x, y, w, h = dispcp.win_rect(m, S, i)
+        if w != FD_W:
+            continue
+        r = m.read(S("wm_wins") + i * dispcp.WIN_SIZE, dispcp.WIN_SIZE)
+        seg = dispcp._u16(r, 22)
+        o88 = open("build/ftpd.o88", "rb").read()
+        img = o88[8] | (o88[9] << 8)
+        return PAGES.get(m.readseg(seg, img + FD_PAGE_OFF, 1)[0], "?")
+    raise RuntimeError("the FTP window is gone")
+
+
+def press_slide_release(mo, x0, y0, x1, y1):
+    """Press at one point, slide to another, release there.
+
+    SPEC.md 77.18's gesture driven as its three separate edges - which is
+    what `click` is NOT: that presses and releases in one place, so it can
+    never tell firing on the press from firing on the release.
+    """
+    mo.run("to", str(x0), str(y0))
+    mo.run("down")
+    time.sleep(0.3)
+    mo.run("to", str(x1), str(y1))
+    time.sleep(0.3)
+    mo.run("up")
+    time.sleep(0.8)
+
+
 def read_state(m):
     for i in reversed(dispcp.win_list(m, S)):
         x, y, w, h = dispcp.win_rect(m, S, i)
@@ -903,6 +937,53 @@ def run_gate(m, mo, fails):
     # The root is left as /NOSUCH ON PURPOSE: verify_cfg reads it back off the
     # image, which is what says a refused Start still SAVED the setting the
     # user typed rather than reverting it behind their back.
+
+    say("--- 13. the controls are STANDARD: press, slide off, release ---")
+
+    # THE WHOLE POINT OF SPEC.md 77.18. Every control used to fire on the
+    # PRESS, so a mis-aimed press acted and there was no way to change your
+    # mind. `click` cannot see the difference - it presses and releases in one
+    # place - so this drives the three edges apart.
+    #
+    # It is asserted on the PAGE and not on the server, because assertion 12
+    # deliberately leaves a Root that will not resolve: the state machine is
+    # in `err` here and Start is the wrong control to prove a gesture with.
+    # The page is also the one control that is unambiguous in a screenshot-
+    # free assertion - it is a byte in the package's own bss.
+    fx, fy = ftp_win(m)
+    sx, sy = setup_btn(fx, fy)
+    was = read_page(m)
+    press_slide_release(mo, sx, sy, fx + 20, fy + TITLE_H + 120)
+    now = read_page(m)
+    if now != was:
+        fails.append("a press on Setup that was SLID OFF before the release "
+                     "still fired: the page went %s -> %s. SPEC.md 77.18's "
+                     "release must re-find the control and refuse"
+                     % (was, now))
+    else:
+        say("pressed Setup, slid off, released: still on '%s' - cancelled"
+            % now)
+
+    # ...and the same gesture WITHOUT the slide still fires, so the refusal
+    # above is a cancel and not a control that has stopped working.
+    mo.click(sx, sy)
+    time.sleep(1.2)
+    now = read_page(m)
+    if now != "setup":
+        fails.append("a press and release ON Setup did not open the page "
+                     "(still %r) - the control is dead, not cancel-safe" % now)
+    else:
+        say("pressed and released ON Setup: log -> setup")
+        # Done is in Start's corner, and it is the SETUP page's main control -
+        # so this also proves the second rect table is wired to the right one.
+        mo.click(*start_btn(fx, fy))
+        time.sleep(1.2)
+        back = read_page(m)
+        if back != "log":
+            fails.append("Done did not come back to the log page (%r) - the "
+                         "SETUP rect table's main control is not Done" % back)
+        else:
+            say("...and Done, in Start's corner, came back to the log")
 
     # --- and the HOST reads the image, with no os8088 code in the way -------
     verify_host(fails, up)
