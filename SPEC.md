@@ -59418,6 +59418,141 @@ narrow bands — which were the digits of the client's ephemeral port in
 `PORT 127,0,0,1,<p1>,<p2>`, different between two runs minutes apart. Session
 data, not rendering. The comparison uses passive mode, whose log is fixed.
 
+### 77.15 A user and a password, and why the window is still the real gate
+
+`FTPD.CFG` carries a **`User`** and a **`Pass`** record and the Setup page has
+a box for each. **An empty `User` accepts anyone**, which is what this shipped
+with and what a disk with no `FTPD.CFG` on it still does — so the setting is
+purely additive and no existing floppy changed behaviour when it landed.
+
+Set one and both halves must match, and the two halves are compared
+**differently on purpose**. The **name** is case-INSENSITIVE (`fd_ieq`),
+because a person types it and FTP has no opinion about its case; the
+**password** is compared exactly (`fd_eqz`), because it is a secret and folding
+its case throws bits away.
+
+**This is a courtesy against the casual and not a secret against anyone who can
+read the volume.** The password is stored in clear, in a file, on the very disk
+this server is handing out — so if `FTPD.CFG` is inside the served root, every
+client that has just been given a `LIST` can also be given the password. That
+is stated rather than fixed: there is no hash worth computing on a 4.77MHz 8088
+that a modern machine cannot invert in the time it takes to type the reply, and
+pretending otherwise would be worse than saying so.
+
+**What actually decides whether anyone can reach these files is §77.8** — the
+Start button, pressed by the person standing at the machine, and the Read Only
+box beside it. Authentication narrows *who* may use a server that somebody has
+already deliberately started.
+
+The gate is where it always was: `[fd_auth]`, checked by every command that
+touches the volume, so a connection that never logs in cannot list a directory.
+`USER` **banks** its argument into `fd_userin` rather than reading it at `PASS`
+time, because the command buffer is the next command's — a detail that only
+bites when `PASS` arrives in a different TCP segment, which is every real
+client.
+
+### 77.16 Whole-machine mode: the volumes as names at the root
+
+**The level above every volume is SYNTHETIC and there is no directory standing
+in it.** With `Whole machine` ticked, the session's root lists one row per
+mounted volume — `A`, `B`, `C` — and stepping into one puts the client in that
+volume's root; `CDUP` from there comes back up to the machine level. It is the
+same move `OS88NET.COM`'s DOS side makes for the same reason (§62.10.4.2's
+synthetic directory), and the reason is that there is nothing else it could be:
+a FAT volume has no parent.
+
+`[fd_mlevel]` is that state — *the session is above any volume* — and it is
+**not** `[fd_mach]`, which is *the setting is on*. A whole-machine session
+spends most of its life inside a volume with `[fd_mlevel]` clear, and
+conflating the two would make every operation inside a served volume take the
+synthetic path.
+
+#### 77.16.1 The root is a PATH in the file and a (drive, cluster) in the session
+
+`FTPD.CFG`'s **`Root`** record carries text — `B:/APPS`, `/DOCS`, `DOCS`, or
+nothing. **A path with no drive letter starts at the current volume's ROOT**,
+so `DOCS` and `/DOCS` are the same thing and there is no such thing as a root
+relative to wherever the instance happened to be standing — which is what makes
+re-resolving it idempotent, since the first resolve moves the instance into the
+folder the second would otherwise measure from.
+
+`fd_root_resolve` walks that text **once, at Start**, into the pair the session
+then uses. **A cluster is meaningless once the disk is swapped** (§19.9's own
+note), so the file may not carry one; and walking the path on every request
+would be a directory walk per command on a machine where that is a revolution
+of the platter.
+
+**A root that will not resolve is not a refusal to start.** The disk may have
+been swapped since the setting was made, and a server that will not run says
+less than one serving the folder it was launched from with a status line naming
+it. The fallback is §19.2.1's default: where the instance stands, which is
+where it was launched.
+
+**The fallback is where the walk STARTED, banked, and not the volume's root** —
+which it was, and which is a slow drift rather than a wrong answer: a failed
+resolve would move the instance out of its launch folder, and the *next* failed
+resolve would then fall back from there to somewhere further away again.
+
+The empty setting is not a special case anywhere — `fd_goroot` reads
+`(fd_rdrv, fd_rclus)` either way, and `fd_root_resolve` seeds that pair from
+`OSAPI_FILE_HERE` when there is no path to walk.
+
+**Leaving the Setup page re-resolves, unless a client is connected.** The root
+is where that session is standing, and re-walking it underneath them would move
+a client that asked for nothing — so a live session keeps the root it was given
+and the new one is live at the next connection. Idle or stopped, the setting
+takes effect at once rather than at the next Start, which is the difference
+between a setting that appears to work and one that appears to do nothing.
+
+#### 77.16.2 One choke point, and it is `fd_enter`
+
+The obvious build is a machine-level branch in each of `RETR`, `STOR`, `DELE`,
+`MKD`, `RMD`, `SIZE`, `LIST` and `CWD`. What is actually needed is **one**: a
+component at the machine level names a drive, so `fd_enter` — which every path
+walker already goes through — routes to `fd_volgo` when `[fd_mlevel]` is set.
+An absolute `/A/DOCS/X.TXT` then works for every command with no line of code
+in any of them, which is §49's "the bounds test belongs at the index, not at
+the call sites" in another place.
+
+Three things hold it up and each was a real edit:
+
+- **`fd_volgo` moves the DIRECTORY and nothing else.** `fd_entervol` — the
+  session's own step, from `CWD` — is `fd_volgo` plus the bookkeeping
+  (`[fd_mlevel]`, `[fd_cdepth]`). They had to come apart because `fd_split`
+  descends **temporarily**, to reach a leaf it is about to operate on, and must
+  put every one of those back afterwards.
+- **`fd_bank`/`fd_unbank` carry `[fd_mlevel]` too.** No file cell can answer
+  *were we above every volume*, so a temporary descent out of the machine root
+  had nothing to come back to. That is the pair's whole job — the folder, the
+  drive, and now the level — and adding the third member is what makes the
+  choke point above safe.
+- **A BARE name at the machine root is refused**, in `fd_split`'s `.bare`
+  branch. There is no directory to resolve it in, and resolving it in whichever
+  volume happened to be current last would serve a folder the client was never
+  shown — a wrong file with no diagnostic, which is docs/FIELD-NOTES.md 4's
+  family.
+
+**A session begins at the root, and that reset is a FLAG and not the work.**
+Without it the second client inherits wherever the first happened to walk to,
+which no FTP client has any way to find out — and it is also what makes a
+`Whole machine` tick while the server is running take effect on the next
+connection rather than the next Start. It cannot be done where it belongs, at
+`NETV_ACCEPT`, because that is the **worker** and standing in a folder is
+`OSAPI_FILE_GOTO` (§20.6 rule 7). So the accept raises `[fd_rowed]` and
+`fd_wake` spends it — **ahead of the request in the same pass**, because a
+`LIST` posted by that pass has to find the root already stood in.
+
+`LIST` is the one command that does **not** reach `fd_enter` at the machine
+level, because it is not walking anywhere: `fd_list_vols` emits a `drwxrwxrwx`
+row per mounted volume straight into the stage, asking `OSAPI_VOL_KIND` which
+of `A`..`F` are there. It is answered first, before the directory walk that has
+nothing to walk.
+
+**`PWD` needed nothing.** The printed path is maintained by `fd_pathroot` and
+`fd_pathpush`, and both are already called on the machine-level paths — the
+ascent in `fd_up` roots it, the descent in `CWD`'s `.rec` pushes the drive
+letter — so `/`, `/A` and `/A/DOCS` fall out.
+
 ### 77.13 Two things that are deliberately not locked
 
 **`fd_log` is called from both tasks without a lock.** The worker logs every

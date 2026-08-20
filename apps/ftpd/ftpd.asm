@@ -995,6 +995,15 @@ fd_step:
     mov byte [fd_st], FD_CTRL
     mov byte [fd_auth], 0
     mov word [fd_clen], 0
+    mov byte [fd_rowed], 1          ; **A NEW SESSION STARTS AT THE ROOT**, and
+                                    ; this is a FLAG rather than the work: a
+                                    ; worker may not touch a file (SPEC.md
+                                    ; 20.6 rule 7) and standing in a folder is
+                                    ; OSAPI_FILE_GOTO. fd_wake spends it, ahead
+                                    ; of any request, and there is time for
+                                    ; several UI passes before the client's
+                                    ; first command arrives - it has to read
+                                    ; the 220 and log in first
     call fd_reset_xfer
     mov si, fd_l_conn
     call fd_log
@@ -1464,31 +1473,118 @@ fd_ctab:
 
 ; --- the simple ones ---------------------------------------------------------
 fd_c_user:
+    push cx
+    push si
+    push di
     mov byte [fd_auth], 0
+    mov si, fd_arg                  ; BANKED, because the command buffer is the
+    mov di, fd_userin               ; next command's and PASS arrives later
+    mov cx, FD_USERMAX
+    call fd_copyn
     mov si, fd_r331
     call fd_reply
+    pop di
+    pop si
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
-; fd_c_pass - and the whole of what this server means by access control
+; fd_c_pass - and what this server means by access control (SPEC.md 77.15)
 ;
-; **ANY USER AND ANY PASSWORD ARE ACCEPTED, AND THE WINDOW IS THE REAL GATE.**
-; That is a decision rather than an omission. A credential worth checking has
-; to be stored somewhere, and the only somewhere here is a file on the very
-; floppy the server hands out - so a password would be protecting the disk
-; with a secret written on it. What actually decides whether anyone can reach
-; these files is the Start button, which the person at the machine presses;
-; the Read Only box decides whether they can change them; and the status line
-; says what is being served and to whom.
+; **AN EMPTY USER SETTING ACCEPTS ANYONE**, which is what this shipped with and
+; what a disk with no FTPD.CFG on it still does. Set one and both halves must
+; match: the name case-INSENSITIVELY, because a user types it and FTP has no
+; opinion, and the password EXACTLY, because it is a secret and folding its
+; case throws bits away.
 ;
-; The USER/PASS exchange is still REQUIRED, because clients expect it and
-; because every verb that touches the volume is gated on it - so a stray
-; connection that never logs in cannot list a directory.
+; **THE WINDOW IS STILL THE REAL GATE.** A password here is stored in clear in
+; a file on the very disk the server hands out, so it is a courtesy against the
+; casual and not a secret against anyone who can read the volume - which is
+; every client this server has just given a LIST to, if the file is inside the
+; served root. What actually decides whether anyone can reach these files is
+; the Start button, which the person at the machine presses, and the Read Only
+; box beside it.
+;
+; It is still checked BEFORE the greeting's verbs do anything, because every
+; command that touches the volume is gated on [fd_auth] - so a stray connection
+; that never logs in cannot list a directory.
 ; -----------------------------------------------------------------------------
 fd_c_pass:
+    push si
+    push di
+    cmp byte [fd_users], 0
+    je .open                        ; no user configured: anyone, as before
+    mov si, fd_userin
+    mov di, fd_users
+    call fd_ieq                     ; the NAME, case-insensitively
+    jc .no
+    mov si, fd_arg
+    mov di, fd_passs
+    call fd_eqz                     ; ...and the PASSWORD, exactly
+    jc .no
+.open:
     mov byte [fd_auth], 1
     mov si, fd_r230
     call fd_reply
+    pop di
+    pop si
+    ret
+.no:
+    mov byte [fd_auth], 0
+    mov si, fd_r530b
+    call fd_reply
+    pop di
+    pop si
+    ret
+
+; --- fd_copyn - SI -> DI, NUL included, at most CX bytes --------------------
+fd_copyn:
+    push ax
+    push cx
+    push si
+    push di
+    dec cx
+.c:
+    mov al, [si]
+    or al, al
+    jz .term
+    mov [di], al
+    inc si
+    inc di
+    loop .c
+.term:
+    mov byte [di], 0
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; --- fd_eqz - SI vs DI, EXACTLY, NUL-terminated. CF=0 = equal ---------------
+fd_eqz:
+    push ax
+    push si
+    push di
+.c:
+    mov al, [si]
+    cmp al, [di]
+    jne .no
+    or al, al
+    jz .yes
+    inc si
+    inc di
+    jmp short .c
+.yes:
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop ax
+    stc
     ret
 
 fd_c_quit:
@@ -2555,6 +2651,13 @@ fd_wake:
     push es
     push ds
     pop es
+    cmp byte [fd_rowed], 0          ; the session reset, BEFORE the request -
+    je .noroot                      ; a LIST posted in the same pass has to
+    mov byte [fd_rowed], 0          ; find the root already stood in
+    call fd_goroot
+    call fd_pathroot
+    mov byte [fd_cdepth], 0
+.noroot:
     mov al, [fd_req]
     cmp al, FR_NONE
     je .glass
@@ -2737,6 +2840,11 @@ fd_split:
     clc
     ret
 .bare:
+    cmp byte [fd_mlevel], 0         ; A BARE NAME AT THE MACHINE ROOT IS NOT A
+    jne .fail                       ; FILE. There is no directory to resolve it
+                                    ; in, and resolving it in whichever volume
+                                    ; happened to be current last would serve a
+                                    ; folder the client was never shown
     mov si, [fd_pathp]
     mov di, fd_leaf
     call fd_copyz
@@ -2801,6 +2909,8 @@ fd_bank:
     call OSAPI_FILE_HERE            ; DX = the cluster, BL = the drive
     mov [fd_bclus], dx
     mov [fd_bdrv], bl
+    mov al, [fd_mlevel]             ; ...AND WHETHER WE WERE ABOVE EVERY VOLUME
+    mov [fd_bmlevel], al            ; at all, which no file cell can answer
     mov byte [fd_banked], 1
     pop dx
     pop bx
@@ -2814,6 +2924,8 @@ fd_unbank:
     cmp byte [fd_banked], 0
     je .out
     mov byte [fd_banked], 0
+    mov al, [fd_bmlevel]
+    mov [fd_mlevel], al
     mov dx, [fd_bclus]
     mov bl, [fd_bdrv]
     call OSAPI_FILE_GOTO
@@ -2823,17 +2935,156 @@ fd_unbank:
     pop ax
     ret
 
-; --- fd_goroot - stand in the root of the volume we are on -------------------
+; -----------------------------------------------------------------------------
+; fd_goroot - stand in the SESSION's root, which is not always the volume's
+;
+; Three things it can be, and the session never sees above it: the folder this
+; instance was launched from (the default), the folder the Setup page names, or
+; - in whole-machine mode - nothing at all, because the level above every
+; volume is synthetic and there is no directory to stand in (SPEC.md 77.16).
+; -----------------------------------------------------------------------------
 fd_goroot:
     push ax
     push bx
     push dx
-    call OSAPI_FILE_HERE
-    xor dx, dx                      ; 0 IS the root, which is the slot's own
-    call OSAPI_FILE_GOTO            ; convention and not this file's
+    cmp byte [fd_mach], 0
+    je .real
+    mov byte [fd_mlevel], 1         ; the machine level: no volume is current,
+    pop dx                          ; and nothing is moved
+    pop bx
+    pop ax
+    clc
+    ret
+.real:
+    mov byte [fd_mlevel], 0
+    mov dx, [fd_rclus]
+    mov bl, [fd_rdrv]
+    call OSAPI_FILE_GOTO
     pop dx
     pop bx
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_root_resolve - the configured root into (fd_rdrv, fd_rclus). UI task.
+;
+; **A PATH AND NEVER A CLUSTER IN THE FILE.** A cluster is meaningless once the
+; disk is swapped - Cyclone's own note (SPEC.md 19.9) - so FTPD.CFG carries the
+; text and this walks it once, at Start, into the pair the session then uses.
+;
+; `X:/A/B` or `/A/B` or `A/B`; empty means where we are, which is where the app
+; was launched (SPEC.md 19.2.1). It leaves the instance standing at the root it
+; resolved, which is exactly where the first client should find itself.
+; -----------------------------------------------------------------------------
+fd_root_resolve:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    call OSAPI_FILE_HERE            ; BANKED, because .bad has to put us back
+    mov [fd_rrclus], dx             ; EXACTLY here - falling back to the
+    mov [fd_rrdrv], bl              ; volume's root instead would move the
+                                    ; instance out of its launch folder, and
+                                    ; the next resolve would then fall back to
+                                    ; somewhere further away again
+    cmp byte [fd_mach], 0
+    jne .here                       ; whole machine: there is no root path
+    mov si, fd_roots
+    cmp byte [si], 0
+    je .here
+    ; --- a leading drive letter? ---
+    mov al, [si]
+    cmp byte [si+1], ':'
+    jne .nodrv
+    call fd_upcase
+    sub al, 'A'
+    jb .bad
+    cmp al, FD_VOLMAX
+    jae .bad
+    mov bl, al
+    xor dx, dx                      ; that volume's ROOT
+    call OSAPI_FILE_GOTO
+    jc .bad
+    add si, 2
+    jmp short .walk
+.nodrv:
+    call OSAPI_FILE_HERE            ; this volume, from its root
+    xor dx, dx
+    call OSAPI_FILE_GOTO
+    jc .bad
+.walk:
+    cmp byte [si], '/'
+    jne .comp
+    inc si
+.comp:
+    cmp byte [si], 0
+    je .here
+    mov di, fd_comp
+    xor cx, cx
+.cc:
+    mov al, [si]
+    or al, al
+    jz .cdone
+    cmp al, '/'
+    je .cdone
+    cmp cx, FD_NAMEMAX - 1
+    jae .skip
+    mov [di], al
+    inc di
+    inc cx
+.skip:
+    inc si
+    jmp short .cc
+.cdone:
+    mov byte [di], 0
+    jcxz .walk
+    push si
+    mov si, fd_comp
+    call fd_enter
+    pop si
+    jc .bad
+    jmp short .walk
+.here:
+    call OSAPI_FILE_HERE            ; wherever we now stand IS the root
+    mov [fd_rclus], dx
+    mov [fd_rdrv], bl
+    mov byte [fd_mlevel], 0
+    cmp byte [fd_mach], 0
+    je .out
+    mov byte [fd_mlevel], 1
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.bad:
+    ; A ROOT THAT WILL NOT RESOLVE IS NOT A REFUSAL TO START. The disk may have
+    ; been swapped since the setting was made, and a server that will not run
+    ; says less than one serving the folder it was launched from and a status
+    ; line that names it.
+    mov dx, [fd_rrclus]
+    mov bl, [fd_rrdrv]
+    call OSAPI_FILE_GOTO
+    jmp short .here
+
+; --- fd_upcase - AL ---------------------------------------------------------
+fd_upcase:
+    cmp al, 'a'
+    jb .out
+    cmp al, 'z'
+    ja .out
+    sub al, 32
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2851,6 +3102,13 @@ fd_enter:
     push dx
     push si
     push di
+    cmp byte [fd_mlevel], 0         ; **ONE CHOKE POINT FOR THE MACHINE ROOT.**
+    jne .vol                        ; Above every volume a component names a
+                                    ; DRIVE, and putting that here rather than
+                                    ; at each caller is what makes an absolute
+                                    ; `/A/DOCS/X.TXT` work for RETR, STOR,
+                                    ; DELE, SIZE and the rest with no line of
+                                    ; code in any of them (SPEC.md 77.16.2)
     call fd_find                    ; CF=0 and fd_fbuf filled
     jc .no
     mov ax, [fd_fbuf+14]
@@ -2863,6 +3121,7 @@ fd_enter:
     mov dx, [fd_fbuf+16]            ; ...and the folder's own first cluster
     call OSAPI_FILE_GOTO
     jc .no
+.done:
     pop di
     pop si
     pop dx
@@ -2871,6 +3130,11 @@ fd_enter:
     pop ax
     clc
     ret
+.vol:
+    call fd_volgo                   ; it moves the DIRECTORY and nothing else;
+    jc .no                          ; the session's own bookkeeping is
+    mov byte [fd_mlevel], 0         ; fd_entervol's, because fd_split descends
+    jmp short .done                 ; temporarily and must not move it
 .no:
     pop di
     pop si
@@ -3005,6 +3269,11 @@ fd_do_list:
     push di
     push es
     mov byte [fd_lmore], 0
+    cmp byte [fd_mlevel], 0         ; **THE MACHINE ROOT IS ANSWERED FIRST AND
+    je .dir                         ; IS NOT A DIRECTORY AT ALL** - os88net's
+    call fd_list_vols               ; srv_list makes the same move for the same
+    jmp .out                        ; reason: the walk below has nothing to
+.dir:                               ; walk at this level (SPEC.md 77.16)
     mov di, fd_stage                ; DI is an ABSOLUTE offset in our segment
     add di, [fd_sfill]              ; and fd_sfill is relative to fd_stage
     mov cx, [fd_lord]
@@ -3035,6 +3304,61 @@ fd_do_list:
     mov [fd_sfill], di
 .out:
     pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_list_vols - the whole-machine root: one folder row per mounted volume
+;
+; Named for the DRIVE LETTER os8088 shows (SPEC.md 26.4) - `A`, `B`, `C` - so
+; the name a client sees is the name on the desktop. OSAPI_VOL_KIND is the
+; enumerator: it answers CF=1 for a volume index that is not mounted, and it is
+; the only thing a package can ask about a volume without USING it.
+;
+; It fits the stage in one pass by construction - six volumes at ~60 bytes a
+; row against 8KB - so unlike the directory walk it is never resumable.
+; -----------------------------------------------------------------------------
+fd_list_vols:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, fd_stage
+    xor bx, bx                      ; the volume index
+.v:
+    mov al, bl
+    call OSAPI_VOL_KIND
+    jc .next                        ; not mounted
+    cmp byte [fd_lstyle], 0
+    jne .short
+    mov si, fd_ls_dir
+    call fd_dcat
+    mov si, fd_ls_zero
+    call fd_dcat
+.short:
+    mov al, bl
+    add al, 'A'
+    mov [di], al
+    inc di
+    mov byte [di], 13
+    inc di
+    mov byte [di], 10
+    inc di
+.next:
+    inc bx
+    cmp bx, FD_VOLMAX
+    jb .v
+    sub di, fd_stage
+    mov [fd_sfill], di
+    mov word [fd_sout], 0
+    mov byte [fd_lmore], 0
     pop di
     pop si
     pop dx
@@ -3578,12 +3902,21 @@ fd_do_cwd:
     jcxz .next
     mov ax, [fd_comp]               ; '..' does not go through fd_enter, which
     cmp ax, '..'                    ; could never find it (FD_CDMAX's comment)
-    jne .down
+    jne .notup
     cmp byte [fd_comp+2], 0
-    jne .down
+    jne .notup
     call fd_up
     jc .bad
-    jmp short .rec
+    jmp .rec
+.notup:
+    cmp byte [fd_mlevel], 0         ; AT THE MACHINE LEVEL a component names a
+    je .down                        ; VOLUME and not a folder in one
+    push si
+    mov si, fd_comp
+    call fd_entervol
+    pop si
+    jc .bad
+    jmp .rec
 .down:
     call OSAPI_FILE_HERE            ; DX = the folder we are about to LEAVE,
     mov [fd_utmp], dx               ; banked before anything moves
@@ -3664,9 +3997,18 @@ fd_up:
     push ax
     push bx
     push dx
+    cmp byte [fd_mlevel], 0
+    jne .ok                         ; already above every volume
     mov al, [fd_cdepth]
     or al, al
-    jz .ok
+    jnz .pop
+    cmp byte [fd_mach], 0
+    je .ok                          ; folder mode: the root has nothing above
+    mov byte [fd_mlevel], 1         ; ...and in machine mode it has the MACHINE
+    call fd_pathroot
+    jmp short .ok
+.pop:
+    mov al, [fd_cdepth]
     dec al
     mov [fd_cdepth], al
     xor ah, ah
@@ -3677,6 +4019,61 @@ fd_up:
     call OSAPI_FILE_GOTO            ; is the drive we are standing on
     jc .no
 .ok:
+    pop dx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_entervol - SI = a drive letter; stand in that volume's root
+; out: CF=1 = there is no such mounted volume
+;
+; The name is the LETTER os8088 shows on the desktop (SPEC.md 26.4), which is
+; the volume index plus 'A' - and OSAPI_VOL_KIND is what says whether that
+; index is mounted, without using it.
+; -----------------------------------------------------------------------------
+fd_entervol:
+    call fd_volgo
+    jc .no
+    mov byte [fd_mlevel], 0
+    mov byte [fd_cdepth], 0         ; a volume root IS the session root now, so
+    clc                             ; CDUP from it goes back to the machine
+    ret
+.no:
+    stc
+    ret
+
+; --- fd_volgo - SI = a one-letter drive name; stand in its root --------------
+; **THE MOVE ONLY.** fd_mlevel, fd_cdepth and the printed path belong to the
+; caller, because fd_enter reaches this on a temporary descent (fd_split) that
+; must put every one of them back afterwards.
+fd_volgo:
+    push ax
+    push bx
+    push dx
+    mov al, [si]
+    cmp byte [si+1], 0
+    jne .no                         ; more than one character is not a drive
+    call fd_upcase
+    sub al, 'A'
+    jb .no
+    cmp al, FD_VOLMAX
+    jae .no
+    mov bl, al
+    push bx
+    call OSAPI_VOL_KIND             ; AL is still the index
+    pop bx
+    jc .no                          ; not mounted
+    xor dx, dx                      ; that volume's ROOT
+    call OSAPI_FILE_GOTO
+    jc .no
     pop dx
     pop bx
     pop ax
@@ -3947,6 +4344,9 @@ fd_start:
     call fd_getaddr                 ; for the status line and for PASV. Its CF
                                     ; is deliberately ignored: no address is a
                                     ; thing to SAY, not a reason to refuse
+    call fd_root_resolve            ; THE ROOT IS WALKED ONCE, HERE - a path in
+                                    ; the file, a (drive, cluster) for the
+                                    ; session (SPEC.md 77.16.1)
     call fd_pathroot
     mov si, fd_l_listen
     call fd_log
@@ -4133,16 +4533,9 @@ fd_onkey:
     push si
     cmp byte [fd_page], FP_SETUP
     jne .out
-    cmp byte [fd_pfoc], 0           ; a field has to have been CLICKED first,
-    je .out                         ; or a stray keystroke edits an address the
-                                    ; user is not looking at
-    mov si, fd_line
-    call os88line_key
-    jc .out                         ; not a key the field wanted
-    mov si, fd_line
-    call os88line_draw
-.out:
-    pop si
+    call fd_setup_key               ; ...which does nothing unless a field has
+.out:                               ; been CLICKED: a stray keystroke must not
+    pop si                          ; edit a setting the user is not looking at
     ret
 
 ; --- fd_oncmd - AL = the menu cell, AH = the item ----------------------------
@@ -4220,8 +4613,31 @@ fd_logclear:
 ; later costs the window.
 ; =============================================================================
 FD_IPMAX    equ 16                  ; '255.255.255.255' and its NUL
-FD_SETX     equ 8                   ; the field's inset in the content box
-FD_SETY     equ 24                  ; ...and the first row's top
+FD_ROOTMAX  equ 48                  ; a served-root path and its NUL
+FD_USERMAX  equ 17                  ; a user or a password and its NUL
+FD_SETX     equ FD_TEXTX            ; the labels' inset - ALIGNED, like every
+                                    ; other pen on this window
+FD_SETY     equ 16                  ; the first row's top
+FD_SROW     equ 16                  ; ...and the pitch. LABEL AND FIELD SHARE A
+                                    ; ROW rather than stacking, because the
+                                    ; content box on CGA is ~117 rows once
+                                    ; wm_fit has clamped the window (SPEC.md
+                                    ; 39.7) and four stacked pairs do not fit
+FD_FLDX     equ 112                 ; where the fields start, 8-aligned
+FD_FLDW     equ 160
+FD_FN       equ 4                   ; how many text fields there are
+FD_VOLMAX   equ 6                   ; DVOL_MAX, mirrored - the volume table's
+                                    ; size, so A: to F:
+
+; --- the Setup page's fields, as a TABLE -------------------------------------
+; They are homogeneous - four one-line text boxes - so a table is the honest
+; shape here where it was not for one field (the note that said so is gone with
+; the guess it was warning about). The CHECK BOX is not in it, because it is
+; not a text box and forcing it in would be the shape guessed again.
+FDF_LBL     equ 0                   ; word: -> the label
+FDF_BUF     equ 2                   ; word: -> the buffer, in our segment
+FDF_MAX     equ 4                   ; word: its capacity, NUL included
+FDF_SZ      equ 6
 
 ; --- fd_setup_toggle - in and out of the page, saving on the way out --------
 ; **THE SAVE IS ON LEAVING, NOT ON EVERY KEYSTROKE.** SPEC.md 31.8's rule for
@@ -4245,20 +4661,51 @@ fd_setup_toggle:
     pop si
     ret
 
-; --- fd_line_init - point the editor at the address buffer ------------------
+; --- fd_line_init - point each editor at its own buffer ---------------------
 ; **THE BLOCK'S BUFFER WORDS ARE NOT OPTIONAL**: bss arrives zeroed (SPEC.md
 ; 21 step 5), so an unset LN_BUF points at offset 0 - this package's own
 ; header - and the first keystroke writes into it. Telnet's te_entry carries
 ; the same note for the same reason.
 fd_line_init:
     push ax
+    push bx
+    push cx
+    push dx
     push si
-    mov word [fd_line + LN_BUF], fd_pasvs
-    mov word [fd_line + LN_MAX], FD_IPMAX
-    mov si, fd_line
-    mov di, fd_pasvs
+    push di
+    xor bx, bx                      ; the field index
+.f:
+    call fd_fblock                  ; SI = its line block, DI = its table row
+    mov ax, [di+FDF_BUF]
+    mov [si + LN_BUF], ax
+    mov cx, [di+FDF_MAX]
+    mov [si + LN_MAX], cx
+    mov di, ax
     call os88line_set               ; LN_LEN/LN_CAR/LN_VIEW from the text
+    inc bx
+    cmp bx, FD_FN
+    jb .f
+    pop di
     pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- fd_fblock - in BX = a field index; out SI = its block, DI = its row ------
+fd_fblock:
+    push ax
+    push dx
+    mov ax, OS88LINE_SZ
+    mul bx
+    add ax, fd_lines
+    mov si, ax
+    mov ax, FDF_SZ
+    mul bx
+    add ax, fd_ftab
+    mov di, ax
+    pop dx
     pop ax
     ret
 
@@ -4270,6 +4717,7 @@ fd_setup_commit:
     push ax
     push si
     push di
+    ; --- the PASV address, which is the one field that PARSES ---------------
     mov si, fd_pasvs
     cmp byte [si], 0
     jne .parse
@@ -4280,13 +4728,24 @@ fd_setup_commit:
 .parse:
     mov di, fd_pasv
     call fd_parseip
-    jc .bad
+    jnc .save
+    call fd_pasv_str                ; refused: the old address goes back on
+    jmp short .out                  ; screen and NOTHING is saved, so a typo
+                                    ; cannot quietly take the rest with it
 .save:
+    ; the other three are strings and are already in their buffers, edited in
+    ; place by os88line - there is nothing to parse and nothing to validate
     call fd_cfg_save
-.bad:
-    call fd_pasv_str                ; the field always shows what was TAKEN,
-    pop di                          ; never what was asked - a refused parse
-    pop si                          ; puts the old address back on screen
+    cmp byte [fd_st], FD_CTRL       ; **NOT WHILE A CLIENT IS CONNECTED.** The
+    je .nore                        ; root is where that session is standing,
+    call fd_root_resolve            ; and re-walking it underneath them would
+.nore:                              ; move a client that asked for nothing.
+                                    ; Idle or stopped, the new setting is live
+                                    ; at once rather than at the next Start
+    call fd_pasv_str
+.out:
+    pop di
+    pop si
     pop ax
     ret
 
@@ -4395,25 +4854,112 @@ fd_pasv_str:
 
 ; --- fd_setup_click - CX,DX are the click. Lock held ------------------------
 fd_setup_click:
+    push ax
+    push bx
     push si
-    mov si, fd_line
-    call os88line_click             ; CF=0 = it landed in the field
-    jc .off
-    mov byte [fd_pfoc], 1
-    mov byte [fd_line + LN_FOCUS], 1
+    call fd_setup_rects             ; DERIVED, not trusted - the same rects the
+                                    ; paint draws from, computed again here so
+                                    ; the drawn control and the clickable one
+                                    ; cannot part (SPEC.md 22's fm_hit rule)
+    mov bx, fd_mchk                 ; the check box first - it is not a field
+    call fd_inrect
+    jc .fields
+    xor byte [fd_mach], 1
+    call fd_setup_defoc
+    or byte [fd_dirty], FDD_PAGE
+    jmp short .out
+.fields:
+    xor bx, bx
+.f:
+    call fd_fblock
+    call os88line_click             ; CF=0 = it landed in THIS field
+    jnc .got
+    inc bx
+    cmp bx, FD_FN
+    jb .f
+    call fd_setup_defoc             ; a click on nothing takes the caret away
+    or byte [fd_dirty], FDD_PAGE
+    jmp short .out
+.got:
+    call fd_setup_defoc
+    mov al, bl
+    inc al                          ; 0 means NO field, so the index is +1
+    mov [fd_pfoc], al
+    call fd_fblock
+    mov byte [si + LN_FOCUS], 1
+    or byte [fd_dirty], FDD_PAGE
+.out:
     pop si
-    ret
-.off:
-    mov byte [fd_pfoc], 0
-    mov byte [fd_line + LN_FOCUS], 0
-    pop si
+    pop bx
+    pop ax
     ret
 
-; --- fd_draw_setup - the page. Lock held, fd_layout already run -------------
-; ONE FIELD TODAY. The rows are drawn from constants rather than a table
-; because a second setting is not a second text box - a root folder wants a
-; PICKER and a password wants a masked field - so a table would be a shape
-; guessed before its second instance exists (SPEC.md 18.7.3's lesson).
+; --- fd_setup_rects - every Setup rect, from the live content box ------------
+fd_setup_rects:
+    push bx
+    xor bx, bx
+.f:
+    call fd_field_rect
+    inc bx
+    cmp bx, FD_FN
+    jb .f
+    call fd_mchk_rect
+    pop bx
+    ret
+
+; --- fd_setup_defoc - take the caret off whichever field has it -------------
+fd_setup_defoc:
+    push bx
+    push si
+    push di
+    xor bx, bx
+.f:
+    call fd_fblock
+    mov byte [si + LN_FOCUS], 0
+    inc bx
+    cmp bx, FD_FN
+    jb .f
+    mov byte [fd_pfoc], 0
+    pop di
+    pop si
+    pop bx
+    ret
+
+; --- fd_setup_key - AL/AH from W_ONKEY. CF=0 = the field took it -------------
+fd_setup_key:
+    push bx
+    push si
+    push di
+    mov bl, [fd_pfoc]
+    or bl, bl
+    jz .no                          ; nothing has the caret
+    dec bl
+    xor bh, bh
+    call fd_fblock
+    call os88line_key
+    jc .no
+    call fd_fblock
+    call os88line_draw
+    pop di
+    pop si
+    pop bx
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop bx
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_draw_setup - the page. Lock held, fd_layout already run
+;
+; Every rect is derived from the LIVE content box on every paint, never stored:
+; a window can be resized, moved across an extended desktop's seam or find
+; itself on an adapter of a different size (SPEC.md 39.7/11.98), and a control
+; drawn from a remembered rect is one the hit-test cannot find.
+; -----------------------------------------------------------------------------
 fd_draw_setup:
     push ax
     push bx
@@ -4430,50 +4976,101 @@ fd_draw_setup:
     mov al, CBLACK
     mov ah, CWHITE
     call OSAPI_FONT_RUN
+    call fd_setup_rects             ; the blocks' rects, from the live box
+    xor bx, bx
+.f:
+    call fd_fblock
+    push bx
     mov cx, [fd_ox]
     add cx, FD_SETX
-    mov dx, [fd_oy]
-    add dx, FD_SETY
-    mov si, fd_s_pasvl
+    mov dx, [si + LN_Y1]
+    add dx, 3
+    mov si, [di+FDF_LBL]
     mov al, CBLACK
     mov ah, CWHITE
     call OSAPI_FONT_RUN
-    ; the field's rect, derived from the LIVE content box every paint
-    mov ax, [fd_ox]
-    add ax, FD_SETX
-    mov [fd_line + LN_X1], ax
-    add ax, 152
-    mov [fd_line + LN_X2], ax
-    mov ax, [fd_oy]
-    add ax, FD_SETY + 12
-    mov [fd_line + LN_Y1], ax
-    add ax, 13
-    mov [fd_line + LN_Y2], ax
-    mov si, fd_line
+    pop bx
+    call fd_fblock
     call os88line_draw
-    ; ...and the two lines that say what it is FOR
-    mov bx, [fd_oy]
-    add bx, FD_SETY + 34
-    mov di, fd_s_sethelp
-.h:
-    mov si, [di]
-    or si, si
-    jz .out
-    mov cx, [fd_ox]
-    add cx, FD_SETX
-    mov dx, bx
+    inc bx
+    cmp bx, FD_FN
+    jb .f
+    ; --- the whole-machine box, which is not a field ------------------------
+    mov cx, [fd_mchk]
+    mov dx, [fd_mchk+2]
+    mov al, OS88UI_GCHECK
+    cmp byte [fd_mach], 0
+    je .nz
+    or al, OS88UI_GON
+.nz:
+    xor ah, ah
+    call os88ui_glyph
+    mov cx, [fd_mchk+4]
+    add cx, 6
+    mov dx, [fd_mchk+2]
+    add dx, 2
+    mov si, fd_s_mach
     mov al, CBLACK
     mov ah, CWHITE
     call OSAPI_FONT_RUN
-    add bx, FD_ROWH + 2
-    add di, 2
-    jmp short .h
-.out:
+    mov cx, [fd_ox]
+    add cx, FD_SETX
+    mov dx, [fd_mchk+2]
+    add dx, 18
+    mov si, fd_s_sethelp
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
     pop di
     pop si
     pop dx
     pop cx
     pop bx
+    pop ax
+    ret
+
+; --- fd_field_rect - fill field BX's block with its rect --------------------
+fd_field_rect:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    call fd_fblock
+    push si
+    mov ax, FD_SROW
+    mul bx
+    add ax, FD_SETY
+    add ax, [fd_oy]
+    pop si
+    mov [si + LN_Y1], ax
+    add ax, 13
+    mov [si + LN_Y2], ax
+    mov ax, [fd_ox]
+    add ax, FD_FLDX
+    mov [si + LN_X1], ax
+    add ax, FD_FLDW
+    mov [si + LN_X2], ax
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; --- fd_mchk_rect - the whole-machine box's rect ----------------------------
+fd_mchk_rect:
+    push ax
+    mov ax, [fd_ox]
+    add ax, FD_SETX
+    mov [fd_mchk], ax
+    add ax, OS88UI_GW - 1
+    mov [fd_mchk+4], ax
+    mov ax, [fd_oy]
+    add ax, FD_SETY + FD_FN * FD_SROW + 4
+    mov [fd_mchk+2], ax
+    add ax, OS88UI_GW - 1
+    mov [fd_mchk+6], ax
     pop ax
     ret
 
@@ -4502,6 +5099,14 @@ fd_draw_setup:
 ; =============================================================================
 FC_END      equ 0
 FC_PASV     equ 'A'                 ; 4 bytes, the PASV address in wire order
+FC_ROOT     equ 'R'                 ; the folder to serve, as a PATH
+FC_USER     equ 'U'                 ; a user name; NO record = accept anyone
+FC_PASS     equ 'P'                 ; a password
+                                    ; ...and the three carry NO terminator:
+                                    ; the record's own length byte is what
+                                    ; bounds them, so an empty string is an
+                                    ; ABSENT record and never a 1-byte one
+FC_MACH     equ 'M'                 ; 1 byte: serve the WHOLE MACHINE
 
 fd_cfg_name: db 'FTPD.CFG', 0
 fd_cfg_sig:  db 'O88FTPD', 0        ; 8 bytes, and compared as 8
@@ -4708,20 +5313,113 @@ fd_cfg_parse:
     pop ax
     ja .out                         ; the payload runs off the end
     cmp al, FC_PASV
-    jne .skip
+    jne .k_root
     cmp ah, 4
     jne .skip
     mov bx, [si]
     mov [fd_pasv], bx
     mov bx, [si+2]
     mov [fd_pasv+2], bx
+    jmp short .skip
+.k_root:
+    cmp al, FC_ROOT
+    jne .k_user
+    mov di, fd_roots
+    mov cx, FD_ROOTMAX
+    call fd_cfg_getstr
+    jmp short .skip
+.k_user:
+    cmp al, FC_USER
+    jne .k_pass
+    mov di, fd_users
+    mov cx, FD_USERMAX
+    call fd_cfg_getstr
+    jmp short .skip
+.k_pass:
+    cmp al, FC_PASS
+    jne .k_mach
+    mov di, fd_passs
+    mov cx, FD_USERMAX
+    call fd_cfg_getstr
+    jmp short .skip
+.k_mach:
+    cmp al, FC_MACH
+    jne .skip
+    or ah, ah
+    jz .skip
+    mov bl, [si]
+    mov [fd_mach], bl
 .skip:
     mov al, ah                      ; **SKIP BY THE LENGTH**, which is the whole
     xor ah, ah                      ; of what makes this format grow: a key
     add si, ax                      ; this build has never heard of costs it
-    jmp short .rec                  ; nothing at all
+    jmp .rec                        ; nothing at all. NEAR: the key ladder above
+                                    ; grew past a short jump's reach
 .out:
     pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- fd_cfg_getstr - a record's payload into DI, CX = its capacity ----------
+; in: SI -> the payload, AH = its length. Clamped and always terminated: a
+; length from a file is a number somebody else wrote.
+fd_cfg_getstr:
+    push ax
+    push cx
+    push si
+    push di
+    mov al, ah
+    xor ah, ah
+    dec cx                          ; leave room for the NUL
+    cmp ax, cx
+    jbe .n
+    mov ax, cx                      ; a longer string than this build's buffer
+.n:                                 ; is TRUNCATED, not refused
+    mov cx, ax
+    jcxz .term
+.c:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop .c
+.term:
+    mov byte [di], 0
+    pop di
+    pop cx
+    pop si
+    pop ax
+    ret
+
+; --- fd_cfg_putstr - AL = the key, SI = a NUL string, appended at DI --------
+; An empty string writes NO RECORD: the absent key is the default, so a file
+; carries only what was actually set.
+fd_cfg_putstr:
+    push ax
+    push bx
+    push cx
+    push si
+    cmp byte [si], 0
+    je .out
+    mov bx, di                      ; the length byte's slot, filled after
+    mov [di], al
+    add di, 2
+    xor cx, cx
+.c:
+    mov al, [si]
+    or al, al
+    jz .done
+    mov [di], al
+    inc di
+    inc si
+    inc cx
+    jmp short .c
+.done:
+    mov [bx+1], cl
+.out:
     pop si
     pop cx
     pop bx
@@ -4762,6 +5460,23 @@ fd_cfg_save:
     mov [di+2], ax
     add di, 4
 .end:
+    mov al, FC_ROOT                 ; an EMPTY string is omitted rather than
+    mov si, fd_roots                ; written as a record with nothing in it -
+    call fd_cfg_putstr              ; the absent key IS the default
+    mov al, FC_USER
+    mov si, fd_users
+    call fd_cfg_putstr
+    mov al, FC_PASS
+    mov si, fd_passs
+    call fd_cfg_putstr
+    cmp byte [fd_mach], 0
+    je .fin
+    mov byte [di], FC_MACH
+    mov byte [di+1], 1
+    mov al, [fd_mach]
+    mov [di+2], al
+    add di, 3
+.fin:
     mov byte [di], FC_END
     inc di
     mov cx, di
@@ -4881,6 +5596,7 @@ fd_r221:    db '221 Goodbye', 0
 fd_r331:    db '331 Password required', 0
 fd_r230:    db '230 Logged in', 0
 fd_r530:    db '530 Log in first', 0
+fd_r530b:   db '530 Login incorrect', 0
 fd_r200:    db '200 Ok', 0
 fd_r200t:   db '200 Type set to binary', 0
 fd_r215:    db '215 UNIX Type: L8', 0
@@ -4921,17 +5637,25 @@ fd_r552:    db '552 Write failed - disk full or protected', 0
 fd_ls_file: db '-rw-rw-rw-   1 os8088   os8088   ', 0
 fd_ls_dir:  db 'drwxrwxrwx   1 os8088   os8088   ', 0
 fd_ls_date: db ' Jan  1  1980 ', 0
+fd_ls_zero: db '         0 Jan  1  1980 ', 0
 FD_ROWMAX   equ 80                  ; the longest row fd_list_row can emit: the
                                     ; 32-byte prefix, 10 of size, 14 of date,
                                     ; 12 of name and a CRLF, with room over
 
 ; --- the Setup page ----------------------------------------------------------
-fd_s_sethd:  db 'Setup', 0
-fd_s_pasvl:  db 'PASV address seen by clients:', 0
-fd_s_sethelp: dw fd_sh1, fd_sh2, fd_sh3, 0
-fd_sh1:      db "Empty = use this machine's own address.", 0
-fd_sh2:      db 'Set it when behind NAT or port', 0
-fd_sh3:      db 'forwarding. EPSV needs no setting.', 0
+fd_s_sethd:  db 'Setup   (empty = the default)', 0
+fd_s_mach:   db 'Serve every drive', 0
+fd_s_sethelp: db 'Root and drive letters are ignored', 0
+fd_s_f0:     db 'PASV addr', 0
+fd_s_f1:     db 'Root', 0
+fd_s_f2:     db 'User', 0
+fd_s_f3:     db 'Password', 0
+
+fd_ftab:
+    dw fd_s_f0, fd_pasvs, FD_IPMAX
+    dw fd_s_f1, fd_roots, FD_ROOTMAX
+    dw fd_s_f2, fd_users, FD_USERMAX
+    dw fd_s_f3, fd_passs, FD_USERMAX
 
 ; --- the About panel ---------------------------------------------------------
 fd_ab_l:    dw fd_ab1, fd_ab2, fd_ab3, fd_ab4, fd_ab5, fd_ab6, 0
@@ -5041,8 +5765,30 @@ fd_path2    equ fd_cstack + FD_CDMAX*2          ; FD_PATHMAX: the banked path
 fd_pasv     equ fd_path2 + FD_PATHMAX           ; 4: the PASV override, wire
                                      ; order. All zero = unset, use our own
 fd_pasvs    equ fd_pasv + 4                     ; FD_IPMAX: ...as typed
-fd_line     equ fd_pasvs + FD_IPMAX             ; OS88LINE_SZ
-fd_cfgb     equ fd_line + OS88LINE_SZ           ; FD_CFGSZ: FTPD.CFG, whole
+fd_roots    equ fd_pasvs + FD_IPMAX             ; FD_ROOTMAX: the folder to
+                                     ; serve, as a PATH and never as a cluster
+                                     ; - a cached cluster plus a swapped disk
+                                     ; is somebody else's folder (SPEC.md 19.9)
+fd_users    equ fd_roots + FD_ROOTMAX           ; FD_USERMAX: empty = anyone
+fd_passs    equ fd_users + FD_USERMAX           ; FD_USERMAX
+fd_userin   equ fd_passs + FD_USERMAX           ; FD_USERMAX: what THIS client
+                                     ; sent, banked across USER -> PASS
+fd_lines    equ fd_userin + FD_USERMAX          ; FD_FN * OS88LINE_SZ
+fd_mchk     equ fd_lines + FD_FN*OS88LINE_SZ    ; 8: the whole-machine box
+fd_mach     equ fd_mchk + 8                     ; byte: serve every drive
+fd_mlevel   equ fd_mach + 1                     ; byte: the session is AT the
+                                     ; machine level, above any volume
+fd_rrclus   equ fd_mlevel + 1                   ; word: where fd_root_resolve
+fd_rrdrv    equ fd_rrclus + 2                   ; byte: ...started, so a root
+                                     ; that will not walk goes back there
+fd_rowed    equ fd_rrdrv + 1                    ; byte: a session has begun and
+                                     ; owes a walk back to the root
+fd_bmlevel  equ fd_rowed + 1                    ; byte: ...banked with the
+                                     ; folder, because a temporary descent out
+                                     ; of the machine root has to come back up
+fd_rdrv     equ fd_bmlevel + 1                  ; byte: the resolved root...
+fd_rclus    equ fd_rdrv + 1                     ; word: ...as (drive, cluster)
+fd_cfgb     equ fd_rclus + 2                    ; FD_CFGSZ: FTPD.CFG, whole
 fd_dbclus   equ fd_cfgb + FD_CFGSZ              ; word: the banked folder
 fd_dbdrv    equ fd_dbclus + 2                   ; byte: ...and its drive
 fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read

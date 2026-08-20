@@ -37,7 +37,7 @@ behaviour (tests/lptlink/partner.py's `NC_BYE` is the same lesson). Assertion
 7 now runs a client that trusts the 227, and assertion 8 runs ACTIVE mode,
 which nothing covered at all.
 
-SIX ASSERTIONS, and they climb the same way stage E's did.
+ELEVEN ASSERTIONS, and they climb the same way stage E's did.
 
 1. THE SERVER ANSWERS. A `220` greeting, and USER/PASS reach `230`. That is
    the port-21 listener, NETV_ACCEPT, and the control connection.
@@ -75,6 +75,21 @@ SIX ASSERTIONS, and they climb the same way stage E's did.
 8. ACTIVE MODE WORKS. `PORT`, where the SERVER dials the client. It needs no
    address from the server at all, which is why it is the answer for a machine
    behind NAT with nothing configured - and it had no coverage whatsoever.
+
+9. A USER AND A PASSWORD GATE IT (SPEC.md 77.15). Configured through the
+   Setup page, the old credentials are refused, the NAME is folded and the
+   PASSWORD is not - which is two assertions in one, because getting the
+   comparison the same way round for both is the easy mistake.
+
+10. THE ROOT IS SELECTABLE (SPEC.md 77.16.1). Rooted at DEEP, `/` holds
+    DEEP's one file and CDUP at the root stays put - the session never sees
+    above what it was given.
+
+11. WHOLE-MACHINE MODE SERVES THE VOLUMES (SPEC.md 77.16). The root lists one
+    directory row per mounted drive, `CWD B` lands in B:'s root, `CDUP` comes
+    back up above every volume, a BARE name there is refused, and an absolute
+    `/B/FTPHELLO.TXT` still reaches the file - which is the payoff of putting
+    the branch in `fd_enter` rather than in each command.
 
 A STOR bigger than the staging buffer is deliberately included in 4: the whole
 design is a stage-and-commit loop (SPEC.md 77.1) and a file that fits in one
@@ -302,6 +317,26 @@ def start_btn(fx, fy):
 def ro_box(fx, fy):
     return (fx + 1 + FD_PAD + FD_BTNW + 8 + 6,
             fy + TITLE_H + FD_PAD + 2 + 6)
+
+
+# --- the Setup page's controls, derived the way fd_setup_rects derives them --
+# FD_SETX/FD_SETY/FD_SROW/FD_FLDX/FD_FLDW and the check box's offset, mirrored
+# from ftpd.asm. A label and its field SHARE a row (the content box on CGA is
+# ~117 rows once wm_fit has clamped the window), so the row pitch is one
+# FD_SROW and not two.
+FD_SETX, FD_SETY, FD_SROW = 8, 16, 16
+FD_FLDX, FD_FLDW, FD_FN = 112, 160, 4
+F_PASV, F_ROOT, F_USER, F_PASS = 0, 1, 2, 3
+
+
+def field_pt(fx, fy, idx):
+    return (fx + 1 + FD_FLDX + 20,
+            fy + TITLE_H + FD_SETY + idx * FD_SROW + 6)
+
+
+def mach_box(fx, fy):
+    return (fx + 1 + FD_SETX + 6,
+            fy + TITLE_H + FD_SETY + FD_FN * FD_SROW + 4 + 6)
 
 
 def connect():
@@ -562,31 +597,194 @@ def run_gate(m, mo, fails):
                      "reason it exists" % (type(e).__name__, e))
     f.quit()
 
+    # === 9. AUTHENTICATION (SPEC.md 77.15) ==================================
+    say("")
+    say("--- 9. a configured user and password ---")
+    setup(m, mo, fields=((F_USER, "bob"), (F_PASS, "s3cret")))
+
+    f = ftplib.FTP()
+    f.encoding = "latin-1"
+    f.connect(HOST, CTRL, timeout=30)
+    try:
+        f.login("os8088", "os8088")
+        fails.append("the server accepted os8088/os8088 with bob/s3cret "
+                     "configured - the User setting is not a gate at all")
+    except ftplib.error_perm as e:
+        say("wrong credentials refused: %s" % str(e).strip())
+    f.close()
+
+    # THE NAME IS FOLDED AND THE PASSWORD IS NOT, so `BOB` must work and a
+    # differently-cased password must not. One connection each: a 530 leaves
+    # [fd_auth] clear but the control connection open, and a client that
+    # retries on the same one is testing something this server does not
+    # promise.
+    f = ftplib.FTP()
+    f.encoding = "latin-1"
+    f.connect(HOST, CTRL, timeout=30)
+    try:
+        f.login("bob", "S3CRET")
+        fails.append("the server accepted S3CRET for s3cret - the PASSWORD is "
+                     "being folded, which throws bits away (SPEC.md 77.15)")
+    except ftplib.error_perm:
+        say("a differently-cased PASSWORD refused, as it must be")
+    f.close()
+
+    f = ftplib.FTP()
+    f.encoding = "latin-1"
+    f.trust_server_pasv_ipv4_address = True
+    f.connect(HOST, CTRL, timeout=30)
+    try:
+        f.login("BOB", "s3cret")
+        rows = []
+        f.retrlines("LIST", rows.append)
+        say("BOB/s3cret logged in and listed %d rows - the NAME is folded"
+            % len(rows))
+        if not rows:
+            fails.append("an authenticated client got an empty listing")
+    except ftplib.error_perm as e:
+        fails.append("BOB/s3cret was refused: %s - the user name is being "
+                     "compared case-SENSITIVELY (SPEC.md 77.15)" % e)
+    f.quit()
+
+    # === 10. A SELECTABLE ROOT (SPEC.md 77.16.1) ============================
+    # `Root` is a PATH in FTPD.CFG and a (drive, cluster) in the session,
+    # walked once. DEEP holds exactly one file and no folder, so a session
+    # rooted there is unmistakable from one rooted at B:'s own root.
+    say("")
+    say("--- 10. a selectable root ---")
+    setup(m, mo, fields=((F_ROOT, "DEEP"),))
+
+    f = ftplib.FTP()
+    f.encoding = "latin-1"
+    f.trust_server_pasv_ipv4_address = True
+    f.connect(HOST, CTRL, timeout=30)
+    f.login("BOB", "s3cret")
+    rows = []
+    f.retrlines("LIST", rows.append)
+    names = sorted(r.split()[-1] for r in rows if r.split())
+    say("rooted at DEEP, / holds %r" % names)
+    if names != ["FTPHELLO.TXT"]:
+        fails.append("a session rooted at DEEP lists %r - it must be DEEP\'s "
+                     "own contents and nothing above them" % names)
+    if f.pwd() != "/":
+        fails.append("PWD in the served root is %r, not '/'" % f.pwd())
+
+    # ...AND THE SESSION NEVER SEES ABOVE IT. CDUP at the root succeeds and
+    # stays put, which is what every FTP server does - a 550 to a client's
+    # "go to the top" loop makes it fail.
+    f.cwd("..")
+    if f.pwd() != "/":
+        fails.append("CDUP at the served root moved to %r" % f.pwd())
+    rows = []
+    f.retrlines("LIST", rows.append)
+    names = sorted(r.split()[-1] for r in rows if r.split())
+    if names != ["FTPHELLO.TXT"]:
+        fails.append("CDUP at the served root escaped it: %r" % names)
+    else:
+        say("CDUP at the served root stays put, as it must")
+    f.quit()
+
+    # === 11. WHOLE-MACHINE MODE (SPEC.md 77.16) =============================
+    # The root becomes the LEVEL ABOVE every volume: one row per mounted
+    # drive, and a CWD into one lands in that volume's root. It is the only
+    # place in this server where the thing being listed is not a directory.
+    say("")
+    say("--- 11. whole-machine mode ---")
+    setup(m, mo, machine=True)
+
+    f = ftplib.FTP()
+    f.encoding = "latin-1"
+    f.trust_server_pasv_ipv4_address = True
+    f.connect(HOST, CTRL, timeout=30)
+    f.login("BOB", "s3cret")
+    rows = []
+    f.retrlines("LIST", rows.append)
+    say("machine root: %r" % rows)
+    names = [r.split()[-1] for r in rows if r.split()]
+    if "A" not in names or "B" not in names:
+        fails.append("the machine root listed %r - it must carry one row per "
+                     "MOUNTED volume, and this machine has A: and B:" % names)
+    for r in rows:
+        if not r.startswith("d"):
+            fails.append("a volume row is not a directory: %r" % r)
+    if f.pwd() != "/":
+        fails.append("PWD at the machine root is %r, not '/'" % f.pwd())
+
+    # ...and stepping into one is a real volume, with the apps disk's own
+    # folders in it. B: is TESTAPPS, whose root this gate has been serving.
+    f.cwd("B")
+    if f.pwd() != "/B":
+        fails.append("PWD inside a volume is %r, not '/B'" % f.pwd())
+    vrows = []
+    f.retrlines("LIST", vrows.append)
+    vnames = [r.split()[-1] for r in vrows if r.split()]
+    say("B: holds %r" % vnames)
+    if "DEEP" not in vnames:
+        fails.append("B: does not list DEEP - stepping into a volume did not "
+                     "land in its root (%r)" % vnames)
+
+    # A BARE NAME AT THE MACHINE ROOT IS REFUSED, which is the guard in
+    # fd_split's `.bare`: there is no directory to resolve it in, and
+    # resolving it in whichever volume was current last serves a folder the
+    # client was never shown.
+    f.cwd("..")
+    if f.pwd() != "/":
+        fails.append("CDUP from a volume root is %r, not the machine level"
+                     % f.pwd())
+    try:
+        retr(f, "FTPHELLO.TXT")
+        fails.append("a bare name at the MACHINE root was served - it "
+                     "resolved in whatever volume happened to be current "
+                     "(SPEC.md 77.16.2)")
+    except ftplib.error_perm:
+        say("a bare name at the machine root refused, as it must be")
+
+    # ...but an ABSOLUTE one through a volume works, which is the whole
+    # payoff of putting the branch in fd_enter rather than in each command.
+    got = retr(f, "/B/FTPHELLO.TXT")
+    if got != HELLO:
+        fails.append("RETR /B/FTPHELLO.TXT gave %r - an absolute path "
+                     "through a volume must reach the file" % got[:40])
+    else:
+        say("RETR /B/FTPHELLO.TXT is byte-exact through the machine root")
+    f.quit()
+
     # --- and the HOST reads the image, with no os8088 code in the way -------
     verify_host(fails, up)
     verify_cfg(fails)
 
 
-def set_pasv_override(m, mo, addr):
-    """Drive the Setup page: menu, click the field, type, menu again.
+def setup(m, mo, fields=(), machine=None):
+    """Drive the Setup page: menu, click each field, type, tick, menu again.
 
     THROUGH THE UI AND NOT BY POKING THE BSS, because what is under test is
     the whole path - the menu item, the line editor, the parse, the save to
-    FTPD.CFG and fd_pasv_addr reading it back. A poke would prove the last
+    FTPD.CFG and the reader taking it back out. A poke would prove the last
     step and none of the others.
+
+    `fields` is (index, text) pairs; the text is TYPED, so a field is only
+    ever appended to - every caller here sets a field that was empty.
     """
     fx, fy = ftp_win(m)
     menu_setup(m, mo, fx, fy)
     time.sleep(1.0)
-    # the field's rect is derived in fd_draw_setup: content + FD_SETX,
-    # content top + FD_SETY + 12, 152px wide and 13 tall
-    mo.click(fx + 1 + 8 + 40, fy + TITLE_H + 24 + 12 + 6)
-    time.sleep(0.6)
-    type_text(addr)
-    time.sleep(0.4)
+    for idx, text in fields:
+        mo.click(*field_pt(fx, fy, idx))
+        time.sleep(0.6)
+        type_text(text)
+        time.sleep(0.4)
+    if machine is not None:
+        mo.click(*mach_box(fx, fy))
+        time.sleep(0.8)
     menu_setup(m, mo, fx, fy)       # leaving is what commits and saves
     time.sleep(2.0)
-    say("PASV override set to %s through the Setup page" % addr)
+    say("Setup: %s%s"
+        % (", ".join("field %d = %r" % f for f in fields) or "nothing typed",
+           "" if machine is None else ", whole-machine toggled"))
+
+
+def set_pasv_override(m, mo, addr):
+    setup(m, mo, fields=((F_PASV, addr),))
 
 
 # The app's menu bar cell and its third item, MEASURED on a running machine
@@ -611,13 +809,26 @@ def menu_setup(m, mo, fx, fy):
     time.sleep(0.8)
 
 
+# QMP's `sendkey` takes KEY names, not characters, so a shifted character is
+# `shift-<key>` and the punctuation has names of its own. Only what this gate
+# actually types is here - an unmapped character exits rather than sending a
+# plausible wrong key, because a field that quietly received something else is
+# a failure that reads as the setting not working.
+QCHR = {".": "dot", "/": "slash", ":": "shift-semicolon", "-": "minus",
+        "_": "shift-minus"}
+
+
 def type_text(text):
     cmds = []
     for ch in text:
         if ch.isdigit():
             cmds += ["sendkey " + ch]
-        elif ch == ".":
-            cmds += ["sendkey dot"]
+        elif "a" <= ch <= "z":
+            cmds += ["sendkey " + ch]
+        elif "A" <= ch <= "Z":
+            cmds += ["sendkey shift-" + ch.lower()]
+        elif ch in QCHR:
+            cmds += ["sendkey " + QCHR[ch]]
         else:
             sys.exit("ftpd: no sendkey mapping for %r" % ch)
         cmds += ["sleep 0.08"]
@@ -684,6 +895,19 @@ def verify_cfg(fails):
     if keys.get("A") != [127, 0, 0, 1]:
         fails.append("FTPD.CFG's 'A' record is %r, wanted [127,0,0,1]"
                      % keys.get("A"))
+    # ...and everything assertions 9 and 10 set. A record carries NO
+    # terminator - its length byte is the bound - so an empty setting is an
+    # ABSENT key rather than a one-byte one, which is why `R` is not here:
+    # nothing typed a root.
+    want = {"U": b"bob", "P": b"s3cret", "M": bytes([1]), "R": b"DEEP"}
+    for k, v in want.items():
+        got = bytes(keys.get(k, []))
+        if got != v:
+            fails.append("FTPD.CFG's %r record is %r, wanted %r - the setting "
+                         "worked all session and is gone on the next launch"
+                         % (k, got, v))
+    say("FTPD.CFG persisted the root, the user, the password and "
+        "whole-machine mode")
 
 
 def extract(img, name11, path=()):
