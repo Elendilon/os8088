@@ -247,8 +247,10 @@ def main(argv):
         os88marty.settle(m)
         agrees(m, mo, "ArrowDown into a scroll")
 
-        # the source bar's two arrow cells (SPEC.md 13.10's shared element)
+        # the source bar's two arrow cells (SPEC.md 13.10's shared element),
+        # and the preview's, which is against the window's right edge
         sb_x = cx0 + TP_SPLIT0 - 7
+        sb_p = tx + tw - 2 - 14 // 2 - 2
         mo.click(sb_x, cy0 + TP_BAR_H + 6)
         os88marty.settle(m)
         agrees(m, mo, "scroll bar up arrow")
@@ -260,6 +262,27 @@ def main(argv):
         mo.click(cx0 + 40, cy0 + 10)
         os88marty.settle(m)
         agrees(m, mo, "bar button on the release")
+
+        # --- the PREVIEW pane: its scroll is a blit and a band too ---------
+        mo.click(sb_p, cy0 + TP_BAR_H + 6)          # its up arrow
+        os88marty.settle(m)
+        agrees(m, mo, "preview bar up arrow")
+        mo.click(sb_p, ty + th - TP_STAT_H - TP_BAR_H)
+        os88marty.settle(m)
+        agrees(m, mo, "preview bar down arrow")
+        mo.click(sb_p, ty + th - TP_STAT_H - TP_BAR_H)
+        os88marty.settle(m)
+        agrees(m, mo, "preview bar down again")
+        mo.click(sb_p, (cy0 + TP_BAR_H + ty + th) // 2)   # the track: a page
+        os88marty.settle(m)
+        agrees(m, mo, "preview bar track")
+        m.key("PageDown")                            # the preview has focus
+        os88marty.settle(m)
+        agrees(m, mo, "preview PageDown")
+        m.key("PageUp")
+        os88marty.settle(m)
+        agrees(m, mo, "preview PageUp")
+        shot(m, "tpdraw-preview.png")
 
         # a dragged selection, then a character typed over it: the deletion
         # moves every row below it, so this is the leg that catches an

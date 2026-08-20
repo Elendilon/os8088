@@ -54120,8 +54120,10 @@ where a File > Open starts.
 
 ### 69.1 Typesetting is an act, not a consequence
 
-**F5 typesets. Nothing else does.** The preview does not track the source as
-it is edited, and that is the design rather than a missing feature: setting
+**F5 typesets, the bar's `Typeset` button does, and so does anything that
+REPLACES the document** — File > New, File > Open, and a `.TEX` opened by
+double-click, which arrive set rather than beside a blank page. Nothing else
+does: the preview does not track the source as it is edited, and that is the design rather than a missing feature: setting
 the document walks the whole source, and on the target machine (PERFORMANCE.md
 — an 8088 at 4.77 MHz) that is not something to do between keystrokes. The
 top bar carries `(edit)` for exactly as long as the preview is older than the
@@ -54345,10 +54347,23 @@ The target is PERFORMANCE.md's 8088. What follows from it, beyond §69.1's
   ~45 cells; at PERFORMANCE.md's ~900 us a cell that is ~40 ms added to every
   character typed, which is arithmetic off that table rather than a
   measurement.
-- **Every incremental path that fills to the window's right edge ends with
-  `OSAPI_WM_GROW`**, on the rule the SDK states at that slot: the white-fill
-  idiom erases the grow box. The status strip is the row the grow box sits
-  in, so this is the strip's, not just `tp_paint`'s.
+- **The status strip re-letters ELEVEN CELLS and touches nothing else.** It
+  is one `font_run` with two spaces on the end - `font_run` is
+  erase-and-letter per cell (§6.1), so the cells it writes need no clearing
+  first and the spaces cover a count that lost a digit. Nothing reaches the
+  right-hand end of the strip any more, which is what keeps a keystroke off
+  the GROW BOX (the white-fill idiom erases it, and `OSAPI_WM_GROW` is what
+  puts it back - `tp_paint` still owes that, an incremental path no longer
+  does).
+- **The top bar is re-lettered only when what it SAYS changes.** `tp_barsig`
+  is the dirty mark and the `(edit)` marker as one byte, recorded whenever
+  the bar's string is composed; a keystroke that does not move it draws
+  nothing there. The file name and the page number cannot move without a
+  full repaint.
+- **A focus ring is drawn one pixel OUTSIDE its pane**, so the ring being
+  erased takes the splitter and the status rule with it; `tp_draw_frames`
+  puts both back. Neither is its own - that is the price of a ring that
+  lives outside the frame it rings.
 - **The blit's two edges round the same way and for opposite reasons.** It is
   byte-column granular (§5.5), so `x1` and `x2+1` are multiples of 8 and the
   rect only moves in whole cells. The text pen is `tp_ex1 + 3`, off a byte
@@ -54359,6 +54374,25 @@ The target is PERFORMANCE.md's 8088. What follows from it, beyond §69.1's
   columns of the bar by the scroll distance, and rounding `x1` up leaves four
   stale pixel columns down the whole height of the pane. Both were measured,
   one per direction.
+- **The PREVIEW scrolls by blitting too**, and it is the pane where that
+  matters most: a page of set text is forty-odd `OSAPI_FONT_RUN`s of fifty
+  cells, so a four-line scroll repainted whole is the better part of two
+  seconds on the target machine. What the blit vacates is not lettered but
+  DRAWN, by the same routines that draw the whole pane cut to a band
+  (`tp_rgn_set`), because a band holds the gutter, the sheet's edges and the
+  rules as well as the text. Three things make it come out identical to a
+  repaint, and each was a defect first:
+    - the pane's INTERIOR is placed on byte columns (`tp_prev_box`), because
+      what is immediately outside it on both sides is a scroll bar and
+      `gfx_scroll` moves whole byte columns; rounding inward instead would
+      leave columns it cannot move, and at 12pt those columns carry text;
+    - the scroll position is always EVEN (`tp_clamp_ps`), because the desk is
+      a 50% dither whose phase is a function of absolute y, and an odd blit
+      lands it on the wrong parity;
+    - a cell's worth of rows at the FAR edge is repainted along with the
+      vacated band, because a run whose 8-row cell straddles the pane's edge
+      is not drawn at all and the blit would otherwise move a half-drawn one
+      into view.
 - **A scroll and an EDIT are different things, and only one of them may
   blit.** `tp_src_scroll` moves the pane by the rows the view moved and
   letters the band that came in, which is exactly wrong when the document
@@ -54386,6 +54420,9 @@ The target is PERFORMANCE.md's 8088. What follows from it, beyond §69.1's
 - Export is `tp_typeset` plus a linear walk of the run and box arrays plus ONE
   `OSAPI_FILE_WRITE`. Costing disk work in calls rather than sectors is the
   whole reason the file is built in RAM first.
+- A scroll bar's arrow cell steps FOUR rows rather than one (`TP_SB_STEP`),
+  and the preview's steps the same four times the 8px a body line occupies
+  there. §13.10.1 is why that is a decision this app gets to make.
 - The refusals are §47's rule: 'Export too large', 'Document full (8K)' and
   'Need more RAM' are facts the code tested, not guesses about size — and so
   are the two page ARROWS on the bar, which grey themselves on the first and

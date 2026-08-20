@@ -70,6 +70,13 @@ TP_TEXT_MIN   equ 48            ; six rows of source under the bar
 TP_MIN_W      equ TP_SPLIT_MIN + TP_PREV_MIN + 2
 TP_MIN_H      equ TP_BAR_H + TP_STAT_H + TP_TEXT_MIN + TITLE_H + 1
 TP_SB_W       equ 14            ; SPEC.md 13.10: the shared bar is 14 wide
+TP_SB_STEP    equ 4             ; ...and an arrow cell steps FOUR rows. One is
+                                ; what the kernel's own bars do and it is four
+                                ; clicks a line of TeX here, where a row is an
+                                ; 8px cell rather than a file-list entry. The
+                                ; preview scrolls in the same step, times the
+                                ; 8px a body line occupies there (SPEC.md
+                                ; 13.10.1: the policy is the caller's)
 TP_SRC_KB     equ 8
 TP_SRC_MAX    equ 8190
 TP_EXP_KB     equ 24
@@ -126,6 +133,10 @@ tp_entry:
     mov si, tp_onabout
     call OSAPI_ABOUT_SET
     pop si
+    call tp_rgn_all             ; the preview region is bss, and bss is ZERO -
+                                ; which as a region means "nothing is
+                                ; drawable". Every painter sets it, but this
+                                ; is the one that costs nothing to be sure of
     mov byte [tp_needld], 1
     mov byte [tp_margin], 1
     mov byte [tp_pad], 1
@@ -425,7 +436,8 @@ tp_layout:
     add dx, 16
     mov di, tp_r_set
     mov cx, ax
-    add cx, 32
+    add cx, 60                  ; 'Typeset' is seven cells; the five cyclers
+                                ; after it hold three or six and stay at 32
     call tp_setrect
     mov ax, cx
     add ax, 4
@@ -727,6 +739,8 @@ tp_draw_sheet:
     dec cx
     mov dx, [tp_py2]
     dec dx
+    call tp_clip_pane           ; ...to the REGION as well, so a band redraw
+    jc .gutter                  ; greys the band and not the pane
     call OSAPI_GFX_FILL_GRAY
     ; paper, clipped to the preview pane
     mov al, CWHITE
@@ -740,13 +754,7 @@ tp_draw_sheet:
     call OSAPI_GFX_FILL
     mov al, CBLACK
     call OSAPI_SET_COLOR
-    mov ax, [tp_sx1]
-    mov bx, [tp_sy1]
-    mov cx, [tp_sx2]
-    mov dx, [tp_sy2]
-    call tp_clip_pane
-    jc .gutter
-    call OSAPI_GFX_FRAME
+    call tp_sheet_edges
 .gutter:
     ; gutter
     cmp byte [tp_bind], 0
@@ -818,9 +826,114 @@ tp_draw_sheet:
     pop ax
     ret
 
-; Clip AX/BX/CX/DX to the preview pane. CF=1 if the rect is empty.
+; The sheet's four edges, each clipped on its own. GFX_FRAME cannot be used
+; here: clamped to a band it draws the two sides the clamp INVENTED, so a
+; scrolled page came out ruled across the middle.
+tp_sheet_edges:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, [tp_sx1]            ; top
+    mov bx, [tp_sy1]
+    mov cx, [tp_sx2]
+    mov dx, bx
+    call tp_clip_pane
+    jc .bot
+    mov bx, cx                  ; hline: AX=x1, BX=x2, DX=y
+    call OSAPI_GFX_HLINE
+.bot:
+    mov ax, [tp_sx1]
+    mov bx, [tp_sy2]
+    mov cx, [tp_sx2]
+    mov dx, bx
+    call tp_clip_pane
+    jc .lft
+    mov bx, cx
+    call OSAPI_GFX_HLINE
+.lft:
+    mov ax, [tp_sx1]            ; left
+    mov bx, [tp_sy1]
+    mov cx, ax
+    mov dx, [tp_sy2]
+    call tp_clip_pane
+    jc .rgt
+    call OSAPI_GFX_VLINE        ; AX=x, BX=y1, DX=y2, which is what the clip
+                                ; already left behind
+.rgt:
+    mov ax, [tp_sx2]            ; right
+    mov bx, [tp_sy1]
+    mov cx, ax
+    mov dx, [tp_sy2]
+    call tp_clip_pane
+    jc .o
+    call OSAPI_GFX_VLINE
+.o:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; THE REGION - what part of the preview pane is being drawn right now
+;
+; The preview is painted by one set of routines whatever the reason, and a
+; SCROLL needs the same picture cut to a band. There is no clip region a
+; package can ask for - OSAPI_WM_CLIP_SET is the window manager's, about what
+; is covering you - so this is the app's own, honoured by tp_clip_pane below
+; and by the two painters' y tests. Everything that draws the preview goes
+; through one of those, so a region set here reaches all of it.
+;
+; It is set to the whole pane by tp_rgn_all and NEVER left narrow: every
+; entry that paints the preview opens with tp_rgn_all.
+; -----------------------------------------------------------------------------
+tp_rgn_all:
+    push ax
+    xor ax, ax
+    mov [tp_rgx1], ax
+    mov [tp_rgy1], ax
+    mov ax, 0x7FFF              ; SIGNED-large, and that is the whole of it:
+    mov [tp_rgx2], ax           ; tp_clip_pane compares with jge/jle because a
+    mov [tp_rgy2], ax           ; mapped sheet coordinate is legitimately
+    pop ax                      ; NEGATIVE (a page scrolled above the pane),
+    ret                         ; so 0xFFFF as "no restriction" is -1 and
+                                ; every rect clipped against it came out
+                                ; EMPTY - measured as a preview with no desk,
+                                ; no paper and no page edges at all, on every
+                                ; full repaint
+
+; AX..DX become the region (inclusive).
+tp_rgn_set:
+    mov [tp_rgx1], ax
+    mov [tp_rgy1], bx
+    mov [tp_rgx2], cx
+    mov [tp_rgy2], dx
+    ret
+
+; Clip AX/BX/CX/DX to the preview pane AND the region. CF=1 if empty.
 tp_clip_pane:
     push si
+    mov si, [tp_rgx1]
+    cmp ax, si
+    jge .r1
+    mov ax, si
+.r1:
+    mov si, [tp_rgy1]
+    cmp bx, si
+    jge .r2
+    mov bx, si
+.r2:
+    mov si, [tp_rgx2]
+    cmp cx, si
+    jle .r3
+    mov cx, si
+.r3:
+    mov si, [tp_rgy2]
+    cmp dx, si
+    jle .r4
+    mov dx, si
+.r4:
     mov si, [tp_px1]
     inc si
     cmp ax, si
@@ -1187,14 +1300,17 @@ tp_draw_bar:
     call OSAPI_FONT_RUN
     mov al, CBLACK
     call OSAPI_SET_COLOR
+    ; OSAPI_GFX_HLINE is AX = x1, BX = x2, DX = y - not the four corners the
+    ; fills take. Written as a rect, this drew from the left edge to whatever
+    ; the Y happened to be: the bar's rule stopped at x = 62 and the status
+    ; strip's at x = 407, both of them a coincidence of the window's height.
     mov ax, [tp_ox]
-    mov bx, [tp_oy]
-    add bx, TP_BAR_H
-    dec bx
-    mov cx, [tp_ox]
-    add cx, [tp_cw]
-    dec cx
-    mov dx, bx
+    mov dx, [tp_oy]
+    add dx, TP_BAR_H
+    dec dx                      ; DX = the rule's row
+    mov bx, [tp_ox]
+    add bx, [tp_cw]
+    dec bx                      ; BX = its right end
     call OSAPI_GFX_HLINE
     pop di
     pop si
@@ -1244,6 +1360,8 @@ tp_fmt_bar:
     call tp_cpat
 .z:
     mov byte [di], 0
+    call tp_barsig              ; what this string was composed from, for
+    mov [tp_barsig_v], al       ; tp_stat_touch's comparison
     pop es
     pop di
     pop si
@@ -1259,14 +1377,13 @@ tp_draw_stat:
     push di
     mov al, CBLACK
     call OSAPI_SET_COLOR
-    mov ax, [tp_ox]
-    mov bx, [tp_oy]
-    add bx, [tp_ch]
-    sub bx, TP_STAT_H
-    mov cx, [tp_ox]
-    add cx, [tp_cw]
-    dec cx
-    mov dx, bx
+    mov ax, [tp_ox]             ; ...and the status strip's, the same way
+    mov dx, [tp_oy]
+    add dx, [tp_ch]
+    sub dx, TP_STAT_H
+    mov bx, [tp_ox]
+    add bx, [tp_cw]
+    dec bx
     call OSAPI_GFX_HLINE
     mov di, tp_nbuf
     push di
@@ -1394,11 +1511,29 @@ tp_edit_box:
     pop ax
     ret
 
+; The preview pane's frame, and its INTERIOR ON BYTE COLUMNS.
+;
+; A gfx_scroll is byte-column granular (SPEC.md 5.5) and what is immediately
+; outside this pane on both sides is a SCROLL BAR - the source's on the left,
+; its own on the right - so a blit may not round either edge outward, and
+; rounding inward leaves columns it cannot move. Here that is not a strip to
+; repaint but a defect: the sheet is wider than the pane at 12pt, so the
+; right-hand columns carry TEXT, and repainting them means re-lettering every
+; row in the pane, which is the full repaint this exists to avoid.
+;
+; So the pane is placed where the arithmetic works instead: x1 rounded UP to
+; the next byte column and x2+1 rounded DOWN to one, which costs at most
+; seven pixels of page at each side and makes [px1+1, px2-1] exactly what
+; gfx_scroll can move. The gaps left over are window background and tp_fill
+; paints them.
 tp_prev_box:
     push ax
     mov ax, [tp_ox]
     add ax, [tp_split]
     add ax, 5
+    add ax, 7                   ; px1+1 up to a byte column, so the interior
+    and ax, 0xFFF8              ; starts on one...
+    dec ax
     mov [tp_px1], ax
     mov ax, [tp_ox]
     add ax, [tp_cw]
@@ -1408,6 +1543,7 @@ tp_prev_box:
     sub ax, TP_SB_W - 1
     mov [tp_r_psb], ax
     dec ax
+    and ax, 0xFFF8              ; ...and px2 = the interior's x2+1, down to one
     mov [tp_px2], ax
     mov ax, [tp_oy]
     add ax, TP_BAR_H
@@ -2162,6 +2298,28 @@ tp_draw_frames:
 .prvf:
     call OSAPI_GFX_FRAME
 .o:
+    ; A FOCUS RING IS DRAWN ONE PIXEL OUTSIDE THE PANE, so the ring that is
+    ; ERASED (white, the pane that just lost focus) takes with it whatever
+    ; else lives on those four lines: the SPLITTER down the right of the
+    ; source pane, and the status strip's RULE along the bottom of both.
+    ; Neither belongs to this routine and both have to be put back, or a
+    ; click on the other pane leaves a white gap where they were.
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    mov ax, [tp_ox]
+    add ax, [tp_split]
+    inc ax
+    mov bx, [tp_py1]
+    mov dx, [tp_py2]
+    call OSAPI_GFX_VLINE
+    mov ax, [tp_ox]
+    mov bx, ax
+    add bx, [tp_cw]
+    dec bx                      ; hline: AX=x1, BX=x2, DX=y
+    mov dx, [tp_oy]
+    add dx, [tp_ch]
+    sub dx, TP_STAT_H
+    call OSAPI_GFX_HLINE
     pop dx
     pop cx
     pop bx
@@ -2476,15 +2634,56 @@ tp_after_edit:
     mov bx, [tp_vscroll]
     cmp ax, bx
     je .same
-    ; The view moved AND the document changed, and tp_src_scroll can only do
-    ; the first of those: it blits the old pixels by the rows the view moved
-    ; and letters the band that came in, which is right for a scroll and
-    ; wrong for a scroll over an edit - the rows the edit moved are inside
-    ; the blit. Measured with a two-line selection typed over: every row
-    ; below the deletion stayed where it was, two lines stale, until
-    ; something forced a repaint.
-    call tp_redraw_src
-    jmp .stat
+    ; THE VIEW MOVED AND THE DOCUMENT CHANGED, which tp_src_scroll cannot do:
+    ; it blits the old pixels by the rows the view moved and letters the band
+    ; that came in, and the rows the EDIT moved are inside that blit.
+    ; Measured with a two-line selection typed over: every row below the
+    ; deletion stayed where it was, two lines stale.
+    ;
+    ; ONE SHAPE IS STILL A BLIT, and it is the one a person meets constantly:
+    ; typing at the BOTTOM of the pane. The view goes down exactly one row,
+    ; and an insert or a delete inside a line only changed the caret's line -
+    ; which is now the last row, the one the blit vacates anyway. A Return
+    ; owes the line it broke as well, one row above. Everything else falls
+    ; through to the whole pane.
+    sub bx, ax                  ; BX = rows the view moved
+    cmp bx, 1
+    jne .full
+    mov al, [tp_edkind]
+    cmp al, 1
+    je .sc1
+    cmp al, 2
+    je .sc1
+    cmp al, 3
+    jne .full
+.sc1:
+    call tp_src_metrics
+    jc .full
+    mov ax, [tp_hscroll]
+    cmp ax, [tp_oldhs]
+    jne .full
+    mov si, 8                   ; the pane's content up one row
+    xor ax, ax
+    call tp_src_blit
+    jc .full
+    mov di, [tp_erows]
+    or di, di
+    jz .full
+    dec di
+    cmp byte [tp_edkind], 2
+    jne .sc1last
+    or di, di
+    jz .sc1last
+    dec di                      ; the line the Return broke...
+    call tp_draw_srow
+    inc di
+.sc1last:
+    call tp_draw_srow           ; ...and the caret's own, in the vacated row
+    mov ax, [tp_vscroll]
+    mov [tp_oldvs], ax
+    call tp_caret_show
+    call tp_ssb_move            ; the thumb moved, and a Return moved `total`
+    jmp .strip
 .full:
     call tp_redraw_src
     jmp .stat
@@ -2611,15 +2810,21 @@ tp_after_edit:
     pop ax
     ret
 
-; The BYTE COUNT in the status strip, and nothing else on it (SPEC.md 69.8).
+; The BYTE COUNT in the status strip, and NOTHING else on the window.
 ;
 ; Everything to the left of it - the paper, the margin, the binding, the
 ; gutter, the numbering, the body size - can only be changed from a menu or a
 ; bar button, and every one of those repaints the window. A keystroke moves
-; the count and the count only, so this letters from the count's own column
-; rightward: re-lettering the whole strip is ~45 cells at ~900us on the target
-; machine (PERFORMANCE.md), which is 40ms added to every character typed and
-; the one thing on this path that would still be felt on an XT.
+; the count and the count only.
+;
+; So this is ONE font_run of about eleven cells, and deliberately not a fill
+; and a run: font_run is erase-and-letter in one decision per cell (SPEC.md
+; 6.1), so the cells it letters need no clearing first - and the two SPACES
+; appended below cover the one case that would otherwise leave a stale cell,
+; a count losing a digit and pulling '/8190' left with it. What that buys is
+; not the 756us of the fill: it is that nothing here touches the right-hand
+; end of the strip any more, so the GROW BOX is not erased and needs no
+; OSAPI_WM_GROW to put it back, and the top bar is not re-lettered.
 tp_stat_touch:
     push ax
     push bx
@@ -2628,32 +2833,21 @@ tp_stat_touch:
     push si
     push di
     mov di, tp_nbuf
-    call tp_fmt_stat
+    call tp_fmt_stat            ; leaves DI on the terminator
+    mov word [di], '  '         ; ...and a count that SHRANK pulls the rest of
+    mov byte [di+2], 0          ; the field left, so letter two cells of slack
     mov ax, [tp_statcnt]
     sub ax, tp_nbuf             ; AX = the count's column in the line
     mov bl, 8
     mul bl
     add ax, [tp_ox]
     add ax, 6                   ; ...and its x, from tp_draw_stat's pen
-    mov si, ax
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    mov bx, [tp_oy]
-    add bx, [tp_ch]
-    sub bx, TP_STAT_H
-    inc bx                      ; below the strip's rule, which stands
     mov cx, [tp_ox]
     add cx, [tp_cw]
     dec cx
-    mov dx, [tp_oy]
-    add dx, [tp_ch]
-    dec dx
     cmp cx, ax
     jb .bar                     ; the strip is narrower than the count's column
-    call OSAPI_GFX_FILL
-    mov cx, si
+    mov cx, ax
     mov dx, [tp_oy]
     add dx, [tp_ch]
     sub dx, 11
@@ -2662,21 +2856,15 @@ tp_stat_touch:
     mov ah, CWHITE
     call OSAPI_FONT_RUN
 .bar:
-    ; first dirty bit also wants the * in the top bar's filename
-    cmp byte [tp_dirty], 0
-    je .grow
-    call tp_bar_status
-.grow:
-    ; ...and the GROW BOX, because the strip this just filled is the row it
-    ; sits in: "a resizable window's self-initiated content repaint must END
-    ; with this - the white-fill idiom erases the grow box" (os88api.inc,
-    ; OSAPI_WM_GROW). tp_paint ends with it and every incremental path that
-    ; fills to the window's right edge owes it too. Measured before this: 91
-    ; pixels of corner that a full repaint disagreed with, on every keystroke.
-    mov bx, [tp_win]
-    or bx, bx
-    jz .o
-    call OSAPI_WM_GROW
+    ; The top bar carries the file name, the * and the (edit) marker, and a
+    ; keystroke can change the last two - ONCE. Re-lettering that strip on
+    ; every character typed is ~30 more cells for a picture that is already
+    ; right, so this compares what the bar was drawn from against what it
+    ; would be drawn from now, and draws only on the edge.
+    call tp_barsig
+    cmp al, [tp_barsig_v]
+    je .o
+    call tp_bar_status          ; ...which re-signs it through tp_fmt_bar
 .o:
     pop di
     pop si
@@ -2684,6 +2872,21 @@ tp_stat_touch:
     pop cx
     pop bx
     pop ax
+    ret
+
+; AL = what the top bar's TEXT depends on and a keystroke can move. The page
+; number and the file name are on it too and neither can change without a
+; full repaint (a page turn, a load, a typeset).
+tp_barsig:
+    xor al, al
+    cmp byte [tp_dirty], 0
+    je .ns
+    or al, 1
+.ns:
+    cmp byte [tp_needset], 0
+    je .o
+    or al, 2
+.o:
     ret
 
 ; Redraw the filename/page text beside the buttons, not the buttons.
@@ -2747,6 +2950,13 @@ tp_psb_sync:
 tp_clamp_ps:
     push ax
     push bx
+    ; AN EVEN SCROLL, ALWAYS. The desk is a 50% dither and its phase is a
+    ; function of the absolute (x, y) of each pixel, so a blit by an ODD
+    ; number of rows moves the checkerboard onto the wrong parity and the
+    ; strip beside the page comes out inverted against everything a full
+    ; repaint draws. One pixel of preview scroll is meaningless at this
+    ; scale; the phase is not.
+    and word [tp_pscroll], 0xFFFE
     call tp_fit_sheet
     mov ax, [tp_sy2]
     sub ax, [tp_sy1]
@@ -2793,20 +3003,166 @@ tp_redraw_prev:
     pop ax
     ret
 
-; The preview is a gray desk + white sheet + runs + boxes + folio. A blit
-; that only letters the vacated strip misses gutter, rules and any run whose
-; cell straddles the band, which showed up as the page not refreshing.
-; Repainting THIS pane is still cheap against a full window (the source is
-; left alone). gfx_scroll stays on the source side, where a row is 8px of
-; glyphs and nothing else.
+; -----------------------------------------------------------------------------
+; THE PREVIEW SCROLLS BY BLITTING TOO, and it is the pane where that matters
+; most: a page of set text is forty-odd FONT_RUNs of fifty cells, which is
+; PERFORMANCE.md's ~900us a cell - the better part of two seconds on the
+; target machine for a scroll of four lines.
+;
+; The reason it did not, before, is written into the routine it replaces: a
+; blit that letters only the vacated strip misses the gutter, the rules, the
+; sheet's own edges and any run whose 8-row cell straddles the band. So the
+; band is not lettered here - it is DRAWN, by the same routines that draw the
+; whole pane, cut to the band by tp_rgn_set. A run whose cell straddles the
+; edge is drawn WHOLE, and the rows of it that land outside the band are the
+; same pixels the blit just put there.
+; -----------------------------------------------------------------------------
 tp_prev_scroll:
     push ax
+    push bx
+    push cx
+    push dx
+    push si
     call tp_clamp_ps
     mov ax, [tp_pscroll]
-    cmp ax, [tp_oldps]
-    je .o
+    mov si, ax
+    sub si, [tp_oldps]          ; SI = dy, positive = the page moves UP
+    jz .out
+    mov cx, [tp_py2]
+    sub cx, [tp_py1]            ; the pane's height
+    mov dx, si
+    or dx, dx
+    jns .abs
+    neg dx
+.abs:
+    cmp dx, cx
+    jae .full                   ; further than the pane: nothing to keep
+    call tp_prev_box
+    call tp_fit_sheet           ; the sheet at the NEW scroll position
+    mov ax, [tp_px1]
+    inc ax                      ; the interior, both edges on byte columns by
+    mov bx, [tp_py1]            ; construction (tp_prev_box)
+    inc bx
+    mov cx, [tp_px2]
+    dec cx
+    mov dx, [tp_py2]
+    dec dx
+    call OSAPI_GFX_SCROLL
+    jc .full
+    ; the band it vacated: the bottom |dy| rows going up, the top going down
+    mov ax, [tp_px1]
+    inc ax
+    mov cx, [tp_px2]
+    dec cx
+    or si, si
+    js .up
+    mov dx, [tp_py2]
+    dec dx
+    mov bx, dx
+    sub bx, si
+    inc bx
+    jmp short .band
+.up:
+    mov bx, [tp_py1]
+    inc bx
+    mov dx, bx
+    sub dx, si                  ; SI is negative here
+    dec dx
+.band:
+    call tp_prev_band           ; the rows the blit vacated...
+    ; ...AND EIGHT ROWS AT THE OTHER END. A run whose 8-row cell straddles
+    ; the pane's edge is not drawn at all (a glyph cannot be cut), so the
+    ; edge holds a HALF cell that the blit then moves into full view - where
+    ; a full repaint draws nothing. Repainting a cell's worth at the far edge
+    ; is what makes the two agree.
+    mov ax, [tp_px1]
+    inc ax
+    mov cx, [tp_px2]
+    dec cx
+    or si, si
+    js .fup
+    mov bx, [tp_py1]
+    inc bx
+    mov dx, bx
+    add dx, 7
+    jmp short .far
+.fup:
+    mov dx, [tp_py2]
+    dec dx
+    mov bx, dx
+    sub bx, 7
+.far:
+    call tp_prev_band
+.done:
+    call tp_rgn_all
+    call tp_psb_move            ; the thumb, not the bar
+    mov ax, [tp_pscroll]
+    mov [tp_oldps], ax
+    jmp short .out
+.full:
+    call tp_rgn_all
     call tp_redraw_prev
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; AX..DX = a band of the preview pane; paint everything the pane has in it.
+; The sheet first, because the desk and the paper are what the rest is drawn
+; ON, then the page itself. A run whose cell straddles the band is drawn
+; WHOLE and the rows of it outside are the same pixels that are already
+; there, so nothing has to be cut per pixel - which is just as well, because
+; a package has no clip region to do it with (OSAPI_WM_CLIP_SET is the window
+; manager's, about what covers you).
+tp_prev_band:
+    push ax
+    push bx
+    push cx
+    push dx
+    call tp_rgn_set
+    call tp_draw_sheet
+    cmp byte [tp_setok], 0
+    je .o
+    call tp_paint_runs
+    call tp_paint_boxes
+    call tp_draw_folio
 .o:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; The preview bar's thumb alone, on tp_ssb_move's rule: total and fit here are
+; the sheet's height and the pane's, and a scroll moves neither.
+tp_psb_move:
+    push ax
+    push bx
+    call tp_psb_sync
+    mov ax, [tp_r_psb+8]
+    cmp ax, [tp_psbtot]
+    jne .whole
+    mov ax, [tp_r_psb+10]
+    cmp ax, [tp_psbfit]
+    jne .whole
+    mov ax, [tp_psbpos]
+    mov bx, tp_r_psb
+    call os88ui_sbmove
+    jmp short .kept
+.whole:
+    mov bx, tp_r_psb
+    call os88ui_sbar
+.kept:
+    mov ax, [tp_r_psb+8]
+    mov [tp_psbtot], ax
+    mov ax, [tp_r_psb+10]
+    mov [tp_psbfit], ax
+    mov ax, [tp_r_psb+12]
+    mov [tp_psbpos], ax
+    pop bx
     pop ax
     ret
 
@@ -2817,6 +3173,7 @@ tp_draw_preview:
     push dx
     push si
     push di
+    call tp_rgn_all             ; this entry is the WHOLE pane, always
     call tp_prev_box
     mov al, CBLACK
     call OSAPI_SET_COLOR
@@ -2845,11 +3202,14 @@ tp_draw_preview:
     call tp_psb_sync
     mov bx, tp_r_psb
     call os88ui_sbar
+    mov ax, [tp_r_psb+8]
+    mov [tp_psbtot], ax         ; what the bar on the glass was drawn from,
+    mov ax, [tp_r_psb+10]       ; for tp_psb_move's comparison
+    mov [tp_psbfit], ax
+    mov ax, [tp_r_psb+12]
+    mov [tp_psbpos], ax
     mov ax, [tp_pscroll]
-    mov [tp_oldps], ax          ; the preview bar is only ever drawn WHOLE - a
-                                ; preview scroll repaints the pane under it
-                                ; (tp_prev_scroll says why), so there is no
-                                ; thumb-only move here to remember a pos for
+    mov [tp_oldps], ax
     cmp byte [tp_setok], 0
     je .empty
     call tp_paint_runs
@@ -2941,10 +3301,17 @@ tp_draw_folio:
     mov ax, dx                  ; run one row above the pane's bottom frame
     add ax, 7                   ; letters seven rows THROUGH it, and what is
     cmp ax, [tp_py2]            ; under it is the status strip. Measured as
-    pop ax                      ; two rows of page text in the strip, which
-    jae .done                   ; only ever showed up as a full repaint
-                                ; disagreeing with an incremental one (pop
-                                ; leaves the compare's flags alone)
+    jae .nope                   ; two rows of page text in the strip, which
+    cmp ax, [tp_rgy1]           ; only ever showed up as a full repaint
+    jb .nope                    ; disagreeing with an incremental one. The
+    cmp dx, [tp_rgy2]           ; region tests are the run painter's
+    ja .nope
+    pop ax
+    jmp short .pen
+.nope:
+    pop ax
+    jmp .done
+.pen:
     add ax, 7
     and ax, 0xFFF8
     mov cx, ax
@@ -3074,6 +3441,10 @@ tp_paint_runs:
     add ax, 7
     cmp ax, [tp_py2]
     jae .n
+    cmp ax, [tp_rgy1]           ; does the CELL reach the region at all? A run
+    jb .n                       ; that straddles its edge is drawn whole - the
+    cmp dx, [tp_rgy2]           ; rows outside are the same pixels the blit
+    ja .n                       ; put there
     cmp cx, [tp_px2]
     jae .n
     cmp cx, [tp_px1]
@@ -3193,6 +3564,10 @@ tp_paint_boxes:
     jg .sk
     cmp dx, [tp_py1]
     jl .sk
+    cmp bx, [tp_rgy2]           ; ...and the REGION, so a band redraw draws
+    jg .sk                      ; the part of a rule that is in the band
+    cmp dx, [tp_rgy1]
+    jl .sk
     cmp ax, [tp_px1]
     jge .a1
     mov ax, [tp_px1]
@@ -3201,6 +3576,10 @@ tp_paint_boxes:
     jge .b1
     mov bx, [tp_py1]
 .b1:
+    cmp bx, [tp_rgy1]
+    jge .b2
+    mov bx, [tp_rgy1]
+.b2:
     cmp cx, [tp_px2]
     jle .c1
     mov cx, [tp_px2]
@@ -3209,6 +3588,10 @@ tp_paint_boxes:
     jle .d1
     mov dx, [tp_py2]
 .d1:
+    cmp dx, [tp_rgy2]
+    jle .d2
+    mov dx, [tp_rgy2]
+.d2:
     cmp bx, dx
     jne .notht
     ; 1-row box: a horizontal rule
@@ -3300,6 +3683,7 @@ tp_onkey:
     jmp .out
 .knew:
     call tp_seed
+    call tp_typeset             ; as File > New above
     jmp .draw
 .kcopy:
     call tp_copy_all
@@ -3680,7 +4064,18 @@ tp_onclick:
     call tp_prev_box
     pop dx
     pop cx
+    ; A CLICK DISMISSES THE ABOUT BOX AND DOES NOTHING ELSE, and it owes the
+    ; window a repaint on the way out - the box is drawn OVER the two panes
+    ; and the bar, so every incremental path below would leave it standing.
+    ; Clearing the flag and then routing the click was the bug: a click on
+    ; the source pane put a caret under a paragraph of About text, and a
+    ; click on nothing left the box up for good. The key handler already
+    ; treats a keystroke this way.
+    cmp byte [tp_abouton], 0
+    je .live
     mov byte [tp_abouton], 0
+    jmp .draw
+.live:
     ; SPEC.md 13.6/13.8: the seven bar buttons only ARM and DRAW here, and
     ; tp_onup acts. The two scroll-bar rects below keep the press - a scroll
     ; is repeatable and reversible, which is the definition of a safe prefix
@@ -3892,8 +4287,11 @@ tp_oncmd:
     ret
 .new:
     call tp_seed
-    call tp_redraw
-    ret
+    call tp_typeset             ; a document that REPLACES this one is set on
+    call tp_redraw              ; arrival - File > Open and a double-clicked
+    ret                         ; .TEX already were, and a blank preview
+                                ; beside a fresh document was the odd one out
+                                ; (SPEC.md 69.1)
 .open:
     mov byte [tp_dlgmode], 0
     mov al, FDLG_OPEN
@@ -5056,12 +5454,12 @@ tp_psb_click:
     je .pd
     jmp short .o
 .up:
-    sub word [tp_pscroll], 8
+    sub word [tp_pscroll], TP_SB_STEP * 8
     jnc .cl
     mov word [tp_pscroll], 0
     jmp short .cl
 .dn:
-    add word [tp_pscroll], 8
+    add word [tp_pscroll], TP_SB_STEP * 8
     jmp short .cl
 .pu:
     mov ax, [tp_r_psb+10]
@@ -5099,10 +5497,12 @@ tp_ssb_click:
 .up:
     cmp word [tp_vscroll], 0
     je .o
-    dec word [tp_vscroll]
+    sub word [tp_vscroll], TP_SB_STEP
+    jnc .cl
+    mov word [tp_vscroll], 0
     jmp short .cl
 .dn:
-    inc word [tp_vscroll]
+    add word [tp_vscroll], TP_SB_STEP
     jmp short .cl
 .pu:
     mov ax, [tp_erows]
@@ -5379,7 +5779,7 @@ tp_s_hello:     db 'HELLO.TEX', 0
 tp_s_paper:     db 'PAPER.TEX', 0
 tp_s_untitled:  db 'UNTITLED.TEX', 0
 tp_s_noload:    db '(new)', 0
-tp_s_set:       db 'Set', 0
+tp_s_set:       db 'Typeset', 0
 tp_s_ltr:       db 'Ltr', 0
 tp_s_leg:       db 'Leg', 0
 tp_s_a4s:       db 'A4', 0
@@ -5635,12 +6035,20 @@ tp_oldhs    equ os88_image_end + 12030
 tp_oldps    equ os88_image_end + 12032
 tp_ssbtot   equ os88_image_end + 12034   ; total and fit the source bar on the
 tp_ssbfit   equ os88_image_end + 12036   ; glass was DRAWN from (tp_ssb_move)
+tp_barsig_v equ os88_image_end + 12038   ; ...and what the TOP bar's text was
+tp_rgx1     equ os88_image_end + 12040   ; the preview REGION being drawn
+tp_rgy1     equ os88_image_end + 12042
+tp_rgx2     equ os88_image_end + 12044
+tp_rgy2     equ os88_image_end + 12046
+tp_psbpos   equ os88_image_end + 12048   ; the preview bar's pos, total and fit
+tp_psbtot   equ os88_image_end + 12050   ; as DRAWN (tp_psb_move)
+tp_psbfit   equ os88_image_end + 12052
 ; remainder to 12288. Every name above is a hand-computed offset and nothing
 ; checks them against each other, so a new field goes at the END and a field
 ; that grows moves everything under it - the assertion below is the only
 ; automatic part, and it catches overflowing the block, not overlapping inside
 ; it. TP_BSS_LAST is the high-water mark; keep it pointing at the last field.
-TP_BSS_LAST equ 12036 + 2
+TP_BSS_LAST equ 12052 + 2
 %if TP_BSS_LAST > TP_BSS_TOTAL
     %error "texpad bss map overflows OS88_BSS"
 %endif
