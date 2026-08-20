@@ -232,11 +232,28 @@ FD_PATHMAX  equ 128                 ; the longest path an argument may carry
 ; -----------------------------------------------------------------------------
 FD_WDOG_T   equ 1638                ; ticks: 90s at 18.2065 Hz
 
-FD_STGSZ    equ 8192                ; and a POWER OF TWO at least a cluster
-                                    ; wide, so fd_setchunk's rounding always
-                                    ; leaves a whole number of clusters on
-                                    ; every volume this kernel mounts (SPEC.md
-                                    ; 52.3 caps a cluster at 8KB)
+; -----------------------------------------------------------------------------
+; FD_STGSZ - the staging buffer, and THE SINGLE BIGGEST LEVER ON THROUGHPUT
+;
+; A power of two at least a cluster wide, so fd_setchunk's rounding always
+; leaves a whole number of clusters on every volume this kernel mounts
+; (SPEC.md 52.3 caps a cluster at 8KB). That is the CORRECTNESS constraint,
+; and it was the only reason recorded when this was 8192.
+;
+; **IT IS ALSO THE NUMBER OF SEEKS A TRANSFER PAYS** (SPEC.md 77.21). One
+; append is two FAT flushes plus a directory write, so the head leaves the
+; data area and comes back several times PER CHUNK - and on the ST-225 the
+; field reports from, a seek is ~65ms against ~10ms for a sector. The
+; overhead is per APPEND and does not shrink with the chunk, so the chunk is
+; what divides it: 8KB made a 126KB upload sixteen appends and about
+; 7KB/s, which is 18 seconds - longer than WinSCP's 15-second control
+; timeout, so it never finished. Four appends instead of sixteen is the
+; whole fix.
+;
+; **32768 AND NOT MORE**: [fd_sfill] and [fd_sout] are words, and 65536
+; is zero in one.
+; -----------------------------------------------------------------------------
+FD_STGSZ    equ 32768
 FD_CDMAX    equ 16                  ; how deep CWD can go and still come back.
                                     ; **CDUP NEEDS A STACK BECAUSE THE KERNEL
                                     ; CANNOT ANSWER IT.** OSAPI_FILE_FIND never

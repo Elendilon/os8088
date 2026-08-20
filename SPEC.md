@@ -59847,3 +59847,58 @@ still has to be something a person can see and delete.
 `dskw_char_x`'s set — including the space's absence from it, which is what
 `banana split.mod` fell foul of.
 
+### 77.21 The staging buffer is the seek count — why 8KB was too slow
+
+The field could not upload a 126KB file to a hard disk. It always stopped at
+**exactly 106,496 bytes**, on every file, whatever the file was — and that
+number turned out to be a **clock, not an offset**: 15 seconds of writing at
+the rate the machine actually achieved, cut off by WinSCP's 15-second control
+timeout. The reporter got there first: *"106kb, exact size as always, possibly
+just what we have time to write."*
+
+**The rate was ~7KB/s, and the cost is SEEKS.** One `OSAPI_FILE_APPEND` is
+two FAT flushes plus a directory write (§18.4's commit order), so the head
+leaves the data area and comes back several times per commit. On the ST-225
+the report came from, a seek is ~65ms where a sector is ~10ms — so a 8KB
+append spends about a second seeking and 160ms writing. Sixteen of those for
+a 126KB file is 18 seconds, and the client gave up at 15.
+
+**That overhead is per APPEND and does not shrink with the chunk**, which
+makes `FD_STGSZ` the divisor. At 32KB a 126KB upload is **four** appends
+instead of sixteen: the same data sectors, a quarter of the seeking. The
+estimate is ~2.5-3x, not 4x, because the data half does not change — enough
+to bring 126KB inside any client's default timeout, which is what matters.
+
+`FD_STGSZ` was 8192 and its comment recorded only the correctness constraint:
+a power of two at least a cluster wide, so `fd_setchunk` always leaves whole
+clusters (§52.3 caps a cluster at 8KB). That constraint is real and 32768
+still satisfies it. **What the comment did not say is that the same number
+sets the seek count**, so nobody weighing it had the second reason in front
+of them. It does now.
+
+**32768 is the ceiling, and not for a memory reason**: `[fd_sfill]` and
+`[fd_sout]` are words, and 65536 is zero in one. The package's image plus bss
+goes to about 48KB against `APP_MAX_SIZE`'s 61,440, which it fits.
+
+#### 77.21.1 The lockout afterwards, and why it is not the server's leak
+
+After a failed upload the reporter could not reconnect at all: **`425 Cannot
+open a data connection`** on every attempt, clearing by itself after about a
+minute.
+
+That is not §77.19's leak — `fd_bye` had already dropped both handles, and
+the window's log said `Client disconnected`. It is the stack: `eth_v_close`
+on an ESTABLISHED socket sets `SKF_ORPH`, marks it `NSK_CLOSED` and **keeps
+the slot until the handshake finishes**, because there is a FIN to get
+through. When the peer has gone, the retransmit timer is what ends it, and
+`TCP_RTMAX` is seven doublings — about a minute (tcp.inc). With `NET_SOCKS`
+= 4, the listener and a fresh control connection take two, the dying data
+socket a third, and the next LIST has nothing to open.
+
+So the lockout is the *duration of a correct close against an absent peer*,
+and the honest fix for it is an abort verb that RSTs and frees the slot at
+once — a socket ABI addition, deliberately not made here, because with the
+transfer completing in a quarter of the time the failure it recovers from
+should stop happening. It is written down so the next person to see `425`
+after a failure looks at `TCP_RTMAX` and not at `fd_data_drop`.
+
