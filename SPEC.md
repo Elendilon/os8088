@@ -54114,7 +54114,7 @@ is the window, the editor and the file paths, `tpparse.inc` is the typesetter,
 It ships on the ORDINARY apps disk rather than on one of its own. Word and
 Frotz each got a disk (§68.5, §61.9) because each needs DOCUMENTS beside it
 and neither leaves room for the rest of the software on a 360KB floppy;
-TeXPad is under 20KB and its two documents come to 3KB, so the argument does
+TeXPad is 22KB and its two documents come to 3KB, so the argument does
 not reach it. Those documents ride `MEDIA/` for §38.10's reason — that is
 where a File > Open starts.
 
@@ -54129,9 +54129,11 @@ source, so the staleness is a fact on screen and never a guess.
 
 The preview is redrawn from the typeset OUTPUT — the run and box arrays of
 §69.3 — and never by re-reading the source, so paging, scrolling and resizing
-cost a walk of those arrays and no parse at all. A caret move repaints the
-SOURCE PANE only (`tp_redraw_src`), which is the §11.3 granularity rule
-applied to the one thing that changed.
+cost a walk of those arrays and no parse at all. On the source side the
+granularity is finer still and §69.8 has it: a caret move XORs two cells, a
+typed character re-letters one line from the caret rightward, and the whole
+pane (`tp_redraw_src`) is what happens when none of those apply — §11.3's
+granularity rule applied to the one thing that changed.
 
 `tp_redraw` is the internal "paint the whole window" entry and `tp_paint` is
 the WM's callback (§20.5). They are not interchangeable: `tp_paint` takes the
@@ -54193,8 +54195,8 @@ costs.
 
 ### 69.4 Memory: two claims, and a hand-laid bss
 
-The image is under 20KB and the bss is 12,288 bytes, so the package sits well
-inside `APP_MAX_SIZE` (§33's near model — image plus bss cannot reach 64KB,
+The image is a little over 22KB and the bss is 12,288 bytes, so the package
+sits well inside `APP_MAX_SIZE` (§33's near model — image plus bss cannot reach 64KB,
 because the offsets are 16 bits). Two heap claims (§50.3) sit outside it:
 
 | claim | size | what it holds |
@@ -54253,17 +54255,24 @@ whoever wants it, not a consequence of adding an app.
 **The entry proc copies the argument's NAME and reads nothing.** `tp_entry`
 calls `OSAPI_ARG_FILE`, stores the name, directory cluster and volume, and
 sets a pending flag; `tp_deferred_ld` does the `OSAPI_FILE_GOTO` + read +
-typeset later, on the first key or click. Reading a floppy from the entry proc
-happens under the loader's lock and freezes the desktop for the length of the
-read — an `int 13h` call is ~400 ms on the target machine, so that is seconds,
-visibly.
+typeset later. Reading a floppy from the entry proc happens under the loader's
+lock and freezes the desktop for the length of the read — an `int 13h` call is
+~400 ms on the target machine, so that is seconds, visibly.
 
-The load then owes a FULL repaint rather than the source-pane one the key
-handler was on its way to doing: the byte count in the status strip and the
-page count in the top bar both changed. `tp_ldfull` says so and the handler
-promotes itself, which keeps it to ONE draw — repainting the pane and then the
-window would put the source through twice, and a double draw is invisible in
-an emulator and seconds on an XT.
+**"Later" is the FIRST PAINT**, which is the earliest moment that is not under
+that lock: the window is already up, so the document a double-click asked for
+lands in the source pane rather than waiting for a key or a click to arrive.
+The paint that follows the load draws every part of the window from what
+landed, so it IS the full repaint the load owes and `tp_ldfull` is cleared
+again before it runs.
+
+A load reaching an event handler instead — a key or a click that arrives while
+the flag is still set — owes a FULL repaint rather than the incremental one
+that handler was on its way to doing: the byte count in the status strip and
+the page count in the top bar both changed. `tp_ldfull` says so and the
+handler promotes itself, which keeps it to ONE draw — repainting the pane and
+then the window would put the source through twice, and a double draw is
+invisible in an emulator and seconds on an XT.
 
 ### 69.7 Every buffer a document can reach is bounded at the copy
 
@@ -54311,10 +54320,66 @@ was already in the claim into the document.
 The target is PERFORMANCE.md's 8088. What follows from it, beyond §69.1's
 "F5 typesets":
 
-- A caret move repaints the source pane; a page turn or a layout change
-  repaints the window. Nothing repaints on a timer and there is no worker
-  task — TeXPad owns no background task at all (§20.6), so there is no
-  question of a mixer-style redraw racing a paint.
+- **Nothing repaints more of the source pane than it changed.** A caret move
+  is two XORs — the cell it left and the cell it reached — and no lettering at
+  all; a typed character re-letters the caret's line from the caret column
+  rightward (`tp_draw_tail`); a Return or a joining Backspace moves the rows
+  under it with one `OSAPI_GFX_SCROLL` and letters the one row the blit
+  vacated; a scroll blits the pane by the rows it moved and letters only the
+  band that came in. The whole pane is the FALLBACK — `gfx_scroll` refusing,
+  the horizontal view moving, a jump longer than the pane — and a page turn or
+  a layout change is still the window. Nothing repaints on a timer and there
+  is no worker task: TeXPad owns no background task at all (§20.6), so there
+  is no question of a mixer-style redraw racing a paint.
+- **A line is re-lettered from the EDIT, not from the caret**, which are
+  different columns: an insert leaves the caret one cell (a Tab, two) to the
+  right of what changed, and the character just typed is in between.
+  `tp_edn` is how many, and 0 for a delete.
+- **An incremental path may only claim what it can describe.** `tp_edkind`
+  says which of the four shapes an edit was, and a deleted SELECTION is none
+  of them: it moved every row below it, so the paths that follow one leave
+  the kind at 0 and take the whole pane.
+- **The status strip re-letters the BYTE COUNT alone** (`tp_statcnt` is where
+  it starts), because everything to its left can only be changed from a menu
+  or a bar button and both of those repaint the window. The whole strip is
+  ~45 cells; at PERFORMANCE.md's ~900 us a cell that is ~40 ms added to every
+  character typed, which is arithmetic off that table rather than a
+  measurement.
+- **Every incremental path that fills to the window's right edge ends with
+  `OSAPI_WM_GROW`**, on the rule the SDK states at that slot: the white-fill
+  idiom erases the grow box. The status strip is the row the grow box sits
+  in, so this is the strip's, not just `tp_paint`'s.
+- **The blit's two edges round the same way and for opposite reasons.** It is
+  byte-column granular (§5.5), so `x1` and `x2+1` are multiples of 8 and the
+  rect only moves in whole cells. The text pen is `tp_ex1 + 3`, off a byte
+  boundary, so `x1` rounds DOWN — to the content origin, which §11.94 keeps on
+  a multiple of 8 — and takes the pane's own frame and padding with it, which
+  are ours and uniform. `x2 + 1` rounds down too, because what is immediately
+  beyond it is the SCROLL BAR: rounding that edge up shears up to seven
+  columns of the bar by the scroll distance, and rounding `x1` up leaves four
+  stale pixel columns down the whole height of the pane. Both were measured,
+  one per direction.
+- **A scroll and an EDIT are different things, and only one of them may
+  blit.** `tp_src_scroll` moves the pane by the rows the view moved and
+  letters the band that came in, which is exactly wrong when the document
+  under it also changed: the rows the edit moved are inside the blit. An edit
+  that scrolls the view is therefore the whole pane.
+- **A glyph cell is eight rows and the preview's guards are about its TOP**,
+  so a run one row above the pane's bottom frame letters seven rows through
+  it — into the status strip, which is what is under it. Both lettering sites
+  (`tp_paint_runs` and the folio) test `y + 7` against `tp_py2`; the box
+  painter clamps instead, which is the same rule for a shape that can be cut.
+- Both scroll bars are §13.10's shared element, and a scroll moves the THUMB
+  (`os88ui_sbmove`, three drawing calls) rather than repainting the bar
+  (sixteen). Only a bar whose `total` or `fit` has moved since it was last
+  drawn is drawn whole, because that is the one case `os88ui_sbmove`'s
+  old-thumb arithmetic cannot see. A Return or a join is exactly that case —
+  the line count is the bar's `total` — so those two edits refresh the bar
+  and the other three leave it alone.
+- The selection is XORed cell by cell as it is dragged, never by repainting
+  the rows it covers, and the caret and the selection are tracked as SHOWN or
+  HIDDEN state (`tp_caret_on` / `tp_dselon`) so that an XOR is never left
+  doubled or dropped.
 - A preview row is one `OSAPI_FONT_RUN` per run, which is §6.1's
   erase-and-letter in one decision per cell; bold is a second transparent
   strike at x+1, the same trick §68.1 uses.
@@ -54322,7 +54387,15 @@ The target is PERFORMANCE.md's 8088. What follows from it, beyond §69.1's
   `OSAPI_FILE_WRITE`. Costing disk work in calls rather than sectors is the
   whole reason the file is built in RAM first.
 - The refusals are §47's rule: 'Export too large', 'Document full (8K)' and
-  'Need more RAM' are facts the code tested, not guesses about size.
+  'Need more RAM' are facts the code tested, not guesses about size — and so
+  are the two page ARROWS on the bar, which grey themselves on the first and
+  last page (`tp_bdis`, read by the painter and by the press, so a greyed one
+  does not arm or depress either).
+
+**tests/tpdraw.py is the gate for all of this** and it is not a screenshot
+comparison: each leg drives one edit or one scroll by the incremental path,
+then makes the guest do a `wm_paint_all` and requires the two frames to be
+the SAME PIXELS. Every rule above is a defect it caught.
 
 ### 69.9 What it deliberately is not
 
