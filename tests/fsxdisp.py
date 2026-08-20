@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """Does an fsx bracket take ONE display and dark the others? (SPEC.md 39.18)
 
-    make bench && python3 tests/fsxdisp.py
+    python3 tests/fsxdisp.py
     python3 tests/fsxdisp.py --primary herc          # ...with make VIDEO=herc
 
 `tests/dispcheck.py`'s twin, and separate because it needs a different apps
 floppy: SPEC.md 53.9's `fsxtest` is the only package in the tree with a
 fullscreen-exclusive item that can be reached in two double-clicks, and it
-ships on a scratch image of its own (`build/fsxtest.img`, `make bench`).
+ships on a scratch image of its own.
+
+THE DISK IS THE 360KB TWIN, and that is the whole of what this gate needs to
+be told. Every MartyPC machine in this tree has 360KB drives, so the 1.44MB
+`build/fsxtest.img` - which is the QEMU route's, `make test TESTAPPS=` -
+cannot be read in one at all: B: never mounts, no Disk window opens, and the
+failure surfaces as "the zone arithmetic above missed" about arithmetic that
+is correct.
 
 Its `x` key is the SAME-MODE bracket (SPEC.md 53.7) - no `fsx_mode` call at
 all - which is what a Hercules or a CGA can take, and is also the case
@@ -32,10 +39,22 @@ which is the one thing to know before changing this, because each instrument
 on its own passes a kernel that never wrote the other card's port. Measured
 directly, by writing the ports from the host on this machine:
 
-  a HERCULES stops scanning.       3B8h bit 3 clear -> 163 frames/s becomes 0,
+  a HERCULES stops scanning.       3B8h <- 0x00 -> 163 frames/s becomes 0,
                                    and `fbuf` then hands back the last frame it
                                    rasterised, so through it a dark Hercules
                                    reads as a perfectly ordinary desktop.
+                                   BUT THAT IS NOT THE BLANK, and this line
+                                   used to say "bit 3 clear" and be wrong:
+                                   0x00 clears the GRAPHICS bit as well, which
+                                   is MDA text mode. vid_blank_kind writes
+                                   0x02 - graphics kept, enable clear (SPEC.md
+                                   39.6, 64) - and measured, MartyPC IGNORES
+                                   bit 3: 174 frames/s, all 153,120 lit. The
+                                   port is write-only, so nothing can be read
+                                   back. A MONO SECONDARY THEREFORE CANNOT
+                                   SHOW THIS, which is why the default machine
+                                   is os8088_5150_both_gla_mono - the mono DIP
+                                   makes the CGA the secondary.
   a CGA keeps scanning nothing.    3D8h bit 3 clear -> 64,000 lit becomes 0 and
                                    the counter holds at ~187 frames/s. That is
                                    the card too, not the model: the CRTC still
@@ -90,9 +109,9 @@ def vlit(m, kind):
 
 def main(argv):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--machine", default="os8088_5150_both_gla")
+    ap.add_argument("--machine", default="os8088_5150_both_gla_mono")
     ap.add_argument("--image", default="build/os8088-360.img")
-    ap.add_argument("--apps", default="build/fsxtest.img")
+    ap.add_argument("--apps", default="build/fsxtest360.img")
     ap.add_argument("--primary", choices=("auto", "herc", "cga"),
                     default="auto",
                     help="which card the KERNEL drives; anything but auto "
@@ -102,7 +121,7 @@ def main(argv):
     if a.apps == ap.get_default("apps"):
         need(a.apps)               # `all` builds nothing under tests/
     if not os.path.exists(a.apps):
-        sys.exit("fsxdisp: no %s - `make bench` builds it" % a.apps)
+        sys.exit("fsxdisp: no %s - `make %s` builds it" % (a.apps, a.apps))
 
     fail = []
     # The boot gate watches ONE card, and on a `VIDEO=` build that is not
@@ -179,13 +198,53 @@ def main(argv):
             fail.append("the secondary is not carrying a desktop before the "
                         "bracket")
 
-        m.key("KeyX")                       # the SAME-MODE bracket
+        # --- §39.18.3's guard: a SAME-MODE bracket changes NOTHING about
+        # displays. This used to be the leg the dark was asserted on, and it
+        # was right until §39.18.3 moved the collapse into fsx_mode on two
+        # field reports. Asserting it the other way round is what keeps those
+        # reports fixed.
+        m.key("KeyX")
+        time.sleep(2.5)
+        f_same = fps(m, sec["idx"])
+        n_same = lit(m.fbuf(card=sec["idx"])[2])
+        say("secondary in a SAME-MODE bracket: %d frames/s, %d lit" % (f_same,
+                                                                       n_same))
+        if not f_same or n_same != n_before:
+            fail.append("a SAME-MODE bracket changed the secondary (%d fps, "
+                        "%d lit against %d) - §39.18.3 moved the collapse into "
+                        "fsx_mode, so a bracket that sets no mode must change "
+                        "nothing about displays" % (f_same, n_same, n_before))
+        m.key("Enter")
+        os88marty.settle(m, card=pri["idx"])
+
+        # --- ...and the collapse itself, which needs a MODE to be set. The
+        # key is the primary's, because fsx_mode refuses a mode outside
+        # fsx_caps (VGA 0x1EF, HERC 0x011, CGA 0x00F) and fsxtest then reports
+        # 'R' rather than bracketing at all.
+        mode_key = {"mda": "Digit4",      # FSXM_HERC   720x348 mono
+                    "cga": "Digit3",      # FSXM_CGA640 640x200x2
+                    "vga": "Digit7"}[pri["type"]]
+        say("mode bracket via %s (primary is %s)" % (mode_key, pri["type"]))
+        m.key(mode_key)
         time.sleep(2.5)
         f_during = fps(m, sec["idx"])
         n_during = lit(m.fbuf(card=sec["idx"])[2])
         say("secondary inside the bracket:  %d frames/s, %d lit" % (f_during,
                                                                     n_during))
-        if f_during and n_during:
+        if sec["type"] == "mda" and f_during and n_during:
+            # NOT a failure, and not a kernel question: MartyPC does not model
+            # 3B8h bit 3. Measured from the host on this machine with the
+            # desktop extended - 0x02 (graphics on, ENABLE CLEAR, which is byte
+            # for byte what vid_blank_kind writes) leaves the card scanning at
+            # 174 frames/s with all 153,120 pixels still lit, while 0x00 stops
+            # it - and 0x00 clears the GRAPHICS bit too, which is MDA text mode
+            # rather than a blank. 3B8h is write-only (reads FF), so there is no
+            # readback either. This is why the default machine is the mono-DIP
+            # one: it makes the CGA the secondary, and the CGA's gate IS
+            # modelled (3D8h bit 3 clear takes 81,980 lit to 0).
+            say("...secondary is an MDA: the dark is UNOBSERVABLE here "
+                "(MartyPC does not model 3B8h bit 3), so not asserted")
+        elif f_during and n_during:
             fail.append("the secondary is still scanning at %d frames/s with "
                         "%d pixels lit inside an fsx bracket - nothing "
                         "maintains it, so what it is showing is frozen "

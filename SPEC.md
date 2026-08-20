@@ -50449,6 +50449,19 @@ operator and an `=` on all three. The only operations that put anything on
 the glass twice are the two that move more than a frame can hold — the scroll
 (§65.4.1) and the resize a fold is.
 
+**That measurement predates §65.9, and a TYPED key no longer produces it** -
+worth stating here rather than leaving the next reader to rediscover it from a
+failing gate. `cal_flash` presses the pad key a keystroke came from and
+`cal_ontimer` releases it `CAL_FLASH` ticks later, so a typed digit now shows
+**~588 transient pixels for ~165 ms** - the key's interior, 49x12 inside a
+51x14 button - and that is the feature working rather than this section
+lapsing. What still measures **0** is the claim this section is actually
+about: `tests/calcflick.py` types `q` (`CK_SQRT`, which has no key on the
+pad), and the display field changes by 217 pixels in ONE displayed frame with
+**0 transient**. A mouse press on a key measures the same flash for the same
+reason, and is §13.8's drawn down state rather than anything of this
+section's.
+
 **W_PAINT does not fill.** The kernel has already whitened the content in
 front of it (§11.90.1) and filling it again is PERFORMANCE.md's double-draw
 flash with this app's own picture as the second layer — so `cal_repaint`,
@@ -50702,9 +50715,13 @@ that produced it did not move. `cal_onkey` now presses it.
 `cal_keyrect` is the reverse of `cal_keytab` — a `CK_*` code back to the key
 index — walked rather than tabulated, because the table is twenty entries and
 this runs once per keystroke on a machine where the keystroke itself costs
-milliseconds. A code with no key on the pad (`Q`, `R`, `%`, `N` are Math-menu
+milliseconds. A code with no key on the pad (`Q`, `R` and `%` are Math-menu
 verbs) answers "none" and flashes nothing, which is the honest answer rather
-than a nearest match.
+than a nearest match. **`N` is NOT one of them and this said it was**: `cal_keytab` carries
+`cal_k_neg, CK_NEG`, so the plus/minus key is on the pad and a typed `n`
+presses it like any other - measured, 588 transient pixels, exactly a
+digit's. `tests/calcflick.py` needs a verb that really flashes nothing, and
+uses `q`.
 
 Then `cal_setdown` — the same one writer as all three mouse edges — and
 `OSAPI_WM_TIMER` for `CAL_FLASH` ticks. `cal_ontimer` puts it back up.

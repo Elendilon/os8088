@@ -1586,7 +1586,17 @@ $(BUILD)/linetest.img: $(BUILD)/linetest.o88 tools/os88disk.py
 
 # FSXTEST: the fullscreen-exclusive gate package (SPEC.md 53.9). Like fmtest
 # it is never on the shipped apps disks and rides its own scratch image:
-#   make test TESTAPPS=build/fsxtest.img
+#   make test TESTAPPS=build/fsxtest.img          (QEMU: 1.44MB)
+#   python3 tests/fsxdisp.py                      (MartyPC: the 360KB twin)
+# BOTH GEOMETRIES, and the 360 is not optional garnish - it is the one every
+# MartyPC machine here can actually read. This package had the 1.44MB image
+# alone while tests/fsxdisp.py drives os8088_5150_both_gla, whose drives are
+# `pcxt_2_360k_floppies`, so B: never mounted and the gate reported "no Disk
+# window after double-clicking B: - the zone arithmetic above missed" about
+# arithmetic that was correct. Every other fixture here already had the twin
+# (bench360, drvcall360, heapfrag360, editmove360, ...); this was the one that
+# did not, because it was written for the QEMU line above and inherited a
+# MartyPC caller later.
 $(BUILD)/fsxtest.bin: tests/fsxtest/fsxtest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fsxtest/fsxtest.asm
 	@echo "fsxtest: $(call FILESIZE,$@) bytes"
@@ -1596,6 +1606,9 @@ $(BUILD)/fsxtest.o88: $(BUILD)/fsxtest.bin tools/os88pkg.py
 
 $(BUILD)/fsxtest.img: $(BUILD)/fsxtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/fsxtest.o88
+
+$(BUILD)/fsxtest360.img: $(BUILD)/fsxtest.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/fsxtest.o88
 
 # DRVCALL: the OSAPI_DRV_CALL gate (SPEC.md 20.10, docs/NET-STACK-PLAN.md
 # stage A) - can a package reach a driver, and does the driver get the
