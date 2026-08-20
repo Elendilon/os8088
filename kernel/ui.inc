@@ -2097,31 +2097,32 @@ ui_tm_open:
                                 ; machine, where this byte is 0 and this is
                                 ; the `xor dl, dl` it replaced, and the
                                 ; installed PARTITION on a machine that boots
-                                ; from its hard disk (SPEC.md 52.10.3).
-                                ;
-                                ; This one mounts for itself rather than going
-                                ; through drv_mounted, because it is the one
-                                ; caller that needs a LISTING - it hands the
-                                ; loader a directory index - so it has its own
-                                ; copy of the question and needed its own fix
-    call disk_mount
+                                ; from its hard disk (SPEC.md 52.10.3)
+    xor ax, ax                  ; ...at its root, where SYSTEM lives
+    call dsk_chdir_q            ; QUIET (SPEC.md 18.9/28.3.1), which this could
+                                ; not be until ld_run_name existed. It was a
+                                ; full disk_mount, and the reason written here
+                                ; was that this is the one caller that needs a
+                                ; LISTING - it handed the loader a directory
+                                ; index. SPEC.md 21.4 took that away and
+                                ; nobody re-asked the question, so all three
+                                ; of this routine's mounts went on paying for
+                                ; a scan, a sort, an ASSOC.DAT read and an
+                                ; icon harvest that nothing below looks at
     mov si, ui_s_nodisk
     jc .fail
     call ui_tm_sysdir           ; into SYSTEM (SPEC.md 28.3); CF=1 = no such
     mov si, ui_s_nofile         ; folder, which reads to the user as the file
     jc .fail                    ; not being there, because it is not
-    mov si, ui_s_tmfile
-    call dsk_find_name          ; AX = its directory index
-    mov si, ui_s_nofile
-    jc .fail
 
     mov word [ld_pwin], 0       ; no poster: this is not a Disk window's load,
-    call ld_run_body            ; and so not loader_run either - there is no
-                                ; listing to refresh and no status line to
-                                ; correct ([ld_status] is loader_run's to
-                                ; write; storing it here would retitle an
-                                ; open Disk window's status line for a load
-                                ; it never posted). AL = LD_*; it shows the
+    mov si, ui_s_tmfile         ; and so not loader_run either - there is no
+    call ld_run_name            ; BY NAME (SPEC.md 21.4): no listing to build
+                                ; and none to refresh, and no status line to
+                                ; correct either ([ld_status] is loader_run's
+                                ; to write; storing it here would retitle an
+                                ; open Disk window's status line for a load it
+                                ; never posted). AL = LD_*; it shows the
                                 ; window itself on the way out
     push ds
     pop es                      ; ld_run_body's failure exits leave ES aimed
@@ -2129,8 +2130,19 @@ ui_tm_open:
                                 ; list above); nothing below may inherit that
     or al, al
     jz .back                    ; LD_OK
-    mov bl, al                  ; the reason, out of the same codes a Disk
-    xor bh, bh                  ; window's status line uses
+    push ax                     ; ...and the reason, out of the same codes a
+    cmp al, LD_EBAD             ; Disk window's status line uses - EXCEPT that
+    jne .code                   ; ld_res_name answers LD_EBAD both for a file
+    mov si, ui_s_tmfile         ; that is not a package and for a file that is
+    call dskw_stat              ; not THERE (SPEC.md 21.4), and those are not
+    jnc .code                   ; one message to a user (SPEC.md 28.3). The
+    pop ax                      ; index resolver could tell them apart because
+    mov si, ui_s_nofile         ; dsk_find_name failed first; by name they
+    jmp short .fail             ; arrive as one code, so ask - on the FAILURE
+.code:                          ; path only, still standing in SYSTEM, and for
+    pop ax                      ; the sector ld_res_name has just read
+    mov bl, al
+    xor bh, bh
     shl bx, 1
     mov si, [bx + ui_tm_errs]
 .fail:
@@ -2159,25 +2171,29 @@ ui_tm_open:
 ; in:  the volume is mounted and standing in its root
 ; out: CF = 0 and the volume is inside SYSTEM; CF = 1 = there is no SYSTEM
 ;      folder here, or entering it failed
-; clobbers: AX, DL, SI, flags (ui_tm_open has banked all three)
+; clobbers: AX, BX, CX, DX, SI, flags (ui_tm_open has banked them all)
 ;
-; The entry has to be LISTED before its first cluster is known, which is why
-; this is a second mount and not an extra argument to the first: dsk_find_name
-; reads the snapshot the mount published (no I/O at all), and dsk_chdir then
-; re-runs the one validated pipeline over the folder (SPEC.md 19.2).
+; The folder's first cluster comes out of dskw_stat, which walks the directory
+; SECTORS, and not out of dsk_find_name, which reads the snapshot a FULL mount
+; published. That is drv_find's move (SPEC.md 19.6) for the same reason: the
+; listing is the expensive half of a mount and this is the only thing that
+; ever wanted it here. dsk_chdir_q then re-runs the validated pipeline over
+; the folder with the scan, the sort and the icon harvest skipped, because
+; ld_run_name does not read a listing either (SPEC.md 21.4).
 ;
-; The type test is what stops a FILE called SYSTEM being walked as a
-; directory: dsk_synth writes 1 for a file and 2 for a subdirectory, and 3 is
-; the synthesized '..' (SPEC.md 19.5), which cannot carry this name.
+; The attribute test is what stops a FILE called SYSTEM being walked as a
+; directory. It is the RAW byte off the disk rather than dsk_synth's type
+; word, so - exactly as with a hidden .DRV - a SYSTEM folder that is marked
+; hidden or system is found here where the listing's species filter would
+; have dropped it (SPEC.md 19.6).
 ; -----------------------------------------------------------------------------
 ui_tm_sysdir:
     mov si, ui_s_tmdir
-    call dsk_find_name          ; AX = its index in the root's listing
+    call dskw_stat              ; AL = the raw attribute, BX = first cluster
     jc .no
-    call dsk_get_dir            ; SI -> the staged 32-byte entry (SPEC.md 19)
-    cmp word [si+16], 2         ; its type: a folder, not a file of that name
-    jb .no
-    mov ax, [si+18]             ; its first cluster
+    test al, 0x10               ; a subdirectory, not a file of that name
+    jz .no
+    mov ax, bx                  ; its first cluster
     or ax, ax
     jz .no                      ; 0 is the root: a directory entry naming it
     mov dl, [dsk_bootvol]       ; would be a loop, not a folder.
@@ -2188,7 +2204,7 @@ ui_tm_sysdir:
                                 ; On an installed machine it walked into
                                 ; SYSTEM's cluster on the FLOPPY, which reads
                                 ; to the user as the file not being there
-    jmp dsk_chdir               ; CF is its answer, and it is ours
+    jmp dsk_chdir_q             ; CF is its answer, and it is ours
 .no:
     stc
     ret
@@ -2202,7 +2218,16 @@ ui_tm_back:
     push dx
     mov ax, [ui_tm_cwd]
     mov dl, [ui_tm_drv]
-    call dsk_chdir
+    call dsk_chdir_q            ; QUIET, on drv_vol_back's terms (SPEC.md
+                                ; 51.5.2): putting the user's VOLUME back is
+                                ; not putting a LISTING on screen. Every Disk
+                                ; window paints from its own view cache
+                                ; (SPEC.md 22.1), so nothing here is drawn
+                                ; from the global snapshot, and whoever reads
+                                ; it next pays for the rebuild if it is ever
+                                ; needed. dsk_here_ok makes the common case -
+                                ; the user was already standing in the boot
+                                ; volume's root - cost no I/O at all
     pop dx
     pop ax
     ret

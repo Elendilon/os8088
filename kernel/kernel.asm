@@ -4065,6 +4065,8 @@ dskw_append:          call COLD_SEG:dwf_dskw_append
                     ret
 dskw_append_sys:      call COLD_SEG:dwf_dskw_append_sys
                     ret
+dskw_stat:            call COLD_SEG:dwf_dskw_stat
+                    ret
 files_init:           call COLD_SEG:fmf_files_init
                     ret
 files_open:           call COLD_SEG:fmf_files_open
@@ -4097,7 +4099,7 @@ fm_rclick:            call COLD_SEG:fmf_fm_rclick
                     ret
 fm_rcmd:              call COLD_SEG:fmf_fm_rcmd
                     ret
-ld_run_body:          call COLD_SEG:ldf_ld_run_body
+ld_run_name:          call COLD_SEG:ldf_ld_run_name
                     ret
 mod_init:             call COLD_SEG:modf_mod_init
                     ret
@@ -4145,8 +4147,6 @@ osapi_assoc_set:      call COLD_SEG:acf_osapi_assoc_set
 ; far call is ~6us against a sector's ~24ms. dsk_xfer's per-sector spl_step
 ; goes out through a cw_ shim and stays flag-transparent, which it must be
 ; (SPEC.md 15.3) - call and retf touch no flags.
-disk_mount:       call COLD_SEG:dkf_disk_mount
-              ret
 dsk_batch_begin:  call COLD_SEG:dkf_dsk_batch_begin
               ret
 dsk_batch_end:    call COLD_SEG:dkf_dsk_batch_end
@@ -4162,8 +4162,6 @@ dsk_copy_seg:     call COLD_SEG:dkf_dsk_copy_seg
 dsk_dpt_init:     call COLD_SEG:dkf_dsk_dpt_init
               ret
 dsk_find:         call COLD_SEG:dkf_dsk_find
-              ret
-dsk_find_name:    call COLD_SEG:dkf_dsk_find_name
               ret
 dsk_flop_add:     call COLD_SEG:dkf_dsk_flop_add
               ret

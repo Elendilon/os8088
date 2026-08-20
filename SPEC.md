@@ -25074,10 +25074,11 @@ Four things about the placement:
   program, and a second Task Manager a double-click away from the chip
   menu's is the confusing arrangement. `SYSTEM/` says what the thing is.
 - **The kernel pays a second mount for it.** The folder's first cluster is
-  not known until the root has been listed, so `ui_tm_sysdir` is a
-  `dsk_find_name` on the root's snapshot (no I/O) followed by a `dsk_chdir`
-  into it (§19.2, a remount). One extra mount per chip-menu open, against
-  the seven kilobytes of package that follow it.
+  not known until something has looked it up, so `ui_tm_sysdir` is a
+  `dskw_stat` on the name followed by a `dsk_chdir_q` into it (§18.9). One
+  extra volume switch per chip-menu open, against the seven kilobytes of
+  package that follow it — and §28.3.1 is why neither of them is a full
+  mount any more.
 - **A missing folder and a missing file report the same thing**, because to
   the user they are the same thing: `TASKMGR.O88 is not in SYSTEM`. The
   message is 28 characters for a reason — `ui_note` centres it in a 288px
@@ -25094,6 +25095,89 @@ in the root it left.
 
 The cost is 5,444 bytes twice, plus one cluster per folder: 7 clusters of
 the 360KB disk's 354.
+
+### 28.3.1 Every mount on the way to it is QUIET
+
+Both the Control Panel and the Task Manager are files on the system disk that
+the chip menu loads, and they took **4.3x** different amounts of floppy to do
+it. Measured on a cycle-accurate 4.77MHz 8088 with a real 360KB drive, off the
+shipped image, with the controller's own counters read from *outside* the
+guest (docs/MARTYPC-DEBUG.md — no `DISKCNT=1` kernel and no test package, so
+this is the binary that ships):
+
+| | `int 13h` reads | sectors | drive busy |
+|---|---|---|---|
+| Control Panel (`CTRL.DRV`, 4,658 bytes) | 3 | 15 | 775 ms |
+| Task Manager (`TASKMGR.O88`, 7,014 bytes) | **13** | **57** | **2,404 ms** |
+
+The file is four sectors bigger and the open was ten calls dearer, so the
+difference was never the payload. Broken out by stopping the guest at each
+routine and reading the counters there:
+
+| phase | reads | sectors |
+|---|---|---|
+| `disk_mount` of the boot volume's root | 3 | 11 |
+| `dsk_chdir` into `SYSTEM` | 3 | 13 |
+| the peek and the package read | 4 | 20 |
+| `ui_tm_back`, putting the user's volume back | 3 | 13 |
+
+**Three FULL mounts, and none of them wanted a listing.** A full mount is the
+BPB, the FAT window reloaded (§18.8.1 only lets a *quiet* mount reuse a banked
+one), `dsk_rah_flush` dropping §18.95's sector cache, then the directory scan,
+the sort, `ASSOC.DAT` (§54.7) and an icon-harvest read per file — and the
+listing every one of those builds was read by exactly one instruction in the
+whole path: `dsk_find_name` turning `TASKMGR.O88` into a directory index for
+`ld_run_body`. §21.4's `ld_run_name` had already removed the need for that
+index, and `mod_need` — which is how the Control Panel arrives — had been
+going through `drv_mounted`'s quiet mount since §18.9. **The reason expired
+and nobody re-asked the question**; `drv_mounted`'s own comment went on naming
+`ui_tm_open` as the one caller that legitimately needed a listing for two
+releases after that stopped being true.
+
+So all three are quiet now and the resolution is by name:
+
+- the boot volume's root is `dsk_chdir_q`, which `dsk_here_ok` can skip
+  outright when the user was already standing there (§18.9.1);
+- `SYSTEM` is found with `dskw_stat` — the raw directory walk `drv_find`
+  uses (§19.6), which also means a `SYSTEM` folder marked hidden or system
+  is found where the listing's species filter would have dropped it — and
+  entered with `dsk_chdir_q`;
+- the package is loaded with `ld_run_name` (§21.4), which is the safer
+  resolution as well as the cheaper one: an index is resolved against a
+  snapshot that can have shifted under it (§19.4, docs/FIELD-NOTES.md 4) and
+  a name cannot be;
+- `ui_tm_back` is `dsk_chdir_q`, on `drv_vol_back`'s terms (§51.5.2).
+
+Measured after: **8 reads / 27 sectors / 1,297 ms** — 1 sector for the root,
+1 for `SYSTEM`, 24 for the peek and the 14-sector package (§18.95 filling to
+the end of each track it touches), 1 for the way back. **1.6x the calls and
+2.1x the drive time, gone.** What is left over the Control Panel is one extra
+volume switch, because this file is a folder deeper, and a payload 40% bigger
+that happens to straddle three tracks.
+
+**What the quiet mounts leave owed is the point of the whole mechanism and
+has to be checked rather than argued.** `dsk_chdir_q` publishes
+`disk_nfiles` = 0 with `[dsk_lstale]` raised (§18.9), where the full mounts
+left a listing built — so a reader of the global snapshot that skipped the
+staleness test would now come up empty. `drv_mounted` and `drv_vol_back` have
+left exactly that debt since §51.5.2 and nothing collects it, on the same
+grounds: every Disk window paints from its own view cache (§22.1) and
+`fdlg_home_go` ends in a full `dsk_chdir` on both branches. Driven on a
+cycle-accurate 5150/CGA, an identical session on this kernel and on the one
+before it — open the Task Manager, click back to Locator, open a Disk
+window — puts that window up in the same 3 `int 13h` calls at **0 differing
+pixels of 128,000**, icons included.
+
+One thing does change and it is a saving: the old path's icon harvest claimed
+`MEM_K_ASC`'s 3KB `ASSOC.DAT` cache as a side effect of opening the Task
+Manager. Walking `mem_tab` out of the guest, that claim is simply not taken
+any more — the next full mount takes it, exactly as it always did for a
+volume nobody had harvested yet.
+
+The change made the kernel smaller: `.text` −29, `.cold` −16, no rung crossed
+on either guard, `KERN_BUDGET` unmoved. Three resident thunks lost their only
+caller (`disk_mount`, `dsk_find_name`, `ld_run_body` — all three were
+`ui_tm_open`'s alone) and two took their place (`dskw_stat`, `ld_run_name`).
 
 ### 28.4 The heap page — every claim, grouped under the app that holds it
 

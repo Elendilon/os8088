@@ -5570,8 +5570,6 @@ dsk_get_icon_x:
 ; and these near-call the bodies above, so every routine here keeps its
 ; ordinary near `ret`.
 ; =============================================================================
-dkf_disk_mount:      call disk_mount_x
-                 retf
 dkf_disk_read:       call disk_read_x
                  retf
 dkf_disk_write:      call disk_write_x
@@ -5605,8 +5603,6 @@ dkf_dsk_dpt_init:    call dsk_dpt_init_x
 dkf_dsk_fat_ofs:     call dsk_fat_ofs_x
                  retf
 dkf_dsk_find:        call dsk_find_x
-                 retf
-dkf_dsk_find_name:   call dsk_find_name_x
                  retf
 dkf_dsk_flop_add:    call dsk_flop_add_x
                  retf

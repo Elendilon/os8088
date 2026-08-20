@@ -2104,10 +2104,16 @@ drv_mounted:
                                 ; dskw_write_sys, none of which look at the
                                 ; listing - so the scan, the sort and one
                                 ; icon-harvest read per file in A:'s root are
-                                ; all bought for nothing. ui_tm_open is the
-                                ; caller that DOES need a listing (it hands
-                                ; the loader a directory index) and it mounts
-                                ; A: itself rather than coming through here
+                                ; all bought for nothing. ui_tm_open used to
+                                ; be named here as the caller that DOES need
+                                ; a listing, because it handed the loader a
+                                ; directory index; SPEC.md 21.4 gave it
+                                ; ld_run_name and SPEC.md 28.3.1 spent it, so
+                                ; that exception is gone and every mount on
+                                ; the path to a system file is quiet. It still
+                                ; mounts for itself rather than coming through
+                                ; here, because it has to reach a SUBDIRECTORY
+                                ; (SPEC.md 28.3) and this stops at the root
     pop dx
     pop ax
     ret
