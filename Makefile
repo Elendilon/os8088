@@ -1790,10 +1790,26 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py
 # thing here that SERVES. Same include set as Telnet's for the same reason:
 # netpkg.inc is the DRIVER's own ABI header, included by both ends so the two
 # cannot drift (SPEC.md 20.11).
+# FTPDSLOW=1 builds SPEC.md 77.14's REFERENCE face: every change redraws the
+# whole content box, which is what the window did before the dirty mask and the
+# scrolled log. It is the A/B for "the picture is the same, only the number of
+# times it was drawn changed" - a claim no screenshot of one build can check.
+# RAMPAGE.DRV's RPSLOW is the precedent (SPEC.md 62.9.11.1). It is STAMPED, so
+# flipping the knob rebuilds: a knob outside the stamp drives the previous
+# build, which is the Makefile's own documented trap.
+FTPDSLOWDEF :=
+ifneq ($(FTPDSLOW),)
+FTPDSLOWDEF += -DFTPDSLOW
+endif
+FTPDSTAMP := $(BUILD)/.ftpd-$(if $(FTPDSLOW),slow,fast)
+$(FTPDSTAMP): | $(BUILD)
+	rm -f $(BUILD)/.ftpd-slow $(BUILD)/.ftpd-fast
+	touch $@
+
 $(BUILD)/ftpd.bin: apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
                    apps/os88line.inc apps/os88sock.inc \
-                   drivers/net/netpkg.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I apps/ftpd/ -I drivers/net/ -o $@ apps/ftpd/ftpd.asm
+                   drivers/net/netpkg.inc $(FTPDSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error $(FTPDSLOWDEF) -I apps/ -I apps/ftpd/ -I drivers/net/ -o $@ apps/ftpd/ftpd.asm
 	@echo "ftpd:   $(call FILESIZE,$@) bytes"
 
 $(BUILD)/ftpd.o88: $(BUILD)/ftpd.bin tools/os88pkg.py

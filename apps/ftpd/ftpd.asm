@@ -112,6 +112,18 @@ FD_H        equ 176
 FD_PAD      equ 4
 FD_BTNW     equ 72
 FD_BTNH     equ 14
+FD_TEXTX    equ 8                   ; **THE TEXT PEN, AND IT IS 8-ALIGNED.**
+                                    ; WF_SNAP makes the content origin a
+                                    ; multiple of 8 (SPEC.md 11.94), so a pen
+                                    ; at origin+8 is aligned and every run here
+                                    ; takes font_run's SINGLE-STORE path - the
+                                    ; one that writes each cell old-to-final in
+                                    ; one store, so a line is never momentarily
+                                    ; blank. It was FD_PAD (4), which is 4 mod
+                                    ; 8 for every window position on every
+                                    ; adapter and could NEVER take that path
+                                    ; (os88line.inc's own header is the same
+                                    ; finding about the browser's location bar)
 FD_ROWH     equ 8                   ; the log's line pitch
 FD_LOGN     equ 10                  ; ...and how many lines it keeps
 FD_LOGW     equ 44                  ; characters per line, NUL included below
@@ -220,6 +232,23 @@ FD_PASVP    equ 2048                ; the passive port, plus a rotating count.
                                     ; one transfer and starts another leaves
                                     ; the last port in TIME_WAIT on ITS side
 FD_PASVN    equ 8
+; --- what on the face is behind the glass (SPEC.md 77.14) --------------------
+; A BITMASK AND NOT ONE FLAG. It was `[fd_ldirty]`, so a Read Only tick - one
+; 12px box - redrew the button, the status line and all ten log rows, and a
+; single arriving log line redrew the whole face. Each bit is spent by the one
+; routine that owns those pixels.
+FDD_BTN     equ 0x01                ; the Start/Stop button
+FDD_RO      equ 0x02                ; the Read Only box
+FDD_STAT    equ 0x04                ; the status line
+FDD_LOG     equ 0x08                ; ...and [fd_lognew] rows have arrived
+FDD_PAGE    equ 0x10                ; ...or the whole content box, because the
+                                    ; PAGE changed. It is a bit of its own and
+                                    ; not "all four": leaving Setup returns to
+                                    ; FP_LOG, where the incremental path would
+                                    ; letter the arrived rows and leave the
+                                    ; Setup page's pixels underneath them
+FDD_ALL     equ 0x1F
+
 FD_CFGSZ    equ 256                 ; FTPD.CFG, read and composed whole. It is
                                     ; a settings file and not a document: if
                                     ; it ever needs more than this, the thing
@@ -338,6 +367,100 @@ fd_paint:
     ret
 
 ; --- fd_draw_all - the whole face. Lock held, fd_layout already run ----------
+; -----------------------------------------------------------------------------
+; fd_spend - put ONLY what changed on the glass. Lock held, fd_layout run
+;
+; The face is four independent things and they change on four different
+; cadences: the button on a start or a stop, the box on a tick, the status
+; line on a state change, and the log on every command the server answers.
+; Drawing all four for any one of them is PERFORMANCE.md Part 1's redraw with
+; nothing to show for it - ten opaque 44-cell runs to move a 12px checkbox.
+;
+; A PAGE that is not the log has none of these on it, so it is redrawn whole
+; and the bits are spent unread: Setup and About cover the content box.
+; -----------------------------------------------------------------------------
+fd_spend:
+%ifdef FTPDSLOW
+    ; **THE REFERENCE BUILD** (make FTPDSLOW=1, SPEC.md 77.14). The claim these
+    ; paths make is "the picture is the same, only the number of times it was
+    ; drawn changed" - and a screenshot of ONE build cannot check that. This
+    ; arm is the pre-optimisation behaviour: every change redraws the whole
+    ; face. RAMPAGE.DRV's RPSLOW is the precedent (SPEC.md 62.9.11.1).
+    call fd_draw_all
+    mov byte [fd_dirty], 0
+    ret
+%endif
+    push ax
+    test byte [fd_dirty], FDD_PAGE
+    jnz .page
+    cmp byte [fd_page], FP_LOG
+    jne .page
+    mov al, [fd_dirty]
+    test al, FDD_BTN
+    jz .ro
+    call fd_draw_btn
+.ro:
+    test al, FDD_RO
+    jz .stat
+    call fd_draw_ro
+.stat:
+    test al, FDD_STAT
+    jz .log
+    call fd_draw_stat
+.log:
+    test al, FDD_LOG
+    jz .done
+    call fd_draw_log_inc
+.done:
+    mov byte [fd_dirty], 0
+    pop ax
+    ret
+.page:
+    call fd_draw_all
+    mov byte [fd_dirty], 0
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_clear_content - the content box, white. Lock held, fd_layout run
+;
+; **THE FILL SETS THE PEN, AND THE TWO PAGE FILLS DID NOT.** gfx_fill paints in
+; [gfx_color], which is whatever the last drawing call in this lock hold left
+; there - so opening Setup filled the content BLACK, and returning to the log
+; face drew the button, the box, the status line and the rows on top of it and
+; left everything they do not cover black for the rest of the session. It is
+; SPEC.md 47 rule 2's shape in the other direction: a colour that is never set
+; is not a colour, it is the previous caller's.
+;
+; It is called on a PAGE change and on W_PAINT and nowhere else. The
+; incremental path never fills - which is the whole point of it - and W_PAINT
+; already has wm_draw_win's white underneath, so the one redundant call there
+; buys the page change its erase for a single drawing call.
+; -----------------------------------------------------------------------------
+fd_clear_content:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [fd_ox]
+    mov bx, [fd_oy]
+    mov cx, ax
+    add cx, [fd_cw]
+    dec cx
+    mov dx, bx
+    add dx, [fd_ch]
+    dec dx
+    call OSAPI_GFX_FILL
+    mov al, CBLACK                  ; ...and the pen is PUT BACK, or the next
+    call OSAPI_SET_COLOR            ; caller inherits this one exactly as this
+    pop dx                          ; routine inherited its bug
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 fd_draw_all:
     cmp byte [fd_page], FP_ABOUT
     jne .nab
@@ -349,10 +472,12 @@ fd_draw_all:
     call fd_draw_setup
     ret
 .face:
+    call fd_clear_content
     call fd_draw_btn
     call fd_draw_ro
     call fd_draw_stat
-    call fd_draw_log
+    call fd_draw_log                ; ...which clears [fd_lognew]: a full paint
+    mov byte [fd_dirty], 0          ; has just put every row on the glass
     ret
 
 fd_draw_btn:
@@ -424,7 +549,7 @@ fd_draw_stat:
     push di
     call fd_stat_text
     mov cx, [fd_ox]
-    add cx, FD_PAD
+    add cx, FD_TEXTX
     mov dx, [fd_oy]
     add dx, FD_PAD + FD_BTNH + 4
     mov si, fd_sline
@@ -505,27 +630,14 @@ fd_draw_log:
     push dx
     push si
     push di
-    mov ax, [fd_oy]
-    add ax, FD_PAD + FD_BTNH + 4 + FD_ROWH + 4
-    mov [fd_leny], ax               ; the first row's pen, banked: `mul` below
-                                    ; writes DX, so a y held there is gone
+    call fd_log_y                   ; the first row's pen, banked
     xor bx, bx                      ; BX = the display row, 0 at the top
 .row:
-    mov ax, bx
-    call fd_logline                 ; -> AX = that row's text
-    mov si, ax
-    mov ax, FD_ROWH
-    mul bx                          ; DX:AX - FD_ROWH * FD_LOGN is tiny, so AX
-    add ax, [fd_leny]               ; alone is the offset
-    mov dx, ax
-    mov cx, [fd_ox]
-    add cx, FD_PAD
-    mov al, CBLACK
-    mov ah, CWHITE
-    call OSAPI_FONT_RUN
+    call fd_log_row
     inc bx
     cmp bx, FD_LOGN
     jb .row
+    mov byte [fd_lognew], 0
     pop di
     pop si
     pop dx
@@ -533,6 +645,107 @@ fd_draw_log:
     pop bx
     pop ax
     ret
+
+; --- fd_log_y - bank the first row's pen y in [fd_leny] ---------------------
+fd_log_y:
+    push ax
+    mov ax, [fd_oy]
+    add ax, FD_PAD + FD_BTNH + 4 + FD_ROWH + 4
+    mov [fd_leny], ax               ; banked because `mul` below writes DX, so
+    pop ax                          ; a y held there is gone
+    ret
+
+; --- fd_log_row - letter display row BX -------------------------------------
+fd_log_row:
+    push ax
+    push cx
+    push dx
+    push si
+    mov ax, bx
+    call fd_logline                 ; -> AX = that row's text
+    mov si, ax
+    mov ax, FD_ROWH
+    mul bx                          ; DX:AX - the band is tiny, so AX is it
+    add ax, [fd_leny]
+    mov dx, ax
+    mov cx, [fd_ox]
+    add cx, FD_TEXTX
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_draw_log_inc - the rows that ARRIVED, and nothing else (SPEC.md 77.14)
+;
+; The log is the busiest thing on this window - every command the server
+; answers is a line - and it was ten opaque runs of 44 cells each, 440 glyph
+; cells, to put ONE new line at the bottom. At PERFORMANCE.md's ~1ms a cell on
+; the machine this is for, that is most of half a second per FTP command.
+;
+; It is a blit and one run now: OSAPI_GFX_SCROLL moves the nine rows that are
+; staying and the arrived row is lettered into the space it vacated. The x
+; span is 8-aligned at BOTH ends because the primitive is byte-column granular
+; on every adapter and refuses otherwise - x1 is the aligned pen and the width
+; is a whole number of cells, so x2+1 lands on a multiple of 8 by construction.
+;
+; A REFUSED SCROLL FALLS BACK to the full redraw rather than leaving the band
+; half-moved: a clip region that does not wholly contain the rect refuses, and
+; a covered window is exactly when that happens (SPEC.md 11.3).
+; -----------------------------------------------------------------------------
+fd_draw_log_inc:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov al, [fd_lognew]
+    or al, al
+    je .out                         ; nothing arrived
+    cmp al, FD_LOGN
+    jae .whole                      ; more than the band holds: everything on
+                                    ; screen is going anyway
+    xor ah, ah
+    mov [fd_scrn], ax               ; the rows...
+    mov bx, FD_ROWH
+    mul bx                          ; DX:AX - the band is tiny, so AX is it
+    mov [fd_scry], ax               ; ...and the pixels. BANKED, because the
+                                    ; rect below needs DX and `mul` writes it
+    call fd_log_y
+    mov ax, [fd_ox]
+    add ax, FD_TEXTX
+    mov cx, ax
+    add cx, FD_LOGW * 8 - 1         ; ...so cx+1 is a multiple of 8
+    mov bx, [fd_leny]
+    mov dx, bx
+    add dx, FD_LOGN * FD_ROWH - 1
+    mov si, [fd_scry]               ; signed dy, positive scrolls UP
+    call OSAPI_GFX_SCROLL
+    jc .whole                       ; refused: nothing moved, so redraw it all
+    mov bx, FD_LOGN                 ; the rows it vacated ARE the ones that
+    sub bx, [fd_scrn]               ; arrived
+.fill:
+    call fd_log_row
+    inc bx
+    cmp bx, FD_LOGN
+    jb .fill
+    mov byte [fd_lognew], 0
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.whole:
+    call fd_draw_log
+    jmp short .out
 
 ; --- fd_logline - in AX = a display row 0..FD_LOGN-1; out AX -> its text -----
 ; The log is a ring of FD_LOGN slots with [fd_lognext] the one to write, so
@@ -559,7 +772,7 @@ fd_logline:
 ;
 ; Called from BOTH tasks - the worker logs every command it answers and the UI
 ; task logs what it did to the disk - so it may not draw and may not take the
-; lock. [fd_ldirty] is what says the glass is behind, and whoever next holds
+; lock. [fd_dirty] is what says the glass is behind, and whoever next holds
 ; the lock spends it.
 ; -----------------------------------------------------------------------------
 fd_log:
@@ -595,7 +808,13 @@ fd_log:
     xor al, al
 .st:
     mov [fd_lognext], al
-    mov byte [fd_ldirty], 1
+    mov al, [fd_lognew]             ; SATURATES: past a bandful, "everything on
+    cmp al, FD_LOGN                 ; screen is going" and one more changes
+    jae .mark                       ; nothing about that
+    inc al
+    mov [fd_lognew], al
+.mark:
+    or byte [fd_dirty], FDD_LOG
     pop di
     pop si
     pop cx
@@ -822,7 +1041,7 @@ fd_step:
     mov [fd_msg], si
     mov byte [fd_st], FD_ERR
     call fd_shutdown
-    mov byte [fd_ldirty], 1
+    or byte [fd_dirty], FDD_BTN | FDD_STAT
 .done:
     call fd_flush_glass
     pop es
@@ -852,16 +1071,15 @@ fd_flush_glass:
     push ax
     push bx
     push si
-    cmp byte [fd_ldirty], 0
+    cmp byte [fd_dirty], 0
     je .out
-    mov byte [fd_ldirty], 0
     mov bx, [fd_win]
     call OSAPI_WM_GEOM              ; CF=1 = not visible, so there is nothing to
     jc .out                         ; draw on and the ring keeps the lines
     call OSAPI_GFX_LOCK
     mov si, [fd_win]
     call fd_layout
-    call fd_draw_all
+    call fd_spend
     call OSAPI_GFX_UNLOCK
 .out:
     pop si
@@ -2401,16 +2619,15 @@ fd_wake:
                                     ; byte and reads the stage the moment it
                                     ; goes to zero
 .glass:
-    cmp byte [fd_ldirty], 0
+    cmp byte [fd_dirty], 0
     je .out
-    mov byte [fd_ldirty], 0
     mov bx, [fd_win]
     call OSAPI_WM_GEOM
     jc .out
     call OSAPI_GFX_LOCK             ; the one callback that has to take it
     mov si, [fd_win]                ; itself, and it may not draw before it has
     call fd_layout
-    call fd_draw_all
+    call fd_spend
     call OSAPI_GFX_UNLOCK
 .out:
     pop es
@@ -3747,7 +3964,7 @@ fd_start:
     mov [fd_msg], si
     mov byte [fd_st], FD_ERR
 .out:
-    mov byte [fd_ldirty], 1
+    or byte [fd_dirty], FDD_BTN | FDD_STAT
     pop es
     pop si
     pop cx
@@ -3812,7 +4029,7 @@ fd_shutdown:
     mov byte [fd_auth], 0
     mov word [fd_clen], 0
     mov byte [fd_req], FR_NONE
-    mov byte [fd_ldirty], 1
+    or byte [fd_dirty], FDD_BTN | FDD_STAT
     pop si
     pop bx
     pop ax
@@ -3843,7 +4060,8 @@ fd_onclick:
     cmp byte [fd_page], FP_ABOUT
     jne .nab
     mov byte [fd_page], FP_LOG      ; any click dismisses the credits, and
-    jmp short .paint                ; nothing under them is acted on
+    or byte [fd_dirty], FDD_PAGE    ; nothing under them is acted on
+    jmp short .paint
 .nab:
     cmp byte [fd_page], FP_SETUP
     jne .live
@@ -3869,12 +4087,12 @@ fd_onclick:
     call fd_inrect
     jc .out
     xor byte [fd_ro], 1
-    mov byte [fd_ldirty], 1
+    or byte [fd_dirty], FDD_RO      ; ONE 12px box, and it used to redraw the
+                                    ; button, the status line and ten log rows
 .paint:
-    mov byte [fd_ldirty], 0
     mov si, [fd_win]
     call fd_layout
-    call fd_draw_all
+    call fd_spend
 .out:
     pop di
     pop si
@@ -3963,10 +4181,9 @@ fd_oncmd:
     jne .out
     call fd_setup_toggle
 .paint:
-    mov byte [fd_ldirty], 0
     mov si, [fd_win]
     call fd_layout
-    call fd_draw_all
+    call fd_spend
 .out:
     pop si
     ret
@@ -4023,6 +4240,7 @@ fd_setup_toggle:
     call fd_setup_commit
     mov byte [fd_page], FP_LOG
 .out:
+    or byte [fd_dirty], FDD_PAGE    ; the face is a different face now
     mov byte [fd_pfoc], 0
     pop si
     ret
@@ -4203,15 +4421,7 @@ fd_draw_setup:
     push dx
     push si
     push di
-    mov ax, [fd_ox]
-    mov bx, [fd_oy]
-    mov cx, ax
-    add cx, [fd_cw]
-    dec cx
-    mov dx, bx
-    add dx, [fd_ch]
-    dec dx
-    call OSAPI_GFX_FILL
+    call fd_clear_content
     mov cx, [fd_ox]
     add cx, FD_SETX
     mov dx, [fd_oy]
@@ -4584,10 +4794,9 @@ fd_cfg_save:
 fd_about:
     push si
     mov byte [fd_page], FP_ABOUT
-    mov byte [fd_ldirty], 0
     mov si, [fd_win]
     call fd_layout
-    call fd_draw_all
+    call fd_draw_all                ; a PAGE change is the whole content box
     pop si
     ret
 
@@ -4599,15 +4808,7 @@ fd_draw_about:
     push dx
     push si
     push di
-    mov ax, [fd_ox]
-    mov bx, [fd_oy]
-    mov cx, ax
-    add cx, [fd_cw]
-    dec cx
-    mov dx, bx
-    add dx, [fd_ch]
-    dec dx
-    call OSAPI_GFX_FILL
+    call fd_clear_content
     mov di, fd_ab_l
     mov bx, [fd_oy]
     add bx, FD_PAD
@@ -4798,7 +4999,8 @@ fd_dlhnd    equ os88_image_end + 54  ; byte: the passive listener
 fd_dhnd     equ os88_image_end + 55  ; byte: the data connection
 fd_auth     equ os88_image_end + 56  ; byte: PASS has been seen
 fd_ro       equ os88_image_end + 57  ; byte: the Read Only box
-fd_ldirty   equ os88_image_end + 58  ; byte: the glass is behind the log
+fd_dirty    equ os88_image_end + 58  ; byte: FDD_* - what on the face is
+                                     ; behind the glass
 fd_lognext  equ os88_image_end + 59  ; byte: the ring's write slot
 fd_lstyle   equ os88_image_end + 60  ; byte: 0 = LIST, 1 = NLST
 fd_lmore    equ os88_image_end + 61  ; byte: there is more to come (2 = last)
@@ -4844,7 +5046,11 @@ fd_cfgb     equ fd_line + OS88LINE_SZ           ; FD_CFGSZ: FTPD.CFG, whole
 fd_dbclus   equ fd_cfgb + FD_CFGSZ              ; word: the banked folder
 fd_dbdrv    equ fd_dbclus + 2                   ; byte: ...and its drive
 fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read
-fd_stage    equ fd_cfgn + 2                     ; FD_STGSZ - the transfer's
+fd_lognew   equ fd_cfgn + 2                     ; byte: rows appended since the
+                                     ; glass last agreed with the ring
+fd_scrn     equ fd_lognew + 1                   ; word: ...as rows, banked
+fd_scry     equ fd_scrn + 2                     ; word: ...and as pixels
+fd_stage    equ fd_scry + 2                     ; FD_STGSZ - the transfer's
                                      ; staging ground, and IN OUR OWN SEGMENT
                                      ; for the reason FD_STGSZ's own comment
                                      ; gives: the package door hands a driver

@@ -59357,6 +59357,67 @@ answered correctly the client retries a moment later and succeeds. The two were
 one reply until a gate run reordered its sessions and turned a working active
 mode into `501 Bad argument`.
 
+### 77.14 The face draws what changed, and nothing else
+
+Four independent things on four different cadences — the button on a start or
+a stop, the Read Only box on a tick, the status line on a state change, and the
+log on **every command the server answers**. All four were redrawn for any one
+of them.
+
+**`[fd_dirty]` is a bitmask and was one flag.** A Read Only tick — one 12px box
+— redrew the button, the status line and all ten log rows; an arriving log line
+redrew the whole face. Each bit is now spent by the one routine that owns those
+pixels, and `FDD_PAGE` is a bit of its own rather than "all four": leaving Setup
+returns to the log face, where the incremental path would letter the arrived
+rows and leave the Setup page's pixels underneath them.
+
+**The log is a blit and one run.** It was ten opaque 44-cell runs — 440 glyph
+cells at §6.1.1's ~1ms a cell on the target — to put ONE new line at the bottom.
+`OSAPI_GFX_SCROLL` moves the nine rows that are staying and the arrived row is
+lettered into the space it vacated. The x span is 8-aligned at both ends because
+the primitive is byte-column granular on every adapter and refuses otherwise;
+a refused scroll (a clip region that does not wholly contain the rect — §11.3,
+and a covered window is exactly when it happens) falls back to the full redraw
+rather than leaving the band half-moved.
+
+**The text pen moved from `FD_PAD` to `FD_TEXTX`.** 4 is 4 mod 8 for every
+window position on every adapter, so no run here could ever take `font_run`'s
+single-store path — the one that writes each cell old-to-final in one store, so
+a line is never momentarily blank. `WF_SNAP` makes the content origin a multiple
+of 8 (§11.94), so origin+8 is aligned. `os88line.inc`'s own header records the
+identical finding about the browser's location bar.
+
+#### 77.14.1 …and a fill that never set its pen
+
+`gfx_fill` paints in `[gfx_color]`, which is whatever the last drawing call in
+this lock hold left there. Both page fills — About's and Setup's — called it
+without setting one, so **opening Setup filled the content BLACK**, and
+returning to the log face drew the button, the box, the status line and the rows
+on top and left everything they do not cover black for the rest of the session.
+It is §47 rule 2's shape from the other side: a colour that is never set is not
+a colour, it is the previous caller's. `fd_clear_content` is the one routine
+now, and it puts the pen back.
+
+The bug predates the optimisation and was invisible while nothing ever left the
+About panel — which is what a page you can only enter looks like.
+
+#### 77.14.2 Verified by BYTE IDENTITY, not by looking
+
+`make FTPDSLOW=1` builds the reference face — every change redraws the whole
+content box — and the same scripted session driven through both must agree
+pixel for pixel. `tests/ftpdpix.py`: **0 differing bytes of 211,200** over the
+window, across a launch, a login, a `LIST`, a `RETR`, a disconnect and a Read
+Only tick. `RAMPAGE.DRV`'s `RPSLOW` is the precedent (§62.9.11.1), and keeping
+the knob working is the point: "the picture is the same, only the number of
+times it was drawn changed" is the whole claim, and a screenshot of one build
+cannot check it.
+
+**The session has to be deterministic or the comparison is not one.** The first
+run compared an ACTIVE-mode session and reported 171 differing pixels in two
+narrow bands — which were the digits of the client's ephemeral port in
+`PORT 127,0,0,1,<p1>,<p2>`, different between two runs minutes apart. Session
+data, not rendering. The comparison uses passive mode, whose log is fixed.
+
 ### 77.13 Two things that are deliberately not locked
 
 **`fd_log` is called from both tasks without a lock.** The worker logs every
