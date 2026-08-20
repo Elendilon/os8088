@@ -30,6 +30,7 @@ import time
 sys.path.insert(0, "tools")
 import os88marty as M
 from os88mouse import Mouse
+from os88fixture import need
 from os88geom import WIN_SIZE, MAX_WIN
 
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_gla"
@@ -122,6 +123,8 @@ def open_dialog(m, mo):
     M.settle(m)
     return dlg(m)
 
+
+need("build/muptest.img")          # `all` builds nothing under tests/
 
 with M.launch("build/os8088-360.img", apps="build/muptest.img",
               machine=MACHINE) as m:

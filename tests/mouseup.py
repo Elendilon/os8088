@@ -22,6 +22,7 @@ import sys, struct, time
 sys.path.insert(0, "tools")
 import os88marty as M
 from os88mouse import Mouse
+from os88fixture import need
 
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_cga_gla"
 from os88geom import WIN_SIZE, MAX_WIN   # NOT a local copy: this one
@@ -75,6 +76,8 @@ def disk_win(m):
 def armw(m):
     return int.from_bytes(m.read(m.sym("ui_armw"), 2), "little")
 
+
+need("build/muptest.img")          # `all` builds nothing under tests/
 
 with M.launch("build/os8088-360.img", apps="build/muptest.img",
               machine=MACHINE) as m:

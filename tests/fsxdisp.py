@@ -60,6 +60,7 @@ import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dispcp                                                # noqa: E402
+from os88fixture import need                                 # noqa: E402
 
 # desk.inc's zone layout and files.inc's row layout both come from os88geom
 # now, and the zone's PITCH and HEIGHT are not constants at all - they were
@@ -98,6 +99,8 @@ def main(argv):
                          "means a VIDEO= build, and picks the boot gate's card")
     a = ap.parse_args(argv)
 
+    if a.apps == ap.get_default("apps"):
+        need(a.apps)               # `all` builds nothing under tests/
     if not os.path.exists(a.apps):
         sys.exit("fsxdisp: no %s - `make bench` builds it" % a.apps)
 

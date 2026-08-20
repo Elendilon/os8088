@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 os.chdir(ROOT)
 import os88marty, os88mouse, os88sym, dispcp                      # noqa: E402
+from os88fixture import need                                      # noqa: E402
 from os88rate import symbols, scan                                # noqa: E402
 
 # The SHIPPED build is a different rate path - trk_play picks tlog_xrate under
@@ -49,6 +50,7 @@ def check(name, got, want):
 def main():
     P, _ = symbols(DEFINES)
     S = os88sym.linear
+    need(DISK)                     # `all` builds nothing under tests/
     with os88marty.launch("build/os8088-360.img",
                           apps=DISK,
                           machine="os8088_5150_sb_gla", boot=False) as m:

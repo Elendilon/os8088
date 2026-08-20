@@ -36,6 +36,7 @@ import dispcp                                          # noqa: E402
 import os88marty                                       # noqa: E402
 import os88mouse                                       # noqa: E402
 import os88sym                                         # noqa: E402
+from os88fixture import need                           # noqa: E402
 
 S = os88sym.linear
 
@@ -62,6 +63,8 @@ def main():
     ap.add_argument("--adapter", default="cga", choices=sorted(MACHINE))
     ap.add_argument("--shot", default=None)
     a = ap.parse_args()
+
+    need("drvcalltest")            # `all` builds nothing under tests/
 
     fails = []
     img = os.path.getsize("build/drvcall.bin")
