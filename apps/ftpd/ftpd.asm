@@ -2222,6 +2222,8 @@ fd_reset_xfer:
     mov byte [fd_created], 0
     mov word [fd_lord], 0
     mov byte [fd_lmore], 0
+    mov word [fd_xbytes], 0
+    mov word [fd_xbytes+2], 0
     call fd_wdog_stamp              ; LAST, so the stamp records the counters
                                     ; this routine just zeroed rather than the
                                     ; finished transfer's - a fresh deadline
@@ -2312,6 +2314,60 @@ fd_post:
 ; fd_xfer_poll - push whatever transfer is running along by one step
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
+; fd_log_stall - one line naming WHERE a transfer died and what the wire said
+;
+; The field cannot attach a debugger, and the one thing every report of this
+; failure agreed on was a byte count - "always the exact same 106KB" - which
+; is the observation that ruled out a timing race and sent this looking at
+; the stack instead. So the server writes that number down itself, with the
+; socket's own state beside it: `Stalled: 106496 bytes, sk 3 q 0`.
+;
+; NSK_* is what NETV_STATUS answers in AH and the queued count in CX, so a
+; stall with the socket still UP and nothing queued is a different bug from
+; one with the socket already CLOSING - and telling those apart is most of
+; the remaining work (SPEC.md 77.19.1).
+; -----------------------------------------------------------------------------
+fd_log_stall:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, fd_outb2
+    mov si, fd_l_stall
+    call fd_dcat
+    mov ax, [fd_xbytes]
+    mov dx, [fd_xbytes+2]
+    call fd_dnum32
+    mov si, fd_l_stb
+    call fd_dcat
+    mov al, [fd_dhnd]               ; ...and what the DRIVER thinks of it
+    mov bh, NET_CLASS
+    mov bl, NETV_STATUS
+    call OSAPI_DRV_CALL
+    jc .nost
+    push cx
+    mov al, ah                      ; AH = NSK_*
+    xor ah, ah
+    call fd_dnum
+    mov si, fd_l_stq
+    call fd_dcat
+    pop ax                          ; CX = what is still queued
+    call fd_dnum
+.nost:
+    mov byte [di], 0
+    mov si, fd_outb2
+    call fd_log
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; fd_wdog_stamp / fd_wdog_check - the transfer watchdog (SPEC.md 77.19)
 ;
 ; PROGRESS IS MEASURED, NOT ASSUMED. The stamp is taken against a PROGRESS
@@ -2354,6 +2410,12 @@ fd_wdog_check:
     stc                             ; to a client that may not still be there
     ret
 .moved:
+    push cx                         ; ...and BANK HOW FAR, because a stall that
+    mov cx, ax                      ; says only "it stopped" sends the next
+    sub cx, [fd_wprog]              ; person looking in the wrong place
+    add [fd_xbytes], cx
+    adc word [fd_xbytes+2], 0
+    pop cx
     call fd_wdog_stamp
 .ok:
     pop bx
@@ -2381,9 +2443,11 @@ fd_xfer_poll:
     je .stor
     jmp .out
 .stalled:
-    mov si, fd_r426
-    call fd_xfail                   ; drops BOTH data handles and resets the
-    jmp .out                        ; transfer - the socket is what matters
+    call fd_log_stall               ; **THE LOG IS THE INSTRUMENT.** A stall
+    mov si, fd_r426                 ; that only says "it stopped" leaves the
+    call fd_xfail                   ; next person guessing; one that names the
+    jmp .out                        ; byte it stopped at, and what the socket
+                                    ; thought, is a measurement (SPEC.md 77.19.1)
 .list:
     call fd_send_stage
     jc .out                         ; still draining, or the wire is busy
@@ -2588,6 +2652,44 @@ fd_xdone:
     mov si, fd_r226
     call fd_reply
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_ferr_sel - AX = a FERR_* -> SI = the reply that is TRUE about it
+; out: SI = the string; preserves everything else
+;
+; **THE SERVER USED TO ANSWER 552 "disk full or protected" TO EVERY WRITE
+; FAILURE**, and the field found out the hard way what that costs. Uploading
+; `banana split.mod` failed instantly with "disk full or protected" on a
+; volume with 20MB free; the name was the problem - 8.3 has no room for
+; twelve characters and a space - and the reply sent the investigation at the
+; disk instead. Renaming it to `banana.mod` worked.
+;
+; The kernel has said which it was all along (FERR_NAME 3, FERR_FULL 6,
+; FERR_PROT 8 - os88api.inc); this package threw the distinction away one
+; instruction after receiving it. A reply that names the wrong cause is worse
+; than a vague one, because it is ACTED on: SPEC.md 47 rule 3's rule about
+; greying a fact rather than a guess, one layer out at the wire.
+; -----------------------------------------------------------------------------
+fd_ferr_sel:
+    cmp ax, FERR_NAME
+    je .name
+    cmp ax, FERR_FULL
+    je .full
+    cmp ax, FERR_DIRFULL
+    je .full
+    cmp ax, FERR_PROT
+    je .prot
+    mov si, fd_r552                 ; FERR_IO, FERR_NODISK and anything new:
+    ret                             ; the honest catch-all is "it failed"
+.name:
+    mov si, fd_r553
+    ret
+.full:
+    mov si, fd_r552f
+    ret
+.prot:
+    mov si, fd_r550w
     ret
 
 ; --- fd_xfail - it did not. SI = the reply to send ---------------------------
@@ -3054,7 +3156,8 @@ fd_split:
     mov si, fd_comp
     mov di, fd_leaf
     call fd_copyz
-    pop di
+    call fd_mangle83                ; ...and the leaf is 8.3 by the time ANY
+    pop di                          ; command sees it (SPEC.md 77.20)
     pop dx
     pop cx
     pop bx
@@ -3070,8 +3173,9 @@ fd_split:
     mov si, [fd_pathp]
     mov di, fd_leaf
     call fd_copyz
-    pop di
-    pop dx
+    call fd_mangle83                ; the bare-name exit takes the same path,
+    pop di                          ; or `STOR long name.mod` in the served
+    pop dx                          ; root would still refuse
     pop cx
     pop bx
     pop ax
@@ -3084,6 +3188,237 @@ fd_split:
     pop bx
     pop ax
     stc
+    ret
+
+; =============================================================================
+; fd_mangle83 - collapse [fd_leaf] to a name 8.3 can hold (SPEC.md 77.20)
+;
+; `banana split.mod` becomes `BANANA~1.MOD`, the way every DOS-era system
+; showed a long name, rather than being refused. The field asked for exactly
+; this: a refusal that explains itself is honest, but a name that WORKS is
+; better, and the client has no way to know this machine's rules in advance.
+;
+; **A NAME THAT IS ALREADY LEGAL IS LEFT ALONE**, and that is what makes the
+; mapping round-trip: LIST shows `BANANA~1.MOD`, the client asks for
+; `BANANA~1.MOD`, and that name passes through here untouched, so RETR, DELE,
+; SIZE and RNFR all reach the file LIST advertised. Mangling unconditionally
+; would collapse `BANANA~1.MOD` to `BANANA~1.MOD` by luck and something like
+; `README.TXT` to `README~1.TXT` by rule, breaking every name it had just
+; shown.
+;
+; It is DETERMINISTIC - always `~1`, never a search for a free `~2` - and
+; that is a deliberate trade rather than an oversight. A counter has to be
+; resolved against the directory, which makes the name depend on what is
+; already there: the same upload would land on a different name on a
+; different disk, and DELE could not compute the name it had listed. The cost
+; is that two long names sharing their first six legal characters collapse
+; together, and the second STOR replaces the first - which is what STOR means
+; anyway. `~1` is a courtesy to a human reading the listing, not a counter.
+; =============================================================================
+fd_mangle83:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call fd_is83                    ; already legal? then it is not ours to
+    jnc .out                        ; touch
+    ; --- the extension: the LAST dot, up to three legal characters ---------
+    mov si, fd_leaf
+    call fd_lastdot                 ; BX -> the last '.', or 0
+    mov di, fd_mext
+    xor cx, cx
+    or bx, bx
+    jz .noext
+    mov si, bx
+    inc si
+.ex:
+    mov al, [si]
+    or al, al
+    jz .noext
+    call fd_c83                     ; upcases, CF=1 = drop it
+    jc .exn
+    cmp cx, 3
+    jae .noext
+    mov [di], al
+    inc di
+    inc cx
+.exn:
+    inc si
+    jmp short .ex
+.noext:
+    mov byte [di], 0
+    ; --- the stem: up to SIX legal characters before that dot -------------
+    mov si, fd_leaf
+    mov di, fd_leaf
+    xor cx, cx
+.st:
+    mov al, [si]
+    or al, al
+    jz .stn
+    cmp si, bx                      ; stop AT the last dot (bx = 0 means no
+    je .stn                         ; dot, and si never equals 0)
+    call fd_c83
+    jc .stnx
+    cmp cx, 6
+    jae .stn
+    mov [di], al
+    inc di
+    inc cx
+.stnx:
+    inc si
+    jmp short .st
+.stn:
+    jcxz .nostem
+.tilde:
+    mov word [di], '~1'             ; two bytes, low first: '~' then '1'
+    add di, 2
+    mov si, fd_mext
+    cmp byte [si], 0
+    je .done
+    mov byte [di], '.'
+    inc di
+.ec:
+    mov al, [si]
+    or al, al
+    jz .done
+    mov [di], al
+    inc di
+    inc si
+    jmp short .ec
+.done:
+    mov byte [di], 0
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.nostem:
+    mov di, fd_leaf                 ; nothing legal survived - `...` or a name
+    mov si, fd_s_file               ; that is all spaces. It still has to
+    call fd_copyz                   ; become SOMETHING, and FILE~1 is a name a
+    mov di, fd_leaf                 ; person can see and delete
+    add di, 4
+    jmp short .tilde
+
+; --- fd_is83 - is [fd_leaf] already a legal 8.3 name? CF=0 = yes ------------
+; The kernel's dskw_name83 rule, asked rather than assumed: stem 1..8 legal
+; characters, at most one dot, extension 1..3 if the dot is there.
+fd_is83:
+    push ax
+    push cx
+    push si
+    mov si, fd_leaf
+    xor cx, cx
+.s:
+    mov al, [si]
+    or al, al
+    jz .send
+    cmp al, '.'
+    je .dot
+    call fd_c83
+    jc .no
+    inc cx
+    cmp cx, 8
+    ja .no
+    inc si
+    jmp short .s
+.send:
+    jcxz .no                        ; empty
+    jmp short .yes
+.dot:
+    jcxz .no                        ; '.TXT' has no stem
+    inc si
+    xor cx, cx
+.e:
+    mov al, [si]
+    or al, al
+    jz .eend
+    cmp al, '.'
+    je .no                          ; a second dot
+    call fd_c83
+    jc .no
+    inc cx
+    cmp cx, 3
+    ja .no
+    inc si
+    jmp short .e
+.eend:
+    jcxz .no                        ; a trailing dot
+.yes:
+    pop si
+    pop cx
+    pop ax
+    clc
+    ret
+.no:
+    pop si
+    pop cx
+    pop ax
+    stc
+    ret
+
+; --- fd_c83 - AL upcased; CF=1 = 8.3 may not hold it ------------------------
+; dskw_char_x's set, mirrored: A-Z, 0-9 and dskw_syms. A SPACE is not in it,
+; which is what `banana split.mod` fell foul of.
+fd_c83:
+    cmp al, 'a'
+    jb .nf
+    cmp al, 'z'
+    ja .nf
+    sub al, 32
+.nf:
+    cmp al, 'A'
+    jb .na
+    cmp al, 'Z'
+    jbe .ok
+.na:
+    cmp al, '0'
+    jb .sym
+    cmp al, '9'
+    jbe .ok
+.sym:
+    push si
+    mov si, fd_syms
+.sc:
+    cmp byte [si], 0
+    je .bad
+    cmp al, [si]
+    je .gs
+    inc si
+    jmp short .sc
+.gs:
+    pop si
+.ok:
+    clc
+    ret
+.bad:
+    pop si
+    stc
+    ret
+
+; --- fd_lastdot - SI = a NUL string -> BX = the last '.', or 0 --------------
+fd_lastdot:
+    push ax
+    push si
+    xor bx, bx
+.l:
+    mov al, [si]
+    or al, al
+    jz .out
+    cmp al, '.'
+    jne .n
+    mov bx, si
+.n:
+    inc si
+    jmp short .l
+.out:
+    pop si
+    pop ax
     ret
 
 ; --- fd_lastsep - AX = non-zero if the path at [fd_pathp] holds a '/' --------
@@ -3886,8 +4221,10 @@ fd_do_write:
     call fd_xdone
     jmp short .out
 .no:
-    call fd_unbank
-    mov si, fd_r552
+    push ax                         ; THE FERR, and fd_unbank must not eat it -
+    call fd_unbank                  ; it is the whole difference between "your
+    pop ax                          ; name is wrong" and "my disk is full"
+    call fd_ferr_sel
     call fd_xfail
 .out:
     pop es
@@ -3972,7 +4309,7 @@ fd_do_mkd:
     jc .no
     mov si, fd_leaf
     call OSAPI_FILE_MKDIR
-    jc .no
+    jc .bad
     call fd_unbank
     ; **257 CARRIES THE NAME, QUOTED**, which is PWD's format and not a
     ; decoration: RFC 959 gives MKD the same reply type, and a client parses
@@ -3991,6 +4328,14 @@ fd_do_mkd:
     mov byte [di], 0
     pop di
     mov si, fd_outb2
+    call fd_reply
+    pop si
+    ret
+.bad:
+    push ax                         ; MKD fails for the SAME two reasons STOR
+    call fd_unbank                  ; does - a name 8.3 cannot hold, or a full
+    pop ax                          ; volume - and said "no such directory" to
+    call fd_ferr_sel                ; both, which is true of neither
     call fd_reply
     pop si
     ret
@@ -6311,6 +6656,14 @@ fd_r550w:   db '550 The server is read only', 0
 fd_r551:    db '551 Read failed', 0
 fd_r552:    db '552 Write failed - disk full or protected', 0
 fd_r426:    db '426 Transfer stalled - no data for 90 seconds', 0
+fd_r553:    db '553 File name not allowed - 8.3 only, no spaces', 0
+fd_l_stall: db 'Stalled: ', 0
+fd_l_stb:   db ' bytes, sk ', 0
+fd_l_stq:   db ' q ', 0
+fd_s_file:  db 'FILE', 0
+fd_syms:    db '$', '%', 0x27, '-', '_', '@', '~', 0x60
+            db '!', '(', ')', '{', '}', '^', '#', '&', 0
+fd_r552f:   db '552 No free space on the volume', 0
 
 ; --- the listing's fixed columns ---------------------------------------------
 ; The permission bits are what an `ls -l` parser reads to tell a file from a
@@ -6511,7 +6864,13 @@ fd_lognew   equ fd_cdirty + 1                   ; byte: rows appended since the
                                      ; glass last agreed with the ring
 fd_scrn     equ fd_lognew + 1                   ; word: ...as rows, banked
 fd_scry     equ fd_scrn + 2                     ; word: ...and as pixels
-fd_wdog     equ fd_scry + 2                     ; word: the tick the transfer
+fd_xbytes   equ fd_scry + 2                     ; 32-bit: bytes this transfer
+                                     ; has actually MOVED, for the stall log
+fd_mext     equ fd_xbytes + 4                   ; 4: the extension fd_mangle83
+                                     ; lifted out, while it rewrites the stem
+                                     ; UNDER it - the two overlap in fd_leaf,
+                                     ; so the ext cannot stay where it was
+fd_wdog     equ fd_mext + 4                     ; word: the tick the transfer
                                      ; last MOVED A BYTE (SPEC.md 77.19)
 fd_wprog    equ fd_wdog + 2                     ; word: how far it had got when
                                      ; that was stamped, so "moved" is measured

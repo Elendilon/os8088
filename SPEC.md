@@ -59804,3 +59804,46 @@ would have to be minutes rather than seconds to be honest, and nothing in the
 field report points at it. It is named so that the next person to see a
 wedged server knows the second door exists.
 
+### 77.20 A long name is COLLAPSED, not refused
+
+`banana split.mod` used to fail instantly with **`552 disk full or protected`**
+on a volume with 20MB free. Two separate faults met in that one reply.
+
+**The name was the problem and the server said the disk was.** 8.3 has no
+room for twelve characters and a space, so `dskw_name83` refused it and
+returned `FERR_NAME` — which this package threw away one instruction after
+receiving it, mapping every write failure to the same `552`. The kernel had
+distinguished `FERR_NAME`, `FERR_FULL` and `FERR_PROT` all along
+(os88api.inc). `fd_ferr_sel` now picks the reply that is TRUE about the
+failure, at STOR and at MKD alike. **A reply naming the wrong cause is worse
+than a vague one, because it is acted on** — it sent a field investigation at
+the disk, and the disk was innocent.
+
+**But the right answer is not a better refusal.** The client cannot know this
+machine's rules in advance, and a name that WORKS beats one that explains
+itself: `fd_mangle83` collapses `banana split.mod` to **`BANANA~1.MOD`**, the
+way every DOS-era system displayed a long name. It runs inside `fd_split`, on
+both of its exits, so STOR, RETR, DELE, SIZE, MKD and RNFR all share one
+mapping rather than six.
+
+**A name that is already legal is left alone, and that is what makes it
+round-trip.** LIST shows `BANANA~1.MOD`; the client asks for
+`BANANA~1.MOD`; that name is valid 8.3 and passes through untouched, so it
+reaches the file LIST advertised. Mangling unconditionally would turn
+`README.TXT` into `README~1.TXT` and break every name the server had just
+printed.
+
+**It is DETERMINISTIC — always `~1`, never a search for a free `~2`.** A
+counter would have to be resolved against the directory, which makes the
+stored name depend on what is already there: the same upload would land
+differently on two disks, and DELE could not compute the name it had listed.
+The cost is that two long names sharing their first six legal characters
+collapse together and the second STOR replaces the first — which is what STOR
+means anyway. The `~1` is a courtesy to a human reading the listing, not a
+counter. A name with nothing legal in it at all becomes `FILE~1`, because it
+still has to be something a person can see and delete.
+
+`553` survives for the case the collapse cannot reach, and `fd_c83` mirrors
+`dskw_char_x`'s set — including the space's absence from it, which is what
+`banana split.mod` fell foul of.
+

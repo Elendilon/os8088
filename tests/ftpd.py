@@ -438,6 +438,31 @@ def connect():
     return f
 
 
+def stor_paced(f, name, blob, tries=4):
+    """One STOR, retried on the TRANSIENT 425.
+
+    **BACK-TO-BACK TRANSFERS CAN LEGITIMATELY BE REFUSED.** The stack has
+    NET_SOCKS = 4 handles for the whole machine (netpkg.inc), the listener
+    holds one and the control connection another, so a data socket that is
+    still closing when the next PORT arrives leaves nothing to hand out -
+    and the server says 425, which is the TRANSIENT code, deliberately (it
+    used to say 501, which tells a client never to try again). This paces
+    and retries rather than asserting the server has an infinite supply,
+    because the refusal is correct behaviour and only the timing is the
+    harness's problem.
+    """
+    last = None
+    for _ in range(tries):
+        try:
+            f.storbinary("STOR " + name, io.BytesIO(blob))
+            time.sleep(1.2)
+            return
+        except ftplib.error_temp as e:
+            last = e
+            time.sleep(2.5)
+    raise last
+
+
 def retr(f, name):
     buf = io.BytesIO()
     f.retrbinary("RETR " + name, buf.write)
@@ -687,6 +712,70 @@ def run_gate(m, mo, fails):
         fails.append("a client trusting the 227 could not transfer: %s: %s "
                      "- the PASV override is not working, which is the whole "
                      "reason it exists" % (type(e).__name__, e))
+    f.quit()
+
+    say("--- 8b. a long name is COLLAPSED, not refused (SPEC.md 77.20) ---")
+
+    # THE FIELD'S OTHER HALF. `banana split.mod` failed instantly with
+    # `552 disk full or protected` on a volume with 20MB free: the name was
+    # the problem and the reply named the disk, which sent the investigation
+    # the wrong way entirely. Now it is collapsed the way every DOS-era
+    # system displayed a long name.
+    f = connect()
+    f.login("os8088", "os8088")
+    f.set_pasv(False)
+    blob = b"M.K." + bytes(range(256)) * 4
+    want = [("banana split.mod", "BANANA~1.MOD"),   # a space AND too long
+            ("elysium longname.mod", "ELYSIU~1.MOD"),
+            ("no_ext_at_all_here", "NO_EXT~1"),     # no extension at all
+            ("....", "FILE~1")]                     # nothing legal survives
+    for sent, _ in want:
+        try:
+            stor_paced(f, sent, blob)
+        except Exception as e:
+            fails.append("STOR %r was refused (%s) - SPEC.md 77.20 says it is "
+                         "collapsed, not refused" % (sent, str(e).strip()))
+    rows = []
+    f.retrlines("LIST", rows.append)
+    have = {r.split()[-1] for r in rows if r.split()}
+    for sent, expect in want:
+        if expect in have:
+            say("%-22r -> %s" % (sent, expect))
+        else:
+            fails.append("STOR %r should have landed as %s; the directory "
+                         "holds %s" % (sent, expect, sorted(have)))
+
+    # A NAME THAT IS ALREADY LEGAL IS LEFT ALONE - the property that makes
+    # the mapping round-trip, because LIST prints the stored name and the
+    # client asks for it back.
+    stor_paced(f, "PLAIN.TXT", blob)
+    rows = []
+    f.retrlines("LIST", rows.append)
+    have = {r.split()[-1] for r in rows if r.split()}
+    if "PLAIN.TXT" not in have:
+        fails.append("PLAIN.TXT is already a legal 8.3 name and must pass "
+                     "through untouched; the directory holds %s" % sorted(have))
+    elif "PLAIN~1.TXT" in have:
+        fails.append("PLAIN.TXT was mangled to PLAIN~1.TXT - mangling a legal "
+                     "name breaks every name LIST just printed")
+    else:
+        say("PLAIN.TXT untouched, so what LIST prints is what RETR takes")
+
+    # ...and the collapsed name really is fetchable by the name LIST gave.
+    buf = io.BytesIO()
+    for _ in range(4):
+        try:
+            buf = io.BytesIO()
+            f.retrbinary("RETR BANANA~1.MOD", buf.write)
+            break
+        except ftplib.error_temp:
+            time.sleep(2.5)
+    if buf.getvalue() != blob:
+        fails.append("RETR BANANA~1.MOD did not return what STOR "
+                     "'banana split.mod' sent - the mapping does not "
+                     "round-trip")
+    else:
+        say("RETR BANANA~1.MOD is byte-exact, so the collapse round-trips")
     f.quit()
 
     # === 9. AUTHENTICATION (SPEC.md 77.15) ==================================
