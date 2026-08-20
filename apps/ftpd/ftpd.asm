@@ -1926,6 +1926,31 @@ fd_pasv_port:
     pop bx
     ret
 
+; --- fd_log_pasv - the endpoint the 227 just named --------------------------
+; `Data port 2048` in the window, at the moment it matters. A passive
+; transfer needs the DATA port reachable as well as port 21, and behind a
+; port forward or a NAT that is a second rule somebody has to write - so the
+; number goes on the glass rather than only into a reply the user never sees.
+fd_log_pasv:
+    push ax
+    push dx
+    push di
+    push si
+    mov di, fd_outb2
+    mov si, fd_l_dport
+    call fd_dcat
+    mov ax, [fd_dport]
+    xor dx, dx
+    call fd_dnum32
+    mov byte [di], 0
+    mov si, fd_outb2
+    call fd_log
+    pop si
+    pop di
+    pop dx
+    pop ax
+    ret
+
 ; --- fd_data_listen - open a passive listener. out CF=1 = it could not -------
 fd_data_listen:
     push bx
@@ -1996,7 +2021,11 @@ fd_c_pasv:
     mov byte [di], 0
     mov si, fd_outb2
     call fd_reply
-    jmp short .out
+    call fd_log_pasv                ; **AND SAY WHICH PORT.** The log said
+    jmp short .out                  ; `PASV` and nothing else, so a client
+                                    ; refused at the data port looked like a
+                                    ; server fault when it was a port that
+                                    ; nothing forwarded (SPEC.md 77.22)
 .noaddr:
     mov si, fd_r425a
     call fd_reply
@@ -4970,6 +4999,10 @@ fd_start:
     call fd_pathroot
     mov si, fd_l_listen
     call fd_log
+    mov si, fd_l_prange             ; the range a passive transfer will use,
+    call fd_log                     ; said ONCE and before anything needs it -
+                                    ; forwarding port 21 alone is the single
+                                    ; commonest way to make PASV unreachable
     call fd_hire
     jmp short .out
 .badroot:
@@ -6611,6 +6644,8 @@ fd_s_ctl:   db 'Client connected', 0
 fd_s_err:   db '', 0
 fd_s_onport: db ' port ', 0
 fd_s_at:    db ' at ', 0
+fd_l_dport: db 'Data port ', 0
+fd_l_prange: db 'Passive data ports 2048-2055', 0
 fd_s_noaddr: db '(no address)', 0
 fd_s_start: db 'Start', 0
 fd_s_stop:  db 'Stop', 0

@@ -59902,3 +59902,37 @@ transfer completing in a quarter of the time the failure it recovers from
 should stop happening. It is written down so the next person to see `425`
 after a failure looks at `TCP_RTMAX` and not at `fd_data_drop`.
 
+### 77.22 PASV needs the DATA ports forwarded too, and the window now says so
+
+A field session with a working control connection could authenticate and
+never list: **`Transfer channel can't be opened. Reason: No connection could
+be made because the target machine actively refused it.`** "Actively refused"
+is a RST, so the client had a `227`, dialled the address in it, and found
+nothing.
+
+The machine was behind a port forward — **external 2121 to internal 21** —
+and that is the whole of it. A passive transfer needs TWO things reachable:
+port 21 for commands, and whichever **data** port the `227` names. Forwarding
+21 alone gets you a login and nothing else, which is exactly the shape the
+report had. `fd_pasv_port` rotates over `FD_PASVP`..`FD_PASVP + FD_PASVN - 1`
+— **2048 to 2055** — so those eight need forwarding as well. The Makefile's
+own `ETHFWD=1` has always done this (`hostfwd` for 2121 *and* the `FTPPASV`
+range), with a comment saying that without it "PASV connects to nothing and
+the gate reads as a server bug". The gate knew; the window did not say.
+
+**So the window says it now**, and this is the actual defect rather than the
+configuration. The log printed `PASV` and stopped — the one number that
+matters, the port it had just told the client to dial, went only into a reply
+the user never sees. Two lines fix it: `Passive data ports 2048-2055` once at
+Start, before anything needs it, and `Data port 2048` on each PASV, at the
+moment it matters. A refusal at the data port is then a number on the glass
+next to a number in the router, instead of a server that looks broken.
+
+**The PASV override is a different knob and does not help here** (§77.12.2).
+It rewrites the ADDRESS in the `227` for a server whose own IP is not the one
+the client can reach; it cannot make an unforwarded port reachable, and
+setting it correctly while the data ports stay closed produces exactly this
+error. Active mode avoids the problem — the client listens and the server
+dials out — which is why the same machine could transfer in active mode and
+not in passive.
+
