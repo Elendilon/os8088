@@ -116,6 +116,100 @@ below, is the short version of it.**
 
 ---
 
+## The regression suite: three tiers and a budget
+
+**`tools/os88test.py` is how you run the tests. `tests/suite.py` is the list
+of them.** Before it existed this directory held ninety test scripts and no
+way to enumerate them, so running "the tests" meant remembering which ones
+existed - and the ones nobody remembered were reliably the ones that had
+stopped working. That is `tools/checkdocs.py`'s own lesson one level up: *a
+check nobody types has exactly that failure mode.*
+
+```
+python3 tools/os88test.py fast      # every build. ~3s, host-side only
+python3 tools/os88test.py full      # BEFORE A MERGE. ~1 minute
+python3 tools/os88test.py soak      # everything. No budget
+python3 tools/os88test.py --list    # what is registered, and why
+python3 tools/os88test.py soak -k 'disp*'   # just the ones about displays
+```
+
+`make` runs the `fast` tier itself, as a prerequisite of `all`, for the same
+reason `checkdocs` is in there: a gate you have to remember is not a gate.
+`make test-full` and `make test-soak` are the other two.
+
+### What each tier is for
+
+| tier | budget | what it does | when |
+|---|---|---|---|
+| `fast` | **30s** (uses ~3) | Host-side only. Reads what `make` just built and checks what breaks SILENTLY. | Every build |
+| `full` | **10 min** (uses ~1) | `fast`, plus the eighteen knob kernels and `kern_small`, plus the C toolchain, plus the emulator smoke test. | **Before a merge** |
+| `soak` | none | The other sixty-odd gates in `tests/`, one subject each. | When you touched that subsystem |
+
+The tiers are **cumulative**: `full` runs everything `fast` does, `soak`
+runs everything.
+
+### The budget is enforced, and that is the feature
+
+**The runner FAILS the tier when the wall clock overruns it**, green rows or
+not. A suite with no ceiling grows until it is too slow to run, and a suite
+too slow to run is not run - which is the state this repo was already in with
+zero seconds on the clock. So adding a row that does not fit is a visible,
+failing decision about what to take out or move down a tier, taken by the
+author adding it.
+
+Each row also declares its own expected seconds and is reported when it
+overruns them. Without that the tier budget is spent by whichever row happens
+to run last, and the one that actually got slower is invisible.
+
+### Why `full` is CURATED and not "all of them"
+
+This is the thing to understand before adding a row to it. Measured here, on
+a cycle-accurate 5150 in a container:
+
+  * a MartyPC boot to a settled desktop is **7.8 seconds**;
+  * the emulator tests in `tests/` are **40-75 seconds each**, because each
+    one boots its own machine and then drives a session through it;
+  * and they **cannot run in parallel**. Every one drives the debug server on
+    127.0.0.1:9001 - one port, one connection, and a second client does not
+    error, it HANGS (docs/MARTYPC-DEBUG.md). The runner marks them `serial`
+    and gives them one lane behind the host-side rows.
+
+So ten minutes is about **eight** emulator tests, not fifty. That is not a
+limitation to engineer away, it is what the machine costs. The honest response
+is to say which eight and put the rest in `soak`, where they are still one
+command away.
+
+**What earns a `full` row is breadth per second.** `tests/bootsmoke.py` is the
+model: eight seconds, and it exercises the boot sector, FAT12, the `int 13h`
+splitter, adapter detection, the heap ladder, `drv_boot` and the first paint -
+so it fails for almost any serious regression, wherever it was. A row that can
+only fail for one narrowly-scoped reason belongs in `soak`, next to the change
+that would break it.
+
+### The host-side tests, and what each is defending
+
+They are in `tests/unit/`, they need nothing but `python3`, and between them
+they make about 4,300 assertions in two seconds. Each one exists because of a
+failure this tree has actually had:
+
+| row | what it would have caught |
+|---|---|
+| `api-abi` | The API table decoded out of `build/kernel.bin` and compared with `apps/os88api.inc`. **The silent merge collision** CLAUDE.md asks to be checked by hand after every merge: two branches appending to the same tail merge CLEAN, and the result is two cells pointing at each other's addresses with nothing to say so until a package calls one and gets the other. |
+| `mirror` | A constant written down in two files must agree in both - there is no linker here to notice. It found `SPL_RESIDENT` at 9 in `splash.inc` and `boot.asm` and **8 in `boot/boothd.asm`**, which made the hard-disk boot sector tick the splash into a module not yet loaded. |
+| `image` | The seven shipped floppies walked by an **independent** FAT12 reader: `KERNEL.SYS` contiguous (the boot sector has no chain walker - a fragmented kernel builds, verifies and mounts cleanly and does not boot), a byte-exact standard BPB (SPEC.md 19.3 - DOS reads a floppy's geometry from its own table), SPEC.md 19.6's attributes. |
+| `pkg` | Package, driver and module headers - and every file on every image proved byte-identical to the artifact in `build/` it came from. *"A stale image is indistinguishable from a change that did nothing."* |
+| `diskverify` | The tree's own fsck, which `make` ran on the C, Word and RunCPM disks and on **none** of the seven the default build ships. |
+| `asmrules` | Unreachable code after an unconditional jump - CLAUDE.md's own worked example is the tracker shipping *"two `jmp short`s in a row"* which assembles, boots, and puts a field bug back. And that a `cpu 8086` is reachable from every root; `boot/boot.asm` had none at all. |
+| `registry` | Every test in `tests/` is registered in a tier or says why not. **This is the row that stops the suite going back to what it was.** |
+
+### Adding a test
+
+Add a row to `tests/suite.py`. `soak` is a real answer and costs nobody any
+budget; the `registry` row will fail the build until you do, which is the
+point. Say in `why=` what breaks if the check is not there - a check that
+fails months from now is read by somebody who does not know what it was
+defending.
+
 ## The matrix
 
 The **MartyPC** column is "is this the right tool for it", not "does the
@@ -1475,6 +1569,63 @@ Six rows, all of which must read **PASS**:
 Before the double-click, the listing itself is half the test: `TEST.AST` must
 already carry a **document page icon**, and a *bare* one, because the program
 ships no glyph to inset.
+
+### `tests/dispclose.py` — the close negotiation and the alert (SPEC.md 75, 27.15)
+
+```
+make && python3 tests/dispclose.py
+python3 tests/dispclose.py --machine os8088_5150_herc_gla
+python3 tests/dispclose.py --machine os8088_xt_vga
+make small && python3 tests/dispclose.py --small
+```
+
+A MartyPC gate, one boot per run, driving Note Pad through every branch of
+closing with unsaved work: a clean note closes silently; a dirty one refuses
+and puts the alert up; Cancel, the alert's own close box (which is
+`ASKA_CANCEL` through `uia_reap`, not a button) and Don't Save all behave;
+Save on an **unnamed** note raises the Save As dialog and its commit is the
+quit; Save on a **named** one writes and closes with no dialog at all. It
+ends by reading `NOTES.TXT` **off the floppy with `os88flush`** rather than
+asking os8088 whether it saved — docs/FIELD-NOTES.md 4's rule, the writer and
+the reader being the same FAT12 code.
+
+Four things in it are worth copying into the next gate of this shape.
+
+**The alert is found in the WINDOW TABLE, never by looking at pixels.** It is
+a package's own window (SPEC.md §75.3), so no kernel word names it — what it
+IS, in kernel terms, is an UNOWNED window (`wm_owner` = 0xFF) that is not one
+of the windows the test already knows about. **Exclude the file dialog**,
+which is unowned too and which Note Pad raises from the alert's own Save
+button: without that, the moment the feature works reads as a failure.
+
+**A shared rect keeps the drawing and the hit test CONSISTENT; it cannot make
+them RIGHT.** `os88ui_arect` is called by both, and two register bugs in it
+(a `mul` clobbering the row origin, then a callee answering in the register
+that banked the click's x) each produced buttons that drew perfectly and
+could not be clicked — because the painter passes the index and never passes
+the point. The gate is what caught both, and the tell for the second was a
+click on **Cancel** opening a Save As dialog.
+
+**A settle is not a launch.** `dispcp.open_named` ends in `settle`, and a
+settle is two identical frames a second apart — which a package LOAD
+satisfies, because the machine is frozen under the gfx lock for the whole of
+it and the screen is perfectly still. `wait_launch` polls the window table
+instead. The big build got away without it, which is the worse of the two
+outcomes.
+
+**A scratch disk is rebuilt, never cached on existence.** The first version
+skipped `os88disk.py` when `build/npclose.img` was already there, so the gate
+ran an earlier build's Note Pad and reported *its* behaviour — an hour spent
+on a package whose source and whose memory disagreed.
+
+**`--small` is the one gate here that drives `kern_small`, and it needs two
+things nothing else does**: the symbol map has to be asked for explicitly
+(`os88sym.syms(("KERN_SMALL",), check=False)` — `linear` proves its map
+against `build/kernel.bin`, which is the big build), and **`WIN_SIZE` is 28
+there, not 34**, because `W_ONDRAG`, `W_ONTIMER` and `W_TIMER` are inside
+`%ifdef KERN_BIG`. Read with 34 the window table looks plausible for slot 0
+and is nonsense from slot 1 on, so a visible window reads as "not used" —
+which is exactly how that hour was spent the second time.
 
 ## Modelling the old machine from a fast one
 

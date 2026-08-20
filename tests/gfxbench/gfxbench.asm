@@ -19,6 +19,13 @@
 ;   make test VIDEO=herc HERCSEG=0x7000 TESTAPPS=build/bench.img
 ;   make test VIDEO=cga                 TESTAPPS=build/bench.img
 ;
+; The report is a FILE, and `tools/os88flush.py` is how it reaches the host -
+; MartyPC keeps the guest's writes in RAM, so nothing lands on the image until
+; something spends them. `os88flush.Flush(marty=m).volume(N).read(...)` from a
+; driver script, or `os88flush.py <addr> get N <FILE> <out>` from the shell.
+; DO NOT page it off the screen: tests/benchlib.inc's bl_save header has the
+; recipe and docs/TESTING.md has the three traps in front of the RUN.
+;
 ; ...but see PERFORMANCE.md Part 3 and Part 4 before quoting anything from a
 ; QEMU run: the microsecond column there is the HOST's speed. Under
 ; `-icount shift=3,sleep=off` the counts column is guest INSTRUCTIONS, which is
@@ -1299,6 +1306,28 @@ gb_prims:
     mov si, gb_r_xr
     xor al, al
     call bl_run
+
+    ; THE DRAG/ZOOM OUTLINE AT WINDOW SIZE, and one row of the same width to
+    ; separate the two terms in it. An outline is four strips and the two
+    ; VERTICALS are one framebuffer read-modify-write per scan line, so the
+    ; cost of the transient overlay every window animation would be built on
+    ; is dominated by its HEIGHT, not by its area - and the 64x64 row above
+    ; is far too small to show that. (256x128 - gb_boxfull) minus (256x1 -
+    ; gb_boxrow) is 252 vertical scan lines and nothing else.
+    call gb_boxfull
+    mov word [bl_n], 6
+    mov word [bl_body], gb_b_xrect
+    mov si, gb_r_xrb
+    xor al, al
+    call bl_run
+    call gb_boxrow
+    mov word [bl_n], 24
+    mov word [bl_body], gb_b_xrect
+    mov si, gb_r_xrr
+    xor al, al
+    call bl_run
+    call gb_box64                   ; ...and put the sandbox back, or the blit
+                                    ; below inherits a one-row rect
 
     mov word [gb_src], gb_bsolid    ; the blit, both ways round
     mov word [bl_n], 12
@@ -2742,6 +2771,8 @@ gb_r_gy:   db 'GFX_FILL_GRAY 64x64', 0
 gb_r_pt:   db 'GFX_FILL_PAT 64x64', 0
 gb_r_xf:   db 'GFX_XOR_FILL 64x64', 0
 gb_r_xr:   db 'GFX_XOR_RECT 64x64', 0
+gb_r_xrb:  db 'GFX_XOR_RECT 256x128', 0
+gb_r_xrr:  db 'GFX_XOR_RECT 256x1', 0
 gb_r_bs:   db 'GFX_BLIT4 solid', 0
 gb_r_bn:   db 'GFX_BLIT4 4px runs', 0
 gb_r_sc:   db 'GFX_SCROLL 256x128', 0

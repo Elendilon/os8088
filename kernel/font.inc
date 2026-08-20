@@ -534,13 +534,34 @@ font_ink:
     je .out                     ; not zeroed by -f bin
     push ax
     mov al, ch
+    cmp byte [gfx_dis], 0       ; DISABLED IS ASKED FIRST (SPEC.md 76.6). It
+    je .ink                     ; used to be asked only after `cmp al, 0xFF`
+    mov byte [font_dith], 1     ; sent a WHITE pen straight to .white, which
+%ifndef DISINK0                 ; was sound while ink was black by definition
+    mov al, [gfx_disink]        ; (`make DISINK0=1` is the A/B: the reduction
+%endif                          ; below then sends every grey to black again)
+                                ; - and under the Dark theme the chrome's ink
+                                ; IS white, so a greyed caption came out
+                                ; SOLID and pixel-identical to a live one:
+                                ; SPEC.md 47 rule 1's own failure, arriving
+                                ; through the renderer rather than a caller
+                                ;
+                                ; **AND THE STIPPLE IS APPLIED TO THE LIVE
+                                ; INK'S DIRECTION, NOT TO THE GREY** (SPEC.md
+                                ; 76.6.1). The reduction below sends anything
+                                ; that is not 0xFF to BLACK, and every
+                                ; disabled pen in the machine is a middle grey
+                                ; - so the checkerboard was always laid on
+                                ; black, which is a legible stipple on white
+                                ; and NOTHING AT ALL on Dark's black chrome.
+                                ; [gfx_disink] is what the pen that set the
+                                ; flag says a greyed glyph stipples in, and it
+                                ; is that pen's own live ink: black for the
+                                ; content pens, [thm_inkc] for the chrome's
+.ink:
     call gfx_ink                ; CH is untouched by it - still the index
     cmp al, 0xFF                ; only pure white lights a mono pixel
     je .white
-    cmp byte [gfx_dis], 0
-    je .black
-    mov byte [font_dith], 1     ; disabled: black ink, half the pixels
-.black:
     xor al, al
 .white:
     mov ch, al

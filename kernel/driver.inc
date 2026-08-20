@@ -465,7 +465,14 @@ CFG_VDL     equ 8               ; db: [vid_dlay], where display 1 sits. Both
                                 ; CFG_SCH's terms: a byte from a future
                                 ; version leaves the default alone rather
                                 ; than selecting nonsense
-CFG_DBLOB   equ 9               ; DRV_BLOB_SZ bytes: A DRIVER'S OWN SETTINGS,
+CFG_THM     equ 9               ; db: [thm_kind], the theme (SPEC.md 76). A
+                                ; plain store like CFG_RT, but the unpack
+                                ; re-resolves the two chrome pens from it
+CFG_ANIM    equ 10              ; db: [wm_animon], SPEC.md 11.99's zoom
+                                ; (SPEC.md 76.11). Carried in EVERY build,
+                                ; including one with no animation in it, so a
+                                ; kernel swap does not silently turn it back on
+CFG_DBLOB   equ 11              ; DRV_BLOB_SZ bytes: A DRIVER'S OWN SETTINGS,
                                 ; and the kernel does not know what is in
                                 ; them (SPEC.md 51.9). It knows the NAME and
                                 ; the LENGTH, carries them to disk and back,
@@ -515,14 +522,21 @@ drv_cfg_keys:
                                 ; as written - and every other key in the file
                                 ; still loads, keys being matched by name one
                                 ; at a time
+    dw 'TH'                     ; THeme - Bright or Dark, then SPEC.md 11.99's
+    db 2, 2, CFG_THM            ; zoom (SPEC.md 76.11). ver 2 because it WAS
+                                ; one byte: an old record's TH stops matching
+                                ; and the defaults stand, which is this
+                                ; table's whole compatibility story used as
+                                ; written - and every other key still loads,
+                                ; keys being matched by name one at a time
     dw 'HD'                     ; Hard Disk - the DRIVER's own blob (51.9)
     db 1, DRV_BLOB_SZ, CFG_DBLOB
 %ifdef KERN_BIG
     dw 'RD'                     ; Ram Disk - the second one (51.9.1)
     db 1, DRV_RBLOB_SZ, CFG_RBLOB
-CFG_NKEY    equ 8
+CFG_NKEY    equ 9
 %else
-CFG_NKEY    equ 7               ; no 'RD' key: kern_small has no RAM disk, and
+CFG_NKEY    equ 8               ; no 'RD' key: kern_small has no RAM disk, and
 %endif                          ; an unknown key is DROPPED rather than carried
                                 ; (SPEC.md 51.5 rule 1), which is the honest
                                 ; answer for a build with nothing to give it to
@@ -549,7 +563,11 @@ drv_cfg_map:
     dw clk_h12
     db CFG_SEC
     dw clk_secs
-DRV_CFG_MAPN equ 3
+    db CFG_THM
+    dw thm_kind
+    db CFG_ANIM
+    dw wm_animon
+DRV_CFG_MAPN equ 5
 
 ; --- whose blob is whose (SPEC.md 51.9.1) ------------------------------------
 ; row index, size, offset into the struct. The ROW and not the class, for the
@@ -3050,6 +3068,18 @@ drv_cfg_unpack:
     mov [di], al
     add si, 3
     loop .u
+%ifdef OS88_THEME
+    mov al, [thm_kind]          ; the map above stored the theme; resolving
+    call KERNEL_SEG:cw_thm_set  ; the palette from it is not a store (76.5).
+                                ; NO RANGE TEST HERE: thm_set owns both
+                                ; refusals - an unknown kind and Color on a
+                                ; machine with no colour - and a second
+                                ; opinion at the caller is a second thing to
+                                ; keep in step (SPEC.md 76.12.1). The byte is
+                                ; still STORED on a build with no theme - the
+                                ; map above did that - so the choice survives
+                                ; a kernel swap (SPEC.md 76.13)
+%endif
     mov ax, [drv_cfg+CFG_WANT]
     call drv_want_set
     mov al, [drv_cfg+CFG_SCH]

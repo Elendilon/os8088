@@ -405,6 +405,12 @@ np_entry:
                                     ; to open at content x = 61 there, skew 5,
                                     ; which typebench prices at 9.4% of every
                                     ; keystroke (SPEC.md 11.94)
+    mov ax, np_onclose              ; SPEC.md 75.1: the kernel asks before it
+    call OSAPI_WM_ONCLOSE           ; closes us, and a note with unsaved work
+                                    ; answers. A side table, so this goes here
+                                    ; and not in np_tpl; it preserves the
+                                    ; FLAGS, which the CF we still owe the
+                                    ; loader depends on
     push si
     mov si, np_menus                ; BX is still the window: hand it our
     call OSAPI_MENU_SET             ; menus (draws nothing, takes no lock)
@@ -434,6 +440,11 @@ np_entry:
     pushf                           ; ...and so must this: the bss arrives
     call np_defname                 ; zeroed and an empty name is not a file
     call np_arg                     ; (SPEC.md 27.1), but np_defname is an
+    call np_mark                    ; ...and WHATEVER we start with is clean
+                                    ; (SPEC.md 27.15): an empty note, or the
+                                    ; document np_arg just loaded. After
+                                    ; np_arg and not before, which is what
+                                    ; makes one call cover both
     popf                            ; ordinary routine and the CF we owe the
                                     ; loader is still riding in the flags
 .out:
@@ -4029,7 +4040,12 @@ np_stgdrop:
 ; -----------------------------------------------------------------------------
 ; np_save - write the note to NOTES.TXT (SPEC.md 18.4/27.1)
 ; in:  nothing (the buffer and its length)
-; out: nothing; the outcome is said as a toast; preserves all registers
+; out: CF = 0 it is on the disk, CF = 1 it is not; the outcome is said as a
+;      toast either way; preserves all registers
+;
+; The CF is SPEC.md 27.15's: the close path saves and THEN closes, and closing
+; on a save that failed is the one way this feature can lose the document it
+; exists to protect. Every older caller ignores it.
 ;
 ; The note's bare 13s become CR LF on the way out, through the staging claim -
 ; which is sized for the worst case (every character a newline), so the
@@ -4076,12 +4092,18 @@ np_save:
     jc .err
     mov si, np_m_saved
     call np_setmsg
+    call np_mark                ; the disk and the document agree again
+    mov byte [np_named], 1      ; ...and this note IS that file from here on
+    clc                         ; (SPEC.md 27.15)
     jmp short .done
 .err:
     call np_errmsg              ; AX = FERR_* -> the toast
+    stc
 .done:
-    call np_stgdrop
-.out:
+    pushf                       ; the answer, past a call that writes flags of
+    call np_stgdrop             ; its own (SPEC.md 27.15.1: the close path acts
+    popf                        ; on it, so it is a contract now rather than a
+.out:                           ; by-product)
     pop es
     pop ds
     pop di
@@ -4181,6 +4203,8 @@ np_load:
                                 ; past the end of it
     mov si, np_m_loaded
     call np_setmsg
+    call np_mark                ; what came off the disk IS the disk's version
+    mov byte [np_named], 1      ; (SPEC.md 27.15), and this note is that file
     test dh, dh
     jz .done
     mov ax, np_m_trunc
@@ -5645,6 +5669,9 @@ np_new:
     mov ax, NP_KB0              ; had grown into. A shrink always succeeds in
     call np_resize              ; place, so this cannot fail (SPEC.md 50.3.1)
     pop ax
+    mov byte [np_named], 0      ; ...and it is not a FILE until something
+    call np_mark                ; makes it one (SPEC.md 27.15): empty and
+                                ; clean, so New then Close asks nothing
     jmp np_defname              ; a new note is a new document: leaving the
                                 ; old name would make the next Ctrl-S overwrite
                                 ; the file the user just walked away from
@@ -5760,10 +5787,250 @@ np_oncmd:
                                     ; over it. The repaint happens in
                                     ; np_ondlg instead, once it is gone
 
+; =============================================================================
+; Closing with unsaved work (SPEC.md 27.15, 75)
+;
+; The kernel asks before it closes a window now, so this is where Note Pad
+; answers. Three questions, in this order: has the document changed since it
+; last agreed with the disk; is there a file to write it to; and what does the
+; user want done about it.
+;
+; THE FIRST ONE IS A CHECKSUM, NOT A FLAG, and that is the design decision
+; worth reading. A dirty flag has to be set by every mutation - insert,
+; backspace, delete, paste, the drag that moves a block, replace-all, and undo
+; going the other way - which is nine places that must each remember, and it
+; answers DIRTY for a note the user typed a character into and took straight
+; back out. A shadow copy answers exactly and costs 16KB of the one claim this
+; app cannot do without. Fletcher's two sums over the note, plus its length,
+; cost three words of bss and one walk at the moment of closing - and the walk
+; is the cheap end: the note is at most 16,384 bytes of a four-instruction
+; loop, ~0.14s on the 4.77MHz machine at PERFORMANCE.md's instruction floor
+; and typically far less, against the SECONDS a save costs on the same floppy.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; np_cksum - Fletcher's two sums over the document (internal)
+; out: AX = s1, DX = s2; every other register preserved
+;
+; DS is the DOCUMENT for the length of the walk, so [cs:np_len] and
+; [cs:np_dseg] are how the counts are reached - np_save's discipline, and the
+; reason is the same: no kernel or package variable is readable through DS
+; while it points at the note.
+; -----------------------------------------------------------------------------
+np_cksum:
+    push bx
+    push cx
+    push si
+    push ds
+    xor ax, ax                      ; AX = s1: the sum of the bytes
+    xor dx, dx                      ; DX = s2: the sum of the sums, which is
+                                    ; what makes it sensitive to ORDER
+    mov cx, [np_len]
+    mov ds, [np_dseg]
+    xor si, si
+    xor bh, bh
+.next:
+    jcxz .done
+    mov bl, [si]                    ; DS:SI = the note (SPEC.md 27.6)
+    inc si
+    dec cx
+    add ax, bx
+    add dx, ax
+    jmp short .next
+.done:
+    pop ds
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; np_mark - the document as it stands IS what is on the disk (internal)
+; out: nothing; preserves all registers and the FLAGS
+;
+; The flags because np_save calls it on its success path, between the write
+; and the CF it now owes its caller (SPEC.md 27.15.1).
+; -----------------------------------------------------------------------------
+np_mark:
+    pushf
+    push ax
+    push dx
+    call np_cksum
+    mov [np_ds1], ax
+    mov [np_ds2], dx
+    mov ax, [np_len]
+    mov [np_dslen], ax
+    pop dx
+    pop ax
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; np_dirty - has the document changed since np_mark? (internal)
+; out: CF = 1 it has; preserves all registers
+; -----------------------------------------------------------------------------
+np_dirty:
+    push ax
+    push dx
+    call np_cksum
+    cmp ax, [np_ds1]
+    jne .yes
+    cmp dx, [np_ds2]
+    jne .yes
+    mov ax, [np_len]
+    cmp ax, [np_dslen]
+    jne .yes
+    pop dx
+    pop ax
+    clc
+    ret
+.yes:
+    pop dx
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; np_qcompose - 'Save changes to NOTES.TXT?' into np_qbuf (internal)
+; out: nothing; preserves all registers
+; -----------------------------------------------------------------------------
+np_qcompose:
+    push ax
+    push si
+    push di
+    mov si, np_q_pre
+    mov di, np_qbuf
+.pre:
+    lodsb
+    or al, al
+    jz .name
+    mov [di], al
+    inc di
+    jmp short .pre
+.name:
+    mov si, np_name
+.copy:
+    lodsb
+    or al, al
+    jz .end
+    mov [di], al
+    inc di
+    jmp short .copy
+.end:
+    mov word [di], '?'              ; '?' and the NUL in one store - the high
+    pop di                          ; byte of the immediate is 0
+    pop si
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; np_onclose - the CLOSE NEGOTIATOR (SPEC.md 75.1, API 0x0468)
+; in:  SI = our window; the UI task, gfx lock HELD
+; out: CF = 0 close me, CF = 1 not yet
+;
+; The whole feature seen from the kernel's side: a clean note closes exactly
+; as it always did, and a dirty one puts the question up and REFUSES, leaving
+; itself on screen to be answered. np_onask below finishes the job.
+;
+; THE FALLBACK IS TO SAVE, and it is not a corner case: OSAPI_ASK refuses
+; whenever an alert is already up and ALWAYS on kern_small, which does not
+; carry the module (SPEC.md 75.3.2). SPEC.md 75's first sentence names both
+; halves of what an application needs on the way out - ask, or take the
+; action - and this is where the second one is taken. It closes even if the
+; write failed, which is the deliberate half: the toast names the error, and
+; a window that cannot be closed on a machine with no dialog to close it from
+; is the worse outcome of the two.
+; -----------------------------------------------------------------------------
+np_onclose:
+    call np_dirty
+    jnc .go                         ; nothing unsaved: nothing to say
+    push si
+    push di
+    push bx
+    call np_qcompose
+    mov bx, si                      ; BX = our window; SI becomes the message
+    mov si, np_qbuf
+    mov di, np_onask
+    mov al, OS88UI_ASAVE
+    call os88ui_ask                 ; ...and this is asked EVEN WHEN ONE IS
+                                    ; ALREADY UP, which looks redundant and is
+                                    ; the whole point: the refusal RAISES the
+                                    ; alert that is up (SPEC.md 75.3.1), so a
+                                    ; second click on the close box brings the
+                                    ; question back to the front - and
+                                    ; un-minimizes it - instead of doing
+                                    ; nothing
+    pop bx
+    pop di
+    pop si
+    jnc .up
+    cmp byte [np_asking], 0
+    jne .wait                       ; refused because OURS is up - and it has
+                                    ; just been raised
+    jmp short .wait                 ; refused because the window table is
+                                    ; full: there is nothing to ask with and
+                                    ; nothing safe to do, so stay open and let
+                                    ; the user close something
+.up:
+    mov byte [np_asking], 1
+.wait:
+    stc
+    ret
+.go:
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; np_onask - the alert's completion (SPEC.md 75.3)
+; in:  AL = the answer, SI = our window; the UI task, gfx lock HELD, the alert
+;      already destroyed
+; out: nothing
+;
+; OS88UI_ACANCEL arrives when the alert was DISMISSED rather than answered -
+; its close box, its minimize box or Esc - and it lands on the same branch Cancel
+; does, because both mean "I am not closing after all". Clearing [np_asking]
+; is the one thing every branch owes: without it the next close attempt would
+; take .wait for ever and the window could never be closed again.
+;
+; It repaints NOTHING. The alert's own teardown has already repainted what it
+; covered (SPEC.md 75.3), the document is unchanged on every branch, and the
+; two branches that close are about to have their window destroyed anyway.
+; -----------------------------------------------------------------------------
+np_onask:
+    mov byte [np_asking], 0
+    or al, al
+    jz .save                        ; 0 = Save (the default, and Enter)
+    cmp al, 1
+    je .close                       ; 1 = Discard
+    ret                             ; 2 = Cancel, or OS88UI_ACANCEL: stay
+                                    ; open
+.save:
+    cmp byte [np_named], 0
+    je .saveas                      ; never been a file: ASK where it goes
+                                    ; rather than putting it in NOTES.TXT
+    call np_save
+    jc .out                         ; the write failed and said so; stay open,
+                                    ; so the user still has the document and
+                                    ; can pick Don't Save if they mean it
+.close:
+    mov bx, si
+    call OSAPI_WM_CLOSE             ; DEFERRED (SPEC.md 75.2): this returns and
+    ret                             ; the window goes on the next UI pass
+.saveas:
+    push si
+    mov al, FDLG_SAVE
+    call np_dlgopen                 ; SI is still our window
+    pop si
+    jc .out                         ; refused: stay open
+    mov byte [np_qclose], 1         ; ...and its commit is a QUIT (np_ondlg)
+.out:
+    ret
+
 ; -----------------------------------------------------------------------------
 ; np_dlgopen - raise the Standard File dialog (SPEC.md 38.6)
 ; in:  AL = FDLG_OPEN or FDLG_SAVE, SI = our window ptr; gfx lock held
-; out: nothing; preserves all registers
+; out: CF = the dialog's own answer - 0 it is up, 1 refused; preserves all
+;      registers (the pops below write no flags)
 ;
 ; The current document is handed over as the default, so Save As on a note
 ; loaded from LETTER.TXT opens with LETTER.TXT already in the box. A refusal
@@ -5774,6 +6041,12 @@ np_dlgopen:
     push bx
     push si
     push di
+    mov byte [np_qclose], 0         ; whatever this dialog is for, it is not
+                                    ; SPEC.md 27.15's quit until np_onask says
+                                    ; so - and it is cleared HERE, at the one
+                                    ; place all three callers pass through,
+                                    ; because a CANCELLED dialog never reaches
+                                    ; np_ondlg and so can never clear it itself
     mov bx, si                      ; the window we want to hear back about
     mov di, np_ondlg
     mov si, np_name
@@ -5824,7 +6097,18 @@ np_ondlg:
     or bl, bl
     jz .load
     call np_save
-    jmp short .draw
+    pushf                           ; its answer, past the read-and-clear
+    xor al, al                      ; SPEC.md 27.15: was this Save As the
+    xchg al, [np_qclose]            ; alert's? Read AND CLEARED, because the
+    popf                            ; intent is spent whichever way it went
+    jc .draw                        ; the write failed: it said so, and a
+                                    ; failed save is never a quit - stay open
+                                    ; with the document still in hand
+    or al, al
+    jz .draw
+    mov bx, si
+    call OSAPI_WM_CLOSE             ; deferred; no repaint is owed after it
+    ret
 .load:
     call np_load
 .draw:
@@ -10003,6 +10287,8 @@ np_i_rep:      db 'Replace...  ^R', 0
 ; a toast that still said NOTES.TXT after a Save As would be worse than no
 ; toast at all.
 np_s_default: db 'NOTES.TXT', 0
+np_q_pre:     db 'Save changes to ', 0   ; SPEC.md 27.15's alert, composed
+                                            ; around the document's name
 np_m_saved:   db 'Saved ', 0
 np_m_loaded:  db 'Loaded ', 0
 np_m_trunc:   db 'Truncated', 0
@@ -10060,6 +10346,17 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
 ; is the total. os88_image_end is still a forward reference at this point,
 ; which is exactly what every line of code referencing these fields already
 ; relies on.
+; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
+%define OS88UI_SCROLL           ; SPEC.md 13.10: the shared scroll bar
+%define OS88UI_ALERT            ; ...and SPEC.md 75.3's alert, which is a
+                                ; PACKAGE's and not the kernel's - a windowed
+                                ; dialog has a floor of ~800 bytes wherever it
+                                ; lives, and this is where that is affordable
+%include "os88ui.inc"
+
+; ...and it is ABOVE the bss counter below because that block sizes a field
+; from OS88UI_AMAX: an %assign is evaluated where it stands, so a constant it
+; names has to exist by then.
 %assign NPB 508 + NP_MAXROWS*2      ; where the original block ends
 %macro NPVAR 2                      ; name, size in bytes
     %1 equ os88_image_end + NPB
@@ -10297,11 +10594,38 @@ np_e_cbig:    db 'Too big to copy', 0   ; over CLIP_MAXKB, or the heap could
     NPVAR npb_i,   2        ; word } iterations
 %endif
 
-%assign NP_BSS_TOTAL NPB
+; --- closing (SPEC.md 27.15) -------------------------------------------------
+; What the document looked like the last time it agreed with the disk. A
+; CHECKSUM and not a second copy: NP_MAXKB is 16 and the note already lives in
+; a heap claim, so keeping a shadow of it would double the one allocation this
+; app cannot do without - on the machine least able to fund it. Three words
+; against 16,384 bytes, and the comparison is exact about the thing that
+; matters (an edit that is undone back to the original reads CLEAN, which a
+; dirty FLAG set by every mutation could never say).
+    NPVAR np_ds1,   2       ; word } Fletcher's two running sums over the
+    NPVAR np_ds2,   2       ; word } document as it stands on disk...
+    NPVAR np_dslen, 2       ; word: ...and its length, compared with them
+                            ; because a sum pair alone is blind to a note that
+                            ; was truncated at a point where the sums repeat
+    NPVAR np_named, 1       ; byte: this note IS a file - it has been loaded,
+                            ; saved, opened from a document double-click or
+                            ; named in a dialog. A fresh note is NOT: [np_name]
+                            ; holds 'NOTES.TXT' from np_defname so that Ctrl-S
+                            ; always has somewhere to go, and quietly writing
+                            ; that on the way out - over whatever NOTES.TXT the
+                            ; user already had - is not a thing to do without
+                            ; asking
+    NPVAR np_asking, 1      ; byte: our SPEC.md 75.3 alert is up. The kernel
+                            ; keeps one alert in the whole machine, so this is
+                            ; only about ours
+    NPVAR np_qclose, 1      ; byte: the Save As dialog now on screen was
+                            ; started by that alert, so its commit is a QUIT
+    NPVAR np_qbuf, OS88UI_AMAX + 1  ; the alert's line, composed around the
+                            ; document's name. Not np_tbuf, which is 30 bytes
+                            ; sized for 'Loaded ' + an 8.3 name and would take
+                            ; this one to the byte
 
-; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
-%define OS88UI_SCROLL           ; SPEC.md 13.10: the shared scroll bar
-%include "os88ui.inc"
+%assign NP_BSS_TOTAL NPB
 
     OS88_BSS NP_BSS_TOTAL
     OS88_IMAGE_END

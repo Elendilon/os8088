@@ -91,6 +91,22 @@ def switch_to(m, mo, settle, slot, want, tries=4):
             settle(m)
         if kind(m) == want:
             return
+    # ...and SAY WHAT IS ON SCREEN. "The switch never happened" is true and
+    # names the wrong thing: every way this fails is a click that landed
+    # somewhere else, so the useful report is the z-order and the rects.
+    print("  dispfit: the Display page did not take. Windows, front last:")
+    import dispcp as _dc
+    zn = m.read(S("wm_zn"), 1)[0]
+    zo = m.read(S("wm_zord"), max(zn, 1))
+    for i in list(zo[:zn]):
+        b = m.read(S("wm_wins") + i * os88geom.WIN_SIZE, os88geom.WIN_SIZE)
+        fl = b[os88geom.W_FLAGS] | (b[os88geom.W_FLAGS + 1] << 8)
+        seg = b[os88geom.W_SEG] | (b[os88geom.W_SEG + 1] << 8)
+        nm = (m.read((seg << 4) + 16, 16).split(b"\0")[0].decode("latin1")
+              if seg else "(kernel)")
+        print("    slot %2d flags %04x %-12s %r"
+              % (i, fl, nm, _dc.win_rect(m, S, i)))
+    print("    the Control Panel is at %r" % (_dc._cp_win(m, S, rect=True),))
     sys.exit("dispfit: the switch to kind %d never happened (kind %d) - see "
              "the Display page, not this gate" % (want, kind(m)))
 

@@ -42,6 +42,14 @@ CBLACK      equ 0
 CWHITE      equ 15
 CLGRAY      equ 7
 CDGRAY      equ 8
+CBLUE       equ 1               ; 0,0,170 - the Color theme's ACTIVE title bar
+CTEAL       equ 3               ; 0,170,170 - ...and its desktop (SPEC.md
+                                ; 76.12). Both are VGA-only by construction:
+                                ; SPEC.md 39.4 reduces every index outside
+                                ; {0, 15} to black, white or the 50% dither,
+                                ; so a Color theme on a 1bpp adapter would be
+                                ; Bright with extra steps - which is why the
+                                ; theme is refused there rather than reduced
 
 ; --- the clip region (SPEC.md 11.3) ------------------------------------------
 ; wm.inc builds it; vga12.inc, font.inc and icons.inc consume it. The layout
@@ -169,12 +177,67 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %define KERN_BIG
 %endif
 
+; SPEC.md 11.99's zoom outline is kern_big's and can be compiled out of it
+; for the A/B (`make ANIMOFF=1`). ONE symbol decides it, so a call site cannot
+; disagree with the body about whether the feature is in this build.
 %ifdef KERN_BIG
-KERN_BUDGET equ 112128          ; kern_big's FOOTPRINT guard, and the SHIPPED
+  %ifndef ANIMOFF
+    %define WM_ANIM 1
+  %endif
+%endif
+
+; SPEC.md 76's THEME is kern_big's too, and for 11.99's reason one level up:
+; the small build is the 128KB machine's and stands at one 512-byte step of
+; KERN_BUDGET, which the palette's ~155 bytes were enough to spend outright.
+; ONE symbol decides it, so a call site cannot disagree with the body - and
+; the chrome pens keep their NAMES on both builds, becoming constants there
+; (SPEC.md 76.13), so the ~40 sites that call them need no %ifdef at all.
+%ifdef KERN_BIG
+  %define OS88_THEME 1
+%endif
+
+%ifdef KERN_BIG
+KERN_BUDGET equ 114176          ; kern_big's FOOTPRINT guard, and the SHIPPED
                                 ; one: big is the default build. Free to move
                                 ; on its own terms - it has a machine with RAM
                                 ; behind it - where KERN_SMALL_BUDGET below is
                                 ; the one that has to be defended.
+                                ;
+                                ; THE TWENTY-EIGHTH MOVE, 112,128 -> 114,176,
+                                ; ASKED FOR AND GRANTED, 2KB, three steps
+                                ; of headroom - ATTRIBUTED TO WINDOW SIZE
+                                ; ADAPTATION STANDARDIZATION. kern_small takes
+                                ; 512 of it, for the reason written beside its
+                                ; own figure.
+                                ;
+                                ; WHAT IT IS FOR is a MERGE for the THIRD move
+                                ; running, and at that point it is a property
+                                ; of how this tree works rather than a run of
+                                ; bad luck: feature branches are long, they
+                                ; are each measured against the guard alone,
+                                ; and the guard is crossed by the union. This
+                                ; one is the extended desktop's sizing work
+                                ; (SPEC.md 11.100 - OSAPI_WM_PREFER,
+                                ; OSAPI_WM_MINSIZE and OSAPI_WM_DISPLAY, the
+                                ; per-slot preference offset, minimum and
+                                ; sized-for-adapter arrays, wm_land_fit's one
+                                ; landing sequence and wm_disp_now's one
+                                ; answer to "which display is this window's")
+                                ; meeting the themes and the zoom animation
+                                ; (SPEC.md 76, 11.99) coming the other way.
+                                ; Measured: .text +1,243, .bss +104 against
+                                ; the baseline elendilon blessed, which stood
+                                ; at 512 spare - so neither side crossed and
+                                ; the union crossed by exactly one step.
+                                ;
+                                ; 2KB AND NOT 512 IS MOVES 22/23/24'S RULE
+                                ; APPLIED: 112,640 assembles and is ZERO
+                                ; spare, which hands the next byte added
+                                ; anywhere the identical failure this move
+                                ; repairs. Three steps, one under the standard
+                                ; the fifth move set, so the next feature asks
+                                ; in the usual way rather than finding room
+                                ; here.
                                 ;
                                 ; THE TWENTY-SEVENTH MOVE, 110,592 -> 112,128,
                                 ; ASKED FOR AND GRANTED, 1.5KB, three steps,
@@ -544,9 +607,40 @@ KERN_BUDGET equ 112128          ; kern_big's FOOTPRINT guard, and the SHIPPED
                                 ; the two by 2KB, which is the direction it
                                 ; should drift from here.
 %else
-KERN_BUDGET equ 105472          ; the whole kernel's FOOTPRINT. Growing past
+KERN_BUDGET equ 105984          ; the whole kernel's FOOTPRINT. Growing past
                                 ; this is not a build detail - see
                                 ; docs/KERNEL-MEMORY.md before raising it.
+                                ;
+                                ; THE TWENTY-FIRST MOVE, 105,472 -> 105,984,
+                                ; ASKED FOR AND GRANTED, 512 BYTES, ONE STEP,
+                                ; ATTRIBUTED TO WINDOW SIZE ADAPTATION
+                                ; STANDARDIZATION - kern_big's twenty-eighth
+                                ; move, and a QUARTER of it, the account
+                                ; beside that figure carrying the full story.
+                                ;
+                                ; WHAT IT REPAIRS IS NOT THIS ROUND'S WORK.
+                                ; Measured at the merge, this build stood at
+                                ; KERN_SIZE 105,472 EXACTLY - zero spare, not
+                                ; one byte - and the sizing work costs it
+                                ; nothing net: the extended desktop is
+                                ; kern_big's (there is one display on a 128KB
+                                ; machine), so what small carries is the three
+                                ; API cells, the per-slot preference and
+                                ; minimum arrays and wm_apply_size's one
+                                ; sequence, against an OSAPI_WM_DISPLAY that
+                                ; is a `mov si`/`jmp osapi_video` there rather
+                                ; than a body. It came out even.
+                                ;
+                                ; The zero was SPEC.md 76.12.3's, said out
+                                ; loud when the theme landed - "0 spare, 0
+                                ; steps... the next byte added anywhere fails
+                                ; that build" - and named as a decision owed
+                                ; rather than a build fix. This is that
+                                ; decision, taken at the first merge that had
+                                ; to assemble both kernels. One step and not
+                                ; two, because move 18's judgement stands
+                                ; below and nothing here argues with it: the
+                                ; 128KB machine's kernel is already too big.
                                 ;
                                 ; THE TWENTIETH MOVE, 104,960 -> 105,472,
                                 ; ASKED FOR AND GRANTED, 512 BYTES, ONE STEP,
@@ -1122,7 +1216,7 @@ KERN_BUDGET equ 105472          ; the whole kernel's FOOTPRINT. Growing past
                                 ; machine can still install, just slowly.
 %endif                          ; KERN_BIG
 
-KERN_SMALL_BUDGET equ 105472    ; ...and kern_small's, named separately so it
+KERN_SMALL_BUDGET equ 105984    ; ...and kern_small's, named separately so it
                                 ; can be REPORTED on a big build rather than
                                 ; only enforced on a small one: the %else arm
                                 ; above is not taken on a kern_big assembly, so
@@ -2403,7 +2497,56 @@ osapi_table:
                                   ;          package called one and got the
                                   ;          other. Sort the %defines by address
                                   ;          after every merge from main
-osapi_table_end:                  ; 0x0468
+    OSAPI_SLOT wm_onclose         ; 0x0468 - BX = window, AX = a near proc in
+                                  ;          YOUR segment (0 clears it): the
+                                  ;          CLOSE NEGOTIATOR (SPEC.md 75.1).
+                                  ;          Called SI = your window, on the UI
+                                  ;          task, gfx lock HELD - W_ONCLICK's
+                                  ;          environment - when anything at all
+                                  ;          tries to close you: the close box,
+                                  ;          the app-name menu's Close, the
+                                  ;          dock tile's context menu. Answer
+                                  ;          CF = 0 to let the close happen and
+                                  ;          CF = 1 to REFUSE it, in which case
+                                  ;          nothing happens at all and you owe
+                                  ;          the user a way out. Install it
+                                  ;          after OSAPI_WM_CREATE like
+                                  ;          OSAPI_WM_ONWAKE - a side table,
+                                  ;          not a template word
+    OSAPI_SLOT wm_close_req       ; 0x0470 - BX = a window of yours: close it
+                                  ;          (SPEC.md 75.2). DEFERRED to the
+                                  ;          next UI pass, because the caller
+                                  ;          is standing in the segment the
+                                  ;          close is about to free - so this
+                                  ;          RETURNS, and your window is gone a
+                                  ;          moment later. It does NOT ask your
+                                  ;          negotiator again: this is the
+                                  ;          answer to the question it asked
+    OSAPI_SLOT wm_prefer          ; 0x0478 - BX = window, SI = the offset IN
+                                  ;          THIS WINDOW'S OWN SEGMENT of a
+                                  ;          12-byte table: three (w, h) frame
+                                  ;          sizes in VID_VGA / VID_HERC /
+                                  ;          VID_CGA order, so the adapter kind
+                                  ;          indexes it. SI = 0 withdraws it, a
+                                  ;          (0,0) pair means "nothing to say
+                                  ;          about that adapter". Registers AND
+                                  ;          applies, FLAGS PRESERVED
+                                  ;          (SPEC.md 11.100.1)
+    OSAPI_SLOT wm_minsize         ; 0x0480 - BX = window, CX = minimum outer
+                                  ;          width, DX = minimum outer height;
+                                  ;          0/0 withdraws. The floor every
+                                  ;          path that REDUCES a size honours,
+                                  ;          itself capped at the display's own
+                                  ;          extent so it can never cost a
+                                  ;          window its title bar. Registers AND
+                                  ;          applies, FLAGS PRESERVED
+                                  ;          (SPEC.md 11.100.2)
+    OSAPI_SLOT wm_display         ; 0x0488 - BX = window; out AX = width, BX =
+                                  ;   height, CX = the first row the DOCK owns,
+                                  ;   SI = the first usable row, DL = kind, DH =
+                                  ;   bpp - OSAPI_VIDEO for the display THIS
+                                  ;   WINDOW is on (SPEC.md 39.16.4)
+osapi_table_end:                  ; 0x0490
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -2411,8 +2554,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 139 * 8
-%error "os8088 API jump table must be exactly 139 8-byte slots"
+%if OSAPI_TABLE_LEN != 144 * 8
+%error "os8088 API jump table must be exactly 144 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -3042,6 +3185,21 @@ kmain:
                                 ; silent by design (SPEC.md 41.12.4)
 %endif
 
+%ifdef OS88_THEME
+    mov al, [thm_kind]          ; RESOLVE THE PALETTE FROM THE KIND, once, before
+    call thm_set                ; anything is drawn (SPEC.md 76.12.1). Two
+                                ; things need it and only one of them has run:
+                                ; drv_cfg_unpack calls thm_set when SYSTEM.CFG
+                                ; carried a theme, and a machine with no
+                                ; settings file at all - a fresh image, or the
+                                ; THEMEDARK knob - would otherwise boot with
+                                ; [thm_kind] and the eight live bytes
+                                ; disagreeing. It is also where the ADAPTER
+                                ; refusal lands for a settings disk carried
+                                ; from a VGA machine to this one, [vid_kind]
+                                ; being long since probed
+%endif
+
     call spl_finish             ; the bar to 100% and the screen handed back:
                                 ; the paint below covers every pixel of it,
                                 ; so the loading screen needs no erase
@@ -3603,6 +3761,14 @@ cw_gfx_fill:            call gfx_fill
                     retf
 cw_gfx_fill_gray:       call gfx_fill_gray
                     retf
+cw_gfx_fill_pat:        call gfx_fill_pat
+                    retf
+cw_thm_desk:            call thm_desk
+                    retf
+%ifdef OS88_THEME
+cw_thm_set:             call thm_set
+                    retf
+%endif
 cw_gfx_frame:           call gfx_frame
                     retf
 cw_gfx_hline:           call gfx_hline
@@ -3734,6 +3900,8 @@ cw_wm_destroy:          call wm_destroy
                     retf
 cw_wm_destroy_seg:      call wm_destroy_seg
                     retf
+cw_wm_minsize:          call wm_minsize
+                    retf
 %ifdef KERN_BIG
 cw_wm_onmouseup:        call wm_onmouseup
                     retf
@@ -3762,6 +3930,10 @@ cw_wm_pkgcall:          call wm_pkgcall
                     retf
 cw_wm_show:             call wm_show
                     retf
+%ifdef WM_ANIM
+cw_inst_unmin:          call inst_unmin
+                    retf
+%endif
 cw_xm_release_rec:      call xm_release_rec
                     retf
 cw_wm_su_stale:         call wm_su_stale
@@ -3953,6 +4125,7 @@ fdlg_reap:            call COLD_SEG:fdf_fdlg_reap
                     ret
 fdlg_top:             call COLD_SEG:fdf_fdlg_top
                     ret
+
 
 ; --- ...and assoc.inc's (SPEC.md 54). It joined the cold set because nothing
 ; in it runs faster than a double-click, and because its heaviest callees were

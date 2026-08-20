@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Drive tests/heapfrag and read its verdict out of the guest (SPEC.md 66.8).
 
-    make && make build/heapfrag.img && python3 tests/heapcheck.py
-    make HEAPCOMPACT=0 && make build/heapfrag.img && \
+    make && python3 tests/heapcheck.py
+    make HEAPCOMPACT=0 && \
         python3 tests/heapcheck.py --expect-off
 
 WHY IT READS BSS RATHER THAN THE SCREEN. heapfrag draws PASS/FAIL because a
@@ -29,6 +29,7 @@ import sys, time, argparse
 sys.path.insert(0, "/home/user/os8088/tools")
 sys.path.insert(0, "/home/user/os8088/tests")
 import os88marty, os88mouse, os88sym, os88geom, dispcp
+from os88fixture import need
 
 KERNEL_SEG = 0x0060
 MC_SIZE = 10
@@ -94,6 +95,8 @@ def main():
 
     def S(name):
         return os88sym.linear(name, defines)
+
+    need("build/heapfrag360.img")   # `all` builds nothing under tests/
 
     with os88marty.launch("build/os8088-360.img", apps="build/heapfrag360.img",
                           machine=a.machine, boot=False) as m:

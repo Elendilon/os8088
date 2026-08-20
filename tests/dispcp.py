@@ -24,7 +24,7 @@ import os88geom                                              # noqa: E402
 # with MENU_ITEM_H per item. Item 1 is CMD_CTRL (About, Control Panel, Task
 # Manager, ...).
 from os88geom import (MBAR_H, MENU_ITEM_H, TITLE_H, KERNEL_SEG,  # noqa: E402
-                      WF_SAVEU,
+                      WF_SAVEU, WF_SIZABLE, WF_KEEPH,
                       WIN_SIZE, MAX_WIN, W_FLAGS, W_X, W_Y, W_W, W_H, W_TITLE,
                       DESK_ZY0, DESK_ZW, DESK_COLW,
                       DV_KIND, DV_FLAGS, DV_SIZE, DVOL_MAX, DVK_FREE,
@@ -94,20 +94,46 @@ def _cp_win(m, S):
     return None
 
 
-def open_panel(m, mo, S, settle, card=None):
-    """Chip menu -> Control Panel, and leave it on the Display page."""
+CP_IVID = 4                     # kernel/ctrl.inc: the Display page's RECORD
+CP_ITHM = 5                     # ...and SPEC.md 76.4's Theme page
+
+
+def open_panel(m, mo, S, settle, card=None, page=CP_IVID):
+    """Chip menu -> Control Panel, and leave it on `page`.
+
+    `page` is a RECORD index in cp_items, not a drawn row - see below - and
+    None opens the panel without selecting anything, which is what a caller
+    on a one-adapter machine wants when the page it needs is not Display.
+    It defaulted to Display for as long as Display was the only page anybody
+    drove, and a Theme page on a single-card machine then raised about a
+    HIDDEN DISPLAY page, which is true and is not what the caller asked for.
+    """
     if _cp_win(m, S) is None:
         mo.menu(SYS_X, SYS_Y, SYS_X, MBAR_H + 1 + MENU_ITEM_H + 8)
         settle(m, card=card)
         if _cp_win(m, S) is None:
             raise RuntimeError("the Control Panel did not open - the chip "
                                "menu's item 1 was not where this thought")
-    # The Display item is LAST in cp_items and [cp_nst] is how many static
-    # rows are showing - CP_ITEMS, or one fewer when SPEC.md 31.10.1 hid the
-    # page. Reading it is also the assertion that the page exists at all.
-    nst = m.read(S("cp_nst"), 1)[0]
+    # WHICH ROW THE DISPLAY PAGE IS DRAWN AT IS NOT "the last one" ANY MORE.
+    # It was, and this read [cp_nst] - 1 and clicked there; SPEC.md 76.4's
+    # Theme page is record 5 and Display record 4, so that lands on Theme and
+    # every leg then fails with "the Control Panel did not turn Extend on",
+    # which points at the Display page rather than at the click that never
+    # reached it.
+    #
+    # cp_items has no ordering rule left (kernel/ctrl.inc): [cp_hide] is a bit
+    # per record and a hidden record takes no ordinal, so the drawn row is the
+    # number of SHOWN records below the one wanted - cp_v2r walked backwards.
+    # Its own bit being set is the assertion the page exists at all.
+    if page is None:
+        return
+    hide = m.read(S("cp_hide"), 1)[0]
+    if hide & (1 << page):
+        raise RuntimeError("Control Panel record %d is hidden on this machine "
+                           "(SPEC.md 39.11.1 hides Display on a single-adapter "
+                           "one)" % page)
+    row = sum(1 for r in range(page) if not (hide & (1 << r)))
     wx, wy = _cp_win(m, S)
-    row = nst - 1
     mo.click(wx + 1 + CP_IX + 30,
              wy + TITLE_H + 1 + CP_I0Y + row * CP_IROWH + CP_IROWH // 2)
     settle(m, card=card)

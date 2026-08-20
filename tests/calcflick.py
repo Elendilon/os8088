@@ -148,6 +148,18 @@ with os88marty.launch("build/os8088-360.img", apps=APPS,
     measure("an operator", "+")
     measure("a digit again", "7")
     measure("equals", "=")
+    # THE SHARP ROW. Every key above flashes its own pad key for CAL_FLASH
+    # ticks (SPEC.md 65.9), which is a deliberate 51x14 rect on the glass and
+    # `q` is CK_SQRT, which has NO key on the pad at all, so it changes the
+    # display field and flashes nothing - putting that field's
+    # compose-against-a-shadow path (65.4) back under the arrow's own 96-pixel
+    # bound, where it was before the flash existed.
+    #
+    # It is `q` and NOT `n`: SPEC.md 65.9 names "Q, R, %, N" as the verbs with
+    # no pad key and is WRONG about N - cal_keytab carries `cal_k_neg, CK_NEG`,
+    # so a typed `n` presses the plus/minus key like any other and measures
+    # 588 transient px, exactly as a digit does. Q, R and % really have none.
+    measure("sqrt: no pad key", "q")
     typed(m, "h")                       # ...and again with the pane open
     time.sleep(1.5)
     os88marty.settle(m)
@@ -183,14 +195,36 @@ print()
 # reference build (`make calcref`, then --ref), which letters every row
 # instead: SPEC.md 65.4.1 is that comparison.
 CUR_CELL = 8 * 12
+# ...AND A TYPED KEY IS ENTITLED TO ONE PAD KEY (SPEC.md 65.9), which landed
+# after this test was written and is why it started failing: `cal_flash`
+# presses the key the keystroke came from and `cal_ontimer` releases it
+# CAL_FLASH = 3 ticks later. That is 51x14 = 714 pixels of deliberate
+# inversion, and measured it reads 600-624 with the flash's 165 ms showing up
+# as the row's "moving" span - which is CAL_FLASH exactly.
+#
+# The bound below is therefore NOT sharp for those rows: one pad key plus the
+# arrow is 810, and this test's own defect signal - a 13-cell field erased and
+# lettered again - is 832. Twenty-two pixels of margin is not a gate, so the
+# gate is the "sqrt: no pad key" row instead, which changes the same display
+# field with no key to flash and is held to the arrow's cell. What rules out
+# the in-between sizes for the rest is tests/dispcalc.py, which finds 0
+# differing pixels against a forced full repaint on all three adapters.
+CAL_BTN_W, CAL_BTN_H = 51, 14           # apps/calc/calc.asm's own constants
+KEY_FLASH = CAL_BTN_W * CAL_BTN_H + CUR_CELL
 EXEMPT = ("equals, pane open", "folding the pane")
-bad = [r for r in rows if r[2] > CUR_CELL and r[0] not in EXEMPT]
+FLASHES = ("a digit", "an operator", "a digit again", "equals",
+           "a digit, pane open")
+def bound(name):
+    return KEY_FLASH if name in FLASHES else CUR_CELL
+bad = [r for r in rows if r[2] > bound(r[0]) and r[0] not in EXEMPT]
 for r in rows:
     tag = ""
     if r[0] in EXEMPT:
         tag = "   <- a scroll/resize: entitled to one"
-    elif r[2] > CUR_CELL:
-        tag = "   <- MORE than the arrow's own cell can account for"
+    elif r[2] > bound(r[0]):
+        tag = "   <- MORE than %d px can account for" % bound(r[0])
+    elif r[0] in FLASHES and r[2] > CUR_CELL:
+        tag = "   <- one pad key flashing (SPEC.md 65.9)"
     elif r[2]:
         tag = "   <- inside the arrow's 8x12 cell"
     print("   %-22s %6.1f ms moving, %4d transient px%s" % (r[0], r[5], r[2], tag))

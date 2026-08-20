@@ -972,7 +972,6 @@ hd_tw_delete:
     call hd_dev_row             ; off what we hoped we wrote
     call hd_tw_scan
     jmp short .out
-    jmp short .out
 .notable:
     mov byte [hd_tarm], 0
     mov word [hd_tmsg], hd_s_tnomb

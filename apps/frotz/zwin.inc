@@ -165,10 +165,19 @@ zw_bounds:
     ; white or a dither, so @set_colour must be ignored there.
     cmp byte [zw_vidok], 0
     jne .havevid
-    call OSAPI_VIDEO
+    push si                         ; this proc PRESERVES ALL and does not
+    call OSAPI_WM_DISPLAY           ; frame SI - the cell answers the band's
+    pop si                          ; top there (SPEC.md 39.16.4). One push per
+                                    ; adapter change, so it costs nothing.
+                                    ;
+                                    ; **THE CARD THIS WINDOW IS ON**, not the
+                                    ; primary: zf_onresize drops the latch on a
+                                    ; DRAG across the seam as well as on an
+                                    ; adapter switch, and only this cell can
+                                    ; tell the two apart
     mov [zw_bpp], dh
     mov byte [zw_vidok], 1
-    mov bx, [zf_win]                ; OSAPI_VIDEO answers in AX/BX/CX/DX
+    mov bx, [zf_win]                ; ...which answered in AX/BX/CX/DX
 .havevid:
     call OSAPI_WM_GEOM              ; CX/DX = content w/h, CF=1 = not visible
     jc .no

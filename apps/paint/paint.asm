@@ -359,6 +359,12 @@ pt_entry:
     pop cx                          ; latched XOR, the caret is keystroke-driven
     pop ax
     popf
+    pushf                           ; ...and TELL US WHEN THE ADAPTER MOVES
+    push ax                         ; (SPEC.md 11.98). Outside the PT_M_LIVE
+    mov ax, pt_onresize             ; gate below on purpose: a Paint that could
+    call OSAPI_WM_ONRESIZE          ; not fund a canvas still has a screen, and
+    pop ax                          ; the CF wm_create owes the loader is still
+    popf                            ; riding through this proc
     cmp byte [pt_mode], PT_M_LIVE
     jne .menus
     push ax
@@ -409,22 +415,56 @@ pt_entry:
 ; both constraints are gone and a fresh 448x280 Paint holds about 150KB on a
 ; 640KB machine instead of 260KB.
 ; -----------------------------------------------------------------------------
-pt_geom:
-    call OSAPI_VIDEO                ; AX=w, BX=h, CX=dock row, DL=kind, DH=bpp
+; pt_screen - EVERY FACT THIS PROGRAM TAKES FROM THE ADAPTER, in one place
+; out: [pt_scrw]/[pt_scrh]/[pt_dockr]/[pt_mono]/[pt_ncol] and the canvas maxima
+;      [pt_cwmax]/[pt_chmax]; AX = pt_cwmax, CX = pt_chmax on the way out, for
+;      pt_geom which carries on from here. Clobbers AX, BX, CX, DX.
+;
+; **IT IS SPLIT OUT BECAUSE IT HAS TO BE RE-RUNNABLE and the rest of pt_geom
+; must not be.** Below this point pt_geom claims memory, picks a starting
+; canvas and sizes the window; running that a second time would throw away the
+; picture. Everything above it is a question about the SCREEN, and the screen
+; can change under us (SPEC.md 39.11.2) - so this is the part pt_onresize
+; calls and nothing else is.
+;
+; **AND [pt_mono] IS CLEARED HERE, WHICH IT DID NOT USED TO BE.** bss arrives
+; zeroed, so setting it only on the 1bpp arm is right exactly once - at launch.
+; Re-run after an Activate Mode switch back to a VGA it would stay 1 and the
+; palette would keep three colours on a sixteen-colour screen. apps/browser's
+; br_keeph is the same correction one package over (SPEC.md 11.100.6): a
+; routine that is called twice has to answer BOTH ways.
+; -----------------------------------------------------------------------------
+pt_screen:
+    or bx, bx
+    jz .prim                        ; no window yet (pt_geom, at launch): the
+                                    ; primary is where one is about to be born
+    call OSAPI_WM_DISPLAY           ; **THE DISPLAY THIS WINDOW IS ON**, not
+    jmp short .got                  ; the primary (SPEC.md 39.16.4). The two
+.prim:                              ; agree on every one-display machine; they
+    call OSAPI_VIDEO                ; part the moment somebody drags us onto
+    mov si, MBAR_H                  ; the other card, and this handler fires on
+.got:                               ; exactly that
+                                    ; AX=w, BX=h, CX=dock row, SI=band top,
+                                    ; DL=kind, DH=bpp
     mov [pt_scrw], ax
     mov [pt_scrh], bx               ; the whole screen, for the SPEC.md 53
     mov [pt_dockr], cx              ; bracket's own pointer (pt_ptr_xor)
     mov byte [pt_ncol], 16
+    mov byte [pt_mono], 0
     cmp dh, 1
     jne .colour
     mov byte [pt_mono], 1
     mov byte [pt_ncol], 3
 .colour:
     ; --- what the screen allows ---------------------------------------------
-    sub cx, PT_WIN_Y + PT_CHROME_H  ; the tallest canvas from y = PT_WIN_Y
-    cmp cx, PT_CH_MAX
-    jle .h_cap
-    mov cx, PT_CH_MAX
+    sub cx, si                      ; the DESKTOP BAND, which is not CX - MBAR_H
+                                    ; on a secondary: that card has no menu bar
+                                    ; and no dock, so its band is its whole
+                                    ; height (SPEC.md 39.16.4)
+    sub cx, PT_WIN_Y - MBAR_H + PT_CHROME_H
+    cmp cx, PT_CH_MAX               ; ...the tallest canvas from PT_WIN_Y, the
+    jle .h_cap                      ; margin above the frame being the same 4px
+    mov cx, PT_CH_MAX               ; on either card
 .h_cap:
     mov [pt_chmax], cx
     sub ax, PT_CHROME_W             ; ...and the widest the screen leaves
@@ -433,6 +473,55 @@ pt_geom:
     mov ax, PT_CW_MAX
 .w_cap:
     mov [pt_cwmax], ax
+    ret
+
+; -----------------------------------------------------------------------------
+; pt_onresize - OSAPI_WM_ONRESIZE (SPEC.md 11.98): the ADAPTER moved under us
+; in:  SI = window, CX/DX = the new content size; the gfx lock is held and
+;      DRAWING IS FORBIDDEN - the kernel's repaint follows
+; out: nothing; preserves all registers
+;
+; **THE BOX IS NOT WHAT THIS IS FOR.** Every rect in this program already comes
+; off the live content box (pt_org, pt_repaint), so a window that merely
+; changed size needs nothing said to it. What goes stale is the seven facts
+; pt_screen takes from the ADAPTER, and pt_geom took them once. Measured on
+; os8088_xt_vga, a Paint launched on the VGA and switched to the CGA:
+;
+;   pt_mono=0 pt_ncol=16     - a sixteen-colour palette on a 1bpp screen, where
+;                              SPEC.md 39.4's dither class is a checkerboard
+;                              and a 1px stroke of it has nothing left
+;   pt_scrw=640 pt_scrh=480  - the SPEC.md 53 bracket's surface, on a screen
+;   pt_dockr=456               that is 200 rows tall with its dock at 176
+;   pt_cwmax=594 pt_chmax=390 - the canvas the negotiator will allow, on a
+;                              desktop band of 155
+;
+; It does NOT touch the picture, the claims or [pt_mode]. A canvas is a heap
+; object and a screen is not; one that no longer fits simply stops being
+; growable, which is what the maxima are for and what pt_onsize already
+; enforces.
+; -----------------------------------------------------------------------------
+pt_onresize:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov bx, si                      ; the window, so pt_screen asks about the
+    call pt_screen                  ; card we are ON (SPEC.md 39.16.4)
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+pt_geom:
+    xor bx, bx                      ; no window yet: the primary, where one is
+    call pt_screen                  ; about to be born
+                                    ; ...which is the half that can be re-run
+    mov ax, [pt_cwmax]              ; (SPEC.md 11.98, pt_onresize below)
+    mov cx, [pt_chmax]
     cmp cx, PT_CH_MIN
     jl .small
     cmp ax, PT_CW_MIN

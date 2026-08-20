@@ -147,6 +147,40 @@
 
 ; --- the board ------------------------------------------------------------------
 ARK_COLS    equ 10                  ; bricks across, both metric sets
+
+; --- THE THREE FIELDS A WINDOW SIZE IS A FUNCTION OF ------------------------
+; Named here and spent twice: once in the metric records at the bottom of this
+; file, and once in the per-adapter preferences ark_entry publishes (SPEC.md
+; 11.100.1). Two places that must agree about a number is how a size drifts
+; from the layout it is meant to hold, and the answer is that only one of them
+; carries the number.
+ARK_BW_BIG   equ 24                 ; brick width, VGA and Hercules
+ARK_RAIL_BIG equ 4                  ; side rail
+ARK_CHW_BIG  equ 300                ; content height the layout wants
+ARK_BW_SML   equ 20                 ; ...and CGA's 200 rows
+ARK_RAIL_SML equ 3
+ARK_CHW_SML  equ 137
+
+; ark_entry's own arithmetic, as constants: content = bricks + both rails, and
+; the frame is that plus the 1px border either side / the title bar and one
+; more. A GENEROUS height is the idiom (docs/WINDOW-SIZING-PLAN.md 9) - no
+; package can know how tall another adapter's band is, so publish a number the
+; kernel's clamp can bring down. On Hercules it comes back 303.
+ARK_PREF_BW  equ ARK_BW_BIG * ARK_COLS + 2 * ARK_RAIL_BIG + 2
+ARK_PREF_BH  equ ARK_CHW_BIG + TITLE_H + 1
+ARK_PREF_SW  equ ARK_BW_SML * ARK_COLS + 2 * ARK_RAIL_SML + 2
+ARK_PREF_SH  equ ARK_CHW_SML + TITLE_H + 1
+
+; ...AND THE FLOOR IS ONE PIXEL SHORTER THAN THE PREFERENCE, because a floor
+; is the one number no clamp may cut. On a CGA wm_fit's height cap is
+; vid_dock_y0 - MBAR_H - 1 = 155 - the `dec di` that keeps a frame off the
+; dock strip, which is the same pixel ark_entry's own `sub bx, MBAR_H + 1`
+; below takes - and wm_min_floor runs AFTER that clamp and wins. Published as
+; the floor, ARK_PREF_SH's 156 put it straight back, y floored at MBAR_H, and
+; the frame's drop shadow landed on row 176: exactly vid_dock_y0. From there
+; wm_dock_clear's `jae` is true for this window forever, so every window
+; opened or moved over the game pays a dock repaint it did not owe.
+ARK_MIN_SH   equ ARK_CHW_SML + TITLE_H
 ARK_MAXROW  equ 6                   ; ...and the most rows either set uses
 ARK_NZONE   equ 5                   ; paddle zones the bounce divides it into
                                     ; (ark_zbias/ark_zbq)
@@ -429,6 +463,22 @@ ark_entry:
     call OSAPI_WM_ONRESIZE          ; SCREEN, so an adapter change invalidates
                                     ; it and nothing else would say so
                                     ; (SPEC.md 11.98)
+    mov si, ark_pref                ; **AND THE WINDOW FOLLOWS THE METRICS**
+    call OSAPI_WM_PREFER            ; (SPEC.md 11.100.1). ark_metrics has always
+                                    ; had two records and picked the right one;
+                                    ; what never followed was the FRAME, so a
+                                    ; game dragged onto a CGA re-derived a
+                                    ; fatter, squatter wall and then drew it
+                                    ; into a window still 303 rows tall - this
+                                    ; window is not WF_SIZABLE, so until it
+                                    ; published these three sizes the kernel
+                                    ; had none for it that anyone had designed
+    mov cx, ARK_PREF_SW             ; ...and the floor is the small record's
+    mov dx, ARK_MIN_SH              ; own size, because a straddle still CLAMPS
+    call OSAPI_WM_MINSIZE           ; a published size to the rows both cards
+                                    ; have (SPEC.md 39.16.3) and a wall with
+                                    ; the rows squeezed out of it is a
+                                    ; different game
     mov si, ark_menus
     call OSAPI_MENU_SET
     mov si, ark_about
@@ -673,11 +723,24 @@ ark_onresize:
     push dx
     push si
     push di
-    call OSAPI_VIDEO                ; AX=w, BX=h, CX=dock top row, DH=bpp - and
+    mov bx, si                      ; **THE CARD THIS WINDOW IS ON** (SPEC.md
+    call OSAPI_WM_DISPLAY           ; 39.16.4), not the primary: this handler
+                                    ; fires on a DRAG across the seam as well
+                                    ; as on Activate Mode, and OSAPI_VIDEO
+                                    ; answers about the primary either way.
+                                    ; AX=w, BX=h, CX=dock row, SI=band top,
+                                    ; DH=bpp - and SI stops being the window
+                                    ; here, which is why BX was taken first
     mov [ark_scrw], ax              ; the bpp is banked again too, because a
-    mov [ark_dock], cx              ; switch is exactly when it stops being true
-    mov [ark_bpp], dh
-    call ark_metrics
+    mov [ark_bpp], dh               ; switch is exactly when it stops being true
+    sub cx, si                      ; the BAND - not CX - MBAR_H on a secondary,
+    add cx, MBAR_H                  ; which has no menu bar and no dock - put
+    mov [ark_dock], cx              ; back into the primary-shaped number every
+                                    ; reader of [ark_dock] already subtracts
+                                    ; MBAR_H from
+    call ark_metrics                ; ...which reads BX, now THIS card's height:
+                                    ; the one number the big/small choice turns
+                                    ; on
     cmp byte [ark_mode], M_OVER     ; a finished game has nothing to restart,
     je .out                         ; and putting a ball back on the paddle
                                     ; there would look like a free life
@@ -4160,6 +4223,8 @@ ark_tpl:
     dw ark_ttl, ark_paint, ark_onkey, ark_onclick
 
 ; --- app menu set (SPEC.md 12.2) -----------------------------------------------
+    OS88_PREFER ark_pref, ARK_PREF_BW, ARK_PREF_BH,  ARK_PREF_BW, ARK_PREF_BH,  ARK_PREF_SW, ARK_PREF_SH
+
     OS88_MENUSET ark_menus, ark_m_name, ark_oncmd
         OS88_MENU ark_m_game, ark_mi_game, 2
     OS88_MENUSET_END ark_menus
@@ -4245,9 +4310,9 @@ ARK_HEARTH  equ 6
 ; made CGA feel 2.7x too fast. The measured bands are 198px (VGA), 182px
 ; (Hercules) and 72px (CGA), against one shared 18.2fps frame clock.
 ark_met_big:                        ; VGA 640x480 and Hercules 720x348
-    dw 24, 10, 6, 4, 14, 10, 44, 6, 4, 18, 300, 100
+    dw ARK_BW_BIG, 10, 6, ARK_RAIL_BIG, 14, 10, 44, 6, 4, 18, ARK_CHW_BIG, 100
 ark_met_sml:                        ; CGA 640x200: 137 rows of content, all in
-    dw 20,  7, 5, 3, 11,  5, 34, 4, 3, 13, 137,  37
+    dw ARK_BW_SML,  7, 5, ARK_RAIL_SML, 11,  5, 34, 4, 3, 13, ARK_CHW_SML,  37
 
 ; =============================================================================
 ; .bss (SPEC.md 20.5: the loader zeroes ARK_BSS bytes after the image, and

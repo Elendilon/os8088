@@ -667,6 +667,19 @@ vid_switch:
 %endif
     call desk_rowcalc           ; 4. the two things vid_apply does not own
     call wm_refit
+%ifdef KERN_BIG
+    push ax                     ; ...and the THEME, which can be a fact about
+    mov al, [thm_kind]          ; the adapter: SPEC.md 76.12's Color theme is
+    call thm_set                ; VGA's alone, and this page can move a running
+    pop ax                      ; machine onto a card with no colour in it.
+                                ; thm_set owns the refusal, so re-asserting the
+                                ; kind is the whole of it - Bright and Dark
+                                ; re-resolve to what they already were, and
+                                ; Color falls back rather than reducing to a
+                                ; dither nobody chose (SPEC.md 76.12.1). It
+                                ; also re-forces the two painters, which the
+                                ; pair below wanted anyway
+%endif
     call menu_force             ; ...and the two the CHROME does not: setmode
     call dock_force             ; cleared the framebuffer, so the bar's logo
                                 ; and rule and the whole dock strip are gone,
@@ -1231,27 +1244,35 @@ fsx_vndisp  db 1                ; ...and how many displays there were. 1 means
                                 ; boot value and what vid_fsx_unblank leaves
 
 ; -----------------------------------------------------------------------------
-; vid_disp_dither - the desktop on every display but the primary
-;                   (SPEC.md 39.14.4)
+; vid_disp_desk - the desktop on every display but the primary
+;                 (SPEC.md 39.14.4)
 ;
 ; in:       nothing; the caller holds the gfx lock
 ; out:      nothing
 ; clobbers: flags
 ;
 ; wm_paint_all draws display 0's band itself - menu bar to dock, the call that
-; has always been there - and this is the rest. Each is ONE gfx_fill_gray in
+; has always been there - and this is the rest. Each is ONE ground fill in
 ; VIRTUAL coordinates, and GFXDISP is what puts it on the right card; nothing
 ; here knows which card that is, or that there is more than one way to be a
 ; framebuffer.
 ;
-; A secondary display is dithered WHOLE, because SPEC.md 39.14's chrome - the
-; menu bar, the dock, the drive column - lives on the primary alone.
+; A secondary display gets its ground WHOLE, because SPEC.md 39.14's chrome -
+; the menu bar, the dock, the drive column - lives on the primary alone.
+;
+; **IT IS thm_desk AND NOT gfx_fill_gray, AND THE NAME IS WHY IT WAS NOT**
+; (SPEC.md 76.2.1). This routine was called vid_disp_dither, SPEC.md 76.1's own
+; list of the four themed desktop sites NAMES it, and 76.2 says thm_desk
+; replaced gfx_fill_gray at all of them - and this one kept the dither, so
+; switching to Dark left the second monitor in Bright's ground for ever. A
+; routine whose name says DITHER does not read as a themed site to whoever is
+; converting them.
 ;
 ; This is the only caller in the kernel that draws in virtual coordinates.
 ; Everything else is inside the chrome or inside a window, and both are on
 ; display 0, where virtual and local are the same numbers (39.14.4).
 ; -----------------------------------------------------------------------------
-vid_disp_dither:
+vid_disp_desk:
     cmp byte [vid_ndisp], 1
     jbe .out
     push ax
@@ -1272,8 +1293,8 @@ vid_disp_dither:
     mov dx, bx
     add dx, [di+VID_CTX_CH]
     dec dx
-    call gfx_fill_gray
-    inc si
+    call thm_desk               ; the THEME's ground (SPEC.md 76.2), not a
+    inc si                      ; hard-coded dither
     mov al, [vid_ndisp]
     mov ah, 0
     cmp si, ax

@@ -35,6 +35,9 @@
 ; Assembled with -DKERNEL_SECTORS=<n> by the Makefile, which measures the
 ; built kernel so we never read more sectors than exist.
 ; =============================================================================
+cpu 8086                        ; SPEC.md 1: this sector runs on the 5150's
+                                ; 8088 before anything has probed anything,
+                                ; so NASM refuses a 286+ encoding here too.
 
 bits 16
 org 0x7C00

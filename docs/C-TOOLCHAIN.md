@@ -189,6 +189,15 @@ which reads exactly like a change that did nothing.
 
 ## Building and booting
 
+**The suite has a row for all this**, and it is the reason it is worth
+knowing about: `python3 tools/os88test.py full` builds `ccsmoke`, `chello`,
+`covl` and `cword` from clean and checks that a call to an `os88_*` with no
+thunk still stops the build naming the function. It skips where the compiler
+is not built, so run `tools/setup-cc.sh` first or the row says nothing. It is
+in `full` and not `fast` because `fast` hangs off `make`, and `make` builds no
+C at all - which is exactly how the whole toolchain once spent two releases
+unable to assemble anything (SPEC.md 73.1).
+
 ```
 make cc-smoke                          the SDK's smoke test  -> build/ccsmoke.img
 make chello                            the capability gate   -> build/chello.img
@@ -671,11 +680,17 @@ walks the four rules against the actual code that obeys them.
   source has an `#include` the failure is a parse error a long way from the
   cause. The invocation in `apps/cc/Makefile.inc` is correct; do not "tidy" it.
 - **A missing runtime shim is an nasm error, not a gate error.** SmallerC emits
-  an `extern` for every symbol it did not define, and nasm accepts a redundant
-  `extern` for a symbol defined in the same assembly. So the compiler's
-  `extern` lines cost nothing — but a genuinely missing symbol becomes nasm's
-  external-reference error **with the symbol's name in it**. This is the one
-  failure in the C path that already names its own cause.
+  an `extern` for every symbol it did not define — which is every `os88_*` call
+  you make — and `tools/cc8086.py` comments those lines out, so a symbol the
+  SDK really does define is resolved in the ordinary way and a genuinely
+  missing one becomes ``symbol `_os88_foo' not defined`` **with the name in
+  it**. This is the one failure in the C path that already names its own cause.
+  It is *not* true that nasm tolerates a redundant `extern` for a symbol
+  defined in the same assembly — this file and SPEC.md §73.1 both said so, and
+  it is why no C package assembled for two releases. nasm reads `extern X` for
+  an already-defined X as a redefinition and passes it only when X's value is
+  **0**, which is what a two-line test happens to produce and what a package
+  with the runtime in front of it never does. §73.1 has the account.
 - **`os88pkg.py` reporting a size mismatch does not mean a truncated file.** On
   a C package it much more likely means the section layout was disturbed. A C
   package must not open a section of its own, and must not use `OS88_HEADER` /

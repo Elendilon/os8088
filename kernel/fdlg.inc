@@ -272,6 +272,10 @@ fdlg_open_x:
 .rt:
     mov [bx+W_TITLE], ax
 %endif
+%ifdef WM_ANIM
+    or word [bx+W_FLAGS], WF_NOANIM  ; SPEC.md 11.99.2: modal, and put up and
+                                ; taken down on every Open and every Save
+%endif
     mov [fdlg_win], bx          ; take the gate LAST: until this store the
                                 ; window is an ordinary one
     call KERNEL_SEG:cw_wm_show  ; raise + repaint, under the caller's lock

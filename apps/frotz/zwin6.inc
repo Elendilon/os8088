@@ -115,7 +115,10 @@ zw6_setup:
     ; A 1bpp adapter reduces every colour to black, white or a dither
     ; (SPEC.md 39.4), so a story that colours by meaning becomes unreadable.
     ; Decide once, here, and honour it in zw6_pen/zw6_paper.
-    call OSAPI_VIDEO                ; DH = bits per pixel, 4 or 1
+    push si                         ; the cell answers the band's top in SI
+    mov bx, [zf_win]                ; DH = bits per pixel, 4 or 1, FOR THE CARD
+    call OSAPI_WM_DISPLAY           ; THIS WINDOW IS ON (SPEC.md 39.16.4)
+    pop si
     mov byte [zw6_mono], 0
     cmp dh, 1
     jne .notmono

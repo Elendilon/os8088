@@ -288,15 +288,56 @@ EOF
 	# `-f bin` cannot hold an external reference, so the canary's one extern
 	# is given an address before NASM sees it. `cpu 8086` is already at the
 	# top of the file cc8086.py wrote, and it is what does the checking here.
-	sed -e 's/^[[:space:]]*extern[[:space:]]*\(.*\)/\1 equ 0/' \
-	    -e 's/^[[:space:]]*global.*//' \
-	    "$TMP/canary8086.asm" > "$TMP/canary.bin.asm"
+	#
+	# THIS IS THE CANARY'S RULE AND NOT THE BUILD'S, AND CONFUSING THE TWO
+	# COST TWO RELEASES OF BROKEN C (SPEC.md 73.1). The canary's `sink()` has
+	# no definition anywhere, so `equ 0` is the only thing that lets its
+	# instruction stream be checked at all. A real package is the opposite
+	# case: its externs are all `os88_*` calls that apps/cc/os88thunk.asm
+	# defines a few thousand lines earlier, so cc8086.py DROPS the
+	# declarations instead - `equ 0` there would silently call offset 0 of the
+	# package's own segment when a thunk is missing, where dropping makes nasm
+	# name the function. Do not "unify" these two by pointing the build at
+	# this sed: the difference is the diagnostic.
+	# The names are taken from the file SMLRCC wrote, not from the lowered
+	# one: cc8086.py has commented its own copies out by the time this runs
+	# (see the second stage below for why), so a sed over the lowered file
+	# matches nothing and leaves `_sink` undefined.
+	sed -n 's/^[[:space:]]*extern[[:space:]]*\([A-Za-z_][A-Za-z0-9_]*\).*/\1 equ 0/p' \
+	    "$TMP/canary.asm" > "$TMP/canary.bin.asm"
+	sed -e 's/^[[:space:]]*global.*//' \
+	    "$TMP/canary8086.asm" >> "$TMP/canary.bin.asm"
 	nasm -f bin -w+error "$TMP/canary.bin.asm" -o "$TMP/canary.bin" \
 		|| die "NASM refused the lowered canary under \`cpu 8086\`. This is a
     tools/cc8086.py bug, not a setup problem - please report it with
     $TMP/canary.bin.asm."
 	ok "nasm -f bin -w+error under cpu 8086: $(wc -c < "$TMP/canary.bin" \
 		| tr -d ' ') bytes"
+
+	# ...and once more the way a PACKAGE is assembled, which is the case the
+	# sed above cannot speak for and the case that broke (SPEC.md 73.1). A
+	# package does not stub its externals out: it puts the runtime in FRONT of
+	# the compiled C in one nasm job, so every `os88_*` the compiler declared
+	# extern is a symbol that is already defined by the time nasm reads the
+	# declaration - and nasm treats that as a redefinition of it unless the
+	# symbol's value is 0. So this links the lowered canary against a real
+	# `sink` at a DELIBERATELY non-zero offset (the `nop` is the whole test:
+	# put the definition at 0 and this passes whatever cc8086.py does, which
+	# is exactly how the claim that nasm tolerates a redundant extern got
+	# written down as "verified"). No sed, because the point is to assemble
+	# the file the build assembles.
+	printf '\tcpu 8086\n\tbits 16\n\tsection .text\n\tnop\n_sink:\n\tret\n' \
+		> "$TMP/prelude.asm"
+	cat "$TMP/prelude.asm" "$TMP/canary8086.asm" > "$TMP/canary.pkg.asm"
+	nasm -f bin -w+error "$TMP/canary.pkg.asm" -o "$TMP/canary.pkg.bin" \
+		|| die "NASM refused the lowered canary when it was assembled the way
+    a package is - the compiled C behind a runtime that already defines what
+    the C called. That is the shape every C package has, so no C package can
+    be building either. tools/cc8086.py is meant to comment SmallerC's
+    \`extern\` lines out (SPEC.md 73.1); check that it still does, with
+    $TMP/canary.pkg.asm."
+	ok "nasm -f bin, runtime-before-C as a package assembles: $(wc -c \
+		< "$TMP/canary.pkg.bin" | tr -d ' ') bytes"
 fi
 
 # --------------------------------------------------------------------------

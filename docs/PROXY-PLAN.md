@@ -648,18 +648,34 @@ worth phoning about.
 
 ### 13.2 Getting the .exe, and the two Windows prompts
 
-**It is built on Windows, by CI** (`.github/workflows/os88proxy-exe.yml`):
-push, or run the workflow by hand, and the Artifacts of that run carry
-`os88proxy.exe`; a published release gets it attached. `tools\build-os88proxy-exe.bat`
-is the same build on a Windows desk, for when that is quicker.
+**It is built on a Windows desk**, with `tools\build-os88proxy-exe.bat`.
 
-The workflow runs `--selfcheck`, `tests/proxytest.py` and
-`tests/proxyguitest.py` **before** it freezes anything — an .exe of a build
-that fails its own gates is worse than no .exe, because the tester is the one
-who finds out — and then asks the frozen binary what it is
-(`--self-report <file>`, which writes JSON rather than printing, because a
-`--noconsole` binary has no stdout when a console starts it and a step that
-captured its output would capture nothing and pass).
+There is **no CI for it, and that is a decision** rather than an omission. It
+was `.github/workflows/os88proxy-exe.yml` once and that workflow is gone: an
+unsigned `.exe` produced on a `windows-latest` runner with `contents: write`
+and an unpinned third-party release action is a lot of trust to place in a
+convenience, and the filter it ran under was not the narrow one it looked —
+`tools/os88proxy.py` is touched by every merge of the browser work, so
+ordinary integration pushes each spent a runner building a binary nobody had
+asked for, and a stale gate then put a red cross on commits that had nothing
+to do with the proxy.
+
+The gates are what a push would have been protecting and they are not
+Windows-specific, so the honest place for them is the desk: `python3
+tests/proxyguitest.py` while editing the window, `--selfcheck` and
+`tests/proxytest.py` while editing the engine.
+
+`tools\build-os88proxy-exe.bat` runs `--selfcheck` **before** it freezes
+anything, and that rule is the part worth keeping whoever builds it: an .exe
+of a build that fails its own gates is worse than no .exe, because the tester
+is the one who finds out. Run `tests/proxytest.py` and
+`tests/proxyguitest.py` yourself first — the workflow used to do all three,
+and nothing does them for you now.
+
+`--self-report <file>` asks a frozen binary what it is. It writes JSON rather
+than printing, because a `--noconsole` binary has no stdout when a console
+starts it, and anything that captured its output would capture nothing and
+pass.
 
 Two things will happen on the tester's machine and both are worth warning them
 about in advance:

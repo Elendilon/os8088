@@ -42,6 +42,8 @@
 ; complete. The old stub existed because 446 blank bytes is a machine that
 ; hangs with no explanation, and that reasoning outlives it.
 ; =============================================================================
+cpu 8086                        ; SPEC.md 1: an 8088 runs this before
+                                ; anything has probed anything.
 
 bits 16
 org 0x0600

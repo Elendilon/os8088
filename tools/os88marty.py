@@ -261,6 +261,13 @@ class Marty:
 
             m.read(m.sym("fpg_on"), 1)
 
+        **The answer is FLAT** - `KERNEL_SEG*16 + offset`, which is what
+        `read()` and an `exec` breakpoint's `addr` both take, and which is
+        0x600 more than what `readseg(KERNEL_SEG, ...)` and an `execseg`
+        breakpoint's `off` take. Both forms accept it without complaint and
+        land 0x600 away, in real code, on an address that is simply never
+        reached; `bp_exec()` exists so a breakpoint cannot get this wrong.
+
         Never take one out of `nasm -l`'s listing: for anything in `.bss` the
         listing prints a SECTION-RELATIVE address that is fixed up afterwards,
         so it is a plausible small number pointing into `.text` - and reading
@@ -300,8 +307,64 @@ class Marty:
             {"type": "mem",     "addr": 0x60C}      # any access
             {"type": "int",     "addr": 0x13}       # interrupt number
             {"type": "io",      "addr": 0x3F8}
+
+        TWO WAYS TO ARM ONE AND SEE NOTHING, both of which cost a session
+        here and neither of which errors:
+
+        - **A HIT IS NOT `"paused"`.** `status()["state"]` reads
+          `"breakpoint"`. Poll `stopped()` - or anything that tests
+          `!= "running"`, which is what `until()` does - and never
+          `== "paused"`, which is true only of an explicit `pause()` and so
+          is false forever at a breakpoint that is firing perfectly.
+        - **`sym()` is FLAT and `off` is an OFFSET.** `sym("wm_show")` on a
+          kernel symbol answers `KERNEL_SEG*16 + offset`, so handing it
+          straight to `execseg`'s `off` arms an address 0x600 past the one
+          you meant - a real address, in real code, that simply is not
+          reached. Use `bp_exec()` below, or subtract `KERNEL_SEG << 4`.
         """
         return self.cmd(cmd="bp", list=bps)["count"]
+
+    def bp_exec(self, *targets):
+        """Arm exec breakpoints on kernel SYMBOLS or flat addresses.
+
+            m.bp_exec("wm_show", "wm_destroy")
+            m.bp_exec(0x8133)
+
+        The flat form is used throughout, so `sym()`'s answer goes in
+        unmodified and the offset confusion above cannot happen. Replaces the
+        whole set, like `breakpoints()`; call with no arguments to clear.
+        """
+        bps = []
+        for t in targets:
+            addr = self.sym(t) if isinstance(t, str) else int(t)
+            bps.append({"type": "exec", "addr": addr})
+        return self.breakpoints(bps)
+
+    def stopped(self):
+        """Is the guest NOT executing? True at a breakpoint and when paused.
+
+        The test every wait on a breakpoint wants, and the one nobody writes
+        the first time: `"breakpoint"` and `"paused"` are different states and
+        only this covers both.
+        """
+        return self.status().get("state") != "running"
+
+    def wait_stop(self, limit=20.0, poll=0.02):
+        """Run until the guest stops, and answer WHY - or None on a timeout.
+
+            if m.wait_stop(10): ...          # a breakpoint hit (or a pause)
+
+        Returns the state string, so a caller can tell a breakpoint from a
+        machine somebody else paused.
+        """
+        import time
+        t0 = time.time()
+        while time.time() - t0 < limit:
+            st = self.status().get("state")
+            if st != "running":
+                return st
+            time.sleep(poll)
+        return None
 
     # --- input, through the REAL devices -------------------------------------
     #

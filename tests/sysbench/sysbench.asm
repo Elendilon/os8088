@@ -10,6 +10,13 @@
 ;   make bench
 ;   make test TESTAPPS=build/bench.img
 ;
+; The report is a FILE, and `tools/os88flush.py` is how it reaches the host -
+; MartyPC keeps the guest's writes in RAM, so nothing lands on the image until
+; something spends them. `os88flush.Flush(marty=m).volume(N).read(...)` from a
+; driver script, or `os88flush.py <addr> get N <FILE> <out>` from the shell.
+; DO NOT page it off the screen: tests/benchlib.inc's bl_save header has the
+; recipe and docs/TESTING.md has the three traps in front of the RUN.
+;
 ; The same caution as its sibling: under QEMU the microsecond column is the
 ; HOST's speed. With `-icount shift=3,sleep=off` the counts column is guest
 ; INSTRUCTIONS, which is reproducible and is not time. build/bench360.img on a

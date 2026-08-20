@@ -40,6 +40,23 @@ make test     # boot headless, QMP socket at build/qmp.sock — this is how you 
 make test-snd # ...plus PC speaker capture to build/snd.wav (verify: tools/sndcheck.py)
 make debug    # boot halted, waiting for gdb on :1234
 make bench    # build the tests/ apps — ON DEMAND ONLY; nothing under tests/ ships
+make test-fast   # THE REGRESSION SUITE (docs/TESTING.md, tools/os88test.py,
+make test-full   #   tests/suite.py). Three tiers, each with an ENFORCED
+make test-soak   #   wall-clock budget — the runner FAILS a tier that
+                 #   overruns, so a row that no longer fits is a decision
+                 #   somebody takes rather than a drift nobody notices.
+                 #   fast ~2s, host-side only, and it already runs as part of
+                 #     `all`: the API table decoded out of kernel.bin and
+                 #     compared with the SDK, a constant mirrored in two files,
+                 #     every shipped floppy walked by an independent FAT12
+                 #     reader, unreachable code, the doc gate, and that every
+                 #     test in tests/ is registered somewhere or says why not
+                 #   full ~50s, THE PRE-MERGE GATE — adds the knob kernels and
+                 #     kern_small (every configuration `all` does NOT build, so
+                 #     the only thing keeping them assembling), the C toolchain
+                 #     and a boot to a desktop on both 1bpp adapters
+                 #   soak no budget — the rest of tests/, one subject each:
+                 #     `python3 tools/os88test.py soak -k 'disp*'`
 make zcheck   # play every Z-machine story to a script and diff it against
               # dfrotz (§61.13). `make zh` builds the harness interpreter;
               # `tools/zharness.py <story> --repl` types at one by hand. This
@@ -293,7 +310,15 @@ field measurements:
 
 ## Testing
 
-No unit tests. Testing = boot `make test`, then drive it over QMP.
+**There is a regression suite now** — `make test-fast` / `test-full` /
+`test-soak`, driven by `tools/os88test.py` off the registry in
+`tests/suite.py`. The fast tier runs as part of every `make`; **`test-full` is
+the pre-merge gate**. There are still no unit tests in the usual sense: the
+rows are host-side invariant checks over what `make` just built, the build
+configurations `all` never builds, and whole scripted sessions driven through
+an emulator.
+
+Everything else is still boot `make test`, then drive it over QMP.
 
 ```
 python3 tools/mouse.py build/qmp.sock click 180 150        # absolute click
@@ -304,7 +329,19 @@ python3 tools/shot.py build/qmp.sock out.png [--crop X,Y,W,H] [--zoom N]
 python3 tools/qmp.py build/qmp.sock 'quit'
 ```
 
-Two traps not written down elsewhere:
+Three traps not written down elsewhere:
+
+- **Committing invalidates `build/kernel.bin` for the symbol reader.** Every
+  emulator row resolves kernel symbols through `tools/os88sym.py`, which
+  re-assembles `kernel.asm` and refuses an address unless the result is
+  byte-identical to `build/kernel.bin` — and the About box's build number is
+  the COMMIT COUNT (§14.2), so a commit moves three bytes of `.text` and
+  nothing else. Every row then dies saying "the map describes a DIFFERENT
+  kernel", which points at the kernel rather than at what you did. `make`
+  after committing. `os88test.py` asks once, before any row runs, and says so;
+  it deliberately does not rebuild, because a knob kernel (`VIDEO=`, `RTC=`)
+  in `build/` differs from the plain assembly on purpose and a preflight
+  `make` would silently overwrite the build under test.
 
 - **A previous session's QEMU may still be running.** `make test` then fails
   with `cannot create PID file`, but the stale instance keeps answering on
@@ -342,9 +379,9 @@ in docs/TESTING.md, per capability.
   `os88proxygui.py` its desk-side front.
 - `tools/` — host-side Python: `os88pkg.py` (validates/stamps `.bin` → `.o88`),
   `os88disk.py` (builds FAT12 images; `--verify` is a structural fsck),
-  `checkdocs.py` (the doc gate every `make` runs), `qmp.py`/`mouse.py`/`shot.py`
-  (test drivers), `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its
-  gate, §73).
+  `checkdocs.py` (the doc gate every `make` runs), `os88test.py` (the suite
+  runner, off `tests/suite.py`), `qmp.py`/`mouse.py`/`shot.py` (test drivers),
+  `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its gate, §73).
 - `docs/` — the maintained accounts. `*-PLAN.md` are design records for work
   that has landed; `FIELD-NOTES.md`/`FIELD-MACHINES.md` are what real hardware
   said.

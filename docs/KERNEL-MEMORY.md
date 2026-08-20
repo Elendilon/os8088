@@ -18,13 +18,13 @@ last time.
 ## The rule
 
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
-includes its buffers.** The budget is 102.5KB today; the span it holds
-currently runs 0x00600 through **0x19DFF**, and the budget's ceiling is
-0x1A000 — so there is **ONE 512-byte step** left under it, against the
-four-step standard the moves below are granted on. That is a figure to raise
-deliberately or to spend down, not headroom to draw on.
-`tools/kernsize.py`, below, is what says so, and `make` runs it on every
-build.
+includes its buffers.** `kern_big`'s budget is 111.5KB today (114,176) and
+`kern_small`'s 103.5KB (105,984). Big stands at **1,536 spare — THREE
+512-byte steps**, one under the four the moves below are granted on; small
+at **512, one step**. That is a figure to raise deliberately or to spend
+down, not headroom to draw on. `tools/kernsize.py`, below, is what says so,
+and `make` runs it on every build — but only for the build it is building, so
+`make small` is the one that reports the second figure.
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
 data, `.bss`, the cold segment, the FAT window, the directory and icon
@@ -312,6 +312,51 @@ docs/KERN-SPLIT-PLAN.md, so a row says which of them moved: 15 and 16 are
 | 25 | **big** 108,544 → **109,568** | 1KB, `kern_big`'s alone, **attributed to BUTTON INTERACTIONS** — SPEC.md §13.8's down state, §13.8.2's tracking edge and §13.9's one-shot timer, plus the conversion of every control that still acted on the PRESS. Its terms were narrower than the four-step standard on purpose: if the remaining conversion work did not fit, the work would be reconsidered rather than the figure raised again. It was honoured — every conversion in docs/UIHELPERS-PLAN.md §15.4 landed inside the 1KB |
 | 26 | **both** big 109,568 → **110,592**, small 103,936 → **104,960** | 1KB each, **attributed to THE RAM DISK AND UI STANDARDIZATION**, and a MERGE rather than a feature: two branches spent against these guards independently — the RAM disk with its Control Panel page and §31.9.2's typed field on one side, §13.8's button interactions on the other — and neither crossed alone. Merged they landed EXACTLY on both, zero spare on each, which builds and boots and cannot take one more byte |
 | 27 | **both** big 110,592 → **112,128**, small 104,960 → **105,472** | **1.5KB and 512 bytes — the two figures PART here** after four moves together. Attributed to **THE MERGE FROM `main`**: the C toolchain, CWORD, RunCPM and the ten review fixes. The C toolchain is a host-side compiler and costs the kernel nothing; what lands in the kernel is RunCPM's **wake mechanism** (§74.1 — `wm_wake`, `wm_onwake`, `wm_wake_disp`, `wm_wkh_slot`, the `wm_onwk` side table, `wm_wkq`, `EVT_WAKE` and three API cells) plus `osapi_file_goto_qm` and the review fixes' own code. Small takes what the round actually cost it and no share of the headroom, landing at two steps against big's four. **The twenty-sixth's grant was spent by NETWORKING** — the browser, Telnet, `ETHER.DRV`, the socket layer and OS88NET took it to 63 bytes of image-rung slack without crossing a rung, so the footprint figure never moved and nothing in this table said so |
+| 28 | **both** big 112,128 → **114,176**, small 105,472 → **105,984** | **2KB and 512 bytes**, attributed to **WINDOW SIZE ADAPTATION STANDARDIZATION**. **A MERGE for the third move running**, which at that point is a property of how this tree works rather than a run of bad luck: feature branches are long, each is measured against the guard alone, and the guard is crossed by the union. Here it is the extended desktop's sizing work (SPEC.md §11.100 — `OSAPI_WM_PREFER`, `OSAPI_WM_MINSIZE` and `OSAPI_WM_DISPLAY`, the per-slot preference/minimum/sized-for-adapter arrays, `wm_land_fit`'s one landing sequence and `wm_disp_now`'s one answer to *which display is this window's*) meeting the themes and the zoom animation (SPEC.md §76, §11.99) coming the other way. Measured: `.text` **+1,243**, `.bss` **+104** against the baseline `elendilon` blessed, which stood at 512 spare — so **neither side crossed and the union crossed by exactly one step**. **2KB and not 512** is moves 22/23/24's rule applied: 112,640 assembles and is ZERO spare, handing the next byte added anywhere the identical failure this move repairs. It lands **three steps**, one under the standard. **`kern_small` takes 512 and the round cost it nothing net** — the extended desktop is `kern_big`'s (a 128KB machine has one display), so small carries the three API cells, the two side tables and `wm_apply_size`'s sequence against an `OSAPI_WM_DISPLAY` that is a `mov si`/`jmp osapi_video` there rather than a body, and it came out even. What the 512 repairs is **SPEC.md §76.12.3's zero**, said out loud when the theme landed (*"0 spare, 0 steps... the next byte added anywhere fails that build"*) and named there as a decision owed rather than a build fix. This is that decision, taken at the first merge that had to assemble both kernels. One step and not two, because **move 18's judgement stands**: the 128KB machine's kernel is already too big |
+
+**...and the MERGE onto `elendilon` crossed one image rung that neither side
+crossed alone**, which is move 26's shape at rung scale rather than budget
+scale. Measured, all three built from the same base: `elendilon` alone
+`.text` +132 / `.bss` +4 and **110,080, four steps spare**; the close
+negotiation alone `.text` +194 / `.bss` +28 and **110,080, four steps**;
+merged **110,592, 1,536 spare — THREE steps**. Both sides spent the same
+rung's slack and neither could see the other doing it. No raise is asked for
+and none is needed: three steps is inside the four-step standard, and this is
+ordinary growth spending the headroom that exists for it. `kern_small` is
+unchanged at 1,024, two steps.
+
+**The close negotiation cost 222 bytes and NO rung, on either build (SPEC.md
+§75), and the way it got there is the part worth keeping.** It was first
+built with the alert in the kernel as `kernel/ask.inc`, and measured `.text`
++332, `.bss` +118, `.cold` +841 — **1,291 bytes, three rungs**, taking
+`kern_big` from four steps of spare to one and needing an `%ifdef KERN_BIG`
+to keep `kern_small` assembling at all. That is what a windowed dialog costs:
+a window, a paint, a hit test, a key map and a completion dispatch, of which
+the run-time button layout alone was 153 bytes.
+
+**The fix was not to shrink it but to move it.** A slimmed version was costed
+rather than guessed at — fixed geometry (−153), one hardcoded button set
+(−49), no title staging (−56), firing on the press instead of the release
+(−80, and a §13.6 regression to go with it) — and the floor is about 800.
+There is no version that belongs in a budget the whole machine pays for. So
+the alert is `apps/os88ui.inc`'s now, behind `%define OS88UI_ALERT`
+(SPEC.md §75.3): 607 bytes of the including package's own image, and the
+kernel keeps only the negotiation — `W_ONCLOSE`, `OSAPI_WM_CLOSE` and the
+`wm_oncl` side table.
+
+Measured after: **`.text` +194, `.bss` +28, `.cold` +0**, the same on both
+builds, **no rung crossed on either guard**. `kern_big` keeps its four steps
+and `kern_small` its two, and nothing about the feature is inside an
+`%ifdef KERN_BIG` — so the 128KB machine gets the identical behaviour rather
+than a fallback, which the kernel-side version could not offer.
+
+**The shape to recognise**: a feature whose expensive half has no dependency
+on kernel state at all. The negotiation needs `app_close_win`, the window
+table and a side table, and cannot live anywhere else; the alert needs a
+window, a button and a font, all of which `apps/os88ui.inc` already gives
+every package. Splitting on that line took the kernel cost down 5.8x — and
+made the alert 607 bytes instead of 1,067, because in the caller's own
+segment nothing has to be staged and no staleness triple has to be checked.
 
 **A rung SPENT is not a move, and SPEC.md §5.4.2's band blit is the worked
 example.** `gfx_blit1` cost `.text` **+34** and `.cold` **+425**, which crossed
@@ -547,38 +592,38 @@ Three things about it:
 ```json
 {
   "big": {
-    "bss": 6252,
-    "budget": 112128,
+    "bss": 6419,
+    "budget": 114176,
     "codemax": 65536,
-    "cold": 37380,
+    "cold": 37628,
     "coldpara": 2368,
     "fatpara": 288,
-    "imgpara": 3680,
-    "kend": 7008,
+    "imgpara": 3808,
+    "kend": 7136,
     "kseg": 96,
-    "ksize": 110592,
+    "ksize": 112640,
     "lowbss": 7830,
     "lowpara": 576,
     "ovl": 2828,
     "stk0": 1024,
-    "text": 52391
+    "text": 54503
   },
   "small": {
-    "bss": 5823,
-    "budget": 105472,
+    "bss": 5947,
+    "budget": 105984,
     "codemax": 65536,
-    "cold": 35688,
-    "coldpara": 2240,
+    "cold": 35923,
+    "coldpara": 2272,
     "fatpara": 288,
-    "imgpara": 3424,
-    "kend": 6624,
+    "imgpara": 3456,
+    "kend": 6688,
     "kseg": 96,
-    "ksize": 104448,
+    "ksize": 105472,
     "lowbss": 7830,
     "lowpara": 576,
     "ovl": 2799,
     "stk0": 1024,
-    "text": 48549
+    "text": 49281
   }
 }
 ```
@@ -1083,49 +1128,49 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 31,677 | 35.3% |
-| the window system and its furniture | 22,978 | 25.6% |
-| drawing: adapters, primitives, glyphs, icons | 13,742 | 15.3% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 10,838 | 12.1% |
-| the kernel proper: API table, heap, scheduler, events | 7,812 | 8.7% |
-| the three built-in kinds | 1,751 | 2.0% |
-| the Control Panel | 973 | 1.1% |
-| **total** | **89,771** | |
+| the file system, end to end | 31,935 | 34.7% |
+| the window system and its furniture | 24,715 | 26.8% |
+| drawing: adapters, primitives, glyphs, icons | 13,965 | 15.2% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 10,857 | 11.8% |
+| the kernel proper: API table, heap, scheduler, events | 7,878 | 8.6% |
+| the three built-in kinds | 1,751 | 1.9% |
+| the Control Panel | 1,030 | 1.1% |
+| **total** | **92,131** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` |
 |---|---:|---:|---:|---:|---:|
-| `wm.inc` — the window manager (§11) | 10,124 | 95 | **10,219** | 906 | — |
-| `files.inc` — the Disk window (§22) | 1,127 | 7,836 | **8,963** | 470 | — |
+| `wm.inc` — the window manager (§11) | 11,593 | 95 | **11,688** | 1,061 | — |
+| `files.inc` — the Disk window (§22) | 1,145 | 8,072 | **9,217** | 470 | — |
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 358 | 6,052 | **6,410** | 890 | 3,584 |
-| `vga12.inc` — the VGA planar primitives (§5) | 5,422 | 425 | **5,847** | 654 | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 5,634 | 425 | **6,059** | 654 | — |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 5,041 | **5,220** | 155 | — |
-| `fdlg.inc` — the Standard File dialog (§38) | 223 | 4,723 | **4,946** | 157 | — |
+| `fdlg.inc` — the Standard File dialog (§38) | 223 | 4,727 | **4,950** | 157 | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 3,885 | — | **3,885** | 149 | — |
-| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 595 | 2,994 | **3,589** | 454 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,102 | — | **3,102** | 45 | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 3,065 | — | **3,065** | 197 | 98 |
+| `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 606 | 3,002 | **3,608** | 462 | — |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,185 | — | **3,185** | 45 | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 3,052 | — | **3,052** | 197 | 98 |
 | `assoc.inc` — file type associations (§54) | 528 | 2,380 | **2,908** | 43 | — |
 | `memory.inc` — the claim heap (§50) | 14 | 2,754 | **2,768** | 22 | 324 |
 | `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,436 | **2,436** | 148 | — |
-| `instance.inc` — instances and the built-in kinds (§29) | 2,310 | — | **2,310** | 698 | — |
+| `instance.inc` — instances and the built-in kinds (§29) | 2,414 | — | **2,414** | 698 | — |
 | `clock.inc` — the clock ladder (§37) | 1,794 | — | **1,794** | 89 | — |
 | `apps.inc` — the three built-in kinds (§14) | 1,751 | — | **1,751** | 15 | 240 |
-| `font.inc` — the 8x8 text renderers (§6) | 1,632 | — | **1,632** | 197 | 768 |
+| `font.inc` — the 8x8 text renderers (§6) | 1,635 | — | **1,635** | 197 | 768 |
 | `icons.inc` — the icon renderer (§10) | 1,570 | — | **1,570** | 34 | — |
-| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,548 | — | **1,548** | 84 | — |
+| `vidsel.inc` — which adapters the machine HAS, and switching between them (§39.11) | 1,556 | — | **1,556** | 84 | — |
 | `softgfx.inc` — the software renderer, §39.5's 1bpp driver (§32) | 1,205 | — | **1,205** | 4 | — |
 | `snd.inc` — the sound layer (§34) | 1,195 | — | **1,195** | 300 | — |
 | `sched.inc` — pre-emptive scheduling (§7–8) | 1,088 | — | **1,088** | 168 | 2,816 |
 | `desk.inc` — the desktop and volume zones (§14/§26.1) | 15 | 1,052 | **1,067** | 18 | — |
+| `ctrl.inc` — the Control Panel (§31) | 748 | 282 | **1,030** | — | — |
 | `fsx.inc` — fullscreen exclusive (§53) | 1,006 | — | **1,006** | 10 | — |
-| `ctrl.inc` — the Control Panel (§31) | 691 | 282 | **973** | — | — |
 | `splash.inc` — the boot splash (§15) | 961 | — | **961** | — | — |
+| `dock.inc` — **(undescribed)** | 913 | — | **913** | 38 | — |
 | `viddet.inc` — adapter detection and geometry (§39) | 855 | — | **855** | — | — |
-| `dock.inc` — **(undescribed)** | 807 | — | **807** | 34 | — |
 | `loader.inc` — the package loader (§21) | — | 794 | **794** | 58 | — |
-| `fprog.inc` — the file-operation progress widget (§12.8) | 638 | — | **638** | — | — |
+| `fprog.inc` — the file-operation progress widget (§12.8) | 626 | — | **626** | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 537 | — | **537** | 25 | — |
 | `mod.inc` — on-demand kernel modules (§2.8) | 36 | 420 | **456** | 66 | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 269 | 96 | **365** | 22 | — |
@@ -1133,8 +1178,8 @@ generated in the first place.
 | `events.inc` — the event ring (§10) | 141 | — | **141** | 134 | — |
 | `blank.inc` — **(undescribed)** | 124 | — | **124** | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 10 | — | **10** | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,359 | — | **3,359** | — | — |
-| **total** | **52,391** | **37,380** | **89,771** | **6,252** | **7,830** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,425 | — | **3,425** | — | — |
+| **total** | **54,503** | **37,628** | **92,131** | **6,419** | **7,830** |
 <!-- END generated table -->
 
 ### Reading it

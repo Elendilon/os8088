@@ -1135,6 +1135,500 @@ os88ui_sbmove:
 
 %endif                          ; OS88UI_SCROLL
 
+%ifndef OS88UI_KERNEL
+
+%ifdef OS88UI_ALERT
+; =============================================================================
+; THE ALERT (SPEC.md 75.3) - one line of text over up to three buttons, in a
+; window of your own, answered to a completion proc.
+;
+; **IT IS A PACKAGE'S, NOT THE KERNEL'S, AND THAT IS THE WHOLE POINT.** It was
+; built as `kernel/ask.inc` first and measured at **1,067 bytes** of a kernel
+; whose footprint guard had 2,048 spare - a windowed dialog with buttons has a
+; floor of about 800 bytes wherever it lives, and there is no version of it
+; that fits a kernel budget worth spending on it. Here it costs the kernel
+; NOTHING and each package that asks for it 607 bytes of its own image, which
+; is heap and only while the app is running. That is this file's own
+; argument (see the header) applied to something bigger than a button.
+;
+; It is also SMALLER here than it was there, for three reasons that are all
+; about the segment boundary: the message and the title are near pointers in
+; YOUR segment, so nothing is staged; the window dies with your region, so
+; there is no staleness triple to check; and the dismissal arrives through
+; your own W_ONCLOSE rather than through a pass in the UI task.
+;
+; --- USING IT ---------------------------------------------------------------
+;   %define OS88UI_ALERT        ; before the %include, beside OS88UI_SCROLL
+;
+;   mov al, OS88UI_ASAVE        ; the button set
+;   mov bx, si                  ; YOUR window - the alert takes its title
+;   mov si, my_question         ; a NUL line, at most OS88UI_AMAX characters
+;   mov di, my_answer           ; the completion, a near proc of yours
+;   call os88ui_ask             ; CF = 1 refused (one is already up - and it
+;                               ; has been RAISED, which is what this has
+;                               ; instead of modality)
+;
+; Your completion is called AL = the 0-based button index, left to right, or
+; OS88UI_ACANCEL when the alert was DISMISSED - its close box, its minimize
+; box or Esc. The gfx lock is held, the alert is already destroyed, and SI is
+; YOUR window. HANDLE OS88UI_ACANCEL: it is the only answer that arrives
+; without the user having chosen anything.
+;
+; --- THE WINDOW IS UNBOUND, WHICH IS WHAT MAKES IT A DIALOG ------------------
+; It belongs to no instance (SPEC.md 20.2's second window, ModPlug's Setup
+; pane), so it has no dock tile, no Task Manager row and no callback billing,
+; and its close box reduces to wm_hide. os88ui_aclose is installed on it with
+; OSAPI_WM_ONCLOSE, so that hide is intercepted and turned into the CANCEL
+; answer - the close negotiation of SPEC.md 75.1 serving a package's own
+; dialog, which is why that half of the feature is in the kernel and this
+; half is not.
+;
+; wm_destroy_seg sweeps it at teardown (SPEC.md 20.2), so an app that dies
+; with its alert up leaves nothing behind.
+; =============================================================================
+
+OS88UI_AOK     equ 0            ; the button sets. Index 0 is the DEFAULT - it
+OS88UI_AYESNO  equ 1            ; carries the ring and it is what Enter fires
+OS88UI_ASAVE   equ 2            ; Save / Discard / Cancel
+OS88UI_ACANCEL equ 0FFh         ; ...and the answer for a DISMISSED alert
+OS88UI_AMAX    equ 34           ; the message, in characters (it is CLIPPED by
+                                ; the window, not refused - keep it short)
+
+OS88UI_AW    equ 288            ; the window
+OS88UI_AH    equ 92
+OS88UI_ABW   equ 72             ; every button the same width, which is what
+                                ; lets the row be a formula rather than a
+                                ; measured layout - 153 bytes of the kernel
+                                ; version went on measuring one. 72 fits the
+                                ; widest label here (7 characters plus the
+                                ; standard 16px of padding)
+OS88UI_ABG   equ 12             ; ...and the gap between them
+OS88UI_ABH   equ 13             ; FD_BH: the same button as both kernel dialogs
+OS88UI_AMSGY equ 14             ; the message's pen, from the content top
+OS88UI_ABTNY equ 46             ; ...and the button row's
+
+; --- state, INLINE DATA and not bss, for os88ui_armw's reason ----------------
+os88ui_atpl:  dw 0, 0, OS88UI_AW, OS88UI_AH   ; x and y are centred at open
+              dw 0, os88ui_apaint, os88ui_akey, os88ui_aclick
+os88ui_awin:  dw 0               ; the live alert, 0 = none. THE GATE: one at
+                                 ; a time, fdlg_win's single word
+os88ui_acb:   dw 0               ; your completion
+os88ui_arqw:  dw 0               ; ...and your window, which it is handed
+os88ui_amsg:  dw 0               ; the message, in your segment
+os88ui_aset:  db 0               ; which set is up
+os88ui_adown: db 0FFh            ; the button drawn PRESSED, 0xFF = none
+os88ui_ar:    dw 0, 0, 0, 0      ; ONE button's rect at a time - os88ui_krect's
+                                 ; argument, and neither the painter nor the
+                                 ; hit test needs two
+
+; the sets: a count byte then three label offsets, 8 bytes a row so the index
+; is a shift (an 8086 has no cheap multiply by 7)
+os88ui_asets:
+    dw 1, os88ui_as_ok,   0,             0
+    dw 2, os88ui_as_yes,  os88ui_as_no,  0
+    dw 3, os88ui_as_save, os88ui_as_disc, os88ui_as_can
+os88ui_as_ok:   db 'OK', 0
+os88ui_as_yes:  db 'Yes', 0
+os88ui_as_no:   db 'No', 0
+os88ui_as_save: db 'Save', 0
+os88ui_as_disc: db 'Discard', 0
+os88ui_as_can:  db 'Cancel', 0
+
+; -----------------------------------------------------------------------------
+; os88ui_ask - raise the alert (see the header)
+; in:  AL = OS88UI_A* set, BX = your window, SI = the message, DI = your
+;      completion; THE GFX LOCK IS HELD (a callback, a negotiator or an
+;      AM_ONCMD handler)
+; out: CF = 0 it is up, CF = 1 refused - one was already up and has been
+;      raised, or the window table is full. All registers preserved.
+; -----------------------------------------------------------------------------
+os88ui_ask:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp word [os88ui_awin], 0
+    je .free
+    mov bx, [os88ui_awin]       ; one is up: put it back in front of whatever
+    call OSAPI_WM_SHOW          ; hid it - which covers a MINIMIZED alert too,
+    jmp short .refuse           ; wm_show being un-hide and raise in one
+.free:
+    mov [os88ui_aset], al
+    mov [os88ui_acb], di
+    mov [os88ui_arqw], bx
+    mov [os88ui_amsg], si
+    mov ax, [es:bx + W_TITLE]   ; YOUR caption, so the alert says which
+    mov [os88ui_atpl + WT_TITLE], ax  ; application is asking. ES is
+                                ; KERNEL_SEG on entry to every callback and
+                                ; the record lives there (SPEC.md 20.1); the
+                                ; OFFSET it holds is ours, so it needs no
+                                ; translating
+    call OSAPI_VIDEO            ; AX = width, BX = height: centre on the LIVE
+    sub ax, OS88UI_AW           ; screen (SPEC.md 39), not on 640x480
+    sar ax, 1
+    mov [os88ui_atpl + WT_X], ax
+    sub bx, OS88UI_AH
+    sar bx, 1
+    cmp bx, MBAR_H + 8
+    jge .placed                 ; ...but never up under the menu bar on a
+    mov bx, MBAR_H + 8          ; short screen; wm_fit has the other end
+.placed:
+    mov [os88ui_atpl + WT_Y], bx
+    mov si, os88ui_atpl
+    call OSAPI_WM_CREATE        ; BX = window ptr, CF = the table is full
+    jc .refuse
+    mov byte [os88ui_adown], 0FFh
+    mov ax, os88ui_aup
+    call OSAPI_WM_ONMOUSEUP     ; the buttons fire on the RELEASE (SPEC.md
+    mov ax, os88ui_aclose       ; 13.6), and the close box is intercepted
+    call OSAPI_WM_ONCLOSE       ; (SPEC.md 75.1) so it can be the CANCEL
+    mov [os88ui_awin], bx       ; take the gate LAST: until this store the
+    call OSAPI_WM_SHOW          ; window is an ordinary one
+    clc
+    jmp short .out
+.refuse:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_adone - close, then answer (internal)
+; in:  AL = the answer; the gfx lock is held
+; out: nothing
+;
+; Teardown FIRST, callback second - fdlg_commit's order and its reason:
+; wm_destroy's repaint has already put back everything the alert covered, so
+; the completion draws onto a clean window instead of over a dialog that is
+; still on screen.
+; -----------------------------------------------------------------------------
+os88ui_adone:
+    push bx
+    push si
+    push di
+    mov bx, [os88ui_awin]
+    or bx, bx
+    jz .out
+    mov word [os88ui_awin], 0   ; the gate goes first: a repaint that reached
+    call OSAPI_WM_DESTROY       ; this module again must not find a dying one
+    mov si, [os88ui_arqw]
+    mov di, [os88ui_acb]
+    or di, di
+    jz .out
+    push es
+    call di                     ; AL = the answer, SI = your window. A NEAR
+    pop es                      ; call: we are already in your segment
+.out:
+    pop di
+    pop si
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_aclose - the alert's own W_ONCLOSE (SPEC.md 75.1)
+; in:  SI = the alert window; gfx lock held
+; out: CF = 1 always
+;
+; The close box and the app-name menu's Close both arrive here, and both mean
+; CANCEL. It answers REFUSED because by the time it returns there is nothing
+; left to close: os88ui_adone has already destroyed the window, and letting
+; app_close_win go on to hide a freed record is the one thing that would not
+; survive.
+; -----------------------------------------------------------------------------
+os88ui_aclose:
+    push ax
+    mov al, OS88UI_ACANCEL
+    call os88ui_adone
+    pop ax
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_aset_p - SI -> this alert's labels, CX = how many (internal)
+; -----------------------------------------------------------------------------
+os88ui_aset_p:
+    push ax
+    mov al, [os88ui_aset]
+    xor ah, ah
+    mov si, ax
+    shl si, 1
+    shl si, 1
+    shl si, 1                   ; x8: the row stride
+    add si, os88ui_asets
+    mov cx, [si]
+    add si, 2
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_arect - one button's rect (internal)
+; in:  AL = its index; [os88ui_awin] is live
+; out: BX -> os88ui_ar, filled; every other register preserved
+;
+; A FORMULA, not a measured layout: every button is OS88UI_ABW wide, so the
+; row is CX*(BW+GAP)-GAP and the i'th starts a fixed step along it. That is
+; the single biggest saving over the kernel version this replaces, where
+; laying out three buttons by their label widths cost 153 bytes.
+; -----------------------------------------------------------------------------
+os88ui_arect:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    mov di, ax
+    and di, 0FFh                ; DI = the index
+    call os88ui_aset_p          ; CX = the count (SI is spent)
+    mov ax, OS88UI_ABW + OS88UI_ABG
+    mul cx                      ; DX:AX - the row plus one trailing gap
+    sub ax, OS88UI_ABG          ; AX = the row's whole width
+    mov si, [os88ui_awin]
+    mov cx, [es:si + W_W]
+    sub cx, ax
+    sar cx, 1
+    add cx, [es:si + W_X]       ; CX = the row's left edge, centred. IN CX AND
+                                ; NOT DX: `mul` below writes DX whatever the
+                                ; product is, and the first version banked the
+                                ; origin there - so button 0 was laid out at
+                                ; x = 0, off the left of the alert entirely,
+                                ; and every hit test agreed with the drawing
+                                ; because both ask this routine. What caught it
+                                ; was a click on Cancel opening a Save As
+                                ; dialog: the rects were WRONG, not
+                                ; INCONSISTENT, which no amount of asking the
+                                ; same routine twice can show
+    mov ax, OS88UI_ABW + OS88UI_ABG
+    mul di
+    add ax, cx
+    mov [os88ui_ar], ax
+    add ax, OS88UI_ABW - 1
+    mov [os88ui_ar + 4], ax     ; x2 is INCLUSIVE (gfx_frame's convention)
+    mov ax, [es:si + W_Y]
+    add ax, TITLE_H + OS88UI_ABTNY
+    mov [os88ui_ar + 2], ax
+    add ax, OS88UI_ABH
+    mov [os88ui_ar + 6], ax
+    mov bx, os88ui_ar
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_abtns - draw the button row (internal); the gfx lock is held
+; -----------------------------------------------------------------------------
+os88ui_abtns:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call os88ui_aset_p          ; SI -> the labels, CX = the count
+    xor dx, dx                  ; DX = the index
+.next:
+    push cx
+    push si
+    mov ax, dx
+    call os88ui_arect           ; BX -> the rect
+    mov di, OS88UI_FILL
+    or dx, dx
+    jnz .nodef
+    or di, OS88UI_DEF           ; button 0 carries the ring, and Enter fires
+.nodef:                         ; it - one fact, drawn and acted on from the
+    cmp dl, [os88ui_adown]      ; same place
+    jne .nodown
+    or di, OS88UI_DOWN          ; ...and the pressed look, DRAWN and not
+.nodown:                        ; XOR-ed (SPEC.md 13.8)
+    mov si, [si]
+    call os88ui_btn
+    pop si
+    add si, 2
+    inc dx
+    pop cx
+    loop .next
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_ahit - which button is the point in? (internal)
+; in:  CX = x, DX = y
+; out: AX = the index PLUS ONE, 0 = none; every other register preserved
+; -----------------------------------------------------------------------------
+os88ui_ahit:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push cx                     ; THE POINT'S X, ON THE STACK, because
+                                ; os88ui_aset_p answers in CX *and* SI and so
+                                ; neither register can bank it. Both attempts
+                                ; at this failed the same way and it is worth
+                                ; naming: the hit test read a coordinate the
+                                ; callee had overwritten, so every button
+                                ; missed at every position - while the drawing
+                                ; stayed perfect, because the PAINTER never
+                                ; asks this routine anything. A shared rect
+                                ; keeps the two consistent (SPEC.md 22's
+                                ; fm_hit discipline); it cannot make them
+                                ; RIGHT
+    call os88ui_aset_p          ; CX = the count
+    mov bx, cx
+    pop cx                      ; ...and x back
+    xor di, di
+.next:
+    cmp di, bx
+    jae .none
+    mov ax, di
+    push bx
+    call os88ui_arect           ; BX -> the rect (CX and DX come back intact)
+    call os88ui_bhit            ; CF = 0 inside
+    pop bx                      ; POP writes no flags, so bhit's answer stands
+    jnc .hit
+    inc di
+    jmp short .next
+.hit:
+    mov ax, di
+    inc ax
+    jmp short .out
+.none:
+    xor ax, ax
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_apaint - the alert's W_PAINT; SI = its window, gfx lock held
+;
+; wm_draw_win has already filled the content white, so there is no erase here
+; and no pair for SPEC.md 11.3's granularity rule to break.
+; -----------------------------------------------------------------------------
+os88ui_apaint:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, si
+    call OSAPI_GFX_PEN          ; CF = 0: CBLACK, the disabled flag clear (47)
+    mov si, [os88ui_amsg]
+    call OSAPI_FONT_WIDTH       ; AX = its pixels
+    mov cx, [es:bx + W_W]
+    sub cx, ax
+    sar cx, 1
+    add cx, [es:bx + W_X]
+    mov dx, [es:bx + W_Y]
+    add dx, TITLE_H + OS88UI_AMSGY
+    mov si, [os88ui_amsg]
+    call OSAPI_FONT_STR
+    call os88ui_abtns
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_adn - draw the pressed state (internal)
+; in:  AL = the button index PLUS ONE that is down, 0 = none
+; -----------------------------------------------------------------------------
+os88ui_adn:
+    push ax
+    dec al                      ; the table's 0-based index; 0 -> 0xFF, which
+    cmp al, [os88ui_adown]      ; no button is
+    je .out                     ; ...AND IT DRAWS NOTHING WHEN THE STATE HAS
+                                ; NOT CHANGED, which is the kernel twin's own
+                                ; rule (cp_setdown, SPEC.md 13.8.3). Without
+                                ; it a press landing on the MESSAGE - or on
+                                ; the whitespace between buttons - answered 0,
+                                ; wrote the same 0xFF back and re-lettered the
+                                ; whole row for nothing (PERFORMANCE.md rule 1)
+    mov [os88ui_adown], al
+    call os88ui_abtns
+.out:
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_aclick / os88ui_aup - the press arms and the RELEASE fires
+; in:  CX = x, DX = y, SI = the alert window; gfx lock held
+; -----------------------------------------------------------------------------
+os88ui_aclick:
+    push ax
+    call os88ui_ahit            ; AX = the button PLUS ONE, 0 = none
+    call os88ui_arm
+    call os88ui_adn
+    pop ax
+    ret
+
+os88ui_aup:
+    push ax
+    push di
+    call os88ui_fire            ; AX = what the press armed, and it is CLEARED
+    or ax, ax
+    jz .out
+    mov di, ax
+    xor ax, ax
+    call os88ui_adn             ; upright again, whatever happens next
+    call os88ui_ahit            ; AX = the button under the RELEASE
+    cmp ax, di
+    jne .out                    ; a different button, or none: CANCELLED
+    dec al
+    call os88ui_adone
+.out:
+    pop di
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_akey - the alert's W_ONKEY; AL = ascii, SI = its window
+;
+; Enter is the default button and Esc is the cancel, which are the two keys
+; every dialog in this system already answers to. There is deliberately no
+; first-letter shortcut: 'S' would mean Save on one alert and nothing on the
+; next, and a key that is live only sometimes is worse than one that never is.
+; -----------------------------------------------------------------------------
+os88ui_akey:
+    push ax
+    cmp al, 13
+    je .def
+    cmp al, 27
+    jne .out
+    mov al, OS88UI_ACANCEL
+    jmp short .go
+.def:
+    xor al, al                  ; button 0 - the one os88ui_abtns rings
+.go:
+    call os88ui_adone
+.out:
+    pop ax
+    ret
+%endif                          ; OS88UI_ALERT
+
+%endif
+
 
 %ifdef OS88UI_KERNEL
 section .bss

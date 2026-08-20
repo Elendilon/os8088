@@ -1971,11 +1971,12 @@ cy_org:
     pop si
     ret
 .fs:
-    xor ax, ax
-    xor dx, dx
-    mov cx, [cy_scrw]
-    mov bx, [cy_scrh]
-    ret
+    mov ax, [cy_scrx]               ; **NOT (0,0)** - a same-mode bracket does
+    mov dx, [cy_scry]               ; not collapse a two-display desktop
+    mov cx, [cy_scrw]               ; (SPEC.md 39.18.3), so the coordinates are
+    mov bx, [cy_scrh]               ; still the whole virtual desktop's and
+    ret                             ; (0,0) is the PRIMARY. cy_fsx_main asks
+                                    ; OSAPI_FSX_SURF for these four
 
 ; =============================================================================
 ; THE CONTENT-COORDINATE PRIMITIVES (SPEC.md 67.3)
@@ -7656,9 +7657,12 @@ cy_go_fsx:
     mov byte [cy_fsx], 1            ; BEFORE the call: fsx_restore's
     mov byte [cy_inbr], 1           ; wm_paint_all runs INSIDE fsx_run and
                                     ; re-enters our own W_PAINT
-    call OSAPI_VIDEO                ; the bracket's display, which on a
-    mov [cy_scrw], ax               ; multi-display machine is not
-    mov [cy_scrh], bx               ; necessarily the one we were on
+                                    ; the rect this bracket will own is asked
+                                    ; INSIDE it, with OSAPI_FSX_SURF - there is
+                                    ; no way to know it out here, and the
+                                    ; OSAPI_VIDEO that used to stand in for it
+                                    ; answered the PRIMARY's size and an origin
+                                    ; of (0,0) (SPEC.md 53.7.1)
     call cy_pal
     mov byte [cy_needlay], 1
     mov byte [cy_full], 1
@@ -7669,9 +7673,14 @@ cy_go_fsx:
     ; whether it ran or was refused, we are back on the desktop
     mov byte [cy_fsx], 0
     mov byte [cy_inbr], 0
-    call OSAPI_VIDEO
-    mov [cy_scrw], ax
-    mov [cy_scrh], bx
+                                    ; ...and NOTHING is re-banked here: those
+                                    ; four words describe the rect a BRACKET
+                                    ; owns and cy_org only reads them while one
+                                    ; is up. Re-filling them from OSAPI_VIDEO
+                                    ; on the way out put the primary's size
+                                    ; back into a variable the next bracket
+                                    ; re-asks for anyway - and left a pattern
+                                    ; for somebody to copy
     call cy_pal
     mov byte [cy_needlay], 1
     mov byte [cy_full], 1
@@ -7686,6 +7695,16 @@ cy_go_fsx:
 ; only way out.
 cy_fsx_main:
     push si
+    call OSAPI_FSX_SURF             ; **THE RECT THIS BRACKET OWNS** (SPEC.md
+    jc .nosurf                      ; 53.7.1): AX = x, BX = y, CX = w, DX = h.
+    mov [cy_scrx], ax               ; This sets no video mode (53.7), so the
+    mov [cy_scry], bx               ; desktop is NOT collapsed and "fullscreen"
+    mov [cy_scrw], cx               ; is this display's rect rather than (0,0)
+    mov [cy_scrh], dx               ; plus OSAPI_VIDEO's size - which on a
+    mov byte [cy_needlay], 1        ; two-card machine drew the whole game onto
+    mov byte [cy_full], 1           ; the monitor we were not on
+.nosurf:                            ; (CF=1 is impossible here - we ARE the
+                                    ; bracket - and leaves what cy_entry banked)
     call OSAPI_MOUSE
     mov [cy_pbtn], al               ; seed the button, or the click that got
                                     ; us here fires the moment we arrive
@@ -7793,7 +7812,9 @@ cy_ekcol:
 %endmacro
 
     CWORD cy_win
-    CWORD cy_scrw
+    CWORD cy_scrx                   ; the ORIGIN of the rect our bracket owns
+    CWORD cy_scry                   ; (SPEC.md 53.7.1) - NOT (0,0) on a
+    CWORD cy_scrw                   ; two-display machine
     CWORD cy_scrh
     CWORD cy_dock
 

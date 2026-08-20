@@ -255,6 +255,25 @@ MC_MSGW     equ 28                  ; the banner's span: 'THE END - N FOR A NEW
 ; OSAPI_TASK_SPAWN would refuse (SPEC.md 20.6); the first W_PAINT hires the
 ; worker, exactly as apps/arkanoid does.
 ; -----------------------------------------------------------------------------
+; --- WHAT THIS GAME WANTS ON EACH CARD (SPEC.md 11.100.1) ---------------------
+; Frame sizes, and each is what mc_entry's own arithmetic below produces on
+; that adapter: 7/8 of the screen width, and a height the kernel clamps into
+; the band. A GENEROUS height is the idiom (WINDOW-SIZING-PLAN 9) - no package
+; can know how tall another adapter's band is, so the number to publish is one
+; the clamp can bring down.
+MC_PREF_VW  equ 560                 ; VGA 640x480, band 435
+MC_PREF_VH  equ 435
+MC_PREF_HW  equ 630                 ; Hercules 720x348, band 303
+MC_PREF_HH  equ 303
+MC_PREF_CW  equ 560                 ; CGA 640x200, band 155
+MC_PREF_CH  equ 155
+MC_MIN_W    equ MC_PREF_CW          ; the smallest card's own face, named as
+MC_MIN_H    equ MC_PREF_CH          ; that rather than repeated - if one moves
+                                    ; the other must, and the kernel caps a
+                                    ; minimum at the display's own extent
+                                    ; anyway, so this can never cost a window
+                                    ; its title bar (SPEC.md 11.100.2)
+
 mc_entry:
     push si
     push di
@@ -332,6 +351,21 @@ mc_entry:
     mov ax, mc_onresize             ; mc_mono / mc_ecoarse / mc_caps are facts
     call OSAPI_WM_ONRESIZE          ; about the CARD, and it can change under
                                     ; us (SPEC.md 11.98)
+    mov si, mc_pref                 ; **THE PLAYFIELD IS THE RULES** (SPEC.md
+    call OSAPI_WM_PREFER            ; 11.100.1): this window is not WF_SIZABLE,
+                                    ; so until it published these three sizes
+                                    ; the kernel had no size for it that anyone
+                                    ; had designed - and wm_reflows' old second
+                                    ; arm let a straddle cut it to whatever
+                                    ; rows two displays happened to share. What
+                                    ; came out was a letterbox: six cities and
+                                    ; three bases across a band a missile
+                                    ; crosses in a third of the time
+    mov cx, MC_MIN_W                ; ...and the floor is the CGA size, because
+    mov dx, MC_MIN_H                ; a straddle still CLAMPS a published size
+    call OSAPI_WM_MINSIZE           ; to the rows both cards have (SPEC.md
+                                    ; 39.16.3) and the small card's own face is
+                                    ; the smallest this game is still itself
     mov al, 1                       ; keep our CONTENT ORIGIN 8-aligned
     call OSAPI_WM_SNAP              ; (SPEC.md 11.94): EVERY adapter - it was
                                     ; mono-only and VGA turned out to gain
@@ -7457,6 +7491,8 @@ mc_tpl:
     dw mc_ttl, mc_paint, mc_onkey, mc_onclick
 
 ; --- app menu set (SPEC.md 12.2) -----------------------------------------------
+    OS88_PREFER mc_pref, MC_PREF_VW, MC_PREF_VH,  MC_PREF_HW, MC_PREF_HH,  MC_PREF_CW, MC_PREF_CH
+
     OS88_MENUSET mc_menus, mc_m_name, mc_oncmd
         OS88_MENU mc_m_game, mc_mi_game, 4
     OS88_MENUSET_END mc_menus

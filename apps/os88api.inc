@@ -1772,6 +1772,36 @@ WT_SIZE    equ 16
 ; it is worth knowing only because it means a set may not point at a
 ; string that lives anywhere else.
 ; -----------------------------------------------------------------------------
+; OS88_PREFER name, vga_w, vga_h, herc_w, herc_h, cga_w, cga_h
+;
+; The 12-byte table OSAPI_WM_PREFER wants (SPEC.md 11.100.1), laid out so the
+; three sizes read as three sizes rather than as six words. Put it anywhere in
+; your image that outlives the window, and pass its offset in SI:
+;
+;       OS88_PREFER my_sizes, 360,300,  718,303,  638,300
+;       ...
+;       mov si, my_sizes
+;       call OSAPI_WM_PREFER
+;
+; A pair of ZEROS means "nothing to say about that adapter" and leaves your
+; template standing there.
+;
+; YOU DO NOT HAVE TO KNOW HOW TALL AN ADAPTER'S DESKTOP IS. A preference is
+; still clamped by the screen exactly as a template is, so the honest way to
+; say "as wide as that card, and as tall as it will give me" is a real width
+; and a GENEROUS height - 638x300 on a CGA comes back 638x155, and the 300
+; never had to be right. What the preference buys you is the WIDTH, which is
+; almost never clamped, and the freedom to be a different SHAPE on a screen
+; that is not 640x480.
+; -----------------------------------------------------------------------------
+%macro OS88_PREFER 7
+%1:
+    dw %2, %3                   ; VID_VGA   640x480
+    dw %4, %5                   ; VID_HERC  720x348
+    dw %6, %7                   ; VID_CGA   640x200
+%endmacro
+
+; -----------------------------------------------------------------------------
 %macro OS88_MENUSET 3
 %1:
     dw %2                       ; AM_NAME
@@ -2716,6 +2746,160 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; other events and nothing was posted - kick
                                  ; again from your next callback. Every
                                  ; register preserved.
+; --- CLOSING: the negotiation, and the alert that usually follows ------------
+; SPEC.md 75. Every close in this system - the close box, the app-name menu's
+; Close, the dock tile's context menu - used to be final the instant the user
+; asked for it, so an application with unsaved work had no moment at which to
+; say anything about it. These three are that moment.
+%define OSAPI_WM_ONCLOSE    KERNEL_SEG:0x0468   ; BX = win ptr, AX = a near proc
+                                 ; in YOUR segment (0 clears it): your CLOSE
+                                 ; NEGOTIATOR (SPEC.md 75.1). Install it from
+                                 ; your entry proc after OSAPI_WM_CREATE, like
+                                 ; OSAPI_WM_ONWAKE - a side table, not a
+                                 ; template word, cleared when the window dies.
+                                 ;
+                                 ; Called SI = your window, on the UI task,
+                                 ; GFX LOCK HELD - W_ONCLICK's environment
+                                 ; exactly, so it may draw, may call the file
+                                 ; slots, must not take the lock, and must not
+                                 ; take a long time about it. It is called for
+                                 ; EVERY way of closing you, which is the
+                                 ; point: there is one door and this is in
+                                 ; front of it.
+                                 ;
+                                 ; ANSWER IN CF. CF = 0 lets the close happen
+                                 ; and is what a window with no negotiator
+                                 ; says. CF = 1 REFUSES it: nothing at all
+                                 ; happens - your window is not even hidden -
+                                 ; and YOU NOW OWE THE USER A WAY OUT. Put up
+                                 ; an alert (os88ui.inc's os88ui_ask) and close
+                                 ; yourself with OSAPI_WM_CLOSE when it is
+                                 ; answered. A refusal with nothing behind it
+                                 ; is a window that cannot be closed, and real
+                                 ; mode has no way to take that back.
+                                 ;
+                                 ; A negotiator is never asked about itself
+                                 ; while it is running, so raising a dialog
+                                 ; from inside one cannot recurse.
+%define OSAPI_WM_CLOSE      KERNEL_SEG:0x0470   ; BX = a window of YOURS: close
+                                 ; it (SPEC.md 75.2). This is how a negotiator
+                                 ; that refused finishes the job once the user
+                                 ; has answered.
+                                 ;
+                                 ; IT RETURNS, and your window is gone a moment
+                                 ; later - the close is DEFERRED to the next UI
+                                 ; pass, because you are standing in the very
+                                 ; segment it is about to free and the far
+                                 ; return would run your dispatcher out of
+                                 ; memory the heap has already handed back. So
+                                 ; call it and RETURN: do not draw afterwards,
+                                 ; do not assume anything about when it lands,
+                                 ; and do not call it twice.
+                                 ;
+                                 ; Your negotiator is NOT asked again - this is
+                                 ; the answer to the question it asked. Every
+                                 ; register preserved; the gfx lock may be held
+                                 ; or not.
+; THE ALERT ITSELF IS NOT A SLOT (SPEC.md 75.3): a windowed dialog with
+; buttons has a floor of about 800 bytes wherever it lives, and it does not
+; belong in a kernel budget the whole machine pays for. It is SOURCE, in
+; `apps/os88ui.inc` behind `%define OS88UI_ALERT` - `os88ui_ask`, with its
+; own window, its own buttons and its own completion, costing your image 607
+; bytes and every package that does not ask for it nothing. See that file's
+; header.
+%define OSAPI_WM_PREFER     KERNEL_SEG:0x0478   ; BX = win ptr, SI = the offset
+                                 ; IN YOUR OWN SEGMENT of a 12-byte table: three
+                                 ; (w, h) FRAME sizes, in VID_VGA / VID_HERC /
+                                 ; VID_CGA order - which is 0, 1, 2, so the
+                                 ; adapter indexes it directly. SI = 0 withdraws
+                                 ; it. "This is how big I want to be on each of
+                                 ; the three screens" (SPEC.md 11.100.1).
+                                 ;
+                                 ; A (0, 0) pair means NOTHING TO SAY about that
+                                 ; adapter - your template stands there - so a
+                                 ; window that only cares about the CGA declares
+                                 ; two zero pairs and one real one.
+                                 ;
+                                 ; It registers AND APPLIES, so calling it from
+                                 ; your entry proc right after OSAPI_WM_CREATE is
+                                 ; how you open at the right size; and it
+                                 ; PRESERVES THE FLAGS, so the CF you owe the
+                                 ; loader survives it. Use OS88_PREFER (below) to
+                                 ; lay the table out rather than counting words.
+                                 ;
+                                 ; THE TABLE STAYS IN YOUR IMAGE and the kernel
+                                 ; keeps only the offset, so it must live
+                                 ; somewhere that outlives the window - .text or
+                                 ; your bss, never the stack. It may be REWRITTEN
+                                 ; whenever you like: an app whose size is
+                                 ; genuinely computed fills all three entries at
+                                 ; entry and then declares it, which is what
+                                 ; apps/solitaire and apps/paint do.
+                                 ;
+                                 ; The kernel applies it at three moments: here,
+                                 ; on an adapter change (SPEC.md 39.11.2), and -
+                                 ; unless your window is WF_SIZABLE - when it is
+                                 ; dragged wholly onto a display of a different
+                                 ; kind. You are told through OSAPI_WM_ONRESIZE
+                                 ; each time, and the box you get is not always
+                                 ; the one you asked for: the display clamps it
+                                 ; down and OSAPI_WM_MINSIZE lifts it back, so
+                                 ; read OSAPI_WM_GEOM rather than assuming.
+
+%define OSAPI_WM_MINSIZE    KERNEL_SEG:0x0480   ; BX = win ptr, CX = minimum
+                                 ; outer WIDTH, DX = minimum outer HEIGHT;
+                                 ; CX = DX = 0 withdraws. "Below this my layout
+                                 ; stops working - do not cut me past it, even
+                                 ; to fit a screen" (SPEC.md 11.100.2). Registers
+                                 ; AND applies, FLAGS PRESERVED, same as
+                                 ; OSAPI_WM_PREFER above.
+                                 ;
+                                 ; Every path that REDUCES a size honours it -
+                                 ; the create-time fit, an adapter change, a
+                                 ; drag onto a smaller display, the grow box and
+                                 ; OSAPI_WM_RESIZE. Without one you get the
+                                 ; system floor, WMIN_W x WMIN_H.
+                                 ;
+                                 ; IT CANNOT COST YOU YOUR TITLE BAR. The
+                                 ; minimum is itself capped at the display's own
+                                 ; extent, so asking for more rows than the
+                                 ; adapter has gets you the adapter; what it CAN
+                                 ; do is leave you hanging over the dock, which
+                                 ; is OSAPI_WM_KEEPH's behaviour said as a
+                                 ; number, and content below the last row a
+                                 ; display has is drawn nowhere and takes no
+                                 ; clicks. Ask for what your layout needs, not
+                                 ; for what you would like.
+
+%define OSAPI_WM_DISPLAY    KERNEL_SEG:0x0488   ; OSAPI_VIDEO FOR THE DISPLAY THIS
+                                 ; WINDOW IS ON (SPEC.md 39.16.4). BX = your
+                                 ; window. Out: AX = width, BX = height, CX =
+                                 ; the first row the dock owns, SI = the first
+                                 ; row the desktop band has, DL = 0 VGA / 1
+                                 ; Hercules / 2 CGA, DH = bits per pixel. DI
+                                 ; preserved; no lock needed, any context.
+                                 ;
+                                 ; **OSAPI_VIDEO ANSWERS ABOUT THE PRIMARY**
+                                 ; (SPEC.md 39.2.1) and is right to - but on a
+                                 ; machine with two cards your window can be
+                                 ; dragged onto the other one, and then every
+                                 ; fact you took from OSAPI_VIDEO is about a
+                                 ; screen you are not on. If you register an
+                                 ; OSAPI_WM_ONRESIZE handler to re-derive your
+                                 ; layout, ask THIS inside it: that handler
+                                 ; fires on a drag across the seam as well as
+                                 ; on an adapter switch, and only this cell can
+                                 ; tell you where you ended up.
+                                 ;
+                                 ; SI IS NOT ALWAYS MBAR_H. Only the primary
+                                 ; has a menu bar and a dock; a secondary's
+                                 ; whole height is desktop, so its band is rows
+                                 ; 0..CX-1. The band is CX - SI on either, and
+                                 ; that arithmetic is right on every machine.
+                                 ;
+                                 ; Identical to OSAPI_VIDEO on a one-display
+                                 ; machine, so there is nothing to test first.
+;
 %define OSAPI_WM_KEEPH      KERNEL_SEG:0x03E0   ; BX = win ptr, AL = 0 clear /
                                  ; non-0 set: "my layout is FIXED - if I will
                                  ; not fit the desktop band, hang me over the
