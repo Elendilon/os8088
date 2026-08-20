@@ -327,6 +327,29 @@ TMM_ROWS    equ INST_MAX + 7    ; System, its four buffer rows, the two
                                 ; the LIVE frame on top of this, for the
                                 ; screens where wm_fit shrinks the window
 
+; --- THE TWO FRAMES THIS WINDOW WANTS (SPEC.md 11.100.1) ---------------------
+; tm_layout has always worked out the frame its column count needs; these are
+; that arithmetic as CONSTANTS, so the KERNEL can apply one at the one moment a
+; resize is safe. It has to be the kernel: an 11.98 handler may not draw, a
+; resize repaints, and a repaint from the WORKER runs every overlapped window's
+; W_PAINT on a worker task holding the gfx lock - which hard froze the machine
+; the one build that tried it (a Disk window open, then dragged across twice).
+;
+; A GENEROUS height is the idiom (docs/WINDOW-SIZING-PLAN.md 9): the clamp
+; brings it down, and on a CGA it comes back at the band.
+;
+; THE HEIGHT IS THE ONE A MACHINE WITH A STORE WANTS, and tm_entry SUBTRACTS
+; [tm_xoff] from it before publishing: TMM_XSHIFT is added back when there is
+; no XMS bar to draw, which is a property of the MACHINE and not of the
+; adapter, so a constant is a row wrong on one kind of machine or the other.
+; The table is in our own segment and the flag is settled long before the
+; window exists, so it is written in rather than guessed at.
+TM_PREF_H   equ TMM_ROWS * TM_ROW_H + TITLE_H + 1 + TMM_ROW_Y
+TM_PREF_W1  equ TM_W                ; one column: VGA and Hercules
+TM_PREF_W2  equ TM_W + TM_COLW      ; two: a CGA's band is 155 and a column is
+                                    ; seven rows deep there, so the list runs
+                                    ; in two of them and the frame doubles
+
 ; --- heap-page geometry (SPEC.md 28.4) ---------------------------------------
 ; The third page: every claim record, grouped under the owner that holds it.
 ; Its rows start far higher up the content than either list above, because it
@@ -714,14 +737,40 @@ tm_layout:
 tm_onresize:
     push ax
     push bx
+    push cx
     push dx
-    mov ax, cx                  ; the FRAME this window now has: the column
-    add ax, 2                   ; test below is written against a frame width,
-    mov [tm_vw], ax             ; and at launch it is handed the screen's
-    mov ax, dx
-    add ax, TITLE_H + 1
-    call tm_layout
+    push si
+    push cx                     ; **THE CONTENT BOX THIS PROC WAS HANDED** -
+    push dx                     ; the kernel applies a published frame BEFORE
+                                ; it notifies (SPEC.md 39.16.3.3), so CX/DX
+                                ; already describe the window we now have
+    mov bx, si                  ; ...and the CARD it is on (SPEC.md 39.16.4):
+    call OSAPI_WM_DISPLAY       ; AX = w, CX = the first row the dock owns,
+                                ; SI = the first the band has
+    mov [tm_vw], ax             ; ...and it is THE DISPLAY'S WIDTH, not the
+                                ; frame's. This used to pass the frame, and
+                                ; tm_layout's one reader of it asks "is there
+                                ; room for a SECOND COLUMN" - so a window that
+                                ; had one column was 232px wide, 232 is less
+                                ; than TM_W + TM_COLW, and the answer was NO
+                                ; FOR EVER. A one-column Task Manager dragged
+                                ; onto a CGA could never reach two columns,
+                                ; which is what the field reported
+    mov [tm_vdock], cx
+    pop ax                      ; the CONTENT height, back as a FRAME one -
+    pop cx                      ; tm_layout's argument is a frame. Handing it
+    add ax, TITLE_H + 1         ; the display's BAND instead makes tm_colrows
+                                ; what fits the SCREEN rather than what fits
+                                ; the window, which is 32 rows on a VGA against
+                                ; the 19 the frame holds
+    call tm_layout              ; ...which re-derives the column count and
+                                ; everything under it. The FRAME is the
+                                ; kernel's: this proc may not draw and a resize
+                                ; repaints, so the size is PUBLISHED once at
+                                ; launch and applied by wm_land_fit
+    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
@@ -740,6 +789,23 @@ tm_kinit:
     push ax
     mov [tm_win], bx
 
+    mov ax, TM_PREF_H           ; **THE HEIGHT IS PATCHED, NOT FUDGED.**
+    sub ax, [tm_xoff]           ; TMM_XSHIFT is added back on a machine with no
+    mov [tm_pref + 2], ax       ; XMS bar to draw, which is a property of the
+    mov [tm_pref + 6], ax       ; MACHINE and not of the adapter - so a static
+    mov [tm_pref + 10], ax      ; table is one row wrong on one kind of machine
+                                ; or the other. [tm_xoff] is settled well
+                                ; before the window exists and this table is
+                                ; our own segment's, so the honest answer is to
+                                ; write the number in rather than pick which
+                                ; machine to be wrong on
+    mov si, tm_pref             ; **THE FRAME PER ADAPTER** (SPEC.md 11.100.1).
+    call OSAPI_WM_PREFER        ; tm_layout has always worked out the frame its
+                                ; column count needs and nothing applied it
+                                ; after launch, so a Task Manager that started
+                                ; one-column could never become two - and the
+                                ; kernel is the only thing that may resize a
+                                ; window at a moment when drawing is safe
     mov ax, tm_onresize         ; tell us when the box moves under us and we
     call OSAPI_WM_ONRESIZE      ; did not ask - an adapter change (SPEC.md
                                 ; 11.98). BX is the window, which is what this
@@ -806,6 +872,8 @@ tm_hire:
     ret
 
 ; --- window template: {x, y, w, h, title, paint, onkey, onclick} words -------
+    OS88_PREFER tm_pref, TM_PREF_W1, TM_PREF_H,  TM_PREF_W1, TM_PREF_H,  TM_PREF_W2, TM_PREF_H
+
 tm_tpl:     dw 250, 100, 232, 312, tm_ttl, tm_paint, 0, tm_click
 tm_ttl:     db 'Task Manager', 0
 tm_sname:   db 'TaskMgr', 0     ; KD_NAME: fits the memory view's 7-char
@@ -1065,6 +1133,18 @@ tm_worker:
     jz .skip                    ; ES is KERNEL_SEG here: task_spawn seeds a
                                 ; worker's ES with it and every TM_ES_DATA in
                                 ; this file puts it back
+                                ; **A WORKER MAY NOT CALL OSAPI_WM_RESIZE.**
+                                ; This is where a deferred one lived for one
+                                ; build and it HARD FROZE the machine: a resize
+                                ; repaints, and a repaint runs every overlapped
+                                ; window's W_PAINT through wm_pkgcall - on THIS
+                                ; task, holding the gfx lock. A Disk window's
+                                ; is fm_repaint, which can re-list a folder, so
+                                ; the reproduction was "open a file manager,
+                                ; then drag me across twice". The frame comes
+                                ; from OSAPI_WM_PREFER now (SPEC.md 11.100.1),
+                                ; which the KERNEL applies at the one moment it
+                                ; is safe - and in ONE repaint rather than two
     call OSAPI_WM_CLIP_SET            ; a REGION, not wm_obscured's veto (SPEC.md
     jc .skip                    ; 11.3): one covered pixel used to skip the
                                 ; whole refresh, so a Task Manager with a

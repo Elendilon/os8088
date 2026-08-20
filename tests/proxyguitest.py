@@ -299,7 +299,13 @@ def _window(fails):
         fails.append("the form did not reach the options: %s" % argv)
     if opts.images != "drop":
         fails.append("a choice did not map to its flag: images=%s" % opts.images)
-    for key, _label, _kind, _default, _choices, _hint in G.FIELDS:
+    # INDEXED, not unpacked: `check_table` above is the one place that
+    # asserts a row's length, and it runs where there is no Tk. Unpacking here
+    # as well means a row that grows an eighth element crashes the WINDOW half
+    # instead of being reported by the half written to report it - which is
+    # exactly how the seventh element (the tab) reached the field.
+    for row in G.FIELDS:
+        key = row[0]
         if not hasattr(opts, key):
             fails.append("the form has %r and the engine has no such option"
                          % key)

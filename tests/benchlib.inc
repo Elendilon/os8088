@@ -1358,6 +1358,45 @@ bl_key:
     clc
     ret
 
+; --- READING A REPORT BACK: DO NOT SCREEN-READ IT ----------------------------
+;
+; The report is a FILE and there is a harness for getting it onto the host:
+; `tools/os88flush.py`, docs/MARTYPC-DEBUG.md. MartyPC mounts an image by
+; reading it once and every sector the guest writes lands in the emulator's
+; RAM and nowhere else, so `bl_save`'s output does not exist on the host until
+; something spends it - and it dies with the process. That is what makes this
+; look unreachable from a script, and it is not:
+;
+;   f = os88flush.Flush(marty=m)              # SHARES m's connection: a
+;   txt = f.volume(0).read("GFXCGA.TXT")      # second Marty HANGS, it does
+;                                             # not error
+;
+; ...or from the shell, against a machine already running:
+;
+;   python3 tools/os88flush.py 127.0.0.1:9001 ls 1
+;   python3 tools/os88flush.py 127.0.0.1:9001 get 1 GFXCGA.TXT /tmp/gfx.txt
+;
+; `volume(N)` is the DRIVE the report landed on, and the report lands in the
+; CURRENT directory of the CURRENT volume (gb_s_end2 says so on the About
+; page) - which is the disk the package was launched from, so a bench started
+; out of a B: window writes to drive 1 and not drive 0. Look at both.
+;
+; THE ALTERNATIVE COSTS A SESSION AND IT HAS. A screen-read is 11 pages of
+; PgDn, one framebuffer capture each, and then a human or a model reading
+; digits off 8x8 glyphs - which is how `GFX_XOR_RECT 256x1` was first taken
+; here, and its middle digits are genuinely ambiguous at that cell size. Every
+; figure in PERFORMANCE.md deserves better than an OCR of a CGA screenshot.
+;
+; Three traps sit in front of the file and all three are in docs/TESTING.md's
+; "Driving one from a SCRIPT" list rather than here, because they are about
+; the RUN and not about the report: reach Run through the Bench MENU and not a
+; keystroke (a scripted key did not start sysbench in a measured run, and the
+; splash was still up 150 s later - `mo.menu(110, 8, 110, 26)` did every
+; time); do NOT `settle()` after starting, because the machine is deliberately
+; frozen while a row is timed, so stillness means nothing and the wait never
+; returns; and sleep a fixed generous span instead. Read that list before
+; writing a driver, not after.
+;
 ; -----------------------------------------------------------------------------
 ; bl_save - write the whole report to a file (SPEC.md 18.4)
 ; in:       SI = a NUL 8.3 name

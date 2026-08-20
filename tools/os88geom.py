@@ -74,6 +74,7 @@ _MIRROR = {
     "WF_NOSNAP": ("kernel/wm.inc", 16),
     "WF_SAVEU": ("kernel/wm.inc", 32),
     "WF_OWNBG": ("kernel/wm.inc", 64),
+    "WF_KEEPH": ("kernel/wm.inc", 128),
     # kernel/instance.inc - the instance record (SPEC.md 29)
     "I_STATE": ("kernel/instance.inc", 0),
     "I_FLAGS": ("kernel/instance.inc", 1),

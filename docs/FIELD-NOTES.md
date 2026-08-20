@@ -2678,3 +2678,99 @@ and silent. Nobody had done it.
 
 **A drag between Disk windows is a COPY, not a move** (SPEC.md §22.3/§22.5), so
 the source file staying where it was is correct.
+
+---
+
+## 26. A window dragged onto the second monitor comes back smaller (FIXED, SPEC.md 11.100/39.16.3, gated by tests/dispsize.py) — and §26.2, which looked like the worse half of it, is NOT A BUG
+
+**Reported with two 86Box screenshots** of the extended desktop — a Hercules
+beside a CGA, the field machine's own pair (docs/FIELD-MACHINES.md) — as *"in
+extended desktop mode resizable windows will resize to fit the smaller screen
+when they are dragged over. This is good, but it can end up with too small of
+windows."*
+
+**Both halves reproduce, and `tests/dispsize.py` is the reproduction** — one
+run, both measurements, on `os8088_5150_both_gla`, a cycle-accurate 5150 with
+those two cards in it, Hercules primary, Extend / Right.
+
+### 26.1 The straddle cut is permanent
+
+A Disk window opened on the Hercules, dragged across the seam, on to the CGA,
+and back. `rect` is the record, `bank` is the natural bank (SPEC.md
+§39.11.2.1) — the rect the window is supposed to go *back* to:
+
+| step | rect | bank |
+|---|---|---|
+| opened on the Hercules | (103,80) **320x200** | (110,80) 320x200 |
+| straddling the seam | (607,80) **320x140** | (607,80) **320x140** |
+| wholly on the CGA | (759,80) 320x140 | (759,80) 320x140 |
+| dragged back to the Hercules | (199,80) **320x140** | (199,80) 320x140 |
+
+**Mechanism identified, not theorised.** `ui_drag`'s release runs
+`wm_strad_fit` (§39.16.3) and *then* `wm_nat_bank`, so the bank records the
+cut. The comment at that call site says the ordering is deliberate — "BEFORE
+the bank, so what is remembered is what the record holds" — and it is the
+wrong way round for this: §39.11.2.1 introduced the bank *because* a clamp
+throws the number away, and `wm_strad_fit` is a clamp. Nothing else in the
+machine can put the size back except a `wm_refit`, which only an adapter
+switch runs.
+
+### 26.2 …and a window dropped clear across the seam is not cut at all (NOT A BUG, SPEC.md 39.16.3.2)
+
+Solitaire — 258x**303** on the Hercules — dragged onto the CGA in **one**
+motion lands at (743,20) still **258x303**. The CGA holds virtual rows
+20..219, so **104 rows are in the dead zone** (§39.2.1): drawn nowhere,
+clickable nowhere, on no monitor.
+
+`wm_strad_fit` answers `.none` when the frame does not *reach* the other
+display, and it is evaluated once, at the release. `ui_drag` bounds x and y
+against the whole union and never calls `wm_fit`, so a release wholly on the
+short display meets no size clamp of any kind.
+
+This is the worse of the two and it is not what was reported — the report is
+§26.1's symptom. It was found looking for §26.1's mechanism.
+
+**And it is not a defect at all, which the SECOND field report settled**
+(SPEC.md §39.16.3.2). The fix below cut it to 200 rows, and the machine came
+back: *"On the primary screen, windows are allowed to go 'below the desktop' —
+they keep their shadow under, and can be moved down and up. On the secondary
+screen they are always resizing, even if they have not crossed a screen
+boundary."* Both sentences are about one act. A 303-row window dragged low on
+the **Hercules** hangs off the bottom of the desktop and is left alone; the same
+window on the **CGA** hangs off the bottom of the CGA, and the clamp cut it —
+because `[vid_h]` is 348, so the guard "is this limit inside the desktop"
+answers *yes* for a primary window at row 348 and *no* for a secondary one at
+row 220, having compared both against a bounding box neither of them is
+bounded by. Rows 220..347 at x ≥ 720 are not a hole in the desktop; there is no
+display there at all, exactly as there is none at row 349 on the Hercules. So
+the §39.2.1 dead zone is a real place a window may hang into, on either
+display, and the clamp is gated on the window actually **reaching** the other
+one again. What survives of this note is the finding: a rule derived from the
+union's bounding box treats regions no display has as though the desktop owned
+them.
+
+**What has been ruled out:** the drag arithmetic (both rects land exactly where
+the pointer asked, and `tests/dispstrad.py` passes — the straddling case it
+gates is the one that *works*), and `wm_fit` (it is never called on this path).
+
+**What was missing rather than broken:** the kernel had a clamp and a bank and
+neither was *the size this window wants on the display it is on*. SPEC.md
+§11.100 is what it has now — a preferred size per adapter kind, a minimum the
+kernel may not cut through, and the two ordering fixes above;
+`docs/WINDOW-SIZING-PLAN.md` is the investigation, including what all 24
+packages do about their size today.
+
+**Fixed, measured the same way it was found.** §26.1 is 200 → 140 → **200**:
+`ui_drag` banks its POSITION and re-derives its SIZE from the bank, so the
+straddle cut is no longer what the window goes back to (§11.100.3). §26.2 is 303
+→ **303** — the second report reversed its verdict, above, and the clamp is
+gated on the frame reaching the other display again (§39.16.3.2). Both
+measurements are `tests/dispsize.py`'s, which is the file that found them and
+is the file that now asserts the second one is left alone.
+
+**The straddle clamp is `wm_reflows`-gated** (§39.16.3.1), or it would put note
+26's neighbouring defect straight back. For the fixed layouts that gate
+refuses, the answer is §11.100.4: a window that has DECLARED a size for that
+adapter is handed it and told, and `apps/modplug` is the first — its compact
+face onto the CGA and its full one home, **0 differing pixels** against a
+forced full repaint.

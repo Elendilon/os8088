@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""TWO REPORTED ARTIFACTS, LOCALISED (a corner pixel, and a drag across a seam)
+"""REPORTED ARTIFACTS, LOCALISED (a corner pixel, and two drags across a seam)
 
     make && python3 tests/dispcorner.py
+    python3 tests/dispcorner.py --only d --machine os8088_5150_both_gla
 
-Reported by another agent, both as "incremental differs from a full repaint":
+Reported by another agent, the first two as "incremental differs from a full
+repaint":
 
   A. a window's (W_X, W_Y+W_H) - the drop shadow's bottom-LEFT corner - reads
      differently after an incremental draw than after a full repaint. One
      pixel, reproducible with `hello`.
   B. dragging across an extended desktop's seam leaves pixels a repaint
      disagrees with - hundreds of them.
+  D. reported off the FIELD MACHINE, and in the field's own words: drag an
+     UNRESIZABLE window into the corner where the Hercules and the CGA join,
+     and that area is never repainted after the window is moved. It is a
+     two-card leg like B and it needs its own subject and its own assertion -
+     see the block that runs it.
 
 Both are asked the same way and it is the way this tree asks every question of
 this shape: do the thing, capture, force a full repaint, diff. What this adds
@@ -107,6 +114,66 @@ def px(cap, w, x, y):
     return cap[o:o + 3]
 
 
+DITHER_MIN = 16                 # pixels in a component before "these are a
+                                # dither" is a statement about anything - see
+                                # the floor paragraph in dither_split
+
+
+def dither_phase(inc, full, comp, w):
+    """Is this component `gfx_fill_gray`'s dither, one row out of phase?
+
+    THE TEST IS THE PRIMITIVE'S OWN DEFINITION, NOT THE SHAPE OF THE
+    DIFFERENCE. gfx_fill_gray is `(x + y) even = one colour, odd = the other`,
+    phased on ABSOLUTE screen coordinates - deliberately, so that wm_dmg_gray
+    can draw the desktop as fragments and get the pixels drawing it whole
+    would give (SPEC.md 11.91.1). So residue is exactly this: the full repaint
+    follows that parity, and the incremental capture is its complement at
+    every pixel. Nothing about the region's outline comes into it.
+
+    The two colours are taken FROM THE DATA rather than assumed to be black
+    and white: this has to hold for a dithered control in any palette, and
+    the constraint is not weakened by deriving them, because a component of
+    two or more pixels always contains both parities - 4-connected
+    neighbours flip (x + y) - so both are pinned by the first pixel and then
+    CHECKED against every other.
+
+    THE ONLY FLOOR LEFT IS AN AREA, and dropping the other two is the point of
+    this routine rather than an accident of it. It used to require the
+    component to FILL its bounding rectangle and to be at least 3x3, which is
+    a fact about scroll-bar tracks with nothing in front of them - and a real
+    track has a THUMB in it. The differing pixels are then one C-shaped
+    component wrapping a solid block, 746 px in a 12x118 box it fills 53% of,
+    and all three shape rules fail at once on the thumb's interior. That is
+    what this file reported as `746 real` for two branches (see 30.3.3's merge)
+    on a residue that is textbook 11.96.13.1: 373 white->black and 373
+    black->white, every repaint pixel on parity, not one exception.
+
+    A 1px-wide strip is legal now and that is not a hole: it is what the track
+    beside a thumb IS, and a stale LINE - a drop shadow, a frame edge - is
+    solid, so consecutive pixels along it are the same colour and parity
+    refuses it on the second pixel. The area floor is what keeps a single
+    stray pixel out, which matters here more than anywhere: leg A exists to
+    watch ONE pixel at (W_X, W_Y+W_H), and two colours differing at one pixel
+    satisfy any parity rule you like by coin flip.
+    """
+    if len(comp) < DITHER_MIN:
+        return False
+    x, y = comp[0]
+    even, odd = px(full, w, x, y), px(inc, w, x, y)
+    if (x + y) % 2:                 # comp[0] sits at ODD parity, so the
+        even, odd = odd, even       # repaint's colour there is the odd one
+    if even == odd:                 # one colour is not a dither - which is
+        return False                # what a region the repaint drew SOLID
+                                    # looks like from here
+    for x, y in comp:
+        if (x + y) % 2:
+            if px(full, w, x, y) != odd or px(inc, w, x, y) != even:
+                return False
+        elif px(full, w, x, y) != even or px(inc, w, x, y) != odd:
+            return False
+    return True
+
+
 def dither_split(inc, full, pts, w, h):
     """Split a differing-pixel set into DITHER-PHASE RESIDUE and a REAL
     disagreement (SPEC.md 11.96.13.1).
@@ -121,24 +188,14 @@ def dither_split(inc, full, pts, w, h):
     IT IS A CLASSIFIER AND NOT A TOLERANCE, and the difference is the whole
     reason it is allowed to exist. Subtracting 1,416 from a count, or
     comparing against a threshold, would pass a kernel that had lost the
-    scroll-bar track altogether. What is required here instead is that the
-    pixels BE a phase-shifted copy of what the repaint drew:
+    scroll-bar track altogether. What is required instead is that the pixels
+    BE the dither in the other phase, which `dither_phase` above asks of every
+    one of them.
 
-      1. they fill a rectangle - every pixel inside it differs, none outside
-         the component does. A stale-content defect is ragged;
-      2. inside that rectangle each capture is a 2-periodic CHECKERBOARD:
-         every pixel differs from its right-hand and lower neighbour. Solid
-         areas, glyphs and window chrome all fail this at once;
-      3. each capture uses exactly two colours there, and the SAME two;
-      4. and one is the other shifted a row - inc[x,y] == full[x,y+1].
-
-    Neighbours are taken from INSIDE the rectangle only. A track's edge pixel
-    sits against the black border drawn either side of it, which is the
-    dither's own black, so reaching outside would misfile every boundary
-    pixel as a real difference.
-
-    The size floor is what keeps (2) from being vacuous: on a 1- or 2-pixel
-    rect "differs from its neighbour" is a statement about almost nothing.
+    The split is per 4-connected COMPONENT and all-or-nothing inside one, so a
+    region that is part residue and part defect is reported whole as real -
+    the safe direction, and it keeps a scattering of accidentally-on-parity
+    pixels from being excused one at a time.
     """
     seen = set(pts)
     residue, real = [], []
@@ -154,34 +211,7 @@ def dither_split(inc, full, pts, w, h):
                 if n in seen:
                     seen.discard(n)
                     stack.append(n)
-        x0, y0, x1, y1 = bbox(comp)
-        cw, ch = x1 - x0 + 1, y1 - y0 + 1
-        ok = (len(comp) == cw * ch and cw >= 3 and ch >= 3 and len(comp) >= 16)
-        if ok:
-            for cap in (inc, full):
-                cols = set()
-                for y in range(y0, y1 + 1):
-                    for x in range(x0, x1 + 1):
-                        v = px(cap, w, x, y)
-                        cols.add(bytes(v))
-                        if x < x1 and px(cap, w, x + 1, y) == v:
-                            ok = False
-                        if y < y1 and px(cap, w, x, y + 1) == v:
-                            ok = False
-                    if not ok:
-                        break
-                if not ok or len(cols) != 2:
-                    ok = False
-                    break
-        if ok:
-            for y in range(y0, y1):
-                for x in range(x0, x1 + 1):
-                    if px(inc, w, x, y) != px(full, w, x, y + 1):
-                        ok = False
-                        break
-                if not ok:
-                    break
-        (residue if ok else real).extend(comp)
+        (residue if dither_phase(inc, full, comp, w) else real).extend(comp)
     return residue, real
 
 
@@ -251,6 +281,32 @@ def selftest():
             put(full, x, y, WHT if (x + y) % 2 == 0 else BLK)
             put(inc, x, y, WHT if (x + y) % 2 else BLK)
     cases.append(("2x2 speck", inc, full, 0, 4))
+
+    # 7: THE SHAPE THIS FILE ACTUALLY MEETS, and the one it used to fail. A
+    # real track has a THUMB in it: the differing pixels wrap around a solid
+    # block as one C-shaped component that fills barely half its bounding box,
+    # which is what the old "must fill its rectangle" rule refused. 12x31 less
+    # a 10x15 thumb = 372 - 150.
+    inc, full = blank(), blank()
+    track(full, 0); track(inc, 1)
+    for y in range(18, 33):
+        for x in range(11, 21):
+            put(full, x, y, WHT)
+            put(inc, x, y, WHT)
+    cases.append(("track around a thumb", inc, full, 222, 0))
+
+    # 8: ...and the guard for having dropped that rule. A RAGGED two-colour
+    # smear, in the track's own ink, big enough to clear the floor - the exact
+    # thing "fills a rectangle" used to catch. Parity is what catches it now:
+    # a solid run has two neighbours the same colour, so the second pixel of
+    # it is already off phase.
+    inc, full = blank(), blank()
+    for i, y in enumerate(range(10, 30)):
+        for x in range(10, 14 + (i % 3)):
+            put(full, x, y, BLK)
+            put(inc, x, y, WHT)
+    cases.append(("ragged smear", inc, full, 0,
+                  sum(4 + (i % 3) for i in range(20))))
 
     for name, inc, full, want_r, want_x in cases:
         r, x = dither_split(inc, full, dset(inc, full), W, H)
@@ -424,7 +480,7 @@ def launch_hello(m, mo, pri):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_xt_vga_herc")
-    ap.add_argument("--only", choices=("a", "b", "c"), default=None)
+    ap.add_argument("--only", choices=("a", "b", "c", "d"), default=None)
     ap.add_argument("--under", choices=("none", "hello"), default="none",
                     help="B: what is UNDER the dragged window")
     ap.add_argument("--dest", choices=("seam", "near", "far"), default="seam",
@@ -497,6 +553,19 @@ def main():
                          % (HELLO_FILE, hw, hh))   # is another PROGRAM
 
             prev = [None]           # the last check's post-repaint capture
+            # SPEC.md 11.96.13.1's residue is possible on this leg from the
+            # moment the two windows are PARTED, and saying otherwise was the
+            # second half of what this file got wrong. The reasoning written
+            # here was "hello draws one string and has no dithered control in
+            # it" - true of hello, and this leg has a DISK WINDOW on screen as
+            # well, with a scroll-bar track in it that gfx_fill_gray draws.
+            # The parting drag below moves that window by whatever dy it takes,
+            # and an odd one inverts the track for the rest of the session
+            # (wm_dc_done keeps the cache as an ordinary raise cache), so the
+            # raise after it replays an inverted track and this file called it
+            # a defect. The flag is decided from the dy the RECORD took, which
+            # is the rule the rest of the file already follows.
+            dither_ok = [False]
 
             def check(label):
                 mo.to(*PARK)
@@ -534,11 +603,12 @@ def main():
                 if corner in d:
                     bad.append("A/%s: the shadow corner %r differs"
                                % (label, corner))
-                # ...and NO dither is excused here: hello draws one string and
-                # has no dithered control in it, so nothing on this leg can be
-                # SPEC.md 11.96.13.1's residue and a rect that looks like one
-                # would be a finding about some other window.
-                classify(inc, full, d, pw, ph, "A", label, bad, False)
+                # ...and whether a dither's phase may be excused is
+                # dither_ok, set from the parting drag's ACTUAL dy below.
+                # Before that drag it is False and a rect that looks like
+                # residue would be a finding about some other window.
+                classify(inc, full, d, pw, ph, "A", label, bad,
+                         dither_ok[0])
                 if d:
                     crop_png("/tmp/cornerA-%s-inc.png" % label,
                              inc, pw, ph, bbox(d))
@@ -556,6 +626,9 @@ def main():
             # window never moved - which the "did this operation move any
             # pixels" guard caught and a bare 0 would not have.
             dr = dispcp.win_rect(m, S, disk)
+            disk_y0 = dr[1]                 # ...banked: the parity that
+                                            # matters is the one the RECORD
+                                            # took, not the one asked for
             mo.drag(dr[0] + dr[2] // 2, dr[1] + TITLE_H // 2,
                     dr[0] + dr[2] // 2, hy + hh + 20 + TITLE_H // 2)
             os88marty.settle(m, card=pri)
@@ -566,8 +639,12 @@ def main():
                          "and Disk (%d,%d %dx%d) - every click below would be "
                          "aimed at whichever is on top"
                          % (hx, hy, hw, hh, dr[0], dr[1], dr[2], dr[3]))
-            print("   parted: hello y %d..%d, Disk y %d..%d"
-                  % (hy, hy + hh, dr[1], dr[1] + dr[3]))
+            parted_dy = dr[1] - disk_y0
+            dither_ok[0] = bool(parted_dy % 2)
+            print("   parted: hello y %d..%d, Disk y %d..%d - the Disk window "
+                  "moved %+d, so its dither %s slip"
+                  % (hy, hy + hh, dr[1], dr[1] + dr[3], parted_dy,
+                     "CAN" if dither_ok[0] else "cannot"))
 
             mo.click(dr[0] + 60, dr[1] + TITLE_H // 2)
             os88marty.settle(m, card=pri)
@@ -681,8 +758,126 @@ def main():
                                            "ODD" if got & 1 else "even"),
                       bad, prev, tag="C", allow_dither=shifts)
 
+        # --- D: AN UNRESIZABLE WINDOW IN THE CORNER (SPEC.md 39.16.3.1) ----
+        #
+        # Reported off the field machine: drag an unresizable window into the
+        # corner where the Hercules and the CGA join, and that area is never
+        # repainted after the window is moved.
+        #
+        # THE SUBJECT HAS TO DRAW DOWN ITS WHOLE HEIGHT, which is why it is
+        # the Control Panel and not `hello`. What goes wrong is that
+        # wm_strad_fit shortens the FRAME and the gfx primitives clip to the
+        # SCREEN (SPEC.md 11.3), so a fixed layout puts the same pixels on the
+        # glass either way - and hello's one string is near its top, inside
+        # the shortened frame, so it spills nothing and the leg would read 0
+        # on a broken kernel. The panel's list and page run to its last row.
+        #
+        # TWO ASSERTIONS, AND THE FIRST IS THE ONE THAT CANNOT BE VACUOUS.
+        # The record's W_H after the drop is a number, and the rule is that a
+        # window which will not lay itself out again keeps it. The pixels are
+        # the report, and they are only visible in the rect the window LEFT: a
+        # forced full repaint agrees with the incremental draw about the rows
+        # spilled at the window's NEW place, because the application draws
+        # them both times.
+        if a.only == "d":
+            if len(cards) < 2:
+                sys.exit("D needs a two-card machine (os8088_5150_both_gla)")
+            dispcp.open_panel(m, mo, S, os88marty.settle, card=pri)
+            if a.primary:
+                kind = {"vga": 0, "herc": 1, "cga": 2}[a.primary]
+                av = m.read(S("vid_avail"), 1)[0]
+                dispcp.set_primary(m, mo, S, os88marty.settle,
+                                   dispcp.adapter_row(av, kind), card=pri)
+                pri = [i for i, c in cards.items()
+                       if c["type"] ==
+                       dispcp.KIND_CARD[m.read(S("vid_kind"), 1)[0]]][0]
+                sec = [i for i in cards if i != pri][0]
+                pw, ph = m.fbuf(card=pri)[:2]
+                dispcp.open_panel(m, mo, S, os88marty.settle, card=pri)
+            dispcp.set_mode(m, mo, S, os88marty.settle, a.mode, card=pri)
+            os88marty.settle(m, card=pri)
+            if m.read(S("vid_ndisp"), 1)[0] != 2:
+                sys.exit("D: the Control Panel did not turn Extend on")
+            ctx = m.read(S("vid_ctx"), 84)
+            seam, vy1 = u16(ctx, 42 + 36), u16(ctx, 42 + 38)
+            bot1 = vy1 + u16(ctx, 42 + 16)
+            bot0 = u16(ctx, 38) + u16(ctx, 16)
+            print("D: the second display is at (%d,%d), its last row %d "
+                  "against display 0's %d" % (seam, vy1, bot1 - 1, bot0 - 1))
+            if bot1 >= bot0:
+                sys.exit("D: display 1 is not the SHORTER one, so there is no "
+                         "corner here to drag into")
+
+            # The panel is the window still on screen - and it is the one the
+            # field report was made about.
+            title = S("cp_ttl") - (dispcp.KERNEL_SEG << 4)
+            tab = m.read(S("wm_wins"), dispcp.MAX_WIN * dispcp.WIN_SIZE)
+            cp = [i for i in dispcp.win_list(m, S)
+                  if u16(tab, i * dispcp.WIN_SIZE + dispcp.W_TITLE) == title]
+            if not cp:
+                sys.exit("D: the Control Panel is not on screen")
+            cp = cp[0]
+            wx, wy, ww, wh = dispcp.win_rect(m, S, cp)
+            f = u16(m.read(S("wm_wins") + cp * dispcp.WIN_SIZE, 2))
+            if f & (dispcp.WF_SIZABLE | dispcp.WF_KEEPH):
+                sys.exit("D: the panel is not the unresizable, non-KEEPH "
+                         "window this leg needs (W_FLAGS %#06x)" % f)
+            print("D: the panel is %d=(%d,%d %dx%d)" % (cp, wx, wy, ww, wh))
+
+            # ...into the corner: two thirds past the seam, and straddling the
+            # row display 1 stops at.
+            tx, ty = seam - ww // 3, bot1 - wh // 2
+            mo.drag(wx + ww // 2, wy + TITLE_H // 2,
+                    tx + ww // 2, ty + TITLE_H // 2)
+            os88marty.settle(m, card=pri)
+            nx, ny, nw, nh = dispcp.win_rect(m, S, cp)
+            print("D: dropped at (%d,%d) %dx%d, its last row %d"
+                  % (nx, ny, nw, nh, ny + nh))
+            if not nx < seam < nx + nw - 1:
+                sys.exit("D: it does not straddle the seam, so nothing here "
+                         "is under test")
+            if not ny < bot1 < ny + wh:
+                sys.exit("D: it does not reach past display 1's last row, so "
+                         "wm_strad_fit had nothing to take")
+            if nh != wh:
+                bad.append("D: the panel came back %d rows tall instead of "
+                           "%d - a window with no grow box and no SPEC.md "
+                           "11.98 handler cannot lay itself out again, so the "
+                           "rows below its frame are still drawn and nothing "
+                           "will ever repaint them (SPEC.md 39.16.3.1)"
+                           % (nh, wh))
+
+            # ...and away again. Everything it left has to come back.
+            look = (pri, sec)
+            mo.drag(nx + nw // 2, ny + TITLE_H // 2, 40 + nw // 2,
+                    MBAR_H + 2 + TITLE_H // 2)
+            os88marty.settle(m, card=pri)
+            mo.to(*PARK)
+            os88marty.settle(m, card=pri)
+            gone = dispcp.win_rect(m, S, cp)
+            print("D: moved away to %r" % (gone,))
+            dshift = bool((gone[1] - ny) & 7) and not nodc
+            inc = shot(m, look)
+            repaint(m, mo, pri)
+            full = shot(m, look)
+            for c in look:
+                nm = "primary" if c == pri else "second"
+                w0, h0 = inc[c][0], inc[c][1]
+                off = MBAR_H if c == pri else 0
+                base = off * w0 * 3
+                dd = [(x, y + off)
+                      for x, y in diff(inc[c][2][base:], full[c][2][base:], w0)]
+                classify(inc[c][2], full[c][2], dd, w0, h0, "D", nm, bad,
+                         dshift)
+                if dd:
+                    for tg, cap in (("inc", inc[c][2]), ("full", full[c][2])):
+                        box = crop_png("/tmp/cornerD-%s-%s.png" % (nm, tg),
+                                       cap, w0, h0, bbox(dd))
+                    print("     crops in /tmp/cornerD-%s-{inc,full}.png  %r"
+                          % (nm, box))
+
         # --- B: a drag that uncovers ---------------------------------------
-        if a.only not in ("a", "c"):
+        if a.only not in ("a", "c", "d"):
             seam = None
             if not a.single and len(cards) > 1:
                 dispcp.open_panel(m, mo, S, os88marty.settle, card=pri)

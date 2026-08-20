@@ -90,6 +90,55 @@ FM_ROW_H    equ 16              ; list row height, px
 FM_ROW_Y0   equ 22              ; row area top (both views)
 FM_DBLCLK   equ 9               ; double-click window, ticks
 FM_SB_W     equ 14              ; scroll bar width
+; --- the band under the rows: the edge, then the status line (SPEC.md 22.20)
+; The row area is UNCHANGED by all three of these - [fm_listb] is still
+; ch-19, so fm_fit is what it always was and not one row of files was spent
+; on the edge. What paid for it is the nine rows of dead white that sat
+; BELOW the status text, which the text is now more nearly centred in.
+FM_STAT_UP  equ 12              ; status text top, measured up from the
+                                ; content's bottom. It was 17, which put the
+                                ; text 2 rows under the row area and 9 above
+                                ; the frame - top-heavy in its own band even
+                                ; before there was an edge to clear
+FM_EDGE_H   equ 7               ; ...and the edge band between the last row and
+                                ; that text, which fm_more_mark owns
+FM_EDGE_CHV equ 1               ; the chevrons' top row within it...
+FM_EDGE_RUL equ 5               ; ...and the solid rule's, BELOW them: what
+                                ; says "there is more" has to be on the
+                                ; CONTENT's side of the boundary, or it reads
+                                ; as trim under the line rather than as the
+                                ; list carrying on past it
+FM_STAT2_DY equ 15              ; a two-line prompt's FIRST line, measured up
+                                ; from the status line (SPEC.md 22.3/22.12).
+                                ; It was a literal 9 at three sites, which put
+                                ; that line's last glyph row exactly ON the
+                                ; rule - and fm_stat_line is an opaque run, so
+                                ; it whited the edge out across the whole
+                                ; window. Nothing would have put it back:
+                                ; fm_status_only is what retires a prompt and
+                                ; it draws the status line and nothing else.
+                                ; FM_EDGE_H + 8 is the smallest value that
+                                ; clears the band, and it lands the line
+                                ; wholly inside the row area, which is where
+                                ; that line has always deliberately been drawn
+%if FM_STAT2_DY < FM_EDGE_H + 8
+%error "files.inc: a two-line prompt's first line reaches into fm_more_mark's band - it is an OPAQUE run and would white the edge out (SPEC.md 22.20)"
+%endif
+%if FM_EDGE_RUL + 1 >= FM_EDGE_H || FM_EDGE_CHV + 3 > FM_EDGE_RUL
+%error "files.inc: the edge band does not hold the chevrons, the rule and a clear row between them (SPEC.md 22.20)"
+%endif
+
+; --- THE SMALLEST THIS WINDOW IS STILL A DISK WINDOW (SPEC.md 11.100.2) -------
+; Both numbers are read off fm_layout rather than chosen, which is what makes
+; them survive a layout change: the name budget is (cw - 96)/8 characters, so
+; 192 of content is exactly where a full 8.3 name fits BESIDE the size column
+; and the scroll bar; and fit = (H - 60)/16 rows, so 92 is exactly two of them
+; under the header and the buttons and above the status line. The chrome needs
+; no floor of its own - fm_draw_core already drops the Refresh button below
+; cw 76 and the view toggle below 142, so it degrades on its own and both
+; survive at this width anyway.
+FM_MIN_W    equ 194             ; = 192 of content + the 1px frame either side
+FM_MIN_H    equ 92              ; = 2 file rows, header, buttons, status line
 
 ; --- the two header buttons (SPEC.md 22.18) ----------------------------------
 ; ONE description each, in fm_btab below: the painter and all three edges read
@@ -331,6 +380,14 @@ fm_kinit_x:
                                 ; construction rather than by an app's word
                                 ; (SPEC.md 22.14). It has no worker, so the
                                 ; other disqualifier cannot arise
+    mov cx, FM_MIN_W            ; **THE FLOOR NOTHING MAY CUT THROUGH**
+    mov dx, FM_MIN_H            ; (SPEC.md 11.100.2). This window is the one
+    call KERNEL_SEG:cw_wm_minsize ; the field found it on: dropped low on a
+                                ; 200-row CGA it was clamped until it showed
+                                ; the header, the two buttons and the status
+                                ; line with NOT ONE FILE ROW between them -
+                                ; a window that is technically a Disk window
+                                ; and cannot be used as one
 %ifdef KERN_BIG
     mov ax, fm_onup             ; SPEC.md 13.7/13.8.1: the two edges the two
     call KERNEL_SEG:cw_wm_onmouseup ; header buttons fire and track on. Not
@@ -1258,6 +1315,37 @@ fm_s_colsp:  db ':  ', 0
 fm_s_files:  db ' files', 0
 fm_s_nodisk: db 'No os8088 disk (', 0 ; + letter + ':)' - 19 chars, short
                                 ; enough to clear the buttons (SPEC.md 22)
+; The chevron tile (SPEC.md 22.20): an 8-wide, 3-tall cell holding a 2px-stroke
+; V that is 6 wide, so COLUMNS 0 AND 7 ARE BLANK and each mark stands on its
+; own with 2px of daylight either side:
+;
+;       .XX..XX.        6 is the narrowest a 2px-stroke V can be and still
+;       ..XXXX..        close: the arms step one column in per row and meet
+;       ...XX...        at the third
+;
+; It reached the field as a CONTINUOUS ZIGZAG - the arms ran to both edges, so
+; tile N's right arm met tile N+1's left - and a wavy line is a line, which is
+; the thing this hint must not read as. Separated, they are marks.
+; A SET bit is white to gfx_fill_pat and a clear one black, so these read as
+; the ink upside down - col 0 is bit 7.
+; It is stored TWICE, and that is what makes the rotation a pointer add:
+; gfx_fill_pat copies the eight bytes at [gfx_pat] and then indexes the copy
+; by `y & 7`, so starting the copy k bytes into a doubled tile rotates it by
+; -k, and k = -y0 & 7 is the k that lands source row 0 on the band's own top
+; row. The five 0xFF rows are the ones nothing draws - WHITE and not zero,
+; because a 0 byte is BLACK to that primitive and a table cleared the obvious
+; way would paint the band's unused rows solid.
+fm_chevtab:   db 0x99, 0xC3, 0xE7, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+              db 0x99, 0xC3, 0xE7, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+fm_statin:    db 0                  ; fm_stat_line/fm_stat_row: extra right
+                                ; inset, px. FM_SB_W for a line drawn in the
+                                ; ROW AREA, where the scroll bar is
+fm_2up:       db 0                  ; 1 = a two-line prompt's FIRST line is on
+                                ; the glass, up in the ROW AREA where only a
+                                ; whole repaint can erase it (SPEC.md 22.20.1).
+                                ; .text, not .bss: fm_status_only reads it
+                                ; before anything has written one
+
 fm_s_refresh: db 'Refresh', 0   ; button label, 7 chars = 56 px
 fm_s_icons:   db 'Icons', 0     ; view-toggle labels: the view a click
 fm_s_list:    db 'List', 0      ; switches TO (SPEC.md 22)
@@ -1567,7 +1655,11 @@ fm_choose:
     call fm_find_view           ; already showing (AL, DX)?
     jc .notopen
     call KERNEL_SEG:cw_gfx_lock ; front + un-minimize, exactly as app_launch's
-    and byte [di+I_FLAGS], 0xFE ; own at-cap path does (SPEC.md 29.4)
+%ifdef WM_ANIM                  ; own at-cap path does (SPEC.md 29.4)
+    call KERNEL_SEG:cw_inst_unmin   ; ...and SPEC.md 11.100.3's other half
+%else
+    and byte [di+I_FLAGS], 0xFE
+%endif
     mov bx, [di+I_WIN]
     call KERNEL_SEG:cw_wm_show
     call KERNEL_SEG:cw_gfx_unlock
@@ -1906,10 +1998,12 @@ fm_layout:
     mov ax, [bx+W_H]
     sub ax, TITLE_H+1
     mov [fm_ch], ax             ; ch = W_H - TITLE_H - 1
-    sub ax, 17
+    sub ax, FM_STAT_UP
     mov [fm_staty], ax          ; status line pinned above the bottom
-    sub ax, 2
-    mov [fm_listb], ax          ; row area ends here
+    sub ax, FM_EDGE_H
+    mov [fm_listb], ax          ; row area ends here - and FM_STAT_UP and
+                                ; FM_EDGE_H sum to the 19 this always was, so
+                                ; fm_fit below is untouched
 
     ; fit = (listb - 22) / row_h, 0 when the window is too short
     sub ax, FM_ROW_Y0
@@ -5858,7 +5952,167 @@ fm_draw_rows:
     mov [fm_sbx1], ax
     call fm_sbset
     call os88ui_sbar
+    call fm_more_mark           ; ...and the edge the bar is standing on
 .norows:
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_more_mark - the row area's bottom EDGE, and whether the list runs past it
+; in:  fm_layout already run for the acting window; at least one row fits;
+;      gfx lock held
+; out: nothing (all registers preserved)
+;
+; FM_EDGE_H content rows from [fm_listb], which nothing else in this window
+; has ever written: the row band stops at fm_listb-1, the scroll bar and the
+; selection bands stop with it, and the status line's text starts at
+; [fm_staty] below them. They were white, and that is the whole complaint this
+; answers - with no boundary at all the status line reads as more empty list,
+; so a window whose listing is CUT OFF looks exactly like one showing every
+; file it has. The scroll bar says otherwise, but a thumb filling its own
+; track is a thing you have to go and look at.
+;
+;   fm_listb+FM_EDGE_CHV .. +2   a row of downward CHEVRONS when there are
+;                                rows below the fold, white when there are
+;                                not - one gfx_fill_pat, whatever the width,
+;                                and STOPPING SHORT OF THE SCROLL BAR
+;   fm_listb+FM_EDGE_RUL         the solid CBLACK rule, ALWAYS
+;   the rest                     clear: one row of daylight under the last
+;                                file row, one between the chevrons and the
+;                                rule, one under the rule before the text
+;
+; THE CHEVRONS ARE ABOVE THE RULE AND THAT IS THE POINT. A soft band UNDER a
+; hard one reads as trim - decoration belonging to the boundary - where the
+; same band ABOVE it is the last thing in the LIST, which is what "the list
+; carries on past here" has to be a statement about. The first version had
+; them the other way round and dithered rather than shaped, and it read as a
+; second, fainter rule.
+;
+; AND THEY POINT. A 50% dither says "soft edge" and nothing about WHICH WAY,
+; which is why it read as decoration; a chevron is the one thing at this size
+; that can carry a direction. It is an 8x3 tile holding a 6-wide V, so the two
+; blank columns give every mark 2px of daylight and the row reads as MARKS -
+; the first cut ran the arms to both edges and tiled into a continuous zigzag,
+; and a wavy line is still a line. It costs ONE drawing call at any width
+; because gfx_fill_pat tiles it (SPEC.md 5). Black on white on every adapter:
+; the pattern primitive writes colours 0 and 15 only, so unlike a grey there
+; is nothing here for SPEC.md 39.4's reduction to do.
+;
+; THEY STOP AT THE SCROLL BAR, and the rule does not. The rule is the whole
+; content's bottom edge and the bar stands on it; the chevrons are a statement
+; about the LIST, so they end where the list ends - run on and they fill the
+; bar's own column between its foot and the rule, which reads as a gap in the
+; bar and says "there is more scroll bar".
+;
+; THE TILE HAS TO BE ROTATED and the rotation is a pointer add. gfx_fill_pat
+; is SCREEN-aligned - row y takes [gfx_pat][y & 7] - which is correct for a
+; dither, whose phase must not depend on the caller, and wrong for a shape:
+; taken raw the V's three rows arrive in whatever rotation the window's y
+; happens to impose, which is a V, a sideways nothing, or an upward chevron
+; depending where the window was dragged to. But [gfx_pat] is a POINTER and
+; the primitive copies the eight bytes it names before indexing the copy, so
+; fm_chevtab holds the tile TWICE and starting k bytes in rotates it by -k.
+;
+; TWO FILLS, whatever the state: the chevron band is drawn white when there is
+; nothing below, because "the list ends here" has to be put on the glass - the
+; position before it may have left chevrons there. Only four of the seven rows
+; ever take ink, so the other three need no erase from anyone. ~1.5ms at
+; PERFORMANCE.md Part 2's per-call floor, and it is on the paths that CHANGE
+; the answer and no others: fm_draw_rows (so fm_repaint and fm_rows_only get
+; it) and fm_scrollpaint. A selection move changes no scroll and draws none of
+; this.
+; -----------------------------------------------------------------------------
+fm_more_mark:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov ax, [fm_cx]
+    mov cx, [fm_rgt]
+    cmp ax, cx
+    jg .out                     ; degenerate content: nothing to draw into
+
+    mov bx, [fm_cy]
+    add bx, [fm_listb]
+    mov si, bx                  ; SI = the band's top, absolute
+
+    mov bx, si                  ; --- the rule, always
+    add bx, FM_EDGE_RUL
+    mov dx, bx
+    mov byte [gfx_color], CBLACK
+    call KERNEL_SEG:cw_gfx_fill
+
+    ; --- and the chevrons above it, on WHOLE tiles and CLEAR OF THE BAR.
+    ; The rule is the whole content's bottom edge and the bar stands on it;
+    ; the chevrons are about the LIST, so they stop where the list does. Run
+    ; on and the band fills the bar's own column between the bar's foot and
+    ; the rule, which reads as a gap in the bar - and says "more scroll bar".
+    ; Both ends round to the tile grid, which is ABSOLUTE: gfx_fill_pat maps
+    ; its byte onto framebuffer bytes, so a tile boundary is a multiple of 8
+    ; on the screen and not an offset from [fm_cx]. Whole tiles at both ends
+    ; either way, which matters now that a mark has edges of its own - a
+    ; truncated one is a stray tick rather than a texture running out.
+    mov ax, [fm_cx]
+    add ax, 7
+    and ax, 0xFFF8              ; x1, OUT to a tile boundary
+    mov cx, [fm_rgt]
+    sub cx, FM_SB_W-1           ; the bar's leftmost column...
+    and cx, 0xFFF8              ; ...back to a tile boundary...
+    dec cx                      ; ...and stop the column before it
+    cmp ax, cx
+    jg .out                     ; not one whole tile fits: nothing has ever
+                                ; been drawn in these columns, so there is
+                                ; nothing stale to erase either
+
+    mov bx, si
+    add bx, FM_EDGE_CHV
+    mov dx, bx
+    add dx, 2                   ; three rows
+    mov si, [fm_lscr]           ; anything below the fold?
+    add si, [fm_fit]
+    cmp si, [fm_total]
+    jb .chev
+    mov byte [gfx_color], CWHITE    ; no: and it is DRAWN, not skipped
+    call KERNEL_SEG:cw_gfx_fill
+    jmp short .out
+.chev:
+    push ax
+    mov ax, bx                  ; the tile, rotated to this band's own top row
+    neg ax                      ; by starting gfx_fill_pat's copy (-y0 & 7)
+    and ax, 7                   ; bytes into the doubled table
+    add ax, fm_chevtab
+    mov [gfx_pat], ax
+    pop ax
+    call KERNEL_SEG:cw_gfx_fill_pat
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fm_2line - does this editor mode put a line UP IN THE ROW AREA? (22.20.1)
+; in:  AL = an FS_EDIT mode
+; out: CF = 1 if it draws a first line above the status line; all registers
+;      preserved
+;
+; ONE description, because two things have to agree about it and they are in
+; different routines: fm_draw_status, which draws that line, and
+; fm_status_only, which must refuse to be the one that puts it up or takes it
+; down. Modes 4 (replace), 5 (format) and 6 (disk swap) are the two-line ones;
+; 1, 2 and 3 are prompts that fit the status line itself.
+; -----------------------------------------------------------------------------
+fm_2line:
+    cmp al, 4
+    jb .no
+    cmp al, 6
+    ja .no
+    stc
+    ret
+.no:
+    clc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6115,6 +6369,21 @@ fm_status_only:
     call fm_layout              ; fm_cx/fm_cy/fm_cw/fm_rgt/fm_staty, and the
                                 ; fm_l* snapshot fm_draw_status reads
 
+    ; A TWO-LINE PROMPT IS NOT A STATUS-LINE CHANGE (SPEC.md 22.20.1). Its
+    ; first line is drawn UP IN THE ROW AREA, and this routine draws the
+    ; status line and nothing else - so it can neither put one there nor take
+    ; one away, and there is no partial answer to give: refusing hands the
+    ; caller the whole repaint, which is the only thing that can erase it.
+    ; Both edges, because the second is the one that was missing - Escape had
+    ; its own fallback (docs/FIELD-NOTES.md 17.1) and clicking away did not,
+    ; so a format question stayed on the row above for the rest of the
+    ; session.
+    cmp byte [fm_2up], 0
+    jne .refuse                 ; one is on the glass...
+    mov al, [fm_ledit]
+    call fm_2line
+    jc .refuse                  ; ...or one is about to be
+
     mov ax, [fm_cx]
     mov cx, [fm_rgt]
     cmp ax, cx
@@ -6208,6 +6477,13 @@ fm_scroll_by:
     mov [fm_sdlt], ax
     jz .same                    ; an end stop: not one pixel changes, where
                                 ; this used to repaint the window whole
+    cmp byte [fm_2up], 0        ; a two-line prompt's first line is up in the
+    jne .no                     ; ROW AREA (SPEC.md 22.20.1): the blit would
+                                ; carry it down the window and fm_rows_only
+                                ; would erase it without redrawing the status
+                                ; line under it. The scroll still HAPPENED -
+                                ; it is committed above - and the caller's
+                                ; repaint is what puts it on screen
     cmp byte [fm_lview], 0
     jne .rows                   ; the grid is 22.11.2's exception
     cwd                         ; |d|, the branchless way
@@ -6223,6 +6499,9 @@ fm_scroll_by:
     jnc .done
 .rows:
     call fm_rows_only
+    jmp short .done
+.no:
+    stc
     jmp short .done
 .same:
     clc
@@ -6445,6 +6724,12 @@ fm_scrollpaint:
 
 .thumb:
     call fm_sb_thumb            ; the only part of the bar a scroll moves
+    call fm_more_mark           ; ...the fringe, which a scroll is exactly what
+                                ; changes - the blit band stops at fm_by2 and
+                                ; the exposed-row fill at fm_listb-1, so these
+                                ; two rows survive a scroll untouched and the
+                                ; edge would go on claiming the position
+                                ; before it
     mov ax, [fm_lsel]           ; ...and the selection goes back on, at the
     call fm_sel_bar             ; row it now sits in
     clc
@@ -6497,6 +6782,13 @@ fm_draw_status:
     push dx
     push si
     push di
+    mov al, [fm_ledit]          ; ...and RECORD whether this paint leaves a
+    call fm_2line               ; line up in the row area (SPEC.md 22.20.1).
+    mov al, 0                   ; Here rather than at the three branches that
+    jnc .n2                     ; draw one, so a fourth two-line prompt is a
+    inc al                      ; row in fm_2line and nothing else
+.n2:
+    mov [fm_2up], al
     ; --- status line at (6, staty): the precedence is binding (SPEC.md 22),
     ;     because both of these can be true at the same moment. There used to
     ;     be FIVE rungs and three of them were the wrong species. Two were
@@ -6546,8 +6838,8 @@ fm_draw_status:
     mov byte [di], 0
     mov dx, [fm_cy]
     add dx, [fm_staty]
-    sub dx, 9
-    call fm_stat_line
+    sub dx, FM_STAT2_DY
+    call fm_stat_row
     mov di, fm_hdrbuf           ; ...and line two, the answers, where every
     mov si, fm_s_repk           ; other status line goes
     jmp .fs_stat                ; NEAR: the format question below sits between
@@ -6581,8 +6873,8 @@ fm_draw_status:
     mov byte [di], 0            ; line one, in the row area - the replace
     mov dx, [fm_cy]             ; question's own shape (22.3), and the reason
     add dx, [fm_staty]          ; fm_stat_line is a proc rather than the tail
-    sub dx, 9                   ; of fm_draw_status
-    call fm_stat_line
+    sub dx, FM_STAT2_DY         ; of fm_draw_status
+    call fm_stat_row
     mov di, fm_hdrbuf           ; ...and line two, the answers, where every
     mov si, fm_s_fmtk           ; other status line goes
     push ax
@@ -6608,8 +6900,8 @@ fm_draw_status:
     mov byte [di], 0
     mov dx, [fm_cy]
     add dx, [fm_staty]
-    sub dx, 9
-    call fm_stat_line
+    sub dx, FM_STAT2_DY
+    call fm_stat_row
     mov di, fm_hdrbuf
     mov si, fm_s_swapk
     jmp .fs_stat
@@ -6681,7 +6973,17 @@ fm_draw_status:
 ; decisions per cell at once, so the caller cannot produce that failure and
 ; needs no gate.
 ; -----------------------------------------------------------------------------
+; fm_stat_row is the same line drawn UP IN THE ROW AREA - line one of a
+; two-line prompt (SPEC.md 22.20.1) - and the whole difference is that the
+; scroll bar is up there. Without the inset the opaque run reaches [fm_rgt]-5
+; and paints out the bar's frame, its track and its lower arrow for as long as
+; the prompt is up, which is what a format question looked like in the field.
+fm_stat_row:
+    mov byte [fm_statin], FM_SB_W
+    jmp short fm_stat_line.l0
 fm_stat_line:
+    mov byte [fm_statin], 0
+.l0:
     push ax
     push bx
     push cx
@@ -6689,8 +6991,12 @@ fm_stat_line:
     push si
     mov ax, [fm_cw]
     sub ax, 14                  ; 14, not 12: the pen below moved 6 -> 8 and
-    jg .pos                     ; this is what keeps the same 6px of daylight
+                                ; this is what keeps the same 6px of daylight
                                 ; at the content's right edge
+    mov bl, [fm_statin]
+    xor bh, bh
+    sub ax, bx
+    jg .pos
     xor ax, ax
 .pos:
     mov cl, 3

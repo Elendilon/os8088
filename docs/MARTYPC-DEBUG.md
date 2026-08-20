@@ -927,6 +927,24 @@ Three things about it are load-bearing:
 - **`bp` replaces the whole set.** A debugger that can only add breakpoints
   accumulates them until something stops for a reason nobody remembers asking
   for.
+- **A HIT IS NOT `"paused"` — it is `"breakpoint"`.** `pause()` and a
+  breakpoint are different states, and a wait written as
+  `while status()["state"] != "paused"` is false forever at a breakpoint that
+  is firing perfectly: the tool reports success, the machine stops, and the
+  script sees nothing and times out. Test `!= "running"` (what `until()` does,
+  and what `Marty.stopped()` is), or `== "breakpoint"` (what
+  `tests/dispfreeze.py` does). **This cost a whole session here** — five
+  separate investigations concluded "breakpoints do not fire in this build",
+  including one against the live `int 08h` vector, and every one of them was
+  the poll and not the server.
+- **`sym()` is FLAT; `execseg`'s `off` is an OFFSET.** `sym("wm_show")`
+  answers `KERNEL_SEG*16 + offset`, so it pairs with `{"type": "exec",
+  "addr": ...}` — which is what every user in the tree does
+  (`tools/os88span.py`, `tools/winmove.py`, `tests/dispreboot.py`). Put it in
+  an `execseg`'s `off` instead and the breakpoint is armed 0x600 further on,
+  in real code, at an address that is simply never reached — no error, no hit.
+  `Marty.bp_exec("wm_show", ...)` takes symbols or flat addresses and cannot
+  get this wrong.
 - **`run` resumes from a breakpoint, and it took a fix in this server to do
   it.** MartyPC clears the CPU's latched breakpoint flag in exactly one place,
   `machine.run()`'s `BreakpointHit → Run` arm. `run` used to set the state to

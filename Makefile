@@ -285,6 +285,17 @@ ifeq ($(KEEPH),0)
 VIDDEF += -DNOKEEPH
 endif
 
+# STRAD=all puts SPEC.md 39.16.3.1 back the way it was reported: wm_strad_fit
+# shortens EVERY straddling window, including the ones with no grow box and no
+# 11.98 handler, which cannot lay themselves out again and go on drawing the
+# rows below their own frame. The reference build for `tests/dispcorner.py
+# --only d`, and a knob rather than a git revert for REDRAWFULL's reason - the
+# claim is that the two kernels put the SAME pixels on the glass except for
+# the rect the window left, and one build cannot check that.
+ifeq ($(STRAD),all)
+VIDDEF += -DSTRAD_ALL
+endif
+
 # HEAPCOMPACT=0 removes the heap compactor (SPEC.md 66) - the BODY, not merely
 # the call, so the A/B measures the feature and not a branch around it. With it
 # off, mem_claim's retry loop is the shed-and-retry it was, every claim stays
@@ -379,6 +390,11 @@ ifneq ($(KFZ),)
 VIDDEF += -DKFZTRACE
 endif
 
+ifneq ($(THEMEDARK),)
+VIDDEF += -DTHEMEDARK=$(THEMEDARK)
+KNOBS += THEMEDARK=$(THEMEDARK)
+endif
+
 ifneq ($(KERN_SMALL),)
 VIDDEF += -DKERN_SMALL
 else
@@ -397,6 +413,19 @@ endif
 #   make && cp build/os8088-360.img /tmp/inc.img
 #   make REDRAWFULL=1 && cp build/os8088-360.img /tmp/ref.img
 #   ...drive the same script on each and compare the two strips' pixels.
+#
+# **DRIVE EACH BUILD WHILE IT IS THE ONE IN build/**, and not both at the end
+# off the two copies. Anything the harness reads by SYMBOL - tools/os88sym.py,
+# and so tests/dispcp.py and everything under it - resolves against
+# build/kernel.bin, which is whichever kernel was built LAST. Drive a saved
+# copy of the other one and every address is the wrong binary's, silently:
+# measured, a Control Panel that had opened perfectly read as "the Control
+# Panel did not open" because its W_TITLE no longer matched cp_ttl's moved
+# address. os88sym asserts byte-identity with build/kernel.bin, which catches
+# a stale MAP and cannot catch a stale IMAGE. So:
+#
+#   make REDRAWFULL=1 && python3 tests/<probe>.py   # ...then
+#   make                && python3 tests/<probe>.py
 #
 # Verified that way on all three adapters (SPEC.md 12.9): 15 scripted steps
 # on CGA and 10 on Hercules and VGA mode 12h, 0 differing pixels each.
@@ -431,6 +460,35 @@ endif
 
 ifneq ($(REDRAWFULL),)
 VIDDEF += -DREDRAWFULL
+endif
+
+# DISINK0=1 is SPEC.md 76.6.1's A/B: font_ink stops reading [gfx_disink] and
+# the reduction below it sends every disabled pen to black again - which is
+# what every disabled pen in the machine reduces to, all of them being middle
+# greys. On Bright that is the right answer and the two builds are identical;
+# on Dark's black chrome the greyed caption and the MENU_DIS separator are
+# drawn in black on black and vanish. It exists to be DIFFED against, because
+# "the separator is on the screen" is a claim about a build that cannot be
+# made from a capture of that build alone.
+ifneq ($(DISINK0),)
+VIDDEF += -DDISINK0
+endif
+
+# ANIMOFF=1 compiles SPEC.md 11.99's zoom outline out of kern_big, leaving the
+# kernel it was added to. It exists to be DIFFED against: the animation is an
+# XOR overlay and its whole safety argument is that it restores the screen
+# exactly, so "the picture is the same, only something moved across it on the
+# way" is a claim a screenshot of one build cannot check.
+#
+#   make && cp build/os8088-360.img /tmp/anim.img
+#   make ANIMOFF=1 && cp build/os8088-360.img /tmp/ref.img
+#   ...drive the same script on each and compare the settled framebuffers.
+#
+# It is in $(VIDSTAMP) below, for NOSPLIT's reason: a knob outside the stamp
+# does not rebuild the kernel, so the A/B drives the same build twice and
+# comes back null.
+ifneq ($(ANIMOFF),)
+VIDDEF += -DANIMOFF
 endif
 
 # CURFIX=1 turns ON the two cursor-hide changes, and they are OFF BY DEFAULT.
@@ -618,12 +676,12 @@ endif
 # BOOTDIAG is the one asymmetry that is meant to be one: it feeds $(BOOTDEF)
 # alone, and the stamp deletes boot.bin/boot360.bin whatever it says.
 KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
-                             KFZ DIRW1 INSTRO KEEPH DIRTYRAM HEAPCOMPACT HEAPPARK HEAPPARKLK FDDPROBE FDDABSENT REDRAWFULL NOSPLIT NOSUOCCL SNDSNIFF RAMKB DRAGCACHE \
+                             KFZ DIRW1 INSTRO KEEPH STRAD DIRTYRAM HEAPCOMPACT HEAPPARK HEAPPARKLK FDDPROBE FDDABSENT REDRAWFULL NOSPLIT NOSUOCCL SNDSNIFF RAMKB DRAGCACHE \
                              SNAPAUDIT SCROLLROW \
                              CURFIX \
-                             FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT,\
+                             FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0,\
                              $(if $($(k)),$(k)=$($(k)))))
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -709,7 +767,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc
         runcpm-src cpmsw rcz80test rcmemtest rczex 386-runcpm \
         xt-runcpm 286-runcpm \
         allapps rcbandbench \
-        checkdocs clean clean-cc clean-marty distclean
+        checkdocs test-fast test-full test-soak clean clean-cc clean-marty distclean
 
 # `all` deliberately does NOT build anything under tests/ (see the bench block
 # below). The testing apps are on-demand only: `make bench`.
@@ -720,7 +778,57 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc
 # in the list and is the whole of what the default build says about C - one
 # paragraph, only when the compiler is absent, never an error.
 all: checkdocs $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
-     $(MEDIAIMG360) cc-note
+     $(MEDIAIMG360) cc-note test-fast
+
+# The regression suite (tools/os88test.py, tests/suite.py). Three tiers:
+#
+#   test-fast   ~2s, host-side only, and it runs in the DEFAULT BUILD for
+#               checkdocs' reason one rule up - a gate nobody types is a gate
+#               that accumulates findings. It reads what the build just
+#               produced (the kernel binary, the packages, the images) and
+#               checks the invariants that break SILENTLY: the API table
+#               against the SDK, a constant mirrored in two files, the FAT12
+#               structure of all seven floppies, unreachable code, and that
+#               every test in tests/ is registered somewhere.
+#
+#   test-full   ~2 minutes, and THE ONE TO RUN BEFORE A MERGE. Adds the
+#               eighteen knob kernels and kern_small - every configuration
+#               `all` does not build - and the emulator smoke test.
+#
+#   test-soak   No budget. The other sixty-odd gates in tests/, which are one
+#               subject each: run the ones your change could have broken,
+#               `python3 tools/os88test.py soak -k disp*`.
+#
+# It is a real prerequisite list rather than a recipe line on `all` so that
+# `make -j` cannot start it before the images it reads are finished.
+.PHONY: test-fast test-full test-soak
+# ...and it runs in the DEFAULT BUILD, which is what the block above says and
+# what it now DOES. A knob kernel is a different binary, and `api-abi` resolves
+# the API table's displacements against os88sym's map - which re-derives the
+# DEFAULT kernel and then asserts byte-identity with build/kernel.bin, so under
+# any knob at all it correctly refuses and the suite reports a failure about
+# the harness rather than about the tree. Measured: `make REDRAWFULL=1` and
+# `make ANIMOFF=1` both failed `api-abi` this way, which broke every A/B knob
+# in the tree as a build - and an A/B knob is how this project verifies that a
+# redraw change kept the picture (SPEC.md 12.9's argument). Skipping is right
+# rather than passing the defines through: the other nine tests are about the
+# SHIPPED artifacts, and a knob build is not one.
+test-fast: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
+           $(MEDIAIMG360)
+ifeq ($(KNOBS),)
+	@python3 tools/os88test.py fast
+else
+	@echo "os88test: skipped - this is a KNOB build ($(KNOBS)), and the fast"
+	@echo "          tier reads the shipped artifacts. Run a plain \`make\`."
+endif
+
+test-full: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
+           $(MEDIAIMG360)
+	@python3 tools/os88test.py full
+
+test-soak: $(IMG) $(IMG720) $(IMG360) $(APPSIMG) $(APPSIMG720) $(APPSIMG360) \
+           $(MEDIAIMG360)
+	@python3 tools/os88test.py soak
 
 # The documentation gate (SPEC.md is the binding contract, so a citation that
 # names a heading which does not exist is a defect in it): a stale section

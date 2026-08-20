@@ -57,6 +57,18 @@ TP_WIN_H      equ 400
 TP_BAR_H      equ 22
 TP_STAT_H     equ 14
 TP_SPLIT0     equ 200
+TP_SPLIT_MIN  equ 120           ; the narrowest the SOURCE pane is worth
+TP_PREV_MIN   equ 140           ; ...and the PREVIEW, which is a page
+TP_TEXT_MIN   equ 48            ; six rows of source under the bar
+; The smallest FRAME the two-pane layout still means anything in (SPEC.md
+; 11.100.2), derived from tp_clamp_split's own two numbers so they cannot
+; drift apart. Without it WMIN_W lets the grow box take this window to 96:
+; measured, the content is then 94 wide, tp_clamp_split pins the split at 120
+; - WIDER THAN THE WINDOW - and the preview pane comes out **-26 pixels**, so
+; the source pane runs off its own right edge and the preview is a rect with a
+; negative width.
+TP_MIN_W      equ TP_SPLIT_MIN + TP_PREV_MIN + 2
+TP_MIN_H      equ TP_BAR_H + TP_STAT_H + TP_TEXT_MIN + TITLE_H + 1
 TP_SB_W       equ 10
 TP_SRC_KB     equ 8
 TP_SRC_MAX    equ 8190
@@ -98,6 +110,18 @@ tp_entry:
     call OSAPI_WM_SIZABLE
     mov al, 1
     call OSAPI_WM_SNAP
+    push cx                     ; ...AND A FLOOR UNDER THE GROW BOX (SPEC.md
+    push dx                     ; 11.100.2). Two panes with minimums cannot be
+    mov cx, TP_MIN_W            ; expressed by WMIN_W, which is one number for
+    mov dx, TP_MIN_H            ; the whole machine and is 96
+    call OSAPI_WM_MINSIZE
+    pop dx
+    pop cx
+    push si                     ; ...and the HERCULES is 720 columns wide
+    mov si, tp_pref             ; (SPEC.md 11.100.1). A two-pane editor is the
+    call OSAPI_WM_PREFER        ; one window in the tree with somewhere to put
+    pop si                      ; them: the split stays where it is and every
+                                ; extra column goes to the page
     push si
     mov si, tp_onabout
     call OSAPI_ABOUT_SET
@@ -328,21 +352,39 @@ tp_fill:
     pop bx
     pop ax
     ret
+; -----------------------------------------------------------------------------
+; The one thing this window has to say about an adapter (SPEC.md 11.100.1).
+;
+; VGA and CGA get a PAIR OF ZEROS - "nothing to say", so the template stands
+; and wm_fit clamps it exactly as it always did: 628x400 on a VGA, and 628x155
+; on a CGA where the desktop band is all there is. The template is already
+; nearly the whole width of both.
+;
+; THE HERCULES IS THE ENTRY, and it is the only window in the tree with an
+; obvious use for those 720 columns: the source pane keeps its split and every
+; extra column goes to the page. The height is the template's and is clamped to
+; that adapter's 303-row band, which is 11.100.1's "a real width and a generous
+; height" - only the width here is a decision.
+; -----------------------------------------------------------------------------
+    OS88_PREFER tp_pref, 0, 0,  712, TP_WIN_H,  0, 0
+
 
 tp_clamp_split:
     push ax
     push bx
     mov ax, [tp_split]
-    cmp ax, 120
+    cmp ax, TP_SPLIT_MIN
     jae .lo
-    mov ax, 120
+    mov ax, TP_SPLIT_MIN
 .lo:
     mov bx, [tp_cw]
-    sub bx, 140
-    cmp bx, 120
+    sub bx, TP_PREV_MIN
+    cmp bx, TP_SPLIT_MIN
     jge .hi
-    mov bx, 120
-.hi:
+    mov bx, TP_SPLIT_MIN        ; the floor OSAPI_WM_MINSIZE now makes
+.hi:                            ; unreachable - kept because this routine is
+                                ; also reached from tp_paint, which runs on
+                                ; whatever box the record holds
     cmp ax, bx
     jbe .ok
     mov ax, bx

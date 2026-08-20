@@ -1361,7 +1361,11 @@ app_launch:
     call inst_find_kind         ; at cap: front the live instance instead
     jc .fail                    ; only dying ones exist: retry later
     call gfx_lock
+%ifdef WM_ANIM
+    call inst_unmin             ; un-minimize, and 11.99.3's other half
+%else
     and byte [di+I_FLAGS], 0xFE ; un-minimize
+%endif
     mov bx, [di+I_WIN]
     call wm_show
     call gfx_unlock
@@ -1510,6 +1514,16 @@ app_launch:
 ; -----------------------------------------------------------------------------
 app_close_win:
     push di
+    call wm_ask_close           ; SPEC.md 75.1: the window may REFUSE, and a
+    jc .refused                 ; refusal means nothing at all happens - not
+                                ; even the hide, because a window that is
+                                ; asking "save changes?" has to stay on screen
+                                ; to be answered. ABOVE the ownership test on
+                                ; purpose: an unowned window's close reduces to
+                                ; wm_hide, and the kernel's own dialogs read
+                                ; that hide AS the cancel (SPEC.md 38.2, 75.3),
+                                ; so their negotiator - if one is ever
+                                ; installed - has to be able to refuse it too
     call inst_of_win            ; DI = record; CF = unowned
     jc .hide
     cmp byte [di+I_STATE], 1
@@ -1566,6 +1580,7 @@ app_close_win:
     mov byte [di+I_STATE], 2    ; the die flag (SPEC.md 14/29)
 .hide:
     call wm_hide                ; instant visual feedback + repaint
+.refused:
 .out:
     pop di
     ret
@@ -1580,10 +1595,89 @@ inst_minimize:
     call inst_of_win
     jc .hide                    ; unowned: plain hide
     or byte [di+I_FLAGS], 1
+%ifdef WM_ANIM
+    call wm_an_ok               ; MAY IT? (SPEC.md 76.11.1) This site called
+    jnc .hide                   ; wm_anim DIRECTLY and was the one path that
+                                ; did not ask - so the Theme page's switch
+                                ; turned the OPEN zoom off and left this one
+                                ; running, and WF_NOANIM and the fullscreen
+                                ; test were bypassed with it: a minimize while
+                                ; an fsx bracket owns the screen drew an XOR
+                                ; outline over somebody's borrowed surface,
+                                ; which is the hazard 11.99 names
+    call inst_an_tile           ; SPEC.md 11.99: the window flies to its tile -
+                                ; BEFORE wm_hide, while it is still on the glass
+    push si
+    push di
+    mov si, bx
+    mov di, wm_an_s
+    call wm_an_setw
+    call wm_anim
+    pop di
+    pop si
+%endif
 .hide:
     call wm_hide
     pop di
     ret
+
+%ifdef WM_ANIM
+; -----------------------------------------------------------------------------
+; inst_an_tile - fill wm_an_d with this record's dock tile (SPEC.md 11.99)
+; in:  DI = the instance record
+; out: nothing; every register preserved
+; -----------------------------------------------------------------------------
+inst_an_tile:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, di                  ; slot = (record - inst_tab) / I_RECSZ, which
+    sub ax, inst_tab            ; is a shift: I_RECSZ is 32 by construction
+    mov cl, 5
+    shr ax, cl
+    mov cx, ax
+    call dock_tile_rect         ; AX/BX/CX/DX
+    mov [wm_an_d], ax
+    mov [wm_an_d+2], bx
+    mov [wm_an_d+4], cx
+    mov [wm_an_d+6], dx
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; inst_unmin - clear the minimized bit AND say where the window is coming from
+; in:  DI = the instance record; caller holds the gfx lock and calls wm_show
+;      itself immediately afterwards
+; out: nothing; every register preserved
+;
+; SPEC.md 11.99.3. All four un-minimize paths used to be a bare
+; `and byte [di+I_FLAGS], 0xFE` followed by wm_show, and that is exactly one
+; instruction too clever: it throws away the only fact that says the window is
+; coming out of the dock rather than opening fresh, and wm_show cannot get it
+; back. One routine does both halves so a fifth path cannot forget the second.
+; -----------------------------------------------------------------------------
+inst_unmin:
+    and byte [di+I_FLAGS], 0xFE
+    push ax
+    push bx
+    push cx
+    push dx
+    call inst_an_tile           ; ...into wm_an_d, which wm_an_arm does not
+    mov ax, [wm_an_d]           ; read - so move it across
+    mov bx, [wm_an_d+2]
+    mov cx, [wm_an_d+4]
+    mov dx, [wm_an_d+6]
+    call wm_an_arm
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; inst_restore - bring a minimized instance back
@@ -1592,7 +1686,11 @@ inst_minimize:
 ; -----------------------------------------------------------------------------
 inst_restore:
     push bx
+%ifdef WM_ANIM
+    call inst_unmin             ; the bit, AND where it is flying from (11.99.3)
+%else
     and byte [di+I_FLAGS], 0xFE
+%endif
     mov bx, [di+I_WIN]
     call wm_show
     pop bx

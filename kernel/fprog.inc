@@ -346,7 +346,7 @@ fpg_paint:
     xor bx, bx                  ;     there, since the space is BORROWED and
                                 ;     menu_relayout's limit is untouched
     mov dx, MBAR_H - 2          ; the black rule on the last row is not ours
-    mov byte [gfx_color], CWHITE
+    call thm_bg                
     call gfx_fill
 
     mov cx, [fpg_x0]            ; --- the document icon
@@ -354,7 +354,7 @@ fpg_paint:
     mov si, fpg_ico
     call icon_draw
 
-    mov byte [gfx_color], CBLACK    ; --- the line box round the trough
+    call thm_ink                    ; --- the line box round the trough
     call fpg_boxr               ; AX = box left, CX = box right
     mov bx, FPG_BOX_Y
     mov dx, FPG_BOX_Y + FPG_BOX_H - 1
@@ -368,7 +368,7 @@ fpg_paint:
     mov cx, ax
     add cx, [fpg_px]
     dec cx
-    mov byte [gfx_color], CBLACK
+    call thm_ink                
     jmp gfx_fill
 .out:
     ret
@@ -386,7 +386,7 @@ fpg_clear:
     mov word [fpg_px], 0
     mov byte [fpg_pat], 0
     call fpg_tin
-    mov byte [gfx_color], CWHITE
+    call thm_bg                
     jmp gfx_fill
 
 ; -----------------------------------------------------------------------------
@@ -460,7 +460,7 @@ fpg_step:
     mov [fpg_px], si
     mov bx, FPG_BOX_Y + 1
     mov dx, FPG_BOX_Y + FPG_BOX_H - 2
-    mov byte [gfx_color], CBLACK
+    call thm_ink                
     call gfx_fill
 
 .done:
@@ -606,7 +606,7 @@ fpg_finish:
     je .out
     mov word [fpg_total], 0     ; ...and no phase survives the widget either
 
-    mov byte [gfx_color], CWHITE
+    call thm_bg                
     call fpg_span               ; --- above the text band: the icon's head
     xor bx, bx
     mov dx, MENU_TEXT_Y - 1

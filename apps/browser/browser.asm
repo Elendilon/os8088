@@ -273,6 +273,15 @@ br_entry:
                                     ; every paint and relayouts on a WIDTH
                                     ; change (BROWSER-PLAN 3.5), so the window
                                     ; can be resized without anything else
+    mov si, br_pref                 ; **AND THE THREE HEIGHTS BECOME A
+    call OSAPI_WM_PREFER            ; DECLARATION** (SPEC.md 11.100.1). br_size
+                                    ; above still decides what we OPEN at and
+                                    ; says the same thing, so a launch is
+                                    ; unchanged; this is for every LATER moment
+                                    ; the adapter can move under us
+    mov ax, br_onresize
+    call OSAPI_WM_ONRESIZE          ; ...and tell us, so the dock question gets
+                                    ; asked again (SPEC.md 11.98)
     call br_arg                     ; launched ON a document? then open it
                                     ; WF_SNAP is the DEFAULT now (SPEC.md
                                     ; 11.94), so the content origin is already
@@ -347,26 +356,88 @@ br_keeph:
     push cx
     push dx
     push si
-    mov si, bx                      ; **BX IS THE WINDOW AND OSAPI_VIDEO
-    call OSAPI_VIDEO                ; ANSWERS THE SCREEN HEIGHT IN IT**, so
-    mov bx, si                      ; asking the adapter first and passing BX
-                                    ; afterwards hands WM_KEEPH the number 200
-                                    ; as a window pointer. It cost one run: the
-                                    ; window came back at the band's 155 rows,
-                                    ; which is exactly what a KEEPH that never
-                                    ; happened looks like
-    cmp dl, VID_CGA
-    jne .out
-    mov al, 1
-    call OSAPI_WM_KEEPH             ; without it wm_fit SHORTENS us back to the
-                                    ; band and the whole point of the CGA case
-.out:                               ; is lost - silently, since a shortened
-    pop si                          ; window looks like a window
+    push bx                         ; **BX IS THE WINDOW AND THE ANSWER COMES
+    call OSAPI_WM_DISPLAY           ; BACK IN IT**, so asking the adapter first
+    pop bx                          ; and passing BX afterwards hands WM_KEEPH
+                                    ; the number 200 as a window pointer. It
+                                    ; cost one run: the window came back at the
+                                    ; band's 155 rows, which is exactly what a
+                                    ; KEEPH that never happened looks like.
+                                    ; ON THE STACK AND NOT IN SI, which is what
+                                    ; this used, because OSAPI_WM_DISPLAY
+                                    ; answers the band's top there.
+                                    ;
+                                    ; **AND IT IS THE CARD THIS WINDOW IS ON**
+                                    ; (SPEC.md 39.16.4), not the primary. The
+                                    ; whole question here is "am I on a CGA",
+                                    ; and on a two-card machine a drag across
+                                    ; the seam is exactly when the answer
+                                    ; changes - which is also when br_onresize
+                                    ; calls this
+    xor al, al                      ; **AND IT ANSWERS BOTH WAYS.** This used
+    cmp dl, VID_CGA                 ; to return without touching the flag on
+    jne .set                        ; anything but a CGA, which is correct
+    inc al                          ; exactly once - at launch, when the flag
+.set:                               ; is clear anyway. It is called from
+    call OSAPI_WM_KEEPH             ; br_onresize now, where the adapter can
+                                    ; have gone the OTHER way, and a KEEPH left
+                                    ; set on a VGA raises the height ceiling by
+                                    ; the dock's 24 rows on a screen with no
+                                    ; shortage of them. Without the set half
+                                    ; wm_fit SHORTENS us back to the band and
+.out:                               ; the whole point of the CGA case is lost -
+    pop si                          ; silently, since a shortened window looks
+                                    ; like a window
     pop dx
     pop cx
     pop bx
     pop ax
     popf
+    ret
+
+; -----------------------------------------------------------------------------
+; The three heights br_size computes, as the declaration they are (SPEC.md
+; 11.100.1). They are FRAME sizes and the width is the template's throughout -
+; a browser is short of rows and nothing else.
+;
+;   VGA   90% of a 436-row desktop band
+;   HERC  90% of a 304-row one
+;   CGA   GENEROUS ON PURPOSE, and this is the interesting entry. What this
+;         window wants on a CGA is not a number, it is "everything, the dock's
+;         rows included" - so it asks for more than the adapter has and lets
+;         WF_KEEPH's own ceiling in wm_fit decide, which is 200 - MBAR_H - 1 =
+;         179. The two say the same thing and only one of them is arithmetic
+;         this file has to keep right (SPEC.md 11.100.1's "a real width and a
+;         generous height").
+; -----------------------------------------------------------------------------
+    OS88_PREFER br_pref, 496, 392,  496, 273,  496, 300
+
+; -----------------------------------------------------------------------------
+; br_onresize - OSAPI_WM_ONRESIZE (SPEC.md 11.98): the box moved and we did not
+;               ask - Activate Mode, or a drag onto the other card
+; in:  SI = window, CX/DX = the new content size; gfx lock held, and DRAWING IS
+;      FORBIDDEN - the kernel's repaint follows
+; out: nothing; preserves all registers
+;
+; **THE DOCK QUESTION IS THE ONE THING HERE THAT IS DECIDED ONCE.** Everything
+; else about this window's layout comes off the live content box every paint
+; (br_measure, BROWSER-PLAN 3.5), so a box that moves needs nothing said to it.
+; WF_KEEPH is different: it is a FLAG, br_keeph set it at launch from the
+; adapter that was primary then, and nothing asked again. Measured on
+; os8088_xt_vga, a browser launched on the VGA and switched to the CGA came
+; back **496x155 ending at row 175**, where one LAUNCHED on that CGA is
+; **496x179 ending at 198** - the same machine, the same adapter, two different
+; windows depending on how you got there, and the shorter one is missing the 24
+; rows the dock sits under.
+;
+; It is br_keeph itself rather than a second copy of the test, which is what
+; makes "covered the dock" one answer rather than two that can drift.
+; -----------------------------------------------------------------------------
+br_onresize:
+    push bx
+    mov bx, si
+    call br_keeph                   ; ...which re-fits under the flag as it now
+    pop bx                          ; is, and preserves the flags doing it
     ret
 
 ; -----------------------------------------------------------------------------

@@ -993,7 +993,7 @@ desk_draw_zone:
     sub ax, DESK_ZOVER
     mov cx, ax
     add cx, DESK_ZW + 2*DESK_ZOVER - 1
-    call KERNEL_SEG:cw_gfx_fill_gray
+    call KERNEL_SEG:cw_thm_desk
 
     ; --- the icon, which IS the zone's width now (SPEC.md 26.4) --------------
     mov cx, [desk_zx]

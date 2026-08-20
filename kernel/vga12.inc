@@ -26,6 +26,68 @@ VGA_GC      equ 0x3CE           ; Graphics Controller index port (data +1)
 VGA_SEQ     equ 0x3C4           ; Sequencer index port (data +1)
 
 gfx_color       db CBLACK       ; current drawing color for every solid op
+
+; --- THEME (SPEC.md 76) -----------------------------------------------------
+; [thm_kind] is the SETTING; the eight bytes below are what it MEANS, copied
+; whole from thm_tab at the switch so every chrome site is a load and never a
+; branch. The content of a window is not themed in any of them - only the
+; desktop, the menu bar, the dock and a window's own chrome.
+;
+; It was TWO bytes while there were two themes, and Color is what made the
+; distinctions real: a title bar that is blue when focused and grey when not
+; needs a second pair, and a desktop that is neither a dither nor black needs
+; a colour rather than a flag. THE LIVE BLOCK AND THE TABLE ROW ARE THE SAME
+; EIGHT BYTES IN THE SAME ORDER, so the switch is one `rep movsb` and there is
+; no per-field copy to fall out of step with the table.
+THM_BRIGHT  equ 0
+THM_DARK    equ 1
+THM_COLOR   equ 2
+%ifdef KERN_BIG
+THM_NKIND   equ 3
+%else
+THM_NKIND   equ 2               ; NO COLOR ON kern_small (SPEC.md 76.12.3):
+%endif                          ; the 128KB machine's kernel does not get to
+                                ; spend a step on a theme it would have to
+                                ; reduce to Bright anyway
+THM_DITHER  equ 0xFF            ; [thm_deskc]: lay SPEC.md 26's 50% dither
+                                ; rather than a solid colour
+
+%ifdef THEMEDARK                ; make THEMEDARK=1 (Dark) or =2 (Color): the
+thm_kind        db THEMEDARK    ; A/B, and the only way to see a theme before
+%else                           ; the Control Panel has been clicked
+thm_kind        db THM_BRIGHT
+%endif
+                                ; [thm_kind] IS IN BOTH BUILDS even though
+                                ; kern_small has no theme: SYSTEM.CFG's 'TH'
+                                ; key is two bytes on both, so a user's choice
+                                ; round-trips untouched through a small kernel
+                                ; instead of being reset by booting one
+                                ; (SPEC.md 76.13)
+%ifdef OS88_THEME
+; ...and the live block. ADJACENT AND IN THIS ORDER: thm_pair reads the first
+; two as one word, and thm_set copies the row over the lot.
+thm_bgc         db CWHITE       ; chrome background: the field a caption sits on
+thm_inkc        db CBLACK       ; chrome ink: the caption, the rules, the boxes
+thm_disc        db CDGRAY       ; ...and DISABLED chrome ink (SPEC.md 76.6)
+thm_tbgc        db CWHITE       ; the ACTIVE title bar's ground...
+thm_tinkc       db CBLACK       ; ...and its ink. Equal to the pair above in
+                                ; both 1bpp themes, which is what keeps them
+                                ; byte-identical to the kernel that had one
+thm_deskc       db THM_DITHER   ; the desktop's ground, or THM_DITHER
+thm_strp        db 1            ; 1 = the active title carries SPEC.md 11's
+                                ; pinstripes; 0 = it is a solid bar
+thm_pad         db 0            ; the row is 8 so the index is a shift
+
+; bg      ink     dis     tbg     tink    desk        stripes pad
+thm_tab:
+    db CWHITE, CBLACK, CDGRAY, CWHITE, CBLACK, THM_DITHER, 1, 0   ; Bright
+    db CBLACK, CWHITE, CLGRAY, CBLACK, CWHITE, CBLACK,     1, 0   ; Dark
+%ifdef KERN_BIG
+    db CLGRAY, CBLACK, CDGRAY, CBLUE,  CWHITE, CTEAL,      0, 0   ; Color
+%endif
+
+%endif
+
 gfx_dis         db 0            ; 1 = what is being drawn is a DISABLED
                                 ; control (SPEC.md 47). It is a FLAG and not
                                 ; a colour because the renderer has to do
@@ -45,6 +107,24 @@ gfx_dis         db 0            ; 1 = what is being drawn is a DISABLED
                                 ; .bss), and gfx_unlock clears it for the
                                 ; reason it clears the clip region: it is
                                 ; valid for exactly one lock hold.
+gfx_disink      db CBLACK       ; ...and WHICH DIRECTION a disabled GLYPH
+                                ; stipples in on a 1bpp adapter (SPEC.md
+                                ; 76.6.1). The flag above buys the
+                                ; checkerboard; this says what it is laid on,
+                                ; and it is the setting pen's own LIVE ink -
+                                ; black for the content pair, [thm_inkc] for
+                                ; the chrome's. Without it font_ink's
+                                ; reduction sent every disabled pen to black
+                                ; (they are all middle greys, and a grey is
+                                ; not 0xFF), so a greyed caption and a
+                                ; MENU_DIS separator were a black stipple on
+                                ; Dark's black chrome - drawn, correct in the
+                                ; framebuffer, and invisible.
+                                ;
+                                ; Initialized data and NOT .bss, for
+                                ; [gfx_dis]'s reason one line up: nothing
+                                ; zeroes .bss, and CBLACK is the answer for
+                                ; every caller that never touches it.
 gfx_pat         dw 0            ; gfx_fill_pat: near ptr to 8 row bytes,
                                 ; set by the caller before every call
 gfx_lock_flag   db 0            ; drawing mutex (SPEC.md 7); 0 = free.
@@ -3163,6 +3243,165 @@ vga_restore_vram:
 ; but it must still come through here, or the flag stays armed and the next
 ; string on this lock hold draws dithered.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; thm_bg / thm_ink - set the pen to the chrome's background / ink (SPEC.md 76)
+; in:  -   out: [gfx_color]   clobbers: nothing (flags preserved)
+;
+; A near call is THREE bytes where `mov byte [gfx_color], CWHITE` is five, so
+; the substitution pays for these two routines several times over. Flags are
+; preserved because several chrome sites set the pen between a CF-setting call
+; and the branch that reads it (wm_draw_title's wm_flush, SPEC.md 11.95.2).
+; -----------------------------------------------------------------------------
+%ifndef OS88_THEME              ; NO THEME HERE (SPEC.md 76.13): the pens keep
+thm_bg:                         ; their names and become CONSTANTS, so every
+    mov byte [gfx_color], CWHITE; chrome site in the kernel is untouched - and
+    ret                         ; a 3-byte call is still shorter than the
+thm_ink:                        ; 5-byte immediate store it replaced, so the
+    mov byte [gfx_color], CBLACK; small build comes out AHEAD of the tree that
+    ret                         ; never had a theme. Flags survive: neither
+%else                           ; instruction writes any
+thm_bg:
+    pushf
+    push ax
+    mov al, [thm_bgc]
+    mov [gfx_color], al
+    pop ax
+    popf
+    ret
+thm_ink:
+    pushf
+    push ax
+    mov al, [thm_inkc]
+    mov [gfx_color], al
+    pop ax
+    popf
+    ret
+
+; ...and the ACTIVE TITLE BAR's pair (SPEC.md 76.12). Equal to the two above in
+; both 1bpp themes, so a build that only ever had one pair draws the same
+; pixels; under Color they are white-on-blue, which is the whole of what makes
+; focus visible at a glance.
+thm_tbg:
+    pushf
+    push ax
+    mov al, [thm_tbgc]
+    mov [gfx_color], al
+    pop ax
+    popf
+    ret
+thm_tink:
+    pushf
+    push ax
+    mov al, [thm_tinkc]
+    mov [gfx_color], al
+    pop ax
+    popf
+    ret
+%endif
+
+%ifndef OS88_THEME              ; ...and with no theme the ACTIVE pair IS the
+thm_tbg     equ thm_bg          ; chrome pair, aliased rather than %ifdef'd at
+thm_tink    equ thm_ink         ; each of wm_draw_title's six sites - which is
+%endif                          ; where a divergence would rot (SPEC.md 76.13)
+
+; thm_pair - AL = chrome ink, AH = chrome background, for font_run
+; thm_rpair - the INVERSE pair (SPEC.md 59's toast strip)
+; The three theme bytes are declared ADJACENT for this: [thm_bgc] read as a
+; WORD is already the inverse pair, so thm_rpair is one instruction and
+; thm_pair is that plus an xchg.
+%ifndef OS88_THEME
+thm_pair:
+    mov ax, (CWHITE << 8) | CBLACK  ; AL = ink, AH = background
+    ret
+thm_rpair:
+    mov ax, (CBLACK << 8) | CWHITE
+    ret
+%else
+thm_pair:
+    mov ax, [thm_bgc]
+    xchg al, ah
+    ret
+thm_rpair:
+    mov ax, [thm_bgc]
+    ret
+%endif
+
+; thm_desk - lay the desktop's ground over AX,BX..CX,DX (SPEC.md 76.2)
+; Bright is SPEC.md 26's 50% dither; Dark is solid black. gfx_fill_gray is a
+; CLIPPED primitive and so is gfx_fill, so wm_dmg_gray's region arithmetic is
+; unchanged either way.
+%ifndef OS88_THEME
+thm_desk:
+    jmp gfx_fill_gray           ; SPEC.md 26's dither, and the only ground
+%else                           ; this build has
+thm_desk:
+    push ax
+    mov al, [thm_deskc]
+    cmp al, THM_DITHER
+    je .dither
+    mov [gfx_color], al
+    pop ax
+    jmp gfx_fill
+.dither:
+    pop ax
+    jmp gfx_fill_gray
+%endif
+
+; thm_set - adopt AL (0/1) as the theme and resolve the two pens
+%ifdef OS88_THEME
+thm_set:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    cmp al, THM_NKIND           ; a byte from a future version, or from a
+    jb .known                   ; settings disk this kernel does not know
+    xor al, al
+.known:
+%ifdef KERN_BIG
+    cmp al, THM_COLOR           ; COLOUR IS A FACT ABOUT THE ADAPTER, and it is
+    jne .ok                     ; refused HERE rather than at the two callers
+    cmp byte [vid_kind], VID_VGA; (SPEC.md 76.12.1) - so a settings disk
+    je .ok                      ; carried to a Hercules machine, and SPEC.md
+    xor al, al                  ; 39.11's Display page moving this one onto a
+.ok:                            ; card with no colour in it, both land on the
+%endif                          ; same refusal and both fall back to Bright.
+                                ; On kern_small THM_NKIND is 2, so the range
+                                ; test above has already clamped it
+    mov [thm_kind], al
+    mov bl, al                  ; the row: index * 8, the row being padded to
+    xor bh, bh                  ; 8 for exactly this
+    mov cl, 3
+    shl bx, cl
+    add bx, thm_tab
+    push ds                     ; ONE copy, so the live block cannot fall out
+    pop es                      ; of step with the table field by field
+    mov si, bx
+    mov di, thm_bgc
+    mov cx, 8
+    cld
+    rep movsb
+    call menu_force             ; THE TWO DIFFING PAINTERS CANNOT SEE THIS
+    call dock_force             ; (SPEC.md 76.7). menu_bcell is a record of
+    pop es                      ; CHARACTERS and a dock tile's key is its icon
+    pop di                      ; plus its marks - a theme change moves
+    pop si                      ; NEITHER, so composing IS the diff finds no
+    pop cx                      ; difference and the bar and the strip keep
+    pop bx                      ; the colours they had. wm_paint_all does not
+    pop ax                      ; cover it: it calls both painters and both
+    ret                         ; are gated
+
+%endif
+
+; THESE TWO ARE CONTENT PENS AND THE THEME DOES NOT REACH THEM (SPEC.md 76.6).
+; Every caller but one draws inside a WINDOW - the Control Panel's pages, the
+; Standard File dialog, os88ui.inc's shared controls, and every package
+; through OSAPI_GFX_PEN - and a window's content is white in both themes. The
+; one caller that is chrome is the pull-down menu, and it has its own pair
+; below rather than bending these: themed here, the Control Panel's radios
+; and every package's greyed caption go white on white and vanish.
 gfx_pen_cf:
     jc gfx_pen_dis
 gfx_pen_live:
@@ -3172,7 +3411,34 @@ gfx_pen_live:
 gfx_pen_dis:
     mov byte [gfx_color], CDGRAY
     mov byte [gfx_dis], 1
+    mov byte [gfx_disink], CBLACK   ; content is white in both themes, so a
+    ret                             ; greyed caption stipples in black
+
+; ...and the CHROME's pair, for menu_drop's items (SPEC.md 76.6). Same shape,
+; same [gfx_dis] contract - only the two colours come from the theme, so on
+; Bright they are byte-for-byte what the pair above does - which is why the
+; unthemed build simply ALIASES them to it (SPEC.md 76.13).
+%ifndef OS88_THEME
+thm_pen_live    equ gfx_pen_live
+thm_pen_dis     equ gfx_pen_dis
+%else
+thm_pen_live:
+    push ax
+    mov al, [thm_inkc]
+    mov [gfx_color], al
+    pop ax
+    mov byte [gfx_dis], 0
     ret
+thm_pen_dis:
+    push ax
+    mov al, [thm_disc]          ; CDGRAY on white is a legible grey and on
+    mov [gfx_color], al         ; black is very nearly nothing, so Dark takes
+    mov al, [thm_inkc]          ; CLGRAY. That is the VGA answer; on 1bpp the
+    mov [gfx_disink], al        ; flag buys a checkerboard and [gfx_disink]
+    pop ax                      ; says what it is laid ON - this surface's own
+    mov byte [gfx_dis], 1       ; live ink, so black on Bright and white on
+    ret                         ; Dark (SPEC.md 76.6.1)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; gfx_lock - acquire the drawing mutex, then hide the cursor (SPEC.md 7)

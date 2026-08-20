@@ -103,6 +103,41 @@ CP_PCAP2  equ CP_PCAPY + 9      ; 83: second caption row. Only the mono answer
                                 ; every page, so a second 8px line fits inside
                                 ; CP_CH (121) with room to spare
 
+%ifdef OS88_THEME
+; --- Theme page (SPEC.md 76.4): TWO groups, so a 16px pitch and not CP_PROWH's
+; 20. The Sound page's CPS_ROWH is the precedent - four radios, two headings
+; and a two-line caption do not fit CP_CH (132) at the Scheduler page's pitch,
+; and the pane is the same height on every adapter.
+CPH_ROWH  equ 16                ; row pitch inside a group
+CPH_R0Y   equ 18                ; Bright glyph top
+CPH_R1Y   equ CPH_R0Y + CPH_ROWH        ; 34: Dark
+CPH_R2Y   equ CPH_R1Y + CPH_ROWH        ; 50: Color (SPEC.md 76.12)
+CPH_H2Y   equ 70                ; 'Window Animations' heading text row
+CPH_A0Y   equ 82                ; On glyph top
+CPH_A1Y   equ CPH_A0Y + CPH_ROWH        ; 98: Off; + 12px = 110, inside CP_CH
+                                ; (132). The two-line caption that used to sit
+                                ; under this is what the third theme row is
+                                ; drawn in - the page had no other room and
+                                ; SPEC.md 76.4's argument for the caption was
+                                ; always the weaker of the two
+
+; ...and its hit bands, contiguous WITHIN a group and dead BETWEEN them: a
+; click in the gap belongs to neither group, where the Scheduler page's two
+; bands can be contiguous because it has only one group to be in.
+CPH_B0Y1  equ CPH_R0Y - 4                   ; 14: theme row 0 top
+CPH_B0Y2  equ CPH_R0Y + CP_GW + 1           ; 31: ...bottom = row 1 top - 1
+CPH_B1Y2  equ CPH_R1Y + CP_GW + 1           ; 47: theme row 1 bottom
+CPH_B2Y2  equ CPH_R2Y + CP_GW + 1           ; 63: theme row 2 bottom
+CPH_A0Y1  equ CPH_A0Y - 4                   ; 78: anim row 0 top
+CPH_A0Y2  equ CPH_A0Y + CP_GW + 1           ; 79: ...bottom
+CPH_A1Y2  equ CPH_A1Y + CP_GW + 1           ; 95: anim row 1 bottom
+
+%if CPH_A1Y + CP_GW > CP_CH
+%error "ctrl: the Theme page runs past its pane - see SPEC.md 76.4"
+%endif
+
+%endif
+
 ; --- radio hit bands, pane-relative y: generous, contiguous ------------------
 CP_B0Y1   equ CP_PR0Y - 4                     ; 22: row 0 (Pre-emptive) top
 CP_B0Y2   equ CP_PR0Y + CP_GW + 3             ; 41: row 0 bottom = row 1 top-1
@@ -281,6 +316,9 @@ cp_items:
     dw cp_s_drv,   cp_drv_paint,   cp_drv_click,   0
     dw cp_s_snd,   cp_snd_paint,   cp_snd_click,   0
     dw cp_s_vid,   cp_vid_paint,   cp_vid_click,   0
+%ifdef OS88_THEME
+    dw cp_s_thm,   cp_thm_paint,   cp_thm_click,   0
+%endif
 cp_items_end:
 CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
 CP_ITIME  equ 1                 ; the Date/Time item: ui.inc selects it by
@@ -290,6 +328,9 @@ CP_IDRV   equ 2                 ; ...and the Drivers item, which drv_notice
                                 ; opens the panel on when a driver did not
                                 ; load at boot (SPEC.md 51.3)
 CP_ISND   equ 3                 ; ...and Sound, the tone tier's route (34.8)
+%ifdef OS88_THEME
+CP_ITHM   equ 5                 ; ...and Theme (SPEC.md 76.4)
+%endif
 CP_IVID   equ 4                 ; ...and Display, the one row that is HIDDEN
                                 ; on a machine with a single adapter (SPEC.md
                                 ; 39.11.1). vid_probe_avail names it by this
@@ -340,6 +381,26 @@ cp_hide:  db 0
 ; List names are at most 9 characters (72px): the selection bar ends at
 ; CP_IBX2 = 85 and the name starts at CP_IX = 6, so a tenth glyph would
 ; cross the divider. 'Scheduler' and 'Date/Time' are both exactly at it.
+
+%ifdef OS88_THEME
+; --- Theme page (SPEC.md 76.4) ----------------------------------------------
+; Two radios, exactly the Scheduler page's shape: the chrome's two pens, and
+; the ground the desktop is laid with. It changes no geometry and claims no
+; memory, so the only thing a switch owes is a repaint - which is [cp_dirty],
+; the flag that already means "every window has to be told".
+cp_s_thm:   db 'Theme', 0       ; list name AND the page heading
+cp_s_tbrt:  db 'Bright', 0
+cp_s_tdrk:  db 'Dark', 0
+%ifdef KERN_BIG
+cp_s_tclr:  db 'Color', 0        ; ...and the third, VGA's alone (SPEC.md 76.12)
+%endif
+%ifdef WM_ANIM
+cp_s_tanim: db 'Window Animations', 0
+cp_s_ton:   db 'On', 0
+cp_s_toff:  db 'Off', 0
+%endif
+
+%endif
 
 cp_s_sched: db 'Scheduler', 0   ; list name AND the page heading
 cp_s_pre:   db 'Pre-emptive', 0
@@ -1922,6 +1983,284 @@ cp_sched_paint:
     pop dx
     pop cx
     ret
+
+%ifdef OS88_THEME
+; -----------------------------------------------------------------------------
+; cp_thm_paint - the Theme page (SPEC.md 76.4)
+; in:  DI = pane left, BP = pane top; gfx lock held
+; out: nothing (all registers preserved)
+;
+; TWO groups: the theme, and SPEC.md 11.99's zoom. They share a page because
+; they are the same question asked twice - what the machine spends on looking
+; like itself - and the zoom is the one that costs TIME rather than pixels:
+; ~137 ms of held gfx lock per window appearing, leaving or minimizing.
+; -----------------------------------------------------------------------------
+cp_thm_paint:
+    push cx
+    push dx
+    push si
+
+    mov byte [gfx_color], CBLACK ; entry pen is CWHITE (cp_page's erase) - the
+                                ; PANE is content and is not themed, so this
+                                ; page is drawn in the ordinary pens like
+                                ; every other one
+
+    mov si, cp_s_thm            ; heading, same string as the list row
+    mov cx, di
+    add cx, CP_PMX
+    mov dx, bp
+    add dx, CP_PHY
+    call KERNEL_SEG:cw_font_str
+
+    mov si, cp_s_tbrt           ; theme row 0
+    mov dx, bp
+    add dx, CPH_R0Y + CP_PLDY
+    call cp_thm_lbl
+    mov si, cp_s_tdrk           ; theme row 1
+    mov dx, bp
+    add dx, CPH_R1Y + CP_PLDY
+    call cp_thm_lbl
+%ifdef KERN_BIG
+    mov si, cp_s_tclr           ; theme row 2 - drawn on every adapter, and
+    mov dx, bp                  ; GREYED where the machine has no colour
+    add dx, CPH_R2Y + CP_PLDY   ; (SPEC.md 47 rule 3, 76.12.1)
+    call cp_thm_colgrey
+    call KERNEL_SEG:cw_gfx_pen_cf   ; the pen AND [gfx_dis] together, which on
+    call cp_thm_lbl                 ; a 1bpp adapter is the whole difference
+    call KERNEL_SEG:cw_gfx_pen_live ; (SPEC.md 47 rule 1)
+%endif
+
+%ifdef WM_ANIM
+    mov si, cp_s_tanim          ; --- the second group's heading
+    mov cx, di
+    add cx, CP_PMX
+    mov dx, bp
+    add dx, CPH_H2Y
+    call KERNEL_SEG:cw_font_str
+
+    mov si, cp_s_ton            ; anim row 0
+    mov dx, bp
+    add dx, CPH_A0Y + CP_PLDY
+    call cp_thm_lbl
+    mov si, cp_s_toff           ; anim row 1
+    mov dx, bp
+    add dx, CPH_A1Y + CP_PLDY
+    call cp_thm_lbl
+%endif
+
+
+    call cp_thm_radios
+
+    pop si
+    pop dx
+    pop cx
+    ret
+
+; cp_thm_colpen - the pen for the Color row: greyed unless this machine has
+;                 an adapter that can show it (SPEC.md 76.12.1)
+; out: CF = 1 when greyed - which is os88ui_glyph's argument too, so ONE
+;      predicate drives the label, the glyph and cp_thm_click's refusal
+; cp_thm_colgrey - MAY this machine show the Color theme? (internal)
+; out: CF = 1 -> the row is greyed and the click refuses; every register kept
+;
+; SPEC.md 47 rule 1: ONE predicate drives the greying, the glyph and the
+; refusal, so the three cannot disagree - and it is a FACT (rule 3), not a
+; guess: SPEC.md 39.4 reduces every index outside {0,15} to black, white or
+; the 50% dither, so on a 1bpp adapter Color would BE Bright.
+%ifdef KERN_BIG
+cp_thm_colgrey:
+    cmp byte [vid_kind], VID_VGA
+    je .live
+    stc
+    ret
+.live:
+    clc
+    ret
+%endif
+
+; cp_thm_lbl - one row label at the group's x (internal)
+; in:  SI -> string, DX = text y, DI = pane left; out: nothing, CX clobbered
+cp_thm_lbl:
+    mov cx, di
+    add cx, CP_PLX
+    call KERNEL_SEG:cw_font_str ; NOT a tail call: a cw_ shim ends in `retf`,
+    ret                         ; so jumping to one pops THIS routine's near
+                                ; return address as CS:IP and lands in the
+                                ; weeds. desk_zone_xor's comment is the same
+                                ; finding; the cost is one `ret`
+
+; -----------------------------------------------------------------------------
+; cp_thm_click - a click inside the Theme page
+; in:  DI = pane left, BP = pane top, CX = pane-relative x (ignored),
+;      DX = pane-relative y; gfx lock held by the caller
+; out: nothing (flags only)
+;
+; cp_sched_click's shape twice over. The x coordinate is ignored, as it is
+; there: the bands span the pane, so the glyph and its label both select the
+; row. Comparisons are SIGNED - see cp_onclick_x. THE GAP BETWEEN THE GROUPS
+; IS DEAD: the Scheduler page can let its two bands touch because a click has
+; only one group it could mean, and here a generous band would put "half way
+; between Dark and On" into one of them.
+; -----------------------------------------------------------------------------
+cp_thm_click:
+    push ax
+
+    cmp dx, CPH_B0Y1
+    jl .done
+%ifdef KERN_BIG
+    cmp dx, CPH_B2Y2
+%else
+    cmp dx, CPH_B1Y2            ; no Color row on this build (SPEC.md 76.12.3)
+%endif
+    jg .anim                    ; below the theme group: try the other one
+
+    mov al, THM_DARK
+    cmp dx, CPH_B0Y2
+    jle .tbright
+%ifdef KERN_BIG
+    cmp dx, CPH_B1Y2
+    jle .tset
+    mov al, THM_COLOR           ; ...and the third refuses where it is greyed,
+    call cp_thm_colgrey         ; through the predicate that greyed it
+    jc .done
+%endif
+    jmp short .tset
+.tbright:
+    mov al, THM_BRIGHT
+.tset:
+    mov ah, al
+%ifdef KERN_BIG
+    inc al                      ; ...and it IS the control: id 1, 2 or 3
+    call cp_ctl                 ; (SPEC.md 13.8.3)
+    jc .done
+    mov al, ah
+%endif
+    cmp al, [thm_kind]
+    je .done                    ; already live: change nothing
+    call KERNEL_SEG:cw_thm_set
+    mov byte [cp_wdirty], 1     ; remembered on close (SPEC.md 31.8)
+    mov byte [cp_dirty], 1      ; ui_task repaints the world (SPEC.md 13)
+    call cp_thm_radios
+    jmp short .done
+
+.anim:
+%ifndef WM_ANIM
+    jmp short .done             ; no zoom in this build: the rows are drawn
+%else                           ; greyed and refuse, which is SPEC.md 47's
+    cmp dx, CPH_A0Y1            ; predicate shared by the greying and the
+    jl .done                    ; refusal rather than two opinions
+    cmp dx, CPH_A1Y2
+    jg .done
+
+    xor al, al                  ; --- lower band = Off
+    cmp dx, CPH_A0Y2
+    jg .aset
+    inc al                      ; upper band = On
+.aset:
+    mov ah, al
+%ifdef KERN_BIG
+    add al, 4                   ; ...id 4 or 5 (SPEC.md 13.8.3)
+    call cp_ctl
+    jc .done
+    mov al, ah
+%endif
+    cmp al, [wm_animon]
+    je .done                    ; already live
+    mov [wm_animon], al
+    mov byte [cp_wdirty], 1     ; remembered on close - and NOTHING else is
+    call cp_thm_radios          ; owed: the zoom is not on screen, so there is
+%endif                          ; nothing to repaint and no [cp_dirty]
+.done:
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; cp_thm_radios - all four glyphs, each group's live row filled
+; -----------------------------------------------------------------------------
+cp_thm_radios:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    mov cx, di
+    add cx, CP_PGX              ; CX = glyph left x (every row)
+
+    mov bl, [thm_kind]          ; --- the theme group
+    mov dx, bp
+    add dx, CPH_R0Y
+    mov ax, OS88UI_GRADIO       ; row 0: Bright
+    or bl, bl
+    jnz .r0
+    mov al, OS88UI_GRADIO | OS88UI_GON
+.r0:
+%ifdef KERN_BIG
+    mov bh, 1
+    call cp_dngly
+%endif
+    call COLD_SEG:os88ui_glyph_f
+    mov dx, bp
+    add dx, CPH_R1Y
+    mov ax, OS88UI_GRADIO       ; row 1: Dark
+    cmp bl, THM_DARK
+    jne .r1
+    mov al, OS88UI_GRADIO | OS88UI_GON
+.r1:
+%ifdef KERN_BIG
+    mov bh, 2
+    call cp_dngly
+%endif
+    call COLD_SEG:os88ui_glyph_f
+%ifdef KERN_BIG
+    mov dx, bp
+    add dx, CPH_R2Y
+    mov ax, OS88UI_GRADIO       ; row 2: Color, greyed off a colour adapter
+    cmp bl, THM_COLOR
+    jne .r2
+    mov al, OS88UI_GRADIO | OS88UI_GON
+.r2:
+    call cp_thm_colgrey
+    jnc .r2live
+    mov ah, OS88UI_DIS
+.r2live:
+    mov bh, 3
+    call cp_dngly
+    call COLD_SEG:os88ui_glyph_f
+%endif
+
+%ifdef WM_ANIM
+    mov bl, [wm_animon]         ; --- the animation group
+    mov dx, bp
+    add dx, CPH_A0Y
+    mov ax, OS88UI_GRADIO       ; row 0: On
+    or bl, bl
+    jz .a0
+    mov al, OS88UI_GRADIO | OS88UI_GON
+.a0:
+    mov bh, 4                   ; ...id 4 (SPEC.md 13.8.3)
+    call cp_dngly
+    call COLD_SEG:os88ui_glyph_f
+    mov dx, bp
+    add dx, CPH_A1Y
+    mov ax, OS88UI_GRADIO       ; row 1: Off
+    or bl, bl
+    jnz .a1
+    mov al, OS88UI_GRADIO | OS88UI_GON
+.a1:
+    mov bh, 5
+    call cp_dngly
+    call COLD_SEG:os88ui_glyph_f
+%endif
+
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+%endif
 
 ; -----------------------------------------------------------------------------
 ; cp_sched_click - a click inside the Scheduler page

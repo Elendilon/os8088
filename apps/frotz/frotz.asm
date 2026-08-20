@@ -201,9 +201,18 @@ zf_entry:
     mov si, zf_about
     call OSAPI_ABOUT_SET
     mov al, 1
-    call OSAPI_WM_SIZABLE           ; re-wrap on drag; zf_onsize answers the ask
-    mov ax, zf_onsize
-    call OSAPI_WM_ONSIZE
+    call OSAPI_WM_SIZABLE           ; re-wrap on drag
+    push cx                         ; ...and the floor is DECLARED now (SPEC.md
+    push dx                         ; 11.100.2) rather than answered by a
+    mov cx, ZF_MIN_W                ; negotiator. zf_onsize was ten
+    mov dx, ZF_MIN_H                ; instructions that did exactly this and
+    call OSAPI_WM_MINSIZE           ; are gone with it - and it is a WIDER
+    pop dx                          ; promise than the one it replaced: a
+    pop cx                          ; negotiator is consulted by the grow box
+                                    ; and by OSAPI_WM_RESIZE, and by neither of
+                                    ; the two clamps that had no floor at all
+    mov ax, zf_onresize             ; ...and TELL US when the adapter moves
+    call OSAPI_WM_ONRESIZE          ; (SPEC.md 11.98)
 
     ; A story named by a double-click (SPEC.md 54.7). SI comes back pointing
     ; into KERNEL_SEG, so it is read through ES and copied before anything
@@ -470,24 +479,32 @@ zf_onclick:
     ret
 
 ; =============================================================================
-; zf_onsize - W_ONSIZE (OSAPI_WM_ONSIZE)
-; in:  SI = window, CX/DX = the proposed FRAME size; answer in CX/DX
-; out: CX/DX = the size we will take; nothing is drawn here, at either size
+; zf_onresize - OSAPI_WM_ONRESIZE (SPEC.md 11.98): the ADAPTER moved under us
+; in:  SI = window, CX/DX = the new content size; the gfx lock is held and
+;      DRAWING IS FORBIDDEN
+; out: nothing; preserves every register
 ;
-; Frotz takes any size at or above the minimum. It does NOT snap to whole
-; character cells: the text re-wraps to the pixel width, and snapping would
-; make the drag feel notched for no gain the reader can see.
-; =============================================================================
-zf_onsize:
-    cmp cx, ZF_MIN_W
-    jae .w
-    mov cx, ZF_MIN_W
-.w:
-    cmp dx, ZF_MIN_H
-    jae .h
-    mov dx, ZF_MIN_H
-.h:
+; **THE BOX NEEDS NOTHING SAID TO IT** - zw_geom re-reads it on every pass and
+; the text re-wraps from there, which is what OSAPI_WM_SIZABLE has always meant
+; here. What goes stale is one byte: [zw_bpp], which zw_geom LATCHES behind
+; [zw_vidok] with the comment "the adapter is a fact we test once". It is a
+; fact, and this is the one event that changes it - so the latch is dropped and
+; the next pass asks again. Four sites read it, all of them deciding whether
+; @set_colour means anything, and on a 1bpp adapter (SPEC.md 39.4) every colour
+; rounds to black, white or a dither, so a story that colours by meaning goes
+; unreadable if we say we can.
+;
+; **[zm_bpp] IS DELIBERATELY NOT TOUCHED.** That one is the same question asked
+; for a different purpose: bit 0 of the story's Flags1 header byte, "colours
+; available", which zm_setup writes when the story is LOADED. A Z-machine
+; header is state the story reads at startup and the Standard does not expect
+; it to move underneath a running game, so its granularity is the story load
+; and that is where it stays.
+; -----------------------------------------------------------------------------
+zf_onresize:
+    mov byte [zw_vidok], 0
     ret
+
 
 ; =============================================================================
 ; zf_oncmd - AM_ONCMD, the menu bar (SPEC.md 12.2)

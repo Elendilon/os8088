@@ -464,6 +464,9 @@ ui_task:
                                 ; (SPEC.md 38.1) - collect it here rather
                                 ; than leaving the menu bar on Locator
                                 ; until the user next clicks something
+    call wm_close_pass          ; a package that answered "close me" is closed
+                                ; HERE, with none of its code on the stack
+                                ; (SPEC.md 75.2)
     mov ax, [inst_launch]       ; deferred instance launch (posted by
     or ax, ax                   ; lock-held handlers via inst_launch_post)
     jz .chk_ld
@@ -1182,7 +1185,29 @@ ui_drag:
     or di, di                   ; a click that only raised the window (above)
     jz .done                    ; leaves the screen already correct
 
+%ifdef KERN_BIG
+    mov bx, [ui_dragwin]        ; THE SIZE THIS WINDOW WANTS, BEFORE ANY OF THE
+    call ui_drag_size           ; CLAMPS BELOW SEE IT (SPEC.md 11.100.3/11.100.4)
+    pushf                       ; - CF = 1 if the size moved, which the drag
+                                ; cache may not survive.
+                                ;
+                                ; KERN_BIG ONLY, and that is not a saving so
+                                ; much as an observation: nothing in a drag can
+                                ; change a SIZE on a machine with one display -
+                                ; wm_strad_fit returns at its first compare,
+                                ; wm_dock_snap moves y and ui_drag_phase moves
+                                ; x - so 11.100.3 is a no-op there by
+                                ; construction and 11.100.4 has nowhere to land
+%endif
 %ifndef NODRAGCACHE
+%ifdef KERN_BIG
+    jc .nocache                 ; a drag that RESIZES is not a drag the cache
+                                ; can replay: its relabel moves the banked
+                                ; rect's origin and leaves the extents alone,
+                                ; "because a drag does not resize" (SPEC.md
+                                ; 11.96.12). wm_su_ck would refuse the buffer
+                                ; anyway; this saves taking it
+%endif
     mov bx, [ui_dragwin]
     call ui_drag_phase          ; ...onto a multiple of 8 FIRST (SPEC.md
                                 ; 11.96.13): the cache can only replay the
@@ -1200,17 +1225,32 @@ ui_drag:
                                 ; HERE and not after the move: two lines down
                                 ; wm_paint_dmg paints the desktop over exactly
                                 ; the pixels this is saving
+.nocache:
+%endif
+%ifdef KERN_BIG
+    popf
 %endif
 
     mov bx, [ui_dragwin]        ; A DRAG IS ALLOWED TO CROSS THE SEAM (SPEC.md
-%ifdef KERN_BIG                 ; 39.16.1) and this is what it costs when it
-    call wm_strad_fit           ; does: a frame reaching rows or columns only
-%endif                          ; one of the two displays has gives them back
-                                ; (39.16.3). BEFORE the bank, so what is
-                                ; remembered is what the record holds
-    call wm_nat_bank            ; where the user put it is where it goes back to
+%ifdef KERN_BIG                 ; 39.16.1) and ui_drag_size above is what it
+    call wm_nat_bank_xy         ; costs when it does - ONE call now, where this
+%else                           ; site used to run a second clamp of its own
+    call wm_nat_bank            ; (docs/WINDOW-SIZING-PLAN.md 12.1: three
+%endif                          ; mechanisms shared this job and each had its
+                                ; own defect).
+                                ; The bank is POSITION ONLY where a size can
+                                ; move and the whole rect where it cannot
+                                ; where the user put it is where it goes back to
                                 ; when the adapter changes (SPEC.md 39.11.2.1)
-                                ; - and BELOW ui_drag_phase, not above it. That
+                                ; - POSITION ONLY, because the two clamps above
+                                ; are clamps and the bank exists precisely so a
+                                ; clamp cannot become its own source (11.100.3).
+                                ; Banking the straddle cut is what made a window
+                                ; walked across the seam and home again come
+                                ; back 60 rows shorter for the rest of the
+                                ; session.
+                                ;
+                                ; And BELOW ui_drag_phase, not above it: that
                                 ; snap moves x by up to 7px (SPEC.md 11.96.13)
                                 ; and it is the LAST thing to touch the rect, so
                                 ; banking first records a rect the record does
@@ -1245,6 +1285,65 @@ ui_drag:
 .done:
     call gfx_unlock             ; NO second gfx_lock here - already held (§7)
     ret
+
+; -----------------------------------------------------------------------------
+; ui_drag_size - what size should a dropped window have? (SPEC.md 11.100.3/.4)
+; in:       BX = the window, W_X/W_Y already clamped to where it was dropped
+; out:      CF = 1 if W_W or W_H changed, CF = 0 if neither did. Every register
+;           preserved.
+;
+; TWO THINGS, and they are for the two halves of the tree. Every window gets
+; 11.100.3: the size it WANTS comes back out of the natural bank, so the clamps
+; below re-derive from that rather than from whatever the last drag's clamp
+; left behind - which is what makes a walk across the seam and home again
+; reversible instead of costing sixty rows a trip.
+;
+; A window WITHOUT a grow box also gets 11.100.4: landing wholly on a display of
+; a different adapter takes its own declared size for that adapter. One WITH a
+; grow box does not, and that is the rule rather than an optimisation - its
+; size is one the user chose, and a user outranks an application.
+;
+; The straddle test is why this is not simply "the kind changed": a frame still
+; over both cards belongs to 39.16.3, and a preference applied there would be
+; cut by it in the same breath.
+; -----------------------------------------------------------------------------
+%ifdef KERN_BIG
+ui_drag_size:
+    push ax
+    push cx
+    push dx
+    mov cx, [bx+W_W]            ; what it had, so the answer is a comparison
+    mov dx, [bx+W_H]            ; rather than a promise
+    push si
+    push di
+    mov si, [bx+W_X]            ; ...and the ORIGIN too, because wm_land_snap
+    mov di, [bx+W_Y]            ; can move a window that kept its size
+    call wm_land_fit            ; ONE question: has the adapter changed, and if
+                                ; so what size does this window want here?
+                                ; (docs/WINDOW-SIZING-PLAN.md 12)
+    cmp si, [bx+W_X]
+    jne .moved2
+    cmp di, [bx+W_Y]
+.moved2:
+    pop di
+    pop si
+    jne .moved
+    cmp cx, [bx+W_W]
+    jne .moved
+    cmp dx, [bx+W_H]
+    jne .moved
+    pop dx
+    pop cx
+    pop ax
+    clc
+    ret
+.moved:
+    pop dx
+    pop cx
+    pop ax
+    stc
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; ui_drag_phase - put a dropped window's x where the drag cache can replay it
@@ -1584,7 +1683,9 @@ ui_grow:
     pop bx
     pop ax
 
-    ; clamp w: WMIN_W <= w <= [vid_w] - W_X (high bound first, low wins)
+    ; clamp w: this window's own minimum <= w <= [vid_w] - W_X (high bound
+    ; first, low wins - and the low one is wm_min_ax's now, SPEC.md 11.100.2,
+    ; which answers WMIN_W for a window that declared nothing)
     mov ax, [ui_dragw]
     mov dx, [vid_w]
     sub dx, [bx + W_X]
@@ -1592,13 +1693,16 @@ ui_grow:
     jle .w_high_ok
     mov ax, dx
 .w_high_ok:
-    cmp ax, WMIN_W
+    mov cx, ax                  ; the clamped width, banked while AX carries
+    mov ax, dx                  ; the CAP into wm_min_ax
+    xor dl, dl                  ; ...and DL selects the width axis
+    call wm_min_axd             ; ...or WMIN_W, which is what this always was
+    cmp cx, ax
     jge .w_low_ok
-    mov ax, WMIN_W
-.w_low_ok:
     mov cx, ax
+.w_low_ok:
 
-    ; clamp h: WMIN_H <= h <= [vid_h] - W_Y
+    ; clamp h: the same, on the other axis
     mov ax, [ui_dragh]
     mov dx, [vid_h]
     sub dx, [bx + W_Y]
@@ -1606,11 +1710,17 @@ ui_grow:
     jle .h_high_ok
     mov ax, dx
 .h_high_ok:
-    cmp ax, WMIN_H
+    push cx                     ; the width is settled and CX is the only
+    mov cx, ax                  ; register free to hold the height across the
+    mov ax, dx                  ; call
+    mov dl, 1
+    call wm_min_axd
+    cmp cx, ax
     jge .h_low_ok
-    mov ax, WMIN_H
+    mov cx, ax
 .h_low_ok:
-    mov dx, ax
+    mov dx, cx
+    pop cx
 
     call wm_ask_size            ; the window gets a say BEFORE the record
     mov [bx + W_W], cx          ; changes (SPEC.md 11.1): it answers with the
@@ -1626,8 +1736,15 @@ ui_grow:
     push ax
     call wm_dock_snap
     pop ax
+    call wm_usr_mark            ; A USER SIZED IT, so no preference may put a
+                                ; different size back (SPEC.md 11.100.5) - and
+                                ; BEFORE the fit below, not after it: a grow
+                                ; that crosses the seam changes the adapter
+                                ; kind, and an unmarked window would be handed
+                                ; its published size instead of the one the
+                                ; hand just dragged out
 %ifdef KERN_BIG
-    call wm_strad_fit           ; a grow can push a frame across the seam too
+    call wm_land_fit            ; a grow can push a frame across the seam too
 %endif                          ; (SPEC.md 39.16.3)
     call wm_snap_win            ; ...and the ALIGNED x is a question about the
                                 ; WIDTH now (SPEC.md 11.95.2): a window shrunk
@@ -1958,7 +2075,12 @@ ui_tm_open:
     call ui_tm_find             ; already running? front it and stop
     jc .load
     call gfx_lock
+%ifdef WM_ANIM
+    call inst_unmin             ; un-minimize, the app_launch cap path's rule -
+                                ; and SPEC.md 11.100.3's other half with it
+%else
     and byte [di+I_FLAGS], 0xFE ; un-minimize, the app_launch cap path's rule
+%endif
     mov bx, [di+I_WIN]
     call wm_show
     call gfx_unlock
@@ -2215,6 +2337,10 @@ ui_note:
     call wm_create              ; CF = the window table is full, in which case
     jc .out                     ; the notice is simply not shown - there is
     mov [ui_note_win], bx       ; nothing further to fall back to
+%ifdef WM_ANIM
+    or word [bx+W_FLAGS], WF_NOANIM  ; SPEC.md 11.99.2: this window is REUSED,
+                                ; so it comes back over and over in one session
+%endif
 .have:
     mov [bx+W_TITLE], di        ; the window is reused, so the caption belongs
                                 ; to whichever caller last asked for it. Set

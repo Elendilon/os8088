@@ -176,8 +176,17 @@ def main():
             ("127.0.0.1", ORIGIN_PORT), Origin).serve_forever(),
         daemon=True).start()
 
+    # THE SEARCH ENGINE IS THE LOCAL ORIGIN, and leaving it at its default is
+    # how this gate came to depend on the live internet. Unset, `--search` is
+    # `https://html.duckduckgo.com/html/?q=%s`, so `/s?q=` left the machine -
+    # which passes on a desk, and on a CI runner whose egress to that host is
+    # dropped rather than refused it HANGS until guest_fetch's 15s socket
+    # timeout takes the whole run down. A gate may not be a question about
+    # somebody else's uptime.
     opts = P.parse_args(["--port", str(PROXY_PORT), "--bind", "127.0.0.1",
-                         "--link-file", ""])
+                         "--link-file", "",
+                         "--search",
+                         "http://127.0.0.1:%d/search?q=%%s" % ORIGIN_PORT])
     proxy = P.Proxy(opts)
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", PROXY_PORT), P.Handler)
     httpd.proxy = proxy
@@ -296,9 +305,19 @@ def main():
     if b"a small page" not in went:
         fails.append("the address box did not fetch the address: %r"
                      % went[:200])
+    # ...and what counts is what arrives DURING THIS LEG, which is why the
+    # mark is taken first. `any("q=os8088" in x for x in Origin.seen)` was
+    # vacuous - the form-submit leg above had already put
+    # `/search?q=os8088&section=archive` there, so this passed whether or not
+    # the search box reached anything at all; measured, with egress refused
+    # the query never arrived and the gate still said `all good`. Narrowing it
+    # to `/search` does NOT fix that, because the fixture's form posts to
+    # `/search` as well - the two legs are only told apart by WHEN they ran.
+    seen0 = len(Origin.seen)
     code, sought = guest_fetch("/s?q=os8088")
     check("search", sought, opts)
-    if not any("q=os8088" in x for x in Origin.seen):
+    if not any(x.startswith("/search") and "q=os8088" in x
+               for x in Origin.seen[seen0:]):
         fails.append("the search box never reached the engine: %r"
                      % Origin.seen[-3:])
 

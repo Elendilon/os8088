@@ -867,14 +867,14 @@ menu_furniture:
     push di
     mov byte [menu_bovr], 0
 
-    mov byte [gfx_color], CWHITE
+    call thm_bg                
     xor ax, ax                  ; white field, rows 0..MBAR_H-2
     xor bx, bx
     mov cx, [vid_pwm1]
     mov dx, MBAR_H - 2
     call gfx_fill
 
-    mov byte [gfx_color], CBLACK
+    call thm_ink                
     xor ax, ax                  ; the black rule along the bottom
     mov bx, [vid_pwm1]
     mov dx, MBAR_H - 1
@@ -1067,14 +1067,15 @@ menu_bar_text:
     push si                     ; piece's first cell
     dec si
     mov dx, si
-    or al, al
-    jz .pnorm
-    mov al, CWHITE              ; the strip: INVERSE VIDEO, the one distinction
-    mov ah, CBLACK              ; that survives SPEC.md 39.4's reduction intact
+    mov [menu_binv], al         ; SPEC.md 76.3: the STRIP, SAID rather than
+    or al, al                   ; inferred - and AL already IS the inversion
+    jz .pnorm                   ; bit, so this is the bit and not a literal
+    call thm_rpair              ; INVERSE VIDEO, the one distinction that
+                                ; survives SPEC.md 39.4's reduction intact
     jmp short .pgo              ; on both mono adapters
 .pnorm:
-    mov al, CBLACK
-    mov ah, CWHITE
+    call thm_pair
+                                
 .pgo:
     call menu_bemit
     pop bx
@@ -1111,6 +1112,8 @@ menu_bar_text:
 ; very bit, so every cell in it carries the bit and every cell in it gets it
 ; back.
 ; -----------------------------------------------------------------------------
+menu_binv:  db 0                ; SPEC.md 76.3: menu_bar_text says whether the
+                                ; piece it is handing over is the inverted one
 menu_bemit:
     push ax
     push bx
@@ -1128,8 +1131,12 @@ menu_bemit:
     push bx
     push dx
 
-    cmp di, CWHITE              ; = CWHITE | (CBLACK << 8): "is this run the
-    jne .go                     ; inverted one"
+    cmp byte [menu_binv], 0     ; IS THIS THE INVERTED RUN? (SPEC.md 76.3) It
+    je .go                      ; used to be `cmp di, CWHITE` - the run's own
+                                ; colours read as a proxy for the answer, which
+                                ; the Dark theme swaps: the PLAIN run then
+                                ; matches, bit 7 is never masked off, and
+                                ; font_char indexes past the 95 glyphs it has
     mov si, bx
 .m:
     and byte [menu_bcell+si], 0x7F
@@ -1148,13 +1155,13 @@ menu_bemit:
     mov ax, di
     call font_run
 
-    cmp di, CWHITE              ; the STRIP: take its first cell's left 4px
-    jne .nogap                  ; back to white, so the gap home pads exactly
+    cmp byte [menu_binv], 0     ; the STRIP: take its first cell's left 4px
+    je .nogap                   ; back to the ground, so the gap home pads
     mov ax, cx                  ; as the clock home does (SPEC.md 59.8.1).
     mov cx, ax                  ; Drawn and then half-erased rather than
     add cx, 3                   ; composed as two halves, because menu_bcell
     push bx                     ; is a record of CELLS and half a cell is not
-    mov byte [gfx_color], CWHITE
+    call thm_bg                
     mov bx, MENU_TEXT_Y
     mov dx, MENU_TEXT_Y + 7
     call gfx_fill
@@ -1162,8 +1169,8 @@ menu_bemit:
 .nogap:
     pop dx
     pop bx
-    cmp di, CWHITE
-    jne .rb
+    cmp byte [menu_binv], 0
+    je .rb
     mov si, bx
 .s:
     or byte [menu_bcell+si], 0x80
@@ -1403,7 +1410,7 @@ menu_tbar_k:
     push bx
     push cx
     push dx
-    mov byte [gfx_color], CBLACK
+    call thm_ink                
     mov bx, MENU_TEXT_Y
     mov dx, MENU_TEXT_Y + 7
     call gfx_fill
@@ -1543,16 +1550,16 @@ menu_draw_clock:
     mov si, menu_clkbuf
     or di, di
     jnz .strip
-    mov al, CBLACK              ; --- no toast: one opaque pass over the lot
-    mov ah, CWHITE
+    call thm_pair               ; --- no toast: one opaque pass over the lot
+                                
     call font_run
     jmp short .out
 .strip:
     mov al, [menu_clkbuf+1]     ; --- cell 0 FIRST, in the clock's own colours:
     push ax                     ; it is a space, so this is the 4px white gap
     mov byte [menu_clkbuf+1], 0 ; that keeps the bed off SPEC.md 12.8's widget
-    mov al, CBLACK              ; (whose trough fills BLACK) - and it is free,
-    mov ah, CWHITE              ; the clock having to paint that cell anyway
+    call thm_pair               ; (whose trough fills BLACK) - and it is free,
+                                ; the clock having to paint that cell anyway
     call font_run
     pop ax
     mov [menu_clkbuf+1], al
@@ -1572,8 +1579,8 @@ menu_draw_clock:
     push si
     add cx, 8                   ; ALWAYS cell 1: `test cx, 7` stays 0, so the
     inc si                      ; single-store path survives the inset - 2.76x
-    mov al, CWHITE              ; on a Hercules 5150 if it does not (59.8.1)
-    mov ah, CBLACK              ; INVERSE VIDEO: the one distinction that
+    call thm_rpair              ; on a Hercules 5150 if it does not (59.8.1)
+                                ; INVERSE VIDEO: the one distinction that
     call font_run               ; survives SPEC.md 39.4's reduction intact
     pop si
     pop cx
@@ -1595,11 +1602,11 @@ menu_draw_clock:
     mov cx, ax
     mov si, menu_clkbuf
     add si, di
-    mov al, CBLACK
-    mov ah, CWHITE
+    call thm_pair               
+                                
     call font_run
 .out:
-    mov byte [gfx_color], CBLACK   ; the documented parting state, on both
+    call thm_ink                   ; the documented parting state, on both
                                    ; paths - font_run leaves its own
     pop es
     pop di
@@ -1940,14 +1947,14 @@ menu_drop:
     call gfx_save
 .nosave:
 
-    ; --- draw the menu: white fill, black frame, items 8px in from the left --
-    mov byte [gfx_color], CWHITE
+    ; --- draw the menu: the chrome's ground, its frame, items 8px in ---------
+    call thm_bg
     mov ax, [menu_x1]
     mov bx, [menu_y1]
     mov cx, [menu_x2]
     mov dx, [menu_y2]
     call gfx_fill
-    mov byte [gfx_color], CBLACK
+    call thm_ink
     mov ax, [menu_x1]
     mov bx, [menu_y1]
     mov cx, [menu_x2]
@@ -1966,17 +1973,18 @@ menu_drop:
     mov si, [es:bx]             ; are that cell's (SPEC.md 12.2/20.1); ES is
                                 ; re-established per pass because menu_trunc
                                 ; may repoint it at the kernel's copy
-    call gfx_pen_live
-    cmp byte [es:si], MENU_DIS  ; disabled: the disabled pen, and skip the
-    jne .live                   ; marker byte. gfx_pen_dis and not a bare
-    inc si                      ; CDGRAY store, because on a mono adapter
-    call gfx_pen_dis            ; grey text IS black text - the flag is what
-.live:                          ; buys the checkerboard (SPEC.md 47)
+    call thm_pen_live           ; the CHROME's pair (SPEC.md 76.6): this is
+    cmp byte [es:si], MENU_DIS  ; the one greying surface the theme reaches
+    jne .live                   ; disabled: the disabled pen, and skip the
+    inc si                      ; marker byte. thm_pen_dis and not a bare
+    call thm_pen_dis            ; CDGRAY store, because on a mono adapter
+.live:                          ; grey text IS black text - the flag is what
+                                ; buys the checkerboard (SPEC.md 47)
     call menu_trunc             ; ES:SI = the item, truncated to MENU_MAXCH,
     mov cx, [menu_x1]           ; so no glyph lands outside the saved rect
     add cx, 8
     call font_str_x
-    call gfx_pen_live
+    call thm_pen_live
     pop cx
     add bx, 2
     add dx, MENU_ITEM_H

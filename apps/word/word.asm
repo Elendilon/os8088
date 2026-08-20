@@ -490,6 +490,16 @@ WD_RL_SP2    equ 268            ; spacing '2'
 WD_RL_OC     equ 284            ; closed/open paragraph spacing
 WD_RL_TAB    equ 314            ; tab type L C R D
 WD_RL_SCALE  equ 376            ; the inch scale's zero
+; The smallest FRAME the chrome still fits in (SPEC.md 11.100.2). The ribbon
+; and the ruler are rows of FIXED positions - the last of them is the ruler's
+; inch scale at WD_RL_SCALE and the ribbon's super/subscript pair at
+; WD_RB_SS - so below this they are simply drawn past the window's right edge,
+; and the gfx primitives clip to the SCREEN and not to a window (SPEC.md 11.3).
+; WMIN_W is 96 and the grow box could reach it: measured, this window went to
+; 96x85, content 94, with two strips of chrome laid out to 376 inside it.
+WD_MIN_W     equ WD_RL_SCALE + 24 + 2
+WD_MIN_H     equ WD_CHROME_TOP + WD_STATUS_H + 48 + TITLE_H + 1
+
 WD_ST_CELLS  equ 46             ; status line text cells (delta-cached):
                                 ; 'Pg 15  Sec 1  15/15  At 54li  Ln 54  Col
                                 ; 171' is 44 at the worst (SPEC.md 68.2)
@@ -748,6 +758,17 @@ wd_entry:
                                     ; goes through wd_redraw or wd_paint, and
                                     ; the worker's two background drawers ask
                                     ; OSAPI_WM_OBSCURED first
+    push cx                         ; ...and a FLOOR under the grow box: two
+    push dx                         ; strips of fixed-position chrome cannot be
+    mov cx, WD_MIN_W                ; expressed by WMIN_W, which is 96 for the
+    mov dx, WD_MIN_H                ; whole machine (SPEC.md 11.100.2)
+    call OSAPI_WM_MINSIZE
+    pop dx
+    pop cx
+    push si                         ; ...and the HERCULES has 720 columns, of
+    mov si, wd_pref                 ; which this window has never used more
+    call OSAPI_WM_PREFER            ; than 600 (SPEC.md 11.100.1). A page is
+    pop si                          ; the one thing that is always glad of them
     mov al, 1
     call OSAPI_WM_SNAP              ; ...and snapped (SPEC.md 11.94), because
     pop ax                          ; every keystroke redraws a row of text and
@@ -19164,6 +19185,19 @@ wd_m_noclose: db 'Close refused - try again', 0
 ; reference, clamped onto smaller adapters by wm_create (SPEC.md 11). The
 ; chrome strips cost 60px of content, so a small frame would leave the
 ; document a letterbox.
+; What this window wants on each adapter (SPEC.md 11.100.1). VGA and CGA are
+; PAIRS OF ZEROS - "nothing to say" - so the template below stands and wm_fit
+; clamps it as it always did: 600x435 on a VGA and 600x155 on a CGA, where the
+; desktop band is the whole of what there is.
+;
+; The HERCULES entry is the decision. 720 columns against a template that has
+; never asked for more than 600, and a page is the one piece of content always
+; glad of them: 712 is the widest frame that still leaves this window its
+; 8-aligned content origin (wm_snap_ax rounds x DOWN to 7 there, and 7 + 712 =
+; 719). The height is the template's and the band clamps it to 303, which is
+; 11.100.1's "a real width and a generous height".
+    OS88_PREFER wd_pref, 0, 0,  712, 440,  0, 0
+
 wd_tpl:
     dw 20, 24, 600, 440
     dw wd_wttl, wd_paint, wd_onkey, wd_onclick

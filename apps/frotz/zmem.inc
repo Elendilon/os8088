@@ -493,7 +493,16 @@ zm_setup:
     push di
     push es
 
-    call OSAPI_VIDEO                ; DH = 4 or 1 bits per pixel (SPEC.md 39.2)
+    mov bx, [zf_win]                ; DH = 4 or 1 bits per pixel, FOR THE CARD
+    call OSAPI_WM_DISPLAY           ; THIS WINDOW IS ON (SPEC.md 39.16.4). The
+                                    ; GRANULARITY is unchanged and deliberately
+                                    ; so - Flags1 bit 0 is header state a story
+                                    ; reads at startup and the Standard does not
+                                    ; expect it to move under a running game
+                                    ; (frotz.asm zf_onresize) - but a story
+                                    ; loaded while the window already stands on
+                                    ; the second card should be told about THAT
+                                    ; card rather than about the primary
     mov [zm_bpp], dh
 
     mov es, [zf_sseg]

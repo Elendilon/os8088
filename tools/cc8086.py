@@ -1359,6 +1359,67 @@ def overlay(lines, errors, path):
     return out + tail, (len(moved), len(entries), len(shims), sites)
 
 
+# ---------------------------------------------------------------- externals
+#
+# `nasm -f bin` has no symbol table to import from, and this tree has no
+# linker at all (CLAUDE.md): a C package is ONE assembly - the compiled C,
+# apps/cc/crt0.asm and apps/cc/os88thunk.asm - so every symbol the C names is
+# defined a few thousand lines above it in the same job.  SmallerC does not
+# know that.  It emits one `extern` per symbol it did not see a definition for,
+# which is every `os88_*` call in the program, and NASM reads `extern X` for an
+# X it has already defined as a redefinition of X:
+#
+#     build/chello.gen.asm:1429: error: label `_os88_strlen' inconsistently
+#         redefined
+#     apps/cc/os88thunk.asm:1545: info: label `_os88_strlen' originally
+#         defined here
+#
+# So EVERY C package failed to assemble, ccsmoke and the two capability gates
+# included, and none of it was noticeable from the outside: nothing in `all`
+# reaches a C target (apps/cc/Makefile.inc), and tools/setup-cc.sh's closing
+# canary - the one thing that did run the whole chain - is `sed`ed past this
+# exact directive on its way to NASM, in the one path where doing so is
+# harmless.  The workaround was written and never moved to where the build
+# could use it.
+#
+# THE DECLARATION IS DROPPED, NOT GIVEN AN ADDRESS.  The canary turns each one
+# into `X equ 0` because its `sink()` genuinely has no definition anywhere and
+# what is being checked there is an instruction encoding.  A real package must
+# have the opposite behaviour: a call to an `os88_*` the SDK has no thunk for
+# has to be a build failure that names the function, and `equ 0` is a call to
+# offset 0 of the package's own segment - the header - which assembles,
+# packages and runs, which is the failure mode this whole file exists to
+# refuse.  With the line gone, NASM answers `symbol `_os88_foo' not defined`
+# and names it.  Verified both ways: tests/covl and tests/chello build and run,
+# and a call to a thunk nobody wrote stops the build naming the function.
+#
+# The gate has already read these lines by the time this runs, which is why
+# this is a pass over the emitted text rather than a lowering: `extern
+# ___addsf3` is how a `float` in the C is caught (see gate()), and a rewrite
+# that ran first would take the evidence away.
+
+EXTERN = re.compile(r"^(\s*)extern\s+(\S.*?)\s*$", re.I)
+
+
+def externs(lines):
+    """Comment out SmallerC's `extern` declarations.  See above.
+
+    Returns (lines, count).  Left as a comment rather than deleted so that the
+    generated assembly still records what the C reached for, which is the list
+    a reader wants in front of them when NASM reports one of them undefined.
+    """
+    out, n = [], 0
+    for line in lines:
+        m = EXTERN.match(line)
+        if m:
+            out.append("%s; cc8086: extern %s\t\t; resolved in this assembly"
+                       % (m.group(1), m.group(2)))
+            n += 1
+        else:
+            out.append(line)
+    return out, n
+
+
 # -------------------------------------------------------------------- main
 
 def run(path, text, args):
@@ -1404,6 +1465,9 @@ def run(path, text, args):
     # it), and an argument fixup that ran first would miss exactly those.
     lines, ovl = overlay(lines, errors, path)
 
+    # Last, so that overlay() sees exactly the text it always saw.
+    lines, next_ = externs(lines)
+
     fr = frames(items)
     over = [f for f in fr if f[1] > args.max_frame]
     for name, size, no in over:
@@ -1431,6 +1495,9 @@ def run(path, text, args):
           "site(s) [%s]"
           % (path, len(fr), max([f[1] for f in fr] or [0]),
              sum(low.counts.values()), tally), file=rep)
+    if next_:
+        print("cc8086: %s: %d external reference(s) left to this assembly"
+              % (path, next_), file=rep)
     if ovl:
         print("cc8086: %s: overlay - %d function(s) moved to .modc, %d entry "
               "vector(s), %d resident shim(s), %d loading call site(s)"

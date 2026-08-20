@@ -825,7 +825,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/sched.inc`  | PIT hook, context switch, task table, spawn/yield/sleep |
 | `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §71.1), system event ring queue |
 | `kernel/clock.inc`  | system clock (§37): the RTC ladder (§37.90 — MC146818 at 70h/71h, MM58167 and RP5C01 at 2C0h, int 1Ah last), the wall-clock date + time advanced from `[ticks]`, field editing and formatting — prefix `clk_` |
-| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk` and the wake post/dispatch `wm_wake`/`wm_wake_disp` (§71.1) |
+| `kernel/wm.inc`     | window records, z-order, frames, hit test, paint-all, `wm_owner` side table; the per-slot handler side tables `wm_about`/`wm_onsz`/`wm_onwk`/`wm_oncl`, the wake post/dispatch `wm_wake`/`wm_wake_disp` (§71.1) and the close negotiation `wm_ask_close`/`wm_close_req`/`wm_close_pass` (§75.1/§75.2) |
 | `kernel/instance.inc` | instance table: records, kind descriptors, launch/close lifecycle (§29) |
 | `kernel/memory.inc` | the claim heap (§50): the map, `mem_claim`/`mem_free`/`mem_avail`, the teardown fence — prefix `mem_` |
 | `kernel/menu.inc`   | menu bar (System menu + the active application's name and menus), runtime bar layout, pull-down tracking, Locator's own menu set (§12/§12.2/§12.3) |
@@ -6516,8 +6516,12 @@ grown to full width *for the damage's entire height* — which erased the
 drive icons out from under a window that merely reached the bottom of the
 screen, and left them erased, because `desk_dmg_zones` had already run
 against the smaller rect. The dock is a **per-window test** in the marking
-pass instead: the strip is drawn under windows, so a window whose rect
-reaches `[vid_dock_y0]` is marked, and no other pixel is disturbed.
+pass instead: the strip is drawn under windows, so a window the strip was
+drawn **under** is marked, and no other pixel is disturbed. That test is
+`dock_px_hit` and it is a rect overlap against the part of the strip
+`dock_paint` really painted — it was `y + h >= [vid_dock_y0]` alone, which
+had no x in it and no notion of which display the window is on, and §30.3.3
+is what that cost.
 
 **That test is gated on the strip actually having been drawn**, and forgetting
 the gate cost a whole window repaint per damage pass. `dock_paint` is
@@ -9099,11 +9103,41 @@ of what it cost and what it bought:
 changed instead.** `tests/dispcorner.py` no longer asks "do these two captures
 agree"; it splits the differing pixels into two classes and reports both:
 
-- **dither-phase residue** — a filled rectangle in which *every* pixel differs,
-  both captures are 2-periodic checkerboards inside it, and each is the other's
-  vertical neighbour. That is the exact signature of this section and nothing
-  else in the tree makes it;
+- **dither-phase residue** — a component in which the full repaint follows
+  `gfx_fill_gray`'s own rule, `(x + y)` even = one colour and odd = the other,
+  and the incremental capture is its complement at every pixel. That is the
+  exact signature of this section and nothing else in the tree makes it;
 - **a real disagreement** — anything at all that is not that.
+
+**The test is the primitive's definition and NOT the shape of the difference,
+and it had to be corrected once to become that.** It began as four rules about
+the region's outline — it must fill its bounding rectangle, be at least 3x3,
+be a 2-periodic checkerboard in both captures, and be the other shifted a
+row — which is a description of a scroll-bar track *with nothing in front of
+it*. **A real track has a THUMB in it.** The differing pixels then wrap around
+a solid block as one C-shaped component covering 53% of its own bounding box,
+and three of the four rules fail at once on the thumb's interior. That is what
+the gate reported as `746 real` on a Disk window raised after a drag of
+`dy = 175` — a residue that is textbook this section: 373 white→black, 373
+black→white, every repaint pixel on parity, not one exception. Parity is
+stronger than all four rules it replaces (it *implies* the checkerboard and
+the row shift, neither of which can hold without it) and it says nothing about
+outline, so the thumb, a 1px strip beside it and any other shape are all
+covered. The only floor left is an area of 16 px, and that one is load-bearing
+for a reason worth keeping: leg A exists to watch **one** pixel at
+`(W_X, W_Y+W_H)`, and two colours differing at a single pixel satisfy any
+parity rule by coin flip.
+
+**And whether a leg may excuse a slip is decided from the `dy` its drag
+actually took** — which leg A did not do. It passed `allow_dither = False` on
+the reasoning that *hello* draws one string and owns no dithered control: true
+of *hello*, and the leg has a **Disk window** on screen beside it, which it
+parts from *hello* by dragging it 175 rows. `tests/dispcorner.py --selftest`
+covers both halves with no emulator: the track-around-a-thumb shape must come
+back as residue, and a ragged two-colour smear in the track's own ink — the
+thing the discarded "fills a rectangle" rule used to catch — must still come
+back as real, because a solid run has two neighbours the same colour and
+parity refuses it on the second pixel.
 
 The second still fails the run. Leg C therefore keeps its whole discriminating
 power over the drag path — a new stale-content defect on the same drag is not a
@@ -9614,7 +9648,7 @@ Four things bind it:
   wrong for the case this exists for. What goes stale across an adapter
   change is not only a window's *box*: `apps/missile` decides `mc_mono`,
   `mc_ecoarse` and `mc_caps` from the adapter at launch, `apps/arkanoid`
-  `ark_bpp`, `apps/solitaire` `sol_bpp`, `apps/paint` `pt_bpp` — and a window
+  `ark_bpp`, `apps/solitaire` `sol_bpp`, `apps/paint` `pt_mono` — and a window
   small enough to fit two geometries unchanged (100x100 across VGA →
   Hercules) would have got no notice at all and kept a stale bpp. On a 1bpp
   adapter `apps/missile` with `mc_mono = 0` is §48.8's *unplayable* case,
@@ -9662,6 +9696,11 @@ it does not re-derive at all — it asks not to be shortened, and hangs over the
 dock. The two answers are complementary rather than rival: §11.98 is for a
 layout with slack in it, §11.93 for one with none. `frotz` and `paint` install
 the *negotiator* instead and size themselves.
+
+**That last sentence was wrong about `paint` for two releases and §11.98.2 is
+the correction.** A negotiator answers a question about a *proposed size*; it
+says nothing whatever about the adapter, and this survey filed the package
+under it as though the two were alternatives.
 
 ##### 11.98.1 …and `piano` is the one that shortens rather than re-derives
 
@@ -9728,6 +9767,650 @@ a state machine pretending to be arithmetic, and it is *right* on every call
 after the first. Nothing in the tree tested the first call on the adapter that
 distinguishes them, and the SPEC recorded the numbers the design intended
 rather than the numbers the build produced.
+
+### 11.99 A window that appears, leaves or minimizes shows an outline going there
+
+**`kern_big` only.** `kern_small` is the 128KB machine's kernel and stands at
+one 512-byte step of `KERN_BUDGET`; this is quality-of-life and does not get to
+spend it. Every routine below is inside `%ifdef KERN_BIG` and every call site
+guards its own call, so the small build assembles with none of it and behaves
+exactly as it did.
+
+**It is §13's drag outline doing a second job, and it needed no new
+primitive.** `vga_xor_rect_vram` already had every property this wants:
+self-inverting, so there is no save-under and no heap claim that can be
+refused; it clips to the screen, so an outline reaching off the edge is free
+rather than illegal; it bypasses the clip region by contract (§11.3); it owes
+its own `cur_unlazy` (§7.1.4); and `gfx_xor_rect_d` puts `GFXDENTER` above the
+`[vid_mono]` dispatch (§39.14.6), so one call covers VGA, Hercules and CGA.
+`wm_anim` walks it from `wm_an_s` to `wm_an_d` in `WM_ANIM_N` steps and
+**leaves the screen exactly as it found it** — every outline drawn is XORed off
+again before it returns, which is the whole safety argument and is what a
+verification has to check.
+
+**Only `N-1` outlines are drawn.** Step 0 and step `N` are the window itself,
+before and after, and drawing those would be PERFORMANCE.md Part 1's
+double-draw flash with the animation as the flash.
+
+#### The TICK is the frame clock, and that is measured
+
+`tests/gfxbench` gained three rows for this — `GFX_XOR_RECT` at 64x64, 256x128
+and 256x1 — because **nothing in this tree had ever priced a 1-pixel-wide
+strip**, and an outline is four strips of which the two verticals are one
+framebuffer read-modify-write per scan line. Every `gfx_fill` row in
+PERFORMANCE.md Part 2 is at least 8 pixels wide, so read off those a vertical
+scan line brackets between **46 and 182 µs** and settles nothing.
+
+On `os8088_5150_cga_gla`, a cycle-accurate 4.77MHz 8088 with a real CGA:
+
+| row | µs/call |
+|---|---:|
+| `GFX_PIXEL` | 629.13 |
+| `GFX_XOR_RECT 64x64` | 5,261.59 |
+| `GFX_XOR_RECT 256x128` | 8,765.12 |
+| `GFX_XOR_RECT 256x1` | 1,196.03 |
+
+`256x128` minus `256x1` is one extra horizontal plus **252 vertical scan lines
+and nothing else**, which gives
+
+> **a vertical scan line costs 27.8 µs**, and an outline of height *h* costs
+> **≈ 1,760 + 56·(h−2) µs**
+
+reproducing both measured rect rows to 0.6%. **The harness validates itself
+before it is asked anything**: `GFX_PIXEL` reads 629.13 against Part 2's 756,
+which is 83% — and Part 2 predates §5.7, whose seven changes were predicted at
+−17 to −20% — while `ISA status port in` reads 8.74 against Part 2's 8.7.
+Neither was arranged.
+
+So the five drawn outlines of one animation, **drawn and erased**, are
+**52.9 ms on CGA** and **60.3 ms on Hercules** — one to two ticks for the lot.
+**The pace is therefore the bulk of the cost on every machine**, not a cap for
+fast ones, and §11.99.4 is what that costs and what it was set to. Two things
+follow either way:
+
+- **The lock is HELD across the wait**, which is `ui_drag`'s `.linger` verbatim
+  and for its reason: an XOR overlay is on the screen, and a background painter
+  drawing under it would leave the erase inverting pixels it never drew.
+  `wm_an_pace` `task_yield`s rather than spinning, so the sound worker and the
+  scheduler live through it.
+- **No adapter wants a different frame count.** VGA's rows are ~3.4x cheaper
+  (5150 #2's `GFX_FILL 64x64`, 53 µs a row against mono's ~182) and its windows
+  are taller, which roughly cancels.
+
+A corner-bracket variant was drafted as the escape hatch if a scan line turned
+out to cost 182 µs. At 27.8 it buys nothing anybody could see and it is not a
+window outline; it is recorded here so it is not re-derived.
+
+### 11.99.1 An opening window zooms out of its own centre
+
+There is **no universal source rect for a window appearing**. A Macintosh zooms
+out of the icon that was double-clicked; here a launch arrives from a menu
+item, a desktop drive zone, a Disk window row or a package's own `wm_create`,
+and **none of that reaches `wm_show`**. The window's own middle is the honest
+general answer and is what a system with no icon to hand does — `wm_an_seed`
+collapses one rect onto the centre of the other, `WM_AN_SEED` px each side, and
+`wm_destroy` runs the same thing backwards.
+
+### 11.99.2 `WF_NOANIM` — the windows that come and go too often
+
+W_FLAGS **bit 8**, which cost the record nothing (bits 0–7 and 15 were taken).
+It is defined in **both** builds so a test does not need an `%ifdef` around it,
+and `kern_small` simply has no animation to opt out of.
+
+Two windows set it and both are the same argument — a third of a second is a
+lot to spend on something the user opens repeatedly and dismisses:
+
+- **the Standard File dialog** (§38), which is modal and is put up and taken
+  down on every Open and every Save;
+- **the notice window** (§54.4.1), which is *reused* rather than recreated, so
+  it comes back over and over inside one session.
+
+`wm_an_ok` additionally refuses while a fullscreen window owns the screen
+(§11.2): an outline there is drawing on somebody's borrowed surface.
+
+**A CLOSE DOES NOT ANIMATE AT ALL, and that is a decision rather than an
+omission.** It was built — `wm_destroy` zoomed the window down to its own
+centre, restricted to the front window because `wm_destroy_seg` tears down
+every window a package owns (§20.2) and three of them in a row while an app is
+quitting is three animations nobody asked for. Looked at, it was wrong for a
+reason the front-window rule does not reach: **closing is the one window
+operation with nothing at the far end**. An open flies to the window that is
+about to be there and a minimize flies to the tile that will hold it, so both
+are showing the user where the thing WENT; a close flies to a point where
+there is nothing, which is a third of a second of animation to say that
+something has stopped existing. The window vanishing IS the feedback. So the
+close path is `wm_destroy` exactly as it was before §11.99, and `wm_an_ok`'s
+`WF_NOANIM` and fullscreen tests now serve `wm_an_open` alone.
+
+### 11.99.3 The un-minimize threw away the fact the animation needs
+
+**All four un-minimize paths cleared `I_FLAGS` bit 0 themselves and then called
+`wm_show`** — `inst_restore`, `app_launch`'s at-cap path, `ui.inc`'s launch
+path and `files.inc`'s. That is one instruction too clever: by the time
+`wm_show` runs, the only fact that says the window is coming **out of the
+dock** rather than opening fresh has already been thrown away, and `wm_show`
+cannot get it back. The animation would have flown every restore out of the
+middle of the screen instead of out of its tile — visually wrong, crashing
+nothing, and invisible to any test that does not look at the pixels.
+
+So `inst_unmin` does **both** halves — clears the bit and arms `wm_an_arm` with
+the record's dock tile — and the four sites call it. A fifth path cannot forget
+the second half, because there is no longer a second half to forget.
+`wm_an_arm` is deliberately **one-shot** and `wm_an_open` spends the arm even
+when it refuses to animate, or the next window to appear inherits somebody
+else's tile. `dock_tile_rect` is lifted out of `dock_erase_tile` rather than
+open-coded, for `dock_hit`'s reason (§30.2): where a tile *is* has one answer.
+
+
+### 11.99.4 A frame is HALF a tick, off the PIT rather than the tick counter
+
+**A whole tick a frame is 330 ms and it reads as slow.** That was the first
+build: `[ticks]` is the only clock the window manager had to hand, it moves at
+18.2 Hz, and six frames of it is a third of a second — long enough that the
+window feels like it is waiting for the animation rather than the animation
+introducing the window. The **number of steps is right** and is not what was
+wrong; the frame was.
+
+So a frame is `WM_AN_FRAME` = **32,768 PIT channel-0 counts, half a tick,
+27.5 ms**, and the five drawn outlines are **~137 ms of pacing** — about a
+sixth of a second with the drawing absorbed into it.
+
+**The clock is channel 0, LATCHED AND NEVER WRITTEN**, which §34.1 names as the
+non-destructive operation the speaker PWM pacer already performs on the same
+counter. `wm_an_pit` is `sch_account`'s own latch with the accounting removed,
+and it obeys §34.1's **binding atomicity rule**: the latch and both reads sit
+inside one `pushf`/`cli` … `popf` window, because the 8254 ignores a second
+latch command while a latched value is unread and an interleave would hand one
+reader a stale byte. Nothing about §8.1's radix, the tick rate, the floppy
+motor countdown or any tick-denominated constant is touched, by construction.
+
+Three things about it are load-bearing:
+
+- **The deadline is sampled at the TOP of the frame**, before the outline is
+  drawn, so the drawing is *absorbed* by the wait instead of added to it. A
+  tick wait did that for free; a naive "wait 27.5 ms after drawing" would make
+  every frame cost the outline as well, which on Hercules is 20% more.
+- **The compare is `js`, not `jb`.** Two free-running counters, so the SIGN of
+  the difference decides — §45.15's rule, and `sch_isr`'s wake scan is the same
+  idiom. A magnitude compare reads a wrapped clock as hours to go.
+- **It does not re-derive `sch_account`'s IRQ-pending coherence test and does
+  not need to.** A deadline half a tick away compared with `js` costs at most
+  one extra pass round the loop if `[ticks]` is read one behind at the instant
+  of a reload, and never a wrong answer. **This clock is a pace, not an
+  accounting** — the distinction is why the cheaper read is legitimate here and
+  would not be in `sch_account`.
+
+`WM_AN_FRAME` is the one number to turn if this wants tuning again; the frame
+count is `WM_ANIM_N` and the two are independent.
+
+### 11.100 How big a window is: a PREFERENCE, a FLOOR, and who outranks whom
+
+Before this the kernel had two answers about a window's size and neither of
+them was *the size this window wants on the display it is on*. `wm_fit` is a
+**clamp**, which only ever takes away; the natural bank (§39.11.2.1) only ever
+replays the last rect a human put there. Every template in the tree is
+authored for 640x480, so on the adapter this project is calibrated against the
+clamp is what decides — measured, **ten of the nineteen windows on the apps
+floppy are exactly 155 rows tall on a CGA**, which is the desktop band, and not
+one of them chose it. Eleven packages had grown per-adapter arithmetic of their
+own to escape that, in eleven different shapes.
+
+Four parts, and the ordering rule is the one to hold on to:
+
+    the PREFERENCE proposes  ->  the DISPLAY clamps it down  ->  the FLOOR lifts it back
+
+**The floor is applied last so that it wins**, which is the tree's own idiom
+rather than a new rule (`ui_grow`'s size clamp is written "high bound first,
+low wins"; `ui_drag`'s x clamp and `menu_drop`'s both carry "low bound last so
+it wins"). `wm_sizefit` is that sequence in one routine and every site that
+changes a size ends in it, so the three cannot be composed differently in two
+places.
+
+**And a USER outranks an APPLICATION.** A window with `WF_SIZABLE` has a size
+somebody chose with the grow box, so §11.99.4's adoption skips it; a window
+without one has only what its author asked for. That split is why §11.99.3 and
+§11.99.4 are two mechanisms rather than one: neither can cover for the other.
+
+docs/WINDOW-SIZING-PLAN.md is the investigation this came out of, including the
+survey of what all 24 packages did before it.
+
+#### 11.100.1 `OSAPI_WM_PREFER` (slot 0x0468) — a frame size per adapter kind
+
+**BX = window, SI = the offset, in the window's own segment, of a 12-byte
+table: three `(w, h)` pairs in `VID_VGA`, `VID_HERC`, `VID_CGA` order** — which
+is 0, 1, 2, so the kind indexes it directly. `SI = 0` withdraws it. A `(0, 0)`
+pair means *no preference on that adapter*, so an app may say only the thing it
+has something to say about and leave the other two to its template.
+
+It registers **and applies** — `wm_nat_take`, then the preference, then
+`wm_fit` — and is **FLAGS-preserving**, which is `wm_keeph`'s contract for
+`wm_keeph`'s reasons: by the time an entry proc can call this `wm_create` has
+already fitted the window, so the unclamped size survives only in the bank, and
+an entry proc's CF is the loader's return value, so a `cmp` inside the re-fit
+would abort the launch.
+
+**The kernel keeps the OFFSET, not a copy.** One word per slot (`wm_pref`, 24
+bytes of `.bss` against 144), read through `W_SEG` at use time exactly as
+`W_TITLE` and every menu string already are — `wm_strseg` is the routine, and
+it answers `KERNEL_SEG` for `W_SEG` = 0, so a kernel window declares one with
+no special case. `wm_destroy` clears it beside `wm_about`, `wm_onsz` and
+`wm_zoomr`, or a reused slot reads a stranger's offset in a new tenant's
+segment.
+
+**A table and not a callback**, and the reason is not economy: the answer is
+wanted from inside `wm_fit` and from `ui_drag`'s release, which are **clamp
+sites and not dispatch sites**. It is also *declarative* — all three answers in
+one place, visible to a reader and to `tools/` — where a callback's three
+answers are three branches you have to run to see.
+
+**An app does not need to know how tall an adapter's desktop is.** A
+preference is clamped by the screen exactly as a template is, so "as wide as
+that card, and as tall as it will give me" is a real width and a **generous**
+height: 638x300 on a CGA comes back 638x155 and the 300 never had to be right.
+That matters because the desktop band is the kernel's number and not the
+application's — §1's rule about `[vid_*]` says an app must ask rather than
+assume, and there is no call that answers *for an adapter the machine is not
+currently on*. What the preference buys is the **width**, which is almost never
+clamped, and the freedom to be a different **shape** on a screen that is not
+640x480.
+
+**Derivation is not lost.** An app whose size is genuinely computed —
+`solitaire`'s card metrics, `paint`'s memory tier — fills its own table at
+entry and then declares it. What changes is not whether it derives but **how
+many answers it writes down**: before this it patched `WT_W`/`WT_H` with the one
+answer for the screen it happened to boot on.
+
+#### 11.100.2 `OSAPI_WM_MINSIZE` (slot 0x0470) — a floor the kernel may not cut through
+
+**BX = window, CX = minimum outer width, DX = minimum outer height**;
+`CX = DX = 0` withdraws. A per-slot side table (`wm_minw`/`wm_minh`, 48 bytes
+of `.bss`), applied by **every** path that reduces a size. Two of them already
+had a floor — `ui_grow` and `wm_resize` clamp at `WMIN_W` x `WMIN_H` (96x64) —
+and **two had none at all**: `wm_fit` and `wm_strad_fit` would cut a frame to
+any height the display had. `WMIN_W`/`WMIN_H` stay as the default, so a window
+that declares nothing behaves exactly as it did.
+
+**The floor is on the SIZE and never on the POSITION.** A minimum may cost the
+user rows behind the dock; it may never cost them the title bar. So it is
+itself **capped at the display's own extent**, which is §11.93's fourth
+deliberate thing generalised — "the floor is the DISPLAY's bottom and not
+infinity, so a template taller than the whole adapter is still cut" — and the
+y clamp that keeps an origin reachable still runs after it.
+
+**`WF_KEEPH` is this, said as a flag**, and the two share one floor in
+`wm_fit`: the flag raises the height ceiling to the display's own bottom, the
+number raises the height floor, and `wm_sizefit` takes whichever is more
+generous. Retiring the flag is a follow-on and not part of this —
+`tests/dispmine.py` pins its behaviour and `make KEEPH=0` is its A/B — but they
+may not be allowed to disagree about the same window, which is why there is one
+code path and not two.
+
+**`apps/texpad` is the first consumer** and §11.100.7 is what it found: a
+two-pane layout whose own clamp wants 120 + 140 columns, against a `WMIN_W` of
+96 that let the grow box produce a preview pane **−26 pixels** wide.
+
+**One minimum per window and not one per adapter.** A minimum is a statement
+about a layout ("below this my controls stop fitting"); an app whose layout
+really is per-adapter has §11.99.1 for that, and if it needs a different floor
+as well it re-declares one from its §11.98 handler, which is the notice that
+tells it the environment moved.
+
+#### 11.100.3 A drag re-derives its size from the bank, and banks its POSITION
+
+`ui_drag`'s release ran `wm_strad_fit` and **then** `wm_nat_bank`, so the
+straddle cut was what the window remembered wanting. Measured on the field
+machine's own pair of cards: a Disk window goes out at 320x**200**, straddles
+at 320x**140**, and comes home at 320x**140** — with its bank saying 140 too,
+so nothing in the machine could ever put it back.
+
+That contradicts the bank's own founding argument. §39.11.2.1 exists *because*
+`wm_fit` is a clamp and a clamp throws the number away, and its list of what
+may not bank names "the clamp itself — banking there would make the clamp its
+own source and the bank would say nothing". `wm_strad_fit` is a clamp by the
+same definition.
+
+So the release **takes the banked size back before it clamps** and banks
+**position only**: every drag re-derives the size from the bank and where the
+window has actually been put, which makes a seam round trip reversible in
+exactly the way an adapter round trip already is.
+
+Two things it has to carry. **A drag that changes the size skips the drag
+cache** (§11.96.12) — that cache's own relabel comment says "a drag does not
+resize, so the band extents it describes are unchanged", and when one does the
+banked pixels describe a different rect; `wm_su_ck` would refuse them anyway,
+so this only saves the bank rather than fixing a corruption. And **the size the
+damage union is computed from is the one the window ends with**, which
+`wm_dmg_union` already reads out of the record.
+
+#### 11.100.4 Landing wholly on a display adopts that adapter's preference
+
+At `ui_drag`'s release, once the frame lies wholly on one display and that
+display's adapter kind differs from the kind the window was last sized for, a
+window whose size **no user has chosen** takes its preferred size for the new
+kind and is told through §11.98; one that has been grown or zoomed does not —
+§11.100.5, which is where §11.100's last paragraph is enforced.
+
+**One byte per slot records the kind the window was last sized for**
+(`wm_pkind`, seeded by `wm_create` from the display the window lands on).
+Without it the adoption fires on every drag inside one display and overwrites
+whatever the app did with `wm_resize` between drags.
+
+**`wm_refit` applies the preference too, and that is the single-display half of
+the same rule.** §39.11.2 re-fits every window when the adapter changes under
+it, and that was `wm_nat_take` then `wm_fit`; it is now `wm_nat_take`, then the
+new adapter's preference, then `wm_fit`. So switching a VGA machine to its CGA
+row on the Display page gives every window its CGA size rather than the VGA one
+cut to the band — which is where most people will meet this, most machines
+having one card. The drag is the same code reached from the other side.
+
+**A preference is a promise, and it is a DIFFERENT promise from
+`wm_reflows`'s** (§39.16.3.1). That routine asks "will you lay yourself out
+into an arbitrary box the kernel invents", and answers no for a fixed layout —
+which is why a straddling window of that class is left alone rather than
+shortened into a frame smaller than the pixels it goes on drawing. Declaring a
+preference answers a narrower question: *these three sizes I can draw*. So
+adoption is safe for a window `wm_reflows` refuses, and it is what pays off the
+residual §39.16.3.1 had to accept — such a window's corner leaves the dead zone
+not by being cut but by being asked for a size it published and redrawing at
+it. A package that declares a preference and then does **not** follow it is the
+one way to get §39.16.3.1's defect back, which is why the SDK says so twice.
+
+**`wm_zoom` (§11.95) is unaffected in both directions**: a zoom is the user
+asking for the whole band, which outranks a preference exactly as a grow does,
+and a minimum under it is unreachable because a zoom only ever grows.
+
+#### 11.100.6 `apps/browser` — the window that asks for the DOCK's rows
+
+The second consumer, and the one that shows the mechanism is not only about
+sizes. What this window decides once is not a number but a **question**: on a
+CGA it asks to hang over the dock (`WF_KEEPH`, §11.93), because a 155-row
+desktop band is not enough to read a page in and the strip's 24 rows are the
+only ones left. `br_keeph` asked that at launch, from whichever adapter was
+primary *then*, and nothing asked again — so the same machine on the same
+adapter gave two different windows depending on how it got there. Measured on
+`os8088_xt_vga`:
+
+| | frame | last row | `WF_KEEPH` |
+|---|---|---|---|
+| launched on the CGA | 496x**179** | 198 | 1 |
+| switched to the CGA | 496x**155** | 175 | **0** |
+
+Three things, and each is a different part of §11.99:
+
+- **`br_keeph` answers BOTH ways.** It used to return without touching the flag
+  on anything but a CGA, which is correct exactly once — at launch, when the
+  flag is clear anyway. Called again from a §11.98 handler the adapter can have
+  gone the other way, and a `WF_KEEPH` left set on a VGA raises the height
+  ceiling by the dock's 24 rows on a screen with no shortage of them.
+- **The handler is `br_keeph` itself**, not a second copy of the test, so
+  "did we cover the dock" has one answer rather than two that can drift. It is
+  legal from there because `wm_keeph` re-fits and does not draw, which is
+  §11.98's whole contract.
+- **The heights are a declaration** (§11.99.1), and that is the leg the flag
+  cannot do. Born on a CGA the bank holds 179, so a switch to the VGA leaves a
+  179-row browser on a 480-row screen; only a published size answers that.
+
+**Its CGA entry is deliberately GENEROUS and is the worked example of
+§11.99.1's rule.** What this window wants there is not a number, it is
+"everything, the dock's rows included" — so it asks for 300 and lets
+`WF_KEEPH`'s own ceiling in `wm_fit` produce 179. The two say the same thing
+and only one of them is arithmetic `browser.asm` has to keep right.
+
+**And it is why §11.100.5 is a bit rather than a flag test.** `apps/browser` is
+`WF_SIZABLE`, so §11.99.4's first version refused it a preference outright —
+which threw away every browser nobody had grown yet, i.e. all of them.
+`tests/dispprefer.py` is the gate for all three legs plus the user's.
+
+#### 11.100.5 …unless a USER has sized the window, and then it is theirs
+
+**One byte per slot (`wm_usrsz`), set by `ui_grow` and `wm_zoom`, and while it
+is set no preference is applied to that window ever again.** §11.99's last
+paragraph is the rule; this is where it is enforced, inside `wm_pref_take`, so
+every path that could take a preference is covered by one test rather than by
+each of them remembering.
+
+**It replaced a `WF_SIZABLE` test and is strictly better.** §11.99.4's first
+version refused the adoption to any resizable window, which is the right answer
+for a window somebody has grown and the wrong one for a window that merely
+*could* be grown: `apps/browser` is `WF_SIZABLE` and a freshly launched one is
+whatever size `br_size` chose, so refusing on the flag threw away the case the
+mechanism exists for. The bit asks what actually happened.
+
+**`wm_resize` deliberately does NOT set it.** That is an application sizing
+itself (§11.1), which is the same voice a preference speaks in — an app that
+calls both is not being overruled by itself. Only the grow box and the zoom box
+are a user.
+
+**It is cleared by `wm_create` and nowhere else**, which is the argument the
+preference offset and the minimum use one screen up: `wm_create` is the one
+routine that takes a slot, so no slot can be read before it has been written,
+whatever memory the machine came up holding.
+
+**The consequence to state plainly**: on a machine where the user has grown a
+window, an adapter change gives them back the size *they* chose, clamped —
+§39.11.2.1's promise, unchanged, and `tests/dispfit.py` is what says so. Where
+they have not, they get the size the application published for the adapter they
+are now on. Those are different answers to the same event and both are right.
+
+#### 11.98.2 `apps/paint` — seven facts, taken once, and none of them a box
+
+The third package converted for §11.99's sweep and the one that declares **no
+preference at all**, which is what makes it worth writing down: its box was
+never the problem. Every rect Paint draws already comes off the live content
+box, so a window that merely changed size needs nothing said to it. What went
+stale is everything `pt_geom` took from the **adapter** — once, in the entry
+proc, and never again. Measured on `os8088_xt_vga`, a Paint launched on the VGA
+and switched to the CGA with Activate Mode:
+
+| | VGA | after the switch | the machine |
+|---|---|---|---|
+| `pt_mono` / `pt_ncol` | 0 / 16 | **0 / 16** | 1bpp |
+| `pt_scrh` / `pt_dockr` | 480 / 456 | **480 / 456** | 200 / 176 |
+| `pt_cwmax` / `pt_chmax` | 594 / 390 | **594 / 390** | band of 155 |
+
+**All seven unchanged.** So it kept a sixteen-colour palette on a screen where
+§39.4's dither class is a checkerboard and a 1px stroke of it has nothing left;
+it kept a 480-row surface for §53's fullscreen bracket on a 200-row screen; and
+it kept a canvas ceiling of 390 rows over a desktop band of 155.
+
+**The fix is a SPLIT, not a re-run.** `pt_geom` goes on from the adapter facts
+to claim memory, pick a starting canvas and size the window — running that
+again would throw the picture away. `pt_screen` is everything above that line,
+which is exactly the part that is a question about the screen, and
+`pt_onresize` calls it and nothing else. It does not touch the picture, the
+claims or `[pt_mode]`: a canvas is a heap object and a screen is not, so one
+that no longer fits simply stops being *growable*, which is what the maxima are
+for and what the negotiator already enforces.
+
+**`[pt_mono]` had to learn to answer both ways**, the same correction
+`apps/browser`'s `br_keeph` needed one package over (§11.100.6): `.bss` arrives
+zeroed, so setting a flag only on the arm that wants it is right exactly once —
+at launch. Re-run on the way back to a VGA it would have kept three colours on
+a sixteen-colour screen. **A routine that is called twice has to answer both
+ways** is the shape, and it has now appeared twice in three conversions.
+
+Verified by `tests/dispprefer.py` leg D, which reads the seven words out of the
+package's own bss — the only place they live, because a sixteen-colour palette
+on a 1bpp screen is a picture of something *wrong* rather than an absence of
+something, so no capture can ask this question. Six of the seven follow the
+adapter and come home again; the two that do not move (`pt_scrw`, `pt_cwmax`)
+are the same on both adapters and should not. The launch is unchanged: 494x152
+at (71,23) on a CGA, byte for byte what it was.
+
+#### 11.100.7 `apps/texpad` — a width per adapter, and the first MINIMUM
+
+The fourth conversion, and the one that finally has a consumer for §11.99.2.
+
+**The minimum is a measured defect, not a tidy-up.** TeXPad is two panes and
+`tp_clamp_split` wants 120 columns for the source and 140 for the preview.
+`WMIN_W` is 96 — one number for the whole machine — so the grow box could take
+the window under both. Measured on `os8088_xt_vga_herc`, dragged as small as it
+would go:
+
+| frame | content | `tp_split` | preview pane |
+|---|---|---|---|
+| 628x400 | 626 | 200 | 426 |
+| 228x200 | 226 | 120 | 106 |
+| **96x100** | **94** | **120** | **−26** |
+
+At 96 the split is **wider than the window**, so the source pane runs 26 pixels
+past its own right edge and the preview is a rect with a negative width. With
+`TP_MIN_W` x `TP_MIN_H` declared the grow box stops at **262x103** and the
+preview pane is 140 — the number its own clamp always wanted.
+
+**Both minimums are derived from `tp_clamp_split`'s own two constants**
+(`TP_SPLIT_MIN` + `TP_PREV_MIN` + the borders), which were literals in that
+routine and are named equates now. A floor and the clamp it protects are one
+statement or they are two that drift.
+
+**The width is the Hercules entry and the other two are PAIRS OF ZEROS.** This
+is the tree's only window with an obvious use for that adapter's 720 columns —
+the split stays where it is and every extra column goes to the page — so the
+declaration says that and nothing else. Measured: 628x400 on a VGA, **712x303**
+on a Hercules with the preview pane going 426 → **510**, and 628x155 on a CGA,
+which is the template standing exactly as it did because a `(0, 0)` pair means
+*nothing to say about that adapter*.
+
+**And it re-proves §11.100.5 on a second package**: sized by hand to 262 and
+then switched to the Hercules, it stays at 262. A user outranks an application
+whichever application it is.
+
+`tests/dispprefer.py` leg E is the gate, and the file's machine is
+`os8088_xt_vga_herc` — a VGA and a Hercules in one box, so with §39.11.1's CGA
+row all three adapters are reachable from the Display page on a single display.
+
+#### 11.100.9 A sizing cell proposes a SIZE and says nothing about where a window is
+
+`OSAPI_WM_PREFER`, `OSAPI_WM_MINSIZE` and `OSAPI_WM_KEEPH` all ran one
+sequence, `wm_apply_size` — *replay the bank, take the preference, re-fit* —
+and the bank is a whole **rect**. At launch that distinction is invisible,
+because the bank *is* the record at that moment and every one of these is
+called from an entry proc.
+
+It stops being invisible the first time one of them is reached from an §11.98
+handler, because §39.16.4's notification is sent from inside a **drag's own
+landing**. `apps/browser` is the one package that does it: `br_onresize`
+re-asserts `WF_KEEPH` (the dock question is the one thing it decides once), so
+every drag that changed adapter kind put the window back at its **banked
+origin** and then let `wm_fit` clamp the size to the room right of it.
+
+Reported from the field as three separate things, and they are one cause:
+
+| what was seen | what happened |
+|---|---|
+| "I'll drag it and it will just not move at all" | the origin was restored from the bank |
+| "it moves fine, but doesn't resize" | a drag *inside* one adapter — no notification, and correct |
+| "drag it fully across and it snaps into the edge, chopped thin in the X direction" | a Hercules `x` restored under a CGA landing puts `wm_fit_box` back on the **Hercules**, and 720 − x is what the width becomes |
+
+`wm_apply_wh` is the same sequence with the origin left alone, and all three
+cells take it. **`wm_apply_size` keeps the whole-rect replay and `wm_refit` is
+now its only caller** — which is the one event it was ever right for: the
+adapter changed under a window nobody has touched, so putting it back where it
+was before a clamp moved it is the whole of §39.11.2.1. The two share a tail,
+so "preference proposes, display clamps, floor lifts" is still composed in one
+place.
+
+**The general rule is the one §39.16.4.2 states from the other side**: the
+kernel decides a window's size; a *user* decides where it is. A cell that
+takes a size argument may not move a window as a side effect, and a routine
+that restores a position needs an event that licenses it.
+
+##### 11.100.9.1 …and `wm_fit` is single-display, so a straddle needs the other clamp
+
+Fixing the origin left one thing behind, and the field's third symptom is
+really this one: **`wm_fit` confines a frame to the box the ORIGIN is in**
+(`wm_fit_box`). Run on a *straddling* window it therefore cuts the width to the
+columns the near card has left — measured, a 496-wide browser pushed until its
+frame reached the seam at x = 255 came back **464**, which is 720 − 255 − 1 and
+nothing anybody designed.
+
+`wm_strad_fit` is the same sequence with the right clamp on the end: it takes
+the size, takes the preference, and then bounds **only the constrained axis**
+against the nearer of the two far edges (§39.16.3.3) — leaving the axis the
+displays tile on free, which is the whole point of extending. So `wm_apply_wh`
+asks `wm_strads` first and hands a straddling window to it.
+
+`wm_land_fit` already had this branch; what it did not have was any way to stop
+a *package* re-entering the single-display clamp from inside the notification.
+The two now make the same choice, which is §39.16.4.2's rule again in the
+sizing half: one question, one place that answers it.
+
+#### 11.100.8 `apps/word` and `apps/frotz` — and the C half, which is unconverted
+
+The last two assembly packages, and both ride disks of their own (§68.5,
+§61.9), so `tests/dispprefer.py` skips their legs unless the mounted apps disk
+carries them.
+
+**`apps/word` is `apps/texpad`'s case again**, which is what makes it worth
+naming rather than merely doing: two strips of fixed-position chrome — a
+ribbon whose last group is at `WD_RB_SS` = 366 and a ruler whose inch scale
+starts at `WD_RL_SCALE` = 376 — against a `WMIN_W` of 96. Measured, the grow
+box took it to **96x85, content 94**, with both strips laid out to 376 inside
+it and the surplus drawn onto the desktop, because the `gfx_*` primitives clip
+to the SCREEN and not to a window (§11.3). `WD_MIN_W`/`WD_MIN_H` are derived
+from those same constants and it floors at **402x143**. Its Hercules entry is
+**712x440 → 712x303**, content 598 → **710**: a page is the one piece of
+content always glad of that adapter's columns, and 712 is the widest frame that
+still leaves an 8-aligned content origin (`wm_snap_ax` rounds x down to 7, and
+7 + 712 = 719).
+
+**`apps/frotz` is a DELETION.** Its `zf_onsize` negotiator was ten instructions
+that clamped a proposed size to `ZF_MIN_W` x `ZF_MIN_H` — which is
+`OSAPI_WM_MINSIZE` said the long way, and said to the two paths that consult a
+negotiator rather than to the four that reduce a size. Declaring it instead
+removes the proc and widens the promise; it floors at **200x120** either way.
+
+**It also carries the third instance of "a fact tested once".** `zw_geom`
+latches `[zw_bpp]` behind `[zw_vidok]` with the comment *"the adapter is a fact
+we test once"* — true, and an adapter change is the one event that changes it,
+so `zf_onresize` drops the latch and the next pass asks again. Four sites read
+it and all four decide whether `@set_colour` means anything; on a 1bpp adapter
+every colour rounds to black, white or a dither (§39.4), so a story that
+colours by meaning goes unreadable if the interpreter says it can. **`[zm_bpp]`
+is deliberately left alone**: that is the same question asked for a different
+purpose — bit 0 of the story's Flags1 header byte, written at story LOAD — and
+a Z-machine header is state the story reads at startup, which the Standard does
+not expect to move underneath a running game.
+
+**No width for Frotz**, and that is a decision rather than an omission: a
+story's line length is a typographic choice its author made, not a property of
+the screen it is read on.
+
+##### 11.100.8.2 `apps/tamegram` is left ALONE, and that is not a size problem
+
+The one package in the sweep with **no CGA at all**, and the distinction worth
+drawing is between a window that is the wrong size and a game that does not fit
+the adapter. §49's matrix is 32 cells of 8 pixels plus a HUD — 284 rows against
+the CGA's 136-row desktop band — and `tg_fillc`/`tg_framec`/`tg_str` already
+clamp to the live content box, so nothing draws outside the window and nothing
+is broken in the §11.3 sense. What a smaller box gets is a matrix with rows
+missing off the bottom, which is a change to the *rules of the game* rather
+than to its layout: the board's height is what the pieces fall through.
+
+**So there is no preference and no floor to publish that would be honest.** A
+CGA entry would have to be a second board, not a second size — the fix is a
+rewrite of the playfield, and this is a contributed package (Jason Page,
+credited in its About panel). It is recorded here rather than half-converted:
+a published preference that merely picks the least-bad crop would read, to
+every later author copying it, as *this is how an app adapts*.
+
+##### 11.100.8.1 `apps/cword` is NOT converted, and the reason is not this work
+
+The C package (§73.12) is the one row of the sweep left undone. It would be
+`apps/word`'s change again — a Hercules width and a floor — plus two new thunks
+in `apps/cc/os88thunk.asm` and their declarations in `apps/cc/os88.h`, since a
+C package cannot call an API cell the SDK does not wrap.
+
+**It is not done because it cannot be built or run here, and that predates this
+work.** `make cword` fails on a batch of `label ... inconsistently redefined`
+between SmallerC's generated assembly and the hand-written thunks, and so does
+`make chello` — and **both fail identically at `origin/elendilon` with none of
+this work in the tree**, which is what says it is the container's toolchain
+rather than anything here. §73's own hazard is exactly the kind that needs a
+build to catch: *"a `call`/`retf` shim puts a compiled routine's arguments two
+bytes further from its frame than every reference to them says"*. Writing two
+thunks against a calling convention nothing can exercise is how `OS88NET.COM`
+reached the field twice without one instruction of it ever having run.
 
 ### 12.05 The bar is redrawn only when its contents changed
 
@@ -20671,6 +21354,224 @@ The label moves **one pixel down** on both buttons and that is a fix rather
 than a cost: the frame is 14 rows and a glyph cell is 8, so centred is 3 rows
 of clearance each side; the hand-written pen had 2 above and 4 below.
 
+### 22.20 The row area has a bottom EDGE, and the edge says whether the list runs past it
+
+The status line and the row area were separated by nothing. Both are black
+text on white, the row band stops at `[fm_listb] - 1` and the status line's
+text started two rows lower, and the rows between them were white — so the eye
+reads the status line as more empty list, and **a window whose listing is cut
+off looks exactly like one showing every file it has**. The answer to "is
+there more below?" was the scroll bar alone, which is a thumb filling its own
+14px track and a thing you have to go and look at rather than something you
+see.
+
+`fm_more_mark` owns an `FM_EDGE_H` = **7**-row band from `[fm_listb]`:
+
+| row | what | across |
+| --- | --- | --- |
+| `fm_listb` | clear — one row of daylight under the last file row | |
+| `+FM_EDGE_CHV` (1) `.. +3` | the **chevrons**: a row of downward `⌄` when `[fm_lscr] + [fm_fit] < [fm_total]`, white when it is not | `[fm_cx]` to the **scroll bar** |
+| `+4` | clear | |
+| `+FM_EDGE_RUL` (5) | the solid `CBLACK` rule, **always** | `[fm_cx]` to `[fm_rgt]` |
+| `+6` | clear, before the status text at `[fm_staty]` | |
+
+Eight things about it.
+
+**The chevrons are ABOVE the rule and that is the point.** A soft band *under*
+a hard one reads as trim — decoration belonging to the boundary — where the
+same band *above* it is the last thing in the **list**, which is what "the list
+carries on past here" has to be a statement about. The first version had them
+the other way round and the report was exactly that: "looks more like
+decoration than a hint that there is more."
+
+**And they point.** That first version was §39.4's 50% dither, which says
+*soft edge* and nothing whatever about **which way** — which is the other half
+of why it read as decoration. A chevron is the one thing at this size that can
+carry a direction.
+
+**It costs ONE drawing call at any width**, because it is a `gfx_fill_pat`
+tile rather than a row of marks: 8 wide, 3 tall. A per-chevron loop would be
+~37 calls across a 300px window at PERFORMANCE.md Part 2's ~756us floor —
+28ms to draw a hint.
+
+**The V is 6 wide inside that 8-wide tile, so columns 0 and 7 are blank and
+every mark gets 2px of daylight.** It shipped once with the arms running to
+both edges, which tiles into a **continuous zigzag** — and the report was that
+it "runs together in a wavy line", which is the same objection as the dither
+one rung up: *a wavy line is still a line*, and this hint must not read as a
+second rule. Separated, they are marks. 6 is the narrowest a 2px-stroke V can
+be and still close — the arms step one column in per row and meet at the
+third — so the gap costs nothing but the two columns.
+
+```
+  .XX..XX.        col 0 and col 7 blank: 2px between one mark and the next
+  ..XXXX..
+  ...XX...
+```
+
+**They stop at the scroll bar, and the rule does not.** The rule is the whole
+*content's* bottom edge and the bar stands on it; the chevrons are a statement
+about the **list**, so they end where the list ends. Run on, and they fill the
+bar's own column between the bar's foot at `[fm_listb] - 1` and the rule —
+which reads as a gap in the bar, and says *there is more scroll bar*. Both
+ends round to the tile grid, which is **absolute**: `gfx_fill_pat` maps its
+byte onto framebuffer bytes, so a tile boundary is a multiple of 8 on the
+screen and not an offset from `[fm_cx]`. That buys whole tiles at both ends
+however the window is placed — which matters now that a mark has edges of its
+own, a truncated one being a stray tick rather than a texture running out —
+and the ≤7px it can leave at each end is inside the margin either way.
+
+**The tile has to be rotated to land the right way up, and the rotation is a
+pointer add.** `gfx_fill_pat` is **screen-aligned** — row `y` takes
+`[gfx_pat][y & 7]` — which is correct for a dither, whose phase must not
+depend on its caller, and wrong for a shape: taken raw, the V's three rows
+arrive in whatever rotation the window's `y` imposes, so the same code draws a
+V, a sideways nothing or an **upward** chevron depending where the window was
+dragged to. But `[gfx_pat]` is a *pointer*, and the primitive copies the eight
+bytes it names before indexing the copy — so `fm_chevtab` holds the tile
+**twice** and starting the copy `k` bytes in rotates it by `-k`. `k = -y0 & 7`
+is four instructions where staging a rotated buffer was a routine, and it is
+39 bytes smaller than the version that did. The five rows nothing draws are
+`0xFF` rather than zeroed: a zero byte is **black** to that primitive, so a
+table cleared the obvious way paints the band's unused rows solid.
+
+**Black on white on every adapter.** The pattern primitive writes colours 0
+and 15 only, so unlike the grey it replaces there is nothing here for §39.4's
+reduction to do and nothing that could round to solid black on a 1bpp screen.
+
+**Not one row of files was spent on it.** `FM_STAT_UP` (17 → **12**) and
+`FM_EDGE_H` (2 → **7**) sum to the 19 that `[fm_listb]` always was, so
+`[fm_listb]` and therefore `fm_fit` are exactly what they were and the band is
+paid for out of the **nine rows of dead white below the status text** — which
+that text now sits more nearly centred in. Taking the room from the row area
+instead would have cost a visible file on any window whose slack happened to
+be small, which is the opposite trade.
+
+**Two fills whatever the state, and only four of the seven rows ever take
+ink** — so the other three need no erase from anybody, and the chevron band is
+drawn **white** when nothing is below rather than skipped: the position before
+it may have left chevrons there, and a marker that only ever draws its
+positive case is one that never goes away. It is drawn from `fm_draw_rows` (so
+`fm_repaint` and `fm_rows_only` both get it, from one body) and from
+`fm_scrollpaint` — the second is not optional and is easy to leave out,
+because the blit band stops at `[fm_by2]` and the exposed-row fill at
+`[fm_listb] - 1`, so this band survives a scroll completely untouched.
+
+**Cost, measured.** The whole of §22.20 and §22.20.1 is `.cold` **+207** and
+`.text` **+18** on `kern_big` against the edgeless Disk window (`+207`/`+18`
+on `kern_small`), and **both kernels cross one cold rung** — but not at the
+same commit, and that is worth reading before costing the next change here.
+
+| | `kern_big` | `kern_small` |
+| --- | --- | --- |
+| before §22.20 | 110,080, **2,048** spare (4 steps) | 104,448, **1,024** spare (2 steps) |
+| the edge | 110,592, **1,536** (3) — **crossed** | unchanged, 115 bytes left in the rung |
+| the chevrons | unchanged, 359 left | unchanged, **13** bytes left |
+| separating them + the bar clearance (+24) | unchanged, 335 left | 104,960, **512** spare (**1 step**) — **crossed** |
+
+Both crossings are the same story and neither was bought by the feature's
+size: `kern_big`'s cold rung had **26** bytes left before any of this started
+and `kern_small`'s had **13** left by the time the last 24 arrived, so in each
+case the *first* byte added to `files.inc` bought the whole 512. **The figure
+to carry forward is `kern_small` at one step** — three under the four-step
+standard — so the next `kern_small` feature has one step and then asks.
+
+#### 22.20.1 A two-line prompt is not a status-line change
+
+§22.3's replace question and §22.12's format and swap questions are **two**
+lines: the answers on the status line, and what is being asked on a line
+`FM_STAT2_DY` above it — which is **up in the row area**, over a file row, on
+purpose and since long before the edge existed. Three things were wrong with
+it and the edge made the first of them unmissable.
+
+**It landed on the rule.** `FM_STAT2_DY` was a literal `9` at three sites, so
+that line's last glyph row was exactly `[fm_listb]` — and `fm_stat_line` is an
+opaque run (§22.13.1), so it whited the edge out across the whole window for
+as long as the prompt was up. It is `FM_EDGE_H + 8` = **15** now, the smallest
+offset that clears the band, which lands the line wholly inside the row area
+where it has always belonged. **The relationship is an assembly-time
+`%error`**, not a comment: the failure is silent, because the window looks
+right while the prompt is up and the edge is missing only once it has gone.
+
+**It painted out the scroll bar.** `fm_stat_line` pads to `([fm_cw] - 14) / 8`
+cells, which reaches `[fm_rgt] - 5` — correct on the status line, where the
+bar has already stopped, and wrong in the row area, where it erased the bar's
+frame, its track and its lower arrow. `fm_stat_row` is the same body with
+`FM_SB_W` of extra right inset; `[fm_statin]` carries it, so there is one
+truncation and not two that have to agree.
+
+**And clicking away left it there for ever.** Escape had a fallback
+(`.cancelfull`, docs/FIELD-NOTES.md 17.1) and the click path did not: it banks
+the old `FS_EDIT` into `[fm_statowed]` and pays one `fm_status_only`, which
+draws the status line and nothing else — so the question stayed on the row
+above it until something forced a whole repaint. Patching that one caller
+would have left the next one to find, so the refusal is in `fm_status_only`
+itself, at **both** edges: `[fm_2up]` says one is on the glass, and
+`fm_2line` — one description of which modes are two-line, shared with
+`fm_draw_status` — says one is about to be. Either way it answers `CF = 1`,
+which its contract already means "the caller must repaint the whole window",
+and the whole window is the only thing that can erase a row-area line.
+
+**Measured on a cycle-accurate 5150**, `B:\APPS` (13 files) in the default
+Disk window, over the chevron span's own **38 whole tiles**:
+
+| adapter | ink per tile, the three chevron rows | at the bottom | chevron span | the bar's left column |
+| --- | --- | --- | --- | --- |
+| CGA 640x200 | **4.0, 4.0, 2.0** | 0, 0, 0 | x 104..407 | x 410 |
+| Hercules 720x348 | **4.0, 4.0, 2.0** | 0, 0, 0 | x 104..407 | x 411 |
+| VGA 12h 640x480 | **4.0, 4.0, 2.0** | 0, 0, 0 | x 104..407 | x 411 |
+
+4/4/2 is the tile's own ink exactly — `.XX..XX.` / `..XXXX..` / `...XX...` —
+on every adapter, which is what says the shape is landing whole rather than
+being reduced or clipped mid-tile. **The scroll bar's own columns hold the
+same 6 (CGA) / 8 (Hercules, VGA) ink pixels in BOTH states**, which is the
+assertion that the hint does not reach into the bar. The
+scrolled-to-the-bottom column is `fm_scrollpaint`'s: the chevrons are gone
+because a scroll redrew them, not because anything repainted the window.
+
+**And the tile is upright at two different phases**, which is the only thing
+that can demonstrate the rotation. The band's top row lands at
+`y & 7 = 4` on CGA and `5` on Hercules and VGA, and all three read back
+
+```
+.##..##..##..##..##..##.
+..####....####....####..
+...##......##......##...
+```
+
+Unrotated they could not: `[gfx_pat][4..6]` of a buffer holding the tile at
+`[0..2]` is three `0xFF` bytes, so the commonest outcome is **no chevrons at
+all** and the rest are a tile cut in the wrong place.
+
+`fm_scroll_by` refuses the same way and for a sharper reason: the blit would
+carry the prompt line down the window, and `fm_rows_only` would erase it
+without redrawing the status line under it. The scroll still **happens** —
+it is committed before the test — and the caller's repaint is what puts it on
+screen. That path is live rather than theoretical: `fm_onclick` ends the edit
+before it looks at what was clicked, so a click on the scroll bar arrives with
+`FS_EDIT` already 0 and the pixels still up.
+
+`[fm_2up]` is written by `fm_draw_status` on **every** call, from `fm_2line`
+rather than at the three branches that draw a line — so a fourth two-line
+prompt is a row in `fm_2line` and nothing else — and it lives in `.text` with
+a real initialiser, because `.bss` is not zeroed and `fm_status_only` reads it
+before anything has written one.
+
+**Measured, same machine, CGA**, against the same window with the prompt
+never opened: with the question up, **544** differing pixels in its own band;
+after clicking a file row to dismiss it, **0** across everything below the
+last file row — the band, the rule, the status line and the rows the question
+was drawn over. And the scroll bar's columns read the same 14 values under the
+question as beside it, where the un-inset run painted them white.
+
+**What was NOT done, and why the row area keeps its rows.** The alternative is
+to reserve the line in `fm_layout` so the row area shrinks while a prompt is
+up. That is tidier and it is wrong here: it would spend a file row on a state
+that lasts one keystroke, on every window size, and the line is talking about
+something the user has this moment asked for — so covering a row, selected or
+not, is the right trade.
+
+
 ## 23. Minesweeper — the first software package (apps/mines/mines.asm)
 
 Not kernel code: a .o88 package built with os88api.inc, org 0 (§20.1), all
@@ -23410,6 +24311,95 @@ would do. The likely cause is `[np_sowed]`: this path asks for a full
 not proven, and the honest statement is that the difference is small, stable,
 inside the known-stale region, and favourable.
 
+### 27.15 Closing with unsaved work
+
+Note Pad is §75's first consumer, and the whole feature seen from an
+application's side is three questions asked in this order at `np_onclose`:
+**has the document changed since it last agreed with the disk**, **is there a
+file to write it to**, and **what does the user want done about it**.
+
+**The first is a CHECKSUM, not a dirty flag, and that is the decision worth
+recording.** A flag has to be set by every mutation — insert, backspace,
+delete, paste, the drag that moves a block (§27.8), replace-all (§27.10) and
+undo going the other way (§27.9) — which is nine places that must each
+remember, and the tenth one added later is a document that closes without
+asking. It also answers DIRTY for a note the user typed one character into and
+took straight back out again. A shadow copy answers exactly and costs
+`NP_MAXKB` — 16KB of the one heap claim this application cannot do without
+(§27.6), on the machine least able to fund it.
+
+`np_cksum` is Fletcher's two running sums over the note; `np_mark` banks them
+with the length in three words of bss, and `np_dirty` recomputes and compares.
+The **length is compared too** because a sum pair alone is blind to a note
+truncated at a point where the sums repeat. Sixteen kilobytes of a
+four-instruction loop is ~0.14 s on the target machine at PERFORMANCE.md
+Part 2's instruction floor and typically a small fraction of that — and it is
+paid once, at the moment of closing, against the *seconds* a save costs on the
+same floppy. Nothing is paid while typing, which is the property the flag was
+supposed to buy.
+
+`np_mark` is called at exactly four places, and each of them is the moment the
+document and the disk agree: after a successful save, after a successful load,
+at `np_new`, and once in `np_entry` **after `np_arg`** — which is what makes
+one call cover both "we started empty" and "we were launched on a document".
+
+**`[np_named]` is the second question and it is not the same as having a
+name.** `np_defname` seeds `[np_name]` with `NOTES.TXT` so that Ctrl-S on a
+brand-new note always has somewhere to go (§27.1), so the name is never empty
+and cannot be the test. `[np_named]` says the note *is* a file — loaded,
+saved, launched on a document (§54.5), or named in a dialog — and a note that
+is not gets the Save As dialog rather than having `NOTES.TXT` written over on
+the way out. Ctrl-S is deliberately unchanged: an explicit save is the user
+choosing the default, and closing is not.
+
+**The third question is §75.3's alert**, `OS88UI_ASAVE`, titled with this
+window's own caption and reading `Save changes to LETTER.TXT?`. `np_onclose`
+refuses the close (CF = 1) and `np_onask` finishes it: Save writes and then
+calls `OSAPI_WM_CLOSE`, Discard calls it straight away, and Cancel — or
+`OS88UI_ACANCEL`, which is the alert being dismissed rather than answered —
+does nothing at all and leaves the window open. Every branch clears `[np_asking]`
+first, and that is the one thing it cannot forget: without it the next close
+attempt takes the "one is already up" path for ever and the window can never
+be closed again.
+
+#### 27.15.1 `np_save` answers in CF now
+
+It always said what happened in a toast and returned nothing. The close path
+acts on the answer — closing on a save that failed is the one way this feature
+can lose the document it exists to protect — so the outcome is a contract
+rather than a by-product. Every older caller ignores it.
+
+The one subtlety is that the flags have to cross `np_stgdrop` (a `pushf`/
+`popf` around it) and, on the success path, `np_mark`, which is why that
+routine preserves the flags too.
+
+#### 27.15.2 The Save As behind the alert is a QUIT, and the flag is read-and-cleared
+
+An unnamed note answering Save opens the Standard File dialog, and the dialog
+answers *later*, through `np_ondlg` — so `[np_qclose]` is what carries "and
+then close" across it. Two rules keep it honest. It is **cleared in
+`np_dlgopen`**, the one place all three ways of raising a dialog pass through,
+because a CANCELLED dialog never reaches `np_ondlg` and so can never clear it
+itself — without that, cancelling the alert's Save As would arm the *next*
+Save As, from the menu, to quit. And `np_ondlg` **reads and clears it in one
+`xchg`**, before testing `np_save`'s CF, so a failed write leaves nothing
+armed and the window open with the document still in hand.
+
+#### 27.15.3 With no alert, it stays open
+
+`os88ui_ask` refuses when an alert is already up — which the negotiator asks
+for deliberately, because the refusal *raises* the one that is up (§75.3.1) —
+and, in principle, when the window table is full. There is no third case:
+the alert is Note Pad's own code now (§75.3.2), so it cannot be absent from a
+build, and the `kern_small` fallback this subsection used to describe — save
+the document and close without asking — no longer exists on any machine.
+
+A refusal that is not "mine is already up" leaves the note **open**, which is
+the only honest answer: there is nothing to ask with, and closing after a
+silent save is exactly the behaviour §75 was written to remove. The user
+closes something else and tries again.
+
+
 ## 28. apps/taskmgr — the Task Manager
 
 **A package in the root of every shipped floppy** (`TASKMGR.O88`) — the
@@ -24819,6 +25809,77 @@ the dock strip stayed blank, permanently, with the machine otherwise live. The
 skips are gone — each painter calls both and each module answers for itself,
 which is the shape the paragraph above always described. The cost of a call
 that early-outs is one `wm_fs_vis` walk and a flag store.
+
+### 30.3.3 …and what a window has to overlap is what was PAINTED
+
+The strip is drawn **under** windows, so a window standing over it owes a
+redraw whenever `dock_paint` puts pixels down — §11.91's marking pass carries
+that as a per-window test, because widening the damage rect to reach the strip
+would erase the whole screen's width for the damage's entire height. The test
+was `y + h >= [vid_dock_y0]`, one compare, and it is wrong in two directions
+at once. Both cost a **whole window repaint, `W_PAINT` included**.
+
+- **The strip is painted over a SPAN and the test had no x in it** (§30.3.1).
+  A window sitting over one end of the strip was redrawn because something
+  moved at the other end — and on a quiet desktop a *focus change* is enough,
+  since it repaints two tiles at `DOCK_X0`.
+- **The strip is the PRIMARY's and the rect is VIRTUAL** (§39.19.5). On an
+  extended desktop the primary's dock row is an ordinary desktop row on the
+  second monitor, so a window over there — on a card that carries no dock at
+  all — was marked for reaching it.
+
+The second is the expensive one, and it is what the field reported: *"if a
+window is straddling the two monitors, dragging any other window fully
+repaints it, even if the dragged window does not intersect it."* A window
+across the seam can hold no raise cache — `wm_su_take` asks `vid_span_one`
+and a straddling rect is refused (§39.14.8) — so where every other window is
+put back with a ~10 ms blit and nobody notices the surplus mark, this one
+pays §11.96's full `W_PAINT`: **578 ms of glyphs on a Disk window**, on every
+drag anywhere on the desktop. **The bug is the marking and the straddle is
+only what makes it visible**, which is why the fix is in the test and not in
+the cache.
+
+`dock_px_hit` is that test as an ordinary rect overlap against the strip that
+was **actually drawn**: `[dock_px1]..[dock_px2]` in x, and
+`[vid_dock_y0]..[vid_phm1]` in y, the primary sitting at the virtual origin by
+construction (§39.16). A one-display machine reads `[vid_phm1]` = `[vid_hm1]`
+and the y half is exactly what it always was.
+
+**`[dock_px1]`/`[dock_px2]` is NOT `[dock_dx1]`/`[dock_dx2]`, and that is the
+whole of what makes it safe.** The damage span is what somebody drew *over*
+the strip, and it is only half of where `dock_paint` puts pixels: a tile whose
+key moved is repainted **wherever it stands**, damage or no damage (§30.3). So
+the painted span is the union of the two, accumulated by `dock_paint` itself
+as it draws — reset at the top of every pass, grown by the rule-and-field
+restore and by each tile it redraws. Taking the damage span instead would be a
+wrong **0** for a tile outside it, and a wrong 0 is the dock drawn through a
+window, where a wrong 1 is only a wasted repaint.
+
+Empty is `0x7FFF`..`0x8000`, `wm_dmg_bands`' empty-bounding-box idiom, so a
+span nothing has painted refuses every rect through the signed compares rather
+than accepting all of them. In practice `[wm_dmg_dk]` already gates the call on
+`dock_paint` having answered CF = 1, so the span is non-empty wherever it is
+read.
+
+**`wm_dock_under` narrows its damage rect the same way**, and for the same
+reason: it repaints the strip and then puts the windows back over it, and its
+rect was the primary's whole width whatever `dock_paint` had touched. A focus
+change moves two tiles at the left-hand end of the strip; every window standing
+over the empty right-hand end was being marked for it. The span is non-empty
+there by construction — that path is only reached after `dock_paint` returned
+CF = 1.
+
+**`wm_dock_clear` keeps its one-compare test on purpose.** It answers *is the
+strip free of window pixels* before anything is painted, so it has no painted
+span to test against — and its loop holds the z-order counter in `CX`, which
+`wm_win_rect` writes, so asking it about a rect is a restructure rather than a
+line. Its imprecision is now free: a wrong *dirty* on an extended desktop costs
+one `wm_dmg_wins` pass over the painted span, and that pass marks nothing.
+
+`make REDRAWFULL=1` keeps the old one-compare test, so the reference build
+still marks a superset and the byte-identity gate means what it says: an
+unnecessary repaint draws the same pixels, so the two builds must agree
+exactly.
 
 ### 30.2 A tile's context menu — right-click to Close
 
@@ -29785,7 +30846,7 @@ lands somewhere no display has — and a window straddling the two cards is
 drawn by §39.14's split, one fragment per display, with no code in the window
 manager aware of it.
 
-#### 39.16.3 …and a window that DOES straddle takes the more restrictive size
+#### 39.16.3 …and a window may hang off the DESKTOP, but not into a HOLE in it
 
 The split draws a straddling window correctly, so the straddle is not the
 problem. The problem is that the virtual desktop is a **union and not a
@@ -29799,8 +30860,49 @@ the app put there.
 So `wm_strad_fit` gives those rows back: a frame reaching rows or columns that
 only one of the two displays has is shortened until it does not.
 
-**It is called from `ui_drag` and `ui_grow`, and deliberately not from
-`wm_fit`.** `wm_fit` confines a frame to the box of the display its *origin*
+**It shortens a size it did not pick, and §39.16.3.3 is why that matters.** The
+routine takes the window's natural size — or the one it published for the
+adapter it has arrived on — *first*, and this clamp is what stops that answer
+reaching into the dead zone. For its first several rounds it did only the
+second half, so the size it produced was whatever the geometry left: a number
+nobody had designed, which turned Missile Command's playfield into a
+letterbox.
+
+**REACHING THE OTHER DISPLAY IS THE PRECONDITION, and §39.16.3.2 is the field
+report that put it back after this section briefly dropped it.** A frame wholly
+on one display that hangs past that display's far edge is hanging off the
+**edge of the desktop** as far as that display is concerned, and that is not a
+hole — it is what every machine has always allowed, `ui_drag` clamping the
+*title bar* onto the screen rather than the window.
+
+What the limit **is**, once the frame does reach:
+
+    limit = min(far(own), far(other))
+
+taking the origin's own display into it as well, which the first version did
+not. Side by side that changes nothing (the origin is always on the left-hand
+display, so the other one's edge is the tighter). **Stacked it is the fix**: a
+window on a narrower lower display spanning up into a wider upper one must not
+use the columns only the upper one has, and `far(other)` alone would allow it.
+
+**And the clamp is skipped when that limit IS the desktop's own far edge.**
+Two displays of equal height have no row that one has and the other does not,
+so a straddling window there is free to hang off the bottom exactly as a window
+on one display is.
+
+**It is `wm_reflows`-gated** (§39.16.3.1): the cut produces a size the
+application never asked for, so it is only safe for one that lays itself out
+from the live content box. For the rest the answer is not a smaller frame but a
+**size they declared they can draw** — §11.99.4's adoption, which hands the
+window its own preferred size for that adapter and tells it through §11.98.
+That is what pays off the residual §39.16.3.1 had to accept: a fixed-layout
+window's corner leaves the dead zone not by being cut but by being asked for a
+size it published and redrawing at it.
+
+**It is reached from `wm_land_fit` alone** (§39.16.3.3), which is what asks the
+one question — *has the adapter kind under this window changed* — and picks
+between this routine and `wm_fit` on whether the frame still straddles. It is
+deliberately not called from `wm_fit`.** `wm_fit` confines a frame to the box of the display its *origin*
 is on (§39.16.1) — it is the un-straddler, and a window that has been through
 it cannot straddle at all. The seam is crossed by dragging, which clamps
 against the whole union and allows it on purpose, and by the grow box. Those
@@ -29822,12 +30924,295 @@ bigger promise than this makes. Under the two placements §39.19.2 offers the
 origin side is a no-op anyway — both put the second display's near edge level
 with the first's.
 
-**The shrink is banked** (§39.11.2.1), so the window keeps the size it now has
-rather than springing back at the next adapter change. A drag is deliberate,
-and this is the same rule every other deliberate rect change follows.
+**The shrink is NOT banked, and it used to be** — §11.99.3. `ui_drag` ran this
+and *then* `wm_nat_bank`, so what the window remembered wanting was the cut and
+sixty rows never came back; a clamp is not a statement about the size a window
+wants, which is the natural bank's own founding argument.
 
 And **the window is told**, through §11.98 — its box changed and it did not
 ask, which is exactly the case that mechanism exists for.
+
+#### 39.16.4 …and a package standing on the other monitor can finally ask about it
+
+`OSAPI_VIDEO` answers about the **primary** and says so (§39.2.1), and it is
+right to: windows open there, everything a package draws is window-relative,
+and answering the *union* made Arkanoid lay itself out for a 1360px screen and
+then draw 115px of that layout onto the other monitor. What it cannot do is
+answer a package standing on the **second** display.
+
+That was invisible while nothing asked twice. §11.98's size-changed handler is
+what made it visible: nine packages register one, most of them re-read
+`OSAPI_VIDEO` inside it, and every one of them therefore re-derived the wrong
+screen the moment its window was **dragged** across. `sol_onresize` on a
+640x200 CGA re-picked *Hercules* card metrics; `pt_screen` banked
+`pt_scrh` = 348 with its window on a 200-row display. They followed **Activate
+Mode** correctly — that is a change of *primary* — and did not follow a drag.
+
+`OSAPI_WM_DISPLAY` (slot 0x0478) is `OSAPI_VIDEO` for the display *your
+window* is on: `BX` = the window, out `AX` = width, `BX` = height, `CX` = the
+first row the dock owns, `SI` = the first row the desktop band has, `DL` =
+kind, `DH` = bits per pixel.
+
+**`SI` is the band's top and it is not a constant.** `OSAPI_VIDEO` implies
+`MBAR_H` because the primary is the only display with a menu bar — a secondary
+has neither bar nor dock, so its whole height is desktop and an app that
+assumed `MBAR_H` would waste 20 rows there and mis-centre everything on it.
+The usable band is `CX - SI` on either.
+
+It is **identical to `OSAPI_VIDEO` on every one-display machine** by
+construction, and identical for a window on display 0 of a two-display one,
+because display 0 *is* the primary. The second arm reads `vid_ctx` and nothing
+else.
+
+This is §53.7.1's `OSAPI_FSX_SURF` arriving in the windowed half of the system,
+and one sentence covers both: **fullscreen is not the whole desktop, and
+neither is a window's screen.**
+
+##### 39.16.4.1 …and there is ONE answer to "which display is mine"
+
+`wm_kind_now` and `OSAPI_WM_DISPLAY` asked the same question and gave different
+answers for a **straddling** window: the first reads the *more restrictive* of
+the two displays (§39.16.3.3), because that is what the frame is sized for; the
+second read the display the *origin* sits on.
+
+The field found it in one sentence — *"it isn't picking its more restrictive
+mode on a straddle"*. The Task Manager straddling a Hercules and a CGA was
+handed the **CGA's frame** and told the **Hercules' geometry**, worked out from
+that that one column fits, and stayed one column inside a window twice that
+wide. `wm_disp_now` is the single answer both now come through.
+
+**Two answers to one question is the defect, not either answer.** Either rule
+is defensible on its own; what is not is a window sized against one and
+informed by the other, because nothing on screen says which it believed.
+
+##### 39.16.4.2 …and a LANDING asks it once, because the answer moves
+
+§39.16.4.1 made the two routines agree. It did not stop the *world* changing
+between two asks of the one routine, and that is the same defect one step
+further in: **`wm_land_fit` resizes the window, and the resize can stop the
+straddle being true.**
+
+Measured on the field machine's own pair — a 720x348 Hercules beside a 640x200
+CGA — with a 250x303 Arkanoid pushed until its frame reaches the seam:
+
+| step | frame | `wm_pkind` | `ark_scrw` |
+|---|---|---|---|
+| on the Hercules | 250x303 | 1 (HERC) | 720 |
+| dropped across the seam | **208x156** | **1 (HERC)** | **720** |
+
+The frame is the CGA's and every other answer is the Hercules'. `wm_strad_fit`
+was right — the window straddled, so it took the restrictive card's size — and
+then 208 no longer reaches x = 720, so `wm_kind_bank` re-derived HERC and the
+package's own `OSAPI_WM_DISPLAY` inside the notification re-derived 720x348 and
+laid a Hercules face into a 208-wide box.
+
+**And the state it leaves is what makes the NEXT drag do nothing.** `wm_pkind`
+is §39.16.3.3's comparand, so a window carrying the wrong one reads its next
+landing as *no change of kind* and skips the whole sequence — no resize, no
+notification, no `W_ONRESIZE`. That is the field report *"dragged fully onto
+CGA, still no resize"* in full, and it explains the shape that made it so hard
+to reproduce: nothing is wrong until a drag happens to end with the frame
+across the seam, and everything is wrong afterwards for the life of the window.
+
+So the display is decided **once, at entry**, and `wm_lf_win`/`wm_lf_disp`
+answer every later ask for that window — the bank, the notification, and
+anything the handler calls from inside it. The window is latched beside the
+answer so a handler asking about some *other* window still gets the truth, and
+both live in `.text` with real initialisers because `wm_disp_now` is asked from
+the first mouse press of the session.
+
+**The rule generalises past this routine**: a question whose answer is derived
+from geometry may not be asked either side of a write to that geometry. §12.9's
+`menu_bcell` is the same discipline in the drawing half of the system —
+compose once, and let the composition be the record.
+
+#### 39.16.3.3 The trigger is a change of ADAPTER KIND, and there is one of it
+
+Three separate mechanisms used to decide a dragged window's size and each
+produced its own field defect. `ui_drag` restored the **natural bank** on every
+release, so a drag from one place to another *inside* the CGA handed the window
+its **Hercules** size. `wm_strad_fit` cut geometrically to the rows both
+displays have — a number nobody designed. And a landing wholly on the short
+display was clamped by nothing at all, and then by a rule derived from the
+union's **bounding box**, which reads rows no display has as a hole in the
+desktop (§39.16.3.2).
+
+`wm_land_fit` replaces all three, and the rule it encodes is about **adapter
+identity rather than geometry**: *my size is X on adapter kind Y, and I am
+standing on adapter kind Y.* So the trigger is a change of kind and nothing
+else. A move within one adapter changes no size at all, however far it goes and
+however much of the frame ends up past the bottom of the screen.
+
+**A straddling window reads as the MORE RESTRICTIVE of the two displays**
+(`wm_disp_rest`, comparing the *usable band* — the primary carries the menu bar
+and the dock and a secondary carries neither). That is what makes the seam one
+transition in each direction: dragging on from the straddle to the small
+display is then not a change of kind at all. A Hercules-to-CGA round trip is
+**two** resizes where the three old mechanisms between them managed four, two
+of which were to sizes no application had asked for.
+
+The size it takes, in order: **the user's own** if they have grown or zoomed it
+(§11.100.5), else **the preference published for that kind** (§11.100.1), else
+**the natural size** (§39.11.2.1) — then clamped to the display, and floored at
+the declared minimum (§11.99.2), which outranks the clamp.
+
+**A preference is a REQUEST and not a floor.** No application can know how tall
+another adapter's desktop band is, so the published idiom is a real width and a
+*generous* height — `638x300` on a CGA is meant to come back `638x155`. Make a
+preference a floor and that idiom becomes a window hanging off the bottom of
+every small screen. Where a minimum happens to equal a preference, as Missile
+Command's does, that is the application saying so.
+
+**Who may be clamped is narrower than it was** (§39.16.3.1): `wm_reflows` is
+`WF_SIZABLE` alone now. An §11.98 handler means *tell me when my box moved*,
+not *you may pick any box for me* — nine packages register one and only some
+lay out from the live content box, so that arm was what let a fixed layout be
+cut. A window that is not sizable opts in by **publishing a preference**, which
+is a promise about three boxes rather than about every box; one that is neither
+keeps its size and may hang.
+
+**Flooring out SNAPS here and HANGS within one adapter, and both fall out of
+the trigger.** `wm_land_snap` moves the origin up until the frame ends on the
+last row the display has; a move that never changes kind never reaches it. The
+reasoning is the field's: *a user cannot see a window's floor while dragging
+it*, so a placement that floors out crossing a seam was never an informed one,
+while a placement on the adapter they are already on is.
+
+**And a kernel-initiated resize always asks** (§11.1). `wm_ask_size` is put the
+size this arrives at and answers with the one the window will accept, per axis
+— and a **refusal means the window keeps its size and hangs** rather than being
+cropped. `apps/paint` is the consumer: it will not lose artwork to a seam any
+more than to a drag of the grow box. The ask can follow the write rather than
+having to precede it, because `pt_onsize` answers out of its own canvas state
+and not out of the record.
+
+**The window is told even when its box did not move**, which the drag path
+never did: the adapter changed, and half the tree caches facts about the
+adapter. `wm_refit` has always been unconditional here and this is the same
+rule arriving on the other path.
+
+`docs/WINDOW-SIZING-PLAN.md` §12 is the design and the enumeration of every
+situation, one display and two.
+
+#### 39.16.3.2 …and a window that never crossed anything is not to be touched
+
+**Reported from the field, and it is the correction to a rule this section
+briefly held.** *"On the primary screen, windows are allowed to go below the
+desktop — they keep their shadow under, and can be moved down and up. On the
+secondary screen they are always resizing, even if they have not crossed a
+screen boundary."*
+
+Exactly so, and the arithmetic says why. With a 720x348 Hercules at (0,0) and a
+640x200 CGA at (720,20), `[vid_h]` is 348. A window on the **primary** has
+`far(own)` = 348, which *is* `[vid_h]`, so the "is this limit inside the
+desktop" test let it hang off the bottom. A window on the **secondary** has
+`far(own)` = 220, which is not, so it was cut — every time, having crossed
+nothing.
+
+**The premise was wrong, not the tuning.** That test read the union's bounding
+box as though it described a surface with a hole in it, and rows 220..347 at
+x ≥ 720 are not a hole: there is no display there at all, and from the CGA's
+own point of view they are simply past its bottom edge. A window dragged down
+off the primary's bottom and a window dragged down off the secondary's are the
+same act, and both are undone by dragging back up. **The distinction that
+matters is whether a frame spans TWO displays**, which is what §39.16.3 always
+said and what the intervening version stopped testing.
+
+**What that gives back is §26.2 of docs/FIELD-NOTES.md, which is therefore NOT
+A BUG.** Solitaire, 258x303, dropped clear across onto the CGA in one motion,
+keeps its 303 rows with 104 of them past that display's last — and that is the
+same thing as a 303-row window dragged low on the Hercules. It was recorded as
+a defect on the strength of the same wrong premise, found while looking for the
+mechanism of §26.1 (which is a real one and is fixed).
+
+**The shape worth keeping**: a rule derived from the union's *bounding box*
+will describe regions no display has as though the desktop owned them. The
+desktop is a union of rectangles (§39.2.1) and every question about "is this
+somewhere" has to be asked of the displays, not of the box around them.
+
+#### 39.16.3.1 …and only a window that will FOLLOW the box may have it taken in
+
+**Reported off the field machine: drag an unresizable window into the corner
+where the Hercules and the CGA join, and that area is never repainted after
+the window is moved.** Reproduced on `os8088_5150_both_gla` in four steps —
+extend Right with the Hercules primary, drag the Control Panel (320x151, no
+grow box) until it straddles at a row the CGA does not have, drag it away
+again, force a `wm_paint_all` and diff. The panel comes back **320x75**, and
+**4,130 pixels** of it are still on the Hercules afterwards — its content
+columns from its own left edge to that card's last one, rows 223..296, where
+296 is 145 + 151: the window's *pre-shrink* bottom at the place it was
+dropped, and 220 is where its frame now ends.
+
+**The frame is not the pixels, and that is the whole of it.** §39.16.3 shortens
+a straddling frame so its last row is one the second display has, and it is
+right about every window that lays itself out from the live content box. It is
+wrong about one that does not: the `gfx_*` primitives clip to the **screen**
+and never to a window (§11.3), so a fixed layout drawn against remembered
+offsets puts exactly the same pixels on the glass whatever the kernel writes
+into `W_H`. The panel came back 75 rows tall and drew all 151 rows of itself
+anyway. So the shrink removed nothing at all from the dead zone — it made every
+rect the window manager derives from `W_H` describe **less than what is on the
+screen**, and the drag's damage union (§11.91) is one of those: it covered 75
+rows of a window that had put 151 there.
+
+**Two halves, and only one of them a diff can see.** The residue at the corner
+is what the report is about and what the 12,450 counts. The other half is that
+the window goes on drawing 76 rows past its own frame wherever it is dragged
+next, *for the rest of the session* — and a forced full repaint agrees with the
+incremental one about those, because the application draws them both times. A
+capture-and-diff can only ever find the rect the window **left**; the spill
+that follows it around is visible to a reader and to no assertion in this tree.
+
+**So the shrink is gated on the window, not on the geometry**, and `wm_reflows`
+is that question asked before any of the arithmetic. The kernel cannot see a
+layout, so it can only ask what the window has already said, and two things say
+it:
+
+- **`WF_SIZABLE`** — a grow box moves the content box on the user's whim, so an
+  app that takes one has no choice but to lay out from the live one. Every
+  resizable app in this tree does, `apps/telnet` in as many words.
+- **§11.98's size-CHANGED handler** — the app that is *not* resizable and
+  follows anyway. `apps/calc` is exactly that: no grow box, and it re-folds its
+  history pane on the notice (§65.3), which is what `tests/dispcalcx.py`
+  exercises. Keying on `WF_SIZABLE` alone would have thrown that case away.
+
+**`WF_KEEPH` outranks both**, because it is the window saying the opposite in
+the first person (§11.93) — and `apps/browser` is sizable *and* `WF_KEEPH`, so
+the order is not academic.
+
+**What it costs is what §39.16.3 set out to remove**: such a window's
+bottom-right corner sits in the dead zone, drawn nowhere and clickable nowhere.
+That is accepted, and it is not a regression — it is what the window already
+had, because the shrink could never take those pixels off the glass for this
+class of window. All it did was stop the window manager knowing they were
+there.
+
+**§11.99 is what pays it off**, and the shape is worth stating because it is
+the general answer rather than a patch on this one: the kernel may not invent a
+size for a window that cannot follow, but it may hand one **the window itself
+declared**. A package that publishes a per-adapter preferred size (§11.99.1) is
+saying it draws itself at each of those sizes, so adopting one is safe where
+shortening was not, and §11.98's notice is what makes it redraw. `wm_reflows`
+answers "will you follow an arbitrary box"; a declared preference answers "I
+will follow these three". They are different promises and this rule needs the
+first while §11.99.4 needs only the second.
+
+**It is not a bug in `wm_paint_dmg`, and the instrument said so before the
+change did.** The damage rect was exactly the rect the record described, on the
+right display, every time — §39.16.2's own lesson one level up: *a repaint that
+was never asked for and a repaint that failed look identical from the
+framebuffer.* What separated them here was reading `W_H` before the drag and
+after it.
+
+Cost: `.text` **+34 bytes**, no rung crossed (the image rung's slack
+293 → 259 on `kern_big`, footprint unchanged at 2,048 spare; `kern_small` is
+byte-identical, `wm_strad_fit` not being assembled there at all). Verified by `tests/dispcorner.py --only d
+--machine os8088_5150_both_gla --primary herc`, which asserts the height off
+the record *and* diffs both cards: **4,130 real differing pixels → 0**, with
+`make STRAD=all` — the A/B, which removes the test rather than branching
+around it — as the reference build that still shows them. `tests/dispstrad.py`
+is the other half and must keep passing: a **resizable** window straddling the
+same seam is still shortened, 200 rows → 140.
 
 ### 39.17 A window belongs to ONE display — `wm_disp_of` (`KERN_BIG` only)
 
@@ -53913,14 +55298,54 @@ symbol — verified: `binary output format does not support external
 references` — so a C package cannot be several `.c` files linked together.
 What it can be is one `.c` file plus a hand-written assembly runtime
 `%include`d into the *same* nasm job, which is the arrangement §73.4 needs
-anyway. SmallerC emits an `extern` line for every symbol it did not define,
-and nasm **accepts a redundant `extern` for a symbol defined in the same
-assembly** (verified: assembles clean, correct output), so the compiler's own
-`extern` lines cost nothing and need no stripping. What they do is turn a
-genuinely *missing* symbol — a runtime shim the C called and nobody wrote —
-into nasm's external-reference error, which is a build failure with the
-symbol's name in it. The gate does not check for that and does not need to:
-this is the one failure in the C path that already names its own cause.
+anyway.
+
+**SmallerC emits an `extern` line for every symbol it did not define — which
+is every `os88_*` call in the program — and `tools/cc8086.py` comments them
+out.** This paragraph said the opposite for two releases: that nasm *accepts*
+a redundant `extern` for a symbol defined in the same assembly, so the lines
+"cost nothing and need no stripping", and it carried a *(verified: assembles
+clean, correct output)* beside the claim. The verification is what was wrong.
+nasm reads `extern X` for an X it has already defined as a **redefinition of
+X**, and lets it pass only when X's value happens to be **0**:
+
+```
+    org 0
+    _foo:  ret            ; _foo = 0
+    extern _foo           ; ...agrees with extern's 0, so: no error
+
+    org 0
+    nop
+    _foo:  ret            ; _foo = 1
+    extern _foo           ; error: label `_foo' inconsistently redefined
+```
+
+A toy test writes the label first and so measures the first case; a package
+puts 1,500 lines of runtime in front of it and gets the second. So **no C
+package assembled at all** — not `cword`, not `runcpm`, not `ccsmoke`, and not
+either of the two capability gates whose job is to notice this — and nothing
+outside said so, because nothing in `all` reaches a C target (§73.1) and the
+one thing that does run the whole chain, `tools/setup-cc.sh`'s closing canary,
+`sed`s past this exact directive on its way to nasm. The workaround was
+written, in the one place where it was not needed, and never moved to the
+place that builds.
+
+**The declaration is dropped, not given an address.** The canary rewrites each
+one to `X equ 0` because its `sink()` genuinely has no definition anywhere and
+what is under test there is an instruction encoding. A package must have the
+opposite behaviour: a call to an `os88_*` the SDK has no thunk for has to be a
+build failure that names the function, and `equ 0` is a call to offset 0 of
+the package's own segment — the header — which assembles, packages and runs.
+With the line gone, nasm answers ``symbol `_os88_foo' not defined`` and names
+it, so the property this paragraph always claimed for the C path is the one it
+now actually has: a missing runtime shim is a build failure with the symbol's
+name in it, and the gate needs no check for it.
+
+The rewrite is a pass over the emitted text rather than a lowering, and it
+runs **after** the gate, because `extern ___addsf3` is how a `float` in the C
+is caught (§73.7 rule 3) and a rewrite that ran first would take the evidence
+away. It emits no bytes either way, so the assembled image is byte for byte
+what these packages were always meant to produce.
 
 ### 73.2 Sections — the layout that keeps the image-size word true
 
@@ -56526,3 +57951,773 @@ off the image's own FAT12 root (`package_row`), sorted the way the Disk
 window sorts; a stale constant would have double-clicked a folder, which
 opens a window and fails the gate on a missing banner rather than on
 anything true.
+
+## 75. Closing — the negotiation, and the standard alert
+
+Everything about closing a window in this system was final the moment the user
+asked for it. `app_close_win` (§29.4) is the one door — the close box (§13.5),
+the app-name menu's `Close` (§12.7) and the dock tile's context menu (§30.2)
+all arrive there — and it destroyed the window, freed the region and released
+the record without the application being told anything at all. So an
+application with unsaved work had **no moment at which it could say so**, and
+the two things a document application must be able to do on the way out — ask
+*"save the changes?"*, or simply save them — were both unreachable.
+
+This section is that moment. It is three pieces and they are separable:
+
+- **§75.1 `W_ONCLOSE`** — the kernel asks the window before it closes it, and
+  the window may refuse.
+- **§75.2 `OSAPI_WM_CLOSE`** — how an application that refused finishes the
+  job once the user has answered.
+- **§75.3 the standard alert** — one line, up to three buttons, an answer to a
+  completion proc. The dialog the refusal usually needs — and it is a
+  **PACKAGE's**, shared as source in `apps/os88ui.inc`, not a kernel slot.
+
+**We are in real mode and every package is trusted with the machine already**
+(§20.8 rule 1), so nothing here is enforced: an application that refuses to
+close and then never closes itself is a window that cannot be closed, and
+there is no way to take that back. That is the same bargain as a package that
+writes over the kernel, and it is why the SDK's wording on `OSAPI_WM_ONCLOSE`
+is *"you now owe the user a way out"* rather than a description of a
+mechanism.
+
+### 75.1 `W_ONCLOSE` — the window may refuse (API 0x0468)
+
+`wm_onclose` (BX = window, AX = a near proc in that window's own segment, 0
+clears it) installs a **close negotiator**. `wm_ask_close` calls it from the
+top of `app_close_win`, and CF = 1 means **nothing at all happens** — the
+window is not destroyed, not hidden, not even taken out of the z-order. A
+window with no negotiator, which is every kernel window and every package that
+never asked, costs one compare and answers yes.
+
+Six things about it are load-bearing.
+
+**It is a SIDE TABLE (`wm_oncl`), not a word in the record.** `WIN_SIZE` is
+the stride every reader of a window pays and growing it invalidates every
+`.o88`; `wm_onsz` and `wm_onwk` are the precedent. Like them it is cleared by
+`wm_destroy` — and here that rule bites harder than it does for them, because
+`wm_ask_close` reads the word for **every** window on its way out rather than
+only for one that installed something, so a stale entry is not a missed
+feature but a far call into a new tenant's image on the first click of its
+close box. For the same reason it is the one side table `wm_init` zeroes:
+every other one is read only after a `wm_create` has written it.
+
+**The hook is ABOVE the ownership test in `app_close_win`.** An unowned
+window's close reduces to `wm_hide`, and the kernel's own dialogs read that
+hide *as* their cancel (§38.2, §75.3) — so a negotiator on one of those, if
+one is ever installed, has to be able to refuse the hide too.
+
+**The environment is `W_ONCLICK`'s**: the UI task, the gfx lock held, `SI` =
+the window. So a negotiator may draw, may call the file slots, may raise an
+alert or a file dialog — and must not take the lock, and must not take a long
+time about it. It is **unbilled**, exactly as the close box already is and for
+`app_close_win`'s own reason: the record the cycles would go to is the one
+about to be freed. It is **stamped** all the same (§34.3), because a sound
+grant taken inside an unstamped callback gets `snd_req_inst`'s 0xFF fallback,
+which no instance owns and nothing ever releases — §38.6's bug, in the one
+place it would otherwise be repeated.
+
+**`[wm_clask]` is a re-entry fence and it is not decoration.** A negotiator
+may raise a dialog, and a dialog can end up back in a close path. Asking the
+same window again would recurse on a 256-byte task stack (§8): `sch_stkdie`,
+not a wrong answer. The fence answers REFUSED for the one window whose
+negotiator is live, so the recursion terminates at depth one and the outer ask
+still decides. It is **saved and restored** rather than set and cleared,
+because closing a *different* window of your own from inside a negotiator is
+legal and the outer fence has to survive it.
+
+**The answer rides in CF, which is why the dispatch is not `ui_ptcall`.**
+That routine ends in `or di, di` and `inst_charge`, both of which write the
+flags; `wm_ask_close` calls `wm_pkgcall` itself, with nothing between the call
+and the branch that touches them. `POP` does not, which is the same property
+§20.3's API cell is built on.
+
+**A refusal is not a hide.** It was tempting to hide the window and let the
+application put it back, because the user has just clicked a close box and
+something ought to happen — and it is wrong: a window that is asking *"save
+the changes?"* has to stay on screen to be answered, and the alert is on top
+of it anyway.
+
+### 75.2 `OSAPI_WM_CLOSE` — and it is DEFERRED (API 0x0470)
+
+`wm_close_req` (BX = a window of the caller's) records the window in one word;
+`wm_close_pass`, in the UI task's idle section beside `fdlg_reap`, spends it.
+One compare per pass when nothing is pending, which is nearly always.
+
+**The deferral is the contract, not an implementation detail.** The caller is
+a package's own callback — typically its answer to the alert its negotiator
+raised — so it is standing *inside* its own segment, and `app_close_win` frees
+that segment (§29.4). The far return would then execute the three dispatcher
+bytes at `PKG_DISP` (§20.2) out of memory the heap has already handed back.
+`fdlg_commit` escapes the same hazard by ordering — it destroys the *dialog*
+and then calls the app — and that ordering is not available here, because the
+thing being destroyed is the caller.
+
+**It does not ask the negotiator again**, and `wm_close_pass` makes that true
+by *retiring* the negotiator (`wm_onclose` with AX = 0) immediately before the
+close. This is the answer to the question the negotiator asked; asking again
+would be a loop every application would have to break with a latch of its own,
+so "close me, no more questions" lives in one place rather than in every
+package.
+
+Two guards: the request is cleared **before** the close, so nothing it reaches
+can see one that has already been spent, and `wm_destroy` clears a request
+naming the window it is destroying, so a slot that died in between cannot be
+closed through a pointer that now means a different window. The pass tests
+`W_FLAGS` bit 0 and not bit 1 — a minimized window is closable, which is what
+the dock's context menu already does.
+
+### 75.3 The standard alert — `os88ui_ask`, and it is NOT in the kernel
+
+One line of text over up to three buttons, in a window **titled with the
+requester's own caption**, answered to a completion proc. `OS88UI_AOK`,
+`OS88UI_AYESNO` and `OS88UI_ASAVE` (Save / Discard / Cancel) are the sets; the
+answer is the 0-based button index, left to right, or `OS88UI_ACANCEL` for a
+dismissal. It lives in **`apps/os88ui.inc` behind `%define OS88UI_ALERT`**,
+which is where §20.5.1's argument puts it: source shared by every package that
+asks for it, revisable freely because it is source, and costing the kernel
+nothing.
+
+**It was built in the kernel first, as `kernel/ask.inc`, and the measurement
+is why it is not there now.** That version cost **1,067 bytes** — 841 of
+`.cold`, 115 of `.text` data and thunks, an API cell and an X stub, and 90 of
+`.bss` — against a `KERN_BUDGET` with 2,048 spare, which is three of the four
+512-byte steps this project's standard grants a feature. A slimmed version was
+costed rather than guessed at: fixed geometry instead of measured button
+widths (−153), one hardcoded button set (−49), no title staging (−56), firing
+on the press instead of the release (−80, and a §13.6 regression to go with
+it). **The floor is about 800 bytes**, because what a windowed dialog costs is
+a window, a paint, a hit test, a key map and a completion dispatch, and none
+of those is the part you can take away. There is no version of it that fits a
+kernel budget the whole machine pays for.
+
+**Out here it is SMALLER as well as free** — measured, **607 bytes** of the
+including package's image, and the three savings are all about the segment boundary
+(§20.1):
+
+- **Nothing is staged.** The message and the title are near pointers in the
+  caller's own segment — the same segment the alert's code is running in — so
+  the kernel version's `uia_stage`, `uia_msg` and `uia_ttl` (74 bytes) have
+  nothing to do.
+- **There is no staleness triple.** `fdlg_open` captures (record, `I_WIN`,
+  `I_SPTR`) and checks it again at commit because the requester's region can
+  be freed while the dialog is up. Here the alert *is* in that region: if it
+  is gone, so is this code, and `wm_destroy_seg` has already swept the window
+  (§20.2).
+- **The dismissal arrives through `W_ONCLOSE`**, not through a collector in
+  the UI task's idle pass (`uia_reap`, 63 bytes). Which is the pleasing part
+  of the arrangement: the alert's window is **unbound** — no instance, so no
+  dock tile, no Task Manager row, no billing, and a close box that reduces to
+  `wm_hide` (§29.4) — and §75.1's negotiator, installed on the alert itself,
+  is what turns that hide into the cancel. The half of this feature that IS in
+  the kernel is what lets the half that is not exist.
+
+Four things about it are load-bearing.
+
+**`os88ui_arect` is a FORMULA, not a layout.** Every button is `OS88UI_ABW`
+wide, so the row is `count × (BW + GAP) − GAP` and the i'th button starts a
+fixed step along it. The kernel version measured each label with `font_width`
+and laid the row out in two passes, and that alone was **153 bytes** — the
+single biggest line item in it. Equal widths are what buy it, which is also
+why the set is `Save / Discard / Cancel` rather than `Save / Don't Save /
+Cancel`: seven characters is the widest label the row can carry at this
+window width.
+
+**Teardown first, callback second** — `fdlg_commit`'s order and its reason:
+`wm_destroy`'s repaint has already put back everything the alert covered, so
+the completion draws onto a clean window instead of over a dialog that is
+still on screen.
+
+**`os88ui_aclose` answers CF = 1**, which looks wrong for a routine whose job
+is to *let* the close happen. By the time it returns there is nothing left to
+close: it has already destroyed the window and dispatched the cancel, and
+letting `app_close_win` go on to `wm_hide` a freed record is the one thing
+that would not survive.
+
+**Raising covers minimizing.** `os88ui_ask` refuses a second alert and calls
+`OSAPI_WM_SHOW` on the one that is up — which is un-hide *and* raise in one,
+so an alert the user minimized comes back on the next close click. Without
+that, minimizing an alert would leave an application refusing to close with
+nothing on screen to say why.
+
+#### 75.3.1 It is NOT modal, and that is a decision
+
+§38.2's dialog swallows every press outside itself, through `fdlg_grab`,
+`fdlg_top` and `fdlg_reap` wired into three points of the UI ladder. The alert
+does not — and out here it could not, because those filters are the kernel's.
+
+What modality would buy is small. The question an alert asks is about the
+application's own state, and it stays correctly answered if the user goes and
+edits the document first: *"save the changes?"* means *save whatever is in the
+document when I answer*, and that is what the Save button does.
+
+The failure modality actually prevents is **an alert the user cannot find**,
+and that is prevented instead by the refuse-and-raise above. So clicking the
+close box again on an application that is waiting for an answer brings the
+question back to the front, which is the useful behaviour rather than a
+consolation for the missing one.
+
+#### 75.3.2 Both builds have it, and the kernel pays 222 bytes
+
+Because the alert is a package's, **§75.1 and §75.2 are the whole kernel
+cost** — measured `.text` **+194**, `.bss` **+28**, `.cold` **+0**: **222
+bytes, identical on both builds, and no rung crossed on either guard**.
+`kern_big` keeps its four-step spare and `kern_small` its two. Nothing here is inside an
+`%ifdef KERN_BIG`, so a 128KB machine gets the identical behaviour rather than
+a fallback, which is what the first draft of this section could not offer:
+`ask.inc` was `kern_big`'s alone (two `.cold` rungs is `kern_small`'s entire
+remaining budget), and Note Pad on a small machine had to save the document
+and close without asking. That distinction is gone, and so is the code that
+implemented it.
+
+## 76. The theme — Bright and Dark (`kernel/vga12.inc`, `kernel/ctrl.inc`)
+
+**Two themes, and the boundary is CHROME against CONTENT.** Bright is what
+this OS has always looked like: §26's 50% dithered desktop, a white menu bar,
+a white dock strip and white window title bars, all lettered in black. Dark
+inverts exactly those four and nothing else — the desktop becomes solid black,
+and the bar, the strip and every title bar become black lettered in white. A
+window's **content** is not themed in either: a Disk window's listing, Note
+Pad's page, Paint's canvas and every package's face stay black-on-white,
+because content belongs to the application and the chrome belongs to the
+machine.
+
+That line is what keeps the feature small. It is also what keeps it honest:
+a package cannot be asked to have a dark mode, and none is.
+
+**Three bytes are the whole mechanism.** `[thm_dark]` is the SETTING and
+`[thm_bgc]`/`[thm_inkc]` are what it MEANS — the chrome's ground and the
+chrome's ink, resolved once by `thm_set` at the switch, so every chrome site
+is a load rather than a branch. `thm_bg` and `thm_ink` set `[gfx_color]` from
+them; `thm_pair`/`thm_rpair` answer the ink/background pair `font_run` takes,
+`thm_rpair` being the inverse for §59's toast strip and anything else that
+wants inverse video against the bar.
+
+**The substitution PAYS FOR ITSELF, which is why the pens are routines and
+not a macro.** `mov byte [gfx_color], CWHITE` is five bytes and `call thm_bg`
+is three, so each of the ~30 chrome sites gives back two — more than the five
+routines cost. Measured: the whole of the chrome plumbing is **+49 bytes of
+`.text`**, and theming §12.8's progress widget afterwards took `.text`
+**down** by 12.
+
+Both pens preserve FLAGS. Several chrome sites set the pen between a
+CF-setting call and the branch that reads it — `wm_draw_title` calls
+`wm_flush` and branches on CF to decide whether a snapped window has a left
+border (§11.95.2) — so a pen that clobbered flags would move the title bar one
+pixel on exactly the windows that are flush with the screen edge.
+
+### 76.1. What is chrome
+
+The themed surfaces are exactly four, and the list is the contract:
+
+- **The desktop ground** — `wm_paint_all`'s dither, `wm_dmg_gray`'s clipped
+  one, `vid_disp_desk`'s second monitor, and the ground `desk_draw_zone`
+  lays under a drive icon.
+- **The menu bar** — `menu_furniture`'s field and rule, the logo, every menu
+  title, the clock field, §59's toast strip and §12.8's file-activity widget.
+- **The dock** — the strip, each tile's frame and its icon bed.
+- **A window's own chrome** — the title bar, its pinstripes, the close,
+  minimize and grow boxes, the caption's gap, the 1px outline and the drop
+  shadow.
+
+Everything else is content and is not themed. The two that look like
+exceptions and are not: `os88ui.inc`'s `UI_GRAY` is a *control's* dithered
+fill and stays `gfx_fill_gray` whatever the theme, and a **drive zone's label
+plate** is drawn in the content pens — see §76.8.
+
+### 76.2. The desktop's ground is a call, not a colour
+
+`thm_desk` replaces `gfx_fill_gray` at the desktop sites: Bright is §26's
+dither, Dark is a solid `CBLACK` fill. Both are CLIPPED primitives, so
+`wm_dmg_gray`'s region arithmetic (§11.91) is unchanged — and the dither's
+phase being a function of absolute x+y still means drawing it as fragments is
+pixel-identical to drawing it whole.
+
+#### 76.2.1 …and the site that was missed was the one NAMED after the dither
+
+The list in §76.1 is the contract, and it named all four. The code converted
+three: `vid_disp_dither` — the second monitor on an extended desktop (§39.14.4)
+— kept its `gfx_fill_gray`, so **switching to Dark left the second display in
+Bright's ground for ever**. Reported from the field in those words, with the
+tell beside it: *"drag a window on, and off, and it redraws properly behind
+it"* — because `wm_dmg_gray` is one of the three that WAS converted, so the
+rect a window vacates comes back in the right ground while the full repaint
+around it does not.
+
+**The name is why.** A routine called `vid_disp_dither` does not read as a
+*themed* site to whoever is walking the list; it reads as the dither itself,
+which is what Bright's ground happens to be, which is why the bug is invisible
+until somebody picks the other theme. It is `vid_disp_desk` now, and the two
+call sites in `wm_paint_all` moved with it.
+
+**This is §76.11.1's shape a second time** — *the claim was the design and the
+code was one call short of it* — and both instances were found by the field
+rather than by a gate, because both are invisible in the default configuration:
+`inst_minimize` bypassed `wm_an_ok` and only showed with the zoom turned off,
+and this one only shows on a machine with two cards and a theme that is not
+Bright.
+
+### 76.3. The inverted run is SAID, not inferred
+
+`menu_bemit` letters one piece of the bar's composition buffer, and three
+places in it need to know whether the piece is §59's inverse-video strip: it
+masks bit 7 off the cells, it takes the strip's first cell's left 4px back to
+the ground, and it puts bit 7 back. All three asked `cmp di, CWHITE` —
+DI being the ink/background pair, and `CWHITE | (CBLACK << 8)` being what an
+inverted run's colours were.
+
+**Under Dark those colours are exactly swapped, so the PLAIN run matches.**
+Bit 7 is then never masked off the cells it is set on, `font_char` indexes
+past the 95 glyphs it has, and the menu bar letters garbage. `[menu_binv]` is
+the fix: `menu_bar_text` already splits the span on that very bit, so it says
+so in a byte instead of leaving it to be recovered from the pens.
+
+This is §18.7.3's `DV_CLASS` and §41.12.5's `drv_tab` range test for the third
+time — **a predicate that is a PROXY for the invariant it means to test,
+meeting the first case where the two come apart.** It was correct for as long
+as ink was black by definition.
+
+### 76.4. The Control Panel page
+
+`Theme` is a sixth static row in `cp_items`, `cp_thm_paint`/`cp_thm_click`,
+two radios and a caption — `cp_sched_paint`'s shape exactly, and for the same
+reason: two mutually exclusive modes, applied on the spot, with nothing to
+negotiate and no hardware to ask. The page is drawn in the ORDINARY pens like
+every other one, the pane being content.
+
+A click that changes nothing draws nothing. A click that changes the theme
+calls `thm_set`, redraws the two glyphs, sets `[cp_wdirty]` so the setting is
+written when the panel CLOSES (§31.8 — no Control Panel page writes on a
+click) and posts `[cp_dirty]`, which is what repaints the world outside
+`cp_onclick`'s held lock.
+
+**The row costs the list its last slot.** §31.1's build-time guard allows nine
+rows — `CP_ITEMS` plus the three drivers that publish a page — and six static
+rows is exactly nine. A seventh static row, or a fourth driver page, wants
+§31.1.1's scrolling list rather than another `%error`.
+
+The page BODY costs the kernel nothing: `ctrl.inc` is an on-demand module
+(§2.8), so it ships in `CTRL.DRV` and is read when the panel is opened.
+Measured, `CTRL.DRV` 4,197 → 4,427 bytes. What lands in the kernel is the
+strings and the `cp_items` row.
+
+### 76.5. `SYSTEM.CFG` remembers it
+
+A `'TH'` key, one byte, in the table that already drives the reader and the
+writer both (§51.5) — five bytes of `drv_cfg_keys` and three of
+`drv_cfg_map`. The map stores `[thm_dark]` like any plain setting; the unpack
+then re-resolves the two pens from it, because that is not a store. A byte
+from a future version leaves Bright standing, on `CFG_SCH`'s terms.
+
+### 76.6. Greying is where the theme reaches deepest
+
+§47's whole mechanism was built when ink was black and ground was white, and
+`gfx_pen_live`/`gfx_pen_dis` say so out loud: `CBLACK` and `CDGRAY`, stored
+flat.
+
+**They stay that way, and the pull-down menu gets a pair of its own.** That
+split is the whole lesson of this section, and it was learned by getting it
+wrong: theming those two reaches every caller, and every caller but one draws
+inside a WINDOW — the Control Panel's pages, the Standard File dialog,
+`os88ui.inc`'s shared controls, and every package through `OSAPI_GFX_PEN`.
+A window's content is white in both themes, so a themed ink drew **white on
+white**: the Scheduler page's radios, every greyed caption and every shared
+control in the machine went invisible under Dark, with the pane behind them
+perfectly correct.
+
+So `thm_pen_live`/`thm_pen_dis` are the CHROME's pair — same shape, same
+`[gfx_dis]` contract, only the two colours come from the theme — and
+`menu_drop` is their one caller, the pull-down being the one chrome surface
+that greys. `CDGRAY` on a black ground is very nearly nothing, so Dark's
+disabled ink is `CLGRAY`.
+
+**The pull-down's own ground and frame are themed with them**, and the pair is
+what makes that necessary rather than optional: a themed ink over an untouched
+`CWHITE` fill is the same white-on-white invisibility one level up. Ink and
+ground are one decision and belong to one surface.
+
+**`font_ink` had the sharper bug, and it is §47 rule 1's own failure arriving
+through the renderer rather than through a caller.** It asked `cmp al, 0xFF`
+first and sent a white pen straight to the solid branch — sound while nothing
+disabled was ever white, and under Dark the chrome's ink IS white, so a greyed
+caption came out **solid and pixel-identical to a live one**. The disabled
+flag is asked first now, so the checkerboard is applied to whatever ink the
+glyph is being drawn in.
+
+That reordering is a no-op on Bright by construction: `os88ui.inc` already
+refuses the white pen to a disabled control ("greyed wins here as it does
+everywhere else"), so the white-and-disabled combination the old order
+mishandled does not occur. Verified rather than argued — see §76.9.
+
+#### 76.6.1 …and the checkerboard was being laid on BLACK, whatever the pen said
+
+§76.6 got the pens right and left the RENDERER believing something that had
+only ever been true by accident. `font_ink` reduces a colour to one bit on a
+1bpp adapter — *only pure white lights a mono pixel*, everything else becomes
+black — and **every disabled pen in the machine is a middle grey**: `CDGRAY`
+for content, `CLGRAY` for Dark's chrome, and §39.4 sends both to the dither
+class, which is not `0xFF`. So the checkerboard was always applied to **black
+ink**.
+
+On white that is exactly right, and it is what §47's greyed-out menu item has
+always looked like. On **Dark's black chrome it is nothing at all**: the glyph
+is drawn, the framebuffer is correct, and there is nothing on the screen.
+Reported from the field as *"the divider bar is going pure black instead of
+dither, thus becoming invisible"* — a `MENU_DIS` separator being a row of
+hyphens rather than a drawn rule (`menu_s_msep`), so it takes the identical
+path a greyed `Close` does, which is the other half of the same report.
+
+**The rule that is right for every surface is that a disabled glyph is the
+LIVE INK, stippled.** Content's live ink is `CBLACK`; the chrome's is
+`[thm_inkc]`, black on Bright and white on Dark. So `[gfx_disink]` is set
+beside `[gfx_dis]` by whichever pen set the flag, and `font_ink` reduces THAT
+rather than the grey. One byte and about a dozen instructions.
+
+**It is a byte and not a derivation because the renderer cannot see the
+surface.** `font_char` is transparent — it never touches the ground — so
+"which direction contrasts here" is knowledge the *pen* has and the glyph loop
+does not, and §76.6's whole split exists because content and chrome answer it
+differently. `[gfx_color]` cannot carry it either: on VGA the disabled colour
+must stay a real grey, and on 1bpp it must be a solid, which is two answers
+for one byte.
+
+**What is NOT affected**, and it is worth stating because the field report
+guessed the opposite: packages. `OSAPI_GFX_PEN` reaches `gfx_pen_cf`, whose
+disabled arm stipples black, and §47's contract is that a window's content is
+white — so every greyed control in every application was correct before this
+and is byte-identical after it. The defect was the chrome pair's alone, and
+only under Dark.
+
+### 76.7. The diffing painters cannot see a theme change
+
+§12.9's `menu_bcell` is a record of CHARACTERS and §30.3's dock tile key is an
+icon plus two marks. **A theme change moves neither**, so composing-is-the-diff
+finds no difference and the bar and the strip keep the colours they had —
+and `wm_paint_all` does not cover it, because it calls both painters and both
+are gated. `thm_set` calls `menu_force` and `dock_force` itself, being the one
+place that can know.
+
+### 76.8. What Dark does not fix, and is not allowed to pretend about
+
+Three things are legible under Dark and are not *right*, and they are recorded
+here rather than quietly themed, because each is a decision about content:
+
+- **A drive zone's label plate** is a white rect with black text (§26.4), and
+  on a black desktop it is the brightest thing on screen — it reads as
+  selected when nothing is. Theming it means deciding whether a desktop icon's
+  caption is chrome; it currently is not.
+- **The icons lose their OUTLINE**, which is the one worth understanding
+  rather than filing. A §25 icon is a white silhouette with black detail, and
+  the outermost ring of that detail is a 1px black border: measured on a
+  Bright desktop, the row through a drive icon reads
+  `#.............................#.#.` — white body, then a black band, then
+  the dither. **That black band is what defines the shape, and against a black
+  desktop it is the desktop.** So the icon does not become illegible, it
+  becomes unbounded: a white blob whose edge is only where the white stops,
+  and whose gap from the label plate below it is the same black as everything
+  else. Giving it a themed ring is a real fix and is not free — see §76.10.
+- **The mouse pointer** is a black arrow with a white outline (§7.1), so on a
+  black desktop it is a hollow outline. Legible, and a different character.
+
+### 76.9. Verification
+
+**Bright must be BYTE-IDENTICAL to a kernel with none of this in it**, which
+is the whole claim the substitution rests on, and it cannot be checked by
+looking at a screenshot of one build. `make THEMEDARK=1` builds a kernel that
+boots Dark, and the reference is the tree without the feature: an identical
+four-step scripted session — desktop, a Disk window opened from a drive zone,
+a pull-down held open, and the window after it closes — driven through both on
+a cycle-accurate 5150 with a CGA is **0 differing pixels of 512,000**.
+
+Dark is confirmed the same way, by the numbers rather than by eye: the desktop
+is **3,033 lit pixels of 128,000 against Bright's 76,229**, and
+`os88marty.py`'s own boot gate — which asserts a bright desktop — reports the
+exact inversion of the triple it wants (7 / 100 / 4 against 93+ / 0 / 96).
+**That gate is theme-blind and will time out on a Dark machine that booted
+perfectly**; pass `boot=<seconds>` there, and read the three numbers before
+believing a boot failed.
+
+### 76.11.1 `inst_minimize` was the one site that did not ask
+
+§76.11 said the test is in `wm_an_ok` and nowhere else because *that routine is
+the single gate every call site already asks*. **That was true of three sites
+out of four.** `wm_show` asks it through `wm_an_open`, and a restore arrives
+the same way — `inst_unmin` only arms the source rect and the show does the
+rest — but **`inst_minimize` called `wm_anim` directly**, so turning the zoom
+off stopped a window zooming open and left it flying to the dock exactly as
+before. Reported from the field in those words.
+
+**The claim was the design and the code was one call short of it**, which is
+the shape worth recognising: a gate is only single if every path is routed
+through it, and "every call site already asks" was a statement about the code
+as read rather than as written.
+
+Two hazards went with it, both older than the switch and neither reported.
+`wm_an_ok` also refuses `WF_NOANIM` and refuses while a fullscreen window owns
+the screen (§11.99), so a minimize bypassed both — an outline drawn over an
+fsx bracket's borrowed surface is the exact thing §11.99 says the region and
+the lock exist to prevent.
+
+Measured on a cycle-accurate 5150/CGA with PERFORMANCE.md Part 3.1's flicker instrument, which is
+the right one because **an XOR outline is TRANSIENT pixels and a window
+vanishing is not**: a minimize with the zoom on is **16 flash frames, worst
+646 transient px**, and with it off **5 frames, worst 34** — 34 being the
+mouse arrow, the same artefact §7.1's own measurements had to learn to
+discount. The operation drops from 247 ms to 100.
+
+### 76.13. `kern_small` has no theme, and comes out AHEAD for it
+
+The palette is `kern_big`'s outright. `%define OS88_THEME` is the one symbol
+(beside `WM_ANIM`, and for its reason one level up), and what it gates is the
+state, the table, `thm_set`, the Control Panel page and row, and the boot
+resolve. **What it deliberately does NOT gate is the pens' NAMES**: `thm_bg`,
+`thm_ink`, `thm_tbg`, `thm_tink`, `thm_pair`, `thm_rpair`, `thm_desk`,
+`thm_pen_live` and `thm_pen_dis` all exist on both builds and simply become
+constants on the small one — so the ~40 chrome sites across `wm.inc`,
+`menu.inc`, `dock.inc`, `desk.inc` and `fprog.inc` are untouched, and there is
+no per-site `%ifdef` to rot.
+
+**That is why the small build ends up smaller than the tree that never had a
+theme.** A `call thm_bg` is three bytes where `mov byte [gfx_color], CWHITE`
+is five, and a constant pen costs six bytes once; forty sites at two bytes
+each pays for that many times over. Measured against `elendilon` at the merge
+base, with no theme in it at all:
+
+| | no theme | themed | gated |
+|---|---:|---:|---:|
+| `.text` | 48,799 | 48,946 | **48,777** |
+| image-rung slack | 130 | 487 (next rung) | **144** |
+| footprint | 104,960 | 105,472 | **104,960** |
+| `KERN_BUDGET` spare | 512 (1 step) | **0** | 512 (1 step) |
+
+So gating gives back the whole 512-byte step the theme had cost — the code was
+155 bytes and it landed 19 past a rung, which is the asymmetry worth
+remembering — and leaves `.text` **22 bytes below** where it started.
+
+**`[thm_kind]` stays in BOTH builds**, outside the gate, and that is the one
+thing here that is easy to get wrong. `SYSTEM.CFG`'s `'TH'` key is two bytes
+on both, so the map stores the byte on a small kernel and nothing applies it:
+a user's Dark choice **round-trips untouched** through a `kern_small` boot
+instead of being reset by one. It is the same argument `[wm_animon]` is
+declared outside `%ifdef WM_ANIM` for (§76.11).
+
+### 76.12. Color — the third theme, and VGA's alone
+
+Bright and Dark are two arrangements of one pair of pens. **Color is the first
+theme that needs the distinctions the chrome actually has**, and adding it is
+what turned the two bytes into a palette: a title bar that is blue when
+focused and grey when not needs a *second* pair, and a desktop that is neither
+a dither nor black needs a colour rather than a flag.
+
+It is patterned on Windows 3.1, which is the right reference for a 16-colour
+machine: that interface got its whole effect from four flat colours and no
+gradients, because that is all an EGA palette has.
+
+| surface | colour |
+|---|---|
+| desktop | `CTEAL` (3) — 0,170,170 |
+| menu bar, dock | `CLGRAY` (7) ground, `CBLACK` ink |
+| title bar, **focused** | `CBLUE` (1) ground, `CWHITE` ink, **no pinstripes** |
+| title bar, unfocused | `CLGRAY` ground, `CBLACK` ink |
+| window content | unchanged — white paper, black ink |
+| disabled chrome ink | `CDGRAY` (8), as everywhere |
+
+**The menu bar and the dock are GREY rather than blue, and that is a decision
+rather than a default.** Blue is doing one job in this theme — saying which
+window has the focus — and it can only do that job while it appears in exactly
+one place. A blue menu bar would make the screen carry two blues that mean
+different things, and the title bar's would stop reading as a state. Grey also
+does the second thing Windows 3.1's chrome did: it separates the machine's
+furniture from the white paper of a window's content, which on the Bright
+theme is done by the black rule alone.
+
+**The pinstripes are SKIPPED on a solid bar, not recoloured.** `[thm_strp]` is
+0 for Color, and `wm_draw_title` branches past the loop: six `gfx_hline`s in
+the ground colour would draw nothing at all for ~4.5 ms of the field machine's
+time (§5.7's per-call floor, six times). Windows 3.1's title bar is solid, so
+this is the right look as well as the cheaper one.
+
+**`wm_tpen_bg` / `wm_tpen_ink` are the whole of how focus becomes visible.**
+`wm_draw_title` already knew — `cmp di, bp` is how the pinstripes and the two
+boxes have always been frontmost-only — so the pens ask the same question. In
+Bright and Dark the two pairs are equal, so the compare costs a branch and the
+output is byte-identical to the kernel that had one pair.
+
+### 76.12.1 Colour is a fact about the adapter, and `thm_set` owns the refusal
+
+§39.4 reduces every palette index outside {0, 15} to black, white or the 50%
+dither, so **Color on a 1bpp adapter would be Bright with extra steps**. It is
+therefore refused rather than reduced, and the refusal lives in `thm_set` —
+the one routine both callers go through — rather than at the callers:
+
+- The Control Panel's row is **greyed** on a machine with no colour (§47
+  rule 3: grey a *fact*), and `cp_thm_colgrey` is the single predicate behind
+  the greying, the glyph and the click's refusal, so the three cannot disagree
+  (§47 rule 1).
+- A **settings disk carried to a Hercules machine** loads `TH` = 2 and gets
+  Bright, exactly as `VM` refuses a card the machine does not have (§39.11.3).
+- **§39.11's Display page can move a running machine off VGA**, which is the
+  case that is easy to forget: `vid_switch` re-asserts `[thm_kind]` through
+  `thm_set` after `wm_refit`, so Bright and Dark re-resolve to what they
+  already were and Color falls back. It costs one call on a path that already
+  repaints the world, and it re-forces the two diffing painters that the pair
+  below it wanted anyway.
+
+`drv_cfg_unpack` has **no range test of its own** any more. It had `cmp al, 1`
+while the setting was a boolean; a second opinion about which kinds are legal
+is a second thing to keep in step with the table, and `thm_set` already
+refuses both an unknown kind and Color on a machine without one.
+
+### 76.12.4 …and a SECOND MONITOR is a card `[vid_kind]` says nothing about
+
+§76.12.1 refuses Color on a machine with no colour in it, and asks `[vid_kind]`
+to decide. **That is the PRIMARY's adapter**, so on an extended desktop
+(§39.11–§39.19) whose primary is a VGA the answer is right about the primary
+and silent about the other monitor: Color is accepted, and every window dragged
+onto a 1bpp secondary draws its chrome through §39.4's reduction.
+
+What that reduction makes of the Color row is not "Bright with extra steps":
+
+| | index | on a 1bpp secondary |
+|---|---|---|
+| chrome ground | `CLGRAY` | the **50% dither** |
+| chrome ink | `CBLACK` | black — so a caption is **black on the dither**, which is pixel-for-pixel what §47 draws a *disabled* control as |
+| disabled chrome ink | `CDGRAY` | the dither — a checkerboarded glyph on a dithered ground |
+| active title | `CBLUE` / `CWHITE` | black / white, which is fine |
+| desktop | `CTEAL` | black, which is arguably better than the dither |
+
+**Measured** on `os8088_xt_vga_herc` — a VGA primary and a Hercules secondary,
+extended Right — with a Disk window dragged onto the Hercules and its title-bar
+ground sampled as *what fraction of horizontally adjacent pixels differ*, which
+is ~0 for a solid ground and ~1 for the dither:
+
+| theme | adjacent pairs differing | lit |
+|---|---:|---:|
+| Bright | 0.09 | 421 / 480 |
+| Dark | 0.09 | 59 / 480 |
+| **Color** | **0.88** | 211 / 480 |
+
+The two 1bpp themes are solid grounds either way up; Color's is the dither, and
+the caption on it is barely legible. `tests/dispthm.py` is the measurement and
+writes one capture per theme.
+
+**Nothing else about the theme meets the extended desktop badly.** It is one
+machine-wide setting with no per-window state, `vid_switch` already re-asserts
+it through `thm_set` (§76.12.1), and §11.99's zoom is an XOR outline, so it is
+theme-blind by construction. This is the whole of the conflict.
+
+**THE DECISION IS TO LEAVE IT, AND IT IS A DECISION RATHER THAN AN OVERSIGHT.**
+Looked at on the glass it is legible rather than unusable — the captures above
+are what it is — and §39.4's contract has always been that palettes reduce. So
+the choice stays with the user and the code stays simple, on the fork owner's
+call: *"its not unusable, at least in what I see, which is what would make me
+want to refuse it."*
+
+The two answers not taken, so that neither is re-derived from scratch. *Refuse
+Color when ANY display is 1bpp* is the smallest change and §47 rule 3's own
+shape (grey a FACT) — and its price is the reason it lost: a VGA-plus-Hercules
+owner would lose Color on the monitor it works on, which is the one they are
+looking at. *Resolve the chrome pens per display* is the correct one and the
+expensive one: the live block is one `rep movsb` precisely so that "every
+chrome site is a load and never a branch" (§76.1), and this puts a display test
+under every one of them.
+
+**What would change the answer** is a report that some particular control is
+not merely dithered but unreadable — a greyed caption on a dithered ground is
+the candidate, `CDGRAY` and `CLGRAY` both reducing to the same 50% pattern —
+because that is a legibility fact rather than a preference, and §47 rule 1's
+own failure.
+
+### 76.12.3 Color is `kern_big`'s, and `kern_small` pays for the palette anyway
+
+The Color ROW, its table entry, its string, the active-title pens, the focus
+test and the solid-bar skip are all inside `%ifdef KERN_BIG` — a 128KB machine
+would have to reduce the theme to Bright, so it does not get to spend on it
+(§62.9.15's precedent, and §76.11's). `thm_tbg`/`thm_tink` and
+`wm_tpen_bg`/`wm_tpen_ink` are **aliased** to the chrome pair on `kern_small`
+rather than `%ifdef`'d at each of `wm_draw_title`'s six sites, which is where a
+divergence would rot.
+
+**What `kern_small` still pays is the PALETTE**, and that is worth stating
+plainly rather than filing away: the eight-byte live block, the two-row table
+and the table-driven `thm_set` are ~19 bytes past the 512-byte rung the small
+build had left, so `KERN_SIZE` now stands **exactly on `KERN_BUDGET`** —
+0 spare, 0 steps. It builds, every gate passes and it runs; what it has is no
+headroom at all, so the next byte added anywhere fails that build.
+
+That is a decision for whoever wants the feature rather than a build fix
+(docs/KERNEL-MEMORY.md). The two honest ways out, if the room is wanted back:
+**raise `KERN_SMALL_BUDGET` one step** — it has moved twenty times and twice
+downward — or **drop the theme from `kern_small` altogether**, which is
+§62.9.15 applied one level up and gives back the whole mechanism and the page
+with it. Trimming the palette is not a third way: the two-byte model cannot
+express a title bar that changes with focus, which is the entire feature.
+
+### 76.12.2 What the third row cost the page
+
+The Theme page had two groups, four rows and a two-line caption in a 132px
+pane. A third theme row does not fit beside all of that, and **the caption is
+what went** — it stated what §11.99's zoom costs, which is real information,
+but the row it makes room for is a control and the caption is a note about
+another control. `CPH_CAPY`/`CPH_CAP2` are gone and the animation group moved
+down 16px.
+
+### 76.11. Window Animations — the second group on the page
+
+§11.99's zoom is the other thing the machine spends on looking like itself,
+and what it spends is **TIME**: ~137 ms of held gfx lock every time a window
+appears, leaves or minimizes. That is a sixth of a second in which nothing
+else on the machine draws — the lock is held across the pace by design, an XOR
+overlay being on the screen — so it is exactly the kind of cost a user should
+be able to decline, and the Theme page is where it belongs: both groups answer
+one question asked twice.
+
+**The test is in `wm_an_ok` and nowhere else.** That routine is the single
+gate every call site already asks, so one `cmp` covers `wm_show`, `wm_destroy`
+and the minimize. A per-site test would be a second opinion about whether the
+feature is on, and §11.99's contract — *the screen comes back exactly as it
+was found* — is one a site that animates while another does not cannot keep.
+
+**`[wm_animon]` is declared OUTSIDE `%ifdef WM_ANIM`**, which is the one thing
+here that is easy to get wrong. The settings map names the byte in **every**
+build, so a kernel with no animation in it still carries the choice across
+`SYSTEM.CFG` untouched instead of dropping it: a user who turns the zoom off,
+boots `kern_small` once and comes back does not find it back on. It is `.text`
+with a real initialiser because `.bss` is not zeroed, and the default is **On**,
+which is what `elendilon` shipped.
+
+**On a build with no zoom the two rows are GREYED, not hidden** (§47 rule 3:
+grey a *fact*). `WM_ANIM` is undefined on `kern_small` and under
+`make ANIMOFF=1`, and on such a kernel there is nothing for the control to turn
+on. One symbol drives the greying and the click refusal both, so the predicate
+that disables it and the predicate that refuses it cannot disagree.
+
+**Turning it off owes no repaint.** The theme's own rows post `[cp_dirty]`
+because every pixel of chrome on screen is wrong the instant it changes; an
+animation is not on screen at any moment the user could be clicking, so the
+setting costs `[cp_wdirty]` and nothing else.
+
+**The gap between the two groups is DEAD.** The Scheduler page's two bands may
+touch because a click there has only one group it could mean; here a generous
+band would put "half way between Dark and On" into one of them.
+
+**`SYSTEM.CFG`'s `'TH'` key is 2 bytes at ver 2**, theme then animation. It was
+1 byte at ver 1 for the length of this branch and never shipped past it, so the
+version bump is the documented compatibility story used as written (§51.5): an
+old record's `TH` stops matching, the defaults stand, and every other key in
+the file still loads.
+
+### 76.10. Nothing here is cheap any more, and that is the state to know
+
+The feature landed with **3 bytes of image-rung slack**, so the next addition
+to `.text` anywhere — a themed icon ring, a sixth themed surface, a byte of
+state — buys a whole 512-byte rung and takes `KERN_BUDGET` from 4 steps spare
+to 3. That is not a reason to refuse one; it is a reason to decide what goes
+in that rung **together** rather than one item at a time, because the first
+one through pays for all of them.
+
+`THEMEDARK` is in `$(VIDSTAMP)` as well as `$(VIDDEF)` and `$(KNOBS)`. That is
+the Makefile's own documented trap and this knob fell straight into it: a knob
+outside the stamp does not rebuild the kernel, so `make THEMEDARK=1` after a
+plain `make` drove the PREVIOUS build — a Bright machine, captured and
+reasoned about as though it were Dark, for one whole round.

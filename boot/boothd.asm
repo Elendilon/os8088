@@ -47,6 +47,8 @@
 ; Assembled with -DKERNEL_SECTORS=<n> by the Makefile, exactly as the floppy
 ; sector is.
 ; =============================================================================
+cpu 8086                        ; SPEC.md 1: an 8088 runs this before
+                                ; anything has probed anything.
 
 bits 16
 org 0x7C00
@@ -56,7 +58,7 @@ STACK_TOP    equ 0x7C00
 BOOT_STACK   equ 2048
 RELOC_ADJ    equ 0x07E0         ; boot/boot.asm's, and for its reasons
 SPLASH_OFF   equ 0x0008
-SPL_RESIDENT equ 8              ; THE THIRD MIRROR of this constant, and the
+SPL_RESIDENT equ 9              ; THE THIRD MIRROR of this constant, and the
                                 ; one no assertion can see: splash.inc's
                                 ; %if compares the module against the value
                                 ; IT holds, and boot/boot.asm's copy is the

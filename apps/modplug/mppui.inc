@@ -166,7 +166,13 @@ mppu_layout:
     call OSAPI_WM_GEOM              ; out CX = content w, DX = content h
     mov [mppu_cw], cx
     mov [mppu_ch], dx
-    call OSAPI_VIDEO                ; DH = bits per pixel, 4 or 1
+    mov bx, [mpp_win]               ; DH = bits per pixel, 4 or 1, FOR THE CARD
+    call OSAPI_WM_DISPLAY           ; THIS WINDOW IS ON (SPEC.md 39.16.4) - the
+                                    ; two palette words below are adapter
+                                    ; questions, and a drag across a seam is
+                                    ; when the answer changes. SI is framed by
+                                    ; this proc, so the cell writing it there
+                                    ; costs nothing
     mov al, CLGREEN                 ; ModPlug Player's LCD green - except
     cmp dh, 1                       ; where green is a dither class and a
     jne .ink                        ; glyph rounds to black, which would put

@@ -648,10 +648,20 @@ worth phoning about.
 
 ### 13.2 Getting the .exe, and the two Windows prompts
 
-**It is built on Windows, by CI** (`.github/workflows/os88proxy-exe.yml`):
-push, or run the workflow by hand, and the Artifacts of that run carry
-`os88proxy.exe`; a published release gets it attached. `tools\build-os88proxy-exe.bat`
-is the same build on a Windows desk, for when that is quicker.
+**It is built on Windows, by CI** (`.github/workflows/os88proxy-exe.yml`), and
+**on demand only** — Actions ▸ os88proxy.exe ▸ Run workflow, or a `proxy-v*`
+tag, or publishing a release. The Artifacts of that run carry `os88proxy.exe`;
+a release gets it attached. `tools\build-os88proxy-exe.bat` is the same build
+on a Windows desk, for when that is quicker.
+
+It used to run on any push touching `tools/os88proxy.py`, which reads as a
+narrow filter and is not one: every merge of the browser work touches that
+file, so ordinary integration pushes each spent a `windows-latest` runner
+building a binary nobody had asked for — and a stale gate then put a red cross
+on commits that had nothing to do with the proxy. The gates are what a push
+would have been protecting and they are not Windows-specific, so the honest
+place for them is the desk: `python3 tests/proxyguitest.py` while editing the
+window, `--selfcheck` and `tests/proxytest.py` while editing the engine.
 
 The workflow runs `--selfcheck`, `tests/proxytest.py` and
 `tests/proxyguitest.py` **before** it freezes anything — an .exe of a build

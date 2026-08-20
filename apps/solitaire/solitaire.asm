@@ -144,7 +144,48 @@ PILE_CAP    equ 24                  ; the deepest any pile gets: a tableau
                                     ; column is 6 face-down plus at most a
                                     ; K..A run = 19; the stock is 52-28 = 24
 
-SOL_NMET    equ 13                  ; words in a metrics record (sol_met_*)
+SOL_NMET    equ 14                  ; words in a metrics record (sol_met_*)
+
+; --- THE FIELDS THE TWO PUBLISHED FRAME SIZES ARE A FUNCTION OF -------------
+; Named once and spent twice - in the metric records at the bottom of this file
+; and in the per-adapter preferences sol_entry publishes (SPEC.md 11.100.1) -
+; because two places that must agree about a number is how a size drifts from
+; the layout it is meant to hold (apps/arkanoid's ARK_BW_* is the same rule).
+SOL_CW_B    equ 32                  ; card, VGA and Hercules
+SOL_CH_B    equ 44
+SOL_GAP_B   equ 4
+SOL_MARG_B  equ 4
+SOL_TOPY_B  equ 4
+SOL_FAND_B  equ 5
+SOL_FANU_B  equ 14
+SOL_TGAP_B  equ SOL_GAP_B * 2       ; foundation row to tableau
+
+SOL_CW_S    equ 28                  ; ...and CGA's 200 rows
+SOL_CH_S    equ 28
+SOL_GAP_S   equ 3
+SOL_MARG_S  equ 3
+SOL_TOPY_S  equ 1
+SOL_FAND_S  equ 3
+SOL_FANU_S  equ 12
+SOL_TGAP_S  equ 3                   ; **3, NOT 2*GAP.** sol_colfan compresses a
+                                    ; deep column to fit, so a pixel taken from
+                                    ; the chrome is a pixel the fan does not
+                                    ; take from the cards - measured, this one
+                                    ; change is a whole fan step for a 9- and
+                                    ; an 11-card build. It stops at 3 because 1
+                                    ; would buy the King column its seventh
+                                    ; pixel and stop reading as a gap at all,
+                                    ; which is a worse trade than the pixel
+
+; sol_entry's own arithmetic as constants: content width = 7 columns and 2
+; margins less the trailing gap, and the height is the tallest column the game
+; can build - 6 face-down and 13 face-up - plus the chrome.
+SOL_PW_B    equ (SOL_CW_B + SOL_GAP_B) * 7 + SOL_MARG_B * 2 - SOL_GAP_B + 2
+SOL_PH_B    equ SOL_FAND_B * 6 + SOL_FANU_B * 12 + SOL_TOPY_B + SOL_CH_B \
+                + SOL_TGAP_B + SOL_CH_B + TITLE_H + 1
+SOL_PW_S    equ (SOL_CW_S + SOL_GAP_S) * 7 + SOL_MARG_S * 2 - SOL_GAP_S + 2
+SOL_PH_S    equ SOL_FAND_S * 6 + SOL_FANU_S * 12 + SOL_TOPY_S + SOL_CH_S \
+                + SOL_TGAP_S + SOL_CH_S + TITLE_H + 1
 SOL_BACKMAX equ 704                 ; the back image at the LARGER metrics,
                                     ; (32/2) * 44 bytes of packed 4bpp
 SOL_TABLE   equ CGREEN              ; the felt: green on VGA, black on 1bpp
@@ -243,6 +284,38 @@ sol_entry:
     mov ax, sol_onresize            ; the card metrics are picked from the
     call OSAPI_WM_ONRESIZE          ; SCREEN, so an adapter change invalidates
                                     ; them (SPEC.md 11.98)
+    mov al, 1                       ; **HANG OVER THE DOCK RATHER THAN BE
+    call OSAPI_WM_KEEPH             ; SHORTENED** (SPEC.md 11.93), on EVERY
+                                    ; adapter and not just the small one. This
+                                    ; layout is fixed and every row taken off
+                                    ; the frame is one sol_colfan takes off the
+                                    ; cards, so the dock's 24 rows are worth a
+                                    ; whole fan step - measured, they take a
+                                    ; 7-card build from 9px a card to the
+                                    ; record's full 12 on a CGA, and stop the
+                                    ; Hercules compressing its deepest column
+                                    ; at all. VGA has the room already, so it
+                                    ; is a no-op there.
+                                    ;
+                                    ; UNCONDITIONAL is not laziness: a version
+                                    ; that asked the adapter set it from
+                                    ; OSAPI_WM_DISPLAY, which answers the MORE
+                                    ; RESTRICTIVE display for a straddling
+                                    ; window (SPEC.md 39.16.4.1) while wm_fit
+                                    ; clamps to the ORIGIN's - so a game half
+                                    ; over the seam was told CGA, set the flag,
+                                    ; and got the HERCULES ceiling: 317 rows on
+                                    ; a card whose band is 303. The flag is not
+                                    ; an adapter question at all, and asking
+                                    ; one was the bug
+    mov si, sol_pref                ; ...and the size this game wants on each
+    call OSAPI_WM_PREFER            ; card (SPEC.md 11.100.1). sol_metrics has
+                                    ; always had two records and picked the
+                                    ; right one; what never followed was the
+                                    ; FRAME
+    mov cx, SOL_PW_S                ; the small card's own width, and a height
+    mov dx, 155                     ; the game is still itself at (11.100.2)
+    call OSAPI_WM_MINSIZE
     mov si, sol_menus
     call OSAPI_MENU_SET             ; draws nothing, and preserves the flags
     mov al, 1                       ; ...and it PROMISES its content stands
@@ -313,11 +386,11 @@ sol_metrics:
     mov ax, [sol_cw]                ; column pitch
     add ax, [sol_gap]
     mov [sol_pitch], ax
-    mov ax, [sol_topy]              ; the tableau clears the top row by two
-    add ax, [sol_ch]                ; gaps
-    add ax, [sol_gap]
-    add ax, [sol_gap]
-    mov [sol_taby], ax
+    mov ax, [sol_topy]              ; the tableau clears the top row by the
+    add ax, [sol_ch]                ; record's own gap - two of sol_gap on the
+    add ax, [sol_tgap]              ; big record, less on the small one, where
+    mov [sol_taby], ax              ; every pixel here is one sol_colfan does
+                                    ; not have to take from the cards
     mov ax, [sol_cw]                ; the waste fans right by a third of a
     mov bl, 3                       ; card, into the empty column the layout
     div bl                          ; leaves between it and the foundations
@@ -358,11 +431,29 @@ sol_onresize:
     push dx
     push si
     push di
-    call OSAPI_VIDEO                ; AX=w, BX=h, CX=dock top row, DH=bpp - the
-    mov [sol_scrw], ax              ; bpp banked again too, a switch being
-    mov [sol_dock], cx              ; exactly when it stops being true
-    mov [sol_bpp], dh
-    call sol_metrics
+    mov bx, si                      ; **THE CARD THIS WINDOW IS ON** (SPEC.md
+    call OSAPI_WM_DISPLAY           ; 39.16.4), not the primary. This handler
+                                    ; fires on a DRAG across the seam as well
+                                    ; as on Activate Mode, and OSAPI_VIDEO
+                                    ; answers about the primary either way - so
+                                    ; on a Hercules-plus-CGA machine a game
+                                    ; dragged onto the CGA was re-picking the
+                                    ; HERCULES card metrics, which is the whole
+                                    ; of what this routine exists to get right.
+                                    ; AX=w, BX=h, CX=dock row, SI=band top,
+                                    ; DH=bpp
+    mov [sol_scrw], ax              ; the bpp banked again too, a switch being
+    mov [sol_bpp], dh               ; exactly when it stops being true
+    sub cx, si                      ; the BAND - which is NOT CX - MBAR_H on a
+    add cx, MBAR_H                  ; secondary, that card having no menu bar
+    mov [sol_dock], cx              ; and no dock - put back into the
+                                    ; primary-shaped number every reader of
+                                    ; [sol_dock] already subtracts MBAR_H from,
+                                    ; so nothing else in this file moves
+    call sol_metrics                ; ...and sol_metrics reads BX, which is now
+                                    ; THIS card's height: 348 or 200, which is
+                                    ; the one number the big/small card choice
+                                    ; turns on
     pop di
     pop si
     pop dx
@@ -3364,6 +3455,8 @@ sol_tpl:
     dw sol_ttl, sol_paint, sol_onkey, sol_onclick
 
 ; --- app menu set (SPEC.md 12.2) -----------------------------------------------
+    OS88_PREFER sol_pref, SOL_PW_B, SOL_PH_B,  SOL_PW_B, SOL_PH_B,  SOL_PW_S, SOL_PH_S
+
     OS88_MENUSET sol_menus, sol_m_name, sol_oncmd
         OS88_MENU sol_m_game, sol_mi_game, 3
         OS88_MENU sol_m_deal, sol_mi_deal, 2
@@ -3409,9 +3502,11 @@ sol_rankch:
 ; The face-up fan must clear the rank glyph's 8 rows or a buried card cannot
 ; be read; both records do.
 sol_met_big:                        ; VGA 640x480 and Hercules 720x348
-    dw 32, 44, 4, 4, 4, 5, 14, 3, 3, 21, 3, 8, 22
-sol_met_sml:                        ; CGA 640x200: 156 rows of desktop, all in
-    dw 28, 28, 3, 3, 1, 3, 12, 2, 2, 18, 2, 6, 10
+    dw SOL_CW_B, SOL_CH_B, SOL_GAP_B, SOL_MARG_B, SOL_TOPY_B, SOL_FAND_B
+    dw SOL_FANU_B, 3, 3, 21, 3, 8, 22, SOL_TGAP_B
+sol_met_sml:                        ; CGA 640x200, over the dock: 179 rows
+    dw SOL_CW_S, SOL_CH_S, SOL_GAP_S, SOL_MARG_S, SOL_TOPY_S, SOL_FAND_S
+    dw SOL_FANU_S, 2, 2, 18, 2, 6, 10, SOL_TGAP_S
 
 ; --- suit pips, 1 bit per pixel, bit 15 leftmost -------------------------------
 ; Solid for every suit on a colour screen; on 1bpp the two red suits switch to
@@ -3494,6 +3589,10 @@ sol_ic_ring:
     SWORD sol_psy
     SWORD sol_plx                   ; centre pip, card-relative
     SWORD sol_ply
+    SWORD sol_tgap                  ; foundation row to tableau: two of sol_gap
+                                    ; on the big record and LESS on the small
+                                    ; one, which is a decision about a 200-row
+                                    ; screen rather than a derived number
 
 ; --- derived once, in sol_entry ----------------------------------------------
     SWORD sol_pitch                 ; card width + gap

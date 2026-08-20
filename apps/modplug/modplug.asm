@@ -225,9 +225,74 @@ mpp_entry:
     call OSAPI_MENU_SET             ; preserves registers AND flags, so the
     mov si, mpp_about               ; loader's CF survives to the ret
     call OSAPI_ABOUT_SET
+
+    ; --- ...and the two layouts become a DECLARATION (SPEC.md 11.100.1) ------
+    ; The band test above still decides the size this window OPENS at, and the
+    ; three entries below say the same thing, so nothing about a launch moves.
+    ; What they add is every LATER moment the adapter can change under us -
+    ; the Display page's Activate Mode, and a drag onto the other card on an
+    ; extended desktop (11.100.4) - where before this the face stayed the size
+    ; it was born and [mpp_compact] stayed whatever it was decided to be.
+    mov bx, [mpp_win]
+    mov si, mpp_pref
+    call OSAPI_WM_PREFER            ; preserves the flags, like the two above
+    mov ax, mpp_onresize
+    call OSAPI_WM_ONRESIZE          ; ...and tell us, so the flag can follow
 .out:
     pop di
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; The two layouts, as the three sizes they are (SPEC.md 11.100.1). The heights
+; are the ones mpp_entry's band test picks on each adapter, which is why
+; declaring them changes nothing about how the window opens.
+; -----------------------------------------------------------------------------
+    OS88_PREFER mpp_pref, MPP_FW, MPP_FHF,  MPP_FW, MPP_FHF,  MPP_FW, MPP_FHC
+
+; -----------------------------------------------------------------------------
+; mpp_onresize - the box moved under us, so re-pick the layout (SPEC.md 11.98)
+; in:  the gfx lock is HELD and this MUST NOT DRAW - it decides, and the paint
+;      that follows reads what it decided
+; out: nothing; every register preserved
+;
+; [mpp_compact] was set once at launch from the desktop band, and it is what
+; mppu_layout copies a whole coordinate table out of. An adapter change or a
+; drag onto the other card moves the box and left that byte describing the
+; card the window used to be on: the compact face drawn into a full-size frame,
+; or worse the full face into a 151-row one, where the bottom of the spectrum
+; pane is outside the window and the gfx primitives clip to the SCREEN.
+;
+; It reads the CONTENT height rather than the adapter, because that is what the
+; layout is a function of - the same number mppu_layout itself asks for.
+; -----------------------------------------------------------------------------
+mpp_onresize:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, [mpp_win]
+    call OSAPI_WM_GEOM              ; out CX = content w, DX = content h
+    xor al, al
+    cmp dx, MPP_CHF
+    jae .set
+    mov al, 1                       ; not tall enough for the full face
+.set:
+    cmp al, [mpp_compact]
+    je .out                         ; the same answer: nothing to redraw for
+    mov [mpp_compact], al
+    mov byte [mppu_ok], 0           ; the coordinate table is the OTHER
+                                    ; layout's, so mppu_layout must copy the
+                                    ; new one in rather than keep its origin
+                                    ; check - and MPPI_BODY, because every
+                                    ; element on the face has moved
+    mov ax, MPPI_BODY
+    call mppu_inval
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; =============================================================================
