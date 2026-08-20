@@ -162,6 +162,7 @@ FR_RNTO     equ 9
 FR_CWD      equ 10
 FR_PWD      equ 11                  ; render the current path into the stage
 FR_SIZE     equ 12
+FR_RMD      equ 13
 
 FD_CTL      equ 512                 ; the control line buffer
 FD_OUT      equ 256                 ; ...and the reply being composed
@@ -1356,21 +1357,23 @@ fd_c_abor:
     ret
 
 ; -----------------------------------------------------------------------------
-; fd_c_rmd - the one command that needs a KERNEL change, so it says so
+; fd_c_rmd - and it is a real command now (SPEC.md 18.90.2)
 ;
-; There is no OSAPI_FILE_RMDIR. The kernel has dskw_rmdir and the SDK's own
-; note by OSAPI_FILE_MKDIR records the absence as deliberate - "nothing
-; outside has wanted it, and an unused slot is a promise for nothing" (SPEC.md
-; 20.8 rule 4). Something outside wants it now, and adding a slot spends
-; KERN_BUDGET, which is a decision to take with whoever asked for the feature
-; rather than a build fix (docs/KERNEL-MEMORY.md).
+; It used to refuse with "RMD needs a kernel that has one", which was true:
+; the kernel had dskw_rmdir and no slot published it, and the SDK's own note
+; by OSAPI_FILE_MKDIR recorded the absence as deliberate. This server is what
+; wanted it, so the cell exists and this is an ordinary one-shot.
 ;
-; So this refuses with a reason a person can act on, rather than pretending.
+; **AL = 0, THE STRICT FORM.** RFC 959's RMD is specified to FAIL on a
+; non-empty directory, and a server that quietly emptied one would be
+; destroying data the client believed it was protecting. The recursive form is
+; there (AL non-zero) and this deliberately does not reach for it - FTP has no
+; standard way for a client to ASK for a recursive delete, so using it here
+; would make RMD mean something no client expects.
 ; -----------------------------------------------------------------------------
 fd_c_rmd:
-    mov si, fd_r550r
-    call fd_reply
-    ret
+    mov al, FR_RMD
+    jmp fd_one
 
 ; =============================================================================
 ; THE DATA CONNECTION
@@ -2223,6 +2226,8 @@ fd_iswrite:
     je .yes
     cmp al, FR_MKD
     je .yes
+    cmp al, FR_RMD
+    je .yes
     cmp al, FR_RNTO
     je .yes
     clc
@@ -2283,6 +2288,8 @@ fd_wake:
     je .r_pwd
     cmp al, FR_SIZE
     je .r_size
+    cmp al, FR_RMD
+    je .r_rmd
     jmp .clear
 
 .r_list:  call fd_do_list
@@ -2306,6 +2313,8 @@ fd_wake:
 .r_pwd:   call fd_do_pwd
           jmp short .clear
 .r_size:  call fd_do_size
+          jmp short .clear
+.r_rmd:   call fd_do_rmd
 
 .clear:
     mov byte [fd_req], FR_NONE      ; **LAST, AND AFTER EVERY RESULT IS
@@ -3037,6 +3046,49 @@ fd_do_dele:
     pop si
     ret
 
+; -----------------------------------------------------------------------------
+; fd_do_rmd - remove an EMPTY folder (SPEC.md 18.90.2)
+;
+; **A NON-EMPTY FOLDER ANSWERS FERR_PROT**, from dskw_isempty, and it is worth
+; its own reply because it is the one failure the user can act on. That code
+; also covers a read-only, hidden or system entry - but a package cannot SEE a
+; hidden or system one at all (SPEC.md 19.6.1 fences the walk), so the cause a
+; client can actually reach here is a folder with something in it.
+; -----------------------------------------------------------------------------
+fd_do_rmd:
+    push ax
+    push si
+    call fd_argpath
+    mov si, [fd_pathp]
+    call fd_split
+    jc .no
+    mov si, fd_leaf
+    xor al, al                      ; STRICT - see fd_c_rmd
+    call OSAPI_FILE_RMDIR
+    jc .fail
+    call fd_unbank
+    mov si, fd_r250
+    call fd_reply
+    pop si
+    pop ax
+    ret
+.fail:
+    cmp ax, FERR_PROT
+    jne .no
+    call fd_unbank
+    mov si, fd_r550n
+    call fd_reply
+    pop si
+    pop ax
+    ret
+.no:
+    call fd_unbank
+    mov si, fd_r550
+    call fd_reply
+    pop si
+    pop ax
+    ret
+
 fd_do_mkd:
     push si
     call fd_argpath
@@ -3047,7 +3099,23 @@ fd_do_mkd:
     call OSAPI_FILE_MKDIR
     jc .no
     call fd_unbank
-    mov si, fd_r257m
+    ; **257 CARRIES THE NAME, QUOTED**, which is PWD's format and not a
+    ; decoration: RFC 959 gives MKD the same reply type, and a client parses
+    ; the quoted path back out of it. ftplib's parse257 answers an empty
+    ; string rather than raising when it is missing, so the omission is
+    ; TOLERATED by the one client that would have caught it - which is exactly
+    ; the kind of thing that ships.
+    push di
+    mov di, fd_outb2
+    mov si, fd_r257
+    call fd_dcat
+    mov si, fd_leaf
+    call fd_dcat
+    mov si, fd_r257c
+    call fd_dcat
+    mov byte [di], 0
+    pop di
+    mov si, fd_outb2
     call fd_reply
     pop si
     ret
@@ -3925,7 +3993,7 @@ fd_r229b:   db '|)', 0
 fd_r250:    db '250 Done', 0
 fd_r250c:   db '250 Directory changed', 0
 fd_r257:    db '257 "', 0
-fd_r257m:   db '257 Directory created', 0
+fd_r257c:   db '" created', 0
 fd_r213:    db '213 ', 0
 fd_r350:    db '350 Ready for RNTO', 0
 fd_r425:    db '425 Cannot open a data connection', 0
@@ -3939,7 +4007,7 @@ fd_r503:    db '503 RNFR first', 0
 fd_r504:    db '504 Not supported for that parameter', 0
 fd_r550:    db '550 No such file or directory', 0
 fd_r550d:   db '550 No such directory', 0
-fd_r550r:   db '550 RMD needs a kernel that has one', 0
+fd_r550n:   db '550 Directory not empty', 0
 fd_r550w:   db '550 The server is read only', 0
 fd_r551:    db '551 Read failed', 0
 fd_r552:    db '552 Write failed - disk full or protected', 0

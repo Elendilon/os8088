@@ -2473,6 +2473,33 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
                                  ; it, and an unused slot is a promise for
                                  ; nothing (SPEC.md 20.8 rule 4)
 
+%define OSAPI_FILE_RMDIR    KERNEL_SEG:0x0498   ; SI = a NUL 8.3 name in your
+                                 ; current directory, AL = 0 remove it only if
+                                 ; it is EMPTY / non-zero remove it AND
+                                 ; EVERYTHING UNDER IT (SPEC.md 18.6). out
+                                 ; CF=0 AX=0, else AX = FERR_* (FERR_NOENT no
+                                 ; such folder, FERR_EXIST it is not empty and
+                                 ; you asked for the strict form, FERR_PROT a
+                                 ; hidden or system entry).
+                                 ;
+                                 ; **AL = 0 IS THE ONE TO REACH FOR**, and the
+                                 ; flag exists because the two callers want
+                                 ; opposite things: FTP's RMD is specified to
+                                 ; FAIL on a non-empty directory, so a server
+                                 ; that quietly emptied one would be destroying
+                                 ; data the client believed it was protecting -
+                                 ; while an `rm -r` in a shell means the tree
+                                 ; and says so. There is no undo on this
+                                 ; system, which is why the recursive form is a
+                                 ; deliberate second argument rather than the
+                                 ; default.
+                                 ;
+                                 ; The recursive walk is ITERATIVE and uses the
+                                 ; disk's own '..' links rather than a stack, so
+                                 ; it costs no depth on your 256-byte worker
+                                 ; slice - but it is a FILE SLOT, so it is
+                                 ; UI-task/window-callback context like every
+                                 ; other one, and a deep tree is a long freeze.
 %define OSAPI_FILE_GOTO_Q   KERNEL_SEG:0x0370   ; DX = a folder's first cluster
                                  ; (0 = the root), BL = the volume. out CF=0
                                  ; and AX=0, else AX = FERR_*.

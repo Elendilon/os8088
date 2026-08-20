@@ -408,6 +408,45 @@ def run_gate(m, mo, fails):
         fails.append("a FAILED CWD moved the session to %r - every later bare "
                      "name now resolves in the wrong folder, silently" % pwd)
 
+    # --- 5b: MKD and RMD, and RMD's refusal to empty a folder ---------------
+    # **THE REFUSAL IS THE ASSERTION HERE, not the removal.** RFC 959's RMD is
+    # specified to fail on a non-empty directory, and the recursive form of
+    # OSAPI_FILE_RMDIR (SPEC.md 18.90.2) is one register away - so a server
+    # that reached for it would pass a "does RMD work" test while silently
+    # destroying a tree the client believed it was protecting.
+    r = f.mkd("NEWDIR")
+    say("MKD NEWDIR -> parsed path %r" % r)
+    # ftplib's mkd() runs parse257, which pulls the path out of the QUOTED
+    # field RFC 959 gives a 257. It answers '' rather than raising when the
+    # field is missing - so an empty answer here is the reply being malformed
+    # in a way the client tolerates, which is how it shipped once already.
+    if r != "NEWDIR":
+        fails.append("MKD's 257 parsed as %r, not 'NEWDIR' - the reply is not "
+                     "carrying the quoted path RFC 959 asks for" % r)
+    rows = []
+    f.retrlines("LIST", rows.append)
+    if not any(r.split()[-1] == "NEWDIR" and r.startswith("d") for r in rows):
+        fails.append("MKD NEWDIR did not produce a folder row in LIST")
+    try:
+        f.rmd("DEEP")
+        fails.append("RMD emptied DEEP, which has a file in it - the server "
+                     "reached for the RECURSIVE form and RFC 959 says it must "
+                     "not")
+    except ftplib.error_perm as e:
+        say("RMD on a non-empty folder refused: %s" % e)
+        if not str(e).startswith("550"):
+            fails.append("RMD on a non-empty folder answered %r, not a 550" % e)
+    deep = retr(f, "DEEP/FTPHELLO.TXT")
+    if deep != HELLO:
+        fails.append("the refused RMD damaged DEEP's contents")
+    f.rmd("NEWDIR")
+    rows = []
+    f.retrlines("LIST", rows.append)
+    if any(r.split()[-1] == "NEWDIR" for r in rows):
+        fails.append("RMD NEWDIR left the folder in the listing")
+    else:
+        say("RMD NEWDIR: gone")
+
     f.quit()
 
     # --- 6: Read Only refuses ----------------------------------------------
@@ -428,6 +467,16 @@ def run_gate(m, mo, fails):
     f.retrlines("LIST", rows.append)
     if any("NO.DAT" in r for r in rows):
         fails.append("Read Only refused the STOR and the file appeared anyway")
+    try:
+        f.mkd("NOPE")
+        fails.append("MKD was accepted with Read Only ticked")
+    except ftplib.error_perm:
+        pass
+    try:
+        f.rmd("DEEP")
+        fails.append("RMD was accepted with Read Only ticked")
+    except ftplib.error_perm:
+        say("Read Only refused MKD and RMD too")
     f.quit()
 
     # --- and the HOST reads the image, with no os8088 code in the way -------

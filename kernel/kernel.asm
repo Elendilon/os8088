@@ -2560,7 +2560,12 @@ osapi_table:
                                   ;          OSAPI_WM_CREATE like
                                   ;          OSAPI_WM_ONWAKE - a side table,
                                   ;          not a template word
-osapi_table_end:                  ; 0x0498
+    OSAPI_JSLOT api_file_rmdir    ; 0x0498  N: SI = a NUL 8.3 name, AL = 0 an
+                                  ;         EMPTY folder only / non-zero the
+                                  ;         whole tree under it (SPEC.md 18.6).
+                                  ;         The AL survives the N stub because
+                                  ;         api_copyname banks AX
+osapi_table_end:                  ; 0x04A0
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -2568,8 +2573,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 145 * 8
-%error "os8088 API jump table must be exactly 145 8-byte slots"
+%if OSAPI_TABLE_LEN != 146 * 8
+%error "os8088 API jump table must be exactly 146 8-byte slots"
 %endif
 
 ; =============================================================================
@@ -2726,6 +2731,7 @@ dbg_reg:
     OSAPI_NSTUB api_file_append, dskw_append, 1
     OSAPI_NSTUB api_file_read_at, dskw_read_at, 1
     OSAPI_NSTUB api_file_mkdir,  dskw_mkdir,  1
+    OSAPI_NSTUB api_file_rmdir,  dskw_rmany,  1
 
 ; -----------------------------------------------------------------------------
 ; api_fdlg_open - slot 0x0150. The N stub's shape with ONE difference, and it
@@ -4072,6 +4078,8 @@ dskw_write:           call COLD_SEG:dwf_dskw_write
 dskw_write_sys:       call COLD_SEG:dwf_dskw_write_sys
                     ret
 dskw_mkdir:           call COLD_SEG:dwf_dskw_mkdir
+                    ret
+dskw_rmany:           call COLD_SEG:dwf_dskw_rmany
                     ret
 dskw_read_at:         call COLD_SEG:dwf_dskw_read_at
                     ret

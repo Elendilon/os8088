@@ -4761,5 +4761,14 @@ dwf_dskw_append:        call dskw_append_x
                     retf
 dwf_dskw_append_sys:    call dskw_append_sys_x
                     retf
+; THE AL DISPATCH IS HERE, in the COLD far entry, and not in a second resident
+; thunk: both bodies are already cold, so branching here costs one far entry
+; and one `.text` thunk instead of two of each (SPEC.md 18.6).
+dwf_dskw_rmany:         or  al, al
+                    jz  .empty
+                    call dskw_rmtree
+                    retf
+.empty:             call dskw_rmdir
+                    retf
 
 section .text

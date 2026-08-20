@@ -14180,6 +14180,51 @@ and the only verb for that is **`FSV_ENUM`**, which the RAM disk publishes and
 **`NET.DRV` does not** (its table carries 0 there). A recursive delete over
 the cable is a change at both ends of the protocol, not a branch here.
 
+### 18.90.2 …and a package may remove one — `OSAPI_FILE_RMDIR` (slot 0x0498)
+
+§18.5.1's shape for the other direction, and it publishes **both** §18.6 and
+§18.90 behind one cell:
+
+```
+OSAPI_FILE_RMDIR  in:  SI -> a NUL 8.3 name in the CALLING INSTANCE's current
+                       directory (§19.2.1), AL = 0 remove it only if it is
+                       EMPTY / non-zero remove it AND everything under it
+                  out: CF=0 with AX=0, else AX = FERR_*
+```
+
+**`AL = 0` is the strict form, and the zero is deliberate.** The two callers
+want opposite things: FTP's `RMD` is specified to *fail* on a non-empty
+directory (§77), so a server that quietly emptied one would be destroying data
+the client believed it was protecting — while an `rm -r` in a shell means the
+tree and says so. There is no undo on this system, so the recursive form is a
+second argument a caller has to pass on purpose, and a caller that forgets to
+set AL gets the refusing behaviour.
+
+**The AL survives the N stub for free**, which is what let this be one cell
+rather than two: `api_copyname` banks AX across the name staging, so the flag
+reaches the body untouched and no custom stub was needed.
+
+**The branch is in the COLD far entry** (`dwf_dskw_rmany`), not in a second
+resident thunk. Both bodies are already cold, so branching there costs one far
+entry and one `.text` thunk instead of two of each — and neither existing body
+is renamed, so §22's Delete path is untouched.
+
+The SDK's note by `OSAPI_FILE_MKDIR` used to record the absence of this cell as
+deliberate — *nothing outside has wanted it, and an unused slot is a promise
+for nothing* (§20.8 rule 4). Something outside wanted it: §77's FTP server, and
+the shell-shaped consumers after it.
+
+**Cost, measured** (`tools/kernsize.py`, both guards): `.text` **+42**,
+`.cold` **+8**, `.bss` +0 — 50 bytes of code. On `kern_big` that **crossed an
+image rung** and `KERN_BUDGET` spare went 1,536 → 1,024 (3 steps → 2); on
+`kern_small` nothing was crossed and its spare is unchanged at 512. The rung is
+the honest framing rather than the 50 bytes: the image rung had **28 bytes
+left** before this, so nearly any addition would have tripped it, and it now
+has **498 free** — so the next half-kilobyte of `.text` anywhere is already
+paid for. docs/KERNEL-MEMORY.md's rule about deciding what goes in a rung
+*together* is the one that applies.
+
+
 ### 18.7 A volume is a small index, and the driver holds the partition base
 
 `[disk_drive]` is a **volume index** — 0 = A:, 1 = B:, 2 = C:, 3 = D: — and
@@ -59104,13 +59149,20 @@ component has already moved twice, and leaving the session somewhere the
 client was never told about makes every later bare name resolve in the wrong
 folder — silently, which is docs/FIELD-NOTES.md 4's whole family.
 
-**`RMD` is the one command that needs a kernel change, and it says so.** There
-is no `OSAPI_FILE_RMDIR`: the kernel has `dskw_rmdir` and the SDK's own note
-by `OSAPI_FILE_MKDIR` records the absence as deliberate — *nothing outside has
-wanted it, and an unused slot is a promise for nothing* (§20.8 rule 4).
-Something outside wants it now, and adding a slot spends `KERN_BUDGET`, which
-is a decision to take with whoever asked for the feature rather than a build
-fix (docs/KERNEL-MEMORY.md). So it refuses with a reason a person can act on.
+**`RMD` was the one command that needed a kernel change, and it got one.**
+There was no `OSAPI_FILE_RMDIR` — the kernel had `dskw_rmdir` and the SDK's own
+note by `OSAPI_FILE_MKDIR` recorded the absence as deliberate, *nothing outside
+has wanted it, and an unused slot is a promise for nothing* (§20.8 rule 4).
+This server is what wanted it, so §18.90.2 published it and `fd_c_rmd` is an
+ordinary one-shot.
+
+**It asks for the STRICT form (`AL = 0`).** RFC 959's `RMD` is specified to
+fail on a non-empty directory, and a server that quietly emptied one would be
+destroying data the client believed it was protecting. The recursive form is
+there and this deliberately does not reach for it: FTP has no standard way for
+a client to *ask* for a recursive delete, so using it here would make `RMD`
+mean something no client expects. A non-empty folder answers `FERR_PROT` and
+gets its own reply, because it is the one failure the user can act on.
 
 **`RNFR`/`RNTO` rename within one directory**, because `OSAPI_FILE_RENAME`
 takes two leaf names and resolves both in the current one. A cross-directory
