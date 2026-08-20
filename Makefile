@@ -1570,9 +1570,15 @@ ftpdtest: $(BUILD)/ether360.img $(BUILD)/ftpapps.img
 	@echo "ftpdtest: build/ether360.img + build/ftpapps.img"
 	@echo "          Run it with: python3 tests/ftpd.py"
 
+# SYSTEM/APPDATA IS BUILT, NOT CREATED ON DEMAND (SPEC.md 19.9), and leaving
+# it off this disk is what hid the persistence half of SPEC.md 77.12 for a
+# run: fd_data_enter refuses a volume without it and the save says nothing, so
+# the setting worked all session and was gone on the next launch. The shipped
+# apps disks have carried it all along - this one is the odd disk out.
 $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
-		$(FTPDFILES) DEEP:$(BUILD)/FTPHELLO.TXT
+		$(FTPDFILES) DEEP:$(BUILD)/FTPHELLO.TXT \
+		--folder SYSTEM/APPDATA
 
 $(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
@@ -1785,7 +1791,8 @@ $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py
 # netpkg.inc is the DRIVER's own ABI header, included by both ends so the two
 # cannot drift (SPEC.md 20.11).
 $(BUILD)/ftpd.bin: apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
-                   apps/os88sock.inc drivers/net/netpkg.inc | $(BUILD)
+                   apps/os88line.inc apps/os88sock.inc \
+                   drivers/net/netpkg.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/ftpd/ -I drivers/net/ -o $@ apps/ftpd/ftpd.asm
 	@echo "ftpd:   $(call FILESIZE,$@) bytes"
 

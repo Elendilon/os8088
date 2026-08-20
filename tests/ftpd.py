@@ -25,7 +25,17 @@ and a `LIST` no parser can read.
 inbound route, so the control port and the whole passive range are forwarded
 (Makefile). ftplib since Python 3.11 IGNORES the address in a `227` reply and
 dials the one it is already connected to, so its data connection comes back to
-127.0.0.1 and the forward catches it - a security default doing us a favour.
+127.0.0.1 and the forward catches it.
+
+**AND THAT DEFAULT HID A REAL BUG FOR A WHOLE RELEASE.** This paragraph used
+to end "a security default doing us a favour", and the favour it was doing was
+concealing that the server advertised its own unroutable 10.0.2.15 in every
+`227`. WinSCP trusts that address, dials it, and times out - so the server was
+unusable behind NAT while this gate reported six green assertions. A harness
+whose client is MORE FORGIVING than a real one is not a harness for that
+behaviour (tests/lptlink/partner.py's `NC_BYE` is the same lesson). Assertion
+7 now runs a client that trusts the 227, and assertion 8 runs ACTIVE mode,
+which nothing covered at all.
 
 SIX ASSERTIONS, and they climb the same way stage E's did.
 
@@ -55,6 +65,16 @@ SIX ASSERTIONS, and they climb the same way stage E's did.
 
 6. READ ONLY REFUSES. With the box ticked, STOR is answered `550` and the file
    does NOT appear - so the gate is the server's and not the client's.
+
+7. A CLIENT THAT TRUSTS THE 227 CAN STILL TRANSFER. `trust_server_pasv_ipv4_
+   address = True` is WinSCP's behaviour, and it is the one this gate was
+   blind to. It needs the PASV override set, which is what SPEC.md 77.12's
+   Setup page and FTPD.CFG exist for - so this drives the setting through the
+   window and then proves a trusting client works.
+
+8. ACTIVE MODE WORKS. `PORT`, where the SERVER dials the client. It needs no
+   address from the server at all, which is why it is the answer for a machine
+   behind NAT with nothing configured - and it had no coverage whatsoever.
 
 A STOR bigger than the staging buffer is deliberately included in 4: the whole
 design is a stage-and-commit loop (SPEC.md 77.1) and a file that fits in one
@@ -479,8 +499,130 @@ def run_gate(m, mo, fails):
         say("Read Only refused MKD and RMD too")
     f.quit()
 
+    # --- 8: ACTIVE mode, which needs no address from the server -------------
+    # It had NO coverage, and it is the answer for a machine behind NAT with
+    # nothing configured - so it is the first thing to check after a report
+    # that passive times out.
+    # A BEAT BETWEEN SESSIONS, and it is not padding. Four handles
+    # (netpkg.inc) and the session just ended still holds one while TCP
+    # finishes its close, so a data connection opened immediately can find
+    # nothing free. The server answers 425 for that now rather than 501, so a
+    # real client retries - but this gate asserts the FIRST attempt, which
+    # means it has to give the previous one time to drain.
+    time.sleep(4.0)
+    f = connect()
+    f.login("os8088", "os8088")
+    f.set_pasv(False)
+    rows = []
+    try:
+        f.retrlines("LIST", rows.append)
+        say("ACTIVE LIST: %d rows" % len(rows))
+        if not rows:
+            fails.append("active-mode LIST returned nothing")
+    except Exception as e:
+        fails.append("active mode (PORT) failed: %s: %s" % (type(e).__name__, e))
+    try:
+        got = retr(f, "FTPHELLO.TXT")
+        if got != HELLO:
+            fails.append("active-mode RETR gave %r" % got)
+        else:
+            say("ACTIVE RETR: exact")
+    except Exception as e:
+        fails.append("active-mode RETR failed: %s: %s" % (type(e).__name__, e))
+    f.quit()
+
+    # --- 7: a client that TRUSTS the 227, which is WinSCP's behaviour -------
+    # Untick Read Only first (the box is still set from assertion 6), then set
+    # the PASV override through the Setup page and prove a trusting client can
+    # transfer. Without the override the server advertises its own 10.0.2.15
+    # and this times out - which is exactly what the field reported.
+    fx, fy = ftp_win(m)
+    mo.click(*ro_box(fx, fy))
+    time.sleep(1.0)
+    set_pasv_override(m, mo, "127.0.0.1")
+
+    f = ftplib.FTP()
+    f.encoding = "latin-1"
+    f.trust_server_pasv_ipv4_address = True     # WinSCP, not ftplib's default
+    f.connect(HOST, CTRL, timeout=30)
+    f.login("os8088", "os8088")
+    raw = f.sendcmd("PASV")
+    say("227 as a trusting client sees it: %s" % raw)
+    if "127,0,0,1" not in raw:
+        fails.append("the PASV override did not reach the 227: %r" % raw)
+    rows = []
+    try:
+        f.retrlines("LIST", rows.append)
+        say("TRUSTING LIST: %d rows" % len(rows))
+        if not rows:
+            fails.append("a client trusting the 227 got an empty listing")
+    except Exception as e:
+        fails.append("a client trusting the 227 could not transfer: %s: %s "
+                     "- the PASV override is not working, which is the whole "
+                     "reason it exists" % (type(e).__name__, e))
+    f.quit()
+
     # --- and the HOST reads the image, with no os8088 code in the way -------
     verify_host(fails, up)
+    verify_cfg(fails)
+
+
+def set_pasv_override(m, mo, addr):
+    """Drive the Setup page: menu, click the field, type, menu again.
+
+    THROUGH THE UI AND NOT BY POKING THE BSS, because what is under test is
+    the whole path - the menu item, the line editor, the parse, the save to
+    FTPD.CFG and fd_pasv_addr reading it back. A poke would prove the last
+    step and none of the others.
+    """
+    fx, fy = ftp_win(m)
+    menu_setup(m, mo, fx, fy)
+    time.sleep(1.0)
+    # the field's rect is derived in fd_draw_setup: content + FD_SETX,
+    # content top + FD_SETY + 12, 152px wide and 13 tall
+    mo.click(fx + 1 + 8 + 40, fy + TITLE_H + 24 + 12 + 6)
+    time.sleep(0.6)
+    type_text(addr)
+    time.sleep(0.4)
+    menu_setup(m, mo, fx, fy)       # leaving is what commits and saves
+    time.sleep(2.0)
+    say("PASV override set to %s through the Setup page" % addr)
+
+
+# The app's menu bar cell and its third item, MEASURED on a running machine
+# rather than derived: `Server` spans x 97..143 under the chip menu and the
+# `Ftpd` name cell, and MENU_ITEM_H puts `Setup...` at y 56.
+MENU_X, MENU_Y, SETUP_Y = 120, 8, 56
+
+
+def menu_setup(m, mo, fx, fy):
+    """Server > Setup..., through the real menu bar.
+
+    **A MENU IS PRESS, DRAG, RELEASE - never a click** (CLAUDE.md): menu_track
+    draws the pull-down and then polls a level, so a press-and-release in place
+    opens it and closes it in the same breath. tools/mouse.py has no `menu`
+    verb - that is os88mouse.py, the MartyPC one - so it is down / to / up.
+    """
+    mo.run("down", str(MENU_X), str(MENU_Y))
+    time.sleep(0.5)
+    mo.run("to", str(MENU_X), str(SETUP_Y))
+    time.sleep(0.4)
+    mo.run("up")
+    time.sleep(0.8)
+
+
+def type_text(text):
+    cmds = []
+    for ch in text:
+        if ch.isdigit():
+            cmds += ["sendkey " + ch]
+        elif ch == ".":
+            cmds += ["sendkey dot"]
+        else:
+            sys.exit("ftpd: no sendkey mapping for %r" % ch)
+        cmds += ["sleep 0.08"]
+    subprocess.run(["python3", "tools/qmp.py", SOCK] + cmds,
+                   check=True, capture_output=True)
 
 
 def verify_host(fails, up):
@@ -512,12 +654,50 @@ def verify_host(fails, up):
             "exact" % len(up))
 
 
-def extract(img, name11):
-    """The root directory and the cluster chain, by hand off the BPB.
+def verify_cfg(fails):
+    """FTPD.CFG is ON THE DISK, parsed by a reader that shares no code with it.
+
+    **THE IN-SESSION EFFECT IS NOT THE PERSISTENCE.** Assertion 7 proves the
+    override reaches the 227, which it does whether or not anything was ever
+    written - and on the first run of this gate nothing was: the test disk had
+    no SYSTEM/APPDATA, so fd_data_enter refused and the save said nothing,
+    exactly as SPEC.md 19.9 asks it to. The setting worked all session and was
+    gone on the next launch, and every assertion still passed.
+    """
+    data = extract(APPIMG, "FTPD    CFG", ("SYSTEM     ", "APPDATA    "))
+    if data is None:
+        fails.append("FTPD.CFG is not on the image - the setting was never "
+                     "persisted, and SPEC.md 77.12 is half a feature")
+        return
+    if data[:8] != b"O88FTPD\0":
+        fails.append("FTPD.CFG's magic is %r" % data[:8])
+        return
+    ver = data[8] | (data[9] << 8)
+    keys = {}
+    i = 10
+    while i + 1 < len(data) and data[i] != 0:
+        k, n = data[i], data[i + 1]
+        keys[chr(k)] = list(data[i + 2:i + 2 + n])
+        i += 2 + n
+    say("FTPD.CFG: %d bytes, version %d, keys %s"
+        % (len(data), ver, sorted(keys)))
+    if keys.get("A") != [127, 0, 0, 1]:
+        fails.append("FTPD.CFG's 'A' record is %r, wanted [127,0,0,1]"
+                     % keys.get("A"))
+
+
+def extract(img, name11, path=()):
+    """A file's bytes, by hand off the BPB - optionally down a folder PATH.
 
     Deliberately NOT os88disk.py's own extractor: this is the second opinion,
     so it reads the volume the way any FAT12 driver would and shares no code
     with the thing under test.
+
+    **THE PATH ARGUMENT IS NOT A CONVENIENCE.** Without it this walked the
+    ROOT only, and FTPD.CFG lives in SYSTEM/APPDATA (SPEC.md 19.9) - so the
+    persistence check reported the file missing when it was there, which is a
+    false failure that reads exactly like the real one it was written to
+    catch.
     """
     b = open(img, "rb").read()
     bps = b[11] | (b[12] << 8)
@@ -529,24 +709,44 @@ def extract(img, name11):
     root = (rsvd + nfat * spf) * bps
     data = root + nroot * 32
     fat = b[rsvd * bps: (rsvd + spf) * bps]
-    for i in range(nroot):
-        e = b[root + i * 32: root + i * 32 + 32]
-        if e[0] in (0x00,):
+
+    def chain(clus, limit=None):
+        out = b""
+        while 2 <= clus < 0xFF0 and (limit is None or len(out) < limit):
+            off = data + (clus - 2) * spc * bps
+            out += b[off: off + spc * bps]
+            j = clus + (clus >> 1)              # FAT12: 12 bits an entry
+            v = fat[j] | (fat[j + 1] << 8)
+            clus = (v >> 4) if (clus & 1) else (v & 0xFFF)
+        return out
+
+    # Walk down to the directory that holds the file. The root is a flat
+    # region; a SUBdirectory is an ordinary cluster chain of the same records.
+    ents = b[root: root + nroot * 32]
+    for comp in path:
+        found = None
+        for i in range(0, len(ents), 32):
+            e = ents[i:i + 32]
+            if not e or e[0] == 0x00:
+                break
+            if e[0] == 0xE5 or (e[11] & 0x0F) == 0x0F:
+                continue
+            if e[:11].decode("latin-1") == comp and (e[11] & 0x10):
+                found = e[26] | (e[27] << 8)
+                break
+        if found is None:
+            return None
+        ents = chain(found)
+    for i in range(0, len(ents), 32):
+        e = ents[i:i + 32]
+        if len(e) < 32 or e[0] == 0x00:
             break
         if e[0] == 0xE5 or (e[11] & 0x0F) == 0x0F:
             continue
         if e[:11].decode("latin-1") != name11:
             continue
         size = int.from_bytes(e[28:32], "little")
-        clus = e[26] | (e[27] << 8)
-        out = b""
-        while 2 <= clus < 0xFF0 and len(out) < size:
-            off = data + (clus - 2) * spc * bps
-            out += b[off: off + spc * bps]
-            j = clus + (clus >> 1)                  # FAT12: 12 bits an entry
-            v = fat[j] | (fat[j + 1] << 8)
-            clus = (v >> 4) if (clus & 1) else (v & 0xFFF)
-        return out[:size]
+        return chain(e[26] | (e[27] << 8), size)[:size]
     return None
 
 

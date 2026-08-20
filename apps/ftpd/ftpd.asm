@@ -164,6 +164,15 @@ FR_PWD      equ 11                  ; render the current path into the stage
 FR_SIZE     equ 12
 FR_RMD      equ 13
 
+; --- which face the content box is showing (SPEC.md 77.12) -------------------
+; A PAGE and not a flag, because there are three of them now and there will be
+; more: the About panel was `[fd_abon]`, one byte meaning one thing, and the
+; moment Setup arrived that byte had to answer a question it was not shaped
+; for. Pages are drawn by fd_draw_all and nothing else knows they exist.
+FP_LOG      equ 0                   ; the command log - the working face
+FP_SETUP    equ 1                   ; the settings, backed by FTPD.CFG
+FP_ABOUT    equ 2                   ; the credits
+
 FD_CTL      equ 512                 ; the control line buffer
 FD_OUT      equ 256                 ; ...and the reply being composed
 FD_NAMEMAX  equ 13                  ; an 8.3 name and its NUL
@@ -211,6 +220,10 @@ FD_PASVP    equ 2048                ; the passive port, plus a rotating count.
                                     ; one transfer and starts another leaves
                                     ; the last port in TIME_WAIT on ITS side
 FD_PASVN    equ 8
+FD_CFGSZ    equ 256                 ; FTPD.CFG, read and composed whole. It is
+                                    ; a settings file and not a document: if
+                                    ; it ever needs more than this, the thing
+                                    ; that grew wants a file of its own
 
 FTP_PORT    equ 21
 
@@ -240,6 +253,9 @@ fd_entry:
     mov bx, [fd_win]
     call OSAPI_ABOUT_SET            ; preserves the flags, which matters: the
     pop si                          ; CF wm_create left still has to ride out
+    call fd_cfg_load                ; SYSTEM\APPDATA\FTPD.CFG, if the disk has
+                                    ; one. UI-task context, which the entry
+                                    ; proc is - the worker does not exist yet
     mov si, fd_l_ready
     call fd_log
     clc
@@ -323,9 +339,14 @@ fd_paint:
 
 ; --- fd_draw_all - the whole face. Lock held, fd_layout already run ----------
 fd_draw_all:
-    cmp byte [fd_abon], 0
-    je .face
+    cmp byte [fd_page], FP_ABOUT
+    jne .nab
     call fd_draw_about
+    ret
+.nab:
+    cmp byte [fd_page], FP_SETUP
+    jne .face
+    call fd_draw_setup
     ret
 .face:
     call fd_draw_btn
@@ -449,6 +470,14 @@ fd_stat_text:
     call fd_dnum
     mov si, fd_s_at
     call fd_dcat
+    mov ax, [fd_pasv]               ; the OVERRIDE is what a client is told, so
+    or ax, [fd_pasv+2]              ; it is what the status line has to show -
+    jz .own                         ; otherwise the one machine that needs the
+    call fd_pasv_str                ; setting is the one whose window disagrees
+    mov si, fd_pasvs                ; with what it is sending
+    call fd_dcat
+    jmp short .pad
+.own:
     mov si, fd_ipstr
     call fd_dcat
 .pad:
@@ -1441,7 +1470,7 @@ fd_c_pasv:
     push dx
     push si
     push di
-    call fd_getaddr
+    call fd_pasv_addr               ; the OVERRIDE if one is set, else our own
     jc .noaddr
     call fd_data_listen
     jc .nosock
@@ -1492,6 +1521,44 @@ fd_c_pasv:
     pop bx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; fd_pasv_addr - the address to put in a 227, into fd_ip
+; out: CF=1 there is none to be had
+;
+; **THE OVERRIDE EXISTS BECAUSE THE SERVER CANNOT WORK THIS OUT** (SPEC.md
+; 77.12.2). Behind NAT - 86Box or QEMU with port forwarding, a router, a
+; container - the address a client must dial is one the guest has never seen
+; and cannot derive: our own is 10.0.2.15 or similar, which is unroutable from
+; the far side, and a 227 carrying it tells the client to connect somewhere
+; nothing is listening. It is the same feature as vsftpd's `pasv_address` and
+; ProFTPD's `MasqueradeAddress`, and it is configuration for the same reason
+; they made it configuration.
+;
+; EPSV needs none of this, carrying only a port - so a client that speaks it
+; works behind NAT with no setting at all, and fd_c_pasv's refusal says so.
+; -----------------------------------------------------------------------------
+fd_pasv_addr:
+    push ax
+    push si
+    push di
+    mov ax, [fd_pasv]
+    or ax, [fd_pasv+2]
+    jz .own
+    mov ax, [fd_pasv]               ; the configured one, straight across
+    mov [fd_ip], ax
+    mov ax, [fd_pasv+2]
+    mov [fd_ip+2], ax
+    pop di
+    pop si
+    pop ax
+    clc
+    ret
+.own:
+    pop di
+    pop si
+    pop ax
+    jmp fd_getaddr                  ; ...and its CF is the answer
 
 ; --- fd_c_epsv - 229, and NO address at all ----------------------------------
 ; RFC 2428's reply carries only the port, which is why the clients that prefer
@@ -1615,10 +1682,22 @@ fd_c_port:
     mov bh, NET_CLASS
     mov bl, NETV_OPEN
     call OSAPI_DRV_CALL
-    jc .bad
+    jc .noconn                      ; **NOT 501.** The argument parsed; what
+                                    ; failed is the CONNECTION
     mov [fd_dhnd], al
     mov byte [fd_dmode], DM_PORT
     mov si, fd_r200
+    call fd_reply
+    jmp short .out
+.noconn:
+    ; 425 IS TRANSIENT AND 501 IS PERMANENT, and the difference decides
+    ; whether the client retries. The commonest cause here is NETE_FULL: four
+    ; handles (netpkg.inc), and a session that has just ended still holds one
+    ; while TCP finishes its close - so a client reconnecting immediately
+    ; finds nothing free. Answered 501 it gives up and reports a malformed
+    ; command; answered 425 it tries again a moment later and succeeds.
+    call fd_data_drop
+    mov si, fd_r425
     call fd_reply
     jmp short .out
 .bad:
@@ -3761,10 +3840,15 @@ fd_onclick:
     push si
     push di
     call fd_layout
-    cmp byte [fd_abon], 0
-    je .live
-    mov byte [fd_abon], 0           ; any click dismisses the credits, and
+    cmp byte [fd_page], FP_ABOUT
+    jne .nab
+    mov byte [fd_page], FP_LOG      ; any click dismisses the credits, and
     jmp short .paint                ; nothing under them is acted on
+.nab:
+    cmp byte [fd_page], FP_SETUP
+    jne .live
+    call fd_setup_click
+    jmp short .paint
 .live:
     mov bx, fd_btn
     call fd_inrect
@@ -3824,16 +3908,43 @@ fd_inrect:
     ret
 
 ; --- fd_onkey - W_ONKEY: AL = ASCII, AH = scan -------------------------------
+; --- fd_onkey - W_ONKEY: AL = ASCII, AH = scan. Lock held ------------------
+; The LOG face takes no typed text at all - it is two controls and a list - so
+; this is the Setup field's and nothing else's.
 fd_onkey:
-    ret                             ; nothing here takes typed text: the whole
-                                    ; interface is two controls and a log
+    push si
+    cmp byte [fd_page], FP_SETUP
+    jne .out
+    cmp byte [fd_pfoc], 0           ; a field has to have been CLICKED first,
+    je .out                         ; or a stray keystroke edits an address the
+                                    ; user is not looking at
+    mov si, fd_line
+    call os88line_key
+    jc .out                         ; not a key the field wanted
+    mov si, fd_line
+    call os88line_draw
+.out:
+    pop si
+    ret
 
 ; --- fd_oncmd - AL = the menu cell, AH = the item ----------------------------
 fd_oncmd:
     push si
+    or ah, ah                       ; **AL IS THE ITEM AND AH IS THE MENU**, and
+    jnz .out                        ; this had them the other way round - which
+                                    ; is the THIRD time in this tree: telnet's
+                                    ; te_oncmd carries the same note and the
+                                    ; browser's Go menu had it at the same place
+                                    ; (SPEC.md 71.8).
+                                    ;
+                                    ; It fails in the way that survives review:
+                                    ; there is exactly one menu here, so the
+                                    ; menu index is always 0 - the FIRST item
+                                    ; worked perfectly and every other one was
+                                    ; unreachable, which reads as "the new item
+                                    ; does nothing" rather than as a swapped
+                                    ; pair.
     or al, al
-    jnz .out
-    cmp ah, 0
     jne .clr
     cmp byte [fd_st], FD_OFF
     je .start
@@ -3843,9 +3954,14 @@ fd_oncmd:
     call fd_start
     jmp short .paint
 .clr:
-    cmp ah, 1
-    jne .out
+    cmp al, 1
+    jne .setup
     call fd_logclear
+    jmp short .paint
+.setup:
+    cmp al, 2
+    jne .out
+    call fd_setup_toggle
 .paint:
     mov byte [fd_ldirty], 0
     mov si, [fd_win]
@@ -3872,6 +3988,591 @@ fd_logclear:
     pop ax
     ret
 
+; =============================================================================
+; THE SETUP PAGE, AND FTPD.CFG (SPEC.md 77.12)
+;
+; **IT IS A PAGE OF THE MAIN WINDOW AND NOT A SECOND WINDOW**, and that is a
+; decision about what comes next rather than about what is here now. A package
+; may have more than one window, but `fdlg_open` fences on `inst_win_owner`:
+; the window it is handed must belong to a live instance, and a package's
+; SECOND window is deliberately unbound, so its close box reduces to wm_hide
+; (SPEC.md 56 is the worked example - ModPlug's PlayList has to pass the
+; PLAYER's window to open a file dialog at all). The settings that are coming -
+; a root folder to serve - want a folder PICKER, so the page that hosts them
+; has to be in the bound window. Doing it now costs nothing; discovering it
+; later costs the window.
+; =============================================================================
+FD_IPMAX    equ 16                  ; '255.255.255.255' and its NUL
+FD_SETX     equ 8                   ; the field's inset in the content box
+FD_SETY     equ 24                  ; ...and the first row's top
+
+; --- fd_setup_toggle - in and out of the page, saving on the way out --------
+; **THE SAVE IS ON LEAVING, NOT ON EVERY KEYSTROKE.** SPEC.md 31.8's rule for
+; the Control Panel, and for its reason: a write here is a mount, a data
+; sector, a FAT sector, a directory sector and a remount, which on the machine
+; this is for is seconds of frozen UI - landing in the middle of typing an
+; address, once per character.
+fd_setup_toggle:
+    push si
+    cmp byte [fd_page], FP_SETUP
+    je .leave
+    call fd_line_init
+    mov byte [fd_page], FP_SETUP
+    jmp short .out
+.leave:
+    call fd_setup_commit
+    mov byte [fd_page], FP_LOG
+.out:
+    mov byte [fd_pfoc], 0
+    pop si
+    ret
+
+; --- fd_line_init - point the editor at the address buffer ------------------
+; **THE BLOCK'S BUFFER WORDS ARE NOT OPTIONAL**: bss arrives zeroed (SPEC.md
+; 21 step 5), so an unset LN_BUF points at offset 0 - this package's own
+; header - and the first keystroke writes into it. Telnet's te_entry carries
+; the same note for the same reason.
+fd_line_init:
+    push ax
+    push si
+    mov word [fd_line + LN_BUF], fd_pasvs
+    mov word [fd_line + LN_MAX], FD_IPMAX
+    mov si, fd_line
+    mov di, fd_pasvs
+    call os88line_set               ; LN_LEN/LN_CAR/LN_VIEW from the text
+    pop si
+    pop ax
+    ret
+
+; --- fd_setup_commit - parse what was typed, keep it, write it out ----------
+; A field that will not parse is REFUSED and the old value stands, because the
+; alternative - storing 0.0.0.0 and carrying on - is a server that answers
+; PASV with an address telling the client to connect to itself.
+fd_setup_commit:
+    push ax
+    push si
+    push di
+    mov si, fd_pasvs
+    cmp byte [si], 0
+    jne .parse
+    xor ax, ax                      ; an EMPTY field clears the override, which
+    mov [fd_pasv+0], ax             ; is how a user goes back to "use my own
+    mov [fd_pasv+2], ax             ; address" without knowing what it is
+    jmp short .save
+.parse:
+    mov di, fd_pasv
+    call fd_parseip
+    jc .bad
+.save:
+    call fd_cfg_save
+.bad:
+    call fd_pasv_str                ; the field always shows what was TAKEN,
+    pop di                          ; never what was asked - a refused parse
+    pop si                          ; puts the old address back on screen
+    pop ax
+    ret
+
+; --- fd_parseip - SI = dotted quad -> DI = four bytes. CF=1 = it is not one --
+fd_parseip:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    xor cx, cx                      ; fields taken
+.f:
+    xor bx, bx
+    mov byte [fd_tmpb], 0
+.d:
+    mov al, [si]
+    cmp al, '0'
+    jb .fend
+    cmp al, '9'
+    ja .fend
+    inc si
+    sub al, '0'
+    xor ah, ah
+    push ax
+    mov ax, bx
+    mov bx, 10
+    mul bx
+    mov bx, ax
+    pop ax
+    add bx, ax
+    mov byte [fd_tmpb], 1
+    cmp bx, 255
+    ja .no                          ; not a byte, so not a quad
+    jmp short .d
+.fend:
+    cmp byte [fd_tmpb], 0
+    je .no                          ; an empty field
+    mov [di], bl
+    inc di
+    inc cx
+    mov al, [si]
+    or al, al
+    jz .end
+    cmp al, '.'
+    jne .no
+    inc si
+    cmp cx, 4
+    jae .no                         ; a fifth field
+    jmp short .f
+.end:
+    cmp cx, 4
+    jne .no
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; --- fd_pasv_str - render [fd_pasv] into the field, or empty when it is unset
+fd_pasv_str:
+    push ax
+    push bx
+    push di
+    mov di, fd_pasvs
+    mov ax, [fd_pasv]
+    or ax, [fd_pasv+2]
+    jz .none
+    xor bx, bx
+.q:
+    mov al, [fd_pasv+bx]
+    xor ah, ah
+    call fd_dnum
+    inc bx
+    cmp bx, 4
+    jae .done
+    mov byte [di], '.'
+    inc di
+    jmp short .q
+.done:
+    mov byte [di], 0
+    call fd_line_init
+    pop di
+    pop bx
+    pop ax
+    ret
+.none:
+    mov byte [di], 0
+    call fd_line_init
+    pop di
+    pop bx
+    pop ax
+    ret
+
+; --- fd_setup_click - CX,DX are the click. Lock held ------------------------
+fd_setup_click:
+    push si
+    mov si, fd_line
+    call os88line_click             ; CF=0 = it landed in the field
+    jc .off
+    mov byte [fd_pfoc], 1
+    mov byte [fd_line + LN_FOCUS], 1
+    pop si
+    ret
+.off:
+    mov byte [fd_pfoc], 0
+    mov byte [fd_line + LN_FOCUS], 0
+    pop si
+    ret
+
+; --- fd_draw_setup - the page. Lock held, fd_layout already run -------------
+; ONE FIELD TODAY. The rows are drawn from constants rather than a table
+; because a second setting is not a second text box - a root folder wants a
+; PICKER and a password wants a masked field - so a table would be a shape
+; guessed before its second instance exists (SPEC.md 18.7.3's lesson).
+fd_draw_setup:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov ax, [fd_ox]
+    mov bx, [fd_oy]
+    mov cx, ax
+    add cx, [fd_cw]
+    dec cx
+    mov dx, bx
+    add dx, [fd_ch]
+    dec dx
+    call OSAPI_GFX_FILL
+    mov cx, [fd_ox]
+    add cx, FD_SETX
+    mov dx, [fd_oy]
+    add dx, FD_PAD
+    mov si, fd_s_sethd
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    mov cx, [fd_ox]
+    add cx, FD_SETX
+    mov dx, [fd_oy]
+    add dx, FD_SETY
+    mov si, fd_s_pasvl
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    ; the field's rect, derived from the LIVE content box every paint
+    mov ax, [fd_ox]
+    add ax, FD_SETX
+    mov [fd_line + LN_X1], ax
+    add ax, 152
+    mov [fd_line + LN_X2], ax
+    mov ax, [fd_oy]
+    add ax, FD_SETY + 12
+    mov [fd_line + LN_Y1], ax
+    add ax, 13
+    mov [fd_line + LN_Y2], ax
+    mov si, fd_line
+    call os88line_draw
+    ; ...and the two lines that say what it is FOR
+    mov bx, [fd_oy]
+    add bx, FD_SETY + 34
+    mov di, fd_s_sethelp
+.h:
+    mov si, [di]
+    or si, si
+    jz .out
+    mov cx, [fd_ox]
+    add cx, FD_SETX
+    mov dx, bx
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    add bx, FD_ROWH + 2
+    add di, 2
+    jmp short .h
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; =============================================================================
+; FTPD.CFG - SYSTEM/APPDATA, and a format built to GROW (SPEC.md 77.12.1)
+;
+; **A KEYED FILE AND NOT A STRUCT**, because the settings that are coming - a
+; root folder to serve, a single user and password - are not known yet and a
+; fixed layout would have to be versioned for each of them. Every record is
+; key, length, payload, so a reader SKIPS what it does not know using the
+; length it was given: an old FTPD.CFG loads into a new build with the missing
+; settings at their defaults, and a new one loads into an old build with the
+; extra settings ignored. That is SPEC.md 51.5's rule for SYSTEM.CFG applied
+; to a package's own file.
+;
+;   +0   8   'O88FTPD' and a NUL - byte for byte, or the file is not ours
+;   +8   2   the format version, currently 1
+;   +10  ..  records, until a key of 0:
+;              +0 1  key
+;              +1 1  payload length
+;              +2 n  the payload
+;
+; A truncated record ends the parse with what has been read so far, rather
+; than refusing the whole file: a half-written settings file should cost the
+; setting, not the session.
+; =============================================================================
+FC_END      equ 0
+FC_PASV     equ 'A'                 ; 4 bytes, the PASV address in wire order
+
+fd_cfg_name: db 'FTPD.CFG', 0
+fd_cfg_sig:  db 'O88FTPD', 0        ; 8 bytes, and compared as 8
+fd_d_system: db 'SYSTEM', 0
+fd_d_appdat: db 'APPDATA', 0
+
+; --- fd_data_enter / fd_data_leave - stand in SYSTEM\APPDATA on OUR volume --
+; Cyclone's routine (SPEC.md 67.20) and its trap, which is worth repeating
+; where the next person will read it: **IT IS OSAPI_FILE_GOTO AND NOT ITS
+; QUIET TWIN.** GOTO_Q moves the GLOBAL cwd and deliberately not the
+; INSTANCE's, while OSAPI_FILE_FIND, _READ and _WRITE every one resolve in the
+; instance's folder through inst_vol_enter - so a quiet move is undone by the
+; very next call and the write lands where the app was launched from. SPEC.md
+; 19.9's own prose says to use the quiet twin and is wrong about it.
+fd_data_enter:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    call OSAPI_FILE_HERE            ; DX = our cwd, BL = our drive
+    mov [fd_dbclus], dx
+    mov [fd_dbdrv], bl
+    xor dx, dx                      ; the ROOT of that same volume
+    call OSAPI_FILE_GOTO
+    jc .back
+    mov si, fd_d_system
+    call fd_data_dive
+    jc .back
+    mov si, fd_d_appdat
+    call fd_data_dive
+    jc .back
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.back:
+    ; A DISK WITHOUT THE FOLDER IS NOT AN ERROR (SPEC.md 19.9) - it is a user's
+    ; own disk. Put the volume back and refuse; the caller then keeps its state
+    ; in memory and says nothing, which is what a refused write already did.
+    call fd_data_home
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+fd_data_leave:
+    pushf                           ; the caller's result is in CF and AX
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    call fd_data_home
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+    ret
+
+fd_data_home:
+    push ax
+    push bx
+    push dx
+    mov dx, [fd_dbclus]
+    mov bl, [fd_dbdrv]
+    call OSAPI_FILE_GOTO
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; --- fd_data_dive - step into the folder named at SI. CF=1 = no such folder --
+fd_data_dive:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call fd_find                    ; the ordinal walk, fd_fbuf filled
+    jc .no
+    cmp word [fd_fbuf+14], OSAPI_FT_DIR
+    jne .no
+    mov dx, [fd_fbuf+16]
+    call OSAPI_FILE_HERE            ; BL = the drive; DX is spent by it...
+    mov dx, [fd_fbuf+16]            ; ...so the folder's cluster goes back
+    call OSAPI_FILE_GOTO
+    jc .no
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.no:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; --- fd_cfg_load - read FTPD.CFG if it is there. Never fails visibly --------
+fd_cfg_load:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    call fd_data_enter
+    jc .out
+    mov si, fd_cfg_name
+    mov bx, fd_cfgb
+    mov cx, FD_CFGSZ
+    xor dx, dx
+    call OSAPI_FILE_READ            ; DX:AX = the size
+    jc .leave
+    or dx, dx
+    jnz .leave                      ; longer than our buffer: not ours
+    cmp ax, 10
+    jb .leave                       ; too short to hold a header
+    mov [fd_cfgn], ax
+    call fd_cfg_parse
+.leave:
+    call fd_data_leave
+.out:
+    call fd_pasv_str                ; the field shows whatever survived
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- fd_cfg_parse - the records, skipping what this build does not know -----
+fd_cfg_parse:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov si, fd_cfgb
+    mov di, fd_cfg_sig
+    mov cx, 8
+.sig:
+    mov al, [si]
+    cmp al, [di]
+    jne .out                        ; not our file: leave every default alone
+    inc si
+    inc di
+    loop .sig
+    add si, 2                       ; the version: nothing branches on it YET,
+                                    ; because the KEYS carry compatibility and
+                                    ; a version bump is for the day a key has
+                                    ; to change MEANING rather than appear
+.rec:
+    mov bx, si
+    sub bx, fd_cfgb
+    add bx, 2
+    cmp bx, [fd_cfgn]
+    ja .out                         ; a truncated record: keep what we have
+    mov al, [si]                    ; the key
+    cmp al, FC_END
+    je .out
+    mov ah, [si+1]                  ; its length
+    add si, 2
+    push ax
+    xor ah, ah
+    mov bx, si
+    sub bx, fd_cfgb
+    pop ax
+    push ax
+    mov al, ah
+    xor ah, ah
+    add bx, ax
+    cmp bx, [fd_cfgn]
+    pop ax
+    ja .out                         ; the payload runs off the end
+    cmp al, FC_PASV
+    jne .skip
+    cmp ah, 4
+    jne .skip
+    mov bx, [si]
+    mov [fd_pasv], bx
+    mov bx, [si+2]
+    mov [fd_pasv+2], bx
+.skip:
+    mov al, ah                      ; **SKIP BY THE LENGTH**, which is the whole
+    xor ah, ah                      ; of what makes this format grow: a key
+    add si, ax                      ; this build has never heard of costs it
+    jmp short .rec                  ; nothing at all
+.out:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; --- fd_cfg_save - compose and write. A refusal is silent (SPEC.md 19.9) ----
+fd_cfg_save:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov di, fd_cfgb
+    mov si, fd_cfg_sig
+    mov cx, 8
+.sig:
+    mov al, [si]
+    mov [di], al
+    inc si
+    inc di
+    loop .sig
+    mov word [di], 1                ; the version
+    add di, 2
+    mov ax, [fd_pasv]               ; ...and the ONE record there is, omitted
+    or ax, [fd_pasv+2]              ; entirely when it is unset rather than
+    jz .end                         ; written as four zeroes
+    mov byte [di], FC_PASV
+    mov byte [di+1], 4
+    add di, 2
+    mov ax, [fd_pasv]
+    mov [di], ax
+    mov ax, [fd_pasv+2]
+    mov [di+2], ax
+    add di, 4
+.end:
+    mov byte [di], FC_END
+    inc di
+    mov cx, di
+    sub cx, fd_cfgb
+    call fd_data_enter
+    jc .out
+    mov si, fd_cfg_name
+    mov bx, fd_cfgb
+    xor dx, dx
+    call OSAPI_FILE_WRITE
+    call fd_data_leave
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; fd_about - the credits, as a MODE of the window rather than a second window
 ;
@@ -3882,7 +4583,7 @@ fd_logclear:
 ; -----------------------------------------------------------------------------
 fd_about:
     push si
-    mov byte [fd_abon], 1
+    mov byte [fd_page], FP_ABOUT
     mov byte [fd_ldirty], 0
     mov si, [fd_win]
     call fd_layout
@@ -3942,9 +4643,10 @@ fd_draw_about:
 fd_ttl:     db 'FTP Server', 0
 fd_name_s:  db 'Ftpd', 0
 fd_m_srv:   db 'Server', 0
-fd_i_srv:   dw fd_it_run, fd_it_clr
+fd_i_srv:   dw fd_it_run, fd_it_clr, fd_it_set
 fd_it_run:  db 'Start / Stop', 0
 fd_it_clr:  db 'Clear Log', 0
+fd_it_set:  db 'Setup...', 0
 
 ; --- the status line ---------------------------------------------------------
 fd_s_state: dw fd_s_off, fd_s_lis, fd_s_ctl, fd_s_err
@@ -4022,6 +4724,14 @@ FD_ROWMAX   equ 80                  ; the longest row fd_list_row can emit: the
                                     ; 32-byte prefix, 10 of size, 14 of date,
                                     ; 12 of name and a CRLF, with room over
 
+; --- the Setup page ----------------------------------------------------------
+fd_s_sethd:  db 'Setup', 0
+fd_s_pasvl:  db 'PASV address seen by clients:', 0
+fd_s_sethelp: dw fd_sh1, fd_sh2, fd_sh3, 0
+fd_sh1:      db "Empty = use this machine's own address.", 0
+fd_sh2:      db 'Set it when behind NAT or port', 0
+fd_sh3:      db 'forwarding. EPSV needs no setting.', 0
+
 ; --- the About panel ---------------------------------------------------------
 fd_ab_l:    dw fd_ab1, fd_ab2, fd_ab3, fd_ab4, fd_ab5, fd_ab6, 0
 fd_ab1:     db 'FTP Server for os8088', 0
@@ -4032,7 +4742,7 @@ fd_ab5:     db 0
 fd_ab6:     db 'Anyone on the network can read these', 0
 
     OS88_MENUSET fd_menus, fd_name_s, fd_oncmd
-        OS88_MENU fd_m_srv, fd_i_srv, 2
+        OS88_MENU fd_m_srv, fd_i_srv, 3
     OS88_MENUSET_END fd_menus
 
 fd_tpl:
@@ -4040,6 +4750,9 @@ fd_tpl:
     dw fd_ttl, fd_paint, fd_onkey, fd_onclick
 
 %include "os88ui.inc"
+%include "os88line.inc"             ; the Setup page's address field. AFTER
+                                    ; os88ui.inc, which it needs the UI_*
+                                    ; macros from (its own header says so)
 %include "os88sock.inc"             ; net_find (SPEC.md 72, SPEC.md 20.11.1)
 
     OS88_BSS FD_BSS
@@ -4095,7 +4808,8 @@ fd_bdrv     equ os88_image_end + 64  ; byte: ...and the drive it moved from
 fd_spc      equ os88_image_end + 65  ; byte: sectors per cluster, banked
 fd_havern   equ os88_image_end + 66  ; byte: RNFR has been accepted
 fd_pasvn    equ os88_image_end + 67  ; byte: the rotating passive port
-fd_abon     equ os88_image_end + 68  ; byte: the credits have the window
+fd_page     equ os88_image_end + 68  ; byte: FP_* - which face is drawn
+fd_pfoc     equ os88_image_end + 69  ; byte: the Setup field has the caret
 fd_tmpb     equ os88_image_end + 70  ; byte: PORT's saw-a-digit flag
 fd_btn      equ os88_image_end + 72  ; 8: the Start button's rect
 fd_rob      equ os88_image_end + 80  ; 8: the Read Only box's rect
@@ -4122,7 +4836,15 @@ fd_cstack   equ fd_dhost + 20                   ; FD_CDMAX words: the clusters
                                      ; a CWD descended through, so CDUP has
                                      ; somewhere to go back to
 fd_path2    equ fd_cstack + FD_CDMAX*2          ; FD_PATHMAX: the banked path
-fd_stage    equ fd_path2 + FD_PATHMAX           ; FD_STGSZ - the transfer's
+fd_pasv     equ fd_path2 + FD_PATHMAX           ; 4: the PASV override, wire
+                                     ; order. All zero = unset, use our own
+fd_pasvs    equ fd_pasv + 4                     ; FD_IPMAX: ...as typed
+fd_line     equ fd_pasvs + FD_IPMAX             ; OS88LINE_SZ
+fd_cfgb     equ fd_line + OS88LINE_SZ           ; FD_CFGSZ: FTPD.CFG, whole
+fd_dbclus   equ fd_cfgb + FD_CFGSZ              ; word: the banked folder
+fd_dbdrv    equ fd_dbclus + 2                   ; byte: ...and its drive
+fd_cfgn     equ fd_dbdrv + 1                    ; word: bytes read
+fd_stage    equ fd_cfgn + 2                     ; FD_STGSZ - the transfer's
                                      ; staging ground, and IN OUR OWN SEGMENT
                                      ; for the reason FD_STGSZ's own comment
                                      ; gives: the package door hands a driver

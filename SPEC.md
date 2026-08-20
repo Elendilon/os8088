@@ -17683,14 +17683,23 @@ Four things about the convention:
   being absent — a user's own disk written elsewhere will not have it — and the
   right behaviour there is the one a refused write already has: keep the state
   in memory and say nothing.
-- **Getting there is bank, go, act, go back**, and the quiet twin is the one to
-  use: `OSAPI_FILE_HERE`, then `OSAPI_FILE_GOTO_Q` (§19.2.2) per component,
-  then the read or write by name, then `OSAPI_FILE_GOTO_Q` back to the banked
-  pair. Quiet because this is a file operation and not navigation — nothing is
-  being *shown* — so it skips the directory scan, the sort and the icon
-  harvest, and on the volume you are already on it is a word and no I/O at all.
-  Leaving the instance somewhere else would move where its next Save As opens
-  (§38.10) and where every unqualified name it passes the file API resolves.
+- **Getting there is bank, go, act, go back** — `OSAPI_FILE_HERE`, then
+  `OSAPI_FILE_GOTO` per component, then the read or write by name, then
+  `OSAPI_FILE_GOTO` back to the banked pair. Leaving the instance somewhere
+  else would move where its next Save As opens (§38.10) and where every
+  unqualified name it passes the file API resolves.
+
+  **IT IS `OSAPI_FILE_GOTO` AND NOT THE QUIET TWIN, and this bullet said the
+  opposite for two releases.** `GOTO_Q` looks right — this is a file operation
+  and not navigation, nothing is being *shown*, and it skips the scan, the sort
+  and the icon harvest. But it moves the GLOBAL cwd and deliberately **not**
+  the instance's, while `OSAPI_FILE_FIND`, `_READ` and `_WRITE` every one
+  resolve in the instance's folder through `inst_vol_enter` — so the quiet move
+  is undone by the very next call. Cyclone's `cy_data_enter` carries the
+  finding in its own header: the walk listed `GAMES`, found no `SYSTEM` in it,
+  and the save wrote nothing at all, while the load path *appeared* to work,
+  which is worse than failing. The price is that each step is a remount, which
+  is affordable exactly here.
 - **`SYSTEM/` is found by walking, not assumed.** `OSAPI_FILE_FIND` (§19.7.1)
   from the root, matching `type == OSAPI_FT_DIR` — the folder is an ordinary
   visible directory, unlike the system *files* inside it (§19.6).
@@ -59260,7 +59269,95 @@ commit design has to re-ask whether a request is outstanding after anything
 that could have posted one**, and the natural place to put the guard is the
 one place it cannot work.
 
-### 77.11 Two things that are deliberately not locked
+### 77.12 The Setup page, and `FTPD.CFG`
+
+**A page of the MAIN window, not a second window** — and that is a decision
+about what comes next rather than about what is here now. `fdlg_open` fences on
+`inst_win_owner`: the window it is handed must belong to a live instance, and a
+package's *second* window is deliberately unbound so its close box reduces to
+`wm_hide` (§56 is the worked example — ModPlug's PlayList has to pass the
+*player's* window to open a file dialog at all). The settings that are coming —
+a root folder to serve — want a folder **picker**, so the page hosting them has
+to be in the bound window. Doing that now costs nothing; discovering it later
+costs the window.
+
+`[fd_page]` is a **page** and not a flag. The About panel was `[fd_abon]`, one
+byte meaning one thing, and the moment Setup arrived that byte had to answer a
+question it was not shaped for — §48.22.1's shape in miniature, caught before
+it cost anything.
+
+**The save is on LEAVING the page, not on every keystroke** — §31.8's rule for
+the Control Panel and for its reason: a write here is a mount, a data sector, a
+FAT sector, a directory sector and a remount, which on this machine is seconds
+of frozen UI, landing in the middle of typing an address, once per character.
+
+**A field that will not parse is refused and the old value stands.** Storing
+`0.0.0.0` and carrying on would be a server that answers PASV with an address
+telling the client to connect to itself. The field always shows what was
+*taken*, never what was asked.
+
+**And the status line shows the override when there is one**, not the machine's
+own address — otherwise the one machine that needs the setting is the one whose
+window disagrees with what it is sending.
+
+#### 77.12.1 The file is KEYED, because the settings are not known yet
+
+`SYSTEM/APPDATA/FTPD.CFG` (§19.9). A fixed struct would need versioning for
+every setting added, so every record is **key, length, payload** and a reader
+*skips* what it does not know using the length it was given:
+
+```
++0   8   'O88FTPD' and a NUL - byte for byte, or the file is not ours
++8   2   the format version, currently 1
++10  ..  records, until a key of 0:
+           +0 1  key        +1 1  payload length        +2 n  the payload
+```
+
+So an old `FTPD.CFG` loads into a new build with the missing settings at their
+defaults, and a new one loads into an old build with the extra settings
+ignored. That is §51.5's rule for `SYSTEM.CFG` applied to a package's own file.
+A **truncated record ends the parse with what has been read so far** rather
+than refusing the file: a half-written settings file should cost the setting,
+not the session. Nothing branches on the version yet, because the keys carry
+compatibility — a bump is for the day a key changes *meaning* rather than
+appears.
+
+**Getting to the folder is Cyclone's routine and Cyclone's trap** (§67.20):
+it is `OSAPI_FILE_GOTO` and **not** its quiet twin. `GOTO_Q` moves the global
+cwd and deliberately not the instance's, while `OSAPI_FILE_FIND`, `_READ` and
+`_WRITE` each resolve in the instance's folder through `inst_vol_enter` — so a
+quiet move is undone by the very next call and the write lands wherever the app
+was launched from. **§19.9's own prose says to use the quiet twin and is wrong
+about it**; that bullet is corrected.
+
+#### 77.12.2 Why the address has to be configuration
+
+**The server cannot work it out.** Behind NAT — 86Box or QEMU with port
+forwarding, a router, a container — the address a client must dial is one the
+guest has never seen and cannot derive: its own is `10.0.2.15` or similar,
+unroutable from the far side, and a `227` carrying it tells the client to
+connect somewhere nothing is listening. It is the same feature as vsftpd's
+`pasv_address` and ProFTPD's `MasqueradeAddress`, and it is configuration for
+the reason they made it configuration.
+
+**EPSV needs none of it**, carrying only a port, so a client that speaks it
+works behind NAT with nothing set — and `fd_c_pasv`'s no-address refusal points
+at it. **Active mode needs none of it either**: `PORT` has the *server* dial
+the client, so it is the answer for a machine behind NAT with nothing
+configured at all.
+
+**And `PORT` answers 425 rather than 501 when the connection fails**, which is
+a distinction that decides whether the client tries again. 501 is *permanent* —
+your argument is malformed — and a client that sees it gives up and reports a
+broken command. The commonest failure here is not the argument at all: there
+are four handles (`drivers/net/netpkg.inc`), and a session that has just ended
+still holds one while TCP finishes its close, so a client reconnecting
+immediately finds nothing free. That is transient, it is what 425 means, and
+answered correctly the client retries a moment later and succeeds. The two were
+one reply until a gate run reordered its sessions and turned a working active
+mode into `501 Bad argument`.
+
+### 77.13 Two things that are deliberately not locked
 
 **`fd_log` is called from both tasks without a lock.** The worker logs every
 command it answers and the UI task logs what it did to the disk. A torn line
