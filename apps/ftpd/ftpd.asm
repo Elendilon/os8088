@@ -250,10 +250,19 @@ FD_WDOG_T   equ 1638                ; ticks: 90s at 18.2065 Hz
 ; timeout, so it never finished. Four appends instead of sixteen is the
 ; whole fix.
 ;
-; **32768 AND NOT MORE**: [fd_sfill] and [fd_sout] are words, and 65536
-; is zero in one.
+; **AND IT IS ALSO HOW LONG THE DATA CONNECTION GOES SILENT** (SPEC.md
+; 77.24), which is the reason it came back DOWN. The worker reads a whole
+; chunk quickly and then stops reading while the UI task writes it, so the
+; chunk is the length of the gap: ~1.2s at 8KB and ~4.8s at 32KB on the
+; field machine. A client watching its data connection is what normally
+; keeps it from timing out mid-transfer, and long silences are what break
+; that - so the number that made the fewest appends made the WORST gaps,
+; and the field measured the appends to be worth nothing anyway.
+;
+; A word still bounds it - [fd_sfill] and [fd_sout] are words, so 65536
+; would be zero in one - but that ceiling is no longer the binding one.
 ; -----------------------------------------------------------------------------
-FD_STGSZ    equ 32768
+FD_STGSZ    equ 8192
 FD_CDMAX    equ 16                  ; how deep CWD can go and still come back.
                                     ; **CDUP NEEDS A STACK BECAUSE THE KERNEL
                                     ; CANNOT ANSWER IT.** OSAPI_FILE_FIND never
@@ -1938,6 +1947,29 @@ fd_pasv_port:
 ; whether a chunk-size change did anything, on the only hardware where the
 ; question is real.
 ; =============================================================================
+; -----------------------------------------------------------------------------
+; fd_count - CX bytes have crossed the wire, in either direction
+; out: nothing; every register preserved, flags included
+;
+; **COUNTED AT THE SOURCE AND NOT SAMPLED.** The first version of this
+; watched [fd_sfill] + [fd_sout] from the watchdog and added the difference
+; between polls, which loses a whole chunk whenever one fills AND commits
+; between two samples - the stage is back to 0 by the time the next poll
+; looks, and the fall reads as "no progress". It under-reported a 129,430
+; byte upload as 114,070, which is exactly the kind of quiet 12% that a
+; measurement nobody checks is made of. The two places bytes actually move
+; are the RECV and the SEND, and they are three instructions each.
+;
+; The flags are preserved because both call sites sit in the middle of a
+; sequence that tests CX afterwards.
+; -----------------------------------------------------------------------------
+fd_count:
+    pushf
+    add [fd_xbytes], cx
+    adc word [fd_xbytes+2], 0
+    popf
+    ret
+
 fd_xstart:
     push ax
     call OSAPI_GET_TICKS
@@ -2576,14 +2608,6 @@ fd_wdog_check:
     stc                             ; to a client that may not still be there
     ret
 .moved:
-    push cx                         ; ...and BANK HOW FAR, because a stall that
-    mov cx, ax                      ; says only "it stopped" sends the next
-    sub cx, [fd_wprog]              ; person looking in the wrong place
-    jbe .nocount                    ; **A COMMIT EMPTIES THE STAGE**, so this
-    add [fd_xbytes], cx             ; delta goes NEGATIVE every chunk - and an
-    adc word [fd_xbytes+2], 0       ; unsigned add of that is a 64K jump in the
-.nocount:                           ; total. Those bytes are already counted on
-    pop cx                          ; the way IN, so the fall is skipped
     call fd_wdog_stamp
 .ok:
     pop bx
@@ -2675,6 +2699,7 @@ fd_send_stage:
     mov bl, NETV_SEND
     call OSAPI_DRV_CALL
     jc .later
+    call fd_count                   ; COUNTED HERE, where the bytes really move
     add [fd_sout], cx               ; **BY WHAT WAS TAKEN**, which may be less
     mov ax, [fd_sout]               ; than asked and may be 0 (netpkg.inc)
     cmp ax, [fd_sfill]
@@ -2736,6 +2761,7 @@ fd_recv_stage:
     jc .busyq
     or cx, cx
     jz .quiet
+    call fd_count                   ; ...and here, for the other direction
     add [fd_sfill], cx
     mov ax, [fd_sfill]
     cmp ax, [fd_chunk]

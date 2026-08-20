@@ -59995,3 +59995,59 @@ into a 64K jump. The bytes are counted on the way in, so the fall is now
 skipped. Nothing had read the number closely enough to notice — which is the
 argument for putting it on the glass where somebody will.
 
+### 77.24 Telling the client we are still working — and what cannot be done
+
+*"Normally it doesn't time out, even on huge files that take more than its
+timeout time to transfer."* — the field, and it is right. A client does not
+time out during a transfer because it is watching the **data** connection,
+and on a normal server that connection never stops moving for long.
+
+**Ours stops for seconds at a time**, and the chunk size is the length of the
+stop — but NOT for the reason written here first. The field watched the
+copy-progress widget (§12.8) during an upload and reported it: *"the progress
+bar zips across in maybe 1/4 of a second, then it sits still for 3-4 seconds,
+then the next zip"*. **The write is the quarter second.** A 32KB chunk
+committed in ~0.25s is ~128 KB/s, which is what the disk really does, and
+local file copies on the same machine are far faster than 7 KB/s — so the
+disk was never the bottleneck and §77.21's whole seek argument was answering
+the wrong question.
+
+**The 3-4 seconds is the RECEIVE**, and that is where the ~7 KB/s lives. It
+is `drivers/ether/`'s (§72), not this package's: every byte is copied into a
+`SK_RXCAP`-byte ring, checksummed and copied out again on a 4.77MHz 8088, and
+`SK_RXCAP` is **1024**, so the advertised window never exceeds a kilobyte and
+the sender spends most of its time waiting for a window that reopens only as
+fast as the stack is pumped. §77.21 raised it to 32768
+chasing an append count that turned out not to matter, which means that
+change bought nothing and made every gap four times longer — the opposite of
+what a client watching for liveness needs. **It is back to 8192.**
+
+**Double-buffering is the obvious answer and it does not work here.** Fill one
+chunk while the UI writes the other, and the network drains continuously —
+but only while the NETWORK is the slow side. Here the disk is: the worker
+fills the spare buffer in a fraction of the write time and then waits exactly
+as long as before, for the same total. The duty cycle is unchanged and the
+gaps merely move. It is written down because it is the first thing anyone
+will propose, including whoever reads this next.
+
+**There is no protocol message for "still working".** RFC 959's `1xx`
+preliminary reply is sent ONCE, when the transfer is accepted — that is the
+`150` this server already sends — and there is no progress reply after it.
+The control connection must stay silent until the transfer ends, because an
+unsolicited reply desynchronises the client's parser: it is reading replies
+in order and would take the next one as the answer to whatever it asks next.
+A server that chatters mid-transfer breaks clients rather than reassuring
+them. Keepalives on the control channel are the CLIENT's to send (`NOOP`),
+which is why WinSCP has a setting for them and the server has no say.
+
+So the whole of what a server can do about this is **keep the data connection
+moving in short, frequent bursts**, which means keeping the chunk small
+enough that no single silence approaches a client's timeout. 8KB is 1.2s on
+the slowest machine this runs on, against a 15-second default.
+
+**What that does not fix is the total.** At ~7 KB/s a 300KB upload takes 45
+seconds whatever the chunk is, and a client whose timeout is a limit on the
+WHOLE transfer rather than on inactivity will still give up. Set it from the
+largest file, not from a default — and §77.23's timer is what says how long
+that actually is.
+
