@@ -415,7 +415,11 @@ Three traps not written down elsewhere:
   `build/qmp.sock` — every screendump succeeds and shows the OLD kernel, which
   reads exactly like a change that did nothing. If the error scrolls past,
   `ps aux | grep qemu-system` and compare its start time against
-  `build/kernel.bin`'s mtime.
+  `build/kernel.bin`'s mtime. **Kill it with `pkill -f "[q]emu-system"`, in a
+  command that does not itself mention QEMU** — `-f` matches the killing
+  shell's own command line, so the bare pattern kills that shell and so does
+  the bracketed one if a relaunch shares the line: exit 144, no error text,
+  nothing dead, and every command after it silently skipped.
 - **A small change is easy to misread as "nothing happened"** in a full-screen
   dump. Crop and zoom (`shot.py --crop --zoom`) before concluding a click was
   lost.

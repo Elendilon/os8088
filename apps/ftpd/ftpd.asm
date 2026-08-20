@@ -213,6 +213,25 @@ FD_PATHMAX  equ 128                 ; the longest path an argument may carry
 ; twins of every append helper disappear, and the cost is that the package's
 ; region is FD_STGSZ bigger - which it would have been anyway, one claim over.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; FD_WDOG_T - how long a transfer may move NOTHING before it is abandoned
+;
+; **A STALLED TRANSFER USED TO HOLD ITS SOCKET FOR EVER**, and that is what
+; wedged the server in the field (SPEC.md 77.19): the stack has NET_SOCKS = 4
+; handles in total, the listener holds one and a control connection another,
+; so ONE abandoned data socket means the next session can log in and cannot
+; open a data connection - LIST fails and the client is dropped, which reads
+; as "the server broke" rather than "the last transfer did". Restarting the
+; app cleared it, which is exactly the shape of a leak.
+;
+; 90 seconds at 18.2065 Hz. It is deliberately LONG: the thing being waited
+; for is a 4.77MHz machine committing 8KB to an MFM disk while the peer
+; retransmits, and a watchdog that fires during honest slow progress is worse
+; than no watchdog at all. It only ever fires on a connection that has moved
+; NOTHING for a minute and a half.
+; -----------------------------------------------------------------------------
+FD_WDOG_T   equ 1638                ; ticks: 90s at 18.2065 Hz
+
 FD_STGSZ    equ 8192                ; and a POWER OF TWO at least a cluster
                                     ; wide, so fd_setchunk's rounding always
                                     ; leaves a whole number of clusters on
@@ -2203,6 +2222,10 @@ fd_reset_xfer:
     mov byte [fd_created], 0
     mov word [fd_lord], 0
     mov byte [fd_lmore], 0
+    call fd_wdog_stamp              ; LAST, so the stamp records the counters
+                                    ; this routine just zeroed rather than the
+                                    ; finished transfer's - a fresh deadline
+                                    ; for whatever comes next
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2288,6 +2311,56 @@ fd_post:
 ; -----------------------------------------------------------------------------
 ; fd_xfer_poll - push whatever transfer is running along by one step
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; fd_wdog_stamp / fd_wdog_check - the transfer watchdog (SPEC.md 77.19)
+;
+; PROGRESS IS MEASURED, NOT ASSUMED. The stamp is taken against a PROGRESS
+; COUNTER rather than on every poll, because fd_xfer_poll runs on the worker
+; many times a second whether or not a byte has moved - stamping there would
+; make the watchdog a clock that can never expire, which is the shape this
+; kind of guard usually fails in.
+;
+; What counts as progress is the same number for both directions: the stage's
+; fill for a receive and its drain for a send. Either one changing means the
+; wire is alive.
+;
+; The comparison is `sub` and `cmp`, which is modular in 16 bits and therefore
+; correct across the tick counter's own wrap - the discipline SPEC.md 13.9's
+; timer and sch_isr's wake scan both use.
+; -----------------------------------------------------------------------------
+fd_wdog_stamp:
+    push ax
+    call OSAPI_GET_TICKS
+    mov [fd_wdog], ax
+    mov ax, [fd_sfill]
+    add ax, [fd_sout]               ; the two together: one of them moves on
+    mov [fd_wprog], ax              ; every byte, in either direction
+    pop ax
+    ret
+
+fd_wdog_check:
+    push ax
+    push bx
+    mov ax, [fd_sfill]
+    add ax, [fd_sout]
+    cmp ax, [fd_wprog]
+    jne .moved
+    call OSAPI_GET_TICKS
+    sub ax, [fd_wdog]
+    cmp ax, FD_WDOG_T
+    jb .ok
+    pop bx                          ; EXPIRED: the socket goes back, which is
+    pop ax                          ; the whole point - the reply is a courtesy
+    stc                             ; to a client that may not still be there
+    ret
+.moved:
+    call fd_wdog_stamp
+.ok:
+    pop bx
+    pop ax
+    clc
+    ret
+
 fd_xfer_poll:
     push ax
     push bx
@@ -2296,13 +2369,21 @@ fd_xfer_poll:
     push si
     push di
     mov al, [fd_xf]
-    cmp al, FX_LIST
-    je .list
+    cmp al, FX_NONE
+    je .out
+    call fd_wdog_check              ; **BEFORE the work, not after**: a poll
+    jc .stalled                     ; that refuses to send must still be able
+    cmp al, FX_LIST                 ; to expire, and every branch below can
+    je .list                        ; return without moving a byte
     cmp al, FX_RETR
     je .retr
     cmp al, FX_STOR
     je .stor
     jmp .out
+.stalled:
+    mov si, fd_r426
+    call fd_xfail                   ; drops BOTH data handles and resets the
+    jmp .out                        ; transfer - the socket is what matters
 .list:
     call fd_send_stage
     jc .out                         ; still draining, or the wire is busy
@@ -5081,8 +5162,18 @@ FD_SROW     equ 16                  ; ...and the pitch. LABEL AND FIELD SHARE A
 FD_FLDX     equ 112                 ; where the fields start, 8-aligned
 FD_FLDW     equ 160
 FD_FN       equ 4                   ; how many text fields there are
-FD_VOLMAX   equ 6                   ; DVOL_MAX, mirrored - the volume table's
-                                    ; size, so A: to F:
+FD_VOLMAX   equ 8                   ; DVOL_MAX, mirrored - the volume table's
+                                    ; size, so A: to H:. IT SAID 6, and the
+                                    ; comment claiming to mirror DVOL_MAX was
+                                    ; simply wrong: G: and H: were refused by
+                                    ; a drive-letter root and skipped by
+                                    ; whole-machine mode, silently, on the
+                                    ; only machines that can have them (four
+                                    ; primaries plus floppies, SPEC.md 52.2).
+                                    ; The REAL fence is OSAPI_VOL_KIND's carry
+                                    ; and every walk here tests it; this only
+                                    ; bounds the loop, which is why being
+                                    ; wrong cost nothing visible until now
 
 ; --- the Setup page's fields, as a TABLE -------------------------------------
 ; They are homogeneous - four one-line text boxes - so a table is the honest
@@ -6219,6 +6310,7 @@ fd_r550n:   db '550 Directory not empty', 0
 fd_r550w:   db '550 The server is read only', 0
 fd_r551:    db '551 Read failed', 0
 fd_r552:    db '552 Write failed - disk full or protected', 0
+fd_r426:    db '426 Transfer stalled - no data for 90 seconds', 0
 
 ; --- the listing's fixed columns ---------------------------------------------
 ; The permission bits are what an `ls -l` parser reads to tell a file from a
@@ -6419,7 +6511,12 @@ fd_lognew   equ fd_cdirty + 1                   ; byte: rows appended since the
                                      ; glass last agreed with the ring
 fd_scrn     equ fd_lognew + 1                   ; word: ...as rows, banked
 fd_scry     equ fd_scrn + 2                     ; word: ...and as pixels
-fd_stage    equ fd_scry + 2                     ; FD_STGSZ - the transfer's
+fd_wdog     equ fd_scry + 2                     ; word: the tick the transfer
+                                     ; last MOVED A BYTE (SPEC.md 77.19)
+fd_wprog    equ fd_wdog + 2                     ; word: how far it had got when
+                                     ; that was stamped, so "moved" is measured
+                                     ; and not assumed
+fd_stage    equ fd_wprog + 2                    ; FD_STGSZ - the transfer's
                                      ; staging ground, and IN OUR OWN SEGMENT
                                      ; for the reason FD_STGSZ's own comment
                                      ; gives: the package door hands a driver

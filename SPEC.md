@@ -59728,3 +59728,79 @@ calls, ~30ms, to move one 12px box. `fd_draw_done`, `fd_draw_rchk` and
 and a repainted one cannot disagree about what a tick looks like. Which
 control a box is comes from the RECT it was handed rather than a second
 argument: there are exactly two on the page and the rect already names them.
+
+### 77.19 A stalled transfer must not keep its socket — the watchdog
+
+**The server had no timeout of any kind, and a stalled transfer wedged it
+until the app was restarted.** Reported from the field: a ~126KB upload to a
+hard disk stopped at 106,496 bytes, the client timed out, and from then on
+every reconnect could log in but not LIST, disconnecting instead. Restarting
+FTPD cleared it completely.
+
+The disk was innocent, and the image the reporter sent proves it: `ELYSIUM.MOD`
+is 106,496 bytes and its chain is exactly 52 clusters of 2KB — 106,496 bytes,
+in perfect agreement — on a volume with **20.68MB free and not one bad or
+crossed cluster**. Thirteen 8KB chunks committed cleanly and the fourteenth
+never ran. So the `552 disk full or protected` that a later attempt reported
+was not merely unhelpful, it was **false**.
+
+**What wedges is the socket, and there are only four.** `NET_SOCKS` is 4 for
+the whole machine (netpkg.inc): the listener holds one and a control
+connection another, so a single abandoned data socket leaves the next session
+able to log in — control only — and unable to open a data connection, which
+is what LIST needs. The server also serves ONE client at a time (§77.4), and
+a transfer that never ends means `[fd_st]` never leaves `FD_CTRL`, so the
+listener never takes the next client either. Both failures read from outside
+as "the server broke", and both are cleared by a restart, which is the
+signature of a leak rather than of damage.
+
+`fd_bye` and `fd_shutdown` already dropped both data handles, so a client
+that closes its control connection was never the problem. The hole is the
+client that closes *nothing* — a timeout at the far end leaves ftpd waiting
+on a data socket that will never deliver another byte, and nothing was
+counting.
+
+**`fd_wdog_check` measures PROGRESS, not polls.** The stamp is taken against
+`[fd_sfill] + [fd_sout]` — the stage's fill for a receive, its drain for a
+send, one of which moves on every byte in either direction — and not on entry
+to `fd_xfer_poll`, which the worker runs many times a second whether or not
+anything moved. A watchdog stamped on each poll is a clock that can never
+expire, which is how this kind of guard usually fails. The check runs
+**before** the branch on `[fd_xf]`, because every one of those branches can
+return without moving a byte, and a poll that refuses to send must still be
+able to expire. The tick comparison is `sub`/`cmp` and therefore correct
+across the counter's own 16-bit wrap, the discipline §13.9 and `sch_isr`
+already use.
+
+**`FD_WDOG_T` is 90 seconds, and it is deliberately long.** What is being
+waited on is a 4.77MHz machine committing 8KB to an MFM disk while the peer
+retransmits; a watchdog that fires during honest slow progress is worse than
+none. It can only fire on a connection that has moved **nothing** for a
+minute and a half. When it does, `fd_xfail` drops both data handles and
+resets the transfer — the freed socket is the point, and the `426` is a
+courtesy to a client that may no longer be listening.
+
+#### 77.19.1 What this does NOT fix, and what is still open
+
+**Why the transfer stalled at 106KB is not answered here.** It did not
+reproduce under QEMU on a fixture built to match — `tools/os88hdd.py` at the
+same 31MB FAT16 geometry with 2KB clusters — where 126KB, 300KB and an
+aborted-mid-flight transfer all completed or recovered cleanly, and the
+difference that remains is speed: the field machine is roughly a thousand
+times slower, and the suspicion is the receive ring filling while the UI task
+is inside a multi-second disk commit, with the peer backing off its
+retransmits. That is a `drivers/ether/` question (§72) and it is open.
+
+What this section changes is the *consequence*: a stall is now a `426` and a
+server that is still working, rather than a server that has to be restarted.
+**That is worth having even once the stall itself is found**, because a
+network server cannot assume its peer will close politely.
+
+**An idle CONTROL connection is still untimed.** A client that vanishes
+between commands, having started no transfer, holds the server in `FD_CTRL`
+indefinitely. It is the same failure class and it is deliberately not fixed
+here: an idle control connection is a user sitting at a prompt, the timeout
+would have to be minutes rather than seconds to be honest, and nothing in the
+field report points at it. It is named so that the next person to see a
+wedged server knows the second door exists.
+
