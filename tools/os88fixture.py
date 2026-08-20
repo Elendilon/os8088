@@ -35,11 +35,43 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def need(*targets):
-    """Run `make` for each target, from the repo root. Exits on failure."""
-    for t in targets:
-        r = subprocess.run(["make", "-s", t], cwd=ROOT,
-                           capture_output=True, text=True)
-        if r.returncode:
-            sys.exit("%s: `make %s` failed:\n%s%s"
-                     % (os.path.basename(sys.argv[0]) or "os88fixture",
-                        t, r.stdout, r.stderr))
+    """Run `make` for each target, from the repo root. Exits on failure.
+
+    THE BUILD NUMBER IS PUT BACK, and that is not tidiness. `BUILDNUM` is a
+    `:=` shell assignment, so `tools/buildnum.py` rewrites build/buildnum.inc
+    at PARSE time on EVERY make whatever target was asked for - it has to be,
+    because the thing it depends on is HEAD moving and no tracked file's mtime
+    moves with a commit. The Makefile's own note says the rest takes care of
+    itself: "when it does change, kernel.bin's ordinary prerequisite does the
+    rest". That is true of `make`, which builds kernel.bin, and FALSE of a
+    narrow target that does not - so building a fixture here after a commit
+    left buildnum.inc one ahead of the kernel that embeds it, and every later
+    row died in tools/os88sym.py's byte-identity check saying "the map
+    describes a DIFFERENT kernel" about a tree that was perfectly consistent.
+    Measured: one gate ran green, its own `make` moved the number, and the
+    five rows after it failed.
+
+    Rebuilding the kernel instead would be worse and silent - kernel.bin at
+    N+1 while the floppies still carry N, so the guest boots one kernel and
+    the symbol reader describes another. Restoring the two bytes is the whole
+    fix; the next real `make` regenerates and rebuilds both together.
+    """
+    stamp = os.path.join(ROOT, "build", "buildnum.inc")
+    before = None
+    if os.path.exists(stamp):
+        with open(stamp, "rb") as f:
+            before = f.read()
+    try:
+        for t in targets:
+            r = subprocess.run(["make", "-s", t], cwd=ROOT,
+                               capture_output=True, text=True)
+            if r.returncode:
+                sys.exit("%s: `make %s` failed:\n%s%s"
+                         % (os.path.basename(sys.argv[0]) or "os88fixture",
+                            t, r.stdout, r.stderr))
+    finally:
+        if before is not None and os.path.exists(stamp):
+            with open(stamp, "rb") as f:
+                if f.read() != before:
+                    with open(stamp, "wb") as w:
+                        w.write(before)
