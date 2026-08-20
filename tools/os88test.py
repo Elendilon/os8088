@@ -139,6 +139,49 @@ def run_row(row, caps, strict, verbose):
     return Result(row, ok, False, time.time() - t0, out, reason)
 
 
+def kernel_is_stale(rows):
+    """Is build/kernel.bin still what this source assembles to?
+
+    THE TRAP THIS CLOSES, which cost three runs in one session. Every emulator
+    gate resolves kernel symbols through tools/os88sym.py, which re-assembles
+    kernel.asm and refuses to hand back an address unless the result is
+    byte-identical to build/kernel.bin. The About box's build number is the
+    COMMIT COUNT (SPEC.md 14.2), so **making a commit is enough to invalidate
+    it** - three bytes of .text move and nothing else does. Run the suite
+    after committing, or commit while it is running, and every marty row dies
+    in a traceback saying "the map describes a DIFFERENT kernel", which points
+    at the kernel and not at you: five green gates went red mid-run that way,
+    and the same message is what a genuinely stale tree gives.
+
+    So it is asked ONCE, here, and named. It is not rebuilt: a `VIDEO=`, `RTC=`
+    or any other knob kernel in build/ differs from the plain assembly on
+    purpose (the Makefile's VIDSTAMP exists for exactly that), and a preflight
+    `make` would silently overwrite the build somebody is testing. os88sym
+    takes the knob's --define for the same reason.
+
+    Only rows that read a symbol are worth stopping for, which is also what
+    keeps this from firing inside the `make` that `all` runs: the fast tier
+    needs nothing but nasm.
+    """
+    if not any({"marty", "qemu"} & set(r.needs) for r in rows):
+        return None
+    try:
+        import os88sym
+        os88sym.syms(())
+    except Exception as e:                       # noqa: BLE001 - any refusal
+        if "DIFFERENT kernel" in str(e):
+            return ("build/kernel.bin is not what kernel.asm assembles to, so "
+                    "every symbol every emulator row reads would be wrong.\n"
+                    "         Run `make`. If you committed since the last one, "
+                    "that is the whole cause - the\n"
+                    "         About box's build number is the commit count "
+                    "(SPEC.md 14.2), so a commit moves\n"
+                    "         three bytes of .text. For a knob build, pass its "
+                    "--define instead.")
+        return "tools/os88sym.py could not read the kernel: %s" % e
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Run the os8088 regression suite.",
@@ -180,6 +223,11 @@ def main():
         want = [r for r in want if any(fnmatch.fnmatch(r.name, g) for g in a.k)]
     if not want:
         print("os88test: no rows matched", file=sys.stderr)
+        return 1
+
+    stale = kernel_is_stale(want)
+    if stale:
+        print("%sos88test: %s%s" % (RED, stale, OFF))
         return 1
 
     caps = capabilities()
