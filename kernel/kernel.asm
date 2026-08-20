@@ -2546,7 +2546,21 @@ osapi_table:
                                   ;   SI = the first usable row, DL = kind, DH =
                                   ;   bpp - OSAPI_VIDEO for the display THIS
                                   ;   WINDOW is on (SPEC.md 39.16.4)
-osapi_table_end:                  ; 0x0490
+    OSAPI_SLOT wm_onrclick        ; 0x0490 - BX = window, AX = a near proc in
+                                  ;          YOUR segment (0 clears it): the
+                                  ;          RIGHT-CLICK handler (SPEC.md
+                                  ;          13.11). Called CX = x, DX = y,
+                                  ;          SI = your window, on the UI task,
+                                  ;          gfx lock HELD - W_ONCLICK's
+                                  ;          environment exactly - when the
+                                  ;          RIGHT button is pressed in the
+                                  ;          content of your FRONTMOST window.
+                                  ;          Press edge only; there is no
+                                  ;          release half. Install it after
+                                  ;          OSAPI_WM_CREATE like
+                                  ;          OSAPI_WM_ONWAKE - a side table,
+                                  ;          not a template word
+osapi_table_end:                  ; 0x0498
 
 ; build-time assertions: the table's start and span are ABI, prove them here
 OSAPI_TABLE_OFF equ osapi_table - $$
@@ -2554,8 +2568,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 144 * 8
-%error "os8088 API jump table must be exactly 144 8-byte slots"
+%if OSAPI_TABLE_LEN != 145 * 8
+%error "os8088 API jump table must be exactly 145 8-byte slots"
 %endif
 
 ; =============================================================================

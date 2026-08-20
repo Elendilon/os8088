@@ -907,7 +907,9 @@ ui_lit_go:
 ; ui_rdown - act on one EVT_RDOWN: the context-menu path (SPEC.md 12.4/13)
 ; in:  [ui_ev] holds the record
 ; out: nothing
-; clobbers: AX, BX, CX, DX, SI, DI (internal helper of the UI task)
+; clobbers: AX, BX, CX, DX, SI, DI, BP (internal helper of the UI task, and BP
+;           is the handler on SPEC.md 13.11's path - the same register the
+;           left button's .content_front loads, in the same task)
 ;
 ; Deliberately far narrower than the mouse-down ladder above, and it shares
 ; none of it. Three things it must NOT do, each one a bug waiting to happen:
@@ -927,9 +929,11 @@ ui_lit_go:
 ;   - open anything on a background window. It raises it and stops: the
 ;     popup always belongs to the window you can already see.
 ;
-; The bar is skipped whole, clock cell included. Of the WINDOWS only a
-; file-manager one answers - the ones carrying fm_menus - so no package's
-; window changes behaviour and no shipped .o88 needs rebuilding.
+; The bar is skipped whole, clock cell included. Of the WINDOWS a package one
+; answers only if it INSTALLED a right-click handler (SPEC.md 13.11, and
+; wm_create installs none), and otherwise only a file-manager one does - the
+; ones carrying fm_menus - so no existing package's window changes behaviour
+; and no shipped .o88 needs rebuilding.
 ; -----------------------------------------------------------------------------
 ui_rdown:
     mov cx, [ui_ev + EV_A]      ; CX = press x, DX = press y. NO [ui_click_t]
@@ -966,6 +970,24 @@ ui_rdown:
     or al, al
     jnz .ret                    ; title bar, close/minimize/grow box: the
                                 ; chrome has no context menu
+
+    push si                     ; A WINDOW THAT ASKED FOR THE RIGHT BUTTON
+    call wm_rch_slot            ; ITSELF (SPEC.md 13.11) gets it before any of
+    mov bp, [si]                ; the below, and instead of it: the handler is
+    pop si                      ; a side-table word, so a window that never
+                                ; installed one costs this path one read. BX
+                                ; is already SI - the compare above is what
+                                ; brought us here - so wm_rch_slot's input is
+                                ; loaded and there is nothing to set up
+    or bp, bp
+    jz .ctxwin
+    call gfx_lock               ; W_ONCLICK's environment exactly - CX = x,
+    call ui_ptcall              ; DX = y, SI = window, billed to the owning
+    call gfx_unlock             ; instance (CX/DX survived wm_hit/wm_top)
+    ret                         ; and NOTHING ELSE sees this press: a package
+                                ; that takes the right button owns it whole,
+                                ; the way it owns the left one
+.ctxwin:
     cmp word [si + W_SEG], 0    ; a kernel window whose set is fm_menus -
     jne .ret                    ; the OFFSET alone is not identity: a
     cmp word [si + W_MENUS], fm_menus

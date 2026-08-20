@@ -2667,6 +2667,47 @@ OSAPI_FT_UP   equ 3             ; the synthesized '..' (SPEC.md 19.5)
                                  ; Do NOT also poll OSAPI_MOUSE in a tracking
                                  ; loop from the same W_ONCLICK: that loop
                                  ; consumes its own release. Pick one.
+%define OSAPI_WM_ONRCLICK   KERNEL_SEG:0x0490   ; BX = win ptr, AX = a near proc
+                                 ; in YOUR segment (0 clears it): the RIGHT
+                                 ; button, pressed in your content
+                                 ; (SPEC.md 13.11). Call it from your entry
+                                 ; proc after OSAPI_WM_CREATE, like
+                                 ; OSAPI_WM_ONWAKE - it is a side table, not a
+                                 ; template word.
+                                 ;
+                                 ; The kernel calls it with CX = x, DX = y,
+                                 ; SI = your window, in W_ONCLICK's environment
+                                 ; exactly: the UI task, under the gfx lock,
+                                 ; billed to your instance. You may draw.
+                                 ;
+                                 ; THREE RULES, and they are the whole of it:
+                                 ;   - PRESS EDGE ONLY. There is no release
+                                 ;     half and no EVT_RUP to build one from
+                                 ;     (SPEC.md 9): the right button is a
+                                 ;     single-shot verb here, not a gesture.
+                                 ;     W_ONMOUSEUP and W_ONDRAG belong to the
+                                 ;     LEFT button and are not armed by this.
+                                 ;   - FRONTMOST ONLY. A right press on a
+                                 ;     background window RAISES it and stops,
+                                 ;     exactly as it did before this slot
+                                 ;     existed; the press that raises you is
+                                 ;     not delivered.
+                                 ;   - CONTENT ONLY. The chrome - title bar,
+                                 ;     close, minimize and grow boxes - has no
+                                 ;     right-button path at all, and the menu
+                                 ;     bar is skipped whole. CX/DX are SCREEN
+                                 ;     coordinates: subtract your content
+                                 ;     origin (OSAPI_WM_CONTENT) as you do in
+                                 ;     W_ONCLICK.
+                                 ;
+                                 ; Taking it means taking it WHOLE: a window
+                                 ; with a handler installed never sees the
+                                 ; kernel's own right-button behaviour, and a
+                                 ; window without one is unchanged in every
+                                 ; way. Nothing here is a context menu - there
+                                 ; is no API slot through which a package can
+                                 ; supply popup items (SPEC.md 12.4) - so what
+                                 ; you do with the press is your own drawing.
 %define OSAPI_WM_ONRESIZE   KERNEL_SEG:0x03D8   ; BX = win ptr, AX = a near proc
                                  ; in YOUR segment (0 clears it): "your content
                                  ; box CHANGED, and you did not ask"

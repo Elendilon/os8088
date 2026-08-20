@@ -11546,11 +11546,16 @@ Loop forever:
    - a window that is not frontmost → raise it (`wm_front` under the
      lock) and stop. A right-click brings a window forward but opens
      nothing: the popup always belongs to the window you can see.
-   - the frontmost window, region 0 (content), with `W_MENUS` =
+   - the frontmost window, region 0 (content), that installed a
+     **`W_ONRCLICK`** (§13.11) → gfx_lock, `ui_ptcall` on that handler with
+     CX=x, DX=y, SI=window, gfx_unlock, and **nothing below is reached**:
+     a window that takes the right button takes it whole.
+   - failing that, the frontmost window, region 0, with `W_MENUS` =
      `fm_menus` → gfx_lock, `fm_rclick` then `fm_rcmd` (§22), gfx_unlock.
-     Any other window ignores the press. There is no `W_ONCTX` field and
-     no API slot: a package's window keeps its bar menus and nothing
-     else, and no shipped `.o88` changes.
+     Any other window ignores the press. There is still no `W_ONCTX` field
+     and no popup a package can supply (§12.4): §13.11 hands over a
+     **point**, so a package's window keeps its bar menus and nothing
+     else, and no `.o88` that does not install a handler changes.
 
    Billing follows §12.2's split exactly. `fm_rclick` — the row select and
    the whole tracking loop — is **unbilled**, like `menu_track`: the time
@@ -12425,6 +12430,55 @@ the small build, so the saving applies there identically — and small is the
 build that needs it, having had **21 bytes** of cold-rung slack before this.
 `OS88UI_SCROLL` gates it so that a *package* which never draws a bar does not
 carry one: the kernel defines it, the three package consumers opt in.
+
+### 13.11 A package's RIGHT click — `W_ONRCLICK` (API 0x0490)
+
+Until this slot existed the right button reached **no package at all**.
+`ui_rdown` (§12.4) raises a background window, skips the chrome and the bar
+whole, hands the dock strip to `dock_rclick` (§30.2), and of the windows
+answers only a file-manager one — the ones carrying `fm_menus`. A package's
+content saw nothing, and a package could not ask to.
+
+`W_ONRCLICK` is that ask. Installed with `OSAPI_WM_ONRCLICK` (BX = window,
+AX = a near proc in the caller's segment, 0 clears it) **after**
+`wm_create`, and it is **a side table (`wm_onrc`), not a word in the
+record** — `wm_onwake`'s shape and `wm_onwake`'s reason (§74.1): `WIN_SIZE`
+is the stride every reader of a window pays, and growing it costs every
+existing `.o88` a rebuild. `wm_destroy` clears the slot, so a reused record
+never inherits a stranger's near pointer, and `wm_init` clears the table,
+because — like `wm_oncl` and unlike `wm_onwk` — this word is read for a
+window that never installed anything.
+
+It is called with **CX = x, DX = y, SI = window**, in `W_ONCLICK`'s
+environment exactly: the UI task, under the gfx lock, billed to the owning
+instance through the same `ui_ptcall`. Three rules bound it:
+
+- **Press edge only.** There is no release half. The mouse ISR queues
+  `EVT_RDOWN` on the right button's press and *nothing* on its release, and
+  §9 says why there is deliberately no `EVT_RUP` — so this is a single-shot
+  verb rather than a gesture, and `W_ONMOUSEUP`/`W_ONDRAG` (§13.7, §13.8.2)
+  stay the **left** button's alone and are not armed by it.
+- **Frontmost only.** A right press on a background window raises it and
+  stops, exactly as before this slot existed; the press that raises is not
+  delivered. The second one is.
+- **Content only.** The chrome has no right-button path at all (§12.4) and
+  the menu bar is skipped whole. `CX`/`DX` are screen coordinates, so the
+  package subtracts its content origin as it does in `W_ONCLICK`.
+
+**A window that installs it takes the right button whole** — the kernel's own
+right-button behaviour is not also run, in either order. That is the same
+bargain `W_ONCLICK` already makes for the left button, and it is what keeps
+the rule statable: one press, one owner. Nothing here is a context menu:
+there is still no API slot through which a package supplies popup items, and
+§12.4's budget paragraph — *"there is no API slot through which a package
+could supply another"* — stands untouched, which is exactly why this slot
+delivers a **point** and not a menu.
+
+**Cost to a window that does not use it: one word read**, on a path a right
+press already walked. Cost in `.bss`: `MAX_WIN` words, 24 bytes. It is
+therefore in `kern_small` too, unlike §13.8.2 and §13.9 — those are
+`kern_big`'s because they *grew the record*, which is the thing this
+deliberately does not do.
 
 ## 14. apps.inc
 
@@ -21620,8 +21674,18 @@ content-relative; the procs fetch the content origin via `wm_content`
   the one you clicked sits on a light-red (12) cell, others (shown on
   loss) on light gray. Wrong flags on loss: mine + black X.
 - Input: W_ONCLICK reveals (or flags, in flag mode) the cell under the
-  click. W_ONKEY: 'f'/'F' toggles flag mode (repaint status strip),
-  'n'/'N' new game (repaint content). Space = reveal is not required.
+  click. **W_ONRCLICK (§13.11) flags the cell under the RIGHT click**,
+  whatever flag mode says — the toggle a mouse with two buttons expects,
+  installed with `OSAPI_WM_ONRCLICK` beside the menu set in `mn_entry`.
+  Flag mode stays exactly as it was and is not deprecated by it: it is what
+  a one-button mouse, and §9.6.4's keyboard mouse (whose right button is
+  **Del**), and the player who prefers a mode, all flag with. W_ONKEY:
+  'f'/'F' toggles flag mode (repaint status strip), 'n'/'N' new game
+  (repaint content). Space = reveal is not required.
+  The two buttons share `mn_hitcell` (point → cell, or "no cell": the strip,
+  off the board, or a board dead after win/lose) and `mn_flag_toggle` (the
+  cell, then the strip's counter — never the board), rather than carrying two
+  copies of either. That is `mn_cmd_flag`'s rule again, one level down.
 - Rules: first reveal is always safe — mines are placed lazily on the
   first reveal (osapi_srand with osapi_get_ticks, then osapi_rand), excluding
   the clicked cell. Reveal of a 0-count cell flood-fills neighbours

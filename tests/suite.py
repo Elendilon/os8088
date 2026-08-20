@@ -311,6 +311,11 @@ SOAK = [
         "mkclick - generate CLICK.MOD, a metronome for judging A/V sync by"
         "eye and ear.",
         needs=(), serial=False),
+    Row("minesrc", "soak", py("tests/minesrc.py"), 180.0,
+        "SPEC.md 13.11's right button: it flags a Minesweeper cell, and it "
+        "does nothing on the strip, on an open cell or on a window that was "
+        "not already frontmost.",
+        needs=("qemu", "nasm"), serial=True, timeout=900),
     Row("mouseup", "soak", py("tests/mouseup.py"), 60.0,
         "SPEC.md 13.7's release, apps/os88ui.inc's arm, and MOUSEUP-PLAN"
         "4.2's guard.",

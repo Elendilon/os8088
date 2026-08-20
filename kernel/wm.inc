@@ -282,13 +282,16 @@ wm_init:
     mov word [wm_fs], 0         ; no fullscreen window (SPEC.md 11.2); .bss
                                 ; is never zeroed at boot, so this is not
                                 ; redundant
-    xor ax, ax                  ; the close negotiators and the two words of
-    mov di, wm_oncl             ; SPEC.md 75.2's request (contiguous in .bss).
-    mov cx, MAX_WIN*2 + 4       ; UNLIKE wm_onwk and wm_onsz above, these ARE
-    rep stosb                   ; read before any wm_create writes them:
-                                ; wm_ask_close asks EVERY window on its way
-                                ; out, handler or not, and wm_close_pass reads
-                                ; [wm_clreq] on the machine's first UI pass
+    xor ax, ax                  ; the close negotiators, the right-click
+    mov di, wm_oncl             ; handlers and the two words of SPEC.md 75.2's
+    mov cx, MAX_WIN*4 + 4       ; request (contiguous in .bss). UNLIKE wm_onwk
+    rep stosb                   ; and wm_onsz above, these ARE read before any
+                                ; wm_create writes them: wm_ask_close asks
+                                ; EVERY window on its way out, handler or not,
+                                ; ui_rdown reads wm_onrc for every frontmost
+                                ; window a right press lands on (SPEC.md
+                                ; 13.11), and wm_close_pass reads [wm_clreq]
+                                ; on the machine's first UI pass
     pop es
     pop di
     pop cx
@@ -2499,6 +2502,57 @@ wm_clh_slot:
     ret
 
 ; -----------------------------------------------------------------------------
+; wm_onrclick - install (or clear) a window's RIGHT-CLICK handler (SPEC.md
+;               13.11, slot OSAPI_WM_ONRCLICK)
+; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
+; out: nothing (all registers preserved)
+;
+; wm_onwake's shape and reason - a SIDE TABLE, not a word in the record,
+; because WIN_SIZE is the stride every reader of a window pays and growing it
+; costs every existing .o88 a rebuild. Cleared by wm_destroy, so a reused slot
+; never inherits a stranger's near pointer, and by wm_init, because like
+; wm_oncl this word is read for a window that never installed anything.
+;
+; It is in kern_small too: a side table is 24 bytes of .bss and the dispatch
+; is a word read on a path that today does nothing at all for a package
+; window - the record-growing that made SPEC.md 13.8.2 and 13.9 kern_big's
+; alone is exactly what this does not do.
+;
+; The FLAGS are preserved as well, which wm_onwake does not promise and
+; wm_onclose does: this is installed from an entry proc, where the CF a
+; package owes the loader is still riding in them (SPEC.md 21), and
+; wm_ptr2idx's div writes them.
+; -----------------------------------------------------------------------------
+wm_onrclick:
+    pushf
+    push si
+    call wm_rch_slot
+    mov [si], ax
+    pop si
+    popf
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_rch_slot - SI -> this window's right-click handler word (module internal)
+; in:  BX = window ptr
+; out: SI = wm_onrc + index*2; every other register preserved
+; clobbers: flags
+;
+; wm_clh_slot's answer plus the distance between the two tables, rather than a
+; second copy of the index arithmetic: they are adjacent in .bss and declared
+; adjacent on purpose (wm_init zeroes them in one run), so the distance is a
+; constant NASM computes. kern_small had 68 bytes of image rung left before
+; this feature and has 1 after it, which is the whole reason five bytes were
+; worth writing down - and is the number the next change here has to beat.
+; -----------------------------------------------------------------------------
+wm_rch_slot:
+    push ax                     ; wm_clh_slot spends it; the caller's AX is
+    call wm_clh_slot            ; the handler being installed
+    pop ax
+    add si, wm_onrc - wm_oncl
+    ret
+
+; -----------------------------------------------------------------------------
 ; wm_ask_close - put the close to the window before it happens (SPEC.md 75.1)
 ; in:  BX = window ptr; the caller HOLDS the gfx lock and is the UI task
 ; out: CF = 1 the window REFUSED and nothing may be torn down; CF = 0 go
@@ -3280,6 +3334,11 @@ wm_destroy:
                                 ; a jump into the middle of its image
     mov word [wm_onwk+si], 0    ; ...and its wake handler (SPEC.md 74.1), the
                                 ; same rule a third time
+    mov word [wm_onrc+si], 0    ; ...and its right-click handler (SPEC.md
+                                ; 13.11), which ui_rdown reads for every
+                                ; frontmost window a right press lands on -
+                                ; so a stale one is a far call into a new
+                                ; tenant's image, exactly as below
     mov word [wm_oncl+si], 0    ; ...and its close negotiator (SPEC.md 75.1),
                                 ; a fourth - and here the rule is sharper than
                                 ; elsewhere, because wm_ask_close reads this
@@ -10392,6 +10451,12 @@ wm_onwk:    resw MAX_WIN            ; per-slot WAKE handler offset, 0 = none
 wm_oncl:    resw MAX_WIN            ; per-slot CLOSE negotiator offset, 0 = none
                                     ; (SPEC.md 75.1); wm_onwk's shape and reason
                                     ; a fourth time
+wm_onrc:    resw MAX_WIN            ; per-slot RIGHT-CLICK handler offset, 0 =
+                                    ; none (SPEC.md 13.11); the same shape a
+                                    ; fifth time, and inside wm_init's zero run
+                                    ; below for wm_oncl's reason: ui_rdown reads
+                                    ; this word for EVERY frontmost window a
+                                    ; right press lands on, handler or not
 wm_clreq:   resw 1                  ; the window a package asked to have closed
                                     ; (SPEC.md 75.2), 0 = none. ONE, because the
                                     ; request is spent on the next UI pass and
