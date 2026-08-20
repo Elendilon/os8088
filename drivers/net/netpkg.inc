@@ -116,7 +116,51 @@ NETV_RESOLVE equ 9              ; RESERVED, AND NOT IMPLEMENTED. It is in the
                                 ; never the address - and a verb whose only
                                 ; caller is hypothetical is a contract to get
                                 ; wrong for free
-NETV_MAX     equ 9              ; ...and anything above it is refused. A verb
+NETV_ADDR    equ 10             ; out ES:DI = filled with FOUR bytes, this
+                                ; machine's own IPv4 in wire order, and AX =
+                                ; 0. CF=1 with AX = NETE_NOLINK when there is
+                                ; no address yet (DHCP has not bound, or the
+                                ; cable has no partner) - which is an ORDINARY
+                                ; answer a server should SAY rather than a
+                                ; failure, exactly as NETV_STATE's cleared
+                                ; NSTF_LINK is.
+                                ;
+                                ; **THIS IS PASV'S VERB AND IT EXISTS FOR
+                                ; NOTHING ELSE.** RFC 959's passive reply
+                                ; carries the address the client should come
+                                ; back to - `227 ... (h1,h2,h3,h4,p1,p2)` -
+                                ; so a server that cannot name its own address
+                                ; cannot answer PASV at all, and PASV is what
+                                ; every FTP client made this century tries
+                                ; first. Nothing else in this tree has ever
+                                ; needed it: a client connecting OUT is told
+                                ; where to go and never has to say where it
+                                ; is, which is why five verbs' worth of
+                                ; networking got built without one.
+                                ;
+                                ; docs/NET-STACK-PLAN.md 1.3 always said
+                                ; NETV_STATE "reports whether there is a stack
+                                ; and what its address is", and the half after
+                                ; the `and` was never built - AL is flags and
+                                ; AH is a free-handle count, with no room left
+                                ; in either. So this is that promise kept at a
+                                ; verb of its own rather than a contract
+                                ; change at a live number (SPEC.md 20.8 rule
+                                ; 4): appending cannot invalidate a caller,
+                                ; and every package built before it keeps
+                                ; working untouched.
+                                ;
+                                ; **ON THE CABLE THE ANSWER IS THE DOS BOX'S**
+                                ; and that is the honest answer rather than a
+                                ; convenient one (docs/NET-STACK-PLAN.md 1.5):
+                                ; mTCP on the far end owns the IP, an inbound
+                                ; connection arrives THERE and is forwarded,
+                                ; so the address a client must dial really is
+                                ; the partner's. A server reporting 0.0.0.0 or
+                                ; its own nonexistent address would be telling
+                                ; the client to connect somewhere nothing is
+                                ; listening
+NETV_MAX     equ 10             ; ...and anything above it is refused. A verb
                                 ; table indexed by an unchecked verb is a wild
                                 ; near call inside the driver
 

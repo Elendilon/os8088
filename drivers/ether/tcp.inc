@@ -656,6 +656,64 @@ tcp_abort:
     mov byte [bx+SKO_ST], NSK_FREE
     ret
 
+; -----------------------------------------------------------------------------
+; sk_reap_kids - a LISTENER is closing, so its un-accepted children go with it
+; in:  BX = the listening socket
+; out: nothing; every register preserved
+;
+; **CLOSING A LISTENER MUST DESTROY ITS PENDING QUEUE.** That is what every
+; sockets implementation does and what this one did not, because until an FTP
+; server (SPEC.md 77) there was nothing in the tree that listened at all - so
+; the path had never been walked with a connection sitting on it.
+;
+; A connection the stack has completed but NETV_ACCEPT has not taken is marked
+; SKF_ACPT and belongs to NOBODY: the package was never given a handle for it,
+; so it cannot close it, and eth_v_accept will not hand it over once the peer
+; has closed, because it matches on NSK_UP. So it sat in the table until the
+; machine was turned off.
+;
+; **THE FOURTH HANDLE IS WHAT MAKES THAT FATAL RATHER THAN UNTIDY** (netpkg.inc
+; keeps NET_SOCKS at 4 precisely for a server). Measured: an FTP server that
+; refused ONE transfer - a read-only STOR - stranded the data connection the
+; client had already dialled, and the NEXT transfer had no slot to accept
+; into. The symptom is a server answering 227 and 150 perfectly and then never
+; sending a byte, several commands after the one that actually broke, with
+; every counter clean and no error anywhere.
+;
+; tcp_abort already does the right thing once it is reached: SKF_ACPT sends it
+; straight to .free, on its own reasoning that "nobody ever asked for this
+; one, so there is nobody to tell". The bug was that nothing ever reached it.
+; -----------------------------------------------------------------------------
+sk_reap_kids:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, [bx+SKO_LP]         ; children carry the LISTENER's local port,
+    xor dl, dl                  ; which is how eth_v_accept finds them too
+    mov cx, NET_SOCKS
+.l:
+    mov al, dl
+    call sk_ptr
+    cmp byte [bx+SKO_ST], NSK_FREE
+    je  .next
+    test byte [bx+SKO_FL], SKF_ACPT
+    jz  .next                   ; somebody owns this one
+    cmp si, [bx+SKO_LP]
+    jne .next
+    mov al, NSK_FAILED          ; ...which nobody ever reads, SKF_ACPT taking
+    call tcp_abort              ; tcp_abort to .free
+.next:
+    inc dl
+    loop .l
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; =============================================================================
 ; CONNECTING
 ; =============================================================================

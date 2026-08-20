@@ -111,6 +111,7 @@ nsk_tab:
                                 ; absent from the driver, and a cell here
                                 ; rather than a hole so the bound above is the
                                 ; only thing that has to be right
+    dw nsk_addr                 ; NETV_ADDR
 %if ($ - nsk_tab) / 2 != NETV_MAX + 1
   %error "net: nsk_tab does not cover NETV_0..NETV_MAX"
 %endif
@@ -477,6 +478,71 @@ nsk_accept:
     pop di
     pop si
     pop dx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
+; NETV_ADDR - out ES:DI = four IP bytes; CF=1 / NETE_NOLINK if there is none
+;
+; **THE ADDRESS IS THE PARTNER'S AND THAT IS THE TRUE ANSWER**, not a stand-in
+; for one we do not have. The DOS box owns the IP, an inbound connection
+; arrives there and is forwarded down the cable, so the address an FTP client
+; must dial for a passive transfer really is the far end's
+; (docs/NET-STACK-PLAN.md 1.5). Reporting anything else would put an
+; unreachable quad in a 227 reply.
+;
+; Gated on NET_VER_ADDR and not on nsk_do's NET_VER_SOCK: a version-2 partner
+; serves every other verb perfectly and only this letter is new to it, and an
+; unknown letter is a hung wire rather than a refusal (nwire.inc).
+; -----------------------------------------------------------------------------
+nsk_addr:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    cmp byte [lp_ver], NET_VER_ADDR
+    jb  .old
+    mov al, NW_ADDR
+    mov [net_cmdip], al
+    call lp_sbyte
+    jc  .io
+    call lp_rbyte               ; the status...
+    jc  .io
+    mov [net_sst], al
+    mov cx, 4                   ; ...and FOUR BYTES WHATEVER IT SAID, because
+    mov bx, 0                   ; the frame is fixed (SPEC.md 62.10.1)
+.rd:
+    call lp_rbyte
+    jc  .io
+    mov [net_addr+bx], al
+    inc bx
+    loop .rd
+    cmp byte [net_sst], 0
+    jne .refused
+    mov si, net_addr            ; staged, then handed over: the four bytes are
+    mov cx, 4                   ; read one at a time off the wire and only a
+    cld                         ; whole answer is worth copying out
+    rep movsb
+    xor ax, ax
+    clc
+    jmp short .out
+.refused:
+    mov al, [net_sst]
+    xor ah, ah
+    stc
+    jmp short .out
+.old:
+    mov ax, NETE_NOLINK
+    stc
+    jmp short .out
+.io:
+    call nsk_io
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
     pop bx
     ret
 

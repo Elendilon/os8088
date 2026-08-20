@@ -249,6 +249,16 @@ binds both.
   the kernel learns nothing about TCP and a machine with no card refuses at the
   one fence. `apps/os88sock.inc` is that ABI written once; `apps/os88line.inc`
   is the line discipline Telnet and the browser share.
+  **A socket buffer must live in the package's own segment**: `OSAPI_DRV_CALL`
+  is an X stub and puts the caller's segment in ES, so a staging buffer in a
+  heap claim is read out of the package's own image instead — which reads as
+  memory corruption rather than as a wrong segment register, because the bytes
+  really are ours (§77.10).
+- **A worker may not touch a file** (§20.6 rule 7), so a package that is
+  socket-to-file by definition is shaped around `OSAPI_WM_ONWAKE`: the worker
+  stages, the UI task commits, and a single byte written last by the producer
+  and cleared last by the consumer is the whole handshake — no lock, because
+  the worker may not take one. `apps/ftpd/` (§77) is the worked example.
 - **A C package that does not fit gets a second segment, not a bigger one**
   (§73.14): a function named `ovl_*` has its CODE emitted into a module that
   ships beside the package (`CWORD.OVL`) and is far-called both ways, while
@@ -433,7 +443,9 @@ in docs/TESTING.md, per capability.
   (pass/fail) and benchmarks (how fast). Built only by their own targets.
 - `apps/browser/`, `apps/telnet/` — the network clients (§71, §70), over
   `os88sock.inc`. `tools/os88proxy.py` is the host-side other end and
-  `os88proxygui.py` its desk-side front.
+  `os88proxygui.py` its desk-side front. `apps/ftpd/` is the FTP **server**
+  (§77) — the same ABI listening rather than connecting, and the last stage of
+  docs/NET-STACK-PLAN.md.
 - `tools/` — host-side Python: `os88pkg.py` (validates/stamps `.bin` → `.o88`),
   `os88disk.py` (builds FAT12 images; `--verify` is a structural fsck),
   `checkdocs.py` (the doc gate every `make` runs), `os88test.py` (the suite

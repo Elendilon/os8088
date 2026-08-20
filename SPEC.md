@@ -58909,3 +58909,314 @@ the Makefile's own documented trap and this knob fell straight into it: a knob
 outside the stamp does not rebuild the kernel, so `make THEMEDARK=1` after a
 plain `make` drove the PREVIOUS build — a Bright machine, captured and
 reasoned about as though it were Dark, for one whole round.
+
+---
+
+## 77. FTPD — the FTP server (`apps/ftpd/ftpd.asm`)
+
+docs/NET-STACK-PLAN.md **stage F**, and the last of them. It is the first
+thing in this system that makes the 5150 a **server**: everything before it —
+the cable (§62), Telnet (§70), the browser (§71), the card (§72) — had os8088
+reaching *out*, and this inverts every assumption those were built on. The
+connection arrives, the far end asks the questions, and the answers come off
+the machine's own floppies.
+
+It is also the answer to docs/FIELD-MACHINES.md's seven-step path **in the
+other direction**. Getting a file onto that machine meant writing an image,
+carrying it and booting it; now a modern machine on the same LAN drops the
+file on it while os8088 is running.
+
+**An RFC 959 server, deliberately small**: one client at a time, one volume,
+8.3 names, binary transfers. PASV and PORT both, EPSV for the clients that
+prefer it, and a UNIX-shaped `LIST` because that is the format every client
+can parse.
+
+### 77.1 The worker stages and the UI task commits — and that is the whole design
+
+**A worker may not touch a file.** §20.6 rule 7: the file slots share
+`dsk_secbuf`, the FAT snapshot and `sch_lock`, and are UI-task context only.
+An FTP server is socket-to-file *by definition*, so this is not a detail here,
+it is the central design problem (docs/NET-STACK-PLAN.md §1.5.1) — and it was
+named as one in the plan years before there was any code.
+
+The answer is the one Frotz proved for `@save` (§61.6) and RunCPM for its Z80
+slices (§74.1):
+
+```
+  worker                                     UI task (fd_wake)
+  ------                                     -----------------
+  fill fd_arg*, then [fd_req] = FR_*    -->  sees [fd_req], does the file work,
+  OSAPI_WM_WAKE                              writes fd_rst/fd_sfill,
+  poll until [fd_req] == FR_NONE        <--  clears [fd_req] LAST
+```
+
+**`[fd_req]` is the whole handshake and the ordering is the entire proof.**
+The producer writes every argument *before* the flag; the consumer clears the
+flag *after* every result. Neither can read a half-written answer, so there is
+no lock on either side — which matters, because the worker may not take one
+and `fd_wake` is the one callback that does not already hold the gfx lock. It
+is one byte, and a byte store is atomic on an 8086.
+
+**`OSAPI_WM_ONWAKE` is what makes it possible at all** (§74.1): called on the
+UI task, billed to this instance, *without* the gfx lock, and expressly
+allowed to call the file slots. Nothing else in the SDK is. `OSAPI_WM_WAKE` is
+worker-safe and ISR-safe and keeps at most one queued wake per window, so
+kicking from every worker turn is free and can never fill the 16-record ring —
+and the worker kicks again on every turn it spends waiting, because a wake
+posted when the ring was full is *not* queued and CF says so.
+
+**Nothing else may run while a request is out.** `fd_step` looks at `[fd_req]`
+before it looks at anything else, because the stage is the request's argument
+and a second command drained out of the control buffer would run against a
+buffer the first still owns.
+
+### 77.2 The stage is in the package's own bss, and it CANNOT be a heap claim
+
+It was a claim first — `OSAPI_MEM_*` is not on rule 7's list either, so it was
+taken in `fd_entry` and never resized, with Frotz's `zi_load` as the model.
+**That design is forbidden by the door**, and finding out cost a run.
+
+`OSAPI_DRV_CALL` is an **X stub**: it puts the calling package's segment in ES,
+because a socket verb's buffer is the package's and the driver has to be able
+to read it (`drv_pkg_call_x`). So `mov es, [claim]` before a `NETV_SEND` is
+simply overwritten, and the driver reads the same offset out of the package's
+**own image** instead. It fails in the most confusing way available: a `LIST`
+answered 227, 150 and 226 exactly as it should and delivered four rows of the
+package's own header and code — which reads as memory corruption rather than
+as a wrong segment register, because the bytes really are the package's.
+
+A claim is still right for the *file* half (the file slots are N stubs and keep
+the caller's ES), so the alternative was a claim plus a copy at every socket
+call. In the package's own segment **both** halves reach it directly, the ES/DS
+twin of every append helper disappears — there was one of each, and two
+routines that can drift — and the cost is that the region is `FD_STGSZ` bigger,
+which it would have been anyway one claim over.
+
+`FD_STGSZ` is a power of two at least a cluster wide, so `fd_setchunk`'s
+rounding always leaves a whole number of clusters on every volume this kernel
+mounts (§52.3 caps a cluster at 8KB).
+
+### 77.3 A transfer is a loop, and the chunk is a whole number of clusters
+
+The stage is bounded, so a 200KB upload is a run of stage-and-commit rather
+than one write. **The chunk is a whole number of clusters** because that is
+`OSAPI_FILE_APPEND`'s and `OSAPI_FILE_READ_AT`'s shared precondition (§18.4.4)
+— and `fd_setchunk` derives it from `OSAPI_FILE_DFREE` at the start of every
+transfer rather than baking it in, because a hard-disk partition picks its
+cluster size from its capacity (§52.3) while a floppy is 512, and a `CWD`
+between two transfers can move between them. `DFREE` does no disk I/O, so
+asking every time is free.
+
+So an upload buffers to a full chunk before it commits, and **only the last
+commit is a partial one** — which is the one size the rule exempts. Getting
+that wrong is not a corruption: `OSAPI_FILE_APPEND` answers `FERR_NAME` and
+writes nothing, so the failure is a refused transfer rather than a wrong file.
+
+**`OSAPI_FILE_READ_AT` being stateless is what makes the download half work.**
+The offset is the whole argument — there is no handle and no cursor — and
+between two of these the worker has been out on the wire, where anything at
+all may have walked a directory.
+
+### 77.4 Four handles is the floor, and this is what spends them
+
+`NET_SOCKS` is 4 and `drivers/net/netpkg.inc` has always said why: *an FTP
+server is a control connection plus a data connection plus a listener that
+must stay open across both.* This is that sentence executing. All four are
+live at once for exactly as long as it takes a client to answer a `227`, and
+**`fd_data_ready` closes the passive listener the moment it has accepted** —
+a passive listener is single-use by definition, and holding a fourth handle
+through a whole transfer would leave a second client unable to reach the
+greeting.
+
+`NETV_ACCEPT` being separate from `NETV_LISTEN` (docs/NET-STACK-PLAN.md 1.2)
+is what
+lets the port-21 listener outlive the connection it accepted, so a client
+disconnecting returns the server to `FD_LISTEN` rather than ending it.
+
+### 77.5 `NETV_ADDR` — the verb PASV needed and nothing else ever did
+
+RFC 959's passive reply carries the address the client should come back to —
+`227 ... (h1,h2,h3,h4,p1,p2)` — so a server that cannot name its own address
+cannot answer PASV at all. Nothing in this tree had ever needed one: a client
+connecting *out* is told where to go and never has to say where it is, which
+is how five verbs' worth of networking got built without it.
+
+docs/NET-STACK-PLAN.md §1.3 always said `NETV_STATE` "reports whether there is
+a stack **and what its address is**", and the half after the *and* was never
+built — AL is flags and AH is a free-handle count, with no room in either. So
+this is that promise kept at a verb of its own (**10**, appended) rather than
+a contract change at a live number, which §20.8 rule 4 asks for even while the
+table is unfrozen: appending cannot invalidate a caller, and every package
+built before it keeps working untouched.
+
+**One body serves both transports.** `eth_v_addr` is in `drivers/ether/ethsock.inc`
+— the file whose header keeps `NETV_IDENT` and `NETV_STATE` with their *hosts*
+because what identifies a driver and what counts as a link are the one thing
+the two ends genuinely disagree about. An address is not one of those: both
+answer with the IP of the machine the stack is running on. **Over the cable
+that machine is the DOS box**, and that is the true answer rather than a
+convenient one (docs/NET-STACK-PLAN.md 1.5): mTCP on the far end owns the IP,
+an inbound
+connection arrives *there* and is forwarded, so the address a client must dial
+really is the partner's.
+
+**The zero test is not a formality.** `eth_ip` is four zeroes until DHCP binds
+or §72.7's Setup window is filled in, and `0.0.0.0` in a 227 reply tells the
+client to connect to *itself* — which fails somewhere it cannot explain. The
+refusal lets the server say *no address yet* and point at EPSV, which carries
+no address at all.
+
+#### 77.5.1 The wire version had to move, and the reason is written in `nwire.inc`
+
+`NW_ADDR` is a new letter on the cable, and the comment beside `NET_VER_SOCK`
+had already warned exactly what that costs: an unknown letter reaches
+`os88net.asm`'s dispatch ladder, matches nothing, and **falls through to the
+top of the loop without sending a reply**. A new driver asking an old
+`OS88NET.COM` for an address would not get a refusal — it would get a master
+blocked in `lp_rbyte` until the deadline and then a `NETE_IO` that drops every
+handle on the link.
+
+So `NET_VER_ADDR` = 3, and the gate is **inside `nsk_addr`** rather than in
+`nsk_do`'s ladder: every other verb is happy with a version-2 partner and must
+stay that way. An old `.COM` answers `NETE_NOLINK` — *there is no address to
+be had* — which is what a caller already does with a cable whose partner has
+no stack. **The `.COM` is the half that has to travel** (docs/FIELD-MACHINES.md),
+so a field run pairing a new driver with a stale one is the case the gate
+exists for.
+
+### 77.6 What it serves, and what it does not
+
+**One volume — the one the instance is standing on.** A name resolves in the
+instance's own directory (§19.2.1) and the kernel banks and restores that
+underneath every file cell, so the FTP session's working directory *is* the
+instance's and no Disk window, driver or other application can move it. That
+is why there is no path state here beyond the string `PWD` prints. Launching
+`FTPD.O88` off the apps floppy serves the apps floppy; there is no way to
+reach the other drive from the client, and that is a limit rather than a bug.
+
+A path with a `/` in it is walked with `OSAPI_FILE_GOTO` and walked back
+afterwards. **It has to be `GOTO` and not `GOTO_Q`**: the quiet twin
+deliberately does not move the app's own folder, so `inst_vol_enter` would
+stand us back in it before the very next file cell resolved anything.
+
+**A failed `CWD` is undone.** A multi-component walk that dies on its third
+component has already moved twice, and leaving the session somewhere the
+client was never told about makes every later bare name resolve in the wrong
+folder — silently, which is docs/FIELD-NOTES.md 4's whole family.
+
+**`RMD` is the one command that needs a kernel change, and it says so.** There
+is no `OSAPI_FILE_RMDIR`: the kernel has `dskw_rmdir` and the SDK's own note
+by `OSAPI_FILE_MKDIR` records the absence as deliberate — *nothing outside has
+wanted it, and an unused slot is a promise for nothing* (§20.8 rule 4).
+Something outside wants it now, and adding a slot spends `KERN_BUDGET`, which
+is a decision to take with whoever asked for the feature rather than a build
+fix (docs/KERNEL-MEMORY.md). So it refuses with a reason a person can act on.
+
+**`RNFR`/`RNTO` rename within one directory**, because `OSAPI_FILE_RENAME`
+takes two leaf names and resolves both in the current one. A cross-directory
+rename fails cleanly rather than moving the wrong file.
+
+### 77.7 `SYST` says UNIX, and that is a statement about the LISTING
+
+`SYST`'s answer is what a client uses to pick a **LIST parser**, and there are
+two in practice: the `ls -l` shape and DOS's. Answering honestly — `215
+OS8088` — makes every client fall back to guessing, and a guess that goes
+wrong shows the user an empty directory on a machine that listed it perfectly.
+
+So `215 UNIX Type: L8` is a claim about the format of the rows `fd_list_row`
+emits, which is the question the client is really asking. The About panel and
+the window both say what the machine is; no client reads either.
+
+**The date in a row is fixed.** `OSAPI_FILE_FIND`'s record carries a name, an
+attribute, a type, a first cluster and a size — and no timestamp — so
+inventing one from the clock would be a lie about the *file* rather than about
+the format. Every entry shows `Jan  1  1980`, which no client depends on.
+
+**`TYPE A` and `TYPE I` are both taken and both mean binary.** A DOS text file
+already has its CRLFs, so an ASCII transfer to another CRLF machine is
+byte-for-byte identical to a binary one — and translating to LF would corrupt
+every file going the other way. Refusing `TYPE A` instead would break the
+clients that send it out of habit before every transfer.
+
+**The listing walk is resumable.** `[fd_lord]` is the next ordinal to ask for,
+so a directory bigger than the stage is several passes and the worker sends
+each before asking for the next — the same stage-and-commit loop a transfer
+is. `OSAPI_FILE_FIND` keeps no cursor in the kernel, which is exactly what
+this needs: the loop it exists for is find → read → write → find, and every
+middle step walks directories itself.
+
+### 77.8 The window is the access control, and it says so
+
+**Any user and any password are accepted**, and that is a decision rather than
+an omission. A credential worth checking has to be stored somewhere, and the
+only somewhere here is a file on the very floppy the server hands out — so a
+password would be protecting the disk with a secret written on it.
+
+What actually decides whether anyone can reach these files is **the Start
+button**, which the person at the machine presses; the **Read Only** box
+decides whether they can change them; and the status line says what is being
+served and where. The `USER`/`PASS` exchange is still *required*, because
+clients expect it and because every verb that touches the volume is gated on
+it — so a stray connection that never logs in cannot list a directory.
+
+`PASS` is logged as its verb alone. A password is not something to put on a
+screen anybody walking past can read, and this window is a log.
+
+### 77.10 What building it found in code that was already there
+
+Two defects, and neither is the FTP server's. Both had been unreachable
+because **nothing in this tree had ever listened** — stage E built `LISTEN`
+and `ACCEPT` and stage F is the first thing to call them with a client on the
+other end.
+
+**Closing a listener did not destroy its pending queue** (`sk_reap_kids`,
+`drivers/ether/tcp.inc`). A connection the stack has completed but
+`NETV_ACCEPT` has not taken is marked `SKF_ACPT` and belongs to *nobody*: the
+package was never given a handle for it, so it cannot close it, and
+`eth_v_accept` will not hand it over once the peer has closed, because it
+matches on `NSK_UP`. So it sat in the socket table until the machine was
+turned off. **The fourth handle is what makes that fatal rather than untidy**:
+`NET_SOCKS` is 4 precisely so a server can hold a listener, a control
+connection and a data connection at once, so one stranded socket is the whole
+margin. Measured — a read-only `STOR` stranded the data connection the client
+had already dialled, and the *next* transfer had no slot to accept into: the
+server answered 227 and 150 perfectly and then never sent a byte, several
+commands after the one that actually broke, with every driver counter clean
+and no error anywhere. `tcp_abort` already did the right thing once reached
+(`SKF_ACPT` sends it straight to `.free`, on its own reasoning that "nobody
+ever asked for this one"); the bug was that nothing ever reached it.
+
+**And the package's own half of that is `fd_xrefuse`**: by the time `RETR` or
+`STOR` arrives the client has answered the 227 and its end is connected, so a
+refusal that only sends a reply leaves a listener armed with a connection
+waiting on it. Both fixes are kept — the driver's because the semantics are
+the driver's, the package's because a server should release a data connection
+it has decided not to use.
+
+#### 77.10.1 The same-turn race, which is this design's own shape of bug
+
+`fd_step` guards on `[fd_req]` before it does anything — but that guard is
+taken **before** `fd_ctl_poll`, and the command `fd_ctl_poll` runs is what
+posts the request. So the pass that accepted a `LIST` went straight on to
+`fd_xfer_poll`, found the stage empty (`fd_do_list` runs on the UI task and
+had not run yet), read that as *the listing is finished*, and closed the data
+connection with a 226.
+
+The client saw a flawless exchange — 227, 150, an empty stream, 226 — and
+reported an empty directory on a disk with four files on it. **A stage-and-
+commit design has to re-ask whether a request is outstanding after anything
+that could have posted one**, and the natural place to put the guard is the
+one place it cannot work.
+
+### 77.11 Two things that are deliberately not locked
+
+**`fd_log` is called from both tasks without a lock.** The worker logs every
+command it answers and the UI task logs what it did to the disk. A torn line
+is cosmetic and the ring cannot be corrupted into anything but text, so the
+lock this would need — held across a wire exchange, in the worker — would cost
+far more than the defect.
+
+**The gfx lock is taken in exactly two places and never across the wire**:
+`fd_flush_glass` on the worker and `fd_wake`'s tail on the UI task, both after
+the socket work is done. A `NETV_RECV` is up to 274 ms on the cable and the
+cursor would stop dead for it (§20.6 rule 3).

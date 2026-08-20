@@ -49,6 +49,9 @@ UNREGISTERED = {
     "ethernet.py": "needs `make ethertest` and QEMU - MartyPC has no NIC "
                    "(SPEC.md 72.9)",
     "ethcfg.py": "needs `make ethertest` and QEMU",
+    "ftpd.py": "needs `make ftpdtest` and QEMU with ETHFWD=1 - the FTP server "
+               "LISTENS, so the client has to reach INTO the guest, and "
+               "MartyPC has no NIC at all (SPEC.md 77)",
     "rczex.py": "needs the RunCPM fetch (`make runcpm-src`) and the C toolchain",
     "rczex_ocr.py": "needs the RunCPM fetch and an OCR dependency",
     "proxytest.py": "drives tools/os88proxy.py against a live network",

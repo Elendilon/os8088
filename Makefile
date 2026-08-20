@@ -1543,6 +1543,37 @@ $(BUILD)/ether360.img: $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYS
 		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(BUILD)/system.cfg
 
+# FTPDTEST: the FTP SERVER's gate disk (SPEC.md 77, docs/NET-STACK-PLAN.md
+# stage F). Two images, and each answers a different half.
+#
+# The SYSTEM disk is ether360.img's - a SYSTEM.CFG that already asks for
+# ETHER.DRV, so the card is up and DHCP has bound before the first paint and
+# the gate never touches the Control Panel (SPEC.md 72.9's reasoning exactly).
+#
+# The DATA disk is its own, and FTPD.O88 sits in its ROOT rather than in APPS/
+# because **the server serves the folder it was launched from** (SPEC.md 77.6):
+# put it under APPS/ and every assertion below is about a directory holding
+# nothing but packages. The three files beside it are what the gate fetches,
+# renames and lists, and DEEP/ is what proves CWD walks.
+FTPDFILES := $(BUILD)/ftpd.o88 $(BUILD)/FTPHELLO.TXT $(BUILD)/FTPBIN.DAT
+
+$(BUILD)/FTPHELLO.TXT: | $(BUILD)
+	printf 'hello from os8088\r\n' > $@
+
+# EVERY BYTE VALUE, so a transfer that is clean for text and wrong for binary
+# cannot pass: 0x00 and 0x1A are the two that a translating path eats.
+$(BUILD)/FTPBIN.DAT: | $(BUILD)
+	python3 -c "import sys; sys.stdout.buffer.write(bytes(range(256))*8)" > $@
+
+.PHONY: ftpdtest
+ftpdtest: $(BUILD)/ether360.img $(BUILD)/ftpapps.img
+	@echo "ftpdtest: build/ether360.img + build/ftpapps.img"
+	@echo "          Run it with: python3 tests/ftpd.py"
+
+$(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		$(FTPDFILES) DEEP:$(BUILD)/FTPHELLO.TXT
+
 $(IMG360): $(BUILD)/boot360.bin $(BUILD)/kernel.bin $(DRIVERS) $(SYSAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 \
 		--boot $(BUILD)/boot360.bin --kernel $(BUILD)/kernel.bin \
@@ -1748,6 +1779,18 @@ $(BUILD)/telnet.bin: apps/telnet/telnet.asm apps/telnet/tetxt.inc \
 
 $(BUILD)/telnet.o88: $(BUILD)/telnet.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/telnet.bin -o $@
+
+# THE FTP SERVER (SPEC.md 77) - docs/NET-STACK-PLAN.md stage F, and the first
+# thing here that SERVES. Same include set as Telnet's for the same reason:
+# netpkg.inc is the DRIVER's own ABI header, included by both ends so the two
+# cannot drift (SPEC.md 20.11).
+$(BUILD)/ftpd.bin: apps/ftpd/ftpd.asm apps/os88api.inc apps/os88ui.inc \
+                   apps/os88sock.inc drivers/net/netpkg.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/ftpd/ -I drivers/net/ -o $@ apps/ftpd/ftpd.asm
+	@echo "ftpd:   $(call FILESIZE,$@) bytes"
+
+$(BUILD)/ftpd.o88: $(BUILD)/ftpd.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/ftpd.bin -o $@
 
 $(BUILD)/browser.o88: $(BUILD)/browser.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/browser.bin -o $@
@@ -3994,7 +4037,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/fractal.o88 \
               $(BUILD)/hello.o88 $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 $(BUILD)/recorder.o88 \
-              $(BUILD)/telnet.o88 \
+              $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/cyclone.o88 $(BUILD)/mines.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
@@ -4651,11 +4694,34 @@ endif
 # for this driver the way the QMP counter read is for the kernel: a stack that
 # is silent and a stack that is talking nonsense look identical from inside the
 # guest, and one `tcpdump -r` says which.
+#
+# ETHFWD=1 IS THE OTHER DIRECTION, and the paragraph above used to end "this
+# test never needs it". SPEC.md 77's FTP server is the case that does: it
+# LISTENS, so a client on the host has to be able to reach INTO the guest, and
+# slirp gives a guest no inbound route without a hostfwd. It forwards the
+# control port (host 2121 -> guest 21, unprivileged so the gate needs no root)
+# and the whole of the server's passive range, because a PASV transfer is a
+# SECOND inbound connection to a port the server picks - and it rotates them
+# (fd_pasv_port), so forwarding one is a gate that passes once and then fails.
+#
+# The client is ftplib, which since Python 3.11 ignores the address in a 227
+# reply and dials the one it is already connected to - so it comes back to
+# 127.0.0.1:<port> and the forward catches it. That is a SECURITY default
+# doing us a favour rather than something the test arranges.
+ETHCOMMA := ,
+ETHSP := $(subst ,, )
+ifneq ($(ETHFWD),)
+FTPPASV := 2048 2049 2050 2051 2052 2053 2054 2055
+# ONE LINE AND NO CONTINUATION: a `\` inside a := becomes a SPACE, which splits
+# the -netdev argument in two and silently forwards only the control port -
+# so PASV connects to nothing and the gate reads as a server bug.
+ETHFWDS := $(ETHCOMMA)hostfwd=tcp::2121-:21$(subst $(ETHSP),,$(foreach p,$(FTPPASV),$(ETHCOMMA)hostfwd=tcp::$(p)-:$(p)))
+endif
+
 ifneq ($(ETHER),)
-ETHERDEV = -netdev user,id=n0 -device ne2k_isa,netdev=n0,iobase=0x300,irq=3 \
+ETHERDEV = -netdev user,id=n0$(ETHFWDS) -device ne2k_isa,netdev=n0,iobase=0x300,irq=3 \
            $(if $(ETHDUMP),-object filter-dump$(ETHCOMMA)id=fdump$(ETHCOMMA)netdev=n0$(ETHCOMMA)file=$(ETHDUMP))
 endif
-ETHCOMMA := ,
 
 test: $(TESTIMG) $(TESTAPPS) $(HDDIMG)
 	$(QEMU) -drive file=$(TESTIMG),format=raw,if=floppy -boot a $(MOUSE) \

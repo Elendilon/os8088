@@ -428,6 +428,7 @@ eth_vtab:
     dw eth_v_listen             ; 7 NETV_LISTEN
     dw eth_v_accept             ; 8 NETV_ACCEPT
     dw eth_v_none               ; 9 NETV_RESOLVE - RESERVED (netpkg.inc)
+    dw eth_v_addr               ; 10 NETV_ADDR
 eth_vtab_end:
 %if (eth_vtab_end - eth_vtab) / 2 != NETV_MAX + 1
   %error "ether: the verb table and NETV_MAX disagree"

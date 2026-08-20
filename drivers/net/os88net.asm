@@ -366,7 +366,12 @@ net_start:
     call puts
     call nw_up
     jc  .no
-    mov byte [lp_myver], NET_VER_SOCK
+    mov byte [lp_myver], NET_VER_ADDR   ; ...which IMPLIES NET_VER_SOCK: the
+                                        ; comparisons are `jb`, so a version
+                                        ; is a floor and not a set. A .COM
+                                        ; older than this one still says 2 and
+                                        ; os8088 refuses NETV_ADDR alone
+                                        ; (nwire.inc)
     mov si, s_nwok
     call puts
     mov si, eth_ip              ; ...and WHICH address, because a machine with
@@ -565,6 +570,8 @@ serve:
     je  .nwrecv
     cmp al, NW_CLOSE
     je  .nwclose
+    cmp al, NW_ADDR
+    je  .nwaddr
     jmp .cmd                    ; ...NEAR: the socket handlers below sit
                                 ; between here and the top of the loop
 
@@ -588,6 +595,9 @@ serve:
     jmp .cmd
 .nwclose:
     call nw_s_close
+    jmp .cmd
+.nwaddr:
+    call nw_s_addr
     jmp .cmd
 
 .fwrite:

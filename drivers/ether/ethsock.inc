@@ -193,6 +193,10 @@ eth_v_close:
     call eth_pump
     call sk_h2p
     jc  .no
+    cmp byte [bx+SKO_TS], TS_LISTEN ; a LISTENER takes its un-accepted children
+    jne .mine                       ; with it - see sk_reap_kids, and the FTP
+    call sk_reap_kids               ; server it was found by (SPEC.md 77)
+.mine:
     or  byte [bx+SKO_FL], SKF_ORPH
     cmp byte [bx+SKO_TS], TS_ESTAB
     je  .fin
@@ -222,6 +226,48 @@ eth_v_close:
     pop ax
     clc                                 ; a close of a handle that is already
     ret                                 ; gone is not an error
+
+; --- NETV_ADDR ---------------------------------------------------------------
+; out ES:DI (the CALLER's) = four bytes of IPv4; CF=1 / NETE_NOLINK if none yet
+;
+; **SHARED RATHER THAN HOSTED, unlike NETV_IDENT and NETV_STATE.** This file's
+; header keeps those two with their ends because what identifies a driver and
+; what counts as a link are the one thing the cable and the card genuinely
+; disagree about. An ADDRESS is not: both ends answer with the IP of the
+; machine the stack is running on, and over the cable that machine is the DOS
+; box - which is the true answer there, because an inbound connection arrives
+; there and is forwarded (docs/NET-STACK-PLAN.md 1.5). One body, so the two
+; transports cannot come to differ about it.
+;
+; **The zero test is not a formality.** `eth_ip` is four zeroes until DHCP
+; binds or Setup is filled in, and 0.0.0.0 in an FTP 227 reply tells the
+; client to connect to ITSELF - which fails somewhere it cannot explain. The
+; refusal is what lets a server say "no address yet" instead.
+eth_v_addr:
+    push cx
+    push si
+    push di
+    mov si, eth_ip
+    call ip_zero
+    jz  .none
+    mov cx, 4
+    call usr_write              ; SI = ours, DI = theirs, through [eth_useg] -
+                                ; which is the caller's ES in the driver and
+                                ; the program's own DS on the DOS side
+                                ; (ethusr.inc)
+    xor ax, ax
+    pop di
+    pop si
+    pop cx
+    clc
+    ret
+.none:
+    mov ax, NETE_NOLINK
+    pop di
+    pop si
+    pop cx
+    stc
+    ret
 
 ; --- NETV_LISTEN -------------------------------------------------------------
 ; in CX = a port; out AX = a listening handle
