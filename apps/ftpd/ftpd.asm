@@ -1965,8 +1965,27 @@ fd_pasv_port:
 ; -----------------------------------------------------------------------------
 fd_count:
     pushf
+    push ax
+    push dx
     add [fd_xbytes], cx
     adc word [fd_xbytes+2], 0
+    ; --- and HOW LONG SINCE THE LAST TIME (SPEC.md 77.26) -----------------
+    ; The client watches its DATA connection, so what decides whether it
+    ; gives up is the LONGEST single silence, not the average rate. That is
+    ; a number nothing here could otherwise produce: the average is 7 KB/s
+    ; either way, and 7 KB/s in steady 1-second bursts is a transfer that
+    ; finishes where 7 KB/s with one 40-second hole is a transfer that does
+    ; not. Measured on the machine, reported at the end.
+    call OSAPI_GET_TICKS
+    mov dx, ax
+    sub ax, [fd_tlast]              ; modular, so the tick counter's own wrap
+    cmp ax, [fd_gapmax]             ; cannot invent a gap
+    jbe .keep
+    mov [fd_gapmax], ax
+.keep:
+    mov [fd_tlast], dx
+    pop dx
+    pop ax
     popf
     ret
 
@@ -1974,6 +1993,8 @@ fd_xstart:
     push ax
     call OSAPI_GET_TICKS
     mov [fd_t0], ax
+    mov [fd_tlast], ax              ; the first gap is measured from the 150,
+    mov word [fd_gapmax], 0         ; which is when the client starts watching
     mov word [fd_xbytes], 0
     mov word [fd_xbytes+2], 0
     pop ax
@@ -2031,6 +2052,22 @@ fd_log_rate:
     pop dx                          ; DX:AX = bytes per second
     call fd_dnum32
     mov si, fd_l_bps
+    call fd_dcat
+    mov si, fd_l_gap                ; ...and the longest hole in it
+    call fd_dcat
+    mov ax, [fd_gapmax]
+    cmp ax, 16000
+    jb .g
+    mov ax, 16000
+.g:
+    shl ax, 1
+    shl ax, 1
+    xor dx, dx
+    mov bx, 73
+    div bx                          ; whole seconds, the same 4/73 as above
+    xor dx, dx
+    call fd_dnum32
+    mov si, fd_l_gs
     call fd_dcat
     mov byte [di], 0
     mov si, fd_outb2
@@ -6855,6 +6892,8 @@ fd_l_sent:  db 'Sent ', 0
 fd_l_in:    db ' bytes in ', 0
 fd_l_sec:   db 's (', 0
 fd_l_bps:   db ' B/s)', 0
+fd_l_gap:   db ' gap ', 0
+fd_l_gs:    db 's', 0
 fd_l_prange: db 'Passive data ports 2048-2055', 0
 fd_s_noaddr: db '(no address)', 0
 fd_s_start: db 'Start', 0
@@ -7132,7 +7171,10 @@ fd_mext     equ fd_xbytes + 4                   ; 4: the extension fd_mangle83
                                      ; lifted out, while it rewrites the stem
                                      ; UNDER it - the two overlap in fd_leaf,
                                      ; so the ext cannot stay where it was
-fd_dverb    equ fd_mext + 4                     ; byte: NETV_CLOSE or NETV_ABORT
+fd_tlast    equ fd_mext + 4                     ; word: the tick a byte last
+                                     ; crossed, for the gap
+fd_gapmax   equ fd_tlast + 2                    ; word: ...and the longest hole
+fd_dverb    equ fd_gapmax + 2                   ; byte: NETV_CLOSE or NETV_ABORT
 fd_t0       equ fd_dverb + 2                    ; word: the tick a transfer
                                      ; STARTED, for the rate line
 fd_wdog     equ fd_t0 + 2                       ; word: the tick the transfer

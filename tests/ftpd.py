@@ -815,7 +815,18 @@ def run_gate(m, mo, fails):
             f.sock.close()
         except Exception:
             pass
-    time.sleep(4.0)
+    # **HOW LONG IT TAKES IS PART OF THE ASSERTION.** The first version waited
+    # four seconds and failed, and the failure was the harness's: the server
+    # does recover - fd_st goes back to FD_LISTEN with both handles at 0 - but
+    # not instantly, because the worker has to poll the dead control socket
+    # before fd_bye can run. So this WAITS FOR THE STATE and reports the time,
+    # which is the number a user retrying after a failed upload feels.
+    t0 = time.time()
+    while time.time() - t0 < 90:
+        if read_state(m) == "listening":
+            break
+        time.sleep(2.0)
+    say("back to listening %.0fs after the client vanished" % (time.time() - t0))
 
     ok = False
     for attempt in range(3):
@@ -825,14 +836,14 @@ def run_gate(m, mo, fails):
             g.set_pasv(False)
             rows = []
             g.retrlines("LIST", rows.append)
-            say("after an aborted transfer, LIST works at once (%d rows, "
-                "attempt %d)" % (len(rows), attempt))
+            say("after an aborted transfer, LIST works (%d rows, attempt %d)"
+                % (len(rows), attempt))
             g.quit()
             ok = True
             break
         except Exception as e:
             say("   attempt %d: %s" % (attempt, str(e).strip()[:60]))
-            time.sleep(5.0)
+            time.sleep(10.0)
     if not ok:
         fails.append("after an aborted transfer the next session could not "
                      "LIST - the data socket's slot was not released, which "

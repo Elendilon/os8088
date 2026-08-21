@@ -60099,3 +60099,47 @@ session after it until a minute passes or the app is restarted, which is what
 made this look like a server that breaks rather than a transfer that was too
 slow.
 
+### 77.26 The longest silence, which is the number that decides it
+
+The field read WinSCP's documentation and asked the right question: it holds
+**two** connections, and the error names the control one — *"is it timing out
+because it gets no response on the control connection during the transfer?"*
+
+**What WinSCP reports and what fails are not the same thing.** The control
+connection is silent during a transfer on EVERY FTP server — §77.24's rule
+that the server may not speak until the transfer ends is the protocol, not a
+shortcoming here. And the same client holds a **twenty minute** upload to
+mTCP's FTP server on the same machine without complaining. So WinSCP plainly
+tolerates a long silent control connection; what it will not tolerate is a
+**data** connection that stops moving. The control timeout is what it says
+when it gives up, not why.
+
+So the question is whether ours stops, and for how long — and **the average
+rate cannot answer it**. 7 KB/s in steady one-second bursts is a transfer
+that finishes; 7 KB/s with a single forty-second hole in the middle is a
+transfer that dies, and both report 7 KB/s. §77.23's timer measures the
+average because that is what it was built for.
+
+`[fd_gapmax]` is the longest interval between two moments a byte crossed the
+wire, stamped in `fd_count` where the bytes are already being counted, and
+the transfer line carries it: **`Got 129430 bytes in 31s (4175 B/s) gap 2s`**.
+Modular subtraction, so the tick counter's own wrap cannot invent a hole, and
+the first gap is measured from the `150` because that is when the client
+starts watching.
+
+It splits the remaining possibilities cleanly, which is the whole point of
+building it rather than reasoning further:
+
+- **A gap of a second or two** means the data connection never stalls, the
+  client is timing out on the silent control channel after all, and the fix
+  is on that side — a longer timeout, or WinSCP's own keepalive setting,
+  because §77.24's rule still forbids the server from speaking.
+- **A gap approaching the timeout** means the data connection really does
+  stop, and the cause is in the receive path (§72) where §77.24 already put
+  the ~7 KB/s: that is a stack question with a measurable target rather than
+  a guess.
+
+Two field reports have now overturned a theory each — the disk-seek estimate
+(§77.21) and the disk itself (§77.24) — and both times the correction came
+from a number the machine produced rather than one this document computed.
+
