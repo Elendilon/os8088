@@ -236,45 +236,12 @@ eth_v_prof:
     clc
     ret
 
-; -----------------------------------------------------------------------------
-; prof_now - DX:AX = a 32-bit count of 838ns units
-; clobbers: AX, DX and the flags - both callers bank them
-;
-; The BIOS tick is the high half and counter 0 is the low half, and one tick is
-; exactly 65536 counts, so nothing has to be scaled between them. The counter
-; runs DOWN, so it is negated to count up within its tick.
-;
-; **IF IS CLEARED ACROSS THE LATCH AND THE TWO INs AND NOWHERE ELSE.** An
-; interrupt between the byte reads returns a torn count (benchlib.inc's rule);
-; holding IF down across the TICK reads as well would defeat the whole check,
-; because the tick cannot move while its ISR cannot run - so a reload landing
-; between them would be undetectable rather than caught.
-; -----------------------------------------------------------------------------
-prof_now:
-    push cx
-    push es
-    mov cx, 0x40
-    mov es, cx
-.again:
-    mov dx, [es:0x6C]           ; the tick, then the counter...
-    pushf
-    cli
-    mov al, 0
-    out 0x43, al                ; latch counter 0 - a read command, so the
-    jmp short $+2               ; system tick itself is undisturbed
-    in  al, 0x40
-    mov cl, al
-    jmp short $+2
-    in  al, 0x40
-    mov ah, al
-    mov al, cl
-    popf
-    cmp dx, [es:0x6C]           ; ...then the tick again: unchanged means the
-    jne .again                  ; two halves belong to each other
-    neg ax
-    pop es
-    pop cx
-    ret
+%include "os88pit.inc"          ; pit_now - the clock, shared with the FTP
+%define prof_now pit_now        ; server's own split (SPEC.md 77.32). It was
+                                ; this file's and is not any more: two copies
+                                ; of a clock cannot disagree, and a
+                                ; disagreement is the only thing two harnesses
+                                ; are for (PERFORMANCE.md Part 6 rule 7)
 
 ; -----------------------------------------------------------------------------
 ; prof_beg - AL = a stage: stamp its start

@@ -61194,3 +61194,42 @@ a C caller has no way to express it — `cword` and `runcpm` both go through it.
 That is a real exposure with the same mechanism and a different fix (stage
 through an aligned buffer inside the thunk, at the cost of a copy), and it is
 not being done blind in the same round as this one.
+
+### 77.32 The split — where a transfer's time goes ABOVE the driver
+
+§72.16's field profile put **57% of a transfer on the far side of the package
+door**. The stack accounted for 43%; nothing at all said what the other 13.5
+seconds were. Optimising inside the driver can win at most the 43%, and three
+rounds of this project have now been spent optimising the thing that was
+measurable rather than the thing that was large.
+
+So the FTP server times itself, on the same clock, with three brackets:
+
+| stage | what it is |
+|---|---|
+| `disk` | `OSAPI_FILE_READ_AT` / `WRITE` / `APPEND` — the UI task's, and the only thing here that turns a floppy motor |
+| `net` | `fd_step`, the worker's whole turn: every socket verb, the drain loop, and the poll that finds nothing |
+| `draw` | `fd_paint` and the log, which hold the gfx lock |
+
+and **the wall clock minus the three is the SCHEDULER** — time this package
+was not running at all, which nothing else on the machine reports.
+
+It lands as a second line beside the rate line, in milliseconds:
+
+```
+Got 304128 in 24s 12672B/s gap 0s
+disk 8123 net 2310 draw 1105
+```
+
+**The clock is `apps/os88pit.inc` and it is now shared** with ETHER.DRV's
+stage profiler (§72.15.1), which is where it was written. Two copies of a
+clock cannot disagree — and a disagreement is the only thing two harnesses are
+*for* (PERFORMANCE.md Part 6 rule 7, which this project has found three sizing
+bugs with). These two argue about **stages**, over one clock, so a number here
+and a number from `netbench` are in the same unit and can be added.
+
+It is **always on**, like the driver's. A bracket is ~25 µs against stages
+that are per-chunk and per-turn, so a 300 KB transfer pays a few tens of
+milliseconds out of twenty seconds. A split that needs a special build is a
+split the person with the 8088 cannot take, and they are the only one who can
+take it.

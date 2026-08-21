@@ -478,7 +478,180 @@ fd_layout:
     ret
 
 ; --- fd_paint - W_PAINT: SI = window, gfx lock held --------------------------
+%include "os88pit.inc"              ; pit_now - the clock SPEC.md 72.15.1 built
+                                    ; for the driver, shared (SPEC.md 77.32)
+
+; =============================================================================
+; THE SPLIT - where a transfer's time goes ABOVE the driver (SPEC.md 77.32)
+;
+; ETHER.DRV's profiler stops at the package door, and the field's first full
+; measurement put FIFTY-SEVEN PERCENT of a transfer on the far side of it: the
+; whole stack accounted for 43%, and nothing at all said what the other 13.5
+; seconds were. Optimising inside the driver can win at most the 43%.
+;
+; So three brackets, on the three things this package does with the time:
+;
+;   FT_DISK  the file calls - READ_AT, WRITE, APPEND. The UI task's, and the
+;            one thing here that turns a floppy motor
+;   FT_STEP  fd_step, the worker's whole turn: every socket verb, the drain
+;            loop and the poll that finds nothing
+;   FT_DRAW  fd_paint and the log, which hold the gfx lock
+;
+; and the wall clock minus the three is the SCHEDULER - time this package was
+; not running at all. It is measured the same way, with the same clock, so a
+; number here and a number from netbench are in the same unit and can be
+; added.
+;
+; ALWAYS ON, like the driver's: a bracket is ~25us against stages that are
+; per-CHUNK and per-TURN, so a 300KB transfer pays a few tens of milliseconds
+; out of twenty seconds. A split that needs a special build is a split the
+; person with the 8088 cannot take.
+; =============================================================================
+FT_DISK     equ 0
+FT_STEP     equ 1
+FT_DRAW     equ 2
+FT_N        equ 3
+
+%macro FT_B 1
+    push ax
+    mov al, %1
+    call fd_tbeg
+    pop ax
+%endmacro
+%macro FT_E 1
+    push ax
+    mov al, %1
+    call fd_tend
+    pop ax
+%endmacro
+
+; --- fd_tbeg / fd_tend - AL = a stage. Both preserve everything, flags too --
+fd_tbeg:
+    pushf
+    push ax
+    push bx
+    push dx
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    call pit_now
+    mov [fd_t0s+bx], ax
+    mov [fd_t0s+bx+2], dx
+    pop dx
+    pop bx
+    pop ax
+    popf
+    ret
+
+fd_tend:
+    pushf
+    push ax
+    push bx
+    push dx
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    call pit_now
+    sub ax, [fd_t0s+bx]
+    sbb dx, [fd_t0s+bx+2]
+    add [fd_tms+bx], ax
+    adc [fd_tms+bx+2], dx
+    pop dx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; --- fd_tzero - a transfer is one measurement, not the session's total ------
+; **AND EVERY STAGE RESTARTS FROM NOW.** fd_xstart is reached from inside
+; fd_step - a STOR command is parsed there - so FT_STEP's bracket is already
+; OPEN around the call that got here, and the clear below just put a zero in
+; its start value. Its FT_E then measures from the epoch: the first run of
+; this reported `net 95223` for a one-second transfer, which is the same
+; mistake ETHER.DRV's prof_start made and is fixed the same way. A stage that
+; is NOT open has its stamp overwritten by its own FT_B anyway.
+fd_tzero:
+    push ax
+    push cx
+    push dx
+    push di
+    push es
+    push ds
+    pop es
+    mov di, fd_t0s
+    mov cx, FT_N * 8
+    xor al, al
+    cld
+    rep stosb
+    call pit_now
+    mov di, fd_t0s
+    mov cx, FT_N
+.stamp:
+    mov [di], ax
+    mov [di+2], dx
+    add di, 4
+    loop .stamp
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; --- fd_tms_ms - stage BX (already *4) -> DX:AX milliseconds ---------------
+; counts * 5 / 5966 is counts / 1193.2, which is 838ns to fifteen parts per
+; million - and both halves stay inside 32 bits, where `counts * 838` laps at
+; 4.3 seconds (PERFORMANCE.md Part 6 rule 3)
+fd_tms_ms:
+    push cx
+    push si
+    mov ax, [fd_tms+bx]
+    mov dx, [fd_tms+bx+2]
+    mov cx, 5
+    call fd_mul32
+    mov cx, 5966
+    call fd_div32
+    pop si
+    pop cx
+    ret
+
+; --- fd_mul32 - DX:AX *= CX (16-bit result per half, the top is discarded) --
+fd_mul32:
+    push bx
+    push si
+    mov si, dx
+    mul cx                      ; DX:AX = low * CX
+    mov bx, dx
+    push ax
+    mov ax, si
+    mul cx                      ; AX = high * CX (its own overflow is a span
+    add ax, bx                  ; of eighteen hours and is not one)
+    mov dx, ax
+    pop ax
+    pop si
+    pop bx
+    ret
+
+; --- fd_div32 - DX:AX /= CX -------------------------------------------------
+fd_div32:
+    push bx
+    push si
+    mov si, ax
+    mov ax, dx
+    xor dx, dx
+    div cx
+    mov bx, ax
+    mov ax, si
+    div cx
+    mov dx, bx
+    pop si
+    pop bx
+    ret
+
 fd_paint:
+    FT_B FT_DRAW                    ; the gfx lock is held for all of this
     push ax
     push bx
     push cx
@@ -493,6 +666,7 @@ fd_paint:
     pop cx
     pop bx
     pop ax
+    FT_E FT_DRAW
     ret
 
 ; --- fd_draw_all - the whole face. Lock held, fd_layout already run ----------
@@ -919,6 +1093,9 @@ fd_log_row:
 ; a covered window is exactly when that happens (SPEC.md 11.3).
 ; -----------------------------------------------------------------------------
 fd_draw_log_inc:
+    FT_B FT_DRAW                    ; the incremental log draw, which is what
+                                    ; actually paints during a transfer - a full
+                                    ; fd_paint almost never runs in one (77.32)
     push ax
     push bx
     push cx
@@ -963,6 +1140,7 @@ fd_draw_log_inc:
     pop cx
     pop bx
     pop ax
+    FT_E FT_DRAW
     ret
 .whole:
     call fd_draw_log
@@ -1168,7 +1346,9 @@ fd_worker:
 .loop:
     mov bx, [fd_win]
     call OSAPI_TASK_ALIVE           ; the death door: may never return
+    FT_B FT_STEP
     call fd_step
+    FT_E FT_STEP
     mov ax, 1
     call OSAPI_TASK_SLEEP
     jmp .loop
@@ -2070,7 +2250,8 @@ fd_count:
 
 fd_xstart:
     push ax
-    call OSAPI_GET_TICKS
+    call fd_tzero                   ; the split is one transfer's, not the
+    call OSAPI_GET_TICKS            ; session's (SPEC.md 77.32)
     mov [fd_t0], ax
     mov [fd_tlast], ax              ; the first gap is measured from the 150,
     mov word [fd_gapmax], 0         ; which is when the client starts watching
@@ -2148,6 +2329,52 @@ fd_log_rate:
     call fd_dnum32
     mov si, fd_l_gs
     call fd_dcat
+    mov byte [di], 0
+    mov si, fd_outb2
+    call fd_log
+    call fd_log_split               ; ...and where it went (SPEC.md 77.32)
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_log_split - the second line: where the transfer's time went ABOVE the
+;                driver (SPEC.md 77.32)
+;
+; `disk 8123 net 2310 draw 1105`, in milliseconds, beside the rate line that
+; says how long the whole thing took. Subtract the three from the seconds on
+; the line above and the remainder is the SCHEDULER - time this package was
+; not running at all - which is a number nothing else on the machine reports.
+;
+; It is the same clock netbench's stages use, so the two reports add up.
+; -----------------------------------------------------------------------------
+fd_log_split:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, fd_outb2
+    mov si, fd_l_disk
+    call fd_dcat
+    xor bx, bx
+    call fd_tms_ms
+    call fd_dnum32
+    mov si, fd_l_net
+    call fd_dcat
+    mov bx, FT_STEP * 4
+    call fd_tms_ms
+    call fd_dnum32
+    mov si, fd_l_draw
+    call fd_dcat
+    mov bx, FT_DRAW * 4
+    call fd_tms_ms
+    call fd_dnum32
     mov byte [di], 0
     mov si, fd_outb2
     call fd_log
@@ -4702,7 +4929,9 @@ fd_do_read:
     mov cx, [fd_chunk]
     mov ax, [fd_foff]
     mov dx, [fd_foff+2]
+    FT_B FT_DISK
     call OSAPI_FILE_READ_AT         ; out DX:AX = bytes delivered, 0 = the end
+    FT_E FT_DISK
     jc .no
     mov [fd_sfill], ax
     mov word [fd_sout], 0
@@ -4766,14 +4995,18 @@ fd_do_write:
     cmp byte [fd_created], 0
     jne .append
     xor dx, dx
+    FT_B FT_DISK
     call OSAPI_FILE_WRITE           ; creates or REPLACES, which is what STOR
+    FT_E FT_DISK
     jc .no                          ; means
     mov byte [fd_created], 1
     jmp short .ok
 .append:
     jcxz .ok                        ; an empty tail needs no append at all -
                                     ; and APPEND's own contract wants CX >= 1
+    FT_B FT_DISK
     call OSAPI_FILE_APPEND
+    FT_E FT_DISK
     jc .no
 .ok:
     call fd_unbank
@@ -7187,6 +7420,9 @@ fd_l_in:    db ' in ', 0
 fd_l_sec:   db 's ', 0
 fd_l_bps:   db 'B/s', 0
 fd_l_gap:   db ' gap ', 0
+fd_l_disk:  db 'disk ', 0            ; the split line (SPEC.md 77.32), 28
+fd_l_net:   db ' net ', 0            ; characters at its widest - inside
+fd_l_draw:  db ' draw ', 0           ; FD_LOGW
 fd_l_gs:    db 's', 0
 fd_l_prange: db 'Passive data ports 2048-2055', 0
 fd_s_noaddr: db '(no address)', 0
@@ -7475,7 +7711,12 @@ fd_cidle    equ fd_rjsav + 1                    ; word: the tick the control
 fd_tlast    equ fd_cidle + 2                    ; word: the tick a byte last
                                      ; crossed, for the gap
 fd_gapmax   equ fd_tlast + 2                    ; word: ...and the longest hole
-fd_dverb    equ fd_gapmax + 2                   ; byte: NETV_CLOSE or NETV_ABORT
+fd_t0s      equ fd_gapmax + 2                   ; FT_N dwords: each stage's
+fd_tms      equ fd_t0s + FT_N * 4               ; open bracket, and the total
+                                     ; it accumulates into. CONTIGUOUS and in
+                                     ; that order - fd_tzero clears both with
+                                     ; one rep stosb of FT_N * 8
+fd_dverb    equ fd_tms + FT_N * 4                ; byte: NETV_CLOSE or NETV_ABORT
 fd_t0       equ fd_dverb + 2                    ; word: the tick a transfer
                                      ; STARTED, for the rate line
 fd_wdog     equ fd_t0 + 2                       ; word: the tick the transfer
