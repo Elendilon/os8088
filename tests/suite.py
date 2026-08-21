@@ -299,6 +299,11 @@ SOAK = [
         "Does an fsx bracket take ONE display and dark the others? (SPEC.md"
         "39.18)",
         needs=("marty",), serial=True),
+    Row("instdeep", "soak", py("tests/instdeep.py"), 240.0,
+        "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
+        "tree - the empty SYSTEM/APPDATA and SYSTEM/DOS/OS88NET.COM included, "
+        "which one folder level could not reach. It ERASES the VHD.",
+        needs=("marty",), serial=True, timeout=1200),
     Row("hddcp", "soak", py("tests/hddcp.py"), 60.0,
         "The hard-disk driver's Control Panel page, and the two windows"
         "behind it.",
@@ -343,6 +348,10 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("trackmove", "soak", py("tests/trackmove.py"), 60.0,
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
+        needs=("marty",), serial=True),
+    Row("tpdraw", "soak", py("tests/tpdraw.py"), 300.0,
+        "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
+        "draws? (SPEC.md 69.8)",
         needs=("marty",), serial=True),
     Row("trkrate", "soak", py("tests/trkrate.py"), 60.0,
         "trkrate - XT mode's second rate, and the surface it refuses (SPEC.md"

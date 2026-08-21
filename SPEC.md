@@ -17679,7 +17679,9 @@ Four things about the convention:
 - **It is BUILT, not created on demand** (`--folder SYSTEM/APPDATA` in the
   Makefile, `MEDIA`'s precedent — §38.10). A folder exists only because a file
   named one, and an application that had to make its own would carry a
-  disk-full path nobody tests. A program should still *tolerate* the folder
+  disk-full path nobody tests. **Which puts the burden on whatever copies a
+  disk**: the hard-disk installer walked one folder level and so never made
+  this one, which is §52.10.13. A program should still *tolerate* the folder
   being absent — a user's own disk written elsewhere will not have it — and the
   right behaviour there is the one a refused write already has: keep the state
   in memory and say nothing.
@@ -41922,7 +41924,8 @@ The order is forced and each step is the next one's precondition:
 2. **`KERNEL.SYS` first**, through `OSAPI_FILE_WRITE_SYS`, so it is
    contiguous from cluster 2.
 3. **The rest of the system disk** — `SYSTEM.CFG`, every `*.DRV`,
-   `README.TXT` — then the apps disk's folders and their contents.
+   `README.TXT`, and every folder on it to the depth §52.10.13 walks — then
+   the apps disk the same way.
 4. **The volume boot record**, `boot/boothd.asm`'s 512 bytes with this
    volume's BPB written over the first 62 (`os88disk.py`'s split, done in the
    driver), to volume-relative LBA 0.
@@ -42708,6 +42711,74 @@ copied at 32 — three times the `int 13h` calls for nothing. It tries
 and a loop and makes the installer degrade smoothly on exactly the small
 machines this OS is for. The top rung is `HIW_KMAXKB`, so where the heap
 allows it `KERNEL.SYS` still goes down in one write.
+
+
+### 52.10.13 The copy walks the whole tree, not one folder level
+
+**`hd_icopy_tree` was two hand-unrolled loops** — the root's files, then one
+level of folders and *their* files — and the thing that shape cannot express
+is *a folder inside a folder*. Two of them are on the shipped disks:
+
+- **`SYSTEM/APPDATA/`** (§19.9), which is **empty**, so nothing about the copy
+  could have noticed it going missing by counting bytes. An installed machine
+  had no `APPDATA` on it at all, and §19.9 asks an application to *tolerate*
+  the folder being absent — keep the state in memory and say nothing — so
+  every program did exactly that, correctly, and the machine that boots from
+  its hard disk was the one where nothing kept its settings. Two write there
+  today — Cyclone's high scores and `FTPD.CFG` (§77.12.1) — and the bug reads
+  as a settings bug in each of them separately. It is one missing `MKDIR` in
+  the installer.
+- **`SYSTEM/DOS/OS88NET.COM`** (§62), which is not empty, and was silently
+  left behind — the same species of loss as the `type 1` walk that dropped
+  `BEVERLY.MOD` (§19.7.1), arriving by a different route.
+
+**The walk is iterative over an explicit stack, and that is the part of the
+old shape worth keeping.** Its comment said deeper nesting was "a stated limit
+rather than an oversight: this runs on the UI task's stack and open recursion
+is how you overrun one", which is right about *recursion* and was being used
+to justify a *depth*. A descent now pushes six bytes onto three parallel
+arrays — the source folder's cluster, the destination folder's, and how far
+`OSAPI_FILE_FIND` has walked it — so the machine stack is the same depth at
+level 5 as at level 0 and the bound is `HIW_DEPTH`, a number, rather than a
+loop that was written twice.
+
+**Level 0 is the root of both volumes.** Cluster 0 is what `OSAPI_FILE_GOTO`
+takes for a root (§19.2.2), so the root is an ordinary level and no path in
+the module carries a special case for one. That is what removed `hd_iinsub`,
+the flag that said "the file being copied is in a folder": one bit can
+distinguish the root from *the* folder and cannot distinguish two folders.
+`hd_isrc_here` / `hd_idst_here` read the stack instead, and `hd_inst_sys`
+calls `hd_ilvl_root` before its lone `KERNEL.SYS` copy so that one arrives at
+the root like anything else.
+
+**A folder deeper than `HIW_DEPTH` is refused BY NAME, not walked past.** The
+caption becomes `Folders nested too deep to copy` and the install stops — in
+the apps phase, which by §52.10.10 is a machine that already boots. Skipping
+it would be the defect this section exists to fix, one level further down.
+`HIW_DEPTH` is **6**, which is the deepest folder any disk in this tree
+carries — `RUNCPM/A/0` on the combined apps floppy (§74.6), three below the
+root — with room to spare for a user's own.
+
+**And the destination folder is looked up once per FOLDER rather than once per
+FILE.** `hd_idst_findsub` scanned the destination parent for the folder's name
+on *every file* in it, because the walk had nowhere to keep the answer; the
+level stack is that place, so `hd_idst_child` runs at the descent and the
+cluster is remembered. It is still a lookup rather than the `MKDIR`'s return
+value, because a re-install finds folders that already exist and the two cases
+must not read differently (`FERR_EXIST` is not a failure, it is the second
+time).
+
+**§52.10.9's counts predate this**, and the `app` row is the one that moves:
+an install now carries `SYSTEM/DOS/OS88NET.COM` (18KB) and makes two folders
+it never made, against a `MKDIR` per folder saved on the destination scans.
+The table is a dated measurement rather than a budget, so it is left as it was
+taken and this is the note that says so.
+
+**The `KERNEL.SYS` skip is now explicitly root-only.** It was implicitly so
+while only the root loop ran it (§52.10.2 needs the kernel at cluster 2, and a
+second copy is a replace that moves it); with one loop walking every level it
+has to say `[hd_ilvl] == 0`, or a user's own file of that name in a folder of
+their own would be skipped for sharing a name with the kernel.
 
 
 ## 52.11 Two images: the transport, and the tool
@@ -54114,14 +54185,16 @@ is the window, the editor and the file paths, `tpparse.inc` is the typesetter,
 It ships on the ORDINARY apps disk rather than on one of its own. Word and
 Frotz each got a disk (§68.5, §61.9) because each needs DOCUMENTS beside it
 and neither leaves room for the rest of the software on a 360KB floppy;
-TeXPad is under 20KB and its two documents come to 3KB, so the argument does
+TeXPad is 22KB and its two documents come to 3KB, so the argument does
 not reach it. Those documents ride `MEDIA/` for §38.10's reason — that is
 where a File > Open starts.
 
 ### 69.1 Typesetting is an act, not a consequence
 
-**F5 typesets. Nothing else does.** The preview does not track the source as
-it is edited, and that is the design rather than a missing feature: setting
+**F5 typesets, the bar's `Typeset` button does, and so does anything that
+REPLACES the document** — File > New, File > Open, and a `.TEX` opened by
+double-click, which arrive set rather than beside a blank page. Nothing else
+does: the preview does not track the source as it is edited, and that is the design rather than a missing feature: setting
 the document walks the whole source, and on the target machine (PERFORMANCE.md
 — an 8088 at 4.77 MHz) that is not something to do between keystrokes. The
 top bar carries `(edit)` for exactly as long as the preview is older than the
@@ -54129,9 +54202,11 @@ source, so the staleness is a fact on screen and never a guess.
 
 The preview is redrawn from the typeset OUTPUT — the run and box arrays of
 §69.3 — and never by re-reading the source, so paging, scrolling and resizing
-cost a walk of those arrays and no parse at all. A caret move repaints the
-SOURCE PANE only (`tp_redraw_src`), which is the §11.3 granularity rule
-applied to the one thing that changed.
+cost a walk of those arrays and no parse at all. On the source side the
+granularity is finer still and §69.8 has it: a caret move XORs two cells, a
+typed character re-letters one line from the caret rightward, and the whole
+pane (`tp_redraw_src`) is what happens when none of those apply — §11.3's
+granularity rule applied to the one thing that changed.
 
 `tp_redraw` is the internal "paint the whole window" entry and `tp_paint` is
 the WM's callback (§20.5). They are not interchangeable: `tp_paint` takes the
@@ -54193,8 +54268,8 @@ costs.
 
 ### 69.4 Memory: two claims, and a hand-laid bss
 
-The image is under 20KB and the bss is 12,288 bytes, so the package sits well
-inside `APP_MAX_SIZE` (§33's near model — image plus bss cannot reach 64KB,
+The image is a little over 22KB and the bss is 12,288 bytes, so the package
+sits well inside `APP_MAX_SIZE` (§33's near model — image plus bss cannot reach 64KB,
 because the offsets are 16 bits). Two heap claims (§50.3) sit outside it:
 
 | claim | size | what it holds |
@@ -54253,17 +54328,24 @@ whoever wants it, not a consequence of adding an app.
 **The entry proc copies the argument's NAME and reads nothing.** `tp_entry`
 calls `OSAPI_ARG_FILE`, stores the name, directory cluster and volume, and
 sets a pending flag; `tp_deferred_ld` does the `OSAPI_FILE_GOTO` + read +
-typeset later, on the first key or click. Reading a floppy from the entry proc
-happens under the loader's lock and freezes the desktop for the length of the
-read — an `int 13h` call is ~400 ms on the target machine, so that is seconds,
-visibly.
+typeset later. Reading a floppy from the entry proc happens under the loader's
+lock and freezes the desktop for the length of the read — an `int 13h` call is
+~400 ms on the target machine, so that is seconds, visibly.
 
-The load then owes a FULL repaint rather than the source-pane one the key
-handler was on its way to doing: the byte count in the status strip and the
-page count in the top bar both changed. `tp_ldfull` says so and the handler
-promotes itself, which keeps it to ONE draw — repainting the pane and then the
-window would put the source through twice, and a double draw is invisible in
-an emulator and seconds on an XT.
+**"Later" is the FIRST PAINT**, which is the earliest moment that is not under
+that lock: the window is already up, so the document a double-click asked for
+lands in the source pane rather than waiting for a key or a click to arrive.
+The paint that follows the load draws every part of the window from what
+landed, so it IS the full repaint the load owes and `tp_ldfull` is cleared
+again before it runs.
+
+A load reaching an event handler instead — a key or a click that arrives while
+the flag is still set — owes a FULL repaint rather than the incremental one
+that handler was on its way to doing: the byte count in the status strip and
+the page count in the top bar both changed. `tp_ldfull` says so and the
+handler promotes itself, which keeps it to ONE draw — repainting the pane and
+then the window would put the source through twice, and a double draw is
+invisible in an emulator and seconds on an XT.
 
 ### 69.7 Every buffer a document can reach is bounded at the copy
 
@@ -54311,18 +54393,117 @@ was already in the claim into the document.
 The target is PERFORMANCE.md's 8088. What follows from it, beyond §69.1's
 "F5 typesets":
 
-- A caret move repaints the source pane; a page turn or a layout change
-  repaints the window. Nothing repaints on a timer and there is no worker
-  task — TeXPad owns no background task at all (§20.6), so there is no
-  question of a mixer-style redraw racing a paint.
+- **Nothing repaints more of the source pane than it changed.** A caret move
+  is two XORs — the cell it left and the cell it reached — and no lettering at
+  all; a typed character re-letters the caret's line from the caret column
+  rightward (`tp_draw_tail`); a Return or a joining Backspace moves the rows
+  under it with one `OSAPI_GFX_SCROLL` and letters the one row the blit
+  vacated; a scroll blits the pane by the rows it moved and letters only the
+  band that came in. The whole pane is the FALLBACK — `gfx_scroll` refusing,
+  the horizontal view moving, a jump longer than the pane — and a page turn or
+  a layout change is still the window. Nothing repaints on a timer and there
+  is no worker task: TeXPad owns no background task at all (§20.6), so there
+  is no question of a mixer-style redraw racing a paint.
+- **A line is re-lettered from the EDIT, not from the caret**, which are
+  different columns: an insert leaves the caret one cell (a Tab, two) to the
+  right of what changed, and the character just typed is in between.
+  `tp_edn` is how many, and 0 for a delete.
+- **An incremental path may only claim what it can describe.** `tp_edkind`
+  says which of the four shapes an edit was, and a deleted SELECTION is none
+  of them: it moved every row below it, so the paths that follow one leave
+  the kind at 0 and take the whole pane.
+- **The status strip re-letters the BYTE COUNT alone** (`tp_statcnt` is where
+  it starts), because everything to its left can only be changed from a menu
+  or a bar button and both of those repaint the window. The whole strip is
+  ~45 cells; at PERFORMANCE.md's ~900 us a cell that is ~40 ms added to every
+  character typed, which is arithmetic off that table rather than a
+  measurement.
+- **The status strip re-letters ELEVEN CELLS and touches nothing else.** It
+  is one `font_run` with two spaces on the end - `font_run` is
+  erase-and-letter per cell (§6.1), so the cells it writes need no clearing
+  first and the spaces cover a count that lost a digit. Nothing reaches the
+  right-hand end of the strip any more, which is what keeps a keystroke off
+  the GROW BOX (the white-fill idiom erases it, and `OSAPI_WM_GROW` is what
+  puts it back - `tp_paint` still owes that, an incremental path no longer
+  does).
+- **The top bar is re-lettered only when what it SAYS changes.** `tp_barsig`
+  is the dirty mark and the `(edit)` marker as one byte, recorded whenever
+  the bar's string is composed; a keystroke that does not move it draws
+  nothing there. The file name and the page number cannot move without a
+  full repaint.
+- **A focus ring is drawn one pixel OUTSIDE its pane**, so the ring being
+  erased takes the splitter and the status rule with it; `tp_draw_frames`
+  puts both back. Neither is its own - that is the price of a ring that
+  lives outside the frame it rings.
+- **The blit's two edges round the same way and for opposite reasons.** It is
+  byte-column granular (§5.5), so `x1` and `x2+1` are multiples of 8 and the
+  rect only moves in whole cells. The text pen is `tp_ex1 + 3`, off a byte
+  boundary, so `x1` rounds DOWN — to the content origin, which §11.94 keeps on
+  a multiple of 8 — and takes the pane's own frame and padding with it, which
+  are ours and uniform. `x2 + 1` rounds down too, because what is immediately
+  beyond it is the SCROLL BAR: rounding that edge up shears up to seven
+  columns of the bar by the scroll distance, and rounding `x1` up leaves four
+  stale pixel columns down the whole height of the pane. Both were measured,
+  one per direction.
+- **The PREVIEW scrolls by blitting too**, and it is the pane where that
+  matters most: a page of set text is forty-odd `OSAPI_FONT_RUN`s of fifty
+  cells, so a four-line scroll repainted whole is the better part of two
+  seconds on the target machine. What the blit vacates is not lettered but
+  DRAWN, by the same routines that draw the whole pane cut to a band
+  (`tp_rgn_set`), because a band holds the gutter, the sheet's edges and the
+  rules as well as the text. Three things make it come out identical to a
+  repaint, and each was a defect first:
+    - the pane's INTERIOR is placed on byte columns (`tp_prev_box`), because
+      what is immediately outside it on both sides is a scroll bar and
+      `gfx_scroll` moves whole byte columns; rounding inward instead would
+      leave columns it cannot move, and at 12pt those columns carry text;
+    - the scroll position is always EVEN (`tp_clamp_ps`), because the desk is
+      a 50% dither whose phase is a function of absolute y, and an odd blit
+      lands it on the wrong parity;
+    - a cell's worth of rows at the FAR edge is repainted along with the
+      vacated band, because a run whose 8-row cell straddles the pane's edge
+      is not drawn at all and the blit would otherwise move a half-drawn one
+      into view.
+- **A scroll and an EDIT are different things, and only one of them may
+  blit.** `tp_src_scroll` moves the pane by the rows the view moved and
+  letters the band that came in, which is exactly wrong when the document
+  under it also changed: the rows the edit moved are inside the blit. An edit
+  that scrolls the view is therefore the whole pane.
+- **A glyph cell is eight rows and the preview's guards are about its TOP**,
+  so a run one row above the pane's bottom frame letters seven rows through
+  it — into the status strip, which is what is under it. Both lettering sites
+  (`tp_paint_runs` and the folio) test `y + 7` against `tp_py2`; the box
+  painter clamps instead, which is the same rule for a shape that can be cut.
+- Both scroll bars are §13.10's shared element, and a scroll moves the THUMB
+  (`os88ui_sbmove`, three drawing calls) rather than repainting the bar
+  (sixteen). Only a bar whose `total` or `fit` has moved since it was last
+  drawn is drawn whole, because that is the one case `os88ui_sbmove`'s
+  old-thumb arithmetic cannot see. A Return or a join is exactly that case —
+  the line count is the bar's `total` — so those two edits refresh the bar
+  and the other three leave it alone.
+- The selection is XORed cell by cell as it is dragged, never by repainting
+  the rows it covers, and the caret and the selection are tracked as SHOWN or
+  HIDDEN state (`tp_caret_on` / `tp_dselon`) so that an XOR is never left
+  doubled or dropped.
 - A preview row is one `OSAPI_FONT_RUN` per run, which is §6.1's
   erase-and-letter in one decision per cell; bold is a second transparent
   strike at x+1, the same trick §68.1 uses.
 - Export is `tp_typeset` plus a linear walk of the run and box arrays plus ONE
   `OSAPI_FILE_WRITE`. Costing disk work in calls rather than sectors is the
   whole reason the file is built in RAM first.
+- A scroll bar's arrow cell steps FOUR rows rather than one (`TP_SB_STEP`),
+  and the preview's steps the same four times the 8px a body line occupies
+  there. §13.10.1 is why that is a decision this app gets to make.
 - The refusals are §47's rule: 'Export too large', 'Document full (8K)' and
-  'Need more RAM' are facts the code tested, not guesses about size.
+  'Need more RAM' are facts the code tested, not guesses about size — and so
+  are the two page ARROWS on the bar, which grey themselves on the first and
+  last page (`tp_bdis`, read by the painter and by the press, so a greyed one
+  does not arm or depress either).
+
+**tests/tpdraw.py is the gate for all of this** and it is not a screenshot
+comparison: each leg drives one edit or one scroll by the incremental path,
+then makes the guest do a `wm_paint_all` and requires the two frames to be
+the SAME PIXELS. Every rule above is a defect it caught.
 
 ### 69.9 What it deliberately is not
 
@@ -54333,6 +54514,51 @@ rendered as left. The measure is in whole 8-px cells everywhere including the
 exports, so the PDF has the same loose word spacing the preview does — that is
 the monospaced cell being honest about itself, not a rounding bug to be fixed
 by moving the exports to a proportional face they were not measured for.
+
+### 69.10 The source pane WRAPS, and a row is the unit of everything
+
+**There is no horizontal scrolling.** A line longer than the pane is broken at
+the last space that fits — hard at the width when one word is longer than the
+pane — and the row that continues carries a `>` in the column kept for it, so
+a wrap is never mistaken for a line the file actually has. What that replaces
+is arrowing sideways to read a document, and the reason is as much about
+drawing as about reading: *every* row's text changes when the view slides one
+column, so a horizontal scroll is a whole-pane repaint on every keystroke and
+there is no version of it that is cheap on an 8088.
+
+**A ROW is therefore the unit.** The caret, the selection, the scroll bar's
+`total`, the page keys and every drawing path count in rows; a LINE exists
+inside the row engine, in `tp_cut_line` — the Edit menu's *Cut Line* is about
+what a line is in the FILE — and on disk. `tp_row_ext` is the whole of the
+wrapping rule and `tp_row_at` is the only way anything else asks about a row.
+
+**The walk is from the top of the document**, as the line walk it replaces
+already was: a row cannot know where it begins without reading everything
+before it. What makes that affordable is a ONE-ENTRY CACHE — a row index and
+the offset it starts at. Every drawing path asks for rows in order, so the
+second row of a repaint starts where the first ended and a pane repaint is one
+pass over the document instead of forty-four. It is invalidated by anything
+that moves an offset (every edit) and by a change of WIDTH, which is a
+different set of rows entirely.
+
+#### 69.10.1 An edit's reach is measured BEFORE it happens
+
+Wrapping makes "what did this keystroke change?" a question that cannot be
+answered afterwards: one typed character can push a word onto a new row and
+move every row below it, or pull one back and take a row away. So
+`tp_edmark` measures the span the edit can reach — the caret's own line, or
+the one before it when a Backspace is about to join them, out to two lines on
+because a Delete at a line's end joins the next one in — and records where it
+starts (`tp_edrf`, in rows) and how many rows it occupied.
+
+Afterwards the same span is measured again: every offset past the edit moved
+by the bytes the document gained, so the span's end is known exactly. The
+difference between the two counts is how far everything below has moved, and
+that is enough to draw the whole thing incrementally — the span's rows are
+re-lettered, and if the count changed, the rest of the pane is BLITTED by the
+difference and only the rows that fell out of the blit are drawn. An edit
+whose shape was never measured — a selection deleted, a paste — takes the
+whole pane, which is the honest answer rather than a guess.
 
 ## 70. Telnet — the terminal (`apps/telnet/telnet.asm`)
 
