@@ -549,6 +549,31 @@ sk_ring:
 ; -----------------------------------------------------------------------------
 ; sk_alloc - a free slot
 ; out: CF=0 and BX = a zeroed record, AL = its 1-based HANDLE; CF=1 = none
+;
+; **AND A TIME-WAIT SLOT IS FREE ENOUGH WHEN THERE IS NOTHING ELSE** (SPEC.md
+; 72.14). That is not a corner: it is what an FTP server does on every single
+; transfer, and it is the bug the field measured as a 6-7 second hole at the
+; START of an upload, before one byte of disk work.
+;
+; Four slots and an FTP session accounts for all four - the port-21 listener,
+; the control connection, the passive data listener and the data connection
+; itself - so the moment a transfer's data socket closes it goes into
+; TCP_TWTMO's two-second hold holding the fourth. The client's NEXT transfer
+; starts inside those two seconds, every time: PASV takes a slot for the new
+; listener, the client connects, and the SYN that arrives has nowhere to go.
+; It is dropped, and what the user sees is the client's own retransmit backoff
+; - one second, then two, then four - before anything happens at all.
+;
+; TIME-WAIT exists to absorb a stray retransmitted FIN from a peer that is
+; already finished with. Under pressure that is worth exactly less than a
+; connection somebody is waiting for, and reusing the slot is safe for the
+; reason the state is cheap to give up: delivery matches the four-tuple, so a
+; straggler for the dead connection does not match the live one unless the
+; ports collide too.
+;
+; The FIRST one found is taken and not the oldest. With four slots there is
+; one, rarely two, and a deadline compare to choose between them would cost
+; more than it could ever save.
 ; -----------------------------------------------------------------------------
 sk_alloc:
     push cx
@@ -561,6 +586,14 @@ sk_alloc:
     je  .got
     inc al
     loop .l
+    xor al, al                  ; nothing free: the second walk, for a slot
+    mov cx, NET_SOCKS           ; that is only being held out of politeness
+.tw:
+    call sk_ptr
+    cmp byte [bx+SKO_TS], TS_TIMEWT
+    je  .got
+    inc al
+    loop .tw
     stc
     jmp short .out
 .got:

@@ -779,6 +779,36 @@ def run_gate(m, mo, fails):
         say("RETR BANANA~1.MOD is byte-exact, so the collapse round-trips")
     f.quit()
 
+    say("--- 8d. a transfer STRAIGHT after another does not stall "
+        "(SPEC.md 72.14) ---")
+
+    # THE 6-SECOND HOLE THE FIELD MEASURED AT THE START OF AN UPLOAD, before
+    # one byte of disk work and with the window at its ceiling. Four slots and
+    # one FTP session accounts for all four, so the data socket a LIST just
+    # closed sits in TIME-WAIT holding the fourth - and the next transfer's
+    # inbound SYN is dropped, which from this side looks like nothing at all
+    # happening. sk_alloc reaps a TIME-WAIT slot rather than refusing.
+    #
+    # **NO SLEEP BETWEEN THE TWO, ON PURPOSE.** TCP_TWTMO is two seconds and
+    # every real client starts its next transfer well inside them; a gate that
+    # waits politely is a gate that tests the case that already worked.
+    # Measured across the fix on this exact sequence: 6.15s -> 0.39s.
+    f = connect()
+    f.login("os8088", "os8088")
+    f.retrlines("LIST", lambda _l: None)
+    t0 = time.time()
+    f.storbinary("STOR TWTEST.DAT", io.BytesIO(b"z" * 8192))
+    dt = time.time() - t0
+    f.quit()
+    if dt > 3.0:
+        fails.append("a STOR issued straight after a LIST took %.1fs - the "
+                     "socket pool is starved by the LIST's TIME-WAIT and the "
+                     "client is sitting through its own SYN backoff "
+                     "(SPEC.md 72.14)" % dt)
+    else:
+        say("STOR immediately after LIST: %.2fs, so the pool did not starve"
+            % dt)
+
     say("--- 8c. an aborted transfer gives its socket back (SPEC.md 77.25) ---")
 
     # THE FIELD'S LAST FAILURE. NET_SOCKS is four: the port-21 listener, the

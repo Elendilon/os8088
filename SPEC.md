@@ -60685,3 +60685,57 @@ the Control Panel and pressed the button until it says `8K` has said
 something about their machine that the arithmetic does not know; the claim
 itself is still what can refuse, and the caption is still what reports it.
 
+### 72.14 A TIME-WAIT slot is free enough when there is nothing else
+
+The field reported a **6-7 second hole at the START of an upload**, before one
+byte of disk work, on a machine whose Control Panel read `Buf 8K` - so the
+window was at its ceiling and this was not the window. It reproduces in QEMU
+in one sequence, and the sequence is what every FTP client does:
+
+    after LIST:   0:listen  1:up/ESTAB  2:free       3:closed/TIMEWT
+    during STOR:  0:listen  1:up/ESTAB  2:LISTEN     3:closed/TIMEWT
+    150 took 0.10s, whole STOR **6.15s**
+
+Four slots, and one FTP session accounts for all four: the port-21 listener,
+the control connection, the passive data listener and the data connection
+itself. A transfer ends by closing its data socket, which is correct - the
+close IS end-of-file - and that socket then holds the fourth slot for
+`TCP_TWTMO`, two seconds. **The client's next transfer starts inside those two
+seconds, every time.** `PASV` takes a slot for the new listener, the client
+connects to it, and the SYN that arrives has nowhere to go. It is dropped, and
+what the user waits through is the client's own retransmit backoff - one
+second, then two, then four.
+
+Nothing in the server or the log could show it, because from this side nothing
+happened: the 150 went out on time and the data connection simply never
+arrived.
+
+So **`sk_alloc` takes a TIME-WAIT slot when there is no free one**. TIME-WAIT
+exists to absorb a stray retransmitted FIN from a peer that is already finished
+with; under pressure that is worth less than a connection somebody is waiting
+for. It is safe for the reason the state is cheap to give up: delivery matches
+the four-tuple, so a straggler for the dead connection does not match the live
+one unless the ports collide too. The first one found is taken and not the
+oldest - at four slots there is one, rarely two, and a deadline compare to
+choose between them would cost more than it could ever save.
+
+Measured across the change on the same sequence: **6.15s to 0.39s.**
+
+**Raising `NET_SOCKS` was the other answer and is not this one.** Six would
+give the server margin instead of removing the failure, it would cost the
+claim half as much again at the top rung, and it would put the DOS partner's
+fixed rings (`os88net.asm`, one 64KB `.COM` segment) over the edge. The reap
+works at four, and it works on a machine that can only fund the floor.
+
+#### 72.14.1 And the window is no longer the constraint
+
+The same field run, with `Buf 8K` confirmed on the glass, still measured
+**7062 B/s**. §72.13's arithmetic said ~58 KB/s and it was wrong - not about
+the window, which really did stop binding, but about what was behind it. The
+~155 KB/s per-byte ceiling that number was divided out of is an estimate
+nobody has measured, and the real path is three byte-at-a-time copies with a
+segment override on two of them, a checksum, and the FTP server's own stage.
+
+That is the next piece of work and it is a PERFORMANCE one, not a protocol
+one. What §72.13 bought is real and is not throughput: the window is out of
+the way, so the cost that is left is the cost that was always there.
