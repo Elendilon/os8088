@@ -7483,10 +7483,37 @@ fd_wdog     equ fd_t0 + 2                       ; word: the tick the transfer
 fd_wprog    equ fd_wdog + 2                     ; word: how far it had got when
                                      ; that was stamped, so "moved" is measured
                                      ; and not assumed
-fd_stage    equ fd_wprog + 2                    ; FD_STGSZ - the transfer's
-                                     ; staging ground, and IN OUR OWN SEGMENT
-                                     ; for the reason FD_STGSZ's own comment
-                                     ; gives: the package door hands a driver
-                                     ; the CALLER's segment in ES, so a socket
-                                     ; buffer anywhere else is unreachable
+; -----------------------------------------------------------------------------
+; fd_stage - FD_STGSZ bytes, and the ONE buffer here that int 13h touches
+;
+; IN OUR OWN SEGMENT, for the reason FD_STGSZ's own comment gives: the package
+; door hands a driver the CALLER's segment in ES, so a socket buffer anywhere
+; else is unreachable.
+;
+; **AND 512-ALIGNED, WHICH IT WAS NOT** (SPEC.md 2.4, 77.31). This landed at
+; offset 0x4233 - fifty-one bytes into a sector - and a region base is a whole
+; number of KB, so its LINEAR address was 51 mod 512 too. int 13h moves a
+; sector and does not stop that sector straddling a 64KB physical page; only
+; starting 512-aligned does. dsk_runcap caps a run at the page, but from an
+; unaligned base the page boundary does not fall on a sector edge, so the run
+; before it stops short and the next transfer is the one sector that crosses -
+; which is the case its own `mov ax, 1` is commented as "only reachable from a
+; base that is not 512-aligned, which SPEC.md 2.4 forbids".
+;
+; It was harmless until the socket rings became a 37KB heap claim (SPEC.md
+; 72.13): that moved every region above it, and where in a 64KB page this
+; buffer lands is what decides whether an 8KB write crosses one. The field
+; found it by asking exactly that question.
+;
+; The `& ~511` is the fix and the `%error` below is the guard: a scalar added
+; anywhere above moves this offset, and nothing else in the package would
+; notice.
+; -----------------------------------------------------------------------------
+FD_SOFF     equ ((fd_wprog + 2 - $$) + 511) & ~511
+fd_stage    equ $$ + FD_SOFF     ; ...and the rounding is done on the offset
+                                 ; from the section base, because that is the
+                                 ; only form of it NASM will let `&` touch
+%if (FD_SOFF & 511) != 0
+  %error "ftpd: fd_stage must be 512-aligned - int 13h reads it (SPEC.md 2.4)"
+%endif
 FD_BSS      equ fd_stage + FD_STGSZ - os88_image_end

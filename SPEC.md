@@ -61120,3 +61120,77 @@ without changing a line of the test. That is written at the constants.
 With payload gating, the field's next transfer read `wall 22,891` against
 `ACTIVE 20,600` — two and a third seconds of hands, removed — and `verb`
 9,704 ms, **47% of the active window**, with 10,895 ms outside it.
+
+### 77.31 `fd_stage` was 51 bytes off a sector, and the 37KB claim moved it onto a page boundary
+
+The field's report, and it is the diagnosis as much as the symptom: *"Made a
+brand new hard drive image. Connected, listed the dir. Started an upload and
+hard froze. Not corruption of any kind."* Then: *"Think we just moved some
+memory around with the 37KB buffer additions, and now we're crossing a 64KB?"*
+
+That is exactly what happened.
+
+`fd_stage` — the FTP server's 8KB staging buffer, the one buffer in the
+package that `int 13h` ever touches — sat at package offset **0x4233**, which
+is **51 bytes into a sector**. A package region is a whole number of KB from a
+KB-aligned heap floor, so its LINEAR address was 51 mod 512 as well.
+
+**CLAUDE.md's hard rule is one line and this broke it**: *every disk-visible
+base is 512-byte aligned*. `int 13h` moves a sector and does not stop that
+sector straddling a 64KB physical page; only starting 512-aligned does.
+`dsk_runcap` caps a run at the page — but from an unaligned base the page
+boundary does not fall on a sector edge, so the run stops short and the *next*
+transfer is the single sector that crosses it. The kernel says so at the line
+that does it:
+
+```
+    mov ax, 1                   ; only reachable from a base that is not
+                                ; 512-aligned, which SPEC.md 2.4 forbids -
+                                ; and one sector is what that buffer got
+                                ; before this optimisation existed
+```
+
+**It was harmless until §72.13.** Making the socket rings a 37KB heap claim
+moved every region allocated after it, and where in a 64KB page an 8KB buffer
+lands is exactly what decides whether it crosses one. Nothing about the FTP
+server changed; its buffer was standing in a different place.
+
+Why the floppy survived and the hard disk did not is the honest remaining
+gap: the floppy BIOS answers a straddle with error 09h, which is a failed
+write and not a stopped machine, and HDD.DRV's BIOS rung goes to a controller
+that evidently does something worse. **That half is not proven** — what is
+proven is that the buffer violated a documented rule, on the exact operation
+that froze, and that the rule exists because of this failure mode.
+
+The fix is the offset rounded up and a `%error` beside it, because a scalar
+added anywhere above moves the buffer and nothing else in the package would
+notice:
+
+```
+FD_SOFF     equ ((fd_wprog + 2 - $$) + 511) & ~511
+fd_stage    equ $$ + FD_SOFF
+%if (FD_SOFF & 511) != 0
+  %error "ftpd: fd_stage must be 512-aligned - int 13h reads it (SPEC.md 2.4)"
+%endif
+```
+
+#### 77.31.1 The sweep, and the one that is not fixable here
+
+Every shipped package that hands a buffer to `OSAPI_FILE_READ`/`WRITE` was
+checked. Almost all of them pass a **heap claim at offset 0** — `word`,
+`notepad`, `texpad`, `paint`, `browser`, `frotz`, `artful` — and a claim's
+base is aligned by construction, so they were never exposed. Two passed a
+buffer in their own segment:
+
+- **`apps/ftpd`** — `fd_stage`, 0x4233. Fixed.
+- **`apps/cyclone`** — `cy_hsbuf`, the high-score file, 0x3D8B. A few hundred
+  bytes, and it still matters: one unaligned sector is all a straddle needs.
+  Fixed the same way, and its 511 bytes of slack are spent in bss, not image.
+
+**`apps/cc/os88thunk.asm` cannot be fixed here and is recorded rather than
+patched.** The C runtime's `read`/`write` pass whatever pointer the C program
+handed them (`mov bx, [bp+6]`, `ES = DS`), so alignment is the *caller's* and
+a C caller has no way to express it — `cword` and `runcpm` both go through it.
+That is a real exposure with the same mechanism and a different fix (stage
+through an aligned buffer inside the thunk, at the cost of a copy), and it is
+not being done blind in the same round as this one.

@@ -2778,7 +2778,7 @@ forced full repaint.
 
 ---
 
-## 27. The 5150 hard-freezes when the hard disk is mounted (OPEN — not a code regression, and the disk is not corrupt)
+## 27. The 5150 hard-freezes on an FTP upload to the hard disk (CAUSE FOUND — an unaligned disk buffer; awaiting field confirmation)
 
 **Observed.** With the FTP server (§77) running and its Root pointed at
 `C:/`, a client connects, logs in, and the machine hard-freezes. The last
@@ -2867,7 +2867,39 @@ geometry that is not one of six real floppy shapes, so there was no way to
 ask this question without a throwaway script, which is how a throwaway answer
 gets trusted.
 
-### 27.2 What is left, and the next one-move test
+### 27.2 FOUND: a 512-alignment violation the 37KB claim moved onto a page boundary
+
+A **brand-new** hard-disk image, connect, list the directory — fine — start an
+upload: **instant freeze**. So it is not corruption of any kind, and it is
+writing rather than reading. The field named the mechanism in the same
+message: *"Think we just moved some memory around with the 37KB buffer
+additions, and now we're crossing a 64KB?"*
+
+`fd_stage`, the FTP server's 8KB staging buffer and the only buffer in that
+package `int 13h` ever touches, sat at package offset **0x4233 — 51 bytes
+into a sector**. A region base is a whole number of KB, so its linear address
+was 51 mod 512 too. That breaks the project's one-line hard rule, and the
+kernel comments on it at the very instruction that hands the BIOS a sector
+which crosses a 64KB page (`dsk_runcap`'s `mov ax, 1`: *"only reachable from a
+base that is not 512-aligned, which SPEC.md 2.4 forbids"*).
+
+It was harmless until §72.13 made the socket rings a 37KB heap claim, which
+moved every region above it — and where in a 64KB page an 8KB buffer lands is
+precisely what decides whether it crosses one. **Nothing about the FTP server
+changed; its buffer was standing somewhere else.** Fixed in SPEC.md §77.31,
+with a `%error` beside the offset so a scalar added above cannot move it back.
+
+`apps/cyclone`'s high-score buffer had the same violation and is fixed with
+it. `apps/cc/os88thunk.asm` has it structurally — a C caller's pointer is not
+this layer's to align — and is recorded rather than patched.
+
+**What is still not proven** is why the floppy survived it: a floppy BIOS
+answers a straddle with error 09h, which is a failed write and not a stopped
+machine, and HDD.DRV's BIOS rung reaches a controller that evidently does
+something worse. The buffer violated a documented rule on the exact operation
+that froze; that is enough to fix it and not enough to close this note.
+
+### 27.3 What is left, and the next one-move test
 
 A mount is `dsk_chdir` → `disk_mount` → `int 13h`, and the volume under it is
 provably well-formed, so a wrong LBA computed from a bad BPB is ruled out
