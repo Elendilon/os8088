@@ -60051,3 +60051,51 @@ WHOLE transfer rather than on inactivity will still give up. Set it from the
 largest file, not from a default — and §77.23's timer is what says how long
 that actually is.
 
+### 77.25 `NETV_ABORT` — a failed transfer must give its socket back NOW
+
+The field's most persistent complaint, and the last of it: after a failed
+upload, reconnecting logged in fine and then **`LIST` hung with nothing
+printed at all** — no `425`, no `No data socket` line, just the client timing
+out again.
+
+**The silence was the clue.** `fd_data_listen` had SUCCEEDED — the log said
+`Data port 2053` — so the passive listener was up and the `227` was honest.
+What failed was one step later, at `NETV_ACCEPT`, which needs a slot of its
+own to make the child connection from. `NET_SOCKS` is **four**: the port-21
+listener, the control connection and the passive listener are three, and the
+fourth was the *previous* transfer's data socket, still finishing a FIN
+handshake with a client that had gone. `eth_v_close` keeps the slot until
+that completes, and against an absent peer it is the retransmit timer that
+ends it — `TCP_RTMAX` doublings, about a minute.
+
+**This exact failure was already written down here** and fixed for a
+different cause: §77's `fd_xrefuse` note records "NETV_ACCEPT had no handle
+to make the data connection from, and the LIST sat at its 150 until the
+client timed out", from a read-only STOR that stranded a socket. A close
+that outlives its usefulness produces the identical symptom, and the
+diagnostic added for it looked at the wrong call — the LISTEN, which
+succeeds.
+
+**So the socket ABI grows one verb.** `NETV_ABORT` (11) drops the connection
+and returns the slot immediately, where `NETV_CLOSE` hands it to TCP and
+waits. Three things about it are deliberate:
+
+- **No RST is sent.** Building one needs the socket's own sequence state,
+  where `tcp_rst` answers a *received* segment; and the peer this is used
+  against is not listening. It finds out the next time it sends, which
+  `tcp_rst` then answers properly.
+- **Never on success.** Closing the data connection is how FTP signals
+  end-of-file, so an abort on a completed RETR truncates whatever the client
+  had not yet read. `fd_xdone` closes; `fd_xfail`, `fd_xrefuse` and a
+  `fd_bye` that interrupts a running transfer abort.
+- **The cable's abort IS a close** (`netsock.inc`), and honestly so: over the
+  wire there is no handshake to outlive, so the two are already one
+  operation and a second body would be a second thing to keep in step.
+
+**What this does not do is make transfers finish.** A 300KB upload at ~7 KB/s
+still needs 45 seconds and still fails against a shorter timeout. What it
+fixes is the *second* failure — the one where the first failure poisons every
+session after it until a minute passes or the app is restarted, which is what
+made this look like a server that breaks rather than a transfer that was too
+slow.
+

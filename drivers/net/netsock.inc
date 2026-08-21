@@ -112,6 +112,15 @@ nsk_tab:
                                 ; rather than a hole so the bound above is the
                                 ; only thing that has to be right
     dw nsk_addr                 ; NETV_ADDR
+    dw nsk_close                ; NETV_ABORT - **THE CABLE'S ABORT IS A
+                                ; CLOSE**, and honestly so. The verb exists
+                                ; because a TCP socket's slot outlives its
+                                ; close by a FIN handshake (SPEC.md 77.25);
+                                ; over the cable there is no handshake to
+                                ; outlive - the partner frees its end when
+                                ; told - so the two are already the same
+                                ; operation and a second body would be a
+                                ; second thing to keep in step for nothing
 %if ($ - nsk_tab) / 2 != NETV_MAX + 1
   %error "net: nsk_tab does not cover NETV_0..NETV_MAX"
 %endif

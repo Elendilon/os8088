@@ -227,6 +227,47 @@ eth_v_close:
     clc                                 ; a close of a handle that is already
     ret                                 ; gone is not an error
 
+; --- NETV_ABORT --------------------------------------------------------------
+; AL = a handle: the connection is dropped and THE SLOT COMES BACK NOW
+;
+; eth_v_close hands an ESTABLISHED socket to TCP and keeps the slot until the
+; FIN handshake finishes, which is right when the peer is still there and
+; ruinous when it is not: the retransmit timer is TCP_RTMAX doublings, about
+; a minute, and NET_SOCKS is four. The FTP server hit exactly that in the
+; field - a client that timed out mid-upload left its data socket finishing a
+; handshake with nobody, and the next session's LIST had no slot for
+; NETV_ACCEPT to make a data connection from, so it sat at its 150 until that
+; client timed out too (SPEC.md 77.25).
+;
+; The state teardown is eth_v_close's, minus the FIN: SKF_ORPH marks the slot
+; as nobody's, sk_reap_kids takes a listener's pending queue with it, and
+; tcp_abort does the rest and frees.
+eth_v_abort:
+    push ax
+    push bx
+    call eth_pump
+    call sk_h2p
+    jc  .no                             ; already gone: not an error, exactly
+    cmp byte [bx+SKO_TS], TS_LISTEN     ; as eth_v_close is not
+    jne .mine
+    call sk_reap_kids
+.mine:
+    and byte [bx+SKO_FL], ~SKF_RES      ; a name still being looked up dies
+    mov ah, [bx+SKO_IDX]                ; with the slot, and [dns_sk] lives
+    cmp ah, [dns_sk]                    ; OUTSIDE the record, so sk_alloc's
+    jne .nores                          ; mem_zero cannot reach it and the
+    mov byte [dns_sk], 0xFF             ; reply would land on whoever the slot
+    mov word [dns_lport], 0             ; went to next
+.nores:
+    or  byte [bx+SKO_FL], SKF_ORPH      ; ...which is what sends tcp_abort to
+    mov al, NSK_FREE                    ; its .free arm
+    call tcp_abort
+.no:
+    pop bx
+    pop ax
+    clc
+    ret
+
 ; --- NETV_ADDR ---------------------------------------------------------------
 ; out ES:DI (the CALLER's) = four bytes of IPv4; CF=1 / NETE_NOLINK if none yet
 ;

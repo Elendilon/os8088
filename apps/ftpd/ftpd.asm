@@ -2385,15 +2385,44 @@ fd_c_port:
     pop ax
     ret
 
-; --- fd_data_drop - close whatever data handles are open ---------------------
+; -----------------------------------------------------------------------------
+; fd_data_drop / fd_data_abort - let the data handles go
+;
+; **WHICH VERB IS NOT A DETAIL** (SPEC.md 77.25). NETV_CLOSE is right when
+; the transfer SUCCEEDED: closing the data connection is how FTP signals
+; end-of-file, and the peer has to be able to read what is still in flight.
+; NETV_ABORT is right when it FAILED: the peer has gone, a close against one
+; that never answers holds its slot for the retransmit timer's whole run, and
+; NET_SOCKS is four - so that one slot is the difference between the next
+; session listing a directory and sitting at its 150 until it times out too.
+;
+; The two share a body and differ by the verb in [fd_dverb], because a second
+; copy of this walk is a second place to forget a handle.
+; -----------------------------------------------------------------------------
+fd_data_abort:
+    push ax
+    mov al, NETV_ABORT
+    mov [fd_dverb], al
+    call fd_data_drop_v
+    pop ax
+    ret
+
 fd_data_drop:
+    push ax
+    mov al, NETV_CLOSE
+    mov [fd_dverb], al
+    call fd_data_drop_v
+    pop ax
+    ret
+
+fd_data_drop_v:
     push ax
     push bx
     cmp byte [fd_dhnd], 0
     je .l
     mov al, [fd_dhnd]
     mov bh, NET_CLASS
-    mov bl, NETV_CLOSE
+    mov bl, [fd_dverb]
     call OSAPI_DRV_CALL
     mov byte [fd_dhnd], 0
 .l:
@@ -2401,7 +2430,7 @@ fd_data_drop:
     je .out
     mov al, [fd_dlhnd]
     mov bh, NET_CLASS
-    mov bl, NETV_CLOSE
+    mov bl, [fd_dverb]
     call OSAPI_DRV_CALL
     mov byte [fd_dlhnd], 0
 .out:
@@ -2635,6 +2664,10 @@ fd_xfer_poll:
     je .stor
     jmp .out
 .stalled:
+    push si
+    mov si, fd_l_part
+    call fd_log_rate                ; how far, and how fast, before the stall
+    pop si
     call fd_log_stall               ; **THE LOG IS THE INSTRUMENT.** A stall
     mov si, fd_r426                 ; that only says "it stopped" leaves the
     call fd_xfail                   ; next person guessing; one that names the
@@ -2833,7 +2866,8 @@ fd_recv_stage:
 ; looked like.
 ; -----------------------------------------------------------------------------
 fd_xrefuse:
-    call fd_data_drop
+    call fd_data_abort              ; refused before a byte moved: nothing is
+                                    ; in flight for the peer to lose
     call fd_reset_xfer
     call fd_reply
     ret
@@ -2894,7 +2928,8 @@ fd_ferr_sel:
 
 ; --- fd_xfail - it did not. SI = the reply to send ---------------------------
 fd_xfail:
-    call fd_data_drop
+    call fd_data_abort              ; FAILED: the peer is gone, so the slot
+                                    ; comes back now (SPEC.md 77.25)
     call fd_reset_xfer
     call fd_reply
     ret
@@ -5216,7 +5251,18 @@ fd_bye:
     push ax
     push bx
     push si
+    cmp byte [fd_xf], FX_NONE       ; **A TRANSFER THAT DIED STILL MEASURED
+    je .nox                         ; SOMETHING**, and it is the one anybody
+    mov si, fd_l_part               ; wants the number for: a client that gives
+    call fd_log_rate                ; up mid-upload leaves by this door, not by
+.nox:                               ; fd_xdone's, so the rate line was printed
+    cmp byte [fd_xf], FX_NONE       ; for every transfer EXCEPT the failures
+    je .clean
+    call fd_data_abort              ; a transfer was RUNNING when the client
+    jmp short .dropped              ; left: abort, or its slot lingers
+.clean:
     call fd_data_drop
+.dropped:
     call fd_reset_xfer
     cmp byte [fd_chnd], 0
     je .n
@@ -6804,6 +6850,7 @@ fd_s_at:    db ' at ', 0
 fd_l_dport: db 'Data port ', 0
 fd_l_nosock: db 'No data socket: err ', 0
 fd_l_got:   db 'Got ', 0
+fd_l_part:  db 'Incomplete: ', 0
 fd_l_sent:  db 'Sent ', 0
 fd_l_in:    db ' bytes in ', 0
 fd_l_sec:   db 's (', 0
@@ -7085,7 +7132,8 @@ fd_mext     equ fd_xbytes + 4                   ; 4: the extension fd_mangle83
                                      ; lifted out, while it rewrites the stem
                                      ; UNDER it - the two overlap in fd_leaf,
                                      ; so the ext cannot stay where it was
-fd_t0       equ fd_mext + 4                     ; word: the tick a transfer
+fd_dverb    equ fd_mext + 4                     ; byte: NETV_CLOSE or NETV_ABORT
+fd_t0       equ fd_dverb + 2                    ; word: the tick a transfer
                                      ; STARTED, for the rate line
 fd_wdog     equ fd_t0 + 2                       ; word: the tick the transfer
                                      ; last MOVED A BYTE (SPEC.md 77.19)
