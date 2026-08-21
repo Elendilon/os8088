@@ -96,10 +96,24 @@ SK_SZ       equ 128             ; A POWER OF TWO ON PURPOSE - `sk_ptr` is a
   %error "ether: the socket record does not fit SK_SZ"
 %endif
 
-SK_RXCAP    equ 1024            ; and their shifts, below
-SK_TXCAP    equ 512
-SK_RXSH     equ 10
-SK_TXSH     equ 9
+; --- the ring sizes are RUNTIME now (SPEC.md 72.13) -------------------------
+; These are the DEFAULTS the driver starts at and the floor it falls back to;
+; [sk_rxcap]/[sk_txcap] and their shifts in ethstate.inc are what the code
+; reads. Every size is a power of two so the walk stays a shift and a compare.
+SK_RXCAP0   equ 1024            ; the floor: what a machine that can spare
+SK_TXCAP0   equ 512             ; nothing else still gets
+SK_RXSH0    equ 10
+SK_TXSH0    equ 9
+
+SK_RXMAX    equ 8192            ; **AND THE CEILING IS THE SEGMENT.** Four
+SK_TXMAX    equ 1024            ; sockets at 8192+1024 is 36,864 bytes; the
+SK_RXMAXSH  equ 13              ; next step up is 69,632 and the offsets into
+SK_TXMAXSH  equ 10              ; the claim are SIXTEEN BITS
+
+SK_RXMID    equ 4096            ; the middle rung, and the one the arithmetic
+SK_TXMID    equ 512             ; says is the sweet spot: ~29 KB/s predicted
+SK_RXMIDSH  equ 12              ; against a ~155 KB/s per-byte ceiling, so it
+SK_TXMIDSH  equ 9               ; is fast without crowding the CPU
 
 SKF_FIN     equ 0x01            ; the application has closed: send a FIN once
                                 ; everything it wrote has been acknowledged
@@ -117,11 +131,21 @@ SKF_ACPT    equ 0x20            ; a listener made this and NETV_ACCEPT has not
                                 ; frees a slot whose peer went away before
                                 ; anybody asked for it
 
-TCP_MSS     equ SK_TXCAP        ; we never send more than one buffer's worth,
+TCP_MSS     equ SK_TXMAX        ; we never send more than one buffer's worth,
                                 ; so this is the honest number to advertise -
                                 ; and it is under the 1460 an Ethernet path
                                 ; allows, so nothing here can provoke a
-                                ; fragment (inet.inc drops those)
+                                ; fragment (inet.inc drops those).
+                                ;
+                                ; **THE MAXIMUM AND NOT THE CURRENT ONE**, now
+                                ; that the buffer is sized at attach: the MSS
+                                ; is announced in the SYN, once, and a peer
+                                ; that has been told 1024 may send 1024 for
+                                ; the life of the connection. Advertising the
+                                ; live [sk_txcap] would be advertising a
+                                ; number that was chosen before the ring was,
+                                ; and it bounds what WE send, which tcp_out
+                                ; already clamps to the real one
 TCP_RTO0    equ 9               ; ticks: half a second, doubling
 TCP_RTMAX   equ 7               ; ...seven doublings is about a minute
 TCP_CONNTMO equ 550             ; ticks: 30 seconds to get connected
@@ -154,24 +178,285 @@ sk_rxbase:
     mov al, [bx+SKO_IDX]
     xor ah, ah
     mov di, ax
-    mov cl, SK_RXSH
+    mov cx, [sk_rxsh]
     shl di, cl
-    add di, sk_rxb
-    pop cx
-    pop ax
-    ret
-
-sk_txbase:
+    add di, [sk_base]
+    pop cx                          ; **AN OFFSET IN [sk_seg], not in DS.** The
+    pop ax                          ; rings moved out of the driver's bss into
+    ret                             ; a claim (SPEC.md 72.13), so the RX area
+                                    ; starts at 0 and every caller supplies the
+sk_txbase:                          ; segment itself
     push ax
     push cx
     mov al, [bx+SKO_IDX]
     xor ah, ah
     mov di, ax
-    mov cl, SK_TXSH
+    mov cx, [sk_txsh]
     shl di, cl
-    add di, sk_txb
+    add di, [sk_txoff]              ; ...and TX sits above every RX ring
+    add di, [sk_base]
     pop cx
     pop ax
+    ret
+
+; =============================================================================
+; THE THREE RING COPIES (SPEC.md 72.13)
+;
+; mem_copy and usr_read move DS->DS and ES->DS, and the ring is in NEITHER
+; segment now. Rather than juggle segment registers at four call sites - which
+; is how a wrong ES gets written once and read back wrong for ever - the three
+; shapes the driver actually needs are named here, and every one of them
+; leaves DS and ES as it found them.
+;
+; They are byte loops for the same reason the rest of this file is: `rep movsb`
+; wants ES for the destination and one of these has the CALLER's segment there
+; already. The cost is a few cycles a byte against a per-segment turnaround
+; measured in tens of milliseconds.
+; =============================================================================
+
+; --- ring_in - the CALLER's buffer at SI -> the ring at DI, CX bytes --------
+; **IT SETS ES ITSELF**, exactly as the usr_read it replaces did. That was
+; not decoration there and it is not here: the caller of eth_v_send has been
+; through the package door, and the segment to read from is the one banked in
+; [eth_useg] rather than whatever ES happens to hold. Assuming the caller had
+; loaded it cost one timed-out transfer to find.
+ring_in:
+    push ax
+    push dx
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    jcxz .out
+    cmp word [sk_seg], 0        ; both reads BEFORE DS moves - neither word is
+    je  .out                    ; reachable once it has
+    mov ax, [sk_seg]
+    mov dx, [eth_useg]
+    mov es, dx                  ; ES:SI = the caller's buffer
+    mov ds, ax                  ; DS:DI = the ring
+.l:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .l
+.out:
+    pop ds
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop dx
+    pop ax
+    ret
+
+; --- ring_out - the ring at SI -> DS:DI (a driver buffer), CX bytes ---------
+ring_out:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    jcxz .out
+    cmp word [sk_seg], 0
+    je  .out
+    mov ax, [sk_seg]
+    mov es, ax                  ; ES:SI = the ring, DS:DI = ours
+.l:
+    mov al, [es:si]
+    mov [di], al
+    inc si
+    inc di
+    loop .l
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; --- ring_move - within the ring, SI -> DI, CX bytes ------------------------
+; Forward, and every caller has dest < src, so an overlapping move is safe -
+; the same guarantee the mem_copy it replaces relied on.
+ring_move:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    jcxz .out
+    cmp word [sk_seg], 0
+    je  .out
+    mov ax, [sk_seg]
+    mov es, ax
+.l:
+    mov al, [es:si]
+    mov [es:di], al
+    inc si
+    inc di
+    loop .l
+.out:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+%ifndef ETH_NOEMIT
+; THE CLAIM IS THE OS's ONLY. The DOS partner (SPEC.md 62.11.1) shares every
+; line of the ring code above but has no OSAPI_MEM_CLAIM to call - it is a
+; .COM with megabytes and fixed bss - so it points [sk_seg]/[sk_base] at its
+; own buffers in net_bss_clear and never comes here.
+; =============================================================================
+; sk_claim - take the rings, as big as the machine will give (SPEC.md 72.13)
+; out: CF=0 and [sk_seg] set; CF=1 = not one rung was affordable
+;
+; A LADDER AND NOT A DEMAND. The driver used to carry 6KB of bss for these
+; whatever the machine was, and could not have been given more; now it asks
+; for the best rung and steps down until the heap says yes. The rungs are the
+; three the arithmetic picks out:
+;
+;   8192 RX - measured against a ~155 KB/s per-byte ceiling, this is where
+;             the window stops being the constraint and the CPU starts
+;   4096 RX - the sweet spot: ~29 KB/s predicted, room to spare
+;   1024 RX - the floor, and what the driver did before any of this
+;
+; **THE FLOOR STILL WORKS**, which is what makes the ladder honest: a machine
+; that can spare 6KB gets exactly the stack it had, not a refusal to load.
+; Only a machine that cannot spare even that is told no - and a NIC with no
+; buffers cannot serve a socket, so that refusal is the true one.
+;
+; The user's choice in [sk_want] is tried FIRST and is not a floor: asking for
+; 8192 on a machine that cannot hold it gets 4096 rather than nothing, because
+; a slower network is a better answer than no network.
+; =============================================================================
+sk_claim:
+    push ax
+    push bx
+    push cx
+    push dx
+    cmp word [sk_seg], 0
+    jne .have                       ; a second attach must not claim twice
+    mov bx, [sk_want]               ; the user's rung, if there is one
+    or bx, bx
+    jz .auto
+    call sk_try
+    jnc .done
+.auto:
+    mov bx, SK_RXMAX
+    call sk_try
+    jnc .done
+    mov bx, SK_RXMID
+    call sk_try
+    jnc .done
+    mov bx, SK_RXCAP0
+    call sk_try
+    jnc .done
+    pop dx                          ; not one rung: [sk_seg] stays 0 and every
+    pop cx                          ; socket verb refuses at sk_ring
+    pop bx
+    pop ax
+    stc
+    ret
+.have:
+.done:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; --- sk_release - hand the rings back ---------------------------------------
+sk_release:
+    push ax
+    push dx
+    mov dx, [sk_seg]
+    or dx, dx
+    jz .out
+    call OSAPI_MEM_FREE
+    mov word [sk_seg], 0        ; ...and LAST, so a failed free cannot leave a
+.out:                           ; segment nothing owns being written to
+    pop dx
+    pop ax
+    ret
+
+; --- sk_try - BX = an RX size: claim it, or CF=1 ----------------------------
+; The TX size and both shifts follow the RX rung rather than being chosen
+; separately - there is one knob, and a machine generous enough for a big
+; receive window is not the one to economise on the send buffer.
+sk_try:
+    push ax
+    push cx
+    push dx
+    mov cx, SK_TXCAP0               ; the rung's TX size and shifts
+    mov ax, SK_RXSH0
+    mov dx, SK_TXSH0
+    cmp bx, SK_RXMAX
+    jne .nmax
+    mov cx, SK_TXMAX
+    mov ax, SK_RXMAXSH
+    mov dx, SK_TXMAXSH
+    jmp short .got
+.nmax:
+    cmp bx, SK_RXMID
+    jne .got
+    mov cx, SK_TXMID
+    mov ax, SK_RXMIDSH
+    mov dx, SK_TXMIDSH
+.got:
+    mov [sk_rxsh], ax
+    mov [sk_txsh], dx
+    mov [sk_rxcap], bx
+    mov [sk_txcap], cx
+    ; --- KB wanted: NET_SOCKS * (rx + tx), rounded up ----------------------
+    mov ax, bx
+    add ax, cx
+    mov cl, 2                       ; NET_SOCKS is 4 (netpkg.inc), and this is
+    shl ax, cl                      ; the one place that assumes it
+    add ax, 1023
+    mov cl, 10
+    shr ax, cl                      ; AX = KB
+    call OSAPI_MEM_CLAIM            ; out DX = the base segment
+    jc .no
+    mov [sk_seg], dx
+    mov ax, bx                      ; TX starts above all four RX rings
+    mov cl, 2
+    shl ax, cl
+    mov [sk_txoff], ax
+    pop dx
+    pop cx
+    pop ax
+    clc
+    ret
+.no:
+    pop dx
+    pop cx
+    pop ax
+    stc
+    ret
+
+%endif  ; ETH_NOEMIT
+
+; --- sk_ring - ES = the claim, or CF=1 if there is not one -------------------
+; Every ring access goes through this rather than loading [sk_seg] by hand,
+; because a zero there means the claim was refused and the ring does not
+; exist - and a copy into segment 0 is the interrupt vector table.
+sk_ring:
+    push ax
+    mov ax, [sk_seg]
+    or ax, ax
+    jz .no
+    mov es, ax
+    pop ax
+    clc
+    ret
+.no:
+    pop ax
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -281,7 +566,7 @@ q_get:
 ; sk_rxfree - BX = a socket -> AX = bytes it could still take
 ; -----------------------------------------------------------------------------
 sk_rxfree:
-    mov ax, SK_RXCAP
+    mov ax, [sk_rxcap]
     sub ax, [bx+SKO_RXN]
     ret
 
@@ -300,28 +585,40 @@ sk_rxput:
     mov cx, ax
 .fits:
     jcxz .out
-    add [bx+SKO_RXN], cx
-    call sk_rxbase              ; DI = the ring
+    push es                     ; **THE RING IS IN [sk_seg] NOW** (SPEC.md
+    call sk_ring                ; 72.13), so the store needs the override -
+    jc  .noring                 ; without it this writes the driver's own bss
+    add [bx+SKO_RXN], cx        ; at the ring's old offsets, which assembles
+    call sk_rxbase              ; perfectly and corrupts whatever is there
     mov dx, cx
 .l:
     mov ax, [bx+SKO_RXH]
     push di
     add di, ax
     mov al, [si]
-    mov [di], al
+    mov [es:di], al
     pop di
     inc si
     mov ax, [bx+SKO_RXH]
     inc ax
-    cmp ax, SK_RXCAP
+    cmp ax, [sk_rxcap]
     jb  .wrap
     xor ax, ax
 .wrap:
     mov [bx+SKO_RXH], ax
     loop .l
     mov cx, dx
+    pop es
 .out:
     pop di
+    pop si
+    pop dx
+    pop ax
+    ret
+.noring:
+    pop es                      ; no claim: nothing fitted, which is the same
+    xor cx, cx                  ; answer a full ring gives and the callers
+    pop di                      ; already handle
     pop si
     pop dx
     pop ax
@@ -332,43 +629,70 @@ sk_rxput:
 ; in:  DI = the caller's offset, CX = its capacity
 ; out: CX = how many were delivered
 ; -----------------------------------------------------------------------------
+; **THE RECORD COMES OUT OF THE LOOP** (SPEC.md 72.13). This copied one byte
+; at a time and read [bx+SKO_RXT] on every one of them, which was affordable
+; while the ring and the record shared the driver's DS. They do not any more:
+; the ring is in the claim and the destination is the CALLER's, so the loop
+; needs both segment registers and the record can be reached from neither.
+;
+; So the tail is advanced ONCE, before DS moves, and the loop walks a plain
+; pointer with the ring's end and base in registers. It is also four
+; instructions a byte shorter than what it replaces, which is not the reason
+; but is not nothing at 4.77MHz.
 sk_rxget:
     push ax
     push dx
     push si
     push di
+    push bp
     push es
+    push ds
     mov ax, [bx+SKO_RXN]
     cmp cx, ax
     jbe .fits
     mov cx, ax
 .fits:
-    jcxz .out
+    jcxz .none
+    cmp word [sk_seg], 0
+    je  .none                   ; no claim, so no ring: nothing to give
     sub [bx+SKO_RXN], cx
-    mov dx, cx
-    push di
-    call sk_rxbase
-    mov si, di                  ; SI = the ring
-    pop di
-    mov es, [eth_useg]
-.l:
-    push si
-    add si, [bx+SKO_RXT]
+    push cx                     ; THE ANSWER, banked before CX is spent
+    push di                     ; ...and the destination offset
+    call sk_rxbase              ; DI = this socket's ring, in the claim
+    mov bp, di                  ; BP = base
+    mov si, bp
+    add si, [bx+SKO_RXT]        ; SI = where the reader stands
+    mov dx, bp
+    add dx, [sk_rxcap]          ; DX = one past the end
+    mov ax, [bx+SKO_RXT]        ; ...and the new tail, while the record is
+    add ax, cx                  ; still addressable
+    cmp ax, [sk_rxcap]
+    jb  .nw
+    sub ax, [sk_rxcap]
+.nw:
+    mov [bx+SKO_RXT], ax
+    mov ax, [sk_seg]            ; the ring's segment into a REGISTER first -
+    pop di                      ; [sk_seg] is unreachable once DS moves
+    mov es, [eth_useg]          ; ES:DI = the caller's buffer
+    mov ds, ax                  ; DS:SI = the ring. NOTHING BELOW THIS LINE
+.l:                             ; may name a driver variable
     mov al, [si]
-    pop si
     mov [es:di], al
     inc di
-    mov ax, [bx+SKO_RXT]
-    inc ax
-    cmp ax, SK_RXCAP
-    jb  .wrap
-    xor ax, ax
-.wrap:
-    mov [bx+SKO_RXT], ax
+    inc si
+    cmp si, dx
+    jb  .n
+    mov si, bp                  ; ...round the end
+.n:
     loop .l
-    mov cx, dx
+    pop cx                      ; the answer
+    jmp short .out
+.none:
+    xor cx, cx
 .out:
+    pop ds
     pop es
+    pop bp
     pop di
     pop si
     pop dx
@@ -433,7 +757,7 @@ tcp_out:
     call sk_txbase
     mov si, di
     mov di, eth_txb + IP_PAY + TC_HLEN
-    call mem_copy
+    call ring_out               ; the ring is the CLAIM's, the frame is ours
 .nodata:
     mov cx, [eth_dlen]
     add cx, TC_HLEN
@@ -1209,7 +1533,7 @@ tcp_ackin:
     mov si, di
     add si, ax
     mov cx, [bx+SKO_TXN]
-    call mem_copy                       ; forward, and dest < src, so an
+    call ring_move                      ; forward, and dest < src, so an
     pop ax                              ; overlapping move is safe
     pop cx
 .nodata:

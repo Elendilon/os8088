@@ -60532,3 +60532,63 @@ segments is the other half of the same arithmetic. But a package that asks
 once per pass is slow no matter what the driver does, and that was the
 package's own bug.
 
+### 72.13 The socket rings are a CLAIM, and their size is the throughput
+
+`SK_RXCAP` was 1024 bytes of `.bss` per socket, four of them, emitted into
+every copy of this driver whether the machine ever opened a socket or not -
+and unchangeable, because it was an `equ` and the ring walk was built from
+its shift.
+
+**That constant was the network's speed.** The receive ring IS the TCP
+window: a peer may have that much in flight and no more, and must then wait
+for our ACK. On the field's 5150 that turnaround is ~140ms - the guest has to
+be scheduled, drain the ring and answer - so 1024 bytes per 140ms is **7.1
+KB/s**, and the field measured 7.3. A packet capture of the same transfer
+showed 126 segments of exactly 1024 bytes, **zero retransmissions**, and
+129,671 bytes on the wire for a 129,430-byte file: the wire was already
+perfect. Nothing above this layer could help, which is why a bigger staging
+buffer in the FTP server (§77.21) changed nothing twice.
+
+So the rings move to a **heap claim, sized at attach**:
+
+| RX | TX | claim | predicted | why |
+|---|---|---|---|---|
+| 8192 | 1024 | 36KB | ~58 KB/s | where the window stops binding and the CPU starts |
+| 4096 | 512 | 18KB | ~29 KB/s | the sweet spot against a ~155 KB/s per-byte ceiling |
+| 1024 | 512 | 6KB | ~7 KB/s | the floor: exactly what the driver did before |
+
+**8192 is the ceiling and the reason is the segment**, not the memory: four
+sockets at 8192+1024 is 36,864 bytes and the next rung up is 69,632, where
+the offsets into the claim stop fitting sixteen bits.
+
+**A LADDER, NOT A DEMAND.** `sk_claim` asks for the best rung and steps down.
+The floor is what the driver already had, so a machine that could run this
+stack yesterday still can; only one that cannot spare even 6KB is refused,
+and a NIC with no buffers genuinely cannot serve a socket. The user's choice
+is tried first and is not a floor either - asking for 8192 on a machine that
+cannot hold it yields 4096 rather than nothing, because a slower network is a
+better answer than no network.
+
+#### 72.13.1 What moving them cost, and the loop that had to be rewritten
+
+The ring is in neither `DS` nor `ES` now, and four places copied through one
+or both. Three of them became named helpers - `ring_in` (the caller's buffer
+into the ring), `ring_out` (the ring into a transmit frame), `ring_move`
+(the send buffer's slide-down) - because a segment override open-coded at
+four sites is how a wrong one gets written once and read back wrong for ever.
+
+**`sk_rxget` had to be restructured**, and it is the interesting one. It
+copied a byte at a time and read `[bx+SKO_RXT]` on *every* byte, which was
+free while the ring and the socket record shared the driver's `DS`. They no
+longer do: the ring is in the claim and the destination is the *caller's*, so
+the loop needs both segment registers and the record can be reached from
+neither. The tail is therefore advanced **once**, before `DS` moves, and the
+loop walks a plain pointer with the ring's base and end in registers. It is
+also four instructions a byte shorter than what it replaced - not the reason,
+but not nothing at 4.77MHz.
+
+`TCP_MSS` follows `SK_TXMAX` rather than the live `[sk_txcap]`, because the
+MSS is announced in the SYN, once: a peer told 1024 may send 1024 for the
+life of the connection, and what *we* send is clamped to the real buffer by
+`tcp_out` anyway.
+

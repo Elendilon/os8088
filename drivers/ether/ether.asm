@@ -140,8 +140,10 @@ eth_attach:
     call ne_probe
     jc  .try
 .found:
-    call ne_init
-    mov byte [eth_up], 1
+    call sk_claim               ; THE RINGS, before the card can deliver into
+    jc  .noring                 ; them (SPEC.md 72.13). A card with no buffers
+    call ne_init                ; cannot serve a socket, so this is the one
+    mov byte [eth_up], 1        ; memory failure that refuses the attach
     mov di, eth_ip              ; a fresh attach starts with no address: a
     mov cx, 16                  ; second one must not inherit the first's
     call mem_zero
@@ -159,6 +161,15 @@ eth_attach:
     pop bx
     pop ax
     clc
+    ret
+.noring:
+    mov word [eth_base], 0      ; the card is real and the memory is not: the
+    mov byte [eth_up], 0        ; Drivers page reports a refusal either way,
+    pop di                      ; and a stack with no window is not a stack
+    pop cx
+    pop bx
+    pop ax
+    stc
     ret
 .none:
     mov word [eth_base], 0
@@ -267,6 +278,9 @@ eth_detach:
     call eth_dropall
     call ne_stop
     mov byte [eth_up], 0
+    call sk_release             ; ...and the rings go back: a driver's claims
+                                ; are not an instance's, so nothing frees them
+                                ; for us (SPEC.md 72.13)
 .out:
     mov byte [eth_busy], 0      ; ...and the flag does not outlive the driver:
                                 ; a claim left standing would refuse every

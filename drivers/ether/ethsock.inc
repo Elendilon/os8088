@@ -120,7 +120,7 @@ eth_v_send:
     mov ax, NETE_HANDLE
     jmp short .no
 .ok:
-    mov ax, SK_TXCAP
+    mov ax, [sk_txcap]
     sub ax, [bx+SKO_TXN]
     cmp cx, ax
     jbe .room
@@ -129,7 +129,8 @@ eth_v_send:
     jcxz .none
     call sk_txbase
     add di, [bx+SKO_TXN]
-    call usr_read
+    call ring_in                ; ...INTO THE CLAIM, not the driver's bss:
+                                ; usr_read wrote through DS (SPEC.md 72.13)
     add [bx+SKO_TXN], cx
     push cx
     call tcp_kick
@@ -165,7 +166,11 @@ eth_v_recv:
     jz  .out
     cmp byte [bx+SKO_ST], NSK_UP        ; **THE WINDOW JUST OPENED.** Without
     jne .out                            ; this a peer that filled the ring is
-    cmp dx, SK_RXCAP / 2                ; waiting on an advertisement nothing
+    push ax                             ; waiting on an advertisement nothing
+    mov ax, [sk_rxcap]
+    shr ax, 1
+    cmp dx, ax
+    pop ax
     jb  .out                            ; else in this driver would ever send,
     push cx                             ; and the transfer stops for good
     call tcp_ack
