@@ -248,6 +248,14 @@ FD_PATHMAX  equ 128                 ; the longest path an argument may carry
 ; and still there sends NOOP keepalives - every one of them resets this - so
 ; what 120s costs a live session is nothing.
 ; -----------------------------------------------------------------------------
+FD_YIELD_T  equ 273                 ; ticks: 15s. How long the session holding
+                                    ; the server must have been SILENT before
+                                    ; a knock displaces it. Short, because the
+                                    ; cost of being wrong is asymmetric: taking
+                                    ; a live-but-thinking client's place costs
+                                    ; it one reconnect, where refusing a real
+                                    ; one locks the machine out until a
+                                    ; watchdog fires two minutes later.
 FD_CIDLE_T  equ 2184                ; ticks: 120s at 18.2065 Hz
 
 FD_TXTRY    equ 64                  ; how many times fd_reply will re-offer a
@@ -2493,6 +2501,28 @@ fd_c_port:
     pop ax
     ret
 
+; --- fd_stale - is the session holding the server worth keeping? ------------
+; out: CF=1 = yes, keep it (refuse the newcomer); CF=0 = it is stale
+;
+; A TRANSFER IS ALWAYS WORTH KEEPING, whatever the control connection has
+; been saying - a STOR moves megabytes while it says nothing at all, which is
+; SPEC.md 77.24's protocol and not a symptom.
+fd_stale:
+    push ax
+    cmp byte [fd_xf], FX_NONE
+    jne .keep
+    call OSAPI_GET_TICKS
+    sub ax, [fd_cidle]              ; modular, across the counter's wrap
+    cmp ax, FD_YIELD_T
+    jb .keep
+    pop ax
+    clc
+    ret
+.keep:
+    pop ax
+    stc
+    ret
+
 ; =============================================================================
 ; fd_second - a SECOND client knocked while we are serving one (SPEC.md 77.29)
 ;
@@ -2531,6 +2561,38 @@ fd_second:
     or ax, ax
     jz .out                         ; nobody knocked, which is the usual answer
     mov [fd_rjhnd], al
+    ; -----------------------------------------------------------------------
+    ; **A STALE SESSION YIELDS; A LIVE ONE DOES NOT** (SPEC.md 77.29.1).
+    ; Refusing unconditionally was the first version and the gate caught what
+    ; it costs: a client that VANISHED still owns the server until a watchdog
+    ; notices, so every honest reconnect in that window got 421 - which is an
+    ; error where there used to be a hang, but is still the server refusing
+    ; the only client that is actually there.
+    ;
+    ; A knock is EVIDENCE. If the session holding the server has said nothing
+    ; for FD_YIELD_T and has no transfer running, it is far more likely gone
+    ; than thinking, so it is dropped and the newcomer takes its place.
+    ; FileZilla's second connection arrives while the first is mid-command,
+    ; which is exactly the case this does NOT displace.
+    ; -----------------------------------------------------------------------
+    call fd_stale
+    jc  .refuse
+    push ax
+    call fd_bye                     ; the old one is gone: let it go, and the
+    pop ax                          ; next pass accepts this handle properly
+    mov [fd_chnd], al
+    mov byte [fd_st], FD_CTRL
+    mov byte [fd_auth], 0
+    mov word [fd_clen], 0
+    mov byte [fd_rowed], 1
+    call fd_reset_xfer
+    call fd_cidle_stamp
+    mov si, fd_l_took
+    call fd_log
+    mov si, fd_r220
+    call fd_reply
+    jmp .out
+.refuse:
     ; --- borrow the reply cell, so the bounded send in fd_reply is reused ---
     mov bl, [fd_chnd]
     mov [fd_chnd], al
@@ -7160,6 +7222,7 @@ fd_r552:    db '552 Write failed - disk full or protected', 0
 fd_r426:    db '426 Transfer stalled - no data for 90 seconds', 0
 fd_r421:    db '421 Busy - this server takes one client at a time', 0
 fd_l_busy:  db 'Refused a second client (421)', 0
+fd_l_took:  db 'Took over from a silent client', 0
 fd_r553:    db '553 File name not allowed - 8.3 only, no spaces', 0
 fd_l_stall: db 'Stalled: ', 0
 fd_l_stb:   db ' bytes, sk ', 0

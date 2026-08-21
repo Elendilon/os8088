@@ -60491,6 +60491,32 @@ works throughout. Supporting two properly is a `NET_SOCKS` question before it
 is an `apps/ftpd/` one — two control connections plus a passive listener plus
 its data socket is five, and there are four.
 
+#### 77.29.1 A knock is EVIDENCE — a stale session yields, a live one does not
+
+Refusing every second connection was the first version of §77.29, and the
+gate caught what it costs. A client that **vanishes** still owns the server
+until a watchdog notices — 90 seconds if a transfer was running, 120 if not —
+and in that window every honest reconnect got `421`. That is an error where
+there used to be a hang, which is progress, but it is still the server
+refusing the only client that is actually there.
+
+**So the knock counts as evidence.** If the session holding the server has
+said nothing for `FD_YIELD_T` and has no transfer running, it is far likelier
+gone than thinking: it is dropped and the newcomer takes its place, with the
+window logging `Took over from a silent client`. A session that is mid-
+command, or moving bytes, is never displaced — which is exactly FileZilla's
+second connection, arriving while the first is busy.
+
+**`FD_YIELD_T` is 15 seconds and the shortness is deliberate**, because the
+costs are asymmetric. Displacing a live-but-thinking client costs it one
+reconnect. Refusing a real one locks the machine out until a watchdog fires
+two minutes later — which is the failure this whole section exists to remove,
+and re-creating it one door along would be a poor trade.
+
+**A transfer is never stale**, whatever the control connection has been
+saying: a STOR moves megabytes while it says nothing at all (§77.24), and
+that silence is the protocol working rather than a client that has gone.
+
 ### 77.30 One buffer per pass was the whole of the 7 KB/s
 
 The field asked the right question - *"I really doubt our 8088 is getting
