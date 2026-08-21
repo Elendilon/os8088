@@ -1147,6 +1147,81 @@ def run_gate(m, mo, fails):
     # image, which is what says a refused Start still SAVED the setting the
     # user typed rather than reverting it behind their back.
 
+    say("--- 8e. the log does not paint over the window ON TOP of it "
+        "(SPEC.md 77.33) ---")
+
+    # THE FIELD SAW THE FTP LOG PRINTED ACROSS THE FRONT OF A DISK WINDOW.
+    # fd_flush_glass and the UI wake both take the gfx lock THEMSELVES - they
+    # are not W_PAINT callbacks, so nothing has armed a clip for them - and
+    # the gfx_* primitives take ABSOLUTE screen coordinates. Without
+    # OSAPI_WM_CLIP_SET a background painter draws straight over whatever is
+    # in front of it.
+    #
+    # Driven the way it happens: raise the Disk window over the FTP window,
+    # photograph the overlap, then make the server log a line and photograph
+    # it again. Those pixels belong to the Disk window and must not move.
+    import subprocess as _sp
+    fw = ftp_win(m)
+    disk = None
+    for w in dispcp.win_list(m, S):
+        r = dispcp.win_rect(m, S, w)
+        if (r[2], r[3]) != (FD_W, FD_H):
+            disk = r
+    if disk is None:
+        fails.append("no Disk window to put in front of the FTP window - "
+                     "this assertion needs one to overlap with")
+    else:
+        dx, dy, dw, dh = disk
+        # the overlap: the Disk window's own area, which the FTP log sits under
+        crop = "%d,%d,%d,%d" % (dx + 2, dy + 20, dw - 8, dh - 40)
+        _sp.run(["python3", "tools/shot.py", SOCK, "/tmp/ftpclip_0.png",
+                 "--crop", crop], capture_output=True)
+        # **NOT ITS TITLE BAR** - the Disk window is at (103,80,320,200) and
+        # the FTP window at (40,40,400,176), so that title is UNDERNEATH the
+        # window this is trying to put it in front of and the click lands on
+        # the FTP server. Click the part that shows, below the FTP window's
+        # bottom edge; anywhere in a window raises it.
+        mo.click(dx + dw // 2, dy + dh - 30)
+        time.sleep(1.5)
+        _sp.run(["python3", "tools/shot.py", SOCK, "/tmp/ftpclip_a.png",
+                 "--crop", crop], capture_output=True)
+        # **THE SETUP CHECKS ITSELF.** The first version of this clicked four
+        # pixels too high, never raised anything, and cropped the FTP log -
+        # which changes on every line by design, so it reported the bug it was
+        # written to detect on a build that had just been fixed. A gate whose
+        # premise is unverified is a gate that lies in the expensive direction.
+        if open("/tmp/ftpclip_0.png", "rb").read() == \
+                open("/tmp/ftpclip_a.png", "rb").read():
+            fails.append("clicking the Disk window's title bar changed "
+                         "nothing - it never came to the front, so this "
+                         "assertion has no window on top to protect")
+        # A CONTROL CONNECTION ONLY - no LIST. 8b above runs seven transfers
+        # back to back and each close holds its slot for TCP_TWTMO, so a data
+        # connection here races the pool for no reason: `Client connected`,
+        # `USER`, `PASS` are four log lines and that is all this needs.
+        time.sleep(3.0)
+        for _try in range(3):
+            try:
+                f = connect()
+                f.login("os8088", "os8088")
+                f.quit()
+                break
+            except Exception as e:
+                say("   (connect %d: %s)" % (_try, str(e).strip()[:40]))
+                time.sleep(4.0)
+        time.sleep(2.5)
+        _sp.run(["python3", "tools/shot.py", SOCK, "/tmp/ftpclip_b.png",
+                 "--crop", crop], capture_output=True)
+        a = open("/tmp/ftpclip_a.png", "rb").read()
+        b = open("/tmp/ftpclip_b.png", "rb").read()
+        if a != b:
+            fails.append("the Disk window's pixels CHANGED while the FTP "
+                         "server logged underneath it - the log is painting "
+                         "over the window on top (SPEC.md 77.33). See "
+                         "/tmp/ftpclip_a.png and _b.png")
+        else:
+            say("the window on top is untouched while the log scrolls under it")
+
     say("--- 13. the controls are STANDARD: press, slide off, release ---")
 
     # THE WHOLE POINT OF SPEC.md 77.18. Every control used to fire on the

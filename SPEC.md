@@ -61233,3 +61233,59 @@ that are per-chunk and per-turn, so a 300 KB transfer pays a few tens of
 milliseconds out of twenty seconds. A split that needs a special build is a
 split the person with the 8088 cannot take, and they are the only one who can
 take it.
+
+### 77.33 The log painted over the window on top of it
+
+From the field, off a screenshot: *"notice how ftpd is overwriting the disk
+window? I've been seeing similar things, and that shouldn't happen."* It is
+plainly visible — the FTP server's log text printed straight across the front
+of a Disk window sitting over it.
+
+**A `W_PAINT` callback is entered with clipping already armed by the window
+manager. Two of this package's drawing paths are not `W_PAINT` callbacks**:
+`fd_flush_glass`, the once-a-second flush, and the UI-task wake that answers
+the worker. Both take `OSAPI_GFX_LOCK` themselves, so nothing has armed
+anything — and every `gfx_*` primitive takes **absolute screen coordinates**.
+The result is exactly what it looks like.
+
+`os88api.inc` says so in as many words at the `OSAPI_WM_OBSCURED` entry:
+
+> Windows move and get buried while you sleep, and the `gfx_*` primitives take
+> absolute screen coordinates: without one of these two answers you paint over
+> whatever is on top of you.
+
+Both paths now go through **one** body, `fd_paint_now`, which arms
+`OSAPI_WM_CLIP_SET` after taking the lock. `CF=1` means not one pixel of the
+content shows: draw nothing, leave `[fd_dirty]` **set** so the next flush
+tries again, and the lines are not lost. The clip dies at the unlock, so there
+is nothing to undo. Two copies of that sequence would be two chances to forget
+the clip, and one of them already had.
+
+#### 77.33.1 The sweep, and why this package was the outlier
+
+Every shipped package that calls `OSAPI_GFX_LOCK` was checked for a guard:
+
+| | guard |
+|---|---|
+| `telnet` — the closest sibling, a worker drawing over a socket | `OSAPI_WM_OBSCURED` |
+| `word`, `notepad` | `OSAPI_WM_OBSCURED` |
+| `tracker`, `browser`, `taskmgr`, `artful`, `cyclone`, `modplug`, `fractal`, `arkanoid`, `missile`, `tamegram` | `OSAPI_WM_CLIP_SET` |
+| **`ftpd`** | **neither** |
+
+`OSAPI_WM_OBSCURED` is the coarser answer — it refuses the whole frame if a
+single pixel is covered — and `OSAPI_WM_CLIP_SET` draws the part that shows,
+which is why the new code uses it. Either is correct. **`ftpd` had no guard at
+all**, which is the one thing that is not.
+
+Four packages take the lock with neither (`paint`, `solitaire`,
+`artful/atedit`, `frotz/zwin`); their lock holds are not on a background
+drawing path in the way these two are, and they are **not audited here** — a
+note rather than a claim.
+
+#### 77.33.2 Gated on pixels, because this is a class that comes back
+
+`tests/ftpd.py` assertion 8e raises a Disk window over the FTP window,
+photographs the overlap, makes the server log a line underneath it, and
+photographs it again. **Those pixels belong to the Disk window and must not
+move.** A count would not do: the failure is a specific rect changing, and
+that is what a crop compares.

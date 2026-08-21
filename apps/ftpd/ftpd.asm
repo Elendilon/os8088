@@ -1482,18 +1482,53 @@ fd_kick:
 ; a wire exchange: a NETV_RECV is up to 274 ms on the cable and the cursor
 ; would stop dead for it (SPEC.md 20.6 rule 3).
 fd_flush_glass:
+    call fd_paint_now               ; ...and the whole of it is fd_paint_now
+    ret                             ; now, which the wake path shares (77.33)
+
+; -----------------------------------------------------------------------------
+; fd_paint_now - take the lock, ARM THE CLIP, spend what changed, unlock
+;
+; THE ONE BODY for every path that draws WITHOUT being a paint callback: the
+; second-tick flush above and the UI-task wake that answers the worker. Two
+; copies of this is two chances to forget the clip, and one of them already
+; had.
+; -----------------------------------------------------------------------------
+fd_paint_now:
     push ax
     push bx
     push si
     cmp byte [fd_dirty], 0
     je .out
     mov bx, [fd_win]
-    call OSAPI_WM_GEOM              ; CF=1 = not visible, so there is nothing to
-    jc .out                         ; draw on and the ring keeps the lines
+    call OSAPI_WM_GEOM              ; CF=1 = not visible at all, so there is
+    jc .out                         ; nothing to draw on and the ring keeps
+                                    ; the lines
     call OSAPI_GFX_LOCK
+    mov bx, [fd_win]                ; **AND THE CLIP, WHICH WAS MISSING.** A
+    call OSAPI_WM_CLIP_SET          ; W_PAINT callback is entered with clipping
+    jc .unlock                      ; already armed by the window manager; this
+                                    ; is NOT one - it takes the lock itself,
+                                    ; from a wake and from the second-tick
+                                    ; flush - so nothing has armed anything and
+                                    ; the gfx_* primitives take ABSOLUTE screen
+                                    ; coordinates. Without this the log lines
+                                    ; are drawn straight over whatever window
+                                    ; is on top, which is what the field saw:
+                                    ; the FTP log printed across the front of a
+                                    ; Disk window sitting over it (SPEC.md
+                                    ; 77.33). os88api.inc says so at the
+                                    ; OSAPI_WM_OBSCURED entry, in as many
+                                    ; words.
+                                    ;
+                                    ; CF=1 is "not one pixel of your content
+                                    ; shows": draw nothing, leave [fd_dirty]
+                                    ; SET, and the next flush tries again. The
+                                    ; clip dies at the unlock below, so there
+                                    ; is nothing to undo.
     mov si, [fd_win]
     call fd_layout
     call fd_spend
+.unlock:
     call OSAPI_GFX_UNLOCK
 .out:
     pop si
@@ -3836,16 +3871,9 @@ fd_wake:
                                     ; byte and reads the stage the moment it
                                     ; goes to zero
 .glass:
-    cmp byte [fd_dirty], 0
-    je .out
-    mov bx, [fd_win]
-    call OSAPI_WM_GEOM
-    jc .out
-    call OSAPI_GFX_LOCK             ; the one callback that has to take it
-    mov si, [fd_win]                ; itself, and it may not draw before it has
-    call fd_layout
-    call fd_spend
-    call OSAPI_GFX_UNLOCK
+    call fd_paint_now               ; the one callback that has to take the
+                                    ; lock itself - and therefore the one that
+                                    ; has to arm its own clip (SPEC.md 77.33)
 .out:
     pop es
     pop di

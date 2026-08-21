@@ -2935,6 +2935,50 @@ operation that froze an upload. The save is a separate symptom, at least once
 was ordinary slowness with no indication, and once was something else that is
 still open.
 
+### 27.5 The instrument for the next round, and the one thing it must not be
+
+The freeze is still here after §27.2's fix: the most recent one is on a bare
+`PWD`, with `netbench` open behind and nothing transferring. So the next round
+is instrumentation, and the shape of it is already settled by the field:
+
+> *"that 30s task pass never fired - the isr was frozen and gone with
+> everything else. The end tool was one that constantly printed state, and we
+> tracked it down from the 'last printout'."*
+
+**That rules out every watchdog.** `KHB_STUCK`'s thirty-second report
+(kernel/sched.inc) is printed by `sch_isr` — so a freeze that takes the timer
+interrupt with it never prints anything, and the report's absence says only
+that the report did not run. The instrument has to be one that is **already on
+the glass** when the machine stops.
+
+`KFZ=1` is that instrument and it is already built. `sch_isr` paints fifteen
+bytes of kernel state into the top-left of the menu bar from IRQ0, **twice per
+tick** — once at entry and once after the BIOS `int 08h` chain returns — so
+the last picture on a stopped screen is a reading rather than a guess. It
+found §9.6.5's int 09h self-jump, which is the same shape of failure: the
+machine dead inside an interrupt gate with `IF` clear, nothing running, and
+the screen holding whatever was on it.
+
+| | reads |
+|---|---|
+| `beat`, `chain` | entries to `sch_isr` and returns from the BIOS chain. **One apart = it died inside the timer interrupt**; equal = it ran to the end and the fault is out in task code |
+| `CS hi`, `IP hi`, `IP lo` | the interrupted address — `nasm -l` turns it back into a routine. CS high 00 = kernel, 0D = cold, anything else = a package |
+| `sch_cur`, `sch_lock` | which task, and whether the scheduler is held |
+| `gfx_lock_flag`, `gfx_lock_own` | the mutex and its holder |
+| `SP hi/lo`, `stk0 bad` | the stack, and whether task 0's floor canary is still there |
+| `PIC mask`, `PIC in-service` | is IRQ0 still let in, and is an interrupt still in service with no EOI behind it |
+
+`tools/kfzread.py` decodes it out of a screenshot, so the reading is
+mechanical: four pixels per bit and four rows tall is what makes a photograph
+legible, and it was still read by eye before.
+
+**It is MONO ONLY** — the paint is Hercules/CGA banked and is not done on VGA
+at all — which suits the field machine, a 5150 on a green monitor.
+
+    make KFZ=1
+    ...freeze it, screenshot it...
+    python3 tools/kfzread.py shot.png
+
 ### 27.3 What is left, and the next one-move test
 
 A mount is `dsk_chdir` → `disk_mount` → `int 13h`, and the volume under it is

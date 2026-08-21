@@ -34,6 +34,7 @@ first of them fires in the first minute of a session.
 | **[docs/UPSTREAM.md](docs/UPSTREAM.md)** | any claim about what is ahead, behind, merged or unrelated. **Its Rule 0: a fresh clone is SHALLOW, and git answers ancestry questions confidently and wrongly on one** |
 | **[docs/FIELD-MACHINES.md](docs/FIELD-MACHINES.md)** | asking for a field run — who has the hardware, what is in it, what a run costs them, and the two rules that bind whoever reads a result |
 | **[docs/FIELD-NOTES.md](docs/FIELD-NOTES.md)** | a bug that reproduces on hardware and not here — open, reproduced, unfixed, with what has already been ruled out for each |
+| **[docs/FTP-PERF.md](docs/FTP-PERF.md)** | picking the FTP server's speed back up (§77, §72.15) — what moved it from 7 to 15 KB/s, the four things that did NOT work, where the time goes now (57% of it is ABOVE the driver), and the next five candidates in the order the evidence ranks them |
 
 ## Commands
 
