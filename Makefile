@@ -160,6 +160,25 @@ ifneq ($(SCROLLROW),)
 VIDDEF += -DSCROLL_ROWBASE
 endif
 
+# QUANTUM=2|3|4 arms SPEC.md 53.2.1's sub-tick SYSTEM-WIDE, so IRQ0 arrives N
+# times a system tick and the round-robin quantum drops from 55 ms to 27/18/14.
+# [ticks] does not change rate - the ISR divides - so every timeout, the
+# double-click window and the BIOS clock are untouched by construction.
+#
+# It exists because docs/FIELD-NOTES.md 27's defect 1 is NOT the gfx lock: a
+# drawing worker blocks nobody on it (measured: 0 blocks a second), it simply
+# spends its whole 55 ms slice, and the UI task therefore gets exactly one pass
+# per tick. Measured on os8088_5150_herc with apps/wire drawing: 18 -> 54
+# ui_task passes a second at N=3, for 6-12% of wire's frame rate. Off by
+# default because 53.2.1 armed this for a small, known task set and arming it
+# for every machine is a decision with a field run behind it, not a build fix.
+ifneq ($(QUANTUM),)
+ifeq ($(filter $(QUANTUM),2 3 4),)
+$(error QUANTUM must be one of: 2 3 4)
+endif
+VIDDEF += -DSCH_QUANTUM=$(QUANTUM)
+endif
+
 # SNAPAUDIT=1 histograms the x & 7 of every glyph the machine draws, into
 # snap_hchar/snap_hrun (SPEC.md 11.94.1, kernel/font.inc). It answers "which
 # app does not align its text" off a RUNNING machine, which is the only way to
@@ -686,12 +705,12 @@ endif
 # second build CLAUDE.md asks for after every change, and it exited 1.
 KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              KFZ DIRW1 INSTRO KEEPH STRAD DIRTYRAM HEAPCOMPACT HEAPPARK HEAPPARKLK FDDPROBE FDDABSENT REDRAWFULL NOSPLIT NOSUOCCL SNDSNIFF RAMKB DRAGCACHE \
-                             SNAPAUDIT SCROLLROW \
+                             SNAPAUDIT SCROLLROW QUANTUM \
                              CURFIX \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
                              KERN_SMALL FSNOSTAMP THEMEDARK,\
                              $(if $($(k)),$(k)=$($(k)))))
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \

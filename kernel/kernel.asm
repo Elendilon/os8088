@@ -3060,6 +3060,10 @@ kmain:
                                 ; multi-sector read past it silently returns
                                 ; the OTHER HEAD's sectors
     call sched_init             ; pre-emption live from here on
+%ifdef SCH_QUANTUM
+    mov al, SCH_QUANTUM         ; `make QUANTUM=` - SPEC.md 53.2.1's sub-tick,
+    call sch_fast_on            ; armed system-wide instead of per bracket
+%endif                          ; (docs/FIELD-NOTES.md 27.4). OFF by default
     call evq_init
     call FAT_SEG:ovl_clk_init   ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the

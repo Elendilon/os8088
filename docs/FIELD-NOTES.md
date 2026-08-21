@@ -2847,7 +2847,8 @@ second.**
 1. **`gfx_lock` has no fairness** (`kernel/vga12.inc`): `.retry` is `cli`,
    test, `sti`, `task_yield`, round again. No queue, no ticket. A worker that
    releases and immediately re-takes wins against a UI task that has to be
-   scheduled first, so a 95%-duty worker starves it 36×.
+   scheduled first, so a 95%-duty worker starves it 36×. **This is wrong —
+   see §27.4.**
 2. **The UI task drains one event a pass.** At 650 passes a second nobody
    would ever notice; at 18 it is the whole bandwidth of the machine's input.
 3. **A full ring drops the NEWEST press.** For input this is the wrong end:
@@ -2909,3 +2910,74 @@ respectively, which is one distribution.
 often enough to sample the pointer — and the drain does nothing for a stream
 of positions that were never queued in the first place. Expect it to still be
 ziggy and to still stop short.
+
+### 27.4 Defect 1 was misdiagnosed: it is the QUANTUM, not the lock
+
+§27.2 named `gfx_lock`'s missing fairness and the arithmetic was plausible.
+It is also wrong, and three counters in `gfx_lock` say so. Acquires, blocks
+(the flag was found held) and handovers, per guest second, with `apps/wire`
+drawing on `os8088_5150_herc`:
+
+| draw order | ui passes/s | lock takes/s | **blocks/s** |
+|---|---:|---:|---:|
+| Whole figure | 18 | 18 | **0** |
+| Edge at a time | 18 | 17 | **0** |
+| Edge, then repair | 18 | 12 | **0** |
+
+**Nobody ever blocks on the lock.** The worker takes it a dozen-odd times a
+second and holds it briefly; the UI task walks straight in whenever it asks.
+A fairness handover was built and measured: zero handovers while the figure
+turns, and 2–3 over a whole window drag — which is the only place any
+contention exists at all. It was reverted.
+
+What actually caps the UI task is the **round-robin quantum**. `ui_task` yields
+the moment its pass is done; a drawing worker spends its entire 55 ms slice; so
+the UI task gets one pass per timer tick. That is why the number is 18 for all
+three draw orders, and why it is *exactly* the tick.
+
+SPEC.md §53.2.1's sub-tick already exists for this — `sch_fast_on` makes IRQ0
+arrive N times a tick without changing `[ticks]`'s rate — armed there for the
+fsx bracket's small, known task set. Armed system-wide via `make QUANTUM=3`:
+
+| | ui passes/s | wire fps (whole / edge / repair) |
+|---|---:|---|
+| 55 ms quantum, as shipped | 18 | 18.2 / 18.2 / 12.1 |
+| 18 ms quantum, `QUANTUM=3` | **54** | 17.1 / 16.1 / 12.1 |
+
+Three times the input bandwidth for 6–12% of the frame rate, and free at the
+draw order that was already the slowest. It is a knob and not the default
+because §53.2.1 scoped this deliberately, and widening that scope wants a field
+run behind it.
+
+### 27.5 The press-and-hold report does NOT reproduce here
+
+Reported after §10.1/§10.2 landed: a click now works, but *"click, hold down,
+move across the screen, let up — did nothing"*, and on the menu bar
+*"clicking and releasing makes the menu flash; clicking and holding did not
+bring and keep the menu open."* The reporter's own reading is that a dropped
+event makes a hold look like a click, which is the right shape: every
+press-and-hold path in this kernel (`menu_track`, `ui_drag`, `ui_grow`,
+`fm_drag`) asks a LIVE question — the queued `EVT_MUP`, or `mouse_btn`'s level
+— so a press dispatched *after* the hand let go collapses instantly.
+
+Four instruments, on `os8088_5150_herc` with `apps/wire` drawing at both fast
+draw orders, and none of them shows it:
+
+- **menu press-and-hold**: press on the chip menu, hold 1.6 guest seconds
+  without releasing, sample `menu_ent` every two frames — **menu up in 40 of
+  40 samples**, idle and loaded alike.
+- **title-bar drag**: wire's own window dragged +40/+20 — arrives at
+  +40/+29, the same overshoot the no-worker control shows, so the drag tracks.
+- **single unverified packets**: `os88mouse._edge` resends the button packet up
+  to twenty times and proves it landed, which a real serial mouse never does —
+  so every scripted gesture in this tree is immune to a defect a hand is not.
+  Sending **one** raw packet per edge: press seen 25/25, release seen 25/25,
+  idle and loaded.
+- **the lock**: 0 blocks a second (§27.4).
+
+So this is a fifth open thing rather than a consequence of the four above, and
+CLAUDE.md names **input overrun** as one of exactly three defects an emulator
+cannot show. The next move needs the field machine: `QUANTUM=3` cuts the
+dispatch latency the symptom is shaped like by 3×, so an A/B of the two system
+disks is the cheapest question to ask of it.
+
