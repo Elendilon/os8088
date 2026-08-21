@@ -230,6 +230,41 @@ FD_PATHMAX  equ 128                 ; the longest path an argument may carry
 ; than no watchdog at all. It only ever fires on a connection that has moved
 ; NOTHING for a minute and a half.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; FD_CIDLE_T - how long a CONTROL connection may say nothing at all
+;
+; **A CLIENT THAT VANISHES WITHOUT CLOSING HOLDS THE SERVER FOR EVER**, and
+; SPEC.md 77.19.1 named this door and deliberately left it shut - "nothing in
+; the field report points at it". Something does now: the gate measured a
+; server taking **91 seconds** to come back after a client disappeared
+; mid-transfer, which is FD_WDOG_T's ninety and not a detection. fd_ctl_poll
+; only learns the peer is gone if the peer SAYS so, and a vanished one says
+; nothing: the socket stays ESTABLISHED with no data on it, for ever.
+;
+; 120 seconds, and the number is short because this server takes ONE client
+; (77.4): a dead session does not inconvenience its own owner, it locks
+; everybody out. The usual 300-900s of a multi-session server would be
+; reasoning from a shape this does not have. A client that is genuinely idle
+; and still there sends NOOP keepalives - every one of them resets this - so
+; what 120s costs a live session is nothing.
+; -----------------------------------------------------------------------------
+FD_YIELD_T  equ 273                 ; ticks: 15s. How long the session holding
+                                    ; the server must have been SILENT before
+                                    ; a knock displaces it. Short, because the
+                                    ; cost of being wrong is asymmetric: taking
+                                    ; a live-but-thinking client's place costs
+                                    ; it one reconnect, where refusing a real
+                                    ; one locks the machine out until a
+                                    ; watchdog fires two minutes later.
+FD_CIDLE_T  equ 2184                ; ticks: 120s at 18.2065 Hz
+
+FD_TXTRY    equ 64                  ; how many times fd_reply will re-offer a
+                                    ; reply the wire would not take. A reply is
+                                    ; tens of bytes against SK_TXCAP's 512, so
+                                    ; one refusal means the wire is busy this
+                                    ; instant and the next pass will do; 64
+                                    ; yields is ~44ms on the target and still
+                                    ; bounded against a peer that has gone.
 FD_WDOG_T   equ 1638                ; ticks: 90s at 18.2065 Hz
 
 ; -----------------------------------------------------------------------------
@@ -250,10 +285,19 @@ FD_WDOG_T   equ 1638                ; ticks: 90s at 18.2065 Hz
 ; timeout, so it never finished. Four appends instead of sixteen is the
 ; whole fix.
 ;
-; **32768 AND NOT MORE**: [fd_sfill] and [fd_sout] are words, and 65536
-; is zero in one.
+; **AND IT IS ALSO HOW LONG THE DATA CONNECTION GOES SILENT** (SPEC.md
+; 77.24), which is the reason it came back DOWN. The worker reads a whole
+; chunk quickly and then stops reading while the UI task writes it, so the
+; chunk is the length of the gap: ~1.2s at 8KB and ~4.8s at 32KB on the
+; field machine. A client watching its data connection is what normally
+; keeps it from timing out mid-transfer, and long silences are what break
+; that - so the number that made the fewest appends made the WORST gaps,
+; and the field measured the appends to be worth nothing anyway.
+;
+; A word still bounds it - [fd_sfill] and [fd_sout] are words, so 65536
+; would be zero in one - but that ceiling is no longer the binding one.
 ; -----------------------------------------------------------------------------
-FD_STGSZ    equ 32768
+FD_STGSZ    equ 8192
 FD_CDMAX    equ 16                  ; how deep CWD can go and still come back.
                                     ; **CDUP NEEDS A STACK BECAUSE THE KERNEL
                                     ; CANNOT ANSWER IT.** OSAPI_FILE_FIND never
@@ -1182,6 +1226,7 @@ fd_step:
                                     ; first command arrives - it has to read
                                     ; the 220 and log in first
     call fd_reset_xfer
+    call fd_cidle_stamp             ; the session's clock starts at the 220
     mov si, fd_l_conn
     call fd_log
     mov si, fd_r220
@@ -1195,7 +1240,10 @@ fd_step:
 
 ; --- CTRL: drain the control line, then push the transfer along -------------
 .serving:
-    call fd_ctl_poll
+    call fd_cidle_check             ; ...has this client said ANYTHING lately?
+    jc .drop
+    call fd_second                  ; ...and is a SECOND one waiting to be told
+    call fd_ctl_poll                ; this server takes one (SPEC.md 77.29)
     jc .drop
     cmp byte [fd_st], FD_CTRL       ; a QUIT inside fd_ctl_poll may have ended
     jne .done                       ; the session already
@@ -1308,10 +1356,49 @@ fd_reply:
     mov cx, di
     sub cx, fd_outb
     mov si, fd_outb
+    ; -----------------------------------------------------------------------
+    ; **SENT IN FULL, OR IT WAS NEVER SENT AT ALL** (SPEC.md 77.27).
+    ;
+    ; This used to be one NETV_SEND whose CARRY AND COUNT WERE BOTH THROWN
+    ; AWAY, and netpkg.inc is explicit about each: NETE_BUSY is an ordinary
+    ; answer rather than an error, and the count "may be less than asked and
+    ; may be 0". So any reply could be dropped or cut in half, silently.
+    ;
+    ; The data path always knew this - fd_send_stage advances [fd_sout] "BY
+    ; WHAT WAS TAKEN" - and the control path, written beside it, did not.
+    ; A dropped 220 is a client sitting on "waiting for welcome message"; a
+    ; dropped 226 is one waiting at the end of a transfer that has already
+    ; finished, which it eventually calls a control-connection timeout.
+    ;
+    ; BOUNDED, because this runs on the UI task as well as the worker: a
+    ; reply is tens of bytes against SK_TXCAP's 512, so the loop is there for
+    ; a wire that is momentarily busy, not for a peer that has gone. The
+    ; yield is what lets the driver's own pump run between attempts.
+    ; -----------------------------------------------------------------------
+    mov dx, FD_TXTRY
+.tx:
+    push cx
     mov al, [fd_chnd]
     mov bh, NET_CLASS
     mov bl, NETV_SEND
-    call OSAPI_DRV_CALL
+    call OSAPI_DRV_CALL             ; out CX = what was TAKEN
+    jc .busy
+    pop ax                          ; AX = what was asked
+    sub ax, cx                      ; ...and what is left
+    jz .sent
+    add si, cx                      ; the rest, from where it stopped
+    mov cx, ax
+    dec dx
+    jz .sent                        ; out of patience: the reply is lost, and
+    jmp short .yield                ; there is nowhere to report that to
+.busy:
+    pop cx                          ; NETE_BUSY and friends: nothing moved
+    dec dx
+    jz .sent
+.yield:
+    call OSAPI_TASK_YIELD           ; let the stack pump before asking again
+    jmp short .tx
+.sent:
     pop es
     pop di
     pop si
@@ -1355,6 +1442,7 @@ fd_ctl_poll:
     call fd_line_ready
     jc .none
 .run:
+    call fd_cidle_stamp             ; a COMMAND is what "not idle" means
     call fd_command
     jmp short .none
 .empty:
@@ -1926,6 +2014,151 @@ fd_pasv_port:
     pop bx
     ret
 
+; =============================================================================
+; THE TRANSFER TIMER (SPEC.md 77.23)
+;
+; A field instrument, and the reason it exists is that every estimate in
+; SPEC.md 77.21 was arithmetic: seeks priced from a datasheet, multiplied by
+; an append count. The machine can measure it directly and the estimate
+; cannot argue with the measurement.
+;
+; `Got 129430 bytes in 31s (4175 B/s)` - the three numbers that decide
+; whether a chunk-size change did anything, on the only hardware where the
+; question is real.
+; =============================================================================
+; -----------------------------------------------------------------------------
+; fd_count - CX bytes have crossed the wire, in either direction
+; out: nothing; every register preserved, flags included
+;
+; **COUNTED AT THE SOURCE AND NOT SAMPLED.** The first version of this
+; watched [fd_sfill] + [fd_sout] from the watchdog and added the difference
+; between polls, which loses a whole chunk whenever one fills AND commits
+; between two samples - the stage is back to 0 by the time the next poll
+; looks, and the fall reads as "no progress". It under-reported a 129,430
+; byte upload as 114,070, which is exactly the kind of quiet 12% that a
+; measurement nobody checks is made of. The two places bytes actually move
+; are the RECV and the SEND, and they are three instructions each.
+;
+; The flags are preserved because both call sites sit in the middle of a
+; sequence that tests CX afterwards.
+; -----------------------------------------------------------------------------
+fd_count:
+    pushf
+    push ax
+    push dx
+    add [fd_xbytes], cx
+    adc word [fd_xbytes+2], 0
+    ; --- and HOW LONG SINCE THE LAST TIME (SPEC.md 77.26) -----------------
+    ; The client watches its DATA connection, so what decides whether it
+    ; gives up is the LONGEST single silence, not the average rate. That is
+    ; a number nothing here could otherwise produce: the average is 7 KB/s
+    ; either way, and 7 KB/s in steady 1-second bursts is a transfer that
+    ; finishes where 7 KB/s with one 40-second hole is a transfer that does
+    ; not. Measured on the machine, reported at the end.
+    call OSAPI_GET_TICKS
+    mov dx, ax
+    sub ax, [fd_tlast]              ; modular, so the tick counter's own wrap
+    cmp ax, [fd_gapmax]             ; cannot invent a gap
+    jbe .keep
+    mov [fd_gapmax], ax
+.keep:
+    mov [fd_tlast], dx
+    pop dx
+    pop ax
+    popf
+    ret
+
+fd_xstart:
+    push ax
+    call OSAPI_GET_TICKS
+    mov [fd_t0], ax
+    mov [fd_tlast], ax              ; the first gap is measured from the 150,
+    mov word [fd_gapmax], 0         ; which is when the client starts watching
+    mov word [fd_xbytes], 0
+    mov word [fd_xbytes+2], 0
+    pop ax
+    ret
+
+; --- fd_log_rate - SI = 'Got ' or 'Sent ', and the clock since fd_xstart ----
+; Ticks are 18.2065 Hz, and seconds are `ticks * 4 / 73` - 18.25, which is
+; 0.24% off where a bare /18 is 1.1%, and both halves stay in 16 bits for any
+; transfer under a quarter of an hour. The subtraction is modular, so a
+; transfer spanning the tick counter's own wrap still measures right.
+fd_log_rate:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push si
+    mov di, fd_outb2
+    pop si
+    call fd_dcat
+    mov ax, [fd_xbytes]
+    mov dx, [fd_xbytes+2]
+    call fd_dnum32
+    mov si, fd_l_in
+    call fd_dcat
+    call OSAPI_GET_TICKS
+    sub ax, [fd_t0]
+    cmp ax, 16000                   ; past this `ticks * 4` leaves 16 bits, and
+    jb .ok                          ; a quarter-hour transfer has bigger
+    mov ax, 16000                   ; problems than a wrong rate
+.ok:
+    shl ax, 1
+    shl ax, 1
+    xor dx, dx
+    mov bx, 73
+    div bx                          ; AX = seconds
+    mov bx, ax
+    or bx, bx
+    jnz .sec
+    mov bx, 1                       ; under a second: call it one, so the
+.sec:                               ; divide below has a divisor
+    mov ax, bx
+    xor dx, dx
+    call fd_dnum32
+    mov si, fd_l_sec
+    call fd_dcat
+    ; --- and the rate: a 32-bit dividend over a 16-bit divisor -------------
+    mov ax, [fd_xbytes+2]           ; the two-step form, for the reason
+    xor dx, dx                      ; fd_dnum32's own comment gives: `div bx`
+    div bx                          ; on a 32-bit DX:AX traps whenever the
+    push ax                         ; quotient will not fit AX
+    mov ax, [fd_xbytes]
+    div bx
+    pop dx                          ; DX:AX = bytes per second
+    call fd_dnum32
+    mov si, fd_l_bps
+    call fd_dcat
+    mov si, fd_l_gap                ; ...and the longest hole in it
+    call fd_dcat
+    mov ax, [fd_gapmax]
+    cmp ax, 16000
+    jb .g
+    mov ax, 16000
+.g:
+    shl ax, 1
+    shl ax, 1
+    xor dx, dx
+    mov bx, 73
+    div bx                          ; whole seconds, the same 4/73 as above
+    xor dx, dx
+    call fd_dnum32
+    mov si, fd_l_gs
+    call fd_dcat
+    mov byte [di], 0
+    mov si, fd_outb2
+    call fd_log
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
 ; --- fd_log_pasv - the endpoint the 227 just named --------------------------
 ; `Data port 2048` in the window, at the moment it matters. A passive
 ; transfer needs the DATA port reachable as well as port 21, and behind a
@@ -1970,9 +2203,44 @@ fd_data_listen:
     clc
     ret
 .no:
-    pop cx
+    call fd_log_sockfail            ; **WHICH REFUSAL**, because 425 covers
+    pop cx                          ; several and only one of them is a leak
     pop bx
     stc
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_log_sockfail - AX = a NETE_*, and the log says which one it was
+;
+; `No data socket: err 4` - and 4 is NETE_FULL, all NET_SOCKS handles in use,
+; which is the only one of these that means something is being HELD. The
+; others are a missing driver, a dead link or a busy wire, and telling them
+; apart from the outside is impossible: the client sees `425 Cannot open a
+; data connection` for every one of them.
+;
+; A PASV transfer uses FOUR sockets at once - the port-21 listener, the
+; control connection, the passive data listener and the connection it
+; accepts - and NET_SOCKS is four. So NETE_FULL here is expected to be the
+; common answer when anything at all is left over from a previous session,
+; and distinguishing "expected" from "leaked" needs the number.
+; -----------------------------------------------------------------------------
+fd_log_sockfail:
+    push ax
+    push dx
+    push si
+    push di
+    mov di, fd_outb2
+    mov si, fd_l_nosock
+    call fd_dcat
+    xor dx, dx
+    call fd_dnum32
+    mov byte [di], 0
+    mov si, fd_outb2
+    call fd_log
+    pop di
+    pop si
+    pop dx
+    pop ax
     ret
 
 ; --- fd_c_pasv - 227, with our own address ----------------------------------
@@ -2233,15 +2501,187 @@ fd_c_port:
     pop ax
     ret
 
-; --- fd_data_drop - close whatever data handles are open ---------------------
+; --- fd_stale - is the session holding the server worth keeping? ------------
+; out: CF=1 = yes, keep it (refuse the newcomer); CF=0 = it is stale
+;
+; A TRANSFER IS ALWAYS WORTH KEEPING, whatever the control connection has
+; been saying - a STOR moves megabytes while it says nothing at all, which is
+; SPEC.md 77.24's protocol and not a symptom.
+fd_stale:
+    push ax
+    push bx
+    push cx
+    cmp byte [fd_xf], FX_NONE
+    jne .keep
+    ; --- ALREADY CLOSED beats any clock -----------------------------------
+    ; A client that closes without QUIT - which is most of them, and every
+    ; reconnect in the field's FileZilla log - leaves a control socket that
+    ; is no longer UP. The session is over the moment that is true, whatever
+    ; [fd_cidle] says: waiting FD_YIELD_T to agree with the socket would
+    ; refuse the reconnect that FOLLOWS a close, which is the commonest
+    ; sequence there is.
+    mov al, [fd_chnd]
+    or al, al
+    jz .gone
+    mov bh, NET_CLASS
+    mov bl, NETV_STATUS
+    call OSAPI_DRV_CALL
+    jc .clock                       ; the driver would not say: fall back on
+    cmp ah, NSK_UP                  ; the clock rather than guess
+    je .clock
+    cmp ah, NSK_CONNECT
+    je .clock
+.gone:
+    pop cx                          ; the peer has gone: not stale, FINISHED
+    pop bx
+    pop ax
+    clc
+    ret
+.clock:
+    call OSAPI_GET_TICKS
+    sub ax, [fd_cidle]              ; modular, across the counter's wrap
+    cmp ax, FD_YIELD_T
+    jb .keep
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.keep:
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; =============================================================================
+; fd_second - a SECOND client knocked while we are serving one (SPEC.md 77.29)
+;
+; **A CONNECTION NOBODY ACCEPTS IS NOT REFUSED, IT IS IGNORED**, and from the
+; other end those look nothing alike. The stack completes the handshake into a
+; pending child on its own, so the client's connect() SUCCEEDS; ftpd then
+; never calls NETV_ACCEPT, because it only does that in FD_LISTEN - and the
+; client sits on an established socket waiting for a greeting that cannot
+; come. FileZilla found this in the field: it opens a second control
+; connection to transfer with while the first browses, and hung on
+; "Connection established, waiting for welcome message" for ever. WinSCP uses
+; one connection and never saw it.
+;
+; So the knock is answered: accept, say 421, close. The client gets an error
+; it can act on in the same instant instead of a twenty-second silence.
+;
+; NOT DURING A TRANSFER. Accepting costs a socket, and a passive transfer is
+; already holding all four (77.28) - so the accept would fail anyway, and
+; trying spends a driver call per poll to find that out. The window this
+; leaves open is a second client knocking mid-transfer, which is exactly when
+; there is nothing to give it.
+; =============================================================================
+fd_second:
+    push ax
+    push bx
+    push si
+    cmp byte [fd_xf], FX_NONE
+    jne .out                        ; mid-transfer: no slot to spare anyway
+    mov al, [fd_lhnd]
+    or al, al
+    jz .out
+    mov bh, NET_CLASS
+    mov bl, NETV_ACCEPT
+    call OSAPI_DRV_CALL
+    jc .out
+    or ax, ax
+    jz .out                         ; nobody knocked, which is the usual answer
+    mov [fd_rjhnd], al
+    ; -----------------------------------------------------------------------
+    ; **A STALE SESSION YIELDS; A LIVE ONE DOES NOT** (SPEC.md 77.29.1).
+    ; Refusing unconditionally was the first version and the gate caught what
+    ; it costs: a client that VANISHED still owns the server until a watchdog
+    ; notices, so every honest reconnect in that window got 421 - which is an
+    ; error where there used to be a hang, but is still the server refusing
+    ; the only client that is actually there.
+    ;
+    ; A knock is EVIDENCE. If the session holding the server has said nothing
+    ; for FD_YIELD_T and has no transfer running, it is far more likely gone
+    ; than thinking, so it is dropped and the newcomer takes its place.
+    ; FileZilla's second connection arrives while the first is mid-command,
+    ; which is exactly the case this does NOT displace.
+    ; -----------------------------------------------------------------------
+    call fd_stale
+    jc  .refuse
+    push ax
+    call fd_bye                     ; the old one is gone: let it go, and the
+    pop ax                          ; next pass accepts this handle properly
+    mov [fd_chnd], al
+    mov byte [fd_st], FD_CTRL
+    mov byte [fd_auth], 0
+    mov word [fd_clen], 0
+    mov byte [fd_rowed], 1
+    call fd_reset_xfer
+    call fd_cidle_stamp
+    mov si, fd_l_took
+    call fd_log
+    mov si, fd_r220
+    call fd_reply
+    jmp .out
+.refuse:
+    ; --- borrow the reply cell, so the bounded send in fd_reply is reused ---
+    mov bl, [fd_chnd]
+    mov [fd_chnd], al
+    mov [fd_rjsav], bl
+    mov si, fd_r421
+    call fd_reply
+    mov bl, [fd_rjsav]
+    mov [fd_chnd], bl               ; the session's handle back FIRST, before
+    mov al, [fd_rjhnd]              ; anything can fail
+    mov bh, NET_CLASS
+    mov bl, NETV_ABORT              ; refused before it said a word: there is
+    call OSAPI_DRV_CALL             ; nothing in flight for it to lose
+    mov si, fd_l_busy
+    call fd_log
+.out:
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; fd_data_drop / fd_data_abort - let the data handles go
+;
+; **WHICH VERB IS NOT A DETAIL** (SPEC.md 77.25). NETV_CLOSE is right when
+; the transfer SUCCEEDED: closing the data connection is how FTP signals
+; end-of-file, and the peer has to be able to read what is still in flight.
+; NETV_ABORT is right when it FAILED: the peer has gone, a close against one
+; that never answers holds its slot for the retransmit timer's whole run, and
+; NET_SOCKS is four - so that one slot is the difference between the next
+; session listing a directory and sitting at its 150 until it times out too.
+;
+; The two share a body and differ by the verb in [fd_dverb], because a second
+; copy of this walk is a second place to forget a handle.
+; -----------------------------------------------------------------------------
+fd_data_abort:
+    push ax
+    mov al, NETV_ABORT
+    mov [fd_dverb], al
+    call fd_data_drop_v
+    pop ax
+    ret
+
 fd_data_drop:
+    push ax
+    mov al, NETV_CLOSE
+    mov [fd_dverb], al
+    call fd_data_drop_v
+    pop ax
+    ret
+
+fd_data_drop_v:
     push ax
     push bx
     cmp byte [fd_dhnd], 0
     je .l
     mov al, [fd_dhnd]
     mov bh, NET_CLASS
-    mov bl, NETV_CLOSE
+    mov bl, [fd_dverb]
     call OSAPI_DRV_CALL
     mov byte [fd_dhnd], 0
 .l:
@@ -2249,7 +2689,7 @@ fd_data_drop:
     je .out
     mov al, [fd_dlhnd]
     mov bh, NET_CLASS
-    mov bl, NETV_CLOSE
+    mov bl, [fd_dverb]
     call OSAPI_DRV_CALL
     mov byte [fd_dlhnd], 0
 .out:
@@ -2414,6 +2854,39 @@ fd_log_stall:
     ret
 
 ; -----------------------------------------------------------------------------
+; fd_cidle_stamp / fd_cidle_check - the control connection's idle clock
+; out (check): CF=1 = this client has said nothing for FD_CIDLE_T and is gone
+;
+; A TRANSFER IN PROGRESS IS NOT IDLE, and that is the whole subtlety: a STOR
+; moves megabytes over the data connection while the control connection says
+; precisely nothing, which is the protocol (77.24) and not a symptom. So the
+; check stands down whenever [fd_xf] is running and leaves that case to
+; FD_WDOG_T, which measures the thing that IS moving.
+; -----------------------------------------------------------------------------
+fd_cidle_stamp:
+    push ax
+    call OSAPI_GET_TICKS
+    mov [fd_cidle], ax
+    pop ax
+    ret
+
+fd_cidle_check:
+    push ax
+    cmp byte [fd_xf], FX_NONE
+    jne .live                       ; a transfer is running: the data
+    call OSAPI_GET_TICKS            ; connection's own watchdog owns this
+    sub ax, [fd_cidle]              ; modular, across the counter's wrap
+    cmp ax, FD_CIDLE_T
+    jb .live
+    pop ax
+    stc
+    ret
+.live:
+    pop ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
 ; fd_wdog_stamp / fd_wdog_check - the transfer watchdog (SPEC.md 77.19)
 ;
 ; PROGRESS IS MEASURED, NOT ASSUMED. The stamp is taken against a PROGRESS
@@ -2456,12 +2929,6 @@ fd_wdog_check:
     stc                             ; to a client that may not still be there
     ret
 .moved:
-    push cx                         ; ...and BANK HOW FAR, because a stall that
-    mov cx, ax                      ; says only "it stopped" sends the next
-    sub cx, [fd_wprog]              ; person looking in the wrong place
-    add [fd_xbytes], cx
-    adc word [fd_xbytes+2], 0
-    pop cx
     call fd_wdog_stamp
 .ok:
     pop bx
@@ -2489,6 +2956,10 @@ fd_xfer_poll:
     je .stor
     jmp .out
 .stalled:
+    push si
+    mov si, fd_l_part
+    call fd_log_rate                ; how far, and how fast, before the stall
+    pop si
     call fd_log_stall               ; **THE LOG IS THE INSTRUMENT.** A stall
     mov si, fd_r426                 ; that only says "it stopped" leaves the
     call fd_xfail                   ; next person guessing; one that names the
@@ -2538,8 +3009,9 @@ fd_send_stage:
     push es
     call fd_data_ready
     jc .later
-    mov ax, [fd_sfill]
-    sub ax, [fd_sout]
+.more:                              ; the same drain as fd_recv_stage, and for
+    mov ax, [fd_sfill]              ; the same reason (SPEC.md 77.30): one
+    sub ax, [fd_sout]               ; NET_SKMAX per worker pass is ~1KB a tick
     jz .empty
     cmp ax, NET_SKMAX
     jbe .n
@@ -2553,10 +3025,13 @@ fd_send_stage:
     mov bl, NETV_SEND
     call OSAPI_DRV_CALL
     jc .later
+    call fd_count                   ; COUNTED HERE, where the bytes really move
     add [fd_sout], cx               ; **BY WHAT WAS TAKEN**, which may be less
-    mov ax, [fd_sout]               ; than asked and may be 0 (netpkg.inc)
+    or cx, cx                       ; than asked and may be 0 (netpkg.inc)
+    jz .later                       ; ...and a zero means the wire is full: the
+    mov ax, [fd_sout]               ; loop must END on it or it spins
     cmp ax, [fd_sfill]
-    jb .later
+    jb .more
 .empty:
     mov word [fd_sout], 0
     mov word [fd_sfill], 0
@@ -2597,6 +3072,21 @@ fd_recv_stage:
     push es
     call fd_data_ready
     jc .out
+    ; -----------------------------------------------------------------------
+    ; **DRAIN, DO NOT SIP** (SPEC.md 77.30). This read ONE NET_SKMAX buffer
+    ; and returned to the scheduler, so the transfer moved at most 1KB per
+    ; worker pass - and a worker pass is about a system tick. 1024 bytes at
+    ; 18.2 Hz is ~18 KB/s of ceiling before anything else is counted, and the
+    ; field measured 7. The per-BYTE work cannot explain that: checksum plus
+    ; two copies at ~30 cycles a byte is a 155 KB/s ceiling on a 4.77MHz
+    ; 8088. The cost was per PASS, and the fix is to keep asking while the
+    ; socket keeps answering, until the stage is full or the wire goes quiet.
+    ;
+    ; It is bounded by the STAGE, which is the point: the loop cannot run
+    ; longer than one chunk's worth of bytes, and it ends the moment a RECV
+    ; returns nothing - which is what "the wire is empty for now" looks like.
+    ; -----------------------------------------------------------------------
+.more:
     mov ax, [fd_chunk]
     sub ax, [fd_sfill]
     jz .commit                      ; a full chunk is waiting to go to disk
@@ -2614,11 +3104,12 @@ fd_recv_stage:
     jc .busyq
     or cx, cx
     jz .quiet
+    call fd_count                   ; ...and here, for the other direction
     add [fd_sfill], cx
     mov ax, [fd_sfill]
     cmp ax, [fd_chunk]
-    jb .out
-.commit:
+    jb .more                        ; ...and ASK AGAIN rather than waiting for
+.commit:                            ; the next pass to ask
     mov al, FR_WCREATE
     cmp byte [fd_created], 0
     je .p
@@ -2685,7 +3176,8 @@ fd_recv_stage:
 ; looked like.
 ; -----------------------------------------------------------------------------
 fd_xrefuse:
-    call fd_data_drop
+    call fd_data_abort              ; refused before a byte moved: nothing is
+                                    ; in flight for the peer to lose
     call fd_reset_xfer
     call fd_reply
     ret
@@ -2693,7 +3185,29 @@ fd_xrefuse:
 ; --- fd_xdone - a transfer finished cleanly ----------------------------------
 fd_xdone:
     push si
+    cmp byte [fd_xf], FX_STOR       ; ...BEFORE fd_reset_xfer, which is what
+    mov si, fd_l_got                ; clears both the counter and the state
+    je .say                         ; this is choosing between
+    mov si, fd_l_sent
+.say:
+    call fd_log_rate
+    ; **AFTER A STOR THE CLIENT HAS ALREADY CLOSED** (SPEC.md 77.28): its
+    ; close is how it signalled end-of-file, so our socket is in CLOSE_WAIT
+    ; and there is nothing in flight for it to lose. Aborting returns the
+    ; slot at once where a graceful close holds it for a FIN round trip -
+    ; and back-to-back uploads were running the four-socket pool dry on
+    ; SUCCESS, which is how the gate found this.
+    ;
+    ; A RETR or a LIST is the other way round and MUST close: the close IS
+    ; the end-of-file, and an abort truncates whatever the client has not
+    ; read yet.
+    cmp byte [fd_xf], FX_STOR
+    jne .close
+    call fd_data_abort
+    jmp short .dropped
+.close:
     call fd_data_drop
+.dropped:
     call fd_reset_xfer
     mov si, fd_r226
     call fd_reply
@@ -2740,7 +3254,8 @@ fd_ferr_sel:
 
 ; --- fd_xfail - it did not. SI = the reply to send ---------------------------
 fd_xfail:
-    call fd_data_drop
+    call fd_data_abort              ; FAILED: the peer is gone, so the slot
+                                    ; comes back now (SPEC.md 77.25)
     call fd_reset_xfer
     call fd_reply
     ret
@@ -2784,6 +3299,7 @@ fd_list_go:
     mov si, fd_r150
     call fd_reply
     mov byte [fd_xf], FX_LIST
+    call fd_xstart              ; the clock (SPEC.md 77.23)
     mov al, FR_LIST
     call fd_post
 .out:
@@ -2841,6 +3357,7 @@ fd_c_stor:
     mov si, fd_r150
     call fd_reply
     mov byte [fd_xf], FX_STOR
+    call fd_xstart              ; the clock (SPEC.md 77.23)
     jmp short .out
 .noroom:
     mov si, fd_r452
@@ -4134,6 +4651,7 @@ fd_do_rdchk:
     mov si, fd_r150
     call fd_reply
     mov byte [fd_xf], FX_RETR
+    call fd_xstart              ; the clock (SPEC.md 77.23)
     mov byte [fd_lmore], 1          ; ...so the worker's first act is FR_READ
     jmp short .out
 .noroom:
@@ -5059,7 +5577,18 @@ fd_bye:
     push ax
     push bx
     push si
+    cmp byte [fd_xf], FX_NONE       ; **A TRANSFER THAT DIED STILL MEASURED
+    je .nox                         ; SOMETHING**, and it is the one anybody
+    mov si, fd_l_part               ; wants the number for: a client that gives
+    call fd_log_rate                ; up mid-upload leaves by this door, not by
+.nox:                               ; fd_xdone's, so the rate line was printed
+    cmp byte [fd_xf], FX_NONE       ; for every transfer EXCEPT the failures
+    je .clean
+    call fd_data_abort              ; a transfer was RUNNING when the client
+    jmp short .dropped              ; left: abort, or its slot lingers
+.clean:
     call fd_data_drop
+.dropped:
     call fd_reset_xfer
     cmp byte [fd_chnd], 0
     je .n
@@ -6645,6 +7174,20 @@ fd_s_err:   db '', 0
 fd_s_onport: db ' port ', 0
 fd_s_at:    db ' at ', 0
 fd_l_dport: db 'Data port ', 0
+fd_l_nosock: db 'No data socket: err ', 0
+fd_l_got:   db 'Got ', 0
+fd_l_part:  db 'Partial: ', 0
+fd_l_sent:  db 'Sent ', 0
+; **THESE ARE SIZED TO FD_LOGW**, which is 44 characters. The first cut of
+; this line read `Incomplete: 204800 bytes in 29s (7062 B/s) gap 12s` - FIFTY
+; characters - so the field got the report with the gap sliced off at the
+; window's edge, which was the one number the line existed to carry. The
+; longest form now is `Partial: 1234567 in 999s 65535B/s gap 999s` at 42.
+fd_l_in:    db ' in ', 0
+fd_l_sec:   db 's ', 0
+fd_l_bps:   db 'B/s', 0
+fd_l_gap:   db ' gap ', 0
+fd_l_gs:    db 's', 0
 fd_l_prange: db 'Passive data ports 2048-2055', 0
 fd_s_noaddr: db '(no address)', 0
 fd_s_start: db 'Start', 0
@@ -6708,6 +7251,9 @@ fd_r550w:   db '550 The server is read only', 0
 fd_r551:    db '551 Read failed', 0
 fd_r552:    db '552 Write failed - disk full or protected', 0
 fd_r426:    db '426 Transfer stalled - no data for 90 seconds', 0
+fd_r421:    db '421 Busy - this server takes one client at a time', 0
+fd_l_busy:  db 'Refused a second client (421)', 0
+fd_l_took:  db 'Took over from a silent client', 0
 fd_r553:    db '553 File name not allowed - 8.3 only, no spaces', 0
 fd_l_stall: db 'Stalled: ', 0
 fd_l_stb:   db ' bytes, sk ', 0
@@ -6922,7 +7468,17 @@ fd_mext     equ fd_xbytes + 4                   ; 4: the extension fd_mangle83
                                      ; lifted out, while it rewrites the stem
                                      ; UNDER it - the two overlap in fd_leaf,
                                      ; so the ext cannot stay where it was
-fd_wdog     equ fd_mext + 4                     ; word: the tick the transfer
+fd_rjhnd    equ fd_mext + 4                     ; byte: the second client's
+fd_rjsav    equ fd_rjhnd + 1                    ; byte: ...and ours, banked
+fd_cidle    equ fd_rjsav + 1                    ; word: the tick the control
+                                     ; connection last said anything
+fd_tlast    equ fd_cidle + 2                    ; word: the tick a byte last
+                                     ; crossed, for the gap
+fd_gapmax   equ fd_tlast + 2                    ; word: ...and the longest hole
+fd_dverb    equ fd_gapmax + 2                   ; byte: NETV_CLOSE or NETV_ABORT
+fd_t0       equ fd_dverb + 2                    ; word: the tick a transfer
+                                     ; STARTED, for the rate line
+fd_wdog     equ fd_t0 + 2                       ; word: the tick the transfer
                                      ; last MOVED A BYTE (SPEC.md 77.19)
 fd_wprog    equ fd_wdog + 2                     ; word: how far it had got when
                                      ; that was stamped, so "moved" is measured

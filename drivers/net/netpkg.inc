@@ -160,7 +160,36 @@ NETV_ADDR    equ 10             ; out ES:DI = filled with FOUR bytes, this
                                 ; its own nonexistent address would be telling
                                 ; the client to connect somewhere nothing is
                                 ; listening
-NETV_MAX     equ 10             ; ...and anything above it is refused. A verb
+NETV_ABORT   equ 11             ; AL = a handle: DROP IT NOW and give the slot
+                                ; back, where NETV_CLOSE hands the connection
+                                ; to TCP and keeps the slot until the FIN
+                                ; handshake finishes (SPEC.md 77.25).
+                                ;
+                                ; **IT IS FOR A PEER THAT HAS ALREADY GONE.**
+                                ; A close against one that never answers holds
+                                ; its slot for the retransmit timer's whole
+                                ; run - about a minute - and with NET_SOCKS
+                                ; four, one of those is the difference between
+                                ; a server that works and one that cannot open
+                                ; a data connection until it expires. That is
+                                ; a real failure the FTP server hit in the
+                                ; field, not a tidiness.
+                                ;
+                                ; NO RST IS SENT, and the omission is
+                                ; deliberate: building one needs the socket's
+                                ; own sequence state where tcp_rst answers a
+                                ; RECEIVED segment, and the peer this is used
+                                ; against is not listening anyway. It learns
+                                ; the connection is gone the next time it
+                                ; sends, which tcp_rst then answers properly.
+                                ;
+                                ; NEVER on a transfer that SUCCEEDED: closing
+                                ; the data connection is how FTP signals
+                                ; end-of-file, and an abort there truncates
+                                ; whatever the peer had not yet read.
+                                ; out CF=0 always - aborting a handle that is
+                                ; already gone is not an error
+NETV_MAX     equ 11             ; ...and anything above it is refused. A verb
                                 ; table indexed by an unchecked verb is a wild
                                 ; near call inside the driver
 

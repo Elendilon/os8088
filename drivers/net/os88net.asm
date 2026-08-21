@@ -339,6 +339,18 @@ net_bss_clear:
     xor ax, ax
     cld
     rep stosw
+    ; --- and POINT THE RING CODE AT THEM (SPEC.md 72.13) -------------------
+    ; tcp.inc walks the rings through [sk_seg]:[sk_base] now, because in the
+    ; OS they are a heap claim. Here they are plain bss in this .COM's own
+    ; segment, so this is where that indirection is told so - after the clear,
+    ; which would otherwise zero the very words that find them.
+    mov [sk_seg], ds
+    mov word [sk_base], sk_rxb
+    mov word [sk_rxcap], SK_RXMAX
+    mov word [sk_txcap], SK_TXMAX
+    mov word [sk_rxsh], SK_RXMAXSH
+    mov word [sk_txsh], SK_TXMAXSH
+    mov word [sk_txoff], NET_SOCKS * SK_RXMAX
     pop es
     pop di
     pop cx
@@ -4388,8 +4400,12 @@ dtabuf:     times 48 db 0       ; OUR DTA, and not DOS's at PSP:0080 - that is
     absolute $
 net_bss0:
 sk_tab:     resb NET_SOCKS * SK_SZ
-sk_rxb:     resb NET_SOCKS * SK_RXCAP
-sk_txb:     resb NET_SOCKS * SK_TXCAP
+; **THE PARTNER HAS NO CLAIM HEAP** (SPEC.md 72.13): it is a DOS .COM, so its
+; rings are ordinary bss at a fixed size and it points [sk_seg]/[sk_base] at
+; them itself. It is also a machine with megabytes, so it takes the top rung
+; and never steps down.
+sk_rxb:     resb NET_SOCKS * SK_RXMAX
+sk_txb:     resb NET_SOCKS * SK_TXMAX
 eth_rxh:    resb 4
 eth_rxb:    resb NE_FRAME + 4
 eth_txb:    resb NE_FRAME + 4

@@ -60248,8 +60248,26 @@ a 126KB file is 18 seconds, and the client gave up at 15.
 **That overhead is per APPEND and does not shrink with the chunk**, which
 makes `FD_STGSZ` the divisor. At 32KB a 126KB upload is **four** appends
 instead of sixteen: the same data sectors, a quarter of the seeking. The
-estimate is ~2.5-3x, not 4x, because the data half does not change — enough
-to bring 126KB inside any client's default timeout, which is what matters.
+estimate was ~2.5-3x.
+
+> **THE FIELD MEASURED IT AND THE ESTIMATE WAS WRONG.** 8KB chunks moved
+> 106,496 bytes in 15s (7.10 KB/s); 32KB chunks moved 204,800 in 30s
+> (**6.83 KB/s**) — no improvement, and if anything a hair slower. So the
+> append overhead is NOT what bounds this, and the paragraph above is kept
+> as the reasoning that was tested rather than deleted as if it had never
+> been made. The cost is per BYTE, not per commit, and where it goes is
+> not yet known: mTCP's own FTP server reports 3-8 KB/s on the same
+> machine, so ~7 KB/s may simply be what an 8088 does through an NE2000,
+> in which case there is nothing here to win. §77.23's timer exists to
+> settle that on a transfer that COMPLETES, which neither of these did —
+> both numbers are rates measured across a truncated transfer.
+>
+> `FD_STGSZ` stays at 32768 provisionally, not because it was shown to
+> help but because nothing shows it hurts, and reverting it costs another
+> field round trip. It is 24KB of a 640KB machine's heap for no measured
+> gain, so if the timer confirms the rate is unchanged it should go back
+> to 8192 — PERFORMANCE.md rule 5's rule, that an optimisation whose
+> reason did not survive is not an optimisation.
 
 `FD_STGSZ` was 8192 and its comment recorded only the correctness constraint:
 a power of two at least a cluster wide, so `fd_setchunk` always leaves whole
@@ -60257,6 +60275,12 @@ clusters (§52.3 caps a cluster at 8KB). That constraint is real and 32768
 still satisfies it. **What the comment did not say is that the same number
 sets the seek count**, so nobody weighing it had the second reason in front
 of them. It does now.
+
+**At ~7 KB/s a client timeout is a FILE SIZE LIMIT.** 126KB needs 18
+seconds and 300KB needs 45, so a 30-second timeout cannot move the larger
+file however the server is tuned. Until the rate is understood, a client
+talking to this server wants its timeout set from the biggest file it will
+send, not from a default.
 
 **32768 is the ceiling, and not for a memory reason**: `[fd_sfill]` and
 `[fd_sout]` are words, and 65536 is zero in one. The package's image plus bss
@@ -60317,6 +60341,448 @@ setting it correctly while the data ports stay closed produces exactly this
 error. Active mode avoids the problem — the client listens and the server
 dials out — which is why the same machine could transfer in active mode and
 not in passive.
+
+### 77.23 The transfer timer, because every number in 77.21 was arithmetic
+
+`Got 129430 bytes in 31s (4175 B/s)`, in the window, at the end of every
+transfer.
+
+**§77.21's estimate was a datasheet seek time multiplied by an append count**,
+and it predicted 2.5-3x from a bigger staging buffer. That prediction cannot
+be checked here: QEMU is exact about how much work the guest does and useless
+about how long it takes (CLAUDE.md), and MartyPC — the instrument that agrees
+with the field machine to 0-4% — **has no NIC of any kind**, so an FTP
+transfer cannot be hosted on it at all. The only machine that can answer is
+the one in the field, so the server measures itself.
+
+Three numbers and no more: bytes, seconds, and the rate. That is what decides
+whether a chunk-size change did anything, and it is the same triple whether
+the answer is yes or no.
+
+**Seconds are `ticks * 4 / 73`.** The tick is 18.2065 Hz and 73/4 is 18.25 —
+0.24% high, where the obvious `/18` is 1.1% low — and both halves stay inside
+16 bits for any transfer under a quarter of an hour, which is the cap the
+routine applies rather than pretend about. The subtraction from `[fd_t0]` is
+modular, so a transfer spanning the counter's own wrap still measures right,
+the discipline §13.9 and `sch_isr` already use. The rate is a 32-bit dividend
+over a 16-bit divisor and therefore the two-step divide, for the reason
+`fd_dnum32` gives: `div bx` on a 32-bit `DX:AX` traps whenever the quotient
+will not fit `AX`.
+
+**It also fixed the counter it reports.** `[fd_xbytes]` was added in §77.19
+for the stall log and was wrong from the first commit: it accumulated the
+change in `[fd_sfill] + [fd_sout]`, and **a commit empties the stage**, so
+every chunk contributed a negative delta that an unsigned 32-bit add turned
+into a 64K jump. The bytes are counted on the way in, so the fall is now
+skipped. Nothing had read the number closely enough to notice — which is the
+argument for putting it on the glass where somebody will.
+
+### 77.24 Telling the client we are still working — and what cannot be done
+
+*"Normally it doesn't time out, even on huge files that take more than its
+timeout time to transfer."* — the field, and it is right. A client does not
+time out during a transfer because it is watching the **data** connection,
+and on a normal server that connection never stops moving for long.
+
+**Ours stops for seconds at a time**, and the chunk size is the length of the
+stop — but NOT for the reason written here first. The field watched the
+copy-progress widget (§12.8) during an upload and reported it: *"the progress
+bar zips across in maybe 1/4 of a second, then it sits still for 3-4 seconds,
+then the next zip"*. **The write is the quarter second.** A 32KB chunk
+committed in ~0.25s is ~128 KB/s, which is what the disk really does, and
+local file copies on the same machine are far faster than 7 KB/s — so the
+disk was never the bottleneck and §77.21's whole seek argument was answering
+the wrong question.
+
+**The 3-4 seconds is the RECEIVE**, and that is where the ~7 KB/s lives. It
+is `drivers/ether/`'s (§72), not this package's: every byte is copied into a
+`SK_RXCAP`-byte ring, checksummed and copied out again on a 4.77MHz 8088, and
+`SK_RXCAP` is **1024**, so the advertised window never exceeds a kilobyte and
+the sender spends most of its time waiting for a window that reopens only as
+fast as the stack is pumped. §77.21 raised it to 32768
+chasing an append count that turned out not to matter, which means that
+change bought nothing and made every gap four times longer — the opposite of
+what a client watching for liveness needs. **It is back to 8192.**
+
+**Double-buffering is the obvious answer and it does not work here.** Fill one
+chunk while the UI writes the other, and the network drains continuously —
+but only while the NETWORK is the slow side. Here the disk is: the worker
+fills the spare buffer in a fraction of the write time and then waits exactly
+as long as before, for the same total. The duty cycle is unchanged and the
+gaps merely move. It is written down because it is the first thing anyone
+will propose, including whoever reads this next.
+
+**There is no protocol message for "still working".** RFC 959's `1xx`
+preliminary reply is sent ONCE, when the transfer is accepted — that is the
+`150` this server already sends — and there is no progress reply after it.
+The control connection must stay silent until the transfer ends, because an
+unsolicited reply desynchronises the client's parser: it is reading replies
+in order and would take the next one as the answer to whatever it asks next.
+A server that chatters mid-transfer breaks clients rather than reassuring
+them. Keepalives on the control channel are the CLIENT's to send (`NOOP`),
+which is why WinSCP has a setting for them and the server has no say.
+
+So the whole of what a server can do about this is **keep the data connection
+moving in short, frequent bursts**, which means keeping the chunk small
+enough that no single silence approaches a client's timeout. 8KB is 1.2s on
+the slowest machine this runs on, against a 15-second default.
+
+**What that does not fix is the total.** At ~7 KB/s a 300KB upload takes 45
+seconds whatever the chunk is, and a client whose timeout is a limit on the
+WHOLE transfer rather than on inactivity will still give up. Set it from the
+largest file, not from a default — and §77.23's timer is what says how long
+that actually is.
+
+### 77.25 `NETV_ABORT` — a failed transfer must give its socket back NOW
+
+The field's most persistent complaint, and the last of it: after a failed
+upload, reconnecting logged in fine and then **`LIST` hung with nothing
+printed at all** — no `425`, no `No data socket` line, just the client timing
+out again.
+
+**The silence was the clue.** `fd_data_listen` had SUCCEEDED — the log said
+`Data port 2053` — so the passive listener was up and the `227` was honest.
+What failed was one step later, at `NETV_ACCEPT`, which needs a slot of its
+own to make the child connection from. `NET_SOCKS` is **four**: the port-21
+listener, the control connection and the passive listener are three, and the
+fourth was the *previous* transfer's data socket, still finishing a FIN
+handshake with a client that had gone. `eth_v_close` keeps the slot until
+that completes, and against an absent peer it is the retransmit timer that
+ends it — `TCP_RTMAX` doublings, about a minute.
+
+**This exact failure was already written down here** and fixed for a
+different cause: §77's `fd_xrefuse` note records "NETV_ACCEPT had no handle
+to make the data connection from, and the LIST sat at its 150 until the
+client timed out", from a read-only STOR that stranded a socket. A close
+that outlives its usefulness produces the identical symptom, and the
+diagnostic added for it looked at the wrong call — the LISTEN, which
+succeeds.
+
+**So the socket ABI grows one verb.** `NETV_ABORT` (11) drops the connection
+and returns the slot immediately, where `NETV_CLOSE` hands it to TCP and
+waits. Three things about it are deliberate:
+
+- **No RST is sent.** Building one needs the socket's own sequence state,
+  where `tcp_rst` answers a *received* segment; and the peer this is used
+  against is not listening. It finds out the next time it sends, which
+  `tcp_rst` then answers properly.
+- **Never on success.** Closing the data connection is how FTP signals
+  end-of-file, so an abort on a completed RETR truncates whatever the client
+  had not yet read. `fd_xdone` closes; `fd_xfail`, `fd_xrefuse` and a
+  `fd_bye` that interrupts a running transfer abort.
+- **The cable's abort IS a close** (`netsock.inc`), and honestly so: over the
+  wire there is no handshake to outlive, so the two are already one
+  operation and a second body would be a second thing to keep in step.
+
+**What this does not do is make transfers finish.** A 300KB upload at ~7 KB/s
+still needs 45 seconds and still fails against a shorter timeout. What it
+fixes is the *second* failure — the one where the first failure poisons every
+session after it until a minute passes or the app is restarted, which is what
+made this look like a server that breaks rather than a transfer that was too
+slow.
+
+### 77.26 The longest silence, which is the number that decides it
+
+The field read WinSCP's documentation and asked the right question: it holds
+**two** connections, and the error names the control one — *"is it timing out
+because it gets no response on the control connection during the transfer?"*
+
+**What WinSCP reports and what fails are not the same thing.** The control
+connection is silent during a transfer on EVERY FTP server — §77.24's rule
+that the server may not speak until the transfer ends is the protocol, not a
+shortcoming here. And the same client holds a **twenty minute** upload to
+mTCP's FTP server on the same machine without complaining. So WinSCP plainly
+tolerates a long silent control connection; what it will not tolerate is a
+**data** connection that stops moving. The control timeout is what it says
+when it gives up, not why.
+
+So the question is whether ours stops, and for how long — and **the average
+rate cannot answer it**. 7 KB/s in steady one-second bursts is a transfer
+that finishes; 7 KB/s with a single forty-second hole in the middle is a
+transfer that dies, and both report 7 KB/s. §77.23's timer measures the
+average because that is what it was built for.
+
+`[fd_gapmax]` is the longest interval between two moments a byte crossed the
+wire, stamped in `fd_count` where the bytes are already being counted, and
+the transfer line carries it: **`Got 129430 bytes in 31s (4175 B/s) gap 2s`**.
+Modular subtraction, so the tick counter's own wrap cannot invent a hole, and
+the first gap is measured from the `150` because that is when the client
+starts watching.
+
+It splits the remaining possibilities cleanly, which is the whole point of
+building it rather than reasoning further:
+
+- **A gap of a second or two** means the data connection never stalls, the
+  client is timing out on the silent control channel after all, and the fix
+  is on that side — a longer timeout, or WinSCP's own keepalive setting,
+  because §77.24's rule still forbids the server from speaking.
+- **A gap approaching the timeout** means the data connection really does
+  stop, and the cause is in the receive path (§72) where §77.24 already put
+  the ~7 KB/s: that is a stack question with a measurable target rather than
+  a guess.
+
+Two field reports have now overturned a theory each — the disk-seek estimate
+(§77.21) and the disk itself (§77.24) — and both times the correction came
+from a number the machine produced rather than one this document computed.
+
+### 77.27 A reply must be sent IN FULL — the dropped `220`
+
+The field downloaded other FTP clients to cross-check, and every one of them
+died in the same place: **"Connection established, waiting for welcome
+message..."** The TCP connection is accepted and the `220` never arrives.
+
+**`fd_reply` sent once and threw the answer away.** One `NETV_SEND`, with
+both the carry and the returned count discarded — and netpkg.inc is explicit
+about each: `NETE_BUSY` is an ordinary answer rather than an error, and the
+count "may be less than asked and may be 0". So *any* reply could be dropped
+or cut in half, silently, whenever the wire was busy at that instant.
+
+The asymmetry is the tell. The DATA path always knew this — `fd_send_stage`
+advances `[fd_sout]` "BY WHAT WAS TAKEN, which may be less than asked and may
+be 0" — and the control path, written beside it and calling the same verb,
+did not. A dropped `220` is a client on "waiting for welcome message"; a
+dropped `226` is one waiting at the end of a transfer that has already
+finished, which it eventually reports as a control-connection timeout. Both
+had been seen and neither had been recognised.
+
+`fd_reply` now re-offers the remainder until it is all gone, bounded by
+`FD_TXTRY` — a reply is tens of bytes against `SK_TXCAP`'s 512, so a refusal
+means the wire is busy *this instant* and the next pass will do; the bound is
+what keeps a peer that has gone from spinning the worker.
+
+#### 77.27.1 And the control connection gets an idle timeout after all
+
+§77.19.1 named this door and deliberately left it shut, because "nothing in
+the field report points at it". Something does now. The gate measured the
+server taking **91 seconds** to become available after a client vanished
+mid-transfer — and 91 is `FD_WDOG_T`'s ninety, so that was the *watchdog*
+firing, not a detection. `fd_ctl_poll` only learns the peer is gone if the
+peer says so; one that disappears says nothing, and the socket stays
+ESTABLISHED with no data on it for ever.
+
+`FD_CIDLE_T` is **120 seconds**, and short on purpose: this server takes one
+client (§77.4), so a dead session does not inconvenience its own owner, it
+locks everybody out. The 300-900s a multi-session server uses would be
+reasoning from a shape this does not have, and a client that is genuinely
+idle and still present sends `NOOP` keepalives — each of which resets it — so
+what it costs a live session is nothing.
+
+**A transfer in progress is not idle**, which is the one subtlety: a STOR
+moves megabytes while the control connection says precisely nothing, and that
+is §77.24's protocol rather than a symptom. The check stands down while
+`[fd_xf]` is running and leaves that case to `FD_WDOG_T`, which measures the
+connection that is actually supposed to be moving.
+
+### 77.28 Back-to-back transfers ran the pool dry on SUCCESS
+
+§77.25 gave a FAILED transfer its socket back at once. The gate then failed
+one assertion later with **`425 Cannot open a data connection`** on a
+transfer that had not started yet — after five uploads, a LIST and a RETR in
+quick succession, all of which had *succeeded*.
+
+**A graceful close holds its slot for a FIN round trip**, and that is the
+right thing for a transfer that ended properly. But `NET_SOCKS` is four, two
+are permanently spoken for (the port-21 listener and the control connection),
+and that leaves two for a data connection that is finishing and the next one
+starting. Run transfers back to back and the pool runs dry — on ordinary
+success, with nothing leaked and nothing wrong.
+
+**After a STOR the client has already closed.** Its close is how it signalled
+end-of-file, so our socket is sitting in CLOSE_WAIT with nothing in flight
+that the peer could still want. Aborting there returns the slot immediately
+and costs the client nothing it had not already given up.
+
+**After a RETR or a LIST it is the other way round and the close is
+mandatory**: the close IS the end-of-file marker, and an abort truncates
+whatever the client has not read yet. That asymmetry is the whole rule, and
+it is the same one §77.25 states from the other side.
+
+**This is a good argument for a larger `NET_SOCKS` and a bad one for making
+it four-and-a-bit.** Four was chosen (netpkg.inc) as "a control connection
+plus a data connection plus a listener that must stay open across both, and
+the fourth is a browser fetching while something else is connected" — which
+counts a *steady state* and not the overlap while one transfer ends and the
+next begins. The number is the driver's memory, so raising it is
+`drivers/ether/`'s decision to take against everything else on a 640KB
+machine; what belongs here is not holding a socket a moment longer than the
+protocol requires.
+
+### 77.29 A second client is REFUSED, not ignored
+
+FileZilla could not use this server at all: it logged in, listed, deleted a
+file, and then hung for ever on **"Connection established, waiting for
+welcome message"**. WinSCP had never shown it.
+
+**FileZilla opens a second control connection** — one to browse with, one to
+transfer with — and this server takes one client (§77.4). That by itself is a
+limitation, not a bug. The bug is what the limitation looked like from
+outside: **the stack completes the handshake into a pending child on its
+own**, so the client's `connect()` SUCCEEDS, and `ftpd` then never calls
+`NETV_ACCEPT` on it, because it only accepts in `FD_LISTEN`. The client is
+left holding an established socket waiting for a greeting that cannot come.
+
+A connection nobody accepts is not refused, it is *ignored*, and from the far
+end those look nothing alike: one is an error in the same instant, the other
+is twenty seconds of silence followed by a guess. WinSCP uses a single
+connection and never met it; every multi-connection client meets it
+immediately.
+
+So the knock is answered. `fd_second` accepts, sends **`421 Busy - this
+server takes one client at a time`**, and aborts the socket — refused before
+it said a word, so there is nothing in flight to lose. The window says
+`Refused a second client (421)`, which is the difference between a server
+that looks broken and one that says what it is.
+
+**It does not run mid-transfer**, and that is deliberate rather than an
+oversight: accepting costs a socket, a passive transfer already holds all
+four (§77.28), so the accept would fail anyway and trying spends a driver
+call per poll to learn that. The case it leaves unanswered is a second client
+knocking during a transfer — which is precisely when there is nothing to give
+it.
+
+**The honest limitation stands**: this is a one-client server, and a client
+that insists on two connections will use one and be told about the other. A
+FileZilla configured with "Limit number of simultaneous connections" = 1
+works throughout. Supporting two properly is a `NET_SOCKS` question before it
+is an `apps/ftpd/` one — two control connections plus a passive listener plus
+its data socket is five, and there are four.
+
+#### 77.29.1 A knock is EVIDENCE — a stale session yields, a live one does not
+
+Refusing every second connection was the first version of §77.29, and the
+gate caught what it costs. A client that **vanishes** still owns the server
+until a watchdog notices — 90 seconds if a transfer was running, 120 if not —
+and in that window every honest reconnect got `421`. That is an error where
+there used to be a hang, which is progress, but it is still the server
+refusing the only client that is actually there.
+
+**So the knock counts as evidence.** If the session holding the server has
+said nothing for `FD_YIELD_T` and has no transfer running, it is far likelier
+gone than thinking: it is dropped and the newcomer takes its place, with the
+window logging `Took over from a silent client`. A session that is mid-
+command, or moving bytes, is never displaced — which is exactly FileZilla's
+second connection, arriving while the first is busy.
+
+**`FD_YIELD_T` is 15 seconds and the shortness is deliberate**, because the
+costs are asymmetric. Displacing a live-but-thinking client costs it one
+reconnect. Refusing a real one locks the machine out until a watchdog fires
+two minutes later — which is the failure this whole section exists to remove,
+and re-creating it one door along would be a poor trade.
+
+**A transfer is never stale**, whatever the control connection has been
+saying: a STOR moves megabytes while it says nothing at all (§77.24), and
+that silence is the protocol working rather than a client that has gone.
+
+**And ALREADY CLOSED beats any clock.** The first version of the yield test
+consulted only `[fd_cidle]`, and the gate found the hole one assertion
+later: a client that closes *without* `QUIT` — which is most of them, and
+every reconnect in the field's own FileZilla log — leaves a control socket
+that is simply no longer `NSK_UP`. The session is over the moment that is
+true, and waiting fifteen seconds for a clock to agree with the socket
+refuses the reconnect that FOLLOWS a close, which is the commonest sequence
+in the protocol. So `fd_stale` asks the driver first and falls back on the
+clock only when the driver will not say.
+
+### 77.30 One buffer per pass was the whole of the 7 KB/s
+
+The field asked the right question - *"I really doubt our 8088 is getting
+129430000 Kbytes/sec"* - about a Windows `ftp` client reporting a 129KB
+upload sent in 0.00 seconds, and guessed the reason: **86Box's SLiRP
+terminates TCP itself.** The client has a real connection to SLiRP on the
+host and SLiRP keeps a separate one to the guest, so the file vanishes into
+a host-sized send buffer at memory speed and dribbles into the 8088 at the
+8088's pace. The client's inactivity timer then runs against a connection
+where nothing more needs to happen. That is why a client with no timeout
+(Windows `ftp`) always succeeded, one that measures acknowledged progress
+(BulletFTP) sat at 0 KB/s, and the rest reported 100% and then gave up. It
+is not an emulator artifact either - any buffering NAT does the same.
+
+**So the timeouts were never a stall, and `gap 0s` had already said so.**
+What is left is that ~7 KB/s is genuinely slow, and the arithmetic says
+where it went. Per-BYTE work cannot explain it: a checksum plus two copies
+at roughly 30 cycles a byte is a **155 KB/s** ceiling on a 4.77MHz 8088, and
+we were 22x under it. Per SEGMENT it was **73 ms** - about 1.3 system ticks,
+which is the tell. The transfer was moving one packet per scheduler pass.
+
+**`fd_recv_stage` read ONE `NET_SKMAX` buffer and returned.** A worker pass
+is about a tick, so 1024 bytes at 18.2 Hz is an ~18 KB/s ceiling before
+anything else is counted - and the measured 7 sits under it exactly as the
+rest of the per-pass overhead would put it. `fd_send_stage` had the same
+shape. Both now **drain**: they keep asking while the socket keeps
+answering, bounded by the stage, ending when a call returns nothing - which
+is what "the wire is empty for now" looks like.
+
+The send side needs one guard the receive side does not: `NETV_SEND`
+answering **0** means the wire is full, and a loop that does not end on it
+spins. The receive side's zero already meant "quiet" and was already handled.
+
+**This costs no memory and belongs here rather than in the driver.**
+`SK_RXCAP` (1024) and `TCP_MSS` (512) are the driver's numbers and raising
+them is `drivers/ether/`'s trade to make against everything else on a 640KB
+machine - worth revisiting once this is measured, because fewer, larger
+segments is the other half of the same arithmetic. But a package that asks
+once per pass is slow no matter what the driver does, and that was the
+package's own bug.
+
+### 72.13 The socket rings are a CLAIM, and their size is the throughput
+
+`SK_RXCAP` was 1024 bytes of `.bss` per socket, four of them, emitted into
+every copy of this driver whether the machine ever opened a socket or not -
+and unchangeable, because it was an `equ` and the ring walk was built from
+its shift.
+
+**That constant was the network's speed.** The receive ring IS the TCP
+window: a peer may have that much in flight and no more, and must then wait
+for our ACK. On the field's 5150 that turnaround is ~140ms - the guest has to
+be scheduled, drain the ring and answer - so 1024 bytes per 140ms is **7.1
+KB/s**, and the field measured 7.3. A packet capture of the same transfer
+showed 126 segments of exactly 1024 bytes, **zero retransmissions**, and
+129,671 bytes on the wire for a 129,430-byte file: the wire was already
+perfect. Nothing above this layer could help, which is why a bigger staging
+buffer in the FTP server (§77.21) changed nothing twice.
+
+So the rings move to a **heap claim, sized at attach**:
+
+| RX | TX | claim | predicted | why |
+|---|---|---|---|---|
+| 8192 | 1024 | 36KB | ~58 KB/s | where the window stops binding and the CPU starts |
+| 4096 | 512 | 18KB | ~29 KB/s | the sweet spot against a ~155 KB/s per-byte ceiling |
+| 1024 | 512 | 6KB | ~7 KB/s | the floor: exactly what the driver did before |
+
+**8192 is the ceiling and the reason is the segment**, not the memory: four
+sockets at 8192+1024 is 36,864 bytes and the next rung up is 69,632, where
+the offsets into the claim stop fitting sixteen bits.
+
+**A LADDER, NOT A DEMAND.** `sk_claim` asks for the best rung and steps down.
+The floor is what the driver already had, so a machine that could run this
+stack yesterday still can; only one that cannot spare even 6KB is refused,
+and a NIC with no buffers genuinely cannot serve a socket. The user's choice
+is tried first and is not a floor either - asking for 8192 on a machine that
+cannot hold it yields 4096 rather than nothing, because a slower network is a
+better answer than no network.
+
+#### 72.13.1 What moving them cost, and the loop that had to be rewritten
+
+The ring is in neither `DS` nor `ES` now, and four places copied through one
+or both. Three of them became named helpers - `ring_in` (the caller's buffer
+into the ring), `ring_out` (the ring into a transmit frame), `ring_move`
+(the send buffer's slide-down) - because a segment override open-coded at
+four sites is how a wrong one gets written once and read back wrong for ever.
+
+**`sk_rxget` had to be restructured**, and it is the interesting one. It
+copied a byte at a time and read `[bx+SKO_RXT]` on *every* byte, which was
+free while the ring and the socket record shared the driver's `DS`. They no
+longer do: the ring is in the claim and the destination is the *caller's*, so
+the loop needs both segment registers and the record can be reached from
+neither. The tail is therefore advanced **once**, before `DS` moves, and the
+loop walks a plain pointer with the ring's base and end in registers. It is
+also four instructions a byte shorter than what it replaced - not the reason,
+but not nothing at 4.77MHz.
+
+`TCP_MSS` follows `SK_TXMAX` rather than the live `[sk_txcap]`, because the
+MSS is announced in the SYN, once: a peer told 1024 may send 1024 for the
+life of the connection, and what *we* send is clamped to the real buffer by
+`tcp_out` anyway.
 
 
 ---
