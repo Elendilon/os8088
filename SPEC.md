@@ -60628,3 +60628,60 @@ MSS is announced in the SYN, once: a peer told 1024 may send 1024 for the
 life of the connection, and what *we* send is clamped to the real buffer by
 `tcp_out` anyway.
 
+#### 72.13.2 The rung is VISIBLE, settable and remembered
+
+The ladder landed and the field measured **no change at all** - 7062 B/s,
+against 7100 before it. The reading offered was "it took the smallest rung",
+and the honest answer was that *nobody could tell*: the driver chose in
+silence at attach, and there was no number anywhere on the machine that said
+which of the three it had chosen. A ladder whose rung cannot be read is not a
+diagnosis, it is a second guess stacked on the first.
+
+So the Control Panel page grew a **third button**, and the button is the
+readout:
+
+- Its caption is the **live** ring size - `Buf 1K` / `Buf 4K` / `Buf 8K`, or
+  `Buf --` when the claim was refused outright and every socket verb is
+  refusing with it. Not the request: a machine that could not fund what was
+  asked says so here, and it is the only place it says it.
+- Clicking it walks the **request** - auto, 1K, 4K, 8K, auto - and re-claims
+  on the spot, so the caption after the click is what the heap actually gave.
+  Asking for 8K on a machine that has not got it reads `Buf 4K` immediately
+  rather than at the next boot.
+- It **greys while any socket is in use** (`sk_busy`), because the rings hold
+  a live connection's receive queue and its unacknowledged send bytes. That is
+  a fact and not a guess (§47 rule 3), and the click refuses at the same
+  predicate the greying reads (rule 5).
+
+The choice is stored in `ETHER.CFG`, which goes to **version 2** with one
+byte on the end: KB per receive ring, 0 meaning auto. **Version 1 is still
+read**, because that file carries the manual ADDRESS of a machine on a LAN
+with no DHCP server - the case the Setup window exists for - and refusing a
+short file would lose that to gain a setting the very same file is about to
+be rewritten with. A version that is a *prefix* of this one is not unknown,
+it is short.
+
+It is applied at `DRVV_READY` and not at attach, and the ordering is forced:
+`sk_claim` has to run at `DRVV_ATTACH` because a card with no rings cannot be
+brought up at all, and `ETHER.CFG` cannot be read that early - the volume the
+driver booted from is not mounted yet. So the ladder's automatic answer is
+taken first and `eth_buf_apply` replaces it at READY, before any package has
+had the chance to open a socket. `sk_reclaim` is a free and a claim rather
+than an `OSAPI_MEM_REGROW`: the rung changes the sizes *and* the shifts, so
+every ring's contents would be at the wrong offsets inside a block that
+merely moved - and `sk_busy` has just said there is nothing in them.
+
+**And the automatic ladder now measures the heap instead of just asking.** It
+takes at most a **quarter of the total free KB** (`SK_SHARE`, against
+`OSAPI_MEM_AVAIL`'s second answer, not its largest run), so a 128KB machine
+gets the floor and a 640KB one gets the ceiling with nobody asked - which is
+what "a sane default from total RAM" has to mean when the card is not the
+reason the machine has memory. 37KB out of a small machine's heap is a
+package that then will not load, and nothing would connect that failure to
+the network card, because the card would be working perfectly.
+
+An explicit request skips the quarter test on purpose. A user who has opened
+the Control Panel and pressed the button until it says `8K` has said
+something about their machine that the arithmetic does not know; the claim
+itself is still what can refuse, and the caption is still what reports it.
+

@@ -115,6 +115,22 @@ SK_TXMID    equ 512             ; says is the sweet spot: ~29 KB/s predicted
 SK_RXMIDSH  equ 12              ; against a ~155 KB/s per-byte ceiling, so it
 SK_TXMIDSH  equ 9               ; is fast without crowding the CPU
 
+; What the two MEASURED rungs cost, in KB. Derived from the sizes above and
+; from NET_SOCKS rather than written down beside them, because a number
+; written twice is a number that disagrees with itself later. The floor has no
+; entry here on purpose: it is not measured against anything (see sk_claim).
+SK_KBMAX    equ (NET_SOCKS * (SK_RXMAX + SK_TXMAX) + 1023) / 1024
+SK_KBMID    equ (NET_SOCKS * (SK_RXMID + SK_TXMID) + 1023) / 1024
+SK_SHARESH  equ 2               ; ...and a rung the user did not ASK for may
+                                ; take at most a 1/(1<<2) - a QUARTER - of the
+                                ; free heap. It is a SHIFT and not a divisor
+                                ; because the test is one `shr` on an 8088. A
+                                ; card is not the reason the machine has
+                                ; memory, and 37KB out of a 128KB machine's
+                                ; heap is a package that then will not load -
+                                ; a failure nothing connects to the network
+                                ; card, because the card works perfectly
+
 SKF_FIN     equ 0x01            ; the application has closed: send a FIN once
                                 ; everything it wrote has been acknowledged
 SKF_FINS    equ 0x02            ; ...and it has gone (and costs a sequence
@@ -332,6 +348,15 @@ ring_move:
 ; The user's choice in [sk_want] is tried FIRST and is not a floor: asking for
 ; 8192 on a machine that cannot hold it gets 4096 rather than nothing, because
 ; a slower network is a better answer than no network.
+;
+; **THE AUTO LADDER MEASURES THE HEAP; THE USER'S CHOICE DOES NOT.** Left to
+; itself the ladder takes at most a QUARTER of the free heap (SK_SHARESH), so a
+; 128KB machine gets the floor and a 640KB one gets the ceiling without anybody
+; being asked - which is what "a sane default based on total RAM" means here.
+; An explicit [sk_want] skips that test on purpose: a user who has opened the
+; Control Panel and picked 8K has said something about their machine that the
+; arithmetic does not know, and the claim itself is still the thing that can
+; refuse. Only if the asked-for rung will not fit does the ladder run.
 ; =============================================================================
 sk_claim:
     push ax
@@ -346,15 +371,28 @@ sk_claim:
     call sk_try
     jnc .done
 .auto:
-    mov bx, SK_RXMAX
+    call OSAPI_MEM_AVAIL        ; **AX = the largest run, BX = the TOTAL free**
+    mov ax, bx                  ; (SPEC.md 50.3), and it is the total this
+    mov cl, SK_SHARESH          ; measures against: the largest run is what the
+    shr ax, cl                  ; claim itself will test, and a card that fits
+                                ; in the biggest hole on a machine with no
+                                ; other memory left has still taken the machine
+    mov bx, SK_RXMAX            ; AX = a quarter of the free heap, in KB
+    cmp ax, SK_KBMAX
+    jb  .mid
     call sk_try
     jnc .done
+.mid:
     mov bx, SK_RXMID
+    cmp ax, SK_KBMID
+    jb  .floor
     call sk_try
     jnc .done
-    mov bx, SK_RXCAP0
-    call sk_try
-    jnc .done
+.floor:
+    mov bx, SK_RXCAP0           ; THE FLOOR IS NOT MEASURED. 6KB is what the
+    call sk_try                 ; driver's bss used to be, so a machine that
+    jnc .done                   ; cannot spare it could not have loaded the
+                                ; driver at all a version ago
     pop dx                          ; not one rung: [sk_seg] stays 0 and every
     pop cx                          ; socket verb refuses at sk_ring
     pop bx
@@ -382,6 +420,55 @@ sk_release:
 .out:                           ; segment nothing owns being written to
     pop dx
     pop ax
+    ret
+
+; --- sk_busy - CF=1 if any socket is in use ---------------------------------
+; The rings ARE the sockets' data: half a connection's receive queue and its
+; unacknowledged send bytes both live in the claim, so freeing it under a live
+; socket loses a transfer in progress and leaves TCP acknowledging bytes it can
+; no longer produce. Every path that RESIZES asks this first.
+sk_busy:
+    push ax
+    push bx
+    push cx
+    xor al, al
+    mov cx, NET_SOCKS
+.l:
+    call sk_ptr
+    cmp byte [bx+SKO_ST], NSK_FREE
+    jne .yes
+    inc al
+    loop .l
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+.yes:
+    pop cx
+    pop bx
+    pop ax
+    stc
+    ret
+
+; --- sk_reclaim - take [sk_want]'s rung instead of the one we hold ----------
+; out: CF=0 and [sk_rxcap] is whatever the ladder could get; CF=1 = nothing
+;      was touched, because a socket is live (sk_busy)
+;
+; A FREE AND A CLAIM AND NOT A REGROW, deliberately: mem_regrow can move a
+; block, and everything that reads a ring reads [sk_seg] fresh through sk_ring,
+; so a move would be safe - but the sizes and the shifts change with the rung
+; and every ring's CONTENTS would then be at the wrong offsets inside it.
+; There is nothing to preserve, because sk_busy has just said there is no
+; socket, so the cheap thing and the correct thing are the same one.
+sk_reclaim:
+    call sk_busy
+    jc  .no
+    call sk_release             ; and the ladder always ends at the floor,
+    call sk_claim               ; which is the 6KB we have just handed back -
+    ret                         ; so this cannot leave the driver with none
+.no:
+    stc
     ret
 
 ; --- sk_try - BX = an RX size: claim it, or CF=1 ----------------------------

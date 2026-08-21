@@ -195,7 +195,10 @@ eth_ready:
     cmp byte [eth_up], 0
     je  .out
     call eth_cfg_load           ; a MANUAL address the user set and the panel
-    jnc .out                    ; remembered (SPEC.md 72.7) needs no server
+    pushf                       ; remembered (SPEC.md 72.7) needs no server
+    call eth_buf_apply          ; ...and the socket buffer rung it remembered
+    popf                        ; too, which is a setting and not an address:
+    jnc .out                    ; it is wanted on every path out of the load
     cmp byte [dhcp_st], DH_BOUND
     je  .out                    ; ...and neither does a baked-in one
     call eth_dhcp_wait
