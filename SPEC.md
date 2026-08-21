@@ -60143,3 +60143,51 @@ Two field reports have now overturned a theory each — the disk-seek estimate
 (§77.21) and the disk itself (§77.24) — and both times the correction came
 from a number the machine produced rather than one this document computed.
 
+### 77.27 A reply must be sent IN FULL — the dropped `220`
+
+The field downloaded other FTP clients to cross-check, and every one of them
+died in the same place: **"Connection established, waiting for welcome
+message..."** The TCP connection is accepted and the `220` never arrives.
+
+**`fd_reply` sent once and threw the answer away.** One `NETV_SEND`, with
+both the carry and the returned count discarded — and netpkg.inc is explicit
+about each: `NETE_BUSY` is an ordinary answer rather than an error, and the
+count "may be less than asked and may be 0". So *any* reply could be dropped
+or cut in half, silently, whenever the wire was busy at that instant.
+
+The asymmetry is the tell. The DATA path always knew this — `fd_send_stage`
+advances `[fd_sout]` "BY WHAT WAS TAKEN, which may be less than asked and may
+be 0" — and the control path, written beside it and calling the same verb,
+did not. A dropped `220` is a client on "waiting for welcome message"; a
+dropped `226` is one waiting at the end of a transfer that has already
+finished, which it eventually reports as a control-connection timeout. Both
+had been seen and neither had been recognised.
+
+`fd_reply` now re-offers the remainder until it is all gone, bounded by
+`FD_TXTRY` — a reply is tens of bytes against `SK_TXCAP`'s 512, so a refusal
+means the wire is busy *this instant* and the next pass will do; the bound is
+what keeps a peer that has gone from spinning the worker.
+
+#### 77.27.1 And the control connection gets an idle timeout after all
+
+§77.19.1 named this door and deliberately left it shut, because "nothing in
+the field report points at it". Something does now. The gate measured the
+server taking **91 seconds** to become available after a client vanished
+mid-transfer — and 91 is `FD_WDOG_T`'s ninety, so that was the *watchdog*
+firing, not a detection. `fd_ctl_poll` only learns the peer is gone if the
+peer says so; one that disappears says nothing, and the socket stays
+ESTABLISHED with no data on it for ever.
+
+`FD_CIDLE_T` is **120 seconds**, and short on purpose: this server takes one
+client (§77.4), so a dead session does not inconvenience its own owner, it
+locks everybody out. The 300-900s a multi-session server uses would be
+reasoning from a shape this does not have, and a client that is genuinely
+idle and still present sends `NOOP` keepalives — each of which resets it — so
+what it costs a live session is nothing.
+
+**A transfer in progress is not idle**, which is the one subtlety: a STOR
+moves megabytes while the control connection says precisely nothing, and that
+is §77.24's protocol rather than a symptom. The check stands down while
+`[fd_xf]` is running and leaves that case to `FD_WDOG_T`, which measures the
+connection that is actually supposed to be moving.
+
