@@ -4493,11 +4493,20 @@ KBUF_KB    equ ((FAT_PARA + LOW_PARA) * 16 + 1023) / 1024
 ;    `make KFZ=1` 512 over the guard in the DEFAULT kern_big configuration - so
 ;    the one build that could answer the field freeze it was written for was
 ;    the one build that would not assemble.
+;    SNAPAUDIT is the third, and it arrived the way the other two did: SPEC.md
+;    7.3's lock handover is ~35 bytes of .text that every machine needs, and
+;    the build it stopped was the glyph-alignment histogram - which nobody
+;    ships, which exists to answer a question about a RUNNING machine, and
+;    which had simply never been named here. A diagnostic knob is not what
+;    KERN_BUDGET is steering.
 %ifdef DISK_COUNTERS
 %define KERN_INSTR                  ; one name for "this is an instrument", so
 %endif                              ; the exemption below is written once
 %ifdef KFZTRACE                     ; (NASM has no defined() to say it in one
 %define KERN_INSTR                  ; %if)
+%endif
+%ifdef SNAPAUDIT
+%define KERN_INSTR
 %endif
 %ifdef KERN_INSTR
 KERN_CEIL equ KERN_BUDGET + 4096    ; ...and a BOUND, not a free hand: four

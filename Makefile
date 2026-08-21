@@ -165,13 +165,16 @@ endif
 # [ticks] does not change rate - the ISR divides - so every timeout, the
 # double-click window and the BIOS clock are untouched by construction.
 #
-# It exists because docs/FIELD-NOTES.md 27's defect 1 is NOT the gfx lock: a
-# drawing worker blocks nobody on it (measured: 0 blocks a second), it simply
-# spends its whole 55 ms slice, and the UI task therefore gets exactly one pass
-# per tick. Measured on os8088_5150_herc with apps/wire drawing: 18 -> 54
-# ui_task passes a second at N=3, for 6-12% of wire's frame rate. Off by
-# default because 53.2.1 armed this for a small, known task set and arming it
-# for every machine is a decision with a field run behind it, not a build fix.
+# ui_task yields the moment its pass is done and a drawing worker spends its
+# whole slice, so the UI task gets exactly one pass per tick - 18 a second, for
+# all three of apps/wire's draw orders, which is why the number IS the tick.
+# Measured on os8088_5150_herc: 18 -> 54 passes a second at N=3, for 6-12% of
+# wire's frame rate.
+#
+# It is NOT the fix for docs/FIELD-NOTES.md 27 - SPEC.md 7.3's lock handover is
+# (27.4), and on top of that this measures inside the noise. Off by default for
+# that reason and because 53.2.1 armed the sub-tick for a small, known task set;
+# widening that to every machine is a decision with a field run behind it.
 ifneq ($(QUANTUM),)
 ifeq ($(filter $(QUANTUM),2 3 4),)
 $(error QUANTUM must be one of: 2 3 4)

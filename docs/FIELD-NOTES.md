@@ -2847,8 +2847,8 @@ second.**
 1. **`gfx_lock` has no fairness** (`kernel/vga12.inc`): `.retry` is `cli`,
    test, `sti`, `task_yield`, round again. No queue, no ticket. A worker that
    releases and immediately re-takes wins against a UI task that has to be
-   scheduled first, so a 95%-duty worker starves it 36×. **This is wrong —
-   see §27.4.**
+   scheduled first, so a 95%-duty worker starves it 36×. **Right, and FIXED —
+   SPEC.md §7.3. §27.4 below says how nearly it was thrown away.**
 2. **The UI task drains one event a pass.** At 650 passes a second nobody
    would ever notice; at 18 it is the whole bandwidth of the machine's input.
 3. **A full ring drops the NEWEST press.** For input this is the wrong end:
@@ -2911,43 +2911,63 @@ often enough to sample the pointer — and the drain does nothing for a stream
 of positions that were never queued in the first place. Expect it to still be
 ziggy and to still stop short.
 
-### 27.4 Defect 1 was misdiagnosed: it is the QUANTUM, not the lock
+### 27.4 Defect 1 was nearly thrown away on a measurement taken at the wrong moment
 
-§27.2 named `gfx_lock`'s missing fairness and the arithmetic was plausible.
-It is also wrong, and three counters in `gfx_lock` say so. Acquires, blocks
-(the flag was found held) and handovers, per guest second, with `apps/wire`
-drawing on `os8088_5150_herc`:
+This section said the opposite for one round, and the way it got there is worth
+more than the conclusion.
 
-| draw order | ui passes/s | lock takes/s | **blocks/s** |
-|---|---:|---:|---:|
-| Whole figure | 18 | 18 | **0** |
-| Edge at a time | 18 | 17 | **0** |
-| Edge, then repair | 18 | 12 | **0** |
+Three counters went into `gfx_lock` — acquires, blocks, handovers — and were
+sampled per guest second with `apps/wire` drawing. They reported **0 blocks a
+second** at every draw order. A fairness handover was built, measured against
+that, found to fire zero times, and **reverted as dead weight**.
 
-**Nobody ever blocks on the lock.** The worker takes it a dozen-odd times a
-second and holds it briefly; the UI task walks straight in whenever it asks.
-A fairness handover was built and measured: zero handovers while the figure
-turns, and 2–3 over a whole window drag — which is the only place any
-contention exists at all. It was reverted.
+The counters were right. The measurement was taken with **no input pending**,
+and the UI task only asks for the lock when it has something to draw. So it was
+taken at precisely the moment the defect cannot appear. A worker drawing to an
+empty desk contends with nobody, and *that* is what 0 blocks a second means.
 
-What actually caps the UI task is the **round-robin quantum**. `ui_task` yields
-the moment its pass is done; a drawing worker spends its entire 55 ms slice; so
-the UI task gets one pass per timer tick. That is why the number is 18 for all
-three draw orders, and why it is *exactly* the tick.
+What exposed it was building an instrument for the thing actually being
+complained about — latency — rather than for the thing suspected. A memory
+breakpoint on `evq_tail` (the mouse ISR queueing the press) and one on
+`menu_ent` (`menu_track` with the pull-down up), reading `cycles` at each:
 
-SPEC.md §53.2.1's sub-tick already exists for this — `sch_fast_on` makes IRQ0
-arrive N times a tick without changing `[ticks]`'s rate — armed there for the
-fsx bracket's small, known task set. Armed system-wide via `make QUANTUM=3`:
+| | press queued → menu up | blocks, across that window |
+|---|---|---:|
+| idle desktop | 1–2 ms | 0 |
+| wire drawing, no fairness | **1,382 – 14,722 ms** | 26 – 268 |
+| wire drawing, §7.3's handover | **37 – 70 ms** | **1** |
+
+The same counters, counted across the click instead of across the second, say
+the UI task was blocking once per pass, every pass, for seconds. **Contention
+is a property of the moment a click lands.** Counting it anywhere else answers
+a question nobody asked.
+
+The quantum work (§27.4.1) came out of the wrong diagnosis and survives it: it
+is real, it is measured, and with §7.3 in place it is no longer the lever.
+
+#### 27.4.1 The quantum is real, and it is not the lever
+
+`ui_task` yields the moment its pass is done; a drawing worker spends its whole
+55 ms slice; so the UI task gets one pass per timer tick. That is why the pass
+count is 18 for all three of wire's draw orders and why it is *exactly* the
+tick. SPEC.md §53.2.1's sub-tick already fixes it — `sch_fast_on` makes IRQ0
+arrive N times a tick with `[ticks]` unchanged — and `make QUANTUM=2|3|4` arms
+it system-wide:
 
 | | ui passes/s | wire fps (whole / edge / repair) |
 |---|---:|---|
 | 55 ms quantum, as shipped | 18 | 18.2 / 18.2 / 12.1 |
 | 18 ms quantum, `QUANTUM=3` | **54** | 17.1 / 16.1 / 12.1 |
 
-Three times the input bandwidth for 6–12% of the frame rate, and free at the
-draw order that was already the slowest. It is a knob and not the default
-because §53.2.1 scoped this deliberately, and widening that scope wants a field
-run behind it.
+Before §7.3 that was the only thing that moved the field symptom at all: it
+took a machine on which a menu could not be opened to one where it could,
+reported as *"it functions, but 2-3s before anything happens"*. The latency
+instrument explains both halves — 3× the passes against a defect that costs
+seconds is still seconds.
+
+On top of §7.3 it measures 16–61 ms against 37–70, which is inside the noise.
+So it stays a knob and stays off: with the handover in place the UI task does
+not need more passes, it needs the one it gets to succeed.
 
 ### 27.5 The press-and-hold report does NOT reproduce here
 
@@ -2975,9 +2995,21 @@ draw orders, and none of them shows it:
   idle and loaded.
 - **the lock**: 0 blocks a second (§27.4).
 
-So this is a fifth open thing rather than a consequence of the four above, and
-CLAUDE.md names **input overrun** as one of exactly three defects an emulator
-cannot show. The next move needs the field machine: `QUANTUM=3` cuts the
-dispatch latency the symptom is shaped like by 3×, so an A/B of the two system
-disks is the cheapest question to ask of it.
+Every one of those four is measured through `tools/os88mouse.py`, whose
+injection path costs ~0.51 guest seconds flat (SPEC.md §7.3.1) — three of them
+also *resend until the guest agrees*, which a hand never does. So they proved
+the packets arrive and the handlers work, and were blind by construction to the
+one thing being reported, which was how long it all took.
+
+**It was the latency, and §7.3 is the fix.** The `QUANTUM=3` A/B is what said
+so: on the field machine it took a wire window whose menu would not open and
+whose title bar would not drag to one where both work, *"still painfully
+unresponsive — 2-3s before anything happens after clicking — but it functions"*.
+Three times the passes against a defect that costs seconds is still seconds,
+and the second half of that sentence is the defect. §7.3 takes the same click
+from 1,382–14,722 ms to 37–70 ms.
+
+`apps/paint` is expected to be unchanged by all of this and was reported
+unchanged: its squiggle is the pointer being *sampled* once a pass, not a press
+being dispatched late, and §7.3 does not make the UI task run more often.
 

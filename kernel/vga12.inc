@@ -134,6 +134,14 @@ gfx_lock_own    db 0xFF         ; ...and WHICH task holds it ([sch_cur] at the
                                 ; take, 0xFF = nobody). toast_now's whole test
                                 ; (SPEC.md 59.4): the flag alone says somebody
                                 ; holds it, never that the CALLER does.
+gfx_lock_want   db 0            ; SPEC.md 7.3: SOMEBODY IS BLOCKED ON IT. Set by
+                                ; a waiter on its way to task_yield, spent by
+                                ; the last owner's next acquire. Initialized
+                                ; data for gfx_lock_flag's reason.
+gfx_lock_last   db 0xFF         ; ...and who took it last, which gfx_lock_own
+                                ; cannot say: gfx_unlock stamps 0xFF over it,
+                                ; and 7.3's whole question is about a task
+                                ; that has ALREADY let go.
 
 ; -----------------------------------------------------------------------------
 ; GFXCLIP - the clip hook, at a public rect entry (SPEC.md 11.3)
@@ -3914,7 +3922,12 @@ gfx_lock:
 .retry:
     cli
     cmp byte [gfx_lock_flag], 0
-    je .take
+    je .free
+    mov byte [gfx_lock_want], 1 ; SPEC.md 7.3: say so BEFORE the sti, inside
+                                ; the cli window that read the flag - a store
+                                ; after it can land behind the very unlock it
+                                ; was meant to be seen by
+.block:
     sti
 %ifndef NOPARKLK
     call inst_park_lk           ; BLOCKED HERE HOLDS NOTHING, if the package
@@ -3924,12 +3937,26 @@ gfx_lock:
     call inst_park_unlk
 %endif
     jmp .retry
+
+.free:                          ; the flag is clear - but SPEC.md 7.3 asks one
+    push ax                     ; more question first. The save and the
+    mov al, [sch_cur]           ; [sch_cur] read are .take's, made one step
+    cmp byte [gfx_lock_want], 0 ; early and shared, so the fast path pays a
+    je .take                    ; compare and a branch and nothing else
+    cmp al, [gfx_lock_last]     ; somebody IS blocked. Am I the task that just
+    jne .take                   ; let go? Then taking it again here IS the
+    pop ax                      ; starvation: a worker that unlocks and
+    mov byte [gfx_lock_want], 0 ; re-locks inside one slice wins every race
+    jmp short .block            ; against a waiter that has to be SCHEDULED
+                                ; before it can even look. The debt is one
+                                ; scheduling window and it is spent HERE, so
+                                ; the same task cannot starve a waiter twice
+                                ; running
 .take:
-    mov byte [gfx_lock_flag], 1
-    push ax
-    mov al, [sch_cur]           ; the owner is stamped inside the cli window,
-    mov [gfx_lock_own], al      ; so flag and owner can never disagree
-    pop ax
+    mov byte [gfx_lock_flag], 1 ; AX is saved and AL = [sch_cur] already
+    mov [gfx_lock_own], al      ; the owner is stamped inside the cli window,
+    mov [gfx_lock_last], al     ; so flag and owner can never disagree - and
+    pop ax                      ; this second one outlives the hold (SPEC 7.3)
     sti
     mov byte [cur_lazy], 1      ; PROMISE the hide (SPEC.md 7.1.4) - the ISR
     ret                         ; will not move the arrow while the flag is

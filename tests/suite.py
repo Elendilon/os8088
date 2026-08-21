@@ -245,6 +245,11 @@ SOAK = [
         "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
         "reading its own frame rate, with the dispatch poked out and back",
         needs=("marty",), serial=True),
+    Row("uilat", "soak", py("tests/uilat.py"), 120.0,
+        "SPEC.md 7.3: how long a click waits while a worker draws, bracketed"
+        "by two memory breakpoints because the mouse harness has a half-second"
+        "floor and cannot see it (7.3.1)",
+        needs=("marty",), serial=True),
     Row("evqfull", "soak", py("tests/evqfull.py"), 60.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",

@@ -3982,6 +3982,130 @@ Three things follow and each broke first:
   spot, is fixed — which is what lets pass 1 and pass 2 subtract cell tops from
   each other and get an honest answer.
 
+### 7.3 The lock had no fairness, and one yield is the whole of it
+
+`gfx_lock`'s `.retry` was `cli`, test the flag, `sti`, `task_yield`, round
+again. No queue, no ticket, and nothing that makes a release visible to the
+task that was waiting for it. Against a worker that unlocks and immediately
+re-locks, that loses every time: the worker's next `gfx_lock` runs in the same
+slice as its `gfx_unlock`, so it re-takes the flag before the waiter has been
+*scheduled*, let alone had a chance to look.
+
+**What it cost, measured on `os8088_5150_herc` with `apps/wire` drawing** — a
+memory breakpoint on `evq_tail` starts the clock where the mouse ISR queues the
+press, one on `menu_ent` stops it where `menu_track` has the pull-down up, so
+the number is the kernel's own and carries none of the harness's injection
+delay (§7.3.1):
+
+| | press queued → menu up | blocks on the lock |
+|---|---|---:|
+| idle desktop | 1–2 ms | 0 |
+| wire drawing, before | **1,382–14,722 ms** | 26–268 |
+| wire drawing, after | **37–70 ms** | **1** |
+
+Two to three orders of magnitude, and the block count is the mechanism in one
+column: the UI task was blocking once per pass, every pass, for seconds.
+
+The fix is one debt, paid once, by the task that incurred it:
+
+```nasm
+gfx_lock:
+.retry:
+    cli
+    cmp byte [gfx_lock_flag], 0
+    je .free
+    mov byte [gfx_lock_want], 1     ; I am blocked. Say so.
+.block:
+    sti
+    ... inst_park_lk / task_yield / inst_park_unlk (§66.5.4) ...
+    jmp .retry
+
+.free:
+    push ax                         ; .take's own save and [sch_cur] read, made
+    mov al, [sch_cur]               ; one step early and SHARED with this test
+    cmp byte [gfx_lock_want], 0     ; free - but is anybody waiting?
+    je .take
+    cmp al, [gfx_lock_last]         ; ...and am I the task that just let go?
+    jne .take
+    pop ax
+    mov byte [gfx_lock_want], 0     ; then I owe them one scheduling window
+    jmp short .block
+.take:
+    mov byte [gfx_lock_flag], 1
+    mov [gfx_lock_own], al
+    mov [gfx_lock_last], al
+    pop ax
+    sti
+```
+
+`.take` is reachable only through `.free`, which is what lets the two share one
+`push ax` and one `[sch_cur]` read — so the acquire that nobody is waiting on
+pays a compare and a branch and nothing else, and the whole of §7.3 is ~35
+bytes of `.text`. Those thirty-five bytes are also what put `make SNAPAUDIT=1`
+over `KERN_BUDGET`, and the answer was to name SNAPAUDIT in `KERN_INSTR`
+(kernel/kernel.asm) beside `DISK_COUNTERS` and `KFZTRACE`: a glyph histogram
+nobody ships is not what that guard is steering.
+
+**`gfx_lock_want` is set inside the `cli` window that read the flag**, not
+after the `sti`. A waiter that announces itself after re-enabling interrupts
+can be pre-empted between the two, and the store then lands *behind* the very
+`gfx_unlock` it was meant to be seen by — the release is missed and the waiter
+sleeps through the window it asked for.
+
+**`gfx_lock_last` is a second byte and not `gfx_lock_own`.** `gfx_unlock`
+stamps `0xFF` over the owner, deliberately (§59.4: the flag says somebody holds
+it, never that the caller does). The question here is about a task that has
+already let go, so it needs a stamp that outlives the hold; `.take` writes both
+in the same breath.
+
+**What it costs.** On a machine where nothing ever blocks — every desktop with
+no worker on it — `gfx_lock_want` is 0 and the whole of this is one
+`cmp byte [mem], 0` and a `je` on the acquire path, plus one `mov` on the take.
+Under contention it costs the *unlocking* task one task switch (693 us) per
+re-acquire, which is exactly the window it is handing over: `apps/wire` goes
+from 18.2 to 17.1 fps at both fast draw orders and is unchanged at 12.1 at
+`Edge, then repair`.
+
+**What it buys, and what it does not.** The waiter gets a scheduling
+opportunity per re-acquire by the same task. It is not a queue and it is not
+FIFO: with three tasks contending, whoever the round-robin reaches first gets
+the window, and the debt is cleared by whoever takes the lock next. That is
+deliberate — a real ticket lock wants a per-task wait word and a scheduler that
+can block on it, and this system's answer to "how long may I hold the screen"
+is a burst short enough not to need one (§7.1.3). It also does not make the UI
+task *run* more often: that is the round-robin quantum, `make QUANTUM=` and
+§53.2.1, which on top of this fairness measures 16–61 ms against 37–70 — inside
+the noise, because with the handover in place the UI task no longer needs more
+passes, it needs the one it gets to succeed.
+
+**The debt is spent, not held.** `.free` clears `gfx_lock_want` before yielding,
+so a waiter cannot make the same task yield twice for one release; if that
+waiter is still blocked when it next runs, it sets the byte again on its own way
+past `.retry`. A `want` left set by a third task costs at most one extra yield
+and then clears itself.
+
+#### 7.3.1 The harness cannot measure this, and said so for two rounds
+
+`tools/os88mouse.py` injects a button packet and the guest sees it **~0.51
+seconds later** — flat, whatever the machine is doing and however long it has
+been quiet. So *every* latency figure taken by sending a packet and watching
+for a result carries a half-second floor, and the kernel's own 1–2 ms shows up
+as 0.48 s alongside a genuinely starved 4 s. There is no threshold that
+separates them.
+
+Worse, the obvious contention measurement is a trap. Counters in `gfx_lock`
+sampled while the machine merely *runs* report **zero blocks a second** with a
+worker drawing, and that number is true and useless: the UI task only asks for
+the lock when it has something to draw, so a measurement taken with no input
+pending is taken at exactly the moment the defect cannot appear. That reading
+was taken, believed, and this section was deleted on the strength of it
+(docs/FIELD-NOTES.md §27.4). **Contention is a property of the moment a click
+lands, so it has to be counted across that window and nowhere else.**
+
+The instrument that works is the one above: bracket the kernel's own path with
+two memory breakpoints and read `cycles` at each. It never touches the mouse
+path, so the injection floor cannot enter the number.
+
 ## 8. sched.inc — round-robin, pre-emptive or cooperative (§8.2)
 
 - `MAX_TASKS equ 12`. Task 0 is the boot thread (becomes the UI task); it
