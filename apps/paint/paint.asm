@@ -187,6 +187,14 @@ PT_CW_DEF   equ 448                 ; the canvas a fresh Paint starts with...
 PT_CH_DEF   equ 280                 ; ...clamped to the screen and to memory
 PT_CW_MAX   equ 736                 ; row-table sizing: the widest screen
 PT_CH_MAX   equ 464                 ; os8088 drives is 720, the tallest 480
+PT_IDLESPIN equ 32                  ; SPEC.md 42.8.1: consecutive no-movement
+                                    ; polls the stroke loop spends on a YIELD
+                                    ; before it goes back to sleeping a whole
+                                    ; tick. One turn is about one task switch
+                                    ; (693 us on the target), so 32 covers a
+                                    ; 1200-baud report gap (~25 ms) twice over
+                                    ; and a hand that has really stopped is
+                                    ; back on the tick inside 25 ms.
 PT_BMPHDR   equ 118                 ; 14 + 40 + 16*4: the DIB in front of row 0
 
 ; --- content layout (all content-relative; SPEC.md 11's content rect) ----------
@@ -211,7 +219,7 @@ PT_WIN_Y    equ MBAR_H + 4          ; frame top
 ; white under the picture that nothing owns. Derived, so the two cannot drift.
 ;
 ; It REPLACED a floor of PT_SZ_END - "tall enough to still show the size
-; boxes" - and SPEC.md 42.9 is why that went: it was a minimum window size
+; boxes" - and SPEC.md 42.8.1 is why that went: it was a minimum window size
 ; imposed to keep a control reachable, and it made every picture shorter than
 ; 128 rows open at the wrong size on every adapter. The controls degrade on
 ; their own (pt_szon, pt_draw_dims, pt_draw_pal all draw what fits), and the
@@ -4443,6 +4451,7 @@ pt_stroke:
     mov ax, [pt_ay]
     mov [pt_wy], ax
     call pt_dab
+    mov byte [pt_idlen], 0
 .loop:
     call OSAPI_MOUSE                ; CX = x, DX = y, AL = buttons
     test al, 1
@@ -4456,11 +4465,31 @@ pt_stroke:
 .move:
     mov [pt_tox], cx
     mov [pt_toy], dx
+    mov byte [pt_idlen], 0          ; the hand is moving (SPEC.md 42.8.1)
     call pt_segdo                   ; walks [pt_wx],[pt_wy] to the new point
     call pt_wait
     jmp short .loop
 .idle:
+    ; SPEC.md 42.8.1. "Not moved" does NOT mean the hand stopped - at 1200 baud
+    ; a report is ~25 ms apart and this loop turns over in about one task
+    ; switch, so the common answer here is "the next packet has not arrived
+    ; yet". Sleeping to the next TICK for that aliases a 40 Hz mouse down to
+    ; 18.2 Hz and is the whole of the stroke's faceting: measured at 19
+    ; samples a second whatever the hand did.
+    ;
+    ; So poll on: pt_wait is a yield, and nothing was drawn on this turn, so
+    ; the promised hide is still unspent and gfx_unlock takes its cheap arm -
+    ; no cursor blit, just the switch. Only once PT_IDLESPIN turns have gone
+    ; by with the pointer genuinely parked does the tick sleep come back, so
+    ; a held button with a still hand costs what it always did.
+    inc byte [pt_idlen]
+    cmp byte [pt_idlen], PT_IDLESPIN
+    jb .spin
+    mov byte [pt_idlen], PT_IDLESPIN    ; saturate: no wrap back to fast
     call pt_wait_tick
+    jmp short .loop
+.spin:
+    call pt_wait
     jmp short .loop
 .out:
     pop dx
@@ -6779,7 +6808,7 @@ pt_track:
                                     ; WF_OWNBG the kernel fills nothing, so the
                                     ; band between the two widths held the
                                     ; DESKTOP until some later whole repaint
-                                    ; covered it (SPEC.md 42.9)
+                                    ; covered it (SPEC.md 42.8.1)
     mov al, 1
     cmp byte [pt_szchg], 0
     je .say
@@ -6841,7 +6870,7 @@ pt_sizeask:
 .w_cap:
     ; The height floor is PT_CH_MIN - the smallest window the KERNEL will
     ; make - and nothing else. It used to be PT_SZ_END, "tall enough to still
-    ; show the size boxes", and SPEC.md 42.9 is the removal: a control's
+    ; show the size boxes", and SPEC.md 42.8.1 is the removal: a control's
     ; convenience was setting the minimum size of a PICTURE, so every image
     ; under 128 rows opened at the wrong size on every adapter, with a white
     ; band under it that was not in the file.
@@ -10430,6 +10459,8 @@ pt_ic_text:
     PTWORD pt_toy
     PTWORD pt_ddx
     PTWORD pt_ddy
+    PTBYTE pt_idlen                 ; SPEC.md 42.8.1: consecutive polls that saw
+                                    ; the pointer where it already was
     PTWORD pt_sx                    ; step direction, +1 or -1
     PTWORD pt_sy
     PTWORD pt_err

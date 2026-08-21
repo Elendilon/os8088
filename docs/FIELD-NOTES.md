@@ -3009,7 +3009,13 @@ Three times the passes against a defect that costs seconds is still seconds,
 and the second half of that sentence is the defect. §7.3 takes the same click
 from 1,382–14,722 ms to 37–70 ms.
 
-`apps/paint` is expected to be unchanged by all of this and was reported
-unchanged: its squiggle is the pointer being *sampled* once a pass, not a press
-being dispatched late, and §7.3 does not make the UI task run more often.
+`apps/paint` was expected to be unchanged by all of this and was reported
+unchanged. **It is a separate defect and it is fixed in SPEC.md §42.8.1**: not
+the UI task's pass rate at all, but `pt_stroke`'s own wait. Its idle branch
+spun to the next `[ticks]` boundary whenever the pointer was where it already
+was — and at 1200 baud that means "the next report has not arrived yet", not
+"the hand stopped", so a 40 Hz mouse was aliased to 18.2 Hz. Measured 20
+samples a second, which is the tick to the digit; 88 after. The reporter's
+`hello world` GIF is a hand drawing a letter in half a second and getting ten
+samples.
 

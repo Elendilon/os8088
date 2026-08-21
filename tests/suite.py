@@ -245,6 +245,10 @@ SOAK = [
         "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
         "reading its own frame rate, with the dispatch poked out and back",
         needs=("marty",), serial=True),
+    Row("paintrate", "soak", py("tests/paintrate.py"), 120.0,
+        "SPEC.md 42.8.1: is Paint's brush stroke still sampled at the TICK? The"
+        "facets in a hand-drawn curve were one 55ms sleep each",
+        needs=("marty",), serial=True),
     Row("uilat", "soak", py("tests/uilat.py"), 120.0,
         "SPEC.md 7.3: how long a click waits while a worker draws, bracketed"
         "by two memory breakpoints because the mouse harness has a half-second"

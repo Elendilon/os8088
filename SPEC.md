@@ -34013,6 +34013,50 @@ slowly than the window*, which yields. On a 1bpp adapter the renderer is
 possible (§32), so nothing is owed a present and nothing is being unlocked:
 there is nothing to wait for, and `pt_wait` returns at once.
 
+#### 42.8.1 ...and the other half was the SAMPLE rate: a whole tick per report
+
+§42.8 fixed how fast a chord can be *drawn* and moved the pencil's ceiling to
+~6,000 px/s. The field report it came from — freehand circles arriving as a
+few long straight chords — came back anyway, as *"lines still squiggle"* and
+*"it is not tracking"*, with a GIF of `hello world` written as a polyline.
+
+The rest of it is `pt_stroke`'s wait. The loop polls `OSAPI_MOUSE`, draws the
+segment if the pointer moved, and waits; the wait when it has **not** moved was
+`pt_wait_tick`, which spins on `OSAPI_GET_TICKS` until `[ticks]` changes — a
+whole tick, up to 55 ms.
+
+**"Not moved" does not mean the hand stopped.** A Microsoft serial mouse at
+1200 baud reports about forty times a second, and this loop turns over in
+roughly one task switch, so the common answer to "has it moved?" is *the next
+report has not arrived yet*. Sleeping a tick for that aliases a 40 Hz input
+down to 18.2 Hz, and it does so **hardest while the hand is moving**, which is
+exactly when it shows. Measured on `os8088_5150_herc`, a matched pair over one
+scripted stroke:
+
+| | stroke samples/s |
+|---|---:|
+| `pt_wait_tick` on every no-move poll | **20** — the tick, to the digit |
+| §42.8.1 | **88** |
+
+A hand drawing a letter in half a second got ten samples. That is the polyline.
+
+So the idle wait polls on instead: `pt_wait` is an unlock, a yield and a lock,
+and **nothing was drawn on that turn**, so the promised hide (§7.1.4) is still
+unspent and `gfx_unlock` takes its cheap arm — no cursor blit, just the switch.
+`PT_IDLESPIN` (32) consecutive parked polls, about twice a report gap, and only
+then does the tick sleep come back, so a held button with a genuinely still
+hand costs what it always did. `[pt_idlen]` saturates rather than wrapping, and
+`.move` resets it.
+
+**The instrument cannot show you the curve, and that is worth knowing before
+trying.** `tools/os88mouse.py`'s injection path costs ~0.51 guest seconds per
+report (§7.3.1), so a scripted circle is drawn at about two reports a second
+against a hand's forty — paint is then oversampled by *both* builds and both
+pictures come out smooth. `tests/paintrate.py` therefore asserts the sample
+RATE, counted off a memory breakpoint on `gfx_lock_flag` with the pointer
+nudged on a guest-time schedule so a faster loop cannot feed itself more input
+and inflate its own score.
+
 ### 42.9 The canvas floor is the KERNEL's, and the size boxes stopped setting it
 
 `pt_sizeask` floored the height at **`PT_SZ_END` = 128** — *tall enough to
