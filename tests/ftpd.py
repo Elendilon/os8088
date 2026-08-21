@@ -779,6 +779,65 @@ def run_gate(m, mo, fails):
         say("RETR BANANA~1.MOD is byte-exact, so the collapse round-trips")
     f.quit()
 
+    say("--- 8c. an aborted transfer gives its socket back (SPEC.md 77.25) ---")
+
+    # THE FIELD'S LAST FAILURE. NET_SOCKS is four: the port-21 listener, the
+    # control connection and a passive listener are three, and a data socket
+    # left finishing a FIN handshake with a client that has gone is the
+    # fourth - so the NEXT session's NETV_ACCEPT has no slot and its LIST
+    # hangs at the 150 with nothing logged. It cleared only when the
+    # retransmit timer expired, about a minute.
+    #
+    # Driven the way it actually happens: start a STOR, walk away from it
+    # WITHOUT closing politely, then immediately ask a fresh session to list.
+    # Before NETV_ABORT that second session hung.
+    import socket as _s
+    try:
+        f = connect()
+        f.login("os8088", "os8088")
+        f.set_pasv(False)
+        sock = f.transfercmd("STOR ABORTME.DAT")
+        sock.sendall(b"x" * 4096)
+    except Exception as e:
+        fails.append("could not even START the transfer this assertion aborts "
+                     "(%s) - the server was not in a fit state to test"
+                     % str(e).strip()[:70])
+        return_early = True
+    else:
+        return_early = False
+    if return_early:
+        sock = None
+    if sock is not None:
+        sock.setsockopt(_s.SOL_SOCKET, _s.SO_LINGER, struct.pack("ii", 1, 0))
+        sock.close()                    # RST, and the control socket too
+        f.sock.setsockopt(_s.SOL_SOCKET, _s.SO_LINGER, struct.pack("ii", 1, 0))
+        try:
+            f.sock.close()
+        except Exception:
+            pass
+    time.sleep(4.0)
+
+    ok = False
+    for attempt in range(3):
+        try:
+            g = connect()
+            g.login("os8088", "os8088")
+            g.set_pasv(False)
+            rows = []
+            g.retrlines("LIST", rows.append)
+            say("after an aborted transfer, LIST works at once (%d rows, "
+                "attempt %d)" % (len(rows), attempt))
+            g.quit()
+            ok = True
+            break
+        except Exception as e:
+            say("   attempt %d: %s" % (attempt, str(e).strip()[:60]))
+            time.sleep(5.0)
+    if not ok:
+        fails.append("after an aborted transfer the next session could not "
+                     "LIST - the data socket's slot was not released, which "
+                     "is what SPEC.md 77.25's NETV_ABORT exists to do")
+
     # === 9. AUTHENTICATION (SPEC.md 77.15) ==================================
     say("")
     say("--- 9. a configured user and password ---")
@@ -1074,54 +1133,6 @@ def run_gate(m, mo, fails):
                          "SETUP rect table's main control is not Done" % back)
         else:
             say("...and Done, in Start's corner, came back to the log")
-
-    say("--- 15. an aborted transfer gives its socket back (SPEC.md 77.25) ---")
-
-    # THE FIELD'S LAST FAILURE. NET_SOCKS is four: the port-21 listener, the
-    # control connection and a passive listener are three, and a data socket
-    # left finishing a FIN handshake with a client that has gone is the
-    # fourth - so the NEXT session's NETV_ACCEPT has no slot and its LIST
-    # hangs at the 150 with nothing logged. It cleared only when the
-    # retransmit timer expired, about a minute.
-    #
-    # Driven the way it actually happens: start a STOR, walk away from it
-    # WITHOUT closing politely, then immediately ask a fresh session to list.
-    # Before NETV_ABORT that second session hung.
-    import socket as _s
-    f = connect()
-    f.login("os8088", "os8088")
-    f.set_pasv(False)
-    sock = f.transfercmd("STOR ABORTME.DAT")
-    sock.sendall(b"x" * 4096)
-    sock.setsockopt(_s.SOL_SOCKET, _s.SO_LINGER, struct.pack("ii", 1, 0))
-    sock.close()                        # RST, and the control socket too
-    f.sock.setsockopt(_s.SOL_SOCKET, _s.SO_LINGER, struct.pack("ii", 1, 0))
-    try:
-        f.sock.close()
-    except Exception:
-        pass
-    time.sleep(4.0)
-
-    ok = False
-    for attempt in range(3):
-        try:
-            g = connect()
-            g.login("os8088", "os8088")
-            g.set_pasv(False)
-            rows = []
-            g.retrlines("LIST", rows.append)
-            say("after an aborted transfer, LIST works at once (%d rows, "
-                "attempt %d)" % (len(rows), attempt))
-            g.quit()
-            ok = True
-            break
-        except Exception as e:
-            say("   attempt %d: %s" % (attempt, str(e).strip()[:60]))
-            time.sleep(5.0)
-    if not ok:
-        fails.append("after an aborted transfer the next session could not "
-                     "LIST - the data socket's slot was not released, which "
-                     "is what SPEC.md 77.25's NETV_ABORT exists to do")
 
     # --- and the HOST reads the image, with no os8088 code in the way -------
     verify_host(fails, up)
