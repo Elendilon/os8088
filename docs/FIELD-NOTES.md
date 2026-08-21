@@ -2777,7 +2777,7 @@ forced full repaint.
 
 ---
 
-## 27. A window that draws every frame starves the pointer — OPEN, reported on the iron, not reproduced here yet
+## 27. A window that draws every frame starves the pointer — REPRODUCED, mechanism found, UNFIXED
 
 **Reported** while looking at `apps/wire` (SPEC.md §78) on the field machine:
 *"we are only getting mouse input when not drawing, and edge-then-repair is
@@ -2794,32 +2794,73 @@ at all (PERFORMANCE.md Set 73's 12.1 fps). Whatever the UI task needs the lock
 for is then waiting on a routine that never lets go for longer than it takes
 to re-take it.
 
-**Three candidates, and the point of the note is that nobody has separated
-them:**
+### 27.1 Reproduced, and it is all three of the old candidates at once
 
-1. **Input overrun** — CLAUDE.md names it as one of the three defects an
-   emulator cannot show, beside the visible redraw and the double-draw flash.
-   The mouse ISR is an interrupt and runs; whether every *packet* it decodes
-   survives to a dispatched event is a different question, and the answer is a
-   counter in `mou_isr_body` against one in `ui_` dispatch, not an opinion.
-2. **Lock starvation** — the UI task is runnable but every path it wants ends
-   at `gfx_lock`, so it makes no progress while a worker holds it 95% of the
-   time. This would be a scheduling property and not a lost packet, and the
-   two look identical from a chair.
-3. **The click IS dispatched and the repaint is what is late** — the window
-   closes eventually and the minute was spent waiting for the frame that shows
-   it. The reporter's "over a minute" argues against this one but does not
-   kill it.
+`apps/wire` at any draw order, on `os8088_5150_herc`. The pointer moves
+throughout; the clicks do not arrive.
 
-**What would separate them**, and it is cheap: two counters, one where a
-packet is decoded and one where a click is dispatched, read back over a
-30-second hold. Equal counts rule out (1) and point at (2) or (3); unequal
-counts *are* (1) and give the ratio.
+**Liveness first, with `tests/dispfreeze.py`'s own instrument** — a MEMORY
+breakpoint on the byte `ui_task` step 0 reads, which is the only honest pass
+counter (an exec breakpoint fires on the 8088's prefetch, and `[ticks]` is
+bumped from inside IRQ0 so it advances through a UI task that has stopped):
 
-**Not reproduced in the container yet, and that is expected**: driving the
-pointer through MartyPC's serial packets is not the same rate a hand is, and
-the harness pauses the guest between samples. `tools/os88mouse.py` reads the
-cursor back rather than dead-reckoning, so it is the right instrument to try.
+| | `ui_task` passes, per second of GUEST time |
+|---|---:|
+| desktop, nothing running | **650** |
+| `apps/wire`, Whole figure | **18** |
+| `apps/wire`, Edge at a time | **18** |
+| `apps/wire`, Edge, then repair | **18** |
+
+**18 is the tick.** The UI task is not dead — it is making exactly one pass
+per tick, a **36× drop**, and the number is the same for all three draw
+orders because all three hold the lock for very nearly the whole frame.
+
+**And a pass pops ONE event.** `ui_task` step 2 is a single `evq_pop` and then
+the pass runs its end-of-pass housekeeping (`kbm_ui`, `ui_arm_chk`,
+`ui_timer_pass`, `fdlg_reap`, `wm_close_pass`, the deferred launch) before
+looking again. So the drain rate is **18 events a second at best** — and worse
+whenever a pass actually dispatches something, because that pass then blocks
+on `gfx_lock` for a whole frame.
+
+**The ring is 16 records and a full one drops the NEWEST** (SPEC.md §10,
+`evq_push`'s `cmp word [evq_count], EVQ_CAP` / `jae .full`). Measured while
+clicking as fast as the packets go:
+
+```
+evq depth: peak 16 of 16, last ten [16, 16, 16, 16, 16, 16, 16, 15, 16, 16]
+closed on click NEVER (40 tries)          ...and 35 on a second run
+```
+
+**Then stop clicking, and it cures itself:**
+
+```
+after 3.6s of not clicking: evq depth 0
+one calm click: CLOSED
+```
+
+Which is the report exactly — sixty seconds of clicking with nothing getting
+through — and it is also the workaround: **take your hand off the mouse for a
+second.**
+
+### 27.2 Three defects, and the fix for any one of them would have hidden the others
+
+1. **`gfx_lock` has no fairness** (`kernel/vga12.inc`): `.retry` is `cli`,
+   test, `sti`, `task_yield`, round again. No queue, no ticket. A worker that
+   releases and immediately re-takes wins against a UI task that has to be
+   scheduled first, so a 95%-duty worker starves it 36×.
+2. **The UI task drains one event a pass.** At 650 passes a second nobody
+   would ever notice; at 18 it is the whole bandwidth of the machine's input.
+3. **A full ring drops the NEWEST press.** For input this is the wrong end:
+   dropping the newest means a *sustained* burst locks the user out for as
+   long as they keep trying, where dropping the oldest would always keep the
+   press they most recently meant. It is why clicking harder makes it worse.
+
+Paint's symptom is the same three seen from the other side and is **not** a
+lost press: the ISR keeps `mouse_x`/`mouse_y` fresh, so the *positions* are
+right and the cursor tracks — what is lost is the intermediate motion between
+one UI pass and the next, which is why a fast swing draws one long straight
+segment ("ziggy and zaggy") and a stroke ends a little short of where the hand
+stopped rather than nowhere near it.
 
 **It is not caused by SPEC.md §5.6.4.1** — the same starvation arithmetic
 holds for any worker that fills its tick, and `apps/paint` predates all of it.
