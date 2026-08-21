@@ -60517,6 +60517,16 @@ and re-creating it one door along would be a poor trade.
 saying: a STOR moves megabytes while it says nothing at all (§77.24), and
 that silence is the protocol working rather than a client that has gone.
 
+**And ALREADY CLOSED beats any clock.** The first version of the yield test
+consulted only `[fd_cidle]`, and the gate found the hole one assertion
+later: a client that closes *without* `QUIT` — which is most of them, and
+every reconnect in the field's own FileZilla log — leaves a control socket
+that is simply no longer `NSK_UP`. The session is over the moment that is
+true, and waiting fifteen seconds for a clock to agree with the socket
+refuses the reconnect that FOLLOWS a close, which is the commonest sequence
+in the protocol. So `fd_stale` asks the driver first and falls back on the
+clock only when the driver will not say.
+
 ### 77.30 One buffer per pass was the whole of the 7 KB/s
 
 The field asked the right question - *"I really doubt our 8088 is getting

@@ -2509,16 +2509,47 @@ fd_c_port:
 ; SPEC.md 77.24's protocol and not a symptom.
 fd_stale:
     push ax
+    push bx
+    push cx
     cmp byte [fd_xf], FX_NONE
     jne .keep
+    ; --- ALREADY CLOSED beats any clock -----------------------------------
+    ; A client that closes without QUIT - which is most of them, and every
+    ; reconnect in the field's FileZilla log - leaves a control socket that
+    ; is no longer UP. The session is over the moment that is true, whatever
+    ; [fd_cidle] says: waiting FD_YIELD_T to agree with the socket would
+    ; refuse the reconnect that FOLLOWS a close, which is the commonest
+    ; sequence there is.
+    mov al, [fd_chnd]
+    or al, al
+    jz .gone
+    mov bh, NET_CLASS
+    mov bl, NETV_STATUS
+    call OSAPI_DRV_CALL
+    jc .clock                       ; the driver would not say: fall back on
+    cmp ah, NSK_UP                  ; the clock rather than guess
+    je .clock
+    cmp ah, NSK_CONNECT
+    je .clock
+.gone:
+    pop cx                          ; the peer has gone: not stale, FINISHED
+    pop bx
+    pop ax
+    clc
+    ret
+.clock:
     call OSAPI_GET_TICKS
     sub ax, [fd_cidle]              ; modular, across the counter's wrap
     cmp ax, FD_YIELD_T
     jb .keep
+    pop cx
+    pop bx
     pop ax
     clc
     ret
 .keep:
+    pop cx
+    pop bx
     pop ax
     stc
     ret
