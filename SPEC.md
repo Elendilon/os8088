@@ -60900,3 +60900,95 @@ and no argument was going to find it. A table found it in one run.
 instrument: the receive path does not verify TCP checksums (§72.4), so that
 column is headers only. A reader who does not know that will think the tool is
 broken, which is why it is written here.
+
+### 72.16 The field's first profile, and what it said
+
+`NETBENCH.TXT` off the 5150, a 297 KB upload that **finished** — the first one
+that ever had:
+
+```
+wall clock (ms)             36080
+NOT in the driver (ms)      17521
+
+stage      calls      KB      ms   pct       us/KB
+pump          793        0    11302    31
+card          468      264     3270     9      12390.34
+frame         234      309     6852    18      22178.04
+cksum        2338       31      604     1      19490.47
+rxput         218      297     5239    14      17640.26
+rxget         475      297     5278    14      17772.98
+txin            9        0        9     0
+txout           9        0        9     0
+tx            526       28      740     2      26446.75
+verb          794        0    18559    51
+```
+
+Three things fall out of it, and not one of them was what the previous two
+rounds argued about.
+
+**1. Half the transfer is not this driver at all.** `verb` is 51% of the wall;
+the other 17.5 seconds are the FTP server's staging, the disk writes and the
+scheduler. Making the stack infinitely fast would roughly double the rate and
+no more. That is the number the whole instrument exists to produce, and it
+should be read before anything below it.
+
+**2. Inside the driver, it is the byte copies and nothing else.** `card` +
+`rxput` + `rxget` = 13.8 of the 18.6 seconds — **74% of the driver, 38% of the
+whole transfer** — moving the same 297 KB three times. The two ring copies
+cost ~17.5 µs a byte, which at 4.77 MHz is about 83 clocks to move one byte.
+
+**3. `cksum` is 1%,** so the checksum is not worth another thought, and
+`txin`/`txout` are 9 ms each because an upload sends nothing but ACKs.
+
+#### 72.16.1 83 clocks a byte, where the 8086 has an instruction for it
+
+Both ring copies were hand loops — seven instructions and two memory operands
+per byte after §72.15.4, thirteen bytes of code the prefetch queue had to
+re-fetch every single iteration:
+
+```
+.l: mov al, [si]  /  mov [es:di], al  /  inc si  /  inc di
+    cmp di, dx    /  jb .n            /  .n: loop .l
+```
+
+`rep movsb` is **9 + 17n**: about **17 clocks a byte**, with no instruction
+fetch inside the string operation at all. The measured 83 down to 17 is
+**~4.8×**, and the reason the loop existed is the ring's wrap — which is not a
+reason, because `ne_ring_read` has always cut the *card's* ring into two runs
+and this is the same cut:
+
+    room = end - write point
+    if count <= room:  one rep movsb
+    else:              rep movsb of room, back to the base, rep movsb of the rest
+
+So `sk_rxput`, `sk_rxget`, `ring_in`, `ring_out` and `ring_move` are all
+`rep movsb` now. `ring_in` and `ring_out` had their two segments **the other
+way round** from the direction `movsb` moves in, and swapping them is most of
+that diff. `ne_dma_read`'s card loop takes `stosb` for the same reason — one
+byte of code where `mov [di],al / inc di` is three, and on an 8088 the fetch
+is half the cost of a loop that tight.
+
+**Predicted: `rxput` and `rxget` about 5.2 s each down to about 1.1 s, `card`
+3.3 s to about 2.5 s — nine seconds off a thirty-six second wall.** That is a
+PREDICTION and it is written down as one, because predicting is exactly what
+went wrong in §72.13 and §72.15. **QEMU cannot check it**: it prices
+instructions executed at host speed, so the counts there are unchanged and
+the times were never time (PERFORMANCE.md Part 3). What QEMU *can* check is
+that the copies are still exact, and `tests/ftpd.py` round-trips every byte
+value through them.
+
+The profile off the 5150 is what settles it, and taking one is now four
+keystrokes.
+
+#### 72.16.2 What is deliberately NOT done yet
+
+`rep movsw` is 25 clocks a word — **12.5 a byte against `movsb`'s 17** — and
+is the obvious next step. It is not in this change because it needs odd-count
+and odd-alignment handling on both pointers, and a wrong tail byte in a ring
+copy is a corrupted transfer rather than a slow one. `movsb` first, measured,
+then that.
+
+Nothing has been done about the **49% outside the driver**, and it is now the
+larger half. It is not this driver's to fix: the profiler stops at the package
+door on purpose, because instrumenting the FTP server and the disk is a
+different piece of work with a different instrument.

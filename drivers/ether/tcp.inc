@@ -249,14 +249,10 @@ ring_in_i:
     je  .out                    ; reachable once it has
     mov ax, [sk_seg]
     mov dx, [eth_useg]
-    mov es, dx                  ; ES:SI = the caller's buffer
-    mov ds, ax                  ; DS:DI = the ring
-.l:
-    mov al, [es:si]
-    mov [di], al
-    inc si
-    inc di
-    loop .l
+    mov es, ax                  ; **ES:DI = the ring, DS:SI = the caller's** -
+    mov ds, dx                  ; the two the OTHER way round from what this
+    cld                         ; used to do, because that is the direction
+    rep movsb                   ; `movsb` moves in (72.16)
 .out:
     pop ds
     pop es
@@ -274,18 +270,18 @@ ring_out_i:
     push si
     push di
     push es
-    jcxz .out
-    cmp word [sk_seg], 0
-    je  .out
+    push ds                     ; DS moves below, so it is banked HERE and not
+    jcxz .out                   ; on the arm that moves it - an unbalanced
+    cmp word [sk_seg], 0        ; stack on the jcxz path is a `ret` to the
+    je  .out                    ; wrong place, not a wrong answer
     mov ax, [sk_seg]
-    mov es, ax                  ; ES:SI = the ring, DS:DI = ours
-.l:
-    mov al, [es:si]
-    mov [di], al
-    inc si
-    inc di
-    loop .l
+    push ds
+    pop es                      ; ES:DI = ours...
+    mov ds, ax                  ; ...and DS:SI the ring, which is the direction
+    cld                         ; `movsb` moves in (72.16)
+    rep movsb
 .out:
+    pop ds
     pop es
     pop di
     pop si
@@ -302,18 +298,17 @@ ring_move:
     push si
     push di
     push es
+    push ds
     jcxz .out
     cmp word [sk_seg], 0
     je  .out
     mov ax, [sk_seg]
-    mov es, ax
-.l:
-    mov al, [es:si]
-    mov [es:di], al
-    inc si
-    inc di
-    loop .l
+    mov es, ax                  ; BOTH segments are the ring: `movsb` reads
+    mov ds, ax                  ; through DS and writes through ES, and here
+    cld                         ; they are the same block (72.16)
+    rep movsb
 .out:
+    pop ds
     pop es
     pop di
     pop si
@@ -723,17 +718,23 @@ sk_rxput_i:
     sub ax, [sk_rxcap]
 .nw:
     mov [bx+SKO_RXH], ax
-.l:
-    mov al, [si]
-    mov [es:di], al
-    inc si
-    inc di
-    cmp di, dx
-    jb  .n
-    mov di, bp                  ; ...round the end
-.n:
-    loop .l
-    pop cx                      ; the answer, banked before the loop spent CX
+    cld                         ; **TWO `rep movsb` RUNS, SPLIT AT THE WRAP**
+    mov ax, dx                  ; (SPEC.md 72.16). ne_ring_read has always cut
+    sub ax, di                  ; the card's ring this way; the socket ring's
+    cmp cx, ax                  ; own copies were a hand loop until the
+    jbe .one                    ; profiler priced them
+    sub cx, ax                  ; CX = what is left after the end...
+    push cx
+    mov cx, ax                  ; ...and AX was the run up to it
+    rep movsb
+    pop cx
+    mov di, bp                  ; round to the base for the remainder
+    rep movsb
+    jmp short .fin
+.one:
+    rep movsb
+.fin:
+    pop cx                      ; the answer, banked before the move spent CX
     jmp short .out
 .zero:
     xor cx, cx                  ; no claim, or a full ring: the same answer,
@@ -797,16 +798,26 @@ sk_rxget_i:
     pop di                      ; [sk_seg] is unreachable once DS moves
     mov es, [eth_useg]          ; ES:DI = the caller's buffer
     mov ds, ax                  ; DS:SI = the ring. NOTHING BELOW THIS LINE
-.l:                             ; may name a driver variable
-    mov al, [si]
-    mov [es:di], al
-    inc di
-    inc si
-    cmp si, dx
-    jb  .n
-    mov si, bp                  ; ...round the end
-.n:
-    loop .l
+                                ; may name a driver variable - and it does not
+                                ; have to: DX, BP and the two pointers are all
+                                ; registers, which is what lets `movsb` reach
+                                ; across the two segments at all (72.16)
+    cld
+    mov ax, dx
+    sub ax, si                  ; AX = bytes to the ring's end
+    cmp cx, ax
+    jbe .one
+    sub cx, ax
+    push cx
+    mov cx, ax
+    rep movsb
+    pop cx
+    mov si, bp                  ; ...round to the base
+    rep movsb
+    jmp short .fin
+.one:
+    rep movsb
+.fin:
     pop cx                      ; the answer
     jmp short .out
 .none:

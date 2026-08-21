@@ -196,11 +196,15 @@ ne_dma_read:
     mov dx, [eth_base]
     add dx, NE_DATA
     jcxz .done
+    push es                     ; `stosb` is the store AND the increment in one
+    push ds                     ; byte, where `mov [di],al / inc di` is three -
+    pop es                      ; and on an 8088 the instruction fetch is half
+    cld                         ; the cost of a loop this tight (72.16)
 .byte:
     in  al, dx
-    mov [di], al
-    inc di
+    stosb
     loop .byte
+    pop es
 .done:
     mov ax, NE_RDC << 8 | NE_ISR        ; the DMA is complete: say so, or the
     call ne_out                         ; next one starts on a stale flag
