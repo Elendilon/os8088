@@ -224,10 +224,17 @@ sk_txbase:                          ; segment itself
 ; shapes the driver actually needs are named here, and every one of them
 ; leaves DS and ES as it found them.
 ;
-; They are byte loops for the same reason the rest of this file is: `rep movsb`
-; wants ES for the destination and one of these has the CALLER's segment there
-; already. The cost is a few cycles a byte against a per-segment turnaround
-; measured in tens of milliseconds.
+; **THEY ARE `rep movsb` NOW** (SPEC.md 72.16), and the note that used to stand
+; here said the opposite: that a byte loop was right because movsb wants ES for
+; the destination and one of these has the CALLER's segment in it already. That
+; was not a reason, it was an inconvenience - each of them SETS both segments
+; itself, which is one `mov` and the direction movsb moves in. The field
+; profile priced the loop it excused at 83 clocks a byte against movsb's 17.
+;
+; The three shapes differ only in where the two segments come from:
+;   ring_in    DS = the caller's ([eth_useg]),  ES = the claim
+;   ring_out   DS = the claim,                  ES = ours
+;   ring_move  DS = ES = the claim
 ; =============================================================================
 
 ; --- ring_in - the CALLER's buffer at SI -> the ring at DI, CX bytes --------

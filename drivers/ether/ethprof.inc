@@ -321,6 +321,14 @@ prof_end:
     call prof_now               ; DX:AX = now, and it is needed WHOLE before
     or  cx, cx                  ; the subtraction below turns it into a delta
     jz  .nostamp                ; no bytes: an idle poll, not the transfer
+    cmp si, PF_RXPUT * 2        ; ...and only the four PAYLOAD stages open the
+    jb  .nostamp                ; window or close it. A broadcast the card
+    cmp si, PF_TXOUT * 2        ; took and eth_frame dropped moved bytes and
+    ja  .nostamp                ; is not the transfer - and on a busy LAN
+                                ; there is one of those every second, which
+                                ; would stretch the window over the whole run
+                                ; and put the operator's hands right back in
+                                ; it (SPEC.md 72.18.2)
     cmp byte [prof_fset], 0
     jne .last
     mov [prof_first], ax
