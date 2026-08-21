@@ -344,6 +344,10 @@ SOAK = [
     Row("trackmove", "soak", py("tests/trackmove.py"), 60.0,
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
         needs=("marty",), serial=True),
+    Row("tpdraw", "soak", py("tests/tpdraw.py"), 300.0,
+        "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
+        "draws? (SPEC.md 69.8)",
+        needs=("marty",), serial=True),
     Row("trkrate", "soak", py("tests/trkrate.py"), 60.0,
         "trkrate - XT mode's second rate, and the surface it refuses (SPEC.md"
         "45.9.3)",
