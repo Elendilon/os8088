@@ -3010,7 +3010,9 @@ and the second half of that sentence is the defect. §7.3 takes the same click
 from 1,382–14,722 ms to 37–70 ms.
 
 `apps/paint` was expected to be unchanged by all of this and was reported
-unchanged. **It is a separate defect and it is fixed in SPEC.md §42.8.1**: not
+unchanged. **It is a separate defect and it is mostly fixed in SPEC.md
+§42.8.1** (and §42.8.2 is what the field said it was worth, including one
+prediction it contradicted): not
 the UI task's pass rate at all, but `pt_stroke`'s own wait. Its idle branch
 spun to the next `[ticks]` boundary whenever the pointer was where it already
 was — and at 1200 baud that means "the next report has not arrived yet", not
@@ -3018,4 +3020,39 @@ was — and at 1200 baud that means "the next report has not arrived yet", not
 samples a second, which is the tick to the digit; 88 after. The reporter's
 `hello world` GIF is a hand drawing a letter in half a second and getting ten
 samples.
+
+## 28. CURFIX still reads wrong to the eye — OPEN, second report
+
+SPEC.md §7.1.4.4 left §7.1.4.2 + §7.1.4.3 behind `make CURFIX=1` because the
+instruments and the eye disagreed, and asked for the pair to be judged on a
+real machine. It has now been judged twice, by the same reader, on an
+`os8088_5150_herc`-class field machine, and the answer both times is a
+qualified no:
+
+> *"I once again think curfix feels 'slightly weird'. Almost like the
+> acceleration is wrong, even though we shouldn't have changed that. And it
+> flashes just as much with wire running as no-curfix."*
+
+Two separate claims and they are worth keeping apart.
+
+- **"The acceleration is wrong."** Nothing in either section touches
+  `mou_isr`'s deltas — §7.1.4.3 adds one store of `[ticks]` into `[cur_mvt]`
+  and reads it in `cur_lazyck`, and that is the whole of the arithmetic. So
+  either the report is about *when the arrow is redrawn* rather than where —
+  a pointer hidden through a draw and put back at the new place reads as a
+  jump, which is §7.1.4.3's own "hidden and stuck" — or it is something not
+  yet found. **It is a claim about motion, and §7.1.4.4 already says the four
+  instruments in `tools/` all park the pointer.** The missing instrument is
+  still missing.
+- **"It flashes just as much with wire running."** `apps/wire` holds the gfx
+  lock for very nearly the whole frame (note 27), and the mouse ISR does not
+  move the arrow while it is held (§7.1). Neither knob changes that, so a
+  cursor over a window that is drawing every tick is expected to behave the
+  same on both builds — this half is consistent rather than surprising, and
+  it means the wire case cannot discriminate between them.
+
+**The default does not move.** Both disks were built at one commit with only
+the knob between them and a marker file in each root, which is the comparison
+§7.1.4.4 asks for; the pair stays available and stays off. The next step is an
+instrument that reads a MOVING pointer, not another A/B of the same two disks.
 

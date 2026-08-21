@@ -34057,6 +34057,65 @@ RATE, counted off a memory breakpoint on `gfx_lock_flag` with the pointer
 nudged on a guest-time schedule so a faster loop cannot feed itself more input
 and inflate its own score.
 
+#### 42.8.2 What it was worth, and the smoothing that was NOT done
+
+The 2x2 came back from the field machine — the same hand writing `hello world`
+on both builds, fast and paced, with a repeat of one cell to price the
+variance. Measured off the saved GIFs: the centreline of every tall vertical
+stroke (the `l`s and the `d`, the ones a person is trying to draw straight),
+its RMS deviation from a straight line, and how often the centreline reverses
+direction:
+
+| | RMS from straight | reversals /100px |
+|---|---:|---:|
+| before, fast (run 1) | 3.92 px | 1.1 |
+| before, fast (run 2) | 3.82 px | 1.7 |
+| before, **paced** | **1.62 px** | 3.8 |
+| §42.8.1, fast | **3.28 px** | 1.1 |
+| §42.8.1, paced | 1.74 px | 0.9 |
+
+Two readings, and the second one corrects a guess this section nearly shipped.
+
+**Fast: a real ~15% improvement.** The two before-runs differ by 0.1 px, so
+the run-to-run variance of the gesture is small against the 0.6 px the change
+buys. The reversal rate does not move at all — that is the hand's tremor, and
+nothing about sampling touches it, which is a good sign the metric is measuring
+what it claims.
+
+**Paced: no difference, and the prediction that there would be was WRONG.**
+It was inferred from the arithmetic — at 20 samples a second a paced 100 px/s
+hand still gets a sample only every 5 px — and the machine says 1.62 against
+1.74, i.e. the old build is nominally *better* and the two are one
+distribution. **A paced hand could always draw a straight line here.** What
+§42.8.1 fixes is the part of the stroke you get when you outrun the sampler,
+and only that.
+
+**Why the fast case is not fixed further is now the hardware.** At 88 samples
+a second Paint samples faster than the mouse reports: a Microsoft serial mouse
+at 1200 baud is three bytes of ten bits, about **40 reports a second**, so a
+600 px/s hand gets one position every 15 px whatever this package does. The
+facets that are left are the wire's.
+
+**The smoothing that would go further, and what it costs.** `pt_segdo` already
+interpolates *between* two samples; what it cannot do is bend that segment,
+because the loop only ever knows the previous point and the current one. A
+three-point pen — hold one report back, draw a curve through the middle of
+three — is the classic answer and is what a smoother-looking contemporary
+paint program is usually doing. It is **not implemented**, and the trade is
+the reason it is written down rather than done: the ink then trails the pointer
+by one report, ~25 ms, permanently, in exchange for a curve that is right in
+hindsight. That is a taste question about a drawing program, and it wants the
+same instrument this table came from rather than an argument.
+
+**And the instrument for it does not exist yet.** Every row above is a
+different gesture, because a hand cannot replay itself; the two before-runs
+bound that at ~0.1 px for this drawing, which is enough for a 15% effect and
+nowhere near enough for the few percent a smoothing pass would be argued over.
+Settling that needs the emulator to **record one set of real mouse packets and
+replay them into both builds** — outside the OS, in the harness, where the
+packet stream is. `tests/paintrate.py` measures the sample RATE for exactly
+this reason: it is the part that can be asserted without a hand.
+
 ### 42.9 The canvas floor is the KERNEL's, and the size boxes stopped setting it
 
 `pt_sizeask` floored the height at **`PT_SZ_END` = 128** — *tall enough to
@@ -61190,6 +61249,87 @@ and not a flicker one: the erase still precedes the draw inside it.
 
 So the ordering is the caller's, which is what this menu is: three orders, one
 program, and the reader picks.
+
+### 78.6 The strip re-letters the NUMBER, and only the number
+
+The status line said `12 lines  18.2 fps` and was redrawn by filling the band
+white and lettering over it, once a second. That is PERFORMANCE.md rule 2's
+canonical violation — the erase-then-letter pair — and this window is where it
+shows worst: §78.5 went to some trouble to make sure the figure is never blank,
+and then the strip beneath it went blank for the width of the whole line
+eighteen times a minute, next to a picture that is otherwise still.
+
+Two things fix it and they are the same fix twice.
+
+**One decision per cell.** `OSAPI_FONT_RUN` (§6.1) lays a run's background and
+its glyphs in a single pass, so no cell is ever momentarily paper. There is no
+fill in front of it at all: `wr_paint` has already cleared the content, and the
+run is opaque over its own cells for every update after that.
+
+**Only the cells that changed.** ` lines  ` and ` fps` are the same pixels a
+second later, and the count only moves when the Shape menu does — so
+`wr_fpsdraw` re-letters the **four** cells of `NN.N` and nothing else.
+`wr_strip` (the whole line) is now a repaint-time call.
+
+That needs the layout to be arithmetic rather than a consequence:
+
+- **Every field is fixed width.** `wr_pad2` space-pads the count and the whole
+  part of the rate; `wr_fpstxt` is always four characters, which 18.2 — the
+  tick, and therefore the ceiling — fits. A field that changes width moves the
+  ones after it, and then only the whole line is redrawable.
+- **`WR_FPSCOL` (10) is `NN` plus `wr_s_lines`'s eight**, and the string's
+  length is commented as load-bearing where it is defined.
+- **The run starts on a cell boundary.** `wr_sxal` rounds the content's left
+  edge *up* to a multiple of 8, because the window's own left edge is on no
+  grid at all and §6.1's single-store path wants one. An 18-cell line leaves 16
+  pixels of slack in the object area, so rounding up by at most 7 cannot reach
+  the right edge. This is the 1bpp adapters' path, which is two of §39's three.
+
+`wr_dec` went with it: nothing pads-to-nothing any more.
+
+### 78.7 The About card, and what a package with a WORKER owes it
+
+`About` was an item in the View menu that did nothing. It is now
+`OSAPI_ABOUT_SET` (§12.2) — `About Wire`, above the `Close` the kernel already
+puts in the application's own pull-down, which is where every other package in
+this tree keeps it.
+
+The card itself is calc's shape and solitaire's before that: **state, not a
+modal loop.** `[wr_abon]` goes up, the card is drawn over the object area, and
+the next click or menu pick takes it down. A loop would hold the gfx lock for
+as long as the reader left the credits up.
+
+**The part that is this package's own** is that `apps/wire` has a background
+task, and the precedents do not. A card drawn on the UI task is painted over by
+the worker's next frame a tick later, so `wr_render` reads `[wr_abon]` under the
+same lock and draws **nothing** while it is set. That is the cost of §20's rule
+that a package cannot put up a second window it does not own: the credits live
+inside the content, so the content has to stop.
+
+**`W_PAINT` has to be able to reproduce the card**, and that is the one this
+got wrong first. A package's paint proc is called whenever the window is
+re-exposed — dragged, uncovered, raised — and closing a pull-down over it is
+exactly that. So the pick that raised the card was immediately followed by a
+repaint that drew the figure back over it, and the card was never seen at all.
+`wr_paint` reads `[wr_abon]` and draws the card in the figure's place; nothing
+else about the sequence changed.
+
+Three more consequences, each a bug if it is skipped:
+
+- `wr_about` clears `[wr_shown]` — the card covers every edge that was on the
+  glass, so there is no previous frame left to erase and a frame that tried
+  would take white lines out of the credits.
+- The card covers the **object area** and not the whole content: the strip is
+  still true, and redrawing it would be exactly the second layer §78.6 just
+  removed.
+- `wr_oncmd` clears the flag on any pick, and the window template grew a
+  `W_ONCLICK` whose entire job is the dismiss — a compare and a return on every
+  frame the reader is only watching.
+- **Coming down re-anchors the frame counter.** Nothing is rendered while the
+  card is up, so the frames-over-ticks window that was open when it went up
+  would come back with a real elapsed time and almost no frames in it: one
+  wrong number in the strip, for a second, blamed on whatever the reader did
+  next. `wr_abdown` is the single way down for exactly that reason.
 
 ### 78.2 The projection is orthographic, and that is also a choice
 

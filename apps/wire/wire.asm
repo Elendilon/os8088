@@ -59,6 +59,11 @@ WR_BSTEP    equ 2                   ; coprime, so the tumble does not repeat
 WR_LAGMAX   equ 4                   ; ticks behind before the deadline is
                                     ; re-anchored rather than caught up
 WR_FPSTICK  equ 18                  ; ...and how often the strip is re-lettered
+WR_FPSCOL   equ 10                  ; ...and the CELL the number starts in:
+                                    ; "NN" plus wr_s_lines' eight. SPEC.md 78.6
+                                    ; re-letters four cells here and nothing
+                                    ; else, so this and the field widths in
+                                    ; wr_pad2/wr_fpstxt are one fact
 
 ; -----------------------------------------------------------------------------
 ; wr_entry - package entry point (SPEC.md 20.2)
@@ -80,6 +85,13 @@ wr_entry:
     call wr_pick                    ; measured `Edge at a time` free
     mov si, wr_menus
     call OSAPI_MENU_SET
+    mov si, wr_about
+    call OSAPI_ABOUT_SET            ; ...and 'About Wire' above the Close the
+                                    ; kernel already puts there (SPEC.md 12.2/
+                                    ; 12.7). BX is still the window: both slots
+                                    ; preserve every register and the flags,
+                                    ; which is why they may sit between
+                                    ; wm_create and the CF we owe the loader
 .out:
     pop si
     ret
@@ -448,78 +460,124 @@ wr_copy:
     ret
 
 ; -----------------------------------------------------------------------------
-; wr_strip - the status line: how many lines a frame, and how fast
+; wr_strip - the whole status line, laid down once (SPEC.md 78.6)
 ; in:  the gfx lock held, the geometry derived
 ; out: nothing; preserves nothing but the segments
+;
+; ONE OSAPI_FONT_RUN, AND NO FILL IN FRONT OF IT. What this used to be - fill
+; the band white, then letter over it - is PERFORMANCE.md rule 2's canonical
+; violation, and on this window it is the only thing wrong with an otherwise
+; still frame: the strip went blank for the width of the whole line, once a
+; second, next to a figure that is deliberately never blank (78.5). FONT_RUN
+; makes ONE decision per cell (SPEC.md 6.1), so no cell is ever momentarily
+; paper.
+;
+; EVERY FIELD IS FIXED WIDTH and the run starts on a CELL BOUNDARY. The width
+; is what lets wr_fpsdraw re-letter four cells without moving the rest; the
+; boundary is what makes a cell row a single store on a 1bpp adapter, which is
+; the two adapters of three this is looked at on.
 ; -----------------------------------------------------------------------------
 wr_strip:
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    mov ax, [wr_ox0]
-    mov bx, [wr_sy]
-    dec bx
-    mov cx, ax
-    add cx, [wr_ow]
-    dec cx
-    mov dx, bx
-    add dx, 9
-    call OSAPI_GFX_FILL
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
     mov di, wr_line                 ; "NN lines  NN.N fps"
     mov al, [wr_ne]
     xor ah, ah
-    call wr_dec
+    call wr_pad2
     mov si, wr_s_lines
     call wr_cat
-    mov ax, [wr_fps]
-    push ax
-    mov bx, 10
-    xor dx, dx
-    div bx
-    call wr_dec                     ; the whole part
-    mov byte [di], '.'
-    inc di
-    pop ax
-    mov bx, 10
-    xor dx, dx
-    div bx
-    mov al, dl                      ; ...and the tenth
-    xor ah, ah
-    call wr_dec
+    call wr_fpstxt
     mov si, wr_s_fps
     call wr_cat
     mov byte [di], 0
-    mov cx, [wr_ox0]
+    call wr_sxal                    ; CX = the aligned left edge
     mov dx, [wr_sy]
     mov si, wr_line
-    call OSAPI_FONT_STR
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
     ret
 
-; wr_dec - AX (0..65535) as decimal at DI, no padding. DI advances.
-wr_dec:
+; -----------------------------------------------------------------------------
+; wr_fpsdraw - re-letter ONLY the four cells the number lives in (SPEC.md 78.6)
+; in:  the gfx lock held, the geometry derived
+; out: nothing; preserves nothing but the segments
+;
+; PERFORMANCE.md rule 1, at the smallest scale this package has: ' lines  ' and
+; ' fps' are the same pixels a second later, and the count only moves when the
+; Shape menu does. Putting them down again is work that changes nothing and a
+; flash that changes nothing twice.
+; -----------------------------------------------------------------------------
+wr_fpsdraw:
+    mov di, wr_line                 ; the composed line is not live between
+    call wr_fpstxt                  ; strip updates, so the field borrows it
+    mov byte [di], 0
+    call wr_sxal
+    add cx, WR_FPSCOL * 8
+    mov dx, [wr_sy]
+    mov si, wr_line
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    ret
+
+; wr_sxal - CX = the strip's text x, rounded UP onto the 8-pixel cell grid.
+; The content's left edge follows the window and is on no grid at all; SPEC.md
+; 6.1's single-store path is. An 18-cell line leaves 16 pixels of slack in the
+; object area, so rounding up by at most 7 cannot reach the right edge.
+; Preserves everything but CX.
+wr_sxal:
+    mov cx, [wr_ox0]
+    add cx, 7
+    and cx, -8
+    ret
+
+; wr_pad2 - AX (0..99) as TWO chars at DI, space-padded. DI advances.
+; Fixed width is the whole of why wr_fpsdraw can exist: a field that changes
+; width moves the ones after it, and then only the whole line is redrawable.
+wr_pad2:
+    push ax
     push bx
-    push cx
     push dx
-    mov cx, 0
-    mov bx, 10
-.split:
     xor dx, dx
-    div bx
+    mov bx, 10
+    div bx                          ; AX = tens, DX = units
+    or al, al
+    jnz .tens
+    mov al, ' ' - '0'               ; a leading zero is a space, and the add
+.tens:                              ; below is the only place either becomes
+    add al, '0'                     ; a character
+    mov [di], al
+    inc di
+    mov al, dl
+    add al, '0'
+    mov [di], al
+    inc di
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; wr_fpstxt - [wr_fps] as the four chars "NN.N" at DI. DI advances.
+; FOUR ALWAYS: 18.2 is the tick and therefore the ceiling (SPEC.md 78), and a
+; field that changes width is a field wr_fpsdraw cannot redraw on its own.
+wr_fpstxt:
+    push ax
+    push bx
     push dx
-    inc cx
-    or ax, ax
-    jnz .split
-.emit:
+    mov ax, [wr_fps]
+    xor dx, dx
+    mov bx, 10
+    div bx                          ; AX = whole, DX = tenths
+    push dx
+    call wr_pad2
+    mov byte [di], '.'
+    inc di
     pop ax
     add al, '0'
     mov [di], al
     inc di
-    dec cx
-    jnz .emit
     pop dx
-    pop cx
     pop bx
+    pop ax
     ret
 
 ; wr_cat - the NUL string at SI onto DI (the NUL is not copied). DI advances.
@@ -563,9 +621,16 @@ wr_paint:
     add dx, [wr_oh]
     add dx, WR_STRIP - 1
     call OSAPI_GFX_FILL
-    call wr_project                 ; the window may have moved since the last
-    mov byte [wr_shown], 0          ; frame, so the kept coordinates are stale
-    call wr_draw
+    mov byte [wr_shown], 0          ; the window may have moved since the last
+                                    ; frame, so the kept coordinates are stale
+    cmp byte [wr_abon], 0           ; W_PAINT MUST BE ABLE TO REPRODUCE WHAT IS
+    je .figure                      ; ON THE GLASS, and while the credit card
+    call wr_abdraw                  ; is up that is the card (SPEC.md 78.7).
+    jmp short .strip                ; A menu closing over this window is a
+.figure:                            ; repaint, so without this arm the pick
+    call wr_project                 ; that RAISES the card is also what paints
+    call wr_draw                    ; the figure straight back over it
+.strip:
     call wr_strip
     call wr_hire
     pop bp
@@ -649,6 +714,12 @@ wr_render:
     mov bx, [wr_win]
     test word [es:bx + W_FLAGS], 2  ; still visible?
     jz .unlock
+    cmp byte [wr_abon], 0           ; ...and is the credit card up (78.7)? Then
+    jne .unlock                     ; this frame draws NOTHING: the card is in
+                                    ; the object area and a figure over it is
+                                    ; what "a package cannot put up a second
+                                    ; window" costs when the package also has
+                                    ; a worker
     call wr_geom
     mov bx, [wr_win]
     call OSAPI_WM_CLIP_SET          ; over 16 fragments: skip the frame rather
@@ -694,7 +765,7 @@ wr_fpsup:
     mul bx
     div cx
     mov [wr_fps], ax
-    call wr_strip
+    call wr_fpsdraw                 ; the NUMBER, not the line (SPEC.md 78.6)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -708,6 +779,9 @@ wr_fpsup:
 ; -----------------------------------------------------------------------------
 wr_oncmd:
     push si
+    call wr_abdown                  ; a pick takes the card down (78.7); every
+                                    ; arm below ends at .redraw, which puts the
+                                    ; content back whole
     cmp ah, 1
     jb .shape
     je .view
@@ -723,7 +797,7 @@ wr_oncmd:
     jmp short .redraw
 .view:
     cmp al, 3
-    jae .out                        ; item 3 is About, and does nothing yet
+    jae .out
     xor ah, ah                      ; Small / Medium / Large, in eighths of
     mov bx, ax                      ; wr_geom's 1.75r. MEDIUM IS THE TICK: it
     mov al, [wr_eighths + bx]       ; is chosen so a frame fits 55ms on the
@@ -734,6 +808,155 @@ wr_oncmd:
     call wr_paint                   ; SI is still the window
 .out:
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; wr_about - the OSAPI_ABOUT_SET handler (SPEC.md 78.7, slot 0x01E0)
+; in:  SI = our window; the UI task, gfx lock HELD, far-called at our segment -
+;      a window callback in every respect that matters
+; out: nothing; preserves all registers
+;
+; STATE AND NOT A MODAL LOOP, which is calc's cal_about and solitaire's before
+; it: [wr_abon] goes up, the card is drawn, and the next click or menu pick
+; takes it down. A loop would hold the gfx lock for as long as the reader left
+; the credits up.
+;
+; The point is sharper here than in either precedent, because this package has
+; a BACKGROUND TASK: wr_render reads the same flag under the same lock and
+; draws nothing while it is set, so the card is not painted over by the figure
+; it covered a tick later.
+; -----------------------------------------------------------------------------
+wr_about:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, si
+    call wr_geom                    ; the window may have moved since the last
+    mov byte [wr_abon], 1           ; frame, so the card is placed from the
+    mov byte [wr_shown], 0          ; LIVE box - and it covers every edge that
+    call wr_abdraw                  ; was on the glass, so there is nothing
+    pop di                          ; left for the next frame to erase
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wr_abdraw - the credit card, over the object area
+; in:  the geometry derived; the gfx lock held
+; out: nothing; clobbers everything but the segments
+;
+; The OBJECT AREA and not the whole content: the strip below it is still true,
+; and drawing it again would be a second layer over pixels that did not change
+; (PERFORMANCE.md rule 1) - the very thing 78.6 just took out of the strip.
+; -----------------------------------------------------------------------------
+wr_abdraw:
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [wr_ox0]
+    mov bx, [wr_oy0]
+    mov cx, ax
+    add cx, [wr_ow]
+    dec cx
+    mov dx, bx
+    add dx, [wr_oh]
+    dec dx
+    call OSAPI_GFX_FILL
+    mov dx, [wr_ccy]                ; three 8-pixel rows, centred on the box
+    sub dx, 12
+    mov si, wr_ab1
+    call wr_abline
+    add dx, 12
+    mov si, wr_ab2
+    call wr_abline
+    add dx, 10
+    mov si, wr_ab3
+    call wr_abline
+    ret
+
+; wr_abline - one CENTRED row of the card, in the 8x8 face
+; in:  SI = NUL string, DX = its text row; the gfx lock held
+; out: nothing; SI and DX survive, AX/CX/DI do not
+;
+; Centred on the cell grid rather than on the pixel: SPEC.md 6.1's single-store
+; path wants x a multiple of 8, and half a cell of asymmetry in a credit line
+; is not worth two adapters' worth of shifting.
+wr_abline:
+    push si
+    push dx
+    mov di, si
+    xor cx, cx
+.len:
+    cmp byte [di], 0
+    je .got
+    inc di
+    inc cx
+    jmp short .len
+.got:
+    add cx, cx                      ; half the run's width: 4 pixels a cell
+    add cx, cx
+    mov ax, [wr_ccx]
+    sub ax, cx
+    add ax, 7
+    and ax, -8
+    mov cx, ax
+    mov al, CBLACK
+    mov ah, CWHITE
+    call OSAPI_FONT_RUN
+    pop dx
+    pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; wr_onclick - W_ONCLICK: the credit card's only way down (SPEC.md 13, 78.7)
+; in:  CX/DX = the point, SI = our window; the gfx lock held, ES = KERNEL_SEG
+; out: nothing; preserves all registers
+;
+; There is nothing else in this window to click, so with the card down this is
+; a compare and a return - which is what it costs on every frame the reader is
+; only watching.
+; -----------------------------------------------------------------------------
+wr_onclick:
+    cmp byte [wr_abon], 0
+    je .out
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    call wr_abdown
+    call wr_paint                   ; SI is still the window, which is what
+    pop bp                          ; wr_paint takes
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.out:
+    ret
+
+; wr_abdown - take the credit card down, and re-anchor the frame counter
+; preserves all registers
+;
+; The counter matters: nothing is rendered while the card is up (78.7), so the
+; frames-over-ticks window that was open when it went up would come back with
+; a real elapsed time and almost no frames in it - one wrong number in the
+; strip, for a second, blamed on whatever the reader did next.
+wr_abdown:
+    push ax
+    mov byte [wr_abon], 0
+    call OSAPI_GET_TICKS
+    mov [wr_ft0], ax
+    mov word [wr_frames], 0
+    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -766,12 +989,13 @@ wr_pick:
 ; --- window template (SPEC.md 11: 16 bytes, 8 words) --------------------------
 wr_tpl:
     dw 96, 32, WR_W, WR_H
-    dw wr_ttl, wr_paint, 0, 0       ; no onkey, no onclick: it just spins
+    dw wr_ttl, wr_paint, 0, wr_onclick   ; no onkey; the click is the credit
+                                    ; card's dismiss and nothing else (78.7)
 
 ; --- the app menu set (SPEC.md 12.2) ------------------------------------------
     OS88_MENUSET wr_menus, wr_name, wr_oncmd
         OS88_MENU wr_m_shape, wr_i_shape, WR_NSHAPE
-        OS88_MENU wr_m_view,  wr_i_view,  4
+        OS88_MENU wr_m_view,  wr_i_view,  3
         OS88_MENU wr_m_draw,  wr_i_draw,  3
     OS88_MENUSET_END wr_menus
 
@@ -782,11 +1006,10 @@ wr_it_cube: db 'Cube', 0
 wr_it_oct:  db 'Octahedron', 0
 wr_it_tet:  db 'Tetrahedron', 0
 wr_m_view:  db 'View', 0
-wr_i_view:  dw wr_it_sm, wr_it_md, wr_it_lg, wr_it_abt
+wr_i_view:  dw wr_it_sm, wr_it_md, wr_it_lg
 wr_it_sm:   db 'Small', 0
 wr_it_md:   db 'Medium', 0
 wr_it_lg:   db 'Large', 0
-wr_it_abt:  db 'About', 0
 wr_m_draw:  db 'Draw', 0
 wr_i_draw:  dw wr_it_whole, wr_it_pair, wr_it_rep
 wr_it_whole: db 'Whole figure', 0
@@ -795,8 +1018,11 @@ wr_it_rep:   db 'Edge, then repair', 0
 
 wr_eighths: db 3, 4, 6          ; Small, Medium, Large
 wr_ttl:     db 'Wireframe', 0
-wr_s_lines: db ' lines  ', 0
+wr_s_lines: db ' lines  ', 0    ; EIGHT, and WR_FPSCOL counts on it
 wr_s_fps:   db ' fps', 0
+wr_ab1:     db 'Wireframe', 0   ; the credit card (SPEC.md 78.7)
+wr_ab2:     db 'Contributed by', 0
+wr_ab3:     db 'Elendilon', 0
 
 ; --- the shapes ----------------------------------------------------------------
 ; Vertices are three SIGNED BYTES each and every magnitude here is 48 or 64;
@@ -891,4 +1117,7 @@ wr_px       equ os88_image_end + 44   ; WR_MAXV words: this frame
 wr_py       equ os88_image_end + 60
 wr_ex       equ os88_image_end + 76   ; ...and the one on the glass
 wr_ey       equ os88_image_end + 92
-wr_line     equ os88_image_end + 108  ; the strip's composed text, 32 bytes
+wr_line     equ os88_image_end + 108  ; the strip's composed text, 32 bytes -
+                                  ; and wr_fpsdraw's four-cell field, which is
+                                  ; never live at the same time (78.6)
+wr_abon     equ os88_image_end + 140  ; byte: the credit card is up (78.7)
