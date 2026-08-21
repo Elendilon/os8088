@@ -60451,3 +60451,43 @@ next begins. The number is the driver's memory, so raising it is
 machine; what belongs here is not holding a socket a moment longer than the
 protocol requires.
 
+### 77.29 A second client is REFUSED, not ignored
+
+FileZilla could not use this server at all: it logged in, listed, deleted a
+file, and then hung for ever on **"Connection established, waiting for
+welcome message"**. WinSCP had never shown it.
+
+**FileZilla opens a second control connection** — one to browse with, one to
+transfer with — and this server takes one client (§77.4). That by itself is a
+limitation, not a bug. The bug is what the limitation looked like from
+outside: **the stack completes the handshake into a pending child on its
+own**, so the client's `connect()` SUCCEEDS, and `ftpd` then never calls
+`NETV_ACCEPT` on it, because it only accepts in `FD_LISTEN`. The client is
+left holding an established socket waiting for a greeting that cannot come.
+
+A connection nobody accepts is not refused, it is *ignored*, and from the far
+end those look nothing alike: one is an error in the same instant, the other
+is twenty seconds of silence followed by a guess. WinSCP uses a single
+connection and never met it; every multi-connection client meets it
+immediately.
+
+So the knock is answered. `fd_second` accepts, sends **`421 Busy - this
+server takes one client at a time`**, and aborts the socket — refused before
+it said a word, so there is nothing in flight to lose. The window says
+`Refused a second client (421)`, which is the difference between a server
+that looks broken and one that says what it is.
+
+**It does not run mid-transfer**, and that is deliberate rather than an
+oversight: accepting costs a socket, a passive transfer already holds all
+four (§77.28), so the accept would fail anyway and trying spends a driver
+call per poll to learn that. The case it leaves unanswered is a second client
+knocking during a transfer — which is precisely when there is nothing to give
+it.
+
+**The honest limitation stands**: this is a one-client server, and a client
+that insists on two connections will use one and be told about the other. A
+FileZilla configured with "Limit number of simultaneous connections" = 1
+works throughout. Supporting two properly is a `NET_SOCKS` question before it
+is an `apps/ftpd/` one — two control connections plus a passive listener plus
+its data socket is five, and there are four.
+

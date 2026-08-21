@@ -1234,7 +1234,8 @@ fd_step:
 .serving:
     call fd_cidle_check             ; ...has this client said ANYTHING lately?
     jc .drop
-    call fd_ctl_poll
+    call fd_second                  ; ...and is a SECOND one waiting to be told
+    call fd_ctl_poll                ; this server takes one (SPEC.md 77.29)
     jc .drop
     cmp byte [fd_st], FD_CTRL       ; a QUIT inside fd_ctl_poll may have ended
     jne .done                       ; the session already
@@ -2488,6 +2489,64 @@ fd_c_port:
     pop si
     pop dx
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; =============================================================================
+; fd_second - a SECOND client knocked while we are serving one (SPEC.md 77.29)
+;
+; **A CONNECTION NOBODY ACCEPTS IS NOT REFUSED, IT IS IGNORED**, and from the
+; other end those look nothing alike. The stack completes the handshake into a
+; pending child on its own, so the client's connect() SUCCEEDS; ftpd then
+; never calls NETV_ACCEPT, because it only does that in FD_LISTEN - and the
+; client sits on an established socket waiting for a greeting that cannot
+; come. FileZilla found this in the field: it opens a second control
+; connection to transfer with while the first browses, and hung on
+; "Connection established, waiting for welcome message" for ever. WinSCP uses
+; one connection and never saw it.
+;
+; So the knock is answered: accept, say 421, close. The client gets an error
+; it can act on in the same instant instead of a twenty-second silence.
+;
+; NOT DURING A TRANSFER. Accepting costs a socket, and a passive transfer is
+; already holding all four (77.28) - so the accept would fail anyway, and
+; trying spends a driver call per poll to find that out. The window this
+; leaves open is a second client knocking mid-transfer, which is exactly when
+; there is nothing to give it.
+; =============================================================================
+fd_second:
+    push ax
+    push bx
+    push si
+    cmp byte [fd_xf], FX_NONE
+    jne .out                        ; mid-transfer: no slot to spare anyway
+    mov al, [fd_lhnd]
+    or al, al
+    jz .out
+    mov bh, NET_CLASS
+    mov bl, NETV_ACCEPT
+    call OSAPI_DRV_CALL
+    jc .out
+    or ax, ax
+    jz .out                         ; nobody knocked, which is the usual answer
+    mov [fd_rjhnd], al
+    ; --- borrow the reply cell, so the bounded send in fd_reply is reused ---
+    mov bl, [fd_chnd]
+    mov [fd_chnd], al
+    mov [fd_rjsav], bl
+    mov si, fd_r421
+    call fd_reply
+    mov bl, [fd_rjsav]
+    mov [fd_chnd], bl               ; the session's handle back FIRST, before
+    mov al, [fd_rjhnd]              ; anything can fail
+    mov bh, NET_CLASS
+    mov bl, NETV_ABORT              ; refused before it said a word: there is
+    call OSAPI_DRV_CALL             ; nothing in flight for it to lose
+    mov si, fd_l_busy
+    call fd_log
+.out:
+    pop si
     pop bx
     pop ax
     ret
@@ -7081,6 +7140,8 @@ fd_r550w:   db '550 The server is read only', 0
 fd_r551:    db '551 Read failed', 0
 fd_r552:    db '552 Write failed - disk full or protected', 0
 fd_r426:    db '426 Transfer stalled - no data for 90 seconds', 0
+fd_r421:    db '421 Busy - this server takes one client at a time', 0
+fd_l_busy:  db 'Refused a second client (421)', 0
 fd_r553:    db '553 File name not allowed - 8.3 only, no spaces', 0
 fd_l_stall: db 'Stalled: ', 0
 fd_l_stb:   db ' bytes, sk ', 0
@@ -7295,7 +7356,9 @@ fd_mext     equ fd_xbytes + 4                   ; 4: the extension fd_mangle83
                                      ; lifted out, while it rewrites the stem
                                      ; UNDER it - the two overlap in fd_leaf,
                                      ; so the ext cannot stay where it was
-fd_cidle    equ fd_mext + 4                     ; word: the tick the control
+fd_rjhnd    equ fd_mext + 4                     ; byte: the second client's
+fd_rjsav    equ fd_rjhnd + 1                    ; byte: ...and ours, banked
+fd_cidle    equ fd_rjsav + 1                    ; word: the tick the control
                                      ; connection last said anything
 fd_tlast    equ fd_cidle + 2                    ; word: the tick a byte last
                                      ; crossed, for the gap
