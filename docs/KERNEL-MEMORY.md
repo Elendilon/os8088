@@ -19,10 +19,20 @@ last time.
 
 **The kernel is ONE contiguous span starting at linear 0x00600, and that
 includes its buffers.** `kern_big`'s budget is 111.5KB today (114,176) and
-`kern_small`'s 103.5KB (105,984). Big stands at **1,536 spare — THREE
-512-byte steps**, one under the four the moves below are granted on; small
-at **512, one step**. That is a figure to raise deliberately or to spend
-down, not headroom to draw on. `tools/kernsize.py`, below, is what says so,
+`kern_small`'s 103.5KB (105,984). Big stands at **512 spare — ONE 512-byte
+step**, three under the four the moves below are granted on; small at
+**ZERO — `KERN_SIZE` equals `KERN_BUDGET` exactly**, which assembles only
+because the guard is `>`. That is a figure to raise deliberately or to spend
+down, not headroom to draw on.
+
+**What that means in bytes you can actually add**, measured by bisecting the
+guard rather than inferred from the spare: **big takes 554 more bytes of
+`.text`, small 341** before the assemble fails. Both fail on `KERN_BUDGET`
+and not on `KERN_CODE_MAX`, which still has 3,626. The two numbers are larger
+than the spare because the footprint moves in whole 512-byte rungs and there
+is slack inside the current one — so the next change that crosses a rung
+costs 512 whatever its own size was. Small's 341 is all rung slack and no
+budget: the byte after it fails. `tools/kernsize.py`, below, is what says so,
 and `make` runs it on every build — but only for the build it is building, so
 `make small` is the one that reports the second figure.
 
@@ -485,8 +495,52 @@ The two are also coupled through the rounding, and that coupling is
 load-bearing in both directions. A byte moved from `.bss` to `.lowbss` helps
 `KERN_CODE_MAX` but *hurts* `KERN_BUDGET` until the image falls far enough to
 drop a 512-byte step: when the `.lowbss` rung is full, the very first byte
-moved costs a whole step. Even with three steps left under the budget, **moving data
+moved costs a whole step. Even with a step left under the budget, **moving data
 out of the segment is not free**, and neither is moving code into `.cold`.
+
+### Where move 28's grant went, and where both figures now stand
+
+Move 28 granted big 2KB and small 512, and the round that followed spent
+almost all of it. Every commit between the grant and here was built and
+measured, so this is attribution rather than an estimate; the pieces sum
+exactly to the total, which is how it is known that nothing is missing.
+
+| what | `.text` | `.bss` | footprint | rung |
+|---|---:|---:|---|---|
+| SPEC.md §5.6.4.1's fast line walk, with §5.6.6.1's wide fallback | +762 | +11 | +512 | **crossed** |
+| §10.1/§10.2 — the event ring drains, and keeps the newest input | +60 | +2 | — | |
+| Minesweeper's right-click to flag (SPEC.md §13.11) | +55 | +24 | +512 | **crossed** |
+| `OSAPI_FILE_RMDIR`, published for FTPD | +42 | — | — | |
+| §7.3 — `gfx_lock` hands over | +31 | — | — | |
+| the Task Manager's quiet mounts | +2 | — | — | |
+| **total** | **+952** | **+37** | **+1,024** | two rungs |
+
+`make QUANTUM=` costs nothing: it is off by default. Paint's stroke wait and
+Wire's status strip are packages and cost the kernel nothing at all.
+
+**`kern_small` is at ZERO and the line walk is not why.** §5.6.4.4 put the
+fast walk behind `%ifdef KERN_BIG` precisely because it blew this figure when
+it was first written, so the branch's largest single spend costs small
+nothing. Measured at each commit, small goes over in exactly one place:
+**Minesweeper's right-click**, 55 bytes of `.text` and 24 of `.bss`, which
+crossed the rung and took it from 512 spare to 0. Everything after it — the
+event ring, the lock handover, `OSAPI_FILE_RMDIR` — has been living inside
+the 341 bytes of slack that rung left behind, which is why nothing since has
+moved the number and why the next thing that does will move it by a full 512
+and fail.
+
+**No raise is asked for here.** Big at one step is inside ordinary growth even
+if it is three under the standard, and small at zero still assembles and
+boots. What the next kernel feature owes is the conversation this figure
+exists to force: either `%ifdef KERN_BIG`, which is the line walk's answer and
+costs small nothing, or a move. Deciding that at the point of asking is the
+whole mechanism; discovering it at a failed assemble is what moves 22, 23 and
+24 were each called out for.
+
+**What it costs the machine**, since the footprint is RAM and not disk: big's
+free heap on a 640KB machine goes 530.0 → 529.0 KB, and small's on a 128KB
+machine 25.0 → 24.5 KB. The half-kilobyte is 2% of everything a package has
+on the small machine, and it went to a right-click.
 
 ---
 
@@ -592,21 +646,21 @@ Three things about it:
 ```json
 {
   "big": {
-    "bss": 6419,
+    "bss": 6456,
     "budget": 114176,
     "codemax": 65536,
-    "cold": 37628,
+    "cold": 37632,
     "coldpara": 2368,
     "fatpara": 288,
-    "imgpara": 3808,
-    "kend": 7136,
+    "imgpara": 3872,
+    "kend": 7200,
     "kseg": 96,
-    "ksize": 112640,
+    "ksize": 113664,
     "lowbss": 7830,
     "lowpara": 576,
     "ovl": 2828,
     "stk0": 1024,
-    "text": 54503
+    "text": 55454
   },
   "small": {
     "bss": 5947,
@@ -638,12 +692,12 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 
 | region | size | what it is |
 |---|---:|---|
-| image (`.text` 50,990 + `.bss` 5,959) | 57,344 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch |
-| cold code | 36,352 B | 36,008 bytes with a CS of their own: the Control Panel, the five file modules, and SPEC.md §2.6's second round — assoc, disk, driver, memory and desk |
+| image (`.text` 55,454 + `.bss` 6,456) | 61,952 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch — 42 bytes of the rung are free |
+| cold code | 37,888 B | 37,632 bytes with a CS of their own: the Control Panel, the five file modules, and SPEC.md §2.6's second round — assoc, disk, driver, memory and desk |
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | `.lowbss` + task 0's stack | 9,216 B | 7,830 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
 | the boot overlay | 0 B | 2,828 bytes of code inside the FAT window, gone by the first mount |
-| **total** | **107,520 B** | of a 108,544-byte budget — **1,024 B spare, TWO steps** |
+| **total** | **113,664 B** | of a 114,176-byte budget — **512 B spare, ONE step** |
 
 **This table is HAND-WRITTEN and the block above it is not**, which is how it
 came to disagree with the blessed JSON by 800 bytes before this was noticed.
@@ -660,9 +714,11 @@ SPEC.md §18.96's floppy formatter, §39.11's dual display. Things REMOVED from
 small: SPEC.md §41.11's extended-memory store, the first of those and so far
 the only one.
 
-`kern_small` stands at **100,864 B of its own 102,400-byte budget, 1,536 B
-spare, THREE steps** — inside the four-step standard, and moves 21 and 22 are
-where the surplus went. It stood at seven steps then, three over the
+`kern_small` stands at **105,984 B of its own 105,984-byte budget — ZERO
+spare, and it assembles only because the guard is `>`**. Moves 21, 22 and 23
+are where the surplus went, and Minesweeper's right-click is what spent the
+last step of it (the accounting section above). There are 341 bytes of image
+rung left before the next crossing fails the assemble. It stood at seven steps then, three over the
 standard, which **owed a conversation rather than being headroom**: two things
 had arrived at the same figure from opposite directions and neither knew about
 the other:
@@ -689,9 +745,11 @@ has already saved AX, SI and DI, so a proc was spending ten bytes re-saving
 them — it is +51 and costs the machine **nothing**. Four bytes were the
 difference between free and 512.
 
-The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0DE0,
-`FAT_SEG` 0x1680, `LOW_SEG` 0x17A0, `HEAP_SEG` 0x19E0. `tools/kernsize.py`
-prints that line, so it need never be derived by hand again.
+The ladder lands on these segments: `KERNEL_SEG` 0x0060, `COLD_SEG` 0x0F80,
+`FAT_SEG` 0x18C0, `LOW_SEG` 0x19E0, `HEAP_SEG` 0x1C20 — 112.5KB, so the heap
+is `int 12h` minus that. `tools/kernsize.py` prints that line, so it need
+never be derived by hand again; the figures here were last re-read off it at
+the merge that carried SPEC.md §5.6.4.1, §7.3 and §10.2 onto `elendilon`.
 
 **Run `python3 tools/kernsize.py` rather than trusting the numbers in this
 paragraph.** It reads the build; this prose does not, and `--bless` rewrites
@@ -1128,33 +1186,33 @@ generated in the first place.
 <!-- kernsize:themes -->
 | theme | bytes | share |
 |---|---:|---:|
-| the file system, end to end | 31,935 | 34.7% |
-| the window system and its furniture | 24,715 | 26.8% |
-| drawing: adapters, primitives, glyphs, icons | 13,965 | 15.2% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 10,857 | 11.8% |
-| the kernel proper: API table, heap, scheduler, events | 7,878 | 8.6% |
+| the file system, end to end | 31,935 | 34.3% |
+| the window system and its furniture | 24,800 | 26.6% |
+| drawing: adapters, primitives, glyphs, icons | 14,758 | 15.9% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 10,857 | 11.7% |
+| the kernel proper: API table, heap, scheduler, events | 7,955 | 8.5% |
 | the three built-in kinds | 1,751 | 1.9% |
 | the Control Panel | 1,030 | 1.1% |
-| **total** | **92,131** | |
+| **total** | **93,086** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
 | module | `.text` | `.cold` | code | `.bss` | `.lowbss` |
 |---|---:|---:|---:|---:|---:|
-| `wm.inc` — the window manager (§11) | 11,593 | 95 | **11,688** | 1,061 | — |
+| `wm.inc` — the window manager (§11) | 11,621 | 95 | **11,716** | 1,085 | — |
 | `files.inc` — the Disk window (§22) | 1,145 | 8,072 | **9,217** | 470 | — |
-| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 358 | 6,052 | **6,410** | 890 | 3,584 |
-| `vga12.inc` — the VGA planar primitives (§5) | 5,634 | 425 | **6,059** | 654 | — |
-| `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 5,041 | **5,220** | 155 | — |
+| `vga12.inc` — the VGA planar primitives (§5) | 6,427 | 425 | **6,852** | 665 | — |
+| `disk.inc` — volumes, mount, the FAT read path (§18–19) | 358 | 6,044 | **6,402** | 890 | 3,584 |
+| `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 5,053 | **5,232** | 155 | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 223 | 4,727 | **4,950** | 157 | — |
 | `mouse.inc` — serial mouse and the cursor (§9) | 3,885 | — | **3,885** | 149 | — |
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 606 | 3,002 | **3,608** | 462 | — |
-| `ui.inc` — the UI task and the event ladder (§13) | 3,185 | — | **3,185** | 45 | — |
-| `menu.inc` — the menu bar and pull-downs (§12) | 3,052 | — | **3,052** | 197 | 98 |
+| `ui.inc` — the UI task and the event ladder (§13) | 3,236 | — | **3,236** | 47 | — |
+| `menu.inc` — the menu bar and pull-downs (§12) | 3,055 | — | **3,055** | 197 | 98 |
 | `assoc.inc` — file type associations (§54) | 528 | 2,380 | **2,908** | 43 | — |
 | `memory.inc` — the claim heap (§50) | 14 | 2,754 | **2,768** | 22 | 324 |
 | `filecp.inc` — Cut/Copy/Paste (§22.3–22.5) | — | 2,436 | **2,436** | 148 | — |
-| `instance.inc` — instances and the built-in kinds (§29) | 2,414 | — | **2,414** | 698 | — |
+| `instance.inc` — instances and the built-in kinds (§29) | 2,417 | — | **2,417** | 698 | — |
 | `clock.inc` — the clock ladder (§37) | 1,794 | — | **1,794** | 89 | — |
 | `apps.inc` — the three built-in kinds (§14) | 1,751 | — | **1,751** | 15 | 240 |
 | `font.inc` — the 8x8 text renderers (§6) | 1,635 | — | **1,635** | 197 | 768 |
@@ -1169,17 +1227,17 @@ generated in the first place.
 | `splash.inc` — the boot splash (§15) | 961 | — | **961** | — | — |
 | `dock.inc` — **(undescribed)** | 913 | — | **913** | 38 | — |
 | `viddet.inc` — adapter detection and geometry (§39) | 855 | — | **855** | — | — |
-| `loader.inc` — the package loader (§21) | — | 794 | **794** | 58 | — |
+| `loader.inc` — the package loader (§21) | — | 790 | **790** | 58 | — |
 | `fprog.inc` — the file-operation progress widget (§12.8) | 626 | — | **626** | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 537 | — | **537** | 25 | — |
-| `mod.inc` — on-demand kernel modules (§2.8) | 36 | 420 | **456** | 66 | — |
+| `mod.inc` — on-demand kernel modules (§2.8) | 36 | 424 | **460** | 66 | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 269 | 96 | **365** | 22 | — |
 | `clip.inc` — the system clipboard (§55) | 227 | — | **227** | 6 | — |
-| `events.inc` — the event ring (§10) | 141 | — | **141** | 134 | — |
+| `events.inc` — the event ring (§10) | 170 | — | **170** | 134 | — |
 | `blank.inc` — **(undescribed)** | 124 | — | **124** | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 10 | — | **10** | — | — |
-| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,425 | — | **3,425** | — | — |
-| **total** | **54,503** | **37,628** | **92,131** | **6,419** | **7,830** |
+| `kernel.asm` — API table, entry points, `kmain`, the shims | 3,469 | — | **3,469** | — | — |
+| **total** | **55,454** | **37,632** | **93,086** | **6,456** | **7,830** |
 <!-- END generated table -->
 
 ### Reading it
@@ -1365,7 +1423,7 @@ It works because of what the `FAT_SEG` window is doing at boot: nothing.
 `drv_boot` — the *last* thing `kmain` does before the first paint. So there
 is a 4,608-byte hole in the middle of the kernel's own ladder that is live
 for the whole of start-up and dead the instant the first volume mounts. The
-overlay is **3,069 bytes** of it, with 1,539 spare:
+overlay is **2,828 bytes** of it, with 1,780 spare:
 
 | | bytes | |
 |---|---:|---|
@@ -1382,9 +1440,9 @@ they are short by ~158 bytes that predate this note. Trust the total and the
 spare; treat a row as "roughly what this module put here".
 
 **The number to watch is NOT the overlay's spare, it is the IMAGE's last
-sector.** `kernel.bin` is **88,115 bytes** and the boot sector reads
-`(size + 511) / 512` = **173** of them, which hold 88,576 — so there are
-**461 bytes** of slack in the file, and once that is gone the next thing added
+sector.** `kernel.bin` is **102,668 bytes** and the boot sector reads
+`(size + 511) / 512` = **201** of them, which hold 102,912 — so there are
+**244 bytes** of slack in the file, and once that is gone the next thing added
 to `.ovl`, however small, costs a whole sector of boot read (~65 ms on the
 field machine). `tools/kernsize.py` reports the three *rungs* and not this,
 because the rungs are what the RAM ladder is built from; the file's tail is a
@@ -1392,8 +1450,8 @@ separate question and this is where it is written down.
 
 It was under 100 bytes at four consecutive measurements of one round — 8
 before §18.97's probe, 5 after it, 5 again after `font_run` crossed an image
-rung underneath it, 3 after §18.97.1 — and then a rung boundary moved and it
-is 461. That swing is the point, and it is worth reading as a pattern rather
+rung underneath it, 3 after §18.97.1 — then a rung boundary moved and it was
+461, and it is **244** now. That swing is the point, and it is worth reading as a pattern rather
 than as a run of coincidences: **`.text` and `.ovl` land in the same file and round at
 different places**, so the tail's slack is not a budget anyone is steering
 and it can be spent to nearly nothing by a change that never touches the
@@ -1496,8 +1554,9 @@ mount, and everything in it bounded by a floppy at ~24 ms a sector),
 `driver.inc` (a boot and a Control Panel page), `memory.inc` (a claim) and
 `desk.inc` (a drive-zone click). **Segment headroom 471 → 12,698, at a cost
 of two 512-byte steps of `KERN_BUDGET`** — which is the trade §2.6 always
-makes, and the reason the spare in the table above is two steps rather than
-four.
+makes, and the reason the spare in the table above was two steps rather than
+four at the time §2.6's second round landed. It is one step now (the
+accounting section above says what spent the others).
 
 What it also produced is three new build refusals in `tools/os88ovlchk.py`,
 because three of the four rules below were broken during the round and every
