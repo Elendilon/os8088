@@ -60191,3 +60191,37 @@ is §77.24's protocol rather than a symptom. The check stands down while
 `[fd_xf]` is running and leaves that case to `FD_WDOG_T`, which measures the
 connection that is actually supposed to be moving.
 
+### 77.28 Back-to-back transfers ran the pool dry on SUCCESS
+
+§77.25 gave a FAILED transfer its socket back at once. The gate then failed
+one assertion later with **`425 Cannot open a data connection`** on a
+transfer that had not started yet — after five uploads, a LIST and a RETR in
+quick succession, all of which had *succeeded*.
+
+**A graceful close holds its slot for a FIN round trip**, and that is the
+right thing for a transfer that ended properly. But `NET_SOCKS` is four, two
+are permanently spoken for (the port-21 listener and the control connection),
+and that leaves two for a data connection that is finishing and the next one
+starting. Run transfers back to back and the pool runs dry — on ordinary
+success, with nothing leaked and nothing wrong.
+
+**After a STOR the client has already closed.** Its close is how it signalled
+end-of-file, so our socket is sitting in CLOSE_WAIT with nothing in flight
+that the peer could still want. Aborting there returns the slot immediately
+and costs the client nothing it had not already given up.
+
+**After a RETR or a LIST it is the other way round and the close is
+mandatory**: the close IS the end-of-file marker, and an abort truncates
+whatever the client has not read yet. That asymmetry is the whole rule, and
+it is the same one §77.25 states from the other side.
+
+**This is a good argument for a larger `NET_SOCKS` and a bad one for making
+it four-and-a-bit.** Four was chosen (netpkg.inc) as "a control connection
+plus a data connection plus a listener that must stay open across both, and
+the fourth is a browser fetching while something else is connected" — which
+counts a *steady state* and not the overlap while one transfer ends and the
+next begins. The number is the driver's memory, so raising it is
+`drivers/ether/`'s decision to take against everything else on a 640KB
+machine; what belongs here is not holding a socket a moment longer than the
+protocol requires.
+

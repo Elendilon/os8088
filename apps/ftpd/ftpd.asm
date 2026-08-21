@@ -3021,7 +3021,23 @@ fd_xdone:
     mov si, fd_l_sent
 .say:
     call fd_log_rate
+    ; **AFTER A STOR THE CLIENT HAS ALREADY CLOSED** (SPEC.md 77.28): its
+    ; close is how it signalled end-of-file, so our socket is in CLOSE_WAIT
+    ; and there is nothing in flight for it to lose. Aborting returns the
+    ; slot at once where a graceful close holds it for a FIN round trip -
+    ; and back-to-back uploads were running the four-socket pool dry on
+    ; SUCCESS, which is how the gate found this.
+    ;
+    ; A RETR or a LIST is the other way round and MUST close: the close IS
+    ; the end-of-file, and an abort truncates whatever the client has not
+    ; read yet.
+    cmp byte [fd_xf], FX_STOR
+    jne .close
+    call fd_data_abort
+    jmp short .dropped
+.close:
     call fd_data_drop
+.dropped:
     call fd_reset_xfer
     mov si, fd_r226
     call fd_reply
