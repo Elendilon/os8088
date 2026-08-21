@@ -2916,8 +2916,9 @@ fd_send_stage:
     push es
     call fd_data_ready
     jc .later
-    mov ax, [fd_sfill]
-    sub ax, [fd_sout]
+.more:                              ; the same drain as fd_recv_stage, and for
+    mov ax, [fd_sfill]              ; the same reason (SPEC.md 77.30): one
+    sub ax, [fd_sout]               ; NET_SKMAX per worker pass is ~1KB a tick
     jz .empty
     cmp ax, NET_SKMAX
     jbe .n
@@ -2933,9 +2934,11 @@ fd_send_stage:
     jc .later
     call fd_count                   ; COUNTED HERE, where the bytes really move
     add [fd_sout], cx               ; **BY WHAT WAS TAKEN**, which may be less
-    mov ax, [fd_sout]               ; than asked and may be 0 (netpkg.inc)
+    or cx, cx                       ; than asked and may be 0 (netpkg.inc)
+    jz .later                       ; ...and a zero means the wire is full: the
+    mov ax, [fd_sout]               ; loop must END on it or it spins
     cmp ax, [fd_sfill]
-    jb .later
+    jb .more
 .empty:
     mov word [fd_sout], 0
     mov word [fd_sfill], 0
@@ -2976,6 +2979,21 @@ fd_recv_stage:
     push es
     call fd_data_ready
     jc .out
+    ; -----------------------------------------------------------------------
+    ; **DRAIN, DO NOT SIP** (SPEC.md 77.30). This read ONE NET_SKMAX buffer
+    ; and returned to the scheduler, so the transfer moved at most 1KB per
+    ; worker pass - and a worker pass is about a system tick. 1024 bytes at
+    ; 18.2 Hz is ~18 KB/s of ceiling before anything else is counted, and the
+    ; field measured 7. The per-BYTE work cannot explain that: checksum plus
+    ; two copies at ~30 cycles a byte is a 155 KB/s ceiling on a 4.77MHz
+    ; 8088. The cost was per PASS, and the fix is to keep asking while the
+    ; socket keeps answering, until the stage is full or the wire goes quiet.
+    ;
+    ; It is bounded by the STAGE, which is the point: the loop cannot run
+    ; longer than one chunk's worth of bytes, and it ends the moment a RECV
+    ; returns nothing - which is what "the wire is empty for now" looks like.
+    ; -----------------------------------------------------------------------
+.more:
     mov ax, [fd_chunk]
     sub ax, [fd_sfill]
     jz .commit                      ; a full chunk is waiting to go to disk
@@ -2997,8 +3015,8 @@ fd_recv_stage:
     add [fd_sfill], cx
     mov ax, [fd_sfill]
     cmp ax, [fd_chunk]
-    jb .out
-.commit:
+    jb .more                        ; ...and ASK AGAIN rather than waiting for
+.commit:                            ; the next pass to ask
     mov al, FR_WCREATE
     cmp byte [fd_created], 0
     je .p

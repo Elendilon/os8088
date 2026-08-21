@@ -60491,3 +60491,44 @@ works throughout. Supporting two properly is a `NET_SOCKS` question before it
 is an `apps/ftpd/` one — two control connections plus a passive listener plus
 its data socket is five, and there are four.
 
+### 77.30 One buffer per pass was the whole of the 7 KB/s
+
+The field asked the right question - *"I really doubt our 8088 is getting
+129430000 Kbytes/sec"* - about a Windows `ftp` client reporting a 129KB
+upload sent in 0.00 seconds, and guessed the reason: **86Box's SLiRP
+terminates TCP itself.** The client has a real connection to SLiRP on the
+host and SLiRP keeps a separate one to the guest, so the file vanishes into
+a host-sized send buffer at memory speed and dribbles into the 8088 at the
+8088's pace. The client's inactivity timer then runs against a connection
+where nothing more needs to happen. That is why a client with no timeout
+(Windows `ftp`) always succeeded, one that measures acknowledged progress
+(BulletFTP) sat at 0 KB/s, and the rest reported 100% and then gave up. It
+is not an emulator artifact either - any buffering NAT does the same.
+
+**So the timeouts were never a stall, and `gap 0s` had already said so.**
+What is left is that ~7 KB/s is genuinely slow, and the arithmetic says
+where it went. Per-BYTE work cannot explain it: a checksum plus two copies
+at roughly 30 cycles a byte is a **155 KB/s** ceiling on a 4.77MHz 8088, and
+we were 22x under it. Per SEGMENT it was **73 ms** - about 1.3 system ticks,
+which is the tell. The transfer was moving one packet per scheduler pass.
+
+**`fd_recv_stage` read ONE `NET_SKMAX` buffer and returned.** A worker pass
+is about a tick, so 1024 bytes at 18.2 Hz is an ~18 KB/s ceiling before
+anything else is counted - and the measured 7 sits under it exactly as the
+rest of the per-pass overhead would put it. `fd_send_stage` had the same
+shape. Both now **drain**: they keep asking while the socket keeps
+answering, bounded by the stage, ending when a call returns nothing - which
+is what "the wire is empty for now" looks like.
+
+The send side needs one guard the receive side does not: `NETV_SEND`
+answering **0** means the wire is full, and a loop that does not end on it
+spins. The receive side's zero already meant "quiet" and was already handled.
+
+**This costs no memory and belongs here rather than in the driver.**
+`SK_RXCAP` (1024) and `TCP_MSS` (512) are the driver's numbers and raising
+them is `drivers/ether/`'s trade to make against everything else on a 640KB
+machine - worth revisiting once this is measured, because fewer, larger
+segments is the other half of the same arithmetic. But a package that asks
+once per pass is slow no matter what the driver does, and that was the
+package's own bug.
+
