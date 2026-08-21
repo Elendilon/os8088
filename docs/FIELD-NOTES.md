@@ -2774,3 +2774,54 @@ refuses, the answer is §11.100.4: a window that has DECLARED a size for that
 adapter is handed it and told, and `apps/modplug` is the first — its compact
 face onto the CGA and its full one home, **0 differing pixels** against a
 forced full repaint.
+
+---
+
+## 27. A window that draws every frame starves the pointer — OPEN, reported on the iron, not reproduced here yet
+
+**Reported** while looking at `apps/wire` (SPEC.md §78) on the field machine:
+*"we are only getting mouse input when not drawing, and edge-then-repair is
+always drawing. I could not even click to close the window, after over a
+minute of trying."* The same reporter names `apps/paint` as the program this
+has always been worst in, and that is the reason to write it down rather than
+file it under the demo.
+
+**The arithmetic says it should happen and that is not the same as reproducing
+it.** §78's worker takes the gfx lock for one burst a frame. At `Medium` /
+`Edge at a time` that burst is ~52 ms of a 54.9 ms tick; at `Edge, then
+repair` it is ~82 ms of an 82 ms period — 1.5× the line work and no sleep left
+at all (PERFORMANCE.md Set 73's 12.1 fps). Whatever the UI task needs the lock
+for is then waiting on a routine that never lets go for longer than it takes
+to re-take it.
+
+**Three candidates, and the point of the note is that nobody has separated
+them:**
+
+1. **Input overrun** — CLAUDE.md names it as one of the three defects an
+   emulator cannot show, beside the visible redraw and the double-draw flash.
+   The mouse ISR is an interrupt and runs; whether every *packet* it decodes
+   survives to a dispatched event is a different question, and the answer is a
+   counter in `mou_isr_body` against one in `ui_` dispatch, not an opinion.
+2. **Lock starvation** — the UI task is runnable but every path it wants ends
+   at `gfx_lock`, so it makes no progress while a worker holds it 95% of the
+   time. This would be a scheduling property and not a lost packet, and the
+   two look identical from a chair.
+3. **The click IS dispatched and the repaint is what is late** — the window
+   closes eventually and the minute was spent waiting for the frame that shows
+   it. The reporter's "over a minute" argues against this one but does not
+   kill it.
+
+**What would separate them**, and it is cheap: two counters, one where a
+packet is decoded and one where a click is dispatched, read back over a
+30-second hold. Equal counts rule out (1) and point at (2) or (3); unequal
+counts *are* (1) and give the ratio.
+
+**Not reproduced in the container yet, and that is expected**: driving the
+pointer through MartyPC's serial packets is not the same rate a hand is, and
+the harness pauses the guest between samples. `tools/os88mouse.py` reads the
+cursor back rather than dead-reckoning, so it is the right instrument to try.
+
+**It is not caused by SPEC.md §5.6.4.1** — the same starvation arithmetic
+holds for any worker that fills its tick, and `apps/paint` predates all of it.
+What §5.6.4.1 changed is that a *line-drawing* program can now fill its tick
+with far more drawing, which is why this surfaced now.

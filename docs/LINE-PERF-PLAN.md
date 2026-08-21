@@ -1,9 +1,62 @@
 # Line drawing — what a pixel costs, and the cheaper walk
 
-**Status: MEASURED, NOTHING BUILT.** §1–§3 are numbers off a cycle-accurate
-4.77 MHz 8088 (PERFORMANCE.md Set 69); §4 is a candidate that has been built
-as a stub and measured but is not in the kernel; §5 is what putting it there
-would cost and what would have to move with it.
+**Status: BUILT, and this document is now the record of how.** §4's candidate
+is SPEC.md §5.6.4.1 and shipped in `kernel/vga12.inc`; §7's instrument is
+`tools/os88linecost.py`. What landed, and where the numbers live:
+
+| | |
+|---|---|
+| the walk itself | SPEC.md §5.6.4.1–§5.6.4.2, PERFORMANCE.md Set 70 — **4.76× steep, 5.13× shallow**, pixels identical |
+| a defect the comparison found | §5.6.4.3 — a line entering the screen from the top drew **four rows low** on Hercules, and had since the primitive existed |
+| what it cost | **762 bytes** of `.text` and one 512-byte image rung; `kern_small` does not get it (§5.6.4.4) |
+| what it broke, and the fix | Set 72 — the *spread* by angle went 2× the wrong way and Missile Command's trails visibly changed pace. §5.6.6.1 made §5.6.6's wide walk the fallback |
+| what it is worth to a program | Set 71 — `apps/wire` (§78) at **18.2 fps against 8.1**, which is the tick |
+
+§5's estimates are left as written so they can be read against the outcome:
+the `.text` guess was **~250–400 bytes** and the answer was **762** — §5.1
+below is where that went.
+
+---
+
+## 5.1 Where the 762 bytes went, since the estimate was half of it
+
+| bytes | |
+|---:|---|
+| **324** | the eight loop bodies (§5.6.4.2) |
+| **280** | the setup — **161** of it eligibility, and that is the part the estimate missed |
+| 41 | the register loads and the 8-way dispatch |
+| 71 | `gfx_lf_wide3`, which is §5.6.6.1 and was not foreseen at all |
+| 33 | `gfx_lm_pre`, net of 22 bytes it *saved* in `gfx_line_mono`'s header — the §5.6.4.3 bug fix, on both kernels |
+| 13 | the two hooks and `.empty` |
+| +11 `.bss` | `d`, `sub2`, `add2`, `first`, `cnt`, `flg` |
+
+**The 161 is two octant blocks that are mirror images and cannot share code.**
+Steep tests the whole x span against the box and derives its step interval
+from y; shallow does the transpose. On an 8088 there is no cheap way to say
+"the same code, over the other pair of words" — reaching a named word through
+a computed base costs more per use than the duplication costs once. So the
+split by octant, which is what makes the *loops* cheap, is also what makes the
+*setup* expensive, and that is the same trade §4.1 describes seen from the
+other side.
+
+Nothing here is recoverable without giving back speed; §5.2 prices the three
+candidates that were considered.
+
+## 5.2 What the savings would have cost, measured
+
+`tools/os88linecost.py pieces` prices the indirect jump the biggest one needs
+at **37 cycles**:
+
+| saving | what it costs |
+|---:|---|
+| ~38 bytes | collapse the four steep bodies behind one indirect jump: **+6%** on a 32×127 line, **+24%** on a 45° one — and the steep/shallow spread goes **1.18× → 1.47×**, which is buying back exactly what Set 72 cost a round to remove |
+| ~148 bytes | an ink-independent plot (two read-modify-writes a pixel): **+25% steep, +30% shallow**, on every line |
+| ~148 bytes | drop the black loops: every erase back to 723 cyc/px, **4.8×** |
+| 324 bytes | no fast walk at all |
+
+---
+
+
 
 The question that started it: *DOS wireframe games draw many line segments a
 frame on a 5150, so why is `gfx_line` slow?* The short answer is that it is
@@ -223,9 +276,11 @@ that nobody costs it again.
 
 ---
 
-## 5. What building it would cost
+## 5. What building it cost
 
-Not started, and these are the things that would have to be true.
+**These were written before it was built and are left unedited**, so the
+estimates can be read against §5.1's outcome. Every one of them turned out to
+matter; the `.text` figure was the one that was wrong.
 
 **SPEC.md §5.6.4 is rewritten first, not after.** It currently documents one
 mono loop; this is four (steep/shallow × the ink cases) or two with the ink
