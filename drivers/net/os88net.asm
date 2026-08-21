@@ -113,6 +113,8 @@ OSAPI_RAND      equ dos_rand
                                 ; SAME on both ends by construction
 PKGV_IDENT  equ 0               ; apps/os88api.inc's, which a .COM does not
                                 ; include - netpkg.inc names it
+%include "ethprof.inc"          ; ...which under ETH_NOEMIT emits NOTHING and
+                                ; only aliases the renamed bodies (72.15)
 %include "ethsock.inc"
 %include "ethusr.inc"
 %include "pktdrv.inc"           ; ...where ne2000.inc would be

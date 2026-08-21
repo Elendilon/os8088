@@ -158,7 +158,7 @@ mem_zero:
 ; byte of the value - so `xor ah,ah / mov al,[si]` is exactly right, in the
 ; swapped arithmetic this file's header licenses.
 ; -----------------------------------------------------------------------------
-ip_ck_part:
+ip_ck_part_i:
     push ax
     push cx
     push si
@@ -816,7 +816,7 @@ udp_send:
 ; -----------------------------------------------------------------------------
 ; eth_frame - one frame is in eth_rxb, CX bytes of it
 ; -----------------------------------------------------------------------------
-eth_frame:
+eth_frame_i:
     push ax
     push bx
     push cx
@@ -917,7 +917,7 @@ eth_frame:
 ; -----------------------------------------------------------------------------
 ETH_BUDGET  equ 8
 
-eth_pump:
+eth_pump_i:
     push ax
     push bx
     push cx

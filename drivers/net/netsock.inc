@@ -121,6 +121,15 @@ nsk_tab:
                                 ; told - so the two are already the same
                                 ; operation and a second body would be a
                                 ; second thing to keep in step for nothing
+    dw nsk_noprof               ; NETV_PROF - **THE CABLE HAS NO PROFILER**
+                                ; (SPEC.md 72.15). It shares every line of the
+                                ; stack and none of the instrument: the stages
+                                ; are bracketed in ETHER.DRV's own wrappers,
+                                ; and the DOS partner that runs the other half
+                                ; of this transport carries none of them. A
+                                ; refusal is the only honest answer - a table
+                                ; of zeroes would read as a stack doing no
+                                ; work at all
 %if ($ - nsk_tab) / 2 != NETV_MAX + 1
   %error "net: nsk_tab does not cover NETV_0..NETV_MAX"
 %endif
@@ -829,4 +838,10 @@ nsk_close:
     pop si
     pop dx
     pop bx
+    ret
+
+; --- nsk_noprof - NETV_PROF over the cable ----------------------------------
+nsk_noprof:
+    mov ax, NETE_VERB
+    stc
     ret

@@ -1,0 +1,478 @@
+; =============================================================================
+; os8088 - drivers/ether/ethprof.inc - WHERE THE TIME ACTUALLY GOES (SPEC.md 72.15)
+;
+; The stack was measured at 7 KB/s with the window at its 8192-byte ceiling
+; (SPEC.md 72.13.2), which means the window stopped being the constraint and
+; nobody could say what had replaced it. Every answer offered after that point
+; was arithmetic over a per-byte cost NOBODY HAS EVER MEASURED -
+; PERFORMANCE.md Part 6 rule 4 in its exact failure mode, twice in one week.
+;
+; This is the instrument. Ten stages, each bracketed at its entry and its exit,
+; each accumulating THREE numbers: how long, how many bytes, how many calls.
+; Divide the first by the second and the answer is us/byte for that stage,
+; measured on the machine the question is about.
+;
+; --- WHY IT IS IN THE DRIVER AND NOT IN A TEST PACKAGE ----------------------
+; MartyPC has no network card of any kind (CLAUDE.md), so the one instrument
+; this project trusts for time cannot host this driver at all. QEMU can, and
+; QEMU is exact about work and useless about time. That leaves the machine
+; itself - an 86Box XT, or the 5150 - and on those there is no debugger and no
+; automation socket, so the measurement has to be taken BY the guest and read
+; ON the guest. tests/netbench is the window that reads it.
+;
+; What that buys is the whole point: the numbers come off the same 4.77MHz
+; machine the 7 KB/s came off, during the same FTP transfer.
+;
+; --- THE CLOCK --------------------------------------------------------------
+; Counter 0 of the 8253, latched, exactly as tests/benchlib.inc reads it: one
+; count is 838ns and it reloads every 55ms. A stage that ran longer than one
+; reload would be reported modulo 55ms - a small plausible number, which is
+; the failure benchlib's header spends a page on - so the count is extended
+; upward by the BIOS tick at 0040:006C, which our own int 08h hook chains. One
+; tick is EXACTLY 65536 counts, so the two halves are one 32-bit number in one
+; unit, and a stage may run for eighteen hours before it wraps.
+;
+; The tick is read BEFORE and AFTER the counter and the pair is taken again if
+; it moved. Without that, a bracket landing on the reload takes the old tick
+; with the freshly reloaded counter and reports 55ms that did not happen.
+;
+; **A BRACKET THAT SPANS A cli LONGER THAN 55ms UNDER-REPORTS**, because the
+; tick cannot advance while the ISR cannot run. Nothing here holds interrupts
+; off for anything like that, and it is written down because the failure would
+; otherwise be silent.
+;
+; --- WHAT IT COSTS ----------------------------------------------------------
+; A bracket is a latch, two INs, two word reads and the accumulate: about 13us,
+; twice per stage entry, plus the wrapper's own call and ret (11us,
+; PERFORMANCE.md Part 2). Call it 37us. The stages are per FRAME and per VERB,
+; never per byte, so a 200KB transfer is a few thousand of them - under half a
+; percent of a run that takes half a minute. When [prof_on] is 0 a bracket is
+; one compare and a return, and that is what ships.
+;
+; It is ALWAYS COMPILED IN and switched at runtime, on purpose. A profiler that
+; needs a rebuild is a profiler the person with the hardware cannot use, and
+; the person with the hardware is the only one who can answer this question.
+; =============================================================================
+
+PF_PUMP     equ 0               ; eth_pump: the card drained, budget and timers
+PF_CARD     equ 1               ; ne_ring_read: the card's ring -> our frame
+PF_FRAME    equ 2               ; eth_frame: one frame dispatched, whole
+PF_CKSUM    equ 3               ; ip_ck_part: the ones-complement sum
+PF_RXPUT    equ 4               ; sk_rxput: frame payload -> the socket ring
+PF_RXGET    equ 5               ; sk_rxget: the socket ring -> the caller
+PF_TXIN     equ 6               ; ring_in: the caller -> the send ring
+PF_TXOUT    equ 7               ; ring_out: the send ring -> a frame
+PF_TX       equ 8               ; ne_tx: our frame -> the card
+PF_VERB     equ 9               ; eth_pkg: one socket verb, whole
+PF_N        equ 10
+
+PF_REC      equ 18              ; per stage in the report block: dd time,
+                                ; dd bytes, dw calls, 8 bytes of name
+PF_HDR      equ 8               ; 'PF', version, PF_N, dd wall
+PF_BLK      equ PF_HDR + PF_N * PF_REC
+PF_CLR      equ PF_N * 14 + 4   ; what prof_start zeroes: the four per-stage
+                                ; arrays and the banked wall, which are
+                                ; contiguous and in that order
+
+%ifdef ETH_NOEMIT
+; --- the DOS partner (SPEC.md 62.11.1) carries none of this -----------------
+; It shares every line of inet.inc and tcp.inc and is a .COM with one segment
+; to live in, so the aliases below send its callers straight at the bodies and
+; not one byte of the profiler is emitted. ne2000.inc is not compiled there at
+; all - pktdrv.inc stands in its place and brings its own ne_tx - so the two
+; card stages have no alias here and must not have one.
+%macro PROF_B 1
+%endmacro
+%macro PROF_E 2
+%endmacro
+%define eth_pump   eth_pump_i
+%define eth_frame  eth_frame_i
+%define ip_ck_part ip_ck_part_i
+%define sk_rxput   sk_rxput_i
+%define sk_rxget   sk_rxget_i
+%define ring_in    ring_in_i
+%define ring_out   ring_out_i
+%else
+
+; --- the brackets ------------------------------------------------------------
+; EVERY REGISTER AND THE FLAGS SURVIVE BOTH, which is what lets a wrapper sit
+; around a routine whose CF is its answer and whose CX is its byte count.
+%macro PROF_B 1
+    push ax
+    mov al, %1
+    call prof_beg
+    pop ax
+%endmacro
+%macro PROF_E 2
+    push ax
+    push cx
+    mov al, %1
+    mov cx, %2
+    call prof_end
+    pop cx
+    pop ax
+%endmacro
+
+; =============================================================================
+; THE WRAPPERS - one per stage, and the reason they are all in THIS file
+;
+; Each stack file renames its routine's LABEL to `*_i` and changes nothing
+; else; every caller keeps the public name and reaches it through the wrapper
+; here. Bracketing INSIDE a routine would mean finding every exit - `.out`,
+; `.drop`, `.bad` - and a bracket missed on one error path silently carries
+; that start value into the next call's total.
+;
+; The byte count is read AFTER the call, so a routine whose CX is its ANSWER
+; (sk_rxput, sk_rxget) reports what it actually moved, and one whose CX is its
+; argument reports what it was asked for. Both are the true number for that
+; stage.
+; =============================================================================
+eth_pump:
+    PROF_B PF_PUMP
+    call eth_pump_i
+    PROF_E PF_PUMP, 0
+    ret
+
+ne_ring_read:
+    PROF_B PF_CARD
+    call ne_ring_read_i
+    PROF_E PF_CARD, ax          ; AX is preserved by the body: what was asked
+    ret
+
+eth_frame:
+    PROF_B PF_FRAME
+    call eth_frame_i
+    PROF_E PF_FRAME, cx
+    ret
+
+ip_ck_part:
+    PROF_B PF_CKSUM
+    call ip_ck_part_i
+    PROF_E PF_CKSUM, cx
+    ret
+
+sk_rxput:
+    PROF_B PF_RXPUT
+    call sk_rxput_i
+    PROF_E PF_RXPUT, cx         ; ...and here CX is the ANSWER: how many were
+    ret                         ; taken, which is the number that moved
+
+sk_rxget:
+    PROF_B PF_RXGET
+    call sk_rxget_i
+    PROF_E PF_RXGET, cx
+    ret
+
+ring_in:
+    PROF_B PF_TXIN
+    call ring_in_i
+    PROF_E PF_TXIN, cx
+    ret
+
+ring_out:
+    PROF_B PF_TXOUT
+    call ring_out_i
+    PROF_E PF_TXOUT, cx
+    ret
+
+ne_tx:
+    PROF_B PF_TX
+    call ne_tx_i
+    PROF_E PF_TX, cx
+    ret
+
+; -----------------------------------------------------------------------------
+; NETV_PROF - AL = 0 stop / 1 start / 2 read into the CALLER's ES:DI
+;
+; **THE READ WRITES INTO THE PACKAGE'S SEGMENT AND NOT OURS.** eth_pkg swaps ES
+; for its own DS and banks the caller's in [eth_useg], so every verb that hands
+; bytes back has to put it back - eth_v_addr does it through usr_write, and
+; this one does it directly because it is the DRIVER's verb and has no DOS end
+; to share a body with.
+; -----------------------------------------------------------------------------
+eth_v_prof:
+    cmp al, 1
+    je  .start
+    cmp al, 2
+    je  .read
+    call prof_stop
+    jmp short .ok
+.start:
+    call prof_start
+    jmp short .ok
+.read:
+    push es
+    mov es, [eth_useg]
+    call prof_read              ; CX = PF_BLK, which the caller sizes against
+    pop es
+.ok:
+    xor ax, ax
+    clc
+    ret
+
+; -----------------------------------------------------------------------------
+; prof_now - DX:AX = a 32-bit count of 838ns units
+; clobbers: AX, DX and the flags - both callers bank them
+;
+; The BIOS tick is the high half and counter 0 is the low half, and one tick is
+; exactly 65536 counts, so nothing has to be scaled between them. The counter
+; runs DOWN, so it is negated to count up within its tick.
+;
+; **IF IS CLEARED ACROSS THE LATCH AND THE TWO INs AND NOWHERE ELSE.** An
+; interrupt between the byte reads returns a torn count (benchlib.inc's rule);
+; holding IF down across the TICK reads as well would defeat the whole check,
+; because the tick cannot move while its ISR cannot run - so a reload landing
+; between them would be undetectable rather than caught.
+; -----------------------------------------------------------------------------
+prof_now:
+    push cx
+    push es
+    mov cx, 0x40
+    mov es, cx
+.again:
+    mov dx, [es:0x6C]           ; the tick, then the counter...
+    pushf
+    cli
+    mov al, 0
+    out 0x43, al                ; latch counter 0 - a read command, so the
+    jmp short $+2               ; system tick itself is undisturbed
+    in  al, 0x40
+    mov cl, al
+    jmp short $+2
+    in  al, 0x40
+    mov ah, al
+    mov al, cl
+    popf
+    cmp dx, [es:0x6C]           ; ...then the tick again: unchanged means the
+    jne .again                  ; two halves belong to each other
+    neg ax
+    pop es
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; prof_beg - AL = a stage: stamp its start
+; prof_end - AL = a stage, CX = bytes: accumulate the delta, the bytes and one
+;            call
+; Both preserve every register and the flags.
+; -----------------------------------------------------------------------------
+prof_beg:
+    cmp byte [prof_on], 0
+    je  .out
+    pushf
+    push ax
+    push bx
+    push dx
+    mov bl, al
+    xor bh, bh
+    shl bx, 1
+    shl bx, 1
+    call prof_now
+    mov [prof_t0+bx], ax
+    mov [prof_t0+bx+2], dx
+    pop dx
+    pop bx
+    pop ax
+    popf
+.out:
+    ret
+
+prof_end:
+    cmp byte [prof_on], 0
+    je  .out
+    pushf
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov bl, al
+    xor bh, bh
+    mov si, bx
+    shl si, 1                   ; SI = the stage * 2, the 16-bit call counter
+    shl bx, 1
+    shl bx, 1                   ; BX = the stage * 4, the 32-bit pairs
+    call prof_now
+    sub ax, [prof_t0+bx]
+    sbb dx, [prof_t0+bx+2]
+    add [prof_tm+bx], ax
+    adc [prof_tm+bx+2], dx
+    xor dx, dx
+    add [prof_by+bx], cx
+    adc [prof_by+bx+2], dx
+    inc word [prof_ca+si]
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    popf
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; prof_start / prof_stop - NETV_PROF's two switches
+;
+; Starting ZEROES everything, because a profile that silently continued a
+; previous one would attribute the last transfer's time to this one. The flag
+; goes down FIRST: a bracket firing halfway through the clear would leave a
+; start value behind that nothing ever ends.
+;
+; Stopping BANKS the wall clock. Without that, a report read a minute after the
+; run divides the same work by a minute and calls the stack 3% busy.
+; -----------------------------------------------------------------------------
+prof_start:
+    push ax
+    push cx
+    push di
+    push es
+    mov byte [prof_on], 0
+    push ds
+    pop es
+    mov di, prof_t0
+    mov cx, PF_CLR
+    xor al, al
+    cld
+    rep stosb
+    call prof_now
+    mov [prof_w0], ax
+    mov [prof_w0+2], dx
+    mov byte [prof_on], 1
+    mov di, prof_t0             ; **AND EVERY STAGE STARTS FROM NOW.** Starting
+    mov cx, PF_N                ; the profiler IS a socket verb, so PF_VERB's
+.stamp:                         ; bracket is already OPEN around the call that
+    mov [di], ax                ; got here - and the clear above just put a
+    mov [di+2], dx              ; zero in its start value. Its PROF_E then
+    add di, 4                   ; measures from the epoch and reports three
+    loop .stamp                 ; billion counts, which is what the first run
+                                ; of this instrument did. Re-stamping all of
+                                ; them is one loop and cannot be got wrong;
+                                ; a stage that is NOT open has its stamp
+                                ; overwritten by its own PROF_B anyway
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+prof_stop:
+    push ax
+    push dx
+    cmp byte [prof_on], 0
+    je  .out
+    call prof_now
+    sub ax, [prof_w0]
+    sbb dx, [prof_w0+2]
+    mov [prof_wall], ax
+    mov [prof_wall+2], dx
+    mov byte [prof_on], 0
+.out:
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; prof_read - ES:DI = a buffer of at least PF_BLK bytes; out CX = PF_BLK
+;
+; The stage NAMES travel with the numbers. A reporter carrying its own copy of
+; that table is a reporter that labels the wrong column the day a stage is
+; added, and this file is where a stage gets added.
+; -----------------------------------------------------------------------------
+prof_read:
+    push ax
+    push bx
+    push dx
+    push si
+    push di
+    mov byte [es:di], 'P'
+    mov byte [es:di+1], 'F'
+    mov byte [es:di+2], 1
+    mov byte [es:di+3], PF_N
+    mov ax, [prof_wall]         ; STOPPED: the wall is the run that was...
+    mov dx, [prof_wall+2]
+    cmp byte [prof_on], 0
+    je  .wall
+    call prof_now               ; ...RUNNING: it is how long it has been going
+    sub ax, [prof_w0]
+    sbb dx, [prof_w0+2]
+.wall:
+    mov [es:di+4], ax
+    mov [es:di+6], dx
+    add di, PF_HDR
+    xor bx, bx
+.l:
+    mov ax, [prof_tm+bx]
+    mov [es:di], ax
+    mov ax, [prof_tm+bx+2]
+    mov [es:di+2], ax
+    mov ax, [prof_by+bx]
+    mov [es:di+4], ax
+    mov ax, [prof_by+bx+2]
+    mov [es:di+6], ax
+    mov si, bx
+    shr si, 1
+    mov ax, [prof_ca+si]
+    mov [es:di+8], ax
+    mov si, [prof_names+si]
+    add di, 10
+    call prof_name
+    add di, 8
+    add bx, 4
+    cmp bx, PF_N * 4
+    jb  .l
+    mov cx, PF_BLK
+    pop di
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; --- prof_name - eight bytes of DS:SI to ES:DI, NUL-padded -------------------
+prof_name:
+    push ax
+    push cx
+    push si
+    push di
+    mov cx, 8
+.l:
+    xor al, al
+    cmp byte [si], 0
+    je  .put                    ; past the NUL: pad, and do not walk on into
+    mov al, [si]                ; whatever the next string is
+    inc si
+.put:
+    mov [es:di], al
+    inc di
+    loop .l
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+prof_names: dw pf_s0, pf_s1, pf_s2, pf_s3, pf_s4
+            dw pf_s5, pf_s6, pf_s7, pf_s8, pf_s9
+pf_s0:      db 'pump', 0
+pf_s1:      db 'card', 0
+pf_s2:      db 'frame', 0
+pf_s3:      db 'cksum', 0
+pf_s4:      db 'rxput', 0
+pf_s5:      db 'rxget', 0
+pf_s6:      db 'txin', 0
+pf_s7:      db 'txout', 0
+pf_s8:      db 'tx', 0
+pf_s9:      db 'verb', 0
+
+; --- the counters, and they ship inside the image like every other driver byte
+; prof_t0, prof_tm, prof_by, prof_ca and prof_wall are CONTIGUOUS and in that
+; order: prof_start clears PF_CLR bytes of them in one rep stosb, and prof_w0
+; is stamped after and so must stay outside that run.
+prof_t0:    times PF_N * 4 db 0     ; the open bracket's stamp, per stage
+prof_tm:    times PF_N * 4 db 0     ; ...and the total it accumulates into
+prof_by:    times PF_N * 4 db 0
+prof_ca:    times PF_N * 2 db 0
+prof_wall:  dd 0                    ; how long the run was, banked by prof_stop
+prof_w0:    dd 0                    ; when prof_start ran
+prof_on:    db 0
+%endif

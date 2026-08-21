@@ -1298,6 +1298,30 @@ make test VIDEO=cga                  TESTAPPS=build/bench.img
 make test VIDEO=herc HERCSEG=0x7000  TESTAPPS=build/bench.img
 ```
 
+`netbench` is the fifth and it is a different animal: it measures **nothing
+itself**. ETHER.DRV brackets its own ten stages with the PIT (SPEC.md §72.15)
+because that is the only place the stages exist, and `netbench` is the window
+that starts the profiler, stops it and renders the block. It rides its own
+disk **with the FTP server**, because the two are used together — and the
+whole exercise is a real transfer from a real client, which is the only way to
+get a receive path to run at all.
+
+```sh
+make netbench                      # NETBENCH.O88 beside FTPD.O88, 3 geometries
+make test TESTAPPS=build/netbench.img
+```
+
+Open both windows, press **S** (start, and zero), do the transfer, press **X**
+(stop) then **R** (read). **W** writes `NETBENCH.TXT`. `wall clock` minus
+`NOT in the driver` is the headline: if most of a transfer was never inside
+ETHER.DRV then nothing in the stage table can move it.
+
+**This one has no MartyPC column and never will** — MartyPC has no network
+card of any kind, so it cannot host the driver under test. Under QEMU the
+`calls` and `KB` columns are exact and the `ms` column is the host's speed
+(PERFORMANCE.md Part 4); `build/netbench360.img` on 86Box or a real 5150 is
+where the milliseconds mean milliseconds.
+
 ### A benchmark that is meant for the FIELD is ONE BOOTABLE DISK
 
 Binding, and stated here because this is the file a person reaches for when

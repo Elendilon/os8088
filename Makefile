@@ -1570,6 +1570,43 @@ ftpdtest: $(BUILD)/ether360.img $(BUILD)/ftpapps.img
 	@echo "ftpdtest: build/ether360.img + build/ftpapps.img"
 	@echo "          Run it with: python3 tests/ftpd.py"
 
+# NETBENCH: the stage profiler's window (SPEC.md 72.15), on a disk WITH the FTP
+# server, because the two are used together - start the profiler, run a
+# transfer from a real client, stop, read. Three geometries like everything
+# else, and the 360KB one is the point: the machine the 7 KB/s came off is a
+# 5150 with a 5.25" drive.
+#
+# It rides its OWN disk and not build/bench.img: that disk is the drawing and
+# CPU harnesses, has no FTP server on it and no reason to gain one, and the
+# apps disks' directory order is pinned (SPEC.md 24) so nothing under tests/
+# may go near them.
+NETBENCHFILES := $(BUILD)/netbench.o88 $(FTPDFILES)
+
+.PHONY: netbench
+netbench: $(BUILD)/netbench.img $(BUILD)/netbench720.img $(BUILD)/netbench360.img
+	@echo "netbench: build/netbench{,720,360}.img - NETBENCH.O88 with FTPD.O88"
+	@echo "          S start, X stop, R read, W write. SPEC.md 72.15."
+
+$(BUILD)/netbench.bin: tests/netbench/netbench.asm tests/benchlib.inc apps/os88api.inc apps/os88sock.inc drivers/net/netpkg.inc tools/benchlint.py | $(BUILD)
+	python3 tools/benchlint.py tests/netbench/netbench.asm
+	$(NASM) -f bin -w+error -I apps/ -I tests/ -I drivers/net/ -o $@ tests/netbench/netbench.asm
+	@echo "netbench: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/netbench.o88: $(BUILD)/netbench.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/netbench.bin -o $@
+
+$(BUILD)/netbench.img: $(NETBENCHFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(NETBENCHFILES) \
+		--folder SYSTEM/APPDATA
+
+$(BUILD)/netbench720.img: $(NETBENCHFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(NETBENCHFILES) \
+		--folder SYSTEM/APPDATA
+
+$(BUILD)/netbench360.img: $(NETBENCHFILES) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(NETBENCHFILES) \
+		--folder SYSTEM/APPDATA
+
 # SYSTEM/APPDATA IS BUILT, NOT CREATED ON DEMAND (SPEC.md 19.9), and leaving
 # it off this disk is what hid the persistence half of SPEC.md 77.12 for a
 # run: fd_data_enter refuses a volume without it and the save says nothing, so

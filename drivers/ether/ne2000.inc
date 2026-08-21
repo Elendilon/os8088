@@ -516,7 +516,7 @@ ne_curr:
 ; This is the split the header names. The card's remote DMA walks straight
 ; past PSTOP; the frame it is carrying does not.
 ; -----------------------------------------------------------------------------
-ne_ring_read:
+ne_ring_read_i:
     push ax
     push bx
     push cx
@@ -694,7 +694,7 @@ ne_overflow:
 ; transmit rather than this one: nothing here needs the completion, and
 ; waiting for it costs a millisecond of a machine that has 209 of them a tick.
 ; -----------------------------------------------------------------------------
-ne_tx:
+ne_tx_i:
     push ax
     push bx
     push cx

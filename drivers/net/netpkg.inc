@@ -189,7 +189,24 @@ NETV_ABORT   equ 11             ; AL = a handle: DROP IT NOW and give the slot
                                 ; whatever the peer had not yet read.
                                 ; out CF=0 always - aborting a handle that is
                                 ; already gone is not an error
-NETV_MAX     equ 11             ; ...and anything above it is refused. A verb
+NETV_PROF    equ 12             ; THE STAGE PROFILER (SPEC.md 72.15), and it is
+                                ; a verb rather than a build knob because the
+                                ; only machine that can answer the question is
+                                ; the 4.77MHz one somebody is holding.
+                                ;
+                                ;   AL = 0  stop, and bank the wall clock
+                                ;   AL = 1  zero everything and start
+                                ;   AL = 2  read: ES:DI = a buffer of at least
+                                ;           PF_BLK bytes -> CX = how many were
+                                ;           written
+                                ;
+                                ; CF=1 with AX = NETE_VERB from a driver that
+                                ; has no profiler, which is the CABLE: it
+                                ; shares every line of the stack and none of
+                                ; the instrument (SPEC.md 62.11.1), and a
+                                ; reporter must SAY that rather than draw a
+                                ; table of zeroes.
+NETV_MAX     equ 12             ; ...and anything above it is refused. A verb
                                 ; table indexed by an unchecked verb is a wild
                                 ; near call inside the driver
 

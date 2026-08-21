@@ -236,7 +236,7 @@ sk_txbase:                          ; segment itself
 ; through the package door, and the segment to read from is the one banked in
 ; [eth_useg] rather than whatever ES happens to hold. Assuming the caller had
 ; loaded it cost one timed-out transfer to find.
-ring_in:
+ring_in_i:
     push ax
     push dx
     push cx
@@ -268,7 +268,7 @@ ring_in:
     ret
 
 ; --- ring_out - the ring at SI -> DS:DI (a driver buffer), CX bytes ---------
-ring_out:
+ring_out_i:
     push ax
     push cx
     push si
@@ -694,51 +694,53 @@ sk_rxfree:
 ; sk_rxput - CX bytes at DS:SI into socket BX's ring
 ; out: CX = how many were taken (the rest are dropped and NOT acknowledged)
 ; -----------------------------------------------------------------------------
-sk_rxput:
+sk_rxput_i:
     push ax
     push dx
     push si
     push di
+    push bp
+    push es
     call sk_rxfree
     cmp cx, ax
     jbe .fits
     mov cx, ax
 .fits:
-    jcxz .out
-    push es                     ; **THE RING IS IN [sk_seg] NOW** (SPEC.md
-    call sk_ring                ; 72.13), so the store needs the override -
-    jc  .noring                 ; without it this writes the driver's own bss
-    add [bx+SKO_RXN], cx        ; at the ring's old offsets, which assembles
+    jcxz .zero
+    call sk_ring                ; **THE RING IS IN [sk_seg]** (SPEC.md 72.13),
+    jc  .zero                   ; so the store needs the override - without it
+    add [bx+SKO_RXN], cx        ; this writes the driver's own bss at the
+    push cx                     ; ring's old offsets, which assembles
     call sk_rxbase              ; perfectly and corrupts whatever is there
-    mov dx, cx
+    mov bp, di                  ; BP = the ring's base...
+    mov dx, bp
+    add dx, [sk_rxcap]          ; ...and DX one past its end
+    add di, [bx+SKO_RXH]        ; DI = where the writer stands
+    mov ax, [bx+SKO_RXH]        ; ...and the new head, computed ONCE. CX cannot
+    add ax, cx                  ; exceed sk_rxfree, so head + cx is under two
+    cmp ax, [sk_rxcap]          ; capacities and one subtract is the whole wrap
+    jb  .nw
+    sub ax, [sk_rxcap]
+.nw:
+    mov [bx+SKO_RXH], ax
 .l:
-    mov ax, [bx+SKO_RXH]
-    push di
-    add di, ax
     mov al, [si]
     mov [es:di], al
-    pop di
     inc si
-    mov ax, [bx+SKO_RXH]
-    inc ax
-    cmp ax, [sk_rxcap]
-    jb  .wrap
-    xor ax, ax
-.wrap:
-    mov [bx+SKO_RXH], ax
+    inc di
+    cmp di, dx
+    jb  .n
+    mov di, bp                  ; ...round the end
+.n:
     loop .l
-    mov cx, dx
+    pop cx                      ; the answer, banked before the loop spent CX
+    jmp short .out
+.zero:
+    xor cx, cx                  ; no claim, or a full ring: the same answer,
+.out:                           ; and every caller already handles it
     pop es
-.out:
+    pop bp
     pop di
-    pop si
-    pop dx
-    pop ax
-    ret
-.noring:
-    pop es                      ; no claim: nothing fitted, which is the same
-    xor cx, cx                  ; answer a full ring gives and the callers
-    pop di                      ; already handle
     pop si
     pop dx
     pop ax
@@ -759,7 +761,7 @@ sk_rxput:
 ; pointer with the ring's end and base in registers. It is also four
 ; instructions a byte shorter than what it replaces, which is not the reason
 ; but is not nothing at 4.77MHz.
-sk_rxget:
+sk_rxget_i:
     push ax
     push dx
     push si

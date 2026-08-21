@@ -60739,3 +60739,164 @@ segment override on two of them, a checksum, and the FTP server's own stage.
 That is the next piece of work and it is a PERFORMANCE one, not a protocol
 one. What §72.13 bought is real and is not throughput: the window is out of
 the way, so the cost that is left is the cost that was always there.
+
+### 72.15 The stage profiler — measuring instead of arguing
+
+Two rounds in a row the answer to "why is it 7 KB/s" was arithmetic over a
+per-byte cost **nobody had ever measured**. §72.13 predicted ~58 KB/s from a
+~155 KB/s per-byte ceiling that was an estimate; the field measured 7062 B/s
+with `Buf 8K` on the glass. That is PERFORMANCE.md Part 6 rule 4 in its exact
+failure mode — *measure before redesigning, and a counter is not a timer* —
+and the way out of it is an instrument, not a better guess.
+
+`drivers/ether/ethprof.inc` is that instrument. Ten stages, each wrapped at
+its entry and its exit, each accumulating three numbers:
+
+| stage | what it is |
+|---|---|
+| `pump` | `eth_pump` — the card drained, budget and timers |
+| `card` | `ne_ring_read` — the card's ring into our frame buffer |
+| `frame` | `eth_frame` — one received frame dispatched, whole |
+| `cksum` | `ip_ck_part` — the ones-complement sum |
+| `rxput` | `sk_rxput` — frame payload into the socket ring |
+| `rxget` | `sk_rxget` — the socket ring into the caller's buffer |
+| `txin` | `ring_in` — the caller's buffer into the send ring |
+| `txout` | `ring_out` — the send ring into a transmit frame |
+| `tx` | `ne_tx` — our frame into the card |
+| `verb` | `eth_pkg` — one socket verb, whole |
+
+Time, bytes and calls. Divide the first by the second and the answer is
+**µs/byte for that stage, on the machine the question is about** — and `verb`
+against the wall clock says what fraction of a transfer was inside the driver
+at all, so the remainder is the package, the disk and the scheduler without
+having to instrument any of them.
+
+**It lives in the driver because it has to.** MartyPC has no network card of
+any kind, so the one instrument this project trusts for time cannot host this
+driver; QEMU can, and QEMU is exact about work and useless about time. That
+leaves an 86Box XT or the 5150, where there is no debugger and no automation
+socket — so the measurement has to be taken *by* the guest and read *on* the
+guest. `tests/netbench` is the window that reads it, and it can sit beside the
+FTP server during a real transfer off a real client.
+
+#### 72.15.1 The clock, and the wrap that would have been silent
+
+Counter 0 of the 8253, latched, exactly as `tests/benchlib.inc` reads it: one
+count is 838 ns and it reloads every 55 ms. A stage that ran longer than one
+reload would be reported **modulo 55 ms** — a small plausible number, which is
+the failure benchlib's own header spends a page on and which published a
+primitive doing 20× the work as 2.4× faster.
+
+So the count is extended upward by the BIOS tick at `0040:006C`, which our int
+08h hook chains. One tick is exactly 65536 counts, so the two halves are one
+32-bit number in one unit and a stage may run eighteen hours before it wraps.
+The tick is read **before and after** the counter and the pair is taken again
+if it moved: without that, a bracket landing on the reload takes the old tick
+with the freshly reloaded counter and reports 55 ms that did not happen. `IF`
+is cleared across the latch and the two `IN`s and nowhere else — holding it
+down across the tick reads as well would defeat the check, because the tick
+cannot move while its ISR cannot run.
+
+**A bracket spanning a `cli` longer than 55 ms under-reports**, for that same
+reason. Nothing in this driver holds interrupts off for anything like it, and
+it is written down because the failure would otherwise be silent.
+
+#### 72.15.2 What it costs, and why it is always compiled in
+
+A bracket is a latch, two `IN`s, two word reads and the accumulate — about
+13 µs, twice per stage entry, plus the wrapper's own `call`/`ret` (11 µs,
+PERFORMANCE.md Part 2). Call it 37 µs. The stages are per **frame** and per
+**verb**, never per byte, so a 200 KB transfer is a few thousand of them:
+under half a percent of a run that takes half a minute. With `[prof_on]` at 0
+a bracket is one compare and a return, and that is what ships.
+
+It is **always compiled in and switched at runtime**, deliberately. A profiler
+that needs a rebuild is a profiler the person with the hardware cannot use,
+and the person with the hardware is the only one who can answer this question
+(docs/FIELD-MACHINES.md).
+
+`NETV_PROF` is verb 12: `AL` = 0 stop and bank the wall clock, 1 zero
+everything and start, 2 read into the caller's `ES:DI`. The stage **names**
+travel with the numbers, because a reporter carrying its own copy of that
+table is a reporter that labels the wrong column the day a stage is added.
+The cable answers `NETE_VERB`: it shares every line of the stack and none of
+the instrument, and a table of zeroes would read as a stack doing no work.
+
+#### 72.15.3 The wrappers are in one file, and the bodies were renamed
+
+Each stack file renames its routine's label to `*_i` and changes nothing else;
+every caller keeps the public name and reaches it through a wrapper in
+`ethprof.inc`. Bracketing *inside* a routine would mean finding every exit —
+`.out`, `.drop`, `.bad` — and one bracket missed on an error path silently
+carries that start value into the next call's total.
+
+The byte count is read **after** the call, so a routine whose `CX` is its
+answer (`sk_rxput`, `sk_rxget`) reports what it actually moved and one whose
+`CX` is its argument reports what it was asked for. Both are the true number
+for that stage.
+
+Under `ETH_NOEMIT` the file emits nothing at all and only `%define`s the
+renamed bodies back to their public names, so the DOS partner — one `.COM`
+segment, sharing every line of `inet.inc` and `tcp.inc` — carries not one byte
+of it. `ne2000.inc` is not compiled there (`pktdrv.inc` stands in its place
+and brings its own `ne_tx`), so the two card stages have no alias and must not
+have one.
+
+#### 72.15.4 The first thing it found: `sk_rxput` was the receive path
+
+One 64KB upload through QEMU, where the counts are exact and the times are the
+host's (PERFORMANCE.md Part 4):
+
+| stage | calls | bytes | share of `frame` |
+|---|---|---|---|
+| `frame` | 61 | 68,949 | — |
+| **`rxput`** | 52 | 65,597 | **71%** |
+| `cksum` | 540 | 7,639 | 10% |
+
+`sk_rxput` — frame payload into the socket ring — was **seven tenths of every
+received frame**, and per byte it cost nearly twice what `ne_ring_read` costs
+to pull the same bytes off an ISA card. Its sibling `sk_rxget` cost a
+twentieth of it for exactly the same byte count.
+
+The reason was visible the moment the table pointed at it, and it is §72.13.1
+half-applied. When the rings moved into the claim, `sk_rxget`'s loop was
+restructured — the tail advanced once, the base and the end in registers — and
+**`sk_rxput`'s was not**. It still read `[bx+SKO_RXH]` *twice per byte*, wrote
+it back once per byte, compared against `[sk_rxcap]` per byte, and bracketed
+every store with a `push di`/`pop di`:
+
+```
+    mov ax, [bx+SKO_RXH]        ; 15 instructions and four memory operands,
+    push di                     ; per BYTE
+    add di, ax
+    mov al, [si]
+    mov [es:di], al
+    pop di
+    inc si
+    mov ax, [bx+SKO_RXH]
+    inc ax
+    cmp ax, [sk_rxcap]
+    jb  .wrap
+    xor ax, ax
+.wrap:
+    mov [bx+SKO_RXH], ax
+    loop .l
+```
+
+It is now `sk_rxget`'s shape: the head advanced **once** before the loop, the
+base in `BP`, one-past-the-end in `DX`, and seven instructions with two memory
+operands per byte. On the target that is about 165 clocks a byte down to about
+67 — call it **2.5×** — where QEMU's host-time column reports 39×, which is
+exactly the distortion Part 3 warns about and is quoted here only to say that
+the two disagree.
+
+**The point is not the 2.5×. The point is that nobody would have looked
+there.** Two rounds of reasoning had gone into the window, the staging buffer
+and the socket pool; the copy that turned out to dominate the receive path had
+been left half-optimised by a change whose header claims it fixed exactly that,
+and no argument was going to find it. A table found it in one run.
+
+`cksum` covering 7,639 bytes out of 65,597 received is **not** a defect in the
+instrument: the receive path does not verify TCP checksums (§72.4), so that
+column is headers only. A reader who does not know that will think the tool is
+broken, which is why it is written here.

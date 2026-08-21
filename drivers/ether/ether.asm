@@ -101,6 +101,11 @@ eth_bases:  dw 0x300, 0x320, 0x340, 0x280, 0x2C0, 0x240, 0x360, 0
 eth_fixed:  dw ETH_BASE
 %endif
 
+%include "ethprof.inc"          ; the stage timers (SPEC.md 72.15), and HERE
+                                ; rather than beside the other includes below:
+                                ; it defines the PROF_ macros, and eth_pkg uses
+                                ; them a hundred lines before that block
+
 ; =============================================================================
 ; ENTRY
 ; =============================================================================
@@ -378,6 +383,10 @@ eth_pkg:
 .up:
     xor bh, bh
     shl bx, 1
+    PROF_B PF_VERB              ; the whole verb, so a profile can say how much
+                                ; of a transfer was inside the driver at all
+                                ; and how much was the package and the disk
+                                ; above it (SPEC.md 72.15)
     call [eth_vtab+bx]          ; **THROUGH MEMORY, NOT THROUGH A REGISTER.**
                                 ; `mov di, [eth_vtab+bx] / call di` is the
                                 ; obvious form and it destroys DI - which is
@@ -389,6 +398,8 @@ eth_pkg:
                                 ; failure somewhere else. The kernel's own
                                 ; drv_pkg_call_x had this bug in stage C
                                 ; (SPEC.md 20.11) and it is the same one twice
+    PROF_E PF_VERB, 0           ; ...and it preserves CF and AX, which are the
+                                ; verb's answer on their way out
     jmp short .out
 .verb:
     mov ax, NETE_VERB
@@ -447,6 +458,7 @@ eth_vtab:
     dw eth_v_none               ; 9 NETV_RESOLVE - RESERVED (netpkg.inc)
     dw eth_v_addr               ; 10 NETV_ADDR
     dw eth_v_abort              ; 11 NETV_ABORT
+    dw eth_v_prof               ; 12 NETV_PROF - the stage timers (72.15)
 eth_vtab_end:
 %if (eth_vtab_end - eth_vtab) / 2 != NETV_MAX + 1
   %error "ether: the verb table and NETV_MAX disagree"

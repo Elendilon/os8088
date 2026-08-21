@@ -116,6 +116,13 @@ make runcpmdisk #   windowed CP/M 2.2 emulator — the host checks, then the
                 #   OS / in raw QEMU), `make rcmemtest` the movers',
                 #   `make rcbandbench` the row composer's bench
                 #   (PERFORMANCE.md Set 65)
+make netbench   # THE STACK'S PROFILER (SPEC.md 72.15): NETBENCH.O88 beside
+                #   FTPD.O88 on one disk, in all three geometries. ETHER.DRV
+                #   brackets its own ten stages with the PIT and this is the
+                #   window that reads them - S start, X stop, R read, W write.
+                #   MartyPC has NO NIC, so the milliseconds are only real on
+                #   86Box or the 5150; under QEMU the calls and bytes are
+                #   exact and the times are the host's
 make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
                 #   asks for ETHER.DRV, so the card is up and DHCP has run
                 #   before the first paint and the test reads state instead of
