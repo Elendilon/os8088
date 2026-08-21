@@ -7202,3 +7202,42 @@ nobody had seen it.
 **Price: `.text` +686, one 512-byte image rung**, `KERN_BUDGET` spare 1,024 →
 512. `kern_small` does not get it (§5.6.4.4) — it did not fit, and the guard
 said so rather than anybody noticing.
+
+### Set 71 — the frame rate of a program that only draws lines (SPEC.md §78)
+
+| | |
+|---|---|
+| machine | MartyPC, `os8088_5150_herc` and `_cga`, real IBM 5150 ROM |
+| harness | `tests/wirefps.py` — **the program reading its own answer** |
+| build | shipped kernel and shipped `WIRE.O88`, one boot each |
+| date | 2026-08-21 |
+
+Sets 69 and 70 priced a line pixel. This is what that is worth to something
+that draws lines for a living: `apps/wire` tumbles a wireframe cube with
+nothing but `OSAPI_GFX_LINE` — twelve edges drawn and twelve erased a frame —
+and keeps its own frame rate in `wr_fps`. The two runs are **the same boot and
+the same binary**: three bytes of `gfx_line_raw` are poked to `stc`/`nop`/`nop`
+and every line goes down §5.6.4's general walk instead, with nothing else
+different, and then poked back.
+
+| | general walk | fast walk | back |
+|---|---:|---:|---:|
+| Hercules 720×348 | 8.1 fps | **18.2** | 18.2 |
+| CGA 640×200 | 11.4 | **18.2** | 17.1 |
+
+**18.2 fps is the system tick.** On both adapters the fast walk stops being
+what limits the frame rate, which is the only form of "fast enough" that means
+anything here — and `View → Medium` is sized so it lands there rather than
+past it.
+
+**CGA's ratio is lower and that is the arrival, not the walk.** Its window is
+clamped to a 200-row desktop, so the figure is smaller, so fewer of the
+frame's cycles are pixels and more are the 24 per-call arrivals Set 70 priced
+at ~713 µs each. The same change looks smaller the less drawing there is to do
+— which is the honest shape of a per-pixel optimisation and worth having a
+second adapter say out loud.
+
+**The "back" column is the control.** It is the point of poking rather than
+building twice: a figure that did not return would mean the two samples had
+drifted apart for some other reason. 17.1 on CGA against 18.2 is one frame in
+a six-second window, which is the tenth `wr_fps` is quantised to.

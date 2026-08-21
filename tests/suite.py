@@ -237,6 +237,10 @@ SOAK = [
         "SPEC.md 11.2 fullscreen with the window's CENTRE on the second"
         "display",
         needs=("marty",), serial=True),
+    Row("wirefps", "soak", py("tests/wirefps.py"), 90.0,
+        "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
+        "reading its own frame rate, with the dispatch poked out and back",
+        needs=("marty",), serial=True),
     Row("linefast", "soak", py("tests/linefast.py"), 60.0,
         "Does SPEC.md 5.6.4.1's fast walk lay 5.6.4's pixels? Both inks, all"
         "eight octants, clipped and not - against the same kernel with the"

@@ -1741,6 +1741,17 @@ $(BUILD)/hello.bin: apps/hello/hello.asm apps/os88api.inc | $(BUILD)
 $(BUILD)/hello.o88: $(BUILD)/hello.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/hello.bin -o $@
 
+# WIREFRAME (SPEC.md 78): a rotating solid drawn with nothing but
+# OSAPI_GFX_LINE, and a frame-rate readout, so 5.6.4.1's walk can be SEEN
+# rather than only measured. wiresin.inc is a generated constant table and is
+# committed - there is no sine in NASM and no float on the target.
+$(BUILD)/wire.bin: apps/wire/wire.asm apps/wire/wiresin.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/wire/ -o $@ apps/wire/wire.asm
+	@echo "wire:   $(call FILESIZE,$@) bytes"
+
+$(BUILD)/wire.o88: $(BUILD)/wire.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/wire.bin -o $@
+
 # Note Pad, formerly the built-in KIND_NOTE app (SPEC.md 27).
 $(BUILD)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc apps/os88ui.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/notepad/notepad.asm
@@ -4061,7 +4072,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/hello.o88 $(BUILD)/modplug.o88 $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 $(BUILD)/recorder.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
-              $(BUILD)/texpad.o88 $(BUILD)/tracker.o88
+              $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/wire.o88
 APPS_GAMES := $(BUILD)/arkanoid.o88 $(BUILD)/cyclone.o88 $(BUILD)/mines.o88 \
               $(BUILD)/missile.o88 $(BUILD)/solitair.o88 $(BUILD)/tamegram.o88
 

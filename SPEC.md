@@ -60277,3 +60277,88 @@ error. Active mode avoids the problem — the client listens and the server
 dials out — which is why the same machine could transfer in active mode and
 not in passive.
 
+
+---
+
+## 78. WIREFRAME — a rotating solid, drawn only with lines (`apps/wire/wire.asm`)
+
+The demonstration §5.6.4.1 was built for, and the one that says out loud
+whether it worked: a wireframe solid tumbling in a window, drawn with nothing
+but `OSAPI_GFX_LINE`, one frame a tick, with the **measured** frame rate and
+the line count per frame lettered along the bottom of its own content.
+
+Measured on a cycle-accurate 4.77 MHz 8088, the same twelve edges, the same
+boot, the same binary, with §5.6.4.1's dispatch poked out and back again
+(`tests/wirefps.py`, PERFORMANCE.md Set 71):
+
+| | general walk | fast walk |
+|---|---:|---:|
+| Hercules 720×348 | 8.1 fps | **18.2** |
+| CGA 640×200 | 11.4 | **18.2** |
+
+**18.2 is the system tick** (§8), so on both adapters the fast walk is no
+longer what limits the frame rate — which is why `View → Medium` is sized to
+land exactly there. CGA's figure is smaller (the window is clamped to a
+200-row desktop), so fewer of its cycles are pixels and its ratio is lower;
+that is the arrival cost showing, not a difference in the walk. **Large** is
+there to push past the tick and watch the number in the strip move.
+
+### 78.1 It erases with lines, and that is a choice
+
+A `gfx_fill` of the figure's bounding box is **cheaper** — roughly 10 ms
+against 23 — and it would make this a benchmark of `gfx_fill`. Erasing edge by
+edge is what §48's missile trails do, for the same two reasons: the primitive
+under test is the line, and only the pixels that were drawn get touched, which
+is PERFORMANCE.md rule 1 and is what keeps the flicker to the figure rather
+than to the whole box.
+
+**`SI = 0` on the erase, not 1.** §5.6.5's dilation exists because a trail is
+drawn in per-frame *segments* and erased as one long line, so the two
+rasterisations differ by up to a pixel. Here every edge is drawn whole and
+erased whole from the same endpoint pair, so §5.6.2 makes the two pixel sets
+identical and there is nothing to dilate. Passing 1 would cost three walks and
+buy nothing.
+
+The cost of erase-then-draw is that a pixel the next frame keeps is written
+twice — PERFORMANCE.md rule 2's violation, and the price of not keeping a
+second framebuffer on a machine with no blitter.
+
+### 78.2 The projection is orthographic, and that is also a choice
+
+A perspective divide is affordable — 16 `idiv`s a frame, about 0.6 ms — and it
+is still wrong here. Perspective magnifies the **near** corner, so a cube
+sized to fit its box at rest swings outside it as it turns, and a cube with
+its corners clipped off looks broken rather than fast. Orthographic keeps the
+extent a constant of the shape, which is what lets `wr_geom` size the figure
+from the live content rect every frame.
+
+The maths is signed bytes throughout: two rotations of four `imul r/m8` each
+per vertex, with the two products of every term summed at **16 bits before the
+shift** — which is where the precision is and costs nothing. `wr_sh7` is the
+shift, and it is a doubling and a byte move because `sar di,7` is 36 clocks on
+an 8088 and this is five.
+
+`sin` is a committed 256-byte table of `sin(2πi/256) × 127`, because NASM has
+no sine and the target has no float; `cos(a)` is `sin(a+64)`.
+
+### 78.3 The scale constant belongs to the shapes
+
+`wr_geom` scales by **1.75 × the half-extent** of the object area, and that is
+derived rather than chosen: a vertex at `(48,48,48)` reaches `|x'| = 68` after
+any rotation, and `68 × 1.75 / 128 = 0.93`, so the figure fills its area and
+its corners stay inside it. **A shape with a bigger vertex magnitude has to
+change that constant too** — the octahedron's `64` is on axis and reaches
+`64 × 1.75 / 128 = 0.88`, so it is inside the same bound, but a new solid with
+a long diagonal would not be.
+
+### 78.4 The shape of the package
+
+`wr_worker` is arkanoid's deadline loop exactly (§44): one frame a tick, with
+the deadline re-anchored rather than chased when the machine falls more than
+`WR_LAGMAX` behind. Everything is lock-free but `wr_render`, which takes the
+lock for one burst, arms the clip region (§11.3) and draws — a frame refused
+more than 16 fragments is skipped rather than drawn over whatever is on top.
+
+`W_PAINT` redraws the whole content and clears the kept coordinates, because a
+window that has moved has stale ones and erasing at them would scatter pixels
+into the desktop.
