@@ -15,8 +15,15 @@
 ; cheaper - about 10ms against 23 - and it would make this a benchmark of
 ; gfx_fill. The point here is the line primitive, and erasing the way SPEC.md
 ; 48's missile trails erase is also the honest shape: only the pixels that
-; were drawn are touched, which is PERFORMANCE.md rule 1 and is what keeps the
-; flicker to the figure rather than the whole box.
+; were drawn are touched, which is PERFORMANCE.md rule 1.
+;
+; ...AND THE ORDER IT ERASES IN IS A MENU (SPEC.md 78.5), because it turned
+; out to be the whole of the flicker and to be free. Erasing the whole figure
+; and then drawing it leaves the window EMPTY - measured, literally zero ink,
+; on 56% of displayed frames. Doing it an edge at a time leaves eleven of
+; twelve edges up, never drops below 72% of the figure, and costs nothing at
+; all: the same twenty-four line calls, twenty-two more SET_COLOR. It is the
+; default for that reason and not as a taste.
 ;
 ; NO DILATION on the erase (SPEC.md 5.6.5). A trail is drawn in per-frame
 ; SEGMENTS and erased as one long line, so the two rasterisations differ; here
@@ -68,8 +75,9 @@ wr_entry:
     call OSAPI_WM_CREATE
     jc .out
     mov [wr_win], bx
-    mov byte [wr_size], 4           ; Medium, and the only bss byte whose zero
-    call wr_pick                    ; is not the state we want
+    mov byte [wr_size], 4           ; Medium, and the two bss bytes whose zero
+    mov byte [wr_mode], 1           ; is not the state we want - SPEC.md 78.5
+    call wr_pick                    ; measured `Edge at a time` free
     mov si, wr_menus
     call OSAPI_MENU_SET
 .out:
@@ -285,6 +293,57 @@ wr_edges:
     xor ch, ch
 .edge:
     push cx
+    push bp
+    call wr_edge1
+    pop bp
+    add bp, 2
+    pop cx
+    dec cx
+    jnz .edge
+    ret
+
+; -----------------------------------------------------------------------------
+; wr_pairs - SPEC.md 78.5: erase old[i], draw new[i], EDGE BY EDGE
+; in:  the pen is set per edge here; clobbers everything but the segments
+;
+; The figure is then missing one edge of twelve at a time instead of all
+; twelve at once, which is the whole of the flicker. What it costs is a NICK:
+; erasing old[j] cuts new[i] wherever the two cross, for every j drawn after
+; i, and on a cube in projection that is a handful of pixels a frame. Mode 2
+; buys them back with a repair pass.
+; -----------------------------------------------------------------------------
+wr_pairs:
+    mov bp, [wr_ep]
+    mov cl, [wr_ne]
+    xor ch, ch
+.edge:
+    push cx
+    push bp
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov si, wr_ex
+    mov di, wr_ey
+    call wr_edge1
+    pop bp
+    push bp
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    mov si, wr_px
+    mov di, wr_py
+    call wr_edge1
+    pop bp
+    add bp, 2
+    pop cx
+    dec cx
+    jnz .edge
+    ret
+
+; -----------------------------------------------------------------------------
+; wr_edge1 - ONE edge, from one coordinate pair table
+; in:  SI = the x table, DI = the y table, BP -> the edge's two indices
+; out: nothing; SI/DI/BP survive, AX/BX/CX/DX do not
+; -----------------------------------------------------------------------------
+wr_edge1:
     mov bx, bp
     mov al, [bx]                    ; the two vertex indices, as word offsets
     xor ah, ah
@@ -312,10 +371,6 @@ wr_edges:
     pop bp
     pop di
     pop si
-    add bp, 2
-    pop cx
-    dec cx
-    jnz .edge
     ret
 
 ; -----------------------------------------------------------------------------
@@ -331,7 +386,19 @@ wr_edges:
 ; -----------------------------------------------------------------------------
 wr_draw:
     cmp byte [wr_shown], 0
-    je .fresh
+    je .fresh                       ; nothing on the glass to take off
+    cmp byte [wr_mode], 0
+    je .whole
+    call wr_pairs                   ; 78.5's two other orders
+    cmp byte [wr_mode], 2
+    jne .keep
+    mov al, CBLACK                  ; ...and the repair pass, which buys back
+    call OSAPI_SET_COLOR            ; the nicks at the cost of a third walk
+    mov si, wr_px
+    mov di, wr_py
+    call wr_edges
+    jmp short .keep
+.whole:
     mov al, CWHITE
     call OSAPI_SET_COLOR
     mov si, wr_ex
@@ -343,6 +410,7 @@ wr_draw:
     mov si, wr_px
     mov di, wr_py
     call wr_edges
+.keep:
     call wr_keep
     ret
 
@@ -640,8 +708,14 @@ wr_fpsup:
 ; -----------------------------------------------------------------------------
 wr_oncmd:
     push si
-    or ah, ah
-    jnz .view
+    cmp ah, 1
+    jb .shape
+    je .view
+    cmp al, 3                       ; --- Draw: 78.5's three orders
+    jae .out
+    mov [wr_mode], al
+    jmp short .redraw
+.shape:
     cmp al, WR_NSHAPE
     jae .out
     mov [wr_shape], al
@@ -698,6 +772,7 @@ wr_tpl:
     OS88_MENUSET wr_menus, wr_name, wr_oncmd
         OS88_MENU wr_m_shape, wr_i_shape, WR_NSHAPE
         OS88_MENU wr_m_view,  wr_i_view,  4
+        OS88_MENU wr_m_draw,  wr_i_draw,  3
     OS88_MENUSET_END wr_menus
 
 wr_name:    db 'Wire', 0
@@ -712,6 +787,11 @@ wr_it_sm:   db 'Small', 0
 wr_it_md:   db 'Medium', 0
 wr_it_lg:   db 'Large', 0
 wr_it_abt:  db 'About', 0
+wr_m_draw:  db 'Draw', 0
+wr_i_draw:  dw wr_it_whole, wr_it_pair, wr_it_rep
+wr_it_whole: db 'Whole figure', 0
+wr_it_pair:  db 'Edge at a time', 0
+wr_it_rep:   db 'Edge, then repair', 0
 
 wr_eighths: db 3, 4, 6          ; Small, Medium, Large
 wr_ttl:     db 'Wireframe', 0
@@ -803,6 +883,8 @@ wr_sinb     equ os88_image_end + 35
 wr_cosb     equ os88_image_end + 36
 wr_nv       equ os88_image_end + 37   ; byte
 wr_ne       equ os88_image_end + 38   ; byte
+wr_mode     equ os88_image_end + 39   ; byte: 78.5's draw order; wr_entry sets
+                                  ; it to 1, `Edge at a time`
 wr_vp       equ os88_image_end + 40   ; word
 wr_ep       equ os88_image_end + 42   ; word
 wr_px       equ os88_image_end + 44   ; WR_MAXV words: this frame

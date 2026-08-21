@@ -80,6 +80,7 @@ PIECES = [
     (3, "the five per-pixel guard compares (clip box + gfx_ln_wide)"),
     (4, "the e2 block: e2=2*err through .bss, both Bresenham tests"),
     (5, "...the same decision in registers"),
+    (7, "an indirect `jmp word [mem]` - the four-steep-loops collapse"),
 ]
 
 

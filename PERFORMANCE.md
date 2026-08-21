@@ -7281,3 +7281,52 @@ three columns are 20,577 / 17,570 / 89,392, the last being what three passes
 cost when the fast walk is refused and the reason `gfx_lf_wide3` asks rather
 than assuming (§5.6.6.1): dropping the wide walk unconditionally would be
 2.2× **worse** on exactly the lines it still serves.
+
+### Set 73 — the flicker, as ink on the glass (SPEC.md §78.5)
+
+| | |
+|---|---|
+| machine | MartyPC, `os8088_5150_herc`, real IBM 5150 ROM |
+| harness | `tests/wireflick.py` — the object area sampled once per DISPLAYED frame, its ink counted |
+| build | `apps/wire`, Medium, twelve edges |
+| date | 2026-08-21 |
+
+`m.flicker()` (Part 3.1) is the wrong instrument here and says so: it requires
+the screen to **settle**, and the whole point of this window is that it never
+does again. So the thing a person actually reacts to is measured instead —
+**the figure going away** — by counting the object area's lit pixels frame by
+frame.
+
+| draw order | emptiest frame | mean ink | frames under half full | fps |
+|---|---:|---:|---:|---:|
+| Whole figure — erase all, then draw all | **0%** | 48% | **56%** | 17.1 |
+| Edge at a time — erase old[i], draw new[i] | **72%** | 90% | **0%** | **17.1** |
+| Edge, then repair — and a third pass | 53% | 92% | 0% | 12.1 |
+
+**Erase-all-then-draw-all empties the window completely on more than half the
+frames a viewer sees**, and the fix is free: the same twenty-four line calls
+in a different order, plus twenty-two `SET_COLOR`s, about a millisecond. The
+floor goes 0% → 72% and the blank frames go 56% → 0% for no frame rate at all.
+It is the default now.
+
+**The repair pass is dominated, and instructively.** It costs 5 fps to buy 2%
+more ink — the nicks are that small — and its *emptiest* frame is **worse**,
+53% against 72%, because a third walk makes the frame half again as long and a
+sample is likelier to land mid-pair. **A change that improves the mean and
+worsens the floor**: Set 72's lesson one round later, in a different
+mechanism, and the reason both columns are reported.
+
+#### The API this rules out
+
+"Pair the erase with the draw in the kernel" is the obvious suggestion and it
+does not work, for a reason worth recording. To leave a *shared* pixel alone
+the kernel has to know it is shared, which means walking both lines in
+**lockstep** — and two Bresenham states do not fit in eight registers, so they
+go back to `.bss` at §5.6.4's 723 cycles a pixel. That is **4.6× what two
+§5.6.4.1 walks cost** (Set 70): the flicker would be paid for by making every
+line on the machine slower. A paired *call* is still worth Set 11's measured
+**128.7 µs** of arrival an edge, but that is not a flicker saving — the erase
+still precedes the draw inside it.
+
+The ordering is the caller's, and one millisecond of `SET_COLOR` is what it
+costs to get it right.

@@ -237,6 +237,10 @@ SOAK = [
         "SPEC.md 11.2 fullscreen with the window's CENTRE on the second"
         "display",
         needs=("marty",), serial=True),
+    Row("wireflick", "soak", py("tests/wireflick.py"), 120.0,
+        "SPEC.md 78.5's three draw orders, as ink on the glass per displayed"
+        "frame - the flicker measured rather than argued about",
+        needs=("marty",), serial=True),
     Row("wirefps", "soak", py("tests/wirefps.py"), 90.0,
         "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
         "reading its own frame rate, with the dispatch poked out and back",

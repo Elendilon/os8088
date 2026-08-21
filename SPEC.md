@@ -60364,6 +60364,52 @@ The cost of erase-then-draw is that a pixel the next frame keeps is written
 twice — PERFORMANCE.md rule 2's violation, and the price of not keeping a
 second framebuffer on a machine with no blitter.
 
+### 78.5 Three draw orders, because the flicker is a choice and not a fact
+
+`Draw` picks one. All three end with the same pixels on the glass; what
+differs is what is on it *in between*, and there is no free answer:
+
+Measured — `tests/wireflick.py` samples the object area once per displayed
+frame and counts its ink, because `m.flicker()` needs a screen that settles
+and this one never does again (PERFORMANCE.md Set 73):
+
+| | emptiest frame | mean ink | frames under half full | fps |
+|---|---:|---:|---:|---:|
+| **Whole figure** | **0%** | 48% | **56%** | 17.1 |
+| **Edge at a time** *(the default)* | **72%** | 90% | **0%** | **17.1** |
+| Edge, then repair | 53% | 92% | 0% | 12.1 |
+
+**Erasing the whole figure empties the window — literally zero ink — on more
+than half the frames a viewer sees, and doing it an edge at a time costs
+nothing to fix.** Same twenty-four line calls; twenty-two more `SET_COLOR`,
+which is about a millisecond. That is why it is the default rather than an
+option.
+
+The nick "Edge at a time" pays is real — erasing `old[j]` cuts `new[i]`
+wherever they cross, for every j done after i — but it is **2% of the ink**,
+which is the whole gap between it and the repair pass. It does not accumulate:
+next frame erases that edge along its own full length, cut included.
+
+**"Edge, then repair" is dominated and is kept to show that.** It costs 5 fps
+for 2% more ink, and its emptiest frame is *worse* — a third walk makes the
+frame half again as long, so a sample is likelier to land mid-pair. An
+optimisation that improves the mean and worsens the floor is exactly the shape
+Set 72 recorded one round earlier.
+
+**There is no fourth order that has neither**, and it is worth writing down
+why, because "pair the erase with the draw in the kernel" is the obvious
+suggestion. To leave a shared pixel alone the kernel would have to know it is
+shared, which means walking both lines **in lockstep**, and two Bresenham
+states do not fit in eight registers — they would go back to `.bss` at
+§5.6.4's ~723 cycles a pixel, which is **4.6× what two §5.6.4.1 walks cost**.
+The flicker would be paid for by making every line drawn on the machine
+slower. A paired *call* is still worth about **129 µs** an edge (§5.6.8's
+measured arrival, the far call and the lock), but that is an arrival saving
+and not a flicker one: the erase still precedes the draw inside it.
+
+So the ordering is the caller's, which is what this menu is: three orders, one
+program, and the reader picks.
+
 ### 78.2 The projection is orthographic, and that is also a choice
 
 A perspective divide is affordable — 16 `idiv`s a frame, about 0.6 ms — and it

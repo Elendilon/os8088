@@ -230,6 +230,13 @@ loop_start:
     add cx, [LN_DX]
 .noys:
     pop cx
+%elif PIECE == 7
+    jmp word [.tab]                 ; what the four-steep-loops collapse would
+.tab: dw .xt                        ; add per x-step: the body can only fall
+.xt:                                ; into ONE tail inline, so picking one of
+                                    ; four costs an indirect jump. The `dw` is
+                                    ; never executed - the jmp above does not
+                                    ; fall through.
 %elif PIECE == 5
     push ax                         ; ...the same decision, in registers
     mov ax, 1
