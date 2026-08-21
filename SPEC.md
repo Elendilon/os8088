@@ -1482,7 +1482,12 @@ store and handles the two masked edge bytes once. A line walk writes one
 pixel at a time. The crossover is about **27 pixels** — a 100px rule costs
 ~280 instructions as a fill and ~1,000 as a pixel walk — so a long
 axis-aligned run belongs in `gfx_fill`/`gfx_hline`/`gfx_vline` and always
-will. `gfx_line` is for the case those cannot serve, and it is *only* faster
+will. **That 27 is an estimate and the measurement is dearer**: PERFORMANCE.md
+Set 69 prices the 1bpp walk at 723 cycles a pixel against a 1,822-cycle
+arrival, so the crossover is nearer the arrival ratio than the instruction one
+and a caller in doubt should reach for the area primitive. The conclusion is
+unchanged and only strengthened; docs/LINE-PERF-PLAN.md carries the
+re-derivation. `gfx_line` is for the case those cannot serve, and it is *only* faster
 than them because **a line's runs are short by construction** unless the
 line is nearly axis-aligned.
 
@@ -1527,6 +1532,13 @@ its screen clipping, so there is no separate edge test on the path.
 |---|---|
 | software renderer, **1 plane** — all three mono adapters | per-pixel: one `gfx_rowbase`, then a rotating bit mask, `gfx_nextrow` per row step, and one read-modify-write per pixel. `gfx_ink`'s three inks are all honoured, the dither by `(x^y)&1`. |
 | everything else — VGA direct | Bresenham coalescing along the **major** axis, one `gfx_fill_raw` per run. |
+
+The mono loop is the tight one *relative to what it replaced*, and it is not
+a tight loop: PERFORMANCE.md Set 69 measures it at **40.8 instructions a
+pixel**, three quarters of which is Bresenham state living in `.bss` and the
+row step being a `call`. docs/LINE-PERF-PLAN.md is a register-resident
+replacement, measured at 4.7-5.2x and laying the identical pixel set. It is
+not built and this section still describes what ships.
 
 The split is deliberate and not a gap. Mono *is* the 4.77 MHz machine (§39),
 so it gets the tight loop; VGA is the fast one, and major-axis coalescing

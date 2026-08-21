@@ -7045,3 +7045,110 @@ is where §71.2's same-row cursor split sits. The identity rows — the string
 lettered, the same string composed and blitted under it, and a third with
 every eighth cell reverse-video so the attribute byte's wrap is on the glass
 — are the correctness check, by screendump.
+
+### Set 69 — what a LINE pixel costs, decomposed (SPEC.md §5.6)
+
+| | |
+|---|---|
+| machine | MartyPC, `os8088_5150_herc` and `os8088_5150_cga` — a cycle-accurate 4.77 MHz 8088 with the real IBM 5150 ROM |
+| harness | `tools/os88linecost.py`, which is new and is **not** a package: the CPU is parked on a stub written into `gfx_pairtab0` (256 idle `.bss` bytes inside KERNEL_SEG) and `status()["cycles"]` is read either side, with IF = 0 |
+| build | `elendilon` at the branch point, shipped kernel, no knobs |
+| date | 2026-08-21 |
+
+It exists because rule 4 was owed: §5.6.1 puts the `gfx_line`/`gfx_fill`
+crossover at "~27px" from an instruction estimate, Set 4 measured a dilated
+trail pixel at 500 µs and could not say what the 500 was made of, and Set 5/6
+left "something in `mc_wipe_trails` beyond the walk is unaccounted for".
+
+#### The line, as a straight line
+
+Three lengths per geometry, fitted:
+
+| | arrival | per pixel |
+|---|---:|---:|
+| steep (y-major) | 1,822 cyc = **382 µs** | 723.1 cyc = **151.5 µs** |
+| shallow (x-major) | 1,905 cyc = **399 µs** | 657.1 cyc = **137.7 µs** |
+
+The fit is exact to one cycle at the middle length, so this really is
+`a + b·pixels` and not a curve. The 10% steep/shallow gap is Set 11's, still
+there, still `gfx_rowbase` per step against a pointer add. **The arrival is
+382 µs and not §5.7's ~756**: this calls the near kernel entry directly, so it
+is the routine without the far call and without `gfx_lock`.
+
+Cross-check against iron: Set 11's `GFX_LINE steep thin` on the field 5150 is
+**21,184 µs** for the same 32×127 geometry and this reports **19,775** for it
+without gfxbench's far call and wrapper — 7% apart, in the direction the
+missing wrapper predicts.
+
+**A dilated erase is 1.36× a thin draw when it is steep and 2.98× when it is
+shallow** (128 px: 26,844 µs against 19,775; 53,767 against 18,023). That is
+§5.6.6's one-walk path confirmed from outside: three passes would be three
+times, and steep is not.
+
+#### Where the 723 cycles go — measured, one piece at a time
+
+Each piece run 500 times in a `loop`, net of the `loop` itself:
+
+| piece | cyc | ins |
+|---|---:|---:|
+| the five per-pixel guard compares (§5.6.3's clip box + §5.6.6's `gfx_ln_wide`) | **170.0** | 10 |
+| the `e2` block — `e2 = 2*err` and both Bresenham tests, through `.bss` | **298.0** | 17 |
+| ...the same decision in registers | 116.0 | 9 |
+| `call gfx_nextrow`, as the walk makes it | **159.0** | 6 |
+| ...the same three instructions INLINE | 100.0 | 4 |
+
+(The `e2` rows and the register row each carry one `push`/`pop` pair of
+harness, ~30 cyc; the `gfx_nextrow` rows carry a `sub di,[vid_rowadd]` undo,
+~25.)
+
+So a steep line pixel is roughly **170 guard + 270 bookkeeping + 134 row step
++ 38 store + ~110 the rest**. Nothing is anomalous and nothing is missing:
+Set 5/6's unaccounted remainder was the guard block and the call.
+
+#### The finding, in one line
+
+**40.8 instructions per pixel at 17.7 cycles each.** The cycles-per-
+instruction is not the problem — a register-resident candidate measures 15.7
+— and 17.7 is simply what a **direct memory operand** costs on an 8088:
+`cmp si,[gfx_ln_cx1]` is 4 bytes and a word read, 15 clocks of execution, 4
+more for the 8-bit bus, and 4 clocks a byte of prefetch that the queue cannot
+hide across eight taken branches. Every one of `dx`, `dy`, `err`, `e2`, `sx`,
+`x2`, `y2`, the four clip edges, the wide flag and the ink is a word in
+`.bss`. Part 2's `max(clocks, 4.34 × bytes)` floor is the whole story and the
+110-byte loop body is over it.
+
+#### The candidate, measured on both 1bpp adapters
+
+An octant-split walk — `d = 2dx − dy`, the major axis stepping every pixel so
+it needs no test, `d` and `2dx` and `2dy` in registers, the clip spent before
+the loop, the row step inline. `tools/os88linecost.py --model` proves it lays
+the **identical** pixel set over 9,480 endpoint pairs, and the harness diffs
+the framebuffer to prove it again on the glass.
+
+| 128 px | Hercules | CGA |
+|---|---:|---:|
+| `gfx_line` | 94,383 cyc | 86,063 |
+| candidate, portable row step | **19,415 (4.86×)** | **20,244 (4.69×)** |
+| ...with the Hercules-only `js` wrap | 16,086 (5.87×) | *lays a different line* |
+| ...with the framebuffer store removed | 11,223 | 12,894 |
+
+Every "identical" row above is byte-for-byte identical framebuffer. The `js`
+row is the reason the harness diffs at all: Hercules' `vid_wrapbit` is 0x8000
+and IS the sign bit, CGA's is 0x4000, and the shortcut is silently wrong
+there — 64 bytes different, no error, a plausible-looking line.
+
+**147 cyc/px portable = 30.8 µs a pixel, against 151.5.** The store is
+38 cyc/px of it (5% of the old loop, 26% of the new one).
+
+#### What did NOT pay, and it is the interesting half
+
+**Accumulating a framebuffer byte instead of one read-modify-write per pixel
+is worth 10%, not the 8× the store count suggests** (112.1 cyc/px against
+124.9 on a 127×32 line, both identical pixels). A shallow line only holds
+eight pixels in one byte if it is shallow enough that `gfx_line` already sends
+it to `gfx_hline` (§5.6.1); at 127×32 the row changes every fourth pixel and
+the byte has to be spent then anyway. Rule 5 in miniature — the optimisation's
+*shape* was right and its *reason* was not present.
+
+`docs/LINE-PERF-PLAN.md` is what this would cost to build, and what has to
+move with it.
