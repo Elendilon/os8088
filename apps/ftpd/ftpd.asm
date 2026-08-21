@@ -7006,11 +7006,16 @@ fd_s_at:    db ' at ', 0
 fd_l_dport: db 'Data port ', 0
 fd_l_nosock: db 'No data socket: err ', 0
 fd_l_got:   db 'Got ', 0
-fd_l_part:  db 'Incomplete: ', 0
+fd_l_part:  db 'Partial: ', 0
 fd_l_sent:  db 'Sent ', 0
-fd_l_in:    db ' bytes in ', 0
-fd_l_sec:   db 's (', 0
-fd_l_bps:   db ' B/s)', 0
+; **THESE ARE SIZED TO FD_LOGW**, which is 44 characters. The first cut of
+; this line read `Incomplete: 204800 bytes in 29s (7062 B/s) gap 12s` - FIFTY
+; characters - so the field got the report with the gap sliced off at the
+; window's edge, which was the one number the line existed to carry. The
+; longest form now is `Partial: 1234567 in 999s 65535B/s gap 999s` at 42.
+fd_l_in:    db ' in ', 0
+fd_l_sec:   db 's ', 0
+fd_l_bps:   db 'B/s', 0
 fd_l_gap:   db ' gap ', 0
 fd_l_gs:    db 's', 0
 fd_l_prange: db 'Passive data ports 2048-2055', 0
