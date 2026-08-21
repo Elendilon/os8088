@@ -2778,7 +2778,7 @@ forced full repaint.
 
 ---
 
-## 27. The 5150 hard-freezes on `CWD` when an FTP client connects (OPEN — and it is NOT a code regression)
+## 27. The 5150 hard-freezes when the hard disk is mounted (OPEN — not a code regression, and the disk is not corrupt)
 
 **Observed.** With the FTP server (§77) running and its Root pointed at
 `C:/`, a client connects, logs in, and the machine hard-freezes. The last
@@ -2827,12 +2827,61 @@ code involved. The machine has been serving FTP writes for hours, and every
 freeze since the first one has left the volume mid-write, which is a
 mechanism for the fault to feed itself.
 
-**The one-move test, and it is the field's to run:** point the server's Root
-at the **floppy** instead (Setup → Root, `B:/`, or clear it so it serves the
-folder it was launched from, §77.6). If `CWD` stops freezing, it is the hard
-disk and not the stack. If it still freezes with nothing but a floppy under
-it, that is a completely different bug and this note is wrong.
+**The one-move test came back, and it is the disk.** With the server's Root
+on the **floppy**: half a dozen connects, no freeze. Mounting the hard drive:
+**instant freeze**. So it is not the socket stack, not the FTP server and not
+the client — it is the hard-disk path, and the FTP server was only ever the
+thing that made the machine touch it.
+
+### 27.1 ...and the disk itself is NOT corrupt
+
+The 20MB image came off the machine and was checked end to end. It is clean:
+
+```
+partition table at physical sector 68 - 68 reserved sectors in front of it
+partition 0 type 0x04 at LBA 17, 41667 sectors: FAT16, 10388 clusters of 2048
+verify-hdd OK: 53 file(s), FATs agree, no loops, no cross-links,
+               every chain matches its size
+```
+
+**Raw sector 0 is not the MBR on this drive**, and reading it as one is how
+this looked, for an hour, like a destroyed partition table. A **Seagate
+ST-11M** controller reserves the front of the drive for itself and presents
+the sector after its area as the BIOS's LBA 0 — so the real table is 68
+sectors in, and every partition LBA is relative to there. Raw sector 0 holds
+the controller's own geometry block (`SEAGATE`, `ST-225`, 615 cylinders, 4
+heads, 17 sectors), repeated at sectors 1, 17 and 18, and it looks exactly
+like garbage written over an MBR. The tell is that the partition's `hidden`
+field agrees with the table entry **only** at the right offset: 17 both ways.
+
+Two files on it do not match the current build — `ETHER.DRV` 21,411 bytes
+against 17,052, and `NET.DRV` 5,592 against 5,599. **Both are internally
+consistent**: each driver header's own image-size word equals the file's
+length, so neither is a truncated or over-written file. The install on that
+disk is simply old; the machine boots from floppies and mounts the disk only
+to write to it.
+
+`python3 tools/os88disk.py --verify-hdd IMG` is that check, kept rather than
+thrown away — `--verify` is a floppy's and refuses a FAT16 volume and any
+geometry that is not one of six real floppy shapes, so there was no way to
+ask this question without a throwaway script, which is how a throwaway answer
+gets trusted.
+
+### 27.2 What is left, and the next one-move test
+
+A mount is `dsk_chdir` → `disk_mount` → `int 13h`, and the volume under it is
+provably well-formed, so a wrong LBA computed from a bad BPB is ruled out
+too. What is not ruled out is the layer below: `int 13h` is the one
+unbounded thing in the path, and a controller that never raises its
+completion bit is a hard freeze with no code involved.
+
+**The test:** boot the floppy, do **not** start the FTP server and do not
+load `ETHER.DRV` at all (take it out of `SYSTEM.CFG`), then mount C: from the
+Disk window. If it still freezes, nothing in this session's work is
+involved and this is a hard-disk-path bug that has been there all along; if
+it does not, the difference is what else is resident, and that is a memory
+question rather than a disk one.
 
 **Do not "fix" this from the tree until that answer comes back.** Four
-sessions' worth of evidence says the code that is being blamed worked on this
+rounds of evidence say the code that keeps being blamed worked on this
 machine the same afternoon.
