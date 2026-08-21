@@ -245,6 +245,10 @@ SOAK = [
         "What SPEC.md 5.6.4.1 is worth to a program that draws lines - apps/wire"
         "reading its own frame rate, with the dispatch poked out and back",
         needs=("marty",), serial=True),
+    Row("evqfull", "soak", py("tests/evqfull.py"), 60.0,
+        "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
+        "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
+        needs=("marty",), serial=True),
     Row("linefast", "soak", py("tests/linefast.py"), 60.0,
         "Does SPEC.md 5.6.4.1's fast walk lay 5.6.4's pixels? Both inks, all"
         "eight octants, clipped and not - against the same kernel with the"

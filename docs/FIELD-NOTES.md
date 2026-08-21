@@ -2777,7 +2777,7 @@ forced full repaint.
 
 ---
 
-## 27. A window that draws every frame starves the pointer — REPRODUCED, mechanism found, UNFIXED
+## 27. A window that draws every frame starves the pointer — REPRODUCED; the LOCKOUT is fixed, the starvation is not
 
 **Reported** while looking at `apps/wire` (SPEC.md §78) on the field machine:
 *"we are only getting mouse input when not drawing, and edge-then-repair is
@@ -2866,3 +2866,46 @@ stopped rather than nowhere near it.
 holds for any worker that fills its tick, and `apps/paint` predates all of it.
 What §5.6.4.1 changed is that a *line-drawing* program can now fill its tick
 with far more drawing, which is why this surfaced now.
+
+### 27.3 Defects 2 and 3 are fixed, and it was 2 that mattered
+
+SPEC.md §10.1 turned the full-ring policy round and §10.2 made the pass drain
+the ring instead of sipping one record. Defect 1 is untouched: the UI task
+still gets 18 passes a second under a drawing worker, and nothing here claims
+otherwise.
+
+**The reproduction.** `apps/wire` at `Edge at a time`, its close box hammered
+sixty times with no pause between press and release — as close to the reported
+hand as a script gets — on `os8088_5150_herc`. "Closed" is the window actually
+going away; "last-popped" samples `ui_ev`'s type once per click, so it says
+which half of each gesture `ui_task` was getting.
+
+| | last-popped types | result |
+|---|---|---|
+| as shipped before this (one record a pass, drop newest) | `{MDOWN: 60}` | **never closed** |
+| §10.1 alone (one record a pass, drop oldest) | `{MDOWN: 9, MUP: 51}` | **never closed** |
+| §10.2 (drain), either ring policy | mixed | **closed in 13–40 clicks, 1.8–5.8 guest s** |
+
+The first two rows are the finding, and neither was predicted. **One record a
+pass separates a press from its release, and which half survives is decided by
+the queue's arithmetic rather than by anything about the user.**
+
+- Refusing the newest leaves exactly one free slot per dispatch and the
+  *press* wins it every time, because a press is what a hand does next. Sixty
+  hammered clicks produced sixty dispatched `EVT_MDOWN`s and not one
+  `EVT_MUP`: the close box was armed sixty times and spent none. That is
+  precisely *"I could not even click to close the window, after over a minute
+  of trying"*, and precisely why it comes right the moment the hand stops.
+- Discarding the oldest lands on the other parity — the drop and the pop both
+  take the head — so the releases arrive and the presses are eaten. Same
+  outcome, opposite half.
+
+So §10.1 is not what fixed this; §10.2 is. §10.1 is kept because bounded
+staleness is right on its own terms and measured no worse: with the drain in,
+the two policies close the window in 27/36 clicks and 13/40 clicks
+respectively, which is one distribution.
+
+**Paint is not fixed.** Its symptom is defect 1 — the UI task not running
+often enough to sample the pointer — and the drain does nothing for a stream
+of positions that were never queued in the first place. Expect it to still be
+ziggy and to still stop short.

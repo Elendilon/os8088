@@ -143,15 +143,21 @@ ui_task:
     call gfx_unlock
     KFZ 9                       ; 9: a healthy keystroke, start to finish
 
-    ; --- 2. events: pop one, act on EVT_MDOWN ---------------------------------
+    ; --- 2. events: DRAIN the ring, acting on each record (SPEC.md 10.2) ------
 .events:
     call blk_pass               ; spend the mouse ISR's activity flag, and dark
                                 ; every monitor once the idle period is up
                                 ; (SPEC.md 64.1). AHEAD of evq_pop and not
-                                ; down in .yield: the press that woke the
+                                ; down in .tail: the press that woke the
                                 ; screen is still in the ring here, and this
                                 ; is what drains it rather than letting it be
                                 ; dispatched at a window nobody could see
+    mov word [ui_drain], EVQ_CAP    ; SPEC.md 10.2: this pass will empty the
+                                ; ring, not sip one record from it - bounded
+                                ; at the ring's own size, because the mouse
+                                ; ISR can push while we dispatch and an
+                                ; unbounded drain would starve .tail's ladder
+.evloop:
     mov di, ui_ev
     call evq_pop
     jc .yield                   ; queue empty
@@ -431,7 +437,12 @@ ui_task:
     call ui_rdown               ; in: [ui_ev]; the context-menu path (12.4)
 
     ; --- 3. deferred work (SPEC.md 13/21/29): OUTSIDE the gfx lock ------------
-.yield:
+.yield:                         ; SPEC.md 10.2 - every dispatch above lands here,
+    dec word [ui_drain]         ; and the ring is asked again before the tail
+    jz .tail                    ; runs. Two words of work when the queue is
+    cmp word [evq_count], 0     ; empty, which is nearly every pass
+    jne .evloop
+.tail:
     call kbm_ui                 ; the keyboard mouse's end-of-pass service
                                 ; (SPEC.md 9.6.1): a press held the button so
                                 ; that whatever this pass dispatched could
@@ -2612,6 +2623,7 @@ ui_armw:    resw 1              ; SPEC.md 13.5: the window a chrome press is
                                 ; is never 0, so 0 is the sentinel and .bss
                                 ; arrives zeroed (kernel.asm) - ui_tclkw's
                                 ; convention exactly
+ui_drain:   resw 1              ; SPEC.md 10.2: dispatches left in this pass
 ui_armr:    resb 1              ; ...and which box: wm_hit's AL, 2 = close,
                                 ; 3 = minimize. Both halves are compared at the
                                 ; release, because the two boxes share a title

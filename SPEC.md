@@ -5639,13 +5639,160 @@ Single system queue, 16 records, ring buffer in .bss. Producers may be ISRs:
 `evq_push` (SI → record; copies 8 bytes; guards the copy + index update with
 `pushf`/`cli` … `popf` so the caller's IF is preserved — it is called from
 the mouse ISR, which must keep IF=0 throughout (§7); never a bare `sti`;
-drops silently when full) and `evq_pop` (DI → destination; CF=1 if empty;
+overwrites the oldest record when full, §10.1) and `evq_pop` (DI →
+destination; CF=1 if empty;
 same `pushf`/`cli` … `popf` guard). `evq_init` resets head, tail and count
 under that same guard: it is no longer only a boot-time call, because
 `blk_pass` drops the wake press with it (§64.2) from the UI task with the
 mouse ISR live — and an `evq_push` landing between the tail store and the
 count store leaves head one record behind tail for the rest of the session.
 Keyboard events are *not* queued — the UI task polls BIOS int 16h directly.
+
+### 10.1 A full ring drops the OLDEST input, not the newest
+
+Sixteen records is a *latency* budget, not a capacity one. Nothing in the
+system is supposed to let the queue fill: the UI task drains it several
+hundred times a second on an idle desktop, so a ring that reaches sixteen has
+already established that the consumer is not running — and the interesting
+question is no longer "how do we not lose a record", it is "which record do we
+lose".
+
+Until this section, `evq_push` answered that by refusing the newest one: a
+full ring returned without copying. That is the wrong end. When the UI task is
+starved by a drawing worker (docs/FIELD-NOTES.md 27) the ring pegs at 16/16
+within a second of the user's first click, and from then on **every** press
+the user makes is refused while sixteen stale ones — samples of where the
+pointer was seconds ago — sit in front of them waiting to be dispatched at a
+handful a second. The user is not slow, they are locked out: clicking harder
+makes it strictly worse, because the queue never contains their most recent
+intent. A field report of sixty seconds of clicking with nothing getting
+through is exactly this shape, and it recovers the instant the hand *stops*,
+which is the tell.
+
+So the policy is the ring buffer's usual one. A full `evq_push` advances
+`evq_head` over the oldest record, decrements `evq_count`, and then does the
+copy it was always going to do:
+
+```nasm
+    cmp word [evq_count], EVQ_CAP
+    jb .room
+    ...                             ; the EVT_WAKE test, below
+    mov ax, [evq_head]
+    add ax, EVQ_RECSIZE
+    and ax, EVQ_MASK
+    mov [evq_head], ax
+    dec word [evq_count]            ; ...and the copy below puts it straight back
+.room:
+```
+
+It is nine instructions and no allocation, it runs only on the path that was
+about to throw the record away regardless, and it is still inside the
+`pushf`/`cli` … `popf` guard, so head and count move together with respect to
+an ISR.
+
+**What this fixes and what it does not.** It does not make the UI task run —
+that is `gfx_lock` fairness (§7, docs/FIELD-NOTES.md 27), a separate
+problem — so a starved system stays slow. What it changes is *whose* clicks survive the starvation:
+the sixteen the user is going to get are now their sixteen most recent, so a
+window's close box answers a determined hand in a few seconds instead of never.
+The events lost are the ones the user has already given up on.
+
+**The one exception: `EVT_WAKE` is a promise, not a sample.** `wm_wake`
+(§10, §71.1) coalesces on a per-window flag in `wm_wkq`, set when the wake is
+queued and cleared *only by the dispatch*. Discarding a queued wake therefore
+does not lose one kick — it leaves the flag set with no record behind it, so
+that window's handler is never called again and every later `OSAPI_WM_WAKE`
+from it answers the same CF=0 promise forever. A `ftpd` transfer (§77) whose
+worker→UI handshake is one such wake would simply stop, in a way that reads as
+a hung socket. So a full push whose *oldest* record is an `EVT_WAKE` falls back
+to the old behaviour and refuses the newest instead. That costs almost nothing
+in practice: wakes are rare and coalesced, so a ring that is full is full of
+input and has input at its head; and if the head genuinely is a wake, the
+record behind it is one the UI task is about to reach anyway.
+
+Press/release pairing survives either way. Losing an `EVT_MDOWN` whose
+`EVT_MUP` is still queued was already possible under drop-newest, and §13.7
+already requires `W_ONMOUSEUP` to fire only when the matching `W_ONCLICK`
+ran — the arm flag is what pairs them, not queue adjacency.
+
+`tests/evqfull.py` is the gate: it fills the ring from the guest and asserts
+that the sixteen records left are the sixteen most recent pushes, and that a
+wake at the head is preserved.
+
+### 10.2 The UI task DRAINS the ring; it does not sip
+
+`ui_task` popped exactly one record per pass. On an idle desktop that is
+invisible — the loop comes round several hundred times a second and the ring
+is empty every time — and it is what makes a starved system unusable, in a way
+neither §10.1 nor the fps number predicts.
+
+**The parity trap.** Put a drawing worker on the machine (`apps/wire` in
+§78.5's "Edge at a time", say) and `ui_task` drops to ~18 passes a second,
+which is ~18 dispatches a second. A person clicking a close box produces two
+records per click — an `EVT_MDOWN` that *arms* the chrome press and an
+`EVT_MUP` that *spends* it (§13.5) — and produces them faster than that. The
+ring fills, and from then on the queue's arithmetic decides which half of each
+click the user gets:
+
+- **Refusing the newest** (the pre-§10.1 rule): the ring has one free slot per
+  dispatch, and the press wins it every time, because the press is what the
+  hand does next. Every release is refused. Measured on the 5150 model, sixty
+  hammered clicks: **every** dispatched record was an `EVT_MDOWN` — the arm was
+  set sixty times and spent none. The window cannot be closed while the user
+  keeps clicking, and closes the moment they stop. That is the field report
+  (docs/FIELD-NOTES.md 27) exactly.
+- **Discarding the oldest** (§10.1): the drop and the pop both take the head,
+  so the consumer sees every other record — and lands on the other parity. Same
+  sixty clicks: 51 of the sampled dispatches were `EVT_MUP`, arriving with
+  nothing armed for them to spend.
+
+Neither policy is wrong; **one record per pass** is. A press and its release
+are one gesture and the queue is not entitled to separate them.
+
+So the pass drains:
+
+```nasm
+.events:
+    call blk_pass               ; ...once per pass, ahead of the ring (§64.1)
+    mov word [ui_drain], EVQ_CAP
+.evloop:
+    mov di, ui_ev
+    call evq_pop
+    jc .yield
+    ...                         ; every dispatch below still ends at .yield
+.yield:
+    dec word [ui_drain]
+    jz .tail
+    cmp word [evq_count], 0
+    jne .evloop
+.tail:                          ; the deferred ladder, once a pass as before
+```
+
+Three properties are load-bearing:
+
+- **It is bounded, at `EVQ_CAP`.** The mouse ISR pushes while we dispatch, so
+  "drain until empty" is a loop a moving mouse can hold open, and everything
+  in `.tail` — `kbm_ui`, `ui_arm_trk`, `wm_close_pass`, the deferred launches —
+  would stop happening. Sixteen is the ring's own size: the pass clears what
+  was there and leaves what arrived during it for the next one.
+- **`blk_pass` stays outside the loop.** It spends the mouse ISR's activity
+  flag and can call `evq_init` to drop the press that woke a dark screen
+  (§64.1); it is a per-pass service and running it per record would make the
+  wake press's fate depend on how many events happened to be queued.
+- **The tail still runs once.** `ui_arm_trk` samples the pointer per pass, not
+  per record, and `ui_arm_chk` drops an arm whose release was lost — putting
+  either inside the drain would have `ui_arm_chk` cancel an arm that the very
+  next record was about to spend.
+
+The cost when nothing is queued is one `dec` and one compare against zero per
+pass, which is the case on essentially every pass. The cost when something *is*
+queued is that a backlog is spent in one pass instead of sixteen, which is the
+whole point.
+
+**This does not make the UI task run more often** — that is `gfx_lock`
+fairness (§7), still open — but it changes what one pass is worth. A user
+hammering a close box under a drawing worker now has each click dispatched as a
+click, so the arm is spent by the release that belongs to it.
 
 ## 11. wm.inc — windows
 
