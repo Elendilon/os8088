@@ -61114,6 +61114,31 @@ larger half. It is not this driver's to fix: the profiler stops at the package
 door on purpose, because instrumenting the FTP server and the disk is a
 different piece of work with a different instrument.
 
+#### 72.16.3 The register walk: seven calls to do one thing
+
+`ne_dma_read` and `ne_dma_write` each set up a remote DMA the same way — abort,
+byte count, start address, go — and each did it through **six or seven
+`call ne_out`**, a ten-byte helper that recomputes `[eth_base] + register` from
+scratch behind a `push dx`/`push ax` pair every time.
+
+They hold `DX` already. So `DX` is loaded once and **walked**: `add dx, delta`
+between neighbouring registers, three bytes and four clocks against `ne_out`'s
+ninety. The deltas are signed and NE2000's register file is sixteen bytes, so
+the walk cannot leave the card whatever base it answered on; `ne_out` itself
+stays, because a dozen other sites poke one register in isolation and for those
+it is exactly right.
+
+**The reason is the STACK, and the speed is the bonus.** `ne_dma_write` is the
+bottom of the driver's deepest chain (docs/KERNEL-MEMORY.md, "Task stacks"), so
+a `call` from there costs the return address *and* `ne_out`'s own two saves at
+the worst possible depth: `tools/stkdepth.py` prices `eth_pump` at **140 bytes
+before and 134 after**. The ~420 clocks a DMA it also saves are real but small
+beside §72.17's numbers.
+
+**Six bytes is not a lot, and that is the finding.** The chain is fourteen
+levels averaging ten bytes, so there is no single cut worth much — which is why
+`SCH_STACK` is a memory decision rather than an optimisation one.
+
 ### 72.17 The same transfer, twice — and the wall clock has a person in it
 
 The prediction in §72.16 was written down before the build shipped, which is

@@ -1017,11 +1017,41 @@ hardware. **That is a 1.3× margin on a project that runs 1.8×**, bought with
 surgery on the TCP stack — so cutting is worth doing on its own merits and is
 not an answer to this.
 
-**The cheapest way to pay may be `MAX_TASKS`.** Slices cost
-`(MAX_TASKS-1) × SCH_STACK`, so 12 → 8 with `SCH_STACK` 512 is 3,584 against
-today's 2,816 — **+768**, not +2,816, and inside one more `.lowbss` rung. It
-costs four concurrent tasks and `MAX_TASKS` is mirrored in `apps/os88api.inc`,
-so it is a compatibility decision rather than a free one.
+##### 384, and the canary survives it
+
+`SCH_STACK` does not have to be a power of two. `sch_switch`'s byte-swap
+becomes `(n-1)*3` then `shl 7` — **eleven bytes of `.text` and about forty
+clocks a switch**, which at 18.2 switches a second is nothing. So the choice is
+about RAM and about `MAX_TASKS`, and **not** about giving up `SCH_MAGIC`.
+
+Both configurations were built and the guards read:
+
+| | `.lowbss` | `KERN_SIZE` vs `KERN_BUDGET` | heap | other cost |
+|---|---|---|---|---|
+| **256 × 11** (today) | 7,830 | 1,536 spare | — | — |
+| **384 × 9** (`MAX_TASKS` 10) | 8,470 (+640) | **512 spare — it fits** | −512 B | two fewer worker slots, and the Task Manager's bss map |
+| **384 × 11** (`MAX_TASKS` 12) | 9,238 (+1,408) | **512 OVER** | −1,024 B | `KERN_BUDGET` +1 rung |
+
+**A slot is a WORKER, not an app.** A window runs on the UI task; a slot is
+spent by `OSAPI_TASK_SPAWN` (one per package instance — fifteen packages have
+one), by a built-in kind with `KD_TASK` (Timer and Bounce, cap 10 each), or by
+`OSAPI_DRV_TASK` (the Sound Blaster; `ETHER.DRV` has none). So 12 → 10 is two
+fewer *concurrent workers*, and the Timer/Bounce caps of 10 were already not
+the binding limit — `MAX_TASKS` was.
+
+**`MAX_TASKS` is not a one-line knob.** It is mirrored in `apps/os88api.inc`,
+and `apps/taskmgr`'s bss is a hand-chained map of literal offsets pinned to
+`SYS_SNAPSHOT_SIZE` by a `%error` — which fires, correctly, and wants every
+offset below it re-derived. That guard is the reason the change is *safe*, and
+it is also the reason it is not free.
+
+**And cutting the driver first was tried.** §72.16.3 flattened
+`ne_dma_read`/`ne_dma_write`'s seven `call ne_out` into a walked `DX`:
+`eth_pump` 140 → **134**, gate-verified, and faster as well. The rest of what
+`stkdepth.py` can find is 12 bytes of provably-unneeded pushes and about 20
+more from pushing register saves DOWN to shallow callees — perhaps 30 bytes in
+total, across a dozen edits in a live TCP stack. It does not change the row
+this table is in.
 
 **And it has been run there.** On a real 5150 (640K, Hercules, a 20MB MFM
 disk through its controller ROM) with a floppy-to-hard-disk copy running, the

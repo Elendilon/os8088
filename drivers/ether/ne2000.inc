@@ -177,24 +177,34 @@ ne_dma_read:
     push cx
     push dx
     mov cx, ax
-    mov ax, (NE_STA | NE_RD_ABORT) << 8 | NE_CR
-    call ne_out
-    mov al, NE_RBCR0
-    mov ah, cl
-    call ne_out
-    mov al, NE_RBCR1
-    mov ah, ch
-    call ne_out
-    mov al, NE_RSAR0
-    mov ah, bl
-    call ne_out
-    mov al, NE_RSAR1
-    mov ah, bh
-    call ne_out
-    mov ax, (NE_STA | NE_RD_READ) << 8 | NE_CR
-    call ne_out
-    mov dx, [eth_base]
-    add dx, NE_DATA
+    ; --- THE CARD'S ADDRESS, HELD ONCE (SPEC.md 72.16.1) ---------------------
+    ; This used to be six `call ne_out`, and each one recomputed base+register
+    ; from scratch behind a push/pop pair. DX walks the register file instead:
+    ; one load, then `add dx, delta` between neighbours, which is three bytes
+    ; and four clocks against ne_out's ninety - and, on the stack, SIX BYTES
+    ; LESS AT THE DEEPEST POINT IN THE DRIVER, because this is the bottom of
+    ; the transmit chain (docs/KERNEL-MEMORY.md, "Task stacks"). The deltas are
+    ; signed and NE's register file is sixteen bytes, so the walk never leaves
+    ; the card whatever base it answered on.
+    mov dx, [eth_base]              ; DX = base + NE_CR (which is 0)
+    mov al, NE_STA | NE_RD_ABORT
+    out dx, al
+    add dx, NE_RBCR0 - NE_CR
+    mov al, cl
+    out dx, al
+    inc dx                          ; NE_RBCR1
+    mov al, ch
+    out dx, al
+    add dx, NE_RSAR0 - NE_RBCR1
+    mov al, bl
+    out dx, al
+    inc dx                          ; NE_RSAR1
+    mov al, bh
+    out dx, al
+    add dx, NE_CR - NE_RSAR1
+    mov al, NE_STA | NE_RD_READ
+    out dx, al
+    add dx, NE_DATA - NE_CR
     jcxz .done
     push es                     ; `stosb` is the store AND the increment in one
     push ds                     ; byte, where `mov [di],al / inc di` is three -
@@ -206,8 +216,10 @@ ne_dma_read:
     loop .byte
     pop es
 .done:
-    mov ax, NE_RDC << 8 | NE_ISR        ; the DMA is complete: say so, or the
-    call ne_out                         ; next one starts on a stale flag
+    mov dx, [eth_base]                  ; the DMA is complete: say so, or the
+    add dx, NE_ISR                      ; next one starts on a stale flag
+    mov al, NE_RDC
+    out dx, al
     pop dx
     pop cx
     pop bx
@@ -224,26 +236,28 @@ ne_dma_write:
     push cx
     push dx
     mov cx, ax
-    mov ax, (NE_STA | NE_RD_ABORT) << 8 | NE_CR
-    call ne_out
-    mov ax, NE_RDC << 8 | NE_ISR
-    call ne_out
-    mov al, NE_RBCR0
-    mov ah, cl
-    call ne_out
-    mov al, NE_RBCR1
-    mov ah, ch
-    call ne_out
-    mov al, NE_RSAR0
-    mov ah, bl
-    call ne_out
-    mov al, NE_RSAR1
-    mov ah, bh
-    call ne_out
-    mov ax, (NE_STA | NE_RD_WRITE) << 8 | NE_CR
-    call ne_out
-    mov dx, [eth_base]
-    add dx, NE_DATA
+    mov dx, [eth_base]              ; ne_dma_read's walk, and for its reasons
+    mov al, NE_STA | NE_RD_ABORT    ; DX = base + NE_CR (0)
+    out dx, al
+    add dx, NE_ISR - NE_CR
+    mov al, NE_RDC
+    out dx, al
+    add dx, NE_RBCR0 - NE_ISR
+    mov al, cl
+    out dx, al
+    inc dx                          ; NE_RBCR1
+    mov al, ch
+    out dx, al
+    add dx, NE_RSAR0 - NE_RBCR1
+    mov al, bl
+    out dx, al
+    inc dx                          ; NE_RSAR1
+    mov al, bh
+    out dx, al
+    add dx, NE_CR - NE_RSAR1
+    mov al, NE_STA | NE_RD_WRITE
+    out dx, al
+    add dx, NE_DATA - NE_CR
     jcxz .wait
 .byte:
     mov al, [si]
@@ -251,16 +265,19 @@ ne_dma_write:
     out dx, al
     loop .byte
 .wait:
+    mov dx, [eth_base]          ; ...and the completion poll, on ONE address
+    add dx, NE_ISR              ; rather than through ne_in every spin
     mov cx, NE_RDCSPIN          ; bounded: a card that never raises RDC is one
 .rdc:                           ; that has gone away, and this must not hang
-    mov al, NE_ISR
-    call ne_in
+    in  al, dx
     test al, NE_RDC
     jnz .done
     loop .rdc
 .done:
-    mov ax, NE_RDC << 8 | NE_ISR
-    call ne_out
+    mov dx, [eth_base]          ; clear RDC on the way out, on the same one
+    add dx, NE_ISR
+    mov al, NE_RDC
+    out dx, al
     pop dx
     pop cx
     pop bx
