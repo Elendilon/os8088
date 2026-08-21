@@ -2774,3 +2774,65 @@ refuses, the answer is §11.100.4: a window that has DECLARED a size for that
 adapter is handed it and told, and `apps/modplug` is the first — its compact
 face onto the CGA and its full one home, **0 differing pixels** against a
 forced full repaint.
+
+
+---
+
+## 27. The 5150 hard-freezes on `CWD` when an FTP client connects (OPEN — and it is NOT a code regression)
+
+**Observed.** With the FTP server (§77) running and its Root pointed at
+`C:/`, a client connects, logs in, and the machine hard-freezes. The last
+line on the FTP window's log is **`CWD`**. No error, no toast, no cursor —
+the guest stops.
+
+**The one fact that shapes the whole investigation.** It reproduces on
+**every build tried, including ones that demonstrably worked earlier the same
+session**:
+
+| build | what it did before | now |
+|---|---|---|
+| `3969745` | ran a full transfer at 8720 B/s | — |
+| `9c11182` | produced the first complete profile, 36,080 ms wall | **freezes on CWD** |
+| `0c12f31` | a transfer in 24,565 ms | — |
+| `45ee710` | a transfer in 22,891 ms | — |
+| `4322e5f` | — | **freezes on CWD** |
+
+`9c11182` is the reference build: it was cut *before* `rep movsb` (§72.16),
+it carries the profiler, and it completed a 297 KB upload on this machine an
+hour before it started freezing. **A build cannot regress against itself.**
+So the change is in the machine, not in the tree.
+
+**Ruled out.**
+
+- **`rep movsb` (§72.16).** The reference build predates it and freezes too.
+- **`netbench`.** The freezing run had no benchmark window open at all.
+- **The profiler being on or off.** It froze with it never started.
+- **The report save.** Driven under QEMU with the FTP server running: `W`
+  pressed, the system tick kept advancing for twenty seconds afterwards, the
+  server still answered a fresh `LIST`, and the `NETBENCH.TXT` recovered off
+  the field's own disk is complete and well-formed to its last byte. The save
+  works.
+- **The full client opening sequence.** `SYST`, `FEAT`, `PWD`, `TYPE I`,
+  three `CWD`s, `LIST` and a 64 KB `STOR`, with `netbench` open and the
+  profiler deliberately *not* armed — clean under QEMU.
+- **A cross-linked directory chain cycling forever.** `dsk_dirw_*` already
+  caps any one directory walk at `DSK_DIRW_MAX` = 256 sectors, and that guard
+  exists precisely for a hostile FAT.
+
+**Standing theory: the hard disk.** `CWD` with a `C:/` root is a *mount* of a
+hard-disk directory — `dsk_chdir` → `disk_mount` → `int 13h` on the ST-225.
+Nothing above that layer is unbounded, but `int 13h` itself is: a BIOS
+spinning on a controller status bit that never comes is a hard freeze with no
+code involved. The machine has been serving FTP writes for hours, and every
+freeze since the first one has left the volume mid-write, which is a
+mechanism for the fault to feed itself.
+
+**The one-move test, and it is the field's to run:** point the server's Root
+at the **floppy** instead (Setup → Root, `B:/`, or clear it so it serves the
+folder it was launched from, §77.6). If `CWD` stops freezing, it is the hard
+disk and not the stack. If it still freezes with nothing but a floppy under
+it, that is a completely different bug and this note is wrong.
+
+**Do not "fix" this from the tree until that answer comes back.** Four
+sessions' worth of evidence says the code that is being blamed worked on this
+machine the same afternoon.
