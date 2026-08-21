@@ -792,6 +792,13 @@ def run_gate(m, mo, fails):
     # WITHOUT closing politely, then immediately ask a fresh session to list.
     # Before NETV_ABORT that second session hung.
     import socket as _s
+    # **BREATHING ROOM, and it is the assertion above that needs it.** 8b runs
+    # seven transfers back to back; a RETR and a LIST must close their data
+    # socket gracefully (the close IS the end-of-file), and each close holds
+    # its slot for a FIN round trip. With NET_SOCKS = 4 that is real pressure
+    # - SPEC.md 77.28 - and this assertion is about recovery after an ABORT,
+    # not about that. So it waits for the pool rather than racing it.
+    time.sleep(6.0)
     try:
         f = connect()
         f.login("os8088", "os8088")
@@ -799,10 +806,22 @@ def run_gate(m, mo, fails):
         sock = f.transfercmd("STOR ABORTME.DAT")
         sock.sendall(b"x" * 4096)
     except Exception as e:
-        fails.append("could not even START the transfer this assertion aborts "
-                     "(%s) - the server was not in a fit state to test"
-                     % str(e).strip()[:70])
-        return_early = True
+        say("   (first try: %s - waiting for the socket pool)"
+            % str(e).strip()[:50])
+        time.sleep(20.0)
+        try:
+            f = connect()
+            f.login("os8088", "os8088")
+            f.set_pasv(False)
+            sock = f.transfercmd("STOR ABORTME.DAT")
+            sock.sendall(b"x" * 4096)
+            return_early = False
+        except Exception as e2:
+            fails.append("could not START the transfer this assertion aborts, "
+                         "even after 20s (%s) - SPEC.md 77.28's socket "
+                         "pressure is worse than it is documented to be"
+                         % str(e2).strip()[:70])
+            return_early = True
     else:
         return_early = False
     if return_early:
