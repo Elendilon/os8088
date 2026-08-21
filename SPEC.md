@@ -1589,7 +1589,7 @@ it was and nothing can be drawn wrong by refusing.
 
 | refused | because |
 |---|---|
-| §5.6.6's dilated **steep** line | it is a three-column mask walk, a different shape |
+| §5.6.6's dilated **steep** line | it is a three-column mask walk, a different shape — **but §5.6.6.1 now mostly stops one being built**, so this refusal is the fallback rather than the common case |
 | §39.4's **dither** ink | it is a per-pixel decision by definition |
 | a line whose **minor** extent leaves the box | the major axis is clipped exactly; the minor one is all-or-nothing |
 
@@ -1754,6 +1754,47 @@ Four things about it are load-bearing:
   case one extra RMW and not two, and it is why `BH` can carry that bit while
   `BP` carries its direction — `gfx_line` pushes `BP` for it, as a plain
   register and never as an address base (SS ≠ DS, §1).
+
+#### 5.6.6.1 ...and on `kern_big` the wide walk is now the FALLBACK
+
+§5.6.6 is an optimisation against §5.6.4's general loop and still is. It is
+not an optimisation against §5.6.4.1's: **three fast passes beat one wide
+walk, and not slightly.** On a 193-pixel dilated erase — the shape §48 draws,
+at the length §48's own field measurement gives it:
+
+| a 193 px dilated erase | before §5.6.4.1 | wide walk | three fast passes |
+|---|---:|---:|---:|
+| steep | 40,456 µs | 40,474 | **20,328** |
+| shallow | 81,092 | 17,446 | 17,446 |
+
+The middle column is the defect this fixes and it is not a slowdown — it is a
+**spread**. §5.6.4.1 made the shallow erase 4.6× cheaper and left the steep
+one exactly where it was, so a whole-trail erase went from costing 40 ms or
+81 ms by angle to costing 40 ms or 17 ms. Set 4 counted **38% of Missile
+Command's erases steep**, so that is a 23 ms swing — nearly half a tick —
+landing on two frames in five. It reads on the glass as the trails speeding up
+and slowing down, and it was reported that way.
+
+So `gfx_lf_wide3` decides, and the wide walk is what happens when the fast
+walk would refuse a pass. **Both answers draw the identical pixels** — §5.6.6's
+own argument is that its walk *is* those three passes — so the test is
+conservative in the safe direction and a wrong guess costs time and never a
+pixel:
+
+| declined, and keeps the wide walk | why |
+|---|---|
+| `dy < LF_MINMAJ` | too short to pay for §5.6.4.1's setup, three times over |
+| more than one clip rect | the fast walk's box is *a* rect, and which one is per pass |
+| a second display (§39.14) | the rects are virtual there and translated per fragment |
+| the three passes' x span leaves the box | the fast walk's own refusal, asked early |
+
+The last two lines of that table are the reason this is a separate routine and
+not four more compares inline: it is deliberately *less* precise than
+§5.6.4.1's own eligibility rule, because keeping a second copy of that rule in
+step is the thing that drifts.
+
+On `kern_small` there is no fast walk (§5.6.4.4), so `gfx_lf_wide3` is not
+built and §5.6.6 is unconditional exactly as it was.
 
 #### 5.6.7 The resumable walk — `gfx_linit` / `gfx_lstep` (0x0300 / 0x0308)
 

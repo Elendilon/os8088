@@ -27,8 +27,13 @@ WHAT THE FAN COVERS, and each of these has been a bug in something:
     end below it, cross it entirely, and miss it altogether;
   - lines whose MINOR extent leaves the box, which is the refusal path
     (5.6.4.2) and must draw exactly what the general walk draws;
-  - the DITHER ink and a DILATED steep line, which the fast walk refuses
-    outright - here to prove the refusal reaches the old loop at all.
+  - the DITHER ink, which the fast walk refuses outright - here to prove the
+    refusal reaches the old loop at all;
+  - a DILATED STEEP line BOTH WAYS. 5.6.6.1 made 5.6.6's wide walk a runtime
+    CHOICE against three fast passes, so the third configuration below forces
+    gfx_lf_wide3 to refuse and takes the wide walk instead. All three must
+    agree, which is 5.6.6's own claim - that its walk IS those three passes -
+    checked rather than believed.
 
 The whole framebuffer is compared, not a crop: a walk that runs away writes
 outside the box and that is the failure worth catching.
@@ -117,6 +122,7 @@ def main(argv):
     # something else - which reads as a pass, both runs having taken the same
     # path.
     call = _find_call(sym)
+    wide3 = sym.get("gfx_lf_wide3")
     fails = []
     with os88marty.launch(a.image, machine=a.machine) as m:
         os88marty.settle(m)
@@ -128,6 +134,7 @@ def main(argv):
                      "dispatch moved" % (call, got.hex()))
         print("  dispatch at %04x: %s" % (call, got.hex()))
 
+        w3 = m.read((KERNEL_SEG << 4) + wide3, 2) if wide3 else None
         for armed in (False, True):
             what = "clip armed" if armed else "clip disarmed"
             clean = rig.fb()
@@ -137,9 +144,16 @@ def main(argv):
             slow = run(rig, sym, armed)
             m.write((KERNEL_SEG << 4) + call, got)
             rig.restore(clean)
-            ok = fast == slow
-            print("  [%s] %-14s fast %s  general %s"
-                  % ("PASS" if ok else "FAIL", what, fast[:16], slow[:16]))
+            wide = fast
+            if wide3:                       # ...and 5.6.6's wide walk, forced
+                m.write((KERNEL_SEG << 4) + wide3, b"\xF9\xC3")   # stc, ret
+                wide = run(rig, sym, armed)
+                m.write((KERNEL_SEG << 4) + wide3, w3)
+                rig.restore(clean)
+            ok = fast == slow == wide
+            print("  [%s] %-14s fast %s  general %s  wide %s"
+                  % ("PASS" if ok else "FAIL", what,
+                     fast[:12], slow[:12], wide[:12]))
             if not ok:
                 fails.append(what)
     print("linefast: %s" % ("PASS" if not fails else "FAIL " + ", ".join(fails)))

@@ -1416,6 +1416,10 @@ gfx_line:
     call gfx_ink
     cmp al, 1
     je .passes
+%ifdef KERN_BIG
+    call gfx_lf_wide3           ; SPEC.md 5.6.6.1: ...and on this kernel the
+    jnc .passes                 ; wide walk is the FALLBACK, not the win
+%endif
     mov byte [gfx_ln_wide], 1
     mov word [gfx_ln_np], 1
     inc word [gfx_ln_x1]        ; undo the shift: the mask spans both sides
@@ -1498,6 +1502,67 @@ gfx_line:
     call gfx_vline
     jmp short .out
 
+%ifdef KERN_BIG
+; -----------------------------------------------------------------------------
+; gfx_lf_wide3 - would SPEC.md 5.6.4.1's walk take all THREE passes of this
+;                dilated steep line?
+;
+; in:       the staged line, with x1/x2 already shifted one column LEFT for
+;           pass 0, and 5.6.6's ink and adapter tests already passed
+; out:      CF clear = yes, so 5.6.6's wide walk is not wanted
+;           CF set   = not sure; take the wide walk
+; clobbers: AX, BX, flags
+;
+; SPEC.md 5.6.6.1. 5.6.6's wide walk was an optimisation against 5.6.4's
+; general loop and it still is - but three of 5.6.4.1's passes beat it, and
+; not slightly: on a 193-pixel trail erase, the shape SPEC.md 48 actually
+; draws, the wide walk is 40.5 ms and three fast passes are 20.3. So the wide
+; walk is now what happens when the fast walk would REFUSE a pass, and the
+; only question here is which.
+;
+; IT IS CONSERVATIVE IN THE SAFE DIRECTION. Both answers draw the identical
+; pixels - 5.6.6's own argument is that its walk IS those three passes - so a
+; wrong guess costs time and never a pixel, and "not sure" is spelled CF set.
+; That is why a fragmented region and a second display are declined rather
+; than reasoned about: the fast walk's box is a clip rect translated per
+; fragment, and reproducing that rule here would be keeping a copy of
+; 5.6.4.1's eligibility in a second place, which is the thing that drifts.
+; -----------------------------------------------------------------------------
+gfx_lf_wide3:
+    cmp word [gfx_ln_dy], LF_MINMAJ ; too short to pay for the setup, three
+    jl .no                          ; times over
+    cmp byte [vid_ndisp], 1         ; 39.14: a fragment on a second display is
+    ja .no                          ; translated, and this is not
+    mov ax, [gfx_ln_x1]             ; the span all three passes together cover
+    mov bx, [gfx_ln_x2]
+    cmp ax, bx
+    jle .ord
+    xchg ax, bx
+.ord:
+    add bx, 2                       ; ...pass 2 being two columns right of 0
+    cmp word [wm_clip_n], 0
+    jne .armed
+    or ax, ax                       ; disarmed: the box is the screen
+    js .no
+    cmp bx, [vid_cwm1]
+    jg .no
+    clc
+    ret
+.armed:
+    cmp word [wm_clip_n], 1         ; one rect: the box is that rect, and the
+    jne .no                         ; whole line meets it or none of it does
+    cmp ax, [wm_clip_tab + WCR_X1]
+    jl .no
+    cmp bx, [wm_clip_tab + WCR_X2]
+    jg .no
+    clc
+    ret
+.no:
+    stc
+    ret
+%endif
+
+; -----------------------------------------------------------------------------
 ; gfx_line_raw - internal: one pass over the line, drawing only inside the
 ;                box in gfx_ln_c*. The Bresenham state is already staged.
 ; clobbers: everything but the segment registers

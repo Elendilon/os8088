@@ -7241,3 +7241,43 @@ second adapter say out loud.
 building twice: a figure that did not return would mean the two samples had
 drifted apart for some other reason. 17.1 on CGA against 18.2 is one frame in
 a six-second window, which is the tenth `wr_fps` is quantised to.
+
+### Set 72 — the erase's SPREAD by angle, which is what a player sees
+
+| | |
+|---|---|
+| machine | MartyPC, `os8088_5150_herc`, real IBM 5150 ROM |
+| harness | `tools/os88linecost.py`'s rig, driven by hand; three configurations poked on one boot |
+| geometry | **193 pixels dilated**, steep and shallow — Set 4's own measured whole-trail erase length |
+| date | 2026-08-21 |
+
+Reported from the field after Set 70 shipped: Missile Command's trails "speed
+up and slow down". They do, and it is not the arrival — every `gfx_line` call
+pays the same one. It is that §5.6.4.1 made the **shallow** dilated erase 4.6×
+cheaper and left the **steep** one exactly where it was, because §5.6.6's wide
+walk is the one shape the fast walk refuses.
+
+| a 193 px dilated whole-trail erase | before Set 70 | after Set 70 | after §5.6.6.1 |
+|---|---:|---:|---:|
+| steep | 40,456 µs | 40,474 | **20,438** |
+| shallow | 81,092 | 17,446 | 17,446 |
+| **spread** | 40,636 | **23,028** | **2,992** |
+
+Set 4 counted **38% of a real run's erases steep**, so after Set 70 a
+whole-trail erase cost 40 ms or 17 ms depending on the angle, two frames in
+five drawing the long straw. 23 ms is **42% of a 54.9 ms tick**, and a frame
+budget that swings by nearly half a tick on a property of the geometry is
+exactly what "speeds up and slows down" looks like.
+
+**The absolute numbers all improved and the experience got worse**, which is
+the finding worth keeping: 40/81 has a spread of 40 ms too, but both arms are
+over the tick, so every frame stutters and none of them stands out. Set 70
+took the common arm under the tick and left the other one over it. **Variance
+against a smooth baseline is more visible than variance against a rough one**,
+and a mean is not a frame rate.
+
+Clipped against a single window rect — the way §48 actually draws — the same
+three columns are 20,577 / 17,570 / 89,392, the last being what three passes
+cost when the fast walk is refused and the reason `gfx_lf_wide3` asks rather
+than assuming (§5.6.6.1): dropping the wide walk unconditionally would be
+2.2× **worse** on exactly the lines it still serves.
