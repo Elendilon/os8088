@@ -157,7 +157,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true",
                     help="leave QEMU running for a look afterwards")
+    ap.add_argument("--kfz", action="store_true",
+                    help="build the images with KFZ=1 and report every task "
+                         "stack's high water at the end (tools/stkwater.py). "
+                         "MEASUREMENT, never a gate: the number is what "
+                         "SCH_STACK has to be sized from, and QEMU understates "
+                         "a real BIOS by ~20 bytes")
     a = ap.parse_args()
+    knob = ["KFZ=1"] if a.kfz else []
+    if a.kfz:
+        os88sym.default_defines("KFZTRACE")     # every S() below resolves
+                                                # against the kernel actually
+                                                # built, or os88sym refuses
     fails = []
 
     # THE IMAGES ARE REBUILT, NOT CHECKED. QEMU mounts both WRITABLE and the
@@ -169,7 +180,8 @@ def main():
     for f in (SYSIMG, APPIMG):
         if os.path.exists(f):
             os.remove(f)
-    r = subprocess.run(["make", "ftpdtest"], capture_output=True, text=True)
+    r = subprocess.run(["make", "ftpdtest"] + knob,
+                       capture_output=True, text=True)
     if r.returncode:
         sys.exit("ftpd: make ftpdtest failed:\n" + r.stdout + r.stderr)
 
@@ -188,7 +200,7 @@ def main():
             os.remove(f)
 
     r = subprocess.run(["make", "test", "ETHER=1", "ETHFWD=1",
-                        "TESTIMG=" + SYSIMG, "TESTAPPS=" + APPIMG],
+                        "TESTIMG=" + SYSIMG, "TESTAPPS=" + APPIMG] + knob,
                        capture_output=True, text=True)
     if r.returncode:
         sys.exit("ftpd: make test failed:\n" + r.stdout + r.stderr)
@@ -202,6 +214,8 @@ def main():
 
     try:
         run_gate(m, mo, fails)
+        if a.kfz:
+            stack_water(m)
     finally:
         if not a.keep:
             try:
@@ -215,6 +229,22 @@ def main():
             say("FAIL " + f)
         sys.exit(1)
     say("ftpd: all assertions passed")
+
+
+def stack_water(m):
+    """Every task slice's deepest byte, after a whole FTP session.
+
+    ONLY under --kfz, because only a `KFZ=1` `task_spawn` fills the slices with
+    0xCC. It prints and never fails: `SCH_STACK` is a number to decide with
+    whoever owns the memory budget (docs/KERNEL-MEMORY.md), and a gate here
+    would turn that decision into a build break on somebody else's machine.
+    """
+    import stkwater                                 # tools/ is already on the
+    n = stkwater.slice_len()                        # path (the header above)
+    base = os88sym.linear("sch_stacks", stkwater.DEF)
+    say("")
+    stkwater.report(m.read(base, stkwater.SLOTS * n), stkwater.SLOTS, n,
+                    "(after the whole ftpd gate, under QEMU)", base)
 
 
 def wait_dhcp(m):

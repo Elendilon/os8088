@@ -5110,6 +5110,57 @@ same one — **whatever installs, uninstalls, in the same routine's mirror** —
 and a hook that does not fit the loop its neighbours are restored by is
 precisely the one that will be left out of it.
 
+##### The instrument then cost the machine its mouse, and the arithmetic was there to be done
+
+The strip is fifteen values, four framebuffer bytes each at four pixels a bit,
+four banks tall — 240 nibble decodes — and the first version wrote every one
+of them **straight at the framebuffer**, with a `push cx`/`pop cx` pair around
+each shift because `CL` was the loop counter. That is roughly **10 ms per call
+on a 4.77 MHz 8088**, and `khb_paint` is called twice a tick, from inside
+`sch_isr`, with `IF` clear.
+
+A 1200-baud 7N1 mouse byte is 9 bits — **7.5 ms** — and the 8250 holds exactly
+one. So every blackout was longer than a byte period: packets arrived with
+holes in them, `mou_claim`'s run broke on the resync rule (§9.5) every time,
+and the field reported **no mouse at all** on a `KFZ=1` kernel. Rebooting
+sometimes found it and sometimes did not, because whether the identify burst
+survived depended on where the paint happened to land.
+
+The fix is the one PERFORMANCE.md Part 1 rule 1 asks for and nothing more:
+**decode once, blit four times.** The fifteen values are decoded into a
+75-byte row in RAM — 60 nibbles, with the rotate count set once outside the
+loop — and that row is then `rep movsw`'d into each of the four banks. About
+**2 ms**, a fifth of what it was, and comfortably inside a byte period on
+both sides of the BIOS chain.
+
+**A/B'd on MartyPC's 4.77 MHz 5150 with the period serial mouse**, same script
+both ways: boot, then inject 60 movement packets of `dx = 5` — 300 pixels of
+travel — and read `[mouse_x]`.
+
+| | `mou_seen` | `mouse_x` moved |
+|---|---|---|
+| straight-to-framebuffer | 1 | 360 → **473** (113 of 300) |
+| decode once, blit | 1 | 360 → **660** (300 of 300) |
+
+**62% of the motion was being thrown away.** Under an emulator the mouse is
+still *found* — MartyPC delivers the identify burst on its own clock — which
+is why this reads as the field's *"sometimes it gets the mouse, sometimes not;
+when it does, it's hard to move it"* rather than as a clean failure. Lost
+bytes are lost movement, and on real hardware they are lost identify bursts
+too.
+
+**The blank byte between values is now guaranteed white**, which it was not
+before: it used to be whatever the menu bar had there, because the emit loop
+skipped it. `khb_row` is born `0xFF` and the decode never touches those
+bytes, so the gap is a property of the row rather than of what was underneath
+it — which is what lets `tools/kfzread.py` use the gaps as structure when it
+hunts for the strip in a photograph.
+
+**An instrument that changes what it is measuring is worse than no
+instrument**, and this one changed it in a way that looked like a second bug:
+the field spent a round reporting a missing mouse on the only kernel that
+could answer the question the strip was written for.
+
 
 `fm_drag` is the one that cannot be fixed by servicing it. It exists to
 disambiguate a click from a drag, and it waits with the button down to find
@@ -11313,6 +11364,38 @@ same pixels, and drawing them again is the bed, the two-pass masked icon and
 the box frame twice over: PERFORMANCE.md Part 1's double-draw flash with the
 widget itself as the flash. Sampled *before*, because `menu_furniture` clears
 the flag on its way through.
+
+##### And it may not arm while ANOTHER TASK owns the screen
+
+The model above says "the caller has held the gfx lock since before it
+started". That is true of every path §12.8 was written for — a Save, a package
+load, a directory walk, all of them UI-task work inside one hold — and it is
+**not** true of a package writing a file it did not ask the screen for.
+`OSAPI_FILE_WRITE` needs no mutex, so FTPD committing a received file (§77)
+reaches `dsk_xfer` → `fpg_busy` → `fpg_arm` on task 0 with the drawing mutex
+held by somebody else entirely.
+
+`fpg_arm` **composes the bar** (§12.8.3's `menu_draw_bar`, which is what
+reserves its cells), so that is two painters on one strip of glass — the thing
+§59.1 exists to prevent — and the field caught the consequence rather than the
+cause: the composition already in progress on the other task had `[menu_bn]`
+lowered by `FPG_CELLS` **under its feet**, and `menu_bpadc` spun forever
+padding to a bound `menu_bput` had begun dropping (§59.7.1), with the mutex
+held, the machine answering nothing and the clock still running.
+
+So `fpg_arm` refuses when `[gfx_lock_flag]` is set and `[gfx_lock_own]` is not
+`[sch_cur]`. Held by *us* is the normal case and is unaffected — the freeze
+the widget reports **is** a mutex hold, and `fpg_finish` runs from inside
+`gfx_unlock`. Held by nobody is unaffected too, which keeps the widget on the
+bar for exactly the operations that have always shown it.
+
+**The refusal is the right answer and not only the safe one.** The widget says
+*the machine is frozen at a file*; a write that holds no mutex is not freezing
+anything, and drawing an icon that claims otherwise over another task's
+half-composed bar is wrong twice. §59.7.1 makes the pad loop unhangable
+independently, because a bound another agent can move is not something a
+cached copy can be made safe against — but this is where the two agents stop
+existing.
 
 ##### Three consequences worth stating
 
@@ -45880,6 +45963,44 @@ blank space, and it read exactly like a statement about the menus. The check
 now uses a message wide enough to cover **11 cells of Locator's menu text and
 21 of a Disk window's** (File, Folder, View, Special), on both owners, and
 requires the bar to come back byte-identical with no cell left inverted.
+
+#### 59.7.1 The clamp cached the bound, and the bound moved
+
+§59.7's guard reads `[menu_bn]` **once**, into `BX`, and then loops until `DI`
+reaches it. That is only a guard while `[menu_bn]` holds still for the length
+of the loop, and the field proved it does not: a photograph of a wedged 5150
+read `CS:IP = 00:9402` — `menu_bput`'s entry — with the return address above it
+at `93E7`, the `jmp short .p` of this very loop, `gfx_lock_own` = 1,
+`sch_cur` = 1, and the pad target that `menu_bpadc` had banked on its own
+stack reading **60 cells**. Sixty was `[menu_bn]` when the clamp ran. It was
+not `[menu_bn]` any more.
+
+Only a composition writes `[menu_bn]`, and both `fpg_arm` and `fpg_finish`
+force one (§12.8.3) — so a widget arming from a *different task*, which
+`OSAPI_FILE_WRITE` lets happen because it holds no mutex, moves the bound
+`FPG_CELLS` down while this loop is inside it. From that instant `menu_bput`
+drops every cell without advancing `DI` and the loop has no terminator left.
+
+**The bound is re-read every pass now**, which is one `cmp` per cell against a
+loop that was already one `call` per cell:
+
+```
+.p: cmp di, bx          ; the target
+    jae .d
+    cmp di, [menu_bn]   ; ...and menu_bput's DROP RULE, asked rather than
+    jae .d              ; inferred - LIVE, not the copy the clamp took
+```
+
+That second test *is* `menu_bput`'s first two instructions, hoisted to where
+they can end the loop instead of silently doing nothing. The pad stops where
+the cells stop — whenever the bound moved, and whoever moved it. §12.8.3 stops
+the second painter from existing at all; this stops the loop from depending on
+that being true.
+
+**A loop whose terminator is a global another agent can lower is a livelock,
+not a bounded loop**, and the original clamp did not make it one — it made the
+*first* value safe. The difference is invisible in a single-threaded reading
+of the routine, which is exactly how it survived §59.7's fix and its test.
 
 ### 59.8 It covers the clock, never a menu — and only the cells it needs
 

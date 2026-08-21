@@ -2778,7 +2778,7 @@ forced full repaint.
 
 ---
 
-## 27. The 5150 hard-freezes on an FTP upload to the hard disk (CAUSE FOUND — an unaligned disk buffer; awaiting field confirmation)
+## 27. The 5150 hard-freezes on an FTP upload to the hard disk (TWO FAULTS, both READ OFF THE HEARTBEAT and both fixed; awaiting field confirmation)
 
 **Observed.** With the FTP server (§77) running and its Root pointed at
 `C:/`, a client connects, logs in, and the machine hard-freezes. The last
@@ -2997,3 +2997,118 @@ question rather than a disk one.
 **Do not "fix" this from the tree until that answer comes back.** Four
 rounds of evidence say the code that keeps being blamed worked on this
 machine the same afternoon.
+
+### 27.6 THE INSTRUMENT ANSWERED, and there were two faults wearing one symptom
+
+Two `KFZ=1` screenshots came back from the field within half an hour of each
+other, both called "hard freeze". They are **not the same failure**, and the
+first cell of the strip is what separates them: the field's own note — *"the
+animating dots at the top completely stopped"* on one and *"the top bar is
+still animating in what looks like a loop"* on the other — turned out to be
+the diagnosis rather than a description.
+
+`tools/kfzread.py` needed two fixes before it could read either. The captures
+are of the monitor **window**, 2x and filtered, off a green phosphor: the
+reader took the RED channel (in which the lit background is 0x39 and the whole
+picture reads as black) and required each bit to be four *solid* pixels (which
+a filtered edge never is). It reads the brightest channel and the middle half
+of each cell now, with the threshold taken from the image.
+
+#### The one where the dots stopped: `sch_stkdie`
+
+```
+beat F7  chain F7   sch_cur 01   SP 0314   CS:IP 97:0184   stk0 bad 00
+```
+
+...and **eight solid black bytes at framebuffer byte 20**, which is `KHB_STK`
+and nothing else: `sch_stkdie`'s bar. **A task overran its 256-byte stack
+slice and the kernel halted itself** (`cli`/`hlt`, the only one in the tree) —
+so the timer interrupt really is gone, and every instrument with it. That is
+why the dots stopped, and it is what the field has been calling a hard freeze
+all along.
+
+The arithmetic is unambiguous. `sch_stacks` is at `0x0300` in `LOW_SEG` and
+slot 1 owns the first slice, `0x0300`–`0x03FF`. `SP` = `0x0314` is read in the
+heartbeat block **after** `sch_isr`'s 9 pushed words and the block's own 8, so
+the interrupted task's own SP was `0x0314 + 34 + 6` = `0x033C` — **196 of its
+256 bytes already spent, in the package at `97xx:0184`, before the tick
+arrived**. `khb_paint`'s 8 words take it to `0x0304`, and the BIOS `int 08h`
+chain then runs on that same stack and goes straight through the canary.
+
+**`SCH_STACK` = 256 was sized at 1.8× a 142-byte mark, and that mark was taken
+before `ETHER.DRV` existed** (docs/KERNEL-MEMORY.md, "Task stacks"). The
+projection recorded there — ~160–170 of 256 worst case on real hardware — is
+now beaten by 30 bytes by the task's own frames alone. `KFZ=1` makes it 16
+bytes likelier by adding `khb_paint`'s frame, but it does not *cause* it: at
+196 + 40 the shipping kernel overruns too, silently, into `cli`/`hlt`.
+
+**And it reproduces here, without the field.** `task_spawn` fills every slice
+with `0xCC` under `KFZ=1` now, and `tools/stkwater.py` reads the slices back
+out of `LOW_SEG`; `python3 tests/ftpd.py --kfz` drives a whole session —
+connect, LIST, STOR, RETR, ABOR, a 20,000-byte upload — and reports:
+
+```
+slot 1   232 used   24 free       deepest 232 of 256 (91%)
+```
+
+Slot 1 is `ETHER.DRV`'s service worker and it is the only slice this
+configuration spawns. **232 of 256 under QEMU**, which is the understating
+end: SeaBIOS services its interrupt entries on a stack of its own where an
+IBM ROM runs `int 08h` on the current task's, worth ~20 bytes
+(docs/KERNEL-MEMORY.md) — so **~252 of 256 on the 5150**, and the field went
+through the remaining four.
+
+**This one is NOT fixed, and it is a memory decision rather than a bug fix.**
+`.lowbss` has 362 bytes left in its rung and `KERN_SIZE` 1,024 under
+`KERN_BUDGET`, so doubling every slice — 2,816 bytes — does not fit; the four
+ways to pay for it are tabulated in docs/KERNEL-MEMORY.md under "Task stacks",
+and raising `KERN_BUDGET` is a decision to take with whoever asked for the
+feature (CLAUDE.md).
+
+#### The one where the dots kept going: a livelock in `menu_bpadc`
+
+The second capture had the thirty-second watchdog's own text line on the
+glass, which is only printed by `sch_isr` — so the timer interrupt was alive
+and this is a different animal entirely:
+
+```
+AT 00:9402 OWN 01 CUR 01 SP 0384 R 93E7 0003 003C M AC V 01 F 02 BK 1514
+```
+
+`00:9402` is `menu_bput`'s entry; `93E7` on the interrupted stack is the
+return address of the `call menu_bput` inside `menu_bpadc`'s pad loop; `F 02`
+says interrupts were enabled, so nothing is masked or wedged. **Task 1 is
+spinning in the pad loop holding the drawing mutex** (`OWN 01`), and the UI
+task is blocked on `gfx_lock` behind it. The strip agrees independently:
+`gfx_lock_flag` 1, `gfx_lock_own` 1, `IP 9407`.
+
+The saved `AX` two words further up the stack is `003C` — the pad target,
+**60 cells** — and that is `[menu_bn]` as it was when `menu_bpadc` clamped to
+it. `menu_bput` drops a cell at or past `[menu_bn]` *without advancing DI*, so
+the loop only terminates while the bound it cached is still the bound the drop
+rule uses. §12.8's progress widget lowers `[menu_bn]` by `FPG_CELLS` at the
+next composition, and `fpg_arm` forces one — **from whichever task is writing
+a file**, which needs no mutex and in this session is FTPD committing an
+upload on task 0 while task 1 was already inside `menu_bar_text`.
+
+Both halves are fixed (SPEC.md §59.7.1, §12.8.3): the loop re-reads
+`[menu_bn]` every pass, so no bound can leave it spinning; and `fpg_arm`
+refuses to arm while another task owns the screen, so the second painter stops
+existing. This is almost certainly the *"file progress bar completes, then it
+stays frozen 7–10 s, then a second write never unlocks"* the field reported
+against `netbench` — that bar **is** the widget.
+
+#### And the instrument had broken the mouse
+
+Same round, same build: *"the mouse was not detected on this build at all"*,
+and on a reboot *"sometimes it gets the mouse, sometimes not; when it does,
+it's hard to move."* `khb_paint` was ~10 ms per call with `IF` clear, twice a
+tick, against a 1200-baud mouse byte every 7.5 ms into a one-byte 8250 — so
+packets arrived with holes and `mou_claim`'s run never completed. It composes
+the row once and blits it now, ~2 ms (SPEC.md §9.6.5) — and A/B'd on MartyPC's
+4.77 MHz 5150 with the period serial mouse, 60 injected packets of `dx = 5`
+moved `[mouse_x]` **113 pixels of 300 before and 300 of 300 after**. Sixty-two
+per cent of the hand's movement was going in the bin, which is exactly the
+*"hard to move it"* half of the report.
+
+**An instrument that changes what it measures cost this investigation a round.**

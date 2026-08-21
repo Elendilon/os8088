@@ -405,6 +405,26 @@ task_spawn:
     mov di, ax                  ; SCH_STACK below
     mov ax, LOW_SEG
     mov es, ax
+%ifdef KFZTRACE
+    ; --- THE 0xCC FILL (KFZ only), docs/KERNEL-MEMORY.md's own probe -------
+    ; Every byte of the slice, so the deepest one anything ever touched can be
+    ; read straight out of LOW_SEG afterwards. The canary and the frame are
+    ; written OVER this, below and above it, so nothing here has to know where
+    ; either of them ends up. `SCH_STACK` was sized at 1.8x a 142-byte mark
+    ; taken before ETHER.DRV existed and the field has now overrun it
+    ; (docs/FIELD-NOTES.md 27.6): the replacement has to be MEASURED, and this
+    ; is what measures it.
+    push cx                     ; CX is the slot index and is still needed
+    push di
+    push ax
+    mov cx, SCH_STACK
+    mov al, 0xCC
+    cld
+    rep stosb                   ; ES:DI = the slice base, upwards
+    pop ax
+    pop di
+    pop cx
+%endif
     mov word [es:di], SCH_MAGIC
     pop ax
     sub ax, SCH_FRAME           ; carve the fake frame at the very top
@@ -909,12 +929,38 @@ khb_hex:
 khb_srcs:   dw khb_beat, khb_chain, khb_kfz, sch_cur, sch_lock, gfx_lock_flag
             dw gfx_lock_own, khb_sph, khb_spl, khb_bad, khb_csh, khb_iph
             dw khb_ipl, khb_imr, khb_pisr, 0
-                                ; FIFTEEN cells is 75 of a CGA row's 80 bytes.
+khb_srcend:                     ; FIFTEEN cells is 75 of a CGA row's 80 bytes.
                                 ; khb_flg is deliberately NOT here: IRQ0 is
                                 ; delivered only with IF set, so the one bit
                                 ; anybody would read it for is a CONSTANT in
                                 ; this context. It stays in the text report,
                                 ; where the width costs nothing, for DF and OF
+KHB_CELLS   equ ((khb_srcend - khb_srcs) / 2) - 1   ; derived off the table, so
+KHB_ROWB    equ ((KHB_CELLS * 5) + 1) & ~1          ; a cell added above cannot
+                                ; leave the row behind it: five bytes a cell,
+                                ; rounded UP to a word because the blit moves
+                                ; words, and the odd byte it rounds through is
+                                ; the trailing gap nobody reads
+%if KHB_ROWB > 80               ; a CGA row is 80 bytes, a Hercules row 90, and
+  %error "the heartbeat strip no longer fits a CGA row"
+%endif
+khb_row:    times KHB_ROWB db 0xFF   ; THE STRIP, COMPOSED HERE AND NOT ON THE
+                                ; SCREEN. Four bytes per value are decoded once
+                                ; into this row and the row is then blitted into
+                                ; each of the four banks - 60 nibble decodes and
+                                ; four rep movsw, against 240 decodes written
+                                ; straight at the framebuffer. THAT COST THE
+                                ; MACHINE ITS MOUSE: the old loop was ~10ms per
+                                ; call on a 4.77MHz 8088 and it is called TWICE
+                                ; a tick with IF=0, while a 1200-baud mouse byte
+                                ; lands in the 8250's ONE-byte buffer every
+                                ; 7.5ms - so every packet lost bytes, every run
+                                ; broke on the resync rule (SPEC.md 9.5), and
+                                ; the field reported no mouse at all. The blank
+                                ; byte between values is never written, so the
+                                ; 0xFF it is born with is what shows: WHITE, and
+                                ; guaranteed white rather than whatever the menu
+                                ; bar had there
 
 ; -----------------------------------------------------------------------------
 ; khb_paint - the strip (KFZ only). Preserves every register and the flags.
@@ -948,42 +994,45 @@ khb_paint:
                                 ; publishes it - so an unguarded paint lands at
                                 ; segment 0, which is the INTERRUPT VECTOR TABLE
     mov es, bx
-    xor dx, dx
-.bank:
+    cld                         ; the blit below is a string op in an ISR
+
+    ; --- decode the fifteen values ONCE, into khb_row (SPEC.md 9.6.5) --------
+    ; Sixty nibbles, not two hundred and forty. DS is KERNEL_SEG here, so the
+    ; row is plain [di]; the framebuffer is not touched until the blit.
     mov si, khb_srcs
-    mov di, dx
-    add di, KHB_X
+    mov di, khb_row
+    mov cl, 2                   ; the rotate count, set ONCE - the old loop
+                                ; spent a push/pop pair per shift for it
 .cell:
     mov bx, [cs:si]
     or bx, bx
-    jz .next                    ; 0 ends the table
+    jz .blit                    ; 0 ends the table
     inc si
     inc si
-    mov al, [cs:bx]
-    mov cx, 4                   ; four bytes per value, two bits each
+    mov ah, [cs:bx]             ; the value, rotated two bits at a time...
+    xor bh, bh                  ; ...and BH is 0 from here on: BL is the only
+    mov ch, 4                   ; half khb_wide is ever indexed by
 .nib:
-    mov ah, al
-    push cx
-    mov cl, 6
-    shr ah, cl
-    pop cx
-    and ah, 3
-    push bx
+    rol ah, cl                  ; the next two bits, high pair first, into 1:0 -
+                                ; four of these put AH back as it started
     mov bl, ah
-    xor bh, bh
-    mov ah, [cs:khb_wide+bx]
-    pop bx
-    not ah                      ; a set bit is black on the white bar
-    mov [es:di], ah
+    and bl, 3
+    mov al, [cs:khb_wide+bx]
+    not al                      ; a set bit is black on the white bar
+    mov [di], al
     inc di
-    push cx
-    mov cl, 2
-    shl al, cl
-    pop cx
-    loop .nib
-    inc di                      ; one blank byte between values
-    jmp short .cell
-.next:
+    dec ch
+    jnz .nib
+    inc di                      ; one blank byte between values, left at the
+    jmp short .cell             ; 0xFF khb_row is born with
+.blit:
+    xor dx, dx
+.bank:
+    mov si, khb_row
+    mov di, dx
+    add di, KHB_X
+    mov cx, KHB_ROWB / 2
+    rep movsw                   ; DS:SI = the row, ES:DI = the bank
     add dx, 0x2000
     cmp dx, 0x8000
     jb .bank
@@ -1405,10 +1454,17 @@ sch_stkdie:
     mov cx, 8                   ; a 64px black bar: THE CANARY DIED
     xor al, al
     rep stosb
-    inc di                      ; ...one white cell, then WHICH TASK overran
-    mov al, [sch_cur]
-    not al
-    mov [es:di], al
+    inc di                      ; ...and one white cell. WHICH TASK is NOT
+                                ; painted here: it is cell 3 of the strip
+                                ; (sch_cur), the bar lands nowhere near it, and
+                                ; nothing has switched between the last
+                                ; heartbeat and this halt - so a second copy
+                                ; would be a second thing to keep in step. The
+                                ; first version put it in ONE framebuffer byte,
+                                ; one pixel a bit, which is exactly the width
+                                ; the heartbeat spends four pixels to avoid:
+                                ; tools/kfzread.py read that pixel as 0 and as 1
+                                ; depending on where the threshold fell
     add dx, 0x2000
     cmp dx, 0x8000
     jb .skbank

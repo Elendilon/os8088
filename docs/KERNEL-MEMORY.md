@@ -938,6 +938,47 @@ handlers. A real IBM BIOS runs int 09h — which it STIs early, so the tick and
 the mouse nest *on top of* it — and its int 08h chain on whichever task stack
 is current. `tests/stackprobe` exists for exactly this gap (docs/TESTING.md).
 
+**AND THE FIELD HAS NOW OVERRUN IT.** A `KFZ=1` heartbeat photographed on the
+5150 during an FTP session carries `sch_stkdie`'s bar: a background task took
+its slice through the floor and the kernel halted (docs/FIELD-NOTES.md §27.6).
+`SP` = `0x0314` is read inside `sch_isr` after 34 bytes of frame, so the task's
+**own** depth was `0x0400 - 0x033C` = **196 of 256** before the tick arrived —
+30 bytes past the projection two paragraphs below, with the ISR and the BIOS
+chain still to land on top of it. Everything above was measured before
+`ETHER.DRV` and `apps/ftpd` existed, and a socket write runs the whole TCP
+stack on the calling task's slice.
+
+**And the 0xCC probe now says the same thing without the field.**
+`tools/stkwater.py` reads it back out of `LOW_SEG` after a whole
+`tests/ftpd.py --kfz` session — connect, LIST, STOR, RETR, ABOR, a Setup
+round-trip and a 20,000-byte upload:
+
+```
+slot 1   232 used   24 free  ####################################
+deepest 232 of 256 (91%)
+```
+
+Slot 1 is `ETHER.DRV`'s service worker and it is the only slice this
+configuration ever spawns. **232 of 256 under QEMU**, and QEMU is the
+understating end of the two paragraphs below: add the ~20 bytes a real BIOS's
+`int 08h` costs on the current task's stack and it is **~252 of 256 on the
+5150**, which is the four bytes the field went through.
+
+**So 256 is the wrong number now, and doubling it does not fit.** `.lowbss`
+has 362 bytes left in its rung and `KERN_SIZE` is 1,024 under `KERN_BUDGET`;
+`SCH_STACK` 256 → 512 costs `(MAX_TASKS-1) × 256` = **2,816**. Something has to
+give and every candidate is a decision rather than a build fix:
+
+| | frees | costs |
+|---|---|---|
+| `KERN_BUDGET` +3 rungs | 1,536 short of enough on its own | conventional RAM off the top of the heap |
+| `MAX_TASKS` 12 → 8 | 768 of the 2,816 | four fewer concurrent tasks |
+| `SCH_STACK` 384 | 1,408 instead of 2,816 | not a power of two: `sch_switch`'s canary math stops being a byte swap |
+| cut the driver's own depth | unknown until measured per frame | the only one that costs no memory at all |
+
+**Take it with whoever owns the budget** (CLAUDE.md), and take the *deciding*
+number on the 5150 with `tests/stackprobe` rather than from QEMU.
+
 **And it has been run there.** On a real 5150 (640K, Hercules, a 20MB MFM
 disk through its controller ROM) with a floppy-to-hard-disk copy running, the
 keyboard mashed for typematic and the mouse in motion, 217 samples over ~2
