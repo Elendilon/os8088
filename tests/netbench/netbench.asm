@@ -262,19 +262,29 @@ nb_report:
     mov dx, [nb_blk+10]
     mov [nb_wall], ax           ; ...and THIS is what nb_pct divides by
     mov [nb_wall+2], dx
-    or  ax, dx
-    jnz .haveact
-    mov ax, [nb_blk+4]          ; nothing ever moved a byte: fall back to the
-    mov dx, [nb_blk+6]          ; wall so the table is not all zeroes
-    mov [nb_wall], ax
-    mov [nb_wall+2], dx
-.haveact:
-    mov ax, [nb_wall]
-    mov dx, [nb_wall+2]
     call nb_ms
     mov si, nb_s_act
     mov cx, 9
-    call bl_kv
+    call bl_kv                  ; **PRINTED AS IT IS, INCLUDING ZERO.** The
+                                ; first version quietly substituted the wall
+                                ; here when no byte had moved, so a run with
+                                ; NOTHING in it reported active == wall and
+                                ; looked like a transfer that took twelve
+                                ; seconds and did no work. A zero is the
+                                ; answer; hiding it is how an instrument
+                                ; starts lying (SPEC.md 72.18)
+    mov ax, [nb_wall]
+    or  ax, [nb_wall+2]
+    jnz .haveact
+    mov si, nb_s_noact          ; ...and SAY so, then price the idle machine
+    call bl_sline               ; against the wall, which is a real question
+    mov si, nb_s_noac2
+    call bl_sline
+    mov ax, [nb_blk+4]          ; and the only one this run can answer
+    mov dx, [nb_blk+6]
+    mov [nb_wall], ax
+    mov [nb_wall+2], dx
+.haveact:
 
     ; --- ...and the number the whole table is FOR --------------------------
     ; The wall minus `verb` is every millisecond that was not inside this
@@ -522,6 +532,8 @@ nb_s_noprof: db 'THIS DRIVER HAS NO PROFILER - the cable shares the stack', 0
 nb_s_badblk: db 'BLOCK VERSION UNKNOWN - rebuild the driver and this one', 0
 nb_s_wall:  db 'wall, S to X (ms)', 0
 nb_s_act:   db 'ACTIVE (ms)', 0
+nb_s_noact: db 'NO PAYLOAD MOVED - this is an idle machine, priced', 0
+nb_s_noac2: db 'against the wall. It is what a poll costs and nothing else.', 0
 nb_s_out:   db 'NOT in the driver (ms)', 0
 nb_s_hdr:   db 'stage      calls      KB      ms   pct       us/KB', 0
 nb_s_rule:  db '---------------------------------------------------------', 0

@@ -79,6 +79,14 @@ PF_RXPUT    equ 4               ; sk_rxput: frame payload -> the socket ring
 PF_RXGET    equ 5               ; sk_rxget: the socket ring -> the caller
 PF_TXIN     equ 6               ; ring_in: the caller -> the send ring
 PF_TXOUT    equ 7               ; ring_out: the send ring -> a frame
+                                ; **4..7 ARE CONTIGUOUS AND THAT IS LOAD-
+                                ; BEARING**: they are the four stages that
+                                ; move APPLICATION bytes, and prof_end tests
+                                ; the active window's membership with two
+                                ; compares against the ends of that run. A
+                                ; stage inserted between them changes what
+                                ; ACTIVE means without changing a line of
+                                ; the test
 PF_TX       equ 8               ; ne_tx: our frame -> the card
 PF_VERB     equ 9               ; eth_pkg: one socket verb, whole
 PF_N        equ 10

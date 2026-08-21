@@ -61057,3 +61057,66 @@ source and refuses a `build/ether.bin` that is not byte-identical — the same
 guard `tools/os88sym.py` puts on the kernel, one directory over. Without a
 reader that checks, this would have been a session spent wondering why an edit
 had no effect.
+
+### 72.18 An idle machine, and the fallback that lied about it
+
+The field ran the profiler over twelve seconds of **nothing at all** — press S,
+wait, press X — which is the calibration §72.17 asked for. It came back with
+`ACTIVE` equal to the wall, and the reading offered was the right one: *"that
+seems wrong?"*
+
+It was. Not one stage moved a byte — `card` 0 calls, every row zero — so the
+active window was never opened, and `netbench` **quietly substituted the wall
+clock** so the table would not be all zeroes. A run containing nothing
+therefore reported twelve seconds of activity. That is an instrument starting
+to lie, and it is worse than a blank column: a zero is *information* and the
+substitution destroyed it.
+
+`ACTIVE` is now printed as it is, zero included, with a line saying so:
+
+```
+wall, S to X (ms)           12396
+ACTIVE (ms)                     0
+NO PAYLOAD MOVED - this is an idle machine, priced
+against the wall. It is what a poll costs and nothing else.
+NOT in the driver (ms)      12023
+```
+
+#### 72.18.1 What an idle poll costs, measured at last
+
+That run is not a wasted one — it answers the question §72.17 left open. The
+FTP server polls whether or not anything is arriving, and each poll is a
+`verb` inside the lead-in that `ACTIVE` cannot subtract:
+
+| | |
+|---|---|
+| wall | 12,396 ms |
+| `verb` | 373 ms over **227 calls** — 1.64 ms each |
+| `pump` | 226 ms over 226 calls — 1.0 ms each |
+| **the poll loop's cost** | **3.0% of an idle machine**, ~30 ms a second |
+
+So a five-second lead-in puts about 150 ms into `verb` that was not the
+transfer. Against §72.17's 20,600 ms active window that is **0.7%** — small,
+as predicted, and now a measurement rather than a prediction. It is also a
+number worth having on its own: the stack costs 3% of an 8088 to sit there
+doing nothing, which is what a polled driver with no IRQ line buys its
+simplicity with (§72.2.1).
+
+#### 72.18.2 ...and only PAYLOAD opens the window
+
+The same run exposed a second thing. The window was opened by **any** stage
+that moved a byte, and on that machine nothing arrived at all — but on a busy
+LAN a broadcast the card takes and `eth_frame` drops moves bytes through
+`card` and `frame` every second or so. That would stretch `ACTIVE` across the
+whole run and put the operator's hands straight back into it, which is the
+defect §72.17 exists to remove.
+
+So only `rxput`, `rxget`, `txin` and `txout` open or close it — the four
+stages that move **application** bytes. `PF_RXPUT` through `PF_TXOUT` are
+4..7 and **contiguous on purpose**: the test is two compares against the ends
+of that run, so a stage inserted between them would change what `ACTIVE` means
+without changing a line of the test. That is written at the constants.
+
+With payload gating, the field's next transfer read `wall 22,891` against
+`ACTIVE 20,600` — two and a third seconds of hands, removed — and `verb`
+9,704 ms, **47% of the active window**, with 10,895 ms outside it.
