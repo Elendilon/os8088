@@ -462,7 +462,10 @@ in docs/TESTING.md, per capability.
   `os88disk.py` (builds FAT12 images; `--verify` is a structural fsck),
   `checkdocs.py` (the doc gate every `make` runs), `os88test.py` (the suite
   runner, off `tests/suite.py`), `qmp.py`/`mouse.py`/`shot.py` (test drivers),
-  `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its gate, §73).
+  `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its gate, §73);
+  `stkwater.py`/`stkdepth.py` (how deep a task stack HAS been, and which
+  call chain took it there - docs/KERNEL-MEMORY.md's "Task stacks");
+  `kfzread.py` (the KFZ heartbeat out of a field screenshot).
 - `docs/` — the maintained accounts. `*-PLAN.md` are design records for work
   that has landed; `FIELD-NOTES.md`/`FIELD-MACHINES.md` are what real hardware
   said.

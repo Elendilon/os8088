@@ -979,6 +979,50 @@ give and every candidate is a decision rather than a build fix:
 **Take it with whoever owns the budget** (CLAUDE.md), and take the *deciding*
 number on the 5150 with `tests/stackprobe` rather than from QEMU.
 
+##### Cutting the depth was investigated first, and it does not close the gap
+
+`tools/stkdepth.py` walks the NASM listing and prices every call chain in an
+image; `--leaf NAME` counts a routine as costing nothing below it, which is how
+a change gets priced before anybody writes it. Against `ETHER.DRV`:
+
+| chain | bytes |
+|---|---|
+| `eth_pump` — the trunk every socket verb goes through | **140** |
+| ...reached from a socket verb (`eth_v_open`) | 152 |
+| ...from the Control Panel's Apply (`ec_up` → `ec_apply` → `eth_dhcp_wait`) | **174** |
+
+140 against `stkwater.py`'s measured 208 is the kernel's difference — `sch_isr`
+24, `khb_paint` 16 under `KFZ=1`, the BIOS chain, the far entry — so the two
+instruments agree.
+
+**The fat is diffuse: fourteen levels averaging ten bytes, and no single cut is
+worth much.**
+
+- **Defer the transmit out of the receive path.** Every receive handler answers
+  by transmitting inline — TCP's ACK, DHCP's request, ARP's reply — so
+  `ip_start`'s 46-byte tail hangs under all of them. Staging the reply and
+  sending it from `eth_pump`'s loop is `--leaf ip_start --leaf ip_finish`:
+  **140 → 126**. Only fourteen, because the checksum path
+  (`tcp_out` → `ip_pseudo` → `ip_ck_part`) is nearly as deep as the wire path.
+- **The profiler (§72.15) is not on the critical path at all.** With the
+  transmit still inline, compiling it out changes nothing; with the transmit
+  deferred it is worth 8. Worth doing for the driver's SIZE, not for this.
+- **Redundant saves: 14 bytes, five sites.** `stkdepth.py` reports which entry
+  pushes a routine never needed — a register it does not write itself and every
+  callee gives back. Fourteen bytes across five edits in the network stack's
+  hot path, each of which is silent corruption if the analysis is wrong.
+
+All three together are ~32 bytes: 208 → ~176 measured, ~196 of 256 on real
+hardware. **That is a 1.3× margin on a project that runs 1.8×**, bought with
+surgery on the TCP stack — so cutting is worth doing on its own merits and is
+not an answer to this.
+
+**The cheapest way to pay may be `MAX_TASKS`.** Slices cost
+`(MAX_TASKS-1) × SCH_STACK`, so 12 → 8 with `SCH_STACK` 512 is 3,584 against
+today's 2,816 — **+768**, not +2,816, and inside one more `.lowbss` rung. It
+costs four concurrent tasks and `MAX_TASKS` is mirrored in `apps/os88api.inc`,
+so it is a compatibility decision rather than a free one.
+
 **And it has been run there.** On a real 5150 (640K, Hercules, a 20MB MFM
 disk through its controller ROM) with a floppy-to-hard-disk copy running, the
 keyboard mashed for typematic and the mouse in motion, 217 samples over ~2

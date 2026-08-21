@@ -96,6 +96,88 @@ def report(mem, slots=SLOTS, n=256, note="", base=None):
     return worst
 
 
+def _near(syms, off, window=1024):
+    """The symbol `off` is inside, as name+delta - or None if nothing is near.
+
+    `window` bounds it: a stack word that happens to be a small number is not a
+    call into whatever label sits 30KB below it, and a resolver that says so
+    anyway turns a dump into a page of confident noise.
+    """
+    best, bestd = None, window + 1
+    for name, addr in syms.items():
+        d = off - addr
+        if 0 <= d < bestd:
+            best, bestd = name, d
+    if best is None:
+        return None
+    return best if bestd == 0 else "%s+%d" % (best, bestd)
+
+
+def is_call_site(img, w):
+    """Does a `call` end exactly at offset `w` in `img`?
+
+    **This is what turns the dump into a chain.** A near return address points
+    at the byte after a call, so the bytes just before it have to BE a call -
+    and almost no random word passes. Without it every stack word matched some
+    label within a kilobyte and the page read as a confident list of routines
+    the machine had never been in.
+
+        E8 lo hi          call rel16       (3 bytes)
+        FF /2  mod r/m    call r/m16       (2-4)
+        9A lo hi sg sg    call far ptr     (5)
+        FF /3  mod r/m    call far r/m     (2-4)
+    """
+    if w < 3 or w > len(img):
+        return None
+    if img[w - 3] == 0xE8:
+        return "near"
+    if img[w - 5:w - 4] == b"\x9A":
+        return "far"
+    for n in (2, 3, 4):                      # FF with a mod r/m of 2 or 3
+        if w - n >= 0 and img[w - n] == 0xFF:
+            if ((img[w - n + 1] >> 3) & 7) in (2, 3):
+                return "indirect"
+    return None
+
+
+def annotate(blk, used, n=256, kern=None, drv=None, seg=None,
+             kimg=None, dimg=None):
+    """The touched part of one slice, word by word, with the code it names.
+
+    **This is the point of the fill.** Between the high-water mark and wherever
+    SP is now, the bytes are DEAD - left there by the deepest excursion and
+    overwritten by nothing shallower - so the return addresses of the chain
+    that went deepest are still sitting in them. Reading them back is how the
+    bytes get attributed to routines instead of argued about.
+
+    A word is only called a return address if a `call` really ends at it
+    (`is_call_site`); everything else is printed as a bare value, because a
+    saved register that happens to land near a label is not a frame.
+    """
+    kern, drv = kern or {}, drv or {}
+    top = n
+    print("   --- the deepest excursion, top of slice first ---")
+    print("   (only words a `call` actually ends at are named: everything "
+          "else is a saved register or a local)")
+    for off in range(top - 2, max(n - used - 2, 0), -2):
+        w = blk[off] | (blk[off + 1] << 8)
+        depth = top - off
+        if blk[off] == FILL and blk[off + 1] == FILL:
+            continue
+        tags = []
+        if kimg and is_call_site(kimg, w):
+            nm = _near(kern, w, 4096)
+            tags.append("KERNEL %s <- %s call" % (nm, is_call_site(kimg, w)))
+        if dimg and is_call_site(dimg, w):
+            nm = _near(drv, w, 4096)
+            tags.append("ETHER  %s <- %s call" % (nm, is_call_site(dimg, w)))
+        if seg and w == seg:
+            tags.append("the driver's SEGMENT")
+        if not tags:
+            continue
+        print("   -%-3d  %04X   %s" % (depth, w, "   |   ".join(tags)))
+
+
 def read_live(sock="build/qmp.sock"):
     """The slices out of a running QEMU, through tests/ethernet.py's Qemu."""
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
