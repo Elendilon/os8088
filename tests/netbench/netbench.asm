@@ -60,7 +60,8 @@ NB_BLK      equ 200             ; the report block ETHER.DRV writes: PF_BLK is
                                 ; **SIZED WITH SLACK AND CHECKED AT RUNTIME**,
                                 ; because a stage added to the driver grows the
                                 ; block and this package is not rebuilt with it
-NB_HDR      equ 8               ; ...its header: 'PF', version, stages, dd wall
+NB_HDR      equ 12              ; ...its header: 'PF', version, stages, dd
+                                ; wall, dd ACTIVE
 NB_REC      equ 18              ; ...and per stage: dd ms, dd bytes, dw calls,
                                 ; 8 bytes of name
 NB_MAXST    equ 16              ; what the table below can render
@@ -199,6 +200,10 @@ nb_head:
     call bl_sline
     mov si, nb_s_k2
     call bl_sline
+    mov si, nb_s_k3
+    call bl_sline
+    mov si, nb_s_k4
+    call bl_sline
     call bl_blank
     cmp byte [net_cls], 0
     jne .have
@@ -229,7 +234,7 @@ nb_report:
     jne .bad
     cmp byte [nb_blk+1], 'F'
     jne .bad
-    cmp byte [nb_blk+2], 1
+    cmp byte [nb_blk+2], 2
     jne .bad                    ; a version this build does not know: every
                                 ; offset below would be plausible and wrong
     mov al, [nb_blk+3]
@@ -238,13 +243,36 @@ nb_report:
     ja .bad
     mov [nb_nst], ax
 
-    ; --- the wall clock, which every percentage below is against -----------
+    ; --- the wall clock, and the ACTIVE window inside it -------------------
+    ; **THE PERCENTAGES ARE AGAINST THE ACTIVE WINDOW**, not the wall, and the
+    ; difference is a person. The wall runs from the S key to the X key and a
+    ; human presses both - free the mouse from the emulator, start the client,
+    ; watch for it to finish, click back in, press X. The field profiled one
+    ; transfer twice and the wall fell 11,515ms where the driver's own total
+    ; fell 8,670: the missing 2,845 was somebody being quicker with the
+    ; keyboard. `active` is the first byte any stage moved to the last, so
+    ; both ends of that are cut off.
     mov ax, [nb_blk+4]
     mov dx, [nb_blk+6]
-    mov [nb_wall], ax
-    mov [nb_wall+2], dx
     call nb_ms
     mov si, nb_s_wall
+    mov cx, 9
+    call bl_kv
+    mov ax, [nb_blk+8]
+    mov dx, [nb_blk+10]
+    mov [nb_wall], ax           ; ...and THIS is what nb_pct divides by
+    mov [nb_wall+2], dx
+    or  ax, dx
+    jnz .haveact
+    mov ax, [nb_blk+4]          ; nothing ever moved a byte: fall back to the
+    mov dx, [nb_blk+6]          ; wall so the table is not all zeroes
+    mov [nb_wall], ax
+    mov [nb_wall+2], dx
+.haveact:
+    mov ax, [nb_wall]
+    mov dx, [nb_wall+2]
+    call nb_ms
+    mov si, nb_s_act
     mov cx, 9
     call bl_kv
 
@@ -262,10 +290,11 @@ nb_report:
     mov dx, [nb_wall+2]
     sub ax, [nb_tm]
     sbb dx, [nb_tm+2]
-    jnc .out2                   ; verb longer than the wall is impossible and
-    xor ax, ax                  ; means the block was read mid-bracket: say
-    xor dx, dx                  ; nothing rather than four billion
-.out2:
+    jnc .out2                   ; verb longer than the ACTIVE window is not
+    xor ax, ax                  ; impossible - a poll before the first byte
+    xor dx, dx                  ; still counts - so this says nothing rather
+.out2:                          ; than four billion, and a big lead-in is
+                                ; visible as `wall` far above `active`
     call nb_ms
     mov si, nb_s_out
     mov cx, 9
@@ -486,15 +515,18 @@ nb_s_t1:    db 'NETBENCH - where an ETHER.DRV transfer spends its time', 0
 nb_s_t2:    db 'SPEC.md 72.15 - the driver brackets its own stages.', 0
 nb_s_k1:    db 'S start (and zero)   X stop   R read   W write NETBENCH.TXT', 0
 nb_s_k2:    db 'Start, run the transfer, stop, read. A click pages down.', 0
+nb_s_k3:    db 'ACTIVE is the first byte moved to the last - the wall has', 0
+nb_s_k4:    db 'your own hands at both ends of it. Percentages use ACTIVE.', 0
 nb_s_nodrv: db 'NO SOCKET DRIVER ANSWERED - there is nothing to profile.', 0
 nb_s_noprof: db 'THIS DRIVER HAS NO PROFILER - the cable shares the stack', 0
 nb_s_badblk: db 'BLOCK VERSION UNKNOWN - rebuild the driver and this one', 0
-nb_s_wall:  db 'wall clock (ms)', 0
+nb_s_wall:  db 'wall, S to X (ms)', 0
+nb_s_act:   db 'ACTIVE (ms)', 0
 nb_s_out:   db 'NOT in the driver (ms)', 0
 nb_s_hdr:   db 'stage      calls      KB      ms   pct       us/KB', 0
 nb_s_rule:  db '---------------------------------------------------------', 0
 nb_s_note:  db 'pump contains card/frame/cksum/rxput. verb contains all.', 0
-nb_s_note2: db 'WALL MINUS VERB IS EVERYTHING THAT IS NOT THIS DRIVER.', 0
+nb_s_note2: db 'ACTIVE MINUS VERB IS EVERYTHING THAT IS NOT THIS DRIVER.', 0
 
 NB_O_SCAL   equ 64
 NB_O_BLK    equ NB_O_SCAL

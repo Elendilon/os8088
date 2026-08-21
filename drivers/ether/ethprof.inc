@@ -41,6 +41,23 @@
 ; off for anything like that, and it is written down because the failure would
 ; otherwise be silent.
 ;
+; --- THE ACTIVE WINDOW, AND WHY THE WALL CLOCK IS NOT ENOUGH ----------------
+; The wall runs from the S key to the X key, and a HUMAN presses both: free
+; the mouse from the emulator, start the client, watch for it to finish, click
+; back in, press X. That is seconds of nothing at each end, and it lands in
+; every percentage in the report.
+;
+; It showed up the first time the field profiled the same transfer twice: the
+; driver's own total fell 8,670ms and the wall fell 11,515ms, and the missing
+; 2,845ms was not a change in anything - it was a person being slightly
+; quicker with the keyboard.
+;
+; So the block carries an ACTIVE window as well: prof_end stamps the time of
+; the FIRST byte any stage moves and of the LAST, and the difference is the
+; transfer with the waiting cut off both ends. It costs one compare per
+; bracket - `or cx, cx` - because a stage that moved no bytes neither opens
+; the window nor closes it, which is exactly what an idle poll does.
+;
 ; --- WHAT IT COSTS ----------------------------------------------------------
 ; A bracket is a latch, two INs, two word reads and the accumulate: about 13us,
 ; twice per stage entry, plus the wrapper's own call and ret (11us,
@@ -68,11 +85,12 @@ PF_N        equ 10
 
 PF_REC      equ 18              ; per stage in the report block: dd time,
                                 ; dd bytes, dw calls, 8 bytes of name
-PF_HDR      equ 8               ; 'PF', version, PF_N, dd wall
+PF_HDR      equ 12              ; 'PF', version, PF_N, dd wall, dd ACTIVE
 PF_BLK      equ PF_HDR + PF_N * PF_REC
-PF_CLR      equ PF_N * 14 + 4   ; what prof_start zeroes: the four per-stage
-                                ; arrays and the banked wall, which are
-                                ; contiguous and in that order
+PF_CLR      equ PF_N * 14 + 13  ; what prof_start zeroes: the four per-stage
+                                ; arrays, the banked wall and the active
+                                ; window's two stamps and its flag - all
+                                ; contiguous, and in that order
 
 %ifdef ETH_NOEMIT
 ; --- the DOS partner (SPEC.md 62.11.1) carries none of this -----------------
@@ -292,7 +310,18 @@ prof_end:
     shl si, 1                   ; SI = the stage * 2, the 16-bit call counter
     shl bx, 1
     shl bx, 1                   ; BX = the stage * 4, the 32-bit pairs
-    call prof_now
+    call prof_now               ; DX:AX = now, and it is needed WHOLE before
+    or  cx, cx                  ; the subtraction below turns it into a delta
+    jz  .nostamp                ; no bytes: an idle poll, not the transfer
+    cmp byte [prof_fset], 0
+    jne .last
+    mov [prof_first], ax
+    mov [prof_first+2], dx
+    mov byte [prof_fset], 1
+.last:
+    mov [prof_last], ax
+    mov [prof_last+2], dx
+.nostamp:
     sub ax, [prof_t0+bx]
     sbb dx, [prof_t0+bx+2]
     add [prof_tm+bx], ax
@@ -386,7 +415,7 @@ prof_read:
     push di
     mov byte [es:di], 'P'
     mov byte [es:di+1], 'F'
-    mov byte [es:di+2], 1
+    mov byte [es:di+2], 2       ; VERSION 2: the header grew the active window
     mov byte [es:di+3], PF_N
     mov ax, [prof_wall]         ; STOPPED: the wall is the run that was...
     mov dx, [prof_wall+2]
@@ -398,6 +427,17 @@ prof_read:
 .wall:
     mov [es:di+4], ax
     mov [es:di+6], dx
+    mov ax, [prof_last]         ; ...and the ACTIVE window beside it: the first
+    mov dx, [prof_last+2]       ; byte any stage moved to the last
+    sub ax, [prof_first]
+    sbb dx, [prof_first+2]
+    cmp byte [prof_fset], 0
+    jne .act
+    xor ax, ax                  ; nothing ever moved: say nothing rather than
+    xor dx, dx                  ; the whole epoch
+.act:
+    mov [es:di+8], ax
+    mov [es:di+10], dx
     add di, PF_HDR
     xor bx, bx
 .l:
@@ -473,6 +513,9 @@ prof_tm:    times PF_N * 4 db 0     ; ...and the total it accumulates into
 prof_by:    times PF_N * 4 db 0
 prof_ca:    times PF_N * 2 db 0
 prof_wall:  dd 0                    ; how long the run was, banked by prof_stop
-prof_w0:    dd 0                    ; when prof_start ran
-prof_on:    db 0
+prof_first: dd 0                    ; ...and the ACTIVE window inside it: when
+prof_last:  dd 0                    ; the first byte moved, and the last
+prof_fset:  db 0                    ; has prof_first been taken yet?
+prof_w0:    dd 0                    ; when prof_start ran - OUTSIDE the clear
+prof_on:    db 0                    ; above, because it is stamped after it
 %endif

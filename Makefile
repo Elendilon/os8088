@@ -1458,10 +1458,17 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/ether.drv; \
                                 touch $(ETHSTAMP); })
 
+# **EVERY %include, and four of them were missing** - ethprof, ethstate,
+# ethsock and ethusr. Editing one of those left `make` looking at an
+# up-to-date ether.bin and rebuilding nothing, which reads as a change that
+# did nothing; the profiler's own symbol reader is what caught it, because it
+# re-assembles the source and refuses a build/ether.bin that does not match.
 $(BUILD)/ether.bin: drivers/ether/ether.asm drivers/ether/ne2000.inc \
                     drivers/ether/inet.inc drivers/ether/tcp.inc \
                     drivers/ether/dns.inc drivers/ether/etherui.inc \
-                    drivers/ether/ethcfg.inc \
+                    drivers/ether/ethcfg.inc drivers/ether/ethprof.inc \
+                    drivers/ether/ethstate.inc drivers/ether/ethsock.inc \
+                    drivers/ether/ethusr.inc \
                     drivers/net/netpkg.inc drivers/os88drv.inc \
                     apps/os88api.inc apps/os88ui.inc apps/os88line.inc \
                     | $(BUILD)

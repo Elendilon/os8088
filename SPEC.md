@@ -60992,3 +60992,68 @@ Nothing has been done about the **49% outside the driver**, and it is now the
 larger half. It is not this driver's to fix: the profiler stops at the package
 door on purpose, because instrumenting the FTP server and the disk is a
 different piece of work with a different instrument.
+
+### 72.17 The same transfer, twice — and the wall clock has a person in it
+
+The prediction in §72.16 was written down before the build shipped, which is
+the only way a prediction is worth anything. The 5150, same 297 KB upload:
+
+| stage | before | predicted | **measured** |
+|---|---|---|---|
+| `card` | 3270 | ~2500 | **2785** |
+| `rxput` | 5239 | ~1100 | **1249** |
+| `rxget` | 5278 | ~1100 | **1303** |
+| `frame` | 6852 | — | **2849** |
+| `pump` | 11302 | — | **6671** |
+| **`verb`** | **18559** | — | **9889** |
+| wall | 36080 | ~27000 | **24565** |
+
+`rep movsb` took **8,670 ms off the driver**, against nine seconds predicted.
+The transfer finished in 24 seconds where the client's own timeout is 28.
+
+#### 72.17.1 ...and the wall fell 11,515 ms, which is 2,845 ms too many
+
+The driver's own total fell 8,670 ms. The wall fell 11,515. **Nothing
+accounts for the missing 2,845 ms except a person being quicker with the
+keyboard the second time**, and the field said so before the arithmetic did:
+
+> *"I'm human, I have to press S, then free the mouse from 86Box, then start
+> the transfer, then watch for it to finish and hit x. There is some time on
+> both ends of that which is not transfer at all."*
+
+That is a defect in the instrument and not in the reading. Every percentage in
+the report divided by that wall, so every percentage carried the operator's
+reaction time — and the two ends do not even cancel, because freeing the mouse
+and starting a client is slower than noticing a progress bar stop.
+
+So the block carries an **ACTIVE window**: `prof_end` stamps the time of the
+first byte any stage moves and of the last, and their difference is the
+transfer with the waiting cut off both ends. It costs one compare per bracket
+— `or cx, cx` — because a stage that moved no bytes neither opens the window
+nor closes it, which is exactly what an idle poll does. `netbench` prints
+`wall, S to X` and `ACTIVE` on two lines and divides every percentage by
+`ACTIVE`.
+
+**What it still cannot subtract is a verb that ran before the first byte.**
+The FTP server polls `NETV_STATUS` about twenty-six times a second whether or
+not anything is arriving, and each poll is a `verb` call inside the lead-in.
+Measured, those are ~0.2 ms each against a 1.1 ms average, so the distortion
+is small — and it is now *visible*, because a long lead-in shows as `wall` far
+above `ACTIVE`. Press S, do nothing for ten seconds, press X: the report then
+prices an idle machine, which is a calibration this could not take before.
+
+The file format goes to **version 2** for the extra field and `netbench`
+refuses version 1 rather than reading the stage table at the wrong offsets.
+
+#### 72.17.2 The Makefile was not rebuilding the driver
+
+Four of `ether.asm`'s `%include`s were missing from `build/ether.bin`'s
+prerequisites — `ethprof.inc`, `ethstate.inc`, `ethsock.inc`, `ethusr.inc`.
+Editing any of them left `make` looking at an up-to-date binary and rebuilding
+nothing, which reads exactly like a change that did nothing.
+
+It was caught by the profiler's own symbol reader, which re-assembles the
+source and refuses a `build/ether.bin` that is not byte-identical — the same
+guard `tools/os88sym.py` puts on the kernel, one directory over. Without a
+reader that checks, this would have been a session spent wondering why an edit
+had no effect.
