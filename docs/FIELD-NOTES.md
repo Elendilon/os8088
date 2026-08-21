@@ -2899,6 +2899,42 @@ machine, and HDD.DRV's BIOS rung reaches a controller that evidently does
 something worse. The buffer violated a documented rule on the exact operation
 that froze; that is enough to fix it and not enough to close this note.
 
+### 27.4 ...and at least one "freeze" was the machine being BUSY
+
+Immediately after: *"Ok, I just went back to the VM and its NOT frozen. I
+might just have not waited long enough for the text file save? I waited a
+good 10 seconds, but..."*
+
+Ten seconds is not obviously enough. `bl_save` writes the report with
+`OSAPI_FILE_WRITE`, which creates or truncates a file, updates two FAT copies
+and a directory entry — several `int 13h` calls, and PERFORMANCE.md prices one
+at **~400 ms** on this machine whatever it moves. Then `bl_paint` redraws 29
+rows at ~71 ms a row. All of it inside one window callback, so **the gfx lock
+is held for the whole thing**: the cursor is parked, nothing on screen moves,
+and the machine is indistinguishable from a dead one.
+
+**`bl_progress` exists for exactly this** and its header says so —
+*"a machine that has stopped answering is indistinguishable from a machine
+that has died, and the first thing a user does about the second is reach for
+the power switch"* — and `bl_save` was the one path in the file not using it.
+It says `WRITING THE REPORT - a floppy write is seconds on this machine` now,
+painted before the write starts. That is PERFORMANCE.md Part 6 rule 6 (*do not
+ship a feature that silently costs seconds on the target*) applied to the
+harness itself, and it cost this investigation two rounds.
+
+**A later save on the same file did NOT come back after 60 seconds**, and that
+is not explained by slowness. The second `W` overwrites rather than creates,
+which frees the old chain and reallocates — a different path. Driven under
+QEMU with the FTP server running, `W` pressed twice with a wait between: the
+system tick kept advancing through both, and the server answered a fresh
+`LIST` afterwards. So the overwrite path is not broken in a way QEMU can see.
+
+**That is where this stands, and the two halves must not be merged.** The
+512-alignment violation (§27.2) was real, is fixed, and was on the exact
+operation that froze an upload. The save is a separate symptom, at least once
+was ordinary slowness with no indication, and once was something else that is
+still open.
+
 ### 27.3 What is left, and the next one-move test
 
 A mount is `dsk_chdir` → `disk_mount` → `int 13h`, and the volume under it is
