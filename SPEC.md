@@ -17679,7 +17679,9 @@ Four things about the convention:
 - **It is BUILT, not created on demand** (`--folder SYSTEM/APPDATA` in the
   Makefile, `MEDIA`'s precedent — §38.10). A folder exists only because a file
   named one, and an application that had to make its own would carry a
-  disk-full path nobody tests. A program should still *tolerate* the folder
+  disk-full path nobody tests. **Which puts the burden on whatever copies a
+  disk**: the hard-disk installer walked one folder level and so never made
+  this one, which is §52.10.13. A program should still *tolerate* the folder
   being absent — a user's own disk written elsewhere will not have it — and the
   right behaviour there is the one a refused write already has: keep the state
   in memory and say nothing.
@@ -41922,7 +41924,8 @@ The order is forced and each step is the next one's precondition:
 2. **`KERNEL.SYS` first**, through `OSAPI_FILE_WRITE_SYS`, so it is
    contiguous from cluster 2.
 3. **The rest of the system disk** — `SYSTEM.CFG`, every `*.DRV`,
-   `README.TXT` — then the apps disk's folders and their contents.
+   `README.TXT`, and every folder on it to the depth §52.10.13 walks — then
+   the apps disk the same way.
 4. **The volume boot record**, `boot/boothd.asm`'s 512 bytes with this
    volume's BPB written over the first 62 (`os88disk.py`'s split, done in the
    driver), to volume-relative LBA 0.
@@ -42708,6 +42711,74 @@ copied at 32 — three times the `int 13h` calls for nothing. It tries
 and a loop and makes the installer degrade smoothly on exactly the small
 machines this OS is for. The top rung is `HIW_KMAXKB`, so where the heap
 allows it `KERNEL.SYS` still goes down in one write.
+
+
+### 52.10.13 The copy walks the whole tree, not one folder level
+
+**`hd_icopy_tree` was two hand-unrolled loops** — the root's files, then one
+level of folders and *their* files — and the thing that shape cannot express
+is *a folder inside a folder*. Two of them are on the shipped disks:
+
+- **`SYSTEM/APPDATA/`** (§19.9), which is **empty**, so nothing about the copy
+  could have noticed it going missing by counting bytes. An installed machine
+  had no `APPDATA` on it at all, and §19.9 asks an application to *tolerate*
+  the folder being absent — keep the state in memory and say nothing — so
+  every program did exactly that, correctly, and the machine that boots from
+  its hard disk was the one where nothing kept its settings. Two write there
+  today — Cyclone's high scores and `FTPD.CFG` (§77.12.1) — and the bug reads
+  as a settings bug in each of them separately. It is one missing `MKDIR` in
+  the installer.
+- **`SYSTEM/DOS/OS88NET.COM`** (§62), which is not empty, and was silently
+  left behind — the same species of loss as the `type 1` walk that dropped
+  `BEVERLY.MOD` (§19.7.1), arriving by a different route.
+
+**The walk is iterative over an explicit stack, and that is the part of the
+old shape worth keeping.** Its comment said deeper nesting was "a stated limit
+rather than an oversight: this runs on the UI task's stack and open recursion
+is how you overrun one", which is right about *recursion* and was being used
+to justify a *depth*. A descent now pushes six bytes onto three parallel
+arrays — the source folder's cluster, the destination folder's, and how far
+`OSAPI_FILE_FIND` has walked it — so the machine stack is the same depth at
+level 5 as at level 0 and the bound is `HIW_DEPTH`, a number, rather than a
+loop that was written twice.
+
+**Level 0 is the root of both volumes.** Cluster 0 is what `OSAPI_FILE_GOTO`
+takes for a root (§19.2.2), so the root is an ordinary level and no path in
+the module carries a special case for one. That is what removed `hd_iinsub`,
+the flag that said "the file being copied is in a folder": one bit can
+distinguish the root from *the* folder and cannot distinguish two folders.
+`hd_isrc_here` / `hd_idst_here` read the stack instead, and `hd_inst_sys`
+calls `hd_ilvl_root` before its lone `KERNEL.SYS` copy so that one arrives at
+the root like anything else.
+
+**A folder deeper than `HIW_DEPTH` is refused BY NAME, not walked past.** The
+caption becomes `Folders nested too deep to copy` and the install stops — in
+the apps phase, which by §52.10.10 is a machine that already boots. Skipping
+it would be the defect this section exists to fix, one level further down.
+`HIW_DEPTH` is **6**, which is the deepest folder any disk in this tree
+carries — `RUNCPM/A/0` on the combined apps floppy (§74.6), three below the
+root — with room to spare for a user's own.
+
+**And the destination folder is looked up once per FOLDER rather than once per
+FILE.** `hd_idst_findsub` scanned the destination parent for the folder's name
+on *every file* in it, because the walk had nowhere to keep the answer; the
+level stack is that place, so `hd_idst_child` runs at the descent and the
+cluster is remembered. It is still a lookup rather than the `MKDIR`'s return
+value, because a re-install finds folders that already exist and the two cases
+must not read differently (`FERR_EXIST` is not a failure, it is the second
+time).
+
+**§52.10.9's counts predate this**, and the `app` row is the one that moves:
+an install now carries `SYSTEM/DOS/OS88NET.COM` (18KB) and makes two folders
+it never made, against a `MKDIR` per folder saved on the destination scans.
+The table is a dated measurement rather than a budget, so it is left as it was
+taken and this is the note that says so.
+
+**The `KERNEL.SYS` skip is now explicitly root-only.** It was implicitly so
+while only the root loop ran it (§52.10.2 needs the kernel at cluster 2, and a
+second copy is a replace that moves it); with one loop walking every level it
+has to say `[hd_ilvl] == 0`, or a user's own file of that name in a folder of
+their own would be skipped for sharing a name with the kernel.
 
 
 ## 52.11 Two images: the transport, and the tool

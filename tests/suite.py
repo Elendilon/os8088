@@ -299,6 +299,11 @@ SOAK = [
         "Does an fsx bracket take ONE display and dark the others? (SPEC.md"
         "39.18)",
         needs=("marty",), serial=True),
+    Row("instdeep", "soak", py("tests/instdeep.py"), 240.0,
+        "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
+        "tree - the empty SYSTEM/APPDATA and SYSTEM/DOS/OS88NET.COM included, "
+        "which one folder level could not reach. It ERASES the VHD.",
+        needs=("marty",), serial=True, timeout=1200),
     Row("hddcp", "soak", py("tests/hddcp.py"), 60.0,
         "The hard-disk driver's Control Panel page, and the two windows"
         "behind it.",
