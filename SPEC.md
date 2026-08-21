@@ -1546,6 +1546,109 @@ already makes its run count `min(|dx|,|dy|) + 1` where the app-side
 horizontal-only version paid `|dy| + 1` — so no adapter is slower than
 before this primitive existed, and the one that needed help got it.
 
+#### 5.6.4.1 The 1bpp fast walk — the same pixels with the state in registers
+
+The loop §5.6.4 describes is the **general** one and everything below falls
+back to it. `gfx_line_fast` runs first and takes the line only when its shape
+lets three things be true at once; they pay for each other and none of them
+works alone.
+
+**Split by octant.** One loop for every line has to ask each pixel which axis
+stepped. Two loops do not: the major axis steps *every* pixel, so it needs no
+test, and the minor axis's whole decision is the sign of one register.
+
+```
+steep   (dy >  dx): d = 2dx - dy;  plot; if d>0 {x+=sx; d-=2dy}; d+=2dx; y++
+shallow (dx >= dy): d = 2dy - dx;  plot; if d>0 {y++;   d-=2dx}; d+=2dy; x+=sx
+```
+
+**That is not a second rasteriser.** It is §5.6.4's, with the invariants
+folded in, and it lays the identical pixel set — so §5.6.2's erase contract
+holds across the two and a line drawn by one cancels with a line erased by the
+other. `tools/os88linecost.py --model` checks it over 9,480 endpoint pairs and
+`tests/linefast.py` checks it on the glass, against the same kernel with the
+fast path poked out.
+
+**Spend the box as an INTERVAL.** §5.6.3 refuses to clip because clipping the
+*endpoints* moves the lattice. This moves neither endpoint: the pixels of a
+monotone line inside an axis-aligned rect are a **contiguous range of
+major-axis steps**, so the box becomes a first and a count, computed once. The
+steps in front of the box are advanced by a loop that carries no framebuffer,
+no mask and no address — state only, about 35 cycles a step.
+
+**Inline the row step**, which is `add di,bp` and one test against a call and
+a ret.
+
+x and y are then **not tracked at all** — DI and the bit mask carry the
+position — and that is what frees the registers the interval made spare.
+
+#### 5.6.4.2 What the fast walk refuses, and why the refusals are cheap
+
+Every refusal falls through to §5.6.4's walk, so nothing is ever slower than
+it was and nothing can be drawn wrong by refusing.
+
+| refused | because |
+|---|---|
+| §5.6.6's dilated **steep** line | it is a three-column mask walk, a different shape |
+| §39.4's **dither** ink | it is a per-pixel decision by definition |
+| a line whose **minor** extent leaves the box | the major axis is clipped exactly; the minor one is all-or-nothing |
+
+The third is the whole of the compromise: a steep line crossing a clip rect's
+left or right edge — or a shallow one crossing its top or bottom — is walked
+the old way. A package drawing inside its own content rect meets it rarely,
+and when it does it pays what it always paid.
+
+**Eight loops, and the reason is the 8088.** The three things that vary are an
+opcode (`or` for white, `and` for black on an inverted mask), a branch
+condition, and an `inc`/`dec` — none of which a register can hold. The mask
+**rotates** rather than shifts so that the byte boundary arrives as a carry,
+which is what lets the inverted mask use the same shape read the other way
+round. `.text` cost: **634 bytes**, one 512-byte image rung.
+
+**Measured, on a cycle-accurate 4.77 MHz 8088** (PERFORMANCE.md Set 69): the
+general walk is 723 cycles a pixel and this is **147**, for **4.7-5.2x** on
+both 1bpp adapters, output byte-identical.
+
+#### 5.6.4.3 A walk may not ADDRESS a row above the box
+
+`gfx_rowbase` is banked (§39.2): a row's offset is
+`banktab[y & bmask] + (y >> bshift) * stride`, and there is no arithmetic
+continuation of it above zero. `gfx_rowbase(-5)` on Hercules is bank 3 of a
+product that wrapped in 16 bits, and five `gfx_nextrow` steps from there
+arrive **90 bytes past row 0** rather than at it. So a line entering the
+screen from the top drew four rows low, with nothing to say so — the walk
+skipped the pixels above the box correctly (§5.6.3's box test) and addressed
+every pixel after them wrongly.
+
+`gfx_lm_pre` is the fix and it is not in the addressing: the walk steps its
+state to `[gfx_ln_cy1]` **before** the address is computed at all. Every pixel
+it skips was going to be skipped. A line that starts inside the box — almost
+every line — returns on the first compare.
+
+The **left** edge needs no such thing and never did: `x & 7` is the correct
+bit for any x, and the byte offset only had to become an arithmetic shift, so
+`gfx_ls_addr` uses `sar`. A walk entering from the left then addresses one
+byte before the row while it is outside the box, which nothing reads, and the
+right byte from the moment it is inside.
+
+§5.6.4.1's fast walk never had either defect — it computes its address at the
+**entry** pixel, which is inside the box by construction — and
+`tests/linefast.py` is what found this one, by comparing the two.
+
+#### 5.6.4.4 The fast walk is not on `kern_small`
+
+It is **686 bytes of `.text`** and one 512-byte image rung, and the 128-256KB
+machine is short of exactly the thing that would be spent — so the whole of
+§5.6.4.1 is inside `%ifdef KERN_BIG`, the way §62.9.15's RAM disk is. That
+build keeps §5.6.4's general walk and is correct, not fast.
+
+§5.6.4.3's **fix** is on both, because it is correctness rather than speed and
+costs 54 bytes.
+
+Nothing above the primitive can tell: `gfx_line`'s contract, its pixel set and
+its clipping are the same on both kernels, and the only difference is how long
+a line takes.
+
 #### 5.6.5 SI = 1, because a line drawn in segments is not the line
 
 The one thing that stops a caller replacing an incremental drawing path with

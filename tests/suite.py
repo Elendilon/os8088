@@ -237,6 +237,11 @@ SOAK = [
         "SPEC.md 11.2 fullscreen with the window's CENTRE on the second"
         "display",
         needs=("marty",), serial=True),
+    Row("linefast", "soak", py("tests/linefast.py"), 60.0,
+        "Does SPEC.md 5.6.4.1's fast walk lay 5.6.4's pixels? Both inks, all"
+        "eight octants, clipped and not - against the same kernel with the"
+        "dispatch poked out",
+        needs=("marty",), serial=True),
     Row("dispmine", "soak", py("tests/dispmine.py"), 60.0,
         "Can Minesweeper's bottom row be PLAYED on a CGA? (SPEC.md 11.93)",
         needs=("marty",), serial=True),

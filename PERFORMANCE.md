@@ -7152,3 +7152,53 @@ the byte has to be spent then anyway. Rule 5 in miniature — the optimisation's
 
 `docs/LINE-PERF-PLAN.md` is what this would cost to build, and what has to
 move with it.
+
+### Set 70 — §5.6.4.1 built and measured, and one defect it found
+
+| | |
+|---|---|
+| machine | MartyPC, `os8088_5150_herc` and `_cga`, real IBM 5150 ROM |
+| harness | `tools/os88linecost.py gfx_line`, three lengths per geometry, fitted |
+| build | the fast walk in the kernel, against Set 69's numbers for the same rows |
+| date | 2026-08-21 |
+
+| | Set 69 | now | |
+|---|---:|---:|---|
+| steep, per pixel | 723.1 cyc | **151.9** | **4.76×** |
+| shallow, per pixel | 657.1 | **128.2** | **5.13×** |
+| a 128 px steep line, whole | 94,382 | **22,845** | 4.13× |
+| a 128 px shallow line, whole | 86,017 | **19,815** | 4.34× |
+| a **dilated** shallow erase, 128 px | 256,617 | **58,011** | 4.42× |
+| the arrival | 1,822 | **3,405** | 0.54× |
+
+**The arrival nearly doubled and that is the trade.** The eligibility tests,
+the interval and `gfx_ls_addr` are ~1,700 cycles where the general walk's
+header was ~600, so the two cross at **2.8 pixels** — which is why `LF_MINMAJ`
+refuses a line shorter than four and the change is a win at every length
+rather than a win on average. A dilated **steep** erase is untouched: §5.6.6's
+three-column walk is a different shape and the fast walk refuses it.
+
+**The pixels are identical and that is checked twice**: `tests/linefast.py`
+against the same kernel with the dispatch poked out, on both 1bpp adapters,
+clipped and not; and `os88linecost.py candidate`, which still reports
+`identical` against the independent stub Set 69 validated.
+
+#### The defect the comparison found (SPEC.md §5.6.4.3)
+
+The two walks disagreed on every line entering the screen **from the top**,
+and the fast one was right. `gfx_line_mono` called `gfx_rowbase(y1)` with
+`y1 = -5`; `gfx_rowbase` is banked, so that is bank 3 of a 16-bit product that
+wrapped, and five `gfx_nextrow` steps from it land **90 bytes past row 0**
+rather than at it — a line drawn **four rows low on Hercules**, silently, for
+as long as the primitive has existed. The walk skipped the pixels above the
+box correctly and addressed every pixel after them wrongly.
+
+`gfx_lm_pre` steps the state to the box's top edge before any address is
+computed; `gfx_ls_addr` uses `sar` so the left edge works the same way. 54
+bytes, on both kernels, and it changes nothing for a line that starts on
+screen — which is every line any shipped package draws today, which is why
+nobody had seen it.
+
+**Price: `.text` +686, one 512-byte image rung**, `KERN_BUDGET` spare 1,024 →
+512. `kern_small` does not get it (§5.6.4.4) — it did not fit, and the guard
+said so rather than anybody noticing.

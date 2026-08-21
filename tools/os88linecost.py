@@ -255,7 +255,9 @@ class Rig(object):
         """The kernel's own, through a three-byte `call` stub."""
         rel = (self.sym["gfx_line"] - (self.stub + 3)) & 0xFFFF
         self.park(bytes([0xE8, rel & 0xFF, rel >> 8, 0xEB, 0xFE]),
-                  ax=x1, bx=y1, cx=x2, dx=y2, si=fat)
+                  ax=x1 & 0xFFFF, bx=y1 & 0xFFFF, cx=x2 & 0xFFFF,
+                  dx=y2 & 0xFFFF, si=fat)   # setreg is unsigned; a coordinate
+                  # off the top or left of the screen is a legitimate argument
         a, b = self.marks([self.stub + 3])
         return b[0] - a[0], b[1] - a[1]
 
