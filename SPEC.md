@@ -4164,6 +4164,53 @@ grows, because `inst_task_die`'s `gfx_lock` may wait a watchdog period
 behind a non-yielding UI-side callback; the window is already hidden by
 then, so this is invisible.
 
+### 8.3 Every slice is filled with 0xCC at spawn, and the shipping kernel does it
+
+`task_spawn` writes `SCH_STACK` bytes of `0xCC` over a slice before it seeds
+the canary and carves the frame. Nothing reads it at run time; what reads it is
+`tests/stackprobe` and `tools/stkwater.py`, by scanning up from the canary for
+the first byte that is no longer the fill — **which is how far down that task
+has ever been**.
+
+**It is unconditional, and it used to be `%ifdef KFZTRACE`.** That meant the
+only kernel whose margin could be measured was one nobody runs, on a machine
+that is not the target — and the margin is exactly what §77's field freeze
+turned out to be about (docs/FIELD-NOTES.md 27.6). One `rep stosb` per *spawn*,
+a few hundred microseconds against a launch that has already been through
+`int 13h`, buys a number the 5150 can read **while the thing under suspicion is
+running**.
+
+Two things follow from the fill being there:
+
+- **The canary is not the only warning any more.** `SCH_MAGIC` says the slice
+  has already been overrun and `sch_stkdie` halts; the fill says *how close* it
+  came, on a machine that never overran at all. A margin nobody can see is a
+  margin nobody defends.
+- **The reading is a HIGH WATER, not a sample.** It survives the excursion that
+  set it, so it does not need an instrument to be looking at the right moment —
+  which is what a tick-sampled minimum-SP cannot promise (§8.4).
+
+### 8.4 …and the deepest TICK, which is the other half of the same question
+
+A `KFZ=1` `sch_isr` also keeps one byte — the deepest a background task has
+been at any tick it sampled — with the slot and the interrupted `CS:IP` beside
+it. The fill and the sample answer different questions and neither is enough
+alone:
+
+| | the 0xCC fill (§8.3) | the sampled tick |
+|---|---|---|
+| depth | **exact** — it survives the excursion that set it | a lower bound: only ticks are looked at |
+| what was running | nothing | **the CS:IP**, which `nasm -l` turns into a routine |
+| needs | one `rep stosb` per spawn | `KFZ=1` |
+
+Read together they caught the thing neither could alone: 32 bytes came off the
+driver's static worst chain and the fill moved by six, because the runtime path
+is not the static one — and then the sample came back **empty**, because under
+QEMU a worker's pass finishes between ticks and never pays the interrupt at
+all. That is ~82 bytes a real machine charges and the emulator does not
+(docs/KERNEL-MEMORY.md, "Task stacks"), and it is why the freeze never
+reproduced here.
+
 ## 9. mouse.inc — serial Microsoft mouse + cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both

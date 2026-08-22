@@ -414,15 +414,20 @@ task_spawn:
     mov di, ax                  ; SCH_STACK below
     mov ax, LOW_SEG
     mov es, ax
-%ifdef KFZTRACE
-    ; --- THE 0xCC FILL (KFZ only), docs/KERNEL-MEMORY.md's own probe -------
+    ; --- THE 0xCC FILL, and it is NOT a debug build's (SPEC.md 8.3) --------
     ; Every byte of the slice, so the deepest one anything ever touched can be
-    ; read straight out of LOW_SEG afterwards. The canary and the frame are
-    ; written OVER this, below and above it, so nothing here has to know where
-    ; either of them ends up. `SCH_STACK` was sized at 1.8x a 142-byte mark
-    ; taken before ETHER.DRV existed and the field has now overrun it
-    ; (docs/FIELD-NOTES.md 27.6): the replacement has to be MEASURED, and this
-    ; is what measures it.
+    ; read back out of LOW_SEG. The canary and the frame are written OVER this,
+    ; below and above it, so nothing here has to know where either ends up.
+    ;
+    ; **UNCONDITIONAL, and that is the point.** It was `%ifdef KFZTRACE`, which
+    ; meant the only kernel whose margin could be measured was one nobody runs -
+    ; and the margin is the thing this project has just spent a week being
+    ; wrong about (docs/FIELD-NOTES.md 27.6). It costs ONE `rep stosb` of
+    ; SCH_STACK bytes per SPAWN - a few hundred microseconds, once, against a
+    ; launch that has already been through int 13h - and it turns
+    ; tests/stackprobe from a probe of its own slice into one that can read
+    ; EVERY task's high water on the shipping kernel, on the real machine,
+    ; while the thing under suspicion is running.
     push cx                     ; CX is the slot index and is still needed
     push di
     push ax
@@ -433,7 +438,6 @@ task_spawn:
     pop ax
     pop di
     pop cx
-%endif
     mov word [es:di], SCH_MAGIC
     pop ax
     sub ax, SCH_FRAME           ; carve the fake frame at the very top

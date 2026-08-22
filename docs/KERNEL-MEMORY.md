@@ -936,7 +936,11 @@ entries on an internal extra stack, so under `make test` the only foreign
 frames a task slice ever carries are this kernel's own tick and mouse
 handlers. A real IBM BIOS runs int 09h — which it STIs early, so the tick and
 the mouse nest *on top of* it — and its int 08h chain on whichever task stack
-is current. `tests/stackprobe` exists for exactly this gap (docs/TESTING.md).
+is current. `tests/stackprobe` exists for exactly this gap (docs/TESTING.md) — and it
+reads **every** slice now, not just its own: `task_spawn` fills all of them
+with `0xCC` on the shipping kernel (SPEC.md §8.3), so `make stackprobe`, boot
+it beside whatever is under suspicion, and the `Other tasks` line names the
+deepest slot while that thing works.
 
 **AND THE FIELD HAS NOW OVERRUN IT.** A `KFZ=1` heartbeat photographed on the
 5150 during an FTP session carries `sch_stkdie`'s bar: a background task took
