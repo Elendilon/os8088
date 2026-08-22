@@ -15,6 +15,30 @@
 ; driver and what counts as a link are the one thing the two ends genuinely
 ; disagree about.
 ; =============================================================================
+
+; --- THE VERB'S OWN PUMP, or the worker's -------------------------------------
+; Every verb below starts by draining the ring, because with nothing else
+; running the only thing that can advance the stack is a package asking it
+; something. ETHPUMP=1 (SPEC.md 72.19) gives the driver a worker that does it
+; instead - better pacing for a SERVER, whose peer does not wait for the next
+; poll - and this is the one place the two builds differ.
+;
+; **The fallback is not optional.** A driver worker is spawned from a service
+; call and can be REFUSED when every task slot is taken; if the verbs had
+; simply stopped pumping, that refusal would stop the network dead. So the test
+; is on `eth_wlive` and not on the build: no worker, the verb pumps, exactly as
+; it always did.
+%macro ETH_VPUMP 0
+%ifdef ETHPUMP
+    cmp byte [eth_wlive], 0
+    jne %%have
+    call eth_pump
+%%have:
+%else
+    call eth_pump
+%endif
+%endmacro
+
 ; --- NETV_OPEN ---------------------------------------------------------------
 ; in ES:SI = a NUL host, CX = the port; out AX = a handle
 eth_v_open:
@@ -24,7 +48,7 @@ eth_v_open:
     push dx                     ; anything is pushed after it, and there is
     push si                     ; something: DI
     push di
-    call eth_pump
+    ETH_VPUMP
     mov si, eth_ip
     call ip_zero
     jz  .nolink
@@ -86,7 +110,7 @@ eth_v_open:
 eth_v_status:
     push bx
     push dx
-    call eth_pump
+    ETH_VPUMP
     call sk_h2p
     jc  .no
     mov dl, al
@@ -110,7 +134,7 @@ eth_v_send:
     push bx
     push dx
     push di
-    call eth_pump
+    ETH_VPUMP
     call sk_h2p
     jc  .no
     cmp byte [bx+SKO_ST], NSK_UP
@@ -157,7 +181,7 @@ eth_v_recv:
     push bx
     push dx
     push si
-    call eth_pump
+    ETH_VPUMP
     call sk_h2p
     jc  .no
     mov dx, [bx+SKO_RXN]
@@ -195,7 +219,7 @@ eth_v_recv:
 eth_v_close:
     push ax
     push bx
-    call eth_pump
+    ETH_VPUMP
     call sk_h2p
     jc  .no
     cmp byte [bx+SKO_TS], TS_LISTEN ; a LISTENER takes its un-accepted children
@@ -250,7 +274,7 @@ eth_v_close:
 eth_v_abort:
     push ax
     push bx
-    call eth_pump
+    ETH_VPUMP
     call sk_h2p
     jc  .no                             ; already gone: not an error, exactly
     cmp byte [bx+SKO_TS], TS_LISTEN     ; as eth_v_close is not
@@ -320,7 +344,7 @@ eth_v_addr:
 eth_v_listen:
     push bx
     push cx
-    call eth_pump
+    ETH_VPUMP
     call sk_alloc
     jc  .full
     mov [bx+SKO_LP], cx
@@ -345,7 +369,7 @@ eth_v_accept:
     push cx
     push dx
     push si
-    call eth_pump
+    ETH_VPUMP
     call sk_h2p
     jc  .no
     cmp byte [bx+SKO_TS], TS_LISTEN

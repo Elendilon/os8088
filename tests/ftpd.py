@@ -163,8 +163,19 @@ def main():
                          "MEASUREMENT, never a gate: the number is what "
                          "SCH_STACK has to be sized from, and QEMU understates "
                          "a real BIOS by ~20 bytes")
+    ap.add_argument("--ethpump", action="store_true",
+                    help="build ETHER.DRV with ETHPUMP=1 - the pump worker "
+                         "(SPEC.md 72.19) instead of every verb draining the "
+                         "ring. Correctness here; the throughput comparison "
+                         "has to happen on hardware, because QEMU counts work "
+                         "exactly and times it uselessly")
     a = ap.parse_args()
     knob = ["KFZ=1"] if a.kfz else []
+    if a.ethpump:
+        knob.append("ETHPUMP=1")
+        eth.ether_defines("ETHPUMP")    # ...or every driver symbol lookup is
+                                        # refused: the map would not match the
+                                        # ether.bin this run actually built
     if a.kfz:
         os88sym.default_defines("KFZTRACE")     # every S() below resolves
                                                 # against the kernel actually
@@ -214,6 +225,18 @@ def main():
 
     try:
         run_gate(m, mo, fails)
+        if a.ethpump:
+            syms = eth.ether_syms()
+            row = m.read(S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ
+                         + eth.DRVR_SEG, 2)
+            live = m.readseg(eth.u16(row), syms["eth_wlive"], 1)[0]
+            say("")
+            say("ETHPUMP: the pump worker is %s"
+                % ("ALIVE - the verbs are not pumping" if live else
+                   "NOT RUNNING, so every verb pumped for itself and this "
+                   "run proves nothing about the worker"))
+            if not live:
+                fails.append("ETHPUMP=1 but no worker was ever hired")
         if a.kfz:
             stack_water(m)
     finally:

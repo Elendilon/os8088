@@ -926,17 +926,44 @@ eth_pump_i:                     ; STKDEPTH-NOSAVE: ax bx dx si di
     je  .out
     mov bp, ETH_BUDGET
 .f:
-    call ne_rx
+    call eth_pump1
     jc  .timers
-    inc word [eth_nrx]
-    call eth_frame
     dec bp
     jnz .f
 .timers:
-    call tcp_timers
-    call dns_timer
-    call dhcp_timer
+    call eth_ptimers
 .out:
     pop bp
     pop cx
+    ret
+
+; -----------------------------------------------------------------------------
+; eth_pump1 - ONE frame off the ring, if there is one
+; out: CF=1 = the ring was empty. CX is ne_rx's length and eth_frame's input,
+;      so it flows between them and is the caller's to save.
+;
+; Split out of the loop above so that a caller can put the CARD MUTEX round one
+; frame instead of round a whole drain (SPEC.md 72.19). A drain of eight frames
+; is up to eighty milliseconds of byte-at-a-time DMA, and every package verb
+; that lands in that window gets NETE_BUSY; one frame is ten.
+; -----------------------------------------------------------------------------
+eth_pump1:
+    call ne_rx
+    jc  .none
+    inc word [eth_nrx]
+    call eth_frame
+    clc
+    ret
+.none:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; eth_ptimers - the retransmit, DNS and DHCP clocks. Cheap when idle; each one
+;               is a compare against [ticks] on nearly every call.
+; -----------------------------------------------------------------------------
+eth_ptimers:
+    call tcp_timers
+    call dns_timer
+    call dhcp_timer
     ret

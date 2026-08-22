@@ -263,6 +263,80 @@ eth_dhcp_wait:
     pop ax
     ret
 
+%ifdef ETHPUMP
+; -----------------------------------------------------------------------------
+; eth_wrk - THE PUMP WORKER (SPEC.md 72.19, ETHPUMP=1 only)
+;
+; Without it the stack advances only when a package asks the driver something,
+; which is fine for a client and wrong for a SERVER: the peer does not wait for
+; the next poll, the card's ring fills while the UI repaints, and an incoming
+; SYN sits there until somebody calls a verb.
+;
+; **ONE FRAME PER ACQUISITION OF THE CARD.** eth_claim is answered with
+; NETE_BUSY and never waited on (drivers/net/netpkg.inc), so a worker that held
+; the card across a whole eight-frame drain would refuse package verbs for up
+; to eighty milliseconds of byte-at-a-time DMA at a stretch. Taking it per
+; frame bounds that to about ten and leaves a window between every one.
+;
+; in:  DH = the generation this worker serves; DS = our segment
+; -----------------------------------------------------------------------------
+eth_wrk:
+    mov byte [eth_wlive], 1
+.loop:
+    call OSAPI_TASK_PARK        ; the compactor's point (SPEC.md 66.5.5): the
+                                ; rings are a heap claim and this is the one
+                                ; place in the loop holding no pointer into one
+    cmp dh, [eth_wgen]          ; superseded, or told to die by detach
+    jne .die
+    cmp byte [eth_up], 0
+    je  .die
+    mov cx, ETH_BUDGET
+.f:
+    call eth_claim              ; somebody else has the card: leave it to them,
+    jc  .nap                    ; they are pumping on their own account anyway
+    call eth_pump1
+    mov byte [eth_busy], 0      ; ...released BEFORE the CF is read: `mov`
+    jc  .rest                   ; touches no flags, so the answer survives
+    loop .f
+.rest:
+    call eth_claim
+    jc  .nap
+    call eth_ptimers
+    mov byte [eth_busy], 0
+.nap:
+    call OSAPI_TASK_YIELD
+    jmp .loop
+.die:
+    mov byte [eth_wlive], 0     ; ...cleared as its last act but one
+    xor ax, ax
+    call OSAPI_DRV_TASK         ; AX = 0: exiting. NEVER RETURNS (SPEC.md 51.7)
+
+; -----------------------------------------------------------------------------
+; eth_wrk_hire - one worker, from a service call, and never from ATTACH
+;
+; OSAPI_DRV_TASK's fence is "ES is the PUBLISHED driver's segment", and
+; drv_publish arms it only after attach returns - so a driver cannot spawn from
+; DRVV_ATTACH and this is called from eth_pkg, after the door has swapped ES to
+; our own DS. A refusal is not an error: every task slot can be taken, and the
+; verbs pump for themselves while [eth_wlive] is 0.
+; -----------------------------------------------------------------------------
+eth_wrk_hire:
+    cmp byte [eth_wlive], 0
+    jne .out
+    cmp byte [eth_up], 0
+    je  .out
+    push ax
+    push dx
+    inc byte [eth_wgen]         ; a fresh generation, so a worker that has not
+    mov dh, [eth_wgen]          ; noticed it was told to die cannot serve this
+    mov ax, eth_wrk             ; one - sb.inc's precedent (SPEC.md 51.7)
+    call OSAPI_DRV_TASK
+    pop dx
+    pop ax
+.out:
+    ret
+%endif
+
 ; -----------------------------------------------------------------------------
 ; DRVV_DETACH - cannot fail (SPEC.md 51.6 rule 1)
 ; -----------------------------------------------------------------------------
@@ -278,6 +352,16 @@ eth_detach:
                                 ; takes the card outright and every package
                                 ; verb from here answers NETE_BUSY - which is
                                 ; the honest thing for a driver on its way out
+%ifdef ETHPUMP
+    inc byte [eth_wgen]         ; ...and the worker is told to die by the
+                                ; generation moving, which it tests BEFORE it
+                                ; claims - so the card being taken above cannot
+                                ; leave it spinning. drv_unload's own wait is
+                                ; on [drv_wcnt] and is the authoritative one
+                                ; (SPEC.md 51.7): a driver-side flag cannot
+                                ; close the gap between "said it is gone" and
+                                ; "has no instructions left in this image"
+%endif
     call eth_cfg_reap           ; **BEFORE anything else.** The window's
                                 ; dispatcher is ours and the kernel is about to
                                 ; free the image it lives in (SPEC.md 72.7)
@@ -369,6 +453,10 @@ eth_pkg:
     mov [eth_useg], es
     push ds
     pop es
+%ifdef ETHPUMP
+    call eth_wrk_hire           ; ES is ours from the line above, which is what
+                                ; OSAPI_DRV_TASK's fence tests (SPEC.md 72.19)
+%endif
     cmp bl, NETV_MAX
     ja  .verb
     cmp byte [eth_up], 0

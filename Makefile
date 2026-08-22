@@ -1463,7 +1463,17 @@ endif
 ifeq ($(ETHPROF),1)
 ETHDEF += -DETHPROF
 endif
-ETHSTAMP := $(BUILD)/.ether-$(if $(ETHBASE),$(ETHBASE),auto)-$(if $(ETHIP),$(ETHIP),dhcp)-$(if $(ETHPROF),prof,noprof)
+# ETHPUMP=1 gives the driver a WORKER that drains the ring and runs the timers,
+# instead of every socket verb draining it on the caller's task (SPEC.md 72.19).
+# It is a PROTOTYPE and off by default: the pacing is better for a server, and
+# what it costs is a task slot and - possibly - throughput, because the pump
+# stops being synchronous with the caller and becomes one of N round-robin
+# tasks. `make netbench ETHPUMP=1` against a plain `make netbench` is the
+# measurement that decides it.
+ifeq ($(ETHPUMP),1)
+ETHDEF += -DETHPUMP
+endif
+ETHSTAMP := $(BUILD)/.ether-$(if $(ETHBASE),$(ETHBASE),auto)-$(if $(ETHIP),$(ETHIP),dhcp)-$(if $(ETHPROF),prof,noprof)-$(if $(ETHPUMP),wrk,nowrk)
 $(shell mkdir -p $(BUILD); \
         [ -f $(ETHSTAMP) ] || { rm -f $(BUILD)/.ether-* $(BUILD)/ether.bin \
                                       $(BUILD)/ether.drv; \

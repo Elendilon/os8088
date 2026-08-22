@@ -61375,6 +61375,68 @@ With payload gating, the field's next transfer read `wall 22,891` against
 `ACTIVE 20,600` — two and a third seconds of hands, removed — and `verb`
 9,704 ms, **47% of the active window**, with 10,895 ms outside it.
 
+
+### 72.19 ETHPUMP — a worker that drains the ring, instead of every verb doing it
+
+**PROTOTYPE, off by default.** `make ... ETHPUMP=1`.
+
+Every socket verb opens with `call eth_pump`: drain up to `ETH_BUDGET` frames,
+run the retransmit/DNS/DHCP clocks, then do the verb's own work. Nothing else
+advances the stack, so a machine whose package is not currently asking the
+driver anything is a machine not receiving. For a *client* that is fine — it
+polls because it wants something. For a **server** it is wrong in a way that
+shows: the peer does not wait for the next poll, the card's ring fills while
+the UI repaints a window, and an incoming SYN sits in it until somebody calls a
+verb.
+
+`ETHPUMP=1` gives the driver a worker (`eth_wrk`) that pumps on its own, and
+the verbs stop pumping.
+
+#### 72.19.1 One frame per acquisition, and that is the whole design
+
+`eth_claim` is answered with **`NETE_BUSY` immediately and never waited on**
+(drivers/net/netpkg.inc). A worker that held the card across a whole eight-frame
+drain would refuse every package verb landing in that window — up to eighty
+milliseconds of byte-at-a-time DMA at a stretch. So `eth_pump_i`'s loop body is
+split out as `eth_pump1` (one frame, `CF=1` = the ring was empty) and the
+worker takes and releases the card around each one. Ten milliseconds, with a
+window between every frame.
+
+#### 72.19.2 The fallback is not optional
+
+A driver worker is spawned from a **service call** — `OSAPI_DRV_TASK`'s fence is
+"ES is the *published* driver's segment", and `drv_publish` arms it only after
+`DRVV_ATTACH` returns, so the driver cannot spawn at load. It is hired in
+`eth_pkg`, after the door swaps ES to our own DS, on the first verb after the
+card is up.
+
+**And it can be refused**: every task slot can be taken. If the verbs had simply
+stopped pumping, that refusal would stop the network dead. So `ETH_VPUMP` tests
+`[eth_wlive]` and not the build — no worker, the verb pumps, exactly as it
+always did. A refused slot costs pacing and never the network.
+
+#### 72.19.3 Death
+
+`DRVV_DETACH` bumps `[eth_wgen]`, and the worker compares the generation it was
+spawned with **before** it claims the card — so detach taking the card outright
+(§72.2.2) cannot leave it spinning. The authoritative wait is the kernel's, on
+`[drv_wcnt]` (§51.7): a driver-side flag cannot close the gap between "has said
+it is gone" and "has no instructions left in an image about to be freed".
+
+#### 72.19.4 What it is measured against
+
+Two things it can cost, and both are why it is a knob rather than a change:
+
+- **Throughput.** The pump stops being synchronous with the caller — running
+  exactly when needed, as often as the caller calls — and becomes one of N
+  round-robin tasks. `make netbench ETHPUMP=1` against a plain `make netbench`,
+  on the same transfer, is what decides it.
+- **A task slot**, of the seven a machine has (§8).
+
+What it can win is fewer dropped frames, which is fewer retransmits, which is
+throughput back. It is not obvious in either direction, which is why it is
+built both ways and measured rather than argued.
+
 ### 77.31 `fd_stage` was 51 bytes off a sector, and the 37KB claim moved it onto a page boundary
 
 The field's report, and it is the diagnosis as much as the symptom: *"Made a

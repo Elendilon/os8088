@@ -101,6 +101,21 @@ def say(*a):
 # binary it describes is byte-identical to the one on the disk under test. A
 # map of a different build is worse than no map - every offset is plausible.
 # -----------------------------------------------------------------------------
+_ETHDEF = []
+
+
+def ether_defines(*names):
+    """The -D set ether_syms() assembles with, set once beside the knob.
+
+    A knob build of the driver is a DIFFERENT driver, and the check below
+    refuses a map that does not match `build/ether.bin` byte for byte - so a
+    harness driving `ETHPUMP=1` has to say so here or every lookup is refused.
+    os88sym.default_defines() is the same arrangement for the kernel.
+    """
+    global _ETHDEF
+    _ETHDEF = list(names)
+
+
 def ether_syms():
     with tempfile.TemporaryDirectory() as d:
         src = os.path.join(d, "e.asm")
@@ -109,9 +124,10 @@ def ether_syms():
         shutil.copy("drivers/ether/ether.asm", src)
         with open(src, "a") as f:
             f.write("\n[map all %s]\n" % mp)
-        subprocess.run(["nasm", "-f", "bin", "-w+error",
-                        "-I", "drivers/ether/", "-I", "drivers/net/",
-                        "-I", "drivers/", "-I", "apps/", "-o", out, src],
+        subprocess.run(["nasm", "-f", "bin", "-w+error"]
+                       + ["-D" + n for n in _ETHDEF]
+                       + ["-I", "drivers/ether/", "-I", "drivers/net/",
+                          "-I", "drivers/", "-I", "apps/", "-o", out, src],
                        check=True)
         if open(out, "rb").read() != open("build/ether.bin", "rb").read():
             sys.exit("ethernet: the mapped build is not build/ether.bin - "
