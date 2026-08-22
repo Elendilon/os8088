@@ -979,6 +979,35 @@ give and every candidate is a decision rather than a build fix:
 **Take it with whoever owns the budget** (CLAUDE.md), and take the *deciding*
 number on the 5150 with `tests/stackprobe` rather than from QEMU.
 
+##### What QEMU does not charge, and it is 82 bytes
+
+`tools/stkwater.py`'s fill measures a slice's high water; a `KFZ=1` `sch_isr`
+also keeps the **deepest tick it has ever seen** and the interrupted CS:IP at
+it. Run together on the FTP gate, the second one came back **empty** — and that
+is a finding about the measurement rather than about the code.
+
+**Not one timer interrupt landed on the worker's slice.** Under QEMU the guest
+runs about a thousand times too fast, so the worker finishes its pass between
+ticks and never pays the ISR at all. The number the fill reports therefore
+carries **no timer-ISR frames**:
+
+| lands on whatever stack is current | bytes |
+|---|---|
+| the CPU's own flags/CS/IP | 6 |
+| `sch_isr` (`tools/stkdepth.py --from sch_isr`) — 9 pushes, then `snd_tick` down to `drv_svc_call` | 46 |
+| a real IBM BIOS's `int 08h` chain, which SeaBIOS runs on its own stack instead | ~30 |
+| | **~82** |
+
+On a 4.77 MHz machine a worker's pass spans several ticks, so it pays all of
+it. **That is the whole difference between "208 of 256 under QEMU" and a 5150
+that halts on the canary**, and it is why the emulator has never reproduced the
+freeze.
+
+It also means the QEMU figure is a **floor with variance**: three runs of the
+same gate on the same build read 208, 202 and 178 depending on whether an ISR
+happened to land during the deepest excursion. Quote it as a lower bound, never
+as the margin.
+
 ##### Cutting the depth was investigated first, and it does not close the gap
 
 `tools/stkdepth.py` walks the NASM listing and prices every call chain in an

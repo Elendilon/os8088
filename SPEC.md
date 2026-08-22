@@ -61139,6 +61139,67 @@ beside §72.17's numbers.
 levels averaging ten bytes, so there is no single cut worth much — which is why
 `SCH_STACK` is a memory decision rather than an optimisation one.
 
+#### 72.16.4 Fitting a 256-byte task slice, and the gate that keeps it fitting
+
+A background task owns **256 bytes** (§8), and a package's worker calling a
+socket verb runs this whole stack on it. `tools/stkwater.py` measured FTPD's
+worker at 208 of 256 after one session, and `tools/stkdepth.py` prices the
+chains it goes through. Raising `SCH_STACK` costs conventional RAM against a
+128KB boot target, so the driver was made to fit instead:
+
+| | `eth_pump` | `eth_v_open` | `ec_up` |
+|---|---|---|---|
+| before | 140 | 152 | 174 |
+| §72.16.3's register walk | 134 | 146 | 168 |
+| the dropped saves, below | 120 | 132 | 154 |
+| the profiler compiled out | **108** | **120** | **142** |
+
+**Three techniques, and only the first is free.**
+
+**1. Saves the routine never needed.** `stkdepth.py` finds registers a routine
+pushes at entry, does not write itself, and gets back from every callee.
+`tcp_in` held `DX`, `SI` and `DI` across the deepest chain in the driver for
+nobody. `eth_frame_i` held `BX`; `ip_start` held `BX`; `dhcp_bcast` held `AX`
+and `BX`.
+
+**2. Pushing a save DOWN to a shallow callee, which is free depth.**
+`eth_pump_i` saved seven registers and writes exactly one (`BP`, its budget) —
+it saved the rest because `dhcp_timer` and `dns_timer` did not. The *same work*
+happens either way; the difference is where. `eth_pump_i` holds its set across
+a 100-byte subtree, and those two sit twenty bytes into the chain. So they save
+the full set now and `eth_pump_i` keeps only `CX` (`ne_rx`'s output, live
+across `call eth_frame`) and `BP`. **Ten bytes**, and nothing anywhere else
+changed.
+
+**3. The profiler does not ship.** §72.15's ten stages are wrappers, each a
+call level of its own, and `prof_end` calls `pit_now` from the bottom of the
+wire path — twelve bytes on the deepest chain. `ETHPROF=1` compiles it in and
+`make netbench` sets that for itself; every other build answers `NETV_PROF`
+with `NETE_VERB`, which is exactly true of it. An instrument in a shipping
+binary is the thing this project keeps taking back out.
+
+##### `; STKDEPTH-NOSAVE:` — because 1 and 2 give up local correctness
+
+§1 has every public routine preserve everything **so that a change inside a
+callee cannot break a caller three levels up**. A routine that stops saving a
+register is correct only as long as its callees keep giving it back, and that
+is not a property anybody editing `tcp_seg` next year will think about.
+
+So it is declared and checked, never assumed. The marker sits on the routine's
+own label line —
+
+```
+tcp_in:                         ; STKDEPTH-NOSAVE: dx si di
+```
+
+— and `python3 tools/stkdepth.py drivers/ether/ether.asm --check` verifies
+every one against the call graph: the routine still does not write the register,
+every callee still preserves it, and no call on the path has become indirect.
+It fails the build the day one of those stops being true, which is what makes
+the trade a decision rather than a landmine. **It is the only place in the tree
+that takes this trade**, and the reason is that this is the deepest chain the
+machine has.
+
 ### 72.17 The same transfer, twice — and the wall clock has a person in it
 
 The prediction in §72.16 was written down before the build shipped, which is

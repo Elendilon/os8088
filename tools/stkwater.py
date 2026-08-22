@@ -178,6 +178,49 @@ def annotate(blk, used, n=256, kern=None, drv=None, seg=None,
         print("   -%-3d  %04X   %s" % (depth, w, "   |   ".join(tags)))
 
 
+def deepest_seen(read, base, drv=None, dimg=None, pkg=None, pimg=None,
+                 pseg=None):
+    """What the kernel itself saw: the deepest tick, and the code at it.
+
+    The 0xCC fill says HOW DEEP the slice went and nothing about what was
+    running. Those two answers disagreed - 32 bytes came off the driver's
+    static worst chain and the measured water moved six - because the runtime
+    path is not the static one: an ARP cache that hits and a DHCP timer with
+    nothing to do are both shallower than the worst case `stkdepth.py` prices.
+    A `KFZ=1` `sch_isr` keeps the deepest tick it has seen and the interrupted
+    CS:IP at it, so the next cut can be aimed at the chain the machine is
+    actually in.
+
+    SAMPLED, at 18.2Hz - so it is a lower bound on the depth and a good name
+    for the path, where the fill is an exact depth and no name at all. Read
+    them together.
+    """
+    deep, cur, csh, iph, ipl = read(base, 5)
+    print("   (raw at 0x%05X: %s)" % (base, read(base, 5).hex()))     # LINEAR, not an offset:
+                                                # os88sym.syms() answers within
+                                                # the symbol's own segment and
+                                                # the first version handed that
+                                                # straight to a physical read,
+                                                # which reported slot 34
+    print("== the deepest TICK the kernel saw ==")
+    if not deep:
+        print("   nothing recorded - no background task was ever sampled")
+        return
+    print("   %d of %d bytes, on slot %d" % (deep, 256, cur))
+    where = "%02X:%02X%02X" % (csh, iph, ipl)
+    off = (iph << 8) | ipl
+    tag = "kernel" if csh == 0 else ("the package" if pseg and csh == (pseg >> 8)
+                                     else "a package or the driver")
+    print("   at %s (%s)" % (where, tag))
+    for name, syms, img in (("ETHER", drv, dimg), ("package", pkg, pimg)):
+        if not syms or not img:
+            continue
+        near = _near(syms, off, 4096)
+        if near:
+            print("   %-8s %s%s" % (name, near,
+                                    "" if off >= len(img) else ""))
+
+
 def read_live(sock="build/qmp.sock"):
     """The slices out of a running QEMU, through tests/ethernet.py's Qemu."""
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

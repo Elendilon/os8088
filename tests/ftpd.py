@@ -255,6 +255,12 @@ def stack_water(m):
             if r[1] == worst]
     slot = rows[0][0]
     row = m.read(S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ + eth.DRVR_SEG, 2)
+    say("")
+    stkwater.deepest_seen(m.read, os88sym.linear("khb_deep", stkwater.DEF),
+                          drv=eth.ether_syms(),
+                          dimg=open("build/ether.bin", "rb").read(),
+                          pseg=eth.u16(row))
+    say("")
     stkwater.annotate(mem[(slot - 1) * n:slot * n], worst, n,
                       kern=os88sym.syms(stkwater.DEF), drv=eth.ether_syms(),
                       seg=eth.u16(row),

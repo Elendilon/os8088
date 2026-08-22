@@ -118,6 +118,8 @@ def routines(lst, syms):
             continue
         addr = int(m.group(1), 16)
         rest = m.group(2)
+        hexcol = re.match(r"^([0-9A-F]+)", rest)
+        hexcol = hexcol.group(1) if hexcol else ""
         # THE BYTE COLUMN IS NOT ALWAYS PLAIN HEX. An instruction with a
         # relocatable memory operand lists as `[9434]01`, and a parser that
         # only eats [0-9A-F]+ leaves that in the source text - so `mov al,
@@ -172,7 +174,21 @@ def routines(lst, syms):
         cm = CALL.search(text)
         if cm:
             far = cm.group(1) == "far"
-            rout[cur][1].append((d + (4 if far else 2), cm.group(2),
+            # **RESOLVE BY ADDRESS, not by the name in the source.** A
+            # `%define prof_now pit_now` leaves `call prof_now` in the listing
+            # text and no such label in the map, so a name-based edge reads as
+            # "not in this image" and the callee preserves NOTHING - which
+            # silently forbade every caller above it from dropping a save. The
+            # encoded target cannot lie: E8 is call rel16, three bytes.
+            target = cm.group(2)
+            if len(hexcol) >= 6 and hexcol[:2] == "E8":
+                rel = int(hexcol[4:6] + hexcol[2:4], 16)
+                if rel > 0x7FFF:
+                    rel -= 0x10000
+                dest = (addr + 3 + rel) & 0xFFFF
+                if dest in syms:
+                    target = syms[dest]
+            rout[cur][1].append((d + (4 if far else 2), target,
                                  "far" if far else "near"))
         elif CALLIND.search(text):
             indirect.append((cur, addr))
@@ -334,6 +350,72 @@ def deepest(rout, name, seen=(), leaves=()):
     return best, chain
 
 
+MARK = re.compile(r";\s*STKDEPTH-NOSAVE:\s*([a-z ]+?)\s*(?:;|$)")
+
+
+def marks(asm, includes):
+    """{routine: [regs]} declared by `; STKDEPTH-NOSAVE:` in the SOURCE.
+
+    **A routine that stops saving a register stops being locally correct.**
+    SPEC.md 1 has every public routine preserve everything precisely so that a
+    change inside a callee cannot break a caller three levels up - and dropping
+    a push trades that for bytes. The trade is worth making in exactly one
+    place, the network stack's deepest chain, and only if it is CHECKED: the
+    marker says which registers a routine is relying on its callees for, and
+    `--check` fails the build the day one of them stops preserving one.
+
+    The marker sits on the routine's own label line, so it is impossible to
+    read the code without reading the claim.
+    """
+    out = {}
+    for inc in includes + [os.path.dirname(asm) + "/"]:
+        if not os.path.isdir(inc):
+            continue
+        for f in sorted(os.listdir(inc)):
+            if not f.endswith((".asm", ".inc")):
+                continue
+            for line in open(os.path.join(inc, f), errors="replace"):
+                m = MARK.search(line)
+                if not m:
+                    continue
+                lbl = re.match(r"^([A-Za-z_][\w]*):", line)
+                if not lbl:
+                    sys.exit("stkdepth: a STKDEPTH-NOSAVE marker must sit on "
+                             "the routine's own label line - %s" % line.strip())
+                out[lbl.group(1)] = m.group(1).split()
+    return out
+
+
+def check(rout, saves, owns, declared):
+    """Every declared drop still holds. Returns a list of failures."""
+    bad = []
+    for name, regs in sorted(declared.items()):
+        if name not in rout:
+            bad.append("%s: no such routine in this image" % name)
+            continue
+        ok, pres = redundant(rout, saves, owns, name)
+        for r in regs:
+            if r in owns.get(name, ()):
+                bad.append("%s must save %s: it WRITES it itself now" % (name, r))
+                continue
+            for _at, callee, kind in rout[name][1]:
+                if callee is None:
+                    bad.append("%s must save %s: it now makes an INDIRECT call"
+                               % (name, r))
+                    break
+                if callee.startswith("."):
+                    continue
+                if callee not in rout:
+                    bad.append("%s must save %s: callee %s is not in this image"
+                               % (name, r, callee))
+                    break
+                if r not in pres.get(callee, ()):
+                    bad.append("%s must save %s: %s no longer preserves it"
+                               % (name, r, callee))
+                    break
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("asm")
@@ -344,6 +426,9 @@ def main():
     ap.add_argument("--leaf", action="append", default=[],
                     help="treat this routine as costing nothing below it - "
                          "the 'what if we stopped nesting here' question")
+    ap.add_argument("--check", action="store_true",
+                    help="verify every `; STKDEPTH-NOSAVE:` marker in the "
+                         "source and exit - the build gate")
     ap.add_argument("--top", type=int, default=12,
                     help="how many roots to list when none is named")
     a = ap.parse_args()
@@ -352,6 +437,16 @@ def main():
     lst, mp = assemble(a.asm, inc)
     syms = symbols(mp)
     rout, indirect, saves, owns = routines(lst, syms)
+    if a.check:
+        declared = marks(a.asm, inc)
+        bad = check(rout, saves, owns, declared)
+        for b in bad:
+            print("stkdepth: FAIL %s" % b)
+        n = sum(len(v) for v in declared.values())
+        print("stkdepth: %d dropped save(s) across %d routine(s) in %s - %s"
+              % (n, len(declared), a.asm, "ALL STILL HOLD" if not bad
+                 else "%d BROKEN" % len(bad)))
+        return 1 if bad else 0
     print("stkdepth: %s - %d routines" % (a.asm, len(rout)))
     if indirect:
         print("stkdepth: %d INDIRECT call site(s); nothing below them is "

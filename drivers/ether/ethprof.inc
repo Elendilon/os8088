@@ -118,6 +118,41 @@ PF_CLR      equ PF_N * 14 + 13  ; what prof_start zeroes: the four per-stage
 %define sk_rxget   sk_rxget_i
 %define ring_in    ring_in_i
 %define ring_out   ring_out_i
+%elifndef ETHPROF
+; --- AND THE SHIPPED DRIVER DOES NOT CARRY IT EITHER (SPEC.md 72.16.4) ------
+; The profiler is an INSTRUMENT, and `make netbench` is where it belongs:
+; ETHPROF=1 builds the driver that NETBENCH.O88 can read, and every other build
+; sends each caller straight at the body. The reason is not the driver's size,
+; though it saves that too - it is the STACK. `prof_end` sits at the bottom of
+; the wire path and calls `pit_now` under it, and each wrapper is a call level
+; of its own, so the ten stages cost TWELVE BYTES on the deepest chain in a
+; 256-byte task slice (docs/KERNEL-MEMORY.md, "Task stacks").
+;
+; ALL NINE aliases here, unlike the DOS partner above: this build has ne2000.inc
+; in it, so the two card stages need one and would otherwise be undefined.
+%macro PROF_B 1
+%endmacro
+%macro PROF_E 2
+%endmacro
+%define eth_pump      eth_pump_i
+%define ne_ring_read  ne_ring_read_i
+%define eth_frame     eth_frame_i
+%define ip_ck_part    ip_ck_part_i
+%define sk_rxput      sk_rxput_i
+%define sk_rxget      sk_rxget_i
+%define ring_in       ring_in_i
+%define ring_out      ring_out_i
+%define ne_tx         ne_tx_i
+
+; NETV_PROF still ANSWERS, and it refuses with NETE_VERB - "a verb this driver
+; does not have", which is exactly true of this build and needs no new code in
+; the ABI. A verb missing from the table entirely reads to a package as an old
+; driver; this reads as "no profiler here", which is what NETBENCH.O88 has to
+; say to whoever is looking at an empty table.
+eth_v_prof:
+    mov ax, NETE_VERB
+    stc
+    ret
 %else
 
 ; --- the brackets ------------------------------------------------------------

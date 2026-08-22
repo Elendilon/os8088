@@ -1349,14 +1349,16 @@ tcp_listener:
 ; -----------------------------------------------------------------------------
 ; tcp_in - a TCP segment is in eth_rxb, CX bytes of IP payload
 ; -----------------------------------------------------------------------------
-tcp_in:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    cmp cx, TC_HLEN
+tcp_in:                         ; STKDEPTH-NOSAVE: dx si di
+    push ax                     ; DX, SI and DI are NOT saved here and that is
+    push bx                     ; checked rather than asserted: this routine
+    push cx                     ; touches none of the three itself, every
+    cmp cx, TC_HLEN             ; callee below gives all three back, and
+                                ; `tools/stkdepth.py --check` fails the build
+                                ; the day one of them stops. Six bytes, held
+                                ; across the deepest chain in the driver -
+                                ; SPEC.md 1's blanket save is right everywhere
+                                ; else and is what this trades away here
     jb  .out
     mov [eth_tlen], cx
 
@@ -1389,13 +1391,12 @@ tcp_in:
 .have:
     call tcp_seg
 .out:
-    pop di
-    pop si
-    pop dx                      ; **DX**, and it was missing: the `ret` below
-    pop cx                      ; then took the saved DX as its return address
-    pop bx                      ; and the machine ran off into this driver's
-    pop ax                      ; own data with everything else still working
-    ret
+    pop cx                      ; ...and DX/SI/DI are not popped either. The
+    pop bx                      ; pair has to move TOGETHER: DX's pop was once
+    pop ax                      ; missing here on its own and the `ret` took
+    ret                         ; the saved DX as its return address, with the
+                                ; machine running off into this driver's data
+                                ; and everything else still working
 
 ; -----------------------------------------------------------------------------
 ; tcp_accept_in - a SYN arrived for the listener in BX

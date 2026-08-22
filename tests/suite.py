@@ -94,6 +94,12 @@ FAST = [
     Row("ovlchk", "fast", py("tools/os88ovlchk.py"), 1.0,
         "no near call crosses a section boundary - it assembles cleanly and "
         "runs wrong"),
+    Row("stknosave", "fast",
+        py("tools/stkdepth.py", "drivers/ether/ether.asm", "--check"), 1.5,
+        "every `; STKDEPTH-NOSAVE:` in ETHER.DRV still holds: the routines "
+        "that stopped saving a register to fit a 256-byte task slice (SPEC.md "
+        "72.16.4) still get it back from every callee. Without this the trade "
+        "is a landmine for whoever edits the TCP stack next"),
 ]
 
 # --------------------------------------------------------------------------

@@ -534,9 +534,8 @@ ip_route:
 ; every caller in this driver already does, because a network is a thing that
 ; loses packets whether or not the ARP cache is warm.
 ; -----------------------------------------------------------------------------
-ip_start:
-    push ax
-    push bx
+ip_start:                       ; STKDEPTH-NOSAVE: bx
+    push ax                     ; BX is not saved - see eth_pump_i
     push cx
     push si
     mov [eth_pr], al
@@ -561,7 +560,6 @@ ip_start:
     call arp_req
     pop si
     pop cx
-    pop bx
     pop ax
     stc
     ret
@@ -603,7 +601,6 @@ ip_start:
     mov di, eth_txb + IP_PAY
     pop si
     pop cx
-    pop bx
     pop ax
     clc
     ret
@@ -816,9 +813,8 @@ udp_send:
 ; -----------------------------------------------------------------------------
 ; eth_frame - one frame is in eth_rxb, CX bytes of it
 ; -----------------------------------------------------------------------------
-eth_frame_i:
-    push ax
-    push bx
+eth_frame_i:                    ; STKDEPTH-NOSAVE: bx
+    push ax                     ; BX is not saved - see eth_pump_i above
     push cx
     push si
     push di
@@ -901,7 +897,6 @@ eth_frame_i:
     pop di
     pop si
     pop cx
-    pop bx
     pop ax
     ret
 
@@ -917,14 +912,16 @@ eth_frame_i:
 ; -----------------------------------------------------------------------------
 ETH_BUDGET  equ 8
 
-eth_pump_i:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
+eth_pump_i:                     ; STKDEPTH-NOSAVE: ax bx dx si di
+    push cx                     ; **ONLY CX AND BP.** CX is ne_rx's output and
+    push bp                     ; is live across `call eth_frame`; BP is the
+                                ; budget. The other five are given back by
+                                ; every callee - dhcp_timer and dns_timer save
+                                ; them for exactly this reason - and
+                                ; `stkdepth.py --check` fails the build the day
+                                ; one stops. TEN BYTES off the deepest chain in
+                                ; the driver, and the routine still preserves
+                                ; everything it always did (SPEC.md 72.16.4)
     cmp byte [eth_up], 0
     je  .out
     mov bp, ETH_BUDGET
@@ -941,10 +938,5 @@ eth_pump_i:
     call dhcp_timer
 .out:
     pop bp
-    pop di
-    pop si
-    pop dx
     pop cx
-    pop bx
-    pop ax
     ret

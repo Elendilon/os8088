@@ -1452,7 +1452,18 @@ ifneq ($(ETHIP),)
 ETHDEF += -DETH_IP=$(ETHIP) -DETH_MASK=$(ETHMASK) -DETH_GW=$(ETHGW) \
           -DETH_DNS=$(ETHDNS)
 endif
-ETHSTAMP := $(BUILD)/.ether-$(if $(ETHBASE),$(ETHBASE),auto)-$(if $(ETHIP),$(ETHIP),dhcp)
+# ETHPROF=1 compiles SPEC.md 72.15's stage profiler IN. It is OUT by default,
+# and the reason is the stack rather than the size: `prof_end` sits at the
+# bottom of the wire path with `pit_now` under it, and each of the ten stages
+# is a wrapper with a call level of its own, so the instrument costs TWELVE
+# BYTES on the deepest chain a 256-byte task slice ever carries
+# (docs/KERNEL-MEMORY.md, "Task stacks"). `make netbench` turns it on for
+# itself, so NETBENCH.O88 always reads a driver that has one; every other
+# build answers NETV_PROF with NETE_VERB.
+ifeq ($(ETHPROF),1)
+ETHDEF += -DETHPROF
+endif
+ETHSTAMP := $(BUILD)/.ether-$(if $(ETHBASE),$(ETHBASE),auto)-$(if $(ETHIP),$(ETHIP),dhcp)-$(if $(ETHPROF),prof,noprof)
 $(shell mkdir -p $(BUILD); \
         [ -f $(ETHSTAMP) ] || { rm -f $(BUILD)/.ether-* $(BUILD)/ether.bin \
                                       $(BUILD)/ether.drv; \
@@ -1589,10 +1600,22 @@ ftpdtest: $(BUILD)/ether360.img $(BUILD)/ftpapps.img
 # may go near them.
 NETBENCHFILES := $(BUILD)/netbench.o88 $(FTPDFILES)
 
+# RECURSIVE, and it has to be: the profiler is compiled OUT of the shipped
+# ETHER.DRV (see ETHPROF above), so the one target whose whole purpose is to
+# read it turns it back on for itself. Everything under build/ is then the
+# profiled configuration until the next plain `make` - the ETHSTAMP carries
+# prof/noprof, so that switch rebuilds the driver rather than shipping the
+# instrumented one by accident.
 .PHONY: netbench
-netbench: $(BUILD)/netbench.img $(BUILD)/netbench720.img $(BUILD)/netbench360.img
+netbench:
+	@$(MAKE) --no-print-directory ETHPROF=1 netbench-img
+
+.PHONY: netbench-img
+netbench-img: $(BUILD)/netbench.img $(BUILD)/netbench720.img $(BUILD)/netbench360.img
 	@echo "netbench: build/netbench{,720,360}.img - NETBENCH.O88 with FTPD.O88"
 	@echo "          S start, X stop, R read, W write. SPEC.md 72.15."
+	@echo "          ETHER.DRV built with ETHPROF=1; a plain \`make\` puts the"
+	@echo "          shipping driver back."
 
 $(BUILD)/netbench.bin: tests/netbench/netbench.asm tests/benchlib.inc apps/os88api.inc apps/os88sock.inc drivers/net/netpkg.inc tools/benchlint.py | $(BUILD)
 	python3 tools/benchlint.py tests/netbench/netbench.asm

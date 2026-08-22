@@ -880,6 +880,23 @@ khb_flg:    db 0                ; that stops moving, and IRQ0 is the only thing
                                 ; running with interrupts off. The fourth, a
                                 ; reprogrammed PIT, is what a beat that stops
                                 ; while these three read normal would leave.
+khb_deep:   db 0                ; --- THE DEEPEST A BACKGROUND TASK HAS BEEN,
+khb_dcur:   db 0                ; and WHERE. tools/stkwater.py's 0xCC fill says
+khb_dcsh:   db 0                ; how deep the slice went; it cannot say what
+khb_diph:   db 0                ; was running, and the two answers turned out
+khb_dipl:   db 0                ; to disagree: cutting 32 bytes off the
+                                ; driver's STATIC worst chain moved the
+                                ; measured high water by six, because the
+                                ; runtime path is not the static one (an ARP
+                                ; cache that hits, a DHCP timer that does
+                                ; nothing). This is one byte of depth and the
+                                ; interrupted CS:IP at the moment it was
+                                ; reached, sampled every tick - so the next cut
+                                ; is aimed at the chain the machine is actually
+                                ; in. Depth, not SP: slices are 256-aligned, so
+                                ; `neg` of SP's low byte IS how far down the
+                                ; slice it is, and the answer compares across
+                                ; slots
 khb_wide:   db 0x00, 0x0F, 0xF0, 0xFF   ; two bits -> four pixels each
 khb_stuck:  dw 0                ; consecutive ticks with NO ui_task pass
 khb_uipass: dw 0                ; bumped once per ui_task loop
@@ -1116,6 +1133,21 @@ sch_isr:
     mov ax, sp                  ; the depth of the stack we interrupted; the
     mov [cs:khb_spl], al        ; frames above it are a constant
     mov [cs:khb_sph], ah
+    ; --- ...and the DEEPEST it has ever been, with the code that took it there
+    cmp byte [sch_cur], 0       ; task 0's stack is not a 256-byte slice and
+    je .khbnodeep               ; its SP means something else entirely
+    neg al                      ; slices are 256-ALIGNED (see sch_stacks), so
+    cmp al, [cs:khb_deep]       ; -low(SP) is the depth into this one
+    jbe .khbnodeep
+    mov [cs:khb_deep], al
+    mov al, [sch_cur]
+    mov [cs:khb_dcur], al
+    mov ax, [ss:bx+KHB_IPOFF]   ; BX is still SP from the IP read above
+    mov [cs:khb_dipl], al
+    mov [cs:khb_diph], ah
+    mov ax, [ss:bx+KHB_IPOFF+2]
+    mov [cs:khb_dcsh], ah
+.khbnodeep:
     mov al, 0
     cmp word [ss:STK0_BOT], SCH_MAGIC
     je .khbcan
