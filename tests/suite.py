@@ -85,6 +85,9 @@ FAST = [
     Row("asmrules", "fast", py("tests/unit/t_asmrules.py"), 0.5,
         "unreachable code after an unconditional jump, and a `cpu 8086` "
         "reachable from every root"),
+    Row("wakedrain", "fast", py("tests/unit/t_wakedrain.py"), 0.3,
+        "every event-queue drain gives a package's wake back - one that eats "
+        "it deafens the window for the rest of its life (SPEC.md 74.1.1)"),
     Row("checkdocs", "fast", py("tools/checkdocs.py"), 1.0,
         "stale SPEC.md citations and slot numbers in prose (already in `make`; "
         "here too so the suite is a complete statement)"),

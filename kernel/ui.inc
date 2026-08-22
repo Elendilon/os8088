@@ -152,6 +152,12 @@ ui_task:
                                 ; screen is still in the ring here, and this
                                 ; is what drains it rather than letting it be
                                 ; dispatched at a window nobody could see
+    call wm_wake_redo           ; anything a drag, a resize, a full-screen app
+                                ; or a sound bracket ate goes back in the ring
+                                ; HERE (SPEC.md 74.1.1) - one byte compare on
+                                ; every pass that ate nothing, which is all of
+                                ; them. Before evq_pop, so a wake put back this
+                                ; pass is dispatched by this pass
     mov di, ui_ev
     call evq_pop
     jc .yield                   ; queue empty
@@ -1112,8 +1118,11 @@ ui_drag:
     call evq_pop
     jc .no_evt
     cmp word [ui_ev + EV_TYPE], EVT_MUP
-    jne .track                  ; drain anything else queued mid-drag
-    jmp .release                ; exits with outline drawn + lock held
+    je .release                 ; exits with outline drawn + lock held
+    call wm_wake_eaten          ; ...and ANYTHING ELSE is dropped on the floor
+    jmp .track                  ; here (SPEC.md 74.1.1): a package's wake among
+                                ; them, whose promise would otherwise outlive
+                                ; its record and deafen the window for good
 .no_evt:
     test byte [mouse_btn], 1    ; fallback: the EVT_MUP was dropped
     jz .release                 ; (queue full) - the level still says so
@@ -1643,8 +1652,9 @@ ui_grow:
     call evq_pop                ; release + fast re-press inside one pass
     jc .no_evt                  ; must still end the resize
     cmp word [ui_ev + EV_TYPE], EVT_MUP
-    jne .track                  ; drain anything else queued mid-resize
-    jmp .release                ; exits with outline drawn + lock held
+    je .release                 ; exits with outline drawn + lock held
+    call wm_wake_eaten          ; ...drained mid-resize, and a wake among them
+    jmp .track                  ; is owed back (SPEC.md 74.1.1)
 .no_evt:
     test byte [mouse_btn], 1    ; fallback: the EVT_MUP was dropped
     jz .release

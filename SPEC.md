@@ -57909,6 +57909,55 @@ from that handler, `rc_fs_cd(0,0)` — two `os88_file_find` walks and two
 `os88_file_read("RCPROBE.TXT")` reads a file that exists only there, and a
 third `goto_q_mark` comes home.
 
+#### 74.1.1 A DRAIN THAT EATS A WAKE DEAFENS THE WINDOW FOR EVER
+
+`wm_wake` coalesces: one queued wake per window slot, because a package is told
+to kick from every callback and sixteen ring records would otherwise be filled
+by one busy worker and the mouse dropped. `wm_wkq[slot]` carries that — set
+when the record goes in, cleared by `wm_wake_disp` before the handler runs.
+
+**The flag and the record are one fact, and four loops could break them apart.**
+`ui_drag` and `ui_grow` pop records looking for an `EVT_MUP` and *drop
+everything else on the floor*; `fsx` and `snd` empty the ring outright on their
+way back to the desktop. An `EVT_WAKE` eaten there left `wm_wkq` set with no
+record behind it — and from that moment every `wm_wake` for that window read
+"one is already queued" and answered **CF=0**, a promise nothing would ever
+keep. Not for the duration of the drag: **for the rest of that window's life.**
+
+It is a whole class of failure and it reads as anything but a kernel bug,
+because what breaks is whatever the package was doing across its worker
+boundary. On `apps/ftpd` (§77) — worker stages, UI task commits, one handshake
+byte — the field found it as *"dragging the window during the write killed the
+transfer"*: the commit request went in, the wake was eaten, the worker waited
+for a byte that would never clear, and the connections were never released, so
+`NET_SOCKS`'s four handles ran out and the client could not reconnect either.
+It was chased into `ETHER.DRV` first, and it was never there — **the same drag
+kills the transfer on a kernel with no driver worker at all**, which is the
+observation that placed it.
+
+So the flag has three states:
+
+| | |
+|---|---|
+| `WKQ_NONE` | nothing owed |
+| `WKQ_RING` | owed, and the record is in the ring |
+| `WKQ_EATEN` | owed, and a drain took the record |
+
+- Every drain calls **`wm_wake_eaten`** with the record it is about to discard.
+  One word compare on the common path; `WKQ_RING` → `WKQ_EATEN`, and one global
+  byte `wm_wkdef` is set.
+- **`wm_wake_redo`** runs once per `ui_task` pass, ahead of `evq_pop`, and puts
+  a fresh record in the ring for every `WKQ_EATEN` slot. Its whole cost on a
+  pass that ate nothing — which is all of them — is `cmp byte [wm_wkdef], 0`.
+- `wm_wake` now tests **`== WKQ_RING`** and not `!= WKQ_NONE`, or the eaten
+  state would coalesce exactly like the ring state and nothing would change.
+
+The re-post is deliberately **not** done inside the drain: the same loop would
+pop it and eat it again, and with nothing else in the ring that is a spin
+rather than a recovery. The top of the next pass is the first moment the drag,
+resize, full-screen app or sound bracket is over — so a wake is **delayed** by
+one of those and never lost.
+
 ### 74.2 The terminal, and what a byte costs
 
 The console is an **80×25 VT100-subset terminal model** — CR LF BS BEL TAB FF

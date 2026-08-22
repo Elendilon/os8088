@@ -2726,7 +2726,20 @@ wm_wkh_slot:
 ; mouse. The flag is per SLOT (wm_wkq), set here and cleared by wm_wake_disp
 ; BEFORE the handler runs, so a handler that re-posts itself gets exactly one
 ; more record.
+;
+; **THE FLAG AND THE RECORD ARE ONE FACT, AND A DRAIN CAN BREAK THEM APART**
+; (SPEC.md 74.1.1). Four loops pop records they are not interested in and
+; throw them away - ui_drag and ui_grow drain everything that is not an
+; EVT_MUP, fsx and snd empty the ring outright - and an EVT_WAKE eaten there
+; used to leave this flag set with no record behind it. The window is then
+; DEAF FOR THE REST OF ITS LIFE: every wm_wake after it reads "one is already
+; queued" and answers CF=0, a promise nothing will ever keep. So the flag has
+; three states and every drain calls wm_wake_eaten.
 ; -----------------------------------------------------------------------------
+WKQ_NONE    equ 0               ; nothing owed
+WKQ_RING    equ 1               ; ...owed, and the record is in the ring
+WKQ_EATEN   equ 2               ; ...owed, and a drain ate the record
+
 wm_wake:
     push ax
     push si
@@ -2734,12 +2747,15 @@ wm_wake:
     mov si, ax
     pushf
     cli
-    cmp byte [wm_wkq+si], 0
-    jne .queued                 ; one is already in the ring: same promise
+    cmp byte [wm_wkq+si], WKQ_RING
+    je  .queued                 ; one is already in the ring: same promise.
+                                ; **`je 1`, NOT `jne 0`** - WKQ_EATEN is the
+                                ; state where the promise is owed and the
+                                ; record is GONE, and that one has to post
     mov ax, [evq_count]
     cmp ax, EVQ_CAP
     jae .full                   ; evq_push would drop it silently; say so
-    mov byte [wm_wkq+si], 1
+    mov byte [wm_wkq+si], WKQ_RING
     mov word [wm_wk_rec+EV_TYPE], EVT_WAKE
     mov [wm_wk_rec+EV_A], bx
     mov si, wm_wk_rec
@@ -2754,6 +2770,82 @@ wm_wake:
 .out:
     pop si
     pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_wake_eaten - a drain threw a record away; if it was a wake, say so
+; in:  DI = the record evq_pop just filled
+; out: nothing. EVERY register preserved, because every caller is a loop that
+;      is in the middle of deciding something else.
+;
+; Called by all four drains (SPEC.md 74.1.1). It is cheap on the common path -
+; one word compare - and it is what keeps wm_wkq honest: the flag drops from
+; WKQ_RING to WKQ_EATEN, which is "still owed, no record", and wm_wake_redo
+; puts a fresh record in the ring the moment the drain's owner is done.
+;
+; A wake for a window that has since died is marked all the same: wm_wake_redo
+; posts it, wm_wake_disp sees a free record and calls nothing. That is the
+; existing "a wake for the dead" path and it costs one ring slot, once.
+; -----------------------------------------------------------------------------
+wm_wake_eaten:
+    cmp word [di+EV_TYPE], EVT_WAKE
+    jne .out
+    push ax
+    push bx
+    push si
+    mov bx, [di+EV_A]
+    call wm_ptr2idx             ; AL = index (AH = 0)
+    mov si, ax
+    cmp byte [wm_wkq+si], WKQ_RING
+    jne .pop                    ; not ours to downgrade: a stale record for a
+                                ; slot already re-promised, or already eaten
+    mov byte [wm_wkq+si], WKQ_EATEN
+    mov byte [wm_wkdef], 1      ; ...and the one byte ui_task tests per pass
+.pop:
+    pop si
+    pop bx
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; wm_wake_redo - put back every wake a drain ate. Called once per ui_task pass
+; out: nothing. Every register preserved.
+;
+; NOT called from inside a drain: re-posting there would be popped and eaten
+; again by the same loop, and with nothing else in the ring that is a spin
+; rather than a recovery. The right moment is the top of the pass AFTER the
+; drag, resize, full-screen app or sound bracket has finished - which is here,
+; and is why the wake is only ever DELAYED by one of those and never lost.
+; -----------------------------------------------------------------------------
+wm_wake_redo:
+    cmp byte [wm_wkdef], 0
+    je  .out                    ; the whole cost on every other pass
+    push ax
+    push bx
+    push cx
+    push si
+    mov byte [wm_wkdef], 0
+    xor si, si
+    mov cx, MAX_WIN
+.l:
+    cmp byte [wm_wkq+si], WKQ_EATEN
+    jne .n
+    mov byte [wm_wkq+si], WKQ_NONE  ; ...so wm_wake below really posts
+    mov ax, si
+    call wm_idx2ptr             ; BX = the window record
+    call wm_wake
+    jnc .n
+    mov byte [wm_wkq+si], WKQ_EATEN ; the ring was full: still owed, and the
+    mov byte [wm_wkdef], 1          ; next pass tries again
+.n:
+    inc si
+    loop .l
+    pop si
+    pop cx
+    pop bx
+    pop ax
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -10463,8 +10555,11 @@ wm_clreq:   resw 1                  ; the window a package asked to have closed
                                     ; nothing can queue a second inside one
 wm_clask:   resw 1                  ; the window whose negotiator is running
                                     ; RIGHT NOW, 0 = none: the re-entry fence
-wm_wkq:     resb MAX_WIN            ; per slot: 1 = an EVT_WAKE for this window
-                                    ; is in the ring (wm_wake coalesces on it)
+wm_wkq:     resb MAX_WIN            ; per slot: WKQ_NONE / WKQ_RING (a record is
+                                    ; in the ring) / WKQ_EATEN (a drain took
+                                    ; the record; wm_wake_redo owes one back)
+wm_wkdef:   resb 1                  ; ...1 = at least one slot is WKQ_EATEN, so
+                                    ; ui_task's per-pass check is ONE compare
 wm_wk_rec:  resb EVQ_RECSIZE        ; the one wake record, filled under cli
 wm_owner:   resb MAX_WIN            ; instance index owning each window slot
                                     ; (SPEC.md 29), 0xFF = unowned; NOT part

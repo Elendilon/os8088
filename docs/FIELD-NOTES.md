@@ -3138,3 +3138,55 @@ also where the driver spends most of its time — puts it at 250–270.
 So this note closes as a **margin decision** rather than a defect:
 docs/KERNEL-MEMORY.md's table prices the alternatives, and 8 tasks × 384 bytes
 costs nothing at all.
+
+## 28 A window drag during an FTP upload kills the transfer, permanently
+
+**Reproduced, root-caused, fixed — and it is a KERNEL bug that presents as a
+network one.** Recorded here because of how it was found, not because it is
+still open.
+
+The field, on the 5150, during a 304552-byte WinSCP STOR:
+
+> *"Dragging the window during the write was smooth on B, but it also killed
+> the transfer — the file progress stops popping up, the writes stop, and the
+> client eventually times out on a control connection error."*
+
+Then, an hour later:
+
+> *"It did not ever free up, even after 200s. Stopping then starting the ftp
+> server allowed the client to reach 'pwd', but then it timed out."*
+
+And finally the sentence that placed it:
+
+> *"I went back to A — the unmodified one — and tested, and a drag there ALSO
+> kills the transfer."*
+
+**Two rounds were spent inside `ETHER.DRV` before that.** The bug arrived
+alongside an experiment (the `ETHPUMP` pump worker, SPEC.md §72.19) and every
+symptom fitted the experiment: a stalled transfer looks exactly like card-mutex
+contention, and a dead listener looks exactly like a driver that has wedged.
+A real defect *was* found down there on the way — the worker's frame budget
+was the last frame's length rather than eight (§72.19.6) — which made the wrong
+theory more convincing, not less, because fixing it moved the number.
+
+The actual cause is SPEC.md §74.1.1: `ui_drag` drains every event that is not
+an `EVT_MUP`, `wm_wake`'s per-slot coalescing flag stayed set with no record
+behind it, and **the window never received another wake for the rest of its
+life**. ftpd's worker stages and its UI task commits, so the commit that was
+in flight when the drag began never happened; the worker waited on a handshake
+byte that would never clear, the session was never released, and `NET_SOCKS`'s
+four handles were gone — which is the "cannot reconnect".
+
+Three things this is worth keeping for:
+
+- **A control experiment is cheap and it was the whole answer.** One run of the
+  unmodified build settled two rounds of theory. Ask for it first when a
+  symptom appears next to a change.
+- **A bug found while chasing another one does not confirm the theory that led
+  you there.** The budget bug was real, the fix moved the throughput, and the
+  drag kept killing the transfer — that gap was the evidence and it was one
+  more round before it was read that way.
+- **It was never FTP's, and it is not fixed only for FTP.** Any package built
+  on `OSAPI_WM_WAKE` across a worker boundary was one window drag, resize,
+  full-screen app or sound bracket away from the same silence.
+
