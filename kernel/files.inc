@@ -107,11 +107,6 @@ FM_SB_W     equ 14              ; scroll bar width
 %ifndef FM_SBRATE
 %define FM_SBRATE 0             ; ticks between commits; 0 = the release
 %endif                          ; commits and nothing before it
-%ifdef SBOUTLINE
-%define FM_SBMODE 1             ; ...and an XOR overlay instead of the thumb.
-%else                           ; READ 13.10.5.5 BEFORE PREFERRING IT: over a
-%define FM_SBMODE 0             ; 50% dithered track a 1px XOR outline is
-%endif                          ; barely a shape on any adapter
 %endif
 ; --- the band under the rows: the edge, then the status line (SPEC.md 22.20)
 ; The row area is UNCHANGED by all three of these - [fm_listb] is still
@@ -2545,7 +2540,6 @@ fm_onclick_x:
     cmp al, OS88UI_SBTHUMB      ; SPEC.md 13.10.5: the thumb is DRAGGED here
     jne .nograb                 ; now, where it used to page down. BX is still
     mov al, FM_SBRATE           ; the block and DX still the press, absolute
-    mov ah, FM_SBMODE
     call os88ui_sbgrab          ; CF = 1: no thumb to take after all, so the
     mov al, OS88UI_SBTHUMB      ; ladder below pages exactly as it did
     jc .nograb

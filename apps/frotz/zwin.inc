@@ -460,6 +460,35 @@ zw_run:
     pop ax
     ret
 
+; -----------------------------------------------------------------------------
+; zw_lowrect - the lower window's band, as OSAPI_GFX_SCROLL takes it
+; out: AX = x1, BX = y1, CX = x2, DX = y2, inclusive and absolute; SI and DI
+;      untouched, which is what lets a caller hold the blit's dy across it
+;
+; ONE description of the band, where there were two the moment a second thing
+; wanted to blit it. x1 is [zw_tx], which zw_bounds has already rounded UP to a
+; multiple of 8 for exactly this - SPEC.md 5.5 refuses an x-range that is not
+; byte-aligned, and Frotz does not ask for WF_SNAP.
+; -----------------------------------------------------------------------------
+zw_lowrect:
+    call zw_lowtop
+    call zw_rowy
+    mov bx, dx                      ; BX = y1, the band's top
+    call zw_lowrows
+    mov cx, ZF_LEAD
+    mul cx
+    add ax, bx
+    dec ax
+    mov dx, ax                      ; DX = y2, its last pixel row
+    mov ax, [zw_cols]
+    mov cl, 3
+    shl ax, cl
+    add ax, [zw_tx]
+    dec ax
+    mov cx, ax                      ; CX = x2
+    mov ax, [zw_tx]                 ; AX = x1
+    ret
+
 ; zw_rowdraw - in AX = screen row; draws zw_rbuf across it. ONE primitive call.
 zw_rowdraw:
     push ax
@@ -807,22 +836,7 @@ zw_scroll1:
     call zw_paint
     jmp .out
 .band:
-    call zw_lowtop
-    call zw_rowy
-    mov bx, dx                      ; BX = y1, the band's top
-    call zw_lowrows
-    mov cx, ZF_LEAD
-    mul cx
-    add ax, bx
-    dec ax
-    mov dx, ax                      ; DX = y2, its last pixel row
-    mov ax, [zw_cols]
-    mov cl, 3
-    shl ax, cl
-    add ax, [zw_tx]
-    dec ax
-    mov cx, ax                      ; CX = x2
-    mov ax, [zw_tx]                 ; AX = x1
+    call zw_lowrect                 ; AX/BX/CX/DX = the band
     mov si, ZF_LEAD                 ; positive scrolls the content UP
     call OSAPI_GFX_SCROLL
     jc .refuse
@@ -1523,17 +1537,40 @@ zw_low_draw:
     push bx
     push cx
     push dx
+    call zw_lowrows
+    mov cx, ax
+    call zw_lowtop
+    mov dx, ax                      ; DX = the first screen row
+    mov bx, [zw_sbtop]              ; BX = the first logical line
+    call zw_low_rows
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; zw_low_rows - draw a RANGE of the lower window's rows (SPEC.md 61.15)
+; in:  DX = the first screen row, BX = the first logical line, CX = how many
+;      (0 draws nothing); gfx lock held
+; out: nothing; preserves all
+;
+; zw_low_draw's loop, with its three starting values as arguments instead of
+; derived. That is the whole of what a scroll needed: a blit moves the rows
+; that are still good and this letters the |d| that are not, where a scroll
+; used to reach zw_paint and letter FORTY-SIX (SPEC.md 61.15).
+; -----------------------------------------------------------------------------
+zw_low_rows:
+    push ax
+    push bx
+    push cx
+    push dx
     push si
     push di
     push es
     mov al, [zw_style]
     mov [zw_lstyle], al
-    call zw_lowrows
-    mov cx, ax
     jcxz .done
-    call zw_lowtop
-    mov dx, ax                      ; DX = screen row
-    mov bx, [zw_sbtop]              ; BX = logical line
 .row:
     call zw_rowfill
     mov byte [zw_style], ZST_ROMAN
@@ -2572,10 +2609,147 @@ zw_scrollto:
 .set:
     cmp ax, [zw_sbtop]
     je .out
+    mov bx, ax
+    sub bx, [zw_sbtop]              ; BX = the SIGNED line delta...
     mov [zw_sbtop], ax
-    call zw_paint
+    mov ax, bx
+    call zw_sbpaint                 ; ...and this is what it costs now
 .out:
     pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; zw_sbpaint - the scrollback moved: the LOW WINDOW and the THUMB (SPEC.md
+;              61.15), where this used to be zw_paint
+; in:  AX = the signed line delta, [zw_sbtop] already the new one; gfx lock
+;      held
+; out: nothing; preserves all
+;
+; **A SCROLL-BAR ACTION USED TO REPAINT THE WHOLE WINDOW**, and zw_paint's own
+; header prices that: "a full repaint is 46 rows of glyphs, ~2.9 s on a
+; 4.77 MHz 8088. It runs on an uncover, a resize, a SCROLL-BAR ACTION and a
+; refused blit." Three of those four are unavoidable. This one was not: a
+; scroll changes the lower window and the thumb, and the status line, the
+; upper window and the grow box are all exactly where they were.
+;
+; So the low window MOVES instead of being re-lettered - the same blit the
+; per-line path already made for one line (zw_lowrect is now one description
+; for both), with the |d| rows the blit could not know lettered after it. An
+; arrow step is 3 rows against 46 - arithmetic says ~0.19 s against ~2.9 s, and
+; SPEC.md 61.15 says plainly that the figure is PREDICTED rather than measured,
+; because three attempts to take it here measured the instrument instead.
+;
+; A PAGE ALWAYS TAKES THE FALLBACK, by construction: zw_scrollpage moves by
+; exactly lowrows lines, so PgUp, PgDn and a track click are each a windowful
+; and there is nothing for a blit to move. The arrow cells are what this is
+; for - the case a hand holds down.
+;
+; It falls back to zw_low_draw for those, and for a REFUSED blit (SPEC.md 5.5's byte-column rule, an
+; armed clip region, an edge off the screen) - and even that path is cheaper
+; than before, because it is still not the status line, the upper window or
+; the grow box.
+; -----------------------------------------------------------------------------
+zw_sbpaint:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    call zw_bounds                  ; preserves AX, so the delta survives
+    jc .out
+    mov di, ax                      ; DI = d, signed
+    or di, di
+    jz .bar                         ; no movement: the thumb, and nothing else
+    call zw_lowrows
+    mov cx, ax                      ; CX = the rows the low window shows
+    mov ax, di                      ; ...against |d|. THE `or` IS NOT
+    or ax, ax                       ; DECORATION: `mov` sets no flags, so a
+    jns .pos                        ; jns after it tests whatever zw_lowrows
+    neg ax                          ; happened to leave
+.pos:
+    cmp ax, cx
+    jae .whole                      ; a windowful or more: every row is new
+    mov ax, di                      ; SI = the signed PIXEL delta
+    mov cx, ZF_LEAD
+    imul cx
+    mov si, ax
+    call zw_lowrect                 ; AX/BX/CX/DX = the band; SI survives
+    call OSAPI_GFX_SCROLL
+    jc .whole                       ; refused: letter the lot (SPEC.md 5.5)
+    call zw_lowrows
+    mov cx, ax
+    call zw_lowtop
+    mov dx, ax                      ; DX = the first screen row
+    mov bx, [zw_sbtop]              ; BX = the first logical line
+    or di, di
+    js .back
+    mov ax, cx                      ; FORWARD: the exposed rows are the LAST d
+    sub ax, di
+    add dx, ax
+    add bx, ax
+    mov cx, di
+    jmp short .rows
+.back:
+    mov cx, di                      ; BACK: they are the FIRST |d|, and the
+    neg cx                          ; two starting values are already right
+.rows:
+    call zw_low_rows
+    jmp short .bar
+.whole:
+    call zw_low_draw
+.bar:
+    call zw_sbtrans
+.out:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; zw_sbtrans - the thumb moved: TRANSLATE it (SPEC.md 13.10.3)
+; in:  gfx lock held, zw_bounds run; out: nothing; preserves all
+;
+; **AND THIS IS WHAT [zw_bktop]/[zw_bkcnt] WERE FOR.** zw_sbar has banked them
+; since the bar existed, under a comment saying they are "what is on screen,
+; so a redraw that moved neither number draws nothing" - and until this routine
+; nothing read either of them, because zw_sbar's only caller was the
+; whole-window repaint and skipping the bar inside one would leave the rect it
+; had just erased.
+;
+; A scroll moves neither the total nor the fit, so the thumb's HEIGHT is
+; unchanged and only its top moves: three drawing calls against the bar's
+; sixteen. The count changing is the case that cannot translate - a new line
+; of output resizes the thumb - so that one still draws the bar whole.
+; -----------------------------------------------------------------------------
+zw_sbtrans:
+    push ax
+    push bx
+    mov ax, [zw_sbcount]
+    cmp ax, [zw_bkcnt]
+    jne .full                       ; the TOTAL moved: the height moved with it
+    mov ax, [zw_sbtop]
+    cmp ax, [zw_bktop]
+    je .out                         ; neither moved: draw nothing at all
+    mov bx, [zw_ty]
+    cmp bx, [zw_sbb]
+    jge .out                        ; degenerate, zw_sbar's own guard
+    call zw_sbset                   ; BX = the block, holding the NEW pos...
+    mov ax, [zw_bktop]              ; ...and this is where the thumb is DRAWN
+    call os88ui_sbmove
+    mov ax, [zw_sbtop]
+    mov [zw_bktop], ax
+    jmp short .out
+.full:
+    call zw_sbar
+.out:
     pop bx
     pop ax
     ret

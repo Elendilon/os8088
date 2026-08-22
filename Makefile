@@ -530,10 +530,8 @@ endif
 #                                 second, in BOTH bars. 1 is every tick. The
 #                                 rate is per-WINDOW (FM_SBRATE, FD_SBRATE);
 #                                 one knob sets both because a build is an A/B
-#   make SBDRAG=1 SBOUTLINE=1     an XOR overlay moves instead of the thumb -
-#                                 and read 13.10.5.5 before preferring it
 #
-# All three are in $(VIDSTAMP) below, for NOSPLIT's reason: a knob outside the
+# Both are in $(VIDSTAMP) below, for NOSPLIT's reason: a knob outside the
 # stamp does not rebuild the kernel, so an A/B drives the same build twice and
 # comes back null.
 ifneq ($(SBDRAG),)
@@ -541,9 +539,6 @@ VIDDEF += -DSBDRAG
 endif
 ifneq ($(SBRATE),)
 VIDDEF += -DFM_SBRATE=$(SBRATE) -DFD_SBRATE=$(SBRATE)
-endif
-ifneq ($(SBOUTLINE),)
-VIDDEF += -DSBOUTLINE
 endif
 
 # ...AND THE PACKAGES GET IT TOO (SPEC.md 13.10.7). Note Pad, TexPad and the
@@ -556,7 +551,7 @@ endif
 # an ordinary slot present in every kern_big whatever the kernel was built
 # with. The knob is here so that the whole feature is one A/B rather than
 # because a package could not have it alone.
-PKGSBDEF := $(if $(SBDRAG),-DSBDRAG)$(if $(SBRATE), -DSB_RATE=$(SBRATE))$(if $(SBOUTLINE), -DSBOUTLINE)
+PKGSBDEF := $(if $(SBDRAG),-DSBDRAG)$(if $(SBRATE), -DSB_RATE=$(SBRATE))
 
 # ...AND A STAMP FILE, for exactly VIDSTAMP's and DSSTAMP's reason: none of
 # the three is a prerequisite of anything, so `make SBDRAG=1` after a plain
@@ -569,7 +564,7 @@ PKGSBDEF := $(if $(SBDRAG),-DSBDRAG)$(if $(SBRATE), -DSB_RATE=$(SBRATE))$(if $(S
 # HERE becomes make's DEFAULT GOAL. A plain `make` then built the stamp, said
 # "'build/.sbpkg' is up to date", and stopped - no kernel, no floppies, no
 # error, exit 0.
-SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAG),-sb$(SBDRAG))$(if $(SBRATE),-r$(SBRATE))$(if $(SBOUTLINE),-o$(SBOUTLINE))
+SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAG),-sb$(SBDRAG))$(if $(SBRATE),-r$(SBRATE))
 
 # CURFIX=1 turns ON the two cursor-hide changes, and they are OFF BY DEFAULT.
 # SPEC.md 7.1.4.2 makes cur_lazyck test the ARMED REGION rather than the
@@ -768,10 +763,10 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              SNAPAUDIT SCROLLROW QUANTUM \
                              CURFIX \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
-                             SBDRAG SBRATE SBOUTLINE \
+                             SBDRAG SBRATE \
                              KERN_SMALL FSNOSTAMP THEMEDARK,\
                              $(if $($(k)),$(k)=$($(k)))))
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(SBDRAG),-sb$(SBDRAG))$(if $(SBRATE),-sbr$(SBRATE))$(if $(SBOUTLINE),-sbo$(SBOUTLINE))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(SBDRAG),-sb$(SBDRAG))$(if $(SBRATE),-sbr$(SBRATE))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \

@@ -16,11 +16,6 @@
 %define SB_RATE 0               ; RATE 0 (13.10.5.4): both panes repaint whole
 %endif
 TP_SBRATE   equ SB_RATE
-%ifdef SBOUTLINE
-TP_SBMODE   equ 1
-%else
-TP_SBMODE   equ 0
-%endif
 %endif
 
     OS88_HEADER 'TEXPAD', tp_entry, 3
@@ -5749,7 +5744,6 @@ tp_psb_click:
     cmp byte [tp_nodrag], 0
     jne .o
     mov al, TP_SBRATE
-    mov ah, TP_SBMODE
     call os88ui_sbgrab
 %endif
     jmp short .o
@@ -5799,7 +5793,6 @@ tp_ssb_click:
     cmp byte [tp_nodrag], 0
     jne .o
     mov al, TP_SBRATE
-    mov ah, TP_SBMODE
     call os88ui_sbgrab
     jmp short .o
 %endif

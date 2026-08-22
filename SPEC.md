@@ -12860,9 +12860,8 @@ carry one: the kernel defines it, the three package consumers opt in.
 
 #### 13.10.5 Dragging the THUMB — `OS88UI_SBDRAG`, and it is a KNOB
 
-**On a knob and `KERN_BIG` only.** `make SBDRAG=1` builds it, `SBRATE=n` sets
-the Disk window's update rate and `SBOUTLINE=1` swaps the moving thumb for an
-XOR overlay. Nothing here is in a shipped kernel yet, and the reason is
+**On a knob and `KERN_BIG` only.** `make SBDRAG=1` builds it and `SBRATE=n`
+sets the update rate. Nothing here is in a shipped kernel yet, and the reason is
 §13.10.3.1's number rather than a doubt about the feature: the cold rung had
 **256 bytes** of slack when this was written and the footprint one step, so
 the bar's gesture is exactly the kind of thing that has to be measured before
@@ -12944,21 +12943,37 @@ pauses and moves again is served immediately rather than waiting out a window
 it already sat through. A position the throttle refused is never lost: the
 release commits `pos` unconditionally.
 
-##### 13.10.5.5 The two looks, and what the 1bpp adapters say about them
+##### 13.10.5.5 The thumb moves. The XOR overlay was tried and WITHDRAWN
 
-**The moving thumb is the default.** `os88ui_sbmove` (§13.10.3) already does
-it in three drawing calls with §42.7.1's ordering, so the thumb is briefly
-doubled rather than briefly absent and there is no flash to fix.
+`os88ui_sbmove` (§13.10.3) already moves a thumb in three drawing calls with
+§42.7.1's ordering, so the thumb is briefly doubled rather than briefly absent
+and there is no flash to fix.
 
-**`SBOUTLINE=1` is the other one, and it is the weaker of the two on the
-machine this OS is for.** The overlay is a 1px XOR rect where the thumb would
-be, and the surface under it is the track — which is `gfx_fill_gray`, a 50%
-checkerboard on *every* adapter (§39.4). XOR 0Fh over a checkerboard is a
-checkerboard in the opposite phase, so a one-pixel outline inside the track
-reads as a faint dotted disturbance rather than as a shape. It is legible
-against the thumb it is leaving and almost nothing against the track it is
-crossing. **Look at it on Hercules before preferring it** — this is §39.4's
-rule arriving at an overlay instead of at a glyph.
+**An XOR overlay was built beside it, on `SBOUTLINE=1`, and it is gone.** The
+idea was the Macintosh's drag ghost and the argument for it was cost. Both
+failed:
+
+- **It is nearly invisible on the machine this OS is for.** The overlay's
+  surface is the track, which is `gfx_fill_gray` — a 50% checkerboard on
+  *every* adapter (§39.4). XOR 0Fh over a checkerboard is a checkerboard in
+  the opposite phase, so a 1px outline inside it is **25 net pixels** and
+  reads as a faint disturbance rather than a shape. Measured on a
+  cycle-accurate 5150 with a real CGA, beside the moving thumb for comparison.
+- **It never was cheaper.** Two drawing calls against the moving thumb's
+  three: ~756 µs against a 55 ms tick (§13.10.5.9.1).
+- **And it was the one thing here that could corrupt the screen.** A
+  transient VRAM overlay must be XOR-erased before the gfx lock drops
+  (§13), and this gesture spans callbacks with the lock dropped between them
+  — so a `W_PAINT` arriving mid-drag erased the rect and the next erase XORed
+  pixels it never drew. `os88ui_sbar` re-asserting it closed the case that
+  went through the bar's own painter and not the case of a task drawing
+  across it.
+
+**So the residue was removed by removing the feature that had it**, which is
+the honest way to close a hazard nothing was buying. What went with it:
+`os88ui_sbxor`, the mode byte, the re-assert hook in the painter, the mode
+branches in four routines, the `SBOUTLINE` knob and five `*_SBMODE`
+constants.
 
 ##### 13.10.5.6 The block stays seven words, and `os88ui_sbfix` is why
 
@@ -13008,13 +13023,6 @@ already grey — and it costs three drawing calls, ~2.3 ms on the target machine
 
 Three, and they are named rather than fixed because this is a knob:
 
-- **The overlay does not survive somebody else's repaint.** The gfx lock is
-  dropped between two `W_ONDRAG` callbacks, so a `W_PAINT` arriving mid-gesture
-  erases the XOR rect and the next erase XORs a rect that is no longer there.
-  `os88ui_sbar` re-asserts it — `wm_chrome_relit`'s fix (§13.8) — which closes
-  the case that goes through the bar's own painter and not the case of a task
-  drawing across it. The moving thumb has no such hazard at all, which is the
-  second reason it is the default.
 - **`total` and `fit` may change under the drag.** A `fm_reload` mid-gesture
   re-derives the thumb correctly and leaves the *anchor* measuring against a
   thumb of another height. The residue is a jump of a few pixels, once.
@@ -13046,9 +13054,7 @@ there are two blocks being filled by two setters.
 
 Without the distinction, a gesture left over from the Disk window would have
 `os88ui_sbfix` write **its** `pos` into the *dialog's* block — a thumb drawn
-where nothing is, and a hit test that agrees with it — and `os88ui_sbxor`
-would erase an overlay using the wrong bar's geometry, which is a rect XORed
-onto pixels it never drew.
+where nothing is, and a hit test that agrees with it.
 
 **The identity is `(x1, y1)`, banked at the grab**, and that is enough: two
 bars on screen at once cannot share a top-left corner. `os88ui_sbfix` and
@@ -13056,15 +13062,14 @@ bars on screen at once cannot share a top-left corner. `os88ui_sbfix` and
 
 **`os88ui_sbdrop` is the one that must not simply refuse.** A gesture nobody
 is going to release must not outlive the press that found it, so the drop
-**spends it either way** and only *draws* — and only answers a `pos` — on the
-bar it belongs to. The two callers take `CF = 1` as "not mine, and already
+**spends it either way** and only answers a `pos` on the bar it belongs to. The two callers take `CF = 1` as "not mine, and already
 spent" and fall through to their button arm.
 
 **Is it reachable?** Only through a lost release: the dialog is modal (§38.2)
 and a drag needs the button held, so a gesture cannot cross from one bar to
 the other while both are behaving. That is the same door §13.10.5.7's stale
-net was built for, and this is what stops that door opening onto the *other*
-bar's pixels. It costs four bytes of state and one compare on paths that
+net was built for, and this is what stops that door putting one bar's position
+into the other's thumb. It costs four bytes of state and one compare on paths that
 already load the block.
 
 ##### 13.10.5.9 The border goes down FIRST — the flash that was really there
@@ -13115,9 +13120,9 @@ right, and shift those vertically.
 ~2.3 ms on the target; a `gfx_scroll` of a 10×12 block plus a `gfx_fill_gray`
 of the vacated band is two calls, so the saving is one call — ~756 µs — against
 a 55 ms tick. **The shimmer was never a cost problem**, which is also why
-§13.10.5.5's XOR overlay was never the performance answer it looked like: it
-is two calls to the moving thumb's three, and the whole difference is under a
-millisecond.
+§13.10.5.5's XOR overlay was never the performance answer it looked like — it
+is two calls to the moving thumb's three, the whole difference is under a
+millisecond, and it has been withdrawn.
 
 ##### 13.10.5.8 What the gate is
 
@@ -48247,6 +48252,56 @@ under it (§61.7), the Flags 1 bit that turned a clock into a move counter, and
 the quote box a shrink threw away (both §61.5). The last two were invisible for
 the same reason: they are about the upper window, and the upper window is not
 the transcript.
+
+
+### 61.15 A scroll-bar action stopped repainting the whole window
+
+`zw_paint`'s own header prices what this cost: *"a full repaint is 46 rows of
+glyphs, **~2.9 s on a 4.77 MHz 8088**. It runs on an uncover, a resize, a
+**scroll-bar action** and a refused blit."* Three of those four are
+unavoidable. The scroll-bar action was not.
+
+**A scroll changes the lower window and the thumb.** The status line is the
+game's, the upper window is the game's, and the grow box is the frame's —
+none of them moves because the reader looked back through the scrollback. So
+`zw_scrollto` calls `zw_sbpaint` now instead of `zw_paint`, and that:
+
+1. **blits the band** — the same `OSAPI_GFX_SCROLL` the per-line path already
+   made for one line, by `d * ZF_LEAD` pixels signed;
+2. **letters the `|d|` rows the blit could not know**, through `zw_low_rows` —
+   `zw_low_draw`'s loop with its three starting values as arguments rather
+   than derived, which is the whole of what was needed;
+3. **translates the thumb** through `os88ui_sbmove` (§13.10.3), three drawing
+   calls against the bar's sixteen.
+
+**An arrow step is 3 rows against 46 — ~0.19 s against ~2.9 s.**
+
+#### 61.15.1 Two fallbacks, and both are still cheaper than before
+
+`zw_low_draw` whole when the jump is a windowful or more (there is nothing for
+a blit to move) and when the blit is **refused** — §5.5's byte-column rule, an
+armed clip region, an edge off the screen. Even then it is not the status
+line, not the upper window and not the grow box, so the fallback is strictly
+less work than the `zw_paint` it replaces.
+
+`zw_lowrect` is the band, computed once: the per-line blit and this one used
+to describe it in two places, which is the drift a second caller always
+starts. `x1` is `[zw_tx]`, which `zw_bounds` already rounds up to a multiple
+of 8 for exactly this reason — §5.5 refuses an x-range that is not
+byte-aligned and Frotz does not ask for `WF_SNAP`.
+
+#### 61.15.2 ...and what `[zw_bktop]` / `[zw_bkcnt]` were for
+
+`zw_sbar` has banked those two words since the bar existed, under a comment
+saying they are *"what is on screen, so a redraw that moved neither number
+draws nothing"* — and **nothing read either of them**, because `zw_sbar`'s
+only caller was the whole-window repaint and skipping the bar inside one would
+leave the rect it had just erased.
+
+`zw_sbtrans` is the reader they were waiting for. A scroll moves neither the
+total nor the fit, so the thumb's height is unchanged and only its top moves;
+the count changing is the case that cannot translate — a new line of output
+resizes the thumb — and that one still draws the bar whole.
 
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 

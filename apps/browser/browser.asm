@@ -48,11 +48,6 @@
 %define SB_RATE 0               ; RATE 0 (13.10.5.4): a scrolled line is ~90 ms
 %endif                          ; here (br_scroll_by's own note), so a view
 BR_SBRATE   equ SB_RATE         ; that followed the hand IS input overrun
-%ifdef SBOUTLINE
-BR_SBMODE   equ 1
-%else
-BR_SBMODE   equ 0
-%endif
 %endif
 %include "netpkg.inc"          ; the SOCKET ABI (SPEC.md 62.11) - the
                                 ; same file drivers/net/net.asm
@@ -1705,7 +1700,6 @@ br_onclick:
     cmp byte [br_nodrag], 0         ; and DX the press, absolute, exactly as
     jne .out                        ; os88ui_sbhit just took them
     mov al, BR_SBRATE
-    mov ah, BR_SBMODE
     call os88ui_sbgrab
 %endif
     jmp .out                        ; the thumb, or nowhere: this app pages

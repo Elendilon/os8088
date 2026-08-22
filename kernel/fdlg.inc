@@ -1251,11 +1251,6 @@ fdlg_actok:
 %ifndef FD_SBRATE
 %define FD_SBRATE 0             ; ticks between commits; 0 = the release
 %endif                          ; commits and nothing before it
-%ifdef SBOUTLINE
-%define FD_SBMODE 1
-%else
-%define FD_SBMODE 0
-%endif
 %endif
 
 %define OS88UI_KERNEL
@@ -2871,7 +2866,6 @@ fdlg_onclick_x:
     jne .nograb2                ; now, where it did nothing at all. BX is
     push ax                     ; still the block and DX still the press,
     mov al, FD_SBRATE           ; absolute - and AL has to survive, because a
-    mov ah, FD_SBMODE           ; refused grab must reach the ladder below
     call os88ui_sbgrab          ; unchanged and fall through to .out, which is
     pop ax                      ; what a thumb press has always done here
 .nograb2:

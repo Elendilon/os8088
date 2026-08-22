@@ -41,10 +41,6 @@ MACHINE = ARGS[0] if ARGS else "os8088_5150_cga_gla"
 # knew the rate-0 answer would pass a build that had stopped tracking at all.
 RATE = int(next((a.split("=")[1] for a in sys.argv[1:]
                  if a.startswith("--rate=")), "0"))
-# ...and its MODE, for the same reason: in overlay mode the thumb is SUPPOSED
-# to stay with the content while an XOR rect moves (13.10.5.5/13.10.5.6), so
-# case B's assertion is the exact opposite one.
-OUTLINE = "--outline" in sys.argv[1:]
 SHOT = next((a.split("=")[1] for a in sys.argv[1:]
              if a.startswith("--shot=")), None)
 W_FLAGS, W_X, W_Y, W_W, W_H = 0, 2, 4, 6, 8
@@ -196,17 +192,9 @@ with M.launch("build/os8088-360.img", apps=DISK,
             wd, ht, px = m.fbuf()
             M.write_png_rgb(SHOT, wd, ht, px)
         print(f"  mid-drag frame -> {SHOT}")
-    if OUTLINE:
-        check("the THUMB stays with the content in overlay mode",
-              t2 is not None and t2[0] == top,
-              f"(top {top} -> {t2 and t2[0]}, block pos {blk2[6]})")
-        check("...and the track changed under the overlay",
-              lit(m, mono, band) != before,
-              f"({before} lit before, {lit(m, mono, band)} now)")
-    else:
-        check("the thumb moved with the hand",
-              t2 is not None and t2[0] > top + 2,
-              f"(top {top} -> {t2 and t2[0]}, block pos {blk2[6]})")
+    check("the thumb moved with the hand",
+          t2 is not None and t2[0] > top + 2,
+          f"(top {top} -> {t2 and t2[0]}, block pos {blk2[6]})")
     check("...the ELEMENT tracked it", after_pos > 0, f"(pos {after_pos})")
     if RATE == 0:
         check("...and the VIEW did not, at rate 0", scrl(m) == was,

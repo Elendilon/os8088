@@ -38,7 +38,6 @@ ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
 MACHINE = ARGS[0] if ARGS else "os8088_5150_cga_gla"
 RATE = int(next((a.split("=")[1] for a in sys.argv[1:]
                  if a.startswith("--rate=")), "0"))
-OUTLINE = "--outline" in sys.argv[1:]
 W_FLAGS, W_X, W_Y, W_W, W_H, W_TITLE = 0, 2, 4, 6, 8, 10
 SBCELL, SBMINH = 10, 8
 
@@ -206,13 +205,9 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=MACHINE) as m:
     after = dragpos(m)
     t2 = thumb(ksb(m))
     check("...the element tracked it", after > 0, f"(pos {after})")
-    if OUTLINE:
-        check("the THUMB stays with the content in overlay mode",
-              t2 is not None and t2[0] == top, f"(top {top} -> {t2 and t2[0]})")
-    else:
-        check("the thumb moved with the hand",
-              t2 is not None and t2[0] > top + 2,
-              f"(top {top} -> {t2 and t2[0]}, block pos {ksb(m)[6]})")
+    check("the thumb moved with the hand",
+          t2 is not None and t2[0] > top + 2,
+          f"(top {top} -> {t2 and t2[0]}, block pos {ksb(m)[6]})")
     if RATE == 0:
         check("...and the VIEW did not, at rate 0", scrl(m) == was,
               f"(fdlg_scrl {scrl(m)}, was {was})")

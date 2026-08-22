@@ -241,11 +241,6 @@ NP_SB_ARR    equ 11             ; ...and the arrow cells at each end of it
 %define SB_RATE 0
 %endif
 NP_SBRATE   equ SB_RATE
-%ifdef SBOUTLINE
-NP_SBMODE   equ 1
-%else
-NP_SBMODE   equ 0
-%endif
 %endif
 
 NP_SB_STEP   equ 4              ; rows an arrow cell steps. The Disk window
@@ -691,15 +686,38 @@ np_sbar:
 ; -----------------------------------------------------------------------------
 np_sbcheck:
     push ax
-    mov ax, [np_top]
-    cmp ax, [np_sbtop]
-    jne .draw
+    push bx
     mov ax, [np_drows]
     cmp ax, [np_sbrows]
-    je .out
-.draw:
+    jne .full                       ; the TOTAL moved, so the thumb's HEIGHT
+    mov ax, [np_top]                ; did: only a full draw can resize it
+    cmp ax, [np_sbtop]
+    je .out                         ; neither moved: draw nothing at all
+%ifdef OS88UI_SBDRAG
+    call os88ui_sbdragging          ; ...unless the hand is on the thumb, in
+    jnc .full                       ; which case it is drawn where the HAND is
+                                    ; and not at [np_sbtop] (SPEC.md 13.10.5.6)
+                                    ; - so the "where it was" this needs is not
+                                    ; the one banked here, and the full draw is
+                                    ; the one that is right either way
+%endif
+    call np_sbset                   ; BX = the block, holding the NEW pos...
+    mov ax, [np_sbtop]              ; ...and this is where the thumb is DRAWN
+    call os88ui_sbmove              ; THREE drawing calls against the bar's
+                                    ; sixteen (SPEC.md 13.10.3): a scroll moves
+                                    ; neither total nor fit, so the frame, both
+                                    ; rules, both arrow glyphs and all of the
+                                    ; track the thumb did not cover are exactly
+                                    ; where they were. ~10 ms a scroll on the
+                                    ; target machine, and this app scrolls on
+                                    ; every arrow key
+    mov ax, [np_top]
+    mov [np_sbtop], ax
+    jmp short .out
+.full:
     call np_sbar
 .out:
+    pop bx
     pop ax
     ret
 
@@ -766,7 +784,6 @@ np_sbclick:
     cmp byte [np_nodrag], 0         ; block and DX still the press, absolute
     jne .yes
     mov al, NP_SBRATE
-    mov ah, NP_SBMODE
     call os88ui_sbgrab              ; CF = 1 = no thumb after all; either way
 %endif                              ; this click scrolls nothing
     jmp short .yes                  ; the thumb itself, or an inert track
