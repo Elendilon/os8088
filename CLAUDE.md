@@ -455,7 +455,9 @@ in docs/TESTING.md, per capability.
 - `tools/` — host-side Python: `os88pkg.py` (validates/stamps `.bin` → `.o88`),
   `os88disk.py` (builds FAT12 images; `--verify` is a structural fsck),
   `checkdocs.py` (the doc gate every `make` runs), `os88test.py` (the suite
-  runner, off `tests/suite.py`), `qmp.py`/`mouse.py`/`shot.py` (test drivers),
+  runner, off `tests/suite.py`), `os88boot.py` (where a whole boot goes, phase
+  by phase, off MartyPC's cycle counter and the FDC's - docs/MARTYPC-DEBUG.md),
+  `qmp.py`/`mouse.py`/`shot.py` (test drivers),
   `setup-cc.sh` + `cc8086.py` (the C toolchain's fetch and its gate, §73).
 - `docs/` — the maintained accounts. `*-PLAN.md` are design records for work
   that has landed; `FIELD-NOTES.md`/`FIELD-MACHINES.md` are what real hardware

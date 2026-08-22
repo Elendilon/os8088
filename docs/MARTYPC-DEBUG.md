@@ -159,6 +159,51 @@ batching properly; **`read_sectors` far above the payload** is §18.91's shape;
 **`resets`** is a BIOS giving up, which is how GLaBIOS's 250 ms limit was
 found.
 
+### Where a whole BOOT goes: `tools/os88boot.py`
+
+`m.disk()` says what the drive was asked for; this says what the *boot* spent,
+phase by phase, and it needs no knob kernel either.
+
+```
+python3 tools/os88boot.py --apps build/apps360.img --json build/boot.json
+```
+
+It is a **stopwatch and not a sampler** (`tools/os88prof.py` is the sampler,
+and is the right instrument for a package that loops). A boot is a straight
+line of named phases that each run once, so the exact instrument is a
+breakpoint on the RETURN ADDRESS of every `call` in `kmain` — the address a
+phase reaches exactly once, where a breakpoint on the callee would fire for
+every other caller of `gfx_lock`, `spl_step` and `vid_init` too — with the
+cycle counter and the FDC counters read at each. The addresses come out of the
+kernel's own listing, asserted byte-identical to `build/kernel-full.bin` on the
+way, and the marks are armed one at a time so a mark that is never reached is
+a timeout naming itself rather than a silent skip.
+
+Two phases are opened further, because between them they are most of a boot
+and neither is one thing. The machine's ROM `int 13h` and the loading bar are
+both bracketed inside the boot sector, by taking their return address off the
+**guest's own stack** at the entry: the sector relocates itself to the top of
+whatever `int 12h` reported, so its addresses are a property of the machine's
+memory size and there is nothing here to derive them from — and a far `call`
+and an `int` leave CS:IP as the bottom two words of the frame, so one read
+serves both.
+
+**Cycles are the answer and the host does not enter into it**: `cycles /
+4772727` is seconds on the field machine, the drive's mechanics included (the
+model above). Two full runs agree on every row to the cycle.
+
+The walk cross-checks itself and prints the result. SPEC.md §15.4's boot timer
+is stamped by the boot sector from BIOS ticks, so it measures everything below
+`post`; a complete walk agrees with it to under one 54.9 ms tick, and a walk
+that has lost a phase does not.
+
+**And the machine still decides whether the number may be quoted.** Two of the
+four things a boot spends time on are the ROM's own code, so the section
+below binds this tool exactly as it binds `m.disk()`: a GLaBIOS twin boots
+faster than any 5150 ever did, and only `os8088_5150_cga` and its IBM-ROM
+siblings answer for the field machine. What does *not* move with the ROM is
+the mechanical column, which is the FDC model Set 37 calibrated.
+
 ### GLaBIOS gives up on a floppy op after ~250 ms, and that is still true
 
 It no longer forces a config difference — every machine here carries the same
