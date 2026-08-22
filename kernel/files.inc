@@ -90,6 +90,24 @@ FM_ROW_H    equ 16              ; list row height, px
 FM_ROW_Y0   equ 22              ; row area top (both views)
 FM_DBLCLK   equ 9               ; double-click window, ticks
 FM_SB_W     equ 14              ; scroll bar width
+
+%ifdef OS88UI_SBDRAG
+; THE DISK WINDOW'S THUMB-DRAG POLICY (SPEC.md 13.10.5.4), and both halves of
+; it are the WINDOW's rather than the element's - which is 13.10.1's rule
+; still holding.
+;
+; **THE RATE DEFAULTS TO 0 AND THAT IS NOT A COP-OUT.** A scroll here is
+; fm_scroll_by - a gfx_scroll blit plus a relettering of every newly exposed
+; row - and PERFORMANCE.md prices one 78-cell row at ~71 ms on a 4.77 MHz
+; 8088. A thumb dragged the length of a 200-file listing with the view
+; following would be seconds of repaint behind a hand that had already
+; stopped: PERFORMANCE.md Part 1's VISIBLE REDRAW, which is invisible in an
+; emulator and is exactly why the rate is a number rather than a cadence.
+; `make SBRATE=2` is the one to try on a fast machine.
+%ifndef FM_SBRATE
+%define FM_SBRATE 0             ; ticks between commits; 0 = the release
+%endif                          ; commits and nothing before it
+%endif
 ; --- the band under the rows: the edge, then the status line (SPEC.md 22.20)
 ; The row area is UNCHANGED by all three of these - [fm_listb] is still
 ; ch-19, so fm_fit is what it always was and not one row of files was spent
@@ -2313,6 +2331,12 @@ fm_sbset:
     mov ax, [fm_lscr]
     mov [os88ui_ksb+12], ax
     mov bx, os88ui_ksb
+%ifdef OS88UI_SBDRAG
+    call os88ui_sbfix           ; ...and while a thumb drag is live, word 6 is
+                                ; the HAND's pos rather than the view's
+                                ; (SPEC.md 13.10.5.6). One line here and no
+                                ; reader downstream knows a drag exists
+%endif
     pop ax
     ret
 
@@ -2386,6 +2410,24 @@ fm_onclick_x:
     push dx
     push di
 
+%ifdef OS88UI_SBDRAG
+    ; A PRESS CANNOT ARRIVE DURING A LIVE DRAG, so one that does means the
+    ; release never came (SPEC.md 13.10.5.7). Two ways for that: the event ring
+    ; was full, and ui_arm_chk then drops a region-0 arm WITHOUT dispatching
+    ; W_ONMOUSEUP; or the window went away between the two passes, which
+    ; .mup_pkg tests for and skips. Either leaves the drag byte set, and a set
+    ; byte is not inert - os88ui_sbfix would fix a stale pos into EVERY Disk
+    ; window's bar for the rest of the session, thumb and hit test alike. This
+    ; is the same shape ui_arm_chk itself is: the cheap test on the path that
+    ; proves the state is stale.
+    call os88ui_sbdragging
+    jc .nostale
+    mov bx, si
+    call fm_layout              ; preserves every register, CX/DX included
+    call fm_sbset
+    call os88ui_sbdrop          ; ...which takes the overlay off with it
+.nostale:
+%endif
     mov bx, si                  ; publish the clicked window BEFORE anything
     call fm_vp_set              ; reads or writes per-window state
 
@@ -2494,8 +2536,22 @@ fm_onclick_x:
     add dx, [fm_cy]
     call fm_sbset
     call os88ui_sbhit
+%ifdef OS88UI_SBDRAG
+    cmp al, OS88UI_SBTHUMB      ; SPEC.md 13.10.5: the thumb is DRAGGED here
+    jne .nograb                 ; now, where it used to page down. BX is still
+    mov al, FM_SBRATE           ; the block and DX still the press, absolute
+    call os88ui_sbgrab          ; CF = 1: no thumb to take after all, so the
+    mov al, OS88UI_SBTHUMB      ; ladder below pages exactly as it did
+    jc .nograb
+    mov al, 0xFF                ; taken: this click scrolls NOTHING yet - the
+.nograb:                        ; rate decides when the view follows (13.10.5.4)
+%endif
     pop dx
     pop cx
+%ifdef OS88UI_SBDRAG
+    cmp al, 0xFF
+    je .quiet                   ; ...and not one pixel outside the bar changed
+%endif
     cmp al, OS88UI_SBNONE
     je .rows                    ; not on the bar at all
     cmp al, OS88UI_SBUP
@@ -2630,6 +2686,20 @@ fm_onup_x:
     push dx
     push si
     push di
+%ifdef OS88UI_SBDRAG
+    call os88ui_sbdragging      ; SPEC.md 13.10.5: the release COMMITS, and it
+    jc .btn                     ; commits unconditionally - a position the rate
+    mov bx, si                  ; refused mid-drag is never lost, and a release
+    call fm_layout              ; that landed off the screen entirely still
+    call fm_sbset               ; ends the gesture (13.7's second rule).
+    call os88ui_sbdrop          ; fm_sbset FIRST: the overlay's erase reads the
+    jc .btn                     ; block's geometry. CF = 1 = the gesture was
+    sub ax, [fm_lscr]           ; the DIALOG's bar (13.10.5.10) - spent by the
+    call fm_scroll_by           ; call above, and this release is the button
+    jc .paint                   ; arm's
+    jmp short .out
+.btn:
+%endif
     call os88ui_fire            ; AX = what the press armed, and it is CLEARED
     or ax, ax
     jz .out
@@ -2686,6 +2756,23 @@ fm_ondrag_x:
     push dx
     push si
     push di
+%ifdef OS88UI_SBDRAG
+    call os88ui_sbdragging      ; SPEC.md 13.10.5: a live thumb drag owns this
+    jc .btn                     ; movement whole - a header button cannot also
+    mov bx, si                  ; be armed, but asking costs one compare and
+    call fm_layout              ; says so
+    call fm_sbset               ; BX = the block; DX is still the pointer's y
+    call os88ui_sbtrack         ; CF = 1: the thumb moved and the view is not
+    jc .out                     ; owed a thing yet (the rate, or the same row)
+    sub ax, [fm_lscr]           ; ...as a DELTA, which is what fm_scroll_by
+    call fm_scroll_by           ; takes (SPEC.md 22.11)
+    jc .drpaint                 ; 11.3's granularity refusal
+    jmp short .out
+.drpaint:
+    call fm_repaint             ; SI still = window ptr
+    jmp short .out
+.btn:
+%endif
     call os88ui_armed           ; PEEK: the arm is the release's to spend
     or ax, ax
     jz .out

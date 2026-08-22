@@ -8,6 +8,16 @@
 
 %include "os88api.inc"
 
+; SPEC.md 13.10.5's thumb GESTURE, on `make SBDRAG=1`'s knob (13.10.7).
+; AT THE TOP, not beside the %include that pulls os88ui.inc in (13.10.7.4).
+%ifdef SBDRAG
+%define OS88UI_SBDRAG
+%ifndef SB_RATE
+%define SB_RATE 0               ; RATE 0 (13.10.5.4): both panes repaint whole
+%endif
+TP_SBRATE   equ SB_RATE
+%endif
+
     OS88_HEADER 'TEXPAD', tp_entry, 3
 
     OS88_ICON16
@@ -112,6 +122,10 @@ tp_entry:
     call OSAPI_WM_ONMOUSEUP     ; the edges. Not template words, so they are
     mov ax, tp_ondrag           ; set after wm_create like MENU_SET above
     call OSAPI_WM_ONDRAG
+%ifdef OS88UI_SBDRAG
+    sbb al, al                  ; CF = 1 on kern_small (SPEC.md 13.10.7.1): no
+    mov [tp_nodrag], al         ; tracking edge, so no thumb gesture either
+%endif
     pop ax
     mov byte [tp_bdown], 0
     mov al, 1
@@ -2116,6 +2130,12 @@ tp_ssb_sync:
     mov [tp_r_ssb+10], ax
     mov ax, [tp_vscroll]
     mov [tp_r_ssb+12], ax
+%ifdef OS88UI_SBDRAG
+    push bx
+    mov bx, tp_r_ssb
+    call os88ui_sbfix
+    pop bx
+%endif
     pop ax
     ret
 
@@ -3205,6 +3225,10 @@ tp_psb_sync:
     mov [tp_r_psb+10], ax
     mov ax, [tp_pscroll]
     mov [tp_r_psb+12], ax
+%ifdef OS88UI_SBDRAG
+    mov bx, tp_r_psb            ; SPEC.md 13.10.5.6, and 13.10.5.10 decides
+    call os88ui_sbfix           ; whether it is THIS bar's gesture
+%endif
     pop bx
     pop ax
     ret
@@ -4227,6 +4251,15 @@ tp_onup:
     push si
     push di
     mov byte [tp_seldrag], 0
+%ifdef OS88UI_SBDRAG
+    call tp_sbd_which           ; SPEC.md 13.10.5: the release COMMITS, and
+    jc .btn                     ; unconditionally
+    call os88ui_sbdrop
+    jc .btn
+    call tp_sbd_commit
+    jmp .out
+.btn:
+%endif
     call os88ui_fire            ; AX = what the press armed, and it is CLEARED
     or ax, ax
     jz .out
@@ -4286,6 +4319,15 @@ tp_ondrag:
     call tp_sel_show
     jmp .out
 .bar:
+%ifdef OS88UI_SBDRAG
+    call tp_sbd_which           ; SPEC.md 13.10.5: a live thumb drag owns this
+    jc .btn                     ; movement whole
+    call os88ui_sbtrack         ; CF = 1: nothing owed - the rate, or the same
+    jc .out                     ; step
+    call tp_sbd_commit
+    jmp .out
+.btn:
+%endif
     call os88ui_armed           ; PEEK: the arm is the release's to spend
     or ax, ax
     jz .out
@@ -4331,6 +4373,16 @@ tp_onclick:
     call tp_prev_box
     pop dx
     pop cx
+%ifdef OS88UI_SBDRAG
+    call tp_sbd_which           ; A PRESS CANNOT ARRIVE DURING A LIVE DRAG, so
+    jc .nostale                 ; one that does means the release never came
+    push cx                     ; (SPEC.md 13.10.5.7). AFTER tp_layout, so the
+    push dx                     ; two rects the gesture is matched against are
+    call os88ui_sbdrop          ; the ones on screen
+    pop dx
+    pop cx
+.nostale:
+%endif
     ; A CLICK DISMISSES THE ABOUT BOX AND DOES NOTHING ELSE, and it owes the
     ; window a repaint on the way out - the box is drawn OVER the two panes
     ; and the bar, so every incremental path below would leave it standing.
@@ -5605,6 +5657,73 @@ tp_page_nlines:
     pop bx
     ret
 
+%ifdef OS88UI_SBDRAG
+tp_nodrag:  db 0                ; 0xFF = this kernel has no tracking edge
+tp_sbd_bar: db 0                ; which bar the live gesture is on: 0 source,
+                                ; 1 preview
+
+; -----------------------------------------------------------------------------
+; tp_sbd_which - which of the two bars is the live gesture on? (SPEC.md
+;                13.10.7.2)
+; out: CF = 1 = none of ours; CF = 0, BX = that bar's block and [tp_sbd_bar]
+;      set. AX preserved.
+;
+; THIS APP IS WHY os88ui_sbmine EXISTS AT ALL (13.10.5.10). One gesture record,
+; two bars - the source's counting lines and the preview's counting pixels -
+; and the record is asked which it belongs to rather than the caller guessing
+; from the pointer, because the pointer may be a long way off the bar by then
+; (13.10.5.2) and a drop on the wrong bar SPENDS somebody else's gesture.
+; -----------------------------------------------------------------------------
+tp_sbd_which:
+    call os88ui_sbdragging
+    jc .no
+    push ax
+    call tp_src_metrics
+    call tp_ssb_sync
+    mov bx, tp_r_ssb
+    call os88ui_sbmine
+    jnc .src
+    call tp_psb_sync
+    mov bx, tp_r_psb
+    call os88ui_sbmine
+    jc .nope
+    mov byte [tp_sbd_bar], 1
+    jmp short .yes
+.src:
+    mov byte [tp_sbd_bar], 0
+.yes:
+    pop ax
+    clc
+    ret
+.nope:
+    pop ax
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; tp_sbd_commit - put the dragged pos into the bar it belongs to, and draw
+; in:  AX = the pos, [tp_sbd_bar] = which; gfx lock held
+; out: nothing much; both tails redraw their own pane
+;
+; The two clamps are not interchangeable: tp_clamp_ps forces an EVEN scroll
+; because the desk beside the sheet is a 50% dither whose phase is a function
+; of absolute y, and tp_clamp_vs bounds a line count. The one-pixel
+; disagreement an odd pos leaves between the thumb and the sheet is below
+; anything a reader can see at preview scale.
+; -----------------------------------------------------------------------------
+tp_sbd_commit:
+    cmp byte [tp_sbd_bar], 0
+    jne .prev
+    mov [tp_vscroll], ax
+    call tp_clamp_vs
+    jmp tp_src_scroll
+.prev:
+    mov [tp_pscroll], ax
+    call tp_clamp_ps
+    jmp tp_prev_scroll
+%endif
+
 tp_psb_click:
     push ax
     push bx
@@ -5619,6 +5738,14 @@ tp_psb_click:
     je .pu
     cmp al, OS88UI_SBPGDN
     je .pd
+%ifdef OS88UI_SBDRAG
+    cmp al, OS88UI_SBTHUMB      ; SPEC.md 13.10.5: the PREVIEW's thumb, in
+    jne .o                      ; pixels - the element does not care (13.10.7.2)
+    cmp byte [tp_nodrag], 0
+    jne .o
+    mov al, TP_SBRATE
+    call os88ui_sbgrab
+%endif
     jmp short .o
 .up:
     sub word [tp_pscroll], TP_SB_STEP * 8
@@ -5660,6 +5787,15 @@ tp_ssb_click:
     je .pu
     cmp al, OS88UI_SBPGDN
     je .pd
+%ifdef OS88UI_SBDRAG
+    cmp al, OS88UI_SBTHUMB      ; ...and the SOURCE's, in lines
+    jne .o
+    cmp byte [tp_nodrag], 0
+    jne .o
+    mov al, TP_SBRATE
+    call os88ui_sbgrab
+    jmp short .o
+%endif
     jmp short .o
 .up:
     cmp word [tp_vscroll], 0

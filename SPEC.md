@@ -13099,6 +13099,581 @@ build that needs it, having had **21 bytes** of cold-rung slack before this.
 `OS88UI_SCROLL` gates it so that a *package* which never draws a bar does not
 carry one: the kernel defines it, the three package consumers opt in.
 
+#### 13.10.5 Dragging the THUMB — `OS88UI_SBDRAG`, and it is a KNOB
+
+**On a knob and `KERN_BIG` only.** `make SBDRAG=1` builds it and `SBRATE=n`
+sets the update rate. Nothing here is in a shipped kernel yet, and the reason is
+§13.10.3.1's number rather than a doubt about the feature: the cold rung had
+**256 bytes** of slack when this was written and the footprint one step, so
+the bar's gesture is exactly the kind of thing that has to be measured before
+it is spent.
+
+Until this, a press on the thumb *paged* (`files.inc`) or did nothing
+(`fdlg.inc`), which §13.10.1 called the caller's business and still is — what
+was missing is that neither of them **could** drag, because a scroll bar's
+gesture is not one press. It is a press, a stream of movements and a release,
+and §13.7 forbids a package answering that with a polling loop.
+
+##### 13.10.5.1 It is still geometry, not policy
+
+§13.10.1's rule holds and this is written to keep it. The element owns the
+gesture's **arithmetic** — the anchor, the clamp, the pointer-to-`pos` inverse
+and the overlay — and answers one question: *the pointer is here, so the view
+belongs at `pos`.* What `pos` means, whether the caller can afford to go there
+now, and what a scroll costs stay the caller's exactly as they were.
+
+**It is `ui_drag`'s substance without `ui_drag`'s shape.** `ui_drag` (§13) is a
+modal loop that holds the gfx lock for the whole gesture, and a package may not
+write one. This is the same tracking spread across the three edges §13.7 and
+§13.8.2 already deliver — `W_ONCLICK`, `W_ONDRAG`, `W_ONMOUSEUP` — which is
+why it is `KERN_BIG`'s: `W_ONDRAG` is.
+
+##### 13.10.5.2 x is never read
+
+The whole of the request, and the whole of the difference from the Macintosh
+this OS is styled on. A System 1 thumb drag **cancels** when the pointer
+strays more than a few pixels off the bar and the view snaps back; here the
+thumb is **locked to the bar's vertical extent** and follows the pointer's y
+wherever the hand goes. `os88ui_sbtrack` takes DX and does not take CX, so
+there is no width for a tolerance to be measured against and no cancel path to
+get wrong.
+
+The clamp is on the **top**, not on the pointer: `top = y − anchor`, held to
+`track_top .. track_top + track_h − thumb_h`. The anchor is banked at the press
+as `press_y − thumb_top`, so the thumb does not jump under the finger.
+
+##### 13.10.5.3 The inverse, and why it cannot divide-overflow
+
+`os88ui_sbthumb` derives the thumb from `pos`; this derives `pos` from the
+thumb:
+
+```
+pos = (top − track_top) × total / track_h        clamped to 0 .. total − fit
+```
+
+`top − track_top` is at most `track_h` by the clamp above, so the quotient is
+at most `total` and a 16-bit `div` after a 32-bit `mul` cannot overflow — the
+same proof `os88ui_sbthumb`'s own pair rests on, read backwards. The
+quantisation is real and correct: on a 200-row listing in a 100-pixel track the
+thumb moves in steps of two rows, which is what a proportional bar has always
+done.
+
+##### 13.10.5.4 The RATE — a window picks how often the view follows
+
+`os88ui_sbgrab` takes AL = the rate **in system ticks** (§37, 18.2 Hz):
+
+| AL | what the view does during the drag |
+|---|---|
+| **0** | **nothing at all until the release.** The thumb (or the outline) moves; the content does not |
+| 1 | at most once a tick, ~55 ms |
+| n | at most once every n ticks |
+
+**0 is the default and it is not a cop-out.** A Disk window's scroll is
+`fm_scroll_by` — a `gfx_scroll` blit plus a relettering of every newly exposed
+row, and PERFORMANCE.md prices a 78-cell row at **~71 ms** on the target
+machine. A thumb dragged the length of the track with the view following would
+be seconds of repaint behind a hand that has already stopped, which is exactly
+PERFORMANCE.md Part 1's **visible redraw** — invisible in an emulator, and the
+reason the rate is a number the window chooses rather than a cadence the
+element assumes.
+
+**The rate is a THROTTLE and not a clock.** `W_ONDRAG` is delivered only when
+the pointer actually moved (§13.8.2), so nothing fires under a still hand and
+no timer is armed. The deadline is banked at the last *commit*, so a hand that
+pauses and moves again is served immediately rather than waiting out a window
+it already sat through. A position the throttle refused is never lost: the
+release commits `pos` unconditionally.
+
+##### 13.10.5.5 The thumb moves. The XOR overlay was tried and WITHDRAWN
+
+`os88ui_sbmove` (§13.10.3) already moves a thumb in three drawing calls with
+§42.7.1's ordering, so the thumb is briefly doubled rather than briefly absent
+and there is no flash to fix.
+
+**An XOR overlay was built beside it, on `SBOUTLINE=1`, and it is gone.** The
+idea was the Macintosh's drag ghost and the argument for it was cost. Both
+failed:
+
+- **It is nearly invisible on the machine this OS is for.** The overlay's
+  surface is the track, which is `gfx_fill_gray` — a 50% checkerboard on
+  *every* adapter (§39.4). XOR 0Fh over a checkerboard is a checkerboard in
+  the opposite phase, so a 1px outline inside it is **25 net pixels** and
+  reads as a faint disturbance rather than a shape. Measured on a
+  cycle-accurate 5150 with a real CGA, beside the moving thumb for comparison.
+- **It never was cheaper.** Two drawing calls against the moving thumb's
+  three: ~756 µs against a 55 ms tick (§13.10.5.9.1).
+- **And it was the one thing here that could corrupt the screen.** A
+  transient VRAM overlay must be XOR-erased before the gfx lock drops
+  (§13), and this gesture spans callbacks with the lock dropped between them
+  — so a `W_PAINT` arriving mid-drag erased the rect and the next erase XORed
+  pixels it never drew. `os88ui_sbar` re-asserting it closed the case that
+  went through the bar's own painter and not the case of a task drawing
+  across it.
+
+**So the residue was removed by removing the feature that had it**, which is
+the honest way to close a hazard nothing was buying. What went with it:
+`os88ui_sbxor`, the mode byte, the re-assert hook in the painter, the mode
+branches in four routines, the `SBOUTLINE` knob and five `*_SBMODE`
+constants.
+
+##### 13.10.5.6 The block stays seven words, and `os88ui_sbfix` is why
+
+The gesture's state is a static of the element's — one drag at a time on the
+one UI task, `os88ui_ksb`'s argument exactly (§13.10.2) — and the seven-word
+block does not grow, so no caller's `.bss` moves and no package rebuilds.
+
+While a drag is live the thumb is drawn where the **hand** is and the content
+is where the **view** is, and at rate 0 those disagree for the whole gesture.
+That is one fact in two places, which is §13.8.2's "the glass and the byte
+cannot part" in another costume. It is answered in one line rather than at
+every drawing site: **the caller's fill routine ends in `os88ui_sbfix`**,
+which overwrites word 6 with the dragged `pos` while a drag is live. Every
+reader downstream — `os88ui_sbar`, `os88ui_sbthumb`, `os88ui_sbhit`,
+`os88ui_sbmove` — then sees one coherent block and none of them knows a drag
+exists. In outline mode `os88ui_sbfix` does nothing: there the thumb is
+*supposed* to stay with the content and the overlay is what moves.
+
+##### 13.10.5.6.1 What it cost, measured
+
+**`.cold` +496, `.bss` +9, `.text` ZERO**, on `kern_big` with `SBDRAG=1`. The
+element is ~390 of the cold bytes and the Disk window's wiring the rest; the
+nine are the state block; and nothing at all is resident, because
+`apps/os88ui.inc` assembles into `.cold` and both the callers are cold modules.
+
+**It crosses one cold rung — 74 → 75 steps of 512 — and that puts `KERN_SIZE`
+at exactly `KERN_BUDGET`, 114,176, with zero spare.** The guard is `>` and not
+`>=`, so it assembles; the next feature of any size does not. That is the whole
+argument for the knob and it is a number rather than a doubt: the shipped
+kernel is unchanged, byte for byte, and turning this on is a decision to spend
+the last 512-byte step of the footprint on it.
+
+There is a cheaper shape if it is ever wanted: dropping the overlay mode
+(§13.10.5.5, which the picture argues against anyway) takes ~60 bytes with it,
+and the rate could be a compile-time constant rather than a byte a window
+passes — but neither gets under the rung, because the rung was crossed by the
+first 250 bytes.
+
+**One redundancy is known and left.** On a commit the element has already moved
+the thumb, and `fm_scroll_by` then reaches `fm_sb_thumb`, which moves it again
+from where `[fm_lscr]` says it was. The picture is right either way — the
+second move draws the thumb where it already is and greys a band that is
+already grey — and it costs three drawing calls, ~2.3 ms on the target machine,
+**once per commit**. At the default rate of 0 that is once per gesture.
+
+##### 13.10.5.7 What is still open
+
+Three, and they are named rather than fixed because this is a knob:
+
+- **`total` and `fit` may change under the drag.** A `fm_reload` mid-gesture
+  re-derives the thumb correctly and leaves the *anchor* measuring against a
+  thumb of another height. The residue is a jump of a few pixels, once.
+- ~~**Only the Disk window is wired.**~~ **Both kernel bars are wired now.**
+  The dialog was three call sites plus its own `os88ui_sbfix` and its own
+  stale net — **`.cold` +132 and `.bss` +4**, inside the rung the Disk window
+  already crossed, with 123 bytes left in it. What it cost beyond the estimate
+  was §13.10.5.10: a second bar is what turns "a drag is live" into "a drag is
+  live *on this bar*".
+- **A lost release leaves the byte set, and the byte is not inert.** `evq_push`
+  drops silently when the ring is full and `ui_arm_chk` then clears a region-0
+  arm *without* dispatching `W_ONMOUSEUP`; a window destroyed between two
+  passes is skipped by `.mup_pkg` the same way. Either leaves `sbd_on` at 1,
+  and `os88ui_sbfix` would then fix a stale `pos` into every Disk window's bar
+  for the rest of the session — thumb and hit test alike. The net is exact
+  rather than defensive: **a press cannot arrive during a live drag**, so
+  `fm_onclick` opening with one live has proved the release was lost, and drops
+  it. It is `ui_arm_chk`'s own shape — the cheap test on the path that proves
+  the state is stale — and the residue is one gesture's worth of a wrong thumb
+  until the next click.
+
+##### 13.10.5.10 One gesture record, TWO bars — `os88ui_sbmine`
+
+§13.10.5.6 said the state is a static of the element's, for `os88ui_ksb`'s
+reason: one gesture at a time on the one UI task. That is still true and it
+stopped being sufficient the moment the file dialog was wired, because **"a
+drag is live" and "a drag is live ON THIS BAR" are not the same question** once
+there are two blocks being filled by two setters.
+
+Without the distinction, a gesture left over from the Disk window would have
+`os88ui_sbfix` write **its** `pos` into the *dialog's* block — a thumb drawn
+where nothing is, and a hit test that agrees with it.
+
+**The identity is `(x1, y1)`, banked at the grab**, and that is enough: two
+bars on screen at once cannot share a top-left corner. `os88ui_sbfix` and
+`os88ui_sbtrack` ask before they touch anything.
+
+**`os88ui_sbdrop` is the one that must not simply refuse.** A gesture nobody
+is going to release must not outlive the press that found it, so the drop
+**spends it either way** and only answers a `pos` on the bar it belongs to. The two callers take `CF = 1` as "not mine, and already
+spent" and fall through to their button arm.
+
+**Is it reachable?** Only through a lost release: the dialog is modal (§38.2)
+and a drag needs the button held, so a gesture cannot cross from one bar to
+the other while both are behaving. That is the same door §13.10.5.7's stale
+net was built for, and this is what stops that door putting one bar's position
+into the other's thumb. It costs four bytes of state and one compare on paths that
+already load the block.
+
+##### 13.10.5.9 The border goes down FIRST — the flash that was really there
+
+The prototype shimmered under a dragged thumb, and the reason was not the
+cost. `os88ui_sbthdraw` filled the whole thumb white and then framed it:
+identical output, two calls, and **between them the thumb was a borderless
+white slab**, because the fill had just erased the border the frame was about
+to put back.
+
+**Caught in the act, with a breakpoint inside the routine on a cycle-accurate
+4.77 MHz 8088 and the bar dumped after every instruction.** At the step after
+the fill, the old thumb and the new one merge into one unbordered white mass
+twice the thumb's height; four instructions later the frame lands and the
+picture is right again. A drawing call is ~756 µs on that machine whatever it
+draws, so that state is held for the better part of a millisecond **every time
+the thumb moves**. That is PERFORMANCE.md Part 1's **double-draw flash** —
+drawn twice, invisible in an emulator, and found here by looking rather than
+by measuring.
+
+**The fix is free: draw the border, then fill the interior it encloses.** Same
+two calls, same pixels, four bytes of `inc`/`dec` and a degenerate-interior
+guard. Mid-move the screen now shows two framed boxes for the width of one
+call, which is §42.7.1's own argument rather than a new problem: a doubled
+thumb reads as movement where an absent — or an unbordered — one reads as a
+blink. It improves the full-bar paint by the same token, where the thumb used
+to flash white over the track before acquiring its frame.
+
+**It is not knob-gated**, because the defect is not the knob's: every thumb
+this element has ever drawn had it. `.cold` +17 on `kern_big` and +17 on
+`kern_small`, no rung crossed on either.
+
+##### 13.10.5.9.1 `gfx_scroll` cannot move a thumb, and the reason is structural
+
+The obvious instrument for "move the pixels instead of redrawing them" is
+§5.5, and it **refuses this rect by contract**. `gfx_scroll` is byte-column
+granular on every adapter — `x1` and `x2+1` must both be multiples of 8,
+because on VGA the latches move eight pixels at a time and on mono a byte *is*
+eight pixels. The bar is 14 pixels wide and the thumb 10, at an `x` that
+follows the window's right edge; neither is ever a whole byte column, and the
+two `test …, 7` guards refuse before anything moves.
+
+Widening the blit to the enclosing byte columns is not a fix — it would drag
+in the content column to the left of the bar, or the window frame to its
+right, and shift those vertically.
+
+**And it would have bought little even if it fitted.** Three drawing calls are
+~2.3 ms on the target; a `gfx_scroll` of a 10×12 block plus a `gfx_fill_gray`
+of the vacated band is two calls, so the saving is one call — ~756 µs — against
+a 55 ms tick. **The shimmer was never a cost problem**, which is also why
+§13.10.5.5's XOR overlay was never the performance answer it looked like — it
+is two calls to the moving thumb's three, the whole difference is under a
+millisecond, and it has been withdrawn.
+
+##### 13.10.5.8 What the gate is
+
+`tests/fmthumb.py`, and it needs the knob: `make SBDRAG=1 && python3
+tests/fmthumb.py`, with `--rate=2` and `--outline` for the other two settings
+against the builds that carry them. It is not in a tier for that reason —
+`tests/unit/t_registry.py` exempts it and says so — and the three knobs
+themselves are kept assembling by `t_buildmatrix`.
+
+**The signal is `FS_SCRL`, one word of kernel memory, and that is deliberate.**
+The claim under test is that the thumb is somewhere the state block does not
+say it is, so a screenshot cannot separate "the list scrolled" from "the list
+repainted"; only case B is pixels, because only case B is about pixels. It
+builds a 30-file B: disk of its own rather than navigating a shipped one: with
+`total` 6 and `fit` 5 the whole track maps onto **one row** of travel, so a
+drag most of the way down moves the view by nothing at all — a correct bar and
+a useless gate.
+
+### 13.10.6 Who actually uses it — the survey, and two that do not
+
+§13.10 named five private scroll bars as its motivation and unified the two
+kernel ones; what it never said is which packages followed. **They were not
+all of them, and the rule is that they should be** — a widget with a second
+implementation is the drift a shared element exists to end. **They are all of
+them now** (§13.10.6.3, §13.10.6.5), with one deliberate exception.
+
+| | uses `OS88UI_SCROLL` | how it takes input |
+|---|---|---|
+| Disk window (`files.inc`) | yes | the three edges — **drag wired** |
+| Standard File dialog (`fdlg.inc`) | yes | the three edges — **drag wired** |
+| Note Pad | yes | `W_ONCLICK` only |
+| TexPad | yes | the three edges |
+| Browser | yes | `W_ONCLICK` only |
+| **Word** (`word.asm`) | **yes — converted** (§13.10.6.3) | `W_ONCLICK`; its menus poll |
+| **Frotz** (`zwin.inc`) | **yes — converted** (§13.10.6.5) | `W_ONCLICK`; v6 polls |
+| Artful (`atrend.inc`) | no — **and correctly** | polls |
+
+**Frotz and Word were the two, and both said so in their own headers.**
+`zw_thumb` is *"SPEC.md 22's geometry, so it looks like the Disk window's"*;
+`wd_thumb` was *"The Disk window's arithmetic (§22): height = fit\*track/total
+with an 8px floor, top = scroll\*track/total, clamped so the bottom of the
+thumb cannot leave the track."* Both are `os88ui_sbthumb` re-typed, and both
+exist **in order to look like the shared element** — which is the argument for
+adopting it stated by the code that did not. **Both are converted** —
+§13.10.6.3 and §13.10.6.5.
+
+**Artful is not one of them.** Its bar is a **16-pixel square** white thumb in
+a 24-pixel margin — *"Classic Macintosh anatomy … `gScrollBarVisible`'s rule,
+`main.c`"* — a deliberate port of MacPaint's chrome, not a proportional bar
+wearing a different size. That is exactly the case `os88ui.inc`'s own header
+exempts beside ModPlug's bevelled well and Minesweeper's cell: **converting it
+would be undoing intended design, not consolidating it.** A fixed-size thumb
+answers a different question from a proportional one — it says *where* and not
+*how much* — so it is a different widget and not a skin.
+
+#### 13.10.6.3 Word, converted — and why adopting the bar COSTS a package
+
+Word's bar was **pixel-identical** to the shared element, checked rule by rule
+before anything was moved: arrow-cell rules at `ty+10` and `sbb-10`, track
+between `ty+11` and `sbb-11`, arrow glyphs on `x1+6` (the element *computes*
+`x1 + (x2-x1)/2`, which is 6 on a 14px bar), an 8px minimum thumb,
+`fit*track/total` for its height, `scroll*track/total` for its top, and the
+same clamp holding its bottom inside the track. So the conversion is a pure
+deduplication and there is nothing to look at.
+
+**Verified rather than argued**: Word's whole window — 155 × 600 pixels,
+ruler, toolbar, text, bar and thumb — is identical between the two builds with
+`WELCOME.DOC` loaded, and identical again after forty `ArrowDown` presses,
+which is the path `wd_sbcheck` rewrote.
+
+**It costs 309 bytes, and the decomposition is the interesting part:**
+
+| | |
+|---|---:|
+| the shared element, in Word's image | **+565** |
+| its private bar out, `wd_sbset` and the block in | **−256** |
+| **net** | **+309** |
+
+**§13.10 says the conversion "IS A NET SAVING" and that was true of the
+KERNEL, for a reason that does not transfer.** There, *two* callers shared one
+copy of the element, so the second bar was free. A package with **one** bar
+pays for the whole element to replace one private implementation, and the
+element is bigger than any private bar because it carries the generality
+§13.10.3.1 already priced: bounds tests, a thumb part neither caller asked
+for, a computed centre, and a block that has to be filled.
+
+**So the reason to do it is not bytes**, and never was for a package. It is
+§13.10's own first reason — one description of a widget that had seven — plus
+one thing Word measurably gains: **`os88ui_sbmove`**, which it did not have.
+Its `wd_sbcheck` repainted the whole bar on every scroll; a scroll changes
+neither `total` nor `fit`, so the thumb only *translates* and three drawing
+calls do what sixteen did. On a 4.77 MHz 8088 that is ~10 ms back on every
+scroll, which is §13.10.3's "half of this change that is not about bytes"
+arriving in a seventh place.
+
+**Note Pad has the same opportunity and has not taken it**: `np_sbcheck` still
+calls `np_sbar` and repaints its bar whole.
+
+#### 13.10.6.5 Frotz, converted — and the button nobody asked for
+
+The last of the seven, and its header said what it was too: *"the scroll bar
+(SPEC.md 22's geometry, so it looks like the Disk window's)"*. Pixel-identical
+to the element on the same seven rules Word's was checked against, plus one
+guard that is Frotz's own and was kept: a bar whose top is at or below its
+bottom draws **nothing**, not even a frame, because the shared element has no
+opinion about an inverted rect and would hand one to `gfx_frame`.
+
+**Verified**: Frotz's whole window is identical between the two builds with a
+story running — 155 × 560 on load, and 120 × 560 after a resize to its minimum,
+which re-wraps the text and re-derives the thumb from new geometry. With the
+scrollback ring deepened the thumb is **11 rows at y 87** in both, after three
+arrow clicks routed through the new hit ladder: a proportional thumb, not the
+8px floor, at a position that is not the top.
+
+##### 13.10.6.5.1 `OS88UI_BARONLY`, and what Frotz found
+
+**Adopting the bar cost Frotz 868 bytes where Word paid 309 for the same
+thing**, and the difference is not the bar. Word already included
+`os88ui.inc` for its buttons, so `OS88UI_SCROLL` added only the bar; Frotz
+included the file for the **first time**, so it also got `os88ui_btn`,
+`os88ui_bhit`, `os88ui_glyph`, four 12×12 bitmaps and the click machinery —
+in an app that draws no standard button at all.
+
+**That is §13.10.4's own rule pointed the other way.** It gates the bar so
+that *"a package which never draws a bar does not carry one"*; the button had
+no such gate. `OS88UI_BARONLY` is it — an **opt-out**, so every existing
+consumer is byte-identical, which is checked rather than asserted: `kern_big`,
+`kern_small`, Note Pad, TexPad, Browser and Word all assemble to the same
+bytes as before it existed.
+
+| | |
+|---|---:|
+| the whole file, in Frotz's image | **+1,132** |
+| ...of which the button half | **567** |
+| with `OS88UI_BARONLY` | **+565** |
+| private bar out, `zw_sbset` in | **−264** |
+| **net** | **+301** |
+
+It refuses two combinations rather than mis-assembling: without
+`OS88UI_SCROLL` it would include no drawing code at all, and in the kernel
+both dialogs draw buttons.
+
+##### 13.10.6.5.2 Two banked words that nothing reads
+
+`zw_sbar` writes `[zw_bktop]` and `[zw_bkcnt]` under a comment saying they are
+*"what is on screen, so a redraw that moved neither number draws nothing"* —
+and **nothing reads either of them**. The wrapper they were written for does
+not exist, and cannot in the current shape: `zw_sbar`'s one caller is the
+whole-window repaint, which has already erased the rect, so skipping the bar
+there would leave a hole. They are kept with the comment corrected rather than
+deleted, because an incremental tier would want exactly these two words — and
+Frotz is the one bar with no `os88ui_sbmove` path at all.
+
+#### 13.10.6.4 What the drag would take on Word, and the one thing in the way
+
+Not the polling loop, which is what this section used to imply. `word.asm`
+takes `W_ONCLICK` like any package; what it has never installed is
+`OSAPI_WM_ONMOUSEUP`, and its own note says why — *"tick, relock, poll
+`OSAPI_MOUSE` (§27.8.1) — and never `OSAPI_WM_ONMOUSEUP`, which must not be
+mixed with a polling loop."*
+
+**That note is scoped to `wd_mtrack`**, the menu's press-drag-release, which
+runs modally inside `W_ONCLICK` and consumes its own release. The thumb drag
+would install the two edges for a *different* gesture that cannot be live at
+the same time as an open menu. Whether §13.7's no-mixing rule is satisfied by
+"not at the same time" or requires "not in the same package" is the question
+to answer before wiring it — and it is a design question, not the mechanical
++579 the other three packages cost.
+
+#### 13.10.6.1 The gesture is edge-agnostic, and that is what makes "everywhere" possible
+
+Three of the eight are **poll-shaped**: Frotz, Word and Artful hold the lock
+and sample `OSAPI_MOUSE` in a loop of their own rather than taking §13.7's
+edges, and Word's is a documented design (§27.8.1) rather than an oversight.
+
+**It does not matter.** `os88ui_sbgrab`, `os88ui_sbtrack` and `os88ui_sbdrop`
+take a **y** and answer a **pos**; nothing in them knows or cares whether that
+`y` arrived in a `W_ONDRAG` callback or came out of a poll. A polling consumer
+calls the same three routines in the same order from its own loop. So
+§13.10.5's gesture does not fork into an edge version and a poll version, and
+"everywhere" is one body.
+
+#### 13.10.6.2 What everywhere costs, measured
+
+**In the kernel it is nearly free and in a package it is 405 bytes**, and the
+asymmetry is the whole answer.
+
+| | cost | what it is |
+|---|---|---|
+| Disk window | done | |
+| Standard File dialog | **done — `.cold` +132, `.bss` +4** | three call sites, `os88ui_sbfix`, its own stale net, and §13.10.5.10's identity guard, which the estimate of ~45 did not see coming |
+| TexPad | **~450** on its image | +405 the drag body, ~45 wiring |
+| Note Pad, Browser | **~470** each | ...plus installing the two edges |
+| Frotz, Word | ~450 **plus adopting the bar** | which is roughly a wash: each drops a private body in the 288–387 band §13.10 measured |
+
+**Measured directly: `+405` bytes to every package image** that defines
+`OS88UI_SBDRAG` — Note Pad 17,308 → 17,713, TexPad 23,629 → 24,034, Browser
+13,946 → 14,351. Identical to the byte, because it is the same source
+assembled three times.
+
+**Why it costs that, and it is a design decision rather than an accident.**
+`os88ui.inc` is an **include, not an API slot** (§13.10's own note): *"a slot
+would cost a cell, a published contract and a table revision; an include costs
+the kernel one copy in `.cold` and each package its own."* So the kernel pays
+once and every adopter pays again. Four adopters is ~1.6 KB of floppy and of
+heap claim — against ~390 bytes **once** if the gesture were a slot.
+
+The trade has not changed and should not be re-taken here: a slot freezes the
+gesture's contract while it is still a knob, and **the kernel is the side that
+cannot afford to host it** — the cold rung has 239 bytes left and the footprint
+is one 512-byte step from `KERN_BUDGET`. The floppy is not the constraint: the
+360KB apps disk has 95 of its 354 clusters free.
+
+### 13.10.7 The three packages — Note Pad, TexPad, Browser
+
+§13.10.6.2 costed them and this is them, on the same knob: `make SBDRAG=1`
+now reaches the package builds through `$(PKGSBDEF)`, so the whole feature is
+one A/B rather than a kernel half and an application half that can disagree.
+
+**A package's drag does not need the kernel's knob**, and the shared name
+hides that. What a package needs is `OSAPI_WM_ONDRAG` and
+`OSAPI_WM_ONMOUSEUP` — ordinary slots present in every `kern_big` whatever
+the kernel was built with. The knob is here so the feature arrives as one
+thing, not because a package could not have it alone.
+
+#### 13.10.7.1 Each of them tests the kernel it is running on
+
+`OSAPI_WM_ONDRAG` answers **CF = 1** on `kern_small` (§13.8.2), and a package
+that grabbed the thumb there would take a gesture nothing will ever feed it:
+no `W_ONDRAG`, no `W_ONMOUSEUP`, a thumb stuck where the hand left it and a
+view that never follows. So the install banks the answer —
+
+```
+    call OSAPI_WM_ONDRAG
+    sbb al, al              ; 0xFF = this kernel cannot track
+```
+
+— and the grab site tests that byte before it takes anything. On a small
+kernel the thumb stays exactly as inert as it was.
+
+**The install goes inside a `pushf`** in every one of them, because a package
+entry proc still owes the loader `wm_create`'s CF and `OSAPI_WM_ONDRAG`
+*states* a flag of its own. Note Pad's `OSAPI_WM_ONCLOSE` comment already
+names that hazard for its own slot; this is the same one, twice more.
+
+#### 13.10.7.2 TexPad has TWO bars, which is what §13.10.5.10 was for
+
+The source pane's bar counts **lines** (`tp_vscroll`) and the preview's counts
+**pixels** (`tp_pscroll`), with a block and a setter each. They share one
+gesture record, so `os88ui_sbmine` is what tells `tp_ondrag` which of the two
+the hand is on — and it is asked *before* the drop, because a drop spends the
+record and a drop on the wrong bar would spend somebody else's.
+
+That the two bars measure different units costs the element nothing: `pos`,
+`total` and `fit` are whatever the caller's setter puts in the block, and
+§13.10.5.3's inverse is unit-agnostic by construction.
+
+#### 13.10.7.4 The define goes at the TOP of the file, and this is the second time
+
+`kernel.asm` carries this note already (§13.10.5's commit): a `%ifdef` is a
+**preprocessor** test answered in **file order**, so a symbol defined beside
+the `%include` that pulls `os88ui.inc` in is not defined at any `%ifdef`
+*above* that line. In the kernel it was `files.inc` being included before
+`fdlg.inc`. In a package it is worse, because the include sits at the very
+bottom by contract — §20.2 requires it after the header and the icon block —
+and every site that needs the symbol is above it: the window entry, the
+setter, the bar ladder, both edge handlers.
+
+**The failure is silent and it looks like the feature not working.** The
+element's drag body assembles (it is inside the include, below the define),
+so the binary *grows*; every one of the app's own blocks vanishes; nothing
+errors. Note Pad grew by 405 bytes and its thumb did not move.
+
+So in all three the define is at the **top**, immediately after
+`%include "os88api.inc"`, and the line beside `OS88UI_SCROLL` is a comment
+pointing at it.
+
+**Two labels, one tail, and NASM will not say so.** `np_ondrag` and `np_onup`
+share everything but one call, so they share an exit — and a local label
+belongs to whichever non-local label preceded it, which makes `np_ondrag.out`
+and `np_onup.out` two different symbols with only one defined. The knock-on
+is what costs the time: NASM's sizing pass then mis-sizes, and the first
+error it prints is *"short jump is out of range"* three thousand lines away in
+code nobody touched.
+
+#### 13.10.7.3 What it cost
+
+| | before | after | |
+|---|---:|---:|---:|
+| Note Pad | 17,308 | 17,887 | **+579** |
+| Browser | 13,946 | 14,535 | **+589** |
+| TexPad | 23,629 | 24,265 | **+636** |
+
+The floor is §13.10.6.2's **+405** — the element's own drag body, identical in
+all three because it is the same source — so the wiring is **174 / 184 / 231**:
+the setter's `os88ui_sbfix`, the grab in the bar ladder, two edge handlers, a
+stale net and the capability byte. TexPad pays ~50 more than the other two and
+it is exactly §13.10.7.2: a second bar needs `tp_sbd_which` and a commit that
+branches on which one it answered.
+
+**The estimate in §13.10.6.2 was ~450 / ~470 and the real numbers are ~580.**
+What it missed is the same class of thing the file dialog's estimate missed —
+not the gesture, but what a *second* consumer of a shared thing needs before
+it can be trusted: the capability byte (§13.10.7.1) and the stale net are per
+app and neither was in the count.
+
+**The floppy is not the constraint** and was not going to be: the three
+together add ~1.8 KB, and the 360KB apps disk has 95 of its 354 clusters free.
+The kernel's `.cold` rung is the scarce thing, and none of this is in it.
+
 ### 13.11 A package's RIGHT click — `W_ONRCLICK` (API 0x0490)
 
 Until this slot existed the right button reached **no package at all**.
@@ -24547,6 +25122,53 @@ descriptions already match the glass.
 typematic repeat (~100 ms, §2951) so that no held key can outrun the editor.
 What is left is 155 ms of pass 1 and 186 ms of drawing, and neither is a
 seeding problem — see docs/NOTEPAD-NOTES.md §7.
+
+
+#### 27.7.10 A click the bar TOOK is not a click that SCROLLED
+
+`np_sbclick` answers `CF = 0` for every press that landed on the scroll bar,
+and `np_onclick` sent all of them to `np_redraw`. So a press that scrolled
+**nothing** — the thumb, or an arrow already at an end stop — repainted the
+note to show the pixels that were already there.
+
+**Reported from the field as half a second to a second of dead time before a
+dragged thumb would move, on a maximized window, and that is exactly what it
+was.** §13.10.5's gesture did not cause it; it made it visible, because before
+the drag existed nothing followed a thumb press for the delay to sit in front
+of.
+
+**Measured**, one thumb press on a maximized Note Pad (633 × 180) with a
+220-line note, timing how long `[gfx_lock_flag]` stays set — `np_onclick` runs
+under the lock, so that hold IS the handler:
+
+| | lock held | `font_run` calls |
+|---|---:|---:|
+| before | **79 ms of wall clock** on an emulator running the guest at over 4× real time — so **≥300 ms** of guest time | **0** |
+| after | **0 ms** | 0 |
+
+**Zero glyph runs either way, and that is the finding.** `np_redraw` compares
+row signatures and draws only what moved (§27.2), so on an unchanged view it
+draws nothing — the cost is entirely `np_walk`'s **measure** pass, which
+re-wraps and hashes every visible row before concluding that none of them
+changed. It scales with the window, which is why the default size feels fine
+and a maximized one does not, and it is invisible to a screenshot, which is
+why a pixel diff found nothing to see.
+
+The fix is a second answer: `np_sbmoved`, set only when `np_scrollto` reports
+that `[np_top]` actually moved. `CF` still says the bar took the click — the
+caller must not fall through to the text path — and the byte says whether
+anything came of it.
+
+**It also fixes the older half of the same defect.** An arrow click at an end
+stop has always paid this, since long before the thumb could be dragged; §22.11
+made exactly this argument for the Disk window ("an end stop: not one pixel
+changes, where this used to repaint the window whole") and Note Pad never got
+it.
+
+TexPad needed nothing — `tp_src_scroll` and `tp_prev_scroll` both compute the
+delta against the old value and return on zero. The Browser's `br_flush` does
+the same. The file dialog still repaints its list at an end stop, which is six
+rows and has not been worth a byte.
 
 ### 27.8 A selection, and the two things a drag can mean
 
@@ -48022,6 +48644,56 @@ under it (§61.7), the Flags 1 bit that turned a clock into a move counter, and
 the quote box a shrink threw away (both §61.5). The last two were invisible for
 the same reason: they are about the upper window, and the upper window is not
 the transcript.
+
+
+### 61.15 A scroll-bar action stopped repainting the whole window
+
+`zw_paint`'s own header prices what this cost: *"a full repaint is 46 rows of
+glyphs, **~2.9 s on a 4.77 MHz 8088**. It runs on an uncover, a resize, a
+**scroll-bar action** and a refused blit."* Three of those four are
+unavoidable. The scroll-bar action was not.
+
+**A scroll changes the lower window and the thumb.** The status line is the
+game's, the upper window is the game's, and the grow box is the frame's —
+none of them moves because the reader looked back through the scrollback. So
+`zw_scrollto` calls `zw_sbpaint` now instead of `zw_paint`, and that:
+
+1. **blits the band** — the same `OSAPI_GFX_SCROLL` the per-line path already
+   made for one line, by `d * ZF_LEAD` pixels signed;
+2. **letters the `|d|` rows the blit could not know**, through `zw_low_rows` —
+   `zw_low_draw`'s loop with its three starting values as arguments rather
+   than derived, which is the whole of what was needed;
+3. **translates the thumb** through `os88ui_sbmove` (§13.10.3), three drawing
+   calls against the bar's sixteen.
+
+**An arrow step is 3 rows against 46 — ~0.19 s against ~2.9 s.**
+
+#### 61.15.1 Two fallbacks, and both are still cheaper than before
+
+`zw_low_draw` whole when the jump is a windowful or more (there is nothing for
+a blit to move) and when the blit is **refused** — §5.5's byte-column rule, an
+armed clip region, an edge off the screen. Even then it is not the status
+line, not the upper window and not the grow box, so the fallback is strictly
+less work than the `zw_paint` it replaces.
+
+`zw_lowrect` is the band, computed once: the per-line blit and this one used
+to describe it in two places, which is the drift a second caller always
+starts. `x1` is `[zw_tx]`, which `zw_bounds` already rounds up to a multiple
+of 8 for exactly this reason — §5.5 refuses an x-range that is not
+byte-aligned and Frotz does not ask for `WF_SNAP`.
+
+#### 61.15.2 ...and what `[zw_bktop]` / `[zw_bkcnt]` were for
+
+`zw_sbar` has banked those two words since the bar existed, under a comment
+saying they are *"what is on screen, so a redraw that moved neither number
+draws nothing"* — and **nothing read either of them**, because `zw_sbar`'s
+only caller was the whole-window repaint and skipping the bar inside one would
+leave the rect it had just erased.
+
+`zw_sbtrans` is the reader they were waiting for. A scroll moves neither the
+total nor the fit, so the thumb's height is unchanged and only its top moves;
+the count changing is the case that cannot translate — a new line of output
+resizes the thumb — and that one still draws the bar whole.
 
 ## 62. NET.DRV — the parallel link (`drivers/net/net.asm`)
 

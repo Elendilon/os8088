@@ -514,6 +514,58 @@ ifneq ($(ANIMOFF),)
 VIDDEF += -DANIMOFF
 endif
 
+# SBDRAG=1 gives the scroll bar's THUMB a gesture (SPEC.md 13.10.5) - press,
+# drag, release - where a press on it used to page down and be done. It is a
+# knob and not a feature yet for one reason and it is a number: the cold rung
+# had 256 bytes of slack when this was written and the footprint one 512-byte
+# step, so the whole of it has to be measured before it is spent.
+#
+# It is KERN_BIG's, because W_ONDRAG is (SPEC.md 13.8.2) and there is no other
+# way for a package - or for a cold kernel module - to be told the pointer
+# moved while its press was live.
+#
+#   make SBDRAG=1                 the thumb follows the hand; the LIST jumps
+#                                 at the release (13.10.5.4's rate 0)
+#   make SBDRAG=1 SBRATE=2        ...and the list follows too, ~9 times a
+#                                 second, in BOTH bars. 1 is every tick. The
+#                                 rate is per-WINDOW (FM_SBRATE, FD_SBRATE);
+#                                 one knob sets both because a build is an A/B
+#
+# Both are in $(VIDSTAMP) below, for NOSPLIT's reason: a knob outside the
+# stamp does not rebuild the kernel, so an A/B drives the same build twice and
+# comes back null.
+ifneq ($(SBDRAG),)
+VIDDEF += -DSBDRAG
+endif
+ifneq ($(SBRATE),)
+VIDDEF += -DFM_SBRATE=$(SBRATE) -DFD_SBRATE=$(SBRATE)
+endif
+
+# ...AND THE PACKAGES GET IT TOO (SPEC.md 13.10.7). Note Pad, TexPad and the
+# Browser draw the shared bar, so the same three knobs reach their builds
+# through $(PKGSBDEF) - a package's copy of os88ui.inc is its own (13.10.6.2),
+# so this is the only way the gesture gets into one.
+#
+# A PACKAGE'S DRAG DOES NOT NEED THE KERNEL'S KNOB, and that is worth stating
+# because the shared name hides it: what a package needs is OSAPI_WM_ONDRAG,
+# an ordinary slot present in every kern_big whatever the kernel was built
+# with. The knob is here so that the whole feature is one A/B rather than
+# because a package could not have it alone.
+PKGSBDEF := $(if $(SBDRAG),-DSBDRAG)$(if $(SBRATE), -DSB_RATE=$(SBRATE))
+
+# ...AND A STAMP FILE, for exactly VIDSTAMP's and DSSTAMP's reason: none of
+# the three is a prerequisite of anything, so `make SBDRAG=1` after a plain
+# `make` saw three up-to-date .bin files and rebuilt none of them - the disks
+# then carried packages WITHOUT the gesture beside a kernel that had it, which
+# reads exactly like the feature not working in an app.
+#
+# THE VARIABLE IS HERE AND THE RULE IS DOWN WITH THE PACKAGES, and that is not
+# tidiness: `all:` is not defined until line 867, so an explicit rule written
+# HERE becomes make's DEFAULT GOAL. A plain `make` then built the stamp, said
+# "'build/.sbpkg' is up to date", and stopped - no kernel, no floppies, no
+# error, exit 0.
+SBSTAMP := $(BUILD)/.sbpkg$(if $(SBDRAG),-sb$(SBDRAG))$(if $(SBRATE),-r$(SBRATE))
+
 # CURFIX=1 turns ON the two cursor-hide changes, and they are OFF BY DEFAULT.
 # SPEC.md 7.1.4.2 makes cur_lazyck test the ARMED REGION rather than the
 # window's frame, so a pointer parked over a window IN FRONT of an updating
@@ -711,9 +763,10 @@ KNOBS := $(strip $(foreach k,VIDEO HERCSEG RTC DISKCNT DISKAL BOOTDIAG FLOPPY1 \
                              SNAPAUDIT SCROLLROW QUANTUM \
                              CURFIX \
                              FONT INSTCHUNK PICOMEM PM_BASE PM_SB_PORT ANIMOFF DISINK0 \
+                             SBDRAG SBRATE \
                              KERN_SMALL FSNOSTAMP THEMEDARK,\
                              $(if $($(k)),$(k)=$($(k)))))
-VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))
+VIDSTAMP := $(BUILD)/.video-$(if $(VIDEO),$(VIDEO),auto)$(if $(HERCSEG),-$(HERCSEG))$(if $(RTC),-rtc$(RTC))$(if $(DISKCNT),-dc$(DISKCNT))$(if $(FLOPPY1),-f1$(FLOPPY1))$(if $(DISKAL),-al$(DISKAL))$(if $(RAMKB),-ram$(RAMKB))$(if $(DIRW1),-d1$(DIRW1))$(if $(INSTRO),-ro$(INSTRO))$(if $(KEEPH),-kh$(KEEPH))$(if $(STRAD),-st$(STRAD))$(if $(HEAPCOMPACT),-hc$(HEAPCOMPACT))$(if $(HEAPPARK),-hp$(HEAPPARK))$(if $(HEAPPARKLK),-hl$(HEAPPARKLK))$(if $(FDDPROBE),-fp$(FDDPROBE))$(if $(FDDABSENT),-fa$(FDDABSENT))$(if $(SNDSNIFF),-ss$(SNDSNIFF))$(if $(REDRAWFULL),-rf$(REDRAWFULL))$(if $(DRAGCACHE),-dg$(DRAGCACHE))$(if $(NOSPLIT),-ns$(NOSPLIT))$(if $(NOSUOCCL),-no$(NOSUOCCL))$(if $(CURFIX),-cf$(CURFIX))$(if $(FONT),-font$(FONT))$(if $(KERN_SMALL),-small$(KERN_SMALL))$(if $(KFZ),-kfz$(KFZ))$(if $(INSTCHUNK),-ic$(INSTCHUNK))$(if $(SNAPAUDIT),-sa$(SNAPAUDIT))$(if $(SCROLLROW),-sr$(SCROLLROW))$(if $(QUANTUM),-q$(QUANTUM))$(if $(DIRTYRAM),-dr$(DIRTYRAM))$(if $(FSNOSTAMP),-fn$(FSNOSTAMP))$(if $(ANIMOFF),-ao$(ANIMOFF))$(if $(THEMEDARK),-td$(THEMEDARK))$(if $(DISINK0),-di$(DISINK0))$(if $(SBDRAG),-sb$(SBDRAG))$(if $(SBRATE),-sbr$(SBRATE))
 $(shell mkdir -p $(BUILD); \
         [ -f $(VIDSTAMP) ] || { rm -f $(BUILD)/.video-* $(BUILD)/kernel.bin \
                                       $(BUILD)/kernel-full.bin \
@@ -1774,9 +1827,17 @@ $(BUILD)/wire.bin: apps/wire/wire.asm apps/wire/wiresin.inc apps/os88api.inc | $
 $(BUILD)/wire.o88: $(BUILD)/wire.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/wire.bin -o $@
 
+# The scroll-bar knob's package stamp (SPEC.md 13.10.7), DSSTAMP's shape and
+# DSSTAMP's reason. It lives here, below `all:`, because an explicit rule above
+# it would be the default goal.
+$(SBSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.sbpkg*
+	@touch $@
+
 # Note Pad, formerly the built-in KIND_NOTE app (SPEC.md 27).
-$(BUILD)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc apps/os88ui.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/notepad/notepad.asm
+$(BUILD)/notepad.bin: apps/notepad/notepad.asm apps/os88api.inc apps/os88ui.inc \
+                     $(SBSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ $(PKGSBDEF) -o $@ apps/notepad/notepad.asm
 	@echo "notepad: $(call FILESIZE,$@) bytes"
 
 
@@ -1801,9 +1862,9 @@ $(BUILD)/calc.o88: $(BUILD)/calc.bin tools/os88pkg.py
 $(BUILD)/browser.bin: apps/browser/browser.asm apps/browser/brnet.inc \
                       apps/os88api.inc \
                       apps/os88ui.inc apps/os88line.inc \
-                      drivers/net/netpkg.inc | $(BUILD)
+                      drivers/net/netpkg.inc $(SBSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/browser/ -I drivers/net/ \
-	        -o $@ apps/browser/browser.asm
+	        $(PKGSBDEF) -o $@ apps/browser/browser.asm
 	@echo "browser: $(call FILESIZE,$@) bytes"
 
 # TELNET (docs/NET-STACK-PLAN.md stage C, SPEC.md 67). The -I drivers/net is
@@ -1883,8 +1944,8 @@ $(BUILD)/calcref.img: $(BUILD)/calcref.o88 tools/os88disk.py
 # exactly like the layout being wrong.
 $(BUILD)/texpad.bin: apps/texpad/texpad.asm apps/texpad/tpparse.inc \
                      apps/texpad/tpexport.inc apps/os88api.inc \
-                     apps/os88ui.inc | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -o $@ apps/texpad/texpad.asm
+                     apps/os88ui.inc $(SBSTAMP) | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ $(PKGSBDEF) -o $@ apps/texpad/texpad.asm
 	@echo "texpad: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/texpad.o88: $(BUILD)/texpad.bin tools/os88pkg.py

@@ -196,6 +196,20 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define OS88_THEME 1
 %endif
 
+; SPEC.md 13.10.5's thumb DRAG is kern_big's and is on a knob (`make SBDRAG=1`),
+; and the symbol is resolved HERE rather than beside the %include that pulls
+; os88ui.inc in - which is fdlg.inc, and fdlg.inc is included AFTER files.inc.
+; A %ifdef is a PREPROCESSOR test and is answered in file order, so a define
+; made down there is not made yet up here: the element assembled, the Disk
+; window's whole wiring vanished, and the only tell was that adding 17 bytes
+; to files.inc moved .cold by zero. It cost nothing to build and would have
+; cost a session to explain from the screen.
+%ifdef KERN_BIG
+  %ifdef SBDRAG
+    %define OS88UI_SBDRAG 1
+  %endif
+%endif
+
 %ifdef KERN_BIG
 KERN_BUDGET equ 115200          ; kern_big's FOOTPRINT guard, and the SHIPPED
                                 ; one: big is the default build. Free to move
