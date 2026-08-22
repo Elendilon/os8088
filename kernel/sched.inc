@@ -78,13 +78,22 @@ SCH_STACK   equ 256             ; per-task stack bytes. It was 1,536 when the
                                 ; SCH_MAGIC below makes an overrun a CAUGHT
                                 ; failure instead of a silent one.
                                 ;
-                                ; It must stay a power of two: sch_switch
-                                ; turns the slot index into the slice's base
-                                ; with a byte swap rather than a multiply,
-                                ; which is what makes the canary check nearly
-                                ; free on the switch path
-%if SCH_STACK != 256
-  %error "sch_switch's canary check assumes SCH_STACK = 256 (a byte swap)"
+                                ; **IT IS A CONSTANT AND A REBUILD.** It used
+                                ; to have to be 256 exactly, because
+                                ; sch_switch turned the slot index into the
+                                ; slice's base with a byte swap; that path is
+                                ; still there for 256 and there is a general
+                                ; one beside it for any multiple of 128, so
+                                ; changing this and MAX_TASKS is the whole of
+                                ; the change (docs/KERNEL-MEMORY.md, "Task
+                                ; stacks"). apps/taskmgr's bss map used to be
+                                ; hand-chained literals and was the other half
+                                ; of why nobody could; it derives now
+%if (SCH_STACK % 128) != 0
+  %error "SCH_STACK must be a multiple of 128 - sch_switch's canary base below"
+%endif
+%if (MAX_TASKS - 1) * SCH_STACK > 65535
+  %error "the task slices no longer fit one segment"
 %endif
 SCH_MAGIC   equ 0x5A57          ; the word at the BOTTOM of every slice. A
                                 ; stack that reaches it has overrun, and the
@@ -1392,8 +1401,21 @@ sch_switch:
     or bl, bl
     jz .nocanary                ; task 0: its stack is above .lowbss, not in it
     dec bl
-    mov bh, bl                  ; BX = (cur-1) * 256
-    xor bl, bl
+%if SCH_STACK == 256
+    mov bh, bl                  ; BX = (cur-1) * 256: the slot index in the HIGH
+    xor bl, bl                  ; byte and nothing else. Two instructions, and
+                                ; this is the configuration that ships
+%else
+    xor bh, bh                  ; ...and for any OTHER slice size, one 8-bit
+    mov ax, bx                  ; multiply: SCH_STACK is a multiple of 128 by
+    mov ah, SCH_STACK / 128     ; the guard above, so (cur-1) * (SCH_STACK/128)
+    mul ah                      ; shifted left 7 is the base. AX and CX are both
+    mov cl, 7                   ; free here - the outgoing task's copies are on
+    shl ax, cl                  ; the stack sch_resume pops from - and ~75
+    mov bx, ax                  ; clocks at 18.2 switches a second is 0.03% of
+%endif                          ; the machine. SCH_STACK is a CONSTANT AND A
+                                ; REBUILD now, which is what a change to it has
+                                ; to be if it is ever going to be taken
     cmp word [ss:bx+sch_stacks], SCH_MAGIC
     jne sch_stkdie
 .nocanary:

@@ -1046,6 +1046,67 @@ hardware. **That is a 1.3× margin on a project that runs 1.8×**, bought with
 surgery on the TCP stack — so cutting is worth doing on its own merits and is
 not an answer to this.
 
+##### A slot is a WORKER, and seven of them is the question
+
+A window costs no slot: it runs on the UI task. A slot is spent by
+
+- **`OSAPI_TASK_SPAWN`**, one per package *instance* — fifteen packages have a
+  worker (arkanoid, artful, cc, cyclone, fractal, frotz, ftpd, missile,
+  modplug, notepad, tamegram, taskmgr, telnet, tracker, word);
+- a **built-in kind with `KD_TASK`** — Timer and Bounce, cap 10 each;
+- **`OSAPI_DRV_TASK`** — the Sound Blaster's stream worker. `ETHER.DRV` has
+  none: it does its work inside the socket verb the caller made.
+
+`INST_MAX` is 12, so at most 12 instance workers could ever be wanted, and
+`MAX_TASKS` has always been the binding limit rather than the kind caps.
+
+**What the limit does when it is hit is not the same for both kinds**, and it
+is the reason 7 is arguable at all:
+
+- A **package** window opens and runs; the spawn is retried on every paint
+  (`zf_hired` and its equivalents latch on SUCCESS only), so the worker starts
+  the moment a slot frees. Degraded, self-healing, no error.
+- A **Timer or Bounce** rolls the whole launch back — `inst_create`'s
+  `.rollback` destroys the window — so it simply does not open.
+
+A heavy but real session: Tracker, Fractal, FTPD, Telnet, two Timers and the
+Sound Blaster's worker is **seven**. That is exactly the limit, and a third
+Timer is over it. So 8 is defensible and tight; 10 has room.
+
+##### The switch is a constant and a rebuild now, and here is what each one costs
+
+Two things used to make `SCH_STACK` and `MAX_TASKS` unchangeable in practice,
+and both are gone:
+
+- **`sch_switch`'s canary base was a byte swap**, which only works at 256.
+  There is a general path beside it now — one 8-bit multiply and a shift, for
+  any multiple of 128 — with the byte swap kept under `%if SCH_STACK == 256`
+  because that is the configuration that ships. ~75 clocks at 18.2 switches a
+  second is 0.03% of the machine.
+- **`apps/taskmgr`'s bss was a hand-chained map of sixty-odd literal offsets**
+  (`tm_claims equ os88_image_end + 428`), pinned to `SYS_SNAPSHOT_SIZE` by
+  `%error` guards that fire — correctly — the moment `MAX_TASKS` moves. Every
+  offset derives from the one before it now, and every size that depends on a
+  kernel table says which one. The rewrite was proven by assembling it
+  byte-for-byte identical to the old package with its one deliberate
+  difference held back — nine bytes of dead slack the literals were hiding in
+  `tm_hist`.
+
+**Every configuration below was BUILT and `make test-full` run on it**, not
+estimated. `MAX_TASKS` is a bound on *workers*, not on apps (see the paragraph
+after the table):
+
+| | slice | worker slots | `.lowbss` | `KERN_SIZE` spare | heap vs today |
+|---|---|---|---|---|---|
+| **12 × 256** — today | 256 | 11 | 7,830 | 1,536 | — |
+| **8 × 256** | 256 | 7 | 6,806 | 2,048 | **+1,024 back** |
+| **8 × 384** | **384** | 7 | 7,702 | 1,024 | **0 — free** |
+| **10 × 384** | 384 | 9 | 8,470 | 512 | −512 |
+| 12 × 384 | 384 | 11 | 9,238 | **−512, over** | −1,024 |
+
+**8 × 384 costs nothing at all**: four worker slots buy the whole 50% increase
+in slice. 8 × 256 hands a kilobyte back to the heap.
+
 ##### 384, and the canary survives it
 
 `SCH_STACK` does not have to be a power of two. `sch_switch`'s byte-swap
