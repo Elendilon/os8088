@@ -70,6 +70,10 @@ UNREGISTERED = {
                   "its --rate/--outline cases need the other two settings, so "
                   "it is three builds rather than a row (the knobs themselves "
                   "are kept alive by t_buildmatrix)",
+    "pkgthumb.py": "knob gate - the thumb drag inside a PACKAGE (SPEC.md "
+                   "13.10.7), so it needs `make SBDRAG=1` and an app argument "
+                   "(notepad|browser|texpad, and --bar=1 for TexPad's second "
+                   "bar): five runs rather than a row",
     "fdlgthumb.py": "knob gate - fmthumb.py's twin on the Standard File "
                     "dialog, and it builds its fixture with nasm rather than "
                     "os88fixture.need for the reason in its own header: "

@@ -13216,6 +13216,103 @@ cannot afford to host it** — the cold rung has 239 bytes left and the footprin
 is one 512-byte step from `KERN_BUDGET`. The floppy is not the constraint: the
 360KB apps disk has 95 of its 354 clusters free.
 
+### 13.10.7 The three packages — Note Pad, TexPad, Browser
+
+§13.10.6.2 costed them and this is them, on the same knob: `make SBDRAG=1`
+now reaches the package builds through `$(PKGSBDEF)`, so the whole feature is
+one A/B rather than a kernel half and an application half that can disagree.
+
+**A package's drag does not need the kernel's knob**, and the shared name
+hides that. What a package needs is `OSAPI_WM_ONDRAG` and
+`OSAPI_WM_ONMOUSEUP` — ordinary slots present in every `kern_big` whatever
+the kernel was built with. The knob is here so the feature arrives as one
+thing, not because a package could not have it alone.
+
+#### 13.10.7.1 Each of them tests the kernel it is running on
+
+`OSAPI_WM_ONDRAG` answers **CF = 1** on `kern_small` (§13.8.2), and a package
+that grabbed the thumb there would take a gesture nothing will ever feed it:
+no `W_ONDRAG`, no `W_ONMOUSEUP`, a thumb stuck where the hand left it and a
+view that never follows. So the install banks the answer —
+
+```
+    call OSAPI_WM_ONDRAG
+    sbb al, al              ; 0xFF = this kernel cannot track
+```
+
+— and the grab site tests that byte before it takes anything. On a small
+kernel the thumb stays exactly as inert as it was.
+
+**The install goes inside a `pushf`** in every one of them, because a package
+entry proc still owes the loader `wm_create`'s CF and `OSAPI_WM_ONDRAG`
+*states* a flag of its own. Note Pad's `OSAPI_WM_ONCLOSE` comment already
+names that hazard for its own slot; this is the same one, twice more.
+
+#### 13.10.7.2 TexPad has TWO bars, which is what §13.10.5.10 was for
+
+The source pane's bar counts **lines** (`tp_vscroll`) and the preview's counts
+**pixels** (`tp_pscroll`), with a block and a setter each. They share one
+gesture record, so `os88ui_sbmine` is what tells `tp_ondrag` which of the two
+the hand is on — and it is asked *before* the drop, because a drop spends the
+record and a drop on the wrong bar would spend somebody else's.
+
+That the two bars measure different units costs the element nothing: `pos`,
+`total` and `fit` are whatever the caller's setter puts in the block, and
+§13.10.5.3's inverse is unit-agnostic by construction.
+
+#### 13.10.7.4 The define goes at the TOP of the file, and this is the second time
+
+`kernel.asm` carries this note already (§13.10.5's commit): a `%ifdef` is a
+**preprocessor** test answered in **file order**, so a symbol defined beside
+the `%include` that pulls `os88ui.inc` in is not defined at any `%ifdef`
+*above* that line. In the kernel it was `files.inc` being included before
+`fdlg.inc`. In a package it is worse, because the include sits at the very
+bottom by contract — §20.2 requires it after the header and the icon block —
+and every site that needs the symbol is above it: the window entry, the
+setter, the bar ladder, both edge handlers.
+
+**The failure is silent and it looks like the feature not working.** The
+element's drag body assembles (it is inside the include, below the define),
+so the binary *grows*; every one of the app's own blocks vanishes; nothing
+errors. Note Pad grew by 405 bytes and its thumb did not move.
+
+So in all three the define is at the **top**, immediately after
+`%include "os88api.inc"`, and the line beside `OS88UI_SCROLL` is a comment
+pointing at it.
+
+**Two labels, one tail, and NASM will not say so.** `np_ondrag` and `np_onup`
+share everything but one call, so they share an exit — and a local label
+belongs to whichever non-local label preceded it, which makes `np_ondrag.out`
+and `np_onup.out` two different symbols with only one defined. The knock-on
+is what costs the time: NASM's sizing pass then mis-sizes, and the first
+error it prints is *"short jump is out of range"* three thousand lines away in
+code nobody touched.
+
+#### 13.10.7.3 What it cost
+
+| | before | after | |
+|---|---:|---:|---:|
+| Note Pad | 17,308 | 17,887 | **+579** |
+| Browser | 13,946 | 14,535 | **+589** |
+| TexPad | 23,629 | 24,265 | **+636** |
+
+The floor is §13.10.6.2's **+405** — the element's own drag body, identical in
+all three because it is the same source — so the wiring is **174 / 184 / 231**:
+the setter's `os88ui_sbfix`, the grab in the bar ladder, two edge handlers, a
+stale net and the capability byte. TexPad pays ~50 more than the other two and
+it is exactly §13.10.7.2: a second bar needs `tp_sbd_which` and a commit that
+branches on which one it answered.
+
+**The estimate in §13.10.6.2 was ~450 / ~470 and the real numbers are ~580.**
+What it missed is the same class of thing the file dialog's estimate missed —
+not the gesture, but what a *second* consumer of a shared thing needs before
+it can be trusted: the capability byte (§13.10.7.1) and the stale net are per
+app and neither was in the count.
+
+**The floppy is not the constraint** and was not going to be: the three
+together add ~1.8 KB, and the 360KB apps disk has 95 of its 354 clusters free.
+The kernel's `.cold` rung is the scarce thing, and none of this is in it.
+
 ### 13.11 A package's RIGHT click — `W_ONRCLICK` (API 0x0490)
 
 Until this slot existed the right button reached **no package at all**.
