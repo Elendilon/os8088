@@ -61459,14 +61459,40 @@ card away from the only thing that wanted it.
 
 So the beat:
 
-- `eth_pump_i` sets `[eth_wbeat]` — one `mov`, at the one door the verbs come
-  through and the worker never does (the worker calls `eth_pump1` and
-  `eth_ptimers` directly, so it cannot beat on its own behalf).
+- **`eth_pkg` sets `[eth_wbeat]` as a package comes through the door, and
+  BEFORE it claims the card** — so a verb that is *refused* announces its
+  demand as loudly as one that is served. Setting it only where the claim
+  succeeds is a **stable livelock**: a worker holding the card bounces the
+  caller, the bounced verb leaves no trace, the worker reads an idle stack and
+  pumps again, and nothing ever breaks the cycle. The worker never comes
+  through that door — it calls `eth_pump1` and `eth_ptimers` directly — so it
+  cannot beat on its own behalf.
 - The worker test-and-clears it at the top of every turn, with `xchg al,
   [eth_wbeat]` because two tasks write the byte and `xchg` with memory is
   locked on an 8086 whether or not the prefix is written.
-- It was **already 0** — a whole turn went by with no verb pumping — and only
-  then does the worker claim the card.
+- It was **already 0** — a whole turn went by with nobody asking — and only
+  then does the worker claim the card. It re-reads the beat **inside** the
+  drain as well, so a package that asks mid-drain takes the card back within
+  one frame instead of eight.
+
+#### 72.19.6 `eth_pump1` destroys CX, and `loop` made the budget ~1500
+
+The standby build still lost 5% and a drag still killed the transfer, and that
+was not the design — it was `eth_wrk` written as `mov cx, ETH_BUDGET` … `loop
+.f`. **`eth_pump1` returns `ne_rx`'s frame length in CX and hands it to
+`eth_frame` as an input**; inet.inc says so at the label, and `eth_pump_i`
+keeps its own budget in **BP** for precisely that reason. So the worker's
+"eight frames" was really *the last frame's length* — about 1500 — and it
+drained the ring a thousand frames at a time with no yield anywhere in it.
+Every package verb landing in that storm got `NETE_BUSY`, and `fd_recv_stage`
+throws away a whole drain for one of those (§77.30). A drag is where the
+package gets fewest turns, so it is where every one of them landed in the
+storm.
+
+The budget is BP now. **The lesson is the register contract, not the
+scheduler**: a routine documented as "CX is the caller's to save" was called
+from a `loop`, which assembles cleanly, runs, and is wrong only in how much it
+does.
 
 A busy stack is therefore the pre-worker build, in behaviour and very nearly in
 instructions retired; an idle one, or one whose package is inside a 400ms disk

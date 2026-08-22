@@ -272,15 +272,20 @@ eth_dhcp_wait:
 ; the next poll, the card's ring fills while the UI repaints, and an incoming
 ; SYN sits there until somebody calls a verb.
 ;
-; **IT COVERS THE GAPS AND DOES NOT COMPETE.** The first cut had it pump
-; INSTEAD of the verbs, and the field measured 16029 -> 13843 B/s on a 300KB
-; upload (docs/FTP-PERF.md): during a transfer the app calls verbs many times a
-; tick, so the worker was not filling any gap - it was taking the card away
-; from the only thing that wanted it, and each collision costs the app a whole
-; pass (fd_recv_stage abandons its drain on NETE_BUSY). eth_pump sets
-; [eth_wbeat]; this test-and-clears it once a turn and pumps ONLY when a full
-; turn went by with no verb pumping. A busy stack is therefore exactly the
-; pre-worker build, byte for byte of behaviour, and an idle one gets pumped.
+; **IT COVERS THE GAPS AND DOES NOT COMPETE**, and getting there took two field
+; rounds and one plain bug (docs/FTP-PERF.md 6.1):
+;
+;   16029 B/s   no worker
+;   13843 B/s   worker pumps INSTEAD of the verbs
+;   15227 B/s   ...worker on standby - and a drag STILL killed the transfer
+;
+; The bug is the budget below and it is what the drag was hitting. What is left
+; is the design: eth_pkg sets [eth_wbeat] as a package comes through the door,
+; BEFORE it claims, so a REFUSED verb announces its demand too - set it only
+; where the claim succeeds and a worker holding the card starves the caller into
+; never setting it, which is a stable livelock. This test-and-clears it once a
+; turn and pumps ONLY when a whole turn went by with nobody asking. A busy stack
+; is therefore the pre-worker build; an idle one gets pumped.
 ;
 ; **ONE FRAME PER ACQUISITION OF THE CARD.** eth_claim is answered with
 ; NETE_BUSY and never waited on (drivers/net/netpkg.inc), so a worker that held
@@ -303,15 +308,27 @@ eth_wrk:
     xor al, al                  ; TEST AND CLEAR, in one instruction because two
     xchg al, [eth_wbeat]        ; tasks write this byte: `xchg` with memory is
     or  al, al                  ; locked on an 8086 whether or not it is asked
-    jnz .nap                    ; ...somebody pumped since the last turn: theirs
-    mov cx, ETH_BUDGET
+    jnz .nap                    ; ...a package wanted the card since the last
+                                ; turn: it is theirs and we are not needed
+    mov bp, ETH_BUDGET          ; **BP, NOT CX** - eth_pump1 DESTROYS CX: it is
+                                ; ne_rx's length out and eth_frame's input in,
+                                ; and inet.inc says so at the label. Written as
+                                ; `loop .f` this budget was the LAST FRAME'S
+                                ; LENGTH - about 1500 - so the worker drained
+                                ; the ring a thousand frames at a time with no
+                                ; yield in it, and every package verb landing
+                                ; in that storm got NETE_BUSY. eth_pump_i keeps
+                                ; its own budget in BP for exactly this reason
 .f:
+    cmp byte [eth_wbeat], 0     ; ...and a package that asked MID-DRAIN takes it
+    jne .nap                    ; from us within one frame, not eight
     call eth_claim              ; somebody else has the card: leave it to them,
     jc  .nap                    ; they are pumping on their own account anyway
     call eth_pump1
     mov byte [eth_busy], 0      ; ...released BEFORE the CF is read: `mov`
     jc  .rest                   ; touches no flags, so the answer survives
-    loop .f
+    dec bp
+    jnz .f
 .rest:
     call eth_claim
     jc  .nap
@@ -462,6 +479,16 @@ eth_pkg:
                                 ; touches neither the card nor [eth_useg]
                                 ; (SPEC.md 20.11.1). NETV_STATE is NOT in that
                                 ; company - eth_v_state pumps the ring
+%ifdef ETHPUMP
+    mov byte [eth_wbeat], 1     ; **A PACKAGE WANTS THE CARD** (SPEC.md 72.19.5),
+                                ; and it is set BEFORE the claim and not after -
+                                ; so a verb that is REFUSED still announces the
+                                ; demand. Set it only where the claim succeeds
+                                ; and a worker that has the card starves the
+                                ; caller into never setting it: the bounced verb
+                                ; leaves no trace, the worker sees an idle stack
+                                ; and pumps again, and the livelock is stable
+%endif
     call eth_claim              ; **THE CARD IS ONE CARD** (SPEC.md 72.2.2)
     jc  .busy
     mov [eth_useg], es

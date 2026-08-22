@@ -924,14 +924,6 @@ eth_pump_i:                     ; STKDEPTH-NOSAVE: ax bx dx si di
                                 ; everything it always did (SPEC.md 72.16.4)
     cmp byte [eth_up], 0
     je  .out
-%ifdef ETHPUMP
-    mov byte [eth_wbeat], 1     ; **THE VERB IS PUMPING, SO THE WORKER IS NOT**
-                                ; (SPEC.md 72.19.5). Set here rather than at the
-                                ; eight ETH_VPUMP sites - five bytes once - and
-                                ; safe because the worker never comes through
-                                ; this door: it calls eth_pump1 and eth_ptimers
-                                ; directly, so it cannot beat on its own behalf
-%endif
     mov bp, ETH_BUDGET
 .f:
     call eth_pump1

@@ -164,6 +164,57 @@ Both halves of that are the same cause and neither is a win:
   rather than a second fault. *(Mechanism inferred, not instrumented: what is
   measured is that it happens on B and not on A.)*
 
+**Round two — the standby, and the bug underneath all of it.** Same transfer,
+B2 = `ETHPUMP=1` with the worker standing down whenever a verb had pumped:
+
+| build | wall | rate | disk | net | draw |
+|---|---|---|---|---|---|
+| A — verbs pump | 19s | 16029 B/s | 3579 | 7649 | 33 |
+| B — worker instead of verbs | 22s | 13843 B/s | 3613 | 2497 | 33 |
+| B2 — worker on standby | 20s | **15227 B/s** | 3618 | 7140 | 144 |
+
+`net` back to 7140 says the verbs are pumping again, and 5% is a lot better
+than 13.6%. But **the drag still killed the transfer, and afterwards the client
+could not even reconnect** — which is the finding, because a stalled transfer
+is a contention story and a dead listener is not. Every verb was being refused,
+including `ACCEPT`.
+
+It was a register-contract bug, in the worker I wrote:
+
+```
+    mov cx, ETH_BUDGET
+.f: call eth_claim
+    call eth_pump1              ; ...which returns ne_rx's LENGTH in CX
+    loop .f                     ; ...so this counts down from ~1500
+```
+
+`eth_pump1` is documented at its label as "CX is `ne_rx`'s length and
+`eth_frame`'s input, so it flows between them and is the caller's to save", and
+`eth_pump_i` keeps its budget in **BP** for exactly that reason. The worker's
+eight-frame budget was really the last frame's length, so it drained the ring a
+thousand frames at a time with no yield in it — and every package verb landing
+in that storm got `NETE_BUSY`. A drag is where the package gets the fewest
+turns, so it is where all of them landed in it.
+
+Two things came out of the fix (SPEC.md §72.19.5–.6): the budget moved to BP
+and the worker re-reads the beat *inside* the drain, and — separately — the
+beat moved to `eth_pkg`'s door and is set **before** the claim. Setting it only
+where the claim succeeded is a stable livelock: a bounced verb leaves no trace,
+so the worker reads an idle stack and pumps again forever. That is the half
+that explains "cannot reconnect".
+
+**On "cannot reconnect", and it is inferred rather than proven.** The field
+waited 200s and it never cleared; stopping and restarting the server got a
+connection and a `PWD` through before it timed out again. A restart does not
+touch `[eth_busy]`, and `LISTEN`/`ACCEPT`/`SEND` all worked immediately after
+one — so the card's mutex was **not** what was stuck. `NET_SOCKS` is **4**
+(netpkg.inc), and a session in flight is already using three of them; a
+transfer that dies with its connections stranded leaves nothing for `sk_alloc`
+to hand the next `ACCEPT`. Stopping the server is what closes them. So the
+starvation is the fault and the dead listener is downstream of it, which is why
+the fix is aimed at the starvation and the reconnect is a thing to re-check
+rather than a thing separately fixed.
+
 **Neither of these runs measures what the worker is FOR.** A 300KB upload is
 the case where the app polls hardest; the worker exists for the windows where
 it does not poll at all — an incoming SYN while the UI repaints. That case has
