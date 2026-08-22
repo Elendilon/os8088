@@ -13151,17 +13151,18 @@ back.
 | Note Pad | yes | `W_ONCLICK` only |
 | TexPad | yes | the three edges |
 | Browser | yes | `W_ONCLICK` only |
+| **Word** (`word.asm`) | **yes — converted** (§13.10.6.3) | `W_ONCLICK`; its menus poll |
 | **Frotz** (`zwin.inc`) | **no — private** | polls `OSAPI_MOUSE` |
-| **Word** (`word.asm`) | **no — private** | polls `OSAPI_MOUSE` (§27.8.1) |
 | Artful (`atrend.inc`) | no — **and correctly** | polls |
 
-**Frotz and Word are the two, and both say so in their own headers.**
+**Frotz and Word were the two, and both said so in their own headers.**
 `zw_thumb` is *"SPEC.md 22's geometry, so it looks like the Disk window's"*;
-`wd_thumb` is *"The Disk window's arithmetic (§22): height = fit\*track/total
+`wd_thumb` was *"The Disk window's arithmetic (§22): height = fit\*track/total
 with an 8px floor, top = scroll\*track/total, clamped so the bottom of the
 thumb cannot leave the track."* Both are `os88ui_sbthumb` re-typed, and both
 exist **in order to look like the shared element** — which is the argument for
-adopting it stated by the code that did not.
+adopting it stated by the code that did not. **Word is converted**
+(§13.10.6.3); Frotz is the one left.
 
 **Artful is not one of them.** Its bar is a **16-pixel square** white thumb in
 a 24-pixel margin — *"Classic Macintosh anatomy … `gScrollBarVisible`'s rule,
@@ -13171,6 +13172,65 @@ exempts beside ModPlug's bevelled well and Minesweeper's cell: **converting it
 would be undoing intended design, not consolidating it.** A fixed-size thumb
 answers a different question from a proportional one — it says *where* and not
 *how much* — so it is a different widget and not a skin.
+
+#### 13.10.6.3 Word, converted — and why adopting the bar COSTS a package
+
+Word's bar was **pixel-identical** to the shared element, checked rule by rule
+before anything was moved: arrow-cell rules at `ty+10` and `sbb-10`, track
+between `ty+11` and `sbb-11`, arrow glyphs on `x1+6` (the element *computes*
+`x1 + (x2-x1)/2`, which is 6 on a 14px bar), an 8px minimum thumb,
+`fit*track/total` for its height, `scroll*track/total` for its top, and the
+same clamp holding its bottom inside the track. So the conversion is a pure
+deduplication and there is nothing to look at.
+
+**Verified rather than argued**: Word's whole window — 155 × 600 pixels,
+ruler, toolbar, text, bar and thumb — is identical between the two builds with
+`WELCOME.DOC` loaded, and identical again after forty `ArrowDown` presses,
+which is the path `wd_sbcheck` rewrote.
+
+**It costs 309 bytes, and the decomposition is the interesting part:**
+
+| | |
+|---|---:|
+| the shared element, in Word's image | **+565** |
+| its private bar out, `wd_sbset` and the block in | **−256** |
+| **net** | **+309** |
+
+**§13.10 says the conversion "IS A NET SAVING" and that was true of the
+KERNEL, for a reason that does not transfer.** There, *two* callers shared one
+copy of the element, so the second bar was free. A package with **one** bar
+pays for the whole element to replace one private implementation, and the
+element is bigger than any private bar because it carries the generality
+§13.10.3.1 already priced: bounds tests, a thumb part neither caller asked
+for, a computed centre, and a block that has to be filled.
+
+**So the reason to do it is not bytes**, and never was for a package. It is
+§13.10's own first reason — one description of a widget that had seven — plus
+one thing Word measurably gains: **`os88ui_sbmove`**, which it did not have.
+Its `wd_sbcheck` repainted the whole bar on every scroll; a scroll changes
+neither `total` nor `fit`, so the thumb only *translates* and three drawing
+calls do what sixteen did. On a 4.77 MHz 8088 that is ~10 ms back on every
+scroll, which is §13.10.3's "half of this change that is not about bytes"
+arriving in a seventh place.
+
+**Note Pad has the same opportunity and has not taken it**: `np_sbcheck` still
+calls `np_sbar` and repaints its bar whole.
+
+#### 13.10.6.4 What the drag would take on Word, and the one thing in the way
+
+Not the polling loop, which is what this section used to imply. `word.asm`
+takes `W_ONCLICK` like any package; what it has never installed is
+`OSAPI_WM_ONMOUSEUP`, and its own note says why — *"tick, relock, poll
+`OSAPI_MOUSE` (§27.8.1) — and never `OSAPI_WM_ONMOUSEUP`, which must not be
+mixed with a polling loop."*
+
+**That note is scoped to `wd_mtrack`**, the menu's press-drag-release, which
+runs modally inside `W_ONCLICK` and consumes its own release. The thumb drag
+would install the two edges for a *different* gesture that cannot be live at
+the same time as an open menu. Whether §13.7's no-mixing rule is satisfied by
+"not at the same time" or requires "not in the same package" is the question
+to answer before wiring it — and it is a design question, not the mechanical
++579 the other three packages cost.
 
 #### 13.10.6.1 The gesture is edge-agnostic, and that is what makes "everywhere" possible
 

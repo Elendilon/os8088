@@ -224,7 +224,6 @@ WD_SB_W      equ 14             ; scroll bar width, the Disk window's
                                 ; whether a bar is NEEDED depends on the row
                                 ; count, which depends on the wrap width,
                                 ; which would depend on the bar
-WD_SB_ARR    equ 11             ; ...and the arrow cells at each end of it
 WD_SB_STEP   equ 4              ; rows an arrow cell steps. The Disk window
                                 ; steps one, but its rows are 16px list
                                 ; entries and these are 8px lines of prose:
@@ -987,65 +986,43 @@ wd_seecaret:
     ret
 
 ; -----------------------------------------------------------------------------
-; wd_thumb - the thumb's geometry, shared by the painter and the hit test
-; in:  wd_bounds run
-; out: CF=1 no thumb (it all fits, or the track is too short); else CF=0,
-;      AX = thumb top (absolute y), DX = thumb height
-; clobbers: nothing else
+; wd_sbset - fill wd_sb with this window's bar (SPEC.md 13.10)
+; out: BX = the block; every other register preserved
 ;
-; The Disk window's arithmetic (SPEC.md 22): height = fit*track/total with an
-; 8px floor, top = scroll*track/total, clamped so the bottom of the thumb
-; cannot leave the track.
+; **THIS APP'S BAR WAS PIXEL-IDENTICAL TO THE SHARED ELEMENT**, so the
+; conversion changes nothing on the glass - it was simply the seventh copy of
+; a picture the kernel already draws once (SPEC.md 13.10.6). Checked rule by
+; rule before it was made: the two arrow-cell rules at ty+10 and sbb-10, the
+; track between ty+11 and sbb-11, the arrow glyphs centred on x1+6 (the
+; element COMPUTES x1 + (x2-x1)/2, which is 6 on a 14px bar), an 8px minimum
+; thumb, fit*track/total for its height and scroll*track/total for its top,
+; and the same clamp keeping its bottom inside the track.
+;
+; What went with wd_thumb and wd_trackh is ~120 bytes of arithmetic that had
+; to agree with six other copies by hand.
 ; -----------------------------------------------------------------------------
-wd_thumb:
-    push bx
-    push cx
-    mov ax, [wd_drows]
-    cmp ax, [wd_vrows]
-    jbe .none
-    call wd_trackh                  ; BX = track height
-    cmp bx, 8
-    jl .none                        ; degenerate track: bare, no thumb
-    mov ax, [wd_vrows]
-    mul bx
-    div word [wd_drows]             ; AX = proportional height
-    cmp ax, 8
-    jge .hok
-    mov ax, 8
-.hok:
-    mov cx, ax
-    mov ax, [wd_top]
-    mul bx
-    div word [wd_drows]             ; AX = offset down the track
-    add ax, [wd_ty]
-    add ax, WD_SB_ARR               ; ...from the track's top
-    mov dx, [wd_ty]                 ; clamp: top <= track top + track - height
-    add dx, WD_SB_ARR
-    add dx, bx
-    sub dx, cx
-    cmp ax, dx
-    jle .tok
-    mov ax, dx
-.tok:
-    mov dx, cx
-    clc
-    jmp short .out
-.none:
-    stc
-.out:
-    pop cx
-    pop bx
-    ret
-
-; wd_trackh - BX = the grey track's height, between the two arrow cells
-wd_trackh:
+wd_sbset:
     push ax
-    mov bx, [wd_sbb]
-    sub bx, [wd_ty]
-    inc bx
-    sub bx, WD_SB_ARR*2
+    mov ax, [wd_sbr]
+    sub ax, WD_SB_W-1
+    mov [wd_sb+0], ax
+    mov ax, [wd_sbr]
+    mov [wd_sb+4], ax
+    mov ax, [wd_ty]
+    mov [wd_sb+2], ax
+    mov ax, [wd_sbb]
+    mov [wd_sb+6], ax
+    mov ax, [wd_drows]
+    mov [wd_sb+8], ax
+    mov ax, [wd_vrows]
+    mov [wd_sb+10], ax
+    mov ax, [wd_top]
+    mov [wd_sb+12], ax
+    mov bx, wd_sb
     pop ax
     ret
+
+wd_sb:      dw 0,0,0,0,0,0,0
 
 ; -----------------------------------------------------------------------------
 ; wd_sbar - draw the scroll bar
@@ -1055,105 +1032,12 @@ wd_trackh:
 wd_sbar:
     push ax
     push bx
-    push cx
-    push dx
-    push di
-    push bp
-    mov di, [wd_sbr]
-    sub di, WD_SB_W-1               ; DI = the bar's left column, absolute
-
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di                      ; the box
-    mov bx, [wd_ty]
-    mov cx, [wd_sbr]
-    mov dx, [wd_sbb]
-    call OSAPI_GFX_FRAME
-
-    mov ax, di                      ; the two arrow-cell rules
-    mov bx, [wd_sbr]
-    mov dx, [wd_ty]
-    add dx, WD_SB_ARR-1
-    call OSAPI_GFX_HLINE
-    mov ax, di
-    mov bx, [wd_sbr]
-    mov dx, [wd_sbb]
-    sub dx, WD_SB_ARR-1
-    call OSAPI_GFX_HLINE
-
-    xor bp, bp                      ; up glyph: 5 rows, widths 1..9
-    mov dx, [wd_ty]
-    add dx, 3
-.up:
-    mov ax, di
-    add ax, 6
-    sub ax, bp
-    mov bx, di
-    add bx, 6
-    add bx, bp
-    call OSAPI_GFX_HLINE
-    inc dx
-    inc bp
-    cmp bp, 5
-    jb .up
-
-    mov bp, 4                       ; down glyph: 5 rows, widths 9..1
-    mov dx, [wd_sbb]
-    sub dx, 7
-.dn:
-    mov ax, di
-    add ax, 6
-    sub ax, bp
-    mov bx, di
-    add bx, 6
-    add bx, bp
-    call OSAPI_GFX_HLINE
-    inc dx
-    dec bp
-    jns .dn
-
-    mov ax, di                      ; the track, grey between the rules
-    inc ax
-    mov bx, [wd_ty]
-    add bx, WD_SB_ARR
-    mov cx, [wd_sbr]
-    dec cx
-    mov dx, [wd_sbb]
-    sub dx, WD_SB_ARR
-    cmp bx, dx
-    jg .done                        ; degenerate track: leave it framed
-    call OSAPI_GFX_FILL_GRAY
-
-    call wd_thumb                   ; CF=1: it all fits, no thumb
-    jc .done
-    mov bx, ax                      ; y1 = thumb top
-    add dx, ax
-    dec dx                          ; y2 = top + height - 1
-    mov ax, di
-    add ax, 2
-    mov cx, [wd_sbr]
-    sub cx, 2
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di
-    add ax, 2
-    mov cx, [wd_sbr]
-    sub cx, 2
-    call OSAPI_GFX_FRAME
-.done:
+    call wd_sbset
+    call os88ui_sbar
     mov ax, [wd_top]                ; remember what is on screen, so a redraw
     mov [wd_sbtop], ax              ; that moved neither number draws nothing
     mov ax, [wd_drows]
     mov [wd_sbrows], ax
-    pop bp
-    pop di
-    pop dx
-    pop cx
     pop bx
     pop ax
     ret
@@ -1164,15 +1048,30 @@ wd_sbar:
 ; -----------------------------------------------------------------------------
 wd_sbcheck:
     push ax
-    mov ax, [wd_top]
-    cmp ax, [wd_sbtop]
-    jne .draw
+    push bx
     mov ax, [wd_drows]
     cmp ax, [wd_sbrows]
-    je .out
-.draw:
+    jne .full                       ; the TOTAL moved, so the thumb's height
+    mov ax, [wd_top]                ; did: only a full draw can resize it
+    cmp ax, [wd_sbtop]
+    je .out                         ; neither moved: draw nothing at all
+    call wd_sbset                   ; BX = the block, holding the NEW pos...
+    mov ax, [wd_sbtop]              ; ...and this is where the thumb is DRAWN
+    call os88ui_sbmove              ; THREE drawing calls against the bar's
+                                    ; sixteen (SPEC.md 13.10.3): a scroll moves
+                                    ; neither total nor fit, so the frame, both
+                                    ; rules, both arrow glyphs and all of the
+                                    ; track the thumb did not cover are exactly
+                                    ; where they were. This is the half of
+                                    ; sharing that is not about bytes, and it
+                                    ; is ~10 ms a scroll on the target machine
+    mov ax, [wd_top]
+    mov [wd_sbtop], ax
+    jmp short .out
+.full:
     call wd_sbar
 .out:
+    pop bx
     pop ax
     ret
 
@@ -1216,23 +1115,19 @@ wd_sbclick:
     push dx
     call wd_sbhit
     jc .no
-    mov bx, dx                      ; BX = the click's y; wd_thumb wants DX
-    mov ax, [wd_ty]
-    add ax, WD_SB_ARR
-    cmp bx, ax
-    jb .lineup
-    mov ax, [wd_sbb]
-    sub ax, WD_SB_ARR
-    cmp bx, ax
-    ja .linedn
-    call wd_thumb                   ; AX = thumb top, DX = its height
-    jc .yes                         ; it all fits: the bar is inert, but ours
-    cmp bx, ax
-    jb .pageup
-    add ax, dx
-    cmp bx, ax
-    jae .pagedn
-    jmp short .yes                  ; on the thumb itself
+    call wd_sbset                   ; the SHARED element's parts (SPEC.md
+    call os88ui_sbhit               ; 13.10) - BX = the block wd_sbset just
+                                    ; filled, and CX/DX are still the point,
+                                    ; absolute, as it takes them
+    cmp al, OS88UI_SBUP
+    je .lineup
+    cmp al, OS88UI_SBDOWN
+    je .linedn
+    cmp al, OS88UI_SBPGUP
+    je .pageup
+    cmp al, OS88UI_SBPGDN
+    je .pagedn
+    jmp short .yes                  ; the thumb itself, or an inert track
 .lineup:
     mov ax, [wd_top]
     sub ax, WD_SB_STEP
@@ -20085,6 +19980,9 @@ section .text
 %assign WD_BSS_TOTAL WDB
 
 ; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
+%define OS88UI_SCROLL           ; SPEC.md 13.10: the shared scroll bar. This
+                                ; app had the SEVENTH private implementation
+                                ; of it (13.10.6), and its own header said so
 %include "os88ui.inc"
 %include "os88type.inc"         ; SPEC.md 6.5: proportional type, and the band
                                 ; it is composed into. AFTER os88ui.inc for no
