@@ -43,7 +43,7 @@
 ; =============================================================================
 
 ; --- task table (SPEC.md 8) --------------------------------------------------
-MAX_TASKS   equ 12              ; mirrored in apps/os88api.inc, which sizes
+MAX_TASKS   equ 8               ; mirrored in apps/os88api.inc, which sizes
                                 ; every package's snapshot buffer from it
                                 ; (SPEC.md 20.9) - change them together and
                                 ; rebuild every .o88
@@ -63,7 +63,7 @@ TF_SERVICE  equ 1               ; survives the fullscreen-exclusive freeze:
                                 ; would starve a Sound Blaster stream mid-
                                 ; game (SPEC.md 53.2)
 
-SCH_STACK   equ 256             ; per-task stack bytes. It was 1,536 when the
+SCH_STACK   equ 384             ; per-task stack bytes. It was 1,536 when the
                                 ; stacks were the only thing in .lowbss, then
                                 ; 512. A 0xCC fill probe under the heaviest
                                 ; load the machine can carry - Timer, two

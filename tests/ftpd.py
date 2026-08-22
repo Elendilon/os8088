@@ -241,17 +241,18 @@ def stack_water(m):
     """
     import stkwater                                 # tools/ is already on the
     n = stkwater.slice_len()                        # path (the header above)
+    ns = stkwater.slots()
     base = os88sym.linear("sch_stacks", stkwater.DEF)
-    mem = m.read(base, stkwater.SLOTS * n)
+    mem = m.read(base, ns * n)
     say("")
-    worst = stkwater.report(mem, stkwater.SLOTS, n,
+    worst = stkwater.report(mem, ns, n,
                             "(after the whole ftpd gate, under QEMU)", base)
     if not worst:
         return
     # ...and WHERE those bytes went. The deepest slice's dead words still carry
     # the return addresses of the chain that made it deep, so the number gets
     # attributed instead of argued about (docs/KERNEL-MEMORY.md, "Task stacks").
-    rows = [r for r in stkwater.water(mem, stkwater.SLOTS, n)
+    rows = [r for r in stkwater.water(mem, ns, n)
             if r[1] == worst]
     slot = rows[0][0]
     row = m.read(S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ + eth.DRVR_SEG, 2)

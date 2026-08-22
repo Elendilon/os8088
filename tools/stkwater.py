@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 """stkwater: how deep every task stack has actually been (SPEC.md 8).
 
-    make KFZ=1                      # ...only a KFZ kernel fills the slices
     python3 tests/ftpd.py --kfz     # drives a real FTP session and reports
     python3 tools/stkwater.py build/qmp.sock       # ...or read a live guest
 
-`SCH_STACK` = 256 was sized at 1.8x a 142-byte 0xCC-fill mark
-(docs/KERNEL-MEMORY.md, "Task stacks") - and that mark was taken before
-`ETHER.DRV` and `apps/ftpd` existed. A socket write runs the whole TCP stack on
-the CALLING task's slice, and the field has now photographed `sch_stkdie`'s bar
-with a background task 196 bytes into its 256 before the tick even arrived
-(docs/FIELD-NOTES.md 27.6).
+`task_spawn` fills every slice with 0xCC before it writes the canary and carves
+the frame (SPEC.md 8.3) - on the SHIPPING kernel, not only a `KFZ=1` one - so
+each slice carries its own high water and this only has to read them out of
+`LOW_SEG`. `KFZ=1` adds the deepest-tick sample (8.4) that names the code.
 
-So this is that probe, automated and pointed at the network stack. A `KFZ=1`
-`task_spawn` fills each slice with 0xCC before it writes the canary and the
-frame; this reads the slices out of `LOW_SEG` and reports, per slot, the
-deepest byte anything ever touched.
+**The slice size comes off the kernel, never from here.** `SCH_STACK` was 256
+until the field measured 220 of it in use during an FTP upload
+(docs/FIELD-NOTES.md 27.7) and is 384 now; `slice_len()` asks `os88sym` for the
+equate rather than mirroring a number that would go stale the day it mattered.
 
 **Read the DEPTH, not the occupancy.** A slice is written at both ends by
 construction - the canary at the bottom, the spawn frame at the top - so the
@@ -24,10 +21,13 @@ slot that was never scheduled still shows its 24-byte frame. A slot reading the
 whole slice has gone through the canary and `sch_switch` has already halted the
 machine.
 
-**QEMU understates a real BIOS by ~20 bytes** (docs/KERNEL-MEMORY.md): SeaBIOS
-services its interrupt entries on a stack of its own, where an IBM ROM runs
-int 08h on whichever task stack is current. Add that before deciding a number,
-and take the deciding one on the 5150 with `tests/stackprobe`.
+**QEMU understates a real BIOS by ~46 bytes**, measured (docs/KERNEL-MEMORY.md):
+SeaBIOS services its interrupt entries on a stack of its own, where an IBM ROM
+runs int 08h on whichever task stack is current - and under QEMU a worker's pass
+can finish between ticks and never pay the interrupt at all. Add it before
+deciding a number, and take the deciding one on the 5150 with
+`tests/stackprobe`, which reads every slice while the thing under suspicion
+runs.
 """
 import os
 import sys
@@ -38,14 +38,25 @@ import os88sym                                              # noqa: E402
 FILL = 0xCC
 MAGIC = b"\x57\x5A"           # SCH_MAGIC = 0x5A57, at the slice BOTTOM
 DEF = ("KFZTRACE",)
-SLOTS = 11                       # MAX_TASKS - 1; slot 0 runs on task 0's stack
 
 
 def slice_len(defines=DEF):
-    return int(os88sym.syms(defines).get("SCH_STACK", 256)) or 256
+    """SCH_STACK, out of the kernel that was actually built.
+
+    NOT a mirrored 256. `syms()` answers labels only, so the first version of
+    this asked it for SCH_STACK, got nothing, fell back to its own default and
+    reported a 256-byte slice whatever the kernel had - which is the exact
+    failure a probe exists to prevent.
+    """
+    return int(os88sym.equates(defines).get("SCH_STACK", 256)) or 256
 
 
-def water(mem, slots=SLOTS, n=256):
+def slots(defines=DEF):
+    """MAX_TASKS - 1: slot 0 is the UI task and owns no slice."""
+    return int(os88sym.equates(defines).get("MAX_TASKS", 12)) - 1
+
+
+def water(mem, nslots, n):
     """[(slot, used, untouched)] - `mem` is the slices, back to back.
 
     **THE CANARY IS AT THE BOTTOM OF EVERY SLICE**, and the first version of
@@ -57,7 +68,7 @@ def water(mem, slots=SLOTS, n=256):
     on) and is reported as such rather than measured.
     """
     out = []
-    for i in range(slots):
+    for i in range(nslots):
         blk = mem[i * n:(i + 1) * n]
         if len(blk) < n:
             break
@@ -71,12 +82,12 @@ def water(mem, slots=SLOTS, n=256):
     return out
 
 
-def report(mem, slots=SLOTS, n=256, note="", base=None):
+def report(mem, nslots, n, note="", base=None):
     print("== task stack high water %s ==" % note)
     if base is not None:
         print("   slice %d bytes, sch_stacks at linear 0x%05X" % (n, base))
     worst, worst_slot = 0, 0
-    for slot, used, free in water(mem, slots, n):
+    for slot, used, free in water(mem, nslots, n):
         if used is None:
             print("   slot %-2d  -   never spawned (no canary)" % slot)
             continue
@@ -140,7 +151,7 @@ def is_call_site(img, w):
     return None
 
 
-def annotate(blk, used, n=256, kern=None, drv=None, seg=None,
+def annotate(blk, used, n, kern=None, drv=None, seg=None,
              kimg=None, dimg=None):
     """The touched part of one slice, word by word, with the code it names.
 
@@ -195,18 +206,18 @@ def deepest_seen(read, base, drv=None, dimg=None, pkg=None, pimg=None,
     for the path, where the fill is an exact depth and no name at all. Read
     them together.
     """
-    deep, cur, csh, iph, ipl = read(base, 5)
-    print("   (raw at 0x%05X: %s)" % (base, read(base, 5).hex()))     # LINEAR, not an offset:
-                                                # os88sym.syms() answers within
-                                                # the symbol's own segment and
-                                                # the first version handed that
-                                                # straight to a physical read,
-                                                # which reported slot 34
+    deep, cur, csh, iph, ipl = read(base, 5)    # `base` is LINEAR, not an
+                                                # offset: os88sym.syms() answers
+                                                # within the symbol's own
+                                                # segment, and the first version
+                                                # handed that straight to a
+                                                # physical read and reported
+                                                # slot 34
     print("== the deepest TICK the kernel saw ==")
     if not deep:
         print("   nothing recorded - no background task was ever sampled")
         return
-    print("   %d of %d bytes, on slot %d" % (deep, 256, cur))
+    print("   %d of %d bytes, on slot %d" % (deep, slice_len(), cur))
     where = "%02X:%02X%02X" % (csh, iph, ipl)
     off = (iph << 8) | ipl
     tag = "kernel" if csh == 0 else ("the package" if pseg and csh == (pseg >> 8)
@@ -228,13 +239,13 @@ def read_live(sock="build/qmp.sock"):
     import ethernet as eth
     n = slice_len()
     base = os88sym.linear("sch_stacks", DEF)
-    return eth.Qemu(sock).read(base, SLOTS * n), base, n
+    return eth.Qemu(sock).read(base, slots() * n), base, n
 
 
 def main(argv):
     sock = argv[1] if len(argv) > 1 else "build/qmp.sock"
     mem, base, n = read_live(sock)
-    return 0 if report(mem, SLOTS, n, "(live, %s)" % sock, base) else 1
+    return 0 if report(mem, slots(), n, "(live, %s)" % sock, base) else 1
 
 
 if __name__ == "__main__":

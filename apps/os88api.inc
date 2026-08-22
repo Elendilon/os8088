@@ -31,8 +31,8 @@
 ; your data. A pointer held in BP needs an explicit `ds:` override. That has
 ; always been true inside a callback (you run on the UI task's stack) and
 ; matters more now that a package can own a worker task of its own
-; (OSAPI_TASK_SPAWN below), whose 256-byte stack is likewise in LOW_SEG -
-; and 256 is a budget to respect, not a suggestion: the tick, the mouse and
+; (OSAPI_TASK_SPAWN below), whose 384-byte stack is likewise in LOW_SEG -
+; and 384 is a budget to respect, not a suggestion: the tick, the mouse and
 ; any sound IRQ land their frames on it while your worker runs (SPEC.md
 ; 20.6 rule 6; tests/stackprobe measures the real cost on real hardware).
 ;
@@ -963,7 +963,7 @@ SK_KCLAIM  equ 18               ; word: ...of which the kernel's own
 SK_XMS     equ 20               ; word: the pool above 1MB, 0 with no store
 SYSKB_SIZE equ 22
 
-MAX_TASKS  equ 12               ; the scheduler's slots (SPEC.md 8) - a bound
+MAX_TASKS  equ 8                ; the scheduler's slots (SPEC.md 8) - a bound
 INST_MAX   equ 12               ; running instances (SPEC.md 29.1)   on the
 MEM_MAX    equ 32               ; claim records (SPEC.md 50)         buffers
                                 ; above, and each call answers the live figure

@@ -237,12 +237,12 @@ def report(path, at=None):
     print("   ---")
     if stk:
         print("   *** sch_stkdie's BAR IS ON THE SCREEN: A TASK OVERRAN ITS")
-        print("   *** 256-BYTE STACK SLICE and the kernel halted (cli/hlt).")
+        print("   *** STACK SLICE and the kernel halted (cli/hlt).")
         print("   *** The task is %d - sch_cur, cell 3, which the bar does not"
               % vals[3])
-        print("   *** reach. Its slice is sch_stacks + (%d-1)*256 in LOW_SEG,"
+        print("   *** reach. Its slice is sch_stacks + (%d-1)*SCH_STACK in"
               % vals[3])
-        print("   *** and SP below says how deep into it the machine already")
+        print("   *** LOW_SEG, and SP below says how deep the machine already")
         print("   *** was at the last tick.")
     print("   stopped at  %02X:%02X%02X   (CS high: 00 kernel, 0D cold, "
           "else a package)" % (csh, iph, ipl))
@@ -258,9 +258,10 @@ def report(path, at=None):
     else:
         print("   beat - chain = %d, which is neither 0 nor 1 - the strip was "
               "caught mid-paint" % d)
-    print("   SP %02X%02X   (a background slice is 256 bytes, so the low byte "
-          "IS the" % (vals[7], vals[8]))
-    print("        depth: sch_stacks is 256-aligned)")
+    print("   SP %02X%02X   (subtract it from the slice TOP for the depth; "
+          "the slice" % (vals[7], vals[8]))
+    print("        size is SCH_STACK - `python3 tools/stkwater.py` reads it "
+          "off the kernel)")
     print("   PIC mask %02X in-service %02X   (IRQ0 is bit 0 of each)"
           % (vals[13], vals[14]))
     return 0

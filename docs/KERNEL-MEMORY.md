@@ -889,11 +889,18 @@ below. What has *not* changed is the warning that went with it: neither
 mechanism buys a byte of footprint, so neither is a way to make the kernel
 smaller.
 
-### Task stacks — 3,840 B
+### Task stacks — 3,712 B
 
-Eleven background slots of `SCH_STACK` = **256** bytes (`MAX_TASKS-1`, since
+Seven background slots of `SCH_STACK` = **384** bytes (`MAX_TASKS-1`, since
 task 0 owns no slice of `sch_stacks`), plus `STK0_SIZE` = 1,024 bytes for
-task 0 itself. They live in `.lowbss`, addressed through SS, which is why
+task 0 itself.
+
+**It was eleven of 256 until the field measured 220 of them in use.** Seven of
+384 is 3,712 against that arrangement's 3,840 — **128 bytes CHEAPER** — and the
+whole of what it costs is four concurrent worker slots. The reasoning, the
+numbers and what a slot actually is are below; the short version is that a
+1.16× margin on the deepest thing the machine does was not one worth keeping
+for free. They live in `.lowbss`, addressed through SS, which is why
 SS ≠ DS everywhere in the kernel (SPEC.md §1).
 
 **Both numbers are measured.** A 0xCC fill over the whole stack region, then
@@ -905,22 +912,22 @@ bytes** on task 0's stack and **142** on a background task's, the latter
 confirmed twice over, by the Fractal's drawing worker and by Tracker's
 streaming worker with a Sound Blaster's IRQs nesting on top of it. ISR frames
 are included: the tick and mouse handlers run on whichever stack they
-interrupt. So 256 is 1.8× the worst observed background depth and 1,024 is
-3.7× task 0's.
+interrupt. **That was 1.8× on the 256 the slice used to be — and it was taken
+before `ETHER.DRV` existed.** The measurement that matters now is the field's
+**220**, below; 384 is 1.75× against it, and 1,024 is still 3.7× task 0's.
 
-**1.8× is thinner than this project usually runs, so it is checked rather
-than trusted.** `SCH_MAGIC` sits at the bottom word of every slice, written
-by `task_spawn` and compared by `sch_switch` against the task it is switching
-away from; a mismatch means the next push would land in the slice below —
-another task's stack — and `sch_stkdie` halts the machine instead. The check
-is four instructions and no multiply, because `SCH_STACK` = 256 makes slot
-*n*'s base the slot index in the high byte of BX and nothing else; a
-build-time `%error` pins that assumption to the constant.
+**It is checked rather than trusted, either way.** `SCH_MAGIC` sits at the
+bottom word of every slice, written by `task_spawn` and compared by
+`sch_switch` against the task it is switching away from; a mismatch means the
+next push would land in the slice below — another task's stack — and
+`sch_stkdie` halts the machine instead. And `task_spawn` fills the slice with
+`0xCC` first (SPEC.md §8.3), so how CLOSE it came is readable on a running
+machine and not only how it failed.
 
 **The cold segment does not change this.** A far call costs two extra bytes
 of stack per crossing, and the file path now crosses on the way in and again
 on every call back out to a resident routine — but those modules are UI-task
-only, so what they spend comes off task 0's 1,024 rather than a 256-byte
+only, so what they spend comes off task 0's 1,024 rather than a background
 slice, and the deepest chain adds well under a dozen bytes to a mark that
 already had 750 to spare.
 

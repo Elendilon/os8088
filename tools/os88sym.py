@@ -133,6 +133,17 @@ def sections(defines=(), check=True):
     return _load(defines or _DEFAULT, check)[1]
 
 
+def equates(defines=(), check=True):
+    """{name: value} for every `equ` - the CONSTANTS, not the addresses.
+
+    `syms()` answers labels and nothing else, so a tool that wanted SCH_STACK
+    got its own default back and quietly reported a 256-byte slice whatever the
+    kernel had been built with. A constant a tool mirrors is a constant that
+    goes stale; this is the one that cannot.
+    """
+    return _load(defines or _DEFAULT, check)[2]
+
+
 def segment_of(name, defines=(), check=True):
     """The segment `name` is addressed through at run time."""
     off, sect, equ = _load(defines or _DEFAULT, check)

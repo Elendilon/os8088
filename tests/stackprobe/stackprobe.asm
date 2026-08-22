@@ -26,7 +26,7 @@
 ; Numbers to read: HIGH WATER is bytes used from the slice top, the worker's
 ; own few frames plus every ISR that landed (the kernel switch frame is 24
 ; of them); UNTOUCHED is what is left above the canary. Hold keys down, mash
-; the mouse, play a Tracker module - then compare HIGH WATER against 256.
+; the mouse, play a Tracker module - then compare HIGH WATER against 384.
 ;
 ; **AND `OTHER TASKS` IS EVERY SLICE THAT IS NOT OURS**, with the slot it was
 ; found in. That is the line to watch while something else works: our own
@@ -55,7 +55,7 @@
 
 SPB_MAGIC   equ 0x5A57          ; SPEC.md 8's SCH_MAGIC, mirrored: the word
                                 ; at the bottom of every slice
-SPB_SLICE   equ 256             ; SCH_STACK, mirrored (SPEC.md 8) - and it has
+SPB_SLICE   equ 384             ; SCH_STACK, mirrored (SPEC.md 8) - and it has
                                 ; to move WITH it: the SDK publishes MAX_TASKS
                                 ; and not the slice size, so this is the one
                                 ; number in here a kernel change can falsify.
@@ -475,9 +475,9 @@ spb_utoa:
 spb_tpl:    dw 150, 120, 272, 112, spb_s_wt, spb_paint, 0, 0
 spb_s_wt:   db 'Stack Probe', 0
 
-spb_s_title: db 'Worker slice: 256 bytes', 0
+spb_s_title: db 'Worker slice: 384 bytes', 0
 spb_s_used: db 'High water:  '
-spb_n_used: db '  0 of 256', 0
+spb_n_used: db '  0 of 384', 0
 spb_s_free: db 'Untouched:   '
 spb_n_free: db '  0', 0
 spb_s_cok:  db 'Canary OK   ', 0
