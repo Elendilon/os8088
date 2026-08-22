@@ -688,6 +688,20 @@ zf_p1: db 'Frotz', 0
 zf_p2: db 0
 zf_p3: db 'File > Open Story... to begin.', 0
 
+; --- the shared controls (SPEC.md 20.5.1) -------------------------------------
+; AT THE END OF THE CODE, just before OS88_BSS, which is os88ui.inc's own rule:
+; the package header and an OS88_ICON16 block are at FIXED OFFSETS in the image
+; (SPEC.md 20.2), so code emitted between them fails the icon macro's assertion.
+;
+; Only the scroll bar - this app draws no standard buttons. It had the LAST
+; private implementation of that widget (SPEC.md 13.10.6), and zw_thumb's own
+; header said what it was.
+%define OS88UI_SCROLL
+%define OS88UI_BARONLY          ; ...and NOTHING ELSE (SPEC.md 13.10.6.5): this
+                                ; app draws no standard button, and carrying
+                                ; one cost 567 bytes of a floppy
+%include "os88ui.inc"
+
 ; =============================================================================
 ; bss (SPEC.md 21 step 5: the loader zeroes exactly OS88_BSS bytes)
 ; =============================================================================

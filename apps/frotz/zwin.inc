@@ -80,7 +80,6 @@ ZW_STNAME    equ 48                 ; status-line name, captured (Standard
 ZW_STRIGHT   equ 56                 ; where the right-hand field is composed
 
 ; --- the scroll bar, matching Note Pad's so the two look like one machine ----
-ZW_SB_ARR    equ 11                 ; arrow cell at each end
 ZW_SB_STEP   equ 3                  ; rows an arrow click steps
 ZW_GROW      equ 13                 ; the kernel's grow box, bottom right
 
@@ -2368,64 +2367,45 @@ zw_sbtotal:
     inc ax
     ret
 
-; zw_trackh - out BX = the grey track's height, between the two arrow cells
-zw_trackh:
+; -----------------------------------------------------------------------------
+; zw_sbset - fill zw_sb with this window's bar (SPEC.md 13.10)
+; out: BX = the block; every other register preserved
+;
+; **THIS BAR WAS PIXEL-IDENTICAL TO THE SHARED ELEMENT** and its own header
+; said why - "SPEC.md 22's geometry, so it looks like the Disk window's". It
+; was the last of the seven private copies (SPEC.md 13.10.6.5). Checked rule by
+; rule before anything moved: arrow-cell rules at ty+10 and sbb-10, the track
+; between ty+11 and sbb-11, the arrow glyphs on x1+6 (the element COMPUTES
+; x1 + (x2-x1)/2, which is 6 on a 14px bar), an 8px minimum thumb and an 8px
+; minimum track, view*track/total for the height and pos*track/total for the
+; top, and the same clamp keeping its bottom inside the track.
+;
+; The three numbers are this app's own idea of a view: the ring plus the live
+; line is the total, the low window's rows are the fit, and [zw_sbtop] is the
+; position (SPEC.md 61).
+; -----------------------------------------------------------------------------
+zw_sbset:
     push ax
-    mov bx, [zw_sbb]
-    sub bx, [zw_ty]
-    inc bx
-    sub bx, ZW_SB_ARR*2
+    mov ax, [zw_sbr]
+    sub ax, ZF_SBW-1
+    mov [zw_sb+0], ax
+    mov ax, [zw_ty]
+    mov [zw_sb+2], ax
+    mov ax, [zw_sbr]
+    mov [zw_sb+4], ax
+    mov ax, [zw_sbb]
+    mov [zw_sb+6], ax
+    call zw_sbtotal
+    mov [zw_sb+8], ax
+    call zw_lowrows
+    mov [zw_sb+10], ax
+    mov ax, [zw_sbtop]
+    mov [zw_sb+12], ax
+    mov bx, zw_sb
     pop ax
     ret
 
-; -----------------------------------------------------------------------------
-; zw_thumb - out CF=1 no thumb; else AX = its top (absolute y), DX = its height
-; Shared by the painter and the hit test, so the two cannot disagree about
-; where it is.
-; -----------------------------------------------------------------------------
-zw_thumb:
-    push bx
-    push cx
-    call zw_sbtotal
-    mov cx, ax
-    call zw_lowrows
-    cmp cx, ax
-    jbe .none                       ; it all fits
-    push ax
-    call zw_trackh                  ; BX = track height
-    pop ax
-    cmp bx, 8
-    jl .none
-    mul bx
-    div cx                          ; AX = view*track/total
-    cmp ax, 8
-    jge .hok
-    mov ax, 8
-.hok:
-    push ax                         ; the height
-    mov ax, [zw_sbtop]
-    mul bx
-    div cx
-    add ax, [zw_ty]
-    add ax, ZW_SB_ARR
-    mov dx, [zw_ty]                 ; clamp: top <= track top + track - height
-    add dx, ZW_SB_ARR
-    add dx, bx
-    pop cx                          ; CX = the height again
-    sub dx, cx
-    cmp ax, dx
-    jle .tok
-    mov ax, dx
-.tok:
-    mov dx, cx
-    clc
-    jmp short .out
-.none:
-    stc
-.out:
-    pop cx
-    pop bx
-    ret
+zw_sb:      dw 0,0,0,0,0,0,0
 
 ; -----------------------------------------------------------------------------
 ; zw_sbar - draw the bar
@@ -2436,103 +2416,25 @@ zw_sbar:
     push bx
     push cx
     push dx
-    push si
-    push di
-    mov di, [zw_sbr]
-    sub di, ZF_SBW-1                ; DI = the bar's left column, absolute
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-
-    mov ax, di
     mov bx, [zw_ty]
-    mov cx, [zw_sbr]
     mov dx, [zw_sbb]
     cmp bx, dx
-    jge .done
-    call OSAPI_GFX_FRAME
-
-    mov ax, di                      ; the two arrow-cell rules
-    mov bx, [zw_sbr]
-    mov dx, [zw_ty]
-    add dx, ZW_SB_ARR-1
-    call OSAPI_GFX_HLINE
-    mov ax, di
-    mov bx, [zw_sbr]
-    mov dx, [zw_sbb]
-    sub dx, ZW_SB_ARR-1
-    call OSAPI_GFX_HLINE
-
-    xor si, si                      ; up glyph: 5 rows, widths 1..9
-    mov dx, [zw_ty]
-    add dx, 3
-.up:
-    mov ax, di
-    add ax, 6
-    sub ax, si
-    mov bx, di
-    add bx, 6
-    add bx, si
-    call OSAPI_GFX_HLINE
-    inc dx
-    inc si
-    cmp si, 5
-    jb .up
-
-    mov si, 4                       ; down glyph: 5 rows, widths 9..1
-    mov dx, [zw_sbb]
-    sub dx, 7
-.dn:
-    mov ax, di
-    add ax, 6
-    sub ax, si
-    mov bx, di
-    add bx, 6
-    add bx, si
-    call OSAPI_GFX_HLINE
-    inc dx
-    dec si
-    jns .dn
-
-    mov ax, di                      ; the track
-    inc ax
-    mov bx, [zw_ty]
-    add bx, ZW_SB_ARR
-    mov cx, [zw_sbr]
-    dec cx
-    mov dx, [zw_sbb]
-    sub dx, ZW_SB_ARR
-    cmp bx, dx
-    jg .done                        ; degenerate track: leave it framed
-    call OSAPI_GFX_FILL_GRAY
-
-    call zw_thumb
-    jc .done
-    mov bx, ax
-    add dx, ax
-    dec dx
-    mov ax, di
-    add ax, 2
-    mov cx, [zw_sbr]
-    sub cx, 2
-    push ax
-    mov al, CWHITE
-    call OSAPI_SET_COLOR
-    pop ax
-    call OSAPI_GFX_FILL
-    mov al, CBLACK
-    call OSAPI_SET_COLOR
-    mov ax, di
-    add ax, 2
-    mov cx, [zw_sbr]
-    sub cx, 2
-    call OSAPI_GFX_FRAME
+    jge .done                       ; DEGENERATE: a bar whose top is at or
+                                    ; below its bottom draws NOTHING here, not
+                                    ; even a frame - the private painter's own
+                                    ; guard, kept because the shared element
+                                    ; has no opinion about an inverted rect and
+                                    ; would hand one to gfx_frame
+    call zw_sbset
+    call os88ui_sbar
 .done:
-    mov ax, [zw_sbtop]              ; bank what is on screen, so a redraw that
-    mov [zw_bktop], ax              ; moved neither number draws nothing
-    mov ax, [zw_sbcount]
-    mov [zw_bkcnt], ax
-    pop di
-    pop si
+    mov ax, [zw_sbtop]              ; banked, and NOT yet read by anything: the
+    mov [zw_bktop], ax              ; "redraw only if it changed" wrapper these
+    mov ax, [zw_sbcount]            ; were written for does not exist, because
+    mov [zw_bkcnt], ax              ; zw_sbar's one caller is the whole-window
+                                    ; repaint and skipping the bar inside one
+                                    ; would leave the rect it just erased
+                                    ; (SPEC.md 13.10.6.5)
     pop dx
     pop cx
     pop bx
@@ -2577,23 +2479,19 @@ zw_click:
     jc .out
     call zw_sbhit
     jc .out
-    mov bx, dx                      ; BX = the click's y; zw_thumb wants DX
-    mov ax, [zw_ty]
-    add ax, ZW_SB_ARR
-    cmp bx, ax
-    jb .lineup
-    mov ax, [zw_sbb]
-    sub ax, ZW_SB_ARR
-    cmp bx, ax
-    ja .linedn
-    call zw_thumb
-    jc .out                         ; it all fits: the bar is inert but ours
-    cmp bx, ax
-    jb .pageup
-    add ax, dx
-    cmp bx, ax
-    jae .pagedn
-    jmp short .out                  ; on the thumb itself
+    call zw_sbset                   ; the SHARED element's parts (SPEC.md
+    call os88ui_sbhit               ; 13.10) - BX = the block zw_sbset just
+                                    ; filled, and CX/DX are still the point,
+                                    ; absolute, as it takes them
+    cmp al, OS88UI_SBUP
+    je .lineup
+    cmp al, OS88UI_SBDOWN
+    je .linedn
+    cmp al, OS88UI_SBPGUP
+    je .pageup
+    cmp al, OS88UI_SBPGDN
+    je .pagedn
+    jmp short .out                  ; the thumb itself, or an inert track
 .lineup:
     mov ax, [zw_sbtop]
     sub ax, ZW_SB_STEP

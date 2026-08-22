@@ -203,6 +203,28 @@ OS88UI_DOWN equ 16              ; THE PRESSED LOOK (SPEC.md 13.8): interior
                                 ; caption in it, which says "pressed" about a
                                 ; control that will refuse.
 
+; --- OS88UI_BARONLY - the bar WITHOUT the button (SPEC.md 13.10.6.5) ---------
+; An OPT-OUT, and it is 13.10.4's own rule pointed the other way: that section
+; gates the scroll bar so "a package which never draws a bar does not carry
+; one", and the button had no such gate - so a package that wanted only the
+; bar paid for os88ui_btn, os88ui_bhit, os88ui_glyph, four 12x12 bitmaps and
+; the click machinery as well.
+;
+; **MEASURED ON FROTZ, WHICH DRAWS NO STANDARD BUTTON AT ALL**: including this
+; file cost it 1,132 bytes where Word - which already had it, for its buttons -
+; paid 565 for the same bar. The difference is exactly this block.
+;
+; It is an opt-out rather than an opt-in so that every existing consumer is
+; byte-identical, which is checked rather than asserted.
+%ifdef OS88UI_BARONLY
+ %ifndef OS88UI_SCROLL
+  %error "OS88UI_BARONLY without OS88UI_SCROLL includes no drawing code at all"
+ %endif
+ %ifdef OS88UI_KERNEL
+  %error "OS88UI_BARONLY is a PACKAGE's: both kernel dialogs draw buttons"
+ %endif
+%endif
+%ifndef OS88UI_BARONLY
 ; -----------------------------------------------------------------------------
 ; os88ui_btn - draw one standard button
 ; in:  BX = rect {x1,y1,x2,y2} inclusive, SI = NUL label, DI = OS88UI_* flags
@@ -635,6 +657,7 @@ os88ui_g_con:                   ; check, set: the same square, crossed
 %if (OS88UI_GRADIO | OS88UI_GON) != 1 || OS88UI_GCHECK != 2
   %error "os88ui: the glyph indices no longer walk the array in order"
 %endif
+%endif                          ; OS88UI_BARONLY
 %ifdef OS88UI_KERNEL
 section .cold
 %endif
@@ -651,9 +674,9 @@ section .cold
   %ifdef KERN_BIG
     %define OS88UI_ARM
   %endif
-%else
-  %define OS88UI_ARM
-%endif
+%elifndef OS88UI_BARONLY        ; ...and NOT under OS88UI_BARONLY: os88ui_bfind
+  %define OS88UI_ARM             ; walks a button table by calling os88ui_bhit,
+%endif                           ; which the block above has just taken out
 %ifdef OS88UI_ARM
 
 ; --- ...and it is BOTH WORLDS' now -------------------------------------------

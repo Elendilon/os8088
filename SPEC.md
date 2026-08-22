@@ -13139,10 +13139,10 @@ a useless gate.
 ### 13.10.6 Who actually uses it — the survey, and two that do not
 
 §13.10 named five private scroll bars as its motivation and unified the two
-kernel ones; what it never said is which packages followed. **They are not all
-of them, and the rule is that they should be** — a widget with a second
-implementation is the drift a shared element exists to end, and the drift is
-back.
+kernel ones; what it never said is which packages followed. **They were not
+all of them, and the rule is that they should be** — a widget with a second
+implementation is the drift a shared element exists to end. **They are all of
+them now** (§13.10.6.3, §13.10.6.5), with one deliberate exception.
 
 | | uses `OS88UI_SCROLL` | how it takes input |
 |---|---|---|
@@ -13152,7 +13152,7 @@ back.
 | TexPad | yes | the three edges |
 | Browser | yes | `W_ONCLICK` only |
 | **Word** (`word.asm`) | **yes — converted** (§13.10.6.3) | `W_ONCLICK`; its menus poll |
-| **Frotz** (`zwin.inc`) | **no — private** | polls `OSAPI_MOUSE` |
+| **Frotz** (`zwin.inc`) | **yes — converted** (§13.10.6.5) | `W_ONCLICK`; v6 polls |
 | Artful (`atrend.inc`) | no — **and correctly** | polls |
 
 **Frotz and Word were the two, and both said so in their own headers.**
@@ -13161,8 +13161,8 @@ back.
 with an 8px floor, top = scroll\*track/total, clamped so the bottom of the
 thumb cannot leave the track."* Both are `os88ui_sbthumb` re-typed, and both
 exist **in order to look like the shared element** — which is the argument for
-adopting it stated by the code that did not. **Word is converted**
-(§13.10.6.3); Frotz is the one left.
+adopting it stated by the code that did not. **Both are converted** —
+§13.10.6.3 and §13.10.6.5.
 
 **Artful is not one of them.** Its bar is a **16-pixel square** white thumb in
 a 24-pixel margin — *"Classic Macintosh anatomy … `gScrollBarVisible`'s rule,
@@ -13215,6 +13215,61 @@ arriving in a seventh place.
 
 **Note Pad has the same opportunity and has not taken it**: `np_sbcheck` still
 calls `np_sbar` and repaints its bar whole.
+
+#### 13.10.6.5 Frotz, converted — and the button nobody asked for
+
+The last of the seven, and its header said what it was too: *"the scroll bar
+(SPEC.md 22's geometry, so it looks like the Disk window's)"*. Pixel-identical
+to the element on the same seven rules Word's was checked against, plus one
+guard that is Frotz's own and was kept: a bar whose top is at or below its
+bottom draws **nothing**, not even a frame, because the shared element has no
+opinion about an inverted rect and would hand one to `gfx_frame`.
+
+**Verified**: Frotz's whole window is identical between the two builds with a
+story running — 155 × 560 on load, and 120 × 560 after a resize to its minimum,
+which re-wraps the text and re-derives the thumb from new geometry. With the
+scrollback ring deepened the thumb is **11 rows at y 87** in both, after three
+arrow clicks routed through the new hit ladder: a proportional thumb, not the
+8px floor, at a position that is not the top.
+
+##### 13.10.6.5.1 `OS88UI_BARONLY`, and what Frotz found
+
+**Adopting the bar cost Frotz 868 bytes where Word paid 309 for the same
+thing**, and the difference is not the bar. Word already included
+`os88ui.inc` for its buttons, so `OS88UI_SCROLL` added only the bar; Frotz
+included the file for the **first time**, so it also got `os88ui_btn`,
+`os88ui_bhit`, `os88ui_glyph`, four 12×12 bitmaps and the click machinery —
+in an app that draws no standard button at all.
+
+**That is §13.10.4's own rule pointed the other way.** It gates the bar so
+that *"a package which never draws a bar does not carry one"*; the button had
+no such gate. `OS88UI_BARONLY` is it — an **opt-out**, so every existing
+consumer is byte-identical, which is checked rather than asserted: `kern_big`,
+`kern_small`, Note Pad, TexPad, Browser and Word all assemble to the same
+bytes as before it existed.
+
+| | |
+|---|---:|
+| the whole file, in Frotz's image | **+1,132** |
+| ...of which the button half | **567** |
+| with `OS88UI_BARONLY` | **+565** |
+| private bar out, `zw_sbset` in | **−264** |
+| **net** | **+301** |
+
+It refuses two combinations rather than mis-assembling: without
+`OS88UI_SCROLL` it would include no drawing code at all, and in the kernel
+both dialogs draw buttons.
+
+##### 13.10.6.5.2 Two banked words that nothing reads
+
+`zw_sbar` writes `[zw_bktop]` and `[zw_bkcnt]` under a comment saying they are
+*"what is on screen, so a redraw that moved neither number draws nothing"* —
+and **nothing reads either of them**. The wrapper they were written for does
+not exist, and cannot in the current shape: `zw_sbar`'s one caller is the
+whole-window repaint, which has already erased the rect, so skipping the bar
+there would leave a hole. They are kept with the comment corrected rather than
+deleted, because an incremental tier would want exactly these two words — and
+Frotz is the one bar with no `os88ui_sbmove` path at all.
 
 #### 13.10.6.4 What the drag would take on Word, and the one thing in the way
 
