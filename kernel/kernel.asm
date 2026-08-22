@@ -3331,7 +3331,7 @@ osapi_set_color:
 ; keyboard latched can never be released and the UI task never comes back
 ; (SPEC.md 9.6.1). One compare on every machine that has a mouse.
 osapi_mouse:
-    cmp byte [mou_seen], 0
+    cmp byte [mou_ptr], 0
     jne .live
     call kbm_poll
 .live:

@@ -620,6 +620,8 @@ mou_claim:
     jb .out
     mov [mou_port], bl          ; settled. mou_hotplug's next pass retires
     mov byte [mou_seen], 1      ; every other port
+    mov byte [mou_ptr], 1       ; ...and the machine HAS a pointer, which is
+                                ; the other question (SPEC.md 9.6.6)
     mov al, [mou_lfired]        ; ...and THIS is the line those packets came in
     mov [mou_line], al          ; on, which the base cannot say (SPEC 9.5.2.1)
 .out:
@@ -944,7 +946,7 @@ KBM_NDIR    equ 8
 ;      (all registers preserved)
 ; -----------------------------------------------------------------------------
 kbm_key:
-    cmp byte [mou_seen], 0
+    cmp byte [mou_ptr], 0
     jne kbm_pass                ; a real mouse has spoken: never intercept
     call kbm_slock              ; ...or ScrollLock is on and the user has asked
     jnz kbm_pass                ; for the keys back
@@ -1322,16 +1324,33 @@ kbm_isr:
     mov ah, [kbd_armed]         ; SPEC.md 9.7's key-state map wants every byte
     or ah, ah                   ; that arrives; the keypad-5 half wants one
     jnz .peek                   ; byte on a mouseless machine. EITHER is a
-    cmp byte [mou_seen], 0      ; reason to read the port, and neither being
+    cmp byte [mou_ptr], 0       ; reason to read the port, and neither being
     jne .chain                  ; one is what keeps an idle machine off it
 .peek:
+%ifdef KERN_BIG
+    ; --- ...and on an 8042, is the byte waiting even the KEYBOARD's? --------
+    ; SPEC.md 9.6.6. One data register serves both devices and only status
+    ; bit 5 says which, so a bare read here can judge a MOUSE byte as a
+    ; scancode - which on the key-state map (9.7) sets a bit for a key nobody
+    ; touched. Gated on [ps2_live] and not on [cpu_tier]: an XT has an 8255
+    ; and no status register at 0x64 at all, so the machine this OS is for
+    ; must not read that port, and a machine with no aux device has nothing
+    ; the test could ever catch. AL is dead here - it is about to be loaded
+    ; from 0x60 - and AH ([kbd_armed]) is what must survive.
+    cmp byte [ps2_live], 0
+    je .peek60
+    in  al, PS2_STAT
+    test al, PS2_AUX
+    jnz .chain                  ; the mouse's, and LEFT for ps2_isr to take
+.peek60:
+%endif
     in al, 0x60                 ; PEEK - see above: the 8255 holds it until the
                                 ; BIOS acks, so this consumes nothing
     or ah, ah
     jz .p5                      ; nobody is tracking keys: keypad 5 only
     call kbd_track              ; SPEC.md 9.7 - preserves AL
 .p5:
-    cmp byte [mou_seen], 0
+    cmp byte [mou_ptr], 0
     jne .chain                  ; a real mouse has spoken: never intercept
     cmp al, KBM_5SCAN
     jne .chain
@@ -1752,7 +1771,7 @@ kbm_poll0:
 ;      promising more than it keeps costs here.
 ; -----------------------------------------------------------------------------
 kbm_ui:
-    cmp byte [mou_seen], 0
+    cmp byte [mou_ptr], 0
     jne .out                    ; a machine with a mouse pays this compare
     xor al, al                  ; AL = the ScrollLock level, 0 or 1. kbm_slock
     call kbm_slock              ; preserves AX and answers in ZF, and the pops
@@ -3614,6 +3633,19 @@ mou_lfired  db 0                ; the line CURRENTLY being serviced, stamped by
                                 ; the ISR entry. Live for the length of one
                                 ; interrupt, meaningless outside it, and so not
                                 ; state anyone off-machine should read
+mou_ptr     db 0                ; A POINTING DEVICE HAS PROVEN ITSELF, whichever
+                                ; backend it was (SPEC.md 9.6.6). NOT the same
+                                ; question as [mou_seen], which is "the serial
+                                ; CONTEST is settled and this is the winning
+                                ; port" - a distinction with no difference for
+                                ; as long as serial was the only backend, and
+                                ; the reason the keyboard mouse stayed switched
+                                ; on next to a working PS/2 one. Set beside
+                                ; [mou_seen] in mou_claim and by ps2_isr on its
+                                ; first complete packet; never cleared. BELOW
+                                ; the published span on purpose: 9.4.2's block
+                                ; is read by offset off a floppy and nothing
+                                ; may be inserted into it
 
 ; --- what SPEC.md 9.4.2 says the published block IS --------------------------
 ; A test package reads these by offset, off a floppy, on a machine with no

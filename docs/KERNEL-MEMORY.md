@@ -680,7 +680,7 @@ Three things about it:
     "lowpara": 576,
     "ovl": 2828,
     "stk0": 1024,
-    "text": 55816
+    "text": 55840
   },
   "small": {
     "bss": 5947,
@@ -712,7 +712,7 @@ derived from them exactly as `kernel/kernel.asm` derives them.
 
 | region | size | what it is |
 |---|---:|---|
-| image (`.text` 55,816 + `.bss` 6,460) | 62,464 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch — 188 bytes of the rung are free |
+| image (`.text` 55,840 + `.bss` 6,460) | 62,464 B | all resident kernel code in the kernel's own segment, its read-only data, and its scratch — 164 bytes of the rung are free |
 | cold code | 37,888 B | 37,632 bytes with a CS of their own: the Control Panel, the five file modules, and SPEC.md §2.6's second round — assoc, disk, driver, memory and desk |
 | FAT window | 4,608 B | nine of the mounted volume's FAT sectors (SPEC.md §18.8) — the whole FAT on any floppy, a sliding window on a hard disk |
 | `.lowbss` + task 0's stack | 9,216 B | 7,830 B of tables, stacks and disk buffers, plus `STK0_SIZE` = 1,024 |
@@ -1209,11 +1209,11 @@ generated in the first place.
 | the file system, end to end | 31,935 | 34.2% |
 | the window system and its furniture | 24,791 | 26.5% |
 | drawing: adapters, primitives, glyphs, icons | 14,758 | 15.8% |
-| hardware: drivers, clock, mouse, sound, CPU, XMS | 11,228 | 12.0% |
+| hardware: drivers, clock, mouse, sound, CPU, XMS | 11,252 | 12.0% |
 | the kernel proper: API table, heap, scheduler, events | 7,955 | 8.5% |
 | the three built-in kinds | 1,751 | 1.9% |
 | the Control Panel | 1,030 | 1.1% |
-| **total** | **93,448** | |
+| **total** | **93,472** | |
 <!-- /kernsize:themes -->
 
 <!-- BEGIN generated table -->
@@ -1225,7 +1225,7 @@ generated in the first place.
 | `disk.inc` — volumes, mount, the FAT read path (§18–19) | 358 | 6,044 | **6,402** | 890 | 3,584 |
 | `diskw.inc` — the FAT write path (§18.4–18.6) | 179 | 5,053 | **5,232** | 155 | — |
 | `fdlg.inc` — the Standard File dialog (§38) | 223 | 4,727 | **4,950** | 157 | — |
-| `mouse.inc` — serial mouse and the cursor (§9) | 3,883 | — | **3,883** | 149 | — |
+| `mouse.inc` — serial mouse and the cursor (§9) | 3,902 | — | **3,902** | 149 | — |
 | `driver.inc` — loadable drivers + `SYSTEM.CFG` (§51) | 606 | 3,002 | **3,608** | 462 | — |
 | `ui.inc` — the UI task and the event ladder (§13) | 3,236 | — | **3,236** | 47 | — |
 | `menu.inc` — the menu bar and pull-downs (§12) | 3,052 | — | **3,052** | 197 | 98 |
@@ -1251,14 +1251,14 @@ generated in the first place.
 | `fprog.inc` — the file-operation progress widget (§12.8) | 626 | — | **626** | — | — |
 | `toast.inc` — the menu bar's transient message (§59) | 537 | — | **537** | 25 | — |
 | `mod.inc` — on-demand kernel modules (§2.8) | 36 | 424 | **460** | 66 | — |
-| `ps2.inc` — the PS/2 mouse backend (§9.10), `kern_big`'s alone | 373 | — | **373** | 4 | — |
+| `ps2.inc` — the PS/2 mouse backend (§9.10), `kern_big`'s alone | 378 | — | **378** | 4 | — |
 | `xmem.inc` — memory above 1MB (§41.4–41.5) | 269 | 96 | **365** | 22 | — |
 | `clip.inc` — the system clipboard (§55) | 227 | — | **227** | 6 | — |
 | `events.inc` — the event ring (§10) | 170 | — | **170** | 134 | — |
 | `blank.inc` — **(undescribed)** | 124 | — | **124** | — | — |
 | `cpudet.inc` — CPU tiers and the A20 gate (§41.1–41.3) | 10 | — | **10** | — | — |
 | `kernel.asm` — API table, entry points, `kmain`, the shims | 3,469 | — | **3,469** | — | — |
-| **total** | **55,816** | **37,632** | **93,448** | **6,460** | **7,830** |
+| **total** | **55,840** | **37,632** | **93,472** | **6,460** | **7,830** |
 <!-- END generated table -->
 
 ### Reading it

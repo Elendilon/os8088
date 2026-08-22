@@ -328,6 +328,16 @@ ps2_isr:
     xor si, si
     xor bx, bx
 .rep:
+    mov byte [mou_ptr], 1       ; A POINTING DEVICE HAS PROVEN ITSELF (SPEC.md
+                                ; 9.6.6), which is what switches the keyboard
+                                ; mouse OFF. One store rather than a test and
+                                ; a branch: it is the same byte every packet
+                                ; and the ISR has no spare register here.
+                                ; NOT [mou_seen] - that byte means "the SERIAL
+                                ; contest is settled and [mou_port] names the
+                                ; winner", and setting it from here would mute
+                                ; a serial mouse on COM2 (mou_byte drops every
+                                ; port but [mou_port] once it is set)
     mov dl, dh                  ; buttons: bit 0 left, bit 1 right - which is
     and dl, 0x03                ; already mou_report's numbering
     call mou_report

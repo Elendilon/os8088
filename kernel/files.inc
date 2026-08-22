@@ -4873,7 +4873,7 @@ fm_drag:
     mov [fm_startx], cx
     mov [fm_starty], dx
     mov byte [fm_dgon], 0
-    cmp byte [mou_seen], 0      ; ...but there is nothing to disambiguate with
+    cmp byte [mou_ptr], 0       ; ...but there is nothing to disambiguate with
     je .click                   ; no mouse on the machine (SPEC.md 9.6.1). The
                                 ; keyboard's button is latched for the whole
                                 ; W_ONCLICK dispatch and the pointer cannot

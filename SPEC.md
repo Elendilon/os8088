@@ -5563,6 +5563,56 @@ poll and its deferred ladder, the `kbm_poll` in `menu_track` / `ui_drag` /
 `kbm_move` → `menu_kbnav`, which `menu.inc` answers `CF = 1` to whenever no
 menu is dropped and which therefore costs a removal nothing but a stub.
 
+#### 9.6.6 `[mou_ptr]` — "is there a mouse" is not "which serial port won"
+
+For as long as serial was the only backend, one byte answered both questions
+and nobody had to notice they were different. `[mou_seen]` means **the
+contest of §9.5 is settled and `[mou_port]` names the winning port**; what
+every consumer above actually asks is **does this machine have a pointing
+device at all**, and §9.10's PS/2 backend is the first thing that can make
+those two disagree.
+
+Left alone, it disagreed in the worst direction: a 386 with a PS/2 mouse and
+no serial card never settles a serial port, so `[mou_seen]` stays 0 for the
+session and **the keyboard mouse stays switched on beside a working
+pointer** — the arrow keys move the cursor, keypad 5 and Space press the
+button, and `kbm_isr` reads port `0x60` on every IRQ1 for a feature the
+machine does not need. §9.6 exists for *when there is no mouse*, and that
+machine has one.
+
+`[mou_ptr]` is the second question, one byte, set by whichever backend proves
+itself — `mou_claim` beside `[mou_seen]`, `ps2_isr` on a complete packet —
+and never cleared. The five consumers that mean "is there a pointer" now read
+it: `kbm_key`, `kbm_ui`, `kbm_isr`'s two gates, `osapi_mouse`'s poll and
+`fm_drag`'s disambiguation (§9.6.1). The serial contest keeps `[mou_seen]`
+and is untouched.
+
+**Setting `[mou_seen]` from `ps2_isr` would have been the one-byte version of
+this and is wrong**, which is worth writing down because it is the obvious
+shortcut: `mou_byte` drops every port but `[mou_port]` the moment that byte
+is set, so a PS/2 mouse would **mute a serial mouse on COM2** — `[mou_port]`
+still reading 0, its initial value, and naming COM1. The two backends do not
+contest each other (§9.10), so nothing may write the contest's flag but the
+contest.
+
+`[mou_ptr]` sits **below** §9.4.2's published span, with the scratch. That
+block is read by offset off a floppy by a test package on a machine with no
+debugger, and nothing may be inserted into it; the asserts at the foot of
+`mouse.inc` prove it did not move.
+
+**And on an 8042 the peek asks a second question**, in `kbm_isr` and gated on
+`[ps2_live]`: *is the byte waiting even the keyboard's?* One data register
+serves both devices and only status bit 5 says which (§9.10.1), so a bare
+`in al, 0x60` there can judge a mouse byte as a scancode — which on the
+key-state map (§9.7) sets the bit for a key nobody touched, and that map has
+no way to un-set it until the real key is pressed and released. The test is
+`[ps2_live]` and **not** `[cpu_tier]` for a reason that matters on the target:
+an XT has an 8255 and no status register at `0x64` at all, so the machine this
+OS is primarily for must not read that port, and a machine with no aux device
+has nothing the test could ever catch. When it does fire the byte is **left**
+in the register for `ps2_isr` rather than consumed — this is a peek, and the
+mouse's byte is not ours to spend.
+
 ### 9.7 The key-state map — is this key DOWN right now?
 
 int 16h answers **what was typed**, and for a real-time application that is
