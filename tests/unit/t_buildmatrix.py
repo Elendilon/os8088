@@ -13,7 +13,8 @@ until somebody types the knob by hand:
     it is invisible until a release.
   * the fifteen testing knobs CLAUDE.md documents - `VIDEO=`, `RTC=`,
     `RAMKB=`, `FLOPPY1=`, `DISKCNT=`, `DIRTYRAM=`, `FSNOSTAMP=`, `DISKAL=`,
-    `REDRAWFULL=`, `HEAPCOMPACT=`, `FDDPROBE=`, `SNAPAUDIT=`, `BOOTPROF=`.
+    `REDRAWFULL=`, `HEAPCOMPACT=`, `FDDPROBE=`, `SNAPAUDIT=`, `BOOTPROF=`,
+    `MOUIDFAST=`.
     Each one is
     `%ifdef`'d code that no ordinary build compiles, so it rots in silence -
     and every one of them is the A/B half of a gate somewhere in `tests/`.
@@ -74,6 +75,7 @@ KNOBS = [
     ("dirw1",       ["DIRW1=1"]),
     ("picomem",     ["PICOMEM=1"]),
     ("bootprof",    ["BOOTPROF=1"]),
+    ("mouidfast",   ["MOUIDFAST=1"]),
 ]
 
 

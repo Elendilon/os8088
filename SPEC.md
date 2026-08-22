@@ -4825,6 +4825,50 @@ a **state dump rather than a measurement** — so it emits no `bl_head`, whose
 `N`/`counts`/`us per op` heading would label every row as a quantity it is
 not.
 
+#### 9.4.4 Closing the window early — `make MOUIDFAST=1`
+
+§15.5's profile priced this window: `mouse_init` is **1,200 ms of an 11,400 ms
+OS boot** on the calibration machine, 22 ticks of which 19 are `MOU_IDWIN` and
+3 are `MOU_RSTLOW`. It is the largest phase of a boot that is not the disk, and
+it is spent waiting.
+
+`MOU_RSTLOW` cannot move: a serial mouse is *powered* by DTR/RTS and the parts
+want ≥100 ms unpowered to guarantee a power-on reset, and 3 ticks is already
+the smallest count that guarantees it at 54.925 ms of quantisation — 2 ticks
+can be 55 ms. `MOU_IDWIN` can, and this is the knob that does.
+
+**The window has two jobs and only one of them finishes early.** The identify
+half is over the moment a port has said its piece and stopped, which is
+§9.4.1's rules 1–4 exactly; `mou_idquiet` asks those same four questions each
+time round the poll loop instead of once at the end, and asks nothing new. The
+**drain** half does not: bytes still in flight when `IER` goes on are bit-6-set
+and the ISR's resync rule reads them as packet headers, which is phantom
+clicks and cursor jumps on a machine with a modem (§9.5.1).
+
+So the early close is fenced three ways, and each fence is one of those jobs:
+
+- **`MOU_IDFLOOR` (8 ticks, ~440 ms) is a floor on the whole window.** A modem
+  answers the *same* DTR/RTS raise the mouse does — `mou_pall` raises every
+  port at once — so anything that is going to talk has started by here.
+- **A port that has spoken holds the window open until it has been quiet for
+  `MOU_IDQUIET`**, exactly as today. A device that is still arriving is never
+  cut off.
+- **The close requires a port that answered LIKE A MOUSE** — rules 1–3, so
+  first byte `'M'` and no more than `MOU_IDMAX` bytes. A short modem banner
+  that stops early does *not* close the window; it gets the full `MOU_IDWIN`.
+
+`MOU_IDWIN` remains the ceiling, so nothing can wait longer than it does now.
+Measured on `os8088_5150_cga`, `mouse_init` goes from **1,200 ms to 596 ms** and the OS boot from 11,591 ms to 10,986 ms — and `mou_idany`, `mou_ident` and `mou_need` come out **identical**, which is the check that matters: the same verdict, 605 ms sooner.
+
+**It ships OFF, and that is the point of it.** The case it could hurt is a
+modem on the other port, and §9.5's modem cases are on docs/TESTING.md's QEMU
+list precisely because no emulator here has one — MartyPC's machines have a
+single Microsoft serial mouse. `make BOOTPROF=1 MOUIDFAST=1` against
+`make BOOTPROF=1` reads the difference off the screen on the field machine,
+which is the same shape of A/B `FLOPPY1=1` is for §18.93 — and that one is
+worth remembering here, because it is the case where the predicted win came
+back a 13% loss on the iron.
+
 ### 9.5 COM1 or COM2 — the port is not asked and not configured
 
 A serial card is jumpered to a base address, and the mouse goes on whichever

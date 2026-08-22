@@ -83,6 +83,14 @@ MOU_IDSTRICT equ 3              ; ...and THIS many to lower [mou_need], which
                                 ; mouse off for the session - 9.5.1's original
                                 ; bug. 3 is 'M', 'M3' and 'MZ@' and nothing
                                 ; with room for a banner in it
+MOU_IDFLOOR equ 8               ; MOUIDFAST=1 (SPEC.md 9.4.4): the earliest
+                                ; tick the window may close, ~440ms. It is a
+                                ; floor on the DRAIN and not on the identify:
+                                ; a modem answers the same DTR/RTS raise the
+                                ; mouse does, so anything that is going to talk
+                                ; at all has started by here - and a port that
+                                ; has started keeps the window open on its own
+                                ; through MOU_IDQUIET below
 MOU_IDQUIET equ 4               ; ...and nothing for the last ~220ms of the
                                 ; window. This is the test that separates a
                                 ; burst from a stream, and MOU_IDMAX alone
@@ -422,8 +430,21 @@ mouse_init:
     jb .sport
     mov ax, [ticks]
     sub ax, cx
-    cmp ax, MOU_IDWIN
+%ifdef MOU_ID_FAST
+    cmp ax, MOU_IDWIN           ; the ceiling is unchanged: nothing waits longer
+    jae .settled                ; than it does today (SPEC.md 9.4.4)
+    cmp ax, MOU_IDFLOOR         ; ...below the floor, never close early
     jb .settle
+    call mou_idquiet            ; ...above it, CF = 1 means every port that has
+    jnc .settle                 ; spoken has finished and one of them sounded
+.settled:                       ; like a mouse
+%else
+    cmp ax, MOU_IDWIN           ; the two arms are written out in full rather
+    jb .settle                  ; than sharing the compare, so the KNOB-FREE
+%endif                          ; build emits the same two instructions it
+                                ; always did and the shipped kernel is byte
+                                ; for byte unchanged - a 2-byte drift here
+                                ; moves every address in .text after it
 
     call mou_idjudge            ; ...and who sounded like a mouse?
 
@@ -491,6 +512,73 @@ mou_idbyte:
     pop ax
     ret
 
+%ifdef MOU_ID_FAST
+; -----------------------------------------------------------------------------
+; mou_idquiet - may the identify window close now? (SPEC.md 9.4.4)
+;
+; `make MOUIDFAST=1` ONLY, and it is opt-in because the window has TWO jobs and
+; this shortens only one of them safely. The identify half is finished the
+; moment a port has said its piece and gone quiet - mou_idjudge's rules 3 and 4
+; are exactly that question, and asking them early asks nothing new. The DRAIN
+; half is what protects a machine with a modem on the other port: bytes still
+; in flight when IER goes on are bit-6-set and the ISR's resync rule reads them
+; as packet headers, which is phantom clicks (SPEC.md 9.5.1). So the early
+; close is bounded from BELOW by MOU_IDFLOOR as well as gated on quiet, and
+; MOU_IDWIN remains the ceiling: a port that is still talking holds the window
+; exactly as long as it does today.
+;
+; The A/B is the point of the knob. This cannot be judged here - MartyPC has
+; one serial mouse and no modem, and SPEC.md 9.5's awkward cases are the QEMU
+; list (docs/TESTING.md) - so it ships OFF and `make BOOTPROF=1 MOUIDFAST=1`
+; against `make BOOTPROF=1` on the field machine is what decides it.
+;
+; ins:  none (the test is per port, against each port's own last byte)
+; outs: CF = 1 if the window may close; all registers preserved
+; -----------------------------------------------------------------------------
+mou_idquiet:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, [ticks]
+    xor cx, cx                  ; CL = has a port answered LIKE A MOUSE and
+    xor bx, bx                  ; finished? CH is spare
+.port:
+    cmp word [bx+mou_bases], 0
+    je  .next                   ; a port the probe rejected cannot answer
+    mov al, [bx+mou_idn]
+    or  al, al
+    jz  .next                   ; silent so far - MOU_IDFLOOR covers this one,
+                                ; and mou_idjudge's rule 1 refuses it anyway
+    mov ax, dx
+    sub ax, [bx+mou_idlast]     ; wrap-safe, like every other elapsed here
+    cmp ax, MOU_IDQUIET
+    jb  .talking                ; STILL ARRIVING on this port: hold the window
+                                ; open, exactly as long as today would
+    cmp byte [bx+mou_idb0], MOU_IDBYTE
+    jne .next                   ; it spoke and stopped, but not like a mouse -
+    mov al, [bx+mou_idn]        ; a short modem banner lands here, and gets the
+    cmp al, MOU_IDMAX           ; FULL window rather than an early close
+    ja  .next
+    mov cl, 1                   ; mou_idjudge's rules 1-3, asked early. Rule 4
+.next:                          ; is the quiet test above, and it is the same
+    add bx, 2                   ; comparison against the same word
+    cmp bx, MOU_PEND
+    jb  .port
+    or  cl, cl                  ; no mouse yet: there is nothing to close the
+    jz  .talking                ; window FOR, so wait for the ceiling
+    stc
+    jmp short .out
+.talking:
+    clc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+%endif
 ; -----------------------------------------------------------------------------
 ; mou_idjudge - which ports answered like a mouse? (SPEC.md 9.4.1)
 ;
@@ -3565,7 +3653,7 @@ mou_dbg_blk:
                                 ; and an older reader is unaffected.
                                 ;
                                 ; It is here for the HARNESS rather than for
-                                ; the field (SPEC.md 9.4.3): MartyPC's mouse is
+                                ; the field (SPEC.md 9.4.4): MartyPC's mouse is
                                 ; relative, so a scripted click can only be
                                 ; aimed by dead reckoning from an edge clamp,
                                 ; and every accumulated packet that the guest
