@@ -13845,6 +13845,67 @@ Three things about it are deliberate:
   still running when the desktop appears.
 
 
+### 15.5 The boot PROFILE, for a machine with no debugger
+
+§15.4 says how long the boot took. This says **where it went**, and it exists
+because the instrument that already answers that cannot run on the machine
+the answer is about: `tools/os88boot.py` breakpoints the return address of
+every `call` in `kmain` and reads MartyPC's cycle counter at each, and a 5150
+has no debug socket, no cycle counter and no symbol map. `make BOOTPROF=1` is
+the same question asked from inside.
+
+**Eleven stamps**, `BPMARK 0` … `BPMARK 10`, written in `kmain`'s own
+line-by-line order rather than in a table elsewhere that would have to be kept
+in step with it. Ten intervals plus one ticks-only row before the clock
+exists, and the kernel's own §15.4 total under them.
+
+**The clock is the PIT and not `[ticks]`**, which is the whole reason this is
+a knob rather than a `[ticks]` array. A system tick is 54.9 ms; six of the ten
+intervals are under 3 ms, so a tick-counted profile reports zero for
+everything except the four that were already obvious. The stamp is
+`[ticks]*65536 + (65536 - the latched counter)` — 0.8381 µs a unit, and
+`sch_account`'s arithmetic exactly (§8.1), IRR coherence check included.
+
+Four things about it are deliberate:
+
+- **The arithmetic is COPIED out of `sch_account`, not factored out of it.**
+  That routine is on the task-switch path; a `call`/`ret` there is 11 µs of a
+  693 µs switch, which every *shipped* kernel would then pay for a diagnostic
+  no shipped kernel carries. §57.3 rule 4 in the one form that matters: the
+  cost of the instrument must not land on the thing being instrumented, and
+  here the thing is a kernel that does not have it.
+- **`BOOTPROF=1` and `QUANTUM=` cannot be built together, and `make` refuses
+  the pair.** §53.2.1 reprograms the PIT divisor, which is the very period the
+  stamps are counted against — the same reason `sch_account` pauses while
+  `sch_fast` is armed. Built together the table would be wrong by a ratio,
+  which is the shape nobody notices.
+- **Everything before `sched_init` is ONE row, in BIOS ticks.** The PIT clock
+  does not exist until then. That row is the boot sector's whole load plus
+  `dsk_boot_from`, the CPU probe and `dsk_dpt_init` — seconds, so 54.9 ms is
+  0.5% of it, and the boot sector has no bytes to spare for anything finer
+  (§15.4's last point). It is taken by subtracting the boot sector's own t=0
+  at `0060:000C` from `0040:006C`, at mark 0, while that word still holds a
+  timestamp rather than an elapsed count.
+- **The screen IS the delivery mechanism.** `bpf_bprof_show` is the last thing
+  `kmain` does, after `cursor_show` and `drv_notice` so nothing paints over
+  it, and it draws on the *desktop* rather than into a window: a window is wm
+  state the user then has to close, and this should go away on the first
+  repaint. Black ground and white text, no greys — a grey rounds to a
+  checkerboard on both 1bpp adapters (§39.4) and a checkerboard behind 8×8
+  text does not survive being photographed, which is how the number gets off
+  the machine.
+
+The table is also published in §57's registry as **`BP`**, so the same build
+can be read from outside on an emulator without reading pixels: tag, a pointer
+to the eleven dwords, their count, and a pointer to the ticks word. It is
+knob-built under §57.2's rule — it **counts**, which is work a kernel has no
+other reason to do.
+
+**What it is not for.** The kernel it profiles is not the kernel that ships:
+`tools/fieldsize.py` exists to say when that difference has grown big enough
+to move a number, and the marks themselves are ~50 bytes of `.text` plus the
+table. Take a shape from it, and take an absolute from a `FIELDKNOBS` kernel.
+
 ## 16. Build & test
 
 - Makefile: boot-image recipes unchanged. `run` target keeps the serial

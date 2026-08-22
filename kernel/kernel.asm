@@ -1590,6 +1590,7 @@ DBG_TAG_CLOCK equ 0x4B43          ; 'CK' - SPEC.md 37.92
 DBG_TAG_VIDEO equ 0x4456          ; 'VD' - SPEC.md 57.4
 DBG_TAG_FDD   equ 0x4446          ; 'FD' - SPEC.md 57.5
 DBG_TAG_BUILD equ 0x4449          ; 'ID' - SPEC.md 57.6
+DBG_TAG_BPROF equ 0x5042          ; 'BP' - SPEC.md 15.5, BOOTPROF=1
 
 ; =============================================================================
 ; Fixed entry points
@@ -2651,6 +2652,12 @@ dbg_reg:
                                     ; contest is a question about a REAL card,
                                     ; so it has to be in the build the field
                                     ; machine is actually sent
+%ifdef BOOT_PROFILE
+    dw DBG_TAG_BPROF, bprof_dbg_blk  ; SPEC.md 15.5 - `make BOOTPROF=1`, and
+                                    ; knob-built under SPEC.md 57.2's rule: it
+                                    ; COUNTS, which is work a kernel has no
+                                    ; other reason to do
+%endif
     dw DBG_TAG_CLOCK, clk_dbg_blk   ; SPEC.md 37.92 - unconditional for the
                                     ; same reason: an RTC ladder is a question
                                     ; about silicon nobody here has, and the
@@ -3044,6 +3051,20 @@ api_sysap:  db 0                ; which verb the shared fenced cell runs:
 ; =============================================================================
 ; Boot (SPEC.md 15)
 ; =============================================================================
+
+; BPMARK - one phase boundary of the boot profile (SPEC.md 15.5). Nothing at
+; all without `make BOOTPROF=1`, which is what lets the marks sit in kmain's
+; own line-by-line order instead of in a table somewhere else that has to be
+; kept in step with it. bprof_mark preserves the flags as well as every
+; register, so a mark may go between any two calls here without changing what
+; either of them did.
+%macro BPMARK 1
+%ifdef BOOT_PROFILE
+    mov al, %1
+    call bprof_mark
+%endif
+%endmacro
+
 kmain:
     cli
     mov ax, KERNEL_SEG          ; the boot sector jumped here with its own
@@ -3110,6 +3131,10 @@ kmain:
     mov al, SCH_QUANTUM         ; `make QUANTUM=` - SPEC.md 53.2.1's sub-tick,
     call sch_fast_on            ; armed system-wide instead of per bracket
 %endif                          ; (docs/FIELD-NOTES.md 27.4). OFF by default
+    BPMARK 0                    ; SPEC.md 15.5: the PIT clock is ours from
+                                ; here, and this also closes the ticks-only
+                                ; era - the boot sector's load and the three
+                                ; calls above it
     call evq_init
     call FAT_SEG:ovl_clk_init   ; system clock (SPEC.md 37): probe the RTC,
                                 ; or fall back to the fixed date - before the
@@ -3148,6 +3173,7 @@ kmain:
     call mem_init               ; the claim heap (SPEC.md 50): int 12h, the
                                 ; empty map. FIRST of the memory users -
                                 ; every claim below goes through it
+    BPMARK 1                    ; ...the clock, the adapter and the heap
 %ifdef DIRTYRAM
     ; --- DIAGNOSTIC ONLY (make DIRTYRAM=1): fill the heap with a pattern -----
     ; QEMU hands the guest zeroed RAM and a real machine does not, so a read
@@ -3192,6 +3218,7 @@ kmain:
                                 ; table itself, and the rule for a thing that
                                 ; makes a jump target safe is that it cannot
                                 ; be after anything that could jump
+    BPMARK 2                    ; ...the claim heap and the module table
 %ifdef BAKED_FONT
     call FAT_SEG:ovl_font_init  ; the typeface this BUILD carries (SPEC.md
                                 ; 6.2), out of the overlay - so it needs no
@@ -3200,13 +3227,18 @@ kmain:
 %else
     call font_init              ; needs int 10h, so after the mode is set
 %endif
+    BPMARK 3                    ; ...the typeface
     call wm_init
     call menu_init              ; menu bar owner (SPEC.md 12): Locator, so
                                 ; the first wm_paint_all already has a bar
     call inst_init              ; instance table (SPEC.md 29) - clean boot:
                                 ; no app instances exist until launched
+    BPMARK 4                    ; ...the window manager, the bar, the table
     call spl_step               ; a notch: the mode set and the font are done
     call mouse_init             ; IRQ4 live; cursor stays hidden until shown
+    BPMARK 5                    ; ...and SPEC.md 9.4.1's two waits, which are
+                                ; the largest phase of a boot that is not
+                                ; the disk
     call spl_step               ; ...and another: the serial reset holds
                                 ; DTR/RTS low for MOU_RSTLOW ticks (~165ms),
                                 ; which is the only non-I/O phase up here
@@ -3230,6 +3262,7 @@ kmain:
                                 ; boot bits, stores its .bss state, publishes
                                 ; snd_live LAST - snd_tick has been running
                                 ; gated since sched_init hooked int 08h
+    BPMARK 6                    ; ...the desktop, the dock, the driver table
 
     call spl_step               ; a notch, and the last one kmain spends by
                                 ; hand: everything below is sectors, and
@@ -3242,6 +3275,7 @@ kmain:
                                 ; can stop the boot. NOTHING loads that the
                                 ; settings file did not ask for - a driver is
                                 ; several seconds of floppy on this machine
+    BPMARK 7                    ; ...SYSTEM.CFG and whatever it asked for
 
 %ifdef KERN_BIG
     call xm_boot                ; ...and the store above 1MB, if xm_sniff
@@ -3273,10 +3307,12 @@ kmain:
     call spl_finish             ; the bar to 100% and the screen handed back:
                                 ; the paint below covers every pixel of it,
                                 ; so the loading screen needs no erase
+    BPMARK 8                    ; ...the store above 1MB, the palette, the bar
 
     call gfx_lock
     call wm_paint_all
     call gfx_unlock
+    BPMARK 9                    ; ...and the first desktop frame
 
     ; --- stop the boot timer (SPEC.md 15.4) ----------------------------------
     ; HERE, not after cursor_show: the question is when the first desktop
@@ -3297,6 +3333,15 @@ kmain:
 
     call drv_notice             ; ...and only NOW say what did not load: a
                                 ; window needs a screen that has been painted
+    BPMARK 10                   ; ...the cursor and the driver notice
+
+%ifdef BOOT_PROFILE
+    call COLD_SEG:bpf_bprof_show ; SPEC.md 15.5: the table on the glass, LAST,
+                                ; so nothing above paints over it. It draws on
+                                ; the DESKTOP rather than into a window - a
+                                ; window is wm state the user then has to
+                                ; close, and this should go on the first repaint
+%endif
 
     jmp ui_task                 ; task 0 becomes the UI task; never returns
 
@@ -3708,6 +3753,10 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "font.inc"
 %include "mouse.inc"
 %include "ps2.inc"                ; SPEC.md 9.10 - the PS/2 backend, gated
+%include "bootprof.inc"       ; the boot phase table (SPEC.md 15.5), BOOTPROF=1
+                              ; only: after sched.inc, whose PIT programming its
+                              ; clock depends on, and before nothing - kmain
+                              ; forward-references bprof_mark through the macro
 %include "sched.inc"
 %include "events.inc"
 %include "clock.inc"            ; the system clock (SPEC.md 37): after

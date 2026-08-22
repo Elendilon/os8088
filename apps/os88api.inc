@@ -76,6 +76,7 @@ DBG_TAG_CLOCK equ 0x4B43          ; 'CK' - SPEC.md 37.92, unconditional
 DBG_TAG_VIDEO equ 0x4456          ; 'VD' - SPEC.md 57.4, unconditional
 DBG_TAG_FDD   equ 0x4446          ; 'FD' - SPEC.md 57.5, unconditional
 DBG_TAG_BUILD equ 0x4449          ; 'ID' - SPEC.md 57.6, unconditional
+DBG_TAG_BPROF equ 0x5042          ; 'BP' - SPEC.md 15.5, `make BOOTPROF=1`
 
 ; What OSAPI_VOL_KIND answers (SPEC.md 18.7.2). The MEDIUM and the TRANSPORT
 ; are two questions: "is this a hard disk" is the first, and inferring it from

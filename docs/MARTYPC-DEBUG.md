@@ -197,6 +197,17 @@ is stamped by the boot sector from BIOS ticks, so it measures everything below
 `post`; a complete walk agrees with it to under one 54.9 ms tick, and a walk
 that has lost a phase does not.
 
+**On IRON, the knob instead.** None of the above exists on a 5150 — no debug
+socket, no cycle counter, no symbol map — so `make BOOTPROF=1` (SPEC.md §15.5)
+asks the same question from inside and draws the answer on the desktop when
+the first frame is up. Eleven PIT stamps through `kmain`, so the sub-3 ms
+phases are real numbers rather than the zero a 54.9 ms tick would report;
+everything before `sched_init` is one row in ticks, because the clock does not
+exist yet. Boot it, photograph the box, and the first repaint takes it away.
+The two instruments agreed row for row on `os8088_5150_cga` — `first paint`
+178 ms against 178.2, `mouse_init` 1200 against 1196.7 — which is the check
+that neither is measuring something of its own.
+
 **And the machine still decides whether the number may be quoted.** Two of the
 four things a boot spends time on are the ROM's own code, so the section
 below binds this tool exactly as it binds `m.disk()`: a GLaBIOS twin boots

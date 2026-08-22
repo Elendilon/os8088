@@ -142,6 +142,7 @@ make clean
 | `ADLIB=1` / `SB16=1` | give the sound driver a card to attach to |
 | `HDD=<MB>` | give the hard-disk driver a disk |
 | `TESTAPPS=build/<x>.img` | swap the B: floppy for a scratch image |
+| `BOOTPROF=1` | SPEC.md §15.5's boot phase table, drawn on the desktop and published as §57's `BP` — the profile a machine with **no debugger** can take. Refuses to build with `QUANTUM=` |
 
 All are stamp-tracked, so changing one rebuilds the kernel. Without that, make
 sees an up-to-date `kernel.bin`, boots the previous configuration, and it reads
