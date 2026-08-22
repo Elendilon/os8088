@@ -3661,6 +3661,7 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 %include "softgfx.inc"
 %include "font.inc"
 %include "mouse.inc"
+%include "ps2.inc"                ; SPEC.md 9.10 - the PS/2 backend, gated
 %include "sched.inc"
 %include "events.inc"
 %include "clock.inc"            ; the system clock (SPEC.md 37): after

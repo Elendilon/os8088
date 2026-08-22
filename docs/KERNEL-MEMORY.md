@@ -26,15 +26,32 @@ because the guard is `>`. That is a figure to raise deliberately or to spend
 down, not headroom to draw on.
 
 **What that means in bytes you can actually add**, measured by bisecting the
-guard rather than inferred from the spare: **big takes 554 more bytes of
-`.text`, small 341** before the assemble fails. Both fail on `KERN_BUDGET`
-and not on `KERN_CODE_MAX`, which still has 3,626. The two numbers are larger
+guard rather than inferred from the spare: **big takes 568 more bytes of
+`.text`, small 346** before the assemble fails. Both fail on `KERN_BUDGET`
+and not on `KERN_CODE_MAX`, which still has 3,638. The two numbers are larger
 than the spare because the footprint moves in whole 512-byte rungs and there
 is slack inside the current one — so the next change that crosses a rung
-costs 512 whatever its own size was. Small's 341 is all rung slack and no
+costs 512 whatever its own size was. Small's 346 is all rung slack and no
 budget: the byte after it fails. `tools/kernsize.py`, below, is what says so,
 and `make` runs it on every build — but only for the build it is building, so
 `make small` is the one that reports the second figure.
+
+Both figures went **up by the mouse backend split** (SPEC.md §9.9), which is
+worth a line because it is the rare direction: extracting `mou_report` out of
+the serial decode retired `[mou_nx]` and turned a fall-through into a `jmp`,
+for **−14 bytes on big and −5 on small**. It was done to give a second mouse
+backend somewhere to land and it paid for itself on the way in.
+
+**And the backend it was done for does not fit**, which is the standing
+example of what these two numbers mean in practice. SPEC.md §9.10 costs a
+working PS/2 mouse at **+376 bytes of `.text`**: big takes it and is left with
+**0 spare** — the next byte added to that configuration fails the build — and
+small **fails the guard by 512**, 376 not going into 346. It is `%ifdef
+PS2MOUSE` and in no shipped image for that reason, on top of the reason that
+an XT has no 8042 to put a mouse on. Note the shape of it: an earlier draft
+measured 309 and fit both, and the 67 bytes that made it actually *work* are
+what spent the margin. **A costing taken before the thing runs is not a
+costing.**
 
 Not the code and then some scratch elsewhere: *everything*. Code, read-only
 data, `.bss`, the cold segment, the FAT window, the directory and icon

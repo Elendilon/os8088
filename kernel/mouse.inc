@@ -273,6 +273,14 @@ mouse_init:
     push si
     push es
 
+%ifdef PS2MOUSE
+    call ps2_init               ; SPEC.md 9.10. BEFORE the serial probe and
+                                ; never INSTEAD of it: an aux device that
+                                ; answers hooks IRQ12 and everything below
+                                ; still runs, so a machine with both keeps
+                                ; SPEC.md 9.5's contest
+%endif
+
     ; --- which ports are actually there? (SPEC.md 9.5) -----------------------
     xor bx, bx
 .probe:
@@ -1084,10 +1092,11 @@ kbm_move:
     add ax, [mouse_x]
     push ax                     ; banked on OUR stack until y is ready, for
                                 ; mou_clamp's 2-D reason (SPEC.md 39.15.4).
-                                ; NOT in [mou_nx]: that word is the IRQ4
-                                ; ISR's staging area, and a serial byte
-                                ; landing between our store and read-back
-                                ; paired the ISR's x with our y
+                                ; On OUR stack and not in a shared word:
+                                ; the ISR decodes on the same invariant, and a
+                                ; packet landing between a store and its read
+                                ; back would pair its x with our y. That is
+                                ; what retired [mou_nx] (SPEC.md 9.9)
     mov al, [bx+2]              ; dy, the same way
     imul dl
     add ax, [mouse_y]
@@ -1975,10 +1984,12 @@ mou_byte:
     and ah, 0x3F
     or  al, ah
     cbw                         ; AX = dx, signed
-    add ax, [mouse_x]
-    mov [mou_nx], ax            ; STAGED, not stored: the clamp is 2-D on a
-                                ; machine with two displays (SPEC.md 39.15.4)
-                                ; and cannot answer about x until y is known
+    mov si, ax                  ; ...into mou_report's dx register (SPEC.md
+                                ; 9.9): SI is pushed by the ISR and is dead
+                                ; across the y decode below, which is what
+                                ; retired [mou_nx] - the x candidate was
+                                ; staged in .bss only because AX was needed
+                                ; to decode y
 
     ; --- dy = sign-extended {Y7Y6 from b0, Y5..Y0 from b2}; positive = down --
     mov al, dh
@@ -1988,35 +1999,59 @@ mou_byte:
     and bl, 0x3F
     or  al, bl
     cbw                         ; AX = dy, signed
-    add ax, [mouse_y]
     mov bx, ax
-    mov ax, [mou_nx]
-    call mou_clamp              ; ...and DX is untouched by it, which the
-    mov [mouse_x], ax           ; button decode below relies on
+
+    ; --- buttons: b0 bit 5 = left, bit 4 = right -----------------------------
+    mov al, dh                  ; ...still the staged b0
+    xor dl, dl
+    test al, 0x20
+    jz .nol
+    or  dl, 0x01
+.nol:
+    test al, 0x10
+    jz .nor
+    or  dl, 0x02
+.nor:
+    jmp mou_report              ; ...and everything below is protocol-blind
+
+.bout:                          ; every "drop this byte" above, and the only
+    ret                         ; exit mou_byte has that is not mou_report's
+
+; -----------------------------------------------------------------------------
+; mou_report - one decoded movement report, whatever protocol carried it
+;
+; SPEC.md 9.9. Everything from here down is about a POINTER and not about a
+; packet: the clamp, the button EDGES, the event records and the cursor move
+; are identical whether the bytes came off a UART at 1200 baud or out of an
+; 8042's output buffer. A backend's whole job is to reach here with three
+; registers filled in.
+;
+; ins:  SI = dx signed, BX = dy signed (positive = DOWN, screen order, which
+;       is NOT the sign a PS/2 packet carries), DL = buttons (bit 0 left,
+;       bit 1 right); ISR context, IF = 0, DS = KERNEL_SEG
+; outs: none; AX BX CX DX SI clobbered - every caller is an ISR that pushed
+;       them
+; -----------------------------------------------------------------------------
+mou_report:
+    add bx, [mouse_y]           ; the clamp is 2-D on a machine with two
+    mov ax, si                  ; displays (SPEC.md 39.15.4), so it cannot be
+    add ax, [mouse_x]           ; asked about x until y is known - which is
+    call mou_clamp              ; why both arrive before either is stored
+    mov [mouse_x], ax
     mov [mouse_y], bx
 %ifdef CURFIX
     mov cx, [ticks]             ; THE HAND IS MOVING (SPEC.md 7.1.4.3), which
     mov [cur_mvt], cx           ; is what decides whether the deferred hide is
                                 ; worth keeping. CX is dead here - it was the
-                                ; shift count above and the ISR pushed it -
-                                ; and DX is not, which is why it is not DX.
+                                ; shift count in the decode above and every
+                                ; caller is an ISR that pushed it.
                                 ; Gated with its reader, so a DEFAULT build is
                                 ; the pre-7.1.4.2 ISR too and not that one with
                                 ; a dead store in it - an A/B disk carrying
                                 ; half of what it is testing is not an A/B
 %endif
 
-    ; --- buttons: b0 bit 5 = left, bit 4 = right -----------------------------
-    mov al, dh                  ; ...still the staged b0: nothing between here
-    xor bl, bl                  ; and evq_push touches DX
-    test al, 0x20
-    jz .nol
-    or  bl, 0x01
-.nol:
-    test al, 0x10
-    jz .nor
-    or  bl, 0x02
-.nor:
+    mov bl, dl                  ; the button word the backend decoded
     mov bh, [mouse_btn]
     mov [mouse_btn], bl
     xor bh, bl                  ; changed bits
@@ -3474,8 +3509,6 @@ cur_drawn_y dw 0                ; VIRTUAL coordinates (SPEC.md 39.15) - the
                                 ; one into an ADDRESS, and the only two that
                                 ; subtract a display's origin.
                                 ; (valid only while cur_level >= 0)
-mou_nx      dw 0                ; the candidate x, staged across the y decode
-                                ; because mou_clamp is 2-D (SPEC.md 39.15.4)
 %ifdef KERN_BIG
 cur_disp    db 0                ; which display the arrow is ON, and cur_dprev
 cur_dprev   db 0                ; the one to put back afterwards (39.15.2).

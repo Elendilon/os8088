@@ -5730,6 +5730,174 @@ leaves the tail back at `0x3C` with the head untouched, and twelve consecutive
 overrun interrupts ask for a beep on the first three and none after — the
 counter back to zero on the next keystroke that finds the buffer empty.
 
+### 9.9 `mou_report` — the split between a PROTOCOL and a POINTER
+
+For as long as there has been a mouse here there has been exactly one, and its
+decode ran straight through: the Microsoft packet's bytes were taken apart and
+the pointer was moved by the same run of instructions, with no seam between
+them. `mou_report` is that seam, drawn where the last protocol-shaped byte is
+consumed.
+
+**Above the seam is a packet; below it is a pointer.** The clamp
+(2-D on a two-display machine, §39.15.4), the button *edges* that become
+`EVT_MDOWN`/`EVT_MUP`/`EVT_RDOWN`, the event record's birth stamp, `[blk_act]`
+and the decision to move the cursor now or set `[cur_dirty]` are all facts
+about a pointer, and not one of them knows what carried the bytes. A backend's
+whole job is to reach `mou_report` with three registers filled in:
+
+| in | meaning |
+|---|---|
+| `SI` | dx, signed |
+| `BX` | dy, signed, **positive = DOWN** |
+| `DL` | buttons, bit 0 left, bit 1 right |
+
+ISR context, `IF = 0`, `DS = KERNEL_SEG`; `AX BX CX DX SI` are clobbered,
+which costs nothing because every caller is an ISR that pushed them.
+
+**The dy convention is the trap and it is stated here rather than left to a
+comment.** Screen order is what `mouse_y` and every clip rect in the kernel
+count in, so `mou_report` takes down-positive — and a serial packet already
+carries it that way while **PS/2 sends the opposite sign**. A backend that
+forwards the wire's sign unchanged gets a pointer that moves correctly
+left/right and backwards up/down, which reads as a wiring fault rather than as
+a missing `neg`.
+
+**`[mou_nx]` is retired by this.** The x candidate was staged in `.bss` across
+the y decode for one reason — `AX` was needed to decode y — and with dx living
+in `SI` there is nothing to stage: `mou_report` adds both deltas and clamps
+before storing either, which is what §39.15.4 requires and what the staging
+existed to arrange. Two bytes of `.bss` back, and one fewer memory round trip
+per packet on the target's ~40 packets a second.
+
+The split costs nothing measurable in either direction: the serial decode ends
+in `jmp mou_report` where it used to fall through, and pays one `mov si, ax`
+that the retired staging store more than covers.
+
+### 9.10 A second backend — what a PS/2 mouse would cost
+
+**Not implemented; this is the costing.** §9.9's seam exists so that the
+question can be asked in bytes, and the answer is recorded here because the
+answer is *the* obstacle rather than a detail of one.
+
+**The machine this OS is for does not have the port.** An IBM PC/XT has no
+8042 — the 5150 and 5160 use an 8255 PPI, which has no auxiliary device and no
+IRQ12 — so a PS/2 mouse is an AT-class feature on a project whose target is a
+4.77MHz 8088. It is `[cpu_tier] >= CPU_286` gated for the same reason §52.1's
+hard-disk rung 1 is, and on the target machine every byte of it is resident
+and unreachable.
+
+That is the whole difficulty: **`KERN_BUDGET` is spent** (docs/KERNEL-MEMORY.md
+— big stands at one 512-byte step, small at zero), and a feature that cannot
+run on the target cannot be paid for out of the target's footprint. So the
+backend is `%ifdef PS2MOUSE`, absent from the shipped kernel, and the figures
+below are what it costs the build that asks for it.
+
+**What it needs**, none of which the serial backend already has:
+
+- an **8042 aux init** — `0xA8` to enable the port, a read-modify-write of the
+  command byte for the aux IRQ and clock bits, then `0xD4`-prefixed `0xFF`
+  (reset) and `0xF4` (enable reporting), every step behind a
+  status-register poll with a **timeout**. A machine with an 8042 and no mouse
+  on it must fall through to §9.4's serial probe rather than spin.
+- an **IRQ12 ISR** (int 74h) — the first interrupt in this kernel on the
+  **slave** 8259, so it EOIs `0xA0` *and* `0x20` and unmasks IRQ2's cascade
+  bit on the master as well as bit 4 on the slave. Getting the second EOI
+  wrong wedges every interrupt below it on the slave, which on a period AT is
+  the RTC.
+- a **3-byte PS/2 decoder** with the sign and overflow bits out of byte 0, the
+  `bit 3 = 1` sync test, and §9.9's `neg` on dy.
+
+**Measured** by building the kernel with and without, the way §9.6.4's keypad
+5 was: **`.text` +376 bytes, `.bss` +4**, split
+
+| | bytes |
+|---|---|
+| `ps2_isr` — resident, and the **only** part on an interrupt path | **132** |
+| `ps2_init` | 128 |
+| `ps2_auxcmd` | 36 |
+| `ps2_wait_aux` / `ps2_wait_in` / `ps2_wait_out` / `ps2_drain` | 23 / 19 / 17 / 18 |
+| the `call ps2_init` in `mouse_init` | 3 |
+
+Everything but the ISR is init-only. §9.9's seam is **−14** on its own (the
+retired `[mou_nx]` and the serial decode's fall-through becoming a `jmp`), so
+against the tree before either change the whole feature is **+362**.
+
+**And the two kernels answer differently, in the direction nobody would
+guess** — this is the finding:
+
+| | `.text` | `KERN_SIZE` vs `KERN_BUDGET` | |
+|---|---|---|---|
+| `kern_big` | 55,440 → 55,816 | 113,664 → **114,176** of 114,176 | assembles, **0 spare** |
+| `kern_small` | 49,489 → 49,865 | 105,984 → **106,496** of 105,984 | **fails the guard by 512** |
+
+`kern_big` pays a whole 512-byte rung for 376 bytes and has **nothing left
+afterwards** — the next byte anybody adds to that configuration fails the
+build. `kern_small` does not fit at all: it stands at `KERN_SIZE` ==
+`KERN_BUDGET` exactly with 341 bytes of rung slack, and 376 does not go into
+341. Neither guard is raised here.
+
+**That margin is the honest headline.** An earlier, *non-working* draft of
+this backend measured 309 bytes and fit both kernels; the 67 bytes that made
+it actually work — §9.10.1's three fixes — are what pushed `kern_small` over
+and spent the last of `kern_big`. A costing taken before the thing runs is
+not a costing.
+
+**Moving the init cold does not help.** §2.6 buys `KERN_CODE_MAX` room and
+**nothing** against `KERN_BUDGET`, and `KERN_BUDGET` is the guard that binds
+here — a cold `ps2_init` would still be resident, would still cost the rung,
+and would additionally need a far thunk. `KERN_CODE_MAX` is not close: it has
+3,626 bytes free and is not the constraint at any point in this.
+
+#### 9.10.1 Three bugs, and each one hooked nothing or lost a packet
+
+The prototype was driven end to end under QEMU (a 386 with an 8042 and an aux
+device — the closed-list machine, §9.10's last paragraph). It failed three
+times, and each failure is a rule rather than a slip:
+
+1. **One data register, two devices.** `0x60` serves the keyboard and the aux
+   device alike and only status **bit 5** says which one filled it. A plain
+   "wait for OBF, then read" gets a *scancode* on any BIOS that leaves the
+   keyboard enabled, the `0xFA` test fails, and init returns having hooked
+   nothing. `ps2_wait_aux` tests bit 5 — and **drops** a keyboard byte rather
+   than waiting it out, because a byte left in the buffer blocks the ACK
+   behind it and the wait then times out with the mouse working perfectly.
+   *Symptom:* IVT `0x74` still holding the BIOS default after a clean boot.
+2. **A device told to report starts reporting immediately.** Sending `0xF4`
+   before reading the controller's command byte puts mouse packets into the
+   register the command-byte read is waiting on. The probe is `0xF5`
+   (*disable* reporting) and the stream is started **last**, after the vector
+   is in and the masks are open.
+3. **Enabling the aux IRQ makes the ACK itself an interrupt.** The moment the
+   command byte's bit 1 goes in, every aux byte is delivered by IRQ12 —
+   including `0xF4`'s ACK — so `ps2_isr` takes it out of the register before
+   `ps2_auxcmd`'s poll can see it, and init fails *having already hooked the
+   vector and opened the masks*. The poll and the ISR are two readers of one
+   register and **`IF` is the fence between them**: the tail of `ps2_init`
+   runs under `pushf`/`cli`, and the carry is banked in `BH` (`sbb bh, bh`)
+   across the `popf` that would otherwise overwrite it.
+
+   That fix leaves **one latched edge** behind — the ACK's interrupt, polled
+   away but still pending — so the first IRQ12 after boot arrives with an
+   **empty buffer**. A bare `in al, 0x60` there reads a stale byte whose bit 3
+   may be set, the decoder takes it for a packet header, and the next real
+   packet loses its sync: **one lost pointer movement per boot**. The ISR's
+   own OBF+AUX guard is what closes it, and it is the only guard on the
+   interrupt path. *Measured:* with the guard out, a 120px sweep in two
+   packets moved the pointer 60; with it in, 120.
+
+Verified on the QEMU machine: `0060:4C04` in IVT `0x74` after boot, a
+(320,240) → (440,320) sweep landing **exactly** on both axes, and a 632-pixel
+traverse to the menu bar opening File on the button press. The serial backend
+is unaffected with the knob off — the same pointer walk and menu press
+(§9.9's seam being a `jmp` where a fall-through used to be).
+
+**Testability is the second obstacle.** MartyPC is the default instrument
+(docs/TESTING.md) and is an 8088/XT with no 8042 aux port at all, so it cannot
+host this — the same hole the Ethernet card falls through (§72). 86Box's
+`286`/`386`/`486` machines can, and QEMU's `386` has an 8042 with an aux
+device, which puts PS/2 on the closed QEMU list beside §52.1's rung 1 rather
+than on MartyPC. Nothing about it can be checked on the 5150.
+
 ## 10. events.inc
 
 Event record, 8 bytes: `EV_TYPE` dw, `EV_A` dw, `EV_B` dw, `EV_C` dw.
