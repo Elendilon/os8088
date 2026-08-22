@@ -273,7 +273,7 @@ mouse_init:
     push si
     push es
 
-%ifdef PS2MOUSE
+%ifdef KERN_BIG
     call ps2_init               ; SPEC.md 9.10. BEFORE the serial probe and
                                 ; never INSTEAD of it: an aux device that
                                 ; answers hooks IRQ12 and everything below

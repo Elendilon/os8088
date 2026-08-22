@@ -197,11 +197,57 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endif
 
 %ifdef KERN_BIG
-KERN_BUDGET equ 114176          ; kern_big's FOOTPRINT guard, and the SHIPPED
+KERN_BUDGET equ 115200          ; kern_big's FOOTPRINT guard, and the SHIPPED
                                 ; one: big is the default build. Free to move
                                 ; on its own terms - it has a machine with RAM
                                 ; behind it - where KERN_SMALL_BUDGET below is
                                 ; the one that has to be defended.
+                                ;
+                                ; THE TWENTY-NINTH MOVE, 114,176 -> 115,200,
+                                ; ASKED FOR AND GRANTED, 1KB, two steps -
+                                ; ATTRIBUTED TO THE PS/2 MOUSE. kern_big's
+                                ; ALONE: kern_small does not take a byte of
+                                ; it and does not get the feature, for the
+                                ; reason written beside its own figure.
+                                ;
+                                ; WHAT IT IS FOR is SPEC.md 9.10's second
+                                ; mouse backend - an 8042 auxiliary device on
+                                ; IRQ12, decoded into 9.9's mou_report:
+                                ; .text +376, .bss +4, of which the resident
+                                ; ISR is 132 and the rest is init-only. It is
+                                ; the FIRST move at the 1KB unit since the
+                                ; twenty-fifth, and 1KB and not 512 is moves
+                                ; 22/23/24's rule again: 114,688 assembles and
+                                ; is ZERO spare, which hands the next byte
+                                ; added anywhere the failure the move exists
+                                ; to repair. Two steps, so 648 bytes are left
+                                ; for ordinary growth - move 5's rule, not an
+                                ; invitation.
+                                ;
+                                ; THE FEATURE IS RESIDENT ON A MACHINE THAT
+                                ; CANNOT USE IT, and that is stated here
+                                ; rather than discovered later. The 8088 is
+                                ; this project's primary target and an IBM
+                                ; PC/XT has an 8255 PPI - no auxiliary
+                                ; device, no IRQ12 - so ps2_init reads
+                                ; [cpu_tier], finds CPU_8086 and returns
+                                ; having done nothing, and all 376 bytes sit
+                                ; in the field 5150's RAM unreachable. What
+                                ; buys them is that big is ALSO the 286 and
+                                ; 386 build, and by the time those were the
+                                ; machine on the desk the PS/2 port was the
+                                ; standard one - a mouse on those machines is
+                                ; likelier to be PS/2 than serial. It is the
+                                ; twenty-seventh move's wake-mechanism shape
+                                ; (resident everywhere for a machine that is
+                                ; not everywhere) taken deliberately and with
+                                ; a user-visible feature at the end of it,
+                                ; rather than noticed afterwards. If this
+                                ; guard ever has to be DEFENDED rather than
+                                ; raised, this is the second thing to weigh -
+                                ; behind the wake mechanism, because unlike
+                                ; the wake mechanism something ships that
+                                ; uses it.
                                 ;
                                 ; THE TWENTY-EIGHTH MOVE, 112,128 -> 114,176,
                                 ; ASKED FOR AND GRANTED, 2KB, three steps

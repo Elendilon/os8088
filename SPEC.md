@@ -821,7 +821,8 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/vga12.inc`  | mode 12h planar primitives, save/restore, gfx lock, `gfx_scroll` (§5.5); the coordinate core `vga_rect_setup` that both renderers share (§39.3) — the mode set left for `viddet.inc` |
 | `kernel/softgfx.inc`  | the software renderer (§32/§39.3): the software planar primitives, and the only video driver on a 1bpp adapter |
 | `kernel/font.inc`   | 8x8 font (copied at init from the BIOS ROM set, or the IBM ROM's own on a pre-EGA machine), text draw |
-| `kernel/mouse.inc`  | COM1 UART, IRQ4 ISR, packet decode, cursor (save-under) |
+| `kernel/mouse.inc`  | COM1/COM2 UART, IRQ4/IRQ3 ISR, Microsoft packet decode, the keyboard mouse (§9.6), `mou_report` — the protocol-blind half every backend lands on (§9.9) — and the cursor (save-under) |
+| `kernel/ps2.inc`    | the PS/2 mouse backend (§9.10): 8042 aux init, the IRQ12 ISR and the 3-byte packet decode, into `mou_report` and no further — **`kern_big`'s alone**, `%ifdef KERN_BIG` end to end |
 | `kernel/sched.inc`  | PIT hook, context switch, task table, spawn/yield/sleep |
 | `kernel/events.inc` | 8-byte event records (`EVT_MDOWN`/`MUP`/`RDOWN`, and `EVT_WAKE` — a package's own kick, §71.1), system event ring queue |
 | `kernel/clock.inc`  | system clock (§37): the RTC ladder (§37.90 — MC146818 at 70h/71h, MM58167 and RP5C01 at 2C0h, int 1Ah last), the wall-clock date + time advanced from `[ticks]`, field editing and formatting — prefix `clk_` |
@@ -4444,7 +4445,7 @@ grows, because `inst_task_die`'s `gfx_lock` may wait a watchdog period
 behind a non-yielding UI-side callback; the window is already hidden by
 then, so this is invisible.
 
-## 9. mouse.inc — serial Microsoft mouse + cursor
+## 9. mouse.inc — the pointer: serial and PS/2 mice, and the cursor
 
 - **COM1 (0x3F8, IRQ4 → int 0x0C) and COM2 (0x2F8, IRQ3 → int 0x0B)**, both
   at once (§9.5). `mouse_init`: probe each base for a UART, and for every one
@@ -5773,42 +5774,49 @@ The split costs nothing measurable in either direction: the serial decode ends
 in `jmp mou_report` where it used to fall through, and pays one `mov si, ax`
 that the retired staging store more than covers.
 
-### 9.10 A second backend — what a PS/2 mouse would cost
+### 9.10 The PS/2 backend — an 8042 aux device on IRQ12
 
-**Not implemented; this is the costing.** §9.9's seam exists so that the
-question can be asked in bytes, and the answer is recorded here because the
-answer is *the* obstacle rather than a detail of one.
+**`kern_big`'s, and shipped there.** §9.9's seam is what it lands on: an
+`ps2_isr` that decodes a 3-byte PS/2 packet and reaches `mou_report` with the
+same three registers the serial decode fills, and no knowledge anywhere below
+that of which port the pointer came from.
 
-**The machine this OS is for does not have the port.** An IBM PC/XT has no
-8042 — the 5150 and 5160 use an 8255 PPI, which has no auxiliary device and no
-IRQ12 — so a PS/2 mouse is an AT-class feature on a project whose target is a
-4.77MHz 8088. It is `[cpu_tier] >= CPU_286` gated for the same reason §52.1's
-hard-disk rung 1 is, and on the target machine every byte of it is resident
-and unreachable.
+**The machine this OS is primarily for does not have the port.** An IBM PC/XT
+has an 8255 PPI — no auxiliary device, no IRQ12 — so `ps2_init` reads
+`[cpu_tier]`, finds `CPU_8086` and returns having touched nothing, and all 376
+bytes sit in a field 5150's RAM unreachable. **What buys them is that
+`kern_big` is also the 286 and 386 build**, and by the time those were the
+machine on the desk the PS/2 port was the standard one: a mouse on a 386 is
+likelier to be PS/2 than serial, and a 386 that boots this OS and finds no
+pointer is a worse outcome than 376 resident bytes on the XT. That trade is
+the twenty-ninth budget move, asked for and granted (kernel.asm,
+docs/KERNEL-MEMORY.md), and it is the same shape as the twenty-seventh's wake
+mechanism — resident everywhere for a machine that is not everywhere — taken
+deliberately this time, with something user-visible at the end of it.
 
-That is the whole difficulty: **`KERN_BUDGET` is spent** (docs/KERNEL-MEMORY.md
-— big stands at one 512-byte step, small at zero), and a feature that cannot
-run on the target cannot be paid for out of the target's footprint. So the
-backend is `%ifdef PS2MOUSE`, absent from the shipped kernel, and the figures
-below are what it costs the build that asks for it.
+**`kern_small` does not have it and is not getting it.** Small is the 128KB
+build and is shrinking to fit those machines; no 128KB machine needs a PS/2
+mouse. Every byte of `ps2.inc` is inside `%ifdef KERN_BIG`, small takes no
+part of the budget move, and `make KERN_SMALL=1` assembles the same
+49,489-byte `.text` it did before this existed.
 
-**What it needs**, none of which the serial backend already has:
+**What it does**, none of which the serial backend already had:
 
-- an **8042 aux init** — `0xA8` to enable the port, a read-modify-write of the
-  command byte for the aux IRQ and clock bits, then `0xD4`-prefixed `0xFF`
-  (reset) and `0xF4` (enable reporting), every step behind a
-  status-register poll with a **timeout**. A machine with an 8042 and no mouse
-  on it must fall through to §9.4's serial probe rather than spin.
+- an **8042 aux init** — `0xA8` to enable the port, `0xD4`-prefixed `0xF5` as
+  the probe, a read-modify-write of the command byte for the aux IRQ and clock
+  bits, and `0xF4` last of all, every step behind a status-register poll with
+  a **timeout**. A machine with an 8042 and no mouse on it falls through to
+  §9.4's serial probe rather than spinning, and hooks nothing on the way out.
 - an **IRQ12 ISR** (int 74h) — the first interrupt in this kernel on the
-  **slave** 8259, so it EOIs `0xA0` *and* `0x20` and unmasks IRQ2's cascade
-  bit on the master as well as bit 4 on the slave. Getting the second EOI
-  wrong wedges every interrupt below it on the slave, which on a period AT is
+  **slave** 8259, so it EOIs `0xA0` *and* `0x20`, and `ps2_init` unmasks IRQ2's
+  cascade bit on the master as well as bit 4 on the slave. Getting the second
+  EOI wrong wedges every line below it on the slave, which on a period AT is
   the RTC.
-- a **3-byte PS/2 decoder** with the sign and overflow bits out of byte 0, the
+- a **3-byte decoder** — the sign and overflow bits out of byte 0, the
   `bit 3 = 1` sync test, and §9.9's `neg` on dy.
 
-**Measured** by building the kernel with and without, the way §9.6.4's keypad
-5 was: **`.text` +376 bytes, `.bss` +4**, split
+**Measured**, by building the kernel with and without: **`.text` +376 bytes,
+`.bss` +4**, split
 
 | | bytes |
 |---|---|
@@ -5818,35 +5826,49 @@ below are what it costs the build that asks for it.
 | `ps2_wait_aux` / `ps2_wait_in` / `ps2_wait_out` / `ps2_drain` | 23 / 19 / 17 / 18 |
 | the `call ps2_init` in `mouse_init` | 3 |
 
-Everything but the ISR is init-only. §9.9's seam is **−14** on its own (the
-retired `[mou_nx]` and the serial decode's fall-through becoming a `jmp`), so
-against the tree before either change the whole feature is **+362**.
+§9.9's seam is **−14** on its own (the retired `[mou_nx]` and the serial
+decode's fall-through becoming a `jmp`), so against the tree before either
+change `kern_big` is **+362**: `.text` 55,454 → 55,816, `KERN_SIZE` 113,664 →
+114,176 against a budget raised to 115,200, leaving **1,024 spare — two
+steps**. `KERN_CODE_MAX` is not close and never was: 3,260 free.
 
-**And the two kernels answer differently, in the direction nobody would
-guess** — this is the finding:
+**Moving the init cold buys nothing.** §2.6 relieves `KERN_CODE_MAX`, and
+`KERN_CODE_MAX` is not the guard that binds — a cold `ps2_init` would still be
+resident, would still cost the rung, and would additionally need a far thunk.
 
-| | `.text` | `KERN_SIZE` vs `KERN_BUDGET` | |
-|---|---|---|---|
-| `kern_big` | 55,440 → 55,816 | 113,664 → **114,176** of 114,176 | assembles, **0 spare** |
-| `kern_small` | 49,489 → 49,865 | 105,984 → **106,496** of 105,984 | **fails the guard by 512** |
+**The costing was taken twice, and the first one was wrong.** An earlier draft
+of this backend measured **309 bytes** and fit both kernels. It also did not
+work: the 67 bytes that made it work are §9.10.1's three fixes, and they are
+what took `kern_small` out of range and made the budget move necessary. **A
+costing taken before the thing runs is not a costing** — that is the reusable
+part of this section.
 
-`kern_big` pays a whole 512-byte rung for 376 bytes and has **nothing left
-afterwards** — the next byte anybody adds to that configuration fails the
-build. `kern_small` does not fit at all: it stands at `KERN_SIZE` ==
-`KERN_BUDGET` exactly with 341 bytes of rung slack, and 376 does not go into
-341. Neither guard is raised here.
+**Two things it does NOT do**, both stated so that nobody reads the absence as
+an oversight:
 
-**That margin is the honest headline.** An earlier, *non-working* draft of
-this backend measured 309 bytes and fit both kernels; the 67 bytes that made
-it actually work — §9.10.1's three fixes — are what pushed `kern_small` over
-and spent the last of `kern_big`. A costing taken before the thing runs is
-not a costing.
+- **It does not join §9.5's contest.** `[mou_port]`, `[mou_seen]` and
+  `mou_lockon` are written in terms of the serial port table, so a PS/2 mouse
+  and a serial mouse on one machine are two independent backends both feeding
+  `mou_report` rather than two candidates weighed against each other. Both
+  work; both move the same pointer. What is not implemented is a *contest*,
+  and it is not needed until a device turns up that is neither.
+- **It has no hot-plug.** §9.4's re-detect is a DTR/RTS power cycle and there
+  is no aux equivalent, so a PS/2 mouse plugged in after boot is not found.
+  `ps2_init` runs once.
 
-**Moving the init cold does not help.** §2.6 buys `KERN_CODE_MAX` room and
-**nothing** against `KERN_BUDGET`, and `KERN_BUDGET` is the guard that binds
-here — a cold `ps2_init` would still be resident, would still cost the rung,
-and would additionally need a far thunk. `KERN_CODE_MAX` is not close: it has
-3,626 bytes free and is not the constraint at any point in this.
+**§9.6.4's int 09h peek reads port `0x60` without testing the aux bit**, and
+that is the one interaction here worth flagging: it is a pre-existing hook
+meeting a new device, and on a 286+ with a live PS/2 mouse it can read a mouse
+byte and judge it as a scancode. The keypad-5 hook is gated behind
+`[mou_seen]` — a machine with a *serial* mouse never reaches the port read at
+all — but `[mou_seen]` is the serial backend's flag and a PS/2-only machine
+leaves it clear. §9.10.1's `PS2_AUX` test is the shape the fix takes when it
+is taken.
+
+**Testability**: MartyPC is an 8088 with no 8042 aux port and cannot host this
+at all — the same hole §72's NIC falls through — so it joins docs/TESTING.md's
+closed QEMU list beside §52.1's rung 1. 86Box's `286`/`386`/`486` can host it;
+nothing about it can be checked on the 5150.
 
 #### 9.10.1 Three bugs, and each one hooked nothing or lost a packet
 
@@ -5885,11 +5907,12 @@ times, and each failure is a rule rather than a slip:
    interrupt path. *Measured:* with the guard out, a 120px sweep in two
    packets moved the pointer 60; with it in, 120.
 
-Verified on the QEMU machine: `0060:4C04` in IVT `0x74` after boot, a
-(320,240) → (440,320) sweep landing **exactly** on both axes, and a 632-pixel
-traverse to the menu bar opening File on the button press. The serial backend
-is unaffected with the knob off — the same pointer walk and menu press
-(§9.9's seam being a `jmp` where a fall-through used to be).
+Verified on the QEMU machine: the kernel's own `ps2_isr` in IVT `0x74` after
+boot, a (320,240) → (440,320) sweep landing **exactly** on both axes, and a
+632-pixel traverse to the menu bar opening File on the button press. The
+serial backend is unaffected — the same pointer walk and menu press over a
+`msmouse` on COM1, on the same kernel, §9.9's seam being a `jmp` where a
+fall-through used to be.
 
 **Testability is the second obstacle.** MartyPC is the default instrument
 (docs/TESTING.md) and is an 8088/XT with no 8042 aux port at all, so it cannot

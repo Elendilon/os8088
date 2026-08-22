@@ -141,8 +141,8 @@ THEMES = (
      ("wm.inc", "ui.inc", "menu.inc", "instance.inc", "desk.inc", "dock.inc",
       "fsx.inc", "clip.inc", "fprog.inc", "toast.inc")),
     ("hardware: drivers, clock, mouse, sound, CPU, XMS",
-     ("mouse.inc", "clock.inc", "driver.inc", "snd.inc", "cpudet.inc",
-      "xmem.inc")),
+     ("mouse.inc", "ps2.inc", "clock.inc", "driver.inc", "snd.inc",
+      "cpudet.inc", "xmem.inc")),
     # blank.inc (SPEC.md 64) is here and not under hardware, although all it
     # does is write a video port: what it owns is whether the SIGNAL is on,
     # which is a property of the adapter the rest of this group programs.

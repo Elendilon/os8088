@@ -7,12 +7,19 @@
 ; mouse.inc's and is not repeated here; this file is a packet decoder and an
 ; 8042 init, and that is the whole of it.
 ;
-; GATED, and absent from every shipped kernel. An IBM PC/XT has an 8255 PPI
-; and no auxiliary device at all, so on the machine this OS is FOR every byte
-; here is resident and unreachable - and KERN_BUDGET is spent
-; (docs/KERNEL-MEMORY.md). A build that wants it asks with -DPS2MOUSE.
+; kern_big's ALONE, and shipped there. The 8088 is this project's primary
+; target and has no auxiliary device to put a mouse on - an IBM PC/XT has an
+; 8255 PPI, not an 8042 - but big also runs on the 286 and 386, and by the
+; time those were the machine on the desk the PS/2 port was the standard one.
+; So big carries it and pays for it on the XT too, which is what the
+; twenty-ninth budget move bought (kernel.asm, docs/KERNEL-MEMORY.md).
+;
+; kern_small does NOT, and that is a decision rather than a size accident:
+; small is the 128KB build and is shrinking to fit those machines, and no
+; 128KB machine needs a PS/2 mouse. Every byte below is inside %ifdef
+; KERN_BIG.
 ; =============================================================================
-%ifdef PS2MOUSE
+%ifdef KERN_BIG
 
 PS2_DATA    equ 0x60            ; the 8042's data register...
 PS2_STAT    equ 0x64            ; ...and its status/command register

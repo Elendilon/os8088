@@ -362,7 +362,9 @@ past:
 1. 286 and 386
 2. rung 1 of the hard-disk driver (§52.1) — gated on `CPU_286`
 3. §9.5's awkward mouse cases — COM2, the cross-wired IRQ4 card, a modem
-4. the Ethernet card (§72) — MartyPC has no NIC of any kind
+4. the PS/2 mouse (§9.10) — MartyPC is an 8088, and an XT has an 8255 PPI
+   rather than an 8042 with an aux port
+5. the Ethernet card (§72) — MartyPC has no NIC of any kind
 
 **"It is quicker to type" is not on it, and neither is "I already know the QMP
 commands."** Everything else that runs on an 8088 — all three of §39's
@@ -385,7 +387,7 @@ python3 tools/os88mouse.py 127.0.0.1:9001 dblclick 150 90   # NOT two clicks
 python3 tools/os88marty.py 127.0.0.1:9001 shot out.png --rendered
 ```
 
-Driving QEMU, for the four cases above and for a host with no MartyPC:
+Driving QEMU, for the five cases above and for a host with no MartyPC:
 
 ```
 python3 tools/mouse.py build/qmp.sock click 180 150        # absolute click
