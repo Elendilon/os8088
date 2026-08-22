@@ -16,27 +16,23 @@
 ; disagree about.
 ; =============================================================================
 
-; --- THE VERB'S OWN PUMP, or the worker's -------------------------------------
-; Every verb below starts by draining the ring, because with nothing else
-; running the only thing that can advance the stack is a package asking it
-; something. ETHPUMP=1 (SPEC.md 72.19) gives the driver a worker that does it
-; instead - better pacing for a SERVER, whose peer does not wait for the next
-; poll - and this is the one place the two builds differ.
+; --- THE VERB'S OWN PUMP, and the worker only covers for it -------------------
+; Every verb below starts by draining the ring, because the only thing that can
+; advance the stack is a package asking the driver something. ETHPUMP=1
+; (SPEC.md 72.19) adds a worker that ALSO does it, for the windows where no
+; package is asking - a repaint, a 400ms disk commit, a modal dialog - because
+; a SERVER's peer does not wait for the next poll.
 ;
-; **The fallback is not optional.** A driver worker is spawned from a service
-; call and can be REFUSED when every task slot is taken; if the verbs had
-; simply stopped pumping, that refusal would stop the network dead. So the test
-; is on `eth_wlive` and not on the build: no worker, the verb pumps, exactly as
-; it always did.
+; **THE VERB STILL PUMPS, IN BOTH BUILDS.** The first cut had the worker take
+; over and the verb skip - and the field measured a 13.6% throughput loss on a
+; 300KB upload (docs/FTP-PERF.md), because during a transfer the app calls
+; verbs many times a tick and the worker was doing nothing but contend for the
+; card with it: every collision is a NETE_BUSY that ends fd_recv_stage's drain
+; a pass early. So the macro is unconditional and the STANDBY test moved to the
+; worker (SPEC.md 72.19.5) - which is also why the fallback stopped needing a
+; test: a refused task slot now costs the gap-filling and nothing else.
 %macro ETH_VPUMP 0
-%ifdef ETHPUMP
-    cmp byte [eth_wlive], 0
-    jne %%have
     call eth_pump
-%%have:
-%else
-    call eth_pump
-%endif
 %endmacro
 
 ; --- NETV_OPEN ---------------------------------------------------------------

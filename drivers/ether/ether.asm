@@ -265,12 +265,22 @@ eth_dhcp_wait:
 
 %ifdef ETHPUMP
 ; -----------------------------------------------------------------------------
-; eth_wrk - THE PUMP WORKER (SPEC.md 72.19, ETHPUMP=1 only)
+; eth_wrk - THE PUMP WORKER, ON STANDBY (SPEC.md 72.19, ETHPUMP=1 only)
 ;
 ; Without it the stack advances only when a package asks the driver something,
 ; which is fine for a client and wrong for a SERVER: the peer does not wait for
 ; the next poll, the card's ring fills while the UI repaints, and an incoming
 ; SYN sits there until somebody calls a verb.
+;
+; **IT COVERS THE GAPS AND DOES NOT COMPETE.** The first cut had it pump
+; INSTEAD of the verbs, and the field measured 16029 -> 13843 B/s on a 300KB
+; upload (docs/FTP-PERF.md): during a transfer the app calls verbs many times a
+; tick, so the worker was not filling any gap - it was taking the card away
+; from the only thing that wanted it, and each collision costs the app a whole
+; pass (fd_recv_stage abandons its drain on NETE_BUSY). eth_pump sets
+; [eth_wbeat]; this test-and-clears it once a turn and pumps ONLY when a full
+; turn went by with no verb pumping. A busy stack is therefore exactly the
+; pre-worker build, byte for byte of behaviour, and an idle one gets pumped.
 ;
 ; **ONE FRAME PER ACQUISITION OF THE CARD.** eth_claim is answered with
 ; NETE_BUSY and never waited on (drivers/net/netpkg.inc), so a worker that held
@@ -290,6 +300,10 @@ eth_wrk:
     jne .die
     cmp byte [eth_up], 0
     je  .die
+    xor al, al                  ; TEST AND CLEAR, in one instruction because two
+    xchg al, [eth_wbeat]        ; tasks write this byte: `xchg` with memory is
+    or  al, al                  ; locked on an 8086 whether or not it is asked
+    jnz .nap                    ; ...somebody pumped since the last turn: theirs
     mov cx, ETH_BUDGET
 .f:
     call eth_claim              ; somebody else has the card: leave it to them,

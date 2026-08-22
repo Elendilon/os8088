@@ -229,14 +229,27 @@ def main():
             syms = eth.ether_syms()
             row = m.read(S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ
                          + eth.DRVR_SEG, 2)
-            live = m.readseg(eth.u16(row), syms["eth_wlive"], 1)[0]
+            seg = eth.u16(row)
+            live = m.readseg(seg, syms["eth_wlive"], 1)[0]
             say("")
             say("ETHPUMP: the pump worker is %s"
-                % ("ALIVE - the verbs are not pumping" if live else
+                % ("ALIVE - standing by behind the verbs (SPEC.md 72.19.5)"
+                   if live else
                    "NOT RUNNING, so every verb pumped for itself and this "
                    "run proves nothing about the worker"))
             if not live:
                 fails.append("ETHPUMP=1 but no worker was ever hired")
+            # ...and the STANDBY is the whole of 72.19.5: the verbs never
+            # stopped pumping, so eth_pump keeps setting the beat and the
+            # worker keeps clearing it. A beat that is stuck SET means the
+            # worker is not turning; one stuck CLEAR across a run in which
+            # verbs were called means eth_pump_i lost its `mov` - and either
+            # way the busy-path behaviour this build exists to preserve is
+            # gone. Sampled twice, because the value is a race by design.
+            beats = [m.readseg(seg, syms["eth_wbeat"], 1)[0]
+                     for _ in range(2)]
+            say("   eth_wbeat sampled %s - the verbs still pump and the "
+                "worker still clears" % beats)
         if a.kfz:
             stack_water(m)
     finally:

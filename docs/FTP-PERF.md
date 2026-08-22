@@ -108,6 +108,67 @@ The last full field profile (`netbench`, §72.15), a 297 KB upload,
 - **`python3 tools/os88disk.py --verify-hdd IMG`** — an independent fsck for a
   partitioned image, including one behind an ST-11M-style reserved area.
 
+### 6.1 The ETHPUMP A/B, on the 5150 — and why it reads backwards
+
+Same 304552-byte `banana split.mod` STOR from WinSCP, two runs each way, over
+the same session; `gap 0s` on all four.
+
+| build | wall | rate | disk | net | draw |
+|---|---|---|---|---|---|
+| A — verbs pump (shipping) | 19s | **16029 B/s** | 3579 | 7649 | 33 |
+| A — again | 19s | **16029 B/s** | 3586 | 7636 | 33 |
+| B — worker pumps instead | 22s | **13843 B/s** | 3613 | 2497 | 33 |
+| B — again | 22s | **13843 B/s** | 3621 | 2398 | 32 |
+
+Repeatable to the byte per second, which is itself worth noting: the transfer
+is deterministic enough that a 13.6% difference is not noise.
+
+**The `net` column is the trap.** It is ftpd's own timer for time inside
+`OSAPI_DRV_CALL` (§77.32), and it falls by 68% — the app really is spending a
+third of the time in the driver that it used to. That is the redesign working
+exactly as drawn, and it is not a win: the pumping did not get cheaper, it
+moved into a task ftpd's split cannot see, and the wall clock is the only
+column that counts the whole machine. **A self-timer that stops covering the
+work is not the work stopping.**
+
+Where it went: during a transfer the app calls verbs many times a tick, so
+there is no gap for a worker to fill, and it becomes a third contender for the
+card's mutex. `eth_claim` is answered `NETE_BUSY` and never waited on, and
+`fd_recv_stage` abandons its whole drain on a `NETE_BUSY` (§77.30) — so one
+collision costs the app a pass, not an instruction. SPEC.md §72.19.5 is the
+fix: the worker test-and-clears a beat the verbs set, and pumps only after a
+full turn in which nobody did. Busy stack: the A build. Idle stack, or one
+whose package is inside a 400ms disk commit: pumped anyway.
+
+**And it is worse than slow: on B the drag KILLED the transfer.** The field,
+same session: *"Dragging the window during the write was smooth on B, but it
+also killed the transfer — the file progress stops popping up, the writes stop,
+and the client eventually times out on a control connection error."* On A the
+same drag is choppier and the transfer survives it.
+
+Both halves of that are the same cause and neither is a win:
+
+- **The smoothness came from ftpd doing less per turn, not from the worker
+  doing more.** A verb that pumps drains up to `ETH_BUDGET` = 8 frames, and 8
+  frames is up to eighty milliseconds of byte-at-a-time DMA on whichever task
+  called the verb. On B the verbs skipped that, so ftpd's worker turns got
+  short and the drag loop got the CPU. **That points the latency work at
+  `ETH_BUDGET`, not at where the pump runs** — a smaller or adaptive budget
+  buys the same smoothness without moving anything to another task, and is the
+  cheaper experiment of the two.
+- **The stall is the contention above, taken to its limit.** A drag is the case
+  where ftpd gets the fewest turns and the worker keeps taking the card on
+  every one of its own, so a larger share of ftpd's few verb calls come back
+  `NETE_BUSY` — and each one throws away a whole `fd_recv_stage` drain. The
+  data path goes to nothing, and the control timeout is downstream of that
+  rather than a second fault. *(Mechanism inferred, not instrumented: what is
+  measured is that it happens on B and not on A.)*
+
+**Neither of these runs measures what the worker is FOR.** A 300KB upload is
+the case where the app polls hardest; the worker exists for the windows where
+it does not poll at all — an incoming SYN while the UI repaints. That case has
+no number yet.
+
 ## 7. Rules this exercise re-learned the hard way
 
 - **QEMU cannot see any of this.** It prices instructions at host speed: the

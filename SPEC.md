@@ -61389,8 +61389,10 @@ shows: the peer does not wait for the next poll, the card's ring fills while
 the UI repaints a window, and an incoming SYN sits in it until somebody calls a
 verb.
 
-`ETHPUMP=1` gives the driver a worker (`eth_wrk`) that pumps on its own, and
-the verbs stop pumping.
+`ETHPUMP=1` gives the driver a worker (`eth_wrk`) that pumps on its own **in
+addition to** the verbs, standing down for as long as they are pumping
+(§72.19.5). The first cut had it pump *instead* of them, and the field measured
+that costing 13.6% of a 300KB upload.
 
 #### 72.19.1 One frame per acquisition, and that is the whole design
 
@@ -61410,10 +61412,11 @@ A driver worker is spawned from a **service call** — `OSAPI_DRV_TASK`'s fence 
 `eth_pkg`, after the door swaps ES to our own DS, on the first verb after the
 card is up.
 
-**And it can be refused**: every task slot can be taken. If the verbs had simply
-stopped pumping, that refusal would stop the network dead. So `ETH_VPUMP` tests
-`[eth_wlive]` and not the build — no worker, the verb pumps, exactly as it
-always did. A refused slot costs pacing and never the network.
+**And it can be refused**: every task slot can be taken. That used to matter —
+if the verbs had stopped pumping, a refused slot would have stopped the network
+dead, so `ETH_VPUMP` tested `[eth_wlive]` rather than the build. Since §72.19.5
+the verbs never stop, so the macro is unconditional and a refused slot costs
+the gap-filling and nothing else.
 
 #### 72.19.3 Death
 
@@ -61436,6 +61439,55 @@ Two things it can cost, and both are why it is a knob rather than a change:
 What it can win is fewer dropped frames, which is fewer retransmits, which is
 throughput back. It is not obvious in either direction, which is why it is
 built both ways and measured rather than argued.
+
+**It was measured, on the 5150, and the first cut lost.** Same 304552-byte STOR
+from WinSCP, two runs each way (docs/FTP-PERF.md §6): 19s / **16029 B/s**
+without the worker, 22s / **13843 B/s** with it. The package's own `net` timer —
+time inside `OSAPI_DRV_CALL` as ftpd sees it — fell from ~7640 to ~2450, which
+is the design working exactly as drawn and is *not* a win: the work did not go
+away, it went somewhere ftpd cannot see and got slower on the way. §72.19.5 is
+what came of that.
+
+#### 72.19.5 THE WORKER IS A STANDBY, not a replacement
+
+The loss has a mechanism, and it is contention rather than scheduling. During a
+transfer ftpd calls socket verbs many times a tick, so there is no gap for the
+worker to fill — it was simply a third contender for `[eth_busy]`, and every
+collision costs the *app* a whole pass, because `fd_recv_stage` abandons its
+drain the moment a verb answers `NETE_BUSY` (§77.30). The worker was taking the
+card away from the only thing that wanted it.
+
+So the beat:
+
+- `eth_pump_i` sets `[eth_wbeat]` — one `mov`, at the one door the verbs come
+  through and the worker never does (the worker calls `eth_pump1` and
+  `eth_ptimers` directly, so it cannot beat on its own behalf).
+- The worker test-and-clears it at the top of every turn, with `xchg al,
+  [eth_wbeat]` because two tasks write the byte and `xchg` with memory is
+  locked on an 8086 whether or not the prefix is written.
+- It was **already 0** — a whole turn went by with no verb pumping — and only
+  then does the worker claim the card.
+
+A busy stack is therefore the pre-worker build, in behaviour and very nearly in
+instructions retired; an idle one, or one whose package is inside a 400ms disk
+commit or a repaint, gets pumped anyway. That is the case the worker was built
+for and the only case it now runs in.
+
+The same field session found the limit of the first cut, and it is not a
+slowdown: **dragging a window during an upload killed the transfer on B and not
+on A** — writes stopped, and the client timed out on the control connection
+behind it. A drag is where ftpd gets the fewest turns and the worker was taking
+the card on every one of its own, so most of ftpd's few verb calls came back
+`NETE_BUSY` and each one threw away a whole `fd_recv_stage` drain (§77.30). The
+standby removes the condition; it does not make `fd_recv_stage` tolerant of a
+`NETE_BUSY`, which is a separate and still-open question.
+
+**And the drag was SMOOTHER on B, which is a finding about `ETH_BUDGET` rather
+than about the worker.** A verb that pumps drains up to eight frames — up to
+eighty milliseconds of byte-at-a-time DMA charged to whichever task called it.
+B felt better because ftpd's turns got short, not because pumping moved. A
+smaller or adaptive budget buys that smoothness with no second task and no
+contention, and is the cheaper of the two experiments.
 
 ### 77.31 `fd_stage` was 51 bytes off a sector, and the 37KB claim moved it onto a page boundary
 

@@ -74,9 +74,13 @@ eth_usi:    dw 0                ; ...and the offset it handed NETV_OPEN
 eth_wlive:  db 0                ; the pump worker (SPEC.md 72.19, ETHPUMP=1):
 eth_wgen:   db 0                ; 1 = one is alive, and the GENERATION it
                                 ; serves. Bumping the generation is how detach
-                                ; tells it to die; a verb finding eth_wlive 0
-                                ; pumps for itself, so a refused task slot
-                                ; costs pacing and never the network
+                                ; tells it to die
+eth_wbeat:  db 0                ; ...and THE WORKER IS A STANDBY (SPEC.md
+                                ; 72.19.5). eth_pump sets this; the worker
+                                ; test-and-clears it once a turn and pumps only
+                                ; when it was ALREADY 0 - so a package calling
+                                ; verbs keeps the ring for itself and the
+                                ; worker covers the gaps where nobody is
 eth_busy:   db 0                ; THE CARD'S MUTEX (SPEC.md 72.2.2). One byte,
                                 ; and the first thing in this driver that two
                                 ; tasks touch: eth_useg above is one word for
