@@ -660,6 +660,9 @@ np_sbset:
     ret
 
 np_sb:      dw 0,0,0,0,0,0,0
+np_sbmoved: db 0                ; np_sbclick's SECOND answer (SPEC.md 27.7.10):
+                                ; CF says the bar took the click, this says
+                                ; whether the VIEW moved because of it
 %ifdef OS88UI_SBDRAG
 np_nodrag:  db 0                ; 0xFF = this kernel has no tracking edge
                                 ; (SPEC.md 13.8.2 - kern_small answers CF = 1),
@@ -759,6 +762,7 @@ np_sbclick:
     push ax
     push bx
     push dx
+    mov byte [np_sbmoved], 0        ; ...until something actually moves
     call np_sbhit
     jc .no
     mov bx, dx                      ; BX = the click's y
@@ -821,7 +825,9 @@ np_sbclick:
     call np_height
     pop si
 .doset:
-    call np_scrollto
+    call np_scrollto                ; CF = 1: an END STOP - it did not move,
+    jc .yes                         ; so there is nothing to draw
+    mov byte [np_sbmoved], 1
 .yes:
     clc
     jmp short .out
@@ -4710,6 +4716,16 @@ np_onclick:
     call np_sbclick                 ; ...and the scroll bar is not the note
     jc .text
     pop dx
+    ; **A CLICK THE BAR TOOK IS NOT A CLICK THAT SCROLLED** (SPEC.md 27.7.10).
+    ; np_sbclick answers CF = 0 for every press that landed on the bar, and
+    ; this used to send all of them to np_redraw - so a press on the THUMB, or
+    ; an arrow click already at an end stop, repainted the whole note to show
+    ; the pixels that were already there. On a maximized window that is every
+    ; visible row lettered: reported from the field as half a second to a
+    ; second of dead time before a dragged thumb would move, which is exactly
+    ; what it is.
+    cmp byte [np_sbmoved], 0
+    je .out                         ; not one pixel changed
     call OSAPI_EVQ_PENDING          ; is another click right behind this one?
     or ax, ax                       ; then this scroll position is already
     jz .drawscroll                  ; superseded and drawing it is work the

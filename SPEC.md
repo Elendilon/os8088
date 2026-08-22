@@ -24882,6 +24882,53 @@ typematic repeat (~100 ms, §2951) so that no held key can outrun the editor.
 What is left is 155 ms of pass 1 and 186 ms of drawing, and neither is a
 seeding problem — see docs/NOTEPAD-NOTES.md §7.
 
+
+#### 27.7.10 A click the bar TOOK is not a click that SCROLLED
+
+`np_sbclick` answers `CF = 0` for every press that landed on the scroll bar,
+and `np_onclick` sent all of them to `np_redraw`. So a press that scrolled
+**nothing** — the thumb, or an arrow already at an end stop — repainted the
+note to show the pixels that were already there.
+
+**Reported from the field as half a second to a second of dead time before a
+dragged thumb would move, on a maximized window, and that is exactly what it
+was.** §13.10.5's gesture did not cause it; it made it visible, because before
+the drag existed nothing followed a thumb press for the delay to sit in front
+of.
+
+**Measured**, one thumb press on a maximized Note Pad (633 × 180) with a
+220-line note, timing how long `[gfx_lock_flag]` stays set — `np_onclick` runs
+under the lock, so that hold IS the handler:
+
+| | lock held | `font_run` calls |
+|---|---:|---:|
+| before | **79 ms of wall clock** on an emulator running the guest at over 4× real time — so **≥300 ms** of guest time | **0** |
+| after | **0 ms** | 0 |
+
+**Zero glyph runs either way, and that is the finding.** `np_redraw` compares
+row signatures and draws only what moved (§27.2), so on an unchanged view it
+draws nothing — the cost is entirely `np_walk`'s **measure** pass, which
+re-wraps and hashes every visible row before concluding that none of them
+changed. It scales with the window, which is why the default size feels fine
+and a maximized one does not, and it is invisible to a screenshot, which is
+why a pixel diff found nothing to see.
+
+The fix is a second answer: `np_sbmoved`, set only when `np_scrollto` reports
+that `[np_top]` actually moved. `CF` still says the bar took the click — the
+caller must not fall through to the text path — and the byte says whether
+anything came of it.
+
+**It also fixes the older half of the same defect.** An arrow click at an end
+stop has always paid this, since long before the thumb could be dragged; §22.11
+made exactly this argument for the Disk window ("an end stop: not one pixel
+changes, where this used to repaint the window whole") and Note Pad never got
+it.
+
+TexPad needed nothing — `tp_src_scroll` and `tp_prev_scroll` both compute the
+delta against the old value and return on zero. The Browser's `br_flush` does
+the same. The file dialog still repaints its list at an end stop, which is six
+rows and has not been worth a byte.
+
 ### 27.8 A selection, and the two things a drag can mean
 
 The selection is a **pair of character indices**, `[np_sel0]`..`[np_sel1)`,
