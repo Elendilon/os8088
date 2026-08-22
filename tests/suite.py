@@ -70,6 +70,10 @@ FAST = [
     Row("mirror", "fast", py("tests/unit/t_mirror.py"), 0.2,
         "a constant written down in two files must agree in both; there is no "
         "linker here to notice"),
+    Row("drvmem", "fast", py("tests/unit/t_drvmem.py"), 0.2,
+        "the Drivers page's memory column (SPEC.md 31.6.2) re-derived: every "
+        "image term against the .drv this build made, every claim term against "
+        "the constant in the driver that takes it"),
     Row("image", "fast", py("tests/unit/t_image.py"), 0.2,
         "the shipped floppies read by an independent FAT12 walker: contiguity, "
         "the standard BPB, SPEC.md 19.6's attributes"),

@@ -27404,7 +27404,8 @@ Kernel routines this page reaches (all ordinary near calls since §33):
 ### 31.6 Drivers page — loading and unloading, and remembering it
 
 Third item, index `CP_IDRV` = 2, list name and heading `'Drivers'`. One row
-per `drv_tab` row (§51): a checkbox, the driver's name, and under it the
+per `drv_tab` row (§51): a checkbox, the driver's name, roughly what that
+driver costs to run (§31.6.2), and under it the
 sentence `drv_status` derives from the row's live state — `'Loaded'`,
 `'Not loaded'`, or why the last attempt failed.
 
@@ -27496,6 +27497,109 @@ Verified the §48.12 way, on all three adapters: tick a row, capture the
 framebuffer, force a full `cp_drv_paint` by selecting another page and coming
 back, diff — **0 differing pixels**, for a load that succeeds, an unload, and
 a load that fails into a longer string than the one it replaces.
+
+### 31.6.2 The memory column — what a driver costs to run
+
+Each row carries a third thing beside its name and its reason: **roughly the
+memory that driver holds while it is doing its job**, in KB, right of the name
+on the name's own line.
+
+```
+[x] Sound                              (~34K)
+    Loaded
+[ ] Hard Drive                         (~32K)
+    Not loaded
+```
+
+It answers the one question the page could not: the boxes say what is running
+and the captions say why something is not, and neither of them helps a user
+with 256KB decide **which** of five drivers to spend it on. `OSAPI_MEM_AVAIL`
+is what is left; this is what a tick costs.
+
+**A `~`, and it is not decoration.** The figure is a compile-time constant per
+row — `drv_memk`, a table parallel to `drv_tab` in `kernel/driver.inc` — and
+not a reading. Making it live would mean asking every driver, loaded or not,
+what it is holding at this instant, which is a question three of them cannot
+answer before they attach and none of them can answer about a machine whose
+card is absent. The `~` says the number is the shape of the cost rather than
+the cost.
+
+**What is counted** is what the driver holds while performing its *primary
+function*:
+
+| row | KB | = image + what it holds to work |
+|---|---|---|
+| Sound | ~34 | 6 image + 8 DMA ring (`SBL_DMASZ`) + 20 staging pool (`SBL_POOLKB`) |
+| Hard Drive | ~32 | 8 image + 4 × 6 listing claims (`HDD_LISTKB`, `HD_MAXVOL`) |
+| Ethernet | ~52 | 16 image + 36 socket rings (`NET_SOCKS` × (`SK_RXMAX`+`SK_TXMAX`)) |
+| Ram Disk | ~21+ | 9 image + 4 chain table (`RD_TABMAXKB`) + 8 bounce (`RD_EXTMAXKB`) |
+| os88net | ~6 | 6 image, and no heap claim at all |
+
+Four rules decide what goes in that column, and each of them was a real
+choice:
+
+1. **The image counts.** A driver's image is a heap claim like any other
+   (`DRVR_KB`), it is the largest single term for the Ethernet card, and a
+   figure that left it out would be wrong by 16KB on the row where the user
+   most needs it right.
+2. **Memory a driver takes only while being CONFIGURED does not.** The hard
+   disk's Format and Install path claims up to `HIW_KMAXKB` for a copy buffer
+   and reads the whole of `HDDTOOL.DRV` in beside it; the RAM disk's page
+   loads `RAMPAGE.DRV`. All of it is transient, none of it is held while the
+   volume is being served, and counting it would price a driver at what its
+   *dialogs* cost.
+3. **A claim the driver sizes to the machine is shown at its ceiling.** The
+   sound pool walks down from 20KB, the socket rings from 8192, the hard
+   disk's listing claim is per mounted volume up to four. The column is the
+   most it will ask for, because the number is being read by somebody
+   deciding whether the machine can afford it.
+4. **A purgeable claim does not count** (§50.6). Nothing a driver holds is
+   purgeable today — the tiered tags are the kernel's — so this rule is a
+   fence rather than a subtraction: a cache the heap can take back at any
+   moment is not memory the driver *costs*, and a driver that grows one must
+   leave it out of its row.
+
+**`+` means "and the store you size on its own page".** The RAM disk is the
+one row whose working set is not the driver's decision or the machine's but
+the user's: the arena is whatever `[rd_kb]` was set to, from `RD_MINKB` to
+whatever the heap or the XMS pool will fund, and it is reported where it is
+chosen (§62.9.10.1). So its row shows what the DRIVER costs — the image, the
+chain table and the bounce buffer at their maxima — with a `+` for the store.
+`RD_MAXKB` is 16,384: a column showing that would be arithmetic rather than
+advice.
+
+**Geometry.** The `K` glyph's left edge sits at `CP_DMKX` (168) pane-relative,
+so the figures right-align on their unit and the digits line up under each
+other; a `+` and the closing bracket hang to the right of it inside the 24px
+that separates `CP_DMKX` from the scroll arrows at `CP_DSX1`. Nothing is
+padded with spaces — the x is computed from the string's own length and the
+leading cells are never drawn, because a blank cell costs the same ~900µs as a
+lettered one (PERFORMANCE.md Part 2).
+
+**The brackets come off if a name grows into them.** `cp_drv_mempar` measures
+the longest title in the whole table against the widest figure once per paint
+and answers one bit: with `CP_DMGAP` (8px) of air to spare the column is
+`(~34K)`, and without it the two brackets are dropped and it is `~34K`. It is
+decided over the WHOLE table rather than the four visible rows, so a scroll
+cannot change it — a column that gained brackets halfway down the list would
+read as two columns. Today every name fits: `'Hard Drive'` is ten cells and
+ends at 102, and a bracketed three-digit figure starts at 136.
+
+**It is drawn by `cp_drv_paint` and by nothing else.** The figure is static,
+so a click cannot change it — `cp_drv_box1` and `cp_drv_line1` are still the
+whole of what a click redraws (§31.6.1), and the column costs the click path
+nothing. What it costs the page paint is five or six glyph cells per row,
+against the thirty a row already draws.
+
+**The image term is checked by the build**, not remembered:
+`tests/unit/t_drvmem.py` (the fast tier) re-reads every `build/*.drv` and
+compares `ceil(size / 1024)` with the `DRVM_IMG_*` the kernel was assembled
+with, and re-derives each claim term from the constant in the driver's own
+source — `SBL_POOLKB` in `drivers/sound/sb.inc`, `SK_RXMAX` in
+`drivers/ether/tcp.inc`, and so on. There is no linker here (§1), so a driver
+that grows by a kilobyte or a pool that doubles is otherwise a number on
+screen that quietly stops being true, which is the same class of drift
+`t_mirror` exists for.
 
 ### 31.7 Sound page — which sound hardware the machine uses
 

@@ -788,6 +788,79 @@ drv_tab:
     db DRVE_OK
     db 0
 
+
+; =============================================================================
+; What a driver costs to RUN, in KB (SPEC.md 31.6.2)
+;
+; A table PARALLEL to drv_tab rather than a field inside it, for two reasons
+; that point the same way: DRVR_SIZE is 16 and drv_row reaches a row with
+; `shl` by 4 (a 17th byte would cost a multiply on every single dispatch), and
+; every value here is a COMPILE-TIME CONSTANT where every field in the row
+; proper is state the machine writes. Nothing at runtime ever stores here.
+;
+; The figure is what the driver holds while performing its PRIMARY FUNCTION:
+; its image, which is a heap claim like any other (DRVR_KB), plus the claims it
+; takes to do the job. It is NOT what it holds while being configured - the
+; hard disk's Install path claims up to HIW_KMAXKB and pulls HDDTOOL.DRV in
+; beside it, and pricing a driver at what its dialogs cost is not the question
+; the user is asking - and it is not a purgeable claim either (SPEC.md 50.6),
+; which the heap can take back and so is not a cost. A claim the driver sizes
+; to the machine is at its CEILING, because the number is read by somebody
+; deciding whether the machine can afford the tick.
+;
+; The IMAGE terms are named separately below because tests/unit/t_drvmem.py
+; checks each of them against the .drv the build just produced, and each claim
+; term against the constant in the driver's own source. There is no linker
+; here (SPEC.md 1): a driver that grows a kilobyte is otherwise a number on
+; screen that quietly stops being true.
+; =============================================================================
+DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
+                                ; drawn as a '+'. The RAM disk's alone: its
+                                ; arena is [rd_kb], which is the USER's number
+                                ; and not the driver's or the machine's, and
+                                ; RD_MAXKB is 16,384 - a column showing that
+                                ; would be arithmetic rather than advice
+
+DRVM_IMG_SND equ 6              ; ceil(build/sound.drv   / 1024) - t_drvmem
+DRVM_IMG_HDD equ 8              ; ceil(build/hdd.drv     / 1024)   checks
+DRVM_IMG_ETH equ 16             ; ceil(build/ether.drv   / 1024)   every one
+DRVM_IMG_RAM equ 9              ; ceil(build/ramdisk.drv / 1024)   of these
+DRVM_IMG_NET equ 6              ; ceil(build/net.drv     / 1024)
+
+DRVM_SND     equ DRVM_IMG_SND + 8 + 20    ; SBL_DMASZ (the DMA-visible double
+                                ; buffer and record ring) + SBL_POOLKB (the
+                                ; staging pool, taken on the first grant). The
+                                ; pool walks DOWN by SBL_POOLSTEP when the heap
+                                ; will not fund it; 20 is the top rung
+DRVM_HDD     equ DRVM_IMG_HDD + 4 * 6     ; HD_MAXVOL listing claims of
+                                ; HDD_LISTKB - one per mounted volume, and four
+                                ; is what the driver will mount at once
+DRVM_ETH     equ DRVM_IMG_ETH + 36        ; NET_SOCKS * (SK_RXMAX + SK_TXMAX),
+                                ; rounded up: 4 * 9,216 = 36,864. sk_claim is a
+                                ; ladder down to SK_RXCAP0 and this is its top
+DRVM_RAM     equ (DRVM_IMG_RAM + 4 + 8) | DRVM_PLUS
+                                ; RD_TABMAXKB (the chain table) + RD_EXTMAXKB
+                                ; (the bounce, which the extended store lends
+                                ; as its image block). The two paths are
+                                ; exclusive - conventional takes an arena
+                                ; instead of a bounce - so this is the larger,
+                                ; and the arena is what the '+' stands for
+DRVM_NET     equ DRVM_IMG_NET   ; the parallel link claims NOTHING: its packet
+                                ; buffers are bss, and a driver's bss ships
+                                ; INSIDE its image (DRV_H_IMG)
+
+drv_memk:                       ; one word per drv_tab row, in the same order
+    dw DRVM_SND                 ; row 0: sound
+    dw DRVM_HDD                 ; row 1: hard disk
+    dw DRVM_ETH                 ; row 2: the Ethernet card
+%ifdef KERN_BIG
+    dw DRVM_RAM                 ; row 3: the RAM disk (kern_big alone)
+%endif
+    dw DRVM_NET                 ; the parallel link, last on both builds
+%if ($ - drv_memk) / 2 != DRV_MAX
+  %error "drv_memk has drifted from drv_tab: one word per row, same order"
+%endif
+
 drv_errstr:                     ; DRVE_* -> what the user is told
     dw drv_e0, drv_e1, drv_e2, drv_e3, drv_e4, drv_e5, drv_e6, drv_e7
 drv_e0: db 'Loaded', 0
