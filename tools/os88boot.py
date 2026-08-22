@@ -265,9 +265,12 @@ def profile(image, apps=None, machine="os8088_5150_cga", defines=("KERN_BIG",)):
 
 def main(argv):
     image, apps, machine, out = "build/os8088-360.img", None, "os8088_5150_cga", None
+    defines = ["KERN_BIG"]
     it = iter(argv)
     for a in it:
-        if a == "--image":
+        if a == "--define":
+            defines.append(next(it))   # a knob kernel's symbols are its own
+        elif a == "--image":
             image = next(it)
         elif a == "--apps":
             apps = next(it)
@@ -277,7 +280,7 @@ def main(argv):
             out = next(it)
         else:
             raise SystemExit(__doc__)
-    r = profile(image, apps, machine)
+    r = profile(image, apps, machine, tuple(defines))
     print("%-28s %10s %9s %7s  %s" % ("phase", "cycles", "ms", "%", "disk"))
     for p in r["phases"]:
         d = ""

@@ -15695,6 +15695,84 @@ it. Losing that would trade speed for data recovery on ageing media, which is
 the wrong trade on the machines this targets. Write-protect (03h) still fails
 immediately at any run length: retrying cannot help.
 
+#### 18.91.1 …and the bound is the CYLINDER, not the track — `make CYLRUN=1`
+
+§15.5's profile priced the boot on the calibration machine: **9.34 s of an
+11.42 s OS boot is the boot sector loading KERNEL.SYS**, and of that 4.62 s is
+the IBM ROM's own code inside `int 13h` — **185 ms a call**, 25 calls. §18.91
+and §18.93 already took the sectors-per-call win and left 8.42 of a possible 9.
+There is nothing more in the sectors. The remaining lever is the **number of
+calls**, and there is one left.
+
+**A run may cross a head.** The BIOS issues READ DATA with the **multi-track
+bit set** — the command byte is E6h — so when the FDC finishes the sector
+numbered EOT it does not stop: it flips to the other head and carries on from
+sector 1 of the same cylinder. That is not a hopeful reading of a datasheet.
+It is precisely the behaviour §18.92 was written to *fix*, where an EOT of 8 on
+a 9-sector track silently substituted head 1's sector 1 for head 0's sector 9,
+and every package on the disk loaded with the wrong bytes in the middle. Here
+the same mechanism is asked for deliberately.
+
+**It lines up with LBA order by construction.** Both splitters map
+`sector = lba % spt + 1`, `head = (lba / spt) % heads`,
+`cylinder = (lba / spt) / heads` — so head 0's whole track is followed by head
+1's whole track, which is exactly the order the FDC produces. The bound
+becomes `(heads − head) × spt − (sector − 1)`, which is the end of the
+cylinder from wherever the run starts and degenerates to the old track bound on
+the last head.
+
+**EOT stays `spt`.** With the track bound the two were the same number and the
+FDC needed no separate test (§18.93); with the cylinder bound they part
+company, and it is EOT that makes the head change happen. Nothing about
+`dsk_dpt_init` changes.
+
+Three things are deliberate:
+
+- **One knob, both loops.** `boot/boot.asm`'s `read_run` and `dsk_xfer` are
+  asking the same question, and answering it in one place only would make the
+  A/B mean two things at once — `FLOPPY1=1`'s reason (§18.93).
+- **Floppies only**, tested as `dsk_unit` bit 7. The mechanism is the 765's; a
+  BIOS hard-disk handler is different code with its own rules about crossing a
+  head, and a wrong guess there is silent — the wrong sectors, `CF = 0`, the
+  full count.
+- **It costs the boot sector nothing.** `RUN_SECS` is an `equ`, so the two
+  `mov`s that use it take an immediate either way; the sector is byte-identical
+  without the knob and two bytes different with it. `dsk_runcap` already covers
+  the 64 KB DMA page, which an 18-sector run reaches sooner.
+
+**What it is worth, and what it is not.** The calls go from 24 to 12 and the
+sectors do not move: the same 202 still pass under the head, and a head switch
+on one cylinder is electronic — head 1's sector 1 is angularly next after head
+0's sector 9, so there is no revolution in it. So the saving is the **per-call
+ROM overhead alone**, and an estimate that multiplies the calls saved by the
+whole per-call cost is wrong by more than a factor of two.
+
+**Measured, `os8088_5150_cga`, the IBM 27 Oct 82 ROM** — see §18.91.2 for the
+integrity check that has to come with it.
+
+> **This is not field-confirmed, and §18.93 is why that sentence is here.**
+> That change was predicted at 8.2×, measured on both emulators at the
+> predicted gain, and came back **13% slower** on the actual 5150. The cause
+> turned out to be elsewhere (`AL`, §18.91) — but the shape of the mistake was
+> believing a revolution count that the drive, controller or media did not
+> honour. `CYLRUN=1` makes a claim about a **head switch** costing nothing,
+> which is the same class of claim. It ships **off**.
+
+#### 18.91.2 …and the check that a run landed where it was asked to
+
+A misplaced run is **silent**: `CF = 0`, the full count, and the wrong 512
+bytes somewhere in the middle of a file. So §18.91.1 is verified the only way a
+read path can be, which is §18.93's own method — **the loaded kernel is dumped
+out of guest RAM and compared byte for byte against `build/kernel.bin`.**
+
+What a clean result looks like: a small scatter of differing bytes, none of
+them in a contiguous run longer than a few, being the `.text`-resident
+variables the kernel writes at run time (`dsk_vtab` and `dsk_dpt` among them).
+**A misplaced run shows as ~512 differing bytes in one block**, and there must
+be no such block. Both the count and the longest run are compared against the
+track-bounded kernel loaded from the same image, so the check is a difference
+between two boots and not a judgement about an absolute number.
+
 ### 18.92 The diskette parameter table is OURS, and EOT is why
 
 **int 1Eh is not an interrupt.** It is a far pointer to an 11-byte table the

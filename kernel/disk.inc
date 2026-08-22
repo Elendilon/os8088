@@ -1145,8 +1145,35 @@ dsk_xfer:
     ; the only place that knows the sector's index within it (DX). AX holds
     ; the head and CH the cylinder, so both are banked across the sum.
     push ax                     ; the head, wanted for DH below
+%ifdef CYL_RUN
+    ; ...or the CYLINDER, with `make CYLRUN=1` (SPEC.md 18.91.1): the FDC's
+    ; multi-track bit carries a run onto the other head at EOT, so the bound a
+    ; CHS call must not cross is the cylinder and not the track. That is
+    ; (heads - head) * spt - (sector - 1).
+    ;
+    ; FLOPPIES ONLY, and the test is the one dsk_geom_pick already uses. The
+    ; mechanism is the 765's (SPEC.md 18.92); a BIOS hard-disk handler is
+    ; different code with its own rules about crossing a head, and a wrong
+    ; guess there is SILENT - the wrong sectors, CF = 0, full count.
+    test byte [dsk_unit], 0x80
+    jnz .runtrk_only
+    push dx                     ; the sector index: mul is about to take DX
+    mov bp, [disk_heads]
+    sub bp, ax                  ; BP = heads left on this cylinder (>= 1: the
+                                ; head came out of a div by spt on a remainder
+                                ; below spt*heads, so it is under heads)
+    mov ax, [disk_spt]
+    mul bp                      ; AX = this track's start to the cylinder's end
+    pop dx                      ; (DX = 0 - 255*63 is all CHS can name)
+    sub ax, dx                  ; ...less what is already behind the head
+    jmp short .runcmp
+.runtrk_only:
+%endif
     mov ax, [disk_spt]
     sub ax, dx                  ; sectors left in THIS track (>= 1)
+%ifdef CYL_RUN
+.runcmp:
+%endif
     cmp ax, si
     jbe .runtrk
     mov ax, si                  ; ...and never more than were asked for

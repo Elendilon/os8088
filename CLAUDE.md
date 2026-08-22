@@ -142,6 +142,7 @@ make clean
 | `ADLIB=1` / `SB16=1` | give the sound driver a card to attach to |
 | `HDD=<MB>` | give the hard-disk driver a disk |
 | `TESTAPPS=build/<x>.img` | swap the B: floppy for a scratch image |
+| `CYLRUN=1` | bound a transfer run at the end of the CYLINDER, not the track (SPEC.md §18.91.1) — 18 sectors an `int 13h` instead of 9, both loops. OS boot 11.42 s → 9.22 s on the IBM ROM. OFF by default: half the win is the drive model's, which is the class of claim §18.93 got wrong |
 | `MOUIDFAST=1` | close SPEC.md §9.4.4's identify window as soon as a mouse has answered — `mouse_init` 1,200 ms → 596 ms. OFF by default: it is the A/B for a field run, because the case it could hurt is a modem and no emulator here has one |
 | `BOOTPROF=1` | SPEC.md §15.5's boot phase table, drawn on the desktop and published as §57's `BP` — the profile a machine with **no debugger** can take. Refuses to build with `QUANTUM=` |
 
