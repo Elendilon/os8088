@@ -2778,7 +2778,7 @@ forced full repaint.
 
 ---
 
-## 27. The 5150 hard-freezes on an FTP upload to the hard disk (TWO FAULTS, both READ OFF THE HEARTBEAT and both fixed; awaiting field confirmation)
+## 27. The 5150 hard-freezes on an FTP upload to the hard disk (TWO FAULTS found and fixed; the stack one is MEASURED at 220 of 256 and is a margin decision now, not a bug)
 
 **Observed.** With the FTP server (§77) running and its Root pointed at
 `C:/`, a client connects, logs in, and the machine hard-freezes. The last
@@ -3112,3 +3112,29 @@ per cent of the hand's movement was going in the bin, which is exactly the
 *"hard to move it"* half of the report.
 
 **An instrument that changes what it measures cost this investigation a round.**
+
+### 27.7 …and the margin is 36 bytes, measured on the machine
+
+`tests/stackprobe` reads every slice on the shipping kernel now (SPEC.md
+§8.3), so the question stopped needing a photograph. On the 5150, during a
+300KB WinSCP upload with the mouse moving and keys held down:
+
+```
+High water:  146 of 256          the probe's own slice
+Other tasks: 220 slot 002        FTPD's worker
+```
+
+**220 of 256 — thirty-six bytes, 1.16×**, and 208 before the keyboard was
+touched, so `int 09h` nesting on the tick is worth about twelve. Many
+transfers, no overflow: the driver going from 150 bytes to 118 (SPEC.md
+§72.16.4) is what bought that.
+
+**It is an observation and not a bound**, and the distinction is the whole
+finding. The deepest chain a socket-using worker can take prices at ~200
+before any interrupt; the 220 that was seen is a tick landing 168 bytes in.
+A tick landing at the *bottom* — inside `ne_dma_write`'s byte loop, which is
+also where the driver spends most of its time — puts it at 250–270.
+
+So this note closes as a **margin decision** rather than a defect:
+docs/KERNEL-MEMORY.md's table prices the alternatives, and 8 tasks × 384 bytes
+costs nothing at all.

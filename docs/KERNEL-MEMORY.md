@@ -983,7 +983,41 @@ give and every candidate is a decision rather than a build fix:
 **Take it with whoever owns the budget** (CLAUDE.md), and take the *deciding*
 number on the 5150 with `tests/stackprobe` rather than from QEMU.
 
-##### What QEMU does not charge, and it is 82 bytes
+##### THE FIELD NUMBER: 220 of 256
+
+Measured on the 5150 with `tests/stackprobe` beside the FTP server, during a
+300KB upload from WinSCP, mouse moving and keys held down:
+
+```
+High water:  146 of 256          <- the probe's own slice
+Other tasks: 220 slot 002        <- FTPD's worker
+```
+
+**220 of 256. Thirty-six bytes, 1.16×.** It was 208 before the keyboard was
+touched, so `int 09h` nesting on top of the tick is worth about twelve.
+
+That is the first honest number this question has ever had, and it corrects two
+of the estimates above:
+
+- **The ISR adder is ~46, not the ~82 predicted.** QEMU's 162 (178 with
+  `KFZ=1`'s `khb_paint` taken off) plus 46 is 208, and 208 is exactly what the
+  field read before the typing.
+- **It did NOT overflow**, across many transfers — which is the difference
+  between the driver at 118 bytes and the 150 it was before this round.
+
+**But 220 is an observation, not a bound.** `tools/stkdepth.py` prices the
+deepest chain a socket-using worker can take at **~200 before any interrupt**
+(ftpd's own ~70, the crossing ~8, `eth_v_send`'s 118) — and a tick landing
+*there* adds 52 for `sch_isr` and the CPU's own push, plus the BIOS's `int 08h`
+frames below the far call. The 220 that was seen is a tick landing 168 bytes
+in; the worst case is a tick landing at the bottom, and that arithmetic runs
+to **250–270**.
+
+So the reading is not "we fit". It is "we have not yet been unlucky", on a path
+whose deepest point — `ne_dma_write`'s byte-at-a-time loop — is also where the
+driver spends most of its time.
+
+##### What QEMU does not charge — predicted 82, measured ~46
 
 `tools/stkwater.py`'s fill measures a slice's high water; a `KFZ=1` `sch_isr`
 also keeps the **deepest tick it has ever seen** and the interrupted CS:IP at
