@@ -12858,6 +12858,198 @@ build that needs it, having had **21 bytes** of cold-rung slack before this.
 `OS88UI_SCROLL` gates it so that a *package* which never draws a bar does not
 carry one: the kernel defines it, the three package consumers opt in.
 
+#### 13.10.5 Dragging the THUMB — `OS88UI_SBDRAG`, and it is a KNOB
+
+**On a knob and `KERN_BIG` only.** `make SBDRAG=1` builds it, `SBRATE=n` sets
+the Disk window's update rate and `SBOUTLINE=1` swaps the moving thumb for an
+XOR overlay. Nothing here is in a shipped kernel yet, and the reason is
+§13.10.3.1's number rather than a doubt about the feature: the cold rung had
+**256 bytes** of slack when this was written and the footprint one step, so
+the bar's gesture is exactly the kind of thing that has to be measured before
+it is spent.
+
+Until this, a press on the thumb *paged* (`files.inc`) or did nothing
+(`fdlg.inc`), which §13.10.1 called the caller's business and still is — what
+was missing is that neither of them **could** drag, because a scroll bar's
+gesture is not one press. It is a press, a stream of movements and a release,
+and §13.7 forbids a package answering that with a polling loop.
+
+##### 13.10.5.1 It is still geometry, not policy
+
+§13.10.1's rule holds and this is written to keep it. The element owns the
+gesture's **arithmetic** — the anchor, the clamp, the pointer-to-`pos` inverse
+and the overlay — and answers one question: *the pointer is here, so the view
+belongs at `pos`.* What `pos` means, whether the caller can afford to go there
+now, and what a scroll costs stay the caller's exactly as they were.
+
+**It is `ui_drag`'s substance without `ui_drag`'s shape.** `ui_drag` (§13) is a
+modal loop that holds the gfx lock for the whole gesture, and a package may not
+write one. This is the same tracking spread across the three edges §13.7 and
+§13.8.2 already deliver — `W_ONCLICK`, `W_ONDRAG`, `W_ONMOUSEUP` — which is
+why it is `KERN_BIG`'s: `W_ONDRAG` is.
+
+##### 13.10.5.2 x is never read
+
+The whole of the request, and the whole of the difference from the Macintosh
+this OS is styled on. A System 1 thumb drag **cancels** when the pointer
+strays more than a few pixels off the bar and the view snaps back; here the
+thumb is **locked to the bar's vertical extent** and follows the pointer's y
+wherever the hand goes. `os88ui_sbtrack` takes DX and does not take CX, so
+there is no width for a tolerance to be measured against and no cancel path to
+get wrong.
+
+The clamp is on the **top**, not on the pointer: `top = y − anchor`, held to
+`track_top .. track_top + track_h − thumb_h`. The anchor is banked at the press
+as `press_y − thumb_top`, so the thumb does not jump under the finger.
+
+##### 13.10.5.3 The inverse, and why it cannot divide-overflow
+
+`os88ui_sbthumb` derives the thumb from `pos`; this derives `pos` from the
+thumb:
+
+```
+pos = (top − track_top) × total / track_h        clamped to 0 .. total − fit
+```
+
+`top − track_top` is at most `track_h` by the clamp above, so the quotient is
+at most `total` and a 16-bit `div` after a 32-bit `mul` cannot overflow — the
+same proof `os88ui_sbthumb`'s own pair rests on, read backwards. The
+quantisation is real and correct: on a 200-row listing in a 100-pixel track the
+thumb moves in steps of two rows, which is what a proportional bar has always
+done.
+
+##### 13.10.5.4 The RATE — a window picks how often the view follows
+
+`os88ui_sbgrab` takes AL = the rate **in system ticks** (§37, 18.2 Hz):
+
+| AL | what the view does during the drag |
+|---|---|
+| **0** | **nothing at all until the release.** The thumb (or the outline) moves; the content does not |
+| 1 | at most once a tick, ~55 ms |
+| n | at most once every n ticks |
+
+**0 is the default and it is not a cop-out.** A Disk window's scroll is
+`fm_scroll_by` — a `gfx_scroll` blit plus a relettering of every newly exposed
+row, and PERFORMANCE.md prices a 78-cell row at **~71 ms** on the target
+machine. A thumb dragged the length of the track with the view following would
+be seconds of repaint behind a hand that has already stopped, which is exactly
+PERFORMANCE.md Part 1's **visible redraw** — invisible in an emulator, and the
+reason the rate is a number the window chooses rather than a cadence the
+element assumes.
+
+**The rate is a THROTTLE and not a clock.** `W_ONDRAG` is delivered only when
+the pointer actually moved (§13.8.2), so nothing fires under a still hand and
+no timer is armed. The deadline is banked at the last *commit*, so a hand that
+pauses and moves again is served immediately rather than waiting out a window
+it already sat through. A position the throttle refused is never lost: the
+release commits `pos` unconditionally.
+
+##### 13.10.5.5 The two looks, and what the 1bpp adapters say about them
+
+**The moving thumb is the default.** `os88ui_sbmove` (§13.10.3) already does
+it in three drawing calls with §42.7.1's ordering, so the thumb is briefly
+doubled rather than briefly absent and there is no flash to fix.
+
+**`SBOUTLINE=1` is the other one, and it is the weaker of the two on the
+machine this OS is for.** The overlay is a 1px XOR rect where the thumb would
+be, and the surface under it is the track — which is `gfx_fill_gray`, a 50%
+checkerboard on *every* adapter (§39.4). XOR 0Fh over a checkerboard is a
+checkerboard in the opposite phase, so a one-pixel outline inside the track
+reads as a faint dotted disturbance rather than as a shape. It is legible
+against the thumb it is leaving and almost nothing against the track it is
+crossing. **Look at it on Hercules before preferring it** — this is §39.4's
+rule arriving at an overlay instead of at a glyph.
+
+##### 13.10.5.6 The block stays seven words, and `os88ui_sbfix` is why
+
+The gesture's state is a static of the element's — one drag at a time on the
+one UI task, `os88ui_ksb`'s argument exactly (§13.10.2) — and the seven-word
+block does not grow, so no caller's `.bss` moves and no package rebuilds.
+
+While a drag is live the thumb is drawn where the **hand** is and the content
+is where the **view** is, and at rate 0 those disagree for the whole gesture.
+That is one fact in two places, which is §13.8.2's "the glass and the byte
+cannot part" in another costume. It is answered in one line rather than at
+every drawing site: **the caller's fill routine ends in `os88ui_sbfix`**,
+which overwrites word 6 with the dragged `pos` while a drag is live. Every
+reader downstream — `os88ui_sbar`, `os88ui_sbthumb`, `os88ui_sbhit`,
+`os88ui_sbmove` — then sees one coherent block and none of them knows a drag
+exists. In outline mode `os88ui_sbfix` does nothing: there the thumb is
+*supposed* to stay with the content and the overlay is what moves.
+
+##### 13.10.5.6.1 What it cost, measured
+
+**`.cold` +496, `.bss` +9, `.text` ZERO**, on `kern_big` with `SBDRAG=1`. The
+element is ~390 of the cold bytes and the Disk window's wiring the rest; the
+nine are the state block; and nothing at all is resident, because
+`apps/os88ui.inc` assembles into `.cold` and both the callers are cold modules.
+
+**It crosses one cold rung — 74 → 75 steps of 512 — and that puts `KERN_SIZE`
+at exactly `KERN_BUDGET`, 114,176, with zero spare.** The guard is `>` and not
+`>=`, so it assembles; the next feature of any size does not. That is the whole
+argument for the knob and it is a number rather than a doubt: the shipped
+kernel is unchanged, byte for byte, and turning this on is a decision to spend
+the last 512-byte step of the footprint on it.
+
+There is a cheaper shape if it is ever wanted: dropping the overlay mode
+(§13.10.5.5, which the picture argues against anyway) takes ~60 bytes with it,
+and the rate could be a compile-time constant rather than a byte a window
+passes — but neither gets under the rung, because the rung was crossed by the
+first 250 bytes.
+
+**One redundancy is known and left.** On a commit the element has already moved
+the thumb, and `fm_scroll_by` then reaches `fm_sb_thumb`, which moves it again
+from where `[fm_lscr]` says it was. The picture is right either way — the
+second move draws the thumb where it already is and greys a band that is
+already grey — and it costs three drawing calls, ~2.3 ms on the target machine,
+**once per commit**. At the default rate of 0 that is once per gesture.
+
+##### 13.10.5.7 What is still open
+
+Three, and they are named rather than fixed because this is a knob:
+
+- **The overlay does not survive somebody else's repaint.** The gfx lock is
+  dropped between two `W_ONDRAG` callbacks, so a `W_PAINT` arriving mid-gesture
+  erases the XOR rect and the next erase XORs a rect that is no longer there.
+  `os88ui_sbar` re-asserts it — `wm_chrome_relit`'s fix (§13.8) — which closes
+  the case that goes through the bar's own painter and not the case of a task
+  drawing across it. The moving thumb has no such hazard at all, which is the
+  second reason it is the default.
+- **`total` and `fit` may change under the drag.** A `fm_reload` mid-gesture
+  re-derives the thumb correctly and leaves the *anchor* measuring against a
+  thumb of another height. The residue is a jump of a few pixels, once.
+- **Only the Disk window is wired.** The file dialog reports the thumb and does
+  nothing with it (§13.10.1), and giving it the drag is the same three call
+  sites — held back for the cold rung, not for a reason.
+- **A lost release leaves the byte set, and the byte is not inert.** `evq_push`
+  drops silently when the ring is full and `ui_arm_chk` then clears a region-0
+  arm *without* dispatching `W_ONMOUSEUP`; a window destroyed between two
+  passes is skipped by `.mup_pkg` the same way. Either leaves `sbd_on` at 1,
+  and `os88ui_sbfix` would then fix a stale `pos` into every Disk window's bar
+  for the rest of the session — thumb and hit test alike. The net is exact
+  rather than defensive: **a press cannot arrive during a live drag**, so
+  `fm_onclick` opening with one live has proved the release was lost, and drops
+  it. It is `ui_arm_chk`'s own shape — the cheap test on the path that proves
+  the state is stale — and the residue is one gesture's worth of a wrong thumb
+  until the next click.
+
+##### 13.10.5.8 What the gate is
+
+`tests/fmthumb.py`, and it needs the knob: `make SBDRAG=1 && python3
+tests/fmthumb.py`, with `--rate=2` and `--outline` for the other two settings
+against the builds that carry them. It is not in a tier for that reason —
+`tests/unit/t_registry.py` exempts it and says so — and the three knobs
+themselves are kept assembling by `t_buildmatrix`.
+
+**The signal is `FS_SCRL`, one word of kernel memory, and that is deliberate.**
+The claim under test is that the thumb is somewhere the state block does not
+say it is, so a screenshot cannot separate "the list scrolled" from "the list
+repainted"; only case B is pixels, because only case B is about pixels. It
+builds a 30-file B: disk of its own rather than navigating a shipped one: with
+`total` 6 and `fit` 5 the whole track maps onto **one row** of travel, so a
+drag most of the way down moves the view by nothing at all — a correct bar and
+a useless gate.
+
 ### 13.11 A package's RIGHT click — `W_ONRCLICK` (API 0x0490)
 
 Until this slot existed the right button reached **no package at all**.

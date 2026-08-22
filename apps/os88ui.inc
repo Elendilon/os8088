@@ -91,6 +91,12 @@
   %macro UI_GRAY 0
     call KERNEL_SEG:cw_gfx_fill_gray
   %endmacro
+  %macro UI_XORRECT 0
+    call KERNEL_SEG:cw_vga_xor_rect_vram
+  %endmacro
+  %macro UI_TICKS 0
+    mov ax, [ticks]
+  %endmacro
 %else
   %macro UI_FRAME 0
     call OSAPI_GFX_FRAME
@@ -130,6 +136,12 @@
   %endmacro
   %macro UI_GRAY 0
     call OSAPI_GFX_FILL_GRAY
+  %endmacro
+  %macro UI_XORRECT 0
+    call OSAPI_GFX_XOR_RECT
+  %endmacro
+  %macro UI_TICKS 0
+    call OSAPI_GET_TICKS
   %endmacro
 %endif
 
@@ -932,6 +944,15 @@ os88ui_sbar:
     jc .out
     call os88ui_sbthdraw
 .out:
+%ifdef OS88UI_SBDRAG
+    cmp byte [os88ui_sbd_on], 0 ; ...and the drag overlay over it, if one is
+    je .nodrag                  ; up (SPEC.md 13.10.5.7): a repaint arriving
+    cmp byte [os88ui_sbd_mode], 0   ; mid-gesture would otherwise erase it and
+    je .nodrag                  ; the next XOR would take a rect that is no
+    mov bx, di                  ; longer there off pixels it never put on.
+    call os88ui_sbxor           ; wm_chrome_relit's fix, at the one painter
+.nodrag:                        ; that owns these pixels
+%endif
     pop bp
     pop di
     pop si
@@ -1132,6 +1153,331 @@ os88ui_sbmove:
     pop bx
     pop ax
     ret
+
+%ifdef OS88UI_SBDRAG
+; =============================================================================
+; THE THUMB DRAG (SPEC.md 13.10.5) - a KNOB, and KERN_BIG's
+;
+; A scroll bar's gesture is not one press. It is a press, a stream of
+; movements and a release, and SPEC.md 13.7 forbids a package answering that
+; with a polling loop - so until the three edges existed (W_ONCLICK,
+; W_ONDRAG, W_ONMOUSEUP) neither kernel bar COULD drag its thumb, whatever it
+; wanted to do with one. This is ui_drag's substance without ui_drag's shape:
+; the same tracking, spread across three callbacks instead of held inside one
+; modal loop with the gfx lock down for the whole gesture.
+;
+; IT IS STILL GEOMETRY AND NOT POLICY (13.10.1). What is owned here is the
+; gesture's ARITHMETIC - the anchor, the clamp, the pointer-to-pos inverse and
+; the overlay - and the one question it answers is "the pointer is here, so
+; the view belongs at pos". Whether the caller can AFFORD to go there now is
+; the caller's, which is what the rate is (13.10.5.4).
+;
+; x IS NEVER READ (13.10.5.2). os88ui_sbtrack takes DX and does not take CX,
+; so the thumb is locked to the bar's vertical extent wherever the hand goes -
+; deliberately NOT the Macintosh's snap-back, which needs a width to measure a
+; tolerance against and a cancel path to get wrong.
+;
+; THE STATE IS A STATIC OF THE ELEMENT'S and the seven-word block does not
+; grow (13.10.5.6): one drag at a time on the one UI task, os88ui_ksb's
+; argument exactly - and a block that grew would move every caller's .bss and
+; rebuild every package that ever declared one.
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; os88ui_sbgrab - take the thumb: a press landed on it and the hand has it now
+; in:  BX = the block, DX = the press's y (ABSOLUTE), AL = the rate in TICKS
+;      (0 = the view does not follow at all until the release, 13.10.5.4),
+;      AH = 0 the thumb itself moves / 1 an XOR overlay does (13.10.5.5)
+; out: CF = 1 = there is no thumb to take and NOTHING was armed; CF = 0 = the
+;      gesture is live. Every register preserved.
+;
+; The anchor is banked as press_y - thumb_top, so the thumb does not jump
+; under the finger on the first movement.
+; -----------------------------------------------------------------------------
+os88ui_sbgrab:
+    push ax
+    push cx
+    push dx
+    mov [os88ui_sbd_rate], al
+    mov [os88ui_sbd_mode], ah
+    mov cx, dx                  ; CX = the press's y; sbthumb answers in DX
+    call os88ui_sbthumb         ; AX = the thumb's top, DX = its height
+    jc .none                    ; everything fits, or the track is too short
+    sub cx, ax
+    mov [os88ui_sbd_off], cx    ; THE ANCHOR
+    mov ax, [ds:bx+12]
+    mov [os88ui_sbd_pos], ax    ; the drag starts where the view already is
+    mov byte [os88ui_sbd_on], 1
+    UI_TICKS                    ; AX = the tick the rate is measured from
+    mov [os88ui_sbd_last], ax
+    cmp byte [os88ui_sbd_mode], 0
+    je .ok
+    call os88ui_sbxor           ; the overlay starts ON the thumb, which is
+.ok:                            ; where the hand grabbed it
+    clc
+    jmp short .out
+.none:
+    stc
+.out:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_sbtrack - the pointer moved and the press is still down
+; in:  BX = the block, DX = the pointer's y (ABSOLUTE). CX IS NOT TAKEN
+; out: CF = 0 and AX = the pos the view is owed; CF = 1 = nothing is owed.
+;      AX is clobbered either way; every other register preserved.
+;
+; Three ways to be owed nothing, and they are different: no drag is live; the
+; hand moved but not far enough to change a row (13.10.5.3's quantisation);
+; or the RATE says not yet. Only the first draws nothing at all - the other
+; two have already moved the thumb or the overlay, which is the point of
+; having a rate rather than a cadence.
+; -----------------------------------------------------------------------------
+os88ui_sbtrack:
+    cmp byte [os88ui_sbd_on], 0
+    je .no
+    push cx
+    push dx
+    push si
+    push di
+    call os88ui_sbpos           ; DI = where the hand puts the view
+    cmp di, [os88ui_sbd_pos]
+    je .nothing                 ; the same row: not one pixel changes
+    cmp byte [os88ui_sbd_mode], 0
+    jne .ovl
+    mov ax, [os88ui_sbd_pos]    ; THE THUMB MOVES: os88ui_sbmove wants the old
+    mov [os88ui_sbd_pos], di    ; pos in AX and the new one in the block, and
+    mov [ds:bx+12], di          ; os88ui_sbfix has already put the old one
+    call os88ui_sbmove          ; there - so the two agree by construction
+    jmp short .owed
+.ovl:
+    call os88ui_sbxor           ; off where it was...
+    mov [os88ui_sbd_pos], di
+    call os88ui_sbxor           ; ...and on where the hand is
+.owed:
+    cmp byte [os88ui_sbd_rate], 0
+    je .nothing                 ; RATE 0: the release commits and nothing else
+    push bx                     ; does (13.10.5.4)
+    UI_TICKS
+    mov si, ax
+    sub ax, [os88ui_sbd_last]   ; wrap-safe (SPEC.md 8)
+    mov bl, [os88ui_sbd_rate]
+    xor bh, bh
+    cmp ax, bx
+    pop bx
+    jb .nothing                 ; too soon: the thumb moved, the view waits
+    mov [os88ui_sbd_last], si   ; the deadline is banked at the COMMIT, so a
+    mov ax, di                  ; hand that pauses and moves again is served
+    clc                         ; at once rather than waiting out a window it
+    jmp short .out              ; already sat through
+.nothing:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_sbdrop - the button came up: the gesture is over
+; in:  BX = the block (needed only in overlay mode, and passing it always is
+;      cheaper than a caller remembering which mode it picked)
+; out: CF = 0 and AX = the FINAL pos, which the caller owes the view
+;      unconditionally; CF = 1 = no drag was live and AX is untouched.
+;      Every other register preserved.
+;
+; The overlay comes off before the byte does, or os88ui_sbxor would refuse to
+; draw the erase it owes.
+; -----------------------------------------------------------------------------
+os88ui_sbdrop:
+    cmp byte [os88ui_sbd_on], 0
+    je .no
+    cmp byte [os88ui_sbd_mode], 0
+    je .off
+    call os88ui_sbxor
+.off:
+    mov byte [os88ui_sbd_on], 0
+    mov ax, [os88ui_sbd_pos]
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_sbdragging - is a thumb drag live?
+; out: CF = 1 = no. Every register preserved.
+;
+; One instruction, and it is a compare against 1 rather than against 0 so that
+; the borrow IS the answer: a caller's whole test is a call and a jc.
+; -----------------------------------------------------------------------------
+os88ui_sbdragging:
+    cmp byte [os88ui_sbd_on], 1
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_sbfix - the caller has just filled its block: put the DRAGGED pos in
+; in:  BX = the block
+; out: nothing; every register preserved
+;
+; SPEC.md 13.10.5.6. While a drag is live the thumb is drawn where the HAND is
+; and the content is where the VIEW is, and at rate 0 those disagree for the
+; whole gesture. That is one fact in two places - 13.8.2's "the glass and the
+; byte cannot part" in another costume - and it is answered HERE, once, rather
+; than at every drawing site: every reader downstream sees one coherent block
+; and none of them knows a drag exists.
+;
+; In overlay mode it does nothing, because there the thumb is SUPPOSED to stay
+; with the content and the overlay is what moves.
+; -----------------------------------------------------------------------------
+os88ui_sbfix:
+    cmp byte [os88ui_sbd_on], 0
+    je .out
+    cmp byte [os88ui_sbd_mode], 0
+    jne .out
+    push ax
+    mov ax, [os88ui_sbd_pos]
+    mov [ds:bx+12], ax
+    pop ax
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_sbpos - where the hand puts the view (internal)
+; in:  BX = the block, DX = the pointer's y (ABSOLUTE)
+; out: DI = the pos; every other register preserved
+;
+; THE INVERSE of os88ui_sbthumb, and 13.10.5.3 is the proof that its div
+; cannot overflow: the clamp holds (top - track_top) to at most track_h, so
+; the quotient is at most total. Reached only with a live drag, which means
+; sbthumb said yes at the press - but total and fit are the CALLER's and can
+; change under the gesture, so a refusal now keeps the pos it already had.
+; -----------------------------------------------------------------------------
+os88ui_sbpos:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push bp
+    mov bp, dx                  ; BP = the pointer's y
+    call os88ui_sbthumb         ; DX = the thumb's height
+    jc .keep
+    mov di, dx                  ; ...banked: mul is about to want DX
+    mov si, [ds:bx+2]
+    add si, OS88UI_SBCELL+1     ; SI = the track's top
+    mov cx, [ds:bx+6]
+    sub cx, OS88UI_SBCELL+1
+    sub cx, si
+    inc cx                      ; CX = the track's height
+    sub bp, [os88ui_sbd_off]    ; the wanted TOP (13.10.5.2)...
+    sub bp, si                  ; ...rebased onto the track
+    jns .lo
+    xor bp, bp
+.lo:
+    mov ax, cx
+    sub ax, di                  ; the last legal top, rebased
+    jns .hi
+    xor ax, ax
+.hi:
+    cmp bp, ax
+    jle .hok
+    mov bp, ax
+.hok:
+    mov ax, bp
+    mul word [ds:bx+8]          ; x total -> DX:AX
+    div cx                      ; / the track (13.10.5.3)
+    mov di, ax
+    mov ax, [ds:bx+8]           ; ...and never past the last page
+    sub ax, [ds:bx+10]
+    jns .cl
+    xor ax, ax
+.cl:
+    cmp di, ax
+    jbe .out
+    mov di, ax
+    jmp short .out
+.keep:
+    mov di, [os88ui_sbd_pos]
+.out:
+    pop bp
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_sbxor - the overlay, drawn or erased (one call does both)
+; in:  BX = the block; [os88ui_sbd_pos] says where it goes
+; out: nothing; every register preserved
+;
+; A 1px XOR rect where the thumb WOULD be, inset two pixels like the thumb, so
+; the two looks land on the same pixels and a mode change is a mode change
+; rather than a different widget. VRAM-direct in the kernel (SPEC.md 32), the
+; transient-overlay contract ui_drag and wm_anim already run on: it bypasses
+; the clip region, which is right because the window under a live gesture is
+; the frontmost one by construction, and it owes its own cur_unlazy, which
+; vga_xor_rect_vram pays.
+;
+; It borrows word 6 of the CALLER's block for one call and gives it straight
+; back - the alternative is a second copy of os88ui_sbthumb's arithmetic, and
+; two descriptions of a thumb is the thing 13.10 exists to end.
+; -----------------------------------------------------------------------------
+os88ui_sbxor:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov di, bx
+    mov si, [ds:di+12]
+    mov ax, [os88ui_sbd_pos]
+    mov [ds:di+12], ax
+    call os88ui_sbthumb         ; AX = its top, DX = its height
+    mov [ds:di+12], si
+    jc .out                     ; no thumb: no overlay either
+    mov si, ax
+    mov cx, [ds:di+4]
+    sub cx, 2                   ; x2
+    add dx, si
+    dec dx                      ; y2 = top + height - 1
+    mov ax, [ds:di+0]
+    add ax, 2                   ; x1
+    mov bx, si                  ; y1
+    UI_XORRECT
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+%ifndef OS88UI_KERNEL
+; A PACKAGE's state is inline DATA (SPEC.md 2.6 rule 1) - os88ui_armw's
+; precedent above. The kernel's is in .bss at the bottom of this file, and
+; that is a RULE and not a preference: this file assembles into .cold there,
+; whose CS is COLD_SEG while DS stays KERNEL_SEG, so a word declared here and
+; read through DS would be whatever lives at the same offset in .text.
+os88ui_sbd_on:   db 0
+os88ui_sbd_mode: db 0
+os88ui_sbd_rate: db 0
+os88ui_sbd_off:  dw 0
+os88ui_sbd_pos:  dw 0
+os88ui_sbd_last: dw 0
+%endif
+%endif                          ; OS88UI_SBDRAG
 
 %endif                          ; OS88UI_SCROLL
 
@@ -1662,6 +2008,18 @@ os88ui_krect: resw 4
 ; declares its own (the block is seven words of anything).
 ; -----------------------------------------------------------------------------
 os88ui_ksb: resw 7
+%ifdef OS88UI_SBDRAG
+; The thumb drag's state (SPEC.md 13.10.5.6), and it is one for os88ui_ksb's
+; reason: one gesture at a time on the one UI task. .bss and not .cold - see
+; os88ui_krect's comment above for what forgetting that costs.
+os88ui_sbd_on:   resb 1         ; 1 = a thumb drag is live
+os88ui_sbd_mode: resb 1         ; 0 = the thumb moves, 1 = an XOR overlay does
+os88ui_sbd_rate: resb 1         ; the window's throttle, in ticks; 0 = the
+                                ; release commits and nothing before it
+os88ui_sbd_off:  resw 1         ; the anchor: press y - thumb top
+os88ui_sbd_pos:  resw 1         ; the pos the HAND is at (not the view's)
+os88ui_sbd_last: resw 1         ; [ticks] at the last commit
+%endif
 %endif
 
 ; -----------------------------------------------------------------------------

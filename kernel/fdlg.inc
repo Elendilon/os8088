@@ -1240,6 +1240,11 @@ fdlg_actok:
 ; =============================================================================
 %define OS88UI_KERNEL
 %define OS88UI_SCROLL          ; SPEC.md 13.10: both kernel bars use it
+                               ; OS88UI_SBDRAG - SPEC.md 13.10.5's thumb drag -
+                               ; is NOT defined here. It has to be resolved
+                               ; before files.inc, which is included first;
+                               ; kernel.asm carries it beside WM_ANIM and
+                               ; OS88_THEME and says why
 %include "os88ui.inc"
 
 ; -----------------------------------------------------------------------------

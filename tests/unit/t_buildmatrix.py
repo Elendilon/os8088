@@ -72,6 +72,12 @@ KNOBS = [
     ("snapaudit",   ["SNAPAUDIT=1"]),
     ("dirw1",       ["DIRW1=1"]),
     ("picomem",     ["PICOMEM=1"]),
+    # SPEC.md 13.10.5's thumb drag, all three of its settings: the outline
+    # body and the rate constant are each reached by exactly one of them, so
+    # one row would keep two thirds of the feature alive and no more.
+    ("sbdrag",      ["SBDRAG=1"]),
+    ("sbrate",      ["SBDRAG=1", "SBRATE=2"]),
+    ("sboutline",   ["SBDRAG=1", "SBOUTLINE=1"]),
 ]
 
 

@@ -66,6 +66,10 @@ UNREGISTERED = {
     #     two-build session rather than a row (the knob itself is kept alive
     #     by t_buildmatrix; this is the behaviour half) ---
     "heapsame.py": "A/B gate - needs `make HEAPCOMPACT=0` as a reference build",
+    "fmthumb.py": "knob gate - needs `make SBDRAG=1` (SPEC.md 13.10.5), and "
+                  "its --rate/--outline cases need the other two settings, so "
+                  "it is three builds rather than a row (the knobs themselves "
+                  "are kept alive by t_buildmatrix)",
 }
 
 
