@@ -979,6 +979,25 @@ os88ui_sbcx:
 ; -----------------------------------------------------------------------------
 ; os88ui_sbthdraw - draw the thumb: a white body in a black frame (internal)
 ; in:  DI = the block, AX = its top, DX = its height; pen BLACK on the way out
+;
+; THE BORDER GOES DOWN FIRST AND THE FILL IS THE INTERIOR IT ENCLOSES, which
+; is the same two calls and the same pixels and is NOT the same picture while
+; they are running (SPEC.md 13.10.5.9).
+;
+; It used to be a white fill over the whole thumb and then a frame around it -
+; identical output, and between the two calls the thumb was a BORDERLESS WHITE
+; SLAB, because the fill had just erased the border the frame was about to put
+; back. On a 4.77 MHz 8088 a drawing call is ~756 us whatever it draws, so that
+; state is held for the better part of a millisecond every time the thumb
+; moves; caught in the act with a breakpoint inside this routine, the old thumb
+; and the new one merge into one unbordered mass twice the thumb's height. That
+; is PERFORMANCE.md Part 1's DOUBLE-DRAW FLASH exactly - drawn twice, invisible
+; in an emulator, and the reason a dragged thumb shimmered.
+;
+; This way every lit region on the bar is bounded by a border at every instant.
+; Mid-move you see two framed boxes for the width of one call, which is
+; SPEC.md 42.7.1's own argument: a doubled thumb reads as movement where an
+; absent - or an unbordered - one reads as a blink.
 ; -----------------------------------------------------------------------------
 os88ui_sbthdraw:
     push ax
@@ -992,10 +1011,20 @@ os88ui_sbthdraw:
     add ax, 2
     mov cx, [ds:di+4]
     sub cx, 2
+    UI_BLACK
+    UI_FRAME                    ; the border...
+    inc ax                      ; ...and the interior INSIDE it, which is what
+    dec cx                      ; keeps the border off the fill's rect
+    inc bx
+    dec dx
+    cmp ax, cx
+    jg .out                     ; a bar narrow enough to have no interior is
+    cmp bx, dx                  ; all border, and the frame above already drew
+    jg .out                     ; it. Nothing here requires a 14px bar (13.10.2)
     UI_WHITE
     UI_FILL
-    UI_BLACK
-    UI_FRAME
+    UI_BLACK                    ; the header's promise: the pen leaves BLACK
+.out:
     pop dx
     pop cx
     pop bx

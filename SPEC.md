@@ -13033,6 +13033,58 @@ Three, and they are named rather than fixed because this is a knob:
   the state is stale — and the residue is one gesture's worth of a wrong thumb
   until the next click.
 
+##### 13.10.5.9 The border goes down FIRST — the flash that was really there
+
+The prototype shimmered under a dragged thumb, and the reason was not the
+cost. `os88ui_sbthdraw` filled the whole thumb white and then framed it:
+identical output, two calls, and **between them the thumb was a borderless
+white slab**, because the fill had just erased the border the frame was about
+to put back.
+
+**Caught in the act, with a breakpoint inside the routine on a cycle-accurate
+4.77 MHz 8088 and the bar dumped after every instruction.** At the step after
+the fill, the old thumb and the new one merge into one unbordered white mass
+twice the thumb's height; four instructions later the frame lands and the
+picture is right again. A drawing call is ~756 µs on that machine whatever it
+draws, so that state is held for the better part of a millisecond **every time
+the thumb moves**. That is PERFORMANCE.md Part 1's **double-draw flash** —
+drawn twice, invisible in an emulator, and found here by looking rather than
+by measuring.
+
+**The fix is free: draw the border, then fill the interior it encloses.** Same
+two calls, same pixels, four bytes of `inc`/`dec` and a degenerate-interior
+guard. Mid-move the screen now shows two framed boxes for the width of one
+call, which is §42.7.1's own argument rather than a new problem: a doubled
+thumb reads as movement where an absent — or an unbordered — one reads as a
+blink. It improves the full-bar paint by the same token, where the thumb used
+to flash white over the track before acquiring its frame.
+
+**It is not knob-gated**, because the defect is not the knob's: every thumb
+this element has ever drawn had it. `.cold` +17 on `kern_big` and +17 on
+`kern_small`, no rung crossed on either.
+
+##### 13.10.5.9.1 `gfx_scroll` cannot move a thumb, and the reason is structural
+
+The obvious instrument for "move the pixels instead of redrawing them" is
+§5.5, and it **refuses this rect by contract**. `gfx_scroll` is byte-column
+granular on every adapter — `x1` and `x2+1` must both be multiples of 8,
+because on VGA the latches move eight pixels at a time and on mono a byte *is*
+eight pixels. The bar is 14 pixels wide and the thumb 10, at an `x` that
+follows the window's right edge; neither is ever a whole byte column, and the
+two `test …, 7` guards refuse before anything moves.
+
+Widening the blit to the enclosing byte columns is not a fix — it would drag
+in the content column to the left of the bar, or the window frame to its
+right, and shift those vertically.
+
+**And it would have bought little even if it fitted.** Three drawing calls are
+~2.3 ms on the target; a `gfx_scroll` of a 10×12 block plus a `gfx_fill_gray`
+of the vacated band is two calls, so the saving is one call — ~756 µs — against
+a 55 ms tick. **The shimmer was never a cost problem**, which is also why
+§13.10.5.5's XOR overlay was never the performance answer it looked like: it
+is two calls to the moving thumb's three, and the whole difference is under a
+millisecond.
+
 ##### 13.10.5.8 What the gate is
 
 `tests/fmthumb.py`, and it needs the knob: `make SBDRAG=1 && python3
@@ -13049,6 +13101,86 @@ builds a 30-file B: disk of its own rather than navigating a shipped one: with
 `total` 6 and `fit` 5 the whole track maps onto **one row** of travel, so a
 drag most of the way down moves the view by nothing at all — a correct bar and
 a useless gate.
+
+### 13.10.6 Who actually uses it — the survey, and two that do not
+
+§13.10 named five private scroll bars as its motivation and unified the two
+kernel ones; what it never said is which packages followed. **They are not all
+of them, and the rule is that they should be** — a widget with a second
+implementation is the drift a shared element exists to end, and the drift is
+back.
+
+| | uses `OS88UI_SCROLL` | how it takes input |
+|---|---|---|
+| Disk window (`files.inc`) | yes | the three edges |
+| Standard File dialog (`fdlg.inc`) | yes | the three edges |
+| Note Pad | yes | `W_ONCLICK` only |
+| TexPad | yes | the three edges |
+| Browser | yes | `W_ONCLICK` only |
+| **Frotz** (`zwin.inc`) | **no — private** | polls `OSAPI_MOUSE` |
+| **Word** (`word.asm`) | **no — private** | polls `OSAPI_MOUSE` (§27.8.1) |
+| Artful (`atrend.inc`) | no — **and correctly** | polls |
+
+**Frotz and Word are the two, and both say so in their own headers.**
+`zw_thumb` is *"SPEC.md 22's geometry, so it looks like the Disk window's"*;
+`wd_thumb` is *"The Disk window's arithmetic (§22): height = fit\*track/total
+with an 8px floor, top = scroll\*track/total, clamped so the bottom of the
+thumb cannot leave the track."* Both are `os88ui_sbthumb` re-typed, and both
+exist **in order to look like the shared element** — which is the argument for
+adopting it stated by the code that did not.
+
+**Artful is not one of them.** Its bar is a **16-pixel square** white thumb in
+a 24-pixel margin — *"Classic Macintosh anatomy … `gScrollBarVisible`'s rule,
+`main.c`"* — a deliberate port of MacPaint's chrome, not a proportional bar
+wearing a different size. That is exactly the case `os88ui.inc`'s own header
+exempts beside ModPlug's bevelled well and Minesweeper's cell: **converting it
+would be undoing intended design, not consolidating it.** A fixed-size thumb
+answers a different question from a proportional one — it says *where* and not
+*how much* — so it is a different widget and not a skin.
+
+#### 13.10.6.1 The gesture is edge-agnostic, and that is what makes "everywhere" possible
+
+Three of the eight are **poll-shaped**: Frotz, Word and Artful hold the lock
+and sample `OSAPI_MOUSE` in a loop of their own rather than taking §13.7's
+edges, and Word's is a documented design (§27.8.1) rather than an oversight.
+
+**It does not matter.** `os88ui_sbgrab`, `os88ui_sbtrack` and `os88ui_sbdrop`
+take a **y** and answer a **pos**; nothing in them knows or cares whether that
+`y` arrived in a `W_ONDRAG` callback or came out of a poll. A polling consumer
+calls the same three routines in the same order from its own loop. So
+§13.10.5's gesture does not fork into an edge version and a poll version, and
+"everywhere" is one body.
+
+#### 13.10.6.2 What everywhere costs, measured
+
+**In the kernel it is nearly free and in a package it is 405 bytes**, and the
+asymmetry is the whole answer.
+
+| | cost | what it is |
+|---|---|---|
+| Disk window | done | |
+| Standard File dialog | **~45 bytes** of `.cold` | three call sites; the element and the edges are already there |
+| TexPad | **~450** on its image | +405 the drag body, ~45 wiring |
+| Note Pad, Browser | **~470** each | ...plus installing the two edges |
+| Frotz, Word | ~450 **plus adopting the bar** | which is roughly a wash: each drops a private body in the 288–387 band §13.10 measured |
+
+**Measured directly: `+405` bytes to every package image** that defines
+`OS88UI_SBDRAG` — Note Pad 17,308 → 17,713, TexPad 23,629 → 24,034, Browser
+13,946 → 14,351. Identical to the byte, because it is the same source
+assembled three times.
+
+**Why it costs that, and it is a design decision rather than an accident.**
+`os88ui.inc` is an **include, not an API slot** (§13.10's own note): *"a slot
+would cost a cell, a published contract and a table revision; an include costs
+the kernel one copy in `.cold` and each package its own."* So the kernel pays
+once and every adopter pays again. Four adopters is ~1.6 KB of floppy and of
+heap claim — against ~390 bytes **once** if the gesture were a slot.
+
+The trade has not changed and should not be re-taken here: a slot freezes the
+gesture's contract while it is still a knob, and **the kernel is the side that
+cannot afford to host it** — the cold rung has 239 bytes left and the footprint
+is one 512-byte step from `KERN_BUDGET`. The floppy is not the constraint: the
+360KB apps disk has 95 of its 354 clusters free.
 
 ### 13.11 A package's RIGHT click — `W_ONRCLICK` (API 0x0490)
 
