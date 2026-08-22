@@ -70,6 +70,10 @@ UNREGISTERED = {
                   "its --rate/--outline cases need the other two settings, so "
                   "it is three builds rather than a row (the knobs themselves "
                   "are kept alive by t_buildmatrix)",
+    "fdlgthumb.py": "knob gate - fmthumb.py's twin on the Standard File "
+                    "dialog, and it builds its fixture with nasm rather than "
+                    "os88fixture.need for the reason in its own header: "
+                    "`make` for a fixture removes the KNOB kernel",
 }
 
 

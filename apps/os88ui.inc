@@ -1236,6 +1236,10 @@ os88ui_sbgrab:
     mov [os88ui_sbd_off], cx    ; THE ANCHOR
     mov ax, [ds:bx+12]
     mov [os88ui_sbd_pos], ax    ; the drag starts where the view already is
+    mov ax, [ds:bx+0]           ; ...and WHICH BAR it was taken on (13.10.5.10)
+    mov [os88ui_sbd_id], ax
+    mov ax, [ds:bx+2]
+    mov [os88ui_sbd_id+2], ax
     mov byte [os88ui_sbd_on], 1
     UI_TICKS                    ; AX = the tick the rate is measured from
     mov [os88ui_sbd_last], ax
@@ -1266,8 +1270,8 @@ os88ui_sbgrab:
 ; having a rate rather than a cadence.
 ; -----------------------------------------------------------------------------
 os88ui_sbtrack:
-    cmp byte [os88ui_sbd_on], 0
-    je .no
+    call os88ui_sbmine
+    jc .no
     push cx
     push dx
     push si
@@ -1328,6 +1332,11 @@ os88ui_sbtrack:
 os88ui_sbdrop:
     cmp byte [os88ui_sbd_on], 0
     je .no
+    call os88ui_sbmine          ; a DIFFERENT bar's gesture (13.10.5.10): it is
+    jc .spend                   ; spent either way - one nobody will release
+                                ; must not outlive this press - but nothing
+                                ; here may be drawn on, and the pos below is
+                                ; not this caller's to scroll to
     cmp byte [os88ui_sbd_mode], 0
     je .off
     call os88ui_sbxor
@@ -1336,6 +1345,8 @@ os88ui_sbdrop:
     mov ax, [os88ui_sbd_pos]
     clc
     ret
+.spend:
+    mov byte [os88ui_sbd_on], 0
 .no:
     stc
     ret
@@ -1349,6 +1360,41 @@ os88ui_sbdrop:
 ; -----------------------------------------------------------------------------
 os88ui_sbdragging:
     cmp byte [os88ui_sbd_on], 1
+    ret
+
+; -----------------------------------------------------------------------------
+; os88ui_sbmine - is the block in BX the bar this gesture was taken on?
+; in:  BX = a block
+; out: CF = 1 = no drag, or a DIFFERENT bar's. Every register preserved.
+;
+; SPEC.md 13.10.5.10. There is one gesture record and there are two kernel
+; bars, so "a drag is live" and "a drag is live ON THIS BAR" stopped being the
+; same question the moment the file dialog was wired. Without this,
+; os88ui_sbfix would fix the Disk window's dragged pos into the DIALOG's block
+; - a thumb drawn where nothing is - and os88ui_sbxor would erase an overlay
+; using the wrong bar's geometry, which is a rect XORed onto pixels it never
+; drew.
+;
+; The identity is (x1, y1), which is enough: two bars on screen at the same
+; time cannot share a top-left corner.
+; -----------------------------------------------------------------------------
+os88ui_sbmine:
+    cmp byte [os88ui_sbd_on], 0
+    je .no
+    push ax
+    mov ax, [ds:bx+0]
+    cmp ax, [os88ui_sbd_id]
+    jne .other
+    mov ax, [ds:bx+2]
+    cmp ax, [os88ui_sbd_id+2]
+    jne .other
+    pop ax
+    clc
+    ret
+.other:
+    pop ax
+.no:
+    stc
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1367,8 +1413,8 @@ os88ui_sbdragging:
 ; with the content and the overlay is what moves.
 ; -----------------------------------------------------------------------------
 os88ui_sbfix:
-    cmp byte [os88ui_sbd_on], 0
-    je .out
+    call os88ui_sbmine          ; ...on THIS bar (13.10.5.10)
+    jc .out
     cmp byte [os88ui_sbd_mode], 0
     jne .out
     push ax
@@ -1505,6 +1551,7 @@ os88ui_sbd_rate: db 0
 os88ui_sbd_off:  dw 0
 os88ui_sbd_pos:  dw 0
 os88ui_sbd_last: dw 0
+os88ui_sbd_id:   dw 0, 0
 %endif
 %endif                          ; OS88UI_SBDRAG
 
@@ -2048,6 +2095,7 @@ os88ui_sbd_rate: resb 1         ; the window's throttle, in ticks; 0 = the
 os88ui_sbd_off:  resw 1         ; the anchor: press y - thumb top
 os88ui_sbd_pos:  resw 1         ; the pos the HAND is at (not the view's)
 os88ui_sbd_last: resw 1         ; [ticks] at the last commit
+os88ui_sbd_id:   resw 2         ; WHICH BAR: its x1 and y1 (SPEC.md 13.10.5.10)
 %endif
 %endif
 

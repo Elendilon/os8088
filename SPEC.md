@@ -13018,9 +13018,12 @@ Three, and they are named rather than fixed because this is a knob:
 - **`total` and `fit` may change under the drag.** A `fm_reload` mid-gesture
   re-derives the thumb correctly and leaves the *anchor* measuring against a
   thumb of another height. The residue is a jump of a few pixels, once.
-- **Only the Disk window is wired.** The file dialog reports the thumb and does
-  nothing with it (§13.10.1), and giving it the drag is the same three call
-  sites — held back for the cold rung, not for a reason.
+- ~~**Only the Disk window is wired.**~~ **Both kernel bars are wired now.**
+  The dialog was three call sites plus its own `os88ui_sbfix` and its own
+  stale net — **`.cold` +132 and `.bss` +4**, inside the rung the Disk window
+  already crossed, with 123 bytes left in it. What it cost beyond the estimate
+  was §13.10.5.10: a second bar is what turns "a drag is live" into "a drag is
+  live *on this bar*".
 - **A lost release leaves the byte set, and the byte is not inert.** `evq_push`
   drops silently when the ring is full and `ui_arm_chk` then clears a region-0
   arm *without* dispatching `W_ONMOUSEUP`; a window destroyed between two
@@ -13032,6 +13035,37 @@ Three, and they are named rather than fixed because this is a knob:
   it. It is `ui_arm_chk`'s own shape — the cheap test on the path that proves
   the state is stale — and the residue is one gesture's worth of a wrong thumb
   until the next click.
+
+##### 13.10.5.10 One gesture record, TWO bars — `os88ui_sbmine`
+
+§13.10.5.6 said the state is a static of the element's, for `os88ui_ksb`'s
+reason: one gesture at a time on the one UI task. That is still true and it
+stopped being sufficient the moment the file dialog was wired, because **"a
+drag is live" and "a drag is live ON THIS BAR" are not the same question** once
+there are two blocks being filled by two setters.
+
+Without the distinction, a gesture left over from the Disk window would have
+`os88ui_sbfix` write **its** `pos` into the *dialog's* block — a thumb drawn
+where nothing is, and a hit test that agrees with it — and `os88ui_sbxor`
+would erase an overlay using the wrong bar's geometry, which is a rect XORed
+onto pixels it never drew.
+
+**The identity is `(x1, y1)`, banked at the grab**, and that is enough: two
+bars on screen at once cannot share a top-left corner. `os88ui_sbfix` and
+`os88ui_sbtrack` ask before they touch anything.
+
+**`os88ui_sbdrop` is the one that must not simply refuse.** A gesture nobody
+is going to release must not outlive the press that found it, so the drop
+**spends it either way** and only *draws* — and only answers a `pos` — on the
+bar it belongs to. The two callers take `CF = 1` as "not mine, and already
+spent" and fall through to their button arm.
+
+**Is it reachable?** Only through a lost release: the dialog is modal (§38.2)
+and a drag needs the button held, so a gesture cannot cross from one bar to
+the other while both are behaving. That is the same door §13.10.5.7's stale
+net was built for, and this is what stops that door opening onto the *other*
+bar's pixels. It costs four bytes of state and one compare on paths that
+already load the block.
 
 ##### 13.10.5.9 The border goes down FIRST — the flash that was really there
 
@@ -13112,8 +13146,8 @@ back.
 
 | | uses `OS88UI_SCROLL` | how it takes input |
 |---|---|---|
-| Disk window (`files.inc`) | yes | the three edges |
-| Standard File dialog (`fdlg.inc`) | yes | the three edges |
+| Disk window (`files.inc`) | yes | the three edges — **drag wired** |
+| Standard File dialog (`fdlg.inc`) | yes | the three edges — **drag wired** |
 | Note Pad | yes | `W_ONCLICK` only |
 | TexPad | yes | the three edges |
 | Browser | yes | `W_ONCLICK` only |
@@ -13159,7 +13193,7 @@ asymmetry is the whole answer.
 | | cost | what it is |
 |---|---|---|
 | Disk window | done | |
-| Standard File dialog | **~45 bytes** of `.cold` | three call sites; the element and the edges are already there |
+| Standard File dialog | **done — `.cold` +132, `.bss` +4** | three call sites, `os88ui_sbfix`, its own stale net, and §13.10.5.10's identity guard, which the estimate of ~45 did not see coming |
 | TexPad | **~450** on its image | +405 the drag body, ~45 wiring |
 | Note Pad, Browser | **~470** each | ...plus installing the two edges |
 | Frotz, Word | ~450 **plus adopting the bar** | which is roughly a wash: each drops a private body in the 288–387 band §13.10 measured |

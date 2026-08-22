@@ -527,7 +527,9 @@ endif
 #   make SBDRAG=1                 the thumb follows the hand; the LIST jumps
 #                                 at the release (13.10.5.4's rate 0)
 #   make SBDRAG=1 SBRATE=2        ...and the list follows too, ~9 times a
-#                                 second. 1 is every tick
+#                                 second, in BOTH bars. 1 is every tick. The
+#                                 rate is per-WINDOW (FM_SBRATE, FD_SBRATE);
+#                                 one knob sets both because a build is an A/B
 #   make SBDRAG=1 SBOUTLINE=1     an XOR overlay moves instead of the thumb -
 #                                 and read 13.10.5.5 before preferring it
 #
@@ -538,7 +540,7 @@ ifneq ($(SBDRAG),)
 VIDDEF += -DSBDRAG
 endif
 ifneq ($(SBRATE),)
-VIDDEF += -DFM_SBRATE=$(SBRATE)
+VIDDEF += -DFM_SBRATE=$(SBRATE) -DFD_SBRATE=$(SBRATE)
 endif
 ifneq ($(SBOUTLINE),)
 VIDDEF += -DSBOUTLINE

@@ -2699,9 +2699,10 @@ fm_onup_x:
     call fm_layout              ; that landed off the screen entirely still
     call fm_sbset               ; ends the gesture (13.7's second rule).
     call os88ui_sbdrop          ; fm_sbset FIRST: the overlay's erase reads the
-    sub ax, [fm_lscr]           ; block's geometry, and the last thing to fill
-    call fm_scroll_by           ; it may have been another window's bar
-    jc .paint
+    jc .btn                     ; block's geometry. CF = 1 = the gesture was
+    sub ax, [fm_lscr]           ; the DIALOG's bar (13.10.5.10) - spent by the
+    call fm_scroll_by           ; call above, and this release is the button
+    jc .paint                   ; arm's
     jmp short .out
 .btn:
 %endif
